@@ -226,5 +226,89 @@ class RealTmuxTests(unittest.TestCase):
         self.assertEqual(b"", self.receiver.bytes())
 
 
+@unittest.skipUnless(shutil.which("tmux"), "real tmux unavailable")
+class FinalReadinessTests(unittest.TestCase):
+    def test_readiness_loss_during_final_verifier_wait_prevents_enter(self):
+        cases = (
+            ("capture_ready", False, "not_ready"),
+            ("capture_ready", None, "not_ready"),
+            ("capture_ready", "missing", "not_ready"),
+            ("capture_ready", "error", "boundary_failure"),
+            ("machine_hold", True, "machine_hold"),
+            ("machine_hold", None, "machine_hold"),
+            ("machine_hold", "missing", "not_ready"),
+            ("machine_hold", "error", "boundary_failure"),
+        )
+        for callback, outcome, reason in cases:
+            with self.subTest(callback=callback, outcome=outcome):
+                receiver = Receiver()
+                try:
+                    final_verifier, settle, changed = (threading.Event() for _ in range(3))
+                    observations = []
+                    verifications = 0
+
+                    def readiness(name, ready):
+                        observations.append(name)
+                        if changed.is_set() and name == callback:
+                            if outcome == "error":
+                                raise OSError("synthetic readiness unavailable")
+                            return outcome
+                        return ready
+
+                    def proof(binding, snapshot, digest):
+                        nonlocal verifications
+                        verifications += 1
+                        if verifications == 2:
+                            final_verifier.set()
+                            self.assertTrue(settle.wait(5))
+                            # A settling verifier refreshes its own evidence;
+                            # this does not refresh capture/hold observations.
+                            snapshot = Tmux().inspect(binding)
+                        verified = (receiver.verify(binding, snapshot, digest)
+                                    and not snapshot.in_mode and not snapshot.input_off
+                                    and not snapshot.synchronized
+                                    and "SYNTHETIC MODAL" not in snapshot.screen)
+                        if verifications == 2:
+                            observations.append("proof")
+                        return verified
+
+                    runner = receiver.runner(
+                        capture_ready=lambda _: readiness("capture_ready", True),
+                        machine_hold=lambda _: readiness("machine_hold", False),
+                        verify_paste=proof)
+                    attempt_id, body = uuid4(), "capture/hold changes while settling λ\n"
+                    with ThreadPoolExecutor(1) as pool:
+                        future = pool.submit(runner.attempt, receiver.binding, attempt_id,
+                                             body, expected_epoch=0)
+                        try:
+                            self.assertTrue(final_verifier.wait(5))
+                            self.assertEqual(2, verifications)
+                            observations.clear()
+                            changed.set()
+                            if outcome == "missing":
+                                setattr(runner, callback, None)
+                        finally:
+                            settle.set()
+                        result = future.result(timeout=5)
+                    self.assertEqual(("uncertain", "enter", reason),
+                                     (result.state, result.phase, result.reason))
+                    expected_observations = ["proof"]
+                    if callback != "capture_ready" or outcome != "missing":
+                        expected_observations.append("capture_ready")
+                    if callback == "machine_hold" and outcome != "missing":
+                        expected_observations.append("machine_hold")
+                    self.assertEqual(expected_observations, observations)
+                    expected = b"\x1b[200~" + body.encode() + b"\x1b[201~"
+                    self.assertEqual(expected, receiver.bytes())
+                    self.assertEqual([], receiver.state()["submitted"])
+                    self.assertEqual(result, runner.attempt(receiver.binding, attempt_id,
+                                                           body, expected_epoch=0))
+                    self.assertEqual(expected, receiver.bytes())
+                    self.assertEqual(expected_observations, observations)
+                    self.assertEqual(2, verifications)
+                finally:
+                    receiver.close()
+
+
 if __name__ == "__main__":
     unittest.main()

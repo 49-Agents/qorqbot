@@ -4,11 +4,16 @@ Bounded local primitives on `codex/terminal-r1`, based on
 `db25fc97a4127f8f46f3092ed96578bcdba685ce`. Initial status was clean.
 This increment does not complete M03 or any G0–G6 gate.
 
-The review revision starts at `7399178be79bbcdbeca22dba4856ff29dab82ece`
-with a clean worktree. Manager ACLA message 18 requires D24's explicit wire
-framing and fresh proof after the durable Enter intent. Both reported defects
-were reproduced by the focused regressions below before changing production
-code. Shared D24 documents remain in the Manager's worktree, unchanged here.
+The latest review revision starts at `898ead799977e603c24df4af0e8af7e43ba0ea8e`
+with a clean worktree. Manager ACLA message 43 requires an external readiness
+recheck after the final verifier's successful proof. The D24 clarification is
+recorded in coordination commit `a718bcddf15ff99536bf3beb690ee7402d65aa1b`.
+The new real-tmux regression reproduced the gap in all eight subcases before
+changing production code. Shared documents remain unchanged in this worktree.
+
+The preceding revision, from `7399178be79bbcdbeca22dba4856ff29dab82ece`,
+implemented Manager message 18's explicit wire framing and fresh proof after
+the durable Enter intent. Both preceding defects were also reproduced first.
 
 The Manager's ACLA message 6 adds D23's automated terminal-text rule, recorded
 in coordination commit `688590ab9419dbd4171bb1a8fa8cec0855849067`. The shared
@@ -56,9 +61,11 @@ permanent delivery failure for unsafe text; it is not implemented here.
   potential database wait. External readiness is checked again, then
   `Tmux.enter(..., verify_paste=...)` obtains an exact-bound fresh snapshot and
   requires positive proof about that snapshot at its final input boundary.
-  There is no DB write or settling wait between successful final proof and
-  the Enter command. Missing, rejected or failing proof after possible paste
-  leaves an uncertain receipt without Enter; same-attempt replay is inert.
+  After that verifier succeeds, the same callback rechecks capture readiness
+  and the external machine hold before allowing Enter. There is no DB write
+  or deliberate wait between final proof/readiness and the Enter command.
+  Missing, rejected or failing proof/readiness after possible paste leaves an
+  uncertain receipt without Enter; same-attempt replay is inert.
 - A private per-run `flock` covers admission, effects, control changes and
   receipt persistence. SQLite transactions do not span effects/callbacks.
   Inspection of unfinished attempts obtains that lock before recovery, so
@@ -88,9 +95,12 @@ The paste verifier receives binding/snapshot/the original body's exact SHA-256 a
 must positively confirm that this owned paste is present and normal Enter is
 safe. It runs after paste and again at the final tmux Enter boundary after the
 Enter intent commits. Its implementation owns bounded native settling and must
-refresh evidence after a wait rather than approve a stale snapshot. Missing callables,
-unconfirmed capture or missing proof never default to ready. No adapter imports
-or native composer recognition are supplied in this increment.
+refresh evidence after a wait rather than approve a stale snapshot. Capture
+and hold callbacks are prompt observations, not settling or polling operations.
+They are sampled again after successful final proof. Missing callables,
+unconfirmed capture or missing proof never default to ready. These ordered
+checks cannot guarantee atomicity against asynchronous process death. No adapter
+imports or native composer recognition are supplied in this increment.
 
 `machine_hold(binding)` is an explicit read of the external hold; only literal
 `False` admits input. It is rechecked at effect boundaries. The higher-level
@@ -114,10 +124,29 @@ Command, with inherited user/provider environment removed:
 env -i PATH=/usr/bin:/bin PYTHONPATH=src tests/runner/.venv/bin/python -m unittest discover -s tests/runner -v
 ```
 
-Result on 2026-10-07: **24 tests passed in 10.745 seconds**, no skips. The staged diff also passed
+Result on 2026-10-07: **25 tests passed in 13.850 seconds**, no skips. The staged diff also passed
 `git diff --cached --check`.
 
-Focused real-tmux regression command:
+Latest focused real-tmux regression command:
+
+```text
+env -i PATH=/usr/bin:/bin PYTHONPATH=src:tests/runner tests/runner/.venv/bin/python -m unittest test_tmux.FinalReadinessTests -v
+```
+
+Before the fix: **1 test failed in 3.248 seconds, all 8 subcases failed** with
+`submitted/finished/processing_not_confirmed` instead of uncertainty. After
+the fix: **1 test passed in 2.715 seconds**, followed by the full suite above.
+Events pause the actual second verifier, change only the external signal or
+callback during that wait, then release it to refresh exact-bound evidence.
+The test asserts readiness is observed after successful proof, exact pasted
+bytes without CR, no submission, and inert same-ID receipt replay. Capture
+false/unknown/missing gives `not_ready`; hold active/unknown gives
+`machine_hold`; missing hold gives `not_ready`; exceptions from either callback
+give the existing `boundary_failure` reason. Every receipt is `uncertain/enter`.
+Each subcase closes its owned socket/session before the next begins; this adds
+no readiness polling, test timing sleep, native adapter or new gate protocol.
+
+Preceding D24 focused real-tmux regression command:
 
 ```text
 env -i PATH=/usr/bin:/bin PYTHONPATH=src:tests/runner tests/runner/.venv/bin/python -m unittest test_tmux.RealTmuxTests.test_exactly_one_explicit_frame_with_mode_on_off_and_boundary_changes test_tmux.RealTmuxTests.test_modal_during_shared_sqlite_enter_intent_wait_is_reverified_without_enter -v
@@ -125,8 +154,8 @@ env -i PATH=/usr/bin:/bin PYTHONPATH=src:tests/runner tests/runner/.venv/bin/pyt
 
 Both failed on the pre-revision production code: off/off and on/off delivered
 unframed bytes, and the modal regression observed only the first proof.
-After the fixes: **2 tests passed in 1.352 seconds**, followed by the full suite
-above. The shared-SQLite regression holds a real `BEGIN IMMEDIATE` write lock,
+After those fixes: **2 tests passed in 1.352 seconds**. Both remain in the full
+suite above. The shared-SQLite regression holds a real `BEGIN IMMEDIATE` write lock,
 observes the runner's blocked Enter UPDATE through SQLite tracing, then has
 the owned receiver emit a synthetic modal before releasing the writer. Proof
 observations are `[False, True]` for modal presence; the receipt is
@@ -146,7 +175,8 @@ The focused suite covers:
   reuse/death; identity change between metadata and capture is rejected.
 - Missing/negative readiness, busy/blocked/unknown composer, capture/hold loss,
   pre-load deferral, and post-paste/Enter/receipt failures and replay, including
-  a verifier that disappears or raises after the Enter intent commits.
+  a verifier that disappears or raises after the Enter intent commits, and
+  capture/hold callbacks that become unavailable during final verifier settling.
 - Disposable dispatcher processes exit at prepared intent, buffer load,
   pre-paste barrier, completed paste, Enter, and either side of final receipt
   commit. Fresh runner objects recover without any repeated input bytes.

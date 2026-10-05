@@ -31,6 +31,7 @@ class TerminalRunner:
 
     capture_ready(binding) must positively confirm recorder readiness.
     machine_hold(binding) must explicitly return False to admit input.
+    Both are prompt observations, not settling or polling operations.
     classify_composer(binding, snapshot) returns empty/busy/blocked/unknown.
     Eligibility requires a supported native composer that interprets bracketed
     paste; explicit transport framing alone is NOT compatibility evidence.
@@ -39,7 +40,10 @@ class TerminalRunner:
     owned paste is present and a normal Enter is safe. It is called after paste
     and again at the final tmux Enter boundary with a fresh snapshot AFTER the
     durable Enter intent. If an adapter waits to settle, it must refresh its
-    evidence rather than approve a stale snapshot. No default readiness.
+    evidence rather than approve a stale snapshot. Capture/hold readiness is
+    checked again after that final proof, with no intervening DB write or
+    deliberate wait before Enter. No default readiness. These ordered checks
+    cannot guarantee atomicity against asynchronous process death.
 
     Callables run under the per-run flock, outside SQLite transactions. They
     must not call back into this runner or write input. Machine-hold acquisition
@@ -233,8 +237,15 @@ class TerminalRunner:
                 self._external_ready(binding)
                 # The earlier proof cannot survive the SQLite wait above.
                 # Let the final tmux boundary supply and use its fresh screen.
-                self.tmux.enter(binding, verify_paste=lambda current:
-                    self.verify_paste is not None and self.verify_paste(binding, current, digest) is True)
+                def verified_and_ready(current: TerminalSnapshot) -> bool:
+                    if self.verify_paste is None or self.verify_paste(binding, current, digest) is not True:
+                        return False
+                    # The verifier may have settled; refresh external signals
+                    # after its successful proof, immediately before Enter.
+                    self._external_ready(binding)
+                    return True
+
+                self.tmux.enter(binding, verify_paste=verified_and_ready)
                 self._update(db, attempt_id, "submitted", "finished", "processing_not_confirmed")
             except Exception as exc:
                 reason = exc.code if isinstance(exc, RunnerError) else "boundary_failure"
