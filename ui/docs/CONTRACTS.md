@@ -1,0 +1,214 @@
+# Shared backend contracts
+
+Status: normative planning baseline. Implementation must keep these names and semantics aligned across modules, HTTP, MCP, tests and generated agent instructions. Changes require updating this document and the affected module plans.
+
+## 1. Identity and coordinates
+
+Use random UUIDs for public durable identities. Paths and display names are not identifiers. Timestamps are UTC RFC 3339; monotonic counters order local events independently of wall-clock changes.
+
+| Field | Meaning |
+| --- | --- |
+| `installation_id` | Stable identity of this installation and its data root |
+| `recovery_epoch` | Fresh UUID on restore/import activation; fences current control from prior recovery branches, without rewriting historical provenance |
+| `actor_id` | Registered owner or agent responsible for a command; derived from transport identity |
+| `agent_id` | Permanent logical agent identity and folder name |
+| `conversation_id` | Stable main conversation; one per agent in v1, independent of native sessions |
+| `environment_generation` | Monotonic incarnation of the agent's VM/host execution environment; ordinary host API restart does not advance it |
+| `boot_id` | Observed OS boot identity; changes on guest/host reboot |
+| `run_id` | One managed native CLI launch or resume invocation |
+| `run_generation` | Monotonic launch generation for an agent; used with run ID to fence current control |
+| `native_session_id` | CLI-owned session identifier, nullable until verified and reusable during native resume |
+| `source_id`, `source_epoch` | Permanent raw-source identity and append/rewrite lineage |
+| `offset`, `length`, `sha256` | Exact raw byte range and content identity, never Unicode character offsets |
+| `message_id`, `thread_id` | Durable coordination message and conversation thread |
+| `attempt_id` | One terminal-delivery attempt, stable through transport retries |
+| `request_id` | Durable browser/human input request |
+| `operation_id` | Public operation receipt, including asynchronous progress |
+| `event_seq` | Host-wide monotonically increasing journal cursor |
+
+Agent imports preserve original event IDs/attribution and installation/sequence as provenance while assigning destination-local `event_seq` values. Restoring a full installation rotates `recovery_epoch`; event-stream clients must reconnect without carrying a cursor from another recovery epoch.
+
+Native child sessions belong to their parent logical agent and link to the parent run/source. A platform-created independent agent receives a new `agent_id`. Reusing a native session through another managed run requires an explicit run/source link; it must not cause duplicate raw ingestion.
+
+## 2. Agent record and layout
+
+An agent has `id`, `name`, `kind` (`vm` or `host`), `conversation_id`, workspace path, config revision, lifecycle and timestamps. Names contain 1–120 nonblank characters after trimming; duplicate display names are allowed and directory results include IDs. Neither names nor labels appear in execution addresses.
+
+There is at most one reserved host-global agent, initialized as `onbash`. The installation stores its ID. It cannot be silently replaced by another host identity. Archival preserves it and its history; restoring it uses the same ID.
+
+`agents_create` requires a name and CLI configuration; ordinary creation uses `kind=vm`. `start` defaults true but is explicit in the recorded arguments. The result is a created agent plus an asynchronous provisioning/start operation. Successful registration does not claim a VM or CLI is ready.
+
+No hard-delete operation is part of v1. Archive is a durable lifecycle transition that stops execution and retains files, messages and history. Restore is explicit. Creating an agent, archiving one, or restarting one is allowed to every registered actor under the same contract.
+
+## 3. Distinct state machines
+
+Do not compress these independent states into one overloaded `status` field.
+
+| Record | States | Meaning |
+| --- | --- | --- |
+| Agent lifecycle | `provisioning`, `active`, `archiving`, `archived`, `error` | Durable registration/resource lifecycle |
+| Environment desired | `running`, `stopped` | Requested environment condition |
+| Environment observed | `provisioning`, `ready`, `stopped`, `unreachable`, `error` | Last verified VM/runner condition |
+| CLI run | `preparing`, `starting`, `ready`, `stopping`, `exited`, `failed`, `unknown` | Process/session lifecycle; `ready` may be busy or idle |
+| Activity | `working`, `idle`, `waiting_user`, `offline`, `unknown` | Fresh evidence about native work, separate from process existence |
+| Capture | `starting`, `healthy`, `backlogged`, `blocked`, `incomplete`, `unknown` | Archival health with independent local/host watermarks |
+| Browser control | `automation`, `yielding`, `human`, `reconciling` | Cooperative ownership of managed browser input |
+| Terminal control | `automation`, `human` | Desired serialized input ownership with control epoch and runner-confirmed readiness; observing changes nothing |
+| Input request | `requested`, `ready`, `completed`, `cancelled`, `interrupted` | Human handoff lifecycle |
+
+Each state transition has allowed predecessors checked by the domain owner and a journal event. A connection loss is `unreachable`/`unknown`, not verified process death. Confirmed stopped execution is `offline`. `waiting_user` follows explicit native waiting evidence; a pending browser request also appears as `needs_user_input=true` without claiming the agent cannot do unrelated work.
+
+Exactly one managed live run may own an agent's input route. An `unknown` run still occupies that ownership until reconciled. Do not launch a competing run simply because the old runner stopped answering.
+
+### Lifecycle precedence
+
+Serialize lifecycle intent with a revision and the per-agent lifecycle lock. Creation goes from `provisioning` to `active` after resource readiness; its start job may run only after that transition. `runtime_start/restart/switch` require an active, non-quiesced agent and a current intent revision. Recheck before each external effect. Setup failure after launching a process does not release run ownership: only verified exit does; uncertain existence is `unknown` even if the operation failed.
+
+Archive accepts provisioning/active/error agents, closes launch admission, advances lifecycle intent, and cancels superseded launch/switch work. An effect already executing under the lock must settle before archival stops and verifies its resources. Mark `archived` only after all managed execution is stopped; a timeout remains unresolved. `agents_restore` reopens an archived identity through provisioning/verification, with `start=false` by default. It is distinct from backup import. Only restore may reopen archived launch admission.
+
+`runtime_stop` means stop and verify the managed CLI run, leaving its VM/browser available. `runtime_restart` is a recorded CLI stop followed by start. Archive and stopped maintenance explicitly stop the whole included environment; onbash never shuts down the host OS.
+
+## 4. Status and presence contract
+
+`agents_status_set` updates a human-readable summary. Normalize surrounding/repeated whitespace with Unicode `split`/single-space join. Require 1–100 whitespace-separated words and at most 4,096 Unicode characters. Reject overlength text; never truncate silently. The initial create status is “Initializing.”
+
+Every actual text change atomically updates the current row and appends an event containing old/new text, actor, status revision, recorded timestamp and optional run ID. Confirming unchanged text returns the current revision and refreshes an explicit review timestamp without inventing a status change. Heartbeats do not rewrite the status timestamp.
+
+Runner hooks persist activity changes locally before forwarding them. The host stores every valid observed change, including late historical changes, but updates the current projection only from the current run and increasing source sequence. Freshness timeout appends one transition to `unknown`; repeated stale polls create no extra events. Recovery appends a new verified transition.
+
+Agent directory rows include ID, name, kind, lifecycle, status text/revision/update time, activity and observation time, last contact, current run/CLI/model observation, capture health and `needs_user_input`. Unknown observations remain unknown. API reads never start an agent or claim work has progressed.
+
+## 5. Operation, event and job contract
+
+Every public application mutation supplies `idempotency_key`, bounded to 200 characters. Its scope is `(actor_id, operation_name, key)`. Persist a canonical validated input hash and the committed result. Identical retries return that result; a different input under the same key is `idempotency_conflict`. A job's evolving outcome is read through `operations_get(operation_id)` rather than changing the historical initial receipt. Ephemeral manual-input/resize frames instead carry connection sequence and current control/run binding; reconnect never automatically replays them.
+
+Mutable configuration changes supply an expected revision. Resource/session checks happen again immediately before an external effect; an earlier valid request cannot select a later process accidentally.
+
+Conceptual result envelope:
+
+```json
+{
+  "ok": true,
+  "operation_id": "uuid",
+  "outcome": "accepted",
+  "data": {"agent_id": "uuid"},
+  "event_seq": 123,
+  "error": null
+}
+```
+
+`outcome` is `completed` for a completed synchronous application change, or `accepted` for durable asynchronous work. Job states are `queued`, `running`, `waiting`, `completed`, `failed`, `uncertain`, `cancelled`. Waiting includes typed reason and next retry/reconciliation time. An accepted message/launch is not completed external work.
+
+Errors use stable codes such as `invalid_argument`, `not_found`, `revision_conflict`, `idempotency_conflict`, `invalid_transition`, `not_ready`, `target_changed`, `unsupported_capability`, `storage_blocked`, `uncertain_effect`, `unavailable`. Never classify errors by matching arbitrary provider prose.
+
+The journal stores event ID/sequence, kind, actor, agent/related IDs, occurrence time, recording time, origin source/sequence and a versioned bounded payload. Status bodies and full messages live durably; large raw transcript bytes live in chunks, referenced by events. Unique source/event keys deduplicate reconnects. Event history is append-only; corrections are new events. No automatic TTL applies to creation, status/state or message history.
+
+Use one typed jobs/outbox table for fixed internal handlers. It is not an arbitrary-code scheduler. Domain code owns each job's recovery logic. No SQLite transaction remains open during network calls, libvirt actions, tmux input or file streaming.
+
+Backup restore/import differs from a normal restart: hold all restored unfinished external-effect jobs/deliveries with `recovery_review` reason until reconciled. A snapshot's pending state cannot prove the original system did not act later. Preserve prior evidence; possibly performed input stays uncertain. `operations_reconcile` delegates inspect/retry/cancel to the existing typed handler and records the chosen resolution; `deliveries_resolve` owns message-attempt resolution. Every actor may invoke these under v1 policy. New control uses the fresh recovery epoch; historical source ingestion retains its original lineage.
+
+## 6. Message and delivery contract
+
+`messages_send` accepts recipient agent ID, complete body, optional thread/reply IDs and an idempotency key. Body limit is 64 KiB UTF-8; longer material is an authored artifact with a reference, never silent truncation. Store exact supplied body plus sender/recipient IDs and timestamps. Summaries, if later added, are derived fields.
+
+Messages are immutable. A correction is another message. A reply preserves thread relationships; it does not acknowledge its parent. All registered actors can inspect messages under v1's all-allowed policy; filters are navigation and efficiency, not access grants.
+
+Delivery states: `pending`, `deferred`, `dispatching`, `submitted`, `uncertain`, `failed`, `cancelled`. A separate `handled_at`/handling receipt records semantic acknowledgment. One message can have successive explicit attempts, but an uncertain attempt must be reconciled or explicitly retried before another is created. Explicit retry after uncertainty records its rationale and duplicate-processing risk.
+
+The host and runner persist the stable attempt ID, exact payload hash and expected run binding. Before first input, the runner durably records dispatch intent. Repeating that attempt returns its saved outcome. Known pre-input failure may defer/retry the same intention. Possible paste/Enter without confirmation is uncertain; never retry blindly.
+
+Terminal text includes message ID, recorded sender identity and thread reference so the recipient can retrieve/acknowledge exact messages. Native echo can corroborate submission but cannot prove the requested work was completed. Unread/handled tracking is independent of transport state.
+
+## 7. Runner protocol
+
+Protocol v1 uses private HTTP and WebSockets. Each command carries operation/attempt ID where relevant, payload hash, agent ID, recovery epoch, environment generation, boot ID and exact run/browser binding. Identity derives from transport credentials; callers do not self-declare another sender.
+
+| Runner route | Required behavior |
+| --- | --- |
+| `GET /v1/identity` | Agent/environment/boot/protocol/image identity, mounts, versions, capabilities and capture health |
+| `GET /v1/runs` | Inspect actual managed tmux/recorder/CLI bindings without launching |
+| `POST /v1/runs/ensure` | Idempotently launch or inspect the exact recorded run |
+| `POST /v1/runs/stop` | Stop only the expected binding; distinguish signal sent from confirmed exit |
+| `POST /v1/terminal/input` | Guarded, serialized input attempt with durable deferred/submitted/uncertain outcome |
+| `GET /v1/terminal/attempts/{id}` | Read a saved input outcome |
+| `POST /v1/terminal/control` | Reconcile exact run/control epoch and input viewer under the same lock as paste |
+| `WS /v1/terminal/{run_id}` | Attach/resize/manual input for the exact run; disconnect preserves execution |
+| `POST /v1/browser/command` | Execute against exact browser instance/control epoch; return artifact references |
+| `POST /v1/browser/control` | Reconcile automation/human mode without racing in-flight commands |
+| `WS /v1/desktop` | Relay guest-local VNC under the current control epoch |
+| `GET /v1/events?after_seq=...` | Paginated durable hook, receipt and source-registration observations |
+| `POST /v1/events/ack` | Acknowledge event cursor after host commit |
+| `GET /v1/capture/chunks?after=...` | Host pulls bounded pending raw chunks; pagination is not acknowledgment |
+| `POST /v1/capture/ack` | Persist host-durable contiguous source watermarks |
+| `POST /v1/quiesce` | Stop new work, settle inputs, drain capture and flush local state |
+
+A minimal version handshake allows only explicitly compatible protocol versions. Unknown mandatory capabilities block the dependent action. Do not accept a runner from a mismatched generation because it reports a familiar IP or tmux name.
+
+`terminal_control(action=take|release)` requires expected run and control epoch. Take binds one input viewer and advances the epoch; release advances it and revokes the old viewer. Host admission pauses during reconciliation; runner confirmation under the input lock is required before claiming the new mode is ready. All input frames must match the current run/epoch/viewer. Disconnect/restart retains human mode without automatic expiry; explicit takeover rebinds a new viewer, and explicit release permits automation only after a fresh composer check. Neither action clears typed text. An observer cannot send input.
+
+## 8. Archive and history contract
+
+Native bytes and terminal bytes are separate streams. Supported adapters register exact owned sources, including child sessions and known attachments. Paths/cwd are metadata, not ownership. Discovery is bounded to the agent's own managed native stores; never scan unrelated personal CLI history.
+
+Local capture atomically commits chunk bytes and advanced cursor to the spool. The host collector pulls pending chunks from the runner, writes/fsyncs immutable bytes and their directory, then commits the chunk receipt and contiguous watermark. Only after both does it POST an acknowledgment. Fetch/page cursors do not discard data: reconnect derives progress from committed per-source host watermarks. ACKs are monotonic, source/epoch-bound and cannot exceed locally captured ranges. Acknowledged means one durable host copy; independent backup durability is separately reported.
+
+Coordinates `(source_id, source_epoch, offset, length, sha256)` identify retries. Identical repeats succeed. A conflicting accepted coordinate is preserved as a conflict and rejected for that lineage. The collector may drain authenticated retired generations' unfinished sources into their original lineage; they cannot overwrite another generation's sources or current run state.
+
+No total-transcript size ceiling. Preserve partial lines and huge records as raw bytes. Parsing/search/display can be bounded and lag behind capture. Parse outcomes include `parsed`, `unknown_type`, `invalid_record`, `incomplete_record`, `unindexed_large_record`; all retain raw coordinates. Repeated identical text is never a deduplication key.
+
+Expose `local_captured_offset`, `host_archived_offset`, finalized checkpoint, parser version/offset, attachment gaps and last error for each source. A native session can append again after resume; finalization states “complete through N at checkpoint C,” not permanently closed for all time.
+
+## 9. Context restoration contract
+
+One stable main conversation belongs to the agent. Same-client native resume uses the verified native session when supported, without an extra automatic startup prompt. A different client starts a new run with a saved context packet containing current instructions, a captured memory snapshot, unresolved input/message references, pinned artifacts and a bounded selection of prior conversation. References do not substitute for or trigger delivery of pending messages.
+
+Record packet ID, exact bytes/hash, source history IDs/watermarks, selection recipe/version, target budget, omissions and delivery outcome. Old provider system/tool text is labeled historical context and does not become privileged new instructions. No hidden summarizer/model call is required.
+
+Packet selection binds to a finalized raw checkpoint and waits for parsing through that checkpoint, including explicit parse-gap outcomes; FTS completion is not required. Unavailable ranges cannot silently vanish. A blocked parser waits by default; an explicitly chosen degraded packet records excluded ranges/reasons. Snapshot plain files by checked stable reads and retain selected bytes in the packet or immutable attachments; detected concurrent edits cause retry/unavailable, not a claim of universal file versioning. Reserve mandatory instruction/identity budget first; oversized optional whole records become references with recorded omissions, while oversized mandatory content fails preparation visibly.
+
+Automatic restore is the planning default pending D08. The complete archive always remains queryable even when most of it is omitted from the initial packet. “Restoration delivered” is a verified transport outcome, not proof the model recalled every fact.
+
+## 10. Human input contract
+
+`browser_request_input` includes target agent, prompt, optional observed tab/reference and exact browser binding. It commits a durable request and transition job. `ready` means in-flight managed browser input has settled and the runner has acknowledged human control.
+
+`input_requests_complete` accepts exact request ID, optional note and idempotency key. Completion, control-epoch increment and one completion message are committed together. Runner synchronization gates subsequent browser commands. Repeating Done returns the prior result. A closed viewer does not complete a request. Restart preserves pending requests and rebinds presentation explicitly; stale tab IDs/epochs never silently regain control.
+
+Manual browser Take control creates the same input-request record with a manual-control prompt; release uses complete or cancel. `input_requests_cancel` accepts unresolved requested/ready/interrupted requests, records cancellation and exactly one cancellation message (not successful completion), and advances the control epoch atomically. Complete/cancel races have one winning terminal transition. Revoke obsolete input viewers immediately and reconcile with the runner; cancellation during yielding cannot resume automation until the earlier command is known settled. A disconnected runner leaves control reconciling. Canceling a request does not undo external browser actions.
+
+Human browser handoff pauses managed browser automation, not arbitrary shell access. Unrestricted agents are trusted participants. Input completion is not a platform permission grant or proof that login succeeded.
+
+## 11. Public operation inventory
+
+The same domain operation is exposed through HTTP and MCP where meaningful. Internal runner callbacks are separate provenance-bound transport routes, not model-writable claims about observed process state.
+
+| Group | Operations |
+| --- | --- |
+| Directory/lifecycle | `agents_list`, `agents_get`, `agents_create`, `agents_update`, `agents_archive`, `agents_restore` |
+| Status/history | `agents_status_set`, `events_list`, `operations_get`, `operations_reconcile` |
+| Runtime | `runtime_get`, `runtime_start`, `runtime_stop`, `runtime_restart`, `runtime_switch`, `terminal_control` |
+| Messaging | `messages_send`, `messages_list`, `messages_acknowledge`, `deliveries_get`, `deliveries_resolve` |
+| Browser | `browser_turn`, `browser_request_input`, `input_requests_list`, `input_requests_complete`, `input_requests_cancel` |
+| Captured history | `history_list`, `history_search`, `history_get`, `history_raw_get` |
+| Workspace | `files_list`, `files_read`, `files_write`, `memory_get`, `memory_update` |
+| Export/operations | `agents_export`, `backups_create`, `backups_get` |
+
+Start with only the operations implemented by the current phase; do not advertise inert tools. Use cursors and bounded response sizes for lists/search. Raw downloads/artifact references preserve complete access without putting an entire transcript into a tool result. Endpoint naming uses `/api/v1/operations/<name>` and `/mcp`; streaming/viewer routes are documented in M10.
+
+## 12. Table ownership
+
+Final migrations should implement these logical records without a generic JSON document store. Small versioned extension payloads are allowed for adapter-specific metadata.
+
+| Owner | Logical records |
+| --- | --- |
+| M00 | installation metadata, actors/registration identities, operations/idempotency, events, typed jobs/outbox, file-effect receipts |
+| M01 | agents, current status, current activity/observation cursors |
+| M02 | environment definitions, generations and resource/image pins |
+| M03/M04 | runs, exact native/terminal bindings and terminal control epochs; guest-local command receipts |
+| M05 | threads, immutable messages, deliveries, attempts, handling receipts |
+| M06 | browser instances/control epochs, human input requests |
+| M07 | raw sources, run/source links, chunks, source checkpoints, parser records, history events, FTS; guest-local capture spool |
+| M08 | context packets and switching operation checkpoints |
+| M09/M11 | export and backup manifests/receipts |
+
+Use foreign keys, unique constraints for idempotency/source coordinates and explicit indexes for common cursors. Current rows are updated; historical events/messages/chunk coordinates cannot be mutated into different facts. Schema migration and recovery are explicit operator workflows, with the same unrestricted actor policy rather than a new signoff system.
