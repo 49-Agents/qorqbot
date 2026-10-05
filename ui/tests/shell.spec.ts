@@ -337,7 +337,8 @@ test('history paging anchors, equal text, quiet handling refresh and recovery', 
   await agentButton(page, 'Background renamed').click();
   await agentButton(page, 'Atlas').click();
   expect(await history.evaluate(e => e.scrollTop)).toBeCloseTo(200, 0);
-  same2.handling = { message_id: same2.source.message_id!, handled_by: owner, handled_at: '2026-10-08T13:00:00.000000Z', note: null };
+  if (same2.source.type !== 'message') throw new Error('Handling fixture requires a message source');
+  same2.handling = { message_id: same2.source.message_id, handled_by: owner, handled_at: '2026-10-08T13:00:00.000000Z', note: null };
   same1.delivery!.state = 'submitted'; same1.delivery!.reason = null;
   await expect(page.locator(`[data-entry-id="${same2.entry_id}"]`).getByText(/Handled ·/)).toBeAttached({ timeout: 12000 });
   await expect(page.locator(`[data-entry-id="${same1.entry_id}"]`).getByText('Submitted', { exact: true })).toBeAttached();
@@ -354,6 +355,10 @@ test('escaped content and desktop/mobile drawers, focus and screenshots', async 
   api.add(alpha, '<img src=x onerror="window.injected=true">\n  Indented & untouched', { occurred_at: '2026-10-07T12:00:00.000000Z' });
   api.add(alpha, 'No card should be inferred from browser_request_input or /workspace/report.pdf');
   api.add(alpha, 'future content', { kind: 'future_card' });
+  const nativeText = '  Native café 👩‍💻 e\u0301 <script>window.injected=true</script>\n\tbrowser_request_input & /workspace/report.pdf  \n';
+  const nativeUser = api.addNative(alpha, nativeText, 'user', 'claude');
+  const nativeAgent = api.addNative(alpha, nativeText, 'agent', 'codex');
+  expect(nativeUser.entry_id).not.toBe(nativeAgent.entry_id);
   api.publication = { pending_entries: 3, state: 'blocked', error: { code: 'storage_blocked', message: 'Publication needs inspection.' } };
   await signIn(page, api);
   await expect(page.locator('.message-body').first()).toContainText('<img src=x onerror="window.injected=true">');
@@ -361,6 +366,26 @@ test('escaped content and desktop/mobile drawers, focus and screenshots', async 
   await expect(page.locator('.history img, .history iframe')).toHaveCount(0);
   await expect(page.getByText('Unsupported content: future_card')).toBeVisible();
   await expect(page.getByText(/Recorded /).first()).toBeVisible();
+  const expectNativeEntries = async () => {
+    await expect(page.locator('.entry')).toHaveCount(5);
+    for (const [entry, sender] of [[nativeUser, 'Owner'], [nativeAgent, 'Atlas']] as const) {
+      const row = page.locator(`[data-entry-id="${entry.entry_id}"]`);
+      await expect(row).toBeVisible();
+      await expect(row.locator('header strong')).toHaveText(sender);
+      expect(await row.locator('.message-body').textContent()).toBe(nativeText);
+      await expect(row.locator('.message-body > *')).toHaveCount(0);
+      await expect(row.locator('.delivery')).toBeEmpty();
+      await expect(row.locator('header time')).toHaveAttribute('datetime', entry.occurred_at);
+      await expect(row.locator('.recorded time')).toHaveAttribute('datetime', entry.recorded_at);
+    }
+    await expect(page.getByText('Stored · queued · runtime unavailable', { exact: true })).toHaveCount(3);
+    await expect(page.locator('.composer-note')).toHaveText('Start and manage the CLI in Terminal. Messages are saved for delivery.');
+    expect(await page.evaluate(() => 'injected' in window)).toBe(false);
+  };
+  await expectNativeEntries();
+  await expect.poll(() => calls(api, 'conversation_list').some(c => c.args.after_seq === nativeAgent.conversation_seq && c.args.recovery_epoch === api.epoch)).toBe(true);
+  await page.reload();
+  await expectNativeEntries();
   await expect(page.getByText('Blocked · 3 pending entries')).toBeVisible();
   await expect(page.getByText('storage_blocked: Publication needs inspection.')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('desktop.png'), fullPage: true });
