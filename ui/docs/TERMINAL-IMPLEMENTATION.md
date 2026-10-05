@@ -187,3 +187,10 @@ screenshots directly, and record results/limitations in
 data, no owner browser or credentials. No external QA service, native/provider
 call, usage example or deployment. Commit/push only the assigned branch, stop
 edits and receive a fresh independent Astra MAX review before integration.
+
+## D41 queued-input correction
+
+[TERMINAL-INPUT-BATCHING.md](TERMINAL-INPUT-BATCHING.md) specifies combining
+consecutive unsent input entries into one frame at flush, preserving resize
+barriers, exact bytes and the existing single pending receipt. This supersedes
+per-event frame packaging, not human input admission or control/replay rules.

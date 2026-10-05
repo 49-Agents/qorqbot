@@ -29,3 +29,7 @@ Authoritative plans now follow the three repositories:
 
 Original planning baseline: `codex/chat-ui-plan`, `e7d2b56`. Acceptance is bounded
 to the evidence above; native replies, runtime and browser/file cards remain pending.
+
+Current correction: [queued terminal-input batching](TERMINAL-INPUT-BATCHING.md).
+The native workflow verifiers keep the pre-correction UI pin while this is built
+and checked separately.
