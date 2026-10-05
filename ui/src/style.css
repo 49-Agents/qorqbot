@@ -83,6 +83,15 @@ legend{padding:0;margin-bottom:9px}
 .recorded{color:#aaa;font-size:10px;margin:-3px 0 8px}
 .delivery{display:flex;flex-direction:column;color:#aaa;font-size:10px;margin-top:9px;gap:3px}
 .unsupported{padding:12px;border:1px solid #2b2b2b;color:#bbb}
+.file-card{min-width:0;border:1px solid #414141;border-radius:6px;padding:14px}
+.file-card-title{display:flex;align-items:flex-start;gap:9px}
+.file-card-title strong{min-width:0;white-space:break-spaces}
+.file-location,.file-size{font-size:11px;color:#aaa;margin-top:10px}
+.file-path{font-family:ui-monospace,monospace;font-size:12px}
+.file-path,.file-note{white-space:break-spaces;overflow-wrap:anywhere;user-select:text}
+.file-note{font-size:13px}
+.file-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:12px;font-size:11px;color:#bbb}
+.file-actions button{font-size:12px;flex:none}
 .earlier{display:block;margin:0 auto 25px;font-size:12px}
 .empty{flex:1;min-height:180px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:45px 22px;color:#aaa;gap:12px}
 .empty h2{color:#ddd;font-size:18px}

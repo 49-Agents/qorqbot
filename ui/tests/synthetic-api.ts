@@ -3,7 +3,7 @@ import { createServer, type Server, type ServerResponse } from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { Agent, Config, Entry, Publication, RuntimeView, TerminalView } from '../src/wire';
+import type { Agent, Config, Entry, FileReference, Publication, RuntimeView, TerminalView } from '../src/wire';
 
 export const owner = '00000000-0000-4000-8000-000000000001';
 export const alpha = '10000000-0000-4000-8000-000000000001';
@@ -84,6 +84,23 @@ export class SyntheticAPI {
         native_id: nativeId, part_index: 0, timestamp_origin: 'native' },
       delivery: null, handling: null,
     });
+  }
+  addFileReference(id: string, options: Partial<FileReference> = {}) {
+    const agent = this.agents.find(a => a.id === id)!;
+    const reference: FileReference = {
+      reference_id: randomUUID(), agent_id: id, conversation_id: agent.conversation_id, actor_id: owner,
+      installation_id: this.installId, recovery_epoch: this.epoch, state: 'referenced', location: 'workspace',
+      path: 'files/report.txt', requested_path: './files//report.txt', label: 'Report', note: null,
+      size_bytes: 1234567, mtime_ns: '1791460800123456789', observed_at: now, recorded_at: now, sha256: null,
+      ...options,
+    };
+    const entry = this.add(id, reference.label, {
+      kind: 'file_reference', role: reference.actor_id === owner ? 'user' : 'agent', direction: 'outgoing',
+      sender_actor_id: reference.actor_id, occurred_at: reference.observed_at, recorded_at: reference.recorded_at,
+      source: { type: 'file_reference', reference }, delivery: null, handling: null,
+    });
+    this.event('file.referenced', id);
+    return entry;
   }
   recover() { this.epoch = randomUUID(); this.entries.set(alpha, []); this.entries.set(beta, []); this.events = []; }
   async start() {

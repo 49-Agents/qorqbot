@@ -2,7 +2,7 @@ import { test as base, expect, type Page } from '@playwright/test';
 import { SyntheticAPI, alpha, beta, owner } from './synthetic-api';
 import { SyntheticTerminal } from './synthetic-terminal';
 import { randomUUID } from 'node:crypto';
-import type { RuntimeView } from '../src/wire';
+import type { Entry, RuntimeView } from '../src/wire';
 
 const test = base.extend<{ api: SyntheticAPI }>({
   api: async ({}, use) => { const api = await new SyntheticAPI().start(); try { await use(api); } finally { await api.close(); } },
@@ -412,6 +412,179 @@ test('escaped content and desktop/mobile drawers, focus and screenshots', async 
   await expect(message(page)).toHaveValue('A mobile draft');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('mobile.png'), fullPage: true });
+});
+
+test('file-reference cards validate saved observations, copy exact paths and wrap on desktop/mobile', async ({ page, api }, testInfo) => {
+  const requests: string[] = [], sockets: string[] = [];
+  page.on('request', request => requests.push(request.url()));
+  page.on('websocket', socket => sockets.push(socket.url()));
+  await page.addInitScript(() => {
+    const copies: string[] = [];
+    Object.defineProperty(window, '__fileCopies', { value: copies });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (path: string) => { copies.push(path); } } });
+  });
+  const ownerPath = 'files/  Résumé e\u0301 & notes .txt  ';
+  const agentPath = '/tmp/d47/报告/' + 'long_🙂'.repeat(22) + '/<img src=x onerror="window.injected=true">.txt  ';
+  const note = '  Saved observation only.\n\t<script>window.injected=true</script> & café 👩‍💻  \n';
+  const ownerEntry = api.addFileReference(beta, {
+    path: ownerPath, requested_path: './files//  Résumé e\u0301 & notes .txt  ', label: '  Owner report  ', note,
+    recovery_epoch: randomUUID(), observed_at: '2026-10-07T12:00:00.123456Z', mtime_ns: '-1234567890123456789',
+  });
+  const agentEntry = api.addFileReference(beta, {
+    actor_id: api.agents[1].actor_id, location: 'host', path: agentPath, requested_path: agentPath,
+    label: 'Agent <report> — ' + '報告🙂'.repeat(22), size_bytes: Number.MAX_SAFE_INTEGER + 1,
+  });
+  const ordinary = api.add(beta, 'files_reference /workspace/report.pdf and file_reference are ordinary text.');
+  const native = api.addNative(beta, 'files_reference("/tmp/report.txt")', 'agent', 'codex');
+  const row = (entry: Entry) => page.locator(`[data-entry-id="${entry.entry_id}"]`);
+  const ownerCard = row(ownerEntry).getByRole('region', { name: 'File reference' });
+  const agentCard = row(agentEntry).getByRole('region', { name: 'File reference' });
+  const ownerCopy = ownerCard.getByRole('button', { name: 'Copy path', exact: true });
+  const agentCopy = agentCard.getByRole('button', { name: 'Copy path', exact: true });
+  const copies = () => page.evaluate(() => (window as unknown as { __fileCopies: string[] }).__fileCopies);
+  const noOverflow = async () => {
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await page.locator('.history, .file-card, .file-path, .file-note').evaluateAll(elements => elements.every(e => e.scrollWidth <= e.clientWidth))).toBe(true);
+  };
+  await signIn(page, api);
+  await agentButton(page, 'onbash').click();
+  await expect(page.locator('.file-card')).toHaveCount(2);
+  for (const [entry, sender] of [[ownerEntry, 'Owner'], [agentEntry, 'onbash']] as const) {
+    await expect(row(entry).locator('header strong')).toHaveText(sender);
+    await expect(row(entry).locator('header time')).toHaveAttribute('datetime', entry.occurred_at);
+    await expect(row(entry).locator('header time')).toContainText('Observed');
+    await expect(row(entry).locator('.delivery')).toBeEmpty();
+    await expect(row(entry).locator('.file-card a, .file-card [role="button"], .file-card button:disabled')).toHaveCount(0);
+    await expect(row(entry).locator('.file-card button')).toHaveCount(1);
+  }
+  expect(ownerEntry.source.type === 'file_reference' && ownerEntry.source.reference.recovery_epoch).not.toBe(api.epoch);
+  await expect(row(ownerEntry).locator('.recorded time')).toHaveAttribute('datetime', ownerEntry.recorded_at);
+  await expect(row(agentEntry).locator('.recorded')).toHaveCount(0);
+  await expect(ownerCard.getByText('Agent workspace', { exact: true })).toBeVisible();
+  await expect(agentCard.getByText('Host path', { exact: true })).toBeVisible();
+  expect(await ownerCard.locator('strong').textContent()).toBe('  Owner report  ');
+  expect(await ownerCard.locator('.file-path').textContent()).toBe(ownerPath);
+  expect(await agentCard.locator('.file-path').textContent()).toBe(agentPath);
+  expect(await ownerCard.locator('.file-note').textContent()).toBe(note);
+  const bytes = await page.evaluate(value => value.toLocaleString(), 1234567);
+  await expect(ownerCard.locator('.file-size')).toHaveText(`Observed size: ${bytes} bytes`);
+  await expect(agentCard.locator('.file-size')).toHaveText('Size exceeds precise display range');
+  await expect(agentCard.locator('.file-note')).toHaveCount(0);
+  for (const entry of [ordinary, native]) {
+    await expect(row(entry).locator('.message-body')).toHaveText(entry.text);
+    await expect(row(entry).locator('.file-card')).toHaveCount(0);
+  }
+  await expect(page.locator('.history img, .history script, .history iframe')).toHaveCount(0);
+  expect(await page.evaluate(() => 'injected' in window)).toBe(false);
+  await ownerCopy.focus();
+  await page.keyboard.press('Enter');
+  await expect(ownerCopy).toBeFocused();
+  await expect(ownerCard.getByRole('status')).toHaveText('Copied');
+  await expect(agentCard.getByRole('status')).toBeEmpty();
+  await page.keyboard.press('Tab');
+  await expect(agentCopy).toBeFocused();
+  expect(await agentCopy.evaluate(e => getComputedStyle(e).outlineStyle)).toBe('solid');
+  await page.keyboard.press('Space');
+  await expect(agentCard.getByRole('status')).toHaveText('Copied');
+  expect((await copies()).map(path => Buffer.from(path, 'utf8'))).toEqual([ownerPath, agentPath].map(path => Buffer.from(path, 'utf8')));
+  await page.getByLabel('Conversation with onbash').evaluate(e => { e.scrollTop = 0; });
+  await noOverflow();
+  await page.screenshot({ path: testInfo.outputPath('file-reference-desktop.png'), fullPage: true });
+
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('Synthetic rejection'); } } }));
+  await agentCopy.press('Enter');
+  await expect(agentCard.getByRole('status')).toHaveText('Could not copy. Select and copy the path manually.');
+  await expect(ownerCard.getByRole('status')).toHaveText('Copied');
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }));
+  await ownerCopy.press('Enter');
+  await expect(ownerCard.getByRole('status')).toHaveText('Could not copy. Select and copy the path manually.');
+  expect(await copies()).toEqual([ownerPath, agentPath]);
+  expect(await ownerCard.locator('.file-path').evaluate(e => {
+    const range = document.createRange(); range.selectNodeContents(e);
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+    const value = selection.toString(); selection.removeAllRanges(); return value;
+  })).toBe(ownerPath);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await ownerCopy.focus();
+  await expect(ownerCopy).toBeFocused();
+  await noOverflow();
+  await page.screenshot({ path: testInfo.outputPath('file-reference-mobile-owner.png'), fullPage: true });
+  await agentCopy.focus();
+  await expect(agentCopy).toBeFocused();
+  await noOverflow();
+  await page.screenshot({ path: testInfo.outputPath('file-reference-mobile-agent.png'), fullPage: true });
+
+  // The same Chrome group checks D45 code-point bounds and malformed wire content.
+  const boundaryPath = '🙂/'.repeat(2047) + '🙂🙂';
+  const boundary = api.addFileReference(beta, { path: boundaryPath, requested_path: boundaryPath,
+    label: '🙂'.repeat(200), note: '🙂'.repeat(4000), size_bytes: Number.MAX_SAFE_INTEGER });
+  const malformed: { entry: Entry; reason: string }[] = [];
+  const invalidReferences: [string, Record<string, unknown>][] = [
+    ['UUID', { reference_id: 'not-a-uuid' }], ['installation UUID', { installation_id: null }],
+    ['epoch UUID', { recovery_epoch: 'old' }], ['state', { state: 'missing' }], ['location', { location: 'guest' }],
+    ['path type', { path: null }], ['path control', { path: 'file\u0085.txt' }], ['path traversal', { path: '../file' }],
+    ['path bound', { path: boundaryPath + 'x' }], ['request bound', { requested_path: boundaryPath + 'x' }],
+    ['invalid UTF-8', { path: 'file\ud800.txt' }], ['blank label', { label: '\u2003' }],
+    ['label bound', { label: '🙂'.repeat(201) }], ['label control', { label: 'line\nbreak' }],
+    ['note bound', { note: '🙂'.repeat(4001) }], ['note control', { note: 'bad\rnote' }],
+    ['size negative', { size_bytes: -1 }], ['size fraction', { size_bytes: 0.5 }], ['size type', { size_bytes: '1' }],
+    ['mtime number', { mtime_ns: 123 }], ['mtime fraction', { mtime_ns: '1.2' }], ['hash', { sha256: 'a'.repeat(64) }],
+    ['required null field', { sha256: undefined }],
+    ['UTC required', { observed_at: '2026-10-08T12:00:00+01:00' }], ['real date required', { recorded_at: '2026-02-30T12:00:00Z' }],
+    ['extra field', { contents: 'not part of this wire record' }],
+  ];
+  for (const [reason, patch] of invalidReferences) {
+    const entry = api.addFileReference(beta);
+    if (entry.source.type !== 'file_reference') throw new Error('Expected file fixture');
+    entry.source = { type: 'file_reference', reference: { ...entry.source.reference, ...patch } } as Entry['source'];
+    // Keep attribution text/times aligned here so malformed-field checks do not
+    // pass merely because the separate entry/reference agreement check rejected them.
+    if (typeof patch.label === 'string') entry.text = patch.label;
+    if (typeof patch.observed_at === 'string') entry.occurred_at = patch.observed_at;
+    if (typeof patch.recorded_at === 'string') entry.recorded_at = patch.recorded_at;
+    malformed.push({ entry, reason });
+  }
+  for (const field of ['agent_id', 'conversation_id', 'sender_actor_id', 'text', 'occurred_at', 'recorded_at'] as const) {
+    const entry = api.addFileReference(beta);
+    entry[field] = field.endsWith('_id') ? randomUUID() : field.endsWith('_at') ? '2026-10-06T12:00:00.000000Z' : 'Mismatched label';
+    malformed.push({ entry, reason: `entry ${field} mismatch` });
+  }
+  for (const source of [null, { type: 'future_file' }, { type: 'file_reference', reference: null }, { type: 'file_reference', reference: [] }]) {
+    const entry = api.addFileReference(beta); entry.source = source as Entry['source'];
+    malformed.push({ entry, reason: 'malformed source' });
+  }
+  const wrongKind = api.addFileReference(beta); wrongKind.kind = 'message';
+  malformed.push({ entry: wrongKind, reason: 'kind/source mismatch' });
+  const last = malformed.at(-1)!.entry;
+  await expect(row(last).locator('.unsupported')).toBeAttached();
+  await expect(page.locator('.file-card')).toHaveCount(3);
+  expect(await row(boundary).locator('.file-path').textContent()).toBe(boundaryPath);
+  expect(await row(boundary).locator('strong').last().textContent()).toBe('🙂'.repeat(200));
+  expect(await row(boundary).locator('.file-note').textContent()).toBe('🙂'.repeat(4000));
+  const safeBytes = await page.evaluate(value => value.toLocaleString(), Number.MAX_SAFE_INTEGER);
+  await expect(row(boundary).locator('.file-size')).toHaveText(`Observed size: ${safeBytes} bytes`);
+  for (const { entry, reason } of malformed) {
+    await expect(row(entry).locator('.unsupported'), reason).toHaveCount(1);
+    await expect(row(entry).locator('.file-card, button'), reason).toHaveCount(0);
+  }
+  await noOverflow();
+  // Repeated normal refresh reads revisit existing entries; entry ID remains the deduplication key.
+  await expect.poll(() => calls(api, 'conversation_list').filter(c => c.args.agent_id === beta && c.args.after_seq === last.conversation_seq).length, { timeout: 12000 }).toBeGreaterThanOrEqual(2);
+  for (const entry of [ownerEntry, agentEntry, boundary]) await expect(row(entry).locator('.file-card')).toHaveCount(1);
+  await page.reload();
+  await page.getByRole('button', { name: 'Open agents' }).click();
+  await agentButton(page, 'onbash').click();
+  await expect(page.locator('.file-card')).toHaveCount(3);
+  for (const entry of [ownerEntry, agentEntry, boundary]) await expect(row(entry).getByRole('status')).toBeEmpty();
+  await expect(page.locator('.unsupported')).toHaveCount(malformed.length);
+  expect(await page.evaluate(() => 'injected' in window)).toBe(false);
+  // Only static assets, session/discovery and existing read operations were requested.
+  expect(requests.filter(value => {
+    const url = new URL(value);
+    return url.origin !== api.url || !/^(?:\/|\/assets\/[\w.-]+|\/api\/v1\/(?:session|schema|operations\/(?:config_get|agents_list|agents_get|events_list|conversation_list)))$/.test(url.pathname);
+  })).toEqual([]);
+  expect(sockets).toEqual([]);
+  expect(api.messages).toEqual([]);
 });
 
 // These two owning flows exercise the compiled UI with synthetic HTTP/WS peers only.

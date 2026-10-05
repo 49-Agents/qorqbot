@@ -5,6 +5,8 @@ import { Icon, IconPicker } from './icons';
 import type { Agent, Entry } from './wire';
 import { TerminalPane, TerminalSummary } from './terminal';
 import { collectionReasons, nativeStates, sessionStatus, setupReasons } from './runtime-view';
+import { fileReferenceEntry } from './file-reference';
+import { FileReferenceCard } from './file-reference-card';
 import './style.css';
 
 const store = new Store();
@@ -122,10 +124,12 @@ function Navigation({ select, create, renameId, setRename }: { select: (id: stri
 }
 function EntryRow({ entry }: { entry: Entry }) {
   const sender = store.agents.find(a => a.actor_id === entry.sender_actor_id)?.display_name || (entry.role === 'user' ? 'Owner' : 'Agent');
+  const reference = fileReferenceEntry(entry) ? entry.source.reference : null;
+  const message = entry.kind === 'message' && (entry.source?.type === 'message' || entry.source?.type === 'native');
   return <article className={`entry ${entry.role === 'user' ? 'owner-entry' : ''}`} data-entry-id={entry.entry_id}>
-    <header><strong>{sender}</strong><time dateTime={entry.occurred_at} title={entry.occurred_at}>{time(entry.occurred_at)}</time></header>
+    <header><strong>{sender}</strong><time dateTime={entry.occurred_at} title={entry.occurred_at}>{reference && 'Observed '}{time(entry.occurred_at)}</time></header>
     {entry.recorded_at !== entry.occurred_at && <p className="recorded">Recorded <time dateTime={entry.recorded_at} title={entry.recorded_at}>{time(entry.recorded_at)}</time></p>}
-    {entry.kind === 'message' ? <p className="message-body">{entry.text}</p> : <p className="unsupported">Unsupported content: {entry.kind}</p>}
+    {reference ? <FileReferenceCard reference={reference} /> : message ? <p className="message-body">{entry.text}</p> : <p className="unsupported">Unsupported content: {entry.kind}</p>}
     <div className="delivery">
       {entry.delivery && <span>{({ pending: 'Stored · queued', deferred: 'Stored · deferred', dispatching: 'Stored · dispatching', submitted: 'Submitted', uncertain: 'Delivery uncertain', failed: 'Stored · delivery failed', cancelled: 'Stored · delivery cancelled' } as Record<string, string>)[entry.delivery.state] || `Delivery: ${entry.delivery.state}`}{entry.delivery.reason ? ` · ${entry.delivery.reason.replaceAll('_', ' ')}` : ''}</span>}
       {entry.handling && <span title={`Handled by ${entry.handling.handled_by}`}>Handled · {time(entry.handling.handled_at)}</span>}

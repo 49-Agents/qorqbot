@@ -35,6 +35,14 @@ export type Delivery = {
   message_id: string; recipient_agent_id: string; state: string; reason: string | null; updated_at: string;
 };
 export type Handling = { message_id: string; handled_by: string; handled_at: string; note: string | null };
+// D45 immutable metadata observation, pinned at core c13eb8b2dbf023a69e84cde2eda0368058485e6f.
+export type FileReference = {
+  reference_id: string; agent_id: string; conversation_id: string; actor_id: string;
+  installation_id: string; recovery_epoch: string; state: 'referenced'; location: 'workspace' | 'host';
+  path: string; requested_path: string; label: string; note: string | null;
+  size_bytes: number; mtime_ns: string; observed_at: string; recorded_at: string; sha256: null;
+};
+export type FileReferenceSource = { type: 'file_reference'; reference: FileReference };
 export type Entry = {
   entry_id: string; agent_id: string; conversation_id: string; conversation_seq: number;
   kind: string; role: string; direction: string; text: string; sender_actor_id: string | null;
@@ -44,7 +52,8 @@ export type Entry = {
         source_id: string | null; source_epoch: string | null; offset: number | null; length: number | null }
     | { type: 'native'; provider: 'claude' | 'codex'; run_id: string; source_id: string; source_epoch: string;
         offset: number; length: number; sha256: string; parser_version: string; native_id: string;
-        part_index: number; timestamp_origin: 'native' | 'ingestion' };
+        part_index: number; timestamp_origin: 'native' | 'ingestion' }
+    | FileReferenceSource;
   delivery: Delivery | null; handling: Handling | null;
 };
 export type Publication = { pending_entries: number; state: 'current' | 'pending' | 'blocked'; error: { code: string; message: string } | null };
