@@ -1,12 +1,12 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { mergeControl, sameTerminal, terminalMessage } from './terminal-protocol';
-import type { TerminalControl, TerminalFrame, TerminalView } from './wire';
+import type { TerminalControl, TerminalDimensions, TerminalFrame, TerminalView } from './wire';
 
-const INPUT_LIMIT = 65536, OUTPUT_LIMIT = 1024 * 1024;
+const INPUT_LIMIT = 65536, OUTPUT_LIMIT = 1024 * 1024, DISPLAY_ENTRY_LIMIT = 1024;
 const encoder = new TextEncoder();
-type Size = { columns: number; rows: number };
-type PendingFrame = { type: 'input'; bytes: Uint8Array } | ({ type: 'resize' } & Size);
+type PendingFrame = { type: 'input'; bytes: Uint8Array } | ({ type: 'resize' } & TerminalDimensions);
+type DisplayEntry = { type: 'bytes'; bytes: Uint8Array } | ({ type: 'size' } & TerminalDimensions);
 export type TerminalState = { connection: 'connecting' | 'connected' | 'closed'; owned: boolean; controlPending: boolean; warning: string };
 
 // One connection owns one emulator, viewer identity and non-replayable frame queue.
@@ -24,7 +24,10 @@ export class TerminalClient {
   private queuedBytes = 0;
   private pendingFrame: { kind: 'input' | 'resize'; epoch: number; sequence: number; bytes: number } | null = null;
   private lastSequence = 0;
+  private sentSize: TerminalDimensions | null = null;
   private outputBytes = 0;
+  private displayQueue: DisplayEntry[] = [];
+  private writing = false;
   private overflow = false;
   private warning = '';
   private compositionEpoch: number | null = null;
@@ -54,9 +57,15 @@ export class TerminalClient {
     this.socket.onerror = () => { if (this.valid()) this.fail('Terminal connection lost.'); };
     this.socket.onclose = () => { if (this.valid()) this.fail('Terminal connection closed.'); };
     this.bindHumanInput();
-    this.terminal.onResize(({ cols, rows }) => this.resize({ columns: cols, rows }));
-    this.observer = new ResizeObserver(() => { if (this.active) this.fit.fit(); });
-    this.observer.observe(element); this.fit.fit(); this.emit();
+    let { width, height } = element.getBoundingClientRect();
+    this.observer = new ResizeObserver(() => {
+      if (!this.valid()) return;
+      const next = element.getBoundingClientRect();
+      // Grid updates and scrollbars are display effects, not container resizes.
+      if (next.width === width && next.height === height) return;
+      width = next.width; height = next.height; this.fitViewport();
+    });
+    this.observer.observe(element, { box: 'border-box' }); this.emit();
   }
   private valid() {
     if (!this.active) return false;
@@ -126,11 +135,12 @@ export class TerminalClient {
       this.socket.send(JSON.stringify(value)); return true;
     } catch { this.fail('Terminal connection lost.'); return false; }
   }
-  private clearQueue() { this.queue = []; this.queuedBytes = 0; this.clearHumanInput(); }
+  private clearQueue() { this.queue = []; this.queuedBytes = 0; this.sentSize = null; this.clearHumanInput(); }
+  private clearDisplay() { this.displayQueue = []; this.outputBytes = 0; this.writing = false; }
   private fail(reason: string) {
     if (!this.active) return;
     this.active = false; this.acknowledgedEpoch = null; this.pendingControl = null;
-    this.clearQueue(); this.pendingFrame = null;
+    this.clearQueue(); this.clearDisplay(); this.pendingFrame = null;
     this.warning = `${reason} Earlier input may have arrived. Unsent input was cleared. Reconnect to continue.`;
     this.socket.close(); this.emit();
   }
@@ -154,19 +164,51 @@ export class TerminalClient {
     if (control?.epoch === this.acknowledgedEpoch) this.lastSequence = Math.max(this.lastSequence, control.last_sequence);
   }
   private publish() { this.callbacks.observation(this.view); this.emit(); }
+  private display(entry: DisplayEntry) {
+    const last = this.displayQueue.at(-1);
+    if (entry.type === 'size' && last?.type === 'size') {
+      this.displayQueue[this.displayQueue.length - 1] = entry;
+    } else {
+      const bytes = entry.type === 'bytes' ? entry.bytes.byteLength : 0;
+      // Include the in-flight write in both bounds until its parser callback.
+      if (this.outputBytes + bytes > OUTPUT_LIMIT || this.displayQueue.length >= DISPLAY_ENTRY_LIMIT) {
+        this.fail('Live output exceeded the display limit. Recording continues independently.'); return;
+      }
+      this.outputBytes += bytes; this.displayQueue.push(entry);
+    }
+    this.drainDisplay();
+  }
+  private drainDisplay() {
+    if (!this.valid() || this.writing) return;
+    while (this.displayQueue.length) {
+      const entry = this.displayQueue[0];
+      if (entry.type === 'size') {
+        this.displayQueue.shift(); this.terminal.resize(entry.columns, entry.rows);
+      } else {
+        this.writing = true;
+        this.terminal.write(entry.bytes, () => {
+          if (!this.valid()) return;
+          this.outputBytes -= entry.bytes.byteLength;
+          this.displayQueue.shift(); this.writing = false; this.drainDisplay();
+        });
+        return;
+      }
+    }
+  }
   private receive(data: unknown) {
     if (data instanceof ArrayBuffer) {
       if (!this.viewer || data.byteLength > INPUT_LIMIT) { this.fail('Invalid terminal output frame.'); return; }
-      if (this.outputBytes + data.byteLength > OUTPUT_LIMIT) { this.fail('Live output exceeded the display limit. Recording continues independently.'); return; }
-      this.outputBytes += data.byteLength;
-      this.terminal.write(new Uint8Array(data), () => { this.outputBytes -= data.byteLength; });
+      this.display({ type: 'bytes', bytes: new Uint8Array(data) });
       return;
     }
     const message = typeof data === 'string' ? terminalMessage(data) : null;
-    if (!message || (!this.viewer && message.type !== 'hello')) { this.fail('Invalid terminal protocol response.'); return; }
+    if (!message || (!this.viewer && message.type !== 'hello')) { this.fail('Terminal unavailable. Invalid terminal protocol response.'); return; }
     if (message.type === 'hello') {
       if (this.viewer || !sameTerminal(this.view, message.terminal) || message.terminal.status !== 'available') { this.fail('Terminal identity changed.'); return; }
-      this.viewer = message.viewer_id; this.observe(message.terminal); this.publish();
+      this.viewer = message.viewer_id; this.observe(message.terminal);
+      if (this.active) { this.display({ type: 'size', ...message.terminal.dimensions! }); this.publish(); }
+    } else if (message.type === 'size') {
+      this.display(message);
     } else if (message.type === 'state') {
       this.observe(message.terminal); if (this.active) this.publish();
     } else if (message.type === 'control') {
@@ -177,7 +219,7 @@ export class TerminalClient {
         if (pending.action === 'take' && message.control.mode === 'human' && message.control.viewer_id === this.viewer) {
           this.acknowledgedEpoch = message.control.epoch; this.lastSequence = this.view.control.last_sequence;
           this.overflow = false; this.warning = '';
-          this.resize({ columns: this.terminal.cols, rows: this.terminal.rows });
+          this.fitViewport();
         } else if (pending.action === 'release' && message.control.mode === 'unclaimed') {
           this.acknowledgedEpoch = null; this.warning = ''; this.overflow = false;
         } else { this.fail('Control reply did not match the request.'); return; }
@@ -212,9 +254,19 @@ export class TerminalClient {
     this.queue.push({ type: 'input', bytes }); this.queuedBytes += bytes.length; this.flush();
   }
   private warn(message: string) { this.warning = message; this.emit(); }
-  private resize(size: Size) {
-    if (!this.owned() || size.columns < 20 || size.columns > 500 || size.rows < 5 || size.rows > 250) return;
+  private fitViewport() {
+    if (!this.owned()) return;
+    const proposed = this.fit.proposeDimensions();
+    if (!proposed || !Number.isFinite(proposed.cols) || !Number.isFinite(proposed.rows)) return;
+    this.resize({ columns: Math.max(20, Math.min(500, Math.floor(proposed.cols))), rows: Math.max(5, Math.min(250, Math.floor(proposed.rows))) });
+  }
+  private resize(size: TerminalDimensions) {
+    if (!this.owned()) return;
+    const queued = this.queue.find(frame => frame.type === 'resize');
+    if (queued?.type === 'resize' && size.columns === queued.columns && size.rows === queued.rows) return;
     this.queue = this.queue.filter(frame => frame.type !== 'resize');
+    // Returning to an already sent size cancels an obsolete queued proposal.
+    if (size.columns === this.sentSize?.columns && size.rows === this.sentSize.rows) return;
     this.queue.push({ type: 'resize', ...size }); this.flush();
   }
   private flush() {
@@ -229,7 +281,10 @@ export class TerminalClient {
       this.queuedBytes -= frame.bytes.length;
       let binary = ''; for (const byte of frame.bytes) binary += String.fromCharCode(byte);
       this.send({ type: 'input', epoch, sequence, data: btoa(binary) });
-    } else this.send({ type: 'resize', epoch, sequence, columns: frame.columns, rows: frame.rows });
+    } else {
+      this.sentSize = { columns: frame.columns, rows: frame.rows };
+      this.send({ type: 'resize', epoch, sequence, columns: frame.columns, rows: frame.rows });
+    }
   }
   private receipt(frame: TerminalFrame) {
     if (frame.viewer_id !== this.viewer) { this.fail('Terminal receipt identity changed.'); return; }
@@ -247,7 +302,7 @@ export class TerminalClient {
     this.flush();
   }
   dispose() {
-    this.active = false; this.clearQueue(); this.pendingFrame = null; this.pendingControl = null; this.acknowledgedEpoch = null;
+    this.active = false; this.clearQueue(); this.clearDisplay(); this.pendingFrame = null; this.pendingControl = null; this.acknowledgedEpoch = null;
     this.socket.onmessage = null; this.socket.onerror = null; this.socket.onclose = null;
     this.socket.close(); this.observer.disconnect(); this.removeHumanInput(); this.terminal.dispose();
   }

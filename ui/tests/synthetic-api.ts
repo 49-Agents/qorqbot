@@ -160,7 +160,7 @@ export class SyntheticAPI {
         publication: this.publication }));
     } else if (name === 'terminal_get') {
       json(200, success(this.terminals.get(args.agent_id) || { agent_id: args.agent_id, recovery_epoch: this.epoch,
-        terminal_id: null, observed_at: null, status: 'disabled', reason: 'not_configured', control: null, recording: null }));
+        terminal_id: null, observed_at: null, status: 'disabled', reason: 'not_configured', control: null, recording: null, dimensions: null }));
     } else if (name === 'messages_send') {
       if (this.refuseSend) { this.refuseSend = false; json(503, { error: { code: 'unavailable', message: 'Transport unavailable' } }); return; }
       if (!args.body || Buffer.byteLength(args.body) > 65536) { error('invalid_argument', 'Message exceeds UTF-8 limit', 400); return; }
