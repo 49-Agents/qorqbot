@@ -753,10 +753,50 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await paste('plain\nlines\té');
   await expect.poll(inputText).toBe('aA\x03\x1b[D\ré🙂日本k\x1b[200~first\rsecond\té\x1b[201~plain\rlines\té');
   await page.screenshot({ path: testInfo.outputPath('terminal-controlled.png'), fullPage: true });
+  // Real keyboard events stay queued behind one receipt, then form one exact
+  // byte batch. Input on the other side of a resize must wait for its receipt.
+  terminal.holdNextInput = true;
+  const beforeBurst = terminal.frames.length;
+  await input.focus(); await page.keyboard.type('b');
+  await expect.poll(() => terminal.frames.length).toBe(beforeBurst + 1);
+  const burstHead = terminal.frames.at(-1)!;
+  expect(burstHead).toMatchObject({ type: 'input', data: Buffer.from('b').toString('base64') });
+  const burst = 'queued human input 0123456789 '.repeat(12);
+  await page.keyboard.type(burst);
+  await page.keyboard.type('é🙂');
+  await page.keyboard.press('Control+c'); await page.keyboard.press('ArrowLeft');
+  terminal.output('\x1b[?2004hBatch paste enabled\r\n');
+  await expect(page.locator('.xterm-screen')).toContainText('Batch paste enabled');
+  await paste('batch\nlines\té');
+  const batchBytes = Buffer.from(burst + 'é🙂\x03\x1b[D\x1b[200~batch\rlines\té\x1b[201~');
+  await page.setViewportSize({ width: 1200, height: 960 });
+  await expect.poll(async () => (await page.locator('.terminal-screen').boundingBox())!.width).toBe(588);
+  await settleViewport();
+  await input.focus(); await page.keyboard.type('after resize');
+  expect(terminal.frames).toHaveLength(beforeBurst + 1);
+  terminal.receipt(burstHead);
+  await expect.poll(() => terminal.frames.length).toBe(beforeBurst + 2);
+  const batch = terminal.frames.at(-1)!;
+  expect(batch).toEqual({ type: 'input', epoch: burstHead.epoch, sequence: burstHead.sequence + 1, data: batchBytes.toString('base64') });
+  terminal.receipt(batch);
+  await expect.poll(() => terminal.frames.length).toBe(beforeBurst + 3);
+  const barrier = terminal.frames.at(-1)!;
+  expect(barrier).toMatchObject({ type: 'resize', epoch: burstHead.epoch, sequence: burstHead.sequence + 2 });
+  terminal.receipt(barrier);
+  await expect.poll(() => terminal.frames.length).toBe(beforeBurst + 4);
+  const afterBarrier = terminal.frames.at(-1)!;
+  expect(afterBarrier).toEqual({ type: 'input', epoch: burstHead.epoch, sequence: burstHead.sequence + 3, data: Buffer.from('after resize').toString('base64') });
+  terminal.receipt(afterBarrier);
+  terminal.output('\x1b[?2004lBatch receipts settled\r\n');
+  await expect(page.locator('.xterm-screen')).toContainText('Batch receipts settled');
+  expect(terminal.frames).toHaveLength(beforeBurst + 4);
+  terminal.autoReceipt = true;
+  await page.setViewportSize({ width: 1441, height: 960 });
+  await expect.poll(() => terminal.frames.length).toBe(beforeBurst + 5);
   // Hold a receipt; at most one frame is sent, with 64 KiB queued and coalesced resize.
+  const beforeQueueInputs = terminal.inputs.length;
   terminal.holdNextInput = true;
   await input.focus(); await page.keyboard.type('x');
-  const beforeQueueInputs = beforeQueries + 1;
   await expect.poll(() => terminal.inputs.length).toBe(beforeQueueInputs + 1);
   const held = terminal.frames.at(-1)!;
   const framesBeforeQueue = terminal.frames.length;
@@ -773,12 +813,10 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await expect.poll(() => terminal.frames.length).toBe(framesBeforeQueue + 1);
   terminal.receipt(terminal.frames.at(-1)!);
   await expect.poll(() => terminal.frames.length).toBe(framesBeforeQueue + 2);
-  terminal.receipt(terminal.frames.at(-1)!);
-  await expect.poll(() => terminal.frames.length).toBe(framesBeforeQueue + 3);
   expect(terminal.frames.at(-1)).toMatchObject({ type: 'resize' });
   terminal.receipt(terminal.frames.at(-1)!);
   expect(inputText().endsWith('x' + 'A'.repeat(32768) + 'B'.repeat(32768))).toBe(true);
-  expect(terminal.inputs.slice(beforeQueueInputs).map(f => Buffer.from(f.data, 'base64').length)).toEqual([1, 32768, 32768]);
+  expect(terminal.inputs.slice(beforeQueueInputs).map(f => Buffer.from(f.data, 'base64').length)).toEqual([1, 65536]);
   for (let i = 1; i < terminal.frames.length; i++) expect(terminal.frames[i].sequence).toBe(terminal.frames[i - 1].sequence + 1);
   terminal.autoReceipt = true;
   await page.getByRole('button', { name: 'Release control', exact: true }).click();
@@ -809,7 +847,7 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await input.focus(); await page.keyboard.type('p');
   await expect.poll(() => terminal.inputs.at(-1)?.data).toBe(Buffer.from('p').toString('base64'));
   const pending = terminal.frames.at(-1)!;
-  await page.keyboard.type('queued');
+  await page.keyboard.type('queued'.repeat(60));
   await cdp.send('Input.imeSetComposition', { text: '旧', selectionStart: 1, selectionEnd: 1 });
   const older = structuredClone(terminal.view);
   await pauseRenderer();
@@ -827,6 +865,7 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   terminal.autoReceipt = true;
   await take();
   expect(terminal.current.messages.filter(m => m.type === 'control').at(-1)).toMatchObject({ expected_epoch: older.control!.epoch + 1 });
+  expect(terminal.inputs.at(-1)?.data).toBe(Buffer.from('p').toString('base64'));
   const beforeOldComposition = terminal.inputs.length;
   // Synthetic late composition-end from the old binding must not revive it.
   await input.dispatchEvent('compositionend', { data: '旧', bubbles: true });

@@ -271,7 +271,25 @@ export class TerminalClient {
   }
   private flush() {
     if (!this.valid() || !this.owned() || this.pendingFrame || !this.queue.length) return;
-    const frame = this.queue.shift()!;
+    let frame = this.queue[0];
+    if (frame.type === 'input') {
+      // Batch only the admitted input prefix. A resize remains an ordered barrier.
+      let count = 0, length = 0;
+      for (const next of this.queue) {
+        if (next.type !== 'input') break;
+        count++; length += next.bytes.length;
+      }
+      if (count > 1) {
+        const bytes = new Uint8Array(length);
+        let offset = 0;
+        for (const next of this.queue) {
+          if (next.type !== 'input') break;
+          bytes.set(next.bytes, offset); offset += next.bytes.length;
+        }
+        frame = { type: 'input', bytes };
+      }
+      this.queue.splice(0, count);
+    } else this.queue.shift();
     const sequence = Math.max(this.lastSequence, this.view.control!.last_sequence) + 1;
     if (!Number.isSafeInteger(sequence)) { this.fail('Terminal sequence limit reached.'); return; }
     this.lastSequence = sequence;
