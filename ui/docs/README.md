@@ -41,4 +41,6 @@ is now accepted; native delivery remains separate.
 
 D47 adds [file-reference cards](FILE-REFERENCE-CARDS.md) from core's accepted
 metadata-only operation. The [runtime inspector](evidence/runtime-inspector-manager-acceptance.md)
-is accepted; card implementation and its real-core check remain pending.
+is accepted. The [file-card implementation](evidence/file-reference-cards-manager-acceptance.md)
+has passed Manager review and desktop/mobile Chrome checks; its real-core/MCP
+publication flow is the next acceptance check.
