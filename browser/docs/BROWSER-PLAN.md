@@ -4,6 +4,10 @@ Status: Planned; moved from the reviewed planning baseline `e7d2b56`. Owns R06/R
 
 Repositories: `qorqut-browser` for its own MCP server and browser mechanisms/tools/setup; `qorqut-core` for application integration and durable coordination. Presentation belongs to `qorqutbot-ui` under M10.
 
+The local effect increment at `a94e537` passed separate review and Manager checks;
+its evidence is [browser-r1.md](evidence/browser-r1.md). The next bounded server
+increment follows [PROTOCOL.md](PROTOCOL.md). The rest of this plan remains pending.
+
 ## Outcome and boundary
 
 Every agent has one persistent headed Chrome profile and application desktop. Browser commands, screenshots/downloads and owner intervention use that exact instance. Login state survives ordinary Chrome/VM restart because its profile is retained. An owner can answer a browser input request without opening a separate browser profile.
