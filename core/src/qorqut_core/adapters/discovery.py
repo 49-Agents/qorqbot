@@ -2,6 +2,8 @@
 
 P06/P11 format knowledge: pinned Qorqut terminal_chat/transcript_snapshot/terminal.
 No cwd ownership check, newest-file choice, snapshot copying, or archive state.
+Proof spans are checked at discovery's final observation boundary only. Later
+ingestion must recheck path identity/provenance and assign its own source epochs.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ ROLLOUT = re.compile(r"rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(" + UUID_PAT
 # A bound raw source remains eligible even when records exceed this metadata scan
 # limit. The recorder, not this module, streams all bytes without a file ceiling.
 METADATA_RECORD_LIMIT = 1024 * 1024
+PROOF_READ_SIZE = 64 * 1024
 
 
 def _records(stream):
@@ -50,6 +53,52 @@ def _records(stream):
 
 def _evidence(kind, offset, raw):
     return SourceEvidence(kind=kind, offset=offset, length=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+
+
+def _observation(info):
+    # Reads may change atime, which is not evidence of a source mutation.
+    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+
+
+def _span_matches(fd, proof):
+    digest = hashlib.sha256()
+    offset, remaining = proof.offset, proof.length
+    while remaining:
+        size = min(remaining, PROOF_READ_SIZE)
+        raw = os.pread(fd, size, offset)
+        if len(raw) != size:
+            return False
+        digest.update(raw)
+        offset += size
+        remaining -= size
+    return digest.hexdigest() == proof.sha256
+
+
+def _validate_source(fd, root, relative, initial, evidence, refs):
+    """One finite fresh-read check on the still-open scanned source, never a freeze."""
+    try:
+        before = os.fstat(fd)
+        if before.st_size < initial.st_size or (
+                before.st_size == initial.st_size and _observation(before) != _observation(initial)):
+            return None
+        for proof in evidence:
+            if not _span_matches(fd, proof):
+                return None
+        for reference in refs:
+            if not _span_matches(fd, reference.record):
+                return None
+        # Traverse the supplied absolute root again without following symlinks.
+        # The reopened path only checks identity; all proof reads use the original
+        # fd, so a replacement (including a replaced root) cannot bless stale data.
+        with ManagedTree(root) as current_home, current_home.open_read(relative) as current:
+            named = os.fstat(current.fileno())
+            same_file = (named.st_dev, named.st_ino) == (before.st_dev, before.st_ino)
+        after = os.fstat(fd)
+        if not same_file or _observation(after) != _observation(before):
+            return None
+        return after
+    except (OSError, AdapterError):
+        return None
 
 
 def _attachments(provider, record):
@@ -155,9 +204,9 @@ def discover(provider: Provider, version: str, roots: ManagedRoots, binding: Nat
                                         location=None if embedded else reference))
                                     if not embedded:
                                         local_gaps.append(DiscoveryGap(code="external_attachment_not_captured", relative_path=relative))
-                        after = os.fstat(stream.fileno())
+                        after = _validate_source(stream.fileno(), roots.home, relative, info, evidence, refs)
                     gaps.extend(local_gaps)
-                    if after.st_size < info.st_size or (after.st_size == info.st_size and after.st_mtime_ns != info.st_mtime_ns):
+                    if after is None:
                         gaps.append(DiscoveryGap(code="source_changed_during_discovery", relative_path=relative))
                         continue
                     if conflict or not evidence:

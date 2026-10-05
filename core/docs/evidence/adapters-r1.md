@@ -14,7 +14,7 @@ recorder integration, merge or deployment was used.
 | Executable version/help | Observed, exit 0 | Observed, exit 0 | Fresh temporary HOME/config roots; no authentication environment inherited |
 | Preparation/preservation | Synthetic checks pass | Synthetic checks pass | Generated JSON/TOML and authored-byte preservation; native loading unverified |
 | Launch/resume arguments | Help surface observed; recipe tested | Help surface observed; recipe tested | No process launch or successful native resume claimed |
-| Owned primary JSONL sources | Synthetic checks pass | Synthetic checks pass, including `_UUID` suffix | Exact supplied native/run binding plus native metadata; cwd/newest ignored |
+| Owned primary JSONL sources | Synthetic checks pass | Synthetic checks pass, including `_UUID` suffix | Exact supplied native/run binding plus native metadata; final proof-span/path revalidation; cwd/newest ignored |
 | Resumed source links | Explicit prior-run link | Explicit prior-run link | Same raw descriptor linked to new run; no copied archive or source ID allocated |
 | Native child associations | Unsupported, explicit gap | Unsupported, explicit gap | Pinned source does not establish a verified child association contract |
 | Attachments | Inline queued-command retained as raw; unknown attachments flagged | Embedded `UserMessage.image_url` reference coordinates; external references flagged unavailable | No attachment extraction, external file access, download or complete-coverage claim |
@@ -196,3 +196,55 @@ child-only check also requires unverified identity without a false conflict.
 passed **23 tests** (2.461 seconds); `git diff --check` passed. All new records are
 synthetic. No native data, model call, child discovery, conversation parser or
 recorder ingestion was introduced. The native capability limits remain unchanged.
+
+## Review revision 3
+
+Manager review message 30 identified stale ownership hashes after a same-inode
+rewrite grew the source following its metadata scan. Parent commit:
+`2522688186a83ed24b025fa904cd0ccbdca07684`. The correction adds one finite final
+validation attempt before closing the scanned file:
+
+- Every returned ownership span and emitted attachment provenance span is read
+  afresh with `os.pread` against the original fd, in chunks of at most 64 KiB.
+  Short reads and SHA-256 mismatches withhold the source and its attachments.
+- `fstat` brackets proof/path validation with device, inode, size, mtime_ns and
+  ctime_ns observations; atime is excluded. A change withholds descriptors with
+  `source_changed_during_discovery`. Existing shrink/same-size-change and native
+  identity conflict checks remain; there is no validation retry or file ceiling.
+- Fresh no-follow traversal from the supplied absolute managed home confirms
+  the path still names the opened device/inode. That separate open checks only
+  identity, never substitutes bytes from a replacement. Root replacement,
+  byte-identical file replacement and symlink substitution are rejected.
+- A genuine append completed before stable validation remains eligible when
+  all returned proof spans still match. This certifies only those observation
+  spans at that boundary, not immutable content or every later native record.
+  Later ingestion must recheck descriptor identity and provenance and apply its
+  own source epochs. No source lock, frozen copy, snapshot or recorder was added.
+
+Focused command:
+
+```sh
+PYTHONPATH=src:tests/adapters .venv/bin/python -m unittest -v test_adapters.DiscoveryTests.test_post_scan_rewrites_withhold_sources_and_attachments test_adapters.DiscoveryTests.test_completed_append_keeps_fresh_bounded_proofs test_adapters.DiscoveryTests.test_mutation_during_fresh_validation_withholds_source test_adapters.DiscoveryTests.test_post_scan_path_replacement_is_not_reopened_as_owned test_adapters.DiscoveryTests.test_attachment_only_growing_rewrite_invalidates_provenance
+```
+
+Result: **5 tests passed** (0.030 seconds). Both providers exercise real synthetic
+file mutations after `_records` exhausts: growing/shrinking/same-size rewrites,
+completed appends and managed file/root/symlink replacements. Mutations during
+fresh reads cover append and truncation/short-read rejection. The ctime-only
+case uses a controlled `fstat` observation after chmod because immediate writes
+and chmod can share a filesystem timestamp; it does not depend on a sleep or
+clock tick. Accepted appends check original fd use, multi-chunk proofs, every
+returned hash, full observed size and bound identity. Codex's embedded and
+external attachment spans are each independently mutated with primary proof
+intact and total size growing; neither source nor attachments survive. Claude
+emits no separate attachment references, so no attachment format was invented
+to test it. All mutations that invalidate returned evidence require the explicit
+source-change gap and empty source/attachment results.
+
+`PYTHONPATH=src .venv/bin/python -m unittest discover -s tests/adapters -v`
+passed **28 tests** (2.508 seconds), including prior mixed-primary/child, large
+metadata, preparation and identity checks. `git diff --check` passed. The local
+versions remain Python 3.12.3, Pydantic 2.13.5 and pydantic-core 2.46.5. No native
+CLI interaction was rerun in this revision; the initial version/help-only
+observations and all native acceptance limitations in the matrix still apply.
+No shared files, contracts, package metadata or source-format coverage changed.

@@ -10,12 +10,14 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
 from qorqut_core.adapters import (AdapterError, ClaudeAdapter, CodexAdapter,
     MCPBinding, ManagedRoots, NativeBinding, PreparationInput, RunBinding)
+from qorqut_core.adapters import discovery
 from qorqut_core.adapters.managed_io import GENERATED_FILE_LIMIT, ManagedTree
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -329,6 +331,189 @@ class LaunchTests(AdapterCase):
 
 
 class DiscoveryTests(AdapterCase):
+    def discover_after_scan(self, adapter, mutate):
+        records = discovery._records
+        scans = 0
+
+        def after_scan(stream):
+            nonlocal scans
+            yield from records(stream)
+            scans += 1
+            mutate(stream)
+
+        with patch.object(discovery, "_records", side_effect=after_scan):
+            result = adapter.discover(self.roots, self.native)
+        self.assertEqual(scans, 1)  # One observation attempt; no retry after a mutation.
+        return result
+
+    def assert_source_changed(self, result, path):
+        self.assertEqual(result.sources, ())
+        self.assertEqual(result.attachments, ())
+        self.assertIn(("source_changed_during_discovery", str(path.relative_to(self.roots.home))),
+            {(gap.code, gap.relative_path) for gap in result.gaps})
+
+    def test_post_scan_rewrites_withhold_sources_and_attachments(self):
+        for adapter in (self.claude, self.codex):
+            original = (FIXTURES / f"{adapter.provider}-owned.jsonl").read_bytes()
+            rewritten = original.replace(str(SESSION).encode(), str(OTHER_SESSION).encode())
+            variants = {"growing": rewritten + b'{"padding":"' + b"x" * 2048 + b'"}\n',
+                "shrinking": rewritten.splitlines(keepends=True)[0], "same_size": rewritten}
+            for name, changed in variants.items():
+                with self.subTest(provider=adapter.provider, mutation=name):
+                    path = self.source(adapter, content=original)
+                    initial = path.stat()
+
+                    def mutate(stream):
+                        self.assertEqual(os.fstat(stream.fileno()).st_ino, initial.st_ino)
+                        path.write_bytes(changed)
+                        # Avoid relying on timestamp resolution/timing for this boundary.
+                        os.utime(path, ns=(initial.st_atime_ns, initial.st_mtime_ns + 1_000_000))
+                        self.assertEqual(path.stat().st_ino, initial.st_ino)
+
+                    self.assert_source_changed(self.discover_after_scan(adapter, mutate), path)
+                    self.assertNotIn(str(SESSION).encode(), path.read_bytes())
+
+    def test_completed_append_keeps_fresh_bounded_proofs(self):
+        for adapter in (self.claude, self.codex):
+            with self.subTest(provider=adapter.provider):
+                original = (FIXTURES / f"{adapter.provider}-owned.jsonl").read_bytes()
+                first, tail = original.split(b"\n", 1)
+                metadata = json.loads(first)
+                metadata["synthetic_padding"] = "p" * (64 * 1024 + 128)
+                original = (json.dumps(metadata) + "\n").encode() + tail
+                path = self.source(adapter, content=original)
+                initial = path.stat()
+                appended = b'{"type":"future-native-record","synthetic_append":true}\n'
+                reads = []
+                pread = os.pread
+                scanned_fd = None
+
+                def append(stream):
+                    nonlocal scanned_fd
+                    scanned_fd = stream.fileno()
+                    with path.open("ab") as output:
+                        output.write(appended)
+
+                def fresh_read(fd, size, offset):
+                    self.assertEqual(fd, scanned_fd)
+                    reads.append((offset, size))
+                    return pread(fd, size, offset)
+
+                with patch.object(discovery.os, "pread", side_effect=fresh_read):
+                    result = self.discover_after_scan(adapter, append)
+                self.assertEqual(len(result.sources), 1)
+                source = result.sources[0]
+                self.assertEqual((source.device, source.inode, source.binding),
+                    (initial.st_dev, initial.st_ino, self.native))
+                self.assertEqual(source.observed_size, len(original) + len(appended))
+                self.assertNotIn("source_changed_during_discovery", {gap.code for gap in result.gaps})
+                self.assertTrue(reads)
+                self.assertTrue(all(0 < size <= 64 * 1024 for _, size in reads))
+                self.assertIn(64 * 1024, [offset for offset, _ in reads])
+                current = path.read_bytes()
+                self.assertEqual(current, original + appended)
+                proofs = (*source.ownership, *(ref.record for ref in result.attachments))
+                self.assertEqual(len(result.attachments), 2 if adapter.provider == "codex" else 0)
+                for proof in proofs:
+                    self.assertEqual(hashlib.sha256(current[proof.offset:proof.offset + proof.length]).hexdigest(), proof.sha256)
+
+    def test_mutation_during_fresh_validation_withholds_source(self):
+        pread, fstat = os.pread, os.fstat
+        for adapter in (self.claude, self.codex):
+            for mutation in ("append", "short_read", "ctime_only"):
+                with self.subTest(provider=adapter.provider, mutation=mutation):
+                    path = self.source(adapter)
+                    calls = 0
+                    scanned_fd = None
+                    changed_ctime = None
+
+                    def scanned(stream):
+                        nonlocal scanned_fd
+                        scanned_fd = stream.fileno()
+
+                    def mutate_during_read(fd, size, offset):
+                        nonlocal calls, changed_ctime
+                        calls += 1
+                        self.assertEqual(fd, scanned_fd)
+                        if calls != 1:
+                            return pread(fd, size, offset)
+                        initial = os.fstat(fd)
+                        if mutation == "short_read":
+                            path.write_bytes(b"{")
+                            return pread(fd, size, offset)
+                        raw = pread(fd, size, offset)
+                        if mutation == "append":
+                            with path.open("ab") as output:
+                                output.write(b'{"synthetic_append_during_validation":true}\n')
+                        else:
+                            # Touch inode metadata only: no size, hash, mtime or
+                            # device/inode change can substitute for checking ctime.
+                            path.chmod(path.stat().st_mode ^ 0o100)
+                            self.assertEqual(os.fstat(fd).st_mtime_ns, initial.st_mtime_ns)
+                            # Supply a distinct ctime observation deterministically;
+                            # immediate chmod/write can share a filesystem clock tick.
+                            changed_ctime = initial.st_ctime_ns + 1_000_000
+                        return raw
+
+                    def observed(fd):
+                        info = fstat(fd)
+                        if fd == scanned_fd and changed_ctime is not None:
+                            fields = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+                            fields["st_ctime_ns"] = changed_ctime
+                            return SimpleNamespace(**fields)
+                        return info
+
+                    with patch.object(discovery.os, "pread", side_effect=mutate_during_read), \
+                            patch.object(discovery.os, "fstat", side_effect=observed):
+                        result = self.discover_after_scan(adapter, scanned)
+                    self.assertGreater(calls, 0)
+                    self.assert_source_changed(result, path)
+
+    def test_post_scan_path_replacement_is_not_reopened_as_owned(self):
+        for adapter in (self.claude, self.codex):
+            for replacement in ("file", "root", "symlink"):
+                with self.subTest(provider=adapter.provider, replacement=replacement):
+                    path = self.source(adapter)
+                    original = path.read_bytes()
+                    initial = path.stat()
+
+                    def replace(stream):
+                        if replacement == "root":
+                            self.roots.home.rename(self.root / (adapter.provider + "-detached-home"))
+                            self.roots.home.mkdir()
+                            self.source(adapter, content=original)
+                        else:
+                            fresh = path.with_suffix(".replacement")
+                            fresh.write_bytes(original)
+                            if replacement == "file":
+                                os.replace(fresh, path)
+                            else:
+                                path.unlink()
+                                path.symlink_to(fresh)
+                        self.assertNotEqual(path.stat().st_ino, initial.st_ino)
+                        self.assertEqual(os.fstat(stream.fileno()).st_ino, initial.st_ino)
+
+                    self.assert_source_changed(self.discover_after_scan(adapter, replace), path)
+                    path.unlink()
+
+    def test_attachment_only_growing_rewrite_invalidates_provenance(self):
+        # Claude currently emits no separate attachment reference spans. Codex's
+        # two supported references are each independently revalidated here.
+        original = (FIXTURES / "codex-owned.jsonl").read_bytes()
+        for old, new in ((b"U1lOVEhFVElD", b"UkVXUklUVEVO"),
+                         (b"do-not-open.png", b"changed-ref.png")):
+            with self.subTest(reference=old):
+                path = self.source(self.codex, content=original)
+                self.assertIn(old, original)
+                changed = original.replace(old, new) + b'{"synthetic_growth":true}\n'
+                self.assertEqual(changed.splitlines()[0], original.splitlines()[0])
+
+                def rewrite(stream):
+                    path.write_bytes(changed)
+                    self.assertEqual(path.stat().st_ino, os.fstat(stream.fileno()).st_ino)
+
+                self.assert_source_changed(self.discover_after_scan(self.codex, rewrite), path)
+
     def test_claude_primary_source_retains_embedded_child_records(self):
         def encoded(record):
             return (json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
