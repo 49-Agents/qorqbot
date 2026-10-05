@@ -379,7 +379,7 @@ export class Store {
     this.pending.set(`send:${id}`, pending);
     await this.mutate(`send:${id}`);
   }
-  async create(args: { display_name: string; icon_key: string; cli: { provider: string; model: string }; start: boolean }) {
+  async create(args: { display_name: string; icon_key: string }) {
     if (this.pending.has('create') || !this.has('agents_create')) return;
     this.pending.set('create', { operation: 'agents_create', args: { ...args, idempotency_key: crypto.randomUUID() }, actor: this.actor, unresolvedAmbiguity: false, state: 'sending' });
     await this.mutate('create');
