@@ -4,6 +4,7 @@ import { Store, type Pending } from './store';
 import { Icon, IconPicker } from './icons';
 import type { Agent, Entry } from './wire';
 import { TerminalPane, TerminalSummary } from './terminal';
+import { collectionReasons, nativeStates, sessionStatus, setupReasons } from './runtime-view';
 import './style.css';
 
 const store = new Store();
@@ -184,14 +185,49 @@ function Chat({ agent }: { agent: Agent }) {
     </div>
   </>;
 }
+function ObservationTime({ value }: { value: string | null }) {
+  return value ? <time dateTime={value} title={value}>{time(value)}</time> : <>No observation time available.</>;
+}
+function RuntimeSummary({ id }: { id: string }) {
+  const supported = store.has('runtime_get');
+  const observation = store.runtimes.get(id);
+  const view = observation?.view, owner = view?.current_owner;
+  const setup = view?.native_setup, capture = view?.native_capture;
+  return <>
+    <section aria-label="Session"><h3>Session</h3>
+      {!supported ? <p className="quiet">Session information is unavailable on this server.</p> : <>
+        {view ? <>
+          <p>Last reported: {sessionStatus[view.status]}</p>
+          <p className="quiet">Observed: <ObservationTime value={view.observed_at} /></p>
+          {owner && <>
+            <dl><dt>Reported provider</dt><dd>{owner.provider === 'claude' ? 'Claude' : 'Codex'}</dd><dt>CLI version</dt><dd>{owner.cli_version}</dd><dt>Connected at</dt><dd><ObservationTime value={owner.connected_at} /></dd></dl>
+            {view.status === 'unknown' && <p className="quiet runtime-note">The last-reported session identity is retained while its connection is unknown.</p>}
+            <details className="runtime-details"><summary>Session details</summary><dl className="identity-details"><dt>Native session ID</dt><dd>{owner.native_session_id}</dd><dt>Run ID</dt><dd>{owner.run_id}</dd><dt>Run generation</dt><dd>{owner.run_generation}</dd></dl></details>
+          </>}
+          {view.status === 'disconnected' && <p className="quiet">Start and manage the CLI manually in Terminal.</p>}
+        </> : observation?.error ? <p role="alert">{observation.error}</p> : !observation?.loading && <p className="quiet">No session observation available.</p>}
+        {observation?.loading && <p className="quiet" role="status">{view ? 'Refreshing last-reported session observation…' : 'Loading session observation…'}</p>}
+        {observation?.error && <button type="button" onClick={() => void store.refreshRuntime(true)}>Retry session information</button>}
+      </>}
+    </section>
+    <section aria-label="Native history"><h3>Native history</h3>
+      {!supported ? <p className="quiet">Native history information is unavailable on this server.</p> : view ? <>
+        <p className="quiet">Last-reported observations{observation?.loading ? ' · refreshing…' : ''}</p>
+        {setup ? <dl><dt>Setup</dt><dd>{nativeStates[setup.state]} · {setupReasons[setup.reason]}</dd><dt>Setup observed</dt><dd><ObservationTime value={setup.observed_at} /></dd></dl> : <p className="quiet">No setup observation available.</p>}
+        {capture ? <dl><dt>Collection</dt><dd>{nativeStates[capture.state]} · {collectionReasons[capture.reason]}</dd><dt>Collection observed</dt><dd><ObservationTime value={capture.observed_at} /></dd><dt>Sources</dt><dd>{capture.source_count.toLocaleString()}</dd><dt>Bytes awaiting archival</dt><dd>{capture.pending_archive_bytes.toLocaleString()}</dd><dt>Bytes awaiting parsing</dt><dd>{capture.pending_parse_bytes.toLocaleString()}</dd></dl> : <p className="quiet">No collection observation available.</p>}
+      </> : <p className="quiet">{observation?.loading ? 'Loading native history observations…' : 'No native history observation available.'}</p>}
+      <p className="quiet runtime-note">Collected native history and Terminal recording are separate. These observations do not confirm Chat delivery or complete history coverage.</p>
+    </section>
+  </>;
+}
 function Inspector({ agent, rename, changeIcon }: { agent: Agent; rename: () => void; changeIcon: () => void }) {
   const publication = store.chat(agent.id)?.publication;
   return <aside className="inspector" aria-label="Agent details">
     <div className="inspector-identity"><Icon name={agent.icon_key} size={30} /><h2>{agent.display_name}</h2><p className="quiet">{agent.kind === 'host' ? 'Host agent' : 'VM agent'} · {agent.lifecycle}</p>
       {store.has('agents_update') && <div className="inline-actions"><button onClick={rename} disabled={store.pending.has(`edit:${agent.id}`)}>Rename</button><button onClick={changeIcon} disabled={store.pending.has(`edit:${agent.id}`)}>Change icon</button></div>}
     </div>
-    <section><h3>Current work</h3><p>{agent.status.text}</p><dl><dt>Activity</dt><dd>{agent.activity}</dd><dt>Attention</dt><dd>{agent.needs_user_input ? 'Needs your input' : 'None reported'}</dd><dt>Status reviewed</dt><dd>{time(agent.status.reviewed_at)}</dd><dt>Activity observed</dt><dd>{time(agent.activity_observed_at)}</dd><dt>Last contact</dt><dd>{time(agent.last_contact_at)}</dd><dt>Capture</dt><dd>{agent.capture_health}</dd></dl></section>
-    <section><h3>Current run</h3><dl><dt>Run</dt><dd>{agent.current_run === null ? 'Unknown' : 'Reported by core'}</dd></dl><p className="quiet">Creating an agent does not start a CLI. You start it manually in Terminal.</p></section>
+    <section><h3>Current work</h3><p>{agent.status.text}</p><dl><dt>Activity</dt><dd>{agent.activity}</dd><dt>Attention</dt><dd>{agent.needs_user_input ? 'Needs your input' : 'None reported'}</dd><dt>Status reviewed</dt><dd>{time(agent.status.reviewed_at)}</dd><dt>Activity observed</dt><dd>{time(agent.activity_observed_at)}</dd><dt>Last contact</dt><dd>{time(agent.last_contact_at)}</dd></dl></section>
+    <RuntimeSummary id={agent.id} />
     <section><h3>Transcript publication</h3>{publication ? <><p>{publication.state === 'current' ? 'Current' : publication.state === 'blocked' ? 'Blocked' : 'Pending'} · {publication.pending_entries} pending entries</p>{publication.error && <p className="error">{publication.error.code}: {publication.error.message}</p>}<p className="quiet">Last saved publication observation.</p></> : <p className="quiet">No publication observation available.</p>}</section>
     <section><h3>Browser</h3><p className="quiet">Unavailable. Browser viewing and control are not connected.</p></section>
     <section><h3>{agent.kind === 'host' ? 'Desktop' : 'Machine'}</h3><p className="quiet">Unavailable. No desktop surface is connected.</p></section>

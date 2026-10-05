@@ -58,6 +58,29 @@ export type SendResult = {
   delivery: Delivery; entries: { entry_id: string; agent_id: string; conversation_id: string; conversation_seq: number }[];
 };
 
+// D42 runtime observations, pinned at core 7a7380a4058551ae1163fd180b35b6b74ec6d43b.
+export type CurrentOwner = {
+  owner_id: string; run_id: string; run_generation: number; conversation_id: string;
+  terminal_id: string; recovery_epoch: string; environment_generation: number; boot_id: string;
+  provider: 'claude' | 'codex'; cli_version: string; native_session_id: string; connected_at: string;
+};
+export type NativeSetupView = {
+  state: 'disabled' | 'waiting' | 'ready' | 'blocked' | 'unknown'; observed_at: string | null;
+  reason: 'not_configured' | 'unsupported_target' | 'waiting_terminal' | 'configuration_installed'
+    | 'setup_unavailable' | 'recovery_review' | 'observation_stale';
+};
+export type NativeCollectionView = {
+  state: 'disabled' | 'waiting' | 'collecting' | 'blocked' | 'gap' | 'unknown'; observed_at: string | null;
+  reason: 'not_configured' | 'unsupported_target' | 'waiting_session' | 'waiting_source' | 'active'
+    | 'collection_blocked' | 'capture_gap' | 'parser_gap' | 'recovery_review' | 'observation_stale';
+  source_count: number; pending_archive_bytes: number; pending_parse_bytes: number;
+};
+export type RuntimeView = {
+  agent_id: string; status: 'disconnected' | 'connected' | 'unknown'; current_owner: CurrentOwner | null;
+  observed_at: string | null; input_ready: false;
+  native_setup: NativeSetupView | null; native_capture: NativeCollectionView | null;
+};
+
 // D38 Terminal protocol 2; geometry contract pinned at 6149b1bd1e82f637e62d9e7e1f5d51ea29b8a8a2.
 export type TerminalControl = { mode: 'unclaimed' | 'human'; epoch: number; viewer_id: string | null; last_sequence: number };
 export type TerminalDimensions = Readonly<{ columns: number; rows: number }>;

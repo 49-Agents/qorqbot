@@ -1,6 +1,8 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import { SyntheticAPI, alpha, beta, owner } from './synthetic-api';
 import { SyntheticTerminal } from './synthetic-terminal';
+import { randomUUID } from 'node:crypto';
+import type { RuntimeView } from '../src/wire';
 
 const test = base.extend<{ api: SyntheticAPI }>({
   api: async ({}, use) => { const api = await new SyntheticAPI().start(); try { await use(api); } finally { await api.close(); } },
@@ -432,6 +434,222 @@ async function terminalTextVisible(page: Page, text: string) {
       && glyphs.top >= bounds.top && glyphs.bottom <= bounds.top + viewport.clientHeight;
   }, text);
 }
+test('synthetic runtime inspector validates session/native observations, fences reads and preserves Terminal/Chat', async ({ page, api }, testInfo) => {
+  test.setTimeout(120000);
+  const terminal = new SyntheticTerminal(api, alpha);
+  await terminal.route(page);
+  api.add(alpha, 'Saved runtime inspector history');
+  const session = page.getByRole('region', { name: 'Session', exact: true });
+  const native = page.getByRole('region', { name: 'Native history', exact: true });
+  const retry = session.getByRole('button', { name: 'Retry session information' });
+  const runtimeURL = '**/api/v1/operations/runtime_get';
+  const poll = () => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  const read = async (action: () => Promise<unknown> = poll) => {
+    const response = page.waitForResponse(r => r.url().endsWith('/operations/runtime_get'));
+    await action(); await (await response).finished();
+    await expect(session.getByRole('status')).toHaveCount(0);
+  };
+  const stamp = '2026-10-08T12:00:00.123456Z';
+  const initial: RuntimeView = { agent_id: alpha, status: 'disconnected', current_owner: null, observed_at: stamp,
+    input_ready: false, native_setup: { state: 'waiting', reason: 'waiting_terminal', observed_at: stamp },
+    native_capture: { state: 'waiting', reason: 'waiting_session', observed_at: stamp, source_count: 0, pending_archive_bytes: 0, pending_parse_bytes: 0 } };
+  const observe = async (view: RuntimeView) => { api.runtimes.set(alpha, view); await read(); };
+  const overflow = async () => {
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await page.getByRole('complementary').evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true);
+  };
+  let schemas = 0;
+  page.on('request', r => { if (r.url().endsWith('/api/v1/schema')) schemas++; });
+
+  await signIn(page, api);
+  await expect(session.getByText('Session information is unavailable on this server.')).toBeVisible();
+  await expect(retry).toHaveCount(0);
+  await expect.poll(() => calls(api, 'events_list').length).toBeGreaterThan(1);
+  expect(calls(api, 'runtime_get')).toHaveLength(0);
+  api.operations.push('runtime_get');
+  await page.reload();
+  await expect(session.getByText('Last reported: No session is connected.')).toBeVisible();
+  await expect(session.getByText('No observation time available.')).toBeVisible();
+  await expect(native.getByText('No setup observation available.')).toBeVisible();
+  await expect(native.getByText('No collection observation available.')).toBeVisible();
+  await expect(session.getByText('Start and manage the CLI manually in Terminal.')).toBeVisible();
+  await message(page).fill('Retained runtime draft');
+  await observe(initial);
+  await expect(native.getByText('Waiting · Waiting for Terminal')).toBeVisible();
+  await expect(native.getByText('Waiting · Waiting for a session')).toBeVisible();
+  await observe({ ...initial, native_capture: { ...initial.native_capture!, reason: 'waiting_source' } });
+  await expect(native.getByText('Waiting · Waiting for a source')).toBeVisible();
+
+  const ownerId = randomUUID();
+  const connected: RuntimeView = { ...initial, status: 'connected', current_owner: {
+    owner_id: ownerId, run_id: ownerId, run_generation: 3, conversation_id: api.agents[0].conversation_id,
+    terminal_id: terminal.view.terminal_id!, recovery_epoch: api.epoch, environment_generation: 1, boot_id: randomUUID(),
+    provider: 'claude', cli_version: '2.1.0 <img src=x onerror="window.injected=true">', native_session_id: randomUUID(), connected_at: '2026-10-08T11:00:00+00:00',
+  }, native_setup: { state: 'ready', reason: 'configuration_installed', observed_at: stamp },
+    native_capture: { state: 'collecting', reason: 'active', observed_at: stamp, source_count: 4, pending_archive_bytes: 1024, pending_parse_bytes: 2048 } };
+  await observe(connected);
+  await expect(session.getByText('Last reported: Session connected.')).toBeVisible();
+  await expect(session.getByText('Claude', { exact: true })).toBeVisible();
+  await expect(session.getByText(connected.current_owner!.cli_version, { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => 'injected' in window)).toBe(false);
+  await expect(session.locator('img')).toHaveCount(0);
+  await expect(session.locator('time').first()).toHaveAttribute('datetime', stamp);
+  await expect(session.locator('time').last()).toHaveAttribute('datetime', connected.current_owner!.connected_at);
+  await expect(native.getByText('Ready · Configuration installed')).toBeVisible();
+  await expect(native.getByText('Collecting · Collection active')).toBeVisible();
+  for (const count of ['4', '1,024', '2,048']) await expect(native.getByText(count, { exact: true })).toBeVisible();
+  await expect(native.locator('time').last()).toHaveAttribute('datetime', stamp);
+  await expect(page.getByRole('complementary').getByText('synthetic-model')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Current run', exact: true })).toHaveCount(0);
+  const work = page.locator('.inspector section').filter({ has: page.getByRole('heading', { name: 'Current work' }) });
+  await expect(work.getByText('Initializing.', { exact: true })).toBeVisible();
+  await expect(work.getByText('unknown', { exact: true })).toBeVisible();
+  await expect(work.getByText('Capture', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Stored · queued · runtime unavailable', { exact: true })).toBeVisible();
+  await expect(session.getByText(ownerId, { exact: true })).toBeHidden();
+  await session.scrollIntoViewIfNeeded(); await overflow();
+  await page.screenshot({ path: testInfo.outputPath('runtime-desktop-connected.png'), fullPage: true });
+  await native.scrollIntoViewIfNeeded(); await overflow();
+  await page.screenshot({ path: testInfo.outputPath('runtime-desktop-native.png'), fullPage: true });
+
+  const unknown: RuntimeView = { ...connected, status: 'unknown',
+    native_setup: { state: 'blocked', reason: 'setup_unavailable', observed_at: stamp },
+    native_capture: { ...connected.native_capture!, state: 'gap', reason: 'parser_gap', pending_archive_bytes: 0, pending_parse_bytes: 0 } };
+  await observe(unknown);
+  await expect(session.getByText('Last reported: Session connection unknown.')).toBeVisible();
+  await expect(session.getByText(/identity is retained/)).toBeVisible();
+  const details = session.locator('summary');
+  await details.focus(); await details.press('Enter');
+  await expect(session.getByText(ownerId, { exact: true })).toBeVisible();
+  await expect(session.getByText(connected.current_owner!.native_session_id, { exact: true })).toBeVisible();
+  await expect(session.getByText('3', { exact: true })).toBeVisible();
+  await expect(native.getByText('Blocked · Setup unavailable')).toBeVisible();
+  await expect(native.getByText('Gap · Parsing gap reported')).toBeVisible();
+  await expect(native.getByText('0', { exact: true })).toHaveCount(2);
+  await expect(native.getByText(/do not confirm Chat delivery or complete history coverage/)).toBeVisible();
+  await details.press('Enter');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Open inspector' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Inspector', exact: true });
+  await session.scrollIntoViewIfNeeded(); await overflow();
+  expect(await drawer.evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('runtime-mobile-session.png'), fullPage: true });
+  await native.scrollIntoViewIfNeeded(); await overflow();
+  await page.screenshot({ path: testInfo.outputPath('runtime-mobile-native-gap.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Close Inspector', exact: true }).click();
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await observe({ ...unknown, native_setup: { state: 'unknown', reason: 'recovery_review', observed_at: null },
+    native_capture: { ...unknown.native_capture!, state: 'blocked', reason: 'collection_blocked' } });
+  await expect(native.getByText('Unknown · Needs recovery review')).toBeVisible();
+  await expect(native.getByText('Blocked · Collection blocked')).toBeVisible();
+  await observe({ ...unknown, native_setup: { state: 'disabled', reason: 'unsupported_target', observed_at: null },
+    native_capture: { ...unknown.native_capture!, state: 'unknown', reason: 'observation_stale' } });
+  await expect(native.getByText('Disabled · Unsupported for this agent')).toBeVisible();
+  await expect(native.getByText('Unknown · Observation is stale')).toBeVisible();
+
+  // Hold a bounded poll. A selected-agent change must abort it and retain the new target.
+  const late = api.hold('runtime_get', args => args.agent_id === alpha);
+  await poll(); await late.seen;
+  await expect(session.getByText('Refreshing last-reported session observation…')).toBeVisible();
+  await expect(session.locator('time').first()).toHaveAttribute('datetime', stamp);
+  await expect(native.getByText('Last-reported observations · refreshing…')).toBeVisible();
+  const cancelled = page.waitForEvent('requestfailed', r => r.url().endsWith('/operations/runtime_get'));
+  await agentButton(page, 'onbash').click(); await cancelled; late.release();
+  await expect(session.getByText('Last reported: No session is connected.')).toBeVisible();
+  await expect(session.getByText('Claude', { exact: true })).toHaveCount(0);
+  await expect(native.getByText('No collection observation available.')).toBeVisible();
+  await expect.poll(() => calls(api, 'runtime_get').at(-1)?.args).toEqual({ agent_id: beta });
+  api.runtimes.set(alpha, connected);
+  await agentButton(page, 'Atlas').click();
+  await expect(message(page)).toHaveValue('Retained runtime draft');
+  await expect(page.getByText('Saved runtime inspector history', { exact: true })).toBeVisible();
+  await expect(session.getByText('Last reported: Session connected.')).toBeVisible();
+  await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+  await expect(page.getByText('View only', { exact: true })).toBeVisible();
+  const live = terminal.current;
+  const connections = terminal.connections.length;
+  await page.route(runtimeURL, route => route.fulfill(transientRefusal), { times: 1 });
+  await read();
+  await expect(session.getByRole('alert')).toHaveText('Session information unavailable. Retry to refresh.');
+  await expect(session.getByText('Claude', { exact: true })).toHaveCount(0);
+  await expect(native.getByText('No native history observation available.')).toBeVisible();
+  // The Retry button replaces an automatic retry already in flight.
+  const automatic = api.hold('runtime_get');
+  await poll(); await automatic.seen;
+  const replaced = page.waitForEvent('requestfailed', r => r.url().endsWith('/operations/runtime_get'));
+  await read(() => retry.click()); await replaced; automatic.release();
+  await expect(session.getByText('Last reported: Session connected.')).toBeVisible();
+  expect(terminal.connections).toHaveLength(connections); expect(live.closed).toBe(false);
+  expect(live.messages).toEqual([]);
+  terminal.output('Runtime retry left Terminal connected');
+  await expect(page.locator('.xterm-screen')).toContainText('Runtime retry left Terminal connected');
+  await expect(page.getByRole('button', { name: 'Terminal', exact: true })).toHaveAttribute('aria-pressed', 'true');
+
+  const invalid = [
+    { ...connected, agent_id: beta },
+    { ...connected, current_owner: { ...connected.current_owner!, conversation_id: api.agents[1].conversation_id } },
+    { ...connected, input_ready: true },
+    { ...connected, status: 'ready' },
+    { ...connected, observed_at: '2026-02-30T12:00:00Z' },
+    { ...connected, observed_at: '2026-10-08T12:00:00-04:00' },
+    { ...connected, current_owner: { ...connected.current_owner!, native_session_id: 'not-a-uuid' } },
+    { ...connected, current_owner: { ...connected.current_owner!, run_generation: 0 } },
+    { ...connected, current_owner: { ...connected.current_owner!, environment_generation: 1.5 } },
+    { ...connected, current_owner: { ...connected.current_owner!, connected_at: null } },
+    { ...connected, native_setup: { ...connected.native_setup!, state: 'collecting' } },
+    { ...connected, native_setup: { ...connected.native_setup!, reason: 'active' } },
+    { ...connected, native_capture: { ...connected.native_capture!, reason: 'setup_unavailable' } },
+    { ...connected, native_capture: { ...connected.native_capture!, source_count: true } },
+    { ...connected, native_capture: { ...connected.native_capture!, pending_archive_bytes: -1 } },
+    { ...connected, native_capture: { ...connected.native_capture!, pending_parse_bytes: Number.MAX_SAFE_INTEGER + 1 } },
+    { ...connected, recovery_epoch: api.epoch },
+  ];
+  for (const data of invalid) {
+    await page.route(runtimeURL, route => route.fulfill({ json: { ok: true, operation_id: null, outcome: 'completed', data, event_seq: null, error: null } }), { times: 1 });
+    await read();
+    await expect(session.getByRole('alert')).toHaveText('Session information unavailable. Retry to refresh.');
+    await expect(session.locator('details')).toHaveCount(0);
+    expect(live.closed).toBe(false);
+  }
+
+  // Let runtime's owner epoch detect recovery while the event poll is held.
+  const events = api.hold('events_list');
+  await poll(); await events.seen;
+  const beforeRecovery = schemas;
+  api.recover(); api.add(alpha, 'Recovered runtime history');
+  terminal.view = { ...terminal.view, recovery_epoch: api.epoch };
+  api.runtimes.set(alpha, { ...connected, current_owner: { ...connected.current_owner!, recovery_epoch: api.epoch, provider: 'codex', cli_version: 'recovered-version' } });
+  await retry.click();
+  await expect.poll(() => schemas).toBe(beforeRecovery + 1);
+  events.release();
+  await expect(session.getByText('recovered-version', { exact: true })).toBeVisible();
+  await expect(session.getByText('Codex', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Terminal', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  await expect(message(page)).toHaveValue('Retained runtime draft');
+  await expect(page.getByText('Recovered runtime history', { exact: true })).toBeVisible();
+  await expect(page.getByText('Saved runtime inspector history', { exact: true })).toHaveCount(0);
+  expect(calls(api, 'messages_send')).toHaveLength(0);
+
+  // A runtime-specific 401 takes the normal expiry path and retains unsent drafts.
+  await page.route(runtimeURL, route => route.fulfill({ status: 401, json: { error: 'authentication_required' } }), { times: 1 });
+  await poll();
+  await expect(page.getByLabel('Console token')).toBeVisible();
+  await expect(page.getByText('Your session expired. Unsent drafts remain on this page.')).toBeVisible();
+  await page.getByLabel('Console token').fill('synthetic-console-token');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(message(page)).toHaveValue('Retained runtime draft');
+  await expect(session.getByText('recovered-version', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('recovered-version');
+  const logoutRead = api.hold('runtime_get');
+  await poll(); await logoutRead.seen;
+  const loggedOut = page.waitForEvent('requestfailed', r => r.url().endsWith('/operations/runtime_get'));
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click(); await loggedOut; logoutRead.release();
+  await expect(page.getByLabel('Console token')).toBeVisible();
+  await expect(session).toHaveCount(0);
+  expect(calls(api, 'runtime_get').every(c => Object.keys(c.args).join() === 'agent_id')).toBe(true);
+});
+
 test('synthetic Terminal views retain Chat drafts/history, report availability and scroll native grids on desktop/mobile', async ({ page, api }, testInfo) => {
   const terminal = new SyntheticTerminal(api);
   terminal.view = { ...terminal.view, dimensions: { columns: 132, rows: 60 } };
