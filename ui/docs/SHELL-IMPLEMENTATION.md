@@ -1,5 +1,12 @@
 # First connected chat interface
 
+The owner agreed D36 on 2026-10-08: manual CLI startup/configuration in Terminal,
+with one logical inbox-owning session and Chat as another view. Read the
+[owning core scope](https://github.com/qorqutbot/qorqut-core/blob/main/docs/TERMINAL-OWNED-SESSIONS.md)
+and [the current UI correction](MANUAL-CREATION.md). Earlier provider/start and
+automatic-switch requirements below are superseded; terminal/browser integration
+still needs its actual backend contract.
+
 Manager design, 2026-10-08. Implements UI.03 using the real core API and the
 visual/interaction direction in UI-PLAN.md. This is a bounded assignment, not
 a deferral of the final browser/machine/file-card scope. Those runtime/card
@@ -64,10 +71,10 @@ Navigation shows icons/names and actual status/activity/attention. Loading,
 empty, offline, unknown and failed states have readable labels. Selecting an
 agent opens its permanent conversation and preserves its in-memory draft/scroll.
 
-Creation dialog: display name, twenty-icon radio picker, Claude/Codex provider,
-model initialized from core defaults, and explicit start choice defaulting
-true. Use `agents_create` exactly; show authoritative errors. Accepted creation
-shows provisioning, never running. Do not add resource/persona editors yet.
+Creation dialog: display name and twenty-icon radio picker only. Send no
+provider/model/start selections; the user configures and starts the CLI in
+Terminal. Accepted creation shows provisioning, never running. Follow
+[MANUAL-CREATION.md](MANUAL-CREATION.md) for the D36 correction.
 
 Double-click a name to rename; provide a keyboard/touch Rename action. Enter
 submits revision-checked `agents_update`; Escape and blur cancel. A conflict
@@ -90,10 +97,10 @@ Retry. A confirmed saved send clears only the submitted draft, preserving text
 typed afterward. Agent switches cannot redirect a late mutation result.
 
 Inspector collapses without navigation. Show actual work/status, freshness,
-CLI config and `conversation_list.publication` lag/error. Browser, Machine and
+observed run availability and `conversation_list.publication` lag/error. Browser, Machine and
 Terminal sections may show a plain unavailable explanation while their APIs
-are absent. No clickable fake controls or hardcoded stream addresses. Provider
-switching, native replies, browser/file cards remain required later work.
+are absent. No clickable fake controls or hardcoded stream addresses. Native replies, terminal view and browser/file cards remain required later work.
+Provider changes are user actions in Terminal.
 
 ## Direct browser checks
 

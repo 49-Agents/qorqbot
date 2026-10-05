@@ -1,5 +1,12 @@
 # Chat workspace and agent presentation
 
+The owner agreed D36 on 2026-10-08: manual CLI startup/configuration in Terminal,
+with one logical inbox-owning session and Chat as another view. Read the
+[owning core scope](https://github.com/qorqutbot/qorqut-core/blob/main/docs/TERMINAL-OWNED-SESSIONS.md)
+and [the current UI correction](MANUAL-CREATION.md). Earlier provider/start and
+automatic-switch requirements below are superseded; terminal/browser integration
+still needs its actual backend contract.
+
 Status: planned, incorporating the owner's 2026-10-07 UI direction. This is a specification update, not a built interface. Reference images will refine spacing, proportions and icon artwork later. The backend-first delivery order remains; the first UI now has a concrete single-page chat scope.
 
 Repository: **`qorqutbot-ui`**. This frontend consumes `qorqut-core` HTTP operations, events and WebSocket streams. Core owns all application coordination/configuration, durable requests, conversation records and desired control state. `qorqut-browser` has its own MCP server and local input arbitration, connected to core through a handoff/control API; UI never calls private browser/runner/CDP/VNC endpoints directly. Settings forms, when needed, edit core through its API. Drafts, selection and collapsed panes are UI state. Build independently and serve static assets under the same origin as core through a proxy or optional static mount. Core remains usable without this UI.

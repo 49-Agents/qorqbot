@@ -1,5 +1,12 @@
 # Documentation index
 
+The owner agreed D36 on 2026-10-08: manual CLI startup/configuration in Terminal,
+with one logical inbox-owning session and Chat as another view. Read the
+[owning core scope](https://github.com/qorqutbot/qorqut-core/blob/main/docs/TERMINAL-OWNED-SESSIONS.md)
+and [the current UI correction](MANUAL-CREATION.md). Earlier provider/start and
+automatic-switch requirements below are superseded; terminal/browser integration
+still needs its actual backend contract.
+
 Authoritative plans now follow the three repositories:
 
 - [Core documentation](https://github.com/qorqutbot/qorqut-core/blob/main/docs/README.md): global implementation plan, architecture, contracts, decisions, porting, acceptance and core modules.
