@@ -1,0 +1,8 @@
+# Python 3.12: runtime and build distributions used by the focused suite.
+annotated-types==0.8.0
+pydantic==2.12.3
+pydantic_core==2.41.4
+typing_extensions==4.16.0
+typing-inspection==0.4.4
+setuptools==80.9.0
+wheel==0.45.1
