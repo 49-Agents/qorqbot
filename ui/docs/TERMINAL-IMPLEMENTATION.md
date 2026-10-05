@@ -1,0 +1,144 @@
+# Chat and real Terminal views
+
+Manager decision D38, 2026-10-08. Implement against
+[core's Terminal server contract](https://github.com/qorqutbot/qorqut-core/blob/main/docs/TERMINAL-SERVER.md).
+The worker handoff pins its exact revision and includes the full protocol.
+Core and UI build independently; synthetic browser checks are followed by an
+actual compiled-UI/installed-core check after both source reviews.
+
+The owner creates an agent, opens Terminal and starts/configures a CLI there.
+Switching views must never start or stop a shell or CLI. This increment makes
+the existing recorded onbash shell usable; native startup/inbox connection,
+assistant capture and Chat dispatch are subsequent backend work. Preserve honest
+disconnected Chat/runtime status and the existing durable drafts and messages.
+
+## Presentation and discovery
+
+Add Chat and Terminal view buttons to the selected agent's center-column header,
+with the selected state and accessible names. Remember the choice per agent in
+the current client session. Preserve the three-column monochrome layout and
+mobile navigation. Keep the inspector's browser/machine surfaces separate.
+No provider/model/effort/start selector or automatic CLI command is introduced.
+
+Discover `terminal_get` through the existing schema capabilities. Poll the
+selected agent's observation with the same lifecycle/cancellation protections
+as the current store. This operation returns a cached core observation, never
+starts a terminal, and is also used while Chat is visible for the inspector.
+The operation is additive: old backends continue to show Terminal unavailable.
+Core supports only reserved onbash in this increment; use its returned state
+for other agents, never infer host execution from display name or kind.
+
+The public view contains agent/recovery IDs, nullable terminal ID and timestamp,
+`status`, bounded `reason`, nullable `control`, and nullable `recording`. Render
+disabled, waiting workspace, unsupported target, stopped and unavailable as
+plain status text with a manual Retry action where a fresh read is useful. An
+available view can open its stream. Display local recording health accurately;
+its byte count is not complete native history or proof of host archival.
+Do not expose paths, tokens, fingerprints or architecture details in this flow.
+
+Use `@xterm/xterm==6.0.0` and `@xterm/addon-fit==0.11.0`, with exact package.json
+pins and lockfile integrity. Import their assets into the existing Vite build;
+no CDN, alternative terminal, URL-opening addon or new application framework.
+Use a minimal monochrome theme and the existing monospace fonts. Resize the
+renderer to its container, including narrow screens and inspector toggles.
+Core permits runtime inline styles for this renderer while keeping script CSP.
+
+## Connection and explicit control
+
+When Terminal is selected and core reports available, connect to same-origin
+`/api/v1/terminal/<agent UUID>` using the existing HttpOnly session cookie.
+Derive `ws:` or `wss:` from the page origin; no credential/query-string tokens.
+Opening a viewer must not call ensure/start or acquire control. The first text
+message is protocol-1 `hello`, including server-assigned viewer UUID and terminal
+binding. Binary messages are terminal output: pass Uint8Array chunks to xterm
+without independently decoding split UTF-8. Strictly validate server text
+messages and binding IDs before applying state or enabling input.
+
+Initially show **View only** and **Take control**. That button sends the frozen
+`control/take` message with the observed epoch. Only its successful server reply
+enables keyboard/paste and resize input for this exact viewer. Show **Release
+control** while owned. Release/takeover is explicit; view changes, close,
+disconnect, logout and inactivity do not release the durable hold. Another
+viewer can take control with the current expected epoch. A stale failed take
+refreshes state and lets the user decide; do not retry it automatically.
+
+State messages and frame receipts may follow a newer control reply. Within the
+same terminal/recovery binding, never regress the accepted control epoch or
+last sequence. A newer owner immediately disables local input. A changed
+binding, lost session or closed connection invalidates that connection's
+callbacks/queued input before any replacement viewer can be established.
+
+Changing agent or returning to Chat disposes the viewer/xterm handlers and closes
+its WebSocket, preserving the shell and hold. Chat drafts/cursors stay in the
+existing store. On connection loss show a reconnect action; reconnect creates a
+new read-only viewer. Never resend an input/resize/control frame, automatically
+take over the old viewer, or claim that unacknowledged text was processed.
+
+## Human input and bounded delivery
+
+Only actual DOM keyboard/input/composition/paste interactions inside the terminal
+may produce pane-input frames. xterm's output parser can emit `onData` protocol
+replies; those are not human input. Scope ordinary `onData` admission to the
+synchronous DOM keyboard/input/paste dispatch: use capture listeners on the
+terminal element, clear admission at the following microtask, and require the
+acknowledged current control binding. While an IME composition is active, ignore
+ordinary `onData`; on the user's `compositionend`, queue its completed `data`
+once through the same controlled input path. Ignore canceled/empty compositions
+and composition input events, including xterm's later asynchronous composition
+emission. Clear composition state on control or connection loss. Do not add a
+timing grace window that could admit output-parser replies. Use only public
+xterm/DOM APIs, and verify ordinary keys, Unicode composition and paste with the
+pinned library. If that concrete event contract cannot be implemented, report
+the observed behavior to Manager; do not filter escape strings heuristically.
+
+Encode admitted terminal data to exact UTF-8 and strict base64 for `input`.
+Preserve xterm's user keyboard/paste framing without additional newline
+conversion or implicit Enter. Never read the clipboard automatically. Reject a paste larger
+than 64 KiB before accepting any of it and show a concise explanation. Ordinary
+control keys and multiline text are deliberate user terminal input; do not apply
+the automated Chat-message sanitizer to them.
+
+Use one ordered input/resize sequence per acknowledged control epoch. Send at
+most one such frame awaiting its receipt; bound queued UTF-8 input to 64 KiB.
+Coalesce unsent resize events to the latest valid dimensions, and assign each
+sequence only once when sending. If the input queue would overflow, stop
+accepting additional input and show that it was not sent; never silently drop
+or automatically replay it. Existing admitted input can finish normally.
+Only a controlling viewer sends resize; fitting a read-only renderer changes
+its local layout only. Start from the last sequence in the control receipt.
+
+An uncertain receipt, lost connection or rejected frame stops input and clears
+unsent input with an explicit warning that earlier input may have arrived.
+Require an explicit reconnect/control decision before resuming. A `submitted`
+receipt is only transport acceptance, not agent execution. Do not automatically
+queue user keystrokes while disconnected or without control.
+
+The terminal output is a bounded live view, not a second archive. Use bounded
+xterm scrollback (2,000 lines). Track outstanding bytes queued to `terminal.write`
+and decrement in its completion callback; if they exceed 1 MiB, close the viewer
+and offer reconnect instead of growing browser memory indefinitely. Core
+continues recording and reconnect supplies the current display. Handle server
+state/error/close messages without rendering arbitrary exception text as HTML.
+
+## Ownership and checks
+
+UI builder owns a small Terminal component/client, the necessary store/types/
+header/inspector changes, CSS, dependency lock and focused browser checks. It
+does not change core contracts or introduce durable UI storage/business rules.
+Preserve current creation, rename/icon, mutation recovery, login and chat tests.
+
+Extend the existing browser checks with two grouped flows using Playwright's
+WebSocket routing and the existing synthetic API: view switching/draft
+retention/disabled states and responsive layout; protocol/control/typed input,
+Unicode/paste/resize, takeover, stale messages, loss/reconnect and no replay.
+Include an output-only terminal device-query sequence while control is owned
+and assert that it sends no input. Exercise queue/output limits in these groups,
+without creating a redundant per-message test matrix. Keep synthetic evidence
+explicit; it cannot prove a real shell, recorder or backend accepts the frames.
+
+Run the locked build and owning Chrome checks, inspect desktop and mobile
+screenshots directly, and record results/limitations in
+`docs/evidence/terminal-ui-r1.md`. Use fresh disposable profiles and synthetic
+data, no owner browser or credentials. No external QA service, native/provider
+call, usage example or deployment. Commit/push only the assigned branch, stop
+edits and receive a fresh independent Astra MAX review before integration.

@@ -21,6 +21,8 @@ Authoritative plans now follow the three repositories:
 - [Manual creation acceptance](evidence/manual-creation-manager-acceptance.md):
   identity-only creation against the actual schema-6 core, with normal restart
   and automatic dated publication.
+- [Terminal implementation](TERMINAL-IMPLEMENTATION.md): the next parallel UI
+  build, using core's actual recorded-shell protocol and explicit human control.
 
 Original planning baseline: `codex/chat-ui-plan`, `e7d2b56`. Acceptance is bounded
 to the evidence above; native replies, runtime and browser/file cards remain pending.
