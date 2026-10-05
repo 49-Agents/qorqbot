@@ -226,10 +226,24 @@ export class Store {
       }
     }
     this.selected = selection;
+    this.phase = 'checking';
     this.connection = 'Refreshing after server recovery';
     this.emit();
     // Fresh discovery invalidates every server-derived row and cursor; drafts stay in memory.
-    await this.connected({ authenticated: true, actor_id: this.actor, api_version: 1 }, nextGeneration);
+    try {
+      await this.connected({ authenticated: true, actor_id: this.actor, api_version: 1 }, nextGeneration);
+    } catch (error) {
+      // Both recovery entry paths share the generation that owns discovery and its failures.
+      if (nextGeneration !== this.generation) return;
+      const err = failure(error);
+      if (err.status === 401) this.expire();
+      else {
+        clearTimeout(this.timer);
+        this.phase = 'error'; this.connection = 'Offline'; this.error = err.message;
+        this.directoryLoading = false;
+        this.emit();
+      }
+    }
   }
   private schedule(delay = 2000) {
     clearTimeout(this.timer);
@@ -249,7 +263,7 @@ export class Store {
         }, controller.signal);
         if (gen !== this.generation || controller.signal.aborted) return;
         if (this.epoch && page.recovery_epoch !== this.epoch) throw new ApiError('target_changed', 'Server recovery epoch changed.');
-        this.epoch = page.recovery_epoch; this.eventSeq = page.next_after_seq;
+        this.epoch = page.recovery_epoch;
         if (page.items.length) {
           if (page.items.some(e => e.kind.startsWith('config.')) && this.has('config_get')) {
             const config = await operation<Config>('config_get', {}, controller.signal);
@@ -259,10 +273,13 @@ export class Store {
           }
           await this.loadDirectory(controller.signal, gen);
         }
+        if (gen !== this.generation || controller.signal.aborted) return;
+        // A failed invalidation read must leave the event available for the next bounded poll.
+        this.eventSeq = page.next_after_seq;
       }
-      if (gen !== this.generation) return;
+      if (gen !== this.generation || controller.signal.aborted) return;
       await this.refreshConversation('refresh');
-      if (gen !== this.generation) return;
+      if (gen !== this.generation || controller.signal.aborted) return;
       if (this.chats.get(this.selected)?.error) {
         this.connection = 'Offline'; this.pollFailures++;
       } else {
@@ -272,13 +289,8 @@ export class Store {
       if (gen !== this.generation || controller.signal.aborted) return;
       const err = failure(e);
       if (err.status === 401) this.expire();
-      else if (err.code === 'target_changed') {
-        try { await this.recover(gen); } catch (recoveryError) {
-          const err = failure(recoveryError);
-          if (err.status === 401) this.expire();
-          else { this.connection = 'Offline'; this.error = err.message; this.pollFailures++; }
-        }
-      } else { this.connection = 'Offline'; this.error = err.message; this.pollFailures++; }
+      else if (err.code === 'target_changed') await this.recover(gen);
+      else { this.connection = 'Offline'; this.error = err.message; this.pollFailures++; }
     } finally {
       this.reads.delete(controller); this.pollBusy = false; this.emit();
       this.schedule(Math.min(30000, 2000 * 2 ** this.pollFailures));
@@ -342,16 +354,7 @@ export class Store {
       else if (err.code === 'target_changed') {
         // Let the one poll loop own recovery so concurrent reads cannot restart it twice.
         this.eventSeq = 0; this.schedule(0); chat.error = 'Server recovery detected. Refreshing conversation.';
-        if (!this.has('events_list')) {
-          try { await this.recover(gen); }
-          catch (recoveryError) {
-            // Recovery itself can fail during discovery/config reads. Keep it a visible, retryable connection error.
-            if (this.generation !== gen + 1) return;
-            const refreshError = failure(recoveryError);
-            if (refreshError.status === 401) this.expire();
-            else { this.phase = 'error'; this.connection = 'Offline'; this.error = refreshError.message; }
-          }
-        }
+        if (!this.has('events_list')) await this.recover(gen);
       } else { chat.error = err.message; this.connection = 'Offline'; }
     } finally {
       this.reads.delete(controller);

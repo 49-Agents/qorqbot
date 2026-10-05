@@ -8,6 +8,20 @@ No moving builder checkout was used. This evidence is committed together with
 the implementation; the completion envelope records the full delivery commit,
 post-commit clean status and confirmed push result.
 
+Revision 2 responds to `MANAGER_REVIEW` message 126 against candidate
+`62dd56b373317ac833e5c134e1f02e96ba9b96ba`. The three confirmed defects are
+corrected within the existing shell:
+
+- Both recovery entry paths now share a generation-guarded discovery failure
+  handler. Failure enters `error` / `Offline` with Retry connection and stops
+  normal polling. Same-page retry preserves drafts and original mutation keys.
+- Event cursor advancement waits for the required config and directory reads
+  to succeed in the same generation with an unaborted request. A failed read
+  retains its event for the bounded poll/backoff to retry without another event.
+- Unselected agent rows show their own pending edit, conflict, attempted text
+  and reapply actions. Selected-agent feedback stays in the chat. Wrapped row
+  actions remain usable in the mobile drawer without changing the active chat.
+
 Implemented the Manager's `SHELL-IMPLEMENTATION.md` scope: same-origin session
 and discovered API client; paginated agent directory; twenty original local
 SVG icons; creation and revision-checked presentation edits; responsive three
@@ -33,20 +47,26 @@ npm install --ignore-scripts --no-audit --no-fund
 npm ci --ignore-scripts --no-audit --no-fund
 npm ls --depth=0
 npm run build
-QORQUT_UI_TEST_ARTIFACTS=/home/alp/.local/state/qorqut-builds/01a116b0-8d6d-72f2-9da9-76bd2e898f04/ui-shell-r1/browser-verified TMPDIR=/tmp npm test
-QORQUT_UI_TEST_ARTIFACTS=/home/alp/.local/state/qorqut-builds/01a116b0-8d6d-72f2-9da9-76bd2e898f04/ui-shell-r1/browser-recovery-check TMPDIR=/tmp npm test -- --grep 'session lifecycle'
+QORQUT_UI_TEST_ARTIFACTS=/home/alp/.local/state/qorqut-builds/01a116b0-8d6d-72f2-9da9-76bd2e898f04/ui-shell-r1/revision-2-browser TMPDIR=/tmp npm test
 git diff --check
 ```
 
 - Clean lock installation and dependency inventory passed. `npm run build`
   includes strict `tsc --noEmit` over source/tests and a production Vite build.
-  Final build passed: `dist/index.html`, one CSS asset (10.31 kB), one JS asset
-  (47.99 kB; 16.48 kB gzip). No synthetic token/model/API fixture strings were
+  Final revision build passed: `dist/index.html`, one CSS asset (10.59 kB), one JS asset
+  (48.09 kB; 16.48 kB gzip). No synthetic token/model/API fixture strings were
   found in the production bundle.
-- Full focused Chrome suite: **6 passed in 20.4 seconds**. A final narrow change
-  catches discovery failure during recovery on a server without `events_list`.
-  The rebuilt source and expanded owning session test passed: **1 passed in
-  7.9 seconds**. The other five scenarios were not needlessly repeated.
+- Final strict build and grouped Chrome suite each ran once after the revision:
+  **6 passed in 39.0 seconds**. Regressions are folded into the existing session,
+  creation and history cases; no component test matrix was added.
+- Review regressions: a one-time schema refusal after epoch change keeps Retry
+  visible through the old backoff interval and issues no further operations
+  until manual reconnect; the original draft and exact uncertain mutation
+  arguments/key survive. A one-time event-driven directory refusal retries
+  from the uncommitted cursor and refreshes the authoritative name without a
+  new event. An unselected rename conflict immediately shows its attempted text
+  and reapply action on desktop and mobile; keyboard reapply uses a fresh key
+  and current revision while preserving the selected chat and draft.
 - Sessions: sign-in, cookie attributes, expiry with retained drafts, explicit
   logout clearing private state, reload without drafts, version refusal,
   missing controls for absent capabilities, failed recovery and manual reconnect.
@@ -81,9 +101,12 @@ browser installation, owner profile or live installation was used.
 
 Artifact root:
 `/home/alp/.local/state/qorqut-builds/01a116b0-8d6d-72f2-9da9-76bd2e898f04/ui-shell-r1/`.
-Final logs are `build-final.log`, `browser-verified.log`, and
-`browser-recovery-check.log`. Earlier failure artifacts remain in the same
-private root, outside Git.
+Final revision logs are `revision-2-build.log` and `revision-2-browser.log`.
+Initial candidate logs (`build-final.log`, `browser-verified.log` and
+`browser-recovery-check.log`) and earlier failures remain in the same private
+root, outside Git. The original candidate had six passing grouped tests plus a
+passing narrow recovery test; independent review identified the additional
+cases now covered by the revision regressions.
 
 Visually inspected `desktop.png` (1440×960), `mobile.png` (390×844), and
 `mobile-inspector.png` under
@@ -93,13 +116,21 @@ legible messages, usable composer, thin dividers and contained drawers matched
 the supplied direction. Replaced the mobile menu font glyph with a local SVG
 after screenshot inspection. Screenshots contain synthetic records only.
 
+Revision inspection: `desktop-row-conflict.png` (1440×960) and
+`mobile-row-conflict.png` (390×844), in
+`revision-2-browser/shell-creation-and-fixed-i-adfdb-ation-and-revision-conflict/`,
+show the unselected row's complete attempted text and wrapped reapply/dismiss
+controls, without horizontal overflow or a conversation switch. Existing
+desktop/mobile shell and inspector screenshots were also regenerated by the
+same final suite under `revision-2-browser/`.
+
 Final build SHA-256 values:
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `dist/index.html` | `0dbdea0d728bb43c91ca50209118bcde55f899a1b5449663cee2d643b0b2a0b9` |
-| `dist/assets/index-C9C6cyCp.js` | `1a021f1559eb84043de354b098a4883e4fca3ecaa6b79d4604b945e6edb45734` |
-| `dist/assets/index-D_PA1Nhe.css` | `4609b50c3c5eb28fd3f25edc340da23b42148ca28fa00444b4b890dab00eef56` |
+| `dist/index.html` | `d01e622e9a8919f968b3e8608b54f0a1cc65d350f3f76ab561c54951b34c165c` |
+| `dist/assets/index-1eXot0bS.js` | `f0b4a52949c2894399259442f14b37b9776ca8d5c90a4614dc7237c37a02ce57` |
+| `dist/assets/index-UG1v5Rja.css` | `05ce6fec2a63ed77f26e7cd0404b8993277409385f4ca37a4c24abe4317ce773` |
 
 ## Coverage boundary
 

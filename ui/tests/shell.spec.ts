@@ -19,6 +19,7 @@ async function signIn(page: Page, api: SyntheticAPI) {
 const message = (page: Page) => page.getByRole('textbox', { name: /^Message / });
 const agentButton = (page: Page, name: string) => page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: new RegExp(`^${name} Initializing`) });
 const calls = (api: SyntheticAPI, name: string) => api.calls.filter(c => c.name === name);
+const transientRefusal = { status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'unavailable', message: 'Synthetic transient refusal' } }) };
 
 test('session lifecycle, expired drafts, incompatible version and absent capabilities', async ({ page, api, context }) => {
   await signIn(page, api);
@@ -41,6 +42,32 @@ test('session lifecycle, expired drafts, incompatible version and absent capabil
   await message(page).fill('Not persistent');
   await page.reload();
   await expect(message(page)).toHaveValue('');
+  api.dropSend = true;
+  await message(page).fill('Original pending request');
+  await message(page).press('Enter');
+  await expect(page.getByText(/Confirmation uncertain/)).toBeVisible();
+  const originalRequest = calls(api, 'messages_send').at(-1)!.args;
+  await message(page).fill('Draft during recovery');
+  let schemaRequests = 0;
+  await page.route('**/api/v1/schema', route => ++schemaRequests === 1 ? route.fulfill(transientRefusal) : route.continue());
+  api.recover();
+  await expect(page.getByRole('button', { name: 'Retry connection' })).toBeVisible();
+  await expect(page.getByText('Request refused (HTTP 503).', { exact: true })).toBeVisible();
+  const stoppedAt = api.calls.length;
+  // Cover the old failed-recovery backoff interval: capability-empty polls must not restart.
+  await page.waitForTimeout(4300);
+  await expect(page.getByRole('button', { name: 'Retry connection' })).toBeVisible();
+  expect(schemaRequests).toBe(1);
+  expect(api.calls).toHaveLength(stoppedAt);
+  await page.getByRole('button', { name: 'Retry connection' }).click();
+  await expect(message(page)).toHaveValue('Draft during recovery');
+  expect(schemaRequests).toBe(2);
+  expect(calls(api, 'messages_send')).toHaveLength(1);
+  await page.getByRole('button', { name: 'Retry original request' }).click();
+  await expect(page.getByRole('button', { name: 'Retry original request' })).toHaveCount(0);
+  await expect(message(page)).toHaveValue('Draft during recovery');
+  expect(calls(api, 'messages_send').at(-1)!.args).toEqual(originalRequest);
+  await page.unroute('**/api/v1/schema');
   api.version = 2;
   await page.reload();
   await expect(page.getByText('Incompatible API version. This interface requires version 1.')).toBeVisible();
@@ -62,7 +89,7 @@ test('session lifecycle, expired drafts, incompatible version and absent capabil
   await expect(message(page)).toHaveValue('Retain after failed recovery');
 });
 
-test('creation and fixed icons, duplicate names, rename cancellation and revision conflict', async ({ page, api }) => {
+test('creation and fixed icons, duplicate names, rename cancellation and revision conflict', async ({ page, api }, testInfo) => {
   await signIn(page, api);
   await page.getByRole('button', { name: 'Create agent', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Create agent' });
@@ -112,6 +139,41 @@ test('creation and fixed icons, duplicate names, rename cancellation and revisio
   rename = page.getByRole('textbox', { name: 'Rename Attempted name' });
   await rename.fill('Keyboard rename'); await rename.press('Enter');
   await expect(page.getByRole('heading', { name: 'Keyboard rename', exact: true }).first()).toBeVisible();
+
+  const priorUpdates = calls(api, 'agents_update').length;
+  await message(page).fill('Keep this active draft');
+  api.conflictUpdate = true;
+  await page.getByRole('button', { name: 'Rename onbash', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Rename onbash', exact: true }).fill('Background agent');
+  await page.getByRole('textbox', { name: 'Rename onbash', exact: true }).press('Enter');
+  const attemptedText = 'Attempted name: “Background agent”.';
+  await expect(page.getByRole('navigation').getByText(attemptedText, { exact: true })).toBeVisible();
+  await expect(page.getByText(attemptedText, { exact: true })).toHaveCount(1);
+  await expect(agentButton(page, 'Changed elsewhere')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.conversation-title h1')).toHaveText('Keyboard rename');
+  await expect(message(page)).toHaveValue('Keep this active draft');
+  await page.screenshot({ path: testInfo.outputPath('desktop-row-conflict.png'), fullPage: true });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Open agents' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Agents', exact: true });
+  await expect(drawer.getByText(attemptedText, { exact: true })).toBeVisible();
+  const reapply = drawer.getByRole('button', { name: 'Apply attempted change to current revision' });
+  await reapply.focus();
+  await expect(reapply).toBeFocused();
+  expect(await drawer.evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('mobile-row-conflict.png'), fullPage: true });
+  await reapply.press('Enter');
+  await expect(drawer.getByText(attemptedText, { exact: true })).toHaveCount(0);
+  await expect(agentButton(page, 'Background agent')).toHaveAttribute('aria-pressed', 'false');
+  const backgroundUpdates = calls(api, 'agents_update').slice(priorUpdates);
+  expect(backgroundUpdates).toHaveLength(2);
+  expect(backgroundUpdates[0].args).toMatchObject({ agent_id: beta, expected_revision: 1, display_name: 'Background agent' });
+  expect(backgroundUpdates[1].args).toMatchObject({ agent_id: beta, expected_revision: 2, display_name: 'Background agent' });
+  expect(backgroundUpdates[0].args.idempotency_key).not.toBe(backgroundUpdates[1].args.idempotency_key);
+  await page.getByRole('button', { name: 'Close Agents', exact: true }).click();
+  await expect(page.locator('.conversation-title h1')).toHaveText('Keyboard rename');
+  await expect(message(page)).toHaveValue('Keep this active draft');
 });
 
 test('selection and late reads/mutations retain each draft and original target', async ({ page, api }) => {
@@ -195,6 +257,23 @@ test('history paging anchors, equal text, quiet handling refresh and recovery', 
   await signIn(page, api);
   await expect(page.locator('.entry')).toHaveCount(50);
   await expect(page.getByText('Equal text', { exact: true })).toHaveCount(2);
+  const beforeEventSeq = api.events.length;
+  await expect.poll(() => calls(api, 'events_list').some(c => c.args.after_seq === beforeEventSeq)).toBeTruthy();
+  let directoryRequests = 0;
+  await page.route('**/api/v1/operations/agents_list', route => ++directoryRequests === 1 ? route.fulfill(transientRefusal) : route.continue());
+  const backgroundAgent = api.agents.find(a => a.id === beta)!;
+  backgroundAgent.display_name = 'Background renamed'; backgroundAgent.revision++;
+  api.event('agent.presentation_changed', beta);
+  await expect(page.getByText('Request refused (HTTP 503).', { exact: true })).toBeVisible();
+  await expect(page.locator('.connection')).toHaveText('Offline');
+  await expect(agentButton(page, 'onbash')).toBeVisible();
+  await expect(agentButton(page, 'Background renamed')).toBeVisible();
+  await expect(page.locator('.connection')).toHaveText('Connected');
+  await expect(page.getByText('Request refused (HTTP 503).', { exact: true })).toHaveCount(0);
+  expect(api.events).toHaveLength(beforeEventSeq + 1);
+  expect(directoryRequests).toBeGreaterThan(1);
+  expect(calls(api, 'events_list').filter(c => c.args.after_seq === beforeEventSeq).length).toBeGreaterThanOrEqual(3);
+  await page.unroute('**/api/v1/operations/agents_list');
   const history = page.getByLabel('Conversation with Atlas');
   await history.evaluate(e => { e.scrollTop = 0; });
   const anchor = page.locator('.entry').first(); const anchorId = await anchor.getAttribute('data-entry-id');
@@ -208,7 +287,7 @@ test('history paging anchors, equal text, quiet handling refresh and recovery', 
   api.add(alpha, 'A new record while reading');
   await expect(page.getByRole('button', { name: 'New messages ↓' })).toBeVisible();
   expect(await history.evaluate(e => e.scrollTop)).toBeCloseTo(200, 0);
-  await agentButton(page, 'onbash').click();
+  await agentButton(page, 'Background renamed').click();
   await agentButton(page, 'Atlas').click();
   expect(await history.evaluate(e => e.scrollTop)).toBeCloseTo(200, 0);
   same2.handling = { message_id: same2.source.message_id!, handled_by: owner, handled_at: '2026-10-08T13:00:00.000000Z', note: null };

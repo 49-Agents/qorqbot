@@ -118,6 +118,7 @@ function Navigation({ select, create, renameId, setRename }: { select: (id: stri
           </span>
         </button>}
         {store.has('agents_update') && !renameId && !store.pending.has(`edit:${agent.id}`) && <button className="row-rename" aria-label={`Rename ${agent.display_name}`} title="Rename" onClick={() => setRename(agent.id)}>⋯</button>}
+        {store.selected !== agent.id && <MutationNotice item={store.pending.get(`edit:${agent.id}`)} requestKey={`edit:${agent.id}`} />}
       </div>)}
     </div>
     <div className="nav-bottom"><span className="quiet connection">{store.connection}</span><button onClick={() => void store.logout()}>Sign out</button></div>
