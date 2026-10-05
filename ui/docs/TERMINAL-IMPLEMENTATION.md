@@ -78,18 +78,42 @@ take over the old viewer, or claim that unacknowledged text was processed.
 
 Only actual DOM keyboard/input/composition/paste interactions inside the terminal
 may produce pane-input frames. xterm's output parser can emit `onData` protocol
-replies; those are not human input. Scope ordinary `onData` admission to the
-synchronous DOM keyboard/input/paste dispatch: use capture listeners on the
-terminal element, clear admission at the following microtask, and require the
-acknowledged current control binding. While an IME composition is active, ignore
-ordinary `onData`; on the user's `compositionend`, queue its completed `data`
-once through the same controlled input path. Ignore canceled/empty compositions
-and composition input events, including xterm's later asynchronous composition
-emission. Clear composition state on control or connection loss. Do not add a
-timing grace window that could admit output-parser replies. Use only public
-xterm/DOM APIs, and verify ordinary keys, Unicode composition and paste with the
-pinned library. If that concrete event contract cannot be implemented, report
-the observed behavior to Manager; do not filter escape strings heuristically.
+replies; those are not human input. D38 amendment 198 replaces the original
+capture-listener/microtask guard, which rejects real Chrome keystrokes. Use these
+explicit public input sources instead, always checking the acknowledged current
+control/connection binding before accepting bytes:
+
+- Subscribe to public `onKey({key, domEvent})` and queue its exact `key` once.
+  Call `domEvent.preventDefault()` for this handled key so its browser default
+  cannot also produce textarea text. Ignore keys while composing or when the
+  DOM event is composing. Their later ordinary `onData` event is never forwarded.
+- Listen on the terminal element for `input` targeted at public `textarea`.
+  Accept nonempty `data` only for standalone `insertText`, with neither an active
+  composition nor `event.isComposing`. This covers committed text without an
+  `onKey`, including Unicode insertion. Other input types do not grant admission.
+  Default-canceled `onKey` events must not duplicate this text path.
+- Track composition start with its current control binding. On its matching
+  `compositionend`, queue nonempty completed `data` once. Ignore intermediate or
+  canceled composition and xterm's later asynchronous `onData`. Clear composition
+  state on control/connection loss; regaining control must not revive an old
+  composition. Do not deduplicate text by value or use a timing window.
+- Intercept the user's `paste` in capture, preventing default and stopping its
+  propagation before xterm's normal paste listener. Read only that event's
+  `clipboardData`. After the raw size check, call public `terminal.paste(text)`
+  synchronously inside a `try/finally`-scoped collector. Collect its synchronous
+  `onData` result, clear the collector in `finally`, then validate the complete
+  framed size/queue capacity and enqueue it once, or reject the entire paste.
+  Do not await or send partial pieces inside the collector. This preserves the
+  pinned library's newline/bracketed-paste behavior without an admission window.
+
+Every other `onData` and all `onBinary` emissions are ignored for pane input,
+including device-query, focus and mouse reports. No mouse protocol forwarding
+is added in this increment. Use only public xterm/DOM APIs; do not inspect private
+emitter state, add an escape-string filter or generalize the paste collector into
+a DOM-dispatch guard. The [Manager's isolated Chrome probe](evidence/terminal-input-decision.md)
+establishes the replacement's observed ordering, not application acceptance or
+support for every operating-system IME. Report a contrary browser trace before
+changing this contract.
 
 Encode admitted terminal data to exact UTF-8 and strict base64 for `input`.
 Preserve xterm's user keyboard/paste framing without additional newline
@@ -135,6 +159,12 @@ Include an output-only terminal device-query sequence while control is owned
 and assert that it sends no input. Exercise queue/output limits in these groups,
 without creating a redundant per-message test matrix. Keep synthetic evidence
 explicit; it cannot prove a real shell, recorder or backend accepts the frames.
+Use real Playwright keyboard input for ordinary/lowercase/uppercase/control keys
+and Unicode insertion. Exercise composition through Chrome's input protocol and
+record that it is not a physical operating-system IME test. Verify a following
+key and canceled composition do not duplicate text. Cover both plain and
+bracketed multiline paste, including framed-size rejection before any send;
+label any DOM-dispatched paste fixture as synthetic.
 
 Run the locked build and owning Chrome checks, inspect desktop and mobile
 screenshots directly, and record results/limitations in
