@@ -16,6 +16,7 @@ delegates further. Treat every report as an unverified claim until checked.
 | --- | --- | --- | --- |
 | Environments readiness exploration | [`4432880`](https://github.com/qorqutbot/qorqut-core/blob/44328807c84db01c3351bef74ada285171117d15/docs/evidence/environments-p0.md) | Separate Astra MAX reviewer reported no in-scope defects. Manager checked the exact committed diff and clean worktrees, reproduced unavailable direct KVM access/missing VM tools, verified all seven source hashes and spot-checked external-writer locking/process ownership. | D02 substrate discussion, host preparation and every real two-VM/mount/network/desktop/persistence/restore test remain pending. No G0–G6 acceptance. |
 | Browser local effect foundation | [`a94e537`](https://github.com/qorqutbot/qorqut-browser/blob/a94e537519ba19d484375a7f8fb986339149285a/docs/evidence/browser-r1.md) | Separate Astra MAX reviewer found no in-scope defects and ran all 20 tests plus packaging checks. Manager inspected control/store/helper/process paths, independently passed six focused tests and three fault diagnostics, verified all six source hashes and the remote branch SHA. | Independent MCP/HTTP bridge is the next increment. Real helper, Chrome/profile, VNC/RFB, service-cgroup, core and VM/onbash acceptance remain pending. No G0–G6 acceptance. |
+| Provider adapters: local preparation and source discovery | [`2db2be6`](https://github.com/qorqutbot/qorqut-core/blob/2db2be6d051e83b383e240aed41424a212153107/docs/evidence/adapters-r1.md) | Fresh Astra MAX review found no remaining in-scope defects across the full implementation and three corrections; all 28 tests and isolated native version/help probes passed. Manager inspected final source/proof/path validation, passed four focused regressions and eight independent rewrite/append scenarios, and verified clean worktrees and the exact pushed SHA. Earlier Manager checks confirmed bounded preparation metadata, aliased-root locking and mixed-primary/child preservation. | Generated configuration loading, native MCP/authentication, process attestation, recorder interaction, live resume and complete child/attachment coverage remain pending. Source descriptors are checked observations; ingestion must revalidate identity/provenance and apply epochs. No M04 or G0–G6 acceptance. |
 
 Approval of this report confirms its bounded evidence, not installed capability.
 The branch is pushed and remains unmerged. Volatile capacity/port observations
@@ -23,11 +24,6 @@ retain their timestamps and are not a deployment budget or reservation.
 
 ## Review corrections pending
 
-- Adapters at `2522688`: preparation and mixed-primary/child corrections passed
-  independent review and Manager checks. The next review found growing rewrites
-  could return stale source-ownership proof; Manager reproduced this for both
-  adapters and requested a bounded provenance-revalidation correction. The
-  implementation remains unapproved.
 - Terminal at `7399178`: Manager reproduced raw unframed multiline paste when
   bracketed mode was off, and stale paste proof allowing Enter after a database
   delay and a modal transition. D24 specifies the correction. The implementation
