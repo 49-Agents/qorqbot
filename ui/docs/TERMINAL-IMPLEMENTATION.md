@@ -6,6 +6,12 @@ The worker handoff pins its exact revision and includes the full protocol.
 Core and UI build independently; synthetic browser checks are followed by an
 actual compiled-UI/installed-core check after both source reviews.
 
+Integration finding 217 supersedes this document's original unconditional
+read-only fitting and protocol-1 display rules. Follow the Manager's
+[Terminal geometry contract](https://github.com/qorqutbot/qorqut-core/blob/main/docs/TERMINAL-GEOMETRY.md)
+for native-grid scrolling, ordered size/output rendering, protocol 2 and the
+paired core/UI checks. The worker handoff pins and includes that full contract.
+
 The owner creates an agent, opens Terminal and starts/configures a CLI there.
 Switching views must never start or stop a shell or CLI. This increment makes
 the existing recorded onbash shell usable; native startup/inbox connection,
