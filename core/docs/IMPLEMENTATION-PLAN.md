@@ -152,6 +152,9 @@ Deliver one real VM per ordinary agent, the host executor, immutable image pins,
 Automated text delivery also enforces D23's control-character rule before any
 input, preserving stored messages while rejecting payloads that could escape
 bracketed paste and bypass the separate guarded Enter.
+Apply D24's explicit transport framing and refresh exact-paste/safe-Enter
+evidence after the durable Enter intent, before input. Local framed-byte tests
+do not substitute for supported native-composer acceptance.
 
 **Gate G2:** two agents and onbash run independent terminals; host service restart preserves live VM/tmux/browser processes; VM reboot is recorded as a different execution situation; stale commands cannot reach a replacement run; uncertain input never repeats automatically.
 

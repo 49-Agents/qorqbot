@@ -20,6 +20,16 @@ Approval of this report confirms its bounded evidence, not installed capability.
 The branch is pushed and remains unmerged. Volatile capacity/port observations
 retain their timestamps and are not a deployment budget or reservation.
 
+## Review corrections pending
+
+- Adapters at `434a7e3`: Manager reproduced an ever-growing preparation manifest
+  exceeding its own read limit and root-path aliases deadlocking on the same
+  lock inode. A bounded revision was requested; the implementation is unapproved.
+- Terminal at `7399178`: Manager reproduced raw unframed multiline paste when
+  bracketed mode was off, and stale paste proof allowing Enter after a database
+  delay and a modal transition. D24 specifies the correction. The implementation
+  is unapproved; a revised completion requires fresh independent review.
+
 ## Repository baseline
 
 The private `qorqut-core` and `qorqut-browser` repositories now exist. Their initial

@@ -1,5 +1,26 @@
 # Architecture decisions
 
+## D24 — Explicit paste framing and fresh Enter evidence
+
+Independent terminal review and Manager reproduction on tmux 3.4 showed that
+`paste-buffer -p` inserts delimiters only when the application has requested
+bracketed paste. Automated input must send one explicitly framed byte sequence
+through a raw, non-converting buffer paste, with exactly one begin/end pair.
+Keep the durable payload hash and size about the original validated body; framing
+is transport-owned. Human raw frames remain separate. Do not change the native
+application's terminal mode to make an input attempt pass.
+
+Composer eligibility still requires a supported native editor that interprets
+bracketed paste; transport framing alone does not prove native compatibility.
+Absent or uncertain adapter evidence remains not ready. Actual native acceptance
+is a later gate, distinct from the local receiver tests.
+
+The same review reproduced a composer changing to a modal while a SQLite writer
+delayed the Enter intent. After persisting that intent, refresh binding, external
+readiness and exact-paste/safe-Enter evidence immediately before Enter. Do not
+carry an earlier proof across a database wait. A rejected proof after possible
+paste is uncertain, with no Enter and no automatic replay.
+
 ## D23 — Preserve messages and validate terminal paste text
 
 The terminal builder identified that embedded ESC bracketed-paste termination
