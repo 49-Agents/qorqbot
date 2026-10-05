@@ -186,3 +186,14 @@ fixture is not the product's durable handoff implementation. No complete M06
 or global gate is claimed. There was no system installation, desktop provisioning,
 environment selection, PR, merge, rebase, deployment or release, and no nested
 agent/self-review. Fresh independent Manager-assigned review is still required.
+
+## Delivery addendum
+
+Completed implementation, checks and initial evidence were committed together as
+`8d98a1574120cbae44ee24a619b2487f7d52fcb6`. The command
+`git push origin HEAD:refs/heads/codex/browser-mcp-r2` succeeded, and
+`git ls-remote origin refs/heads/codex/browser-mcp-r2` returned that exact SHA.
+The worktree was clean after that push. This addendum is the only subsequent
+change; the bound ACLA completion report records its final delivery SHA and
+matching remote verification. No source, dependency or test changed after the
+reported checks. Both commits remain unmerged and undeployed.
