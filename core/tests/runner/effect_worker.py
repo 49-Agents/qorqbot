@@ -44,8 +44,8 @@ def main():
                 (root / "paused").touch()
                 wait_for(lambda: (root / "continue").exists(), timeout=10)
 
-        def enter(self, *args):
-            super().enter(*args)
+        def enter(self, *args, **kwargs):
+            super().enter(*args, **kwargs)
             if stage == "enter":
                 os._exit(91)
 

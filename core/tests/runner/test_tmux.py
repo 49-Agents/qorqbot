@@ -1,5 +1,8 @@
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 import shutil
+import sqlite3
+import threading
 import unittest
 from uuid import uuid4
 from unittest.mock import patch
@@ -40,6 +43,108 @@ class RealTmuxTests(unittest.TestCase):
         self.assertEqual(before, self.receiver.bytes())
         self.assertFalse(marker.exists())
         self.assertEqual(b"", self.receiver.command_run("list-buffers", "-F", "#{buffer_name}"))
+
+    def test_exactly_one_explicit_frame_with_mode_on_off_and_boundary_changes(self):
+        receiver = self.receiver
+
+        class ChangeModeAtPaste(Tmux):
+            final_mode = True
+
+            def load_buffer(self, binding, buffer, wire):
+                self.loaded = buffer, wire
+                super().load_buffer(binding, buffer, wire)
+
+            def paste(self, *args, **kwargs):
+                receiver.set_bracketed(self.final_mode)
+                super().paste(*args, **kwargs)
+
+        tmux = ChangeModeAtPaste()
+        # For this transport assertion the deterministic receiver reports its
+        # exact current bytes, independently of whether framing was received.
+        runner = receiver.runner(tmux=tmux, verify_paste=lambda b, s, digest: bool(
+            wait_for(lambda: receiver.state()["current_sha256"] == digest)))
+        for initial, final in ((True, True), (False, False), (True, False), (False, True)):
+            with self.subTest(initial=initial, final=final):
+                receiver.set_bracketed(initial)
+                tmux.final_mode = final
+                body = f"mode {initial} → {final}\n世界\tλ"
+                payload = body.encode()
+                offset = len(receiver.bytes())
+                submissions = len(receiver.state()["submitted"])
+                result = runner.attempt(self.binding, uuid4(), body, expected_epoch=0)
+                self.assertEqual("submitted", result.state)
+                wait_for(lambda: len(receiver.state()["submitted"]) == submissions + 1)
+                actual = receiver.bytes()[offset:]
+                self.assertEqual(b"\x1b[200~" + payload + b"\x1b[201~\r", actual)
+                self.assertEqual(1, actual.count(b"\x1b[200~"))
+                self.assertEqual(1, actual.count(b"\x1b[201~"))
+                self.assertEqual(hashlib.sha256(payload).hexdigest(), result.payload_sha256)
+                self.assertEqual(len(payload), result.payload_bytes)
+                buffer, wire = tmux.loaded
+                self.assertEqual(b"\x1b[200~" + payload + b"\x1b[201~", wire)
+                self.assertEqual(hashlib.sha256(wire).hexdigest(), buffer.wire_sha256)
+                with self.assertRaises(RunnerError) as caught:
+                    tmux.load_buffer(self.binding, buffer, wire + b"changed")
+                self.assertEqual("idempotency_conflict", caught.exception.code)
+                self.assertEqual(b"", receiver.command_run("list-buffers", "-F", "#{buffer_name}"))
+
+    def test_modal_during_shared_sqlite_enter_intent_wait_is_reverified_without_enter(self):
+        initial_proof, writer_ready, enter_write = (threading.Event() for _ in range(3))
+        observed_modal = []
+
+        def proof(binding, snapshot, digest):
+            modal = "SYNTHETIC MODAL" in snapshot.screen
+            observed_modal.append(modal)
+            if len(observed_modal) == 1:
+                self.assertTrue(self.receiver.verify(binding, snapshot, digest))
+                initial_proof.set()
+                self.assertTrue(writer_ready.wait(5))
+            return not modal
+
+        runner = self.receiver.runner(verify_paste=proof)
+        update = runner._update
+
+        def trace(statement):
+            if statement.startswith("UPDATE runner_attempts") and "phase='enter'" in statement:
+                enter_write.set()
+
+        def observe_enter_write(db, attempt_id, state, phase, reason):
+            if state == "dispatching" and phase == "enter":
+                db.set_trace_callback(trace)
+                try:
+                    return update(db, attempt_id, state, phase, reason)
+                finally:
+                    db.set_trace_callback(None)
+            return update(db, attempt_id, state, phase, reason)
+
+        attempt_id, body = uuid4(), "paste before write wait λ\n"
+        with patch.object(runner, "_update", side_effect=observe_enter_write), \
+                ThreadPoolExecutor(1) as pool, sqlite3.connect(self.receiver.database, timeout=5) as writer:
+            future = pool.submit(runner.attempt, self.binding, attempt_id, body, expected_epoch=0)
+            try:
+                self.assertTrue(initial_proof.wait(5))
+                writer.execute("BEGIN IMMEDIATE")
+                writer_ready.set()
+                self.assertTrue(enter_write.wait(5))
+                self.assertFalse(future.done())
+                self.assertEqual(("dispatching", "paste"), writer.execute(
+                    "SELECT state,phase FROM runner_attempts WHERE attempt_id=?", (str(attempt_id),)).fetchone())
+                # Synthetic native output changes while the runner's real
+                # UPDATE waits on the shared spool's SQLite write lock.
+                self.receiver.show_modal()
+                self.assertFalse(future.done())
+            finally:
+                writer_ready.set()
+                writer.commit()
+            result = future.result(timeout=5)
+        self.assertEqual([False, True], observed_modal)
+        self.assertEqual(("uncertain", "enter", "paste_unverified"),
+                         (result.state, result.phase, result.reason))
+        expected = b"\x1b[200~" + body.encode() + b"\x1b[201~"
+        self.assertEqual(expected, self.receiver.bytes())
+        self.assertEqual(result, runner.attempt(self.binding, attempt_id, body, expected_epoch=0))
+        self.assertEqual(expected, self.receiver.bytes())
+        self.assertEqual([False, True], observed_modal)
 
     def test_binding_process_start_and_socket_identity_cannot_be_reused(self):
         for altered in (

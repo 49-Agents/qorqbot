@@ -82,7 +82,7 @@ class ReceiptTests(unittest.TestCase):
             with self.subTest(body=body, epoch=epoch), self.assertRaises(RunnerError) as error:
                 restarted.attempt(binding, attempt_id, body, expected_epoch=epoch)
             self.assertEqual("idempotency_conflict", error.exception.code)
-        self.assertEqual([("paste", "é\n".encode()), ("enter",)], self.tmux.effects)
+        self.assertEqual([("paste", b"\x1b[200~" + "é\n".encode() + b"\x1b[201~"), ("enter",)], self.tmux.effects)
         self.assertEqual(first.binding, restarted.inspect_binding(self.binding.run_id))
 
     def test_pre_effect_failure_defers_and_post_effect_failure_stays_uncertain(self):
@@ -126,7 +126,7 @@ class ReceiptTests(unittest.TestCase):
     def test_paste_evidence_binding_capture_and_composer_rechecked(self):
         result = self.make_runner(verify_paste=lambda *_: False).attempt(self.binding, uuid4(), "body", expected_epoch=0)
         self.assertEqual(("uncertain", "paste_unverified"), (result.state, result.reason))
-        self.assertEqual([("paste", b"body")], self.tmux.effects)
+        self.assertEqual([("paste", b"\x1b[200~body\x1b[201~")], self.tmux.effects)
         self.tmux.effects.clear()
         self.tmux.after_load = lambda: setattr(self.tmux, "binding", synthetic_binding())
         result = self.runner.attempt(self.binding, uuid4(), "body", expected_epoch=0)
@@ -141,7 +141,7 @@ class ReceiptTests(unittest.TestCase):
 
         result = self.make_runner(verify_paste=replace_after_paste).attempt(self.binding, uuid4(), "body", expected_epoch=0)
         self.assertEqual(("uncertain", "target_changed"), (result.state, result.reason))
-        self.assertEqual([("paste", b"body")], self.tmux.effects)
+        self.assertEqual([("paste", b"\x1b[200~body\x1b[201~")], self.tmux.effects)
         self.tmux.binding = self.binding
         self.tmux.effects.clear()
         checks = iter(["empty", "empty", "blocked"])
@@ -161,7 +161,30 @@ class ReceiptTests(unittest.TestCase):
             runner = self.make_runner(verify_paste=verify)
             result = runner.attempt(self.binding, uuid4(), "body", expected_epoch=0)
             self.assertEqual("uncertain", result.state)
-            self.assertEqual([("paste", b"body")], self.tmux.effects)
+            self.assertEqual([("paste", b"\x1b[200~body\x1b[201~")], self.tmux.effects)
+
+    def test_missing_or_failing_final_proof_is_uncertain_without_enter_or_replay(self):
+        def fail_proof(*_):
+            raise OSError("final proof unavailable")
+
+        for final_proof in (None, fail_proof):
+            with self.subTest(final_proof=final_proof):
+                self.tmux.effects.clear()
+                runner = self.make_runner()
+                update = runner._update
+
+                def change_proof_after_intent(db, attempt_id, state, phase, reason):
+                    update(db, attempt_id, state, phase, reason)
+                    if state == "dispatching" and phase == "enter":
+                        runner.verify_paste = final_proof
+
+                attempt_id = uuid4()
+                with patch.object(runner, "_update", side_effect=change_proof_after_intent):
+                    result = runner.attempt(self.binding, attempt_id, "body", expected_epoch=0)
+                self.assertEqual(("uncertain", "enter"), (result.state, result.phase))
+                self.assertEqual([("paste", b"\x1b[200~body\x1b[201~")], self.tmux.effects)
+                self.assertEqual(result, self.runner.attempt(self.binding, attempt_id, "body", expected_epoch=0))
+                self.assertEqual([("paste", b"\x1b[200~body\x1b[201~")], self.tmux.effects)
 
     def test_receipt_commit_loss_leaves_recoverable_uncertainty(self):
         attempt_id = uuid4()
@@ -178,7 +201,7 @@ class ReceiptTests(unittest.TestCase):
         receipt = self.make_runner().inspect_attempt(attempt_id)
         self.assertEqual(("uncertain", "enter"), (receipt.state, receipt.phase))
         self.assertEqual(receipt, self.runner.attempt(self.binding, attempt_id, "body", expected_epoch=0))
-        self.assertEqual([("paste", b"body"), ("enter",)], self.tmux.effects)
+        self.assertEqual([("paste", b"\x1b[200~body\x1b[201~"), ("enter",)], self.tmux.effects)
 
     def test_control_receipts_epochs_and_higher_level_hold_are_independent(self):
         viewer, control_id = uuid4(), uuid4()

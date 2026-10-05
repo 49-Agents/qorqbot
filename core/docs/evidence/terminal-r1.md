@@ -4,6 +4,12 @@ Bounded local primitives on `codex/terminal-r1`, based on
 `db25fc97a4127f8f46f3092ed96578bcdba685ce`. Initial status was clean.
 This increment does not complete M03 or any G0–G6 gate.
 
+The review revision starts at `7399178be79bbcdbeca22dba4856ff29dab82ece`
+with a clean worktree. Manager ACLA message 18 requires D24's explicit wire
+framing and fresh proof after the durable Enter intent. Both reported defects
+were reproduced by the focused regressions below before changing production
+code. Shared D24 documents remain in the Manager's worktree, unchanged here.
+
 The Manager's ACLA message 6 adds D23's automated terminal-text rule, recorded
 in coordination commit `688590ab9419dbd4171bb1a8fa8cec0855849067`. The shared
 documents were neither copied nor edited in this worktree. Automated text
@@ -24,8 +30,14 @@ permanent delivery failure for unsafe text; it is not implemented here.
   Inspect validates an already supplied binding; it never starts or searches
   for a process by name. Observation rechecks identity after screen capture.
 - Tmux operations use an explicit socket and structured subprocess argv.
-  Payload is stdin to a unique buffer, followed by bracketed `paste-buffer -r
-  -p` and a separate normal Enter. Effects recheck Linux identity and tmux's
+  Automated wire input is exactly `ESC[200~ + validated UTF-8 body + ESC[201~`,
+  loaded via stdin into one unique buffer and delivered using raw, non-converting
+  `paste-buffer -d -r`, without conditional `-p`. The body hash and 64 KiB limit
+  exclude the transport-owned delimiters. `PasteBuffer.for_bytes` records a
+  separate `wire_sha256`; loading different wire bytes fails before tmux.
+  A recovered cleanup-only handle cannot load or paste. Human frames remain
+  raw and unframed. Product code emits no mode-enabling terminal output.
+  A separate normal Enter follows verified paste. Effects recheck Linux identity and tmux's
   server/session/window/pane identity and input flags in its command queue.
   There is no shell payload interpolation, default socket or CLI launcher.
 - `runner_*` tables share the caller-configured eventual recorder spool file.
@@ -40,6 +52,13 @@ permanent delivery failure for unsafe text; it is not implemented here.
   payload/binding/epoch conflicts fail without input. A committed submitted
   receipt survives a crash before the caller receives it. Submitted only
   means the transport sent Enter, not semantic processing or handling.
+- The preliminary paste proof is not reused after the durable Enter intent's
+  potential database wait. External readiness is checked again, then
+  `Tmux.enter(..., verify_paste=...)` obtains an exact-bound fresh snapshot and
+  requires positive proof about that snapshot at its final input boundary.
+  There is no DB write or settling wait between successful final proof and
+  the Enter command. Missing, rejected or failing proof after possible paste
+  leaves an uncertain receipt without Enter; same-attempt replay is inert.
 - A private per-run `flock` covers admission, effects, control changes and
   receipt persistence. SQLite transactions do not span effects/callbacks.
   Inspection of unfinished attempts obtains that lock before recovery, so
@@ -62,9 +81,14 @@ The lower-level `Tmux` effects require the caller's input lock.
 The recorder readiness callable must return literal `True` for this binding.
 The composer callable receives the binding and a styled terminal snapshot and
 returns `empty`, `busy`, `blocked` or `unknown`. Busy/typed/modal/unknown are
-not admissible. The paste verifier receives binding/snapshot/exact SHA-256 and
+not admissible. Eligibility must establish a supported native composer that
+interprets bracketed paste; explicit transport framing is not evidence of
+shell/CLI compatibility. Unknown/unsupported evidence remains not ready.
+The paste verifier receives binding/snapshot/the original body's exact SHA-256 and
 must positively confirm that this owned paste is present and normal Enter is
-safe; its implementation owns bounded native settling. Missing callables,
+safe. It runs after paste and again at the final tmux Enter boundary after the
+Enter intent commits. Its implementation owns bounded native settling and must
+refresh evidence after a wait rather than approve a stale snapshot. Missing callables,
 unconfirmed capture or missing proof never default to ready. No adapter imports
 or native composer recognition are supplied in this increment.
 
@@ -90,8 +114,28 @@ Command, with inherited user/provider environment removed:
 env -i PATH=/usr/bin:/bin PYTHONPATH=src tests/runner/.venv/bin/python -m unittest discover -s tests/runner -v
 ```
 
-Result on 2026-10-07: **21 tests passed**, no skips. The staged diff also passed
+Result on 2026-10-07: **24 tests passed in 10.745 seconds**, no skips. The staged diff also passed
 `git diff --cached --check`.
+
+Focused real-tmux regression command:
+
+```text
+env -i PATH=/usr/bin:/bin PYTHONPATH=src:tests/runner tests/runner/.venv/bin/python -m unittest test_tmux.RealTmuxTests.test_exactly_one_explicit_frame_with_mode_on_off_and_boundary_changes test_tmux.RealTmuxTests.test_modal_during_shared_sqlite_enter_intent_wait_is_reverified_without_enter -v
+```
+
+Both failed on the pre-revision production code: off/off and on/off delivered
+unframed bytes, and the modal regression observed only the first proof.
+After the fixes: **2 tests passed in 1.352 seconds**, followed by the full suite
+above. The shared-SQLite regression holds a real `BEGIN IMMEDIATE` write lock,
+observes the runner's blocked Enter UPDATE through SQLite tracing, then has
+the owned receiver emit a synthetic modal before releasing the writer. Proof
+observations are `[False, True]` for modal presence; the receipt is
+`uncertain/enter/paste_unverified`, with no CR and no input on same-ID retry.
+The framing regression verifies on/on, off/off, on/off and off/on, with mode
+changes made at the paste boundary after admission. Each result has exactly
+one delimiter pair, unchanged body bytes/hash/length, and verified wire hash.
+Altered wire bytes fail before buffer creation. Test-owned mode output is
+fixture control only; it is absent from product code.
 
 The focused suite covers:
 
@@ -101,7 +145,8 @@ The focused suite covers:
 - Invalid boot/run/recovery/environment/socket/pane identity and synthetic PID
   reuse/death; identity change between metadata and capture is rejected.
 - Missing/negative readiness, busy/blocked/unknown composer, capture/hold loss,
-  pre-load deferral, and post-paste/Enter/receipt failures and replay.
+  pre-load deferral, and post-paste/Enter/receipt failures and replay, including
+  a verifier that disappears or raises after the Enter intent commits.
 - Disposable dispatcher processes exit at prepared intent, buffer load,
   pre-paste barrier, completed paste, Enter, and either side of final receipt
   commit. Fresh runner objects recover without any repeated input bytes.
@@ -124,6 +169,7 @@ shared tmux server, CDP/VNC endpoint or owner-account session.
 
 Observed versions: Python **3.12.3**, SQLite **3.45.1**, tmux **3.4**, Pydantic
 **2.13.5**, pydantic-core **2.46.5**, Linux **6.8.0-138-generic**.
+Rechecked these versions for the review revision; no new dependencies.
 `/usr/bin/tmux` SHA-256:
 `034b15c64035f783d43862f2775eb4828f61571ca62c8199796000b97d556ecd`.
 Python dependencies were installed only in ignored `tests/runner/.venv` using

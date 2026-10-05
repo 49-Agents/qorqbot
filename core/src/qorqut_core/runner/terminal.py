@@ -32,9 +32,14 @@ class TerminalRunner:
     capture_ready(binding) must positively confirm recorder readiness.
     machine_hold(binding) must explicitly return False to admit input.
     classify_composer(binding, snapshot) returns empty/busy/blocked/unknown.
+    Eligibility requires a supported native composer that interprets bracketed
+    paste; explicit transport framing alone is NOT compatibility evidence.
+    Unknown/unsupported native evidence must never yield empty/ready.
     verify_paste(binding, snapshot, sha256) must positively establish the exact
-    owned paste is present and a normal Enter is safe; it may wait a bounded
-    adapter-specific settle interval. No guessed composer or default readiness.
+    owned paste is present and a normal Enter is safe. It is called after paste
+    and again at the final tmux Enter boundary with a fresh snapshot AFTER the
+    durable Enter intent. If an adapter waits to settle, it must refresh its
+    evidence rather than approve a stale snapshot. No default readiness.
 
     Callables run under the per-run flock, outside SQLite transactions. They
     must not call back into this runner or write input. Machine-hold acquisition
@@ -157,7 +162,7 @@ class TerminalRunner:
                          row["phase"], "interrupted_after_intent" if possible else "interrupted_before_input")
         # Also covers a crash after the final receipt committed but before its
         # finally cleanup ran. This never types or touches a replacement server.
-        self._cleanup(binding, PasteBuffer(row["buffer_name"], binding.digest, row["payload_sha256"]))
+        self._cleanup(binding, PasteBuffer(row["buffer_name"], binding.digest))
         return self._receipt(db, binding, UUID(row["attempt_id"]))
 
     def inspect_attempt(self, attempt_id: UUID) -> AttemptReceipt | None:
@@ -177,6 +182,9 @@ class TerminalRunner:
 
     def attempt(self, binding: RunBinding, attempt_id: UUID, body: str, *, expected_epoch: int) -> AttemptReceipt:
         payload = encode_body(body)  # Limit/encoding validation precedes all terminal input.
+        # D24: transport-owned delimiters are not user text, its hash or size.
+        # Raw tmux paste must not add conditional framing based on pane mode.
+        wire = b"\x1b[200~" + payload + b"\x1b[201~"
         attempt_id = UUID(str(attempt_id))
         _counter(expected_epoch)
         digest = hashlib.sha256(payload).hexdigest()
@@ -188,7 +196,7 @@ class TerminalRunner:
                     raise RunnerError("idempotency_conflict", "attempt ID was used for different input")
                 return self._recover(db, binding, old)
             self._require_binding(db, binding)
-            buffer = PasteBuffer.for_body(binding, payload)
+            buffer = PasteBuffer.for_bytes(binding, wire)
             stamp = _now()
             try:
                 with db:
@@ -211,7 +219,7 @@ class TerminalRunner:
                 if self.verify_paste is None:
                     raise RunnerError("not_ready", "paste verification is absent")
                 self._empty(binding)
-                self.tmux.load_buffer(binding, buffer, payload)
+                self.tmux.load_buffer(binding, buffer, wire)
                 self._empty(binding)  # A buffer load/DB wait can outlive readiness.
                 self._update(db, attempt_id, "dispatching", "paste", "paste_may_follow")
                 self._empty(binding)  # Recheck after the durable intent's DB wait.
@@ -223,7 +231,10 @@ class TerminalRunner:
                     raise RunnerError("paste_unverified", "exact paste/normal Enter is unconfirmed")
                 self._update(db, attempt_id, "dispatching", "enter", "enter_may_follow")
                 self._external_ready(binding)
-                self.tmux.enter(binding)
+                # The earlier proof cannot survive the SQLite wait above.
+                # Let the final tmux boundary supply and use its fresh screen.
+                self.tmux.enter(binding, verify_paste=lambda current:
+                    self.verify_paste is not None and self.verify_paste(binding, current, digest) is True)
                 self._update(db, attempt_id, "submitted", "finished", "processing_not_confirmed")
             except Exception as exc:
                 reason = exc.code if isinstance(exc, RunnerError) else "boundary_failure"
@@ -309,13 +320,13 @@ class TerminalRunner:
                     viewer_id: UUID, sequence: int) -> FrameReceipt:
         if not isinstance(data, bytes) or len(data) > MAX_BODY_BYTES:
             raise RunnerError("invalid_argument", "human frame must be at most 64 KiB bytes")
-        buffer = PasteBuffer.for_body(binding, data)
+        buffer = PasteBuffer.for_bytes(binding, data)
 
         def effect():
             try:
                 self.tmux.load_buffer(binding, buffer, data)
                 self._external_ready(binding)
-                self.tmux.paste(binding, buffer, bracketed=False)
+                self.tmux.paste(binding, buffer)
             finally:
                 self._cleanup(binding, buffer)
 

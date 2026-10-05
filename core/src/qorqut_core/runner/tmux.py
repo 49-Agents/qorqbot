@@ -6,6 +6,7 @@ has no new-session, attach-or-create, process adoption, or managed CLI launcher.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import hashlib
 import os
@@ -25,13 +26,15 @@ _FIELDS = ("pid", "session_id", "window_id", "pane_id", "pane_pid", "pane_dead",
 
 @dataclass(frozen=True)
 class PasteBuffer:
+    """Hash the actual wire bytes; a recovered cleanup-only handle has no hash."""
+
     name: str
     binding_digest: str
-    payload_sha256: str
+    wire_sha256: str | None = None
 
     @classmethod
-    def for_body(cls, binding: RunBinding, body: bytes) -> PasteBuffer:
-        return cls("runner-" + uuid4().hex, binding.digest, hashlib.sha256(body).hexdigest())
+    def for_bytes(cls, binding: RunBinding, wire: bytes) -> PasteBuffer:
+        return cls("runner-" + uuid4().hex, binding.digest, hashlib.sha256(wire).hexdigest())
 
 
 class Tmux:
@@ -108,15 +111,16 @@ class Tmux:
                 or buffer.binding_digest != binding.digest):
             raise RunnerError("target_changed", "buffer belongs to a different binding")
 
-    def load_buffer(self, binding: RunBinding, buffer: PasteBuffer, body: bytes) -> None:
+    def load_buffer(self, binding: RunBinding, buffer: PasteBuffer, wire: bytes) -> None:
         self._buffer(binding, buffer)
-        if hashlib.sha256(body).hexdigest() != buffer.payload_sha256:
+        if hashlib.sha256(wire).hexdigest() != buffer.wire_sha256:
             raise RunnerError("idempotency_conflict", "buffer payload changed")
         self.inspect(binding)
         # Payload is stdin, never tmux grammar, argv or shell source.
-        self._command(binding, "load-buffer", "-b", buffer.name, "-", data=body)
+        self._command(binding, "load-buffer", "-b", buffer.name, "-", data=wire)
 
-    def _effect(self, binding: RunBinding, argv: list[str]) -> None:
+    def _effect(self, binding: RunBinding, argv: list[str], *,
+                verify_paste: Callable[[TerminalSnapshot], bool] | None = None) -> None:
         snapshot = self.inspect(binding)
         if snapshot.in_mode or snapshot.input_off or snapshot.synchronized:
             raise RunnerError("not_ready", "pane input is not exclusive and editable")
@@ -131,21 +135,27 @@ class Tmux:
         condition = predicates[0]
         for predicate in predicates[1:]:
             condition = "#{&&:" + condition + "," + predicate + "}"
+        # Enter consumes proof about THIS exact-bound snapshot. There is no DB
+        # write, settling wait, or discarded replacement screen after success.
+        if verify_paste is not None and verify_paste(snapshot) is not True:
+            raise RunnerError("paste_unverified", "exact paste/normal Enter is unconfirmed")
         output = self._command(binding, "if-shell", "-F", "-t", target.pane_id,
                                condition, " ".join(argv), "display-message -p runner-target-changed")
         if output.strip() == b"runner-target-changed":
             raise RunnerError("target_changed", "target changed at tmux effect boundary")
         self.inspect(binding)
 
-    def paste(self, binding: RunBinding, buffer: PasteBuffer, *, bracketed: bool = True) -> None:
+    def paste(self, binding: RunBinding, buffer: PasteBuffer) -> None:
+        """Deliver the prepared wire bytes unchanged, independent of pane mode."""
         self._buffer(binding, buffer)
-        argv = ["paste-buffer", "-d", "-r"]
-        if bracketed:
-            argv.append("-p")
-        self._effect(binding, [*argv, "-b", buffer.name, "-t", binding.tmux.pane_id])
+        if buffer.wire_sha256 is None:
+            raise RunnerError("invalid_argument", "cleanup-only buffer cannot be pasted")
+        self._effect(binding, ["paste-buffer", "-d", "-r", "-b", buffer.name, "-t", binding.tmux.pane_id])
 
-    def enter(self, binding: RunBinding) -> None:
-        self._effect(binding, ["send-keys", "-t", binding.tmux.pane_id, "Enter"])
+    def enter(self, binding: RunBinding, *, verify_paste: Callable[[TerminalSnapshot], bool]) -> None:
+        if verify_paste is None:
+            raise RunnerError("not_ready", "Enter requires fresh paste proof")
+        self._effect(binding, ["send-keys", "-t", binding.tmux.pane_id, "Enter"], verify_paste=verify_paste)
 
     def resize(self, binding: RunBinding, columns: int, rows: int) -> None:
         validate_dimensions(columns, rows)

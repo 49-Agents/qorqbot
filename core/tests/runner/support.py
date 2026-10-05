@@ -25,6 +25,7 @@ class Receiver:
         self.temporary = tempfile.TemporaryDirectory(prefix="terminal-r1-")
         self.root = Path(self.temporary.name)
         self.socket = self.root / "tmux.sock"
+        (self.root / "bracketed-mode").write_text("on")
         self.command = [shutil.which("tmux"), "-S", str(self.socket), "-f", "/dev/null"]
         self.env = {"PATH": "/usr/bin:/bin", "TERM": "xterm-256color", "HOME": str(self.root)}
         subprocess.run([*self.command, "new-session", "-d", "-s", "receiver", "-x", "100", "-y", "30",
@@ -63,8 +64,23 @@ class Receiver:
     def bytes(self):
         return (self.root / "input.bin").read_bytes()
 
+    def set_bracketed(self, enabled):
+        temporary = self.root / "bracketed-mode.tmp"
+        temporary.write_text("on" if enabled else "off")
+        temporary.replace(self.root / "bracketed-mode")
+        wait_for(lambda: self.state()["bracketed"] is enabled)
+        marker = f"mode {self.state()['mode_sequence']}: {'on' if enabled else 'off'}".encode()
+        # The marker follows the escape on the receiver's output stream; seeing
+        # it in tmux proves the server consumed the requested mode transition.
+        wait_for(lambda: marker in self.command_run("capture-pane", "-p", "-t", self.binding.tmux.pane_id))
+
+    def show_modal(self):
+        (self.root / "modal").touch()
+        wait_for(lambda: b"SYNTHETIC MODAL" in self.command_run(
+            "capture-pane", "-p", "-t", self.binding.tmux.pane_id))
+
     def classify(self, binding, snapshot):
-        return "empty" if self.state()["current_bytes"] == 0 else "blocked"
+        return "empty" if self.state()["current_bytes"] == 0 and not self.state()["modal"] else "blocked"
 
     def verify(self, binding, snapshot, digest):
         return bool(wait_for(lambda: self.state()["last_paste"] == digest
@@ -86,7 +102,7 @@ class Receiver:
         def exited(expected):
             try:
                 raw = Path(f"/proc/{expected.pid}/stat").read_text()
-            except FileNotFoundError:
+            except (FileNotFoundError, ProcessLookupError):
                 return True
             fields = raw[raw.rindex(")") + 2:].split()
             return fields[0] in ("Z", "X", "x") or int(fields[19]) != expected.start_ticks
@@ -121,14 +137,16 @@ class FakeTmux:
         if self.after_load:
             self.after_load()
 
-    def paste(self, binding, buffer, *, bracketed=True):
+    def paste(self, binding, buffer):
         self.inspect(binding)
         self.effects.append(("paste", self.buffers.pop(buffer.name)))
         if self.fail == "paste":
             raise OSError("paste response lost")
 
-    def enter(self, binding):
-        self.inspect(binding)
+    def enter(self, binding, *, verify_paste):
+        from qorqut_core.runner import RunnerError
+        if verify_paste(self.inspect(binding)) is not True:
+            raise RunnerError("paste_unverified", "synthetic final paste proof rejected")
         self.effects.append(("enter",))
         if self.fail == "enter":
             raise OSError("Enter response lost")
