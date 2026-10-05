@@ -1,4 +1,5 @@
-// Frontend wire views of core API v1, frozen at 055cbd48071d28c03cde3daf1a08521875c130a3.
+// Frontend wire views of core API v1, based on 055cbd48071d28c03cde3daf1a08521875c130a3.
+// Native conversation contract pinned at 35b6d82cd702fe6e82562d7a3c6533ac04050baa; Terminal has its own pin below.
 export type CLI = { provider: 'claude' | 'codex'; model: string };
 export type Resources = { cpu: number; memory_mib: number; disk_gib: number };
 export type CoreError = { code: string; message: string; retryable: boolean };
@@ -36,10 +37,14 @@ export type Delivery = {
 export type Handling = { message_id: string; handled_by: string; handled_at: string; note: string | null };
 export type Entry = {
   entry_id: string; agent_id: string; conversation_id: string; conversation_seq: number;
-  kind: string; role: string; direction: string; text: string; sender_actor_id: string;
+  kind: string; role: string; direction: string; text: string; sender_actor_id: string | null;
   occurred_at: string; recorded_at: string;
-  source: { type: string; message_id: string | null; run_id: string | null; provider: string | null;
-    source_id: string | null; source_epoch: string | null; offset: number | null; length: number | null };
+  source:
+    | { type: 'message'; message_id: string; run_id: string | null; provider: string | null;
+        source_id: string | null; source_epoch: string | null; offset: number | null; length: number | null }
+    | { type: 'native'; provider: 'claude' | 'codex'; run_id: string; source_id: string; source_epoch: string;
+        offset: number; length: number; sha256: string; parser_version: string; native_id: string;
+        part_index: number; timestamp_origin: 'native' | 'ingestion' };
   delivery: Delivery | null; handling: Handling | null;
 };
 export type Publication = { pending_entries: number; state: 'current' | 'pending' | 'blocked'; error: { code: string; message: string } | null };

@@ -1,6 +1,6 @@
 // Isolated test-only API v1 fixture. Never imported by the application or included in dist.
 import { createServer, type Server, type ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { Agent, Config, Entry, Publication, TerminalView } from '../src/wire';
@@ -67,7 +67,22 @@ export class SyntheticAPI {
       delivery: { message_id: messageId, recipient_agent_id: id, state: 'pending', reason: 'runtime_unavailable', updated_at: now }, handling: null,
       ...options,
     };
-    rows.push(row); this.event('message.created', id); return row;
+    rows.push(row);
+    if (row.source.type === 'message') this.event('message.created', id);
+    return row;
+  }
+  addNative(id: string, text: string, role: 'user' | 'agent', provider: 'claude' | 'codex') {
+    const agent = this.agents.find(a => a.id === id)!;
+    const nativeId = randomUUID();
+    const raw = Buffer.from(JSON.stringify({ id: nativeId, role, text }) + '\n');
+    return this.add(id, text, {
+      role, direction: role === 'user' ? 'incoming' : 'outgoing', sender_actor_id: role === 'user' ? null : agent.actor_id,
+      occurred_at: '2026-10-07T12:00:00.000000Z',
+      source: { type: 'native', provider, run_id: randomUUID(), source_id: randomUUID(), source_epoch: randomUUID(),
+        offset: 0, length: raw.length, sha256: createHash('sha256').update(raw).digest('hex'), parser_version: 'native-v1',
+        native_id: nativeId, part_index: 0, timestamp_origin: 'native' },
+      delivery: null, handling: null,
+    });
   }
   recover() { this.epoch = randomUUID(); this.entries.set(alpha, []); this.entries.set(beta, []); this.events = []; }
   async start() {
@@ -165,6 +180,7 @@ export class SyntheticAPI {
       if (this.refuseSend) { this.refuseSend = false; json(503, { error: { code: 'unavailable', message: 'Transport unavailable' } }); return; }
       if (!args.body || Buffer.byteLength(args.body) > 65536) { error('invalid_argument', 'Message exceeds UTF-8 limit', 400); return; }
       const entry = this.add(args.recipient_agent_id, args.body);
+      if (entry.source.type !== 'message') throw new Error('Synthetic send requires a message source');
       const message = { message_id: entry.source.message_id, message_seq: this.messages.length + 1, thread_id: randomUUID(), reply_to_message_id: null, sender_actor_id: owner, sender_agent_id: null, recipient_agent_id: args.recipient_agent_id, body: args.body, occurred_at: now, recorded_at: now };
       this.messages.push(message);
       const result = success({ message, delivery: entry.delivery, entries: [{ entry_id: entry.entry_id, agent_id: entry.agent_id, conversation_id: entry.conversation_id, conversation_seq: entry.conversation_seq }] }, true);

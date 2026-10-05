@@ -180,7 +180,7 @@ function Chat({ agent }: { agent: Agent }) {
         }} />
         <div className="composer-footer"><span className={bytes > 65536 ? 'error' : 'quiet'}>{bytes > 65536 ? `${bytes.toLocaleString()} / 65,536 bytes — message is too long` : 'Enter to send · Shift + Enter for a new line'}</span><button className="primary" type="submit" disabled={!draft.text || bytes > 65536 || !!pending}>Send <span aria-hidden="true">↑</span></button></div>
       </form> : <p className="quiet">Sending messages is unavailable on this server.</p>}
-      <p className="composer-note">Messages are saved for delivery. Native replies are not available yet.</p>
+      <p className="composer-note">Start and manage the CLI in Terminal. Messages are saved for delivery.</p>
     </div>
   </>;
 }
