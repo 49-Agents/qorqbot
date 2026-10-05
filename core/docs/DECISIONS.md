@@ -1,5 +1,14 @@
 # Architecture decisions
 
+## D26 — Thin core transport over the reviewed application
+
+The first HTTP/MCP/operator increment uses the reviewed foundation at `ef18e59`
+and [CORE-API.md](CORE-API.md). One local process and shared registry preserve
+application attribution, schemas and mutation receipts. Fixed private bearer
+bindings establish actor identity with all-allowed access; owner browser sessions
+and credential issuance remain later work. Health certifies only the registered
+operations, and no unimplemented domain, stream or browser tool is advertised.
+
 ## D25 — Freeze the independent browser service's first wire contract
 
 After review of the local browser primitives, browser owns the bounded v1

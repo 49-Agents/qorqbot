@@ -12,6 +12,10 @@ Transports adapt schemas, authentication and streaming. They do not implement do
 
 Core runs fully headless and owns all application coordination/configuration. UI reads non-secret effective configuration and submits supported changes through `config_get/update` or agent/runtime operations; core validates and commits them. The frontend owns only presentation state. Publish core API schemas/version from core, and let UI consume them with a small typed client; no fourth contracts repository or copied business-rule layer. Reject unsupported API capabilities before dependent actions.
 
+The bounded first transport increment follows [CORE-API.md](../CORE-API.md),
+using the reviewed foundation's four real operations. Its local bearer transport
+does not claim the later browser-session, stream, domain or native-client gates.
+
 ## Public surfaces
 
 - `/mcp`: core's official SDK Streamable HTTP endpoint, configured in both CLIs as `qorqut-core`. A separate `qorqut-browser` registration targets browser's local service; no browser tool handlers are registered here.

@@ -139,6 +139,10 @@ Begin implementation by bootstrapping private `qorqut-core` and `qorqut-browser`
 
 Implement M00 and M01 with fake executors, and the thin M10 transport. Add the workspace layout from M09.
 
+The first concrete transport increment follows [CORE-API.md](CORE-API.md) on the
+reviewed M00 foundation. It exposes only the four implemented configuration,
+operation and event handlers; M01 and later domain handlers join after review.
+
 Deliver core-owned configuration, atomic operation receipts, event history, typed durable jobs, a stable agent registry with display names/icon keys, create/rename/archive, the reserved host onbash identity, status validation/history, explicit observed activity/freshness, and shared HTTP/MCP operation behavior. Seed editable `persona.md`, memory and workspace directories once; descriptive roles live in the persona and v1 remains `allow_all`. Freeze the twenty-icon key catalog in core without adding custom image uploads; UI owns the artwork.
 
 **Gate G1:** concurrent/retried creation yields one ID and one creation event; changed statuses survive restart; 101-word text is rejected identically by every transport; no business or role-policy dependencies exist.

@@ -260,6 +260,10 @@ Core application operations share their HTTP/MCP implementation where exposed. B
 
 Start with only the operations implemented by the current phase; do not advertise inert tools. Use cursors and bounded response sizes for lists/search. Raw downloads/artifact references preserve complete access without putting an entire transcript into a tool result. Endpoint naming uses `/api/v1/operations/<name>` and `/mcp`; streaming/viewer routes are documented in M10.
 
+The first concrete core transport contract is [CORE-API.md](CORE-API.md). It binds
+the reviewed foundation operations to HTTP/MCP/operator calls without changing
+their domain rules; later inventory and stream activation require reviewed code.
+
 ## 13. Table ownership
 
 Final migrations should implement these logical records without a generic JSON document store. Small versioned extension payloads are allowed for adapter-specific metadata.

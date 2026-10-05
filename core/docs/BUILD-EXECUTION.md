@@ -47,6 +47,13 @@ chosen core lock before integration is accepted. Shared migrations, registry,
 package metadata and assembly retain one assigned writer at a time. Later lanes
 must not invent competing implementations of these accepted boundaries.
 
+The next foundation-dependent assignment is `core-transports-r1`, implementing
+the [first core HTTP/MCP contract](CORE-API.md) and a small HTTP operator client
+on `ef18e59`. It owns transport/client/entry-point code and required dependency
+metadata, not domain rules or migrations. Only the four existing operations are
+advertised. Agent/workspace, messaging and later integration handoffs remain
+separate Manager assignments; no worker may fill those gaps independently.
+
 ## Work awaiting acceptance
 
 - Terminal at `7399178`: Manager reproduced raw unframed multiline paste when
