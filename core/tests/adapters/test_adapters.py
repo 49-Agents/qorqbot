@@ -329,6 +329,52 @@ class LaunchTests(AdapterCase):
 
 
 class DiscoveryTests(AdapterCase):
+    def test_claude_primary_source_retains_embedded_child_records(self):
+        def encoded(record):
+            return (json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
+
+        primary = encoded({"type": "user", "sessionId": str(SESSION), "uuid": "synthetic-primary-1",
+            "message": {"content": "Primary record with Unicode: ü"}})
+        following = encoded({"type": "assistant", "sessionId": str(SESSION), "uuid": "synthetic-primary-2",
+            "message": {"content": "Another independent primary record"}})
+        for marker in ({"isSidechain": True}, {"agentId": "synthetic-child"}):
+            for child_session in (SESSION, OTHER_SESSION):
+                child = encoded({"type": "attachment", "sessionId": str(child_session), **marker,
+                    "attachment": {"type": "unverified_child_file", "path": "/not-owned/child-ü.bin"}})
+                cases = (("before", child + primary + following, len(child)),
+                    ("between", primary + child + following, 0),
+                    ("after", primary + following + child, 0))
+                for position, raw, primary_offset in cases:
+                    with self.subTest(marker=marker, child_session=child_session, position=position):
+                        path = self.source(self.claude, content=raw)
+                        before = path.stat()
+                        result = self.claude.discover(self.roots, self.native)
+                        self.assertEqual(len(result.sources), 1)
+                        source = result.sources[0]
+                        self.assertEqual((source.path, source.device, source.inode, source.binding),
+                            (path, before.st_dev, before.st_ino, self.native))
+                        self.assertEqual(source.observed_size, len(raw))
+                        self.assertEqual(len(source.ownership), 1)
+                        proof = source.ownership[0]
+                        self.assertEqual((proof.kind, proof.offset, proof.length, proof.sha256),
+                            ("native_session_id", primary_offset, len(primary), hashlib.sha256(primary).hexdigest()))
+                        self.assertEqual(raw[proof.offset:proof.offset + proof.length], primary)
+                        self.assertEqual(path.read_bytes(), raw)
+                        self.assertEqual(path.stat().st_mtime_ns, before.st_mtime_ns)
+                        self.assertEqual(result.attachments, ())
+                        codes = {gap.code for gap in result.gaps}
+                        self.assertIn("unsupported_child_association", codes)
+                        self.assertNotIn("native_identity_conflict", codes)
+                        self.assertNotIn("native_identity_unverified", codes)
+                        self.assertNotIn("unsupported_attachment_reference", codes)
+
+        # A conflicting primary after an embedded child still invalidates ownership.
+        conflicting = encoded({"type": "user", "sessionId": str(OTHER_SESSION)})
+        self.source(self.claude, content=primary + child + conflicting + following)
+        result = self.claude.discover(self.roots, self.native)
+        self.assertEqual(result.sources, ())
+        self.assertIn("native_identity_conflict", {gap.code for gap in result.gaps})
+
     def test_cwd_changes_unknown_types_and_repeated_text_keep_one_raw_source(self):
         for adapter in (self.claude, self.codex):
             with self.subTest(provider=adapter.provider):
@@ -367,6 +413,9 @@ class DiscoveryTests(AdapterCase):
             result = adapter.discover(self.roots, self.native)
             self.assertEqual(result.sources, ())
             self.assertIn("unsupported_child_association", {gap.code for gap in result.gaps})
+            if adapter.provider == "claude":
+                self.assertIn("native_identity_unverified", {gap.code for gap in result.gaps})
+                self.assertNotIn("native_identity_conflict", {gap.code for gap in result.gaps})
             path.unlink()
         self.put(f".claude/projects/p/{SESSION}/subagents/agent-synthetic-child.jsonl", (FIXTURES / "claude-child-unsupported.jsonl").read_bytes())
         self.assertIn("unsupported_child_association", {gap.code for gap in self.claude.discover(self.roots, self.native).gaps})

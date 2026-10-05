@@ -115,8 +115,11 @@ source tree; no upstream notice was removed or new license asserted.
 
 The old broad minimum-version support claim, current-only pointer, whole-file
 8 MiB snapshot cap, cwd ownership rejection, text-only projection and business
-policy stack were not retained. Pinned code explicitly filters/rejects children;
-child-looking records now return a visible unsupported gap. External/unknown
+policy stack were not retained. The pinned visible-Chat code filters embedded
+child records from its projection; that filter is not a raw-file ownership rule.
+Child associations remain unsupported, with explicit gaps, while independently
+proven primary files retain their entire raw descriptor and all embedded bytes.
+External/unknown
 attachments, unknown source layouts (including Codex's help-advertised paginated
 history), complete child coverage, native hook trust/config discovery, actual
 MCP tool discovery/outage behavior, native process attestation, compaction/source
@@ -163,3 +166,33 @@ passed **22 tests**, including oversized endpoint/hook output rejection without
 changing the last successful projection and exact-limit write/read acceptance.
 `git diff --check` passed. No native provider or service interaction was added;
 the preceding capability matrix and deferred acceptance limits are unchanged.
+
+## Review revision 2
+
+Manager review message 26 identified that a Claude primary source containing an
+embedded `isSidechain` or `agentId` record was incorrectly discarded. Inspection
+of pinned `tests/test_terminal_owned_chat.py:108–112,395–404` and
+`bazarlyk/global_chat/terminal.py:45` confirms those filters describe a visible
+projection, not ownership of the raw primary file.
+
+Claude discovery now reports `unsupported_child_association` for such a record
+and continues looking for independent primary evidence. It infers neither
+primary identity nor attachment ownership from child-marked records. An owned
+primary descriptor retains its path/device/inode/run binding, complete observed
+size and unchanged underlying bytes. Child-only candidates remain unverified;
+genuinely conflicting primary identities and separate child-looking paths remain
+rejected. Codex metadata and the accepted preparation corrections are unchanged.
+
+`PYTHONPATH=src:tests/adapters .venv/bin/python -m unittest -v test_adapters.DiscoveryTests.test_claude_primary_source_retains_embedded_child_records`
+passed **1 focused test** (0.006 seconds). Its 12 retention cases cover each child
+marker before/between/after matching primary records, with both matching and
+different child session IDs. It checks exact primary ownership byte coordinates
+and hash, full raw length, preserved source identity/bytes/mtime, the unsupported
+association gap and absence of invented attachment references. A conflicting
+primary after an embedded child still rejects the candidate. The existing
+child-only check also requires unverified identity without a false conflict.
+
+`PYTHONPATH=src .venv/bin/python -m unittest discover -s tests/adapters -v`
+passed **23 tests** (2.461 seconds); `git diff --check` passed. All new records are
+synthetic. No native data, model call, child discovery, conversation parser or
+recorder ingestion was introduced. The native capability limits remain unchanged.

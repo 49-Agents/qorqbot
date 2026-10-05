@@ -122,11 +122,13 @@ def discover(provider: Provider, version: str, roots: ManagedRoots, binding: Nat
                                 continue
                             native = None
                             if provider == "claude":
-                                native = record.get("sessionId")
                                 if record.get("isSidechain") is True or record.get("agentId"):
-                                    conflict = True
                                     local_gaps.append(DiscoveryGap(code="unsupported_child_association", relative_path=relative))
-                                    break
+                                    # Embedded child metadata neither proves nor
+                                    # contradicts primary ownership. Keep its raw
+                                    # bytes, but infer no identity or attachments.
+                                    continue
+                                native = record.get("sessionId")
                             elif record.get("type") == "session_meta":
                                 payload = record.get("payload")
                                 if isinstance(payload, dict):
