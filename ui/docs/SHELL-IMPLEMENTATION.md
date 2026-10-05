@@ -118,10 +118,37 @@ related cases instead of testing every component or icon. Run build/type checks
 and inspect desktop/mobile screenshots.
 
 Use direct testing, as the owner allowed own-browser or ACLA-agent UI tests.
-No external QA service or owner login is needed. A fresh independent Astra MAX
-reviewer checks the completed SHA. Manager then tests the integrated UI against
-the actual backend. Fixtures do not count as VM/provider/noVNC acceptance.
+No external QA service or owner login is needed. Under the latest owner instruction, Manager reviews and tests the completed
+SHA directly, then checks the integrated UI against the actual backend. Fixtures do not count as VM/provider/noVNC acceptance.
 
 Commit implementation, lockfile, focused tests and evidence on the assigned
 branch. No usage examples, fake demos, global installs, deployment or live
 sessions. Ask Manager for missing contracts/design before dependent work.
+
+## Native history compatibility
+
+Manager decision, 2026-10-08: adopt the native Entry variant accepted in
+qorqut-core `35b6d82cd702fe6e82562d7a3c6533ac04050baa` (schema 7), without
+changing Terminal geometry or adding backend logic. Conversation source is a
+discriminated message/native union. Native source carries provider, run/source/
+epoch IDs, raw offset/length/SHA, parser version, native ID, part index and
+timestamp origin; it has no message_id. Native user sender_actor_id, delivery
+and handling are nullable. Existing message entries keep their current shape.
+
+Render both variants as the same escaped conversation text, attributed to Owner
+for native user and the agent display name for native assistant. Keep occurred
+and recorded timestamps and permanent entry-ID/cursor behavior. Do not infer
+queue/delivery/handling badges or cards from native rows, merge equal text, or
+expose raw protocol coordinates in the chat. Retain refresh and draft behavior.
+The composer note should describe the manual Terminal workflow and saved
+delivery, without the blanket assertion that native replies are unavailable
+or a claim that dispatch/capture is ready.
+
+Update only conversation wire declarations, that note and the existing
+synthetic conversation fixture/browser check. Extend one existing nonterminal
+group with native user/assistant, null delivery, escaped text and equal-text
+distinct identities across refresh. No new framework, suite, dependency,
+example or styling work. This lane runs independently of the Terminal geometry
+lane, which owns the Terminal declarations and its two browser groups in the
+same isolated-worktree merge workflow. Direct UI checks remain synthetic;
+normal server collection and actual CLI acceptance are separate gates.
