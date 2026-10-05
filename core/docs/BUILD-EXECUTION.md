@@ -23,10 +23,10 @@ retain their timestamps and are not a deployment budget or reservation.
 
 ## Review corrections pending
 
-- Adapters at `925b4d2`: the manifest-size and root-alias corrections passed
-  independent review and Manager regression checks. A fresh review found that
-  an embedded Claude sidechain record discards a verified parent raw source;
-  Manager reproduced it and requested a narrow discovery correction. The
+- Adapters at `2522688`: preparation and mixed-primary/child corrections passed
+  independent review and Manager checks. The next review found growing rewrites
+  could return stale source-ownership proof; Manager reproduced this for both
+  adapters and requested a bounded provenance-revalidation correction. The
   implementation remains unapproved.
 - Terminal at `7399178`: Manager reproduced raw unframed multiline paste when
   bracketed mode was off, and stale paste proof allowing Enter after a database

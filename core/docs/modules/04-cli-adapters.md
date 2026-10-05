@@ -58,6 +58,15 @@ still need their own association contract, and conflicting primary identity
 evidence still prevents attachment. Discovery does not filter the archive into
 visible parent text.
 
+Discovery must not infer append-only stability from an increased file size.
+Before returning a source, revalidate its emitted ownership/attachment proof
+spans against the same opened source and confirm the managed path still names
+that inode. Detect changes across the final validation window; inconsistent
+observations return a source-change gap, not positive stale evidence. A stable
+append that preserves those spans remains eligible. This is a short-lived
+observation, not a file snapshot or lock on future writes: ingestion must still
+verify source identity/provenance and implement its own source-epoch contract.
+
 ## Tests and acceptance
 
 - Both clients prepare against the same agent UUID/folder; Claude → Codex → Claude refresh preserves authored files and identity.
