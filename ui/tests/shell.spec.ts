@@ -212,8 +212,12 @@ test('selection and late reads/mutations retain each draft and original target',
   await expect(message(page)).toHaveValue('New session draft');
 });
 
-test('ambiguous send uses identical retry, transport refusal, IME, newlines and UTF-8 limit', async ({ page, api }) => {
+test('ambiguous send retains same-key retries across session and application refusals, IME and UTF-8 limit', async ({ page, api }, testInfo) => {
   await signIn(page, api);
+  const attempts: object[] = [];
+  page.on('request', request => {
+    if (request.url().endsWith('/operations/messages_send')) attempts.push(request.postDataJSON());
+  });
   await message(page).fill('same request'); api.dropSend = true;
   await message(page).press('Enter');
   await expect(page.getByText(/Confirmation uncertain/)).toBeVisible();
@@ -222,11 +226,51 @@ test('ambiguous send uses identical retry, transport refusal, IME, newlines and 
   // Allow a full polling interval; reads must never replay an uncertain mutation.
   await expect(page.getByText('same request', { exact: true })).toBeVisible();
   expect(calls(api, 'messages_send')).toHaveLength(1);
+  await page.route('**/api/v1/operations/messages_send', async route => {
+    api.authenticated = false;
+    await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'authentication_required' }) });
+  }, { times: 1 });
   await page.getByRole('button', { name: 'Retry original request' }).click();
-  await expect(message(page)).toHaveValue('');
+  await expect(page.getByLabel('Console token')).toBeVisible();
+  await page.getByLabel('Console token').fill('synthetic-console-token');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(message(page)).toHaveValue('same request');
+  await expect(page.getByText(/Confirmation uncertain/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Dismiss error' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Apply attempted change to current revision' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await message(page).press('Enter');
+  expect(attempts).toHaveLength(2);
+  await expect(message(page)).toHaveValue('same request');
+  await page.screenshot({ path: testInfo.outputPath('uncertainty-after-sign-in.png'), fullPage: true });
+  await page.route('**/api/v1/operations/messages_send', route => route.fulfill({
+    status: 400, contentType: 'application/json', body: JSON.stringify({
+      ok: false, operation_id: null, outcome: null, data: null, event_seq: null,
+      error: { code: 'invalid_argument', message: 'Synthetic retry refusal', retryable: false },
+    }),
+  }), { times: 1 });
+  await page.getByRole('button', { name: 'Retry original request' }).click();
+  await expect(page.getByText('Confirmation uncertain. Synthetic retry refusal', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Dismiss error' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Apply attempted change to current revision' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(message(page)).toHaveValue('same request');
+  expect(attempts).toHaveLength(3);
+  expect(api.messages).toHaveLength(1);
+  const replay = api.hold('messages_send');
+  await page.getByRole('button', { name: 'Retry original request' }).click(); await replay.seen;
+  await message(page).fill('Newer draft while replaying');
+  replay.release();
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  await expect(page.locator('.mutation-error')).toHaveCount(0);
+  await expect(message(page)).toHaveValue('Newer draft while replaying');
+  expect(attempts).toHaveLength(4);
+  for (const attempt of attempts) expect(attempt).toEqual(attempts[0]);
+  expect(attempts[0]).toEqual({ recipient_agent_id: alpha, body: 'same request', idempotency_key: expect.any(String) });
   expect(calls(api, 'messages_send')).toHaveLength(2);
   expect(calls(api, 'messages_send')[0].args).toEqual(calls(api, 'messages_send')[1].args);
   expect(api.messages).toHaveLength(1);
+  expect(api.entries.get(alpha)).toHaveLength(1);
   api.refuseSend = true;
   await message(page).fill('transport refused'); await message(page).press('Enter');
   await expect(page.getByText(/Request refused \(HTTP 503\)/)).toBeVisible();

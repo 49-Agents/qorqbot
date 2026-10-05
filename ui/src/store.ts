@@ -4,6 +4,7 @@ import type { Agent, AgentPage, Config, ConversationPage, Entry, EventPage, Publ
 export type Pending = {
   operation: 'messages_send' | 'agents_update' | 'agents_create'; args: Record<string, unknown>;
   actor: string; agentId?: string; draftVersion?: number;
+  unresolvedAmbiguity: boolean;
   state: 'sending' | 'uncertain' | 'failed' | 'conflict'; error?: string;
 };
 export type Chat = {
@@ -92,6 +93,7 @@ export class Store {
     this.resetServer();
     for (const mutation of this.pending.values()) {
       if (mutation.state === 'sending') {
+        mutation.unresolvedAmbiguity = true;
         mutation.state = 'uncertain';
         mutation.error = 'The session ended before confirmation. Retry the original request after signing in.';
       }
@@ -221,6 +223,7 @@ export class Store {
     this.resetServer();
     for (const mutation of this.pending.values()) {
       if (mutation.state === 'sending') {
+        mutation.unresolvedAmbiguity = true;
         mutation.state = 'uncertain';
         mutation.error = 'Server recovery interrupted confirmation. The original request may have been saved.';
       }
@@ -371,14 +374,14 @@ export class Store {
     if (!draft.text || new TextEncoder().encode(draft.text).length > 65536) return;
     const pending: Pending = {
       operation: 'messages_send', args: { recipient_agent_id: id, body: draft.text, idempotency_key: crypto.randomUUID() },
-      actor: this.actor, agentId: id, draftVersion: draft.version, state: 'sending',
+      actor: this.actor, agentId: id, draftVersion: draft.version, unresolvedAmbiguity: false, state: 'sending',
     };
     this.pending.set(`send:${id}`, pending);
     await this.mutate(`send:${id}`);
   }
   async create(args: { display_name: string; icon_key: string; cli: { provider: string; model: string }; start: boolean }) {
     if (this.pending.has('create') || !this.has('agents_create')) return;
-    this.pending.set('create', { operation: 'agents_create', args: { ...args, idempotency_key: crypto.randomUUID() }, actor: this.actor, state: 'sending' });
+    this.pending.set('create', { operation: 'agents_create', args: { ...args, idempotency_key: crypto.randomUUID() }, actor: this.actor, unresolvedAmbiguity: false, state: 'sending' });
     await this.mutate('create');
   }
   async update(id: string, fields: { display_name?: string; icon_key?: string }) {
@@ -386,19 +389,19 @@ export class Store {
     if (!agent || !this.has('agents_update') || this.pending.has(`edit:${id}`)) return;
     this.pending.set(`edit:${id}`, {
       operation: 'agents_update', args: { agent_id: id, expected_revision: agent.revision, ...fields, idempotency_key: crypto.randomUUID() },
-      actor: this.actor, agentId: id, state: 'sending',
+      actor: this.actor, agentId: id, unresolvedAmbiguity: false, state: 'sending',
     });
     await this.mutate(`edit:${id}`);
   }
   discard(key: string) {
     const pending = this.pending.get(key);
-    if (pending && (pending.state === 'failed' || pending.state === 'conflict')) { this.pending.delete(key); this.emit(); }
+    if (pending && !pending.unresolvedAmbiguity && (pending.state === 'failed' || pending.state === 'conflict')) { this.pending.delete(key); this.emit(); }
   }
   async retry(key: string) {
     const pending = this.pending.get(key);
     if (!pending || pending.state === 'sending' || pending.actor !== this.actor || !this.has(pending.operation)) return;
-    // Revision conflicts are confirmed refusals. Reapplying is a new explicit mutation against the reloaded revision.
-    if (pending.state === 'conflict') {
+    // Reapplying is a new mutation only if no prior attempt remains unresolved.
+    if (!pending.unresolvedAmbiguity && pending.state === 'conflict') {
       const agent = this.agents.find(a => a.id === pending.agentId);
       if (!agent) return;
       pending.args = { ...pending.args, expected_revision: agent.revision, idempotency_key: crypto.randomUUID() };
@@ -434,21 +437,27 @@ export class Store {
     } catch (e) {
       if (gen !== this.generation || this.pending.get(key) !== pending) return;
       const err = failure(e);
-      pending.state = err.ambiguous ? 'uncertain' : err.code === 'revision_conflict' ? 'conflict' : 'failed';
-      pending.error = err.message;
+      // A refused retry cannot settle an earlier attempt whose confirmation was lost.
+      pending.unresolvedAmbiguity ||= err.ambiguous;
+      pending.state = pending.unresolvedAmbiguity ? 'uncertain' : err.code === 'revision_conflict' ? 'conflict' : 'failed';
+      pending.error = pending.unresolvedAmbiguity && err.status === 401
+        ? 'The retry was refused before confirmation. The original request may have been saved.'
+        : err.message;
       if (err.status === 401) this.expire();
       else if (err.code === 'revision_conflict' && pending.agentId) {
         const controller = this.controller();
         try {
           if (this.has('agents_get')) {
             const agent = await operation<Agent>('agents_get', { agent_id: pending.agentId }, controller.signal);
-            if (gen === this.generation) this.upsert(agent);
+            if (gen === this.generation && this.pending.get(key) === pending) this.upsert(agent);
           } else await this.loadDirectory(controller.signal, gen);
         } catch (refreshError) {
-          if (gen === this.generation) {
+          if (gen === this.generation && this.pending.get(key) === pending) {
             if (failure(refreshError).status === 401) this.expire();
-            pending.error += ' Current name could not be refreshed; reconnect before reapplying.';
-            pending.state = 'failed';
+            pending.error += pending.unresolvedAmbiguity
+              ? ' Current name could not be refreshed; reconnect before retrying the original request.'
+              : ' Current name could not be refreshed; reconnect before reapplying.';
+            pending.state = pending.unresolvedAmbiguity ? 'uncertain' : 'failed';
           }
         } finally { this.reads.delete(controller); }
       }

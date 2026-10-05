@@ -41,13 +41,13 @@ function MutationNotice({ item, requestKey }: { item?: Pending; requestKey: stri
   if (!item) return null;
   if (item.state === 'sending') return <p className="quiet" role="status">Saving request…</p>;
   return <div className="error mutation-error" role="alert">
-    <p>{item.state === 'uncertain' ? 'Confirmation uncertain. ' : ''}{item.error}</p>
+    <p>{item.unresolvedAmbiguity ? 'Confirmation uncertain. ' : ''}{item.error}</p>
     {item.operation === 'agents_update' && <p>Attempted {item.args.display_name !== undefined ? `name: “${item.args.display_name}”` : `icon: ${item.args.icon_key}`}.</p>}
     {item.actor !== store.actor ? <p>Sign in as the original account to retry this request.</p> : <button type="button" onClick={() => void store.retry(requestKey)} disabled={!store.has(item.operation)}>
-      {item.state === 'conflict' ? 'Apply attempted change to current revision' : 'Retry original request'}
+      {!item.unresolvedAmbiguity && item.state === 'conflict' ? 'Apply attempted change to current revision' : 'Retry original request'}
     </button>}
-    {(item.state === 'failed' || item.state === 'conflict') && <button type="button" onClick={() => store.discard(requestKey)}>Dismiss error</button>}
-    {item.state === 'uncertain' && <p className="quiet">Retry keeps the exact request and idempotency key.</p>}
+    {!item.unresolvedAmbiguity && (item.state === 'failed' || item.state === 'conflict') && <button type="button" onClick={() => store.discard(requestKey)}>Dismiss error</button>}
+    {item.unresolvedAmbiguity && <p className="quiet">Retry keeps the exact request and idempotency key.</p>}
   </div>;
 }
 function SignIn() {

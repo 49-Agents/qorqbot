@@ -8,9 +8,19 @@ No moving builder checkout was used. This evidence is committed together with
 the implementation; the completion envelope records the full delivery commit,
 post-commit clean status and confirmed push result.
 
-Revision 2 responds to `MANAGER_REVIEW` message 126 against candidate
+Revision 3 responds to `MANAGER_REVIEW` message 135 against candidate
+`93f514aa1394828e68a610abaacbde772d2d5d8f`. Each pending mutation now retains
+an explicit unresolved-ambiguity flag across sending, refused retries,
+sign-in and recovery. Interrupted in-flight requests set that flag. Subsequent
+failures, including the revision-conflict refresh catch, retain uncertainty;
+dismissal and revision reapply cannot discard or replace the original request.
+Only confirmed success removes it, apart from explicit logout's existing
+privacy clearing. The shared path covers sends, creation and edits without a
+new endpoint or persistent request store.
+
+Revision 2 addressed `MANAGER_REVIEW` message 126 against candidate
 `62dd56b373317ac833e5c134e1f02e96ba9b96ba`. The three confirmed defects are
-corrected within the existing shell:
+corrected within the existing shell and retained in revision 3:
 
 - Both recovery entry paths now share a generation-guarded discovery failure
   handler. Failure enters `error` / `Offline` with Retry connection and stops
@@ -47,18 +57,26 @@ npm install --ignore-scripts --no-audit --no-fund
 npm ci --ignore-scripts --no-audit --no-fund
 npm ls --depth=0
 npm run build
-QORQUT_UI_TEST_ARTIFACTS=/home/alp/.local/state/qorqut-builds/01a116b0-8d6d-72f2-9da9-76bd2e898f04/ui-shell-r1/revision-2-browser TMPDIR=/tmp npm test
+QORQUT_UI_TEST_ARTIFACTS=/home/alp/.local/state/qorqut-builds/01a116b0-8d6d-72f2-9da9-76bd2e898f04/ui-shell-r1/revision-3-browser TMPDIR=/tmp npm test
 git diff --check
 ```
 
-- Clean lock installation and dependency inventory passed. `npm run build`
+- Initial clean lock installation and dependency inventory passed; dependencies
+  and the lockfile remain unchanged in this revision. `npm run build`
   includes strict `tsc --noEmit` over source/tests and a production Vite build.
   Final revision build passed: `dist/index.html`, one CSS asset (10.59 kB), one JS asset
-  (48.09 kB; 16.48 kB gzip). No synthetic token/model/API fixture strings were
+  (48.67 kB; 16.57 kB gzip). No synthetic token/model/API fixture strings were
   found in the production bundle.
 - Final strict build and grouped Chrome suite each ran once after the revision:
-  **6 passed in 39.0 seconds**. Regressions are folded into the existing session,
-  creation and history cases; no component test matrix was added.
+  **6 passed in 40.7 seconds**. The new regression extends the existing ambiguous
+  send case; the previous session, creation and history regressions remain.
+- New regression: one committed/lost-response send, same-key retry refused
+  with HTTP 401, renewed sign-in, then an application refusal and successful
+  replay. All four attempts carry identical original arguments/key and leave
+  exactly one synthetic durable message/entry. After each refusal, uncertainty
+  and the original draft remain visible; dismissal/reapply are absent and Send
+  is disabled, including Enter. Text typed during the final replay survives
+  confirmed success. No automatic retry or additional mutation matrix was added.
 - Review regressions: a one-time schema refusal after epoch change keeps Retry
   visible through the old backoff interval and issues no further operations
   until manual reconnect; the original draft and exact uncertain mutation
@@ -101,11 +119,12 @@ browser installation, owner profile or live installation was used.
 
 Artifact root:
 `/home/alp/.local/state/qorqut-builds/01a116b0-8d6d-72f2-9da9-76bd2e898f04/ui-shell-r1/`.
-Final revision logs are `revision-2-build.log` and `revision-2-browser.log`.
+Final revision logs are `revision-3-build.log` and `revision-3-browser.log`.
 Initial candidate logs (`build-final.log`, `browser-verified.log` and
-`browser-recovery-check.log`) and earlier failures remain in the same private
-root, outside Git. The original candidate had six passing grouped tests plus a
-passing narrow recovery test; independent review identified the additional
+`browser-recovery-check.log`), revision 2 logs and earlier failures remain in
+the same private root, outside Git. The original candidate had six passing
+grouped tests plus a passing narrow recovery test; revision 2 had six passing
+grouped tests in 39.0 seconds. Independent reviews identified the additional
 cases now covered by the revision regressions.
 
 Visually inspected `desktop.png` (1440×960), `mobile.png` (390×844), and
@@ -116,7 +135,7 @@ legible messages, usable composer, thin dividers and contained drawers matched
 the supplied direction. Replaced the mobile menu font glyph with a local SVG
 after screenshot inspection. Screenshots contain synthetic records only.
 
-Revision inspection: `desktop-row-conflict.png` (1440×960) and
+Revision 2 inspection: `desktop-row-conflict.png` (1440×960) and
 `mobile-row-conflict.png` (390×844), in
 `revision-2-browser/shell-creation-and-fixed-i-adfdb-ation-and-revision-conflict/`,
 show the unselected row's complete attempted text and wrapped reapply/dismiss
@@ -124,12 +143,21 @@ controls, without horizontal overflow or a conversation switch. Existing
 desktop/mobile shell and inspector screenshots were also regenerated by the
 same final suite under `revision-2-browser/`.
 
+Revision 3 inspection: `uncertainty-after-sign-in.png` under
+`revision-3-browser/shell-ambiguous-send-retai-2f8f5-efusals-IME-and-UTF-8-limit/`
+shows the uncertainty notice, original-request Retry, retained draft and
+disabled Send after renewed sign-in, with no dismissal/reapply control.
+Also inspected the regenerated `mobile-row-conflict.png` under the creation
+case and `desktop.png` / `mobile.png` under the escaping/drawers case in
+`revision-3-browser/`; messages, composer and mobile drawer remained legible
+and contained. All screenshots use synthetic data.
+
 Final build SHA-256 values:
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `dist/index.html` | `d01e622e9a8919f968b3e8608b54f0a1cc65d350f3f76ab561c54951b34c165c` |
-| `dist/assets/index-1eXot0bS.js` | `f0b4a52949c2894399259442f14b37b9776ca8d5c90a4614dc7237c37a02ce57` |
+| `dist/index.html` | `1a6c7d8a7b2a139b4c60ae6e95fc7e311ca3a75fd9bd073eefd1746a4338797e` |
+| `dist/assets/index-CT2bNR-G.js` | `6c7a54cac5b22f9a1536f3f0c43949d64d4fafe8c311b976943dae8159e42b6e` |
 | `dist/assets/index-UG1v5Rja.css` | `05ce6fec2a63ed77f26e7cd0404b8993277409385f4ca37a4c24abe4317ce773` |
 
 ## Coverage boundary
