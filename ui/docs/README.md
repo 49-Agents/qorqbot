@@ -33,3 +33,8 @@ to the evidence above; native replies, runtime and browser/file cards remain pen
 Current correction: [queued terminal-input batching](TERMINAL-INPUT-BATCHING.md).
 The native workflow verifiers keep the pre-correction UI pin while this is built
 and checked separately.
+
+Next UI increment: [session and native-history observations](RUNTIME-INSPECTOR.md)
+uses core runtime_get without adding input or launch controls. The
+[terminal typing correction](evidence/terminal-input-batching-manager-acceptance.md)
+is now accepted; native delivery remains separate.
