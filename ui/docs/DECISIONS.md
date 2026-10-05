@@ -4,7 +4,7 @@ Status: planning decisions, not evidence of implementation. D02 and D08 are expl
 
 ## D01 — Small Python application and shared operations
 
-**Decision:** one Python 3.12 host application, one SQLite database, one domain-operation layer shared by HTTP/MCP/operator clients, and ordinary files for authored material and raw archives.
+**Decision:** `qorqut-core` owns one Python 3.12 host application, one SQLite database, one domain-operation layer shared by HTTP/MCP/operator clients, and ordinary files for authored material and raw archives. Source ownership follows D20; a separate browser package and UI do not add backend services.
 
 Qorqut's Python transport, terminal, browser and native-format knowledge are valuable. Staying in Python makes selective extraction easier and reduces integration languages. The official MCP SDK supplies protocol behavior. Use one validation model family, preferably Pydantic v2 already required by the SDK; do not maintain independent hand-written HTTP and MCP schemas.
 
@@ -36,7 +36,7 @@ This keeps message routing, browser control and observed activity unambiguous. C
 
 ## D05 — All operations allowed, identity retained
 
-**Decision:** no role grants, capability policy, signoff approval or business-scope filtering. Every registered actor can call every implemented public v1 operation against any agent.
+**Decision:** core owns agent personas, descriptive roles and any future permission policy. V1 uses `allow_all`: no role grants, capability policy, signoff approval or business-scope filtering. Every registered actor can call every implemented public v1 operation against any agent. Descriptive roles in `persona.md` guide behavior without granting or restricting operations.
 
 Transport credentials identify the actor and exact runner; validation, idempotency, ownership metadata and generation checks prevent misattribution and accidental wrong-target effects. They do not create privilege tiers. Runtime observations are accepted only from the bound execution source because an observation is evidence, not an arbitrary user assertion.
 
@@ -86,7 +86,7 @@ The host-global agent uses the same runner API locally. Its required host ports/
 
 ## D11 — Plain files and a current memory checkpoint
 
-**Decision:** notes, research, downloads, scratch material and memory are ordinary agent-owned files. Add atomic API writes, hashes and a bounded memory convenience operation; do not import Qorqut's full document/catalog/revision subsystem.
+**Decision:** `persona.md`, notes, research, data, downloads, scratch material and memory are ordinary agent-owned files managed by core. `persona.md` is the single authored persona/role/instruction source; generated CLI entrypoints refer to it. Seed it once during creation and preserve later edits. A small folder initializer is enough; no separate agent-template repository or framework is needed. Add atomic API writes, hashes and a bounded memory convenience operation; do not import Qorqut's full document/catalog/revision subsystem.
 
 Direct CLI tools should work normally in `/workspace`. The platform does not claim to version every external filesystem edit. Context packets and exports retain selected exact bytes and their hashes when they need historical evidence. General document versioning or an editor can be added for a demonstrated requirement later.
 
@@ -100,7 +100,7 @@ Full bundles include runner receipts/spool even for host onbash. Restore reissue
 
 ## D13 — Single-page chat and backend-first gates
 
-**Decision, amended by the owner's 2026-10-07 direction:** build one page with a left agent list, middle conversation and collapsible right status/browser/machine inspector. Browser input requests produce full-width inline interactive cards with top-right modal expansion. File references produce compact durable cards; opening/previewing them is deferred. Use pinned terminal/noVNC assets and the shared backend operations.
+**Decision, amended by the owner's 2026-10-07 direction:** build the frontend in `qorqutbot-ui`, consuming core's HTTP/events/WebSocket contracts. One page has a left agent list, middle conversation and collapsible right status/browser/machine inspector. Browser input requests produce full-width inline interactive cards with top-right modal expansion. File references produce compact durable cards; opening/previewing them is deferred. Use pinned terminal/noVNC assets and the shared backend operations. All application coordination and authoritative configuration remain in core.
 
 Keep an ultra-minimal dark black/white/gray style with thin lines, without purple or futuristic decoration. Owner images will refine layout/styling. A rich editor, business workspace/task manager or large design system is unnecessary. See [UI-PLAN.md](UI-PLAN.md) for the included interactions and acceptance; its chat scope supersedes the initial decision to defer all Chat UI.
 
@@ -137,3 +137,21 @@ M07 supplies the conversation read projection/entry ledger; M06/M09 retain reque
 **Decision:** each agent has a TigerVNC display dedicated to its persistent Chrome, even when its VM also has a general graphical console. Browser inline/modal/inspector views share that exact browser surface. Machine is a distinct surface, defaulting to a usable guest desktop through private libvirt VNC; onbash gets its own separate local desktop. P0 proves both paths.
 
 Reuse the noVNC viewer and exact surface/control epoch contracts. Machine takeover coordinates existing terminal/browser gates and releases only its own holds. No browsing profile is cloned for embedding and no existing owner desktop is reused. This adds a surface binding and local supervision, not another application service.
+
+## D20 — Three repositories, one backend authority
+
+**Decision, confirmed by the owner:** consolidate agent management, runtime, recording and communications in `qorqut-core`. Keep `qorqut-browser` reusable and separate. Name the frontend repository `qorqutbot-ui`. These are the three source repositories; there is no separate coordination application or contracts repository.
+
+- **Core** owns agent identity/persona/workspaces, lifecycle, VM/host execution, tmux/CLI adapters, transcripts/continuity, messaging, durable request/history storage, configuration, HTTP/MCP/operator APIs and browser integration. These remain internal modules, with one host database and the small runner.
+- **Browser** owns Chrome/profile lifecycle, agent browser-control tool definitions and command implementation, takeover-request tool binding, an optional standalone MCP adapter, TigerVNC/Openbox setup, browser control arbitration and local remote-control transport. It takes explicit configuration and host callbacks; it imports neither core nor UI. Core's callback commits a handoff request/event/job atomically and later commits Done/Cancel with its notification message.
+- **UI** owns presentation, interaction, noVNC/terminal viewer assets and transient client state. It reads and changes backend configuration through core operations. It owns no lifecycle decisions, durable coordination store or runner credentials.
+
+Core pins the browser package; UI consumes core's versioned network API. The browser contract lives in the browser package, and the application API contract lives in core. No Git submodules, extra database, broker, service or generic plugin layer follows from this split. Core operates headlessly; the UI build can be served as optional static assets or through a same-origin proxy without a source-code dependency from core to UI.
+
+Keep these plans together until implementation bootstrap moves each authoritative document to its owning repository and replaces old copies with links. The current planning publication does not mean the core/browser repositories or packages already exist. Use focused tests at the owning boundary and a few integrated flows; no example apps or duplicate per-repository acceptance suites.
+
+## D21 — Browser owns an optional standalone MCP adapter
+
+**Decision:** ship a thin MCP entrypoint in `qorqut-browser` so another project can use browser tools without core. Reuse the same tool models/handlers and official SDK; the adapter only handles transport and binding. For this product, core registers those tools in its existing MCP endpoint and applies its shared operation, identity, control and persistence contracts. No second always-running MCP service is required.
+
+Start standalone support with stdio for CLI clients, using explicit browser/session configuration. Human takeover needs a configured host request/completion binding; without one, do not advertise a working takeover tool or claim a user was notified. The adapter does not gain an agent registry, message system, application configuration authority or UI. A future HTTP listener is justified only by a concrete consumer requirement.

@@ -2,6 +2,8 @@
 
 Status: planned, incorporating the owner's 2026-10-07 UI direction. This is a specification update, not a built interface. Reference images will refine spacing, proportions and icon artwork later. The backend-first delivery order remains; the first UI now has a concrete single-page chat scope.
 
+Repository: **`qorqutbot-ui`**. This frontend consumes `qorqut-core` HTTP operations, events and WebSocket streams. Core owns all application coordination/configuration, durable requests, conversation records and control decisions. Browser mechanisms and agent tools live in `qorqut-browser`, integrated by core; UI never calls private runner/CDP/VNC endpoints directly. Settings forms, when needed, edit core through its API. Drafts, selection and collapsed panes are UI state. Build independently and serve static assets under the same origin as core through a proxy or optional static mount. Core remains usable without this UI.
+
 ## 1. One page, three columns
 
 | Area | Required behavior |
@@ -83,20 +85,7 @@ Expose bounded cursor pagination and current card state. SSE/reconnect invalidat
 
 Use `agent_id` internally, `display_name` and `icon_key` for presentation. Replace the earlier plan's mutable `name` field with the single canonical `display_name`; do not maintain two competing names. Keep the existing trimmed 1–120-character validation and revision-checked `agents_update`. Name/icon changes have attributed history and update every UI location without restarting execution.
 
-The reserved host agent is initialized with display name `onbash` and icon `terminal`. Its reserved identity remains the same even if its display name is edited. Other creations default to `circle` when no icon is supplied, including agent-created agents. Users choose from twenty monochrome line icons:
-
-| Key | Label | Key | Label |
-| --- | --- | --- | --- |
-| `circle` | Circle | `square` | Square |
-| `triangle` | Triangle | `diamond` | Diamond |
-| `star` | Star | `compass` | Compass |
-| `globe` | Globe | `leaf` | Leaf |
-| `feather` | Feather | `book` | Book |
-| `notebook` | Notebook | `flask` | Flask |
-| `microscope` | Microscope | `telescope` | Telescope |
-| `code` | Code | `terminal` | Terminal |
-| `wrench` | Wrench | `gear` | Gear |
-| `lightbulb` | Lightbulb | `anchor` | Anchor |
+The reserved host agent is initialized with display name `onbash` and icon `terminal`. Its reserved identity remains the same even if its display name is edited. Other creations default to `circle` when no icon is supplied, including agent-created agents. Users choose from the twenty fixed keys in [the core agent contract](CONTRACTS.md#2-agent-record-and-layout). Core publishes and validates the catalog; UI supplies its monochrome line artwork.
 
 Use a small pinned SVG collection or local source-controlled vectors when implementing, with required attribution. Store the stable key, not arbitrary SVG/HTML, a remote URL, an emoji color or a model-specific logo. The catalog is fixed in v1; user-provided image uploads are outside this increment.
 
@@ -116,7 +105,7 @@ Initial color tokens may use background `#0b0b0b`, surface `#111111`, primary te
 4. **UI.04 Cards/inspector:** inline interactive browser card, top-right expansion, Done/Cancel and recovery; persistent file chip with copy path; collapsible status/browser/machine/terminal inspector.
 5. **UI.05 Integrated verification:** actual noVNC pointer/touch/keyboard control in two isolated guests plus onbash; refresh/replay/late parse without duplicated cards/effects; stale-agent/frame response rejection; name/icon revision conflict; small-screen and focus behavior.
 
-M10 remains the UI module. Add only the necessary records/operations to M01/M02/M03/M06/M07/M09; no separate UI-event broker, browser service or generic widget/plugin framework. Complete these integrated UI checks at G4/G6 as specified in [ACCEPTANCE.md](ACCEPTANCE.md). File preview/rendering remains a later task. This amendment does not authorize deployment or assert any working UI exists.
+M10 spans core's API/operator layer and this separate UI repository; its presentation work belongs here. Add only the necessary core records/operations to M01/M02/M03/M06/M07/M09. Core integrates the browser package without a separate UI-event broker, browser service or widget/plugin framework. Keep UI tests focused on interactions and boundary failures, sharing integrated G4/G6 evidence from [ACCEPTANCE.md](ACCEPTANCE.md) rather than duplicating backend tests. No usage examples or example apps are required. File preview/rendering remains a later task. This amendment does not authorize deployment or assert any working UI exists.
 
 ## 10. Qorqut references actually inspected
 

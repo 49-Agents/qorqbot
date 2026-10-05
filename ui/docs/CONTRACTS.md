@@ -1,6 +1,6 @@
 # Shared backend contracts
 
-Status: normative planning baseline. Implementation must keep these names and semantics aligned across modules, HTTP, MCP, tests and generated agent instructions. Changes require updating this document and the affected module plans.
+Status: normative planning baseline for `qorqut-core`. Implementation must keep these names and semantics aligned across modules, HTTP, MCP, tests and generated agent instructions. `qorqutbot-ui` consumes this network contract; `qorqut-browser` owns its narrower package/tool contract and core integrates it. Changes require updating this document and the affected module plans.
 
 ## 1. Identity and coordinates
 
@@ -37,11 +37,26 @@ Native child sessions belong to their parent logical agent and link to the paren
 
 An agent has `id`, `display_name`, `icon_key`, `kind` (`vm` or `host`), `conversation_id`, workspace path, config revision, lifecycle and timestamps. `display_name` is the single editable name, replacing the initial plan's `name` field. It contains 1–120 nonblank characters after trimming; duplicates are allowed and directory responses always include IDs. The ordinary UI displays names/icons; IDs appear in details/disambiguation. Neither names nor icons appear in execution addresses.
 
-`icon_key` selects one of the twenty fixed monochrome icons in [UI-PLAN.md](UI-PLAN.md). Ordinary creation defaults to `circle`; onbash initializes with display name `onbash` and icon `terminal`. Revision-checked `agents_update` changes either presentation field and records an attributed event without restarting resources. Renaming onbash never changes its reserved identity. Store keys, not arbitrary markup/image URLs.
+`icon_key` selects one of twenty fixed keys owned and validated by core. The UI owns the monochrome artwork. Ordinary creation defaults to `circle`; onbash initializes with display name `onbash` and icon `terminal`. Revision-checked `agents_update` changes either presentation field and records an attributed event without restarting resources. Renaming onbash never changes its reserved identity. Store keys, not arbitrary markup/image URLs.
+
+| Key | Label | Key | Label |
+| --- | --- | --- | --- |
+| `circle` | Circle | `square` | Square |
+| `triangle` | Triangle | `diamond` | Diamond |
+| `star` | Star | `compass` | Compass |
+| `globe` | Globe | `leaf` | Leaf |
+| `feather` | Feather | `book` | Book |
+| `notebook` | Notebook | `flask` | Flask |
+| `microscope` | Microscope | `telescope` | Telescope |
+| `code` | Code | `terminal` | Terminal |
+| `wrench` | Wrench | `gear` | Gear |
+| `lightbulb` | Lightbulb | `anchor` | Anchor |
+
+The authored workspace contains `persona.md`, `memory.md` and `notes/`, `research/`, `data/`, `files/`, `downloads/`, `scratch/`. Core seeds missing authored files only at creation; re-preparation preserves them. `persona.md` is the authoritative editable persona, descriptive role and agent instruction source. Generated `AGENTS.md`/`CLAUDE.md` refer to it; there is no competing authored `instructions.md` or template subsystem. Plain-file edits use M09 semantics and affect the next preparation/context snapshot; no live client reload is implied. Permission-policy ownership remains in core with effective mode `allow_all` in v1; descriptive roles do not filter operations.
 
 There is at most one reserved host-global agent, initialized as `onbash`. The installation stores its ID. It cannot be silently replaced by another host identity. Archival preserves it and its history; restoring it uses the same ID.
 
-`agents_create` requires `display_name` and CLI configuration, with optional `icon_key`; ordinary creation uses `kind=vm`. `start` defaults true but is explicit in the recorded arguments. The result is a created agent plus an asynchronous provisioning/start operation. Successful registration does not claim a VM or CLI is ready.
+`agents_create` requires `display_name` and CLI configuration, with optional `icon_key` and initial persona text; ordinary creation uses `kind=vm`. Omitted persona text uses core's small default seed. Resolve installation defaults at creation and save the resulting agent configuration so later default changes do not rewrite existing agents. `start` defaults true but is explicit in the recorded arguments. The result is a created agent plus an asynchronous provisioning/start operation. Successful registration does not claim a VM or CLI is ready.
 
 No hard-delete operation is part of v1. Archive is a durable lifecycle transition that stops execution and retains files, messages and history. Restore is explicit. Creating an agent, archiving one, or restarting one is allowed to every registered actor under the same contract.
 
@@ -176,7 +191,7 @@ Automatic restore is the planning default pending D08. The complete archive alwa
 
 ## 10. Human input contract
 
-`browser_request_input` is described to agents as “Request an action from the user in your browser.” It requires a prompt, with optional observed tab reference and target agent (defaults to the authenticated calling agent). The backend resolves conversation/surface/exact browser binding; a supplied observation is validated against its original instance. Commit the durable request, conversation entry/event and transition job atomically. `ready` means in-flight managed browser input has settled and the runner has acknowledged human control.
+`browser_request_input` is described to agents as “Request an action from the user in your browser.” Its intent schema and thin tool binding belong to `qorqut-browser`; in this product the binding calls core's shared application operation. It requires a prompt, with optional observed tab reference and target agent (defaults to the authenticated calling agent). Core resolves conversation/surface/exact browser binding; a supplied observation is validated against its original instance. Commit the durable request, conversation entry/event and transition job in core's transaction. The browser package does not write a competing request/message store. `ready` means in-flight managed browser input has settled and the runner has acknowledged human control.
 
 The MCP tool description/result conveys needed user action and request state, not iframe/modal/layout mechanics. The frontend renders one inline live browser card per committed request ID and can expand that same surface. Transcript parsing, retries or reconnect cannot create another request/card or repeat its side effects. Closing/minimizing a viewer changes presentation only. Completed cards do not reopen live input. Detailed presentation is in [UI-PLAN.md](UI-PLAN.md).
 
@@ -210,6 +225,7 @@ The same domain operation is exposed through HTTP and MCP where meaningful. Inte
 
 | Group | Operations |
 | --- | --- |
+| Configuration | `config_get`, `config_update` |
 | Directory/lifecycle | `agents_list`, `agents_get`, `agents_create`, `agents_update`, `agents_archive`, `agents_restore` |
 | Status/history | `agents_status_set`, `events_list`, `operations_get`, `operations_reconcile` |
 | Runtime | `runtime_get`, `runtime_start`, `runtime_stop`, `runtime_restart`, `runtime_switch`, `terminal_control` |
@@ -228,14 +244,26 @@ Final migrations should implement these logical records without a generic JSON d
 
 | Owner | Logical records |
 | --- | --- |
-| M00 | installation metadata, actors/registration identities, operations/idempotency, events, typed jobs/outbox, file-effect receipts |
+| M00 | installation metadata and mutable defaults/revision, actors/registration identities, operations/idempotency, events, typed jobs/outbox, file-effect receipts |
 | M01 | agents, current status, current activity/observation cursors |
 | M02 | environment definitions, generations and resource/image pins |
 | M03/M04 | runs, exact native/terminal bindings and terminal control epochs; guest-local command receipts |
 | M05 | threads, immutable messages, deliveries, attempts, handling receipts |
-| M06 with M02 | browser/machine surfaces, instance/control epochs, human input requests and coordinated machine-control holds |
+| Core M06 integration with M02 | browser/machine surfaces, instance/control epochs, human input requests and coordinated machine-control holds; browser package supplies local process/control receipts through the runner |
 | M07 | raw sources, run/source links, chunks, source checkpoints, parser records, history events, FTS, conversation entry ledger/read projection; guest-local capture spool |
 | M08 | context packets and switching operation checkpoints |
 | M09/M11 | file reference records; export and backup manifests/receipts |
 
 Use foreign keys, unique constraints for idempotency/source coordinates and explicit indexes for common cursors. Current rows are updated; historical events/messages/chunk coordinates cannot be mutated into different facts. Schema migration and recovery are explicit operator workflows, with the same unrestricted actor policy rather than a new signoff system.
+
+## 14. Configuration and repository boundary
+
+Core is the only authority for application configuration and coordination. Its installation file owns static paths/listen/network settings; SQLite owns mutable new-agent defaults and revisioned agent settings. Generated browser/runner configuration is an input projection, not another mutable authority. UI stores only presentation state and obtains effective configuration through the API.
+
+`config_get` returns non-secret effective defaults, their revision, supported API/protocol versions, icon keys and effective `allow_all` policy. `config_update` accepts an expected revision and idempotency key, and validates supported new-agent CLI and CPU/memory/disk defaults through shared models. Commit defaults/revision/event/receipt together. Changes affect future agent creation; existing agents require their normal explicit operations. Static installation settings use the core operator maintenance path and are not writable through this defaults operation. Never expose raw configuration files, credentials or browser profile contents to UI clients.
+
+Core pins the browser package and image version. The package receives explicit paths, process/instance/control bindings and host request callbacks; it imports no core application or UI code. Browser action/tool models live in the package and core wraps them with its actor/idempotency/operation envelope. Core owns durable request/Done/Cancel/message transactions; the package owns local Chrome/control effects and receipts. Other applications can supply their own request callback without adopting this UI or core's schema.
+
+Core exposes the browser tools through its single MCP endpoint. The browser package additionally offers a thin standalone stdio MCP entrypoint over the same handlers for independent consumers. Without a configured host request/completion binding it does not advertise human takeover capability. This adapter owns no agent directory, message system or application configuration store.
+
+Core owns `/api/v1` schemas and event payload versions. The UI checks supported API capabilities before dependent actions; unsupported versions produce a clear compatibility error. Core can start and complete HTTP/MCP/operator flows without UI assets, and UI releases do not migrate backend state. Serve frontend and API at one browser origin through optional static mounting or a conventional proxy; this does not add another backend service.

@@ -2,9 +2,11 @@
 
 Status: Planned. Owns filesystem aspects of R01/R11/R14 and file-reference R15. Depends on M00/M01, M03 for guest-local inspection and M02/M07 for export; full backup coordination belongs to M11.
 
+Repository: `qorqut-core`.
+
 ## Outcome and boundary
 
-An agent works with ordinary files in its persistent workspace. Notes, research and scratch material require no special database document object. Stable IDs and a clear folder layout make the agent's accumulated work independent of CLI/provider changes.
+An agent works with ordinary files in its persistent workspace. `persona.md`, memory, notes, research, data and scratch material require no special database document object. M01 seeds the folder; this module provides access/snapshots/export without a separate agent-template package. Stable IDs and a clear folder layout make the agent's accumulated work independent of CLI/provider changes.
 
 The host owns the data-root path. Guests see `/workspace` through virtiofs. The host-global agent uses the same folder directly. Native HOME/browser/CLI data stay in the state-disk or host runtime area, outside authored workspace exports unless a full export is requested.
 

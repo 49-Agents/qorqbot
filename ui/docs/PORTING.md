@@ -16,6 +16,8 @@ The core/dashboard revisions came from Qorqut's current release manifest, `20261
 
 Core package paths below are relative to `bazarlyk/` unless already prefixed; a bare filename continues the immediately preceding directory. Dashboard `pty_broker.py` and core `tools/browser/desktop_session.py` are repository-level paths. Standalone agent-dms package paths are relative to `src/agent_dms/`. All references use the pinned revisions. “Port tests” means retain relevant behavioral assertions with new fixtures and boundaries, not claim the old full test suite validates the new product.
 
+Destination ownership follows D20: P00–P07 and P10–P15 go into `qorqut-core`; P08/P09 go into `qorqut-browser`, including agent controls and its takeover tool binding/setup assets. P10's atomic request/notification persistence stays in core behind that binding. P16's routing/file-resolution/domain logic stays in core and its viewer/card/rendering code goes into `qorqutbot-ui`. Do not copy backend coordination into UI or introduce a browser-to-core import.
+
 | ID / destination | Source mechanisms and files | Decision | Required change / test |
 | --- | --- | --- | --- |
 | P00 / M00 storage | `bazarlyk/storage/database.py`, `receipts.py`; `application/engine.py`; agent-dms `storage.py`, `service.py` | Rewrite small core using the transaction/idempotency patterns | No 113-migration/business schema import. Prove operation/event/job atomicity and crash recovery. |
@@ -53,7 +55,7 @@ Core package paths below are relative to `bazarlyk/` unless already prefixed; a 
 ## 4. Extraction procedure for every source item
 
 1. Identify exact functions/behavior and the smallest necessary fixture. Read surrounding failure/recovery code before extracting a helper.
-2. Write the destination contract test using qorqutbot IDs, fake external boundaries and synthetic data.
+2. Retain or write the smallest meaningful destination contract test using core's identities or browser's independent binding contract, fake external boundaries and synthetic data. Do not duplicate the same behavior test in all repositories or add usage examples.
 3. Decide whether a clean implementation is shorter/clearer than adapting the source. Record substantial adaptation in a provenance note with source revision and applicable notice.
 4. Copy or implement only that behavior. Remove Qorqut imports by replacing the dependency boundary, not by importing a huge transitive package.
 5. Run focused contract tests and the relevant real tmux/browser/VM fixture. Make failure injection part of the port, not a later integration chore.

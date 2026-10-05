@@ -2,6 +2,8 @@
 
 Status: Planned. Owns R07 and parts of R02/R09. Depends on M00/M01/M03; capture readiness comes from M07. All public messaging operations are available to all registered actors.
 
+Repository: `qorqut-core`. Messaging is an internal module sharing the application transaction and runner input path; it needs no separate comms service, package or UI dependency.
+
 ## Outcome and boundary
 
 Agents can discover each other, send complete messages, retain threaded history, receive queued messages when runnable, and explicitly acknowledge handled work. The host coordinates persistence; the runner performs a generation-bound input attempt. A message is not a hidden task record or permission grant.

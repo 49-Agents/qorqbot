@@ -1,10 +1,22 @@
 # M06 — Browser, VNC desktop and human input
 
-Status: Planned. Owns R06/R13/R15 browser behavior. Depends on M01–M03/M05; conversation entries integrate M07, artifacts use M09 and the viewer uses M10.
+Status: Planned. Owns R06/R13/R15 browser behavior. Core integration depends on M01–M03/M05; conversation entries integrate M07, artifacts use M09 and the viewer uses M10. The reusable browser package has no core module dependencies.
+
+Repositories: `qorqut-browser` for browser mechanisms/tools/setup; `qorqut-core` for application integration and durable coordination. Presentation belongs to `qorqutbot-ui` under M10.
 
 ## Outcome and boundary
 
 Every agent has one persistent headed Chrome profile and application desktop. Browser commands, screenshots/downloads and owner intervention use that exact instance. Login state survives ordinary Chrome/VM restart because its profile is retained. An owner can answer a browser input request without opening a separate browser profile.
+
+| Owner | Responsibility |
+| --- | --- |
+| Browser package | Chrome/profile/display supervision; typed browser actions/tool descriptions; takeover binding and optional standalone MCP adapter; local command arbitration, control epochs and VNC input fencing; TigerVNC/Openbox setup assets/instructions |
+| Core integration | Agent/surface resolution and configured bindings; host API/MCP registration; durable request/event/conversation/job transactions; Done/Cancel plus one notification message; machine-wide holds; authenticated host proxy |
+| UI | noVNC assets and viewer shell, inline/modal/inspector rendering, human input controls and display state |
+
+Core pins and imports browser as a normal package. Pass explicit paths/ports/instance configuration and narrow request/receipt bindings; browser imports neither core nor UI. Its `browser_request_input` tool binding invokes the host application callback. Core's implementation commits the durable request in its existing database; other applications can supply their own implementation. Keep local command receipts in the runner's existing receipt store through the binding. No second application database, service, generic plugin registry or chat-widget abstraction is required.
+
+Ship a thin standalone stdio MCP entrypoint for other projects, reusing the same tool handlers and official SDK. Core's normal MCP server composes these tools through its shared operations, so this product does not run a second browser MCP service. Standalone mode receives an explicit local browser/session configuration. Advertise takeover only when a configured host binding accepts durable requests and supports completion; do not simulate a notification or add a separate coordination store. See D21.
 
 Run Chrome, TigerVNC/Xtigervnc and Openbox on a dedicated browser display inside the VM. Use fixed guest-local display/ports and agent-local ext4 profile state. Onbash runs the same supervisor locally with separately allocated persisted resources. Preserve this Chrome surface alongside the distinct general machine graphical console/desktop supplied by M02. The Browser viewer always targets Chrome's display, never substitutes the machine/firmware console.
 
@@ -20,7 +32,7 @@ Serialize commands per browser. Store command ID, expected instance/control epoc
 
 ## Desktop control
 
-The host serves noVNC and proxies WebSocket bytes through the verified runner to guest-local VNC. Default connections observe. Manual “Take control” calls `browser_request_input` with a manual-control prompt, reusing the single active request/control state machine; release uses Done or Cancel. Input-capable connections are tied to the current control epoch. Enforce view-only versus input-capable behavior at the server/runner VNC boundary using an existing protocol-aware facility or a narrowly tested RFB input filter; client JavaScript alone is not an enforcement mechanism.
+The UI supplies noVNC assets; core proxies WebSocket bytes through the verified runner and browser package to guest-local VNC. Default connections observe. Manual “Take control” calls `browser_request_input` with a manual-control prompt, reusing the single active request/control state machine; release uses Done or Cancel. Input-capable connections are tied to the current control epoch. Enforce view-only versus input-capable behavior at the server/runner VNC boundary using an existing protocol-aware facility or a narrowly tested RFB input filter; client JavaScript alone is not an enforcement mechanism.
 
 A control transition waits for the currently executing managed browser command to settle. A timeout remains yielding/interrupted and must not claim automation is paused while an action is still running. If a browser process dies, retain request history and reconcile to a new instance rather than treating a recycled tab ID as the old target.
 
@@ -32,7 +44,7 @@ Human control is cooperative: it blocks managed automation but cannot prevent an
 
 ## Request and completion flow
 
-`browser_request_input` describes the needed user action without UI mechanics. It persists prompt/requester, resolved target agent/conversation/browser, optional validated tab reference, idempotency key and one conversation entry/event atomically with the transition job. At most one input request actively owns a browser in v1; another request returns current request/conflict rather than hiding an overlapping handoff.
+`browser_request_input` describes the needed user action without UI mechanics. Core's application callback persists prompt/requester, resolved target agent/conversation/browser, optional validated tab reference, idempotency key and one conversation entry/event atomically with the transition job. At most one input request actively owns a browser in v1; another request returns current request/conflict rather than hiding an overlapping handoff.
 
 The request becomes ready only after the runner confirms human control. The chat then displays a full-width, directly interactive browser card with a top-right expand control for a near-fullscreen modal, optional note and Done/Cancel. Inline/modal/Browser inspector reuse the same surface/profile and one UI input connection. Preserve request state during layout/viewer transfers; never duplicate Chrome or create competing resize/input owners. Closing a viewer changes no request state. Historical resolved cards stay records, not automatically reactivated streams.
 
@@ -44,16 +56,18 @@ A host/runner restart preserves pending human control and request state. VM/Chro
 
 ## Implementation sequence
 
-1. **M06.01 Supervisor:** extract process ownership, display startup and ordered Chrome shutdown/profile persistence; support VM and host targets.
-2. **M06.02 Automation adapter:** port the bounded external-CDP command mapping and artifact outputs with browser instance/epoch checks.
-3. **M06.03 Viewer:** build the direct noVNC relay, reconnect, view-only/input mode and server-side control fencing. Reuse pinned upstream assets.
-4. **M06.04 Requests:** implement intent-only tool records and atomic conversation entries, yielding/ready/completed/cancelled transitions, manual takeover reuse and atomic Done/Cancel message logic. Coordinate machine holds with existing input gates.
+1. **M06.01 Supervisor (browser):** extract process ownership, display startup and ordered Chrome shutdown/profile persistence; support VM and host targets. Ship pinned prerequisites, supervision units and clear TigerVNC/Openbox setup instructions; core's image/installer consumes them.
+2. **M06.02 Agent tools (browser):** port typed external-CDP actions/artifacts with instance/epoch checks; export intent-only browser-control/takeover bindings and small request/receipt interfaces. Add a thin standalone stdio MCP adapter over the same handlers, with capability-aware takeover advertisement.
+3. **M06.03 Remote control (browser/core/UI):** browser owns local relay/input fencing; core owns authenticated routing; UI owns pinned noVNC assets and viewer presentation. Reconnect and observer mode use the same binding throughout.
+4. **M06.04 Requests (core):** bind the browser tools to shared operations; implement durable request/conversation entries, yielding/ready/completed/cancelled transitions, manual takeover reuse and atomic Done/Cancel message logic. Coordinate machine holds with existing input gates.
 5. **M06.05 Recovery:** cover pending handoff after host/runner/Chrome/VM restart, stale viewer closure and uncertain browser commands.
 6. **M06.06 Acceptance:** test independent profiles, synthetic login cookies, downloads, actual browser interaction and human-control arbitration in two real guests plus onbash.
 
 ## Source decision and tests
 
 P08–P10: reuse Qorqut's current `agent-browser` mapping, desktop process lifecycle and atomic legacy Done pattern. Replace business/proxy ownership, Guacamole deployment binding and retired request-creation operation.
+
+Keep browser behavior tests in its package with a small host-callback fixture; it must install/import and expose standalone MCP without core or UI. Check tool binding/parity and absent handoff capability without rerunning every browser test through every transport. Core tests request/message atomicity through its actual binding. UI tests rendering/transfers. Reuse integrated flows below across release evidence rather than reproducing all cases in every repository; no usage examples or example app are required.
 
 Tests must include cookie survival, distinct same-site cookies between agents, detach leaving Chrome alive, profile-lock collision, missing mount, browser instance replacement, a command still running during takeover, duplicate/concurrent Done/Cancel, cancellation during yielding/disconnection, manual takeover/release, offline completion delivery, stale viewer input after release, and pending request after restart. Browser fixtures prove actual DOM/cookie behavior; viewer-routing stubs alone are insufficient.
 

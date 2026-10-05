@@ -8,7 +8,7 @@ Status: planned. Shared IDs, states and operation names are defined in [CONTRACT
 flowchart LR
     OWNER[Owner: operator client / chat workspace] --> HOST
     subgraph Host
-        HOST[One Python ASGI service\nHTTP + MCP + event streams]
+        HOST[qorqut-core ASGI service\nHTTP + MCP + event streams]
         DB[(SQLite: records, events, jobs, indexes)]
         STORE[Agent folders + immutable archive]
         LV[libvirt / QEMU]
@@ -38,7 +38,7 @@ flowchart LR
     LV -->|Private graphical console| MACHINE
 ```
 
-The host service owns application decisions. The runner owns local process observations and durable execution/capture receipts. The recorder is a small process inside tmux, independent of the runner service's lifetime. It records native CLI output before forwarding it to the visible terminal and tails all sources registered for that run.
+The host service and runner belong to `qorqut-core`. The host owns application decisions and configuration; the runner owns local process observations and durable execution/capture receipts, using the `qorqut-browser` package next to Chrome. The recorder is a small process inside tmux, independent of the runner service's lifetime. It records native CLI output before forwarding it to the visible terminal and tails all sources registered for that run. `qorqutbot-ui` is an independent client of the host API.
 
 Host application restarts do not restart libvirt domains, runner services, tmux sessions, recorders or Chrome. Runner-service restarts do not terminate the recorder or native CLI. VM reboot is an actual process loss and must be recorded as such; persistent disks do not preserve a running tmux process across reboot.
 
@@ -46,33 +46,69 @@ Use a single ASGI worker process in v1. It runs a bounded set of supervised loop
 
 Place each agent's managed tmux/recorder/CLI and desktop in independently supervised systemd runtime units/cgroups, outside the host and runner service cgroups, with no restart coupling to those services. Use an agent-owned tmux socket so unrelated sessions never share that runtime unit. Daemonizing tmux alone does not provide this isolation. Stop/pause operations address the owned runtime tree, including detached descendants. These are local process-supervision units, not extra application services or registries.
 
-## 2. Source package boundaries
+## 2. Repository and package boundaries
 
-Proposed package tree, to create as modules are implemented:
+Three repositories, with small internal modules. These are source boundaries, not three deployed backend services:
+
+| Repository | Owns | Depends on |
+| --- | --- | --- |
+| `qorqut-core` | Application configuration and coordination; agents/personas/files, VM/host runtime, tmux/CLI adapters, recording/history, messaging, continuity, durable requests, HTTP/MCP/operator APIs, installation and backup | A pinned `qorqut-browser` package |
+| `qorqut-browser` | Chrome/profile supervision, agent browser-control tools, optional standalone MCP adapter, takeover binding, control receipts, TigerVNC/Openbox setup and remote-control transport | Explicit local configuration and host-supplied request callbacks; no core/UI imports |
+| `qorqutbot-ui` | Chat, navigation, inspector, browser/terminal viewer assets, interaction and client state | Core's versioned HTTP/events/WebSocket API |
+
+Proposed source layout, created incrementally as modules are implemented:
 
 ```text
-src/qorqutbot/
-  app.py                 composition and service lifecycle
-  config.py              installation configuration
-  contracts.py           shared typed values and errors
-  storage/               migrations, transactions, events, jobs, receipts
-  agents/                registry, status, activity, folder lifecycle
-  environments/          libvirt driver and host target
-  runner/                small control service, process bindings, tmux, receipts
-  adapters/              Claude, Codex and terminal-only capability
-  messaging/             threads, messages, attempts, handling receipts
-  browser/               desktop supervisor, automation, human control
-  transcripts/           recorder, spool, transfer, archive, parsers, FTS
-  continuity/            checkpoints, packets, resume/switch orchestration
-  files/                 workspace access and portable exports
-  transport/             HTTP, MCP, events, terminal/desktop proxies
-  ops/                   init, migrations, backup, restore, diagnostics
-web/                     single-page chat workspace plus pinned viewer assets
-images/                  reproducible guest image recipe, not disk artifacts
-tests/                   unit, contract, process, VM and acceptance groups
+qorqut-core/
+  src/qorqut_core/
+    app.py, config.py, contracts.py
+    storage/             transactions, configuration, events, jobs, receipts
+    agents/              registry, persona seeds, status, folder lifecycle
+    environments/        libvirt driver, images and host target
+    runner/              small control service, tmux and process receipts
+    adapters/            Claude, Codex and terminal-only capability
+    messaging/           threads, messages, attempts, handling receipts
+    browser/             package integration, durable requests, machine holds
+    transcripts/         recorder, spool, archive, parsers and conversation
+    continuity/          checkpoints, context packets and switching
+    files/               workspace access and portable exports
+    transport/           HTTP, MCP, events and authenticated stream proxies
+    ops/                 init, migrations, backup, restore and diagnostics
+  images/                guest image recipe, consuming browser setup assets
+  tests/                 core behavior and integrated backend contracts
+
+qorqut-browser/
+  src/qorqut_browser/
+    contracts.py         browser values and host callback signatures
+    supervisor.py        Chrome, persistent profile, Xtigervnc and Openbox
+    control.py           local command arbitration, epochs and receipts
+    tools.py             browser actions and intent-only takeover tool binding
+    mcp.py               optional thin standalone stdio MCP entrypoint
+    remote.py            local VNC transport and input fencing
+  setup/                 pinned prerequisites, units and setup instructions
+  tests/                 browser behavior with a small host-callback fixture
+
+qorqutbot-ui/
+  src/                   API client, chat, agents, inspector and viewers
+  assets/                pinned noVNC/terminal assets and icon artwork
+  tests/                 focused interaction and API-integration checks
 ```
 
-These are code boundaries within one distribution. Avoid a separate service or public abstraction for each directory. The runner can be installed from the same wheel with a different entrypoint. Only import the libraries needed by that entrypoint; guest execution should not need the host's libvirt bindings.
+Agents, runtime and messaging are internal core modules, not separately published packages. The runner installs from core's wheel with a different entrypoint; it need not import host libvirt bindings. Browser is a normal versioned Python dependency, not a required standalone service. Core and guest image pins record its tested version. No Git submodules or fourth contracts repository are needed.
+
+The browser package exports typed actions, tool descriptions and a thin takeover binding. Core supplies the application callback that atomically records request/event/job/conversation entry, and owns Done/Cancel plus notification-message transactions. Local command admission and VNC input fencing remain browser mechanisms invoked through the runner. Machine-wide admission and coordination with terminal input remain core operations. This preserves atomicity without a circular dependency or a second browser database server.
+
+For this product, browser tools are registered through core's MCP endpoint. Browser also offers a standalone stdio MCP entrypoint for other consumers, using the same tool implementation and explicit local browser binding. Expose takeover only when a host request/completion binding supports it; otherwise no handoff capability is advertised. This optional adapter does not change the one-backend deployment or introduce browser-owned application orchestration.
+
+Core owns its public API schemas and protocol version; browser owns its package contract. Core uses browser models within its operation envelopes instead of copying them. UI consumes core schemas and supported versions, not core's Python internals. Build the UI independently; serve its static assets under the same origin through a proxy or optional core static-file mounting. Core's installation, MCP, jobs and operator client must work with no UI checkout or bundle.
+
+### Configuration ownership
+
+Core owns installation bootstrap settings, agent/runtime/browser settings, defaults and coordination state. Static paths/listen/network settings live in core's installation configuration; mutable defaults and agent revisions live in its SQLite records. Generated guest/browser settings and `agent.json` are projections. The browser package receives explicit validated configuration and never reads UI state or invents installation-wide defaults.
+
+Core exposes non-secret effective configuration and revision-checked changes for supported defaults. UI forms submit those operations; validation, persistence and any lifecycle effects remain in core. Presentation-only state such as drafts, selection and collapsed panes may stay in the UI. Guest credentials and browser profiles are never application configuration downloaded to JavaScript.
+
+All plans currently remain in the planning checkout. During repository bootstrap, move backend contracts/module plans to core, the reusable browser package contract to browser, and retain the UI plan in UI; replace moved normative copies with links. Repository separation does not require usage examples or example applications.
 
 ## 3. Data ownership and folder layout
 
@@ -89,10 +125,11 @@ The configured data root is independent of the source checkout and release direc
     workspace/                        virtiofs mount in VM; direct cwd for host
       AGENTS.md                       generated small entrypoint
       CLAUDE.md                       generated adapter entrypoint
-      instructions.md                 authored agent instructions
+      persona.md                      authored persona, role and instructions
       memory.md                       authored current handoff/checkpoint
       notes/
       research/
+      data/
       files/
       downloads/
       scratch/
@@ -157,7 +194,7 @@ Use ordinary HTTP request/response and WebSockets with versioned envelopes, boun
 
 ### Desktop and terminal viewers
 
-Serve pinned noVNC and a small terminal emulator from the host. Browser viewing goes through the authenticated host proxy/runner to that agent's dedicated TigerVNC Chrome display. Machine viewing targets its separate guest graphical console (private libvirt VNC with a usable general desktop), or onbash's separate local desktop. `surfaces_list` and surface IDs keep these bindings explicit. A terminal connection attaches to existing registered tmux through the runner. Opening, closing or reconnecting viewers does not start/kill agents.
+The UI supplies pinned noVNC and terminal-emulator assets. Browser viewing goes through core's authenticated proxy/runner to that agent's dedicated TigerVNC Chrome display. Machine viewing targets its separate guest graphical console (private libvirt VNC with a usable general desktop), or onbash's separate local desktop. `surfaces_list` and surface IDs keep these bindings explicit. A terminal connection attaches to existing registered tmux through the runner. Opening, closing or reconnecting viewers does not start/kill agents. Other clients can use the same core stream contracts without this UI.
 
 The single-page UI has agent navigation, central chat and a collapsible inspector. A browser-request card is full-width and directly interactive once human control is ready; expansion uses the same viewer/surface. Reuse one UI viewer instance across inline/modal/inspector to avoid duplicate input owners or competing display resizes. Machine takeover coordinates the existing terminal/browser gates. See [UI-PLAN.md](UI-PLAN.md) for layout, twenty icons, inline rename, file cards and monochrome styling.
 
@@ -169,12 +206,12 @@ Manual terminal input and automated paste share a per-run input lock. `terminal_
 | --- | --- | --- |
 | Agent identity/config/current state | Host SQLite | `agent.json`, directory/API responses |
 | Status/state/creation/message history | Host SQLite append-only events and message records | UI lists, exports |
-| Authored notes/research/files/memory | Agent workspace files | File listings, hashes, exports |
+| Authored persona/notes/research/data/files/memory | Agent workspace files | Generated CLI entrypoints, file listings, hashes, exports |
 | CLI/VM/browser processes | Actual inspected process/domain plus generation-bound observations | Current rows and UI state |
 | Locally captured, not yet archived bytes | Runner/recorder spool | Host-pulled transfer batches |
 | Host-acknowledged transcript bytes | Immutable host chunk files + committed inventory | Parser records, conversation, FTS |
 | Context sent to a replacement CLI | Saved context packet + delivery receipt | Startup summary |
-| Browser/file cards | M06 request or M09 file-reference record plus conversation entry ledger | Inline cards, attention indicators, optional transient toast |
+| Browser/file cards | Core M06 request or M09 file-reference record plus conversation entry ledger | UI cards, attention indicators, optional transient toast |
 
 Use current tables plus an append-only event journal, not a general event-sourcing framework. Record a mutation, its event, operation receipt and required durable job in one transaction. Events preserve old/new status text and relevant state, actor, target IDs and timestamps. Unchanged heartbeats do not append status-change events.
 

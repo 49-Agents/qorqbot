@@ -2,21 +2,25 @@
 
 Status: Planned. Owns R01/R02/R04/R08/R09/R16. Depends on M00; uses M02/M03 observations and M09 filesystem operations through narrow interfaces.
 
+Repository: `qorqut-core`. Agent management is an internal module, with no separate agent/template package.
+
 ## Outcome and boundary
 
 Every agent has a permanent UUID/folder, editable `display_name`, separate `icon_key`, one main conversation, current status and inspectable state history. The directory is available to all registered actors. No business namespace, fixed role roster, permission grant or model name determines identity.
 
 Agent lifecycle, environment state, CLI state, observed activity and the natural-language status are separate fields. This module owns the directory/current projections and permanent status/activity transitions; it does not launch processes directly.
 
+Core also owns agent personas, descriptive roles and any future permissions policy. `persona.md` is the one editable persona/role/instruction file; role text guides the agent without granting privileges. V1 remains `allow_all` with no permission engine. A folder initializer with a small default persona seed is sufficient. Generated CLI entrypoints refer to the authored file and never overwrite it on refresh; changes affect subsequent preparation/context capture, not a claimed automatic live reload.
+
 ## Registration and files
 
 The transaction for creation records agent/conversation IDs, actor, display name, icon key, kind, initial configuration, “Initializing.” status, creation/status events and a provisioning job. The request's `start` value determines whether provisioning proceeds to a CLI launch. Return the ID immediately with accepted operation progress.
 
-The job creates `agents/<id>` and its private runtime subdirectories, then `workspace/{notes,research,files,downloads,scratch}`, authored instruction/memory seeds and the generated identity projection. Verify a pre-existing folder's ownership marker before reusing it. A committed registration without a folder remains a recoverable provisioning operation. An unregistered folder is not automatically adopted or deleted.
+The job creates `agents/<id>` and its private runtime subdirectories, then `workspace/{notes,research,data,files,downloads,scratch}`, `persona.md`/`memory.md` seeds and the generated identity projection. Optional initial persona text replaces the default seed for creation only. Verify a pre-existing folder's ownership marker before reusing it; retries preserve existing authored bytes. A committed registration without a folder remains a recoverable provisioning operation. An unregistered folder is not automatically adopted or deleted.
 
 Initialization creates the reserved host-global onbash once. A uniqueness constraint prevents another host-global identity. Archival preserves the original ID and files; restore uses that identity. Global does not imply a separate permission role.
 
-Display names are labels and may repeat. All operations/messages use IDs; the API returns IDs alongside presentation metadata. Ordinary UI rows use names/icons, with IDs in details/disambiguation. Use the twenty-icon catalog in [UI-PLAN.md](../UI-PLAN.md), default `circle`, and `terminal` for onbash. Rename/icon changes use revision-checked `agents_update`, append attributed presentation history, and update the projection without changing paths, sessions or lifecycle intent. No second mutable `name`/slug or avatar-upload subsystem.
+Display names are labels and may repeat. All operations/messages use IDs; the API returns IDs alongside presentation metadata. Ordinary UI rows use names/icons, with IDs in details/disambiguation. Core owns the twenty-icon key catalog in [CONTRACTS.md](../CONTRACTS.md#2-agent-record-and-layout), default `circle`, and `terminal` for onbash; UI owns the artwork. Rename/icon changes use revision-checked `agents_update`, append attributed presentation history, and update the projection without changing paths, sessions or lifecycle intent. No second mutable `name`/slug or avatar-upload subsystem.
 
 Lifecycle intent has a revision separate from display/config edits. Resource readiness moves provisioning to active before a start may execute. Archive closes launch admission and invalidates queued start/restart/switch intent under the per-agent lifecycle lock; jobs recheck that intent before effects. Already executing effects settle before archival stops and verifies all managed resources. Only explicit `agents_restore` reopens an archived identity; its default is `start=false`. It does not import a backup or create a new identity. See the shared lifecycle precedence contract for CLI-only stop versus whole-environment archival.
 
@@ -31,7 +35,7 @@ Persist freshness transition to unknown once. Repeated heartbeat or stale pollin
 ## Implementation sequence
 
 1. **M01.01 Registry:** add agent/conversation/current-status/current-activity records, display-name/icon catalog validation and global-agent uniqueness. Implement `agents_list/get/create/update` with revision/idempotency behavior, including default icon for agent-created peers.
-2. **M01.02 Folder lifecycle:** implement the idempotent folder/projection job and reconciliation using M00 receipts. Preserve authored files during every re-preparation.
+2. **M01.02 Folder lifecycle:** implement the idempotent folder/projection job and persona/memory seeding using M00 receipts. Preserve authored files during every retry/re-preparation; edit persona through ordinary files/M09 operations.
 3. **M01.03 Status history:** implement `agents_status_set`, change journal, unchanged confirmation and event pagination.
 4. **M01.04 Presence:** ingest bound runner sequences, derive current activity/freshness and preserve historical transitions. Add exact hook fixtures through M04.
 5. **M01.05 Archive/restore:** fence lifecycle intent, invalidate queued launches, request stop through M02/M03/M06, verify all managed execution stopped, mark archived and retain history. Failed stops remain inspectable archiving/error operations, never “archived” while secretly running. Explicit restore verifies resources before reopening launch admission.

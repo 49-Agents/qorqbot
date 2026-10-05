@@ -2,6 +2,8 @@
 
 Status: Planned. Owns R05 and native-format parts of R08/R10/R11. Depends on M01/M03; supplies source definitions to M07 and resume/bootstrap behavior to M08.
 
+Repository: `qorqut-core`. Browser tool definitions/implementation come from `qorqut-browser`; core registers them with its identity and durable application-operation bindings.
+
 ## Outcome and boundary
 
 Support Claude Code and Codex as interchangeable executors of one logical agent. The CLI owns model/provider authentication and execution. The platform owns agent identity, shared files, coordination and captured history. The model name is configuration/observation, never the agent ID.
@@ -24,7 +26,7 @@ Capabilities include verified native transcript capture, child-source coverage, 
 
 ## Preparation and ordinary tools
 
-Prepare both adapters in the same agent workspace without changing identity. Generated entrypoints refer to current identity, authored `instructions.md`, memory, MCP usage and history retrieval. Preserve authored instructions/notes/files on every refresh. Store generated version/hash metadata separately and install atomically.
+Prepare both adapters in the same agent workspace without changing identity. Generated entrypoints refer to current identity, authored `persona.md`, memory, MCP usage and history retrieval. Preserve authored persona/notes/files on every refresh. Do not create a second authored instruction file. Store generated version/hash metadata separately and install atomically.
 
 Generated instructions describe user-facing intent: call `browser_request_input` when the user must sign in, enter data or act in the browser; call `files_reference` with a path when the user should see/review/be notified about a file. Explain waiting/completion and saved-reference outcomes, not iframe/modal/toast/layout mechanics. The backend resolves agent/conversation/surface bindings. Preserve these instructions consistently across both providers without parsing provider-specific tool prose to trigger UI effects.
 

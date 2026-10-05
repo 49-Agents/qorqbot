@@ -6,13 +6,13 @@ Status: planning baseline, 2026-10-07. No runtime implementation or deployment i
 
 Qorqutbot hosts persistent agents. A logical agent owns its identity, files, notes, research, browser profile and accumulated history independently of the currently selected CLI, model, native conversation or VM process. Agents work in interactive tmux-backed terminals and coordinate through Qorqut MCP. The owner can create agents, inspect them and intervene in their browsers. Agents can create and contact other agents themselves.
 
-The owner values lean code and high quality, with no deadline-driven reason to weaken correctness. The plan therefore minimizes deployed components and duplicated concepts, while investing heavily in explicit contracts, selective extraction, failure tests and recovery rehearsal.
+The owner values lean code and high quality, with no deadline-driven reason to weaken correctness. Minimize deployed components and duplicated concepts. Use selective extraction, focused failure tests and recovery rehearsal; no usage examples, example applications or redundant test suites are required.
 
 ### Required v1 behavior
 
 | Requirement | Concrete meaning | Primary modules |
 | --- | --- | --- |
-| R01 Stable agents | Immutable UUID, dedicated `agents/<UUID>` folder; display names/icons are independent presentation fields; IDs survive ordinary changes | M01, M09 |
+| R01 Stable agents | Immutable UUID, dedicated `agents/<UUID>` folder with editable `persona.md`, notes/research/data; display names/icons are independent; IDs survive ordinary changes | M01, M09 |
 | R02 Create from either actor | Owner and agents call the same create operation; creation/provisioning/start have inspectable progress and permanent creation history | M00–M04, M10 |
 | R03 Per-agent environment | Each ordinary agent has its own persistent Linux VM, workspace, native CLI stores and desktop | M02, M03 |
 | R04 Host-global onbash | Exactly one reserved global host agent; same contracts and files, no VM | M01–M04 |
@@ -33,9 +33,19 @@ The owner values lean code and high quality, with no deadline-driven reason to w
 
 ## 2. Chosen shape
 
-Build a modular Python application rather than carrying over the entire business platform:
+Use exactly three source repositories:
 
-1. One host ASGI application serves HTTP, Qorqut MCP, event streams and a small single-page chat workspace.
+| Repository | Responsibility |
+| --- | --- |
+| `qorqut-core` | One backend: agents/personas/workspaces, runtime/tmux/CLI, recording/history, messaging, all coordination and application configuration, HTTP/MCP/operator APIs, installation/backup |
+| `qorqut-browser` | Reusable Chrome/profile lifecycle, agent controls, optional standalone MCP entrypoint, takeover binding, TigerVNC setup and remote-control transport |
+| `qorqutbot-ui` | Independent frontend consuming core's API/events/streams; chat, viewers, inspector and appearance |
+
+Agent management, runtime and communications remain modules inside core. Core imports the pinned browser package; browser imports neither core nor UI. Core supplies browser tool callbacks that commit durable requests and notifications through the shared application operations. In this product core exposes those tools through its existing MCP endpoint. Browser's thin standalone stdio MCP adapter supports other consumers without another required service here. UI owns presentation and may edit configuration through core; it owns no backend orchestration or authoritative configuration store.
+
+The deployment stays lean:
+
+1. One core ASGI application serves HTTP, Qorqut MCP, event streams and authenticated viewer proxies. It operates without the UI. A UI build may be served as optional static assets or through a same-origin proxy.
 2. One host SQLite database owns registration, coordination, state transitions, operation/job receipts and history indexes.
 3. Each agent's host folder owns its authored workspace, immutable transcript archive and execution files/disks.
 4. Each VM runs a small runner service. The host-global agent uses the same runner locally.
@@ -45,6 +55,10 @@ Build a modular Python application rather than carrying over the entire business
 Use Python 3.12, stdlib SQLite, one validation model family, the official MCP SDK, Starlette/Uvicorn, tmux, QEMU/KVM/libvirt, virtiofs, Chrome, TigerVNC/Openbox, and a pinned `agent-browser` adapter. Exact package and image versions are pinned after compatibility rehearsals. No Redis, Kafka, external search engine, model SDK runner, multi-node scheduler, role catalog, general workflow engine or business schema is needed for v1.
 
 The concrete architecture is in [ARCHITECTURE.md](ARCHITECTURE.md). Public names, states and ownership are in [CONTRACTS.md](CONTRACTS.md). The owner's chat layout, intent tools, icons, rename and visual direction are specified in [UI-PLAN.md](UI-PLAN.md); reference images will refine its styling.
+
+M00–M05, M07–M09 and M11 belong to core. M06 specifies the browser package plus its core integration; M10 specifies core's transports/operator client and the separate UI implementation. These module plans describe work packages, not additional repositories. D20 records the agreed split.
+
+The current repository is the planning home and UI destination. Bootstrap the two backend repositories during implementation, move each authoritative plan to its owner and replace old copies with links. Pin package/API compatibility directly; do not add Git submodules, a shared-contracts repository or another coordination service.
 
 ## 3. Planning defaults and decisions
 
@@ -66,7 +80,7 @@ Qorqut is a source of working mechanisms and hard-earned failure behavior. Each 
 - **Implement new:** agent-ID folder registry, durable status history, libvirt driver, guest protocol, recorder/spool/archive, all-source transcript registry, cross-client restoration.
 - **Leave behind:** business IDs/namespaces, fixed business-agent/Dev roster, role/plugin policy, signoffs, marketing/task/Fleet workflows, business proxies, huge domain bootstrap, legacy snapshot ceilings and current-marker-only collection.
 
-The [porting matrix](PORTING.md) names exact source commits, files, tests and acceptance changes. It does not authorize copying operational data or modifying Qorqut. The new repository must run without a sibling Qorqut checkout.
+The [porting matrix](PORTING.md) names exact source commits, files, tests and destination ownership. It does not authorize copying operational data or modifying Qorqut. The new packages must run without a sibling Qorqut checkout.
 
 Do not begin by copying large modules and deleting code until tests pass. First identify the retained behavior, build its small destination API and fixtures, then extract or rewrite the minimum implementation. Preserve applicable source notices and record the origin of substantial adaptations.
 
@@ -108,7 +122,7 @@ M10 starts early with a thin transport skeleton; its full acceptance waits for t
 
 ### Phase 0 — Prove the expensive assumptions
 
-Deliver disposable technical rehearsals and decision records, not product scaffolding masquerading as a working platform.
+Begin implementation by bootstrapping private `qorqut-core` and `qorqut-browser` repositories in the `qorqutbot` organization, moving the owning plans, and establishing the minimal package/API boundaries above. `qorqutbot-ui` remains the UI repository. Then deliver disposable technical rehearsals and decision records; these are not product acceptance.
 
 1. Verify host prerequisites: hardware virtualization, libvirt access, QEMU, virtiofs, image tools, disk space and network overlap. The inspected machine has `/dev/kvm`, but this account lacked direct read/write access and QEMU/libvirt commands were not on PATH. No readiness claim follows from the device existing.
 2. Boot two disposable guests with a shared immutable base, independent root overlays/state disks, separate virtiofs workspaces and one private NAT network.
@@ -125,7 +139,7 @@ Deliver disposable technical rehearsals and decision records, not product scaffo
 
 Implement M00 and M01 with fake executors, and the thin M10 transport. Add the workspace layout from M09.
 
-Deliver atomic operation receipts, event history, typed durable jobs, a stable agent registry with display names/icon keys, create/rename/archive, the reserved host onbash identity, status validation/history, explicit observed activity/freshness, and shared HTTP/MCP operation behavior. Freeze the twenty-icon catalog without adding custom image uploads.
+Deliver core-owned configuration, atomic operation receipts, event history, typed durable jobs, a stable agent registry with display names/icon keys, create/rename/archive, the reserved host onbash identity, status validation/history, explicit observed activity/freshness, and shared HTTP/MCP operation behavior. Seed editable `persona.md`, memory and workspace directories once; descriptive roles live in the persona and v1 remains `allow_all`. Freeze the twenty-icon key catalog in core without adding custom image uploads; UI owns the artwork.
 
 **Gate G1:** concurrent/retried creation yields one ID and one creation event; changed statuses survive restart; 101-word text is rejected identically by every transport; no business or role-policy dependencies exist.
 
@@ -147,7 +161,7 @@ Deliver durable all-source registration, local transactional spooling, immutable
 
 ### Phase 4 — Coordination and browser intervention
 
-Complete M05/M06 and the operational portions of M10. Browser supervision can be developed in parallel with Phase 3, but unattended work waits for capture readiness.
+Complete M05/M06 and the operational portions of M10. Browser supervision/tools develop in `qorqut-browser`, durable coordination and integration in core, and presentation in `qorqutbot-ui`. Browser work can proceed in parallel with Phase 3, but unattended work waits for capture readiness.
 
 Deliver direct messages/offline queues, guarded terminal delivery, semantic handling receipts, dedicated browser/machine surfaces and input request/Done/Cancel transitions. Add M09 file references, M07 conversation projection and the M10 single-page shell: agent list/icons/rename, central chat/composer, inline browser cards with expansion, compact file cards and collapsible inspector. File opening is deferred. Manual browser takeover reuses the request state machine. Tools describe intent without layout mechanics. All agents can discover/contact/create peers through shared operations.
 
@@ -178,7 +192,34 @@ Each module plan contains its own implementation sequence, interfaces, extractio
 
 Do not create an enormous initial PR that simultaneously adds registry, VM driver, transcript parser and UI. Do not add generic extension hooks before a second concrete implementation needs them. Host and VM execution are already two real implementations and justify a shared runner contract; speculative future hypervisors do not.
 
-Parallel work is safe after the shared contracts are frozen: browser supervision, VM images, parser fixtures, API transport and archive failure tests can proceed independently. Changes to IDs, event semantics, input receipts, source coordinates or disk layout require integrated review across affected modules.
+Parallel work is safe after the relevant boundary contracts are agreed: core foundation/agents, core runtime/recording, browser supervision/tools, and the UI API client/shell can be scoped independently. Core's internals can change together in one review without coordinating three package releases. Backend flows are verified headlessly; UI work can use small synthetic API fixtures while backend integration catches up. Changes to IDs, event semantics, input receipts, source coordinates or disk layout require review across affected modules.
+
+Keep each behavior's focused tests in its owning repository. Core owns durable coordination and package integration, browser owns local browser behavior, and UI owns rendering/interaction. Reuse integrated acceptance evidence rather than running the entire matrix independently in all three repositories.
+
+### Ten-agent allocation
+
+With up to ten builders, use these ownership lanes. The first lane also owns integration planning and shared contract changes; it is one of the ten, not another service or repository.
+
+| Lane | Owned work | First dependency |
+| --- | --- | --- |
+| 1. Foundation and integration | Core configuration, contracts, SQLite/operations/events/jobs, application assembly and migration coordination (M00) | Agreed IDs, errors, receipts and ownership; creates the package/API baseline |
+| 2. Agent management and files | Identity/onbash, persona/folder seeds, status/presence, workspace/memory/file-reference operations (M01 and authored-file parts of M09) | Foundation transaction and job interfaces |
+| 3. Environments | libvirt lifecycle, guest images/disks/network, host target and machine console (M02) | Agent/environment identity; can rehearse real VMs during bootstrap |
+| 4. Runner and terminals | tmux/process lifecycle, input receipts, terminal viewing/control and runner protocol (M03) | Run/control/receipt and recorder-launch contracts; can rehearse PTY/tmux early |
+| 5. CLI adapters and continuity | Claude/Codex preparation/hooks/native binding, resume and runtime switching (M04/M08) | Run/source contracts; switching integrates runner/archive/memory later |
+| 6. Recording and history | Recorder, local spool, durable transfer/archive, parsers/search and conversation projection (M07) | Shared source/chunk/ACK contract plus runner/adapter bindings |
+| 7. Messaging and application transports | Messaging/delivery, durable browser handoff and machine coordination, HTTP/MCP/operator APIs/proxies (M05, core M06, core M10) | Shared operations, input receipts and browser interface |
+| 8. Browser package | Chrome/profile/TigerVNC, agent tools, standalone MCP adapter, local control/relay and setup (browser M06) | Explicit config and request/receipt interfaces; no UI dependency |
+| 9. UI | API client, agent navigation/rename/icons, chat/composer, inline browser/file cards and inspector (UI M10) | Core API/event/surface schemas; small synthetic fixtures allow early UI work |
+| 10. Operations and recovery | Installation, supervision integration, full export/backup/restore, diagnostics and integrated acceptance evidence (M11 and portable-bundle parts of M09) | Inventory/backup contracts first; running modules for later verification |
+
+Open the lanes in stages:
+
+1. **Bootstrap/contracts:** lane 1 establishes package skeletons and the minimum shared types. In parallel, lanes 3/4/5/6/8 run their focused P0 environment, terminal/recorder, native-format and browser rehearsals. Lane 10 prepares isolated fixtures and installation checks; UI can work from the agreed API shape.
+2. **Independent implementation:** once those interfaces are agreed, all ten lanes can implement within their boundaries. Use small fakes for unfinished dependencies and integrate completed behavior continuously; a fake does not count as real VM/browser/provider acceptance.
+3. **Integration gates:** assemble headless create → run → capture → message first, then browser handoff/UI, provider switching and restore. Follow G0–G6; no unattended fleet before durable capture passes G3. Builders finishing early review/help the remaining integration paths rather than inventing extra features.
+
+Give each lane an isolated worktree and scoped branch. One owner edits shared contract/assembly/migration-order files, with domain changes proposed to that owner; repository separation alone does not prevent edit conflicts. Keep PRs small and name dependency revisions. Integration review owns cross-module correctness; merging/deployment still needs the owner's authorization. Test each guarantee at its owning boundary and use a few integrated flows instead of ten overlapping suites. This is an allocation plan, not a launch of ten agents.
 
 ## 7. Completion and evidence discipline
 
@@ -186,13 +227,13 @@ The product is complete when R01–R16 are verified against a named release, not
 
 Every release evidence bundle records:
 
-- Commit, dependency lock, host package/image versions and guest protocol version.
+- Core/browser/UI revisions, dependency locks, host package/image versions, core API version and guest protocol version.
 - Test commands and results, distinguishing fixtures, real tmux, real VM, real browser and real provider execution.
 - Failure injection points and observed recovery, including any uncertain outcomes.
 - Backup manifest and successful restore/reindex rehearsal.
 - Known limits, measured operating envelope and recovery instructions.
 
-Current Qorqut research is not a clean inherited test baseline: four focused checks passed and two failed during reconnaissance. Those details are preserved in [RESEARCH.md](RESEARCH.md). Ported behavior must pass qorqutbot's own contract tests.
+Current Qorqut research is not a clean inherited test baseline: four focused checks passed and two failed during reconnaissance. Those details are preserved in [RESEARCH.md](RESEARCH.md). Ported behavior must pass the destination package's focused contract tests.
 
 ## 8. Scope boundary
 

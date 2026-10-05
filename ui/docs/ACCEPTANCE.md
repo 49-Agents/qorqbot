@@ -4,6 +4,8 @@ Status: planned tests, not execution results. No qorqutbot runtime exists in thi
 
 This document defines how to verify the requirements and gates in the [global plan](IMPLEMENTATION-PLAN.md). The [shared contracts](CONTRACTS.md) define the expected behavior. A test that only reproduces an implementation's output is insufficient: assert durable invariants, externally observed effects and recovery outcomes.
 
+The matrix is one integrated set of guarantees across `qorqut-core`, `qorqut-browser` and `qorqutbot-ui`, not three copies of a test suite. Keep each behavior's focused checks with its owner and combine related cases where one fixture proves them. Core tests coordination/storage/API, browser tests local lifecycle/tools/control with a small host binding, and UI tests interactions. No usage examples, example apps or tests that merely mirror implementation are required.
+
 ## 1. Test layers and fixtures
 
 | Layer | Environment | What it proves |
@@ -46,7 +48,7 @@ All acceptance groups below are mandatory for the first complete v1 release. Ind
 | ID | Scenario | Required evidence |
 | --- | --- | --- |
 | A00.1 | Crash before/after operation transaction commit; retry through HTTP and MCP | Mutation, event, initial receipt and typed job are all committed or all absent; identical retry returns the original receipt |
-| A00.2 | Concurrent same-key requests; same key with changed arguments; stale config revision | One committed effect; deterministic idempotency/revision conflict for mismatches; no side effect before rejected validation |
+| A00.2 | Concurrent same-key requests; same key with changed arguments; stale agent/default-config revision | One committed effect; deterministic conflicts; no effect before rejected validation; core default changes leave existing agents intact and configuration reads expose no secrets |
 | A00.3 | Restart mid-job, expired worker lease, long external call | Reconciliation uses persisted progress; external lifecycle lock prevents competing writers; SQLite transactions do not span external calls |
 | A00.4 | Owner and two agent identities invoke the implemented public operation inventory | Same validation/operation set for every actor; actual caller attribution retained; no hidden role, business-scope or signoff branch |
 | A01.1 | Owner/agent create, repeated and concurrent requests, crash during folder/VM provisioning | One UUID/folder/creation event per accepted create key; progress recoverable; partial registration is never advertised as ready |
@@ -71,7 +73,7 @@ All acceptance groups below are mandatory for the first complete v1 release. Ind
 | A03.2 | Idle, busy, nonempty, modal, login and shell composers | Automated input is submitted only to a verified ready native composer; all other cases defer or expose setup; never paste into an unintended shell |
 | A03.3 | Kill at dispatch intent, before/after paste, before/after Enter and before/after receipt | Positive no-input evidence permits retry; any possibly performed effect is uncertain; stable attempt retry never pastes a second time |
 | A03.4 | Concurrent manual input/automated delivery, stale same-run viewer epoch, disconnect/restart/takeover | One input owner; observer cannot type; stale frames rejected; human mode persists without auto-expiry; explicit take/release reconciles epoch and rechecks composer without clearing text |
-| A04.1 | Preparation repeated after authored instructions/notes change | Generated files/config are reproducible and separate from authored files; argv/env/cwd are structured; secrets absent from general logs |
+| A04.1 | Preparation repeated after authored persona/notes change | `persona.md` and workspace data survive retries/provider preparation; generated entrypoints refer to the same authored source; argv/env/cwd are structured; secrets absent from general logs |
 | A04.2 | Pinned Claude and Codex with exact native session bindings and emitted hooks | Real native file/event fixtures captured, version/capability inventory saved, observed state tied to exact run/process; ambiguous binding blocks dependent guarantees |
 | A04.3 | Native child sessions, native resume, cwd change, native filename/schema variation | All owned parent/child sources retained; source ownership does not depend on cwd/current marker; unsupported format remains raw and visibly unparsed |
 | A04.4 | Model/provider selection changes and unsupported CLI/native version | Agent identity/history unchanged; supported behavior follows adapter capability; terminal-only evidence is labeled without claiming semantic restoration |
@@ -88,7 +90,7 @@ P0 runs A02.1, A03.1 and the discovery portions of A04.2/A04.3 as feasibility re
 | A05.4 | Lost runner response/receipt and explicitly resolved uncertain delivery | Saved/submitted/handled are independently inspectable; no automatic uncertain replay; explicit retry records rationale and duplicate-processing risk |
 | A05.5 | Exact acknowledgment, duplicate acknowledgment, alternate actor acknowledgment | Handling receipt names message and actual actor; retries are idempotent; all-allowed v1 does not introduce a recipient-only permission check |
 | A06.1 | Synthetic login in two guests and onbash, browser restart and VM reboot | Separate cookies/profiles; each agent retains its own login under the synthetic site's rules; viewer reconnect uses existing browser |
-| A06.2 | Request human input while a slow managed browser command is in flight | Requested/yielding is distinct from ready/human; automation drains before human input is enabled; later tools return input_pending |
+| A06.2 | Request human input while a slow managed browser command is in flight | Browser tool invokes host binding without core/UI imports; core commits request atomically; requested/yielding differs from ready/human; automation drains before human input; later tools return input_pending |
 | A06.3 | Concurrent/repeated Done/Cancel, cancel while yielding/disconnected, manual takeover/release, stale target, offline CLI | One terminal request transition and one correctly typed completion or cancellation message; stale input rejected; automation waits for settled command/new epoch; no success claim on cancellation |
 | A06.4 | View-only connection sends keyboard/mouse/clipboard input, then human takeover and release | Server-side relay enforces current control mode/epoch; client-side noVNC options alone are insufficient; obsolete input connections lose control |
 | A06.5 | Host/runner/browser restart during pending handoff | Request persists; current instance is explicitly rebound; no stale tab reuse or silent automation release; unknown in-flight browser effect is not blindly repeated |
@@ -145,8 +147,8 @@ The fault model assumes storage honors fsync. Losing the only physical storage d
 | A09.3 | Stopped full-installation backup of VM agents and onbash, restore under another absolute root | All owned writer trees verified stopped; onbash WAL-backed spool/receipts included; exact disk backing images/paths and file hashes verify; history/queues survive; no automatic launch or replay |
 | A09.4 | Online archive backup while capture continues, then isolated archive restore/reindex | Snapshot's immutable inventory verifies; archive queries rebuild read-only; operational queues never resume; no full browser/VM/workspace recovery claim |
 | A09.5 | File reference with relative/absolute guest/onbash path, missing source, retry, changed/deleted file and import | Correct environment resolution; one reference/entry/event; no guest path read on host; actual observed metadata, no invented snapshot; source errors explicit; references/provenance survive provider changes/export |
-| A11.1 | Fresh host installation without any Qorqut checkout/config/data | Prerequisites diagnosed; pinned release/image installs; independent identities, paths, ports and real provider acceptance work |
-| A11.2 | Host schema/runner/CLI/browser update and unsupported downgrade | Explicit migrations/backups and compatibility checks; live clients not assumed reloaded; rollback cannot silently discard post-upgrade work/profile changes |
+| A11.1 | Fresh headless core installation without UI or any Qorqut checkout/config/data; attach independent UI build afterward | Prerequisites diagnosed; pinned core/browser/image installs; browser standalone MCP loads without core/UI and advertises only supported tools; identities/paths/ports and provider acceptance work; UI attaches through public API without migrating backend state |
+| A11.2 | Host schema/runner/CLI/browser/UI update and unsupported downgrade | Explicit core migrations/backups; pinned browser/runner/API compatibility checked; unsupported UI API fails clearly; live clients not assumed reloaded; rollback cannot silently discard work/profile changes |
 | A11.3 | Invalid backup, identity collision, second host clone, or original performs input after snapshot | Invalid activation rejected; fresh recovery epoch/tokens fence old control; restored unfinished effects held for reconciliation; missing newer receipt never proves no effect; onbash clone rejected |
 | A11.4 | Measured multi-agent capacity, queue/capture load and disk recovery | Publish tested CPU/RAM/disk/version envelope, response/catch-up observations and admission thresholds; no invented scalability claim |
 | A11.5 | Logs/diagnostics/operator recovery for uncertain input, stopped capture and unavailable guest | Stable IDs and actionable typed causes; no secrets/private content in general logs; operator can inspect/reconcile without editing database rows blindly |
@@ -155,7 +157,7 @@ The fault model assumes storage honors fsync. Losing the only physical storage d
 
 | ID | Scenario | Required evidence |
 | --- | --- | --- |
-| A10.1 | HTTP/MCP/operator-client parity for each implemented operation | Shared schemas/results/idempotency/state rules and caller attribution; no inert advertised tools or duplicate business logic |
+| A10.1 | HTTP/MCP/operator-client parity for each implemented operation with UI absent | Shared schemas/results/idempotency/state rules and caller attribution; core owns configuration/coordination; no inert advertised tools or duplicate business logic |
 | A10.2 | Agent list, terminal, desktop and request/Done flow | Correct target IDs and observed status; queued/uncertain/error states remain visible; connect/disconnect does not launch/kill processes |
 | A10.3 | Events reconnect, pagination and stale client selection | Durable cursor replay without dropped changes; target checks prevent actions on a replacement run/browser; bounded results link to full artifacts |
 | A10.4 | Real browser console against disposable VM agents and onbash | Terminal/VNC viewers work through host proxy; no guest tokens in frontend state/logs; escaping handles arbitrary agent/status/message text |
@@ -179,7 +181,7 @@ The included chat scope is in [UI-PLAN.md](UI-PLAN.md). No large design system o
 | G5 Continuity | A04.4, A08.1–A08.4, A09.1–A09.2 on both supported native adapters |
 | G6 Deployable release | A06.6–A06.8 integrated surfaces/control, A09.3–A09.4, A10.4–A10.5, A11.1–A11.5 and L5 smoke for each adapter; all R01–R16 traced to passing evidence for the candidate build |
 
-For each result, save: acceptance ID; source commit; UTC execution time; command/reproduction steps; test layer; fixture seed/data manifest; host/kernel/filesystem and dependency versions; guest image digest; CLI/model/provider and protocol versions where applicable; expected invariant; observed outcome; injected failure point; before/after IDs/watermarks/hashes; artifact references; known limitations. Use explicit `passed`, `failed`, `blocked` or `not_run`, not an ambiguous checkmark. A skipped test is not passing evidence.
+For each result, save: acceptance ID; owning repository/commit and integrated core/browser/UI pins; UTC execution time; command/reproduction steps; test layer; fixture seed/data manifest; host/kernel/filesystem and dependency versions; guest image digest; CLI/model/provider and API/runner protocol versions where applicable; expected invariant; observed outcome; injected failure point; before/after IDs/watermarks/hashes; artifact references; known limitations. Use explicit `passed`, `failed`, `blocked` or `not_run`, not an ambiguous checkmark. A skipped test is not passing evidence.
 
 Keep synthetic reports and concise release summaries under a future `docs/evidence/<release>/` directory. Large raw fixture bundles and operational evidence live outside Git with checksums/retrieval locations in the report. Never commit credentials, private transcripts, browser profiles or VM images as test evidence.
 

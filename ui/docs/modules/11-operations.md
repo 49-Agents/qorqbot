@@ -2,11 +2,15 @@
 
 Status: Planned. Owns R14 and integrated acceptance. Contributes from Phase 0; completion depends on all modules.
 
+Repository: `qorqut-core`. Browser supplies its own setup assets; UI supplies a static build. Core owns installation-wide configuration, supervision, compatibility inventory and release integration.
+
 ## Outcome and boundary
 
 A fresh installation can run the pinned backend/guest image, preserve active agents across host-app updates, diagnose failures, back up the advertised data and restore it without the old Qorqut installation. Operational truth and test evidence must match what the software claims.
 
 Keep one host service plus libvirt and guest runner services. No new queue/search database server or mandatory hosted telemetry. Installation scripts configure prerequisites and units; application startup does not silently migrate an unknown database, scan old Qorqut state or launch every agent.
+
+Pin core and browser package revisions in the host/guest build and record the optional UI revision plus supported core API version. A headless install requires no UI checkout or build tools. Browser installs as a library; its TigerVNC/Openbox prerequisite/setup assets feed core's installer/image recipe. Serve an independently built UI through an optional static directory or same-origin proxy. No Git submodules or extra coordination deployment is required.
 
 ## Installation and supervision
 
@@ -18,7 +22,7 @@ Image/recovery evidence includes a usable general machine desktop and its privat
 
 Systemd supervises the host and runner; libvirt owns VM lifecycle. Independently supervised agent runtime units/cgroups contain agent-owned tmux/recorder/native trees and separate desktops, outside the runner/host units and without their restart coupling. Daemonization alone does not escape a systemd cgroup. Restarting the actual host/runner service must preserve these process identities. A native CLI unit does not automatically restart a model after death. Desired environment state and any configured runtime recovery policy are explicit records.
 
-Migration is an explicit maintenance operation with a pre-migration backup and supported schema checks. A host binary rollback cannot use an unsupported database schema. Guest protocol compatibility is checked before adopting a new host/runner version. An update that needs native hook reload must say so; rewriting config does not prove an already-running client reloaded it.
+Migration is an explicit core maintenance operation with a pre-migration backup and supported schema checks. A host binary rollback cannot use an unsupported database schema. Guest protocol and browser package compatibility are checked before adopting a new host/runner version. UI checks core API compatibility and never owns a backend migration. An update that needs native hook reload must say so; rewriting config does not prove an already-running client reloaded it.
 
 ## Health and observability
 
@@ -82,5 +86,7 @@ A restored backup is a historical checkpoint, not proof of which effects later o
 ## Acceptance and done gate
 
 Use [ACCEPTANCE.md](../ACCEPTANCE.md) as the integrated authority. Tests cover kill/restart at every durable boundary, unavailable runner/network, disk full, schema/version mismatch, stale process identity, failed browser/setup, stopped full restore and online archive reindex.
+
+Use focused package tests and one integrated evidence set across the three repositories. Reuse passing evidence when unchanged contracts/pins justify it; do not create a complete copy of the acceptance suite in each repo. Headless installation and browser's independence from core/UI are checked within existing installation/integration cases, not through extra example applications.
 
 **Done:** G6 passes on a fresh host or equivalent isolated installation. No Qorqut services/data are required. Evidence distinguishes unit fixtures, real processes/VMs/browsers and real provider behavior, and known incomplete outcomes remain visible.

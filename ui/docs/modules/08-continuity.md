@@ -2,6 +2,8 @@
 
 Status: Planned. Owns R11. Depends on M01/M03/M04/M07/M09. Automatic bounded restoration is the pending-owner default D08.
 
+Repository: `qorqut-core`. Provider switching is backend coordination; its checkpoints never depend on UI state.
+
 ## Outcome and boundary
 
 The agent remains the same logical worker when its CLI, model or execution environment changes. Identity, authored files, browser profile, messages and captured history persist. Native resume and cross-provider context restoration are separate mechanisms with different evidence.
@@ -12,7 +14,7 @@ Use current authored memory and deterministic context selection. No mandatory su
 
 `workspace/memory.md` is the agent's current authored handoff. Instructions ask the agent to maintain decisions, current work, important findings and next actions in notes/memory. This improves continuity but cannot recover unsaved thoughts after a crash.
 
-Context packets contain current platform identity/instructions, a captured memory snapshot, pending human input/message references, explicitly pinned artifacts and a bounded recent conversation selection. Pending message references are context, not another copy of queued input to process. Capture the file/history IDs and hashes used. Use a configured conservative byte/token budget appropriate to the tested target adapter; reserve mandatory identity/instruction budget first, then select whole records. Oversized optional inputs become references with explicit omissions; mandatory content that cannot fit fails preparation visibly. Never silently clip bytes or records.
+Context packets contain current platform identity/instructions, exact authored `persona.md` and memory snapshots, pending human input/message references, explicitly pinned artifacts and a bounded recent conversation selection. Pending message references are context, not another copy of queued input to process. Capture the file/history IDs and hashes used. Use a configured conservative byte/token budget appropriate to the tested target adapter; reserve mandatory identity/instruction budget first, then select whole records. Oversized optional inputs become references with explicit omissions; mandatory content that cannot fit fails preparation visibly. Never silently clip bytes or records.
 
 Plain files have no universal committed revision because native tools can edit them directly. Build packets from checked stable reads (identity/stat/content checks), retaining selected exact bytes in the immutable packet or attachment. Detectable concurrent changes cause bounded retry or an unavailable result. A hash without saved bytes is insufficient when historical retrieval is promised. This does not promise transactional snapshots across arbitrary non-cooperating file writers; stop/quiesce cooperating writers for the normal switch and record any unresolved inconsistency.
 

@@ -2,6 +2,8 @@
 
 Status: Planned. Owns R03/R04/R05/R07 execution boundaries. Depends on M00–M02 and shared protocol; integrates M04 adapters, M05 messages and M07 recorder.
 
+Repository: `qorqut-core`. Install the small runner from core's package; invoke the pinned browser package locally for Chrome/control effects. Browser does not own tmux, message routing or the runner service.
+
 ## Outcome and boundary
 
 One small runner service manages local tmux/process bindings, browser commands and durable local receipts. It runs inside each VM and locally for onbash. The host remains the operational authority; guest-local SQLite holds execution receipts and capture spool, not another independent agent/task registry.
