@@ -1,5 +1,23 @@
 # Architecture decisions
 
+## D23 — Preserve messages and validate terminal paste text
+
+The terminal builder identified that embedded ESC bracketed-paste termination
+and CR can submit input before the guarded Enter. Manager verified the pinned
+P05 source already rejects control characters at this transport boundary.
+
+Keep message bodies exact. For automated terminal text, allow LF/TAB but reject
+other C0, DEL and C1 characters, including CR/ESC, with `invalid_argument` and
+reason `unsafe_terminal_text` before attempt creation or any input. No silent
+normalization or permanently deferred retry. Messaging retains the original
+body and records a failed delivery; corrected text is another message. Human
+terminal key/control frames remain on their separate controlled path. This is
+transport framing correctness, not a v1 permission tier.
+
+Validate the rule with focused terminal-boundary tests including an embedded
+bracketed-paste terminator followed by CR and zero observed tmux input. Do not
+duplicate the character-validation suite in every transport or repository.
+
 ## D22 — Staged implementation with independent review
 
 The owner authorized up to ten concurrent Astra MAX ACLA actors, with native

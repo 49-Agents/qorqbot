@@ -149,6 +149,10 @@ Implement M02/M03 and core M04 preparation. Bring the proven recorder skeleton i
 
 Deliver one real VM per ordinary agent, the host executor, immutable image pins, persistent disks/home/workspace, authenticated runner identity, one active run per agent, tmux terminal streaming and serialized input receipts. Add explicit terminal take/release epochs and lifecycle intent fencing so stale viewers and queued starts cannot override control or archival. Surface “not ready” when mounts, credentials or native CLI setup are missing.
 
+Automated text delivery also enforces D23's control-character rule before any
+input, preserving stored messages while rejecting payloads that could escape
+bracketed paste and bypass the separate guarded Enter.
+
 **Gate G2:** two agents and onbash run independent terminals; host service restart preserves live VM/tmux/browser processes; VM reboot is recorded as a different execution situation; stale commands cannot reach a replacement run; uncertain input never repeats automatically.
 
 ### Phase 3 — Continuous archive before autonomous operation

@@ -133,6 +133,19 @@ Backup restore/import differs from a normal restart: hold all restored unfinishe
 
 Messages are immutable. A correction is another message. A reply preserves thread relationships; it does not acknowledge its parent. All registered actors can inspect messages under v1's all-allowed policy; filters are navigation and efficiency, not access grants.
 
+Message storage accepts and preserves the exact valid UTF-8 body within the size
+limit. Automated terminal text has a narrower transport constraint: allow LF
+(`U+000A`) and TAB (`U+0009`), but reject all other C0 characters (`U+0000`–`U+001F`),
+DEL (`U+007F`) and C1 (`U+0080`–`U+009F`). This includes CR and ESC. Reject the
+whole terminal request with `invalid_argument` and reason `unsafe_terminal_text`
+before creating a dispatch attempt or sending any tmux input. Do not normalize,
+strip, escape or truncate the message into a different payload. The host retains
+the original message and records a failed delivery with that reason; it does not
+automatically retry a permanent payload error. Explicitly corrected text is a
+new message. This constraint protects bracketed-paste framing and the separate
+guarded Enter step; it does not restrict raw human terminal key/control frames.
+See D23.
+
 Delivery states: `pending`, `deferred`, `dispatching`, `submitted`, `uncertain`, `failed`, `cancelled`. A separate `handled_at`/handling receipt records semantic acknowledgment. One message can have successive explicit attempts, but an uncertain attempt must be reconciled or explicitly retried before another is created. Explicit retry after uncertainty records its rationale and duplicate-processing risk.
 
 The host and runner persist the stable attempt ID, exact payload hash and expected run binding. Before first input, the runner durably records dispatch intent. Repeating that attempt returns its saved outcome. Known pre-input failure may defer/retry the same intention. Possible paste/Enter without confirmation is uncertain; never retry blindly.

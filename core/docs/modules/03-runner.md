@@ -38,6 +38,13 @@ Direct human keystrokes are not automatically replayable. A reconnect cannot res
 
 Each attempt carries ID, payload hash, expected run binding and submit intent. Under the per-run local input lock:
 
+Before creating an attempt or touching tmux, validate the UTF-8 size and the
+automated-text character contract in CONTRACTS section 6. Unsafe control text
+returns `invalid_argument` / `unsafe_terminal_text`; no dispatch intent, paste,
+Enter or transient deferred receipt is created. Preserve the supplied body at
+the message layer rather than modifying its bytes. Raw human input remains a
+separate epoch-bound control path.
+
 1. Check current binding, capture readiness, terminal control mode and adapter composer readiness.
 2. If text/dialog/unrecognized shell makes delivery unsafe, return deferred with no input.
 3. Durably record dispatch intent before the first paste.
