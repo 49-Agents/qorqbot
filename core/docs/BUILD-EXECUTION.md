@@ -15,6 +15,7 @@ delegates further. Treat every report as an unverified claim until checked.
 | Assignment | Accepted revision | Independent review and Manager evidence | Remaining work |
 | --- | --- | --- | --- |
 | Environments readiness exploration | [`4432880`](https://github.com/qorqutbot/qorqut-core/blob/44328807c84db01c3351bef74ada285171117d15/docs/evidence/environments-p0.md) | Separate Astra MAX reviewer reported no in-scope defects. Manager checked the exact committed diff and clean worktrees, reproduced unavailable direct KVM access/missing VM tools, verified all seven source hashes and spot-checked external-writer locking/process ownership. | D02 substrate discussion, host preparation and every real two-VM/mount/network/desktop/persistence/restore test remain pending. No G0–G6 acceptance. |
+| Browser local effect foundation | [`a94e537`](https://github.com/qorqutbot/qorqut-browser/blob/a94e537519ba19d484375a7f8fb986339149285a/docs/evidence/browser-r1.md) | Separate Astra MAX reviewer found no in-scope defects and ran all 20 tests plus packaging checks. Manager inspected control/store/helper/process paths, independently passed six focused tests and three fault diagnostics, verified all six source hashes and the remote branch SHA. | Independent MCP/HTTP bridge is the next increment. Real helper, Chrome/profile, VNC/RFB, service-cgroup, core and VM/onbash acceptance remain pending. No G0–G6 acceptance. |
 
 Approval of this report confirms its bounded evidence, not installed capability.
 The branch is pushed and remains unmerged. Volatile capacity/port observations
@@ -61,6 +62,14 @@ agents/files, messaging/transports, UI, and operations/recovery as their concret
 dependencies pass review. A completed exploration assignment receives the same
 independent evidence review as code. An unavailable prerequisite is reported,
 not silently simulated into a passing integration result.
+
+The accepted browser increment unlocks `browser-mcp-r2`: an official standalone
+MCP server, local identity/command/control routes and optional application
+handoff client, all using the reviewed gate. Browser owns its concrete v1 wire
+contract in `docs/PROTOCOL.md` on `codex/browser-mcp-plan`. Core's future handoff
+operation implements that endpoint and retains request/message transaction
+authority. Relay, desktop provisioning and a substitute core implementation are
+outside this bounded server assignment.
 
 ## Initial implementation decisions
 

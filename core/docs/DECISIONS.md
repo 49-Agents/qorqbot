@@ -1,5 +1,18 @@
 # Architecture decisions
 
+## D25 — Freeze the independent browser service's first wire contract
+
+After review of the local browser primitives, browser owns the bounded v1
+MCP/identity/command/control and optional handoff contract in its
+[`docs/PROTOCOL.md`](https://github.com/qorqutbot/qorqut-browser/blob/codex/browser-mcp-plan/docs/PROTOCOL.md).
+Both transports call the accepted local gate. Actor credentials supply identity;
+the trusted application forwards the original actor and owns reconciliation.
+This is target/attribution integrity, with no per-agent role policy. Browser
+stores local effect receipts; core still owns all durable request/message and
+Done/Cancel transactions. No missing relay or cross-agent implementation is
+advertised as working. The independent server increment must pass actual MCP/HTTP
+checks before integration, without requiring core/UI runtime imports.
+
 ## D24 — Explicit paste framing and fresh Enter evidence
 
 Independent terminal review and Manager reproduction on tmux 3.4 showed that

@@ -180,6 +180,13 @@ A minimal version handshake allows only explicitly compatible protocol versions.
 
 Browser's separate local service exposes `/mcp` plus a private versioned identity/command/control/relay interface for the runner. Its identity includes agent, recovery epoch, environment/boot/browser binding and protocol. Browser alone serializes its effects and persists command intent/outcomes and control epochs in its local receipt store. Direct MCP and forwarded calls use the same handlers/lock; a retry retains the command ID/payload hash. Restart reconciles current control with core before admitting automation; unresolved commands remain uncertain. A core outage cannot turn an unresolved request or stale control observation into confirmed completion/readiness.
 
+Browser owns the concrete v1 JSON shapes and attribution/receipt/error behavior
+in [its protocol contract](https://github.com/qorqutbot/qorqut-browser/blob/codex/browser-mcp-plan/docs/PROTOCOL.md).
+The initial server increment covers MCP, identity/command/control and the optional
+handoff client; relay/input fencing and cross-agent execution routing remain
+subsequent integration. Core's handoff endpoint must implement that versioned
+request/receipt shape while calling core's shared durable operation.
+
 `terminal_control(action=take|release)` requires expected run and control epoch. Take binds one input viewer and advances the epoch; release advances it and revokes the old viewer. Host admission pauses during reconciliation; runner confirmation under the input lock is required before claiming the new mode is ready. All input frames must match the current run/epoch/viewer. Disconnect/restart retains human mode without automatic expiry; explicit takeover rebinds a new viewer, and explicit release permits automation only after a fresh composer check. Neither action clears typed text. An observer cannot send input.
 
 ## 8. Archive and history contract

@@ -168,6 +168,12 @@ Deliver durable all-source registration, local transactional spooling, immutable
 
 ### Phase 4 — Coordination and browser intervention
 
+Browser's standalone MCP/HTTP transport increment follows its owned
+[protocol v1](https://github.com/qorqutbot/qorqut-browser/blob/codex/browser-mcp-plan/docs/PROTOCOL.md).
+Its reviewed local gate remains the sole effect/control path. Implement core's
+durable handoff endpoint against that contract; transport fixture success does
+not replace real VNC/input enforcement or core transaction acceptance.
+
 Complete M05/M06 and the operational portions of M10. Browser supervision/tools develop in `qorqut-browser`, durable coordination and integration in core, and presentation in `qorqutbot-ui`. Browser work can proceed in parallel with Phase 3, but unattended work waits for capture readiness.
 
 Deliver direct messages/offline queues, guarded terminal delivery, semantic handling receipts, dedicated browser/machine surfaces and input request/Done/Cancel transitions. Add M09 file references, M07 conversation projection and the M10 single-page shell: agent list/icons/rename, central chat/composer, inline browser cards with expansion, compact file cards and collapsible inspector. File opening is deferred. Manual browser takeover reuses the request state machine. Tools describe intent without layout mechanics. All agents can discover/contact/create peers through shared operations.
