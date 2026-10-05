@@ -52,3 +52,22 @@ export type SendResult = {
   message: { message_id: string; body: string; recipient_agent_id: string };
   delivery: Delivery; entries: { entry_id: string; agent_id: string; conversation_id: string; conversation_seq: number }[];
 };
+
+// D38 Terminal protocol 1; core contract pinned at c3d5b633aedcc1fdd056a02136259eb26f56adb1.
+export type TerminalControl = { mode: 'unclaimed' | 'human'; epoch: number; viewer_id: string | null; last_sequence: number };
+export type TerminalView = {
+  agent_id: string; recovery_epoch: string; terminal_id: string | null; observed_at: string | null;
+  status: 'disabled' | 'waiting_workspace' | 'available' | 'stopped' | 'unavailable' | 'unsupported_target';
+  reason: string; control: TerminalControl | null;
+  recording: { state: 'starting' | 'healthy' | 'blocked' | 'incomplete' | 'unknown'; local_captured_offset: number; host_archived_offset: number } | null;
+};
+export type TerminalFrame = {
+  type: 'frame'; kind: 'input' | 'resize'; viewer_id: string; epoch: number; sequence: number;
+  outcome: 'submitted' | 'uncertain'; bytes_written: number;
+};
+export type TerminalMessage =
+  | { type: 'hello'; protocol: 1; viewer_id: string; terminal: TerminalView }
+  | { type: 'state'; terminal: TerminalView }
+  | { type: 'control'; control: TerminalControl }
+  | TerminalFrame
+  | { type: 'error'; code: string; message: string; related_type: string | null; sequence: number | null };

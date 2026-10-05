@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'preact
 import { Store, type Pending } from './store';
 import { Icon, IconPicker } from './icons';
 import type { Agent, Entry } from './wire';
+import { TerminalPane, TerminalSummary } from './terminal';
 import './style.css';
 
 const store = new Store();
@@ -194,7 +195,7 @@ function Inspector({ agent, rename, changeIcon }: { agent: Agent; rename: () => 
     <section><h3>Transcript publication</h3>{publication ? <><p>{publication.state === 'current' ? 'Current' : publication.state === 'blocked' ? 'Blocked' : 'Pending'} · {publication.pending_entries} pending entries</p>{publication.error && <p className="error">{publication.error.code}: {publication.error.message}</p>}<p className="quiet">Last saved publication observation.</p></> : <p className="quiet">No publication observation available.</p>}</section>
     <section><h3>Browser</h3><p className="quiet">Unavailable. Browser viewing and control are not connected.</p></section>
     <section><h3>{agent.kind === 'host' ? 'Desktop' : 'Machine'}</h3><p className="quiet">Unavailable. No desktop surface is connected.</p></section>
-    <section><h3>Terminal</h3><p className="quiet">Unavailable. Runtime and terminal integration is pending.</p></section>
+    <section><h3>Terminal</h3><TerminalSummary store={store} id={agent.id} /></section>
     <details><summary>Identity & workspace</summary><dl className="identity-details"><dt>Agent ID</dt><dd>{agent.id}</dd><dt>Conversation ID</dt><dd>{agent.conversation_id}</dd><dt>Workspace</dt><dd>{agent.workspace_path}</dd><dt>Workspace initialized</dt><dd>{agent.workspace_initialized_at ? time(agent.workspace_initialized_at) : 'Not yet'}</dd><dt>Metadata revision</dt><dd>{agent.revision}</dd></dl></details>
   </aside>;
 }
@@ -217,12 +218,13 @@ function App() {
       <header className="conversation-header">
         {mobile && <button aria-label="Open agents" onClick={() => setNavOpen(true)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg></button>}
         <div className="conversation-title">{agent && <Icon name={agent.icon_key} />}<div><h1>{agent?.display_name || 'Conversations'}</h1><p>{agent ? `${agent.lifecycle} · ${agent.activity === 'unknown' ? 'Activity unknown' : agent.activity}` : 'Your agent workspace'}</p></div></div>
+        {agent && <div className="view-switch" role="group" aria-label="Agent view"><button aria-pressed={store.view(agent.id) === 'chat'} onClick={() => store.setView(agent.id, 'chat')}>Chat</button><button aria-pressed={store.view(agent.id) === 'terminal'} onClick={() => store.setView(agent.id, 'terminal')}>Terminal</button></div>}
         {agent && <button aria-label={overlayInspector ? 'Open inspector' : store.inspector ? 'Close inspector' : 'Open inspector'} aria-expanded={overlayInspector ? inspectOpen : store.inspector} onClick={() => overlayInspector ? setInspectOpen(true) : store.toggleInspector()}>Details</button>}
       </header>
       {store.error && <div className="connection-error error" role="alert">{store.error}</div>}
       {store.notice && <div className="notice" role="status">{store.notice}<button aria-label="Dismiss notice" onClick={() => { store.notice = ''; store.emit(); }}>×</button></div>}
       {agent && <MutationNotice item={store.pending.get(`edit:${agent.id}`)} requestKey={`edit:${agent.id}`} />}
-      {agent ? <Chat agent={agent} /> : <div className="empty"><h2>Select an agent</h2><p>Conversations stay with each agent.</p></div>}
+      {agent ? store.view(agent.id) === 'terminal' ? <TerminalPane key={agent.id} store={store} id={agent.id} /> : <Chat agent={agent} /> : <div className="empty"><h2>Select an agent</h2><p>Conversations stay with each agent.</p></div>}
     </main>
     {!overlayInspector && store.inspector && inspector}
     {mobile && navOpen && <Dialog title="Agents" drawer="drawer left-drawer" onClose={() => setNavOpen(false)}>{navigation}</Dialog>}

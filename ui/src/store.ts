@@ -1,5 +1,6 @@
 import { ApiError, operation, request } from './api';
-import type { Agent, AgentPage, Config, ConversationPage, Entry, EventPage, Publication, Schema, SendResult, Session } from './wire';
+import type { Agent, AgentPage, Config, ConversationPage, Entry, EventPage, Publication, Schema, SendResult, Session, TerminalView } from './wire';
+import { mergeTerminal, terminalView } from './terminal-protocol';
 
 export type Pending = {
   operation: 'messages_send' | 'agents_update' | 'agents_create'; args: Record<string, unknown>;
@@ -13,6 +14,7 @@ export type Chat = {
 };
 export type Draft = { text: string; version: number };
 export type Scroll = { top: number; bottom: boolean };
+export type TerminalObservation = { view: TerminalView | null; loading: boolean; error: string };
 const failure = (e: unknown) => e instanceof ApiError ? e : new ApiError('unavailable', 'Request failed.');
 const newChat = (): Chat => ({ items: [], epoch: '', hasOlder: false, loading: false, earlier: false, publication: null, error: '', refreshSeq: 0, change: 'initial' });
 
@@ -31,6 +33,8 @@ export class Store {
   drafts = new Map<string, Draft>();
   chats = new Map<string, Chat>();
   scrolls = new Map<string, Scroll>();
+  views = new Map<string, 'chat' | 'terminal'>();
+  terminals = new Map<string, TerminalObservation>();
   pending = new Map<string, Pending>();
   notice = '';
   private listeners = new Set<() => void>();
@@ -38,6 +42,7 @@ export class Store {
   private selectionVersion = 0;
   private reads = new Set<AbortController>();
   private conversationRead?: AbortController;
+  private terminalRead?: AbortController;
   private timer?: number;
   private pollBusy = false;
   private pollFailures = 0;
@@ -57,6 +62,8 @@ export class Store {
   agent = () => this.agents.find(a => a.id === this.selected);
   draft = (id: string) => this.drafts.get(id) || { text: '', version: 0 };
   chat = (id: string) => this.chats.get(id);
+  view = (id: string) => this.views.get(id) || 'chat';
+  setView(id: string, view: 'chat' | 'terminal') { this.views.set(id, view); this.emit(); }
   setDraft(id: string, text: string) {
     this.drafts.set(id, { text, version: this.draft(id).version + 1 });
     this.emit();
@@ -76,10 +83,12 @@ export class Store {
     for (const read of this.reads) read.abort();
     this.reads.clear();
     this.conversationRead?.abort();
+    this.terminalRead?.abort();
     this.selectionVersion++;
     this.agents = [];
     this.chats.clear();
     this.scrolls.clear();
+    this.terminals.clear();
     this.config = null;
     this.supported.clear();
     this.epoch = '';
@@ -138,7 +147,7 @@ export class Store {
   async logout() {
     ++this.generation;
     this.resetServer();
-    this.pending.clear(); this.drafts.clear(); this.actor = ''; this.selected = '';
+    this.pending.clear(); this.drafts.clear(); this.views.clear(); this.actor = ''; this.selected = '';
     this.phase = 'checking'; this.error = ''; this.emit();
     try {
       await request('/api/v1/session', { method: 'DELETE' });
@@ -203,18 +212,25 @@ export class Store {
     this.directoryLoading = false;
     if (!this.agents.some(a => a.id === this.selected)) {
       this.select(this.agents.find(a => a.id === this.hint)?.id || this.agents[0]?.id || '');
-    } else if (!this.chats.has(this.selected)) void this.refreshConversation('initial');
+    } else {
+      if (!this.chats.has(this.selected)) void this.refreshConversation('initial');
+      if (!this.terminals.has(this.selected)) void this.refreshTerminal();
+    }
     this.emit();
   }
   select(id: string) {
     if (id && !this.agents.some(a => a.id === id)) return;
     this.conversationRead?.abort();
+    this.terminalRead?.abort();
     this.selectionVersion++;
     this.selected = id;
     this.hint = id;
     try { localStorage.setItem('qorqut.selected', id); } catch { /* optional */ }
     this.emit();
-    if (id) void this.refreshConversation(this.chats.has(id) ? 'refresh' : 'initial');
+    if (id) {
+      void this.refreshConversation(this.chats.has(id) ? 'refresh' : 'initial');
+      void this.refreshTerminal();
+    }
   }
   private async recover(gen: number) {
     if (gen !== this.generation) return;
@@ -281,7 +297,7 @@ export class Store {
         this.eventSeq = page.next_after_seq;
       }
       if (gen !== this.generation || controller.signal.aborted) return;
-      await this.refreshConversation('refresh');
+      await Promise.all([this.refreshConversation('refresh'), this.refreshTerminal()]);
       if (gen !== this.generation || controller.signal.aborted) return;
       if (this.chats.get(this.selected)?.error) {
         this.connection = 'Offline'; this.pollFailures++;
@@ -297,6 +313,42 @@ export class Store {
     } finally {
       this.reads.delete(controller); this.pollBusy = false; this.emit();
       this.schedule(Math.min(30000, 2000 * 2 ** this.pollFailures));
+    }
+  }
+  acceptTerminal(view: TerminalView) {
+    if (this.phase !== 'ready' || view.agent_id !== this.selected || view.recovery_epoch !== this.epoch) return;
+    const prior = this.terminals.get(view.agent_id);
+    this.terminals.set(view.agent_id, { view: mergeTerminal(prior?.view, view), loading: false, error: '' });
+    this.emit();
+  }
+  async refreshTerminal(force = false) {
+    const id = this.selected;
+    if (!id || !this.has('terminal_get') || this.phase !== 'ready') return;
+    if (this.terminalRead && !this.terminalRead.signal.aborted) {
+      if (!force) return;
+      this.terminalRead.abort();
+    }
+    const controller = this.controller(); this.terminalRead = controller;
+    const gen = this.generation, selection = this.selectionVersion;
+    const prior = this.terminals.get(id);
+    this.terminals.set(id, { view: prior?.view || null, loading: true, error: '' }); this.emit();
+    const valid = () => gen === this.generation && selection === this.selectionVersion && id === this.selected && !controller.signal.aborted;
+    try {
+      const view = await operation<unknown>('terminal_get', { agent_id: id }, controller.signal);
+      if (!valid()) return;
+      if (!terminalView(view) || view.agent_id !== id) throw new ApiError('invalid_response', 'Terminal observation could not be verified.');
+      if (view.recovery_epoch !== this.epoch) throw new ApiError('target_changed', 'Server recovery epoch changed.');
+      this.acceptTerminal(view);
+    } catch (e) {
+      if (!valid()) return;
+      const err = failure(e);
+      this.terminals.set(id, { view: null, loading: false, error: 'Terminal observation unavailable. Retry to refresh.' });
+      if (err.status === 401) this.expire();
+      else if (err.code === 'target_changed') await this.recover(gen);
+    } finally {
+      this.reads.delete(controller);
+      if (this.terminalRead === controller) this.terminalRead = undefined;
+      this.emit();
     }
   }
   async refreshConversation(mode: 'initial' | 'refresh' | 'earlier') {
