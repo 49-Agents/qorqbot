@@ -34,6 +34,17 @@ readiness and exact-paste/safe-Enter evidence immediately before Enter. Do not
 carry an earlier proof across a database wait. A rejected proof after possible
 paste is uncertain, with no Enter and no automatic replay.
 
+A subsequent review reproduced capture loss and machine-hold activation during
+the final verifier's permitted settling wait. Refreshing its composer snapshot
+does not refresh those external signals. After final paste verification returns,
+sample capture readiness and the external hold again at the Enter boundary;
+unavailable readiness or an active hold prevents Enter and leaves uncertainty.
+Readiness callbacks are prompt observations, not polling or settling loops. Do
+not insert another deliberate wait or database write before the effect. This is
+an ordered local admission check, not an atomic guarantee against asynchronous
+process death; machine-hold acquisition still uses the shared input gate before
+acknowledging quiescence.
+
 ## D23 — Preserve messages and validate terminal paste text
 
 The terminal builder identified that embedded ESC bracketed-paste termination

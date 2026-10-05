@@ -22,12 +22,18 @@ Approval of this report confirms its bounded evidence, not installed capability.
 The branch is pushed and remains unmerged. Volatile capacity/port observations
 retain their timestamps and are not a deployment budget or reservation.
 
-## Review corrections pending
+## Work awaiting acceptance
 
 - Terminal at `7399178`: Manager reproduced raw unframed multiline paste when
   bracketed mode was off, and stale paste proof allowing Enter after a database
   delay and a modal transition. D24 specifies the correction. The implementation
-  is unapproved; the correction at `898ead7` is under fresh independent review.
+  remains unapproved. Fresh review at `898ead7` verified those corrections but
+  found capture/hold loss during the final verifier's settling wait still allowed
+  Enter. Manager reproduced both cases with real private tmux input; the next
+  correction must refresh external readiness after that final verification.
+- Recorder at `d15366a`: the bounded local spool/nested-PTY implementation is
+  committed and pushed; a fresh Astra MAX review has been launched on that SHA.
+  Neither its local durability claims nor host archive/G3 acceptance is approved.
 
 ## Repository baseline
 
