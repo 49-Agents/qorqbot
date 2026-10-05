@@ -6,7 +6,7 @@ Status: planned. Shared IDs, states and operation names are defined in [CONTRACT
 
 ```mermaid
 flowchart LR
-    OWNER[Owner: operator client / small console] --> HOST
+    OWNER[Owner: operator client / chat workspace] --> HOST
     subgraph Host
         HOST[One Python ASGI service\nHTTP + MCP + event streams]
         DB[(SQLite: records, events, jobs, indexes)]
@@ -24,7 +24,8 @@ flowchart LR
         REC[Recorder + child PTY]
         CLI[Native Claude / Codex]
         SPOOL[(Local durable spool and receipts)]
-        DESKTOP[Xvnc + Openbox + Chrome]
+        DESKTOP[Dedicated TigerVNC + Openbox + Chrome]
+        MACHINE[Separate general guest desktop]
         GUEST --> TMUX
         TMUX --> REC --> CLI
         REC --> SPOOL
@@ -34,6 +35,7 @@ flowchart LR
     end
     HOST <-->|Private HTTP / WebSocket| GUEST
     LV --> GUEST
+    LV -->|Private graphical console| MACHINE
 ```
 
 The host service owns application decisions. The runner owns local process observations and durable execution/capture receipts. The recorder is a small process inside tmux, independent of the runner service's lifetime. It records native CLI output before forwarding it to the visible terminal and tails all sources registered for that run.
@@ -65,7 +67,7 @@ src/qorqutbot/
   files/                 workspace access and portable exports
   transport/             HTTP, MCP, events, terminal/desktop proxies
   ops/                   init, migrations, backup, restore, diagnostics
-web/                     minimal static console plus pinned viewer assets
+web/                     single-page chat workspace plus pinned viewer assets
 images/                  reproducible guest image recipe, not disk artifacts
 tests/                   unit, contract, process, VM and acceptance groups
 ```
@@ -111,7 +113,7 @@ The configured data root is independent of the source checkout and release direc
   backups/                            installation/archival backup manifests
 ```
 
-Do not create a second canonical mutable configuration store in `agent.json`. SQLite is authoritative for current names, desired state, configuration revisions and coordination. The file is a versioned recovery/export projection containing agent ID, layout version, config revision and relevant pins. Reconciliation repairs stale projections from committed records. An imported folder needs an explicit import manifest; directory discovery never silently registers it as a new agent.
+Do not create a second canonical mutable configuration store in `agent.json`. SQLite is authoritative for display name/icon key, desired state, configuration revisions and coordination. The file is a versioned recovery/export projection containing agent ID, layout version, config revision and relevant pins. Reconciliation repairs stale projections from committed records. An imported folder needs an explicit import manifest; directory discovery never silently registers it as a new agent.
 
 The agent folder is the unit of owned filesystem data. Full portability also requires the agent's slice of central records, included by export. Merely copying `agents/<id>` while the database is live is not a complete operational export.
 
@@ -131,7 +133,7 @@ Readiness fails if the intended state disk or workspace mount is absent. Never s
 
 ### Host-global onbash
 
-Onbash uses the same agent folder, recorder, CLI adapters, message contracts and history, with `environment.kind=host`. It has its own HOME, tmux session and Chrome profile. Host display/CDP/VNC ports are allocated once and persisted, since the host has no VM port namespace. It does not reuse the existing Qorqut desktop.
+Onbash uses the same agent folder, recorder, CLI adapters, message contracts and history, with `environment.kind=host`. It has its own HOME, tmux session and Chrome profile. Its dedicated Chrome display and separate general desktop use distinct host display/VNC bindings allocated once and persisted, since the host has no VM port namespace. It does not reuse the existing Qorqut or owner desktop.
 
 The host executor selects local operations; an unreachable VM is never converted to a host executor. Onbash has host access as requested. Per-agent VM separation and an unrestricted control API are not an adversarial multi-tenant security boundary.
 
@@ -142,7 +144,8 @@ Use one installation-owned libvirt NAT network in v1. Persist its non-conflictin
 | Endpoint | Location | Purpose |
 | --- | --- | --- |
 | Runner HTTP/WS `8091` | Guest private interface | Host control, receipts, transcript transfer and proxies |
-| VNC `5901` | Guest loopback only | Application desktop |
+| VNC `5901` | Guest loopback only | Dedicated Chrome application desktop |
+| Libvirt graphical VNC | Private host Unix socket per VM | Separate general machine desktop; no public console port |
 | Chrome CDP `9222` | Guest loopback only | Browser automation |
 | Host HTTP/MCP | Configured host/bridge addresses | Owner console/API and agent MCP |
 
@@ -154,7 +157,9 @@ Use ordinary HTTP request/response and WebSockets with versioned envelopes, boun
 
 ### Desktop and terminal viewers
 
-Serve pinned noVNC and a small terminal emulator from the host. A desktop connection goes through the authenticated host proxy to the selected guest's VNC relay. A terminal connection attaches to the existing registered tmux session through the runner. Viewer connections are disposable; opening, closing, resizing or reconnecting a viewer does not start or kill an agent.
+Serve pinned noVNC and a small terminal emulator from the host. Browser viewing goes through the authenticated host proxy/runner to that agent's dedicated TigerVNC Chrome display. Machine viewing targets its separate guest graphical console (private libvirt VNC with a usable general desktop), or onbash's separate local desktop. `surfaces_list` and surface IDs keep these bindings explicit. A terminal connection attaches to existing registered tmux through the runner. Opening, closing or reconnecting viewers does not start/kill agents.
+
+The single-page UI has agent navigation, central chat and a collapsible inspector. A browser-request card is full-width and directly interactive once human control is ready; expansion uses the same viewer/surface. Reuse one UI viewer instance across inline/modal/inspector to avoid duplicate input owners or competing display resizes. Machine takeover coordinates the existing terminal/browser gates. See [UI-PLAN.md](UI-PLAN.md) for layout, twenty icons, inline rename, file cards and monochrome styling.
 
 Manual terminal input and automated paste share a per-run input lock. `terminal_control` takes or releases control with an exact run binding and a monotonically increasing control epoch. A disconnected input viewer leaves human mode in place until explicit release or takeover; there is no automatic expiry in v1. Stale same-run viewer epochs cannot type. The composer is rechecked before automation resumes without clearing human text. A viewer that only observes does not take control.
 
@@ -169,6 +174,7 @@ Manual terminal input and automated paste share a per-run input lock. `terminal_
 | Locally captured, not yet archived bytes | Runner/recorder spool | Host-pulled transfer batches |
 | Host-acknowledged transcript bytes | Immutable host chunk files + committed inventory | Parser records, conversation, FTS |
 | Context sent to a replacement CLI | Saved context packet + delivery receipt | Startup summary |
+| Browser/file cards | M06 request or M09 file-reference record plus conversation entry ledger | Inline cards, attention indicators, optional transient toast |
 
 Use current tables plus an append-only event journal, not a general event-sourcing framework. Record a mutation, its event, operation receipt and required durable job in one transaction. Events preserve old/new status text and relevant state, actor, target IDs and timestamps. Unchanged heartbeats do not append status-change events.
 
@@ -198,11 +204,15 @@ Input delivery is a special external effect. Record intent before paste. An atte
 
 ### Human browser input
 
-1. Record the request and request transition to human control.
+1. Resolve the calling agent's browser from an intent-only tool call; atomically record request, conversation entry/event and transition to human control.
 2. Wait for any in-flight managed browser command to settle; only then report that human control is ready.
-3. The owner opens the same persistent desktop/profile and supplies the input.
+3. The chat renders an inline interactive viewer of that same dedicated Chrome/profile, with a top-right modal expansion. Input is enabled after control is ready.
 4. Done completes the exact request, advances control epoch, records the answer and queues one attributed completion message in the same host transaction.
 5. Reconcile the new control epoch with the runner before admitting automation. The agent observes the page again; Done is not proof of successful login.
+
+### Reference a file
+
+Resolve the supplied path inside the selected agent workspace/environment, inspect its metadata, and atomically save the reference and conversation entry. The chat shows one persistent file chip with copy-path access; direct opening/preview is deferred. Event replay/native transcript parsing updates the same card rather than calling the tool again. Referencing does not create an implicit content snapshot or claim the user viewed it.
 
 ### Provider switch
 

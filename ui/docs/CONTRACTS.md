@@ -23,6 +23,9 @@ Use random UUIDs for public durable identities. Paths and display names are not 
 | `message_id`, `thread_id` | Durable coordination message and conversation thread |
 | `attempt_id` | One terminal-delivery attempt, stable through transport retries |
 | `request_id` | Durable browser/human input request |
+| `reference_id` | Durable user-facing file reference, independent of transient toast or future preview |
+| `surface_id` | Agent-owned browser or machine desktop, separate from its current process instance |
+| `entry_id`, `conversation_seq` | Stable conversation presentation entry and per-conversation insertion cursor |
 | `operation_id` | Public operation receipt, including asynchronous progress |
 | `event_seq` | Host-wide monotonically increasing journal cursor |
 
@@ -32,11 +35,13 @@ Native child sessions belong to their parent logical agent and link to the paren
 
 ## 2. Agent record and layout
 
-An agent has `id`, `name`, `kind` (`vm` or `host`), `conversation_id`, workspace path, config revision, lifecycle and timestamps. Names contain 1–120 nonblank characters after trimming; duplicate display names are allowed and directory results include IDs. Neither names nor labels appear in execution addresses.
+An agent has `id`, `display_name`, `icon_key`, `kind` (`vm` or `host`), `conversation_id`, workspace path, config revision, lifecycle and timestamps. `display_name` is the single editable name, replacing the initial plan's `name` field. It contains 1–120 nonblank characters after trimming; duplicates are allowed and directory responses always include IDs. The ordinary UI displays names/icons; IDs appear in details/disambiguation. Neither names nor icons appear in execution addresses.
+
+`icon_key` selects one of the twenty fixed monochrome icons in [UI-PLAN.md](UI-PLAN.md). Ordinary creation defaults to `circle`; onbash initializes with display name `onbash` and icon `terminal`. Revision-checked `agents_update` changes either presentation field and records an attributed event without restarting resources. Renaming onbash never changes its reserved identity. Store keys, not arbitrary markup/image URLs.
 
 There is at most one reserved host-global agent, initialized as `onbash`. The installation stores its ID. It cannot be silently replaced by another host identity. Archival preserves it and its history; restoring it uses the same ID.
 
-`agents_create` requires a name and CLI configuration; ordinary creation uses `kind=vm`. `start` defaults true but is explicit in the recorded arguments. The result is a created agent plus an asynchronous provisioning/start operation. Successful registration does not claim a VM or CLI is ready.
+`agents_create` requires `display_name` and CLI configuration, with optional `icon_key`; ordinary creation uses `kind=vm`. `start` defaults true but is explicit in the recorded arguments. The result is a created agent plus an asynchronous provisioning/start operation. Successful registration does not claim a VM or CLI is ready.
 
 No hard-delete operation is part of v1. Archive is a durable lifecycle transition that stops execution and retains files, messages and history. Restore is explicit. Creating an agent, archiving one, or restarting one is allowed to every registered actor under the same contract.
 
@@ -76,7 +81,7 @@ Every actual text change atomically updates the current row and appends an event
 
 Runner hooks persist activity changes locally before forwarding them. The host stores every valid observed change, including late historical changes, but updates the current projection only from the current run and increasing source sequence. Freshness timeout appends one transition to `unknown`; repeated stale polls create no extra events. Recovery appends a new verified transition.
 
-Agent directory rows include ID, name, kind, lifecycle, status text/revision/update time, activity and observation time, last contact, current run/CLI/model observation, capture health and `needs_user_input`. Unknown observations remain unknown. API reads never start an agent or claim work has progressed.
+Agent directory rows include ID, display name, icon key, kind, lifecycle, status text/revision/update time, activity and observation time, last contact, current run/CLI/model observation, capture health and `needs_user_input`. Unknown observations remain unknown. API reads never start an agent or claim work has progressed.
 
 ## 5. Operation, event and job contract
 
@@ -135,7 +140,8 @@ Protocol v1 uses private HTTP and WebSockets. Each command carries operation/att
 | `WS /v1/terminal/{run_id}` | Attach/resize/manual input for the exact run; disconnect preserves execution |
 | `POST /v1/browser/command` | Execute against exact browser instance/control epoch; return artifact references |
 | `POST /v1/browser/control` | Reconcile automation/human mode without racing in-flight commands |
-| `WS /v1/desktop` | Relay guest-local VNC under the current control epoch |
+| `WS /v1/desktop/{surface_id}` | Relay the exact locally hosted browser/desktop VNC under its current control epoch; VM machine-console proxy is host/libvirt-owned |
+| `POST /v1/files/inspect` | Inspect a regular file path in the bound agent environment for a reference; structured arguments, no host-path reinterpretation |
 | `GET /v1/events?after_seq=...` | Paginated durable hook, receipt and source-registration observations |
 | `POST /v1/events/ack` | Acknowledge event cursor after host commit |
 | `GET /v1/capture/chunks?after=...` | Host pulls bounded pending raw chunks; pagination is not acknowledgment |
@@ -170,7 +176,9 @@ Automatic restore is the planning default pending D08. The complete archive alwa
 
 ## 10. Human input contract
 
-`browser_request_input` includes target agent, prompt, optional observed tab/reference and exact browser binding. It commits a durable request and transition job. `ready` means in-flight managed browser input has settled and the runner has acknowledged human control.
+`browser_request_input` is described to agents as “Request an action from the user in your browser.” It requires a prompt, with optional observed tab reference and target agent (defaults to the authenticated calling agent). The backend resolves conversation/surface/exact browser binding; a supplied observation is validated against its original instance. Commit the durable request, conversation entry/event and transition job atomically. `ready` means in-flight managed browser input has settled and the runner has acknowledged human control.
+
+The MCP tool description/result conveys needed user action and request state, not iframe/modal/layout mechanics. The frontend renders one inline live browser card per committed request ID and can expand that same surface. Transcript parsing, retries or reconnect cannot create another request/card or repeat its side effects. Closing/minimizing a viewer changes presentation only. Completed cards do not reopen live input. Detailed presentation is in [UI-PLAN.md](UI-PLAN.md).
 
 `input_requests_complete` accepts exact request ID, optional note and idempotency key. Completion, control-epoch increment and one completion message are committed together. Runner synchronization gates subsequent browser commands. Repeating Done returns the prior result. A closed viewer does not complete a request. Restart preserves pending requests and rebinds presentation explicitly; stale tab IDs/epochs never silently regain control.
 
@@ -178,7 +186,25 @@ Manual browser Take control creates the same input-request record with a manual-
 
 Human browser handoff pauses managed browser automation, not arbitrary shell access. Unrestricted agents are trusted participants. Input completion is not a platform permission grant or proof that login succeeded.
 
-## 11. Public operation inventory
+### Browser and machine surfaces
+
+`surfaces_list(agent_id)` returns exact surface ID/kind (`browser` or `machine`), current instance/environment/boot binding, dimensions, availability and control state. Browser always means the dedicated TigerVNC Chrome display. Machine means the separate general guest desktop/VM console, or onbash's separate owned local desktop. The browser card, modal and Browser inspector share one browser surface; no surface silently substitutes for another.
+
+Machine observation is read-only. `desktop_control(action=take|release)` targets an exact machine surface/epoch and first records an agent/environment-wide input-admission hold, then serializes acquisition of existing terminal/browser gates. It uses internal holds, not a manufactured browser-request card. A verified-absent CLI/browser counts as quiescent so the machine is usable during setup or after CLI stop; an unknown participant remains reconciling. New managed starts/restarts/switch replacement launches and automated input wait while this hold exists. Stopping a run does not remove it. After an environment/boot change, old viewers are invalid and the hold must be explicitly rebound/released before automated admission resumes.
+
+Enable machine input only after all present participants are confirmed held; partial acquisition remains reconciling and records owned holds for release. An unrelated human terminal/browser request conflicts rather than being silently overridden. Release returns only its own holds; disconnect retains the hold until explicit resolution. Any actor may invoke it. Machine control is cooperative and does not claim arbitrary shell work has stopped.
+
+## 11. File references and conversation presentation
+
+`files_reference` requires a path; optional target agent, label and note. Default target is the caller's agent/main conversation. Relative paths resolve inside that workspace. Absolute paths resolve inside the target environment: `/workspace/...` maps to its workspace, other VM paths are inspected through its runner, and onbash paths resolve locally. Preserve source location/agent/environment metadata; never interpret a guest absolute path as a host path. Missing/unreachable/non-regular sources fail clearly before a successful reference is committed. Labels and notes are bounded plain text (200/4,000 characters); paths use a bounded 4,096-character request field and ordinary target OS validation.
+
+Commit reference ID, actor, agent/conversation, normalized location/path, observed metadata, label/note, event and conversation entry together. Same-key retry returns the existing reference. Store a reference, not an implicit content snapshot; a later missing/changed source must be explicit. Keep records through provider changes/export/import with original provenance. The initial UI shows a durable compact file card and copy-path action; direct opening/preview is deferred. Tool descriptions say when to reference a file and accept a path, without toast/layout instructions. Returns report saved reference state, not whether the user saw/opened it.
+
+`conversation_list` is a bounded read projection of normalized native conversation, owner messages, browser requests and file references. The entry ledger stores stable ID, conversation cursor, kind/source ID and occurrence/recording times. A platform operation allocates its entry atomically; first native normalization allocates one with exact source provenance. Late imports append at a new cursor and retain original timestamps. Preserve ledger coordinates across rebuilds; parser-derived content remains rebuildable. Import to another installation preserves original entry provenance and allocates destination cursors as with the event journal.
+
+Render one card from its domain ID; native tool records may link through verified metadata but cannot create cards or re-execute tools. Owner chat submits via `messages_send`; exact verified native echo may link to its durable message, never equal-text heuristics. User-visible Chat remains a projection, not the complete raw archive. M07 owns the read model; M05/M06/M09 retain their domain records and M10 renders them.
+
+## 12. Public operation inventory
 
 The same domain operation is exposed through HTTP and MCP where meaningful. Internal runner callbacks are separate provenance-bound transport routes, not model-writable claims about observed process state.
 
@@ -187,15 +213,16 @@ The same domain operation is exposed through HTTP and MCP where meaningful. Inte
 | Directory/lifecycle | `agents_list`, `agents_get`, `agents_create`, `agents_update`, `agents_archive`, `agents_restore` |
 | Status/history | `agents_status_set`, `events_list`, `operations_get`, `operations_reconcile` |
 | Runtime | `runtime_get`, `runtime_start`, `runtime_stop`, `runtime_restart`, `runtime_switch`, `terminal_control` |
+| Desktop surfaces | `surfaces_list`, `desktop_control` |
 | Messaging | `messages_send`, `messages_list`, `messages_acknowledge`, `deliveries_get`, `deliveries_resolve` |
 | Browser | `browser_turn`, `browser_request_input`, `input_requests_list`, `input_requests_complete`, `input_requests_cancel` |
-| Captured history | `history_list`, `history_search`, `history_get`, `history_raw_get` |
-| Workspace | `files_list`, `files_read`, `files_write`, `memory_get`, `memory_update` |
+| Captured history/conversation | `history_list`, `history_search`, `history_get`, `history_raw_get`, `conversation_list` |
+| Workspace/presentation | `files_list`, `files_read`, `files_write`, `files_reference`, `memory_get`, `memory_update` |
 | Export/operations | `agents_export`, `backups_create`, `backups_get` |
 
 Start with only the operations implemented by the current phase; do not advertise inert tools. Use cursors and bounded response sizes for lists/search. Raw downloads/artifact references preserve complete access without putting an entire transcript into a tool result. Endpoint naming uses `/api/v1/operations/<name>` and `/mcp`; streaming/viewer routes are documented in M10.
 
-## 12. Table ownership
+## 13. Table ownership
 
 Final migrations should implement these logical records without a generic JSON document store. Small versioned extension payloads are allowed for adapter-specific metadata.
 
@@ -206,9 +233,9 @@ Final migrations should implement these logical records without a generic JSON d
 | M02 | environment definitions, generations and resource/image pins |
 | M03/M04 | runs, exact native/terminal bindings and terminal control epochs; guest-local command receipts |
 | M05 | threads, immutable messages, deliveries, attempts, handling receipts |
-| M06 | browser instances/control epochs, human input requests |
-| M07 | raw sources, run/source links, chunks, source checkpoints, parser records, history events, FTS; guest-local capture spool |
+| M06 with M02 | browser/machine surfaces, instance/control epochs, human input requests and coordinated machine-control holds |
+| M07 | raw sources, run/source links, chunks, source checkpoints, parser records, history events, FTS, conversation entry ledger/read projection; guest-local capture spool |
 | M08 | context packets and switching operation checkpoints |
-| M09/M11 | export and backup manifests/receipts |
+| M09/M11 | file reference records; export and backup manifests/receipts |
 
 Use foreign keys, unique constraints for idempotency/source coordinates and explicit indexes for common cursors. Current rows are updated; historical events/messages/chunk coordinates cannot be mutated into different facts. Schema migration and recovery are explicit operator workflows, with the same unrestricted actor policy rather than a new signoff system.

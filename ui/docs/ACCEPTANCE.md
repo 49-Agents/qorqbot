@@ -29,15 +29,17 @@ All acceptance groups below are mandatory for the first complete v1 release. Ind
 | R03 Independent VM/desktop | A02.1–A02.4, A03.1, A06.1 | M02, M03, M06 | G0, G2, G4 |
 | R04 Host-global onbash | A01.3, A02.5, A03.1, A06.1, A09.3 | M01–M04, M06, M11 | G2, G6 |
 | R05 CLI/model independence | A04.1–A04.4, A08.1–A08.3 | M03, M04, M08 | G2, G5 |
-| R06 Persistent browser and intervention | A06.1–A06.5 | M06, M10 | G4 |
+| R06 Persistent browser and intervention | A06.1–A06.8 | M02, M06, M10 | G4, G6 |
 | R07 Durable coordination | A03.2–A03.4, A05.1–A05.5 | M03, M05 | G4 |
 | R08 Advertised status and state | A01.5–A01.7, A10.1–A10.3 | M01, M04, M10 | G1, G4 |
 | R09 Permanent change/message/creation history | A00.1–A00.3, A01.1, A01.5–A01.7, A05.1–A05.2 | M00, M01, M05 | G1, G4 |
 | R10 All supported captured history | A04.2–A04.3, A07.1–A07.9, C01–C11 | M03, M04, M07 | G3 |
 | R11 Continuity across providers | A08.1–A08.4, A09.1–A09.2 | M08, M09 | G5 |
 | R12 All public operations allowed | A00.4, A10.1 | M00, M10 | G1, G4 |
-| R13 Minimal useful UI | A06.2–A06.4, A10.2–A10.4 | M06, M10 | G4, G6 |
+| R13 Single-page chat UI | A06.2–A06.8, A10.2–A10.9 | M02, M06, M07, M10 | G4, G6 |
 | R14 Recoverable operation | A02.2–A02.4, A07.1–A07.4, A09.2–A09.4, A11.1–A11.5, C01–C11 | M02, M07, M09, M11 | G6 |
+| R15 Intent-based user presentation | A06.7, A09.5, A10.6, A10.8–A10.9 | M04, M06, M07, M09, M10 | G4, G6 |
+| R16 Display names and twenty icons | A01.8, A10.7 | M01, M10 | G1, G4 |
 
 ## 3. Foundation, identity and state
 
@@ -54,6 +56,7 @@ All acceptance groups below are mandatory for the first complete v1 release. Ind
 | A01.5 | 1/100/101-word statuses, Unicode whitespace, empty/over-4096-character text | Shared normalization and limits across transports; invalid input changes nothing; every real change has old/new text, actor and revision |
 | A01.6 | Same-text status confirmation, repeated heartbeat, disconnect and recovery | No invented status-change events; review/contact times separate; one freshness transition to unknown, then one verified recovery transition |
 | A01.7 | Delayed, duplicate and out-of-order activity events from current/retired runs | Every valid distinct observation retained historically; stale observations cannot replace current state; running process is not assumed working |
+| A01.8 | Create/rename/icon changes from owner or agent, duplicate names, revision race and onbash rename | Single canonical display_name, twenty validated icon keys/defaults; IDs/paths/run unchanged; attributed changes; stale revision rejected; onbash reserved identity remains unique |
 
 ## 4. Environments, runner and native adapters
 
@@ -89,6 +92,9 @@ P0 runs A02.1, A03.1 and the discovery portions of A04.2/A04.3 as feasibility re
 | A06.3 | Concurrent/repeated Done/Cancel, cancel while yielding/disconnected, manual takeover/release, stale target, offline CLI | One terminal request transition and one correctly typed completion or cancellation message; stale input rejected; automation waits for settled command/new epoch; no success claim on cancellation |
 | A06.4 | View-only connection sends keyboard/mouse/clipboard input, then human takeover and release | Server-side relay enforces current control mode/epoch; client-side noVNC options alone are insufficient; obsolete input connections lose control |
 | A06.5 | Host/runner/browser restart during pending handoff | Request persists; current instance is explicitly rebound; no stale tab reuse or silent automation release; unknown in-flight browser effect is not blindly repeated |
+| A06.6 | Browser and Machine in two guests plus onbash | Dedicated TigerVNC Chrome and separate usable machine desktop resolve to exact distinct surfaces; no fallback/extra Chrome; VM console is private and actual desktop usable; onbash does not reuse owner display |
+| A06.7 | Inline card, top-right expansion, collapse and inspector transfer | Direct pointer/keyboard/touch works inline and expanded, scaling coordinates correct; same profile/browser/request; one active UI input connection; no resize race or focus theft; closing does not complete request |
+| A06.8 | Machine takeover during setup/stopped CLI, existing human ownership, partial failure, new run and reboot | Agent/environment hold covers future launches/input; verified-absent participants quiescent, unknown participants reconciling; no fake browser card; conflicts explicit; partial holds recover; only owned holds released; old viewers invalid after reboot |
 
 ## 6. Archive matrix
 
@@ -138,13 +144,14 @@ The fault model assumes storage honors fsync. Losing the only physical storage d
 | A09.2 | Stopped full-agent export/import with cross-agent messages and reused names | UUID/history/source hashes retained; central-record slice/provenance included; destination-local event cursors remapped; missing peers remain historical references; unfinished effects held |
 | A09.3 | Stopped full-installation backup of VM agents and onbash, restore under another absolute root | All owned writer trees verified stopped; onbash WAL-backed spool/receipts included; exact disk backing images/paths and file hashes verify; history/queues survive; no automatic launch or replay |
 | A09.4 | Online archive backup while capture continues, then isolated archive restore/reindex | Snapshot's immutable inventory verifies; archive queries rebuild read-only; operational queues never resume; no full browser/VM/workspace recovery claim |
+| A09.5 | File reference with relative/absolute guest/onbash path, missing source, retry, changed/deleted file and import | Correct environment resolution; one reference/entry/event; no guest path read on host; actual observed metadata, no invented snapshot; source errors explicit; references/provenance survive provider changes/export |
 | A11.1 | Fresh host installation without any Qorqut checkout/config/data | Prerequisites diagnosed; pinned release/image installs; independent identities, paths, ports and real provider acceptance work |
 | A11.2 | Host schema/runner/CLI/browser update and unsupported downgrade | Explicit migrations/backups and compatibility checks; live clients not assumed reloaded; rollback cannot silently discard post-upgrade work/profile changes |
 | A11.3 | Invalid backup, identity collision, second host clone, or original performs input after snapshot | Invalid activation rejected; fresh recovery epoch/tokens fence old control; restored unfinished effects held for reconciliation; missing newer receipt never proves no effect; onbash clone rejected |
 | A11.4 | Measured multi-agent capacity, queue/capture load and disk recovery | Publish tested CPU/RAM/disk/version envelope, response/catch-up observations and admission thresholds; no invented scalability claim |
 | A11.5 | Logs/diagnostics/operator recovery for uncertain input, stopped capture and unavailable guest | Stable IDs and actionable typed causes; no secrets/private content in general logs; operator can inspect/reconcile without editing database rows blindly |
 
-## 8. Transport and minimal console
+## 8. Transport and single-page chat workspace
 
 | ID | Scenario | Required evidence |
 | --- | --- | --- |
@@ -152,20 +159,25 @@ The fault model assumes storage honors fsync. Losing the only physical storage d
 | A10.2 | Agent list, terminal, desktop and request/Done flow | Correct target IDs and observed status; queued/uncertain/error states remain visible; connect/disconnect does not launch/kill processes |
 | A10.3 | Events reconnect, pagination and stale client selection | Durable cursor replay without dropped changes; target checks prevent actions on a replacement run/browser; bounded results link to full artifacts |
 | A10.4 | Real browser console against disposable VM agents and onbash | Terminal/VNC viewers work through host proxy; no guest tokens in frontend state/logs; escaping handles arbitrary agent/status/message text |
+| A10.5 | Wide/narrow viewport, select agent, collapse inspector, scroll and draft | One page: left agents, center chat, right collapsible inspector; narrow drawer behavior preserves usable chat; selected IDs/draft/scroll stay correct; minimal black/white/gray styling and visible focus |
+| A10.6 | Browser/file tool retry, refresh/SSE replay, crash at record transaction and late native parse | One durable card per request/reference; atomic entry/event/domain record; no duplicate toast on replay and no tool re-execution from transcript parsing; completed cards do not reconnect input |
+| A10.7 | Twenty-icon create picker, single-select/double-click rename, Enter/Escape/blur, keyboard/touch and conflict | Icons separate from text; display_name shown while IDs route; Enter saves, Escape/blur cancels unsaved edit; accessible rename alternative; validation/conflict inline; no runtime restart |
+| A10.8 | Actual native MCP descriptions/calls for browser action and file reference | Instructions explain when to request user action/show a file, without iframe/modal/toast mechanics; prompt/path sufficient domain inputs; backend resolves binding; saved result does not claim user viewed it; no file preview/Open control/content fetch in initial UI |
+| A10.9 | Owner composer, native echoes, delayed history, agent switch and projection rebuild | Shared durable message delivery; exact proven echo linking only; stable entry/source coordinates and bounded paging; late capture retains original times; raw archive unchanged and separate from Chat |
 
-No UI design-system or rich Chat implementation is required to pass. The console must make the real intervention loop usable and display backend facts accurately.
+The included chat scope is in [UI-PLAN.md](UI-PLAN.md). No large design system or file-rendering subsystem is required. Browser/file cards, icons/rename and the three-column shell are required; direct opening/preview of referenced files is explicitly deferred. Routing stubs do not replace real interactive VNC tests.
 
 ## 9. Gate evidence and release decision
 
 | Gate | Required evidence |
 | --- | --- |
-| G0 Feasibility | A02.1/A03.1 rehearsal, synthetic-cookie restart from A06.1, source/adapter observations A04.2/A04.3 and stopped restore rehearsal; exact pins and unresolved findings |
-| G1 Durable identity | A00.1–A00.4, A01.1–A01.7 with fake executors where necessary; HTTP/MCP parity for completed operations |
+| G0 Feasibility | A02.1/A03.1 rehearsal, synthetic-cookie restart A06.1, distinct browser/machine surface rehearsal A06.6, source observations A04.2/A04.3 and stopped restore rehearsal; exact pins/limits |
+| G1 Durable identity | A00.1–A00.4, A01.1–A01.8 with fake executors where necessary; HTTP/MCP parity for completed operations |
 | G2 Execution | A02.1–A02.5, A03.1–A03.4, A04.1/A04.2 on real processes/guests; early recorder active |
 | G3 History | A04.3, A07.1–A07.9 and C01–C11, including real VM/network/disk cases; C11 uses fake switch/backup consumers until integrated G5/G6; complete supported-source inventory |
-| G4 Coordination | A05.1–A05.5, A06.1–A06.5, A10.1–A10.3 plus thin real-browser viewer check; earlier guarantees still hold |
+| G4 Coordination/chat | A05.1–A05.5, A06.1–A06.5/A06.7, A09.5, A10.1–A10.3/A10.6–A10.9; real inline browser interaction and durable cards; earlier guarantees still hold |
 | G5 Continuity | A04.4, A08.1–A08.4, A09.1–A09.2 on both supported native adapters |
-| G6 Deployable release | A09.3–A09.4, A10.4, A11.1–A11.5 and L5 smoke for each adapter; all R01–R14 traced to passing evidence for the candidate build |
+| G6 Deployable release | A06.6–A06.8 integrated surfaces/control, A09.3–A09.4, A10.4–A10.5, A11.1–A11.5 and L5 smoke for each adapter; all R01–R16 traced to passing evidence for the candidate build |
 
 For each result, save: acceptance ID; source commit; UTC execution time; command/reproduction steps; test layer; fixture seed/data manifest; host/kernel/filesystem and dependency versions; guest image digest; CLI/model/provider and protocol versions where applicable; expected invariant; observed outcome; injected failure point; before/after IDs/watermarks/hashes; artifact references; known limitations. Use explicit `passed`, `failed`, `blocked` or `not_run`, not an ambiguous checkmark. A skipped test is not passing evidence.
 

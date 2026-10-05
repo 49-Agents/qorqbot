@@ -8,6 +8,10 @@ One small runner service manages local tmux/process bindings, browser commands a
 
 The runner exposes the versioned routes in [CONTRACTS.md](../CONTRACTS.md). Ordinary HTTP/WS transport is sufficient. Use bounded bodies and backpressure; terminal viewers do not become an unbounded output queue.
 
+Resolve explicit surface IDs for locally hosted Chrome and, for onbash, the separate general desktop. VM graphical console transport stays with M02/libvirt. M06 machine takeover acquires coordinated terminal/browser holds and must not leave a competing writer after partial failure. The small file-inspect route supplies metadata for M09's path-only reference tool inside the exact target environment; it never interprets a VM path on the host or executes shell-interpolated path text.
+
+Check the persisted agent/environment machine-control admission hold before any new managed launch or automated input, even when no old run exists. A CLI stop/run change cannot clear it. A confirmed absent participant may be reported quiescent during machine takeover; unreachable/unknown participants may not. Machine holds are distinct from a human terminal viewer's exact-run control epoch.
+
 ## Managed run identity
 
 Before launch the host allocates run ID/generation and passes structured argv, cwd, environment and generated-config hash. The runner verifies agent/environment/boot identity and records the intention. `ensure` returns a matching saved/live run on retry; it does not start a second CLI.

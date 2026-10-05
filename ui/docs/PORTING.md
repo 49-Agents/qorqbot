@@ -34,6 +34,7 @@ Core package paths below are relative to `bazarlyk/` unless already prefixed; a 
 | P13 / M09 files | `domains/documents/operations.py`, `storage/safe_io.py`, `storage/recovery.py` | Extract useful atomic/safe I/O; simpler file API | No document role registry or automatic note versioning. Include DB slices and pinned disks in portable export. |
 | P14 / M10 transports | `transport/mcp.py`, `service/web.py`; agent-dms `mcp_server.py`, `stdio_bridge.py` | Small fresh SDK integration | Shared domain contracts, all tools allowed, compact paging; no copied policy preparation stack. Skip stdio bridge unless a client actually requires it. |
 | P15 / M11 operations | `storage/recovery.py`, release continuity tests and receipts | Reuse recovery principles; new minimal installer/release tooling | No Qorqut release-worker configuration coupling. Pin images/dependencies, preserve running agents across host app update, prove restore. |
+| P16 / M06/M09/M10 chat presentation | dashboard `js/agent-browser.js`, `js/agent-focus.js`, `js/global-chat.js`, `tests/test_global_chat_browser.js`, `tests/test_agent_pane_browser_integration.js`; core `file_viewer/paths.py`, `service.py` | Adapt exact surface binding, frame/focus cleanup and compact reference-chip behavior | New intent-only browser/file operations and durable cards. Separate browser/machine, inline expansion, monochrome shell/name/icon controls. File opening/preview deferred; do not import business/role routing or existing renderer stack now. |
 
 ## 3. Important source differences to preserve consciously
 

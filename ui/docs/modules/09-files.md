@@ -1,6 +1,6 @@
 # M09 — Files, scratchpads, memory and portable export
 
-Status: Planned. Owns filesystem aspects of R01/R11/R14. Depends on M00/M01 and M02/M07 for export; full backup coordination belongs to M11.
+Status: Planned. Owns filesystem aspects of R01/R11/R14 and file-reference R15. Depends on M00/M01, M03 for guest-local inspection and M02/M07 for export; full backup coordination belongs to M11.
 
 ## Outcome and boundary
 
@@ -20,12 +20,18 @@ API writes use a per-path cooperating-writer lock, optional expected content has
 
 Transient scratch files remain persistent until explicitly changed by their authors. Browser downloads go to `downloads/`; extracted browser observations can go to `scratch/browser/`. Do not automatically delete scratch/research because an agent becomes idle or its CLI changes.
 
+## Reference a file to the user
+
+Add `files_reference(path, ...)` as an intent-only tool. Default agent/conversation comes from the caller; owner calls select the active agent explicitly. Resolve a relative path in that workspace, or inspect an absolute native path in the exact target environment. Map `/workspace` correctly; other VM paths use the runner's structured file-inspect route, never host-path guessing. Onbash absolute paths are host-environment paths. Validate a regular source file and save normalized location/provenance plus observed metadata, not implicit file contents/version history.
+
+Atomically persist reference/event/conversation entry with idempotency. UI displays a compact durable file chip with label/note and copy-path action; optional new-event toast is secondary. Direct opening and preview are explicitly deferred. Replay/transcript parsing cannot produce duplicate cards or claim the user opened the file. Missing/unreachable sources fail before success; later changed/missing/unmapped paths remain explicit. Keep original attribution and references in exports across provider changes. See [UI-PLAN.md](../UI-PLAN.md) and shared contracts for metadata bounds.
+
 ## Export format
 
 Distinguish authored-work export from a full portable agent bundle. A full bundle includes:
 
 - Agent identity/config revision and layout/schema versions.
-- Its central status/state/creation/message/history/operation records with original IDs and cross-agent references.
+- Its central status/state/creation/message/history/operation/file-reference/conversation-entry records with original IDs and cross-agent references.
 - Authored workspace, exact memory and required attachments/context packets.
 - Source manifests and immutable transcript inventory/hashes.
 - Stopped VM root/state disks or host native HOME, with base-image digest/dependencies.
@@ -48,11 +54,14 @@ Do not claim that copying the folder alone reconstructs all central coordination
 4. **M09.04 Authored export:** produce a manifest of selected workspace files and hashes without pretending it is a full runtime backup.
 5. **M09.05 Full bundle:** coordinate stopped export through M11, include DB slice/archive/disk/image inventory, and validate before import.
 6. **M09.06 Restore/clone:** implement explicit identity conflict handling, reissued transport credentials, raw-source lineage and no automatic model start.
+7. **M09.07 File references (Phase 4):** implement target-environment metadata resolution and atomic reference/event/conversation-entry creation. Leave rendering/preview out; preserve path provenance and missing/changed outcomes for later access.
 
 ## Source decision and tests
 
 P13: extract useful safe/atomic file primitives and backup inventory ideas. Qorqut's registered document catalog, role permissions and general document history are more machinery than this requirement needs.
 
 Test traversal/symlink changes, Unicode/large files, interrupted writes, concurrent API updates, direct-file edits/stable snapshots, unchanged memory hashes, workspace persistence across provider/VM changes, export cross-agent references/event cursor remapping, onbash spool receipts, missing attachments, corrupted manifest/object, identity conflict, rejected second host clone, recovery holds, and restore under another absolute data root without any Qorqut checkout.
+
+Reference tests cover repeated keys, native absolute versus workspace paths, VM disconnection, onbash resolution, non-regular files, later mutation/deletion and import relocation. Assert one saved card and no file-content fetch, preview or unintended notification effect from replay.
 
 **Done:** ordinary native tools and platform APIs see the same persistent files, M08 can capture exact memory/artifact versions, and portable restore proves the bundle actually contains the advertised data.

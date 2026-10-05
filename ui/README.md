@@ -8,6 +8,8 @@ The intended v1 has one persistent folder and Linux VM per ordinary agent, one h
 
 Start with the [global implementation plan](docs/IMPLEMENTATION-PLAN.md). It owns sequencing and completion gates. The [documentation index](docs/README.md) links the architecture, contracts, source-porting decisions, acceptance plan, and twelve module plans.
 
+The [chat workspace plan](docs/UI-PLAN.md) records the owner's UI direction: agents on the left, chat in the center, a collapsible activity/browser/machine inspector on the right, and a minimal monochrome dark style. Browser-action tools produce inline live Chrome cards with expansion; file-reference tools produce durable compact cards, with opening/preview deferred. Agents have separate display names and one of twenty icons, plus inline rename.
+
 Two defaults remain explicit design assumptions until the owner answers them: real VMs rather than containers, and automatic restoration of bounded saved context when changing clients. See [decisions D02 and D08](docs/DECISIONS.md). They do not change the requirement to retain complete captured history.
 
 ## Design direction
@@ -17,7 +19,7 @@ Two defaults remain explicit design assumptions until the owner answers them: re
 - Reuse narrowly extracted Qorqut mechanisms and their relevant tests. Keep business workflows and role policy out of this product.
 - Preserve raw transcript bytes separately from searchable conversation projections and context supplied to a new model.
 - Make crashes, uncertain delivery, disconnected guests, and full disks explicit states with tested recovery.
-- Build only the UI needed to inspect agents, use terminals/desktops, and complete browser handoffs.
+- Keep the chat UI focused on conversation, inline browser handoffs, file references and inspection, with each agent's dedicated TigerVNC Chrome surface separate from machine control.
 
 ## Repository and runtime data
 

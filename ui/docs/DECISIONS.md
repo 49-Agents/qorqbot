@@ -98,11 +98,11 @@ An SQLite snapshot plus its immutable chunk inventory can capture a consistent a
 
 Full bundles include runner receipts/spool even for host onbash. Restore reissues control identities/recovery epoch and holds unfinished external effects for reconciliation; a historical pending record cannot establish that the original system never executed it. Archive-only restore remains read-only and does not resume queues.
 
-## D13 — Minimal console and backend-first gates
+## D13 — Single-page chat and backend-first gates
 
-**Decision:** build a small static console for agent rows, status, terminal, desktop and pending human input. Use pinned terminal/noVNC assets. HTTP/MCP and an operator client provide the full backend surface.
+**Decision, amended by the owner's 2026-10-07 direction:** build one page with a left agent list, middle conversation and collapsible right status/browser/machine inspector. Browser input requests produce full-width inline interactive cards with top-right modal expansion. File references produce compact durable cards; opening/previewing them is deferred. Use pinned terminal/noVNC assets and the shared backend operations.
 
-A polished Chat interface, business workspace, task manager, visual file editor and design system are not prerequisites. The backend still needs clear observed state and recovery controls; a blank API-only experience would make browser login and terminal setup difficult to verify.
+Keep an ultra-minimal dark black/white/gray style with thin lines, without purple or futuristic decoration. Owner images will refine layout/styling. A rich editor, business workspace/task manager or large design system is unnecessary. See [UI-PLAN.md](UI-PLAN.md) for the included interactions and acceptance; its chat scope supersedes the initial decision to defer all Chat UI.
 
 ## D14 — Source extraction with local provenance
 
@@ -121,3 +121,19 @@ Terminal control uses an exact run, a monotonic control epoch and one input view
 **Decision:** the host collector pulls bounded pending chunks from the runner and POSTs an ACK only after immutable files and host inventory commit. The recorder never depends on a live network connection or host process. Fetch cursors are pagination, not consumption; reconnect uses durable source watermarks.
 
 This matches the existing private HTTP runner interface without a second inbound upload protocol. A retired authenticated source may still be drained into its original history, while current control remains generation/recovery-bound.
+
+## D17 — Intent-only tools and durable conversation entries
+
+**Decision:** keep `browser_request_input` with a user-action description and add `files_reference(path, ...)`. Agents learn when to request user help or present a file, not how the frontend renders it. Backend operations resolve exact targets and atomically store their domain record/event/conversation entry. The frontend renders typed entries, not a transcript regex that can retrigger effects on replay.
+
+M07 supplies the conversation read projection/entry ledger; M06/M09 retain request/reference authority. Preserve complete raw archives independently. File references point to correctly resolved target-environment files; implicit file snapshots and renderers are not required for this increment.
+
+## D18 — Display name and fixed icon catalog
+
+**Decision:** replace the planned mutable `name` field with `display_name` and add `icon_key`. IDs continue to own paths/routing. One catalog of twenty monochrome icons serves user/agent creation, with a default for omitted icon choice. Inline rename and icon updates use the existing revision-checked agent operation and never restart execution. No second mutable machine name or arbitrary avatar upload is needed.
+
+## D19 — Preserve the dedicated Chrome display alongside machine access
+
+**Decision:** each agent has a TigerVNC display dedicated to its persistent Chrome, even when its VM also has a general graphical console. Browser inline/modal/inspector views share that exact browser surface. Machine is a distinct surface, defaulting to a usable guest desktop through private libvirt VNC; onbash gets its own separate local desktop. P0 proves both paths.
+
+Reuse the noVNC viewer and exact surface/control epoch contracts. Machine takeover coordinates existing terminal/browser gates and releases only its own holds. No browsing profile is cloned for embedding and no existing owner desktop is reused. This adds a surface binding and local supervision, not another application service.

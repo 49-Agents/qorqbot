@@ -1,10 +1,10 @@
-# M10 — HTTP, Qorqut MCP, operator client and minimal UI
+# M10 — HTTP, Qorqut MCP, operator client and chat workspace
 
-Status: Planned. Owns R02/R08/R12/R13 transport behavior. Depends on M00 from the first phase and integrates each domain as it becomes available.
+Status: Planned. Owns R02/R08/R12/R13/R15/R16 transport/presentation behavior. Depends on M00 from the first phase and integrates each domain as it becomes available, especially M01/M06/M07/M09 for the chat scope.
 
 ## Outcome and boundary
 
-The owner and agents use one backend contract. Qorqut MCP advertises agent discovery, lifecycle, messages, status, browser assistance and history/file operations. A small operator client and console make setup and recovery practical without building a business dashboard or full chat application.
+The owner and agents use one backend contract. Qorqut MCP advertises discovery, lifecycle, messages, status, browser assistance and history/file operations. A small operator client and one-page chat workspace make conversation, browser intervention and recovery practical. [UI-PLAN.md](../UI-PLAN.md) specifies the owner's layout/interactions and supersedes the initial generic console scope.
 
 Transports adapt schemas, authentication and streaming. They do not implement domain rules or query/write tables behind the application layer. Every registered actor can invoke the same implemented public operations; there is no role-conditioned tool inventory or signoff path.
 
@@ -14,11 +14,14 @@ Transports adapt schemas, authentication and streaming. They do not implement do
 - `/api/v1/operations/<name>`: shared typed operations with the result/idempotency contract.
 - `/api/v1/events`: reconnectable event stream with durable cursor and recovery epoch; reconnect after restore invalidates old-epoch cursors. Events are hints to reread current records when appropriate.
 - `/api/v1/agents/<id>/terminal/<run_id>/ws`: exact-run terminal attachment.
-- `/api/v1/agents/<id>/desktop/ws`: current browser-control-bound VNC proxy.
+- `/api/v1/agents/<id>/surfaces/<surface_id>/ws`: exact browser/machine-control-bound VNC proxy, routed through runner or private libvirt console as appropriate.
+- `/viewers/desktop`: same-origin reusable viewer shell addressed by agent/surface/request IDs, without credentials in the URL; suitable for inline/modal/inspector presentation.
 - `/api/v1/artifacts/<reference>`: bounded/downloadable file/raw-history content with path/identity validation.
 - `/health/live`, `/health/ready`: process liveness versus ability to perform required durable work; readiness includes storage and worker health but does not falsely certify every agent.
 
 Use the operation inventory in [CONTRACTS.md](../CONTRACTS.md). Only advertise implemented handlers. Generated MCP tool schemas and HTTP validation must come from the same models. Mutations carry idempotency keys; browser/terminal reads and viewer connections never launch resources.
+
+Describe `browser_request_input` by the user action needed and `files_reference` by the file to show/review/notify. Do not put iframe/modal/toast/layout instructions in agent-facing tool descriptions or require agents to construct viewer URLs. Shared operations resolve target identities and commit cards atomically; transports publish only committed state, never infer effects from tool-name text in a transcript.
 
 ## Identity without permissions
 
@@ -28,19 +31,19 @@ For the console, exchange an installation-local sign-in credential for a same-or
 
 The private libvirt interface and configured owner-facing listen address are explicit installation inputs. Default exposure is local/private, not a public hosted product. Retain ordinary TLS deployment support without inventing a separate account/login platform.
 
-## Minimal console
+## Single-page workspace
 
-One small static application is enough:
+One small application presents three columns, with no separate agent-detail navigation page:
 
-1. Agent directory: name/ID, status, activity/freshness, capture health and pending user input.
-2. Agent detail: operation progress, current run/config observation, links to terminal and desktop, recent message/history references.
-3. Terminal: existing tmux mirror, resize, `terminal_control` take/release with current epoch and explicit disconnected-human state, CLI start/stop and operation reconciliation.
-4. Desktop: noVNC viewer, view-only versus human control, pending prompt/note and Done/Cancel.
-5. Diagnostics: failed/uncertain jobs and capture gaps with exact IDs and readable recovery reasons.
+1. Left: agent list with display name/icon, attention/state hints and creation picker with twenty icons. Click selects chat; double-click name edits it, with an accessible keyboard/touch Rename alternative. IDs remain available in details/disambiguation.
+2. Center: `conversation_list` history and durable `messages_send` composer, preserving drafts/scroll. Browser-action cards contain a full-width inline interactive viewer and top-right modal expansion of the same session, with Done/Cancel/note. File-reference cards show metadata/copy path; direct opening/preview is deferred.
+3. Right: collapsible inspector with what the agent is doing, activity/freshness, Browser and separate Machine/Desktop, terminal and compact recovery details. Observer mode alone never changes control; takeover uses the existing typed operations/epochs.
 
-Use pinned upstream viewer assets and modest CSS/JS. No framework migration, rich notes editor, Kanban, business pages, model-provider account catalog or chat design system. A complete Chat UI can be built later over the stable history APIs.
+Use pinned upstream viewer assets and modest CSS/JS. Ultra-minimal dark black/white/gray surfaces, thin lines and restrained typography; no purple, neon or futuristic decoration. Reference images will refine exact proportions. On narrow screens use navigation/inspector drawers so chat stays usable. No business dashboard, rich editor or generic widget framework is required.
 
 Responses and event streams are bounded. Lists/search use stable cursors and plain escaped text. Large messages/files/raw streams use artifact references/downloads. Closing a page/SSE/WS must release only that viewer, not execution or pending handoffs.
+
+Render cards by durable request/reference ID, not transient toast state or parsed Markdown. Refresh, repeated tool calls, provider changes and late native parsing must not duplicate them. Mount one UI viewer per selected surface; transfer inline/modal/inspector without changing Chrome/profile/request. Fit framebuffer scaling to viewport, preserve pointer/touch coordinates and keyboard focus, and prevent background terminal output from stealing focus. Completed historical browser cards do not reconnect automatically. Selecting another agent disposes viewer connections without completing its pending request.
 
 ## Operator client
 
@@ -54,13 +57,13 @@ Keep output useful for both humans and scripts: stable JSON mode plus concise de
 2. **M10.02 Contract parity:** expose agent/status/message operations as their modules land; add consistent paging/errors/idempotency.
 3. **M10.03 Operator client:** implement API-backed commands and clear async operation tracking.
 4. **M10.04 Streams/proxies:** add durable event cursor and exact target terminal/desktop proxies with reconnect/backpressure.
-5. **M10.05 Small console:** implement only the five surfaces above with pinned assets and backend-native state.
-6. **M10.06 Native client verification:** run actual Claude/Codex MCP discovery/call/reconnect tests and real-browser terminal/desktop/handoff tests.
+5. **M10.05 Chat shell/cards:** implement the three columns, icon picker/inline rename, conversation/composer, inline/expanded browser card and file-reference chip. Use the UI plan's monochrome direction and defer file renderers.
+6. **M10.06 Native/client verification:** actual Claude/Codex intent-tool discovery/calls plus real-browser keyboard/pointer/touch, inline expansion/inspector transfers, reconnect/replay, separate machine takeover, responsive layout and focus tests.
 
 ## Source decision and acceptance
 
-P14: use Qorqut/agent-dms SDK integration patterns and errors, not their policy/bootstrap stack. Their browser routing fixtures help test stale-target behavior, but real VNC/native input must also be verified.
+P14/P16: use Qorqut/agent-dms SDK integration, exact browser/desktop routing, iframe cleanup/focus and existing Chat attachment-chip patterns. Replace policy/business routing and Guacamole coupling. Existing preview renderers are reference material for later work; do not port them into this increment. Routing fixtures alone do not prove real VNC/native input.
 
-Test HTTP/MCP parity, all-allowed actor access with accurate attribution, invalid arguments, replay/conflicts, large/paginated results, event reconnect, dropped streams, wrong run/browser epoch, same-origin sessions, escaping, terminal/manual control, browser Done and operation progress. Native-client tests must prove real MCP use; SDK-only transport tests are labeled separately.
+Test HTTP/MCP parity, all-allowed actor attribution, invalid arguments, replay/conflicts, paginated results, event reconnect, dropped streams, wrong agent/surface/epoch, same-origin sessions, escaping, terminal/manual control, browser Done/Cancel and progress. Add all UI acceptance cases linked from UI-PLAN.md, including twenty icons, rename conflicts, durable cards without preview/content requests, preserved composer state and exact native echo linking. Native-client tests must prove real MCP use; SDK-only tests are labeled separately.
 
 **Done:** G4/G6 demonstrate complete backend access and the small human intervention loop. UI state never claims uncertain delivery, unobserved activity or queued operations have completed.

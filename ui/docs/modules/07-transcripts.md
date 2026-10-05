@@ -1,6 +1,6 @@
 # M07 — Durable transcript capture, archive and searchable history
 
-Status: Planned. Owns R10 and history portions of R11/R14. Depends on M00/M01/M03/M04; supplies readiness and recovery watermarks to messaging, switching and backup.
+Status: Planned. Owns R10 and history portions of R11/R13/R14/R15. Depends on M00/M01/M03/M04; supplies readiness/recovery watermarks and integrates M05/M06/M09 records into the conversation read projection.
 
 ## 1. Guarantee and fault model
 
@@ -83,6 +83,12 @@ A parser upgrade rebuilds its projection from immutable sources. Save parser/ver
 
 Expose a parsing checkpoint barrier to M08: every raw range through a selected finalized watermark must have a complete parse outcome or explicit gap. Context restoration waits for that barrier by default; it does not mistake successful raw drain for an up-to-date conversation projection. FTS indexing can still lag independently.
 
+### Conversation presentation
+
+`conversation_list` combines normalized native entries with owner messages, browser requests and file references, without taking ownership of their business rules. Keep a durable entry ledger of stable IDs/source references/insertion cursors; platform operations append in their own transaction, native normalization appends once per verified source record. Retain ledger coordinates when rebuilding derived content; exports/imports preserve original provenance and remap destination cursors. Late capture appends with original occurrence time rather than invalidating issued cursors.
+
+Browser/file cards render from domain IDs. A native transcript tool record can link to a known operation but never create/re-execute a request or reference. Exact native metadata may link owner-message echoes; equal text cannot deduplicate them. Default chat omits technical raw records by display policy while the archive retains them. UI descriptions, iframe URLs and live VNC bytes do not belong in native transcript normalization. See [UI-PLAN.md](../UI-PLAN.md).
+
 ## 7. Implementation sequence
 
 1. **M07.01 P0 recorder:** verify nested PTY behavior, process lifetime and durable-before-display ordering under deterministic producers/native fixtures.
@@ -92,6 +98,7 @@ Expose a parsing checkpoint barrier to M08: every raw range through a selected f
 5. **M07.05 Projections:** adapt Claude/Codex format knowledge, normalized record schema, stable provenance and FTS reindexing.
 6. **M07.06 Control integration:** expose readiness/backlog/blocked states; connect storage pressure to M03 input and process pause; provide M08 drain checkpoints and M11 backup inventories.
 7. **M07.07 Fault campaign:** execute every storage/ACK boundary and real VM network/reboot scenario before G3 approval.
+8. **M07.08 Conversation projection:** integrate platform cards/owner messages for Phase 4, retain stable insertion coordinates and prove reconnect/late parsing/provider switches do not duplicate cards or effects. G3 archive completion does not wait on the chat UI.
 
 ## 8. Source decision and done gate
 

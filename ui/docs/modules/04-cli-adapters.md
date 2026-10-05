@@ -26,6 +26,8 @@ Capabilities include verified native transcript capture, child-source coverage, 
 
 Prepare both adapters in the same agent workspace without changing identity. Generated entrypoints refer to current identity, authored `instructions.md`, memory, MCP usage and history retrieval. Preserve authored instructions/notes/files on every refresh. Store generated version/hash metadata separately and install atomically.
 
+Generated instructions describe user-facing intent: call `browser_request_input` when the user must sign in, enter data or act in the browser; call `files_reference` with a path when the user should see/review/be notified about a file. Explain waiting/completion and saved-reference outcomes, not iframe/modal/toast/layout mechanics. The backend resolves agent/conversation/surface bindings. Preserve these instructions consistently across both providers without parsing provider-specific tool prose to trigger UI effects.
+
 Use a dedicated native HOME per agent. Keep each CLI's ordinary tools available; do not strip its shell, file, browser or search facilities to manufacture a new permission layer. Add Qorqut MCP and the supported managed browser helper locally. Do not overwrite the owner's personal global CLI settings or copy personal transcripts.
 
 Native authentication is an onboarding concern. A missing login/trust step is shown through terminal setup state; it is not silently bypassed or treated as platform permission approval. Authentication/browser profiles persist in native HOME/state disk. Any configured credential seeding is an explicit installation input with provenance, never a filesystem-wide credential scan.
@@ -51,6 +53,7 @@ P06/P11: adapt Qorqut's dual-client generated files, hook payload knowledge, pro
 - Hooks bind exact run/native sources and cannot claim another agent through a caller-supplied cwd.
 - Test cwd changes, suffixed rollout names, resumed IDs, tool/user echo distinctions, repeated equal-text messages, child sessions, unknown native types and attachments.
 - Verify generated MCP config with each actual pinned CLI, not merely TOML/JSON parsing. Native login fixtures and actual provider acceptance are separately labeled.
+- Generated tool schemas/instructions expose action intent and required paths/prompts without UI mechanics; native tool replay cannot create another request/reference.
 - Model/provider config changes never reset agent history. Unknown model labels are passed according to the adapter configuration contract rather than rejected by a stale platform list.
 - Supported versions have real native interaction/recorder evidence, including resize/signals and clean/abrupt termination.
 

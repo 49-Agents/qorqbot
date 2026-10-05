@@ -63,4 +63,17 @@ The same three research agents reviewed the written module/shared contracts, the
 
 These were document reviews, with no new runtime tests, service changes or implementation. The acceptance matrix records how the proposed contracts must later be demonstrated.
 
-Local documentation checks verified 22 Markdown files, 43 local links, twelve module sequences/done gates, fourteen requirement mappings, seven delivery gates and 71 distinct acceptance cases. Named source-file checks verified 36 core and six standalone agent-dms references against the inspected local baseline. These checks validate planning structure/references, not runtime correctness.
+Initial-baseline documentation checks verified 22 Markdown files, 43 local links, twelve module sequences/done gates, fourteen requirement mappings, seven delivery gates and 71 distinct acceptance cases. Named source-file checks verified 36 core and six standalone agent-dms references against the inspected local baseline. These checks validate planning structure/references, not runtime correctness.
+
+## Browser/chat UI follow-up inspection
+
+The current manifest still selected release `20261005T164238Z-a49a9352` during this read-only follow-up. Inspected the following exact mechanisms at the already pinned core/dashboard revisions:
+
+- Core `tools/browser/desktop_session.py`: header defines one dedicated TigerVNC display with one maximized Chrome; `plan` builds Xtigervnc/Openbox/profile-bound Chrome argv; `start` owns their lifecycle; `stop` closes Chrome before the display for profile flush.
+- Dashboard `js/agent-browser.js`: explicit browser versus full-desktop mappings, selected-agent verification, iframe sizing and stale-frame disposal. Existing global/business role conditions do not imply one healthy browser for every agent; qorqutbot replaces those conditions with per-agent surface identity.
+- Dashboard `js/global-chat.js` and inspected `tests/test_global_chat_browser.js`: compact attachment chips, no content load before opening, one on-demand in-chat preview and focus/iframe cleanup. These were read, not rerun. The new task defers file opening, so only reference/presentation patterns are relevant now.
+- Core `inbox/focus.py`: legacy request creation returns `upgrade_required`; owner Done keeps an exact request check and atomic completion/message receipt. Core `file_viewer/paths.py` and `service.py` supply path-resolution reference points, not a reason to copy the full existing viewer.
+
+A process-name-only inspection observed three Xtigervnc, three Openbox and one guacd processes. This does not verify their agent mappings, connectivity or login state. No profile contents, private chat data or existing sessions were used or changed; no new VNC/browser runtime tests were performed. [UI-PLAN.md](UI-PLAN.md) records the new required behavior rather than claiming it already exists.
+
+The amendment's document checks passed for 23 Markdown files, 59 local links, twelve module plans, sixteen mapped requirements, seven gates, 81 unique acceptance cases and twenty unique icon keys. A focused read-only review checked browser/machine binding and handoff; the resulting contracts include machine control during setup/stopped CLI and a hold covering future managed launches. Runtime/UI acceptance remains not run because these changes are plans only.

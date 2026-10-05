@@ -12,20 +12,22 @@ The owner values lean code and high quality, with no deadline-driven reason to w
 
 | Requirement | Concrete meaning | Primary modules |
 | --- | --- | --- |
-| R01 Stable agents | Immutable UUID, editable name, dedicated `agents/<UUID>` folder; IDs survive all ordinary runtime changes | M01, M09 |
+| R01 Stable agents | Immutable UUID, dedicated `agents/<UUID>` folder; display names/icons are independent presentation fields; IDs survive ordinary changes | M01, M09 |
 | R02 Create from either actor | Owner and agents call the same create operation; creation/provisioning/start have inspectable progress and permanent creation history | M00–M04, M10 |
 | R03 Per-agent environment | Each ordinary agent has its own persistent Linux VM, workspace, native CLI stores and desktop | M02, M03 |
 | R04 Host-global onbash | Exactly one reserved global host agent; same contracts and files, no VM | M01–M04 |
 | R05 CLI/model independence | Claude and Codex initially; model choice belongs to configured CLI adapters rather than platform identity | M03, M04, M08 |
-| R06 Persistent browsers | Dedicated Chrome profile per agent; browser control and human intervention; login state survives ordinary restart | M06 |
+| R06 Persistent browsers | Dedicated Chrome profile and TigerVNC browser display per agent, separate from machine console; control/human intervention and retained login state | M02, M06 |
 | R07 Durable coordination | Complete direct messages, threads, timestamps, sender/recipient identity, offline delivery and explicit handling receipts | M05 |
 | R08 Advertised state | Every agent is discoverable with ID/name, current status, activity and freshness; status is at most 100 words | M01, M10 |
 | R09 Permanent changes | Every changed status/state and every creation is recorded; message history does not expire | M00, M01, M05 |
 | R10 Complete captured history | All supported native streams and terminal output are collected with visible health, durable retry and no whole-file ceiling | M03, M04, M07 |
 | R11 Provider changes preserve work | Same agent and logical history; files/browser persist; new runtime receives the chosen restoration packet | M08, M09 |
 | R12 Unrestricted v1 | No role grants, capability policies or signoff engine; caller identity and target validation remain | M00, M10 |
-| R13 Minimal useful UI | Agent list, terminal, desktop and input-request completion; backend APIs cover the rest | M10 |
+| R13 Single-page chat UI | Left agent list, central conversation, collapsible right inspector; inline live browser requests with modal expansion; separate browser/machine control | M02, M06, M07, M10 |
 | R14 Recoverable operation | Restart, backup, restore, disk pressure and software upgrades have tested outcomes | M02, M07, M11 |
+| R15 Intent-based user presentation | Browser-action and file-reference tools describe user intent; durable cards survive replay/provider switches; file opening/preview deferred | M04, M06, M07, M09, M10 |
+| R16 Agent appearance | Independent display name/icon, twenty fixed monochrome icon choices, creation picker and double-click inline rename; stable IDs for routing | M01, M10 |
 
 “Always collect” has a precise storage contract in [M07](modules/07-transcripts.md). Captured bytes must not silently disappear. Provider-internal data never emitted, a killed CLI's unflushed buffer, and physically lost storage without backup are outside an achievable collection guarantee. These limits are exposed as health/evidence, never concealed by claiming complete Chat.
 
@@ -33,16 +35,16 @@ The owner values lean code and high quality, with no deadline-driven reason to w
 
 Build a modular Python application rather than carrying over the entire business platform:
 
-1. One host ASGI application serves HTTP, Qorqut MCP, event streams and the small console.
+1. One host ASGI application serves HTTP, Qorqut MCP, event streams and a small single-page chat workspace.
 2. One host SQLite database owns registration, coordination, state transitions, operation/job receipts and history indexes.
 3. Each agent's host folder owns its authored workspace, immutable transcript archive and execution files/disks.
 4. Each VM runs a small runner service. The host-global agent uses the same runner locally.
 5. A recorder inside each managed tmux session wraps the native CLI. Independent systemd runtime units preserve it across runner-service restarts. It durably spools terminal/native bytes for the host collector to pull and acknowledge.
-6. Each guest runs persistent Chrome and a VNC desktop. Browser commands run next to Chrome. The host proxies the viewer; there is no separate Guacamole deployment.
+6. Each agent retains a dedicated TigerVNC Chrome display/profile, distinct from the general machine desktop/VM console. Browser commands run next to Chrome. The host proxies both surface types through the same viewer components; no separate Guacamole deployment.
 
 Use Python 3.12, stdlib SQLite, one validation model family, the official MCP SDK, Starlette/Uvicorn, tmux, QEMU/KVM/libvirt, virtiofs, Chrome, TigerVNC/Openbox, and a pinned `agent-browser` adapter. Exact package and image versions are pinned after compatibility rehearsals. No Redis, Kafka, external search engine, model SDK runner, multi-node scheduler, role catalog, general workflow engine or business schema is needed for v1.
 
-The concrete architecture is in [ARCHITECTURE.md](ARCHITECTURE.md). Public names, states and ownership are in [CONTRACTS.md](CONTRACTS.md).
+The concrete architecture is in [ARCHITECTURE.md](ARCHITECTURE.md). Public names, states and ownership are in [CONTRACTS.md](CONTRACTS.md). The owner's chat layout, intent tools, icons, rename and visual direction are specified in [UI-PLAN.md](UI-PLAN.md); reference images will refine its styling.
 
 ## 3. Planning defaults and decisions
 
@@ -94,6 +96,8 @@ flowchart TD
     M00 --> M10[M10 transports]
     M05 --> M10
     M06 --> M10
+    M09 --> M10
+    M07 --> M10
     M08 --> M10
     M07 --> M11[M11 operations and acceptance]
     M02 --> M11
@@ -108,7 +112,7 @@ Deliver disposable technical rehearsals and decision records, not product scaffo
 
 1. Verify host prerequisites: hardware virtualization, libvirt access, QEMU, virtiofs, image tools, disk space and network overlap. The inspected machine has `/dev/kvm`, but this account lacked direct read/write access and QEMU/libvirt commands were not on PATH. No readiness claim follows from the device existing.
 2. Boot two disposable guests with a shared immutable base, independent root overlays/state disks, separate virtiofs workspaces and one private NAT network.
-3. Prove fixed-port guest HTTP/WS, bound identity, host MCP reachability, tmux reconnect/input and direct noVNC desktop proxying.
+3. Prove fixed-port guest HTTP/WS, bound identity, host MCP reachability, tmux reconnect/input and noVNC for dedicated Chrome and distinct usable machine desktop. Prove private libvirt graphics routing for VMs and independent local desktop allocation for onbash.
 4. Prove Chrome cookie persistence and distinct profiles across browser restart and VM reboot with synthetic local sites.
 5. Prove a nested-PTY recorder preserves CLI interaction, resize, Unicode, bracketed paste, signals and durable output ordering. Prove owned runtime cgroups survive actual runner-service restart and allow pausing producers while capture remains runnable. This is a go/no-go technical gate for the strong terminal recording contract.
 6. Pin and rehearse Claude/Codex native source/hook/resume contracts using isolated fake provider endpoints where possible. Identify parent/child transcript stores and attachments.
@@ -121,7 +125,7 @@ Deliver disposable technical rehearsals and decision records, not product scaffo
 
 Implement M00 and M01 with fake executors, and the thin M10 transport. Add the workspace layout from M09.
 
-Deliver atomic operation receipts, event history, typed durable jobs, a stable agent registry, create/rename/archive, the reserved host onbash identity, status validation/history, explicit observed activity/freshness, and shared HTTP/MCP operation behavior.
+Deliver atomic operation receipts, event history, typed durable jobs, a stable agent registry with display names/icon keys, create/rename/archive, the reserved host onbash identity, status validation/history, explicit observed activity/freshness, and shared HTTP/MCP operation behavior. Freeze the twenty-icon catalog without adding custom image uploads.
 
 **Gate G1:** concurrent/retried creation yields one ID and one creation event; changed statuses survive restart; 101-word text is rejected identically by every transport; no business or role-policy dependencies exist.
 
@@ -145,9 +149,9 @@ Deliver durable all-source registration, local transactional spooling, immutable
 
 Complete M05/M06 and the operational portions of M10. Browser supervision can be developed in parallel with Phase 3, but unattended work waits for capture readiness.
 
-Deliver direct messages and offline queues, guarded terminal delivery, semantic handling receipts, persistent browser control, VNC viewer, and browser input request/Done/Cancel transitions. Manual browser takeover reuses the same request state machine. All agents can discover and contact every agent, and can request creation using the same operation as the owner.
+Deliver direct messages/offline queues, guarded terminal delivery, semantic handling receipts, dedicated browser/machine surfaces and input request/Done/Cancel transitions. Add M09 file references, M07 conversation projection and the M10 single-page shell: agent list/icons/rename, central chat/composer, inline browser cards with expansion, compact file cards and collapsible inspector. File opening is deferred. Manual browser takeover reuses the request state machine. Tools describe intent without layout mechanics. All agents can discover/contact/create peers through shared operations.
 
-**Gate G4:** three agents can create/contact peers and preserve messages while recipients are offline; busy or human-controlled terminals defer without losing messages; browser takeover waits for in-flight commands and releases exactly once; same-site logins survive ordinary restart.
+**Gate G4:** three agents can create/contact peers and preserve offline messages; human control defers automatic input; browser takeover settles commands and resolves once; login persists. The chat renders one durable card per browser/file request, directly controls the inline browser and expands the same session; icons/rename preserve routing. Machine control and responsive/focus behavior complete integrated G6 acceptance.
 
 ### Phase 5 — Provider switching and portable work
 
@@ -178,7 +182,7 @@ Parallel work is safe after the shared contracts are frozen: browser supervision
 
 ## 7. Completion and evidence discipline
 
-The product is complete when R01–R14 are verified against a named release, not when files for twelve modules exist.
+The product is complete when R01–R16 are verified against a named release, not when files for twelve modules exist.
 
 Every release evidence bundle records:
 
@@ -192,6 +196,6 @@ Current Qorqut research is not a clean inherited test baseline: four focused che
 
 ## 8. Scope boundary
 
-The first release provides the backend and the small operational console. Multi-host scheduling, public hosted accounts, role-based permissions, rich collaborative editors, marketing/business workflows, task/project management, automatic model summarizers, billing, mobile applications and a polished multi-pane Chat UI are separate later product work.
+The first release provides the backend and the single-page chat scope in UI-PLAN.md. Multi-host scheduling, public hosted accounts, role-based permissions, rich collaborative editors, marketing/business workflows, task/project management, automatic model summarizers, billing and native mobile applications remain later product work. The owner explicitly deferred opening/previewing referenced files; retain durable file cards and add rendering separately. Browser cards, three-column layout, twenty icons and rename are included rather than deferred as a generic future Chat UI.
 
 Full agent/VM portability uses stopped export/import in v1. There is no live migration promise. Raw history has no automatic deletion. A future retention or compaction feature requires its own explicit data contract; it cannot be introduced as an invisible storage optimization.
