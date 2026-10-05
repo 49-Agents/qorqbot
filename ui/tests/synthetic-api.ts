@@ -3,7 +3,7 @@ import { createServer, type Server, type ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { Agent, Config, Entry, Publication } from '../src/wire';
+import type { Agent, Config, Entry, Publication, TerminalView } from '../src/wire';
 
 export const owner = '00000000-0000-4000-8000-000000000001';
 export const alpha = '10000000-0000-4000-8000-000000000001';
@@ -37,6 +37,7 @@ export class SyntheticAPI {
   events: { event_seq: number; event_id: string; kind: string; agent_id: string | null; actor_id: string; operation_id: string | null; occurred_at: string; recorded_at: string; origin_installation_id: string; origin_seq: number; payload_version: number; payload: object }[] = [];
   operations = ['config_get', 'events_list', 'agents_list', 'agents_get', 'agents_create', 'agents_update', 'conversation_list', 'messages_send'];
   publication: Publication = { pending_entries: 0, state: 'current', error: null };
+  terminals = new Map<string, TerminalView>();
   receipts = new Map<string, object>();
   messages: object[] = [];
   dropSend = false;
@@ -78,7 +79,7 @@ export class SyntheticAPI {
           if (path !== '/' && !/^\/assets\/[\w.-]+$/.test(path)) { res.writeHead(404); res.end(); return; }
           const file = path === '/' ? 'index.html' : path.slice(1);
           const bytes = await readFile(resolve('dist', file));
-          res.writeHead(200, { 'Content-Type': file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'self'", 'X-Content-Type-Options': 'nosniff' }); res.end(bytes); return;
+          res.writeHead(200, { 'Content-Type': file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'self'", 'X-Content-Type-Options': 'nosniff' }); res.end(bytes); return;
         }
         const chunks: Buffer[] = []; for await (const part of req) chunks.push(Buffer.from(part));
         const raw = Buffer.concat(chunks).toString('utf8');
@@ -157,6 +158,9 @@ export class SyntheticAPI {
         has_older: first !== null ? all.some(e => e.conversation_seq < first) : !!all.length && args.after_seq !== undefined,
         has_newer: last !== null ? all.some(e => e.conversation_seq > last) : !!all.length && args.before_seq !== undefined,
         publication: this.publication }));
+    } else if (name === 'terminal_get') {
+      json(200, success(this.terminals.get(args.agent_id) || { agent_id: args.agent_id, recovery_epoch: this.epoch,
+        terminal_id: null, observed_at: null, status: 'disabled', reason: 'not_configured', control: null, recording: null }));
     } else if (name === 'messages_send') {
       if (this.refuseSend) { this.refuseSend = false; json(503, { error: { code: 'unavailable', message: 'Transport unavailable' } }); return; }
       if (!args.body || Buffer.byteLength(args.body) > 65536) { error('invalid_argument', 'Message exceeds UTF-8 limit', 400); return; }

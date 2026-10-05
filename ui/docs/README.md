@@ -21,8 +21,11 @@ Authoritative plans now follow the three repositories:
 - [Manual creation acceptance](evidence/manual-creation-manager-acceptance.md):
   identity-only creation against the actual schema-6 core, with normal restart
   and automatic dated publication.
-- [Terminal implementation](TERMINAL-IMPLEMENTATION.md): the next parallel UI
-  build, using core's actual recorded-shell protocol and explicit human control.
+- [Terminal implementation](TERMINAL-IMPLEMENTATION.md): recorded-shell protocol
+  and explicit human control, including the corrected public input sources.
+- [Terminal UI acceptance](evidence/terminal-ui-manager-acceptance.md): reviewed
+  compiled UI and Chrome checks against synthetic peers. Actual installed-core
+  Terminal integration remains pending the server corrections and acceptance.
 
 Original planning baseline: `codex/chat-ui-plan`, `e7d2b56`. Acceptance is bounded
 to the evidence above; native replies, runtime and browser/file cards remain pending.
