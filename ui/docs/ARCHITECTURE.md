@@ -24,21 +24,24 @@ flowchart LR
         REC[Recorder + child PTY]
         CLI[Native Claude / Codex]
         SPOOL[(Local durable spool and receipts)]
+        BROWSER[Separate qorqut-browser service\nMCP + control + local receipts]
         DESKTOP[Dedicated TigerVNC + Openbox + Chrome]
         MACHINE[Separate general guest desktop]
         GUEST --> TMUX
         TMUX --> REC --> CLI
         REC --> SPOOL
         GUEST --> SPOOL
-        GUEST --> DESKTOP
-        CLI -->|MCP| HOST
+        GUEST --> BROWSER --> DESKTOP
+        CLI -->|Core MCP| HOST
+        CLI -->|Browser MCP| BROWSER
+        BROWSER -->|Authenticated handoff HTTP| HOST
     end
     HOST <-->|Private HTTP / WebSocket| GUEST
     LV --> GUEST
     LV -->|Private graphical console| MACHINE
 ```
 
-The host service and runner belong to `qorqut-core`. The host owns application decisions and configuration; the runner owns local process observations and durable execution/capture receipts, using the `qorqut-browser` package next to Chrome. The recorder is a small process inside tmux, independent of the runner service's lifetime. It records native CLI output before forwarding it to the visible terminal and tails all sources registered for that run. `qorqutbot-ui` is an independent client of the host API.
+The host service and runner belong to `qorqut-core`. The host owns application decisions and configuration; the runner owns local process observations and execution/capture receipts. `qorqut-browser` runs as a separate service next to Chrome, owning its MCP endpoint, command/control receipts and browser effects. The recorder is a small process inside tmux, independent of the runner service's lifetime. It records native CLI output before forwarding it to the visible terminal and tails all sources registered for that run. `qorqutbot-ui` is an independent client of the host API.
 
 Host application restarts do not restart libvirt domains, runner services, tmux sessions, recorders or Chrome. Runner-service restarts do not terminate the recorder or native CLI. VM reboot is an actual process loss and must be recorded as such; persistent disks do not preserve a running tmux process across reboot.
 
@@ -48,12 +51,12 @@ Place each agent's managed tmux/recorder/CLI and desktop in independently superv
 
 ## 2. Repository and package boundaries
 
-Three repositories, with small internal modules. These are source boundaries, not three deployed backend services:
+Three repositories, with small internal modules. Core has one host service and a runner; browser has its own per-browser MCP service; UI is a static client:
 
 | Repository | Owns | Depends on |
 | --- | --- | --- |
-| `qorqut-core` | Application configuration and coordination; agents/personas/files, VM/host runtime, tmux/CLI adapters, recording/history, messaging, continuity, durable requests, HTTP/MCP/operator APIs, installation and backup | A pinned `qorqut-browser` package |
-| `qorqut-browser` | Chrome/profile supervision, agent browser-control tools, optional standalone MCP adapter, takeover binding, control receipts, TigerVNC/Openbox setup and remote-control transport | Explicit local configuration and host-supplied request callbacks; no core/UI imports |
+| `qorqut-core` | Application configuration and coordination; agents/personas/files, VM/host runtime, tmux/CLI adapters, recording/history, messaging, continuity, durable requests, HTTP/MCP/operator APIs, installation and backup | A pinned browser service release and versioned control protocol |
+| `qorqut-browser` | Independent MCP server, Chrome/profile supervision, agent browser tools, takeover bridge, control receipts, TigerVNC/Openbox setup and remote-control transport | Explicit local configuration and application handoff API; no core/UI imports |
 | `qorqutbot-ui` | Chat, navigation, inspector, browser/terminal viewer assets, interaction and client state | Core's versioned HTTP/events/WebSocket API |
 
 Proposed source layout, created incrementally as modules are implemented:
@@ -68,7 +71,7 @@ qorqut-core/
     runner/              small control service, tmux and process receipts
     adapters/            Claude, Codex and terminal-only capability
     messaging/           threads, messages, attempts, handling receipts
-    browser/             package integration, durable requests, machine holds
+    browser/             service client, durable requests and machine holds
     transcripts/         recorder, spool, archive, parsers and conversation
     continuity/          checkpoints, context packets and switching
     files/               workspace access and portable exports
@@ -79,14 +82,15 @@ qorqut-core/
 
 qorqut-browser/
   src/qorqut_browser/
-    contracts.py         browser values and host callback signatures
+    contracts.py         MCP, control and handoff protocol values
     supervisor.py        Chrome, persistent profile, Xtigervnc and Openbox
     control.py           local command arbitration, epochs and receipts
-    tools.py             browser actions and intent-only takeover tool binding
-    mcp.py               optional thin standalone stdio MCP entrypoint
+    tools.py             browser actions and intent-only takeover bridge
+    mcp.py               independent Streamable HTTP MCP server
+    state.py             local command/control receipts and reconciliation
     remote.py            local VNC transport and input fencing
   setup/                 pinned prerequisites, units and setup instructions
-  tests/                 browser behavior with a small host-callback fixture
+  tests/                 browser behavior with a small handoff-API fixture
 
 qorqutbot-ui/
   src/                   API client, chat, agents, inspector and viewers
@@ -94,13 +98,13 @@ qorqutbot-ui/
   tests/                 focused interaction and API-integration checks
 ```
 
-Agents, runtime and messaging are internal core modules, not separately published packages. The runner installs from core's wheel with a different entrypoint; it need not import host libvirt bindings. Browser is a normal versioned Python dependency, not a required standalone service. Core and guest image pins record its tested version. No Git submodules or fourth contracts repository are needed.
+Agents, runtime and messaging are internal core modules, not separately published packages. The runner installs from core's wheel with a different entrypoint; it need not import host libvirt bindings. Browser installs as its own service with a tested release/protocol pin in core's installer and guest image. No Git submodules or fourth contracts repository are needed.
 
-The browser package exports typed actions, tool descriptions and a thin takeover binding. Core supplies the application callback that atomically records request/event/job/conversation entry, and owns Done/Cancel plus notification-message transactions. Local command admission and VNC input fencing remain browser mechanisms invoked through the runner. Machine-wide admission and coordination with terminal input remain core operations. This preserves atomicity without a circular dependency or a second browser database server.
+Browser exposes its tools through its own MCP endpoint. Each CLI connects to core MCP for coordination and browser MCP for browser work; core does not register duplicate browser tools. Browser forwards human-action requests to core's authenticated handoff operation, which atomically records request/event/job/conversation entry and owns Done/Cancel plus notification-message transactions. Local commands and VNC input fencing belong to browser. Machine-wide admission and coordination with terminal input remain core operations, reconciled through the runner's client of browser's private control API.
 
-For this product, browser tools are registered through core's MCP endpoint. Browser also offers a standalone stdio MCP entrypoint for other consumers, using the same tool implementation and explicit local browser binding. Expose takeover only when a host request/completion binding supports it; otherwise no handoff capability is advertised. This optional adapter does not change the one-backend deployment or introduce browser-owned application orchestration.
+All direct MCP and runner-proxied browser actions share one service-owned lock, control epoch and durable command receipt path. Browser's small local SQLite store persists input ownership and uncertain outcomes independently of CLI/runner restarts. It is not a second host coordination database. Keep Chrome's runtime unit independent of the browser service as well, so service restarts preserve the profile/process and reconcile before accepting new input. Another application can configure the same server and its own handoff endpoint; absent that integration, automation remains available but takeover is not advertised.
 
-Core owns its public API schemas and protocol version; browser owns its package contract. Core uses browser models within its operation envelopes instead of copying them. UI consumes core schemas and supported versions, not core's Python internals. Build the UI independently; serve its static assets under the same origin through a proxy or optional core static-file mounting. Core's installation, MCP, jobs and operator client must work with no UI checkout or bundle.
+Core owns its public API schemas and protocol version; browser owns its MCP/control wire contract. Core uses a small versioned client rather than importing tool implementations; schema artifacts can be generated from the owning models. UI consumes core schemas and supported versions, not Python internals. Build the UI independently; serve its static assets under the same origin through a proxy or optional core static-file mounting. Core's installation, MCP, jobs and operator client must work with no UI checkout or bundle.
 
 ### Configuration ownership
 
@@ -146,6 +150,7 @@ The configured data root is independent of the source checkout and release direc
       vm/domain.xml                   generated definition/provenance
       home/                          host-mode HOME only
       spool.sqlite3                  host-mode runner/recorder state only
+      browser.sqlite3                host-mode browser command/control receipts
     exports/                          requested portable bundles/manifests
   backups/                            installation/archival backup manifests
 ```
@@ -162,6 +167,7 @@ Each VM has:
 - A separate ext4 state disk mounted by filesystem UUID at `/var/lib/qorqut-agent-data`.
 - Persistent `home/` from that disk bound to `/home/agent`.
 - Runner receipts and recorder spool on that state disk.
+- Browser service control/command receipts in `browser.sqlite3` on that disk.
 - Only its authored host workspace shared through virtiofs at `/workspace`.
 
 Native CLI authentication/state and Chrome profile SQLite files stay on guest-local ext4. Chrome's profile is `/home/agent/.local/share/qorqut/chrome`; downloads go to `/workspace/downloads`. Do not place a running profile or native CLI store on virtiofs, NFS or a copied host personal directory.
@@ -181,12 +187,15 @@ Use one installation-owned libvirt NAT network in v1. Persist its non-conflictin
 | Endpoint | Location | Purpose |
 | --- | --- | --- |
 | Runner HTTP/WS `8091` | Guest private interface | Host control, receipts, transcript transfer and proxies |
+| Browser MCP/control HTTP/WS `8092` | Guest loopback only | Separate `/mcp` server for local CLIs; private control/command/relay API for the runner |
 | VNC `5901` | Guest loopback only | Dedicated Chrome application desktop |
 | Libvirt graphical VNC | Private host Unix socket per VM | Separate general machine desktop; no public console port |
 | Chrome CDP `9222` | Guest loopback only | Browser automation |
 | Host HTTP/MCP | Configured host/bridge addresses | Owner console/API and agent MCP |
 
 The host finds a guest through its recorded domain/network reservation, then verifies the runner's agent ID, environment generation, boot ID and protocol. An IP address is a route, not identity.
+
+The runner verifies browser-service identity/protocol before forwarding control, commands or VNC. Onbash persists its own unused browser-service port with the other local bindings. Native clients register distinct `qorqut-core` and `qorqut-browser` MCP entries. Each browser service executes only its bound local browser; explicit cross-agent requests use core's target routing to the destination service without changing actor attribution or executing twice.
 
 Bind private host/guest requests using per-agent transport credentials. Bind CLI MCP requests to their registered actor identity. Identity checks supply attribution and prevent misrouting; they do not authorize different operation sets. Every registered actor receives the same v1 domain operations. Keep guest transport credentials out of browser JavaScript and command-line logs.
 
@@ -209,6 +218,7 @@ Manual terminal input and automated paste share a per-run input lock. `terminal_
 | Authored persona/notes/research/data/files/memory | Agent workspace files | Generated CLI entrypoints, file listings, hashes, exports |
 | CLI/VM/browser processes | Actual inspected process/domain plus generation-bound observations | Current rows and UI state |
 | Locally captured, not yet archived bytes | Runner/recorder spool | Host-pulled transfer batches |
+| Local browser command outcomes/input ownership | Browser service receipt store | Core observations and reconciliation receipts |
 | Host-acknowledged transcript bytes | Immutable host chunk files + committed inventory | Parser records, conversation, FTS |
 | Context sent to a replacement CLI | Saved context packet + delivery receipt | Startup summary |
 | Browser/file cards | Core M06 request or M09 file-reference record plus conversation entry ledger | UI cards, attention indicators, optional transient toast |
@@ -241,11 +251,11 @@ Input delivery is a special external effect. Record intent before paste. An atte
 
 ### Human browser input
 
-1. Resolve the calling agent's browser from an intent-only tool call; atomically record request, conversation entry/event and transition to human control.
-2. Wait for any in-flight managed browser command to settle; only then report that human control is ready.
+1. Browser's intent-only MCP tool forwards an attributed, idempotent request to core; core atomically records request, conversation entry/event and the control-transition job. A lost response is reconciled by that same key.
+2. Core sends the desired epoch through the runner to browser's control API. Browser closes automated admission and waits for in-flight commands to settle; only its acknowledgment makes human control ready.
 3. The chat renders an inline interactive viewer of that same dedicated Chrome/profile, with a top-right modal expansion. Input is enabled after control is ready.
 4. Done completes the exact request, advances control epoch, records the answer and queues one attributed completion message in the same host transaction.
-5. Reconcile the new control epoch with the runner before admitting automation. The agent observes the page again; Done is not proof of successful login.
+5. Reconcile the new control epoch through the runner with browser before admitting automation, including direct browser MCP calls. The agent observes the page again; Done is not proof of successful login.
 
 ### Reference a file
 

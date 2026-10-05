@@ -37,7 +37,7 @@ Distinguish authored-work export from a full portable agent bundle. A full bundl
 - Authored workspace, exact memory and required attachments/context packets.
 - Source manifests and immutable transcript inventory/hashes.
 - Stopped VM root/state disks or host native HOME, with base-image digest/dependencies.
-- Consistent runner/spool database, durable command receipts and unacknowledged events; this is inside a VM state disk but a separate `runtime/spool.sqlite3` for onbash. Use SQLite backup/checkpoint semantics, never copy only a live main file while omitting WAL commits.
+- Consistent runner/spool database, browser service control/command database and unacknowledged events; these are inside the VM state disk but separate `runtime/spool.sqlite3` and `runtime/browser.sqlite3` for onbash. Use SQLite backup/checkpoint semantics, never copy only a live main file while omitting WAL commits.
 - Runtime capability/image/protocol pins and actual quiescence/backup evidence.
 
 A single-agent export can reference counterpart agent IDs without importing those agents. Imported historical messages retain original attribution. A missing live counterpart appears as an external historical reference, not a fabricated current agent. Preserve original event IDs and source installation/sequence as provenance, assigning destination-local journal cursors on import; repeated import deduplicates original event identities.

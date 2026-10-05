@@ -6,7 +6,7 @@ Repositories: `qorqut-core` owns HTTP/MCP, operator commands, sessions, applicat
 
 ## Outcome and boundary
 
-The owner and agents use one backend contract. Qorqut MCP advertises discovery, lifecycle, messages, status, browser assistance and history/file operations. A small operator client and one-page chat workspace make conversation, browser intervention and recovery practical. [UI-PLAN.md](../UI-PLAN.md) specifies the owner's layout/interactions and supersedes the initial generic console scope.
+The owner and agents use core's shared application operations. Core MCP advertises discovery, lifecycle, messages, status, request completion and history/file operations. Browser's separate MCP server advertises browser actions and user-input requests. A small operator client and one-page chat workspace make conversation, browser intervention and recovery practical. [UI-PLAN.md](../UI-PLAN.md) specifies the owner's layout/interactions and supersedes the initial generic console scope.
 
 Transports adapt schemas, authentication and streaming. They do not implement domain rules or query/write tables behind the application layer. Every registered actor can invoke the same implemented public operations; there is no role-conditioned tool inventory or signoff path.
 
@@ -14,7 +14,7 @@ Core runs fully headless and owns all application coordination/configuration. UI
 
 ## Public surfaces
 
-- `/mcp`: official SDK Streamable HTTP endpoint, configured locally in both CLIs as `qorqut`.
+- `/mcp`: core's official SDK Streamable HTTP endpoint, configured in both CLIs as `qorqut-core`. A separate `qorqut-browser` registration targets browser's local service; no browser tool handlers are registered here.
 - `/api/v1/operations/<name>`: shared typed operations with the result/idempotency contract.
 - `/api/v1/events`: reconnectable event stream with durable cursor and recovery epoch; reconnect after restore invalidates old-epoch cursors. Events are hints to reread current records when appropriate.
 - `/api/v1/agents/<id>/terminal/<run_id>/ws`: exact-run terminal attachment.
@@ -27,7 +27,7 @@ Use the operation inventory in [CONTRACTS.md](../CONTRACTS.md). Only advertise i
 
 Describe `browser_request_input` by the user action needed and `files_reference` by the file to show/review/notify. Do not put iframe/modal/toast/layout instructions in agent-facing tool descriptions or require agents to construct viewer URLs. Shared operations resolve target identities and commit cards atomically; transports publish only committed state, never infer effects from tool-name text in a transcript.
 
-Browser tool models/descriptions come from `qorqut-browser`; core binds their handlers into its ordinary operation registry and MCP endpoint. Browser's optional standalone MCP adapter is for independent consumers and does not bypass this product's core coordination. File-reference models remain in core. Tools depend on durable operations, not the presence of a frontend connection.
+Browser owns its MCP models/descriptions/handlers. Core provides an authenticated handoff HTTP bridge to its shared operations and a versioned client through the runner for browser control/commands. Keep browser tools out of core's MCP inventory. Core HTTP/operator routes may forward browser commands through the same browser-service gate; they do not execute a second implementation. File-reference models remain in core. Tools depend on durable operations, not the presence of a frontend connection.
 
 ## Identity without permissions
 
@@ -66,7 +66,7 @@ Keep output useful for both humans and scripts: stable JSON mode plus concise de
 3. **M10.03 Operator client (core):** implement API-backed commands and clear async operation tracking.
 4. **M10.04 Streams/proxies (core):** add durable event cursor and exact target terminal/desktop proxies with reconnect/backpressure.
 5. **M10.05 Chat shell/cards (UI):** create its API client and static build; implement the three columns, icon picker/inline rename, conversation/composer, inline/expanded browser card and file-reference chip. Use the UI plan's monochrome direction and defer file renderers.
-6. **M10.06 Native/client verification:** actual Claude/Codex intent-tool discovery/calls plus real-browser keyboard/pointer/touch, inline expansion/inspector transfers, reconnect/replay, separate machine takeover, responsive layout and focus tests.
+6. **M10.06 Native/client verification:** actual Claude/Codex discovery/calls to two separate MCP servers, with no duplicate browser tools, plus real-browser keyboard/pointer/touch, inline expansion/inspector transfers, reconnect/replay, separate machine takeover, responsive layout and focus tests.
 
 ## Source decision and acceptance
 

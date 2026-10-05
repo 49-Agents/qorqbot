@@ -5,8 +5,8 @@ Read `docs/IMPLEMENTATION-PLAN.md`, `docs/CONTRACTS.md`, and the applicable modu
 ## Engineering rules
 
 - Preserve the owner's requirements: stable agent identity and folder, per-agent execution/browser, host-global onbash, unrestricted v1 operations, durable communication/status/creation history, and provider-independent captured history.
-- Keep one host application and a small runner. A module boundary is not a reason to introduce another service, database server, broker, framework, or generic plugin system.
-- Follow the three-repository boundary: `qorqut-core` owns backend coordination/configuration and agents/runtime/messaging/history; `qorqut-browser` owns reusable browser tooling; `qorqutbot-ui` owns the frontend. Core runs headlessly. Keep the UI free of backend business rules and the browser package free of core/UI imports.
+- Keep one core host application and a small runner, plus the owner's explicitly requested independent browser MCP service beside each browser. Other module boundaries do not justify another service, database server, broker, framework, or generic plugin system.
+- Follow the three-repository boundary: `qorqut-core` owns backend coordination/configuration and agents/runtime/messaging/history; `qorqut-browser` owns browser tooling and its separate MCP server; `qorqutbot-ui` owns the frontend. Core runs headlessly. Keep the UI free of backend business rules and browser free of core/UI imports. Register browser tools only on browser's MCP endpoint.
 - Reuse Qorqut selectively using `docs/PORTING.md`; do not import its live installation, database, business roles, private records, credentials, or configuration into this repository.
 - Keep raw archives and derived views separate. Never call a visible Chat projection a complete transcript archive. Never call pasted input processed work or silently retry an uncertain external effect.
 - Use the shared application operations from HTTP, MCP and the operator client. Transport adapters do not implement separate business rules.

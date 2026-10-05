@@ -16,7 +16,7 @@ The core/dashboard revisions came from Qorqut's current release manifest, `20261
 
 Core package paths below are relative to `bazarlyk/` unless already prefixed; a bare filename continues the immediately preceding directory. Dashboard `pty_broker.py` and core `tools/browser/desktop_session.py` are repository-level paths. Standalone agent-dms package paths are relative to `src/agent_dms/`. All references use the pinned revisions. “Port tests” means retain relevant behavioral assertions with new fixtures and boundaries, not claim the old full test suite validates the new product.
 
-Destination ownership follows D20: P00–P07 and P10–P15 go into `qorqut-core`; P08/P09 go into `qorqut-browser`, including agent controls and its takeover tool binding/setup assets. P10's atomic request/notification persistence stays in core behind that binding. P16's routing/file-resolution/domain logic stays in core and its viewer/card/rendering code goes into `qorqutbot-ui`. Do not copy backend coordination into UI or introduce a browser-to-core import.
+Destination ownership follows D20/D21: P00–P07 and P10–P15 go into `qorqut-core`; P08/P09 go into the independent `qorqut-browser` MCP service, including agent controls and takeover bridge/setup assets. P10's atomic request/notification persistence stays in core behind an authenticated HTTP bridge. Browser's own SDK server/control API is new integration over these mechanisms. P16's routing/file-resolution/domain logic stays in core and its viewer/card/rendering code goes into `qorqutbot-ui`. Do not copy backend coordination into UI or introduce a browser-to-core import.
 
 | ID / destination | Source mechanisms and files | Decision | Required change / test |
 | --- | --- | --- | --- |

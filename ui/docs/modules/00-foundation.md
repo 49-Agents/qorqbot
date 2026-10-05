@@ -29,7 +29,7 @@ Use P00 in [PORTING.md](../PORTING.md). Read Qorqut transaction/receipt behavior
 
 ## Implementation sequence
 
-1. **M00.01 Configuration and package:** create the smallest installable core package/host/runner entrypoints and typed config; pin the browser dependency at integration. Separate source, release and data roots. Importing modules starts no worker, modifies no database and creates no agent. Core must run without a UI checkout or asset bundle.
+1. **M00.01 Configuration and package:** create the smallest installable core package/host/runner entrypoints and typed config; pin the independent browser release/protocol at integration. Separate source, release and data roots. Importing modules starts no worker, modifies no database and creates no agent. Core must run without a UI checkout or asset bundle.
 2. **M00.02 Storage:** add initial explicit migrations, connection/transaction helpers, schema version refusal and a migration command. Keep migrations small and tested against the previous schema.
 3. **M00.03 Operations:** create a registry of concrete operation descriptors and handlers. Generate transport schemas from shared models. Implement idempotency, revision conflicts, canonical result/error envelopes and configuration read/update operations.
 4. **M00.04 Journal/jobs:** implement atomic event/outbox writes, bounded worker claims and fixed-handler dispatch. An application restart resumes queued/waiting jobs; running external work is inspected rather than blindly repeated.

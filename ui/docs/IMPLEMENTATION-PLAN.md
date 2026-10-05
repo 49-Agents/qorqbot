@@ -38,25 +38,25 @@ Use exactly three source repositories:
 | Repository | Responsibility |
 | --- | --- |
 | `qorqut-core` | One backend: agents/personas/workspaces, runtime/tmux/CLI, recording/history, messaging, all coordination and application configuration, HTTP/MCP/operator APIs, installation/backup |
-| `qorqut-browser` | Reusable Chrome/profile lifecycle, agent controls, optional standalone MCP entrypoint, takeover binding, TigerVNC setup and remote-control transport |
+| `qorqut-browser` | Independent browser MCP server, Chrome/profile lifecycle, agent controls, takeover bridge, TigerVNC setup and remote-control transport |
 | `qorqutbot-ui` | Independent frontend consuming core's API/events/streams; chat, viewers, inspector and appearance |
 
-Agent management, runtime and communications remain modules inside core. Core imports the pinned browser package; browser imports neither core nor UI. Core supplies browser tool callbacks that commit durable requests and notifications through the shared application operations. In this product core exposes those tools through its existing MCP endpoint. Browser's thin standalone stdio MCP adapter supports other consumers without another required service here. UI owns presentation and may edit configuration through core; it owns no backend orchestration or authoritative configuration store.
+Agent management, runtime and communications remain modules inside core. Browser runs its own MCP service and imports neither core nor UI. Each native CLI connects to core MCP and its agent's browser MCP separately; browser tools are not re-exported by core MCP. Core supplies configuration and an authenticated handoff API that commits requests and notifications through shared operations. UI owns presentation and may edit configuration through core; it owns no backend orchestration or authoritative configuration store.
 
 The deployment stays lean:
 
 1. One core ASGI application serves HTTP, Qorqut MCP, event streams and authenticated viewer proxies. It operates without the UI. A UI build may be served as optional static assets or through a same-origin proxy.
 2. One host SQLite database owns registration, coordination, state transitions, operation/job receipts and history indexes.
 3. Each agent's host folder owns its authored workspace, immutable transcript archive and execution files/disks.
-4. Each VM runs a small runner service. The host-global agent uses the same runner locally.
+4. Each VM runs a small runner and an independent browser MCP service. The host-global agent uses separately bound instances locally. Browser runs next to Chrome, with a private MCP endpoint and local command/control receipts; core remains the application coordination authority.
 5. A recorder inside each managed tmux session wraps the native CLI. Independent systemd runtime units preserve it across runner-service restarts. It durably spools terminal/native bytes for the host collector to pull and acknowledge.
-6. Each agent retains a dedicated TigerVNC Chrome display/profile, distinct from the general machine desktop/VM console. Browser commands run next to Chrome. The host proxies both surface types through the same viewer components; no separate Guacamole deployment.
+6. Each agent retains a dedicated TigerVNC Chrome display/profile, distinct from the general machine desktop/VM console. Browser MCP calls and runner-proxied commands/control enter the same browser service and command gate. The host proxies both surface types through the same viewer components; no separate Guacamole deployment.
 
 Use Python 3.12, stdlib SQLite, one validation model family, the official MCP SDK, Starlette/Uvicorn, tmux, QEMU/KVM/libvirt, virtiofs, Chrome, TigerVNC/Openbox, and a pinned `agent-browser` adapter. Exact package and image versions are pinned after compatibility rehearsals. No Redis, Kafka, external search engine, model SDK runner, multi-node scheduler, role catalog, general workflow engine or business schema is needed for v1.
 
 The concrete architecture is in [ARCHITECTURE.md](ARCHITECTURE.md). Public names, states and ownership are in [CONTRACTS.md](CONTRACTS.md). The owner's chat layout, intent tools, icons, rename and visual direction are specified in [UI-PLAN.md](UI-PLAN.md); reference images will refine its styling.
 
-M00–M05, M07–M09 and M11 belong to core. M06 specifies the browser package plus its core integration; M10 specifies core's transports/operator client and the separate UI implementation. These module plans describe work packages, not additional repositories. D20 records the agreed split.
+M00–M05, M07–M09 and M11 belong to core. M06 specifies the independent browser MCP service plus its core integration; M10 specifies core's transports/operator client and the separate UI implementation. These module plans describe work packages, not additional repositories. D20/D21 record the agreed split.
 
 The current repository is the planning home and UI destination. Bootstrap the two backend repositories during implementation, move each authoritative plan to its owner and replace old copies with links. Pin package/API compatibility directly; do not add Git submodules, a shared-contracts repository or another coordination service.
 
@@ -126,7 +126,7 @@ Begin implementation by bootstrapping private `qorqut-core` and `qorqut-browser`
 
 1. Verify host prerequisites: hardware virtualization, libvirt access, QEMU, virtiofs, image tools, disk space and network overlap. The inspected machine has `/dev/kvm`, but this account lacked direct read/write access and QEMU/libvirt commands were not on PATH. No readiness claim follows from the device existing.
 2. Boot two disposable guests with a shared immutable base, independent root overlays/state disks, separate virtiofs workspaces and one private NAT network.
-3. Prove fixed-port guest HTTP/WS, bound identity, host MCP reachability, tmux reconnect/input and noVNC for dedicated Chrome and distinct usable machine desktop. Prove private libvirt graphics routing for VMs and independent local desktop allocation for onbash.
+3. Prove fixed-port runner HTTP/WS, bound identity, native CLI discovery of separate core/browser MCP endpoints, tmux reconnect/input and noVNC for dedicated Chrome and distinct usable machine desktop. Prove private libvirt graphics routing for VMs and independent local desktop allocation for onbash.
 4. Prove Chrome cookie persistence and distinct profiles across browser restart and VM reboot with synthetic local sites.
 5. Prove a nested-PTY recorder preserves CLI interaction, resize, Unicode, bracketed paste, signals and durable output ordering. Prove owned runtime cgroups survive actual runner-service restart and allow pausing producers while capture remains runnable. This is a go/no-go technical gate for the strong terminal recording contract.
 6. Pin and rehearse Claude/Codex native source/hook/resume contracts using isolated fake provider endpoints where possible. Identify parent/child transcript stores and attachments.
@@ -177,7 +177,7 @@ Complete M08/M09. Add native resume without duplicate startup input, determinist
 
 Complete M11 and run the [acceptance matrix](ACCEPTANCE.md). Package installation, systemd units, pinned guest image, migrations, diagnostics and rollback instructions.
 
-Exercise full-installation stopped backup/restore under a different data root, archive-only online snapshot, SQLite integrity/reindexing, daemon/guest/CLI restarts, network interruption, capacity pressure, browser handoffs and CLI version mismatch. Include onbash's runner spool/receipts, exact disk backing dependencies and restored-work reconciliation so backup activation cannot repeat post-snapshot effects. Measure observed capacity and set conservative defaults from the results.
+Exercise full-installation stopped backup/restore under a different data root, archive-only online snapshot, SQLite integrity/reindexing, daemon/guest/CLI restarts, network interruption, capacity pressure, browser handoffs and CLI version mismatch. Include onbash's runner spool and separate browser-service receipts, exact disk backing dependencies and restored-work reconciliation so backup activation cannot repeat post-snapshot effects. Measure observed capacity and set conservative defaults from the results.
 
 **Gate G6:** a fresh host can install the pinned release and restore a backup without Qorqut present; all critical invariants have passing evidence; known limitations are accurate. A real provider smoke test verifies actual CLI behavior using new disposable agent identities. Source/fixture success alone does not satisfy live acceptance.
 
@@ -209,7 +209,7 @@ With up to ten builders, use these ownership lanes. The first lane also owns int
 | 5. CLI adapters and continuity | Claude/Codex preparation/hooks/native binding, resume and runtime switching (M04/M08) | Run/source contracts; switching integrates runner/archive/memory later |
 | 6. Recording and history | Recorder, local spool, durable transfer/archive, parsers/search and conversation projection (M07) | Shared source/chunk/ACK contract plus runner/adapter bindings |
 | 7. Messaging and application transports | Messaging/delivery, durable browser handoff and machine coordination, HTTP/MCP/operator APIs/proxies (M05, core M06, core M10) | Shared operations, input receipts and browser interface |
-| 8. Browser package | Chrome/profile/TigerVNC, agent tools, standalone MCP adapter, local control/relay and setup (browser M06) | Explicit config and request/receipt interfaces; no UI dependency |
+| 8. Browser service | Chrome/profile/TigerVNC, agent tools, independent MCP server, local control/relay/receipts and setup (browser M06) | Explicit config and handoff/control protocols; no UI dependency |
 | 9. UI | API client, agent navigation/rename/icons, chat/composer, inline browser/file cards and inspector (UI M10) | Core API/event/surface schemas; small synthetic fixtures allow early UI work |
 | 10. Operations and recovery | Installation, supervision integration, full export/backup/restore, diagnostics and integrated acceptance evidence (M11 and portable-bundle parts of M09) | Inventory/backup contracts first; running modules for later verification |
 

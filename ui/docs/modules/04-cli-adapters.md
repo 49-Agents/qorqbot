@@ -2,7 +2,7 @@
 
 Status: Planned. Owns R05 and native-format parts of R08/R10/R11. Depends on M01/M03; supplies source definitions to M07 and resume/bootstrap behavior to M08.
 
-Repository: `qorqut-core`. Browser tool definitions/implementation come from `qorqut-browser`; core registers them with its identity and durable application-operation bindings.
+Repository: `qorqut-core`. Preparation installs separate `qorqut-core` and `qorqut-browser` MCP registrations with bound actor/target configuration. Browser owns its tool implementations and server; core never registers duplicate browser tools.
 
 ## Outcome and boundary
 
@@ -15,7 +15,7 @@ Keep two concrete adapters behind the smallest interface their differences justi
 An adapter provides:
 
 - Compatible CLI version/capability probe without starting a model turn.
-- Agent-local preparation of CLI config, MCP endpoint/identity, instructions and hooks.
+- Agent-local preparation of CLI config, separate core/browser MCP endpoints and identities, instructions and hooks.
 - Structured launch/resume argv and supported startup-context method.
 - Native process/session identification and composer readiness classification.
 - Lifecycle/activity hook translation with durable local event submission.
@@ -30,7 +30,7 @@ Prepare both adapters in the same agent workspace without changing identity. Gen
 
 Generated instructions describe user-facing intent: call `browser_request_input` when the user must sign in, enter data or act in the browser; call `files_reference` with a path when the user should see/review/be notified about a file. Explain waiting/completion and saved-reference outcomes, not iframe/modal/toast/layout mechanics. The backend resolves agent/conversation/surface bindings. Preserve these instructions consistently across both providers without parsing provider-specific tool prose to trigger UI effects.
 
-Use a dedicated native HOME per agent. Keep each CLI's ordinary tools available; do not strip its shell, file, browser or search facilities to manufacture a new permission layer. Add Qorqut MCP and the supported managed browser helper locally. Do not overwrite the owner's personal global CLI settings or copy personal transcripts.
+Use a dedicated native HOME per agent. Keep each CLI's ordinary tools available; do not strip its shell, file, browser or search facilities to manufacture a new permission layer. Add core MCP and the independent browser MCP endpoint locally. The managed browser helper runs behind browser's service-owned command gate. Do not overwrite the owner's personal global CLI settings or copy personal transcripts.
 
 Native authentication is an onboarding concern. A missing login/trust step is shown through terminal setup state; it is not silently bypassed or treated as platform permission approval. Authentication/browser profiles persist in native HOME/state disk. Any configured credential seeding is an explicit installation input with provenance, never a filesystem-wide credential scan.
 
@@ -54,7 +54,7 @@ P06/P11: adapt Qorqut's dual-client generated files, hook payload knowledge, pro
 - Both clients prepare against the same agent UUID/folder; Claude → Codex → Claude refresh preserves authored files and identity.
 - Hooks bind exact run/native sources and cannot claim another agent through a caller-supplied cwd.
 - Test cwd changes, suffixed rollout names, resumed IDs, tool/user echo distinctions, repeated equal-text messages, child sessions, unknown native types and attachments.
-- Verify generated MCP config with each actual pinned CLI, not merely TOML/JSON parsing. Native login fixtures and actual provider acceptance are separately labeled.
+- Verify both generated MCP registrations with each actual pinned CLI, not merely TOML/JSON parsing: browser tools appear on browser MCP only, and a browser outage does not erase core discovery. Native login fixtures and actual provider acceptance are separately labeled.
 - Generated tool schemas/instructions expose action intent and required paths/prompts without UI mechanics; native tool replay cannot create another request/reference.
 - Model/provider config changes never reset agent history. Unknown model labels are passed according to the adapter configuration contract rather than rejected by a stale platform list.
 - Supported versions have real native interaction/recorder evidence, including resize/signals and clean/abrupt termination.

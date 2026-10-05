@@ -15,7 +15,7 @@ Two defaults remain explicit design assumptions until the owner answers them: re
 ## Design direction
 
 - Three repositories: `qorqut-core` for backend/configuration/coordination, `qorqut-browser` for reusable browser tooling, and `qorqutbot-ui` for the frontend. See [the ownership boundary](docs/ARCHITECTURE.md#2-repository-and-package-boundaries).
-- One Python backend application, one host SQLite database, ordinary files, and a small shared runner for VM and host execution. Core uses the browser package and works without a UI.
+- One core Python application, one host SQLite database, ordinary files, and a small shared runner for VM and host execution. Each browser has its own independent MCP service; agents connect to both core and browser MCP. Core works without a UI.
 - Stable agent identity; replaceable CLI runs, VM generations and browser processes.
 - Reuse narrowly extracted Qorqut mechanisms and focused behavioral tests. Keep business workflows and permission enforcement out of v1; no example apps or duplicate test suites.
 - Preserve raw transcript bytes separately from searchable conversation projections and context supplied to a new model.

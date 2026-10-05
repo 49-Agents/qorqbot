@@ -2,7 +2,7 @@
 
 Status: Planned. Owns R03/R04/R14 and machine-surface parts of R06/R13. Depends on M00/M01 contracts; integrates with M03/M06 and M11 installation/backup. True VM is the pending-owner default D02.
 
-Repository: `qorqut-core`. Its image recipe consumes pinned `qorqut-browser` setup assets; browser does not provision agent VMs or own installation-wide settings.
+Repository: `qorqut-core`. Its image recipe installs the pinned independent browser MCP service and setup assets; browser does not provision agent VMs or own installation-wide settings. Keep the browser endpoint/receipt store separate from runner/capture state.
 
 ## Outcome and boundary
 

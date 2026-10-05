@@ -2,7 +2,7 @@
 
 The [global implementation plan](IMPLEMENTATION-PLAN.md) is the entry point and the authority for scope, dependencies and delivery gates. Module plans expand it; they do not silently override shared contracts.
 
-The agreed repositories are `qorqut-core` (backend/configuration/coordination), `qorqut-browser` (browser tooling) and `qorqutbot-ui` (frontend). These plans remain together here until implementation bootstrap moves each authoritative document to its owner. The module numbers are work packages, not repositories or services.
+The agreed repositories are `qorqut-core` (backend/configuration/coordination), `qorqut-browser` (its own MCP server and browser tooling) and `qorqutbot-ui` (frontend). Agents connect to separate core/browser MCP endpoints. These plans remain together here until implementation bootstrap moves each authoritative document to its owner. Module numbers identify work packages.
 
 | Document | Purpose |
 | --- | --- |
@@ -25,7 +25,7 @@ The agreed repositories are `qorqut-core` (backend/configuration/coordination), 
 | M03 | [Runner and terminal transport](modules/03-runner.md) | `qorqut-core` | Guest/host control bridge, tmux, process binding and durable input outcomes |
 | M04 | [CLI adapters and preparation](modules/04-cli-adapters.md) | `qorqut-core` | Claude/Codex configuration, hooks, readiness, native sources and resume |
 | M05 | [Messaging and delivery](modules/05-messaging.md) | `qorqut-core` | Full messages, threads, delivery attempts, explicit handling and offline queues |
-| M06 | [Browser, desktop and human input](modules/06-browser.md) | `qorqut-browser` + core integration | Browser mechanisms/tools/setup; core owns durable requests, notifications and machine-wide coordination |
+| M06 | [Browser, desktop and human input](modules/06-browser.md) | `qorqut-browser` + core integration | Independent browser MCP/tools/setup; core owns handoff API, durable requests, notifications and machine-wide coordination |
 | M07 | [Transcript capture and history](modules/07-transcripts.md) | `qorqut-core` | Recorder, all-source registry, spool/archive, parsing/search and conversation read projection |
 | M08 | [Continuity and runtime switching](modules/08-continuity.md) | `qorqut-core` | Saved context, native resume, provider changes and bounded restoration packets |
 | M09 | [Files, memory and portable export](modules/09-files.md) | `qorqut-core` | Authored workspace, file references, atomic file operations, memory and agent export format |

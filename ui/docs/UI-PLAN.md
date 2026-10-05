@@ -2,7 +2,7 @@
 
 Status: planned, incorporating the owner's 2026-10-07 UI direction. This is a specification update, not a built interface. Reference images will refine spacing, proportions and icon artwork later. The backend-first delivery order remains; the first UI now has a concrete single-page chat scope.
 
-Repository: **`qorqutbot-ui`**. This frontend consumes `qorqut-core` HTTP operations, events and WebSocket streams. Core owns all application coordination/configuration, durable requests, conversation records and control decisions. Browser mechanisms and agent tools live in `qorqut-browser`, integrated by core; UI never calls private runner/CDP/VNC endpoints directly. Settings forms, when needed, edit core through its API. Drafts, selection and collapsed panes are UI state. Build independently and serve static assets under the same origin as core through a proxy or optional static mount. Core remains usable without this UI.
+Repository: **`qorqutbot-ui`**. This frontend consumes `qorqut-core` HTTP operations, events and WebSocket streams. Core owns all application coordination/configuration, durable requests, conversation records and desired control state. `qorqut-browser` has its own MCP server and local input arbitration, connected to core through a handoff/control API; UI never calls private browser/runner/CDP/VNC endpoints directly. Settings forms, when needed, edit core through its API. Drafts, selection and collapsed panes are UI state. Build independently and serve static assets under the same origin as core through a proxy or optional static mount. Core remains usable without this UI.
 
 ## 1. One page, three columns
 
@@ -105,7 +105,7 @@ Initial color tokens may use background `#0b0b0b`, surface `#111111`, primary te
 4. **UI.04 Cards/inspector:** inline interactive browser card, top-right expansion, Done/Cancel and recovery; persistent file chip with copy path; collapsible status/browser/machine/terminal inspector.
 5. **UI.05 Integrated verification:** actual noVNC pointer/touch/keyboard control in two isolated guests plus onbash; refresh/replay/late parse without duplicated cards/effects; stale-agent/frame response rejection; name/icon revision conflict; small-screen and focus behavior.
 
-M10 spans core's API/operator layer and this separate UI repository; its presentation work belongs here. Add only the necessary core records/operations to M01/M02/M03/M06/M07/M09. Core integrates the browser package without a separate UI-event broker, browser service or widget/plugin framework. Keep UI tests focused on interactions and boundary failures, sharing integrated G4/G6 evidence from [ACCEPTANCE.md](ACCEPTANCE.md) rather than duplicating backend tests. No usage examples or example apps are required. File preview/rendering remains a later task. This amendment does not authorize deployment or assert any working UI exists.
+M10 spans core's API/operator layer and this separate UI repository; its presentation work belongs here. Add only the necessary core records/operations to M01/M02/M03/M06/M07/M09. Core integrates the independent browser MCP service without a UI-event broker or widget/plugin framework. Keep UI tests focused on interactions and boundary failures, sharing integrated G4/G6 evidence from [ACCEPTANCE.md](ACCEPTANCE.md) rather than duplicating backend tests. No usage examples or example apps are required. File preview/rendering remains a later task. This amendment does not authorize deployment or assert any working UI exists.
 
 ## 10. Qorqut references actually inspected
 

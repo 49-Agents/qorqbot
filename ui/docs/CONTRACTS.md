@@ -1,6 +1,6 @@
 # Shared backend contracts
 
-Status: normative planning baseline for `qorqut-core`. Implementation must keep these names and semantics aligned across modules, HTTP, MCP, tests and generated agent instructions. `qorqutbot-ui` consumes this network contract; `qorqut-browser` owns its narrower package/tool contract and core integrates it. Changes require updating this document and the affected module plans.
+Status: normative planning baseline for `qorqut-core`. Implementation must keep these names and semantics aligned across modules, HTTP, both MCP servers, tests and generated agent instructions. `qorqutbot-ui` consumes core's network contract; `qorqut-browser` owns its independent MCP/control contract and core integrates it over versioned APIs. Changes require updating this document and the affected module plans.
 
 ## 1. Identity and coordinates
 
@@ -153,8 +153,8 @@ Protocol v1 uses private HTTP and WebSockets. Each command carries operation/att
 | `GET /v1/terminal/attempts/{id}` | Read a saved input outcome |
 | `POST /v1/terminal/control` | Reconcile exact run/control epoch and input viewer under the same lock as paste |
 | `WS /v1/terminal/{run_id}` | Attach/resize/manual input for the exact run; disconnect preserves execution |
-| `POST /v1/browser/command` | Execute against exact browser instance/control epoch; return artifact references |
-| `POST /v1/browser/control` | Reconcile automation/human mode without racing in-flight commands |
+| `POST /v1/browser/command` | Forward to the browser service's single command path with exact instance/control epoch; return artifact references and existing receipt on retry |
+| `POST /v1/browser/control` | Reconcile with the independent browser service; its command gate arbitrates direct MCP and proxied actions together |
 | `WS /v1/desktop/{surface_id}` | Relay the exact locally hosted browser/desktop VNC under its current control epoch; VM machine-console proxy is host/libvirt-owned |
 | `POST /v1/files/inspect` | Inspect a regular file path in the bound agent environment for a reference; structured arguments, no host-path reinterpretation |
 | `GET /v1/events?after_seq=...` | Paginated durable hook, receipt and source-registration observations |
@@ -164,6 +164,8 @@ Protocol v1 uses private HTTP and WebSockets. Each command carries operation/att
 | `POST /v1/quiesce` | Stop new work, settle inputs, drain capture and flush local state |
 
 A minimal version handshake allows only explicitly compatible protocol versions. Unknown mandatory capabilities block the dependent action. Do not accept a runner from a mismatched generation because it reports a familiar IP or tmux name.
+
+Browser's separate local service exposes `/mcp` plus a private versioned identity/command/control/relay interface for the runner. Its identity includes agent, recovery epoch, environment/boot/browser binding and protocol. Browser alone serializes its effects and persists command intent/outcomes and control epochs in its local receipt store. Direct MCP and forwarded calls use the same handlers/lock; a retry retains the command ID/payload hash. Restart reconciles current control with core before admitting automation; unresolved commands remain uncertain. A core outage cannot turn an unresolved request or stale control observation into confirmed completion/readiness.
 
 `terminal_control(action=take|release)` requires expected run and control epoch. Take binds one input viewer and advances the epoch; release advances it and revokes the old viewer. Host admission pauses during reconciliation; runner confirmation under the input lock is required before claiming the new mode is ready. All input frames must match the current run/epoch/viewer. Disconnect/restart retains human mode without automatic expiry; explicit takeover rebinds a new viewer, and explicit release permits automation only after a fresh composer check. Neither action clears typed text. An observer cannot send input.
 
@@ -191,7 +193,7 @@ Automatic restore is the planning default pending D08. The complete archive alwa
 
 ## 10. Human input contract
 
-`browser_request_input` is described to agents as “Request an action from the user in your browser.” Its intent schema and thin tool binding belong to `qorqut-browser`; in this product the binding calls core's shared application operation. It requires a prompt, with optional observed tab reference and target agent (defaults to the authenticated calling agent). Core resolves conversation/surface/exact browser binding; a supplied observation is validated against its original instance. Commit the durable request, conversation entry/event and transition job in core's transaction. The browser package does not write a competing request/message store. `ready` means in-flight managed browser input has settled and the runner has acknowledged human control.
+`browser_request_input` is described to agents as “Request an action from the user in your browser.” The tool is exposed only by browser's own MCP server and forwards over authenticated HTTP to core's shared handoff operation. It requires a prompt, with optional observed tab reference and target agent (defaults to the authenticated calling agent). Preserve the originating actor, target and idempotency key through the bridge; caller identity must not become a generic service account. Core resolves conversation/surface/exact browser binding; a supplied observation is validated against its original instance. Commit the durable request, conversation entry/event and transition job in core's transaction. Browser stores no competing request/message history. `ready` requires browser's control acknowledgment through the runner after managed input has settled. If the bridge times out, retrieve/retry the same idempotent request; never report successful notification without core's durable receipt.
 
 The MCP tool description/result conveys needed user action and request state, not iframe/modal/layout mechanics. The frontend renders one inline live browser card per committed request ID and can expand that same surface. Transcript parsing, retries or reconnect cannot create another request/card or repeat its side effects. Closing/minimizing a viewer changes presentation only. Completed cards do not reopen live input. Detailed presentation is in [UI-PLAN.md](UI-PLAN.md).
 
@@ -221,7 +223,7 @@ Render one card from its domain ID; native tool records may link through verifie
 
 ## 12. Public operation inventory
 
-The same domain operation is exposed through HTTP and MCP where meaningful. Internal runner callbacks are separate provenance-bound transport routes, not model-writable claims about observed process state.
+Core application operations share their HTTP/MCP implementation where exposed. Browser owns the separate MCP tools `browser_turn` and `browser_request_input`; core MCP does not duplicate them. Their core HTTP bridges remain for routing, operator/UI calls and durable handoff persistence. Core retains `input_requests_list/complete/cancel` as application operations. Internal observations are separate provenance-bound routes, not model-writable claims about process state.
 
 | Group | Operations |
 | --- | --- |
@@ -249,7 +251,7 @@ Final migrations should implement these logical records without a generic JSON d
 | M02 | environment definitions, generations and resource/image pins |
 | M03/M04 | runs, exact native/terminal bindings and terminal control epochs; guest-local command receipts |
 | M05 | threads, immutable messages, deliveries, attempts, handling receipts |
-| Core M06 integration with M02 | browser/machine surfaces, instance/control epochs, human input requests and coordinated machine-control holds; browser package supplies local process/control receipts through the runner |
+| Core M06 integration with M02 | browser/machine surfaces, desired control epochs, human input requests and machine-control holds; the independent browser service owns its separate local command/control receipt store |
 | M07 | raw sources, run/source links, chunks, source checkpoints, parser records, history events, FTS, conversation entry ledger/read projection; guest-local capture spool |
 | M08 | context packets and switching operation checkpoints |
 | M09/M11 | file reference records; export and backup manifests/receipts |
@@ -262,8 +264,8 @@ Core is the only authority for application configuration and coordination. Its i
 
 `config_get` returns non-secret effective defaults, their revision, supported API/protocol versions, icon keys and effective `allow_all` policy. `config_update` accepts an expected revision and idempotency key, and validates supported new-agent CLI and CPU/memory/disk defaults through shared models. Commit defaults/revision/event/receipt together. Changes affect future agent creation; existing agents require their normal explicit operations. Static installation settings use the core operator maintenance path and are not writable through this defaults operation. Never expose raw configuration files, credentials or browser profile contents to UI clients.
 
-Core pins the browser package and image version. The package receives explicit paths, process/instance/control bindings and host request callbacks; it imports no core application or UI code. Browser action/tool models live in the package and core wraps them with its actor/idempotency/operation envelope. Core owns durable request/Done/Cancel/message transactions; the package owns local Chrome/control effects and receipts. Other applications can supply their own request callback without adopting this UI or core's schema.
+Core pins the browser service/image version and protocol. Browser receives explicit paths, process/instance/control bindings and an application handoff endpoint; it imports no core application or UI code. Browser owns its tool/control schemas, and core supplies a small wire client/HTTP bridge. Core owns durable request/Done/Cancel/message transactions; browser owns local Chrome/control effects and receipts. Other applications can supply their own handoff API without adopting this UI or core's schema.
 
-Core exposes the browser tools through its single MCP endpoint. The browser package additionally offers a thin standalone stdio MCP entrypoint over the same handlers for independent consumers. Without a configured host request/completion binding it does not advertise human takeover capability. This adapter owns no agent directory, message system or application configuration store.
+Native CLIs configure separate `qorqut-core` and `qorqut-browser` MCP servers. Browser uses a private local Streamable HTTP endpoint and survives CLI/runner restarts. All its direct and forwarded commands share control fencing. Without a configured application handoff/completion integration it does not advertise human takeover capability. Browser owns no agent directory, message system or installation-wide configuration store. Cross-agent selection resolves through core to the target browser service, preserving the original identity/idempotency binding; a local execution endpoint cannot silently operate another browser or recursively forward commands.
 
 Core owns `/api/v1` schemas and event payload versions. The UI checks supported API capabilities before dependent actions; unsupported versions produce a clear compatibility error. Core can start and complete HTTP/MCP/operator flows without UI assets, and UI releases do not migrate backend state. Serve frontend and API at one browser origin through optional static mounting or a conventional proxy; this does not add another backend service.
