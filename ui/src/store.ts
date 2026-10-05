@@ -1,6 +1,7 @@
 import { ApiError, operation, request } from './api';
-import type { Agent, AgentPage, Config, ConversationPage, Entry, EventPage, Publication, Schema, SendResult, Session, TerminalView } from './wire';
+import type { Agent, AgentPage, Config, ConversationPage, Entry, EventPage, Publication, RuntimeView, Schema, SendResult, Session, TerminalView } from './wire';
 import { mergeTerminal, terminalView } from './terminal-protocol';
+import { runtimeView } from './runtime-view';
 
 export type Pending = {
   operation: 'messages_send' | 'agents_update' | 'agents_create'; args: Record<string, unknown>;
@@ -15,6 +16,7 @@ export type Chat = {
 export type Draft = { text: string; version: number };
 export type Scroll = { top: number; bottom: boolean };
 export type TerminalObservation = { view: TerminalView | null; loading: boolean; error: string };
+export type RuntimeObservation = { view: RuntimeView | null; loading: boolean; error: string };
 const failure = (e: unknown) => e instanceof ApiError ? e : new ApiError('unavailable', 'Request failed.');
 const newChat = (): Chat => ({ items: [], epoch: '', hasOlder: false, loading: false, earlier: false, publication: null, error: '', refreshSeq: 0, change: 'initial' });
 
@@ -35,6 +37,7 @@ export class Store {
   scrolls = new Map<string, Scroll>();
   views = new Map<string, 'chat' | 'terminal'>();
   terminals = new Map<string, TerminalObservation>();
+  runtimes = new Map<string, RuntimeObservation>();
   pending = new Map<string, Pending>();
   notice = '';
   private listeners = new Set<() => void>();
@@ -43,6 +46,7 @@ export class Store {
   private reads = new Set<AbortController>();
   private conversationRead?: AbortController;
   private terminalRead?: AbortController;
+  private runtimeRead?: AbortController;
   private timer?: number;
   private pollBusy = false;
   private pollFailures = 0;
@@ -84,11 +88,13 @@ export class Store {
     this.reads.clear();
     this.conversationRead?.abort();
     this.terminalRead?.abort();
+    this.runtimeRead?.abort();
     this.selectionVersion++;
     this.agents = [];
     this.chats.clear();
     this.scrolls.clear();
     this.terminals.clear();
+    this.runtimes.clear();
     this.config = null;
     this.supported.clear();
     this.epoch = '';
@@ -215,6 +221,7 @@ export class Store {
     } else {
       if (!this.chats.has(this.selected)) void this.refreshConversation('initial');
       if (!this.terminals.has(this.selected)) void this.refreshTerminal();
+      if (!this.runtimes.has(this.selected)) void this.refreshRuntime();
     }
     this.emit();
   }
@@ -222,6 +229,7 @@ export class Store {
     if (id && !this.agents.some(a => a.id === id)) return;
     this.conversationRead?.abort();
     this.terminalRead?.abort();
+    this.runtimeRead?.abort();
     this.selectionVersion++;
     this.selected = id;
     this.hint = id;
@@ -230,6 +238,7 @@ export class Store {
     if (id) {
       void this.refreshConversation(this.chats.has(id) ? 'refresh' : 'initial');
       void this.refreshTerminal();
+      void this.refreshRuntime();
     }
   }
   private async recover(gen: number) {
@@ -297,7 +306,7 @@ export class Store {
         this.eventSeq = page.next_after_seq;
       }
       if (gen !== this.generation || controller.signal.aborted) return;
-      await Promise.all([this.refreshConversation('refresh'), this.refreshTerminal()]);
+      await Promise.all([this.refreshConversation('refresh'), this.refreshTerminal(), this.refreshRuntime()]);
       if (gen !== this.generation || controller.signal.aborted) return;
       if (this.chats.get(this.selected)?.error) {
         this.connection = 'Offline'; this.pollFailures++;
@@ -320,6 +329,38 @@ export class Store {
     const prior = this.terminals.get(view.agent_id);
     this.terminals.set(view.agent_id, { view: mergeTerminal(prior?.view, view), loading: false, error: '' });
     this.emit();
+  }
+  async refreshRuntime(force = false) {
+    const id = this.selected;
+    if (!id || !this.has('runtime_get') || this.phase !== 'ready') return;
+    if (this.runtimeRead && !this.runtimeRead.signal.aborted) {
+      if (!force) return;
+      this.runtimeRead.abort();
+    }
+    const controller = this.controller(); this.runtimeRead = controller;
+    const gen = this.generation, selection = this.selectionVersion;
+    const prior = this.runtimes.get(id);
+    this.runtimes.set(id, { view: prior?.view || null, loading: true, error: prior?.error || '' }); this.emit();
+    const valid = () => gen === this.generation && selection === this.selectionVersion && id === this.selected && !controller.signal.aborted;
+    try {
+      const view = await operation<unknown>('runtime_get', { agent_id: id }, controller.signal);
+      if (!valid()) return;
+      if (!runtimeView(view) || view.agent_id !== id || (view.current_owner && view.current_owner.conversation_id !== this.agent()?.conversation_id)) {
+        throw new ApiError('invalid_response', 'Session observation could not be verified.');
+      }
+      if (view.current_owner && view.current_owner.recovery_epoch !== this.epoch) throw new ApiError('target_changed', 'Server recovery epoch changed.');
+      this.runtimes.set(id, { view, loading: false, error: '' });
+    } catch (e) {
+      if (!valid()) return;
+      const err = failure(e);
+      this.runtimes.set(id, { view: null, loading: false, error: 'Session information unavailable. Retry to refresh.' });
+      if (err.status === 401) this.expire();
+      else if (err.code === 'target_changed') await this.recover(gen);
+    } finally {
+      this.reads.delete(controller);
+      if (this.runtimeRead === controller) this.runtimeRead = undefined;
+      this.emit();
+    }
   }
   async refreshTerminal(force = false) {
     const id = this.selected;

@@ -103,6 +103,7 @@ legend{padding:0;margin-bottom:9px}
 .inline-actions button{font-size:11px;padding:5px 9px}
 .inspector section{padding:22px 0;border-top:1px solid #2b2b2b;font-size:12px;overflow-wrap:anywhere}
 .inspector section>p{font-size:12px}
+.runtime-note,.runtime-details{margin-top:14px}
 dl{margin:15px 0 0;display:grid;grid-template-columns:110px minmax(0,1fr);column-gap:12px;row-gap:9px;font-size:11px}
 dt{color:#aaa}
 dd{margin:0;overflow-wrap:anywhere}

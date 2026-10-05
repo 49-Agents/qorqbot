@@ -3,7 +3,7 @@ import { createServer, type Server, type ServerResponse } from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { Agent, Config, Entry, Publication, TerminalView } from '../src/wire';
+import type { Agent, Config, Entry, Publication, RuntimeView, TerminalView } from '../src/wire';
 
 export const owner = '00000000-0000-4000-8000-000000000001';
 export const alpha = '10000000-0000-4000-8000-000000000001';
@@ -38,6 +38,7 @@ export class SyntheticAPI {
   operations = ['config_get', 'events_list', 'agents_list', 'agents_get', 'agents_create', 'agents_update', 'conversation_list', 'messages_send'];
   publication: Publication = { pending_entries: 0, state: 'current', error: null };
   terminals = new Map<string, TerminalView>();
+  runtimes = new Map<string, RuntimeView>();
   receipts = new Map<string, object>();
   messages: object[] = [];
   dropSend = false;
@@ -173,6 +174,9 @@ export class SyntheticAPI {
         has_older: first !== null ? all.some(e => e.conversation_seq < first) : !!all.length && args.after_seq !== undefined,
         has_newer: last !== null ? all.some(e => e.conversation_seq > last) : !!all.length && args.before_seq !== undefined,
         publication: this.publication }));
+    } else if (name === 'runtime_get') {
+      json(200, success(this.runtimes.get(args.agent_id) || { agent_id: args.agent_id, status: 'disconnected',
+        current_owner: null, observed_at: null, input_ready: false, native_setup: null, native_capture: null }));
     } else if (name === 'terminal_get') {
       json(200, success(this.terminals.get(args.agent_id) || { agent_id: args.agent_id, recovery_epoch: this.epoch,
         terminal_id: null, observed_at: null, status: 'disabled', reason: 'not_configured', control: null, recording: null, dimensions: null }));
