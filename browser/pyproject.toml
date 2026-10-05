@@ -5,9 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "qorqut-browser"
 version = "0.1.0"
-description = "Independent local browser effect and control primitives"
+description = "Independent browser MCP and private HTTP service"
 requires-python = ">=3.12"
-dependencies = ["pydantic==2.13.5"]
+dependencies = [
+    "pydantic==2.13.5",
+    "mcp==1.30.0",
+    "anyio==4.15.1",
+    "starlette==1.7.0",
+    "uvicorn==0.54.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
