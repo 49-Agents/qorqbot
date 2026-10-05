@@ -1,4 +1,4 @@
-import type { TerminalControl, TerminalMessage, TerminalView } from './wire';
+import type { TerminalControl, TerminalDimensions, TerminalMessage, TerminalView } from './wire';
 
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const fields = (v: Record<string, unknown>, names: string) => {
@@ -14,12 +14,18 @@ function control(v: unknown): v is TerminalControl {
   return record(v) && fields(v, 'mode epoch viewer_id last_sequence') && counter(v.epoch) && counter(v.last_sequence)
     && ((v.mode === 'unclaimed' && v.viewer_id === null) || (v.mode === 'human' && uuid(v.viewer_id)));
 }
+const dimensions = (columns: unknown, rows: unknown) => counter(columns) && columns >= 20 && columns <= 500
+  && counter(rows) && rows >= 5 && rows <= 250;
+function terminalDimensions(v: unknown): v is TerminalDimensions {
+  return record(v) && fields(v, 'columns rows') && dimensions(v.columns, v.rows);
+}
 export function terminalView(v: unknown): v is TerminalView {
-  if (!record(v) || !fields(v, 'agent_id recovery_epoch terminal_id observed_at status reason control recording')) return false;
+  if (!record(v) || !fields(v, 'agent_id recovery_epoch terminal_id observed_at status reason control recording dimensions')) return false;
   if (!uuid(v.agent_id) || !uuid(v.recovery_epoch) || !(v.terminal_id === null || uuid(v.terminal_id))) return false;
   if (!(v.observed_at === null || (typeof v.observed_at === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?(?:Z|\+00:00)$/.test(v.observed_at) && Number.isFinite(Date.parse(v.observed_at))))) return false;
   if (!oneOf(v.status, 'disabled waiting_workspace available stopped unavailable unsupported_target') || !text(v.reason, 100)) return false;
-  if (v.status === 'available' && v.terminal_id === null) return false;
+  if (!(v.dimensions === null || terminalDimensions(v.dimensions))) return false;
+  if (v.status === 'available' && (v.terminal_id === null || v.dimensions === null)) return false;
   if (!(v.control === null || control(v.control))) return false;
   const r = v.recording;
   return r === null || (record(r) && fields(r, 'state local_captured_offset host_archived_offset')
@@ -32,7 +38,8 @@ export function terminalMessage(raw: string): TerminalMessage | null {
   if (!record(v)) return null;
   let valid = false;
   switch (v.type) {
-    case 'hello': valid = fields(v, 'type protocol viewer_id terminal') && v.protocol === 1 && uuid(v.viewer_id) && terminalView(v.terminal); break;
+    case 'hello': valid = fields(v, 'type protocol viewer_id terminal') && v.protocol === 2 && uuid(v.viewer_id) && terminalView(v.terminal); break;
+    case 'size': valid = fields(v, 'type columns rows') && dimensions(v.columns, v.rows); break;
     case 'state': valid = fields(v, 'type terminal') && terminalView(v.terminal); break;
     case 'control': valid = fields(v, 'type control') && control(v.control); break;
     case 'frame': valid = fields(v, 'type kind viewer_id epoch sequence outcome bytes_written') && oneOf(v.kind, 'input resize')

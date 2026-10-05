@@ -388,8 +388,28 @@ test('escaped content and desktop/mobile drawers, focus and screenshots', async 
 });
 
 // These two owning flows exercise the compiled UI with synthetic HTTP/WS peers only.
-test('synthetic Terminal views retain Chat drafts/history, report availability and fit desktop/mobile', async ({ page, api }, testInfo) => {
+// Measure the actual glyph range against the scroll viewport, not merely its row.
+async function terminalTextVisible(page: Page, text: string) {
+  return page.locator('.terminal-screen').evaluate((viewport, text) => {
+    const row = [...viewport.querySelectorAll('.xterm-rows > div')].find(e => e.textContent?.includes(text));
+    if (!row) return false;
+    const start = row.textContent!.indexOf(text), end = start + text.length;
+    const range = document.createRange(), walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+    let offset = 0, begun = false;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const length = node.textContent!.length;
+      if (!begun && start < offset + length) { range.setStart(node, start - offset); begun = true; }
+      if (begun && end <= offset + length) { range.setEnd(node, end - offset); break; }
+      offset += length;
+    }
+    const glyphs = range.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
+    return glyphs.left >= bounds.left && glyphs.right <= bounds.left + viewport.clientWidth
+      && glyphs.top >= bounds.top && glyphs.bottom <= bounds.top + viewport.clientHeight;
+  }, text);
+}
+test('synthetic Terminal views retain Chat drafts/history, report availability and scroll native grids on desktop/mobile', async ({ page, api }, testInfo) => {
   const terminal = new SyntheticTerminal(api);
+  terminal.view = { ...terminal.view, dimensions: { columns: 132, rows: 60 } };
   await terminal.route(page);
   for (let i = 0; i < 30; i++) api.add(alpha, `Saved Chat record ${i}`);
   await signIn(page, api);
@@ -401,7 +421,7 @@ test('synthetic Terminal views retain Chat drafts/history, report availability a
   await expect(page.getByRole('button', { name: 'Terminal', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByLabel('Terminal view').getByText('Terminal is disabled on this installation.')).toBeVisible();
   expect(terminal.connections).toHaveLength(0);
-  const baseView = { ...terminal.view, agent_id: alpha, terminal_id: null, control: null, recording: null };
+  const baseView = { ...terminal.view, agent_id: alpha, terminal_id: null, control: null, recording: null, dimensions: null };
   for (const [status, label] of [
     ['waiting_workspace', 'Terminal is waiting for the workspace.'], ['unsupported_target', 'Terminal is not available for this agent yet.'],
     ['stopped', 'Terminal is stopped.'], ['unavailable', 'Terminal is unavailable.'],
@@ -422,18 +442,51 @@ test('synthetic Terminal views retain Chat drafts/history, report availability a
   await expect(page.getByText('View only', { exact: true })).toBeVisible();
   expect(terminal.current.route.url()).toBe(api.url.replace('http:', 'ws:') + `/api/v1/terminal/${beta}`);
   expect(terminal.current.messages).toEqual([]);
-  terminal.output('Synthetic recorded terminal\r\n$ ');
+  const initialControl = structuredClone(terminal.view.control);
+  terminal.output('Synthetic recorded terminal\r\n$ \x1b[2;115HRIGHT-132-EDGE\x1b[59;1HBOTTOM-60-END\x1b[60;112HLOWER-RIGHT-132-60\x1b[3;1H');
   await expect(page.locator('.xterm-screen')).toContainText('Synthetic recorded terminal');
+  await expect(page.locator('.xterm-rows > div')).toHaveCount(60);
+  const display = page.getByRole('region', { name: 'Terminal display', exact: true });
+  const font = await page.locator('.xterm-rows').evaluate(e => getComputedStyle(e).fontSize);
+  expect(font).toBe('13px');
   await page.screenshot({ path: testInfo.outputPath('terminal-desktop.png'), fullPage: true });
   const wide = await page.locator('.xterm-screen').boundingBox();
+  const viewportBefore = await display.boundingBox();
   await page.getByRole('button', { name: 'Close inspector' }).click();
-  await expect.poll(async () => (await page.locator('.xterm-screen').boundingBox())!.width).toBeGreaterThan(wide!.width);
+  await expect.poll(async () => (await display.boundingBox())!.width).toBeGreaterThan(viewportBefore!.width);
+  expect((await page.locator('.xterm-screen').boundingBox())!.width).toBe(wide!.width);
   expect(terminal.current.messages).toEqual([]);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('button', { name: 'Open agents' })).toBeVisible();
-  await expect.poll(async () => (await page.locator('.xterm-screen').boundingBox())!.width).toBeLessThan(390);
+  await expect.poll(async () => (await display.boundingBox())!.width).toBeLessThan(390);
+  expect((await page.locator('.xterm-screen').boundingBox())!.width).toBe(wide!.width);
+  await expect(page.locator('.xterm-rows > div')).toHaveCount(60);
+  expect(await terminalTextVisible(page, 'RIGHT-132-EDGE')).toBe(false);
+  expect(await terminalTextVisible(page, 'BOTTOM-60-END')).toBe(false);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('terminal-mobile.png'), fullPage: true });
+  // Real browser keyboard scrolling of the focusable native overflow region.
+  await display.focus();
+  for (let i = 0; i < 35; i++) await page.keyboard.press('ArrowRight');
+  await expect.poll(() => terminalTextVisible(page, 'RIGHT-132-EDGE')).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('terminal-mobile-right.png'), fullPage: true });
+  await page.keyboard.press('End');
+  await expect.poll(() => terminalTextVisible(page, 'LOWER-RIGHT-132-60')).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('terminal-mobile-bottom-right.png'), fullPage: true });
+  for (let i = 0; i < 35; i++) await page.keyboard.press('ArrowLeft');
+  await expect.poll(() => terminalTextVisible(page, 'BOTTOM-60-END')).toBe(true);
+  await expect(page.getByRole('button', { name: 'Take control', exact: true })).toBeInViewport();
+  await expect(page.locator('.terminal-note')).toBeInViewport();
+  expect(await page.locator('.xterm-rows').evaluate(e => getComputedStyle(e).fontSize)).toBe(font);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+  expect(terminal.current.messages).toEqual([]);
+  expect(terminal.view.control).toEqual(initialControl);
+  await (await import('node:fs/promises')).writeFile(testInfo.outputPath('mobile-native-grid.json'), JSON.stringify(await display.evaluate(e => ({
+    viewport: { width: e.clientWidth, height: e.clientHeight }, grid: { width: e.scrollWidth, height: e.scrollHeight },
+    scroll: { left: e.scrollLeft, top: e.scrollTop }, rows: e.querySelectorAll('.xterm-rows > div').length,
+    font: getComputedStyle(e.querySelector('.xterm-rows')!).fontSize,
+  })), null, 2));
+  await page.screenshot({ path: testInfo.outputPath('terminal-mobile-bottom.png'), fullPage: true });
   await page.getByRole('button', { name: 'Open inspector' }).click();
   await expect(page.getByRole('dialog', { name: 'Inspector', exact: true }).getByText(/Local recording: healthy/)).toBeVisible();
   await page.getByRole('dialog', { name: 'Inspector', exact: true }).getByText(/Local recording: healthy/).scrollIntoViewIfNeeded();
@@ -467,8 +520,66 @@ test('synthetic Terminal views retain Chat drafts/history, report availability a
   expect(terminal.connections).toHaveLength(3);
 });
 
+declare global {
+  interface Window {
+    syntheticTimerGate: { close(): void; open(): void; retained(): number };
+    syntheticTimerCanaries: string[];
+  }
+}
+
 test('synthetic Terminal protocol fences control and human input, bounds queues, and reconnects without replay', async ({ page, api, context }, testInfo) => {
   test.setTimeout(90000);
+  // Test-only public scheduler gate: real WS events and browser/Node clocks keep
+  // running. No production hooks or private xterm state establish the stall.
+  await page.addInitScript(() => {
+    const schedule = window.setTimeout.bind(window), cancel = window.clearTimeout.bind(window);
+    let closed = false, order = 0;
+    type Timer = { handle: number; order: number; retained: boolean; run(): void };
+    const pending = new Map<number, Timer>();
+    window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+      if (Number(delay ?? 0) > 0) return schedule(handler, delay, ...args);
+      const timer: Timer = { handle: 0, order: order++, retained: closed, run: () => {
+        if (!pending.has(timer.handle)) return;
+        if (closed) { timer.retained = true; return; }
+        pending.delete(timer.handle);
+        if (typeof handler === 'function') handler.apply(window, args);
+        else schedule(handler, 0, ...args);
+      } };
+      timer.handle = schedule(timer.run, delay);
+      pending.set(timer.handle, timer);
+      return timer.handle;
+    }) as typeof window.setTimeout;
+    window.clearTimeout = handle => { if (typeof handle === 'number') pending.delete(handle); cancel(handle); };
+    window.syntheticTimerGate = {
+      close: () => { closed = true; },
+      retained: () => [...pending.values()].filter(timer => timer.retained).length,
+      open: () => {
+        closed = false;
+        for (const timer of [...pending.values()].filter(timer => timer.retained).sort((a, b) => a.order - b.order)) {
+          cancel(timer.handle); timer.run();
+        }
+      },
+    };
+  });
+  const pauseRenderer = () => page.evaluate(() => window.syntheticTimerGate.close());
+  const resumeRenderer = () => page.evaluate(() => window.syntheticTimerGate.open());
+  const freezePressure = async () => {
+    expect(await page.evaluate(() => {
+      window.syntheticTimerCanaries = [];
+      window.syntheticTimerGate.close();
+      setTimeout(value => window.syntheticTimerCanaries.push(value), undefined, 'first');
+      const canceled = setTimeout(() => window.syntheticTimerCanaries.push('canceled'));
+      clearTimeout(canceled);
+      setTimeout(value => window.syntheticTimerCanaries.push(value), 0, 'second');
+      return { retained: window.syntheticTimerGate.retained(), ran: window.syntheticTimerCanaries };
+    })).toEqual({ retained: 2, ran: [] });
+  };
+  const thawPressure = async () => {
+    expect(await page.evaluate(() => {
+      window.syntheticTimerGate.open();
+      return window.syntheticTimerCanaries;
+    })).toEqual(['first', 'second']);
+  };
   const terminal = new SyntheticTerminal(api);
   await terminal.route(page);
   await signIn(page, api); await agentButton(page, 'onbash').click();
@@ -488,7 +599,40 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
     await expect(page.getByText('View only', { exact: true })).toBeVisible();
     expect(terminal.connections).toHaveLength(count + 1);
     expect(terminal.current.messages).toEqual([]);
+    terminal.output(`Viewer ready ${count + 1}\r\n`);
+    await expect(page.locator('.xterm-screen')).toContainText(`Viewer ready ${count + 1}`);
   };
+  // Keep parser callbacks pending while protocol/control messages continue. All
+  // observations below use public DOM and real WS delivery, with no xterm hooks.
+  await pauseRenderer();
+  const initialGrid = await page.locator('.xterm-screen').boundingBox();
+  terminal.output('\x1b[?1049h\x1b[2J\x1b[H\x1b[1;100HOLD-CLAMP');
+  // More than the entry cap in adjacent size announcements must coalesce.
+  for (let i = 0; i < 1025; i++) terminal.size(100 + i % 2, 30);
+  terminal.size(120, 40);
+  terminal.output('\x1b[3;100HNEW-GRID');
+  const orderedView = structuredClone(terminal.view);
+  terminal.view = { ...terminal.view, dimensions: { columns: 20, rows: 5 },
+    recording: { ...terminal.view.recording!, local_captured_offset: 121 } };
+  terminal.state();
+  await expect(page.getByRole('complementary').getByText(/121 bytes captured/)).toBeVisible();
+  await expect(page.locator('.xterm-rows > div')).toHaveCount(24);
+  expect((await page.locator('.xterm-screen').boundingBox())!.width).toBe(initialGrid!.width);
+  expect(terminal.current.messages).toEqual([]);
+  await resumeRenderer();
+  await expect(page.locator('.xterm-rows > div')).toHaveCount(40);
+  const rowText = (row: number) => page.locator('.xterm-rows > div').nth(row).evaluate(e => e.textContent!.replace(/\u00a0/g, ' ').trimEnd());
+  await expect.poll(() => rowText(0)).toBe(' '.repeat(79) + 'O');
+  expect(await rowText(1)).toBe('LD-CLAMP');
+  expect(await rowText(2)).toBe(' '.repeat(99) + 'NEW-GRID');
+  // HTTP observations can also lag the live stream; neither source resizes it.
+  const readsBeforeLate = calls(api, 'terminal_get').length;
+  await expect.poll(() => calls(api, 'terminal_get').length).toBeGreaterThan(readsBeforeLate);
+  await expect(page.locator('.xterm-rows > div')).toHaveCount(40);
+  expect((await page.locator('.xterm-screen').boundingBox())!.width).toBeCloseTo(initialGrid!.width * 1.5, 0);
+  terminal.view = orderedView; terminal.size(80, 24);
+  terminal.output('\x1b[?1049l\x1b[2J\x1b[H');
+  await expect(page.locator('.xterm-rows > div')).toHaveCount(24);
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: api.url });
   const paste = async (text: string) => {
     await page.evaluate(value => navigator.clipboard.writeText(value), text);
@@ -508,6 +652,42 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await expect(page.getByRole('button', { name: 'Release control', exact: true })).toBeVisible();
   await expect.poll(() => terminal.frames.length).toBe(1);
   expect(terminal.frames[0]).toMatchObject({ type: 'resize', epoch: 1, sequence: 8 });
+  const fitted = terminal.frames[0];
+  if (fitted.type !== 'resize') throw new Error('Expected the acknowledged viewport resize');
+  await expect(page.locator('.xterm-rows > div')).toHaveCount(fitted.rows);
+  expect(fitted.columns).toBeGreaterThanOrEqual(20); expect(fitted.columns).toBeLessThanOrEqual(500);
+  expect(fitted.rows).toBeGreaterThanOrEqual(5); expect(fitted.rows).toBeLessThanOrEqual(250);
+  // The owned viewer follows stream geometry without feeding it back as input.
+  const beforeGeometry = terminal.frames.length;
+  terminal.size(132, 60);
+  terminal.output('Owned stream size\r\n');
+  await expect(page.locator('.xterm-screen')).toContainText('Owned stream size');
+  await expect(page.locator('.xterm-rows > div')).toHaveCount(60);
+  expect(terminal.frames).toHaveLength(beforeGeometry);
+  await page.setViewportSize({ width: 1441, height: 960 });
+  // One pixel of genuine container change still proposes the same cell count.
+  await expect.poll(async () => (await page.locator('.terminal-screen').boundingBox())!.width).toBe(829);
+  const settleViewport = () => page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+  await settleViewport();
+  expect(terminal.frames).toHaveLength(beforeGeometry);
+  // Returning to an in-flight size discards the intervening unsent proposal.
+  terminal.autoReceipt = false;
+  await page.setViewportSize({ width: 1200, height: 960 });
+  await expect.poll(() => terminal.frames.length).toBe(beforeGeometry + 1);
+  const inFlightResize = terminal.frames.at(-1)!;
+  await page.setViewportSize({ width: 1300, height: 960 });
+  await expect.poll(async () => (await page.locator('.terminal-screen').boundingBox())!.width).toBe(688);
+  await settleViewport();
+  await page.setViewportSize({ width: 1200, height: 960 });
+  await expect.poll(async () => (await page.locator('.terminal-screen').boundingBox())!.width).toBe(588);
+  await settleViewport();
+  terminal.receipt(inFlightResize);
+  terminal.output('Resize proposal settled\r\n');
+  await expect(page.locator('.xterm-screen')).toContainText('Resize proposal settled');
+  expect(terminal.frames).toHaveLength(beforeGeometry + 1);
+  terminal.autoReceipt = true;
+  await page.setViewportSize({ width: 1441, height: 960 });
+  await expect.poll(() => terminal.frames.length).toBe(beforeGeometry + 2);
   terminal.autoControl = true;
   const oldControl = { ...terminal.view.control!, last_sequence: 0 };
   terminal.state({ ...terminal.view, control: oldControl });
@@ -555,12 +735,14 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await expect.poll(() => terminal.inputs.length).toBe(beforeQueueInputs + 1);
   const held = terminal.frames.at(-1)!;
   const framesBeforeQueue = terminal.frames.length;
+  const gridBeforeQueue = await page.locator('.xterm-screen').boundingBox();
   await paste('A'.repeat(32768)); await paste('B'.repeat(32768));
   await page.keyboard.type('Z');
   await expect(page.getByRole('alert').filter({ hasText: /Input queue is full/ })).toBeVisible();
   await page.setViewportSize({ width: 1200, height: 900 });
   await page.setViewportSize({ width: 900, height: 800 });
-  await expect.poll(async () => (await page.locator('.xterm-screen').boundingBox())!.width).toBeLessThan(700);
+  await expect.poll(async () => (await page.locator('.terminal-screen').boundingBox())!.width).toBeLessThan(700);
+  expect((await page.locator('.xterm-screen').boundingBox())!.width).toBe(gridBeforeQueue!.width);
   expect(terminal.frames).toHaveLength(framesBeforeQueue);
   terminal.receipt(held);
   await expect.poll(() => terminal.frames.length).toBe(framesBeforeQueue + 1);
@@ -577,7 +759,26 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await page.getByRole('button', { name: 'Release control', exact: true }).click();
   await expect(page.getByText('View only', { exact: true })).toBeVisible();
   expect(terminal.view.control!.mode).toBe('unclaimed');
+  const releasedGrid = await page.locator('.xterm-screen').boundingBox();
+  const releasedFrames = terminal.frames.length;
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('button', { name: 'Open agents' })).toBeVisible();
+  expect((await page.locator('.xterm-screen').boundingBox())!.width).toBe(releasedGrid!.width);
+  expect(terminal.frames).toHaveLength(releasedFrames);
   await take();
+  await expect.poll(() => terminal.frames.length).toBe(releasedFrames + 1);
+  const mobileFit = terminal.frames.at(-1)!;
+  if (mobileFit.type !== 'resize') throw new Error('Expected mobile control to fit');
+  await expect(page.locator('.xterm-rows > div')).toHaveCount(mobileFit.rows);
+  expect((await page.locator('.xterm-screen').boundingBox())!.width).toBeLessThan(390);
+  await page.screenshot({ path: testInfo.outputPath('terminal-mobile-controlled.png'), fullPage: true });
+  // Clamp proposals at the frozen protocol bounds, using real viewport changes.
+  await page.setViewportSize({ width: 160, height: 250 });
+  await expect.poll(() => terminal.frames.at(-1)).toMatchObject({ type: 'resize', columns: 20, rows: 5 });
+  await page.setViewportSize({ width: 6000, height: 5000 });
+  await expect.poll(() => terminal.frames.at(-1)).toMatchObject({ type: 'resize', columns: 500, rows: 250 });
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await expect.poll(() => terminal.frames.at(-1)).toMatchObject({ type: 'resize', columns: fitted.columns, rows: fitted.rows });
   // A newer viewer revokes admission immediately; stale state/receipts cannot restore it.
   terminal.holdNextInput = true;
   await input.focus(); await page.keyboard.type('p');
@@ -586,12 +787,17 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await page.keyboard.type('queued');
   await cdp.send('Input.imeSetComposition', { text: '旧', selectionStart: 1, selectionEnd: 1 });
   const older = structuredClone(terminal.view);
+  await pauseRenderer();
+  terminal.output('Delayed before takeover'); terminal.size(132, 60);
   terminal.view = { ...terminal.view, control: { mode: 'human', epoch: terminal.view.control!.epoch + 1, viewer_id: '30000000-0000-4000-8000-000000000001', last_sequence: 0 } };
   terminal.state();
   await expect(page.getByText('View only', { exact: true })).toBeVisible();
   const beforeTakeover = terminal.frames.length;
   terminal.state(older); terminal.receipt(pending);
   await input.focus(); await page.keyboard.type('ignored');
+  expect(terminal.frames).toHaveLength(beforeTakeover);
+  await resumeRenderer();
+  await expect(page.locator('.xterm-rows > div')).toHaveCount(60);
   expect(terminal.frames).toHaveLength(beforeTakeover);
   terminal.autoReceipt = true;
   await take();
@@ -602,21 +808,35 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   terminal.output('Old composition cleared\r\n');
   await expect(page.locator('.xterm-screen')).toContainText('Old composition cleared');
   expect(terminal.inputs).toHaveLength(beforeOldComposition);
+  await pauseRenderer();
+  terminal.output('Disposed pending write'); terminal.size(200, 80);
+  terminal.view = { ...terminal.view, recording: { ...terminal.view.recording!, local_captured_offset: 122 } };
+  terminal.state();
+  await expect(page.getByRole('complementary').getByText(/122 bytes captured/)).toBeVisible();
   await page.getByRole('button', { name: 'Chat', exact: true }).click();
   await expect(message(page)).toHaveValue('A durable Chat draft');
   await expect.poll(() => terminal.current.closed).toBe(true);
   const hold = structuredClone(terminal.view.control);
   const priorViewer = terminal.current.viewer;
+  terminal.view = { ...terminal.view, dimensions: { columns: 90, rows: 30 } };
   await page.getByRole('button', { name: 'Terminal', exact: true }).click();
   await expect(page.getByText('View only', { exact: true })).toBeVisible();
   expect(terminal.view.control).toEqual(hold);
   expect(terminal.current.viewer).not.toBe(priorViewer);
   expect(terminal.current.messages).toEqual([]);
+  await resumeRenderer();
+  await expect(page.locator('.xterm-rows > div')).toHaveCount(30);
+  terminal.output('Fresh viewer after disposal');
+  await expect(page.locator('.xterm-screen')).toContainText('Fresh viewer after disposal');
+  await expect(page.locator('.xterm-screen')).not.toContainText('Disposed pending write');
+  expect(terminal.current.messages).toEqual([]);
   // A stale take refreshes observations and awaits another explicit click.
-  terminal.view = { ...terminal.view, control: { ...terminal.view.control!, epoch: terminal.view.control!.epoch + 1 } };
+  terminal.conflictNextControl = true;
+  const readsBeforeConflict = calls(api, 'terminal_get').length;
   await page.getByRole('button', { name: 'Take control', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: /Control changed/ })).toBeVisible();
-  await expect.poll(() => calls(api, 'terminal_get').length).toBeGreaterThan(2);
+  await expect.poll(() => calls(api, 'terminal_get').length).toBeGreaterThan(readsBeforeConflict);
+  await settleViewport();
   expect(terminal.current.messages).toHaveLength(1);
   await take();
   terminal.holdNextInput = true;
@@ -640,20 +860,71 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await reconnect();
   terminal.state({ ...terminal.view, terminal_id: '40000000-0000-4000-8000-000000000001' });
   await expect(page.getByRole('button', { name: 'Reconnect terminal' })).toBeVisible();
-  // Strict protocol checks refuse a boolean protocol number and extra public-view fields.
-  terminal.hello = (route, viewer) => route.send(JSON.stringify({ type: 'hello', protocol: true, viewer_id: viewer, terminal: terminal.view }));
-  await page.getByRole('button', { name: 'Reconnect terminal' }).click();
-  await expect(page.getByRole('alert').filter({ hasText: /Invalid terminal protocol/ })).toBeVisible();
+  // Unsupported protocol and missing/malformed geometry never enable admission.
+  for (const invalid of [
+    { protocol: 1 }, { protocol: true },
+    { terminal: { ...terminal.view, dimensions: null } },
+    { terminal: { ...terminal.view, dimensions: { columns: true, rows: 24 } } },
+    { terminal: { ...terminal.view, dimensions: { columns: 80.5, rows: 24 } } },
+  ]) {
+    terminal.hello = (route, viewer) => route.send(JSON.stringify({ type: 'hello', protocol: 2, viewer_id: viewer, terminal: terminal.view, ...invalid }));
+    const count = terminal.connections.length;
+    await page.getByRole('button', { name: 'Reconnect terminal' }).click();
+    await expect.poll(() => terminal.connections.length).toBe(count + 1);
+    await expect.poll(() => terminal.current.closed).toBe(true);
+    await expect(page.getByRole('alert').filter({ hasText: /Terminal unavailable. Invalid terminal protocol/ })).toBeVisible();
+    expect(terminal.current.messages).toEqual([]);
+    await expect(page.getByRole('button', { name: 'Take control', exact: true })).toHaveCount(0);
+  }
   terminal.hello = null; await reconnect();
   terminal.send({ type: 'state', terminal: { ...terminal.view, socket_path: '/not-a-public-field' } });
   await expect(page.getByRole('button', { name: 'Reconnect terminal' })).toBeVisible();
   await reconnect();
-  // Pause parser timers to model a slow renderer while real WS messages keep arriving.
-  await page.clock.install(); await page.clock.pauseAt(new Date());
-  for (let i = 0; i < 17; i++) terminal.output(Buffer.alloc(65536, 65));
+  for (const invalid of [
+    { columns: 19, rows: 24 }, { columns: 501, rows: 24 }, { columns: 80, rows: 4 }, { columns: 80, rows: 251 },
+    { columns: 80, rows: '24' }, { columns: 80, rows: 24, epoch: 1 },
+  ]) {
+    terminal.send({ type: 'size', ...invalid });
+    await expect(page.getByRole('button', { name: 'Reconnect terminal' })).toBeVisible();
+    expect(terminal.current.messages).toEqual([]);
+    await reconnect();
+  }
+  // Fresh view-only peers have received no keyboard input; reconnect's rendered
+  // sentinel precedes this directly verified public timer stall.
+  await freezePressure();
+  const bytePressurePeer = terminal.current;
+  for (let i = 0; i < 18; i++) terminal.output(Buffer.alloc(65536, 65));
+  await expect.poll(() => bytePressurePeer.closed).toBe(true);
   await expect(page.getByRole('alert').filter({ hasText: /Live output exceeded the display limit/ })).toBeVisible();
-  expect(terminal.current.messages).toEqual([]);
-  await page.clock.resume();
+  expect(bytePressurePeer.messages).toEqual([]);
+  const bytePressureConnections = terminal.connections.length;
+  await thawPressure();
+  expect(bytePressurePeer.closed).toBe(true);
+  expect(terminal.connections).toHaveLength(bytePressureConnections);
+  expect(bytePressurePeer.messages).toEqual([]);
+  await reconnect();
+  // Mixed geometry/byte entries have a separate 1,024-entry bound, even well
+  // below 1 MiB. The pending callback must not apply queued sizes after closure.
+  await freezePressure();
+  const entryPressurePeer = terminal.current;
+  const rowsBeforeOverflow = await page.locator('.xterm-rows > div').count();
+  terminal.output('x');
+  for (let i = 0; i < 511; i++) { terminal.size(100 + i % 2, 20); terminal.output('x'); }
+  terminal.size(100, 20);
+  terminal.view = { ...terminal.view, recording: { ...terminal.view.recording!, local_captured_offset: 123 } };
+  terminal.state();
+  await expect(page.getByRole('complementary').getByText(/123 bytes captured/)).toBeVisible();
+  await expect(page.getByText('View only', { exact: true })).toBeVisible();
+  expect(entryPressurePeer.closed).toBe(false);
+  terminal.output('one entry too many');
+  await expect.poll(() => entryPressurePeer.closed).toBe(true);
+  await expect(page.getByRole('alert').filter({ hasText: /Live output exceeded the display limit/ })).toBeVisible();
+  const entryPressureConnections = terminal.connections.length;
+  await thawPressure();
+  await expect(page.locator('.xterm-rows > div')).toHaveCount(rowsBeforeOverflow);
+  expect(entryPressurePeer.closed).toBe(true);
+  expect(terminal.connections).toHaveLength(entryPressureConnections);
+  expect(entryPressurePeer.messages).toEqual([]);
   await reconnect();
   api.authenticated = false;
   await expect(page.getByLabel('Console token')).toBeVisible();
