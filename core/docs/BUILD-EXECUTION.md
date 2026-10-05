@@ -10,6 +10,16 @@ integration scope and final acceptance. Builders execute a bounded plan;
 reviewers report evidence and defects. Neither role changes the design or
 delegates further. Treat every report as an unverified claim until checked.
 
+## Accepted bounded results
+
+| Assignment | Accepted revision | Independent review and Manager evidence | Remaining work |
+| --- | --- | --- | --- |
+| Environments readiness exploration | [`4432880`](https://github.com/qorqutbot/qorqut-core/blob/44328807c84db01c3351bef74ada285171117d15/docs/evidence/environments-p0.md) | Separate Astra MAX reviewer reported no in-scope defects. Manager checked the exact committed diff and clean worktrees, reproduced unavailable direct KVM access/missing VM tools, verified all seven source hashes and spot-checked external-writer locking/process ownership. | D02 substrate discussion, host preparation and every real two-VM/mount/network/desktop/persistence/restore test remain pending. No G0–G6 acceptance. |
+
+Approval of this report confirms its bounded evidence, not installed capability.
+The branch is pushed and remains unmerged. Volatile capacity/port observations
+retain their timestamps and are not a deployment budget or reservation.
+
 ## Repository baseline
 
 The private `qorqut-core` and `qorqut-browser` repositories now exist. Their initial
