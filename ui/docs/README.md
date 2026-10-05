@@ -38,3 +38,7 @@ Next UI increment: [session and native-history observations](RUNTIME-INSPECTOR.m
 uses core runtime_get without adding input or launch controls. The
 [terminal typing correction](evidence/terminal-input-batching-manager-acceptance.md)
 is now accepted; native delivery remains separate.
+
+D47 adds [file-reference cards](FILE-REFERENCE-CARDS.md) from core's accepted
+metadata-only operation. The [runtime inspector](evidence/runtime-inspector-manager-acceptance.md)
+is accepted; card implementation and its real-core check remain pending.
