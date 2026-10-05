@@ -14,6 +14,7 @@ delegates further. Treat every report as an unverified claim until checked.
 
 | Assignment | Accepted revision | Independent review and Manager evidence | Remaining work |
 | --- | --- | --- | --- |
+| Core durable application foundation | [`ef18e59`](https://github.com/qorqutbot/qorqut-core/blob/ef18e59e2df372963f5fba222156fe6b6e50195f/docs/evidence/foundation-r1.md) | Fresh Astra MAX review found no in-scope defects; its 26-test suite passed from source and the installed wheel. Manager inspected application, transaction, event, job and file boundaries; independently passed six focused durability/concurrency checks and both installed-package diagnostics, including a newer schema present only in WAL. Clean/pushed SHA and all four upstream source hashes verified. | Domain operations, transports, managed resources, restore/import integration and real archive acceptance remain pending. Local process/fault checks are not hardware power-loss certification. No whole-module or G0–G6 acceptance. |
 | Environments readiness exploration | [`4432880`](https://github.com/qorqutbot/qorqut-core/blob/44328807c84db01c3351bef74ada285171117d15/docs/evidence/environments-p0.md) | Separate Astra MAX reviewer reported no in-scope defects. Manager checked the exact committed diff and clean worktrees, reproduced unavailable direct KVM access/missing VM tools, verified all seven source hashes and spot-checked external-writer locking/process ownership. | D02 substrate discussion, host preparation and every real two-VM/mount/network/desktop/persistence/restore test remain pending. No G0–G6 acceptance. |
 | Browser local effect foundation | [`a94e537`](https://github.com/qorqutbot/qorqut-browser/blob/a94e537519ba19d484375a7f8fb986339149285a/docs/evidence/browser-r1.md) | Separate Astra MAX reviewer found no in-scope defects and ran all 20 tests plus packaging checks. Manager inspected control/store/helper/process paths, independently passed six focused tests and three fault diagnostics, verified all six source hashes and the remote branch SHA. | Independent MCP/HTTP bridge is the next increment. Real helper, Chrome/profile, VNC/RFB, service-cgroup, core and VM/onbash acceptance remain pending. No G0–G6 acceptance. |
 | Provider adapters: local preparation and source discovery | [`2db2be6`](https://github.com/qorqutbot/qorqut-core/blob/2db2be6d051e83b383e240aed41424a212153107/docs/evidence/adapters-r1.md) | Fresh Astra MAX review found no remaining in-scope defects across the full implementation and three corrections; all 28 tests and isolated native version/help probes passed. Manager inspected final source/proof/path validation, passed four focused regressions and eight independent rewrite/append scenarios, and verified clean worktrees and the exact pushed SHA. Earlier Manager checks confirmed bounded preparation metadata, aliased-root locking and mixed-primary/child preservation. | Generated configuration loading, native MCP/authentication, process attestation, recorder interaction, live resume and complete child/attachment coverage remain pending. Source descriptors are checked observations; ingestion must revalidate identity/provenance and apply epochs. No M04 or G0–G6 acceptance. |
@@ -21,6 +22,30 @@ delegates further. Treat every report as an unverified claim until checked.
 Approval of this report confirms its bounded evidence, not installed capability.
 The branch is pushed and remains unmerged. Volatile capacity/port observations
 retain their timestamps and are not a deployment budget or reservation.
+
+## Reviewed foundation interfaces
+
+Use `ef18e59` as the concrete core baseline for dependent assignments. Its
+immutable [interface/evidence report](https://github.com/qorqutbot/qorqut-core/blob/ef18e59e2df372963f5fba222156fe6b6e50195f/docs/evidence/foundation-r1.md)
+defines the accepted signatures. `Application.invoke` is the shared public path;
+`Operation`/`Change` and `Application.execute` assemble fixed internal handlers.
+Only `config_get`, `config_update`, `operations_get` and `events_list` are currently
+public. New domain operations require an explicit assignment and concrete
+handlers, not placeholder registrations.
+
+Domain mutations use the supplied `Transaction`, `register_actor`, `append_event`
+and fixed `Jobs` handlers. External effects stay outside SQL under installation
+ownership; expired external claims require inspection. File callers use
+`Files.stage` outside SQL, `attach` within their mutation, verified `install`
+outside SQL and `finalize` alongside their domain update. Recovery activation is
+explicit maintenance only; historical results and held effects stay preserved.
+These are local Python interfaces, not new network services or public tools.
+
+Core's reviewed runtime pin is Pydantic 2.12.3. Earlier isolated adapter/runner
+checks used 2.13.5; their eventual combined package must be verified against the
+chosen core lock before integration is accepted. Shared migrations, registry,
+package metadata and assembly retain one assigned writer at a time. Later lanes
+must not invent competing implementations of these accepted boundaries.
 
 ## Work awaiting acceptance
 
