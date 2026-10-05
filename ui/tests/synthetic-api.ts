@@ -131,7 +131,7 @@ export class SyntheticAPI {
     } else if (name === 'agents_create') {
       if (!args.display_name.trim() || [...args.display_name.trim()].length > 120) { error('invalid_argument', 'Display names require 1–120 characters after trimming', 400); return; }
       const agent = makeAgent(randomUUID(), args.display_name.trim());
-      Object.assign(agent, { icon_key: args.icon_key, cli: args.cli, start_requested: args.start });
+      Object.assign(agent, { icon_key: args.icon_key });
       this.agents.push(agent); this.entries.set(agent.id, []); this.event('agent.created', agent.id);
       json(200, success({ agent, provisioning_job_id: randomUUID() }, true));
     } else if (name === 'agents_update') {

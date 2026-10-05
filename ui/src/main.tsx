@@ -70,24 +70,18 @@ function Creation({ close }: { close: () => void }) {
   const pending = store.pending.get('create');
   const [name, setName] = useState((pending?.args.display_name as string) || '');
   const [icon, setIcon] = useState((pending?.args.icon_key as string) || 'circle');
-  const [cli, setCli] = useState((pending?.args.cli as Agent['cli']) || store.config!.defaults.cli);
-  const [start, setStart] = useState(pending ? !!pending.args.start : true);
   const lastState = useRef(pending?.state);
   useEffect(() => {
     if (lastState.current === 'sending' && !pending) close();
     lastState.current = pending?.state;
   }, [pending, pending?.state]);
   return <Dialog title="Create agent" onClose={close}>
-    <form className="creation" onSubmit={e => { e.preventDefault(); void store.create({ display_name: name, icon_key: icon, cli, start }); }}>
+    <form className="creation" onSubmit={e => { e.preventDefault(); void store.create({ display_name: name, icon_key: icon }); }}>
       <label>Display name<input value={name} onInput={e => setName(e.currentTarget.value)} required autoFocus disabled={!!pending} /></label>
       <IconPicker value={icon} onChange={setIcon} keys={store.config!.icon_keys} disabled={!!pending} />
-      <div className="form-row"><label>Provider<select value={cli.provider} onChange={e => setCli({ ...cli, provider: e.currentTarget.value as 'claude' | 'codex' })} disabled={!!pending}>
-        <option value="claude">Claude</option><option value="codex">Codex</option>
-      </select></label><label>Model<input value={cli.model} onInput={e => setCli({ ...cli, model: e.currentTarget.value })} required disabled={!!pending} /></label></div>
-      <label className="check"><input type="checkbox" checked={start} onChange={e => setStart(e.currentTarget.checked)} disabled={!!pending} />Request start after provisioning</label>
-      <p className="quiet">Registration starts provisioning. Runtime availability is reported separately.</p>
+      <p className="quiet">Registration starts provisioning only. Creating an agent does not start a CLI; you start and configure it yourself in Terminal. Runtime availability is reported separately.</p>
       <MutationNotice item={pending} requestKey="create" />
-      <div className="form-actions"><button type="button" onClick={close}>Close</button><button className="primary" type="submit" disabled={!!pending || !name.trim() || !cli.model.trim()}>Create agent</button></div>
+      <div className="form-actions"><button type="button" onClick={close}>Close</button><button className="primary" type="submit" disabled={!!pending || !name.trim()}>Create agent</button></div>
     </form>
   </Dialog>;
 }
@@ -196,7 +190,7 @@ function Inspector({ agent, rename, changeIcon }: { agent: Agent; rename: () => 
       {store.has('agents_update') && <div className="inline-actions"><button onClick={rename} disabled={store.pending.has(`edit:${agent.id}`)}>Rename</button><button onClick={changeIcon} disabled={store.pending.has(`edit:${agent.id}`)}>Change icon</button></div>}
     </div>
     <section><h3>Current work</h3><p>{agent.status.text}</p><dl><dt>Activity</dt><dd>{agent.activity}</dd><dt>Attention</dt><dd>{agent.needs_user_input ? 'Needs your input' : 'None reported'}</dd><dt>Status reviewed</dt><dd>{time(agent.status.reviewed_at)}</dd><dt>Activity observed</dt><dd>{time(agent.activity_observed_at)}</dd><dt>Last contact</dt><dd>{time(agent.last_contact_at)}</dd><dt>Capture</dt><dd>{agent.capture_health}</dd></dl></section>
-    <section><h3>CLI configuration</h3><dl><dt>Provider</dt><dd>{agent.cli.provider}</dd><dt>Model</dt><dd>{agent.cli.model}</dd><dt>Start requested</dt><dd>{agent.start_requested ? 'Yes' : 'No'}</dd><dt>Current run</dt><dd>{agent.current_run === null ? 'Unknown' : 'Reported by core'}</dd></dl></section>
+    <section><h3>Current run</h3><dl><dt>Run</dt><dd>{agent.current_run === null ? 'Unknown' : 'Reported by core'}</dd></dl><p className="quiet">Creating an agent does not start a CLI. You start it manually in Terminal.</p></section>
     <section><h3>Transcript publication</h3>{publication ? <><p>{publication.state === 'current' ? 'Current' : publication.state === 'blocked' ? 'Blocked' : 'Pending'} · {publication.pending_entries} pending entries</p>{publication.error && <p className="error">{publication.error.code}: {publication.error.message}</p>}<p className="quiet">Last saved publication observation.</p></> : <p className="quiet">No publication observation available.</p>}</section>
     <section><h3>Browser</h3><p className="quiet">Unavailable. Browser viewing and control are not connected.</p></section>
     <section><h3>{agent.kind === 'host' ? 'Desktop' : 'Machine'}</h3><p className="quiet">Unavailable. No desktop surface is connected.</p></section>
