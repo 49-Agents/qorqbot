@@ -1,5 +1,15 @@
 # Architecture decisions
 
+## D22 — Staged implementation with independent review
+
+The owner authorized up to ten concurrent Astra MAX ACLA actors, with native
+self-review disabled and a fresh Astra MAX review assignment after every
+completed builder assignment. Follow [BUILD-EXECUTION.md](BUILD-EXECUTION.md) for
+ownership and gates. Initial local effect primitives precede transport/integration
+so unfinished dependencies do not produce invented competing contracts. The
+separate browser MCP decision remains mandatory. VM selection and real-system
+acceptance remain open; code/fixture success does not settle them.
+
 Status: planning decisions, not evidence of implementation. D02 and D08 are explicit defaults awaiting the owner's optional clarification. A future implementation change should update the relevant decision rather than silently drifting from the contracts.
 
 ## D01 — Small Python application and shared operations

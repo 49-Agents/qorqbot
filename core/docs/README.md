@@ -17,6 +17,9 @@ The agreed repositories are `qorqut-core` (backend/configuration/coordination), 
 
 ## Module plans
 
+Implementation is managed through [BUILD-EXECUTION.md](BUILD-EXECUTION.md), which
+records staged ownership and the independent Astra MAX review gate.
+
 | ID | Module | Repository | Owns |
 | --- | --- | --- | --- |
 | M00 | [Foundation and storage](modules/00-foundation.md) | `qorqut-core` | Configuration, application operations, SQLite, events, jobs, idempotency and file receipts |

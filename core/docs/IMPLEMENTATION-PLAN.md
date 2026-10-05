@@ -183,6 +183,11 @@ Exercise full-installation stopped backup/restore under a different data root, a
 
 ## 6. Implementation work packages
 
+The owner's ACLA implementation authorization is recorded in
+[BUILD-EXECUTION.md](BUILD-EXECUTION.md). Its initial assignments subdivide these
+packages without weakening their acceptance gates. Independent review precedes
+integration; the VM decision remains open.
+
 Each module plan contains its own implementation sequence, interfaces, extraction decision, failure behavior and definition of done. Each change should land as a coherent reviewable package:
 
 1. Contract/schema plus focused tests.
