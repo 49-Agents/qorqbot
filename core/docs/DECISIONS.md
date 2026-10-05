@@ -1,5 +1,29 @@
 # Architecture decisions
 
+## D27 — Recorder startup signals and owned-process cleanup
+
+Independent review and Manager real-PTY reproduction found three defects in the
+first local recorder: escalation omitted its direct child when another job was
+foreground, leader exit left original-group members alive, and a TERM arriving
+before `login_tty` disappeared. The local recorder remains unapproved.
+
+Keep the child unreaped while exit/cleanup evidence is still needed, using
+non-reaping observation and final direct-child reaping. Failure cleanup has
+finite deadlines and targets the owned direct child, original PTY group and
+verified current foreground group; leader exit alone is not group completion.
+Do not use an unbounded final wait or signal an inherited/shared parent group.
+Unconfirmed cleanup stays an explicit failure with admission closed, and parent
+terminal/descriptor/signal state must still be restored. Group termination and
+direct-child reaping are different claims; detached-subtree supervision remains
+the later systemd/cgroup integration boundary.
+
+Block forwarded signals across fork and child handler/PTY setup. Restore the
+parent mask on every path and the child's intended mask before exec. A pending
+signal must reach the exact owned child even before its group exists; an ESRCH
+cannot consume it as successfully forwarded. Preserve normal foreground signal
+semantics. Focused real-PTY tests cover these races and committed-byte retention;
+they do not establish host archive, native-provider or VM acceptance.
+
 ## D26 — Thin core transport over the reviewed application
 
 The first HTTP/MCP/operator increment uses the reviewed foundation at `ef18e59`

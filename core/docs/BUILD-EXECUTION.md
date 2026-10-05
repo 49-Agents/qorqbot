@@ -56,16 +56,19 @@ separate Manager assignments; no worker may fill those gaps independently.
 
 ## Work awaiting acceptance
 
-- Terminal at `7399178`: Manager reproduced raw unframed multiline paste when
-  bracketed mode was off, and stale paste proof allowing Enter after a database
-  delay and a modal transition. D24 specifies the correction. The implementation
-  remains unapproved. Fresh review at `898ead7` verified those corrections but
-  found capture/hold loss during the final verifier's settling wait still allowed
-  Enter. Manager reproduced both cases with real private tmux input; the next
-  correction must refresh external readiness after that final verification.
-- Recorder at `d15366a`: the bounded local spool/nested-PTY implementation is
-  committed and pushed; a fresh Astra MAX review has been launched on that SHA.
-  Neither its local durability claims nor host archive/G3 acceptance is approved.
+- Terminal at `1704124`: the third candidate is committed and pushed; a fresh
+  Astra MAX reviewer is assigned to that immutable SHA. Earlier reviews and
+  Manager reproduction required explicit paste framing, fresh composer evidence
+  after the Enter-intent commit, and capture/hold observations after the final
+  verifier's settling wait. D24 specifies those corrections. Implementation
+  acceptance remains pending; receiver checks are not native CLI acceptance.
+- Recorder at `d15366a`: the separate Astra MAX review passed the 17-test suite
+  but found cleanup omitting the direct child, surviving original-group members,
+  and lost startup TERM delivery. Manager independently reproduced all three
+  with real PTYs and synthetic owned children, preserving committed READY on
+  capture failure. D27 and the first recorder revision require bounded owned
+  cleanup and startup signal preservation. Implementation remains unapproved;
+  the revision needs another fresh review. Host archive/G3 acceptance is pending.
 
 ## Repository baseline
 

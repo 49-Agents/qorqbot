@@ -23,6 +23,18 @@ The platform records managed cooperative sessions. An unrestricted actor can del
 
 Run a small recorder inside the managed tmux session. It owns the native CLI's child PTY, commits output to the local spool before forwarding it to tmux, and preserves terminal resize/signals/interactive behavior. It remains alive when the runner service restarts; the runner serves its persistent spool to the host collector independently. The P0 nested-PTY rehearsal must prove this works before the architecture is considered settled.
 
+The initial local recorder's failure cleanup is bounded independently of the
+later cgroup guarantee. Preserve the unreaped direct-child identity while
+observing exit, terminate the owned original/current foreground groups as well
+as the direct child, and do not infer group completion from leader exit. Use
+finite cleanup deadlines; unresolved termination remains failed/incomplete with
+admission closed. Restore parent terminal, descriptor flags and signal state on
+every returning path. Reaping the direct child is not reaping an arbitrary group.
+Signals arriving before child PTY/session creation must survive startup handler
+reset and reach the owned child; block them across fork/setup and restore masks
+in parent and child as specified by [D27](../DECISIONS.md). No shared/inherited
+parent process group is a cleanup target.
+
 `tmux pipe-pane` can provide diagnostic fallback but is not the primary durability boundary: it is another output consumer rather than the path before displayed output. Do not record every raw manual keystroke as a semantic user transcript. Native emitted user messages and durable submitted message bodies carry that meaning; terminal output remains a separately labeled recording.
 
 Register a run before launch. Register each exact native source durably when hooks or adapter-owned discovery identify it. The registry includes parent/child sessions, native session ID, source type, inode/file identity where available, run links, native and observation times, source epoch and capability evidence. A source remains tracked after another run becomes current. Native resume may link an existing source to another run.
