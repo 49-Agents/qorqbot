@@ -1,0 +1,8 @@
+# Exact Python dependencies used by the browser-r1 Python 3.12 checks.
+# setuptools is the wheel build dependency; no MCP/server dependencies yet.
+annotated-types==0.8.0
+pydantic==2.13.5
+pydantic-core==2.46.5
+setuptools==84.0.0
+typing-extensions==4.16.0
+typing-inspection==0.4.4
