@@ -49,6 +49,15 @@ Managed `claude`/`codex` launch entrypoints invoke the recorder. The guarantee c
 
 P06/P11: adapt Qorqut's dual-client generated files, hook payload knowledge, process ancestry checks, composer captures and native parsing fixtures. Do not copy the large role/business bootstrap function, single current transcript pointer, strict original-cwd ownership check, or only-parent/text-only record filtering.
 
+Keep file ownership evidence separate from embedded-record association. A Claude
+source with independently matching primary records remains a raw source when it
+also contains sidechain/agent-marked records. Preserve the complete file bytes
+and report unsupported child association; those child records alone cannot prove
+primary ownership. Child-only candidates remain unverified, separate child files
+still need their own association contract, and conflicting primary identity
+evidence still prevents attachment. Discovery does not filter the archive into
+visible parent text.
+
 ## Tests and acceptance
 
 - Both clients prepare against the same agent UUID/folder; Claude → Codex → Claude refresh preserves authored files and identity.

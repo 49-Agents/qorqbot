@@ -23,13 +23,15 @@ retain their timestamps and are not a deployment budget or reservation.
 
 ## Review corrections pending
 
-- Adapters at `434a7e3`: Manager reproduced an ever-growing preparation manifest
-  exceeding its own read limit and root-path aliases deadlocking on the same
-  lock inode. A bounded revision was requested; the implementation is unapproved.
+- Adapters at `925b4d2`: the manifest-size and root-alias corrections passed
+  independent review and Manager regression checks. A fresh review found that
+  an embedded Claude sidechain record discards a verified parent raw source;
+  Manager reproduced it and requested a narrow discovery correction. The
+  implementation remains unapproved.
 - Terminal at `7399178`: Manager reproduced raw unframed multiline paste when
   bracketed mode was off, and stale paste proof allowing Enter after a database
   delay and a modal transition. D24 specifies the correction. The implementation
-  is unapproved; a revised completion requires fresh independent review.
+  is unapproved; the correction at `898ead7` is under fresh independent review.
 
 ## Repository baseline
 
