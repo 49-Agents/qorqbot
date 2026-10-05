@@ -63,6 +63,7 @@ No core package metadata or shared dependency lock was changed. Setup used
 `python3.12 -m venv .venv` and
 `.venv/bin/python -m pip install 'pydantic>=2,<3'`.
 
+At initial commit `434a7e3`,
 `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests/adapters -v`
 passed **19 tests**. They cover provider refresh preservation, distinct MCP and
 sink bindings, authored-file conflicts, wrong identities, immutable run files,
@@ -123,3 +124,42 @@ epoch handling, capture persistence, recorder interaction and actual resume
 behavior remain unverified or later integration work. The caller must supply
 runner-verified run/native bindings; metadata discovery alone does not establish
 which live process owns a run. No module or global acceptance gate is complete.
+
+## Review revision 1
+
+Manager review message 16 confirmed two defects in `434a7e3`: accumulation of
+historical run hashes could produce a manifest exceeding its own 1 MiB read
+limit, and equivalent `/tmp/...` / `//tmp/...` roots could self-deadlock on the
+same lock inode. This revision follows the supplied correction decisions:
+
+- `preparation.json` contains hashes only for the current generated projections
+  and selected run binding. Still-readable accumulated manifests compact on
+  refresh. All historical binding files remain in place; selecting an old run
+  re-reads its exact immutable bytes independently of manifest membership.
+- Every generated output, including identity and manifest metadata, is checked
+  against the shared 1 MiB default read/write limit before installation. Atomic
+  writes also enforce that limit. A size rejection preserves the existing
+  projection; successful output remains readable by the default reader.
+- Preparation compares the already-open roots' `(st_dev, st_ino)` values before
+  acquiring either lock, rejects identical filesystem directories with
+  `AdapterError`, and orders distinct root locks by those same identities.
+  No-follow traversal and authored/configuration collision checks remain intact.
+
+Focused command (both tests exercise both providers):
+
+```sh
+PYTHONPATH=src:tests/adapters .venv/bin/python -m unittest -v test_adapters.PreparationTests.test_long_history_manifest_compacts_without_changing_retained_bindings test_adapters.PreparationTests.test_aliased_roots_rejected_in_bounded_child
+```
+
+Result: **2 tests passed**. The long-history fixture starts within one historical
+entry of the read limit, compacts below 16 KiB, retains binding bytes/inodes/mtime,
+retries the current preparation, rejects rebinding an unlisted prior run and
+successfully prepares that exact retained prior run. The alias check runs each
+provider in an owned Python child with a five-second timeout, requires rejection
+before any lock file is created, and cleans up only those children/temp roots.
+
+`PYTHONPATH=src .venv/bin/python -m unittest discover -s tests/adapters -v`
+passed **22 tests**, including oversized endpoint/hook output rejection without
+changing the last successful projection and exact-limit write/read acceptance.
+`git diff --check` passed. No native provider or service interaction was added;
+the preceding capability matrix and deferred acceptance limits are unchanged.

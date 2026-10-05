@@ -43,6 +43,8 @@ class ManagedRoots(Record):
 
     @model_validator(mode="after")
     def distinct(self):
+        # Preparation also compares already-open root descriptors; lexical paths
+        # alone cannot distinguish Linux aliases such as /tmp and //tmp.
         if self.home == self.workspace:
             raise ValueError("HOME and workspace must be distinct managed roots")
         return self

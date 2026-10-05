@@ -9,7 +9,7 @@ from pathlib import Path
 import shlex
 
 from .capabilities import require_profile
-from .managed_io import ManagedTree
+from .managed_io import ManagedTree, validate_generated_size
 from .types import AdapterError, PreparationInput, PreparationResult, Provider
 
 PREFIX = ".qorqut/adapters"
@@ -98,15 +98,27 @@ def prepare(provider: Provider, version: str, data: PreparationInput) -> Prepara
         "roots": data.roots.model_dump(mode="json")}
     marker = f"{PREFIX}/identity.json"
     manifest_name = f"{directory}/preparation.json"
+    identity_bytes = json_bytes(identity)
+    # This is the current projection, not an index of historical run bindings.
+    hashes = {root + ":" + path: digest(body) for (root, path), body in files.items()}
+    manifest_bytes = json_bytes({"schema_version": 1,
+        "provider": provider, "cli_version": version, "identity": identity, "files": hashes,
+        "native_verified": False})
+    # Reject oversized outputs before installing any part of the projection.
+    for body in (*files.values(), identity_bytes, manifest_bytes):
+        validate_generated_size(body)
     with ExitStack() as stack:
         trees = {name: stack.enter_context(ManagedTree(getattr(data.roots, name)))
             for name in ("home", "workspace")}
-        # Path order also avoids deadlock for accidentally exchanged root inputs.
-        for name in sorted(trees, key=lambda name: str(trees[name].root)):
+        identities = {name: tree.identity for name, tree in trees.items()}
+        if identities["home"] == identities["workspace"]:
+            raise AdapterError("HOME and workspace refer to the same filesystem directory")
+        # Order by opened filesystem identity, independent of path aliases/roles.
+        for name in sorted(trees, key=identities.__getitem__):
             stack.enter_context(trees[name].lock(f"{PREFIX}/prepare.lock"))
         for tree in trees.values():
             prior = tree.read(marker)
-            if prior is not None and prior != json_bytes(identity):
+            if prior is not None and prior != identity_bytes:
                 raise AdapterError("Managed root belongs to a different identity or root binding")
         prior_manifest = trees["workspace"].read(manifest_name)
         manifest = json.loads(prior_manifest) if prior_manifest else {}
@@ -119,20 +131,19 @@ def prepare(provider: Provider, version: str, data: PreparationInput) -> Prepara
             if prior is None or prior == body:
                 continue
             if path == binding_relative:
+                # Always compare the selected binding's actual bytes, even when
+                # its run is no longer listed in the current manifest.
                 raise AdapterError("A run binding is immutable")
             if digest(prior) != old_hashes.get(root + ":" + path):
                 raise AdapterError("Refusing to replace authored or changed generated file: " + path)
         for tree in trees.values():
             if tree.read(marker) is None:
-                tree.atomic_write(marker, json_bytes(identity))
+                tree.atomic_write(marker, identity_bytes)
         for (root, path), body in files.items():
             if trees[root].read(path) != body:
                 trees[root].atomic_write(path, body)
         # Install metadata last. A crash leaves complete old/new files; identical retry recovers.
-        hashes = {**old_hashes, **{root + ":" + path: digest(body) for (root, path), body in files.items()}}
-        trees["workspace"].atomic_write(manifest_name, json_bytes({"schema_version": 1,
-            "provider": provider, "cli_version": version, "identity": identity, "files": hashes,
-            "native_verified": False}))
+        trees["workspace"].atomic_write(manifest_name, manifest_bytes)
     gaps = ("native_mcp_discovery_unverified", "authentication_requires_setup", "native_hooks_unverified")
     if not data.hook_sink_argv:
         gaps += ("durable_hook_sink_not_configured",)

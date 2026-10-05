@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import shlex
+import subprocess
+import sys
 import tempfile
 import tomllib
 import unittest
@@ -14,7 +16,7 @@ from uuid import UUID, uuid4
 
 from qorqut_core.adapters import (AdapterError, ClaudeAdapter, CodexAdapter,
     MCPBinding, ManagedRoots, NativeBinding, PreparationInput, RunBinding)
-from qorqut_core.adapters.managed_io import ManagedTree
+from qorqut_core.adapters.managed_io import GENERATED_FILE_LIMIT, ManagedTree
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SESSION = UUID("11111111-1111-4111-8111-111111111111")
@@ -53,6 +55,125 @@ class AdapterCase(unittest.TestCase):
 
 
 class PreparationTests(AdapterCase):
+    def test_long_history_manifest_compacts_without_changing_retained_bindings(self):
+        for adapter in (self.claude, self.codex):
+            with self.subTest(provider=adapter.provider):
+                first = adapter.prepare(self.data)
+                second_data = self.data.model_copy(update={"run": self.run.model_copy(
+                    update={"run_id": uuid4(), "run_generation": 2})})
+                second = adapter.prepare(second_data)
+                retained = {result.binding_path: result.binding_path.read_bytes() for result in (first, second)}
+                retained_stats = {path: path.stat() for path in retained}
+                manifest_path = self.roots.workspace / f".qorqut/adapters/{adapter.provider}/preparation.json"
+                legacy = json.loads(manifest_path.read_bytes())
+                prefix = f"workspace:.qorqut/adapters/{adapter.provider}/runs/"
+                first_key = prefix + str(self.run.run_id) + ".json"
+                legacy["files"][first_key] = hashlib.sha256(retained[first.binding_path]).hexdigest()
+
+                def encode(value):
+                    return (json.dumps(value, sort_keys=True, ensure_ascii=False, indent=2) + "\n").encode()
+
+                # Model a near-limit prior accumulated manifest without creating
+                # thousands of sessions. Only the two retained bindings are real files.
+                initial_size = len(encode(legacy))
+                legacy["files"][prefix + str(UUID(int=1)) + ".json"] = "0" * 64
+                entry_size = len(encode(legacy)) - initial_size
+                count = (GENERATED_FILE_LIMIT - initial_size) // entry_size
+                for number in range(2, count + 1):
+                    legacy["files"][prefix + str(UUID(int=number)) + ".json"] = "0" * 64
+                accumulated = encode(legacy)
+                self.assertLessEqual(len(accumulated), GENERATED_FILE_LIMIT)
+                self.assertGreater(len(accumulated), GENERATED_FILE_LIMIT - entry_size)
+                manifest_path.write_bytes(accumulated)
+                current_data = self.data.model_copy(update={"run": self.run.model_copy(
+                    update={"run_id": uuid4(), "run_generation": 3})})
+                current = adapter.prepare(current_data)
+                retained[current.binding_path] = current.binding_path.read_bytes()
+                retained_stats[current.binding_path] = current.binding_path.stat()
+                compacted = manifest_path.read_bytes()
+                self.assertLess(len(compacted), 16 * 1024)
+                current_manifest = json.loads(compacted)
+                self.assertEqual([key for key in current_manifest["files"] if key.startswith(prefix)],
+                    [prefix + str(current_data.run.run_id) + ".json"])
+                adapter.prepare(current_data)
+                self.assertEqual(manifest_path.read_bytes(), compacted)
+
+                # Old manifest membership is not authority to alter a binding.
+                self.assertNotIn(first_key, current_manifest["files"])
+                wrong_prior = self.data.model_copy(update={"run": self.run.model_copy(
+                    update={"environment_generation": 2})})
+                with self.assertRaisesRegex(AdapterError, "binding is immutable"):
+                    adapter.prepare(wrong_prior)
+                self.assertEqual(manifest_path.read_bytes(), compacted)
+                adapter.prepare(self.data)  # Exact retained prior run is still preparable.
+                prior_manifest = manifest_path.read_bytes()
+                self.assertLess(len(prior_manifest), 16 * 1024)
+                adapter.prepare(self.data)
+                self.assertEqual(manifest_path.read_bytes(), prior_manifest)
+                for path, original in retained.items():
+                    self.assertEqual(path.read_bytes(), original)
+                    before, after = retained_stats[path], path.stat()
+                    self.assertEqual((after.st_dev, after.st_ino, after.st_mtime_ns),
+                        (before.st_dev, before.st_ino, before.st_mtime_ns))
+
+    def test_aliased_roots_rejected_in_bounded_child(self):
+        child_code = """
+import sys
+from qorqut_core.adapters import AdapterError, ClaudeAdapter, CodexAdapter, PreparationInput
+data = PreparationInput.model_validate_json(sys.stdin.read())
+adapter = ClaudeAdapter('2.1.287') if sys.argv[1] == 'claude' else CodexAdapter('0.160.0')
+try:
+    adapter.prepare(data)
+except AdapterError as exc:
+    assert 'same filesystem directory' in str(exc), str(exc)
+    print('rejected before locks')
+else:
+    raise AssertionError('Equivalent roots were accepted')
+"""
+        with tempfile.TemporaryDirectory(prefix="adapter-root-alias-", dir="/tmp") as temporary:
+            actual = Path(temporary) / "managed"
+            actual.mkdir()
+            alias = Path("/" + str(actual))
+            self.assertNotEqual(actual, alias)
+            self.assertEqual(actual.stat().st_ino, alias.stat().st_ino)
+            data = self.data.model_copy(update={"roots": ManagedRoots(home=actual, workspace=alias)})
+            for adapter in (self.claude, self.codex):
+                with self.subTest(provider=adapter.provider):
+                    # subprocess.run kills/reaps only this owned child on timeout,
+                    # making the old self-deadlock a bounded, clean test failure.
+                    result = subprocess.run([sys.executable, "-c", child_code, adapter.provider],
+                        input=data.model_dump_json(), text=True, capture_output=True, timeout=5,
+                        cwd=temporary, env={"HOME": str(actual), "PATH": os.defpath,
+                            "PYTHONPATH": str(Path(__file__).resolve().parents[2] / "src")})
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.strip(), "rejected before locks")
+                    self.assertEqual(list(actual.iterdir()), [])
+
+    def test_generated_output_size_preflight_preserves_readable_projection(self):
+        for adapter in (self.claude, self.codex):
+            with self.subTest(provider=adapter.provider):
+                prepared = adapter.prepare(self.data)
+                originals = {path: path.read_bytes() for path in prepared.generated_paths}
+                next_run = self.run.model_copy(update={"run_id": uuid4(), "run_generation": 2})
+                excessive = (
+                    {"core": MCPBinding(url=self.data.core.url, headers=(("X-Large", "x" * GENERATED_FILE_LIMIT),))},
+                    {"hook_sink_argv": ("/synthetic/hook", "x" * (GENERATED_FILE_LIMIT // 2))},
+                )
+                for changed in excessive:
+                    with self.assertRaisesRegex(AdapterError, "read limit"):
+                        adapter.prepare(self.data.model_copy(update={"run": next_run, **changed}))
+                    for path, original in originals.items():
+                        self.assertEqual(path.read_bytes(), original)
+                    self.assertFalse(prepared.binding_path.with_name(str(next_run.run_id) + ".json").exists())
+                adapter.prepare(self.data)
+        with ManagedTree(self.roots.home) as tree:
+            boundary = b"x" * GENERATED_FILE_LIMIT
+            tree.atomic_write("synthetic-size-boundary", boundary)
+            self.assertEqual(tree.read("synthetic-size-boundary"), boundary)
+            with self.assertRaisesRegex(AdapterError, "read limit"):
+                tree.atomic_write("synthetic-size-boundary", boundary + b"x")
+            self.assertEqual(tree.read("synthetic-size-boundary"), boundary)
+
     def test_roundtrip_preserves_authored_bytes_identity_and_credentials(self):
         authored = {"persona.md": b"\xff authored persona\r\n", "memory.md": b"My notes\x00\n",
             "notes/a.md": b"unchanged notes", "research/report": b"research"}

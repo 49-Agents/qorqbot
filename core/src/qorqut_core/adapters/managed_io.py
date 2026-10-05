@@ -12,6 +12,12 @@ from uuid import uuid4
 from .types import AdapterError
 
 DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+GENERATED_FILE_LIMIT = 1024 * 1024
+
+
+def validate_generated_size(content: bytes):
+    if len(content) > GENERATED_FILE_LIMIT:
+        raise AdapterError("Generated output exceeds the subsequent read limit")
 
 
 class ManagedTree:
@@ -35,6 +41,11 @@ class ManagedTree:
 
     def __exit__(self, *args):
         os.close(self.fd)
+
+    @property
+    def identity(self) -> tuple[int, int]:
+        info = os.fstat(self.fd)
+        return info.st_dev, info.st_ino
 
     @contextmanager
     def parent(self, relative: str, *, create=False):
@@ -71,7 +82,7 @@ class ManagedTree:
         with stream:
             yield stream
 
-    def read(self, relative: str, limit=1024 * 1024) -> bytes | None:
+    def read(self, relative: str, limit=GENERATED_FILE_LIMIT) -> bytes | None:
         try:
             with self.open_read(relative) as stream:
                 content = stream.read(limit + 1)
@@ -82,6 +93,7 @@ class ManagedTree:
         return content
 
     def atomic_write(self, relative: str, content: bytes):
+        validate_generated_size(content)
         with self.parent(relative, create=True) as (fd, name):
             tmp = ".adapter-" + uuid4().hex
             out = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
