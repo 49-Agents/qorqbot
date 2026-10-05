@@ -43,6 +43,15 @@ Use a minimal monochrome theme and the existing monospace fonts. Resize the
 renderer to its container, including narrow screens and inspector toggles.
 Core permits runtime inline styles for this renderer while keeping script CSP.
 
+Integration clarification 212: publish the unchanged bundled third-party
+notices at `public/assets/terminal-notices.txt`, producing
+`dist/assets/terminal-notices.txt`. The normal core host serves `/` and
+`/assets/*`, so the previous root-level notice file was packaged but not served.
+Move the file without changing its contents or other UI assets. Core's generic
+static routes and the UI's HTML/JS/CSS remain unchanged. Verify the final notice
+through that real host during combined acceptance; its absence is a packaging
+defect, not a passing integration limitation.
+
 ## Connection and explicit control
 
 When Terminal is selected and core reports available, connect to same-origin
