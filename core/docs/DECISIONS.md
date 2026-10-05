@@ -13,6 +13,12 @@ Done/Cancel transactions. No missing relay or cross-agent implementation is
 advertised as working. The independent server increment must pass actual MCP/HTTP
 checks before integration, without requiring core/UI runtime imports.
 
+For browser's fixed application-handoff URL, private reachability is a trusted
+provisioning requirement. Browser validates HTTP/HTTPS URL syntax, rejects
+userinfo/fragments, uses direct connections without inherited proxies/redirects
+and verifies HTTPS certificates normally. It does not invent IP/DNS address-class
+rules; agent tool arguments cannot override the configured destination.
+
 ## D24 — Explicit paste framing and fresh Enter evidence
 
 Independent terminal review and Manager reproduction on tmux 3.4 showed that
