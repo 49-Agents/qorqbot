@@ -69,13 +69,13 @@ separate Manager assignments; no worker may fill those gaps independently.
   raw malformed request/notification payloads in root diagnostics despite clean
   HTTP errors. Current sanitation and wire evidence remain unapproved.
   Synthetic browser effects are not real Chrome/VNC/core/VM acceptance.
-- Recorder at `a8576ec`: fresh Astra MAX review passed 21 tests and confirmed
-  the earlier corrections, but found a foreground job surviving when its leader
-  exits before failure cleanup. Manager reproduced both controlled orderings.
-  The second correction simplifies D27 failure ownership to the verified original
-  PTY session, anchored by the unreaped child, with fresh pidfd-bound member
-  checks. Implementation remains unapproved; its next completed revision requires
-  another fresh review. Host archive/G3 acceptance is pending.
+- Recorder at `08a0273`: the second correction is committed and pushed; a fresh
+  Astra MAX review is assigned to the full bounded implementation and amendments.
+  D27 failure cleanup now selects the verified original PTY session, anchored by
+  the unreaped child, including background groups never observed as foreground.
+  The builder reports 22 passing tests and three negative controls reproducing
+  the prior defect. These claims remain unapproved pending independent review
+  and Manager verification. Host archive/G3 acceptance is pending.
 
 ## Repository baseline
 
