@@ -63,10 +63,13 @@ separate Manager assignments; no worker may fill those gaps independently.
 
 ## Work awaiting acceptance
 
-- Core package integration is the next assigned increment under
-  [CORE-INTEGRATION.md](CORE-INTEGRATION.md): accepted code only, one dependency
-  lock, actual installed-package checks and local runner/capture DB coexistence.
-  The combined candidate requires fresh review before landing on `main`.
+- Core package integration at `9701c66` is committed and pushed; a fresh Astra
+  MAX reviewer is assigned under [CORE-INTEGRATION.md](CORE-INTEGRATION.md).
+  The builder reports unchanged accepted production code/pins, all existing
+  owning tests passing from source and the installed combined wheel, and a
+  passing shared runner/capture database scenario. Manager verified clean/pushed
+  SHA and exact accepted-input ancestry; the claims remain unapproved pending
+  independent review and Manager verification before landing on `main`.
 - Independent browser MCP at `c341377`: the D28 logging correction is committed
   and pushed. The fresh reviewer stopped on a provider safety restriction before
   delivering its ACLA report; that review is incomplete and has not been credited.
