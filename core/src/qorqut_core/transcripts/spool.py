@@ -119,6 +119,22 @@ class PendingPage:
     next_offset: int
 
 
+@dataclass(frozen=True)
+class ChunkReceipt:
+    offset: int
+    length: int
+    sha256: str
+
+
+@dataclass(frozen=True)
+class ReceiptPage:
+    source: Source
+    source_epoch: str
+    through_offset: int
+    receipts: tuple[ChunkReceipt, ...]
+    next_offset: int
+
+
 _SCHEMA = (
     """CREATE TABLE IF NOT EXISTS capture_runs (
         run_id TEXT PRIMARY KEY, installation_id TEXT NOT NULL,
@@ -500,6 +516,83 @@ class CaptureSpool:
                 raise CaptureBlocked("pending payload is missing or corrupt")
             chunks.append(Chunk(source_id, source_epoch, row["offset"], row["length"], row["sha256"], data))
         return PendingPage(tuple(chunks), chunks[-1].offset + chunks[-1].length if chunks else cursor)
+
+    def receipts(self, source_id: str, source_epoch: str, *, after: int = 0,
+                 through: int | None = None, limit: int = 16) -> ReceiptPage:
+        """Read original receipt boundaries, including reclaimed/historical bytes.
+
+        Carry through_offset into the next call to retain this snapshot's target.
+        This view neither authorizes ACKs nor certifies current capture health.
+        """
+        _uuid(source_id)
+        _uuid(source_epoch)
+        _integer(after)
+        if through is not None:
+            _integer(through)
+        _integer(limit, minimum=1, maximum=16)
+
+        def receipt(row) -> ChunkReceipt:
+            try:
+                offset = _integer(row["offset"])
+                length = _integer(row["length"], minimum=1, maximum=CHUNK_BYTES)
+                _integer(offset + length)
+            except ValueError:
+                raise CaptureBlocked("invalid stored receipt coordinates") from None
+            digest = row["sha256"]
+            if (not isinstance(digest, str) or len(digest) != 64
+                    or any(char not in "0123456789abcdef" for char in digest)):
+                raise CaptureBlocked("invalid stored receipt hash")
+            return ChunkReceipt(offset, length, digest)
+
+        def boundary(end: int, error: type[CaptureError]) -> None:
+            if end == 0:
+                return
+            # Seek using the existing coordinate index, not an offset+length
+            # predicate that would walk the complete receipt history.
+            row = self._connection.execute(
+                """SELECT offset, length, sha256 FROM capture_chunks
+                    WHERE source_id=? AND source_epoch=? AND offset<?
+                    ORDER BY offset DESC LIMIT 1""", (source_id, source_epoch, end),
+            ).fetchone()
+            if row is None:
+                raise error("receipt boundary is missing")
+            prior = receipt(row)
+            if prior.offset + prior.length != end:
+                raise error("receipt boundary is missing")
+
+        with _transaction(self._connection, write=False):
+            source_row = self._source(source_id)
+            epoch = self._epoch(source_id, source_epoch)
+            try:
+                captured = _integer(epoch["local_captured_offset"])
+            except ValueError:
+                raise CaptureBlocked("invalid stored captured cursor") from None
+            target = captured if through is None else through
+            _integer(target, maximum=captured)
+            _integer(after, maximum=target)
+            boundary(captured, CaptureBlocked)
+            if target != captured:
+                boundary(target, CoordinateConflict)
+            if after != target:
+                boundary(after, CoordinateConflict)
+            source = Source(**{name: source_row[name] for name in Source.__dataclass_fields__})
+            rows = self._connection.execute(
+                """SELECT offset, length, sha256 FROM capture_chunks
+                    WHERE source_id=? AND source_epoch=? AND offset>=? AND offset<?
+                    ORDER BY offset LIMIT ?""", (source_id, source_epoch, after, target, limit),
+            ).fetchall()
+            values = []
+            cursor = after
+            for row in rows:
+                item = receipt(row)
+                end = item.offset + item.length
+                if item.offset != cursor or end > target:
+                    raise CaptureBlocked("receipt range is not contiguous")
+                values.append(item)
+                cursor = end
+            if cursor < target and len(values) < limit:
+                raise CaptureBlocked("receipt range is not contiguous")
+            return ReceiptPage(source, source_epoch, target, tuple(values), cursor)
 
     def acknowledge(self, source_id: str, source_epoch: str, offset: int) -> None:
         """Commit a monotonic host-durable byte watermark. Do not reclaim here."""
