@@ -18,8 +18,8 @@ def binding():
     return RunBinding(new_id(), new_id(), new_id(), 1, new_id(), new_id(), 1)
 
 
-def registered(path, *, kind="native"):
-    run = binding()
+def registered(path, *, kind="native", run=None):
+    run = binding() if run is None else run
     source = Source(new_id(), run.installation_id, run.agent_id, kind,
                     native_session_id="synthetic-session" if kind == "native" else None)
     epoch = new_id()
@@ -43,10 +43,11 @@ def child_env():
             "PYTHONDONTWRITEBYTECODE": "1"}
 
 
-def cli_args(path, run, source_id, epoch, child):
+def cli_args(path, run, source_id, epoch, child, *, probe_address=None):
     return [sys.executable, "-m", "qorqut_core.transcripts.recorder",
             "--spool", str(path), "--installation-id", run.installation_id,
             "--agent-id", run.agent_id, "--recovery-epoch", run.recovery_epoch,
             "--environment-generation", str(run.environment_generation), "--boot-id", run.boot_id,
             "--run-id", run.run_id, "--run-generation", str(run.run_generation),
-            "--source-id", source_id, "--source-epoch", epoch, "--", *child]
+            "--source-id", source_id, "--source-epoch", epoch,
+            *(["--probe-address", probe_address] if probe_address is not None else []), "--", *child]

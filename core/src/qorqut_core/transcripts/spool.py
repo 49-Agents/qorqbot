@@ -282,6 +282,21 @@ class CaptureSpool:
         """Durable observations, not proof that a recorder is currently alive."""
         return dict(self._epoch(source_id, source_epoch))
 
+    def recording_binding(self, source_id: str, source_epoch: str, run_id: str) -> RunBinding:
+        """Read the committed exact recording/link coordinates without adopting a run."""
+        for value in (source_id, source_epoch, run_id):
+            _uuid(value)
+        row = self._connection.execute(
+            """SELECT r.* FROM capture_runs r
+                JOIN capture_run_sources l ON l.run_id=r.run_id
+                JOIN capture_epochs e ON e.source_id=l.source_id AND e.source_epoch=l.source_epoch
+                WHERE l.source_id=? AND l.source_epoch=? AND r.run_id=? AND e.recorder_run_id=r.run_id""",
+            (source_id, source_epoch, run_id),
+        ).fetchone()
+        if row is None:
+            raise BindingConflict("unknown recording run/source/epoch link")
+        return RunBinding(**{name: row[name] for name in RunBinding.__dataclass_fields__})
+
     def _link_run(self, source_id: str, source_epoch: str, run_id: str) -> None:
         _uuid(run_id)
         source = self._source(source_id)

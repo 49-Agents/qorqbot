@@ -23,16 +23,17 @@ from support import binding, child_env, cli_args, new_id, raw, registered
 class NestedTerminal:
     """Real outer PTY -> recorder -> real child controlling PTY."""
 
-    def __init__(self, path, program, *args):
+    def __init__(self, path, program, *args, run=None, probe_address=None):
         self.path = path
-        self.run = binding()
+        self.run = binding() if run is None else run
         self.source_id, self.epoch = new_id(), new_id()
         self.master, self.slave = os.openpty()
         tty.setraw(self.slave)
         self.attributes = termios.tcgetattr(self.slave)
         self.size(24, 80)
         self.process = subprocess.Popen(
-            cli_args(path, self.run, self.source_id, self.epoch, [sys.executable, "-c", program, *args]),
+            cli_args(path, self.run, self.source_id, self.epoch, [sys.executable, "-c", program, *args],
+                     probe_address=probe_address),
             stdin=self.slave, stdout=self.slave, stderr=self.slave,
             start_new_session=True, close_fds=True, env=child_env(),
         )
