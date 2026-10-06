@@ -3,10 +3,12 @@
 Verification: 2026-10-08 UTC (2026-10-07 America/New_York).
 Branch: `codex/agents-r1`. Clean original and Manager design revision:
 `242a7a9e5c2f6f30e3d5a8f4c12deba9c14ddd9d`.
-Final implementation/test SHA: recorded in the delivery update below.
-The implementation, tests and this evidence are committed together; the final
-SHA reference is then recorded by an evidence-only commit. The resolved delivery
-SHA and normal branch-push verification are also sent through ACLA.
+Final implementation/test SHA:
+`6ebbb7af19dedc59205a12edd5c362d3954d20f2`.
+The implementation, tests and initial evidence were committed together at that
+revision. This evidence-only delivery update records the exact SHA without
+changing the tested source. The resolved delivery commit SHA and normal
+branch-push verification are also sent through ACLA.
 
 Run `649fed24-a7af-40d7-9d41-382ab248483a`; worker
 `9675a36b-df99-433e-a119-1384db6667ec`; bound executor conversation
