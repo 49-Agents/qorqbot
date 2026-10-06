@@ -1,0 +1,6 @@
+{"type":"user","sessionId":"11111111-1111-4111-8111-111111111111","uuid":"synthetic-user-1","cwd":"/synthetic/start","message":{"content":"same text"}}
+{"type":"assistant","sessionId":"11111111-1111-4111-8111-111111111111","uuid":"synthetic-tool-1","cwd":"/synthetic/changed","message":{"content":[{"type":"tool_use","id":"synthetic-call","name":"Read","input":{"file_path":"notes/result.md"}}]}}
+{"type":"user","sessionId":"11111111-1111-4111-8111-111111111111","uuid":"synthetic-user-2","cwd":"/synthetic/changed","message":{"content":"same text"}}
+{"type":"future-native-record","sessionId":"11111111-1111-4111-8111-111111111111","unknown":{"bytes_must_survive":true}}
+{"type":"attachment","sessionId":"11111111-1111-4111-8111-111111111111","attachment":{"type":"queued_command","origin":{"kind":"human"},"commandMode":"prompt","prompt":"synthetic queued input"}}
+{"type":"attachment","sessionId":"11111111-1111-4111-8111-111111111111","attachment":{"type":"future_external_file","path":"/not-an-owned-fixture/do-not-open"}}

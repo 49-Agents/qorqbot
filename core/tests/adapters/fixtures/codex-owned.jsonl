@@ -1,0 +1,7 @@
+{"type":"session_meta","payload":{"id":"11111111-1111-4111-8111-111111111111","cwd":"/synthetic/start","source":"cli"}}
+{"type":"turn_context","payload":{"cwd":"/synthetic/changed"}}
+{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"synthetic-item-1","content":[{"type":"text","text":"same text"},{"type":"image","image_url":"data:image/png;base64,U1lOVEhFVElD"}]}}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"injected context and native echo; not another owned source"}]}}
+{"type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"synthetic-call","arguments":"{}"}}
+{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"synthetic-item-2","content":[{"type":"text","text":"same text"},{"type":"image","image_url":"file:///not-an-owned-fixture/do-not-open.png"}]}}}
+{"type":"future-native-record","payload":{"bytes_must_survive":true}}
