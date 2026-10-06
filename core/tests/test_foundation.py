@@ -164,7 +164,8 @@ class FoundationCase(unittest.TestCase):
         view = self.config()
         self.assertEqual(len(ICON_KEYS), 20)
         self.assertEqual(set(self.app.registry), {"config_get", "config_update", "operations_get", "events_list",
-            "agents_create", "agents_get", "agents_list", "agents_update", "agents_status_set"})
+            "agents_create", "agents_get", "agents_list", "agents_update", "agents_status_set",
+            "messages_send", "messages_list", "messages_acknowledge", "deliveries_get", "conversation_list"})
         self.assertEqual(view["policy"], "allow_all")
         self.assertNotIn(str(self.root), canonical(view))
         snapshot = NewAgentDefaults.model_validate(view["defaults"])

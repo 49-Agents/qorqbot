@@ -1,0 +1,1 @@
+"""Message domain behavior tests."""

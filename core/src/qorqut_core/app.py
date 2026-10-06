@@ -127,13 +127,20 @@ class Application:
         """Pure assembly; caller must explicitly initialize/open storage first."""
         from .agents.registry import Agents
         from .agents.workspace import Workspaces
+        from .conversation.ledger import Conversations
+        from .conversation.publication import Publisher
+        from .messaging.service import Messaging
         from .transcripts.archive import Archive
 
         self.settings, self.db = settings, database
         self.files = Files(database, settings.data_root)
         self.workspaces = Workspaces(database, settings.data_root)
         self.archive = Archive(database, settings.data_root)
-        self.jobs = Jobs(database, (self.files.handler(), *self.workspaces.handlers()))
+        self.conversations = Conversations(self)
+        self.publisher = Publisher(self)
+        self.messaging = Messaging(self)
+        self.jobs = Jobs(database, (self.files.handler(), *self.workspaces.handlers(),
+            self.messaging.handler(), self.publisher.handler()))
         self.files.jobs = self.jobs
         self.workspaces.jobs = self.jobs
         self.agents = Agents(self)
@@ -143,6 +150,8 @@ class Application:
             Operation("operations_get", OperationsGet, False, self._operations_get, OperationView),
             Operation("events_list", EventsList, False, self._events_list, EventPage),
             *self.agents.operations(),
+            *self.messaging.operations(),
+            *self.conversations.operations(),
         )
         self.registry = MappingProxyType({op.name: op for op in operations})
 
@@ -331,6 +340,8 @@ class Application:
                 WHERE job_id=?""", (str(epoch), now, row["job_id"]))
             self.jobs._event(tx, row, row["state"], "queued", "recovery_epoch_changed", actor_id=context.actor_id)
         tx.connection.execute("UPDATE installation SET recovery_epoch=? WHERE singleton=1", (str(epoch),))
+        self.messaging.hold_for_recovery(tx, context, operation_id)
+        self.publisher.hold_for_recovery(tx)
         seq = append_event(tx, EventInput(kind="installation.recovery_activated", actor_id=context.actor_id,
             operation_id=operation_id, payload={"previous_epoch": old["recovery_epoch"], "recovery_epoch": str(epoch), "held_jobs": len(rows)}))
         return Change({"recovery_epoch": str(epoch), "held_jobs": len(rows)}, seq)
