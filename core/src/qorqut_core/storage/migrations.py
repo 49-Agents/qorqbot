@@ -232,5 +232,116 @@ MIGRATIONS = (
             BEGIN SELECT RAISE(ABORT,'Archive evidence is immutable'); END""" for table in (
                 "archive_runs", "archive_sources", "archive_run_sources", "archive_chunks", "archive_conflicts")),
     )),
+    Migration(5, (
+        "CREATE INDEX chat_jobs_target_kind ON jobs(target_id,kind)",
+        """CREATE TABLE message_threads (
+            thread_id TEXT NOT NULL PRIMARY KEY,
+            endpoint_a_actor_id TEXT NOT NULL REFERENCES actors(actor_id),
+            endpoint_b_actor_id TEXT NOT NULL REFERENCES actors(actor_id),
+            created_at TEXT NOT NULL)""",
+        """CREATE TABLE messages (
+            message_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id TEXT NOT NULL UNIQUE,
+            thread_id TEXT NOT NULL REFERENCES message_threads(thread_id),
+            reply_to_message_id TEXT REFERENCES messages(message_id),
+            sender_actor_id TEXT NOT NULL REFERENCES actors(actor_id),
+            sender_agent_id TEXT REFERENCES agents(id),
+            recipient_agent_id TEXT NOT NULL REFERENCES agents(id),
+            body TEXT NOT NULL CHECK(length(CAST(body AS BLOB)) BETWEEN 1 AND 65536),
+            occurred_at TEXT NOT NULL, recorded_at TEXT NOT NULL)""",
+        "CREATE INDEX messages_thread_cursor ON messages(thread_id,message_seq)",
+        "CREATE INDEX messages_sender_cursor ON messages(sender_agent_id,message_seq)",
+        "CREATE INDEX messages_recipient_cursor ON messages(recipient_agent_id,message_seq)",
+        """CREATE TRIGGER messages_routing BEFORE INSERT ON messages
+            WHEN NOT EXISTS (SELECT 1 FROM actors a WHERE a.actor_id=NEW.sender_actor_id
+                AND a.agent_id IS NEW.sender_agent_id)
+                OR NOT EXISTS (SELECT 1 FROM message_threads t JOIN agents r ON r.id=NEW.recipient_agent_id
+                    WHERE t.thread_id=NEW.thread_id AND
+                    ((t.endpoint_a_actor_id=NEW.sender_actor_id AND t.endpoint_b_actor_id=r.actor_id)
+                    OR (t.endpoint_b_actor_id=NEW.sender_actor_id AND t.endpoint_a_actor_id=r.actor_id)))
+                OR (NEW.reply_to_message_id IS NOT NULL AND NOT EXISTS
+                    (SELECT 1 FROM messages WHERE message_id=NEW.reply_to_message_id AND thread_id=NEW.thread_id))
+            BEGIN SELECT RAISE(ABORT,'Message routing or attribution disagrees'); END""",
+        """CREATE TABLE message_deliveries (
+            message_id TEXT NOT NULL PRIMARY KEY REFERENCES messages(message_id),
+            recipient_agent_id TEXT NOT NULL REFERENCES agents(id),
+            state TEXT NOT NULL CHECK(state IN ('pending','deferred','dispatching','submitted','uncertain','failed','cancelled')),
+            reason TEXT CHECK(length(reason)<=100), updated_at TEXT NOT NULL)""",
+        "CREATE INDEX message_deliveries_pending ON message_deliveries(recipient_agent_id,state)",
+        """CREATE TRIGGER message_deliveries_recipient BEFORE INSERT ON message_deliveries
+            WHEN NOT EXISTS (SELECT 1 FROM messages
+                WHERE message_id=NEW.message_id AND recipient_agent_id=NEW.recipient_agent_id)
+            BEGIN SELECT RAISE(ABORT,'Delivery recipient disagrees'); END""",
+        """CREATE TRIGGER message_deliveries_identity BEFORE UPDATE ON message_deliveries
+            WHEN NEW.message_id IS NOT OLD.message_id OR NEW.recipient_agent_id IS NOT OLD.recipient_agent_id
+            BEGIN SELECT RAISE(ABORT,'Delivery identity is permanent'); END""",
+        """CREATE TABLE message_handling (
+            message_id TEXT NOT NULL PRIMARY KEY REFERENCES messages(message_id),
+            handled_by TEXT NOT NULL REFERENCES actors(actor_id), handled_at TEXT NOT NULL,
+            note TEXT CHECK(length(note)<=4000))""",
+        """CREATE TABLE conversation_cursors (
+            agent_id TEXT NOT NULL PRIMARY KEY REFERENCES agents(id),
+            conversation_id TEXT NOT NULL UNIQUE REFERENCES agents(conversation_id),
+            last_seq INTEGER NOT NULL CHECK(typeof(last_seq)='integer' AND last_seq>=0),
+            UNIQUE(agent_id,conversation_id))""",
+        """CREATE TRIGGER conversation_cursors_binding BEFORE INSERT ON conversation_cursors
+            WHEN NOT EXISTS (SELECT 1 FROM agents WHERE id=NEW.agent_id AND conversation_id=NEW.conversation_id)
+            BEGIN SELECT RAISE(ABORT,'Registered conversation binding disagrees'); END""",
+        """CREATE TRIGGER conversation_cursors_permanent BEFORE UPDATE ON conversation_cursors
+            WHEN NEW.agent_id IS NOT OLD.agent_id OR NEW.conversation_id IS NOT OLD.conversation_id
+                OR NEW.last_seq<OLD.last_seq
+            BEGIN SELECT RAISE(ABORT,'Conversation cursor cannot change lineage or regress'); END""",
+        """CREATE TABLE conversation_entries (
+            entry_id TEXT NOT NULL PRIMARY KEY,
+            agent_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
+            conversation_seq INTEGER NOT NULL CHECK(typeof(conversation_seq)='integer' AND conversation_seq>0),
+            kind TEXT NOT NULL CHECK(kind='message'), role TEXT NOT NULL CHECK(role IN ('user','agent')),
+            direction TEXT NOT NULL CHECK(direction IN ('incoming','outgoing')),
+            text TEXT NOT NULL CHECK(length(CAST(text AS BLOB)) BETWEEN 1 AND 65536),
+            sender_actor_id TEXT NOT NULL REFERENCES actors(actor_id),
+            source_type TEXT NOT NULL CHECK(source_type='message'),
+            message_id TEXT NOT NULL REFERENCES messages(message_id),
+            run_id TEXT, provider TEXT, source_id TEXT, source_epoch TEXT,
+            offset INTEGER CHECK(offset IS NULL OR (typeof(offset)='integer' AND offset>=0)),
+            length INTEGER CHECK(length IS NULL OR (typeof(length)='integer' AND length>=0)),
+            occurred_at TEXT NOT NULL, recorded_at TEXT NOT NULL, recording_date TEXT NOT NULL,
+            FOREIGN KEY(agent_id,conversation_id) REFERENCES conversation_cursors(agent_id,conversation_id),
+            UNIQUE(conversation_id,conversation_seq), UNIQUE(agent_id,conversation_seq), UNIQUE(agent_id,message_id))""",
+        "CREATE INDEX conversation_entries_day ON conversation_entries(agent_id,recording_date,conversation_seq)",
+        """CREATE TABLE conversation_publications (
+            agent_id TEXT NOT NULL REFERENCES agents(id), recording_date TEXT NOT NULL,
+            through_seq INTEGER NOT NULL DEFAULT 0 CHECK(typeof(through_seq)='integer' AND through_seq>=0),
+            sha256 TEXT, length INTEGER CHECK(length IS NULL OR (typeof(length)='integer' AND length>=0)),
+            pending_receipt_id TEXT UNIQUE REFERENCES file_receipts(receipt_id),
+            pending_target_seq INTEGER CHECK(pending_target_seq IS NULL OR (typeof(pending_target_seq)='integer' AND pending_target_seq>through_seq)),
+            error_code TEXT, error_message TEXT CHECK(length(error_message)<=2000),
+            PRIMARY KEY(agent_id,recording_date),
+            CHECK((through_seq=0 AND sha256 IS NULL AND length IS NULL)
+                OR (through_seq>0 AND length(sha256)=64 AND length IS NOT NULL)),
+            CHECK((pending_receipt_id IS NULL)=(pending_target_seq IS NULL)),
+            CHECK((error_code IS NULL)=(error_message IS NULL)))""",
+        """CREATE TRIGGER conversation_publications_permanent BEFORE UPDATE ON conversation_publications
+            WHEN NEW.agent_id IS NOT OLD.agent_id OR NEW.recording_date IS NOT OLD.recording_date
+                OR NEW.through_seq<OLD.through_seq
+            BEGIN SELECT RAISE(ABORT,'Publication coordinates cannot change lineage or regress'); END""",
+        *tuple(statement for table, key in (
+            ("message_threads", "thread_id=NEW.thread_id"),
+            ("messages", "message_id=NEW.message_id OR message_seq=NEW.message_seq"),
+            ("message_deliveries", "message_id=NEW.message_id"),
+            ("message_handling", "message_id=NEW.message_id"),
+            ("conversation_cursors", "agent_id=NEW.agent_id OR conversation_id=NEW.conversation_id"),
+            ("conversation_entries", "entry_id=NEW.entry_id OR (agent_id=NEW.agent_id AND message_id=NEW.message_id) OR (conversation_id=NEW.conversation_id AND conversation_seq=NEW.conversation_seq) OR (agent_id=NEW.agent_id AND conversation_seq=NEW.conversation_seq)"),
+            ("conversation_publications", "(agent_id=NEW.agent_id AND recording_date=NEW.recording_date) OR pending_receipt_id=NEW.pending_receipt_id"),
+        ) for statement in (
+            f"""CREATE TRIGGER {table}_no_replace BEFORE INSERT ON {table}
+                WHEN EXISTS (SELECT 1 FROM {table} WHERE {key})
+                BEGIN SELECT RAISE(ABORT,'Chat evidence cannot be replaced'); END""",
+            f"""CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table}
+                BEGIN SELECT RAISE(ABORT,'Chat evidence is permanent'); END""",
+        )),
+        *tuple(f"""CREATE TRIGGER {table}_no_update BEFORE UPDATE ON {table}
+            BEGIN SELECT RAISE(ABORT,'Chat evidence is immutable'); END""" for table in (
+                "message_threads", "messages", "message_handling", "conversation_entries")),
+    )),
 )
 SCHEMA_VERSION = MIGRATIONS[-1].version

@@ -26,7 +26,7 @@ class AgentTransportFlow(unittest.IsolatedAsyncioTestCase):
             tools = {t.name: t for t in (await owner.list_tools()).tools}
             operations = {op["name"]: op for op in schemas["operations"]}
             self.assertEqual(set(tools), set(fixture.registry))
-            self.assertEqual(len(tools), 9)
+            self.assertEqual(len(tools), 14)
             for name in ("agents_create", "agents_get", "agents_list", "agents_update", "agents_status_set"):
                 operation = fixture.registry[name]
                 self.assertEqual(tools[name].inputSchema, operation.arguments.model_json_schema())
