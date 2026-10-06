@@ -8,8 +8,9 @@ The bounded local recorder probe is accepted as recorded in
 [BUILD-EXECUTION.md](../BUILD-EXECUTION.md). Its design is
 [RECORDER-PROBE.md](../RECORDER-PROBE.md): a fresh capture-loop observation,
 separate from native ingestion and complete runtime readiness. The next host
-storage increment follows [HOST-ARCHIVE.md](../HOST-ARCHIVE.md). Native file
-capture requires its own concrete Manager design after interface exploration.
+storage increment follows [HOST-ARCHIVE.md](../HOST-ARCHIVE.md). The accepted
+[native exploration](../evidence/native-capture-p0.md) supplies source and spool
+facts; native file capture still requires its own concrete Manager design.
 
 ## 1. Guarantee and fault model
 
