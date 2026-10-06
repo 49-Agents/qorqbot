@@ -25,21 +25,28 @@ before `login_tty` disappeared. The local recorder remains unapproved.
 
 Keep the child unreaped while exit/cleanup evidence is still needed, using
 non-reaping observation and final direct-child reaping. Failure cleanup has
-finite deadlines and targets the owned direct child, original PTY group and
-verified current foreground group; leader exit alone is not group completion.
+finite deadlines and targets the owned direct child and every live member of
+its verified original PTY session; leader exit alone is not session completion.
 Do not use an unbounded final wait or signal an inherited/shared parent group.
 Unconfirmed cleanup stays an explicit failure with admission closed, and parent
 terminal/descriptor/signal state must still be restored. Group termination and
 direct-child reaping are different claims; detached-subtree supervision remains
 the later systemd/cgroup integration boundary.
 
-An unreaped leader keeps the group observable even when only zombies remain.
-Cleanup may inspect minimal `/proc` stat fields for membership in the already
-verified owned SID and original/foreground PGID set. The owned PTY supplies
-foreground ownership; the scan does not select unrelated groups. Count live
-states separately from zombies, refresh process-start/membership evidence, and
-keep incomplete observations or elapsed deadlines explicitly unsuccessful.
-Do not read or retain unrelated command lines, environments or process contents.
+A later review and Manager reproduction found that leader exit before cleanup
+can erase the PTY's foreground observation. Use the session identity anchored by
+the unreaped child's PID/start and matching SID, which survives terminal hangup.
+The bounded `/proc` membership check includes all live processes in that exact
+owned SID, including background groups. Revalidate member identities and signal
+them through pidfds. This supersedes selection by original/foreground PGID only;
+do not add a history of foreground groups. Before session creation, target only
+the exact child, never the inherited/shared parent session. Normal interactive
+signal forwarding still follows the PTY foreground semantics.
+
+Count live states separately from zombies, refresh process-start/membership
+evidence, and keep incomplete observations or elapsed deadlines explicitly
+unsuccessful. Detached new sessions remain outside this local boundary. Do not
+read or retain unrelated command lines, environments or process contents.
 
 Block forwarded signals across fork and child handler/PTY setup. Restore the
 parent mask on every path and the child's intended mask before exec. A pending

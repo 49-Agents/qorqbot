@@ -25,15 +25,19 @@ Run a small recorder inside the managed tmux session. It owns the native CLI's c
 
 The initial local recorder's failure cleanup is bounded independently of the
 later cgroup guarantee. Preserve the unreaped direct-child identity while
-observing exit, terminate the owned original/current foreground groups as well
-as the direct child, and do not infer group completion from leader exit. Use
+observing exit, terminate live members of the verified original PTY session as
+well as the direct child, and do not infer session completion from leader exit.
+The child's PID/start and matching SID anchor ownership after terminal hangup;
+failure cleanup includes background groups in that SID and revalidates members
+through pidfds. Normal interactive forwarding retains foreground semantics. Use
 finite cleanup deadlines; unresolved termination remains failed/incomplete with
 admission closed. Restore parent terminal, descriptor flags and signal state on
 every returning path. Reaping the direct child is not reaping an arbitrary group.
 Signals arriving before child PTY/session creation must survive startup handler
 reset and reach the owned child; block them across fork/setup and restore masks
 in parent and child as specified by [D27](../DECISIONS.md). No shared/inherited
-parent process group is a cleanup target.
+parent session or process group is a cleanup target; detached new sessions still
+require the later cgroup supervision boundary.
 
 `tmux pipe-pane` can provide diagnostic fallback but is not the primary durability boundary: it is another output consumer rather than the path before displayed output. Do not record every raw manual keystroke as a semantic user transcript. Native emitted user messages and durable submitted message bodies carry that meaning; terminal output remains a separately labeled recording.
 
