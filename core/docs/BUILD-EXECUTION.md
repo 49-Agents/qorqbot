@@ -25,9 +25,11 @@ delegates further. Treat every report as an unverified claim until checked.
 | Local terminal input/control primitives | [`1704124`](https://github.com/qorqutbot/qorqut-core/blob/170412438596a98845e2fee8ed3f48ce984b899b/docs/evidence/terminal-r1.md) | Fresh Astra MAX review found no remaining in-scope defects across the original implementation and D23/D24 corrections; all 25 tests passed and a negative control detected the prior readiness defect. Manager inspected the final effect, receipt, lock and binding paths; passed five focused real-tmux checks and independently repeated both capture/hold loss diagnostics with no Enter and inert retry. Clean/pushed SHA, whitespace and tmux binary hash verified. | Native composer compatibility, recorder/adapters, managed lifecycle, service/cgroup/VM/onbash and higher-level holds remain pending. Ordered admission observations do not claim atomicity against asynchronous death. Combined package must still validate the foundation dependency lock. No M03 or G0–G6 acceptance. |
 | Local transcript spool and nested-PTY recorder | [`08a0273`](https://github.com/qorqutbot/qorqut-core/blob/08a0273cccf172d8f5a3c0d98fdff93a36531521/docs/evidence/recording-r1.md) | Fresh Astra MAX review found no remaining in-scope defects across the original implementation and both D27 corrections; all 22 owning tests passed. Manager inspected final session/startup/restoration and spool/ACK boundaries, passed seven focused checks and independently repeated both former leader-exit diagnostics with every owned member exited, direct child reaped, bytes retained and restoration intact. Clean/pushed SHA, whitespace and all three source hashes verified. | Cooperative session observation is not cgroup quiescence or detached-session supervision. Saved health is historical. Host archive/fsync-before-ACK, native/provider, runner/tmux, systemd/cgroup/VM survival, backups and combined-package integration remain pending. No M07 or G0–G6 acceptance. |
 | Core HTTP/MCP/operator transport | [`d2e251c`](https://github.com/qorqutbot/qorqut-core/blob/d2e251c4cd02be91b95c392d225cf52d25c2958a/docs/evidence/core-transports-r1.md) | Fresh Astra MAX review found no remaining in-scope defects; 15 source transport and 41 installed foundation/transport tests passed. Its negative controls detected removal of either response-size guard. Manager inspected final operator, dispatcher/lifetime and MCP boundaries, independently passed four installed HTTP/SDK/CLI/logging/limit flows and reran package/source/pin/NOTICE verification. Clean/pushed SHA and both source hashes verified. | Only four existing operations and serve/call. Native MCP discovery, domain/runtime/browser handoff, streams, UI/VM and combined package integration remain pending. Preserve the historical foundation busy-timeout observation and OS/storage drainage limits. No M10 or G0–G6 acceptance. |
+| Combined core package | [`9701c66`](https://github.com/qorqutbot/qorqut-core/blob/9701c661104f7042d0c001796d517957697b5599/docs/evidence/core-integration-r1.md) | Fresh Astra MAX review passed all 117 tests from source and the installed wheel, independently checked child import origins, pins, installed contents and every accepted merge tree. Manager verified ancestry, unchanged production/metadata and all eight authored paths; independently passed the installed shared runner/capture scenario, passive-import check and 36-file/31-pin verification. | Packaging and local table coexistence only. Agents, managed runtime, host archive, native providers, browser/UI and real VM/system gates remain pending. Historical foundation busy-timeout sensitivity remains recorded. |
 
-Approval of this report confirms its bounded evidence, not installed capability.
-The branch is pushed and remains unmerged. Volatile capacity/port observations
+Approval confirms bounded evidence, not installed capability. The combined core
+candidate is accepted for landing under the owner's standing authorization.
+Volatile capacity/port observations
 retain their timestamps and are not a deployment budget or reservation.
 
 ## Reviewed foundation interfaces
@@ -48,9 +50,9 @@ outside SQL and `finalize` alongside their domain update. Recovery activation is
 explicit maintenance only; historical results and held effects stay preserved.
 These are local Python interfaces, not new network services or public tools.
 
-Core's reviewed runtime pin is Pydantic 2.12.3. Earlier isolated adapter/runner
-checks used 2.13.5; their eventual combined package must be verified against the
-chosen core lock before integration is accepted. Shared migrations, registry,
+Core's reviewed runtime pin is Pydantic 2.12.3. Combined integration verified the
+adapter/runner code against that retained lock in source and installed suites.
+Shared migrations, registry,
 package metadata and assembly retain one assigned writer at a time. Later lanes
 must not invent competing implementations of these accepted boundaries.
 
@@ -63,13 +65,6 @@ separate Manager assignments; no worker may fill those gaps independently.
 
 ## Work awaiting acceptance
 
-- Core package integration at `9701c66` is committed and pushed; a fresh Astra
-  MAX reviewer is assigned under [CORE-INTEGRATION.md](CORE-INTEGRATION.md).
-  The builder reports unchanged accepted production code/pins, all existing
-  owning tests passing from source and the installed combined wheel, and a
-  passing shared runner/capture database scenario. Manager verified clean/pushed
-  SHA and exact accepted-input ancestry; the claims remain unapproved pending
-  independent review and Manager verification before landing on `main`.
 - Independent browser MCP at `c341377`: the D28 logging correction is committed
   and pushed. The fresh reviewer stopped on a provider safety restriction before
   delivering its ACLA report; that review is incomplete and has not been credited.
