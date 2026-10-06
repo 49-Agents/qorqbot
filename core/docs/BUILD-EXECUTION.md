@@ -57,10 +57,12 @@ separate Manager assignments; no worker may fill those gaps independently.
 
 ## Work awaiting acceptance
 
-- Independent browser MCP at `d46fba1`: committed and pushed; a fresh Astra MAX
-  reviewer is assigned to this completed revision with the full original
-  contract and fixed-handoff-destination amendment. SDK/HTTP, identity, request
-  bounds and cancellation/receipt claims await independent and Manager review.
+- Independent browser MCP at `d46fba1`: the separate Astra MAX review passed all
+  32 tests and package checks, but found raw malformed MCP payloads in root-logger
+  diagnostics. Manager independently reproduced both request/notification paths.
+  D28 and the first browser MCP revision require complete SDK log sanitation;
+  the same evidence clarifies core's existing transport logging requirement.
+  Implementation remains unapproved and needs fresh review after correction.
   Synthetic browser effects are not real Chrome/VNC/core/VM acceptance.
 - Recorder at `d15366a`: the separate Astra MAX review passed the 17-test suite
   but found cleanup omitting the direct child, surviving original-group members,

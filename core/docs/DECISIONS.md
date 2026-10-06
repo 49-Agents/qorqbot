@@ -1,5 +1,21 @@
 # Architecture decisions
 
+## D28 — SDK diagnostics obey the transport's content boundary
+
+Independent browser review and Manager reproduction showed that MCP 1.30.0
+logs raw invalid request/notification values through the root logger. Four
+named-logger filters missed those records even while HTTP errors were sanitized.
+Both standalone browser and core transport must cover actual SDK validation logs.
+
+Use a small record-factory sanitation boundary at application assembly, matching
+SDK logger names and installed SDK source paths, including root calls. Preserve
+safe diagnostic metadata, existing factory behavior and unrelated logging; strip
+payload-bearing message/arguments and exception/stack text before handlers emit.
+Keep setup idempotent and imports inert. Do not patch/vendor the SDK or add a
+logging framework. An already equivalent boundary needs verification, not a
+second sanitizer. Owning wire tests exercise malformed requests and notifications
+with synthetic sentinels, without real secrets or browser/provider effects.
+
 ## D27 — Recorder startup signals and owned-process cleanup
 
 Independent review and Manager real-PTY reproduction found three defects in the

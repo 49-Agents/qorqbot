@@ -54,6 +54,11 @@ Keep tokens, Authorization headers and submitted content out of logs, exception
 messages, representations and schemas. Native-client discovery, owner cookie
 sessions, WebSocket origins and credential issuance remain later acceptance.
 
+This includes the SDK's malformed-request and malformed-notification validators,
+which can log raw input through the root logger. Sanitize SDK-origin records
+before handlers emit them, without muting unrelated diagnostics or adding import
+side effects. Actual HTTP/SDK checks cover both paths as well as client responses.
+
 ## Routes and results
 
 | Route | Behavior |
