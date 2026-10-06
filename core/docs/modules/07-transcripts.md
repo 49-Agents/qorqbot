@@ -139,7 +139,13 @@ without reseeding workspace files. Raw terminal/native chunks and unsupported
 or partial record evidence remain independently archived; dated copies never
 replace those bytes or imply unsupported content has been normalized. M09/M11
 include the copies and publication state in full export/restore. The concrete
-publisher/checkpoint contract will be frozen with conversation projection.
+publisher/checkpoint contract is frozen with conversation projection below.
+
+The first concrete publisher and platform conversation contract is now frozen
+in [CHAT-IMPLEMENTATION.md](../CHAT-IMPLEMENTATION.md). It reuses streamed file
+receipts and the typed queue, with server execution defined in
+[CONSOLE-SERVER.md](../CONSOLE-SERVER.md). Native normalization/echo linking
+remain separate integration work; these plans are not completion evidence.
 
 ## 7. Implementation sequence
 

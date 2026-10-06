@@ -1,5 +1,29 @@
 # Architecture decisions
 
+## D35 — Headless jobs and same-origin console sessions
+
+**Decision:** [CONSOLE-SERVER.md](CONSOLE-SERVER.md) extends the initial local
+server with one supervised typed-job worker, bounded HttpOnly browser sessions
+and optional static UI hosting. Bearer MCP/operator calls remain independent.
+Background work no longer waits for a connected UI or manual queue pumping;
+receipt recovery cannot release restore holds or retry uncertain terminal input.
+This deliberately supersedes D26's first-increment no-job-start restriction.
+It adds neither another service nor an account/permission system. Loopback-only
+hosting remains the verified target until wider deployment has its own checks.
+
+## D34 — Connect stored messages, conversation entries and dated copies
+
+**Decision:** [CHAT-IMPLEMENTATION.md](CHAT-IMPLEMENTATION.md) owns the next
+host schema/assembly change: direct messages, exact handling, stable chat
+entries and automatic daily files. Reuse the existing typed jobs and streamed
+file receipts to atomically replace complete daily partitions, coalescing queued
+updates. This minimizes another durability mechanism at the cost of write
+amplification on very busy days; preserve bounded memory and no total-day cap.
+Publication progress is distinct from raw capture and terminal submission.
+Native parsing, source-verified echoes and dispatch remain explicit following
+integrations. The minimal UI can use real persisted offline chat immediately
+without presenting that as a running assistant.
+
 ## D33 — Core automatically publishes dated per-agent chat transcripts
 
 **Owner requirement:** whenever the owner chats with an agent, `qorqut-core`

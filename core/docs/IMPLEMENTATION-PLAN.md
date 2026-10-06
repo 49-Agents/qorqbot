@@ -234,6 +234,14 @@ The owner's ACLA implementation authorization is recorded in
 packages without weakening their acceptance gates. Independent review precedes
 integration; the VM decision remains open.
 
+The next connected chat increment follows
+[CHAT-IMPLEMENTATION.md](CHAT-IMPLEMENTATION.md) and
+[CONSOLE-SERVER.md](CONSOLE-SERVER.md): stored messages and dated copies,
+headless job execution/browser sessions, and the separately built minimal UI
+proceed in parallel. This does not certify native replies or live VM/browser
+control. The UI's current supported operations and truthful dependency states
+must follow core discovery, then expand as those runtime integrations land.
+
 Each module plan contains its own implementation sequence, interfaces, extraction decision, failure behavior and definition of done. Each change should land as a coherent reviewable package:
 
 1. Contract/schema plus focused tests.

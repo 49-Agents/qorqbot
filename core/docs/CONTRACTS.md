@@ -143,6 +143,11 @@ Backup restore/import differs from a normal restart: hold all restored unfinishe
 
 ## 6. Message and delivery contract
 
+[CHAT-IMPLEMENTATION.md](CHAT-IMPLEMENTATION.md) freezes the first concrete
+send/list/acknowledge/delivery and conversation schemas, transcript file format
+and publication-progress contract. Runtime dispatch is a recorded dependency
+hold until its own implementation joins this storage path.
+
 `messages_send` accepts recipient agent ID, complete body, optional thread/reply IDs and an idempotency key. Body limit is 64 KiB UTF-8; longer material is an authored artifact with a reference, never silent truncation. Store exact supplied body plus sender/recipient IDs and timestamps. Summaries, if later added, are derived fields.
 
 Messages are immutable. A correction is another message. A reply preserves thread relationships; it does not acknowledge its parent. All registered actors can inspect messages under v1's all-allowed policy; filters are navigation and efficiency, not access grants.
@@ -299,6 +304,11 @@ Start with only the operations implemented by the current phase; do not advertis
 The first concrete core transport contract is [CORE-API.md](CORE-API.md). It binds
 the reviewed foundation operations to HTTP/MCP/operator calls without changing
 their domain rules; later inventory and stream activation require reviewed code.
+
+[CONSOLE-SERVER.md](CONSOLE-SERVER.md) extends that local transport with
+same-origin browser sessions, an explicit headless job worker and optional UI
+assets. Browser sessions do not replace MCP bearer attribution. Restore holds
+and uncertain terminal effects remain outside automatic receipt reconciliation.
 
 ## 13. Table ownership
 

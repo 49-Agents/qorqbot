@@ -43,6 +43,11 @@ The private libvirt interface and configured owner-facing listen address are exp
 
 ## Single-page workspace
 
+[CONSOLE-SERVER.md](../CONSOLE-SERVER.md) specifies the next local server
+increment for headless work, browser sessions and optional static assets.
+[CHAT-IMPLEMENTATION.md](../CHAT-IMPLEMENTATION.md) defines the concrete chat
+operation/page contract consumed by the independently built frontend.
+
 The independently built `qorqutbot-ui` frontend presents three columns, with no separate agent-detail navigation page:
 
 1. Left: agent list with display name/icon, attention/state hints and creation picker with twenty icons. Click selects chat; double-click name edits it, with an accessible keyboard/touch Rename alternative. IDs remain available in details/disambiguation.

@@ -6,6 +6,10 @@ Repository: `qorqut-core`. Messaging is an internal module sharing the applicati
 
 ## Outcome and boundary
 
+The first connected implementation follows
+[CHAT-IMPLEMENTATION.md](../CHAT-IMPLEMENTATION.md), including its exact schemas
+and honest runtime dependency. It does not claim terminal dispatch acceptance.
+
 Agents can discover each other, send complete messages, retain threaded history, receive queued messages when runnable, and explicitly acknowledge handled work. The host coordinates persistence; the runner performs a generation-bound input attempt. A message is not a hidden task record or permission grant.
 
 Store messages independently of delivery state so terminal problems cannot lose the conversation. Preserve full bodies and original attribution. Any display summary is derived and cannot replace the body.

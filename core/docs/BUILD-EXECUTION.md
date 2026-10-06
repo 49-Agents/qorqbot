@@ -14,6 +14,18 @@ integration scope and final acceptance. Builders execute a bounded plan;
 reviewers report evidence and defects. Neither role changes the design or
 delegates further. Treat every report as an unverified claim until checked.
 
+## Connected chat assignments
+
+Manager's next work packages are D34's message/conversation/daily-file domain,
+D35's server worker/session/static integration, and the minimal UI in
+`qorqutbot-ui/docs/SHELL-IMPLEMENTATION.md`. The first core builder alone owns
+host migration 5 and application assembly. The server builder owns transport
+and job-runner helpers without editing that schema; UI owns its repository.
+All three use the frozen operation/session contracts and receive separate
+fresh reviews. Native prefix review continues independently. Integrated
+headless publication and actual-browser UI tests follow their combination;
+none of these assignments declares VM/native/browser control complete.
+
 ## Accepted bounded results
 
 | Assignment | Accepted revision | Independent review and Manager evidence | Remaining work |
