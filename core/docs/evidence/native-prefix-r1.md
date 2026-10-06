@@ -2,6 +2,11 @@
 
 Verification: 2026-10-08 UTC. Branch `codex/native-prefix-r1`; clean accepted
 source/design base `617a12f1db3f0026108b9e679766eea50d67dd3d`.
+Implementation, tests and initial evidence are committed at
+`ecbae7dc086349a27a1436086434f94dd98be35e`. This is the exact tested code/test
+revision; the subsequent delivery update changes only this evidence paragraph.
+Final delivery and verified remote SHAs are reported through ACLA without a
+self-referential commit hash.
 Run `649fed24-a7af-40d7-9d41-382ab248483a`; worker
 `3ec0003a-125a-40fe-94c1-5b2e8ebd8c68`; bound executor conversation
 `01a11985-0d82-7560-b7a6-e55d8a34d08b`; review thread
