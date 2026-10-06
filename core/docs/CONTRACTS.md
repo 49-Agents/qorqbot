@@ -210,6 +210,11 @@ callables and D31's file/SQL/ACK order. It adds no public operation or alternate
 upload endpoint. Historical state reads do not authorize an ACK; restored
 archive epochs remain held until a later explicit audit/release implementation.
 
+[NATIVE-PREFIX.md](NATIVE-PREFIX.md) defines a read-only local receipt view and
+file-prefix proof. Its frozen target is distinct from the latest capture cursor;
+neither a receipt page nor a file proof advances state, establishes native
+ownership/readiness, persists a checkpoint or authorizes a host ACK.
+
 Native bytes and terminal bytes are separate streams. Supported adapters register exact owned sources, including child sessions and known attachments. Paths/cwd are metadata, not ownership. Discovery is bounded to the agent's own managed native stores; never scan unrelated personal CLI history.
 
 Local capture atomically commits chunk bytes and advanced cursor to the spool. The host collector pulls pending chunks from the runner, writes/fsyncs immutable bytes and their directory, then commits the chunk receipt and contiguous watermark. Only after both does it POST an acknowledgment. Fetch/page cursors do not discard data: reconnect derives progress from committed per-source host watermarks. ACKs are monotonic, source/epoch-bound and cannot exceed locally captured ranges. Acknowledged means one durable host copy; independent backup durability is separately reported.

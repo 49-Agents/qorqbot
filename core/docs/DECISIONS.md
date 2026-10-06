@@ -1,5 +1,19 @@
 # Architecture decisions
 
+## D32 — Verify file prefixes using permanent spool receipts
+
+**Decision, 2026-10-08:** implement [NATIVE-PREFIX.md](NATIVE-PREFIX.md) before
+native-reader restart/checkpoint composition. Expose bounded read-only receipt
+pages from the existing local spool and compare an already-held file descriptor
+against every receipt in a frozen prefix. Receipt hashes survive reclamation;
+they compare supplied bytes but cannot reconstruct lost originals. Return finite
+prefix/tail/stat evidence without changing capture state or authorizing input.
+
+No schema, second byte store or service is needed. Native source attestation,
+durable checkpoints, file ingestion/discontinuities and provider append contracts
+remain separate design/integration work. This proof cannot replace D31 host
+durability, the live recorder observation or a native readiness verdict.
+
 ## D31 — Commit host chunk files before authorizing source ACKs
 
 **Decision, 2026-10-08:** implement the internal host storage boundary in

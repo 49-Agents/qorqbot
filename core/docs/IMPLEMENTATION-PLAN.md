@@ -77,10 +77,15 @@ The bounded [live recorder observation](RECORDER-PROBE.md) increment closes the
 process-local observation gap found in reviewed runtime exploration. It remains
 separate from complete native capture, provider readiness and managed launch.
 
-The next host storage boundary is [HOST-ARCHIVE.md](HOST-ARCHIVE.md), specified
+The bounded host storage boundary is [HOST-ARCHIVE.md](HOST-ARCHIVE.md), specified
 by D31. It consumes exact declared source coordinates and produces a receipt
 only after immutable bytes and inventory are durable. The authenticated pull
 collector, native ingestion, restore audit and G3 acceptance remain separate.
+
+The accepted native exploration exposes a missing full-prefix verification
+path after spool reclamation. [NATIVE-PREFIX.md](NATIVE-PREFIX.md), D32, supplies
+that read-only prerequisite using existing receipt hashes. It adds no storage
+or service and does not itself provide a native reader or durable checkpoint.
 
 ## 4. Porting strategy
 

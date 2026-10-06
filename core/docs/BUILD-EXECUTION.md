@@ -30,6 +30,7 @@ delegates further. Treat every report as an unverified claim until checked.
 | Agent registration, authored workspace and status | [`1c983de`](https://github.com/qorqutbot/qorqut-core/blob/1c983de4c84c9cabded4a870c0d3422c11f640dc/docs/evidence/agents-r1.md) | Fresh Astra MAX review found no in-scope defects; 19 agent, 26 foundation and 15 transport source tests plus installed HTTP/MCP and passive-import checks passed. Manager reviewed the full production change, independently verified all 40 installed package files, test staging and 31 pins against the candidate, and passed four installed checks for concurrent registration, authored-file preservation, projection races and read-only recovery holds. Exact clean/pushed 16-path scope verified. | Five shared agent operations and real directory/projection effects only. Workspace initialization retains provisioning/start intent and a non-automatic dependency hold. Presence, runtime/VM launch, browser/messaging, general file APIs and archive/restore remain pending; no whole M01/M09 or G0–G6 acceptance. |
 | Live local recorder observation | [`7a678ec`](https://github.com/qorqutbot/qorqut-core/blob/7a678ec62d8df0e062f8858ba480c762892cca72/docs/evidence/recorder-probe-r1.md) | Fresh Astra MAX review found no in-scope defects; all 33 final-source transcript tests and 11 installed probe tests passed, including the unsigned credential correction. Manager inspected all seven changed files, independently verified the installed package/test bytes and 31 pins, and passed four installed checks for paused-loop timeout, observer failure, credential/reply bounds and a different live responder. No fixture descendants, sockets or data remained. | Fresh terminal-loop observation only. Native ownership/readiness/ingestion, managed launch/input admission, host archive/backlog policy and cgroup/VM/system acceptance remain pending. Timeout is not proof of death; no lease or G0–G6 acceptance. |
 | Native source and checkpoint exploration | [`a05e67a`](https://github.com/qorqutbot/qorqut-core/blob/a05e67a147c5b368bfac6090f65a1b1beb6a3fe1/docs/evidence/native-capture-p0.md) | Fresh Astra MAX review found no remaining in-scope defects after the initial root-exception statement was corrected. Manager read the full report and discovery/spool source, verified the exact clean/pushed report-only diff, all 20 recorded fingerprints and the AST exception boundaries. Static checks only; no product tests or runtime changes. | Discovery returns observations without a retained descriptor or capture mapping. Durable native checkpoints, full-prefix verification after reclamation, source-change handling and native finalization remain unimplemented. The report informs Manager design; no runtime or G0–G6 acceptance. |
+| Durable host transcript intake | [`70ff636`](https://github.com/qorqutbot/qorqut-core/blob/70ff636ea1bc45fac6a92077f43f481b27c34e39/docs/evidence/host-archive-r1.md) | Fresh Astra MAX review found no in-scope defects; 21 archive, 26 foundation and 19 agent final-source tests plus five installed checks passed. Manager reviewed the full production change and verified the exact independent wheel, 42 Python files plus NOTICE, 31 pins and clean/pushed 12-path scope. Four separate installed checks passed for orphan/lost-response replay with real spool reclamation, original-run attribution/conflict retention, restore holds and damaged/aliased objects. | Four passive internal callables and host migration 4; nine public operations/three handlers remain unchanged. Authenticated network collection, native ingestion/checkpoints, full integrity/recovery audit, hold release, backup/import and G0–G6 acceptance remain pending. File/SQL fault tests do not certify hardware power loss. |
 
 Approval confirms bounded evidence, not installed capability. Core baseline
 [PR #1](https://github.com/qorqutbot/qorqut-core/pull/1) merged on 2026-10-08 as
@@ -39,6 +40,8 @@ candidate; only Manager tracking differs. Subsequent agent and recorder-probe
 increments are integrated unchanged from `1c983de` and `7a678ec`, respectively,
 with newer Manager plans preserved. The native exploration report is integrated
 unchanged from `a05e67a`; it adds no production capability. Nothing was deployed.
+The internal host archive is integrated unchanged from `70ff636`, preserving
+the newer Manager documents and native exploration report.
 Volatile capacity/port observations
 retain their timestamps and are not a deployment budget or reservation.
 
@@ -128,21 +131,28 @@ one assigned owner and a concrete Manager design.
 Runtime exploration is accepted at `39c0f7e`. Its first resulting implementation,
 [RECORDER-PROBE.md](RECORDER-PROBE.md), is accepted at `7a678ec`: an optional
 fresh process-bound query in the existing recorder loop, without host schema or
-registry changes. Native ownership/composer/source integration, durable host
-archive and managed launch still need explicit designs and acceptance. The probe
+registry changes. Native ownership/composer/source integration, authenticated
+host collection and managed launch still need explicit designs and acceptance. The probe
 alone cannot enable automated terminal input or mark an agent ready.
 
-The host archive assignment uses the combined accepted core through `d4eaf74`
-plus the Manager's D31 plan. `host-archive-r1` implements
-[HOST-ARCHIVE.md](HOST-ARCHIVE.md), exclusively owning host migration 4 and its
-passive application assembly; raw bytes become ACK-eligible only after file
-and inventory durability. Its candidate `70ff636` is under independent review
-and is not accepted. The separate `native-capture-p0` exploration is accepted
-at `a05e67a`: [its report](evidence/native-capture-p0.md) records native discovery,
+The host archive assignment is accepted at `70ff636` under
+[HOST-ARCHIVE.md](HOST-ARCHIVE.md), including host migration 4 and passive
+application assembly. Raw bytes become ACK-eligible only after file and
+inventory durability; there is still no authenticated network collector.
+The separate `native-capture-p0` exploration is accepted at `a05e67a`:
+[its report](evidence/native-capture-p0.md) records native discovery,
 descriptor/provenance checks, spool receipts and the absent native checkpoint
-path. Manager uses these verified facts for the subsequent native-capture
-design. Each completed implementation or revision receives a fresh independent
+path. Each completed implementation or revision receives a fresh independent
 review.
+
+The next native implementation is `native-prefix-r1`, following
+[NATIVE-PREFIX.md](NATIVE-PREFIX.md) and D32 on this accepted combined base.
+It owns only bounded read-only spool receipt pagination, held-file prefix/tail
+verification, its focused tests and evidence. It adds no migration or service.
+This establishes a comparison primitive after local payload reclamation;
+source attestation, ingestion and persistent native-reader checkpoints remain
+the subsequent Manager design. It cannot enable automated input or provider
+readiness. The host archive and browser lanes retain their separate boundaries.
 
 UI becomes a builder assignment as the domain API stabilizes, taking a released
 slot. VM installation/lifecycle waits for the pending substrate decision. Later

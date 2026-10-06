@@ -13,6 +13,7 @@ The agreed repositories are `qorqut-core` (backend/configuration/coordination), 
 | [First agent-management increment](AGENT-REGISTRY.md) | Concrete identity/onbash, directory/persona seeding, status and five-operation contract; explicit runtime dependency |
 | [Live recorder observation](RECORDER-PROBE.md) | Bounded local query of the actual capture loop; separate from native/provider readiness |
 | [Durable host transcript intake](HOST-ARCHIVE.md) | Immutable host chunk receipts, fsync-before-ACK, source lineage, conflicts and restore holds |
+| [Native prefix verification](NATIVE-PREFIX.md) | Read-only receipt pages and bounded verification of an open file after local payload reclamation; prerequisite to native-reader composition |
 | [Chat workspace plan](UI-PLAN.md) | Three-column layout, dedicated Chrome/machine surfaces, intent tools, inline browser/file cards, twenty icons, rename and visual direction |
 | [Decisions](DECISIONS.md) | Chosen defaults, rationale, alternatives and unresolved owner preferences |
 | [Porting plan](PORTING.md) | Exact Qorqut source baselines; extract, adapt, rewrite and omit decisions |

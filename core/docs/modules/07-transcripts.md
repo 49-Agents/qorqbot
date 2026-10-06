@@ -7,10 +7,12 @@ Repository: `qorqut-core`. Recorder, archive and conversation projection remain 
 The bounded local recorder probe is accepted as recorded in
 [BUILD-EXECUTION.md](../BUILD-EXECUTION.md). Its design is
 [RECORDER-PROBE.md](../RECORDER-PROBE.md): a fresh capture-loop observation,
-separate from native ingestion and complete runtime readiness. The next host
-storage increment follows [HOST-ARCHIVE.md](../HOST-ARCHIVE.md). The accepted
+separate from native ingestion and complete runtime readiness. The internal host
+storage increment is accepted under [HOST-ARCHIVE.md](../HOST-ARCHIVE.md). The accepted
 [native exploration](../evidence/native-capture-p0.md) supplies source and spool
-facts; native file capture still requires its own concrete Manager design.
+facts; [NATIVE-PREFIX.md](../NATIVE-PREFIX.md) specifies the next read-only prefix
+verification increment. Native-reader/checkpoint composition and the network
+collector still require their own concrete Manager designs.
 
 ## 1. Guarantee and fault model
 
