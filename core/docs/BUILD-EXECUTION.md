@@ -22,14 +22,18 @@ D35's server worker/session/static integration, and the minimal UI in
 host migration 5 and application assembly. The server builder owns transport
 and job-runner helpers without editing that schema; UI owns its repository.
 All three use the frozen operation/session contracts and receive separate
-fresh reviews. Native prefix review continues independently. Integrated
-headless publication and actual-browser UI tests follow their combination;
-none of these assignments declares VM/native/browser control complete.
+fresh reviews. Native prefix and console hosting have passed their bounded
+reviews and Manager checks. The initial UI and chat-domain reviews found
+recoverability defects; their builders are receiving targeted corrections.
+Integrated headless publication and actual-browser UI tests follow acceptance
+of those revisions and their combination. None of these assignments declares
+VM/native/browser control complete.
 
 ## Accepted bounded results
 
 | Assignment | Accepted revision | Independent review and Manager evidence | Remaining work |
 | --- | --- | --- | --- |
+| Headless jobs, console sessions and optional static UI | [`b51f309`](https://github.com/qorqutbot/qorqut-core/blob/b51f3099c2cb4ed6690667882cd1bcad63cf1675/docs/evidence/console-server-r1.md) | Fresh Astra MAX review found no defects; 28 final-source tests, five installed checks and a real file-effect/mutation cancellation diagnostic passed. Manager inspected the complete production change, verified 133 tracked files, 46 installed Python files, 31 pins and the clean/pushed SHA, then passed two installed static-serving/startup-cancellation checks. [Manager acceptance](evidence/console-server-manager-acceptance.md). | Actual chat publisher and UI integration, native collection/delivery/replies, browser/VM runtime and system gates remain pending. No deployment or whole G0–G6 acceptance. |
 | Native receipt and file-prefix verification | [`c4ac16d`](https://github.com/qorqutbot/qorqut-core/blob/c4ac16d6fe1963774026f43a74b5fa491b5c5f89/docs/evidence/native-prefix-r1.md) | Fresh Astra MAX review passed nine prefix and nine existing spool source tests plus nine installed prefix tests. Manager checked the complete production diff, exact clean/pushed scope, unchanged prior spool AST and independent wheel bytes, then passed three separate reclaim/concurrency/mutation checks. [Manager acceptance](evidence/native-prefix-manager-acceptance.md). | Read-only comparison only. Native ownership, reader/checkpoints, collection, normalization and runtime/system gates remain pending. |
 | Core durable application foundation | [`ef18e59`](https://github.com/qorqutbot/qorqut-core/blob/ef18e59e2df372963f5fba222156fe6b6e50195f/docs/evidence/foundation-r1.md) | Fresh Astra MAX review found no in-scope defects; its 26-test suite passed from source and the installed wheel. Manager inspected application, transaction, event, job and file boundaries; independently passed six focused durability/concurrency checks and both installed-package diagnostics, including a newer schema present only in WAL. Clean/pushed SHA and all four upstream source hashes verified. | Domain operations, transports, managed resources, restore/import integration and real archive acceptance remain pending. Local process/fault checks are not hardware power-loss certification. No whole-module or G0–G6 acceptance. |
 | Environments readiness exploration | [`4432880`](https://github.com/qorqutbot/qorqut-core/blob/44328807c84db01c3351bef74ada285171117d15/docs/evidence/environments-p0.md) | Separate Astra MAX reviewer reported no in-scope defects. Manager checked the exact committed diff and clean worktrees, reproduced unavailable direct KVM access/missing VM tools, verified all seven source hashes and spot-checked external-writer locking/process ownership. | D02 substrate discussion, host preparation and every real two-VM/mount/network/desktop/persistence/restore test remain pending. No G0–G6 acceptance. |
