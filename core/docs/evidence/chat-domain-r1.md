@@ -13,6 +13,19 @@ authorized only the expected inventory changes in `tests/test_foundation.py`,
 operations, five fixed job handlers and host schema 5. Exact-set, parity and
 passive-assembly assertions remain intact.
 
+Manager review 127 identified two recovery defects in candidate
+`63001b3afd6e1dfd932b13b052fe8f842ea9ba5d`; that candidate was not accepted.
+This revision follows the supplied correction design and changes only the
+publisher, its existing publication tests and this evidence. An already-covered
+publication with a saved error now verifies the owned directory/marker and
+committed file through the existing no-follow, streaming `file_hash` helper,
+syncs file/directory evidence and successfully exits its ownership context
+before a snapshot-checked transaction clears the error. Its cursor, bytes,
+inode and receipts remain unchanged. The error-free fast path is retained.
+The publisher also syncs the owning agent directory every time it opens the
+validated transcript directory, repairing the failed-mkdir-parent-sync retry
+case without changing the shared workspace helper.
+
 ## Implemented and checked
 
 - Migration 5 adds concrete immutable threads/messages/handling and conversation
@@ -60,6 +73,13 @@ passive-assembly assertions remain intact.
   those exact bytes to install into the pinned directory while publication
   cursor advancement remains blocked. Marker checks gate new staging,
   attachment and advancement; authored persona content is preserved.
+- Revision regressions inject a marker-read EIO after the publication watermark
+  commits. Both execute and original-epoch inspect recover without another
+  message, including reopen, while preserving exact bytes/inode/receipt count.
+  Failed ownership-context exit retains the saved error. Missing/changed files,
+  a symlink, a wrong marker and a recovery hold remain unresolved. A one-shot
+  owning-parent ENOSPC is followed by a successful owning-parent sync before
+  staging and publication durability are recorded.
 
 ## Commands and results
 
@@ -70,54 +90,69 @@ paths used by the commands:
 ```sh
 chat_run=/home/alp/.local/state/qorqut-builds/01a116b0-8d6d-72f2-9da9-76bd2e898f04
 chat_tree=/home/alp/qorqut-core/worktrees/chat-domain-r1
-chat_artifacts="$chat_run/chat-artifacts"
+chat_artifacts="$chat_run/chat-r2-artifacts"
 source_python="$chat_run/chat-test-venv/bin/python"
 wheel_python="$chat_run/chat-wheel-venv/bin/python"
 ```
 
-Source check, from the worktree; **23 passed in 99.999 seconds**:
+Revised source check, from the worktree; **22 passed in 71.692 seconds**:
 
 ```sh
 TMPDIR="$chat_artifacts" PYTHONPATH=src:tests "$source_python" -m unittest \
   messaging.test_messages messaging.test_transports \
-  conversation.test_ledger conversation.test_publication \
-  test_foundation.FoundationCase.test_config_validation_secrets_and_snapshot_defaults \
-  test_foundation.FoundationCase.test_migration_failure_rolls_back_and_upgrade_preserves_records \
-  agents.test_agent_flow archive.test_passive -q
+  conversation.test_ledger conversation.test_publication -q
 ```
 
 Wheel build and install, both exit 0:
 
 ```sh
 "$chat_run/chat-test-venv/bin/pip" wheel --no-deps --wheel-dir "$chat_artifacts/wheels" .
-python3.12 -m venv "$chat_run/chat-wheel-venv"
-"$chat_run/chat-wheel-venv/bin/pip" install "$chat_artifacts/wheels/qorqut_core-0.1.0-py3-none-any.whl"
+"$chat_run/chat-wheel-venv/bin/pip" install --no-deps --force-reinstall \
+  "$chat_artifacts/wheels/qorqut_core-0.1.0-py3-none-any.whl"
 ```
 
 Wheel SHA-256:
-`d4a325bab0c973b6d871260a8ca27fa1eb3c7f3649e260fe2fb3e97978f0ac1b`.
+`b435de39ca6595ede6535bc4fc234cfdb6f80e030d5ec75b9ab53a96441f1374`.
 
 Installed check, working directory `$chat_artifacts`, with only the tests on
-`PYTHONPATH`; **6 passed in 19.693 seconds**:
+`PYTHONPATH`; **4 passed in 11.611 seconds**:
 
 ```sh
 TMPDIR="$chat_artifacts" PYTHONPATH="$chat_tree/tests" "$wheel_python" -m unittest \
-  messaging.test_messages.Messages.test_atomic_send_exact_body_and_receipt_replay \
-  messaging.test_transports \
-  conversation.test_ledger.Ledger.test_latest_before_after_empty_pages_and_equal_text_identity \
-  conversation.test_publication.Publication.test_crash_receipt_boundaries_recover_without_another_message \
-  conversation.test_publication.Publication.test_restore_holds_pending_receipt_delivery_and_new_job_for_same_partition \
-  archive.test_passive -q
+  conversation.test_publication.Publication.test_committed_error_revalidates_without_new_message_execute_and_inspect \
+  conversation.test_publication.Publication.test_committed_error_refuses_file_ownership_mismatches_and_recovery_hold \
+  conversation.test_publication.Publication.test_transcript_parent_sync_is_retried_before_publication_becomes_current \
+  messaging.test_transports -q
 ```
 
 The imported package path was verified as
 `chat-wheel-venv/lib/python3.12/site-packages/qorqut_core/__init__.py` below the
-private run directory. The passive check also verifies all loaded core module
-paths. HTTP/MCP checks use real isolated loopback servers and the official MCP
+private run directory. All 50 product Python files were byte-compared with the
+installed package and matched. HTTP/MCP checks use real isolated loopback servers and the official MCP
 SDK; installed runs use the generated console entrypoint. Synthetic identities,
 credentials and data are temporary. Final logs and wheel stay outside Git in
 `$chat_artifacts` (`source-tests.log`, `wheel-build.log`, `wheel-install.log`,
 `installed-tests.log`). `git diff --check` passes.
+
+The reviewer's unchanged reproduction was also run against the revised
+installed package, from `$chat_artifacts`:
+
+```sh
+TMPDIR="$chat_artifacts" PYTHONPATH="$chat_tree/tests" "$wheel_python" \
+  "$chat_run/review-chat-r1-etvc9rYx/publication-diagnostics.py"
+```
+
+It exited 0: the saved-error case reported `current`, `error=null` after retry
+and reopen, with one message; the mkdir case recorded the failed owning-parent
+sync followed by successful owning-parent syncs and `current`, `error=null`.
+Output is retained privately in `reviewer-diagnostic-replay.log`. Actual power
+loss was not tested or claimed.
+
+The initial candidate's 23 source and six installed checks remain recorded in
+the prior commit and private `chat-artifacts/` logs. They did not cover these
+two review findings. This revision retains the existing publication
+receipt/recovery checks and adds three focused regression methods. Unrelated
+foundation suites were not rerun.
 
 ## Completion boundary
 

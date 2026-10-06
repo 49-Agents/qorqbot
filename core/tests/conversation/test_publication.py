@@ -2,6 +2,7 @@ import errno
 import hashlib
 import json
 import os
+from contextlib import ExitStack, contextmanager
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
@@ -27,6 +28,38 @@ class Publication(ChatCase):
                 return row
             self.assertIsNotNone(self.app.jobs.run_next(worker_id=uuid4()))
         self.fail("Publisher did not attach a receipt")
+
+    def fail_marker_after_commit(self, key="committed-error"):
+        sent = self.send(key)
+        required_seq = sent.data["entries"][0]["conversation_seq"]
+        date = self.clock()[:10]
+        original_marker = self.app.workspaces._marker
+        failures = []
+
+        def marker(fd, row, installation, *, complete=False):
+            publication = next((p for p in self.rows("conversation_publications")
+                if p["agent_id"] == self.a["id"] and p["recording_date"] == date), None)
+            if not failures and publication and publication["through_seq"] == required_seq:
+                failures.append("marker_read_EIO")
+                raise OSError(errno.EIO, "synthetic marker read failure after publication commit")
+            return original_marker(fd, row, installation, complete=complete)
+
+        with patch.object(self.app.workspaces, "_marker", side_effect=marker):
+            for _ in range(30):
+                if self.app.jobs.run_next(worker_id=uuid4()) is None:
+                    self.clock.advance(5)
+                if failures:
+                    break
+        self.assertEqual(failures, ["marker_read_EIO"])
+        publication = next(p for p in self.rows("conversation_publications")
+            if p["agent_id"] == self.a["id"] and p["recording_date"] == date)
+        self.assertEqual(publication["through_seq"], required_seq)
+        self.assertIsNone(publication["pending_receipt_id"])
+        self.assertEqual(publication["error_code"], "storage_blocked")
+        job = next(j for j in self.rows("jobs")
+            if j["kind"] == "conversation_publish" and j["operation_id"] == str(sent.operation_id))
+        self.assertEqual(job["wait_reason"], "retry_delay")
+        return publication, UUID(job["job_id"])
 
     def test_canonical_full_entries_both_agents_onbash_dates_and_saved_observation(self):
         body = "\tExact Unicode 文🙂\nsecond\r\x00\x85"
@@ -136,6 +169,123 @@ class Publication(ChatCase):
         self.recover()
         self.assertEqual(len(self.rows("messages")), 1)
         self.assertEqual(self.conversation()["publication"]["state"], "current")
+        self.assertEqual(len(self.read_lines(self.path())), 1)
+
+    def test_committed_error_revalidates_without_new_message_execute_and_inspect(self):
+        for index, mode in enumerate(("execute", "inspect")):
+            with self.subTest(mode=mode):
+                self.clock.advance(86400)
+                publication, job_id = self.fail_marker_after_commit(mode)
+                original_bytes, original_inode = self.path().read_bytes(), self.path().stat().st_ino
+                receipt_count = len(self.rows("file_receipts"))
+                self.assertEqual(self.conversation()["publication"]["pending_entries"], 0)
+                self.assertEqual(self.conversation()["publication"]["state"], "blocked")
+                self.restart()
+                with patch.object(self.app.files, "stage", side_effect=AssertionError("Committed recovery must not stage")):
+                    if mode == "execute":
+                        self.pump()
+                    else:
+                        self.assertEqual(self.app.jobs.reconcile(job_id).state, "completed")
+                self.assertEqual(self.path().read_bytes(), original_bytes)
+                self.assertEqual(self.path().stat().st_ino, original_inode)
+                self.assertEqual(len(self.rows("file_receipts")), receipt_count)
+                saved = next(p for p in self.rows("conversation_publications")
+                    if p["recording_date"] == publication["recording_date"])
+                self.assertEqual(saved, {**publication, "error_code": None, "error_message": None})
+                self.restart()
+                self.assertEqual(self.conversation()["publication"], {"pending_entries": 0, "state": "current", "error": None})
+                self.assertEqual(len(self.rows("messages")), index + 1)
+
+    def test_committed_error_refuses_file_ownership_mismatches_and_recovery_hold(self):
+        publication, job_id = self.fail_marker_after_commit()
+        path = self.path()
+        original_bytes, original_inode = path.read_bytes(), path.stat().st_ino
+        marker = path.parent.parent / ".qorqut-owner.json"
+        original_marker = marker.read_bytes()
+        retained = path.with_suffix(".retained")
+        self.restart()
+        original_directory = self.app.publisher._owned_directory
+
+        def exit_marker(*args, **kwargs):
+            self.assertIsNotNone(self.rows("conversation_publications")[0]["error_code"])
+            raise OSError(errno.EIO, "synthetic marker read failure on committed-inspection exit")
+
+        @contextmanager
+        def fail_exit(*args, **kwargs):
+            with ExitStack() as contexts:
+                yield contexts.enter_context(original_directory(*args, **kwargs))
+                with patch.object(self.app.workspaces, "_marker", side_effect=exit_marker):
+                    contexts.close()
+
+        with patch.object(self.app.publisher, "_owned_directory", side_effect=fail_exit):
+            self.assertEqual(self.app.jobs.reconcile(job_id).reason, "retry_delay")
+        self.assertEqual(self.conversation()["publication"]["state"], "blocked")
+        for mismatch in ("missing", "changed", "marker", "symlink"):
+            with self.subTest(mismatch=mismatch):
+                if mismatch in ("missing", "symlink"):
+                    path.rename(retained)
+                    if mismatch == "symlink":
+                        path.symlink_to(retained)
+                elif mismatch == "changed":
+                    path.write_bytes(b"different committed bytes")
+                else:
+                    marker.write_bytes(b"{}")
+                resolution = self.app.jobs.reconcile(job_id)
+                self.assertEqual(resolution.state, "uncertain")
+                self.assertEqual(self.conversation()["publication"]["state"], "blocked")
+                saved = self.rows("conversation_publications")[0]
+                self.assertEqual((saved["through_seq"], saved["sha256"], saved["length"]),
+                    (publication["through_seq"], publication["sha256"], publication["length"]))
+                self.assertEqual(len(self.rows("file_receipts")), 1)
+                if mismatch in ("missing", "symlink"):
+                    if mismatch == "symlink":
+                        path.unlink()
+                    retained.rename(path)
+                elif mismatch == "changed":
+                    path.write_bytes(original_bytes)
+                else:
+                    marker.write_bytes(original_marker)
+        self.assertEqual(path.read_bytes(), original_bytes)
+        self.assertEqual(path.stat().st_ino, original_inode)
+        self.recovery()
+        with patch("qorqut_core.conversation.publication.file_hash", side_effect=AssertionError("Held recovery must not inspect files")):
+            self.assertEqual(self.app.jobs.reconcile(job_id).reason, "recovery_review")
+        self.assertEqual(self.conversation()["publication"]["state"], "blocked")
+        self.assertEqual(len(self.rows("messages")), 1)
+
+    def test_transcript_parent_sync_is_retried_before_publication_becomes_current(self):
+        self.send()
+        parent_info = self.path().parent.parent.stat()
+        parent_identity = (parent_info.st_dev, parent_info.st_ino)
+        original_fsync, original_fault = os.fsync, self.app.db.fault
+        events = []
+
+        def fsync(fd):
+            assert_external_io_allowed()
+            info = os.fstat(fd)
+            if (info.st_dev, info.st_ino) == parent_identity and self.path().parent.exists():
+                if not events:
+                    events.append("parent_sync_failed")
+                    raise OSError(errno.ENOSPC, "synthetic owning-parent sync failure after mkdir")
+                original_fsync(fd)
+                events.append("parent_synced")
+                return
+            original_fsync(fd)
+
+        def fault(point):
+            if point in ("file_before_stage_fsync", "conversation_after_publication_commit"):
+                self.assertIn("parent_synced", events)
+                events.append(point)
+            original_fault(point)
+
+        with patch("os.fsync", side_effect=fsync), patch.object(self.app.db, "fault", side_effect=fault):
+            self.pump()
+        self.assertEqual(events[0], "parent_sync_failed")
+        self.assertLess(events.index("parent_synced"), events.index("file_before_stage_fsync"))
+        self.assertLess(events.index("parent_synced"), events.index("conversation_after_publication_commit"))
+        self.restart()
+        self.assertEqual(self.conversation()["publication"], {"pending_entries": 0, "state": "current", "error": None})
+        self.assertEqual(len(self.rows("messages")), 1)
         self.assertEqual(len(self.read_lines(self.path())), 1)
 
     def test_ownership_refusal_and_marker_change_after_attach_boundary(self):

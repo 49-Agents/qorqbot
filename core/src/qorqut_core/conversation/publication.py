@@ -9,7 +9,7 @@ from ..agents.registry import get_row
 from ..agents.workspace import child_directory, same_child
 from ..contracts import CoreError, JobProgress, JobResolution
 from ..storage.database import assert_external_io_allowed
-from ..storage.files import directory
+from ..storage.files import directory, file_hash
 from ..storage.jobs import JobHandler, after
 from .ledger import entry_view, transcript_line
 from .models import PublishJob
@@ -95,6 +95,10 @@ class Publisher:
                         same_child(owned, "transcripts", transcripts)
                         self.app.workspaces._marker(owned, agent, installation, complete=True)
                     verify()
+                    # mkdir may have succeeded before its parent fsync failed.
+                    # An existing directory on retry still needs this barrier.
+                    os.fsync(owned)
+                    verify()
                     yield transcripts, verify
                     verify()
 
@@ -105,6 +109,24 @@ class Publisher:
 
     def _complete(self, sequence):
         return JobResolution(state="completed", progress=JobProgress(phase="published", completed=sequence, total=sequence))
+
+    def _reconcile_committed(self, job, claim, args, agent, installation, publication):
+        """Clear a saved post-commit error only after revalidating durability."""
+        guard = lambda: self._guard(job, claim)
+        with self._owned_directory(agent, installation, create=False, guard=guard) as (parent, verify):
+            verify()
+            if file_hash(parent, f"{args.date}.jsonl", sync=True) != (publication["sha256"], publication["length"]):
+                raise CoreError("uncertain_effect", "Committed transcript bytes do not match the saved publication")
+            os.fsync(parent)
+            verify()
+        # Ownership-context exit can itself fail. Keep the saved error until
+        # that exit, all file/directory syncs and the last path check succeed.
+        with self.db.transaction() as tx:
+            _, _, _, current, held = self._coordinates(tx, job, claim)
+            if held or current != publication:
+                raise CoreError("target_changed", "Publication coordinates changed during committed-file inspection")
+            tx.connection.execute("""UPDATE conversation_publications SET error_code=NULL,error_message=NULL
+                WHERE agent_id=? AND recording_date=?""", (str(args.agent_id), args.date))
 
     def _pages(self, job, claim, args, target, verify):
         after_seq = 0
@@ -172,6 +194,8 @@ class Publisher:
             return self._wait("recovery_held", held=True,
                 error=CoreError("uncertain_effect", "Transcript publication is held for recovery review").error)
         if publication["pending_receipt_id"] is None and publication["through_seq"] >= args.required_seq:
+            if publication["error_code"] is not None:
+                self._reconcile_committed(job, claim, args, agent, installation, publication)
             return self._complete(publication["through_seq"])
         if agent["workspace_initialized_at"] is None:
             return self._wait("workspace_required", error=CoreError("not_ready", "Transcript publication awaits the owned workspace", retryable=True).error)
