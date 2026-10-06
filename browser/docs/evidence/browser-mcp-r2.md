@@ -186,7 +186,8 @@ wire-redaction checks with:
 This exercises the installed production server, including its real readiness
 failure and missing-state refusal, as well as the logging chain and real SDK
 validation paths. All three configuration tests and the selected wire test
-passed. Git whitespace checks also passed. No native/model client calls were made.
+passed in 2.077s and 2.242s respectively. Git whitespace checks also passed.
+No native/model client calls were made.
 
 ## Versions and source provenance
 
@@ -245,3 +246,12 @@ committed and pushed at `d46fba1a53a8a68b9e9adfc9570b92a29f672331`. That candida
 remained unapproved because of the SDK root-logging defect described above.
 All implementation and evidence commits remain unmerged and undeployed; the
 revision's final SHA and branch-push verification accompany its completion report.
+
+## Revision 1 delivery
+
+The SDK logging fix, its regressions and corrected evidence were committed
+together at `fd7588281f8c5b5b0d0aaff15a479ebe66c1d0cc`, based on
+`d46fba1a53a8a68b9e9adfc9570b92a29f672331`. The ordinary push to
+`origin refs/heads/codex/browser-mcp-r2` succeeded; `git ls-remote` returned the
+same completed implementation SHA. Only this evidence addendum followed.
+The final delivery SHA/remote match are in the bound revision completion report.
