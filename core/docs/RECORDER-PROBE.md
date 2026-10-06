@@ -159,4 +159,3 @@ Report code/evidence, exact tests/failures/cleanup, environment and remaining
 limits in `docs/evidence/recorder-probe-r1.md`. Commit/push only the dedicated
 branch, then stop edits for a fresh independent review. This does not advance
 G0–G6 or establish managed-native-runtime readiness.
-
