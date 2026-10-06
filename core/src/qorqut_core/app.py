@@ -127,10 +127,12 @@ class Application:
         """Pure assembly; caller must explicitly initialize/open storage first."""
         from .agents.registry import Agents
         from .agents.workspace import Workspaces
+        from .transcripts.archive import Archive
 
         self.settings, self.db = settings, database
         self.files = Files(database, settings.data_root)
         self.workspaces = Workspaces(database, settings.data_root)
+        self.archive = Archive(database, settings.data_root)
         self.jobs = Jobs(database, (self.files.handler(), *self.workspaces.handlers()))
         self.files.jobs = self.jobs
         self.workspaces.jobs = self.jobs
