@@ -1,5 +1,148 @@
 # Architecture decisions
 
+## D28 — SDK diagnostics obey the transport's content boundary
+
+Independent browser review and Manager reproduction showed that MCP 1.30.0
+logs raw invalid request/notification values through the root logger. Four
+named-logger filters missed those records even while HTTP errors were sanitized.
+Both standalone browser and core transport must cover actual SDK validation logs.
+
+Use a small record-factory sanitation boundary at application assembly, matching
+SDK logger names and installed SDK source paths, including root calls. Preserve
+safe diagnostic metadata, existing factory behavior and unrelated logging; strip
+payload-bearing message/arguments and exception/stack text before handlers emit.
+Keep setup idempotent and imports inert. Do not patch/vendor the SDK or add a
+logging framework. An already equivalent boundary needs verification, not a
+second sanitizer. Owning wire tests exercise malformed requests and notifications
+with synthetic sentinels, without real secrets or browser/provider effects.
+
+## D27 — Recorder startup signals and owned-process cleanup
+
+Independent review and Manager real-PTY reproduction found three defects in the
+first local recorder: escalation omitted its direct child when another job was
+foreground, leader exit left original-group members alive, and a TERM arriving
+before `login_tty` disappeared. The local recorder remains unapproved.
+
+Keep the child unreaped while exit/cleanup evidence is still needed, using
+non-reaping observation and final direct-child reaping. Failure cleanup has
+finite deadlines and targets the owned direct child and every live member of
+its verified original PTY session; leader exit alone is not session completion.
+Do not use an unbounded final wait or signal an inherited/shared parent group.
+Unconfirmed cleanup stays an explicit failure with admission closed, and parent
+terminal/descriptor/signal state must still be restored. Group termination and
+direct-child reaping are different claims; detached-subtree supervision remains
+the later systemd/cgroup integration boundary.
+
+A later review and Manager reproduction found that leader exit before cleanup
+can erase the PTY's foreground observation. Use the session identity anchored by
+the unreaped child's PID/start and matching SID, which survives terminal hangup.
+The bounded `/proc` membership check includes all live processes in that exact
+owned SID, including background groups. Revalidate member identities and signal
+them through pidfds. This supersedes selection by original/foreground PGID only;
+do not add a history of foreground groups. Before session creation, target only
+the exact child, never the inherited/shared parent session. Normal interactive
+signal forwarding still follows the PTY foreground semantics.
+
+Count live states separately from zombies, refresh process-start/membership
+evidence, and keep incomplete observations or elapsed deadlines explicitly
+unsuccessful. Detached new sessions remain outside this local boundary. Do not
+read or retain unrelated command lines, environments or process contents.
+
+Block forwarded signals across fork and child handler/PTY setup. Restore the
+parent mask on every path and the child's intended mask before exec. A pending
+signal must reach the exact owned child even before its group exists; an ESRCH
+cannot consume it as successfully forwarded. Preserve normal foreground signal
+semantics. Focused real-PTY tests cover these races and committed-byte retention;
+they do not establish host archive, native-provider or VM acceptance.
+
+## D26 — Thin core transport over the reviewed application
+
+The first HTTP/MCP/operator increment uses the reviewed foundation at `ef18e59`
+and [CORE-API.md](CORE-API.md). One local process and shared registry preserve
+application attribution, schemas and mutation receipts. Fixed private bearer
+bindings establish actor identity with all-allowed access; owner browser sessions
+and credential issuance remain later work. Health certifies only the registered
+operations, and no unimplemented domain, stream or browser tool is advertised.
+
+## D25 — Freeze the independent browser service's first wire contract
+
+After review of the local browser primitives, browser owns the bounded v1
+MCP/identity/command/control and optional handoff contract in its
+[`docs/PROTOCOL.md`](https://github.com/qorqutbot/qorqut-browser/blob/codex/browser-mcp-plan/docs/PROTOCOL.md).
+Both transports call the accepted local gate. Actor credentials supply identity;
+the trusted application forwards the original actor and owns reconciliation.
+This is target/attribution integrity, with no per-agent role policy. Browser
+stores local effect receipts; core still owns all durable request/message and
+Done/Cancel transactions. No missing relay or cross-agent implementation is
+advertised as working. The independent server increment must pass actual MCP/HTTP
+checks before integration, without requiring core/UI runtime imports.
+
+For browser's fixed application-handoff URL, private reachability is a trusted
+provisioning requirement. Browser validates HTTP/HTTPS URL syntax, rejects
+userinfo/fragments, uses direct connections without inherited proxies/redirects
+and verifies HTTPS certificates normally. It does not invent IP/DNS address-class
+rules; agent tool arguments cannot override the configured destination.
+
+## D24 — Explicit paste framing and fresh Enter evidence
+
+Independent terminal review and Manager reproduction on tmux 3.4 showed that
+`paste-buffer -p` inserts delimiters only when the application has requested
+bracketed paste. Automated input must send one explicitly framed byte sequence
+through a raw, non-converting buffer paste, with exactly one begin/end pair.
+Keep the durable payload hash and size about the original validated body; framing
+is transport-owned. Human raw frames remain separate. Do not change the native
+application's terminal mode to make an input attempt pass.
+
+Composer eligibility still requires a supported native editor that interprets
+bracketed paste; transport framing alone does not prove native compatibility.
+Absent or uncertain adapter evidence remains not ready. Actual native acceptance
+is a later gate, distinct from the local receiver tests.
+
+The same review reproduced a composer changing to a modal while a SQLite writer
+delayed the Enter intent. After persisting that intent, refresh binding, external
+readiness and exact-paste/safe-Enter evidence immediately before Enter. Do not
+carry an earlier proof across a database wait. A rejected proof after possible
+paste is uncertain, with no Enter and no automatic replay.
+
+A subsequent review reproduced capture loss and machine-hold activation during
+the final verifier's permitted settling wait. Refreshing its composer snapshot
+does not refresh those external signals. After final paste verification returns,
+sample capture readiness and the external hold again at the Enter boundary;
+unavailable readiness or an active hold prevents Enter and leaves uncertainty.
+Readiness callbacks are prompt observations, not polling or settling loops. Do
+not insert another deliberate wait or database write before the effect. This is
+an ordered local admission check, not an atomic guarantee against asynchronous
+process death; machine-hold acquisition still uses the shared input gate before
+acknowledging quiescence.
+
+## D23 — Preserve messages and validate terminal paste text
+
+The terminal builder identified that embedded ESC bracketed-paste termination
+and CR can submit input before the guarded Enter. Manager verified the pinned
+P05 source already rejects control characters at this transport boundary.
+
+Keep message bodies exact. For automated terminal text, allow LF/TAB but reject
+other C0, DEL and C1 characters, including CR/ESC, with `invalid_argument` and
+reason `unsafe_terminal_text` before attempt creation or any input. No silent
+normalization or permanently deferred retry. Messaging retains the original
+body and records a failed delivery; corrected text is another message. Human
+terminal key/control frames remain on their separate controlled path. This is
+transport framing correctness, not a v1 permission tier.
+
+Validate the rule with focused terminal-boundary tests including an embedded
+bracketed-paste terminator followed by CR and zero observed tmux input. Do not
+duplicate the character-validation suite in every transport or repository.
+
+## D22 — Staged implementation with independent review
+
+The owner authorized up to ten concurrent Astra MAX ACLA actors, with native
+self-review disabled and a fresh Astra MAX review assignment after every
+completed builder assignment. Follow [BUILD-EXECUTION.md](BUILD-EXECUTION.md) for
+ownership and gates. Initial local effect primitives precede transport/integration
+so unfinished dependencies do not produce invented competing contracts. The
+separate browser MCP decision remains mandatory. VM selection and real-system
+acceptance remain open; code/fixture success does not settle them.
+
 Status: planning decisions, not evidence of implementation. D02 and D08 are explicit defaults awaiting the owner's optional clarification. A future implementation change should update the relevant decision rather than silently drifting from the contracts.
 
 ## D01 — Small Python application and shared operations

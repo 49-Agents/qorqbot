@@ -133,6 +133,19 @@ Backup restore/import differs from a normal restart: hold all restored unfinishe
 
 Messages are immutable. A correction is another message. A reply preserves thread relationships; it does not acknowledge its parent. All registered actors can inspect messages under v1's all-allowed policy; filters are navigation and efficiency, not access grants.
 
+Message storage accepts and preserves the exact valid UTF-8 body within the size
+limit. Automated terminal text has a narrower transport constraint: allow LF
+(`U+000A`) and TAB (`U+0009`), but reject all other C0 characters (`U+0000`–`U+001F`),
+DEL (`U+007F`) and C1 (`U+0080`–`U+009F`). This includes CR and ESC. Reject the
+whole terminal request with `invalid_argument` and reason `unsafe_terminal_text`
+before creating a dispatch attempt or sending any tmux input. Do not normalize,
+strip, escape or truncate the message into a different payload. The host retains
+the original message and records a failed delivery with that reason; it does not
+automatically retry a permanent payload error. Explicitly corrected text is a
+new message. This constraint protects bracketed-paste framing and the separate
+guarded Enter step; it does not restrict raw human terminal key/control frames.
+See D23.
+
 Delivery states: `pending`, `deferred`, `dispatching`, `submitted`, `uncertain`, `failed`, `cancelled`. A separate `handled_at`/handling receipt records semantic acknowledgment. One message can have successive explicit attempts, but an uncertain attempt must be reconciled or explicitly retried before another is created. Explicit retry after uncertainty records its rationale and duplicate-processing risk.
 
 The host and runner persist the stable attempt ID, exact payload hash and expected run binding. Before first input, the runner durably records dispatch intent. Repeating that attempt returns its saved outcome. Known pre-input failure may defer/retry the same intention. Possible paste/Enter without confirmation is uncertain; never retry blindly.
@@ -166,6 +179,13 @@ Protocol v1 uses private HTTP and WebSockets. Each command carries operation/att
 A minimal version handshake allows only explicitly compatible protocol versions. Unknown mandatory capabilities block the dependent action. Do not accept a runner from a mismatched generation because it reports a familiar IP or tmux name.
 
 Browser's separate local service exposes `/mcp` plus a private versioned identity/command/control/relay interface for the runner. Its identity includes agent, recovery epoch, environment/boot/browser binding and protocol. Browser alone serializes its effects and persists command intent/outcomes and control epochs in its local receipt store. Direct MCP and forwarded calls use the same handlers/lock; a retry retains the command ID/payload hash. Restart reconciles current control with core before admitting automation; unresolved commands remain uncertain. A core outage cannot turn an unresolved request or stale control observation into confirmed completion/readiness.
+
+Browser owns the concrete v1 JSON shapes and attribution/receipt/error behavior
+in [its protocol contract](https://github.com/qorqutbot/qorqut-browser/blob/codex/browser-mcp-plan/docs/PROTOCOL.md).
+The initial server increment covers MCP, identity/command/control and the optional
+handoff client; relay/input fencing and cross-agent execution routing remain
+subsequent integration. Core's handoff endpoint must implement that versioned
+request/receipt shape while calling core's shared durable operation.
 
 `terminal_control(action=take|release)` requires expected run and control epoch. Take binds one input viewer and advances the epoch; release advances it and revokes the old viewer. Host admission pauses during reconciliation; runner confirmation under the input lock is required before claiming the new mode is ready. All input frames must match the current run/epoch/viewer. Disconnect/restart retains human mode without automatic expiry; explicit takeover rebinds a new viewer, and explicit release permits automation only after a fresh composer check. Neither action clears typed text. An observer cannot send input.
 
@@ -239,6 +259,10 @@ Core application operations share their HTTP/MCP implementation where exposed. B
 | Export/operations | `agents_export`, `backups_create`, `backups_get` |
 
 Start with only the operations implemented by the current phase; do not advertise inert tools. Use cursors and bounded response sizes for lists/search. Raw downloads/artifact references preserve complete access without putting an entire transcript into a tool result. Endpoint naming uses `/api/v1/operations/<name>` and `/mcp`; streaming/viewer routes are documented in M10.
+
+The first concrete core transport contract is [CORE-API.md](CORE-API.md). It binds
+the reviewed foundation operations to HTTP/MCP/operator calls without changing
+their domain rules; later inventory and stream activation require reviewed code.
 
 ## 13. Table ownership
 

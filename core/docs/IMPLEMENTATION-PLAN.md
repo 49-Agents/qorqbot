@@ -128,7 +128,7 @@ Begin implementation by bootstrapping private `qorqut-core` and `qorqut-browser`
 2. Boot two disposable guests with a shared immutable base, independent root overlays/state disks, separate virtiofs workspaces and one private NAT network.
 3. Prove fixed-port runner HTTP/WS, bound identity, native CLI discovery of separate core/browser MCP endpoints, tmux reconnect/input and noVNC for dedicated Chrome and distinct usable machine desktop. Prove private libvirt graphics routing for VMs and independent local desktop allocation for onbash.
 4. Prove Chrome cookie persistence and distinct profiles across browser restart and VM reboot with synthetic local sites.
-5. Prove a nested-PTY recorder preserves CLI interaction, resize, Unicode, bracketed paste, signals and durable output ordering. Prove owned runtime cgroups survive actual runner-service restart and allow pausing producers while capture remains runnable. This is a go/no-go technical gate for the strong terminal recording contract.
+5. Prove a nested-PTY recorder preserves CLI interaction, resize, Unicode, bracketed paste, signals and durable output ordering, including startup signal delivery and bounded cleanup of the direct child and its verified PTY session (D27). Prove owned runtime cgroups survive actual runner-service restart and allow pausing producers while capture remains runnable. This is a go/no-go technical gate for the strong terminal recording contract.
 6. Pin and rehearse Claude/Codex native source/hook/resume contracts using isolated fake provider endpoints where possible. Identify parent/child transcript stores and attachments.
 7. Rehearse a stopped agent backup/restore and runner reconnect without an extra model turn.
 8. Select dependency versions and record executable image/package hashes. Resolve D02/D08 changes if the owner supplied them.
@@ -139,6 +139,10 @@ Begin implementation by bootstrapping private `qorqut-core` and `qorqut-browser`
 
 Implement M00 and M01 with fake executors, and the thin M10 transport. Add the workspace layout from M09.
 
+The first concrete transport increment follows [CORE-API.md](CORE-API.md) on the
+reviewed M00 foundation. It exposes only the four implemented configuration,
+operation and event handlers; M01 and later domain handlers join after review.
+
 Deliver core-owned configuration, atomic operation receipts, event history, typed durable jobs, a stable agent registry with display names/icon keys, create/rename/archive, the reserved host onbash identity, status validation/history, explicit observed activity/freshness, and shared HTTP/MCP operation behavior. Seed editable `persona.md`, memory and workspace directories once; descriptive roles live in the persona and v1 remains `allow_all`. Freeze the twenty-icon key catalog in core without adding custom image uploads; UI owns the artwork.
 
 **Gate G1:** concurrent/retried creation yields one ID and one creation event; changed statuses survive restart; 101-word text is rejected identically by every transport; no business or role-policy dependencies exist.
@@ -148,6 +152,13 @@ Deliver core-owned configuration, atomic operation receipts, event history, type
 Implement M02/M03 and core M04 preparation. Bring the proven recorder skeleton into managed launches immediately, even before rich history rendering.
 
 Deliver one real VM per ordinary agent, the host executor, immutable image pins, persistent disks/home/workspace, authenticated runner identity, one active run per agent, tmux terminal streaming and serialized input receipts. Add explicit terminal take/release epochs and lifecycle intent fencing so stale viewers and queued starts cannot override control or archival. Surface “not ready” when mounts, credentials or native CLI setup are missing.
+
+Automated text delivery also enforces D23's control-character rule before any
+input, preserving stored messages while rejecting payloads that could escape
+bracketed paste and bypass the separate guarded Enter.
+Apply D24's explicit transport framing and refresh exact-paste/safe-Enter
+evidence after the durable Enter intent, before input. Local framed-byte tests
+do not substitute for supported native-composer acceptance.
 
 **Gate G2:** two agents and onbash run independent terminals; host service restart preserves live VM/tmux/browser processes; VM reboot is recorded as a different execution situation; stale commands cannot reach a replacement run; uncertain input never repeats automatically.
 
@@ -160,6 +171,12 @@ Deliver durable all-source registration, local transactional spooling, immutable
 **Gate G3:** interruption at every chunk/cursor/file/DB/ACK boundary loses no acknowledged byte; transcripts larger than 8 MiB and giant records survive; host/runner outage and source changes preserve provenance; disk pressure never silently drops output. Until G3 passes, agents are test sessions, not an operational autonomous fleet.
 
 ### Phase 4 — Coordination and browser intervention
+
+Browser's standalone MCP/HTTP transport increment follows its owned
+[protocol v1](https://github.com/qorqutbot/qorqut-browser/blob/codex/browser-mcp-plan/docs/PROTOCOL.md).
+Its reviewed local gate remains the sole effect/control path. Implement core's
+durable handoff endpoint against that contract; transport fixture success does
+not replace real VNC/input enforcement or core transaction acceptance.
 
 Complete M05/M06 and the operational portions of M10. Browser supervision/tools develop in `qorqut-browser`, durable coordination and integration in core, and presentation in `qorqutbot-ui`. Browser work can proceed in parallel with Phase 3, but unattended work waits for capture readiness.
 
@@ -182,6 +199,11 @@ Exercise full-installation stopped backup/restore under a different data root, a
 **Gate G6:** a fresh host can install the pinned release and restore a backup without Qorqut present; all critical invariants have passing evidence; known limitations are accurate. A real provider smoke test verifies actual CLI behavior using new disposable agent identities. Source/fixture success alone does not satisfy live acceptance.
 
 ## 6. Implementation work packages
+
+The owner's ACLA implementation authorization is recorded in
+[BUILD-EXECUTION.md](BUILD-EXECUTION.md). Its initial assignments subdivide these
+packages without weakening their acceptance gates. Independent review precedes
+integration; the VM decision remains open.
 
 Each module plan contains its own implementation sequence, interfaces, extraction decision, failure behavior and definition of done. Each change should land as a coherent reviewable package:
 
@@ -219,7 +241,7 @@ Open the lanes in stages:
 2. **Independent implementation:** once those interfaces are agreed, all ten lanes can implement within their boundaries. Use small fakes for unfinished dependencies and integrate completed behavior continuously; a fake does not count as real VM/browser/provider acceptance.
 3. **Integration gates:** assemble headless create → run → capture → message first, then browser handoff/UI, provider switching and restore. Follow G0–G6; no unattended fleet before durable capture passes G3. Builders finishing early review/help the remaining integration paths rather than inventing extra features.
 
-Give each lane an isolated worktree and scoped branch. One owner edits shared contract/assembly/migration-order files, with domain changes proposed to that owner; repository separation alone does not prevent edit conflicts. Keep PRs small and name dependency revisions. Integration review owns cross-module correctness; merging/deployment still needs the owner's authorization. Test each guarantee at its owning boundary and use a few integrated flows instead of ten overlapping suites. This is an allocation plan, not a launch of ten agents.
+Give each lane an isolated worktree and scoped branch. One owner edits shared contract/assembly/migration-order files, with domain changes proposed to that owner; repository separation alone does not prevent edit conflicts. Keep PRs small and name dependency revisions. Integration review owns cross-module correctness. The owner's standing authorization covers project merges and pushes; Manager can land reviewed integration without asking again. Deployment is separate. Test each guarantee at its owning boundary and use a few integrated flows instead of ten overlapping suites. These are ownership lanes, not ten simultaneous builders: the active allocation in [BUILD-EXECUTION.md](BUILD-EXECUTION.md) reserves capacity for fresh independent reviewers within the ten-worker cap.
 
 ## 7. Completion and evidence discipline
 

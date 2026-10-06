@@ -38,11 +38,18 @@ Direct human keystrokes are not automatically replayable. A reconnect cannot res
 
 Each attempt carries ID, payload hash, expected run binding and submit intent. Under the per-run local input lock:
 
+Before creating an attempt or touching tmux, validate the UTF-8 size and the
+automated-text character contract in CONTRACTS section 6. Unsafe control text
+returns `invalid_argument` / `unsafe_terminal_text`; no dispatch intent, paste,
+Enter or transient deferred receipt is created. Preserve the supplied body at
+the message layer rather than modifying its bytes. Raw human input remains a
+separate epoch-bound control path.
+
 1. Check current binding, capture readiness, terminal control mode and adapter composer readiness.
 2. If text/dialog/unrecognized shell makes delivery unsafe, return deferred with no input.
 3. Durably record dispatch intent before the first paste.
-4. Paste through a unique tmux buffer with bracketed paste; never interpolate the message into shell source.
-5. Recheck binding and paste evidence, then send a separate normal Enter only if appropriate.
+4. Paste through a unique tmux buffer containing exactly one explicit bracketed-paste frame around the validated body, using raw non-converting paste. Do not rely on conditional `paste-buffer -p` framing or interpolate the message into shell source. Keep the durable payload hash/size about the original body. Adapter eligibility must establish a supported native composer; framed bytes alone do not prove that compatibility.
+5. After the durable Enter intent and its possible database wait, refresh binding and exact-paste/safe-Enter evidence immediately before a separate normal Enter. A verifier that settles must refresh its own evidence after waiting. After that final verification returns, recheck capture readiness and the external hold as prompt observations before admitting Enter; an earlier check cannot survive the verifier's wait. Do not add another deliberate wait or database write before the effect. Failed proof/readiness after possible paste is uncertain without Enter or automatic replay. See D24.
 6. Persist deferred/submitted/uncertain/failed outcome and return the saved receipt on retries.
 
 By default automatic delivery waits while a turn is busy. Add an adapter-specific “queue while busy” behavior only after its exact native composer contract passes tests; it is not required for v1 completeness. Any doubt after first input is uncertain. Semantic message handling belongs to M05.

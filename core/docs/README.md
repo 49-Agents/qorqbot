@@ -9,6 +9,7 @@ The agreed repositories are `qorqut-core` (backend/configuration/coordination), 
 | [Implementation plan](IMPLEMENTATION-PLAN.md) | Requirements, work packages, dependency order, milestones and definition of completion |
 | [Architecture](ARCHITECTURE.md) | Three-repository boundaries, configuration ownership, processes, filesystem layout, networking and cross-module flows |
 | [Contracts](CONTRACTS.md) | IDs, state machines, data records, operations, event and delivery semantics |
+| [First core HTTP/MCP contract](CORE-API.md) | Concrete local transport, attribution, schemas and operator-client scope over the reviewed foundation |
 | [Chat workspace plan](UI-PLAN.md) | Three-column layout, dedicated Chrome/machine surfaces, intent tools, inline browser/file cards, twenty icons, rename and visual direction |
 | [Decisions](DECISIONS.md) | Chosen defaults, rationale, alternatives and unresolved owner preferences |
 | [Porting plan](PORTING.md) | Exact Qorqut source baselines; extract, adapt, rewrite and omit decisions |
@@ -16,6 +17,9 @@ The agreed repositories are `qorqut-core` (backend/configuration/coordination), 
 | [Research baseline](RESEARCH.md) | What was actually inspected and rerun, including limitations and failures |
 
 ## Module plans
+
+Implementation is managed through [BUILD-EXECUTION.md](BUILD-EXECUTION.md), which
+records staged ownership and the independent Astra MAX review gate.
 
 | ID | Module | Repository | Owns |
 | --- | --- | --- | --- |

@@ -10,6 +10,12 @@ Agents can discover each other, send complete messages, retain threaded history,
 
 Store messages independently of delivery state so terminal problems cannot lose the conversation. Preserve full bodies and original attribution. Any display summary is derived and cannot replace the body.
 
+An otherwise valid stored message may contain control characters that cannot be
+safely sent as bracketed-paste text. If the runner returns `invalid_argument`
+with reason `unsafe_terminal_text`, retain the exact body and mark delivery
+failed with that reason. Do not normalize the body or repeatedly defer/retry this
+permanent payload failure. D23 and CONTRACTS section 6 define the transport rule.
+
 ## Records and transitions
 
 Use thread/message records, one pending delivery record per recipient, separate immutable attempt identities, and handling receipts. V1 is direct messaging, not group chat. Reply IDs preserve the thread and original authorship.
