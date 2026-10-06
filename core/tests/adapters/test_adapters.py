@@ -15,6 +15,7 @@ import unittest
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
+import qorqut_core
 from qorqut_core.adapters import (AdapterError, ClaudeAdapter, CodexAdapter,
     MCPBinding, ManagedRoots, NativeBinding, PreparationInput, RunBinding)
 from qorqut_core.adapters import discovery
@@ -146,7 +147,7 @@ else:
                     result = subprocess.run([sys.executable, "-c", child_code, adapter.provider],
                         input=data.model_dump_json(), text=True, capture_output=True, timeout=5,
                         cwd=temporary, env={"HOME": str(actual), "PATH": os.defpath,
-                            "PYTHONPATH": str(Path(__file__).resolve().parents[2] / "src")})
+                            "PYTHONPATH": str(Path(qorqut_core.__file__).resolve().parent.parent)})
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(result.stdout.strip(), "rejected before locks")
                     self.assertEqual(list(actual.iterdir()), [])

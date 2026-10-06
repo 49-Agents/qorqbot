@@ -7,6 +7,7 @@ import time
 import unittest
 from uuid import uuid4
 
+import qorqut_core
 from qorqut_core.runner import AttemptReceipt, ControlReceipt
 from effect_worker import BODY
 from support import Receiver, wait_for
@@ -16,7 +17,7 @@ from support import Receiver, wait_for
 class CrashAndLockTests(unittest.TestCase):
     def launch(self, receiver, mode, identity, result_name):
         (receiver.root / "binding.json").write_text(receiver.binding.model_dump_json())
-        env = {"PATH": "/usr/bin:/bin", "PYTHONPATH": str(Path(__file__).resolve().parents[2] / "src"),
+        env = {"PATH": "/usr/bin:/bin", "PYTHONPATH": str(Path(qorqut_core.__file__).resolve().parent.parent),
                "HOME": str(receiver.root)}
         process = subprocess.Popen(
             [sys.executable, str(Path(__file__).with_name("effect_worker.py")),

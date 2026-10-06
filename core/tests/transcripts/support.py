@@ -6,6 +6,7 @@ import sqlite3
 import sys
 from uuid import uuid4
 
+import qorqut_core
 from qorqut_core.transcripts.spool import CaptureSpool, RunBinding, Source
 
 
@@ -38,7 +39,7 @@ def raw(path, source, epoch):
 
 def child_env():
     # Isolated deterministic Python programs only; no native/provider CLI is invoked.
-    return {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2] / "src"),
+    return {**os.environ, "PYTHONPATH": str(Path(qorqut_core.__file__).resolve().parent.parent),
             "PYTHONDONTWRITEBYTECODE": "1"}
 
 

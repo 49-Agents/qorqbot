@@ -20,6 +20,7 @@ from uuid import UUID, uuid4
 
 from pydantic import Field
 
+import qorqut_core
 from qorqut_core.app import Application, Change, Operation, RecoveryActivation, register_actor
 from qorqut_core.config import ICON_KEYS, InstallationSettings, NewAgentDefaults
 from qorqut_core.contracts import Actor, CoreError, Invocation, JobProgress, JobResolution, Model, Mutation, canonical
@@ -648,7 +649,7 @@ with patch.object(sqlite3, 'connect', side_effect=AssertionError('database')), \
         importlib.import_module(name)
 assert list(pathlib.Path('.').iterdir()) == []
 """
-        env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1] / "src"))
+        env = dict(os.environ, PYTHONPATH=str(Path(qorqut_core.__file__).resolve().parent.parent))
         result = subprocess.run([sys.executable, "-B", "-c", code], cwd=probe_root, env=env,
                                 text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)

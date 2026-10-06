@@ -489,6 +489,21 @@ import qorqut_core
 import qorqut_core.__main__
 import qorqut_core.transports.server
 import qorqut_core.transports.operator
+import qorqut_core.adapters.capabilities
+import qorqut_core.adapters.clients
+import qorqut_core.adapters.composer
+import qorqut_core.adapters.discovery
+import qorqut_core.adapters.hooks
+import qorqut_core.adapters.managed_io
+import qorqut_core.adapters.preparation
+import qorqut_core.adapters.types
+import qorqut_core.runner.models
+import qorqut_core.runner.process
+import qorqut_core.runner.storage
+import qorqut_core.runner.terminal
+import qorqut_core.runner.tmux
+import qorqut_core.transcripts.spool
+import qorqut_core.transcripts.recorder
 from importlib.resources import files
 assert "MIT" in files("qorqut_core.storage").joinpath("NOTICE").read_text()
 print("passive imports and NOTICE verified")
