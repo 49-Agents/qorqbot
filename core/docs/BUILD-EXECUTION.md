@@ -69,6 +69,13 @@ separate Manager assignments; no worker may fill those gaps independently.
 
 ## Work awaiting acceptance
 
+- Agent management at `1c983de`: the M01.01–03/workspace implementation is
+  committed and pushed, with a fresh Astra MAX review assigned against
+  [AGENT-REGISTRY.md](AGENT-REGISTRY.md). Manager verified the clean exact SHA,
+  16-path scope and unchanged unrelated production/package files. Builder
+  reports 19 owning, 26 foundation and 15 transport source checks plus installed
+  agent HTTP/MCP and passive-import checks; these remain unapproved pending
+  independent review and Manager verification.
 - Independent browser MCP at `c341377`: the D28 logging correction is committed
   and pushed. The fresh reviewer stopped on a provider safety restriction before
   delivering its ACLA report; that review is incomplete and has not been credited.
