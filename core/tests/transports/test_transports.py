@@ -152,8 +152,10 @@ class SharedFlow(unittest.IsolatedAsyncioTestCase):
                 cursor["after_seq"] = page["next_after_seq"]
                 if not page["has_more"]:
                     break
-            self.assertEqual([event["kind"] for event in events], ["installation.initialized", "agent.created", "agent.status_changed", "config.updated", "config.updated"])
-            self.assertEqual([event["actor_id"] for event in events[3:]], [str(f.owner.actor_id), str(f.agent.actor_id)])
+            self.assertEqual(events[:len(f.initial_events)], f.initial_events)
+            changes = events[len(f.initial_events):]
+            self.assertEqual([event["kind"] for event in changes], ["config.updated", "config.updated"])
+            self.assertEqual([event["actor_id"] for event in changes], [str(f.owner.actor_id), str(f.agent.actor_id)])
             missing_epoch = await http.post("/api/v1/operations/events_list", json={"after_seq": 1})
             self.assertEqual(missing_epoch.status_code, 400)
 

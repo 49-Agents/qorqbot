@@ -6,8 +6,8 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-import anyio
 import uvicorn
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -17,9 +17,13 @@ from starlette.routing import Route
 from ..app import Application
 from ..config import InstallationSettings
 from ..contracts import CoreError, Invocation, OperationResult
-from .boundary import Boundary, failure
+from ..storage.worker import JobWorker
+from .boundary import Admission, Boundary, failure
 from .configuration import Credentials, InputError, json_object
+from .lifetime import settle_sync as _settle_sync
 from .mcp import MCP, install_logging_boundary
+from .sessions import COOKIE_NAME, SESSION_SECONDS, Sessions
+from .static import StaticUI
 
 MAX_CALLS = 4
 _STATUS = {
@@ -28,26 +32,6 @@ _STATUS = {
     "target_changed": 409, "uncertain_effect": 409, "unsupported_capability": 422,
     "not_ready": 503, "storage_blocked": 503, "unavailable": 503, "unsupported_schema": 503,
 }
-
-
-async def _settle_sync(function):
-    """Finish lifetime work even after Task.cancel(), then propagate cancellation.
-
-    AnyIO shielding alone does not shield raw asyncio cancellation. An opener
-    must publish its owned Application before cancellation can leave this await.
-    """
-    future = asyncio.get_running_loop().run_in_executor(None, function)
-    cancelled = False
-    with anyio.CancelScope(shield=True):
-        while True:
-            try:
-                result = await asyncio.shield(future)
-                break
-            except asyncio.CancelledError:
-                cancelled = True
-    if cancelled:
-        raise asyncio.CancelledError
-    return result
 
 
 class Dispatcher:
@@ -86,22 +70,29 @@ class Dispatcher:
         await _settle_sync(self.pool.shutdown)
 
 
-def create_app(settings: InstallationSettings, credentials: Credentials) -> Starlette:
+def create_app(settings: InstallationSettings, credentials: Credentials, ui_root: Path | None = None) -> Starlette:
     """Compose the logging/ASGI boundary; only lifespan startup opens storage."""
     if str(settings.listen_address) != "127.0.0.1":
         raise InputError("This increment requires listen_address 127.0.0.1")
     install_logging_boundary()
+    sessions, admission = Sessions(), Admission()
+    ui = StaticUI(ui_root) if ui_root is not None else None
 
     @asynccontextmanager
     async def lifespan(web):
         application = None
         dispatcher = None
+        worker = None
 
         def open_application():
             nonlocal application
             application = Application.open(settings)
 
         try:
+            admission.closing = False
+            sessions.clear()
+            if ui is not None:
+                await _settle_sync(ui.validate)
             await _settle_sync(open_application)
             dispatcher = Dispatcher(application)
             for actor_id in credentials.bindings.values():
@@ -112,14 +103,61 @@ def create_app(settings: InstallationSettings, credentials: Credentials) -> Star
             web.state.application, web.state.dispatcher = application, dispatcher
             web.state.mcp = mcp
             async with mcp.manager.run():
-                yield
+                worker = JobWorker(application.jobs)
+                web.state.worker = worker
+                await _settle_sync(worker.start)
+                try:
+                    yield
+                finally:
+                    admission.closing = True
         finally:
+            admission.closing = True
+            sessions.clear()
             try:
                 if dispatcher is not None:
                     await dispatcher.close()
             finally:
-                if application is not None:
-                    await _settle_sync(application.close)
+                try:
+                    if worker is not None:
+                        await _settle_sync(worker.stop)
+                finally:
+                    if application is not None:
+                        await _settle_sync(application.close)
+
+    def identity(actor_id):
+        return JSONResponse({"authenticated": True, "actor_id": str(actor_id), "api_version": 1})
+
+    async def session(request):
+        prior = request.scope.get("qorqut.session_cookie")
+        if request.method in {"GET", "HEAD"}:
+            return identity(request.scope["qorqut.invocation"].actor_id)
+        if request.method == "DELETE":
+            sessions.revoke(prior)
+            response = JSONResponse({"authenticated": False})
+            response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="strict")
+            return response
+        if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+            return failure(415, "invalid_request", "Content-Type must be application/json")
+        try:
+            arguments = json_object(await request.body())
+            if set(arguments) != {"token"} or not isinstance(arguments["token"], str):
+                raise InputError("Invalid sign-in input")
+            actor_id = credentials.actor(b"Bearer " + arguments["token"].encode("ascii"))
+        except (InputError, UnicodeError):
+            return failure(400, "invalid_request", "Expected a sign-in token")
+        if actor_id is None:
+            return failure(401, "unauthenticated", "Invalid sign-in credential")
+        result = await request.app.state.dispatcher.invoke("config_get", Invocation(actor_id=actor_id), {})
+        if not result.ok:
+            return failure(503, "unavailable", "Sign-in identity is unavailable")
+        if admission.closing:
+            return failure(503, "unavailable", "Server is stopping")
+        token = sessions.issue(actor_id, prior)
+        if token is None:
+            return failure(503, "unavailable", "Browser session capacity unavailable")
+        response = identity(actor_id)
+        response.set_cookie(COOKIE_NAME, token, max_age=SESSION_SECONDS, path="/", httponly=True, samesite="strict")
+        return response
 
     async def operation(request):
         if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
@@ -147,8 +185,15 @@ def create_app(settings: InstallationSettings, credentials: Credentials) -> Star
     async def ready(request):
         result = await request.app.state.dispatcher.invoke("config_get",
             Invocation(actor_id=credentials.readiness_actor_id), {})
-        return JSONResponse({"ready": result.ok}, status_code=200 if result.ok else 503,
+        healthy = result.ok and request.app.state.worker.ready
+        return JSONResponse({"ready": healthy}, status_code=200 if healthy else 503,
                             headers={"Cache-Control": "no-store"})
+
+    async def index(request):
+        return ui.response()
+
+    async def asset(request):
+        return ui.response(request.path_params["asset"])
 
     async def unknown_api(request):
         tail = request.path_params["tail"]
@@ -167,13 +212,16 @@ def create_app(settings: InstallationSettings, credentials: Credentials) -> Star
     app = Starlette(lifespan=lifespan, routes=[
         Route("/health/live", live, methods=["GET"]),
         Route("/health/ready", ready, methods=["GET"]),
+        Route("/api/v1/session", session, methods=["GET", "POST", "DELETE"]),
         Route("/api/v1/schema", schema, methods=["GET"]),
         Route("/api/v1/operations/{name}", operation, methods=["POST"]),
         # Stateless JSON MCP has no server-initiated stream. GET is optional in
         # Streamable HTTP; 405 avoids keeping an unused SSE stream alive forever.
         Route("/mcp", MCPRoute(), methods=["POST", "DELETE"]),
         Route("/api/{tail:path}", unknown_api, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]),
-    ], middleware=[Middleware(Boundary, credentials=credentials, port=settings.listen_port)])
+        *([Route("/", index, methods=["GET"]), Route("/assets/{asset:path}", asset, methods=["GET"])] if ui else []),
+    ], middleware=[Middleware(Boundary, credentials=credentials, port=settings.listen_port,
+                              sessions=sessions, admission=admission)])
     app.router.redirect_slashes = False
     return app
 
@@ -187,7 +235,7 @@ class ServerFormatter(logging.Formatter):
         return super().format(record)
 
 
-def serve(settings: InstallationSettings, credentials: Credentials) -> None:
+def serve(settings: InstallationSettings, credentials: Credentials, ui_root: Path | None = None) -> None:
     log_config = {"version": 1, "disable_existing_loggers": False,
         "formatters": {"private": {"()": ServerFormatter, "format": "%(levelname)s: %(message)s"}},
         "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "private", "stream": "ext://sys.stderr"}},
@@ -195,7 +243,7 @@ def serve(settings: InstallationSettings, credentials: Credentials) -> None:
             "uvicorn": {"handlers": ["console"], "level": "INFO", "propagate": False},
             "uvicorn.error": {"handlers": [], "level": "INFO", "propagate": True},
             "uvicorn.access": {"handlers": [], "propagate": False}}}
-    server = uvicorn.Server(uvicorn.Config(create_app(settings, credentials), host="127.0.0.1",
+    server = uvicorn.Server(uvicorn.Config(create_app(settings, credentials, ui_root), host="127.0.0.1",
         port=settings.listen_port, workers=1, reload=False, proxy_headers=False, forwarded_allow_ips=[],
         access_log=False, log_config=log_config, server_header=False, date_header=False,
         http="h11", ws="none", lifespan="on", loop="asyncio", backlog=64, limit_concurrency=64,

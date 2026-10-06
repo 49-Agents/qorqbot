@@ -27,7 +27,7 @@ def write_private(path, value):
 
 class Installation:
     def __init__(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="qorqut-transport-", dir="/tmp")
+        self.temp = tempfile.TemporaryDirectory(prefix="qorqut-transport-")
         self.root = Path(self.temp.name)
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
@@ -75,14 +75,18 @@ class Installation:
         defaults["cli"]["model"] = model
         return {"idempotency_key": key, "expected_revision": revision, "defaults": defaults}
 
-    def start(self, *, gated=False):
+    def start(self, *, gated=False, ui_root=None, session_seconds=None):
         self.log = self.log_file.open("ab")
         command = [*self.entrypoint, "serve"]
-        if gated:
+        if gated or session_seconds is not None:
             command = [sys.executable, str(Path(__file__).with_name("owned_server.py"))]
         command += ["--installation", str(self.installation_file), "--transport-config", str(self.transport_file)]
         if gated:
             command += ["--gate", str(self.root)]
+        if ui_root is not None:
+            command += ["--ui-root", str(ui_root)]
+        if session_seconds is not None:
+            command += ["--session-seconds", str(session_seconds)]
         self.process = subprocess.Popen(command, env=self.env, cwd=self.root,
                                         stdout=self.log, stderr=self.log, stdin=subprocess.DEVNULL)
         deadline = time.monotonic() + 15
@@ -91,7 +95,8 @@ class Installation:
                 if self.process.poll() is not None:
                     raise AssertionError("Owned server failed to start: " + self.log_file.read_text())
                 try:
-                    if client.get(self.url + "/health/live").status_code == 200:
+                    if client.get(self.url + "/health/ready").status_code == 200:
+                        self.initial_events = self.post("events_list").json()["data"]["items"]
                         return
                 except httpx.HTTPError:
                     pass

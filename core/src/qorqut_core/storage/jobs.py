@@ -197,6 +197,46 @@ class Jobs:
                 self._resolve(tx, current, resolution)
             return resolution
 
+    def reconcile_pending(self, *, limit: int = 16, retry_seconds: int = 5) -> int:
+        """Inspect only this epoch's uncertain, receipt-backed file work.
+
+        Keep the lifetime/effect gates across selection and inspection so recovery
+        cannot turn an eligible original-epoch job into held work between them.
+        Persist the delay even if an inspector raises or returns immediate retry.
+        """
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise CoreError("invalid_argument", "Inspection batch must be 1–100 jobs")
+        if type(retry_seconds) is not int or not 1 <= retry_seconds <= 3600:
+            raise CoreError("invalid_argument", "Inspection delay must be 1–3600 seconds")
+        assert_external_io_allowed()
+        with self.db.lock.use(), self._gate:
+            with self.db.transaction() as tx:
+                self._expire(tx)
+                rows = tx.connection.execute("""SELECT job_id FROM jobs WHERE
+                    recovery_epoch=(SELECT recovery_epoch FROM installation) AND
+                    external_effect=1 AND state='uncertain' AND
+                    wait_reason='reconciliation_required' AND
+                    kind IN ('file_install','conversation_publish') AND
+                    (next_attempt_at IS NULL OR next_attempt_at<=?)
+                    ORDER BY next_attempt_at,created_at,job_id LIMIT ?""",
+                    (self.db.clock(), limit)).fetchall()
+            for row in rows:
+                job_id = row["job_id"]
+                retry_at = after(self.db.clock(), retry_seconds)
+                with self.db.transaction() as tx:
+                    tx.connection.execute("UPDATE jobs SET next_attempt_at=? WHERE job_id=?",
+                                          (retry_at, job_id))
+                try:
+                    self.reconcile(UUID(job_id))
+                finally:
+                    retry_at = after(self.db.clock(), retry_seconds)
+                    with self.db.transaction() as tx:
+                        tx.connection.execute("""UPDATE jobs SET next_attempt_at=? WHERE job_id=?
+                            AND state='uncertain' AND wait_reason='reconciliation_required'
+                            AND (next_attempt_at IS NULL OR next_attempt_at<?)""",
+                            (retry_at, job_id, retry_at))
+            return len(rows)
+
     def get(self, job_id: UUID) -> dict:
         with self.db.read() as tx:
             row = tx.connection.execute("SELECT * FROM jobs WHERE job_id=?", (str(job_id),)).fetchone()
