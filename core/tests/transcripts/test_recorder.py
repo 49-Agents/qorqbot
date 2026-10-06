@@ -1,5 +1,6 @@
 import errno
 import fcntl
+import json
 import os
 from pathlib import Path
 import select
@@ -225,7 +226,7 @@ os.kill(os.getpid(), signal.SIGKILL)
                 recorder.run([sys.executable, "-c", "raise RuntimeError('must not launch')"],
                              input_fd=input_fd, output_fd=output.fileno())
 
-    def test_capture_failure_blocks_forwarding_input_and_new_launch(self):
+    def test_capture_failure_blocks_forwarding_and_new_launch(self):
         spool, source, epoch, run = registered(self.path, kind="terminal")
         self.addCleanup(spool.close)
         recorder = Recorder(spool, source.source_id, epoch, run.run_id)
@@ -238,7 +239,8 @@ os.kill(os.getpid(), signal.SIGKILL)
             def display(fd, data):
                 seen.extend(data)
                 # After committed READY, force the next chunk/cursor transaction
-                # to roll back. Simultaneous queued input must not leak through.
+                # to roll back. The input here precedes failure; readiness is
+                # checked after failure, not rejection of unattempted input.
                 with sqlite3.connect(self.path) as connection:
                     connection.execute("""CREATE TRIGGER fail_append BEFORE INSERT ON capture_chunks
                         BEGIN SELECT RAISE(ABORT, 'injected full disk'); END""")
@@ -288,6 +290,60 @@ signal.pause()
             self.assertIsNone(state["recorder_finished_at"])
             self.assertEqual(state["drain_complete"], 0)
             self.assertFalse(Recorder(spool, terminal.source_id, terminal.epoch, terminal.run.run_id).admission_ready)
+
+    def failure_case(self, case):
+        fixture = Path(__file__).with_name("pty_failures.py")
+        directory = Path(self.directory.name) / case
+        directory.mkdir()
+        process = subprocess.run(
+            [sys.executable, str(fixture), str(directory), case],
+            env=child_env(), capture_output=True, timeout=20,
+        )
+        self.assertEqual(process.returncode, 0, process.stderr)
+        result = json.loads(process.stdout)
+        self.assertTrue(result["returned"], result)
+        self.assertFalse(result["admission_ready"], result)
+        self.assertTrue(result["direct_exited"], result)
+        self.assertTrue(result["initially_canonical"], result)
+        for restored in ("terminal_restored", "mask_restored", "handlers_restored",
+                         "output_flags_restored", "inner_descriptors_closed"):
+            self.assertTrue(result[restored], result)
+        return result
+
+    def test_failure_escalates_direct_child_with_a_different_foreground_group(self):
+        for case in ("foreground", "foreground_leader_exits"):
+            with self.subTest(case=case):
+                result = self.failure_case(case)
+                self.assertEqual(result["exception"], "OSError", result)
+                self.assertTrue(result["original_group"], result)
+                self.assertTrue(result["member_exited"], result)
+                self.assertTrue(result["direct_reaped"], result)
+                self.assertEqual(result["captured"], "READY", result)
+                self.assertEqual(result["health"], "blocked", result)
+
+    def test_failure_terminates_original_group_after_its_direct_leader_exits(self):
+        result = self.failure_case("samegroup")
+        self.assertEqual(result["exception"], "CaptureBlocked", result)
+        self.assertTrue(result["original_group"], result)
+        self.assertTrue(result["member_exited"], result)
+        self.assertTrue(result["direct_reaped"], result)
+        self.assertEqual(result["captured"], "READY", result)
+        self.assertEqual(result["health"], "blocked", result)
+
+    def test_term_before_login_survives_handler_reset_and_prevents_exec(self):
+        result = self.failure_case("startup")
+        self.assertEqual(result["exit"], -signal.SIGTERM, result)
+        self.assertTrue(result["direct_reaped"], result)
+        self.assertEqual(result["captured"], "", result)
+        self.assertEqual(result["health"], "incomplete", result)
+
+    def test_unconfirmed_cleanup_is_bounded_preserves_failure_and_restores_parent(self):
+        result = self.failure_case("unconfirmed")
+        self.assertEqual(result["exception"], "CleanupUnconfirmed", result)
+        self.assertEqual(result["cause"], "OSError", result)
+        self.assertIn("cleanup", result["last_error"], result)
+        self.assertEqual(result["captured"], "READY", result)
+        self.assertEqual(result["health"], "blocked", result)
 
 
 if __name__ == "__main__":

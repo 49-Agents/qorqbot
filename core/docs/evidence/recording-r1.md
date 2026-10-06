@@ -5,6 +5,12 @@ Date: 2026-10-07. Branch: `codex/recording-r1`. Initial status was clean at
 local spool/nested-PTY increment from BUILD-EXECUTION, not M07 completion or any
 G0–G6 acceptance gate. No merge, deployment, release, or provider call occurred.
 
+Revision 1 starts from clean `d15366a389a7ecbee4fc17511bb0585990cb8044`, which
+independent review did **not** approve. Manager message 52/D27 required corrections
+to direct-child escalation, surviving original-group members and startup TERM
+delivery. Message 57 explicitly permits narrowly scoped numeric procfs stat
+observations for the already owned session/group set. No shared plan was edited.
+
 ## Delivered boundary
 
 - `src/qorqut_core/transcripts/spool.py`: explicit shared database path;
@@ -33,10 +39,25 @@ G0–G6 acceptance gate. No merge, deployment, release, or provider call occurre
   It reserves a terminal epoch durably before fork, creates a real controlling
   child PTY, commits output before display, handles partial writes, forwards
   resize/signals and raw input, and drains output through PTY EOF after child exit.
+  Forwarded signals are blocked across fork and child default-handler/PTY setup;
+  the original mask is restored in parent and child. Before the PTY group exists,
+  forwarding targets the exact unreaped child, preserving a pending TERM through
+  setup rather than swallowing ESRCH or signalling an inherited shared group.
   Input is never inserted into a native semantic stream. Exit records retain the
   drained byte checkpoint; signal/nonzero exits are marked incomplete.
-- A storage failure latches capture/input closed, stops forwarding, attempts to
-  persist blocked health, and terminates/reaps its owned child process group.
+- Capture/display/setup failure latches capture/input closed, stops forwarding
+  and attempts to persist blocked health. `waitid(WNOWAIT)` retains the direct
+  leader as an ownership anchor. Cleanup targets that child plus live members of
+  its original and verified foreground PTY groups, using fresh PID/start/SID/PGID
+  and state observations; group-member effects use verified pidfds. Foreground
+  ownership comes from the owned PTY/session before signalling can detach it.
+  Each TERM/CONT and KILL phase has a one-second observation deadline; final
+  direct-child reaping uses only nonblocking wait with a 250 ms deadline.
+  Zombie/dead members are not live producers. Unavailable observations or a live
+  survivor produce `CleanupUnconfirmed`, preserving the original failure as its
+  cause, with admission closed and health blocked. Every descriptor/terminal/
+  output-flag/handler/mask restoration is attempted even after cleanup failure.
+  Reaping is claimed only for the directly owned child, never arbitrary members.
   The in-process error/readiness remains observable if storage cannot write the
   health update. Accepted bytes are preserved. Used/reserved terminal epochs
   cannot relaunch implicitly, including after an abruptly killed recorder.
@@ -55,7 +76,8 @@ Observed versions: Python **3.12.3**, SQLite **3.45.1**, Linux kernel
 is exercised by this increment.
 
 `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests/transcripts -v`
-passed **17 tests** in **12.487 seconds** on the final code/test tree.
+passed **21 tests** in **16.701 seconds** on the revision's final code/test tree:
+the original 17 checks plus four focused recorder regressions.
 
 The one focused suite covers:
 
@@ -74,6 +96,9 @@ The one focused suite covers:
   statement abort prove refusal does not advance the accepted byte cursor.
   Recorder failure injection proves uncommitted output is not forwarded and
   readiness closes while the committed prefix remains readable.
+  The original failure fixture's input is consumed **before** failure; its
+  wording was corrected and it does not claim rejection of queued post-failure
+  input that was never attempted.
 - Ten abrupt subprocess-exit cases: after chunk insert, after cursor update,
   before/after append COMMIT; after ACK update and before/after its COMMIT;
   after payload reclamation and before/after its COMMIT. Reopening checks exact
@@ -85,6 +110,42 @@ The one focused suite covers:
   without ACK; and concurrent ACK/reclaim against a pending-read snapshot.
 - Coexistence with a synthetic `runner_*` table and existing `user_version`,
   with required SQLite connection settings retained.
+
+Four focused recorder regressions add five pipe-gated cases in the same suite:
+TERM-ignoring direct child with a distinct foreground job; that job surviving a
+leader that exits on TERM; an original-group member surviving its leader; TERM
+after activation but before real `login_tty`; and an unavailable exit observer
+forcing an explicit bounded unsuccessful-cleanup result. The tests assert exact
+committed bytes, closed readiness, direct-child reaping where exit is observed,
+no surviving live owned member, and restoration of a deliberately canonical
+outer terminal, masks, handlers, output flags and original PTY descriptors.
+Pidfds distinguish exit from PID reuse and from descendant reaping. A disposable
+fixture subreaper holds all producer pidfds before releasing the gates, and
+cleans them up even when exercising the broken pre-revision recorder. Timeouts
+guard the tests; pipes establish the event ordering.
+
+The new pipe-gated fixtures were also run against the unchanged rejected
+`d15366a` source: foreground cleanup failed to return, the original-group member
+was still live after return, and pre-login TERM allowed a healthy exit with
+`EXECUTED_AFTER_TERM`. Those diagnostic JSON files remain in
+`/tmp/recording-r1-prefixed-regressions-lax05eyx/`. The fixture supervisor cleaned
+up all its owned processes using pidfds, including the hanging old recorder.
+
+Manager's original independent diagnostic was rerun against the corrected tree:
+
+```
+/usr/bin/python3 /home/alp/.local/state/qorqut-builds/01a116b0-8d6d-72f2-9da9-76bd2e898f04/recording-r1-manager-diagnostic.py /home/alp/qorqut-core/worktrees/recording-r1
+```
+
+It completed successfully. Both failure cases returned with exact `READY`
+retained, blocked health, closed admission, restored terminal, direct child
+reaped and the other member exited (zombie pending its fixture parent's reap).
+The original-group heartbeat grew by **zero** bytes after return. Startup TERM
+returned **-15**, captured **zero** bytes and marked the source incomplete.
+The full diagnostic artifacts remain at
+`/tmp/qorqut-manager-recording-r1-rriqrzzz/`, including `results.json` and its
+synthetic fixture logs/data. These are disposable process diagnostics, not
+operational captures or host-archive evidence.
 
 `git diff --cached --check` also passed before the commit. Tests use only disposable
 SQLite files and deterministic Python children; no existing agent, native store,
@@ -116,9 +177,15 @@ contain no license header requiring propagation for this fresh implementation.
 - Native adapters, discovery/finalization of file sources, parsers, FTS/Chat,
   attachments, provider switching, runner/tmux integration, VM behavior, actual
   systemd restart survival and producer cgroup pause remain outside this scope.
-- On capture/display failure this process closes admission and cleans up its
-  direct owned PTY process group; it does not pause a cgroup while surviving for
-  recovery, reserve disk headroom, or prove termination of detached descendants.
+- Failure cleanup checks cooperative owned original/verified foreground groups
+  and reaps only the direct child. It does not prove termination of detached
+  descendants or atomic quiescence against arbitrary concurrent forking. Only
+  numeric procfs stat identity/state fields are read; a scan cannot discover new
+  target groups or select processes by name/command. Unknown visibility or
+  termination remains an explicit cleanup failure. Kernel syscalls themselves
+  still depend on a functioning kernel; the userspace waits/observations have
+  finite deadlines. The recorder does not pause a cgroup while surviving for
+  recovery or reserve disk headroom.
   Uncommitted/unflushed producer output is not claimed durable. OS disk
   exhaustion and physical fsync/storage failure were not rehearsed; SQLite FULL
   and transaction/process boundaries were.
