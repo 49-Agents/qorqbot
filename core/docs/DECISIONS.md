@@ -1,5 +1,18 @@
 # Architecture decisions
 
+## D30 — Query live recorder state in its existing capture loop
+
+**Decision, 2026-10-08:** add the bounded optional local observation protocol in
+[RECORDER-PROBE.md](RECORDER-PROBE.md). A nonce-bound Unix datagram response from
+the verified recorder process distinguishes current terminal capture from a
+historical SQLite health row. The same recorder loop answers; no heartbeat
+writer, thread, extra daemon, database or network endpoint is needed.
+
+The observation is not native/provider readiness or a liveness lease. Keep the
+complete automated-input predicate closed until its other evidence exists.
+This work changes only local recorder/probe behavior and owning tests, so it can
+proceed separately from M01's host schema and application assembly.
+
 ## D29 — Register real agents before resource integration is available
 
 **Decision, 2026-10-08:** the first M01 increment implements durable identity,

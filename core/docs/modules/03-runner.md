@@ -16,6 +16,10 @@ Check the persisted agent/environment machine-control admission hold before any 
 
 ## Managed run identity
 
+[RECORDER-PROBE.md](../RECORDER-PROBE.md) specifies one future input to runtime
+admission: fresh terminal-recorder evidence. It must not stand in for native
+ownership/source ingestion, composer/paste support, machine holds or supervision.
+
 Before launch the host allocates run ID/generation and passes structured argv, cwd, environment and generated-config hash. The runner verifies agent/environment/boot identity and records the intention. `ensure` returns a matching saved/live run on retry; it does not start a second CLI.
 
 The tmux session launches the M07 recorder, which owns the native CLI's child PTY. Binding includes boot ID, tmux server/session/pane identity, recorder process identity and native process start identity. PIDs and session names alone are insufficient. Native session ID is added when M04 proves it.

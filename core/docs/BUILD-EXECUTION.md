@@ -118,6 +118,14 @@ exploration may trace the accepted adapter/recorder/tmux interfaces and return
 facts, but cannot design or implement new launch protocols/schema. Manager owns
 that subsequent design. Both outputs require fresh independent review.
 
+Runtime exploration is now accepted at `39c0f7e`. Its first resulting
+implementation assignment is [RECORDER-PROBE.md](RECORDER-PROBE.md): an optional
+fresh process-bound query in the existing recorder loop. It owns only local
+transcript/probe code and tests; M01 retains exclusive host schema/registry
+ownership. Native ownership/composer/source integration and managed launch
+remain later explicit designs. This is not a declaration that those capabilities
+are implemented or ready.
+
 UI becomes a builder assignment as the domain API stabilizes, taking a released
 slot. VM installation/lifecycle waits for the pending substrate decision. Later
 backup/restore and continuity work likewise follows its actual dependencies.

@@ -4,6 +4,10 @@ Status: Planned. Owns R10 and history portions of R11/R13/R14/R15. Depends on M0
 
 Repository: `qorqut-core`. Recorder, archive and conversation projection remain backend responsibilities and continue operating with no UI connected or installed.
 
+The bounded next local recorder increment is [RECORDER-PROBE.md](../RECORDER-PROBE.md):
+a fresh observation from the actual capture loop. It is separate from native
+ingestion, host archive durability and complete runtime readiness.
+
 ## 1. Guarantee and fault model
 
 This is a first-class subsystem, not a Stop hook that copies a small file. Preserve exact emitted native streams and terminal output independently of the currently selected CLI/UI session, with explicit capture health.

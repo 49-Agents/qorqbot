@@ -73,6 +73,10 @@ If the owner changes either preference, update the decision and affected module 
 
 Other decisions are recorded in [DECISIONS.md](DECISIONS.md), including one active managed CLI per agent, independent raw history, host-pulled capture, explicit control epochs and lifecycle precedence. Full restore uses a new recovery epoch and holds unfinished external effects for reconciliation; uncertainty is never resolved by automatic replay.
 
+The bounded [live recorder observation](RECORDER-PROBE.md) increment closes the
+process-local observation gap found in reviewed runtime exploration. It remains
+separate from complete native capture, provider readiness and managed launch.
+
 ## 4. Porting strategy
 
 Qorqut is a source of working mechanisms and hard-earned failure behavior. Each extraction must have a named contract and a meaningful test before integration.

@@ -80,6 +80,12 @@ Each state transition has allowed predecessors checked by the domain owner and a
 
 Exactly one managed live run may own an agent's input route. An `unknown` run still occupies that ownership until reconciled. Do not launch a competing run simply because the old runner stopped answering.
 
+The optional local [recorder probe](RECORDER-PROBE.md) reports a nonce-bound
+observation from the actual terminal capture loop and exact expected process.
+Historical spool health cannot replace that observation. A positive probe is
+only terminal capture evidence; it neither establishes native/provider readiness
+nor releases an unknown run's ownership. Timeout is not verified process death.
+
 ### Lifecycle precedence
 
 Serialize lifecycle intent with a revision and the per-agent lifecycle lock. Creation goes from `provisioning` to `active` after resource readiness; its start job may run only after that transition. `runtime_start/restart/switch` require an active, non-quiesced agent and a current intent revision. Recheck before each external effect. Setup failure after launching a process does not release run ownership: only verified exit does; uncertain existence is `unknown` even if the operation failed.
