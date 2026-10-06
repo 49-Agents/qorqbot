@@ -48,7 +48,7 @@ chosen core lock before integration is accepted. Shared migrations, registry,
 package metadata and assembly retain one assigned writer at a time. Later lanes
 must not invent competing implementations of these accepted boundaries.
 
-The next foundation-dependent assignment is `core-transports-r1`, implementing
+The first foundation-dependent assignment is `core-transports-r1`, implementing
 the [first core HTTP/MCP contract](CORE-API.md) and a small HTTP operator client
 on `ef18e59`. It owns transport/client/entry-point code and required dependency
 metadata, not domain rules or migrations. Only the four existing operations are
@@ -57,12 +57,15 @@ separate Manager assignments; no worker may fill those gaps independently.
 
 ## Work awaiting acceptance
 
-- Independent browser MCP at `d46fba1`: the separate Astra MAX review passed all
-  32 tests and package checks, but found raw malformed MCP payloads in root-logger
-  diagnostics. Manager independently reproduced both request/notification paths.
-  D28 and the first browser MCP revision require complete SDK log sanitation;
-  the same evidence clarifies core's existing transport logging requirement.
-  Implementation remains unapproved and needs fresh review after correction.
+- Core transports at `d096f39`: committed and pushed; a fresh Astra MAX reviewer
+  is assigned to the full HTTP/MCP/operator increment and D28 logging amendment.
+  The four-operation scope, shared application semantics, cancellation/lifetime,
+  attribution, wire bounds and installed-package evidence await acceptance.
+- Independent browser MCP at `c341377`: the D28 logging correction is committed
+  and pushed; another fresh Astra MAX reviewer is assigned to the entire bounded
+  implementation and all amendments. The prior review/Manager reproduction found
+  raw malformed request/notification payloads in root diagnostics despite clean
+  HTTP errors. Current sanitation and wire evidence remain unapproved.
   Synthetic browser effects are not real Chrome/VNC/core/VM acceptance.
 - Recorder at `a8576ec`: the D27 correction is committed and pushed; a fresh
   Astra MAX reviewer is assigned to that immutable SHA with both cleanup and
