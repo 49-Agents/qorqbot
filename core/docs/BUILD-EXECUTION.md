@@ -57,10 +57,12 @@ separate Manager assignments; no worker may fill those gaps independently.
 
 ## Work awaiting acceptance
 
-- Core transports at `d096f39`: committed and pushed; a fresh Astra MAX reviewer
-  is assigned to the full HTTP/MCP/operator increment and D28 logging amendment.
-  The four-operation scope, shared application semantics, cancellation/lifetime,
-  attribution, wire bounds and installed-package evidence await acceptance.
+- Core transports at `d096f39`: independent Astra MAX review passed the source
+  and installed 41-test suites, but found a malformed IDNA origin escaping the
+  operator's local-error/privacy boundary. Manager reproduced the traceback and
+  independently confirmed the actual response-size guard. The first correction
+  covers local URL refusal and replacement of two weak size-limit test cases.
+  The implementation remains unapproved and requires fresh review after revision.
 - Independent browser MCP at `c341377`: the D28 logging correction is committed
   and pushed; another fresh Astra MAX reviewer is assigned to the entire bounded
   implementation and all amendments. The prior review/Manager reproduction found
