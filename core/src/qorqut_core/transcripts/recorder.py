@@ -25,6 +25,9 @@ import time
 import tty
 from typing import Callable, Sequence
 
+from ..runner.models import ProcessFingerprint, RunnerError
+from ..runner.process import fingerprint, verify_process
+from . import probe
 from .spool import CHUNK_BYTES, CaptureBlocked, CaptureError, CaptureSpool, RunBinding, Source
 
 
@@ -72,11 +75,13 @@ def _process_stat(pid: int) -> _Process | None:
 
 
 class Recorder:
-    def __init__(self, spool: CaptureSpool, source_id: str, source_epoch: str, run_id: str):
+    def __init__(self, spool: CaptureSpool, source_id: str, source_epoch: str, run_id: str, *,
+                 probe_address: str | None = None):
         self.spool = spool
         self.source_id = source_id
         self.source_epoch = source_epoch
         self.run_id = run_id
+        self.probe_address = probe_address
         self._active = False
         self._signals: set[int] = set()
         self._resize = False
@@ -91,6 +96,33 @@ class Recorder:
         except (CaptureError, OSError, sqlite3.Error):
             return False
         return True
+
+    def _answer_probe(self, listener, child: ProcessFingerprint | None, *,
+                      child_status: int | None, output_open: bool) -> None:
+        received = probe._receive_request(listener)
+        if received is None:
+            return
+        request, peer = received
+        binding = self.spool.recording_binding(self.source_id, self.source_epoch, self.run_id)
+        if (request.binding != binding or request.source_id != self.source_id
+                or request.source_epoch != self.source_epoch):
+            return
+        recorder = fingerprint(os.getpid())
+        if str(recorder.boot_id) != binding.boot_id:
+            return
+        active = self.admission_ready and child_status is None and output_open
+        if child is not None:
+            try:
+                verify_process(child)
+            except RunnerError:
+                child = None
+        active = active and child is not None and self.admission_ready
+        observation = probe.ProbeObservation(
+            version=1, nonce=request.nonce, binding=binding,
+            source_id=self.source_id, source_epoch=self.source_epoch,
+            recorder=recorder, child=child, terminal_active=active,
+        )
+        probe._send_observation(listener, observation, peer)
 
     def _signal(self, signum, _frame):
         if signum == signal.SIGWINCH:
@@ -256,7 +288,6 @@ class Recorder:
             not isinstance(arg, str) or "\x00" in arg for arg in argv
         ) or not argv[0]:
             raise ValueError("child argv must be a nonempty sequence of strings")
-        self.spool.claim_recording(self.source_id, self.source_epoch, self.run_id)
         master_fd = slave_fd = -1
         child_pid = None
         child_start = None
@@ -266,7 +297,17 @@ class Recorder:
         saved_output_flags = None
         saved_signal_mask = None
         handlers = {}
+        listener = None
+        probe_open = False
+        probe_child = None
+        probe_cleanup_errors = []
+        claimed = False
         try:
+            if self.probe_address is not None:
+                listener = probe._open_listener(self.probe_address)
+                probe_open = True
+            self.spool.claim_recording(self.source_id, self.source_epoch, self.run_id)
+            claimed = True
             master_fd, slave_fd = os.openpty()
             if os.isatty(input_fd):
                 saved_termios = termios.tcgetattr(input_fd)
@@ -302,6 +343,13 @@ class Recorder:
             if observed_child is None:
                 raise CleanupUnconfirmed("new child identity is unavailable")
             child_start = observed_child.start
+            if listener is not None:
+                try:
+                    observed = fingerprint(child_pid)
+                    if observed.start_ticks == child_start:
+                        probe_child = observed
+                except RunnerError:
+                    pass  # Failure to observe our direct child cannot imply readiness.
             os.close(slave_fd)
             slave_fd = -1
             os.set_blocking(master_fd, False)
@@ -338,6 +386,10 @@ class Recorder:
                     writes.append(output_fd)
                 if to_child and output_open and child_status is None:
                     writes.append(master_fd)
+                if probe_open and listener.fileno() < 0:
+                    probe_open = False
+                if probe_open:
+                    reads.append(listener.fileno())
                 ready_read, ready_write, _ = select.select(reads, writes, [], 0.05)
                 # Handle output/capture before admitting simultaneous input.
                 if master_fd in ready_read:
@@ -384,21 +436,34 @@ class Recorder:
                         if exc.errno != errno.EIO:
                             raise
                         to_child = b""
+                if probe_open and listener.fileno() in ready_read:
+                    try:
+                        self._answer_probe(listener, probe_child, child_status=child_status,
+                                           output_open=output_open)
+                    except (OSError, ValueError, CaptureError, sqlite3.Error, RunnerError):
+                        # Optional observation must not abandon committed/queued
+                        # output or kill the producer. Disable only this endpoint.
+                        probe_open = False
+                        try:
+                            listener.close()
+                        except OSError as exc:
+                            probe_cleanup_errors.append(exc)
             exit_code = child_status
             self.spool.finish_recording(self.source_id, self.source_epoch, exit_code)
             return exit_code
         except BaseException as exc:
             failure = exc
             self._active = False
-            try:
-                self.spool.block(self.source_id, self.source_epoch, type(exc).__name__)
-            except BaseException:
-                exc.add_note("Blocked health could not be persisted; admission remains closed.")
+            if claimed:
+                try:
+                    self.spool.block(self.source_id, self.source_epoch, type(exc).__name__)
+                except BaseException:
+                    exc.add_note("Blocked health could not be persisted; admission remains closed.")
             raise
         finally:
             self._active = False
             cleanup_error = None
-            restoration_errors = []
+            restoration_errors = probe_cleanup_errors
             try:
                 if child_pid is not None and child_pid > 0:
                     try:
@@ -417,6 +482,8 @@ class Recorder:
                 # Every restoration is attempted, even if cleanup or an earlier
                 # restoration failed. Restore the caller's mask on all paths.
                 restorations = [(os.close, (fd,)) for fd in (master_fd, slave_fd) if fd >= 0]
+                if listener is not None:
+                    restorations.append((listener.close, ()))
                 if saved_output_flags is not None:
                     restorations.append((fcntl.fcntl, (output_fd, fcntl.F_SETFL, saved_output_flags)))
                 if saved_termios is not None:
@@ -450,6 +517,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--environment-generation", required=True, type=int)
     parser.add_argument("--run-generation", required=True, type=int)
     parser.add_argument("--busy-timeout-ms", type=int, default=2000)
+    parser.add_argument("--probe-address")
     parser.add_argument("child", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if len(args.child) < 2 or args.child[0] != "--":
@@ -466,7 +534,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.source_epoch, args.run_id,
                 capability_evidence="recorder-owned PTY output; no native semantic capture",
             )
-            status = Recorder(spool, args.source_id, args.source_epoch, args.run_id).run(args.child[1:])
+            status = Recorder(spool, args.source_id, args.source_epoch, args.run_id,
+                              probe_address=args.probe_address).run(args.child[1:])
             return status if status >= 0 else 128 - status
     except (CaptureError, OSError, ValueError, sqlite3.Error) as exc:
         sys.stderr.write(f"recorder: capture unavailable ({type(exc).__name__})\n")
