@@ -2,9 +2,10 @@
 
 Verification: 2026-10-08 UTC. Branch `codex/host-archive-r1`; original clean
 Manager design/source base `e9d87155588ccce89243eae6d83a8fb28aeed95e`.
-The implementation, tests and initial evidence are committed together. The
-delivery update records that code revision below; the final evidence/delivery
-commit and pushed SHA are reported through ACLA without a self-referential hash.
+Implementation, tests and initial evidence commit:
+`cadd709adf5d83e8dd0b48a226cb44de4f51a0cf`. This evidence-only delivery update
+records the exact tested revision; the final evidence/delivery commit and
+verified pushed SHA are reported through ACLA without a self-referential hash.
 
 Run `649fed24-a7af-40d7-9d41-382ab248483a`; worker
 `e98a109c-ec52-4aa1-9d4b-f1d75a1f0167`; bound executor conversation
