@@ -77,6 +77,11 @@ The bounded [live recorder observation](RECORDER-PROBE.md) increment closes the
 process-local observation gap found in reviewed runtime exploration. It remains
 separate from complete native capture, provider readiness and managed launch.
 
+The next host storage boundary is [HOST-ARCHIVE.md](HOST-ARCHIVE.md), specified
+by D31. It consumes exact declared source coordinates and produces a receipt
+only after immutable bytes and inventory are durable. The authenticated pull
+collector, native ingestion, restore audit and G3 acceptance remain separate.
+
 ## 4. Porting strategy
 
 Qorqut is a source of working mechanisms and hard-earned failure behavior. Each extraction must have a named contract and a meaningful test before integration.

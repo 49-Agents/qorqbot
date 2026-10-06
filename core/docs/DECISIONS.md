@@ -1,5 +1,24 @@
 # Architecture decisions
 
+## D31 — Commit host chunk files before authorizing source ACKs
+
+**Decision, 2026-10-08:** implement the internal host storage boundary in
+[HOST-ARCHIVE.md](HOST-ARCHIVE.md), using the existing host database and effect
+gate. Source/epoch/byte coordinates own immutable chunk receipts; filesystem
+fsync precedes the transaction advancing the host watermark, which precedes an
+ACK-eligible return. This raw stream does not create a generic operation/file
+job for every terminal fragment or add an upload service. The eventual collector
+still uses D16's authenticated pull/ACK protocol.
+
+Retired run lineage can drain without authorizing current execution. A host
+restore epoch separately fences intake and ACKs for historical archive epochs;
+this increment cannot release those holds. Conflicts preserve both accepted
+and conflicting evidence and close further ACK admission for that epoch.
+Native source capture is a separate dependency: trace the current adapter/spool
+interfaces before designing it, without claiming supplied identities attest a
+native process. No archive parser, VM or runtime readiness follows from this
+storage increment.
+
 ## D30 — Query live recorder state in its existing capture loop
 
 **Decision, 2026-10-08:** add the bounded optional local observation protocol in

@@ -130,6 +130,16 @@ registry changes. Native ownership/composer/source integration, durable host
 archive and managed launch still need explicit designs and acceptance. The probe
 alone cannot enable automated terminal input or mark an agent ready.
 
+The next two assignments use the combined accepted core through `d4eaf74` plus
+the Manager's D31 plan. `host-archive-r1` implements
+[HOST-ARCHIVE.md](HOST-ARCHIVE.md), exclusively owning host migration 4 and its
+passive application assembly; raw bytes become ACK-eligible only after file
+and inventory durability. `native-capture-p0` is a separate factual exploration
+of native source discovery, descriptor/provenance checks, spool checkpoints and
+restart/rewrites. It owns only its evidence report, and cannot design or implement
+the tailer. Manager uses those verified facts for the subsequent native-capture
+design. Each completed assignment receives a fresh independent review.
+
 UI becomes a builder assignment as the domain API stabilizes, taking a released
 slot. VM installation/lifecycle waits for the pending substrate decision. Later
 backup/restore and continuity work likewise follows its actual dependencies.
