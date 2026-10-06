@@ -28,14 +28,15 @@ delegates further. Treat every report as an unverified claim until checked.
 | Combined core package | [`9701c66`](https://github.com/qorqutbot/qorqut-core/blob/9701c661104f7042d0c001796d517957697b5599/docs/evidence/core-integration-r1.md) | Fresh Astra MAX review passed all 117 tests from source and the installed wheel, independently checked child import origins, pins, installed contents and every accepted merge tree. Manager verified ancestry, unchanged production/metadata and all eight authored paths; independently passed the installed shared runner/capture scenario, passive-import check and 36-file/31-pin verification. | Packaging and local table coexistence only. Agents, managed runtime, host archive, native providers, browser/UI and real VM/system gates remain pending. Historical foundation busy-timeout sensitivity remains recorded. |
 | Runtime composition exploration | [`39c0f7e`](https://github.com/qorqutbot/qorqut-core/blob/39c0f7e9b261bf38357ca91bc824dba5d0514850/docs/evidence/runtime-composition-r1.md) | Fresh Astra MAX review traced all five assigned questions without findings. Manager checked the report, exact clean/pushed evidence-only diff, 18-module AST inventory, and launch/native ownership, recorder liveness, persisted health and input-admission seams directly in source. | Static exploration only. Managed launch composition, verified native ownership, externally observed recorder readiness, native composer/paste acceptance and source ingestion remain absent. No runtime or system gate advanced. |
 | Agent registration, authored workspace and status | [`1c983de`](https://github.com/qorqutbot/qorqut-core/blob/1c983de4c84c9cabded4a870c0d3422c11f640dc/docs/evidence/agents-r1.md) | Fresh Astra MAX review found no in-scope defects; 19 agent, 26 foundation and 15 transport source tests plus installed HTTP/MCP and passive-import checks passed. Manager reviewed the full production change, independently verified all 40 installed package files, test staging and 31 pins against the candidate, and passed four installed checks for concurrent registration, authored-file preservation, projection races and read-only recovery holds. Exact clean/pushed 16-path scope verified. | Five shared agent operations and real directory/projection effects only. Workspace initialization retains provisioning/start intent and a non-automatic dependency hold. Presence, runtime/VM launch, browser/messaging, general file APIs and archive/restore remain pending; no whole M01/M09 or G0–G6 acceptance. |
+| Live local recorder observation | [`7a678ec`](https://github.com/qorqutbot/qorqut-core/blob/7a678ec62d8df0e062f8858ba480c762892cca72/docs/evidence/recorder-probe-r1.md) | Fresh Astra MAX review found no in-scope defects; all 33 final-source transcript tests and 11 installed probe tests passed, including the unsigned credential correction. Manager inspected all seven changed files, independently verified the installed package/test bytes and 31 pins, and passed four installed checks for paused-loop timeout, observer failure, credential/reply bounds and a different live responder. No fixture descendants, sockets or data remained. | Fresh terminal-loop observation only. Native ownership/readiness/ingestion, managed launch/input admission, host archive/backlog policy and cgroup/VM/system acceptance remain pending. Timeout is not proof of death; no lease or G0–G6 acceptance. |
 
 Approval confirms bounded evidence, not installed capability. Core baseline
 [PR #1](https://github.com/qorqutbot/qorqut-core/pull/1) merged on 2026-10-08 as
 `f168369d553f8378df1ba8bc2470a4e1105bf25c`; local `main` is fast-forwarded to it.
 That merge's source, tests and package metadata equal the reviewed `9701c66`
-candidate; only Manager tracking differs. The subsequently accepted agent
-increment is integrated unchanged from `1c983de`, with newer Manager plans
-preserved. Nothing was deployed.
+candidate; only Manager tracking differs. Subsequent agent and recorder-probe
+increments are integrated unchanged from `1c983de` and `7a678ec`, respectively,
+with newer Manager plans preserved. Nothing was deployed.
 Volatile capacity/port observations
 retain their timestamps and are not a deployment budget or reservation.
 
@@ -75,12 +76,6 @@ separate Manager assignments; no worker may fill those gaps independently.
 
 ## Work awaiting acceptance
 
-- Recorder live probe at `7a678ec`: the seven-path implementation of
-  [RECORDER-PROBE.md](RECORDER-PROBE.md) is committed and pushed, with a fresh
-  independent Astra MAX reviewer assigned. Builder evidence separates its
-  pre-correction source suite from the final signedness regression and installed
-  probe checks. The candidate remains unapproved pending that review and Manager
-  verification; it does not yet compose the managed terminal/runtime.
 - Independent browser MCP at `c341377`: the D28 logging correction is committed
   and pushed. The fresh reviewer stopped on a provider safety restriction before
   delivering its ACLA report; that review is incomplete and has not been credited.
@@ -128,13 +123,12 @@ explicitly unavailable; the owner has not selected or authorized host preparatio
 for D02. Subsequent changes to the host schema, registry and assembly still need
 one assigned owner and a concrete Manager design.
 
-Runtime exploration is now accepted at `39c0f7e`. Its first resulting
-implementation assignment is [RECORDER-PROBE.md](RECORDER-PROBE.md): an optional
-fresh process-bound query in the existing recorder loop. It owns only local
-transcript/probe code and tests; it does not modify the host schema/registry.
-Native ownership/composer/source integration and managed launch
-remain later explicit designs. This is not a declaration that those capabilities
-are implemented or ready.
+Runtime exploration is accepted at `39c0f7e`. Its first resulting implementation,
+[RECORDER-PROBE.md](RECORDER-PROBE.md), is accepted at `7a678ec`: an optional
+fresh process-bound query in the existing recorder loop, without host schema or
+registry changes. Native ownership/composer/source integration, durable host
+archive and managed launch still need explicit designs and acceptance. The probe
+alone cannot enable automated terminal input or mark an agent ready.
 
 UI becomes a builder assignment as the domain API stabilizes, taking a released
 slot. VM installation/lifecycle waits for the pending substrate decision. Later
