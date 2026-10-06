@@ -7,7 +7,17 @@ name = "qorqut-core"
 version = "0.1.0"
 description = "Durable Qorqut application foundation"
 requires-python = ">=3.12,<3.13"
-dependencies = ["pydantic==2.12.3"]
+dependencies = [
+    "pydantic==2.12.3",
+    "anyio==4.15.1",
+    "mcp==1.30.0",
+    "starlette==1.7.0",
+    "uvicorn==0.54.0",
+    "httpx==0.28.1",
+]
+
+[project.scripts]
+qorqut-core = "qorqut_core.transports.operator:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
