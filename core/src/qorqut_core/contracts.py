@@ -140,6 +140,7 @@ class JobState(StrEnum):
 
 class WaitReason(StrEnum):
     RETRY_DELAY = "retry_delay"
+    DEPENDENCY_UNAVAILABLE = "dependency_unavailable"
     RECONCILIATION_REQUIRED = "reconciliation_required"
     RECOVERY_REVIEW = "recovery_review"
 

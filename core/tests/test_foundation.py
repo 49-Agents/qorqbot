@@ -79,6 +79,13 @@ class FoundationCase(unittest.TestCase):
         self.owner = Actor(actor_id=uuid4(), kind="owner")
         self.context = Invocation(actor_id=self.owner.actor_id)
         self.app = Application.initialize(self.settings, self.defaults, self.owner, clock=self.clock, fault=self.fault)
+        # Drive only this synthetic installation's reserved workspace job so
+        # unrelated job tests retain their exact target/claim assertions.
+        with self.app.db.read() as tx:
+            onbash_job = tx.connection.execute("SELECT provisioning_job_id FROM agents WHERE kind='host'").fetchone()[0]
+        self.assertEqual(str(self.app.jobs.run_next(worker_id=uuid4())), onbash_job)
+        self.assertEqual(self.app.jobs.get(UUID(onbash_job))["wait_reason"], "dependency_unavailable")
+        self.bootstrap_counts = self.counts()
 
     def tearDown(self):
         self.app.close()
@@ -100,6 +107,9 @@ class FoundationCase(unittest.TestCase):
         with self.app.db.read() as tx:
             return tuple(tx.connection.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
                          for t in ("operations", "events", "jobs", "file_receipts"))
+
+    def plus_bootstrap(self, *deltas):
+        return tuple(before + delta for before, delta in zip(self.bootstrap_counts, deltas))
 
     def probe(self, *, external=True, execute=None, inspect=None):
         self.effects = []
@@ -153,7 +163,8 @@ class FoundationCase(unittest.TestCase):
     def test_config_validation_secrets_and_snapshot_defaults(self):
         view = self.config()
         self.assertEqual(len(ICON_KEYS), 20)
-        self.assertEqual(set(self.app.registry), {"config_get", "config_update", "operations_get", "events_list"})
+        self.assertEqual(set(self.app.registry), {"config_get", "config_update", "operations_get", "events_list",
+            "agents_create", "agents_get", "agents_list", "agents_update", "agents_status_set"})
         self.assertEqual(view["policy"], "allow_all")
         self.assertNotIn(str(self.root), canonical(view))
         snapshot = NewAgentDefaults.model_validate(view["defaults"])
@@ -175,7 +186,7 @@ class FoundationCase(unittest.TestCase):
             self.assertEqual(self.app.invoke("config_update", self.context, invalid_text).error.code, "invalid_argument")
         self.assertTrue(self.app.invoke("config_update", self.context, self.update()).ok)
         self.assertEqual(snapshot, self.defaults)  # Saved consumers are values, not a mutable defaults reference.
-        self.assertEqual(self.counts()[2], 0)  # No invented config job.
+        self.assertEqual(self.counts()[2], self.bootstrap_counts[2])  # No invented config job.
         self.assertEqual(self.app.invoke("config_get", Invocation(actor_id=uuid4())).error.code, "not_found")
 
     def test_parallel_identical_config_calls_commit_once_and_replay_history(self):
@@ -184,7 +195,7 @@ class FoundationCase(unittest.TestCase):
             results = list(pool.map(lambda _: self.app.invoke("config_update", self.context, args), range(16)))
         self.assertTrue(all(r.ok for r in results), results)
         self.assertTrue(all(r == results[0] for r in results))
-        self.assertEqual(self.counts(), (1, 2, 0, 0))
+        self.assertEqual(self.counts(), self.plus_bootstrap(1, 1, 0, 0))
         normalized = self.update(model="trimmed")
         self.assertEqual(self.app.invoke("config_update", self.context, normalized), results[0])
         self.app.invoke("config_update", self.context, self.update(key="later", revision=2))
@@ -226,17 +237,17 @@ class FoundationCase(unittest.TestCase):
         result = self.app.invoke("config_update", self.context, self.update())
         self.assertTrue(result.ok)
         self.assertEqual(result.data["revision"], 2)
-        self.assertEqual(self.counts(), (1, 2, 0, 0))
+        self.assertEqual(self.counts(), self.plus_bootstrap(1, 1, 0, 0))
 
     def test_change_event_job_result_are_one_commit(self):
         for point in ("test_after_job", "operation_before_result", "operation_after_result"):
             self.fault.point = point
             with self.assertRaises(InjectedCrash):
                 self.probe()
-            self.assertEqual(self.counts(), (0, 1, 0, 0))
+            self.assertEqual(self.counts(), self.bootstrap_counts)
             self.assertEqual(self.config()["defaults"]["resources"]["disk_gib"], 4)
         operation, result, job_id = self.probe()
-        self.assertEqual(self.counts(), (1, 2, 1, 0))
+        self.assertEqual(self.counts(), self.plus_bootstrap(1, 1, 1, 0))
         self.assertEqual(self.app.execute(operation, self.context, {"idempotency_key": "probe", "value": 8}), result)
         self.app.jobs.run_next(worker_id=uuid4())
         lookup = self.app.invoke("operations_get", self.context, {"operation_id": str(result.operation_id)})
@@ -446,7 +457,7 @@ else:
         self.fault.point = "file_after_receipt_insert"
         with self.assertRaises(InjectedCrash):
             self.attach_file(old=b"old")
-        self.assertEqual(self.counts(), (0, 1, 0, 0))
+        self.assertEqual(self.counts(), self.bootstrap_counts)
         root = self.settings.data_root / "objects"
         self.assertEqual((root / "item").read_bytes(), b"old")
         self.assertEqual(len(list(root.glob(".qorqut-stage-*"))), 1)
@@ -545,7 +556,7 @@ raise SystemExit(2)
                 self.assertEqual(self.config()["revision"], expected)
         replay = self.app.invoke("config_update", self.context, self.update(key="crash", model="after-crash"))
         self.assertTrue(replay.ok)
-        self.assertEqual(self.counts(), (1, 2, 0, 0))
+        self.assertEqual(self.counts(), self.plus_bootstrap(1, 1, 0, 0))
 
     def test_process_exit_after_rename_reconciles_receipt(self):
         target, staged, job_id, _ = self.attach_file(old=b"old")

@@ -152,8 +152,8 @@ class SharedFlow(unittest.IsolatedAsyncioTestCase):
                 cursor["after_seq"] = page["next_after_seq"]
                 if not page["has_more"]:
                     break
-            self.assertEqual([event["kind"] for event in events], ["installation.initialized", "config.updated", "config.updated"])
-            self.assertEqual([event["actor_id"] for event in events[1:]], [str(f.owner.actor_id), str(f.agent.actor_id)])
+            self.assertEqual([event["kind"] for event in events], ["installation.initialized", "agent.created", "agent.status_changed", "config.updated", "config.updated"])
+            self.assertEqual([event["actor_id"] for event in events[3:]], [str(f.owner.actor_id), str(f.agent.actor_id)])
             missing_epoch = await http.post("/api/v1/operations/events_list", json={"after_seq": 1})
             self.assertEqual(missing_epoch.status_code, 400)
 
@@ -242,7 +242,7 @@ class HTTPBoundary(unittest.TestCase):
             # ordinary call and shutdown settle its task before inspecting the
             # complete child stdout/stderr capture below.
         self.assertEqual(f.post("config_get").json(), f.initial)
-        self.assertEqual(len(f.post("events_list").json()["data"]["items"]), 1)
+        self.assertEqual(f.post("events_list").json()["data"]["items"], f.initial_events)
         f.stop()
         captured = f.log_file.read_text()
         self.assertNotIn(sentinel, captured)
@@ -290,7 +290,7 @@ class HTTPBoundary(unittest.TestCase):
             exact = b"{}" + b" " * (MAX_INPUT_BYTES - 2)
             self.assertEqual(client.post("/api/v1/operations/config_get", content=exact,
                 headers={**f.headers(), "Content-Type": "application/json"}).json(), f.initial)
-        self.assertEqual(len(f.post("events_list").json()["data"]["items"]), 1)
+        self.assertEqual(f.post("events_list").json()["data"]["items"], f.initial_events)
 
     def test_cli_http_path_exit_codes_proxy_isolation_and_restart_lock(self):
         f = self.f
@@ -384,7 +384,7 @@ class Disconnect(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result["ok"])
             self.assertEqual(result["data"]["revision"], 2)
             self.assertEqual(f.post("config_update", args).json(), result)
-            self.assertEqual(len(f.post("events_list").json()["data"]["items"]), 2)
+            self.assertEqual(len(f.post("events_list").json()["data"]["items"]), len(f.initial_events) + 1)
         f.stop()
         reopened = Application.open(f.settings)
         reopened.close()
@@ -489,6 +489,9 @@ import qorqut_core
 import qorqut_core.__main__
 import qorqut_core.transports.server
 import qorqut_core.transports.operator
+import qorqut_core.agents.models
+import qorqut_core.agents.registry
+import qorqut_core.agents.workspace
 import qorqut_core.adapters.capabilities
 import qorqut_core.adapters.clients
 import qorqut_core.adapters.composer

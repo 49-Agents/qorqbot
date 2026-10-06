@@ -125,15 +125,22 @@ def _save_settings(settings: InstallationSettings):
 class Application:
     def __init__(self, settings: InstallationSettings, database: Database):
         """Pure assembly; caller must explicitly initialize/open storage first."""
+        from .agents.registry import Agents
+        from .agents.workspace import Workspaces
+
         self.settings, self.db = settings, database
         self.files = Files(database, settings.data_root)
-        self.jobs = Jobs(database, (self.files.handler(),))
+        self.workspaces = Workspaces(database, settings.data_root)
+        self.jobs = Jobs(database, (self.files.handler(), *self.workspaces.handlers()))
         self.files.jobs = self.jobs
+        self.workspaces.jobs = self.jobs
+        self.agents = Agents(self)
         operations = (
             Operation("config_get", ConfigGet, False, self._config_get, ConfigView),
             Operation("config_update", ConfigUpdate, True, self._config_update, ConfigView),
             Operation("operations_get", OperationsGet, False, self._operations_get, OperationView),
             Operation("events_list", EventsList, False, self._events_list, EventPage),
+            *self.agents.operations(),
         )
         self.registry = MappingProxyType({op.name: op for op in operations})
 
@@ -163,7 +170,7 @@ class Application:
             with db.transaction() as tx:
                 old = tx.connection.execute("SELECT * FROM installation").fetchone()
                 if old is None:
-                    tx.connection.execute("INSERT INTO installation VALUES (1,?,?,?)",
+                    tx.connection.execute("INSERT INTO installation (singleton,installation_id,recovery_epoch,created_at) VALUES (1,?,?,?)",
                         (str(settings.installation_id), str(id_factory()), clock()))
                     defaults = initial_defaults
                     tx.connection.execute("INSERT INTO defaults VALUES (1,1,?,?,?,?,?)",
@@ -176,13 +183,17 @@ class Application:
                     raise CoreError("target_changed", "Database belongs to another installation")
                 elif tx.connection.execute("SELECT 1 FROM actors WHERE actor_id=? AND kind='owner'", (str(initial_owner.actor_id),)).fetchone() is None:
                     raise CoreError("target_changed", "Initialization cannot replace the registered owner")
-            return cls(settings, db)
+            application = cls(settings, db)
+            application.agents.ensure_onbash(Invocation(actor_id=initial_owner.actor_id))
+            return application
         except BaseException:
             db.lock.close()
             raise
 
     @classmethod
     def open(cls, settings: InstallationSettings, *, clock=utc_now, id_factory=new_id, fault=None):
+        from .agents.registry import reserved
+
         assert_external_io_allowed()
         _physical_roots(settings)
         if not _check_settings(settings):
@@ -196,6 +207,7 @@ class Application:
                 row = tx.connection.execute("SELECT installation_id FROM installation").fetchone()
                 if row is None or row[0] != str(settings.installation_id):
                     raise CoreError("target_changed", "Installation and database identities disagree")
+                reserved(tx)
             return cls(settings, db)
         except BaseException:
             db.lock.close()
