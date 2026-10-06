@@ -64,13 +64,13 @@ separate Manager assignments; no worker may fill those gaps independently.
   the same evidence clarifies core's existing transport logging requirement.
   Implementation remains unapproved and needs fresh review after correction.
   Synthetic browser effects are not real Chrome/VNC/core/VM acceptance.
-- Recorder at `d15366a`: the separate Astra MAX review passed the 17-test suite
-  but found cleanup omitting the direct child, surviving original-group members,
-  and lost startup TERM delivery. Manager independently reproduced all three
-  with real PTYs and synthetic owned children, preserving committed READY on
-  capture failure. D27 and the first recorder revision require bounded owned
-  cleanup and startup signal preservation. Implementation remains unapproved;
-  the revision needs another fresh review. Host archive/G3 acceptance is pending.
+- Recorder at `a8576ec`: the D27 correction is committed and pushed; a fresh
+  Astra MAX reviewer is assigned to that immutable SHA with both cleanup and
+  scoped-membership amendments. The earlier review/Manager reproductions found
+  cleanup omitting the direct child, surviving original-group members and lost
+  startup TERM. The new bounded-cleanup, signal-mask and regression claims await
+  independent and Manager verification. Implementation remains unapproved;
+  host archive/G3 acceptance is pending.
 
 ## Repository baseline
 
