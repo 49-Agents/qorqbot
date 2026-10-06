@@ -3,7 +3,11 @@
 Manager decision, 2026-10-07. The owner authorized implementation through ACLA,
 up to ten concurrent Astra MAX actors, no native self-review, and a separate
 Astra MAX reviewer after each completed assignment. This supersedes local Sonnet
-defaults for this run. It does not authorize merges or deployment.
+defaults for this run. The owner subsequently granted standing authorization on
+2026-10-07 to merge and push anything related to this project across all three
+repositories. Manager can land reviewed work without asking again. Deployment
+and the open VM choice are unchanged; individual worker handoffs still control
+which actor may integrate shared files or merge branches.
 
 Run: `649fed24-a7af-40d7-9d41-382ab248483a`. Manager owns plans, decisions,
 integration scope and final acceptance. Builders execute a bounded plan;
@@ -65,11 +69,57 @@ separate Manager assignments; no worker may fill those gaps independently.
   envelopes and a gated oversized declared body. The builder reports all 41
   installed tests passing. Implementation and evidence remain unapproved.
 - Independent browser MCP at `c341377`: the D28 logging correction is committed
-  and pushed; another fresh Astra MAX reviewer is assigned to the entire bounded
-  implementation and all amendments. The prior review/Manager reproduction found
-  raw malformed request/notification payloads in root diagnostics despite clean
-  HTTP errors. Current sanitation and wire evidence remain unapproved.
+  and pushed. The fresh reviewer stopped on a provider safety restriction before
+  delivering its ACLA report; that review is incomplete and has not been credited.
+  The prior review/Manager reproduction found raw malformed request/notification
+  payloads in root diagnostics despite clean HTTP errors. Current sanitation and
+  wire evidence remain unapproved.
   Synthetic browser effects are not real Chrome/VNC/core/VM acceptance.
+
+## Next implementation round
+
+Manager's next milestone is a headless create → run → capture → message flow.
+The following sequencing uses existing module plans; every assignment still
+needs a concrete Manager handoff with exact interfaces, owned files and checks.
+It does not delegate architecture decisions to builders.
+
+1. Assemble the accepted core foundation, adapters, terminal and recorder in a
+   dedicated integration branch. Validate one dependency lock, installed package
+   and entry points, then obtain a fresh integration review before merging. Add
+   core transports after their pending review passes. Land owning planning
+   changes and accepted browser primitives as their reviewed repository bases.
+   Do not include an unaccepted candidate merely to make one combined branch.
+2. Open the independent builder assignments below on named, reviewed bases.
+   Manager freezes their concrete integration interfaces first. One assigned
+   writer owns shared migrations, registry, package metadata and application
+   assembly; other assignments contribute only their owned modules.
+3. Add durable messaging once agent identity/status and input/capture interfaces
+   are fixed. Freeze agent/message/conversation/file/browser-request API shapes
+   before starting UI work. The UI can then use small synthetic API fixtures;
+   actual integrated browser/runtime acceptance remains a separate requirement.
+4. Verify the headless flow and browser user-handoff flow, then provider switching
+   and recovery. Host/onbash work can progress while D02 is open; it does not
+   substitute for the required isolated VM acceptance.
+
+| Builder assignment | Next concrete outcome | Opening dependency |
+| --- | --- | --- |
+| Integration and application assembly | One compatible core package, concrete assembly, reviewed merges and a focused cross-module flow | Accepted component SHAs; transport candidate only after acceptance |
+| Agents and authored files | Stable IDs/onbash, folders, editable persona, status history, icon/display-name metadata and workspace operations | Reviewed foundation and one assigned domain-schema owner |
+| Runtime integration | Connect tmux, recorder and provider adapters with verified run identity, readiness and preserved receipts | Reviewed combined package and frozen launch/capture interfaces |
+| Durable host archive | Immutable host chunks, fsync-before-ACK, resumable collection and source identity; parsing follows raw durability | Accepted spool and Manager-defined host inventory/transfer interfaces |
+| Browser and remote control | Persistent synthetic Chrome profile, dedicated TigerVNC, real control-tool/hold verification and setup | Reviewed browser primitives; MCP/handoff integration waits for accepted transport and core request contract |
+| Messaging and handoff | Durable direct/offline messages, guarded delivery and atomic browser request/Done/Cancel notifications | Reviewed agent operations, capture/input contracts and browser protocol |
+
+UI becomes a builder assignment as the domain API stabilizes, taking a released
+slot. VM installation/lifecycle waits for the pending substrate decision. Later
+backup/restore and continuity work likewise follows its actual dependencies.
+
+Expect 6–8 active ACLA workers normally, with a hard maximum of ten across
+builders and reviewers: usually 4–6 builders plus 2–4 fresh independent reviewers.
+Start fewer during shared-base integration and whenever prerequisites are open.
+Completed builders stop edits during review; an open assignment is not evidence
+of active computation. All use Astra MAX with native self-review disabled.
+These are expected allocations, not claims that new actors have been launched.
 
 ## Repository baseline
 
@@ -83,7 +133,9 @@ Implementation uses isolated `worktrees/<assignment>` branches with `codex/`
 names. No implementation is written directly on `main`. One actor owns package
 assembly and shared files in each repository. File moves/feature-branch rebases
 for integration require Manager direction; actors never pull another lane's
-unfinished changes or merge branches themselves. PRs remain draft and unmerged.
+unfinished changes or merge branches unless their Manager handoff assigns that
+action. PRs are currently draft and unmerged; the standing authorization now
+allows Manager to land reviewed changes as their integration checks pass.
 
 ## First round
 
@@ -194,7 +246,8 @@ production agent data are test fixtures.
 5. Approve each completed actor explicitly through ACLA. Record accepted SHAs and
    evidence before assigning integration. A passing primitive/fixture test does
    not satisfy G0–G6's real-system requirements. G3 still gates unattended fleet
-   use. Merge and deployment remain separate unperformed actions.
+   use. Manager may merge and push accepted integration under the owner's standing
+   authorization. Deployment remains a separate unperformed action.
 
 Use notification-driven ACLA handoffs. Manager ends its turn after dispatch and
 resumes for completion/blocker messages; it does not poll or inspect unfinished
