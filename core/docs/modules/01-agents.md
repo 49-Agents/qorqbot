@@ -4,6 +4,10 @@ Status: Planned. Owns R01/R02/R04/R08/R09/R16. Depends on M00; uses M02/M03 obse
 
 Repository: `qorqut-core`. Agent management is an internal module, with no separate agent/template package.
 
+The first bounded implementation is specified in [AGENT-REGISTRY.md](../AGENT-REGISTRY.md).
+It covers registration/status and authored workspace initialization. Resource
+readiness remains a durable dependency hold; presence and full lifecycle follow.
+
 ## Outcome and boundary
 
 Every agent has a permanent UUID/folder, editable `display_name`, separate `icon_key`, one main conversation, current status and inspectable state history. The directory is available to all registered actors. No business namespace, fixed role roster, permission grant or model name determines identity.

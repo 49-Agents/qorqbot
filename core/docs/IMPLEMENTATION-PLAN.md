@@ -1,6 +1,8 @@
 # Qorqutbot backend implementation plan
 
-Status: planning baseline relocated to core, 2026-10-07. No runtime implementation or deployment is part of this bootstrap commit.
+Status: global plan, updated 2026-10-08. The reviewed core primitive package is
+merged in PR #1; [BUILD-EXECUTION.md](BUILD-EXECUTION.md) records exact bounded
+acceptance. No deployment or complete system gate has been accepted.
 
 ## 1. Product contract
 
@@ -137,7 +139,10 @@ Begin implementation by bootstrapping private `qorqut-core` and `qorqut-browser`
 
 ### Phase 1 — Durable core and agent identity
 
-Implement M00 and M01 with fake executors, and the thin M10 transport. Add the workspace layout from M09.
+Implement M00 and M01 and the thin M10 transport. Add the workspace layout from
+M09. The first concrete [agent increment](AGENT-REGISTRY.md) uses real durable
+registration and workspace jobs with an explicit runtime-dependency hold;
+synthetic test fixtures never become production fake-ready executors.
 
 The first concrete transport increment follows [CORE-API.md](CORE-API.md) on the
 reviewed M00 foundation. It exposes only the four implemented configuration,

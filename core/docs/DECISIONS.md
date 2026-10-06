@@ -1,5 +1,27 @@
 # Architecture decisions
 
+## D29 — Register real agents before resource integration is available
+
+**Decision, 2026-10-08:** the first M01 increment implements durable identity,
+onbash uniqueness, status history and actual authored workspace initialization
+through five shared application operations. The concrete contract is
+[AGENT-REGISTRY.md](AGENT-REGISTRY.md). One assignment owns migration 3 and
+application assembly; dependent lanes do not invent another registry/schema.
+
+Creation records start intent and one real provisioning job. After preparing the
+workspace, that job waits with `dependency_unavailable` while runtime/resource
+integration is absent. Automatic claims skip that reason. An inspection time is
+not an instruction to replay effects. Lifecycle and observations never advance
+to ready/active/idle merely because files exist. Onbash setup uses the same
+registration path, starts with `start=false`, and never launches a host CLI.
+
+Publish the initial owned directory atomically without replacing an existing
+destination. Marked retries preserve authored files; unmarked directories remain
+unresolved. Concrete workspace/projection jobs retain their effect receipts;
+the derived `agent.json` can be rebuilt from committed records. Ordinary authored
+file editing remains the separate M09 single-file contract. No new service,
+generic filesystem framework, permissions engine or speculative runtime tool.
+
 ## D28 — SDK diagnostics obey the transport's content boundary
 
 Independent browser review and Manager reproduction showed that MCP 1.30.0

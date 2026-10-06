@@ -125,6 +125,14 @@ The journal stores event ID/sequence, kind, actor, agent/related IDs, occurrence
 
 Use one typed jobs/outbox table for fixed internal handlers. It is not an arbitrary-code scheduler. Domain code owns each job's recovery logic. No SQLite transaction remains open during network calls, libvirt actions, tmux input or file streaming.
 
+During staged implementation, a real provisioning job may finish its workspace
+step and remain `waiting` with `dependency_unavailable` while resource/runtime
+integration is absent. This reason is excluded from automatic claim/retry; its
+next-attempt timestamp permits explicit inspection only. Preserve lifecycle and
+start intent, and expose workspace progress separately. Never certify readiness
+or register a fake runtime tool to hide a missing dependency. See D29 and
+[AGENT-REGISTRY.md](AGENT-REGISTRY.md).
+
 Backup restore/import differs from a normal restart: hold all restored unfinished external-effect jobs/deliveries with `recovery_review` reason until reconciled. A snapshot's pending state cannot prove the original system did not act later. Preserve prior evidence; possibly performed input stays uncertain. `operations_reconcile` delegates inspect/retry/cancel to the existing typed handler and records the chosen resolution; `deliveries_resolve` owns message-attempt resolution. Every actor may invoke these under v1 policy. New control uses the fresh recovery epoch; historical source ingestion retains its original lineage.
 
 ## 6. Message and delivery contract

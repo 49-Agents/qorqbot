@@ -71,7 +71,10 @@ side effects. Actual HTTP/SDK checks cover both paths as well as client response
 
 The only implemented operations at this base are `config_get`, `config_update`,
 `operations_get` and `events_list`. Do not register future agent/message/file,
-browser, recovery, viewer or job-dispatch tools. `events_list` is bounded durable
+browser, recovery, viewer or job-dispatch tools. The separately assigned
+[agent increment](AGENT-REGISTRY.md) adds its five real registry operations
+through these same transports after implementation; it does not add browser
+or runtime tools. `events_list` is bounded durable
 pagination; `/api/v1/events` SSE and all WS/artifact routes remain absent.
 Registry discovery must not be a dynamic plugin/registration API.
 

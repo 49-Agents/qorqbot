@@ -27,8 +27,11 @@ delegates further. Treat every report as an unverified claim until checked.
 | Core HTTP/MCP/operator transport | [`d2e251c`](https://github.com/qorqutbot/qorqut-core/blob/d2e251c4cd02be91b95c392d225cf52d25c2958a/docs/evidence/core-transports-r1.md) | Fresh Astra MAX review found no remaining in-scope defects; 15 source transport and 41 installed foundation/transport tests passed. Its negative controls detected removal of either response-size guard. Manager inspected final operator, dispatcher/lifetime and MCP boundaries, independently passed four installed HTTP/SDK/CLI/logging/limit flows and reran package/source/pin/NOTICE verification. Clean/pushed SHA and both source hashes verified. | Only four existing operations and serve/call. Native MCP discovery, domain/runtime/browser handoff, streams, UI/VM and combined package integration remain pending. Preserve the historical foundation busy-timeout observation and OS/storage drainage limits. No M10 or G0–G6 acceptance. |
 | Combined core package | [`9701c66`](https://github.com/qorqutbot/qorqut-core/blob/9701c661104f7042d0c001796d517957697b5599/docs/evidence/core-integration-r1.md) | Fresh Astra MAX review passed all 117 tests from source and the installed wheel, independently checked child import origins, pins, installed contents and every accepted merge tree. Manager verified ancestry, unchanged production/metadata and all eight authored paths; independently passed the installed shared runner/capture scenario, passive-import check and 36-file/31-pin verification. | Packaging and local table coexistence only. Agents, managed runtime, host archive, native providers, browser/UI and real VM/system gates remain pending. Historical foundation busy-timeout sensitivity remains recorded. |
 
-Approval confirms bounded evidence, not installed capability. The combined core
-candidate is accepted for landing under the owner's standing authorization.
+Approval confirms bounded evidence, not installed capability. Core baseline
+[PR #1](https://github.com/qorqutbot/qorqut-core/pull/1) merged on 2026-10-08 as
+`f168369d553f8378df1ba8bc2470a4e1105bf25c`; local `main` is fast-forwarded to it.
+Its source, tests and package metadata equal the reviewed `9701c66` candidate;
+only Manager tracking differs. Nothing was deployed.
 Volatile capacity/port observations
 retain their timestamps and are not a deployment budget or reservation.
 
@@ -80,12 +83,10 @@ The following sequencing uses existing module plans; every assignment still
 needs a concrete Manager handoff with exact interfaces, owned files and checks.
 It does not delegate architecture decisions to builders.
 
-1. Assemble the accepted core foundation, adapters, terminal and recorder in a
-   dedicated integration branch. Validate one dependency lock, installed package
-   and entry points, then obtain a fresh integration review before merging. Add
-   core transports after their pending review passes. Land owning planning
-   changes and accepted browser primitives as their reviewed repository bases.
-   Do not include an unaccepted candidate merely to make one combined branch.
+1. The accepted core foundation, transports, adapters, terminal and recorder are
+   combined and merged in PR #1 after fresh integration review. Use that reviewed
+   baseline for dependent work. Browser's repository integration remains
+   separate; never include its unaccepted MCP candidate to complete a bundle.
 2. Open the independent builder assignments below on named, reviewed bases.
    Manager freezes their concrete integration interfaces first. One assigned
    writer owns shared migrations, registry, package metadata and application
@@ -107,6 +108,15 @@ It does not delegate architecture decisions to builders.
 | Browser and remote control | Persistent synthetic Chrome profile, dedicated TigerVNC, real control-tool/hold verification and setup | Reviewed browser primitives; MCP/handoff integration waits for accepted transport and core request contract |
 | Messaging and handoff | Durable direct/offline messages, guarded delivery and atomic browser request/Done/Cancel notifications | Reviewed agent operations, capture/input contracts and browser protocol |
 
+The next concrete implementation assignment is [AGENT-REGISTRY.md](AGENT-REGISTRY.md)
+(`agents-r1`): identity/onbash, authored workspace/persona, presentation/status
+history and five shared operations. It alone owns host migration 3, registry and
+assembly. Resource/runtime integration stays explicitly unavailable; the owner
+has not selected or authorized host preparation for D02. A parallel runtime
+exploration may trace the accepted adapter/recorder/tmux interfaces and return
+facts, but cannot design or implement new launch protocols/schema. Manager owns
+that subsequent design. Both outputs require fresh independent review.
+
 UI becomes a builder assignment as the domain API stabilizes, taking a released
 slot. VM installation/lifecycle waits for the pending substrate decision. Later
 backup/restore and continuity work likewise follows its actual dependencies.
@@ -120,8 +130,9 @@ These are expected allocations, not claims that new actors have been launched.
 
 ## Repository baseline
 
-The private `qorqut-core` and `qorqut-browser` repositories now exist. Their initial
-`main` commits contain documentation only. Core owns global plans/contracts and
+The private `qorqut-core` and `qorqut-browser` repositories now exist. Core `main`
+contains the reviewed primitive package from PR #1; browser's initial `main`
+still contains documentation only. Core owns global plans/contracts and
 core module plans; browser owns its browser work package; UI retains its UI plan.
 The UI document-relocation branch is based on the existing unmerged planning
 branch. Original plans remain available at UI commit `e7d2b56`.
@@ -131,8 +142,9 @@ names. No implementation is written directly on `main`. One actor owns package
 assembly and shared files in each repository. File moves/feature-branch rebases
 for integration require Manager direction; actors never pull another lane's
 unfinished changes or merge branches unless their Manager handoff assigns that
-action. PRs are currently draft and unmerged; the standing authorization now
-allows Manager to land reviewed changes as their integration checks pass.
+action. Core PR #1 is merged; other planning/candidate branches retain their
+individual recorded state. Standing authorization allows Manager to land
+reviewed changes as their integration checks pass.
 
 ## First round
 
