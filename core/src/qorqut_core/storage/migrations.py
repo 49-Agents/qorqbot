@@ -87,5 +87,56 @@ MIGRATIONS = (
             created_at TEXT NOT NULL, installed_at TEXT)""",
         "CREATE UNIQUE INDEX file_pending_target ON file_receipts(target_path) WHERE state<>'installed'",
     )),
+    Migration(3, (
+        """CREATE TABLE agents (
+            id TEXT PRIMARY KEY,
+            actor_id TEXT NOT NULL UNIQUE REFERENCES actors(actor_id),
+            conversation_id TEXT NOT NULL UNIQUE,
+            kind TEXT NOT NULL CHECK(kind IN ('vm','host')),
+            display_name TEXT NOT NULL,
+            icon_key TEXT NOT NULL CHECK(icon_key IN ('circle','square','triangle','diamond','star',
+                'compass','globe','leaf','feather','book','notebook','flask','microscope',
+                'telescope','code','terminal','wrench','gear','lightbulb','anchor')),
+            cli_provider TEXT NOT NULL CHECK(cli_provider IN ('claude','codex')),
+            model TEXT NOT NULL, cpu INTEGER NOT NULL CHECK(cpu>0),
+            memory_mib INTEGER NOT NULL CHECK(memory_mib>0), disk_gib INTEGER NOT NULL CHECK(disk_gib>0),
+            revision INTEGER NOT NULL CHECK(revision>0),
+            lifecycle_revision INTEGER NOT NULL CHECK(lifecycle_revision>0),
+            lifecycle TEXT NOT NULL CHECK(lifecycle='provisioning'),
+            start_requested INTEGER NOT NULL CHECK(start_requested IN (0,1)),
+            created_by TEXT NOT NULL REFERENCES actors(actor_id),
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            persona_seed TEXT NOT NULL CHECK(length(CAST(persona_seed AS BLOB))<=65536),
+            status_text TEXT NOT NULL, status_revision INTEGER NOT NULL CHECK(status_revision>0),
+            status_updated_at TEXT NOT NULL, status_reviewed_at TEXT NOT NULL,
+            status_actor_id TEXT NOT NULL REFERENCES actors(actor_id),
+            creation_operation_id TEXT NOT NULL UNIQUE REFERENCES operations(operation_id) DEFERRABLE INITIALLY DEFERRED,
+            provisioning_job_id TEXT NOT NULL UNIQUE REFERENCES jobs(job_id) DEFERRABLE INITIALLY DEFERRED,
+            workspace_initialized_at TEXT,
+            projection_revision INTEGER NOT NULL DEFAULT 0 CHECK(projection_revision>=0 AND projection_revision<=revision))""",
+        "CREATE UNIQUE INDEX agents_one_host ON agents(kind) WHERE kind='host'",
+        "ALTER TABLE installation ADD COLUMN onbash_agent_id TEXT REFERENCES agents(id)",
+        """CREATE TRIGGER installation_onbash_binding BEFORE UPDATE OF onbash_agent_id ON installation
+            WHEN (OLD.onbash_agent_id IS NOT NULL AND NEW.onbash_agent_id IS NOT OLD.onbash_agent_id)
+                OR (NEW.onbash_agent_id IS NOT NULL AND NOT EXISTS
+                    (SELECT 1 FROM agents WHERE id=NEW.onbash_agent_id AND kind='host'))
+            BEGIN SELECT RAISE(ABORT,'Reserved host identity cannot change'); END""",
+        """CREATE TRIGGER installation_onbash_insert BEFORE INSERT ON installation
+            WHEN NEW.onbash_agent_id IS NOT NULL AND NOT EXISTS
+                (SELECT 1 FROM agents WHERE id=NEW.onbash_agent_id AND kind='host')
+            BEGIN SELECT RAISE(ABORT,'Reserved identity must be a host agent'); END""",
+        """CREATE TRIGGER agents_actor_binding BEFORE INSERT ON agents
+            WHEN NOT EXISTS (SELECT 1 FROM actors WHERE actor_id=NEW.actor_id AND kind='agent' AND agent_id=NEW.id)
+            BEGIN SELECT RAISE(ABORT,'Agent actor binding disagrees'); END""",
+        """CREATE TRIGGER agents_permanent_identity BEFORE UPDATE ON agents
+            WHEN NEW.id IS NOT OLD.id OR NEW.actor_id IS NOT OLD.actor_id
+                OR NEW.conversation_id IS NOT OLD.conversation_id OR NEW.kind IS NOT OLD.kind
+                OR NEW.created_by IS NOT OLD.created_by OR NEW.created_at IS NOT OLD.created_at
+                OR NEW.creation_operation_id IS NOT OLD.creation_operation_id
+                OR NEW.provisioning_job_id IS NOT OLD.provisioning_job_id
+            BEGIN SELECT RAISE(ABORT,'Agent identity is permanent'); END""",
+        """CREATE TRIGGER agents_no_delete BEFORE DELETE ON agents
+            BEGIN SELECT RAISE(ABORT,'Agent identity is permanent'); END""",
+    )),
 )
 SCHEMA_VERSION = MIGRATIONS[-1].version

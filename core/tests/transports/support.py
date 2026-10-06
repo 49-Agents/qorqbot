@@ -53,6 +53,7 @@ class Installation:
                 register_actor(tx, self.agent)
             self.registry = application.registry
             self.initial = application.invoke("config_get", Invocation(actor_id=self.owner.actor_id)).model_dump(mode="json")
+            self.initial_events = application.invoke("events_list", Invocation(actor_id=self.owner.actor_id)).data["items"]
         finally:
             application.close()
         self.env = {"PATH": os.defpath, "HOME": str(self.root / "home"), "LC_ALL": "C.UTF-8",
