@@ -3,15 +3,30 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 
 from starlette.responses import JSONResponse
 
 from ..contracts import Invocation
 from .configuration import MAX_INPUT_BYTES, Credentials
+from .sessions import Sessions, session_cookie
 
 MAX_REQUESTS = 32
 BODY_TIMEOUT = 10.0
 SEND_TIMEOUT = 30.0
+SECURITY_HEADERS = {
+    b"cache-control": b"no-store",
+    b"x-content-type-options": b"nosniff",
+    b"content-security-policy": (
+        b"default-src 'self'; script-src 'self'; style-src 'self'; "
+        b"img-src 'self' data:; connect-src 'self'; object-src 'none'; "
+        b"base-uri 'none'; frame-ancestors 'self'; form-action 'self'"),
+}
+
+
+@dataclass
+class Admission:
+    closing: bool = False
 
 
 def failure(status: int, code: str, message: str, *, headers=None) -> JSONResponse:
@@ -28,8 +43,11 @@ def origins(port: int) -> tuple[list[str], list[str]]:
 
 
 class Boundary:
-    def __init__(self, app, *, credentials: Credentials, port: int):
+    def __init__(self, app, *, credentials: Credentials, port: int,
+                 sessions: Sessions | None = None, admission: Admission | None = None):
         self.app, self.credentials = app, credentials
+        self.sessions = sessions if sessions is not None else Sessions()
+        self.admission = admission if admission is not None else Admission()
         hosts, allowed_origins = origins(port)
         self.hosts = {s.encode("ascii") for s in hosts}
         self.origins = {s.encode("ascii") for s in allowed_origins}
@@ -51,11 +69,34 @@ class Boundary:
         protected = path == "/api" or path.startswith("/api/") or path == "/mcp" or path.startswith("/mcp/")
         if protected:
             auth = headers.get(b"authorization", [])
-            actor = self.credentials.actor(auth[0]) if len(auth) == 1 else None
-            if actor is None:
-                return failure(401, "unauthenticated", "Bearer authentication required",
+            try:
+                cookie = session_cookie(headers.get(b"cookie", []))
+            except ValueError:
+                return failure(400, "invalid_request", "Ambiguous or invalid cookies")
+            api_v1 = path == "/api/v1" or path.startswith("/api/v1/")
+            session_route = path == "/api/v1/session"
+            if len(auth) > 1 or (api_v1 and auth and cookie is not None):
+                return failure(401, "unauthenticated", "Ambiguous credentials",
                                headers={"WWW-Authenticate": "Bearer"})
-            scope["qorqut.invocation"] = Invocation(actor_id=actor)
+            method = scope.get("method", "GET")
+            if ((session_route and method in {"POST", "DELETE"}) or
+                    (api_v1 and cookie is not None and method == "POST")) and not origin:
+                return failure(403, "invalid_origin", "Origin is required")
+            if session_route:
+                if auth:
+                    return failure(401, "unauthenticated", "Browser session required")
+                scope["qorqut.session_cookie"] = cookie
+                actor = self.sessions.actor(cookie)
+                if method in {"GET", "HEAD"} and actor is None:
+                    return failure(401, "unauthenticated", "Browser session required")
+            else:
+                actor = (self.sessions.actor(cookie) if api_v1 and cookie is not None
+                         else self.credentials.actor(auth[0]) if len(auth) == 1 else None)
+                if actor is None:
+                    return failure(401, "unauthenticated", "Authentication required",
+                                   headers={"WWW-Authenticate": "Bearer"})
+            if actor is not None:
+                scope["qorqut.invocation"] = Invocation(actor_id=actor)
         if scope.get("query_string"):
             return failure(400, "invalid_request", "Query parameters are not supported")
         # Reject ambiguous framing even when this ASGI app is embedded elsewhere.
@@ -83,10 +124,14 @@ class Boundary:
             nonlocal started
             if message["type"] == "http.response.start":
                 started = True
+                message = {**message, "headers": [
+                    (key, value) for key, value in message.get("headers", [])
+                    if key.lower() not in SECURITY_HEADERS] + list(SECURITY_HEADERS.items())}
             async with asyncio.timeout(SEND_TIMEOUT):
                 await send(message)
 
-        rejected = self._check(scope)
+        rejected = (failure(503, "unavailable", "Server is stopping")
+                    if self.admission.closing else self._check(scope))
         if rejected is not None:
             await rejected(scope, receive, bounded_send)
             return

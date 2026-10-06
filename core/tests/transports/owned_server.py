@@ -15,12 +15,14 @@ if __name__ == "__main__":
     parser.add_argument("--installation", type=Path)
     parser.add_argument("--transport-config", type=Path)
     parser.add_argument("--gate", type=Path)
+    parser.add_argument("--ui-root", type=Path)
+    parser.add_argument("--session-seconds", type=float, default=28800)
     args = parser.parse_args()
     settings, credentials = read_configuration(args.installation, args.transport_config)
     opened = Application.open
 
     def barrier(point):
-        if point != "operation_after_result" or (args.gate / "released").exists():
+        if args.gate is None or point != "operation_after_result" or (args.gate / "released").exists():
             return
         (args.gate / "entered").touch()
         deadline = time.monotonic() + 10
@@ -29,5 +31,6 @@ if __name__ == "__main__":
                 raise RuntimeError("Test barrier timed out")
             time.sleep(0.01)
 
-    with patch.object(Application, "open", side_effect=lambda s: opened(s, fault=barrier)):
-        serve(settings, credentials)
+    with patch.object(Application, "open", side_effect=lambda s: opened(s, fault=barrier)), \
+         patch("qorqut_core.transports.sessions.SESSION_SECONDS", args.session_seconds):
+        serve(settings, credentials, ui_root=args.ui_root)

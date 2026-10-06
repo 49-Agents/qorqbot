@@ -85,6 +85,7 @@ def main(argv=None) -> int:
     server = commands.add_parser("serve", help="Serve an explicitly initialized installation", allow_abbrev=False)
     server.add_argument("--installation", required=True, type=Path)
     server.add_argument("--transport-config", required=True, type=Path)
+    server.add_argument("--ui-root", type=Path, help="Optional absolute static UI build directory")
     client = commands.add_parser("call", help="Call one shared operation over HTTP", allow_abbrev=False)
     client.add_argument("name")
     client.add_argument("--url", required=True)
@@ -97,7 +98,7 @@ def main(argv=None) -> int:
             settings, credentials = read_configuration(args.installation, args.transport_config)
             from .server import serve
             try:
-                serve(settings, credentials)
+                serve(settings, credentials, ui_root=args.ui_root)
             except Exception:
                 print("Core server failed; verify explicit configuration and installation availability", file=sys.stderr)
                 return 1
