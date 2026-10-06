@@ -35,8 +35,12 @@ def endpoint(base: str, name: str) -> str:
                 or any(c.isspace() or ord(c) < 32 for c in base) or "\\" in base
                 or parsed.port == 0 or not re.fullmatch(r"[a-z][a-z0-9_]*", name) or len(name) > 200):
             raise ValueError("Invalid endpoint")
-        return base.rstrip("/") + "/api/v1/operations/" + name
-    except (ValueError, UnicodeError):
+        target = base.rstrip("/") + "/api/v1/operations/" + name
+        # Use the client's parser before opening a client: IDNA and URL syntax
+        # refusals are local input errors, not uncertain dispatch outcomes.
+        httpx.URL(target)
+        return target
+    except (httpx.InvalidURL, ValueError, UnicodeError):
         raise InputError("An explicit HTTP/HTTPS origin and operation name are required") from None
 
 

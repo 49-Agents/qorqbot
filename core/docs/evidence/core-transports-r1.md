@@ -28,6 +28,68 @@ returns 202, and normal operations and unrelated custom-factory logs still work.
 The SDK and Pydantic pins were unchanged. Message 61 was acknowledged and its
 inbox drained; no interim ACLA report was sent.
 
+## Manager review revision 1
+
+Message 70 required correcting local operator URL errors and strengthening the
+existing response-limit evidence. Starting revision:
+`d096f39f4a8f03da71623ef19b6668d8b3b8752f`. Only `transports/operator.py`, its
+owning transport test file and this evidence changed in this revision.
+
+The complete operation endpoint now passes HTTPX's URL parser before a client
+opens. Existing origin/name/userinfo/path/query/fragment/port/control-character
+restrictions remain. HTTPX `InvalidURL` and local value/Unicode refusals become
+the existing generic `InputError`; arbitrary programmer errors are not caught.
+The real module and installed console commands reject `http://\u2603.invalid`
+with exit 2, empty stdout and the exact bounded local-input message, without
+hostname/token/traceback output or an execution-uncertainty claim. A client-opening
+trap proves rejection before network dispatch. Valid calls and conservative
+post-dispatch errors remain covered by the same flow.
+
+The production 32 MiB response guard is unchanged. Its existing fixture now sends
+complete valid `OperationResult` envelopes of exactly 33,554,431 and 33,554,433
+bytes without a declared length. The first succeeds with the exact result; the
+second fails with bounded generic output. For an oversized declared length, an
+explicit gate holds the body and connection open until the client has refused
+the headers. The gate's 30-second failure guard exceeds the command's 15-second
+guard, preventing early EOF from making a missing header check pass. Cleanup
+releases the gate in `finally` and joins the owned server/handler threads; socket
+writes are bounded. All cases retain one-request/no-retry assertions. These
+replace the earlier malformed-body/immediate-EOF checks, whose refusal alone did
+not establish the size limits.
+
+Before the production fix, the two revised owning checks reproduced exit 1 for
+the malformed origin; the strengthened size-limit check passed. After the fix:
+
+```text
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_transports.py -k test_cli_http_path -k test_redirect_disconnect -v
+  Before fix: 2 checks, 1 expected regression failure (local URL exit 1).
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_transports.py -k test_cli_http_path -k OperatorBoundary -v
+  After fix: 4 passed in 11.731 seconds.
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_transports.py -v
+  15 passed in 23.631 seconds.
+.venv/bin/python -m pip wheel --no-cache-dir --no-deps --no-build-isolation --wheel-dir dist .
+.venv/install-check/bin/python -m pip install --no-cache-dir --no-deps --force-reinstall dist/qorqut_core-0.1.0-py3-none-any.whl
+  Rebuilt and installed successfully in the existing disposable task-local venv.
+env -u PYTHONPATH .venv/install-check/bin/python -I -m unittest discover -s tests -v
+  41 passed in 26.413 seconds (26 unchanged foundation, 15 transport).
+.venv/bin/python -m pip check
+.venv/install-check/bin/python -m pip check
+  Both passed.
+env -u PYTHONPATH .venv/install-check/bin/python -I -m qorqut_core --help
+env -u PYTHONPATH .venv/install-check/bin/qorqut-core --help
+  Both expose only serve/call; the installed suite also executes real serve/call.
+git diff --check
+  Passed.
+```
+
+The installed package/dependency/NOTICE probe passed again. No pins, foundation
+code/tests/timeouts or test counts changed. Prior HTTP/MCP, privacy, logging,
+replay and cancellation checks passed in both full transport runs. The earlier
+foundation busy-timeout observation below remains a recorded limitation.
+Task-local logs: `.venv/operator-revision-before.log`,
+`.venv/operator-revision-tests.log`, `.venv/transport-revision-tests.log`, and
+`.venv/installed-operator-revision-tests.log`.
+
 ## Delivered boundary
 
 One explicit Starlette/Uvicorn lifespan opens the initialized installation using
@@ -97,9 +159,10 @@ env -u PYTHONPATH .venv/install-check/bin/qorqut-core --help
 git diff --check
 ```
 
-Source full suite: **41 passed** (26 foundation, 15 transport). Focused transport
-suite: **15 passed**; final symlink/parent-traversal reader check: **1 passed**.
-Final installed-wheel suite: **41 passed**.
+Initial source full suite: **41 passed** (26 foundation, 15 transport). Initial
+focused transport suite: **15 passed**; symlink/parent-traversal reader check:
+**1 passed**. Initial installed-wheel suite: **41 passed**. The final revision's
+checks are recorded above.
 Both dependency checks passed. Installed tests exercise the generated console
 script for actual serve/call, while source tests exercise the module command.
 Import audit tests forbid writes, SQLite opens, processes, sockets and reads from
@@ -131,8 +194,8 @@ Starlette **1.7.0**, Uvicorn **0.54.0**, HTTPX **0.28.1**, AnyIO **4.15.1**. All
 31 runtime/build distributions match `requirements.lock`; installations stayed
 inside the disposable task-local virtualenvs.
 
-Wheel SHA-256:
-`134b766a7e5ef35760899151e0da59166de3b01fefe4bcf4663e2bcb7637266e`.
+Revision 1 wheel SHA-256:
+`c10bb5ad99698a7a2cfc1e0c56535b1be30398cb25d7f903ce19d47a1b5ebc2b`.
 Preserved packaged `storage/NOTICE` SHA-256:
 `c9a80f7b863ca7ca6a1d640a5ad0cb72ca991eec41d862741038ef40a859ef0d`.
 

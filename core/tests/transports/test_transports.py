@@ -27,7 +27,7 @@ from qorqut_core.contracts import CoreError, Invocation, OperationResult
 from qorqut_core.transports.configuration import (
     MAX_INPUT_BYTES, InputError, read_configuration, read_credentials, read_file, read_token,
 )
-from qorqut_core.transports.operator import MAX_RESPONSE_BYTES
+from qorqut_core.transports.operator import MAX_RESPONSE_BYTES, call
 from qorqut_core.transports.boundary import Boundary
 from qorqut_core.transports.mcp import install_logging_boundary
 from qorqut_core.transports.server import Dispatcher, MAX_CALLS, create_app
@@ -307,10 +307,21 @@ class HTTPBoundary(unittest.TestCase):
         result = f.command("call", "operations_get", *params, "--json")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(json.loads(result.stdout)["error"]["code"], "invalid_argument")
-        result = f.command("call", "config_get", "--url", f.url + "?credential=" + f.tokens[f.owner.actor_id],
-                           "--token-file", f.token_files[f.owner.actor_id])
-        self.assertEqual(result.returncode, 2)
-        self.assertNotIn(f.tokens[f.owner.actor_id], result.stderr)
+        for invalid_url in (f.url + "?credential=" + f.tokens[f.owner.actor_id], "http://\u2603.invalid"):
+            with self.subTest(invalid_url=invalid_url.split("?")[0]):
+                result = f.command("call", "config_get", "--url", invalid_url,
+                                   "--token-file", f.token_files[f.owner.actor_id])
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(result.stderr, "An explicit HTTP/HTTPS origin and operation name are required\n")
+                for private in ("Traceback", "\u2603.invalid", f.tokens[f.owner.actor_id], "may have occurred"):
+                    self.assertNotIn(private, result.stderr)
+                # Refusal must precede even opening a client, not just fail DNS.
+                with patch("qorqut_core.transports.operator.httpx.Client",
+                           side_effect=AssertionError("Local URL validation opened a client")) as client:
+                    with self.assertRaises(InputError):
+                        call(invalid_url, "config_get", read_token(f.token_files[f.owner.actor_id]), {})
+                    client.assert_not_called()
         result = f.command("call", "config_get", *params, "--unexpected", f.tokens[f.owner.actor_id])
         self.assertEqual(result.returncode, 2)
         self.assertNotIn(f.tokens[f.owner.actor_id], result.stderr)
@@ -640,16 +651,27 @@ class AdmissionAndLifetime(unittest.IsolatedAsyncioTestCase):
 
 
 @contextmanager
-def operator_peer(mode, *, tls=None):
+def operator_peer(mode, *, tls=None, body_gate=None):
     """Owned loopback failure peer, used only to test the operator's HTTP boundary."""
     calls = []
     accepted = OperationResult(ok=True, outcome="accepted", operation_id=uuid4(), data={}).model_dump(mode="json")
+    if mode in {"declared_large", "streamed_large", "streamed_below"}:
+        size = MAX_RESPONSE_BYTES + (-1 if mode == "streamed_below" else 1)
+        accepted["data"]["padding"] = ""
+        accepted["data"]["padding"] = "x" * (size - len(json.dumps(accepted).encode()))
+    body = json.dumps(accepted).encode()
+    if mode in {"declared_large", "streamed_large", "streamed_below"}:
+        assert len(body) == size
+    if mode == "declared_large":
+        assert body_gate is not None
+    gate_expired = threading.Event()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
 
         def do_POST(self):
+            self.connection.settimeout(5)
             calls.append(self.path)
             self.rfile.read(int(self.headers.get("Content-Length", "0")))
             if mode == "drop":
@@ -663,25 +685,24 @@ def operator_peer(mode, *, tls=None):
                 self.end_headers()
                 return
             self.send_header("Content-Type", "application/json")
-            if mode == "declared_large":
-                self.send_header("Content-Length", str(MAX_RESPONSE_BYTES + 1))
-                self.end_headers()
-                return
-            body = json.dumps(accepted).encode()
-            if mode == "accepted":
+            if mode in {"accepted", "declared_large"}:
                 self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             try:
-                if mode == "streamed_large":
-                    for _ in range(MAX_RESPONSE_BYTES // 65536 + 1):
-                        self.wfile.write(b"x" * 65536)
-                else:
-                    self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
+                if mode == "declared_large":
+                    self.wfile.flush()
+                    # Longer than command()'s 15-second failure guard: without
+                    # the header check the command must time out, not see EOF.
+                    if not body_gate.wait(30):
+                        gate_expired.set()
+                        return
+                for offset in range(0, len(body), 65536):
+                    self.wfile.write(body[offset:offset + 65536])
+            except (BrokenPipeError, ConnectionResetError, TimeoutError):
                 pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    server.daemon_threads = True
+    server.daemon_threads = False
     if tls is not None:
         server.socket = tls.wrap_socket(server.socket, server_side=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -689,10 +710,13 @@ def operator_peer(mode, *, tls=None):
     try:
         yield f"{'https' if tls else 'http'}://127.0.0.1:{server.server_port}", calls, accepted
     finally:
+        if body_gate is not None:
+            body_gate.set()
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
         assert not thread.is_alive()
+        assert not gate_expired.is_set(), "Declared-length peer released its body without client refusal"
 
 
 class OperatorBoundary(unittest.TestCase):
@@ -703,15 +727,24 @@ class OperatorBoundary(unittest.TestCase):
     def test_redirect_disconnect_and_declared_streamed_response_ceiling_no_retry(self):
         f = self.f
         arguments = write_private(f.root / "arguments.json", json.dumps(f.update()))
-        for mode in ("redirect", "drop", "declared_large", "streamed_large"):
-            with self.subTest(mode=mode), operator_peer(mode) as (url, calls, _):
+        for mode in ("redirect", "drop", "declared_large", "streamed_below", "streamed_large"):
+            body_gate = threading.Event()
+            with self.subTest(mode=mode), operator_peer(mode, body_gate=body_gate) as (url, calls, accepted):
                 result = f.command("call", "config_update", "--url", url, "--token-file", f.token_files[f.owner.actor_id],
                                    "--arguments-file", arguments, "--json")
-                self.assertEqual(result.returncode, 1)
                 self.assertEqual(len(calls), 1)
-                self.assertIn("may have occurred", result.stderr)
+                if mode == "streamed_below":
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(json.loads(result.stdout), accepted)
+                    self.assertEqual(result.stderr, "")
+                    continue
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stderr, "No valid operation result received; execution may have occurred. "
+                                 "Preserve the original idempotency key.\n")
                 self.assertNotIn(f.tokens[f.owner.actor_id], result.stderr)
                 self.assertEqual(result.stdout, "")
+                if mode == "declared_large":
+                    self.assertFalse(body_gate.is_set())
 
     def test_accepted_output_does_not_claim_completion(self):
         f = self.f
