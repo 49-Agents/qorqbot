@@ -236,9 +236,19 @@ attempt, before closing the originally scanned fd (`:77–101,159–218`):
 | Rename/unlink/path or root substitution | Original fd remains the proof reader. A missing current path, symlink or different final inode fails. Root replacement tests install a new file inode. Code compares the final **file** identity, not old/new root-directory identity; reaching the same inode through a changed directory chain is not independently rejected solely for root identity. |
 | Mutation after final observation or after return | No protection. Both file descriptors close before return. Later matching dev/inode is not a historical-content proof (and after descriptor closure does not rule out inode reuse). Old observed size/hash cannot certify a newly opened file's complete prefix or later records. |
 
-Failures before/during enumeration or the initial open are instead caught at
-the base-directory boundary as `managed_source_unavailable:<exception class>`;
-no accepted sources adds `bound_native_source_not_found` (`:220–224`).
+Only OSError/AdapterError raised inside the per-base protected block, including
+enumeration and the initial **source-file** open, are caught as
+`managed_source_unavailable:<exception class>` (`adapters/discovery.py:138–163,220–221`).
+The initial `ManagedTree(roots.home)` construction is outside that handler
+(`:136–138`); its component-open failures propagate after descriptor cleanup
+(`adapters/managed_io.py:28–37`). `ManagedRoots` supplies lexical validation
+only (`adapters/types.py:33–50`), so a missing/replaced/symlink/non-directory
+managed HOME at initial construction may raise without returning any
+DiscoveryResult or gap. This differs from final revalidation's caught failures
+inside `_validate_source` (`adapters/discovery.py:77–101`), which withhold the
+source and become `source_changed_during_discovery` (`:207–211`). If execution
+reaches the normal return with no accepted sources, it adds
+`bound_native_source_not_found` (`:222–224`).
 
 Existing filesystem primitives have different boundaries; none is a native
 reader/checkpoint utility:
@@ -612,3 +622,13 @@ git status --short --branch
 They showed one added report and an otherwise byte-identical base. Commit SHA,
 post-commit clean state and ordinary dedicated-branch push are reported through
 ACLA; no main merge, PR/release, force push, rebase or deployment.
+
+Review correction, from report commit `580218bec5d53ee161997ec09516175e4824d96b`:
+Manager confirmed that the original exception-boundary paragraph was too broad.
+The corrected paragraph distinguishes initial managed-HOME construction,
+per-base source-file operations and final revalidation. Static numbered reads
+and AST parent inspection confirm those handler boundaries; no product code,
+tests or reproduction were run or changed. The report-only diff, unchanged
+source/tests/metadata and whitespace were checked against both that report
+commit and the original source base. The correction's exact commit, push and
+check results are reported through ACLA.
