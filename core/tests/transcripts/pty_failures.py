@@ -19,6 +19,12 @@ import termios
 import time
 
 
+_FOREGROUND_CASES = {
+    "foreground", "foreground_leader_exits", "unconfirmed", "forwarded_term", "foreground_exit",
+}
+_EARLY_EXIT_CASES = {"forwarded_term", "foreground_exit", "background_exit"}
+
+
 def _send(path, message):
     fd = os.open(path, os.O_WRONLY)
     try:
@@ -43,7 +49,7 @@ def _child(root, case):
     member = os.fork()
     if member == 0:
         os.close(read_fd)
-        if case in {"foreground", "foreground_leader_exits", "unconfirmed"}:
+        if case in _FOREGROUND_CASES or case == "background_exit":
             os.setpgid(0, 0)
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         os.write(write_fd, b"configured")
@@ -53,10 +59,12 @@ def _child(root, case):
     os.close(write_fd)
     assert os.read(read_fd, 16) == b"configured"
     os.close(read_fd)
-    if case in {"foreground", "foreground_leader_exits", "unconfirmed"}:
+    if case in _FOREGROUND_CASES:
         os.tcsetpgrp(0, member)
     _send(root / "events", {"event": "children", "direct": os.getpid(), "member": member,
-                            "pgid": os.getpgrp(), "sid": os.getsid(0)})
+                            "pgid": os.getpgrp(), "sid": os.getsid(0),
+                            "member_pgid": os.getpgid(member), "member_sid": os.getsid(member),
+                            "foreground": os.tcgetpgrp(0)})
     # The supervisor acquires both pidfds before letting READY reach Recorder.
     gate = os.open(root / "child_gate", os.O_RDONLY)
     assert os.read(gate, 1) == b"G"
@@ -102,13 +110,26 @@ def _worker(root, case, gate):
             real_activate(*args)
             _send(root / "events", {"event": "active"})
         spool.activate_recording = activate
+    if case in {"startup", "forwarded_term"}:
         real_forward = Recorder._forward_signal
         def forward(*args):
             result = real_forward(*args)
             if args[2] == signal.SIGTERM:
                 _send(root / "events", {"event": "forwarded"})
+                if case == "forwarded_term":
+                    # The supervisor observes the real leader exit via its
+                    # already acquired pidfd; nobody reaps it before cleanup.
+                    assert os.read(gate, 1) == b"X"
             return result
         Recorder._forward_signal = staticmethod(forward)
+    if case == "forwarded_term":
+        real_append = spool.append
+        def append(*args):
+            result = real_append(*args)
+            _send(root / "events", {"event": "capture_boundary"})
+            assert os.read(gate, 1) == b"C"
+            return result
+        spool.append = append
     if case == "unconfirmed":
         # Make the exit observer unavailable; never fake a successful kill/wait.
         # Real TERM/KILL still run. Final cleanup must report uncertainty, restore
@@ -120,7 +141,7 @@ def _worker(root, case, gate):
         if case != "startup" and b"READY" in seen:
             _send(root / "events", {"event": "display_boundary"})
             assert os.read(gate, 1) == b"F"
-            if case in {"foreground", "foreground_leader_exits", "unconfirmed"}:
+            if case in _FOREGROUND_CASES or case == "background_exit":
                 raise OSError("fixture display failure")
             with sqlite3.connect(root / "spool.sqlite3") as connection:
                 connection.execute("""CREATE TRIGGER fail_append BEFORE INSERT ON capture_chunks
@@ -192,6 +213,7 @@ def exercise(root, case):
     buffer = b""
     observed = set()
     report = {"case": case, "returned": False}
+    failure_started = None
     deadline = time.monotonic() + 8
     try:
         while time.monotonic() < deadline:
@@ -210,16 +232,37 @@ def exercise(root, case):
                             handles[name] = (message[name], os.pidfd_open(message[name]))
                     if event == "children":
                         report["original_group"] = message["pgid"] == message["direct"] == message["sid"]
+                        report["member_same_session"] = message["member_sid"] == message["sid"]
+                        report["member_separate_group"] = message["member_pgid"] == message["member"] != message["direct"]
+                        report["member_was_foreground"] = message["foreground"] == message["member_pgid"]
                         os.write(child_gate, b"G")
                 if case == "startup" and {"pre_login", "active"} <= observed and "term_sent" not in observed:
                     signal.pidfd_send_signal(handles["worker"][1], signal.SIGTERM)
                     observed.add("term_sent")
                 if event == "forwarded":
-                    os.write(gate_write, b"G")
+                    if case == "forwarded_term":
+                        assert select.select([handles["direct"][1]], [], [], 3)[0]
+                        report["term_forwarded_before_failure"] = True
+                        os.write(gate_write, b"X")
+                    else:
+                        os.write(gate_write, b"G")
+                if event == "capture_boundary":
+                    signal.pidfd_send_signal(handles["worker"][1], signal.SIGTERM)
+                    os.write(gate_write, b"C")
                 if event == "display_boundary":
+                    if case in _EARLY_EXIT_CASES:
+                        if case != "forwarded_term":
+                            signal.pidfd_send_signal(handles["direct"][1], signal.SIGKILL)
+                        assert select.select([handles["direct"][1]], [], [], 3)[0]
+                        assert not select.select([handles["member"][1]], [], [], 0)[0]
+                        report["leader_exited_before_failure"] = True
+                        report["member_live_at_failure"] = True
+                    failure_started = time.monotonic()
                     os.write(gate_write, b"F")
                 if event in {"returned", "worker_error"}:
                     report.update(message, returned=event == "returned")
+                    if failure_started is not None:
+                        report["failure_seconds"] = time.monotonic() - failure_started
                     for name, (_, fd) in handles.items():
                         if name != "worker":
                             report[name + "_exited"] = bool(select.select([fd], [], [], 0)[0])

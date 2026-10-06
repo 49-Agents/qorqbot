@@ -1,9 +1,9 @@
 """Linux nested-PTY recorder; commit each output block before display.
 
 The runner supplies an explicit spool and identities, followed by child argv
-after ``--``. No shell is inserted. Cleanup covers its direct child and verified
-PTY groups; producer cgroups, runner-service survival and automatic recovery are
-not provided here. A reserved/used terminal epoch cannot launch twice.
+after ``--``. No shell is inserted. Failure cleanup covers its direct child and
+verified owned PTY session; producer cgroups, runner-service survival and automatic
+recovery are not provided here. A reserved/used terminal epoch cannot launch twice.
 """
 
 from __future__ import annotations
@@ -151,13 +151,13 @@ class Recorder:
             os.kill(child_pid, signum)
 
     @staticmethod
-    def _owned_members(child_pid: int, child_start: int, master_fd: int,
-                       groups: set[int], deadline: float) -> list[_Process]:
-        """Fresh membership only in the anchored session and verified group set.
+    def _owned_members(child_pid: int, child_start: int, deadline: float) -> list[_Process]:
+        """Fresh membership in the session anchored by the unreaped child.
 
-        Numeric /proc enumeration is permitted by Manager decision 57. It never
-        discovers new target groups. Unreadable potentially relevant stat data is
-        an unknown observation, not evidence of quiescence.
+        The exact child's SID proves ownership even after exit and PTY hangup.
+        Background groups in that SID are included; detached sessions are not.
+        Unreadable potentially relevant stat data is an unknown observation,
+        not evidence of quiescence.
         """
         observer = _process_stat(os.getpid())
         if observer is None or observer.sid != os.getsid(0) or observer.pgid != os.getpgrp():
@@ -165,31 +165,23 @@ class Recorder:
         direct = _process_stat(child_pid)
         if direct is None or direct.start != child_start:
             raise CleanupUnconfirmed("unreaped child identity is unavailable")
-        if direct.sid == child_pid and direct.pgid == child_pid:
-            groups.add(child_pid)
-        foreground = Recorder._foreground_group(master_fd, child_pid)
-        if foreground is not None:
-            if direct.sid != child_pid:
-                raise CleanupUnconfirmed("PTY and child session observations disagree")
-            groups.add(foreground)
         members = [direct] if direct.live else []
-        if not groups:
-            return members  # Pre-login: signal only the exact child, never its parent PGID.
+        if direct.sid != child_pid:
+            return members  # Pre-login: only the exact child, never its parent's session.
         with os.scandir("/proc") as entries:
             for entry in entries:
                 if time.monotonic() >= deadline:
-                    raise CleanupUnconfirmed("owned-group observation deadline expired")
+                    raise CleanupUnconfirmed("owned-session observation deadline expired")
                 if not entry.name.isdecimal() or int(entry.name) == child_pid:
                     continue
                 observed = _process_stat(int(entry.name))
-                if (observed is not None and observed.sid == child_pid
-                        and observed.pgid in groups and observed.live):
+                if observed is not None and observed.sid == child_pid and observed.live:
                     members.append(observed)
         return members
 
     @staticmethod
-    def _signal_member(member: _Process, child_pid: int, groups: set[int], signum: int) -> bool:
-        """Recheck PID/start/session/group after pidfd_open, then signal that identity."""
+    def _signal_member(member: _Process, child_pid: int, signum: int) -> bool:
+        """Recheck PID/start/session after pidfd_open, then signal that identity."""
         try:
             descriptor = os.pidfd_open(member.pid)
         except ProcessLookupError:
@@ -198,7 +190,7 @@ class Recorder:
             fresh = _process_stat(member.pid)
             if fresh is None or fresh.start != member.start or not fresh.live:
                 return False
-            if fresh.pid != child_pid and (fresh.sid != child_pid or fresh.pgid not in groups):
+            if fresh.pid != child_pid and fresh.sid != child_pid:
                 return False
             try:
                 signal.pidfd_send_signal(descriptor, signum)
@@ -209,47 +201,28 @@ class Recorder:
             os.close(descriptor)
 
     @staticmethod
-    def _cleanup_child(child_pid: int, master_fd: int, child_start: int) -> None:
+    def _cleanup_child(child_pid: int, child_start: int) -> None:
         """Bounded TERM/CONT, KILL and confirmation; only the caller reaps the leader.
 
-        Signal positively identified members of the original and verified PTY
-        foreground groups through pidfds. Group scans cannot introduce targets
-        from any other session/group. Keep the direct child unreaped throughout.
+        Signal the exact child and positively identified members of its verified
+        PTY session through pidfds. The unreaped leader anchors that session even
+        when it exits before cleanup. No inherited or detached session is owned.
         """
-        groups: set[int] = set()
         last_error = None
         for signum in (signal.SIGTERM, signal.SIGKILL):
             deadline = time.monotonic() + 1.0
-            # Direct signals are safe before login_tty because this child is
-            # still unreaped; never send to its possibly shared inherited PGID.
-            try:
-                status = Recorder._observe_child(child_pid)
-            except ChildProcessError as exc:
-                raise CleanupUnconfirmed("direct child ownership was lost before cleanup") from exc
-            try:
-                # Capture foreground ownership before TERM can kill the session
-                # leader and detach the PTY. Keep that verified group in the
-                # anchored SID set, refreshing membership after every phase.
-                members = Recorder._owned_members(child_pid, child_start, master_fd, groups, deadline)
-                if status is not None and not members:
-                    return
-            except (OSError, CleanupUnconfirmed) as exc:
-                last_error = exc
-            os.kill(child_pid, signum)
-            if signum == signal.SIGTERM:
-                os.kill(child_pid, signal.SIGCONT)
-            signalled = {(child_pid, child_start)}  # Direct signal was already sent above.
+            signalled = set()
             while time.monotonic() < deadline:
                 try:
                     status = Recorder._observe_child(child_pid)
-                    members = Recorder._owned_members(child_pid, child_start, master_fd, groups, deadline)
+                    members = Recorder._owned_members(child_pid, child_start, deadline)
                     if status is not None and not members:
                         return
                     for member in members:
                         if (member.pid, member.start) not in signalled:
-                            if Recorder._signal_member(member, child_pid, groups, signum):
+                            if Recorder._signal_member(member, child_pid, signum):
                                 if signum == signal.SIGTERM:
-                                    Recorder._signal_member(member, child_pid, groups, signal.SIGCONT)
+                                    Recorder._signal_member(member, child_pid, signal.SIGCONT)
                                 signalled.add((member.pid, member.start))
                     last_error = None
                 except ChildProcessError as exc:
@@ -430,12 +403,12 @@ class Recorder:
                 if child_pid is not None and child_pid > 0:
                     try:
                         if failure is not None:
-                            self._cleanup_child(child_pid, master_fd, child_start)
+                            self._cleanup_child(child_pid, child_start)
                     except BaseException as exc:
                         cleanup_error = exc
                     finally:
-                        # Group inspection/signalling has ended. Reap an observed
-                        # direct exit even when group confirmation was unsuccessful.
+                        # Session inspection/signalling has ended. Reap an observed
+                        # direct exit even when session confirmation was unsuccessful.
                         try:
                             self._reap_child(child_pid)
                         except BaseException as exc:

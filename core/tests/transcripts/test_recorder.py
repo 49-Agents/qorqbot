@@ -330,6 +330,26 @@ signal.pause()
         self.assertEqual(result["captured"], "READY", result)
         self.assertEqual(result["health"], "blocked", result)
 
+    def test_failure_terminates_owned_session_after_leader_exited_before_cleanup(self):
+        for case in ("forwarded_term", "foreground_exit", "background_exit"):
+            with self.subTest(case=case):
+                result = self.failure_case(case)
+                self.assertTrue(result["leader_exited_before_failure"], result)
+                self.assertTrue(result["member_live_at_failure"], result)
+                self.assertTrue(result["original_group"], result)
+                self.assertTrue(result["member_same_session"], result)
+                self.assertTrue(result["member_separate_group"], result)
+                self.assertEqual(result["member_was_foreground"], case != "background_exit", result)
+                if case == "forwarded_term":
+                    self.assertTrue(result["term_forwarded_before_failure"], result)
+                self.assertEqual(result["exception"], "OSError", result)
+                self.assertEqual(result["last_error"], "OSError", result)
+                self.assertTrue(result["member_exited"], result)
+                self.assertTrue(result["direct_reaped"], result)
+                self.assertEqual(result["captured"], "READY", result)
+                self.assertEqual(result["health"], "blocked", result)
+                self.assertLess(result["failure_seconds"], 4, result)
+
     def test_term_before_login_survives_handler_reset_and_prevents_exec(self):
         result = self.failure_case("startup")
         self.assertEqual(result["exit"], -signal.SIGTERM, result)

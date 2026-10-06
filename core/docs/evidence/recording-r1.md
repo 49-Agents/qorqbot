@@ -8,8 +8,15 @@ G0–G6 acceptance gate. No merge, deployment, release, or provider call occurre
 Revision 1 starts from clean `d15366a389a7ecbee4fc17511bb0585990cb8044`, which
 independent review did **not** approve. Manager message 52/D27 required corrections
 to direct-child escalation, surviving original-group members and startup TERM
-delivery. Message 57 explicitly permits narrowly scoped numeric procfs stat
-observations for the already owned session/group set. No shared plan was edited.
+delivery. Message 57 initially restricted numeric procfs stat observations to
+the already owned session/group set.
+
+Revision 2 starts from clean `a8576ec9cc7f8c810174d99e99a17e6de089ff3e`, also
+unapproved: leader exit before cleanup could erase foreground ownership and
+leave a producer alive. Manager message 68/D27 supersedes the group restriction
+with the exact child plus its verified owned PTY session, including background
+groups. Normal interactive forwarding retains foreground semantics. No shared
+plan was edited.
 
 ## Delivered boundary
 
@@ -47,10 +54,13 @@ observations for the already owned session/group set. No shared plan was edited.
   drained byte checkpoint; signal/nonzero exits are marked incomplete.
 - Capture/display/setup failure latches capture/input closed, stops forwarding
   and attempts to persist blocked health. `waitid(WNOWAIT)` retains the direct
-  leader as an ownership anchor. Cleanup targets that child plus live members of
-  its original and verified foreground PTY groups, using fresh PID/start/SID/PGID
-  and state observations; group-member effects use verified pidfds. Foreground
-  ownership comes from the owned PTY/session before signalling can detach it.
+  leader as an ownership anchor. Its verified PID/start and matching SID prove
+  ownership of the original PTY session even after exit and terminal hangup.
+  Cleanup targets that exact child plus all live members of this SID, including
+  background groups never observed as foreground, using fresh PID/start/SID and
+  state observations and verified pidfds. PGID remains evidence, not a selection
+  filter; cleanup retains no foreground-group history. Before session creation,
+  only the exact child is eligible, never the inherited parent session/group.
   Each TERM/CONT and KILL phase has a one-second observation deadline; final
   direct-child reaping uses only nonblocking wait with a 250 ms deadline.
   Zombie/dead members are not live producers. Unavailable observations or a live
@@ -76,8 +86,19 @@ Observed versions: Python **3.12.3**, SQLite **3.45.1**, Linux kernel
 is exercised by this increment.
 
 `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests/transcripts -v`
-passed **21 tests** in **16.701 seconds** on the revision's final code/test tree:
-the original 17 checks plus four focused recorder regressions.
+passed **22 tests** in **23.297 seconds** on revision 2's final code/test tree:
+the original 17 checks plus five focused recorder regressions.
+
+The focused invocation also passed **5 tests** in **9.968 seconds**:
+
+```
+PYTHONPATH=src:tests/transcripts .venv/bin/python -m unittest -v \
+  test_recorder.RecorderTests.test_failure_terminates_owned_session_after_leader_exited_before_cleanup \
+  test_recorder.RecorderTests.test_failure_escalates_direct_child_with_a_different_foreground_group \
+  test_recorder.RecorderTests.test_failure_terminates_original_group_after_its_direct_leader_exits \
+  test_recorder.RecorderTests.test_term_before_login_survives_handler_reset_and_prevents_exec \
+  test_recorder.RecorderTests.test_unconfirmed_cleanup_is_bounded_preserves_failure_and_restores_parent
+```
 
 The one focused suite covers:
 
@@ -111,7 +132,7 @@ The one focused suite covers:
 - Coexistence with a synthetic `runner_*` table and existing `user_version`,
   with required SQLite connection settings retained.
 
-Four focused recorder regressions add five pipe-gated cases in the same suite:
+Revision 1's four recorder regressions add five pipe-gated cases in the same suite:
 TERM-ignoring direct child with a distinct foreground job; that job surviving a
 leader that exits on TERM; an original-group member surviving its leader; TERM
 after activation but before real `login_tty`; and an unavailable exit observer
@@ -124,28 +145,44 @@ fixture subreaper holds all producer pidfds before releasing the gates, and
 cleans them up even when exercising the broken pre-revision recorder. Timeouts
 guard the tests; pipes establish the event ordering.
 
-The new pipe-gated fixtures were also run against the unchanged rejected
+Revision 2 adds one parameterized regression with three real-exit cases: Recorder
+forwards TERM before a display failure; the supervisor kills the owned leader at
+the display boundary with another foreground group; and the same boundary with
+a separate background group that was never foreground. Held pidfds prove leader
+exit and a still-live same-SID member before failure is released. All three now
+return within the four-second test bound, terminate the live member, reap the
+direct child, retain exact `READY`, close admission, persist blocked health and
+restore the canonical terminal, flags, masks, handlers and PTY descriptors.
+
+The same new fixture cases reproduced the defect against unchanged rejected
+`a8576ec` in read-only `review-recording-r2`: each returned ordinary `OSError`
+with a reaped leader and a still-live member. Fixture-owned pidfds cleaned up all
+producers afterward. Results are retained at
+`/tmp/recording-r2-prefixed-regressions-69aq9rba/results.json`.
+
+Revision 1's pipe-gated fixtures were also run against the unchanged rejected
 `d15366a` source: foreground cleanup failed to return, the original-group member
 was still live after return, and pre-login TERM allowed a healthy exit with
 `EXECUTED_AFTER_TERM`. Those diagnostic JSON files remain in
 `/tmp/recording-r1-prefixed-regressions-lax05eyx/`. The fixture supervisor cleaned
 up all its owned processes using pidfds, including the hanging old recorder.
 
-Manager's original independent diagnostic was rerun against the corrected tree:
+During revision 1, Manager's original independent diagnostic was rerun:
 
 ```
 /usr/bin/python3 /home/alp/.local/state/qorqut-builds/01a116b0-8d6d-72f2-9da9-76bd2e898f04/recording-r1-manager-diagnostic.py /home/alp/qorqut-core/worktrees/recording-r1
 ```
 
-It completed successfully. Both failure cases returned with exact `READY`
-retained, blocked health, closed admission, restored terminal, direct child
+It completed successfully at that revision. Both failure cases returned with
+exact `READY` retained, blocked health, closed admission, restored terminal, direct child
 reaped and the other member exited (zombie pending its fixture parent's reap).
 The original-group heartbeat grew by **zero** bytes after return. Startup TERM
 returned **-15**, captured **zero** bytes and marked the source incomplete.
 The full diagnostic artifacts remain at
 `/tmp/qorqut-manager-recording-r1-rriqrzzz/`, including `results.json` and its
 synthetic fixture logs/data. These are disposable process diagnostics, not
-operational captures or host-archive evidence.
+operational captures or host-archive evidence. Those older cases did not cover
+leader exit before cleanup; the new revision 2 regression supplies that check.
 
 `git diff --cached --check` also passed before the commit. Tests use only disposable
 SQLite files and deterministic Python children; no existing agent, native store,
@@ -177,12 +214,12 @@ contain no license header requiring propagation for this fresh implementation.
 - Native adapters, discovery/finalization of file sources, parsers, FTS/Chat,
   attachments, provider switching, runner/tmux integration, VM behavior, actual
   systemd restart survival and producer cgroup pause remain outside this scope.
-- Failure cleanup checks cooperative owned original/verified foreground groups
-  and reaps only the direct child. It does not prove termination of detached
-  descendants or atomic quiescence against arbitrary concurrent forking. Only
-  numeric procfs stat identity/state fields are read; a scan cannot discover new
-  target groups or select processes by name/command. Unknown visibility or
-  termination remains an explicit cleanup failure. Kernel syscalls themselves
+- Failure cleanup checks the cooperative verified owned PTY session, including
+  background groups, and reaps only the direct child. It does not prove termination
+  of detached descendants or atomic quiescence against arbitrary concurrent forking. Only
+  numeric procfs stat identity/state fields are read; only the child-anchored SID
+  admits members, never names, commands or arbitrary process trees. Unknown
+  visibility or termination remains an explicit cleanup failure. Kernel syscalls themselves
   still depend on a functioning kernel; the userspace waits/observations have
   finite deadlines. The recorder does not pause a cgroup while surviving for
   recovery or reserve disk headroom.
