@@ -10,8 +10,8 @@ The bounded local recorder probe is accepted as recorded in
 separate from native ingestion and complete runtime readiness. The internal host
 storage increment is accepted under [HOST-ARCHIVE.md](../HOST-ARCHIVE.md). The accepted
 [native exploration](../evidence/native-capture-p0.md) supplies source and spool
-facts; [NATIVE-PREFIX.md](../NATIVE-PREFIX.md) specifies the next read-only prefix
-verification increment. Native-reader/checkpoint composition and the network
+facts; the read-only [prefix verification](../NATIVE-PREFIX.md) is accepted at
+`c4ac16d` with evidence in BUILD-EXECUTION. Native-reader/checkpoint composition and the network
 collector still require their own concrete Manager designs.
 
 ## 1. Guarantee and fault model

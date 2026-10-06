@@ -30,8 +30,10 @@ All identity comes from `Invocation`; callers cannot supply a sender.
 | `deliveries_get` | `message_id` | `delivery` and `attempts` (empty until dispatch integration) |
 | `conversation_list` | `agent_id`; optional `after_seq` or `before_seq` (mutually exclusive); `limit=50` (1–100); optional `recovery_epoch` | Page defined below |
 
-For message listing, an agent actor defaults `agent_id` to its own; an owner
-must supply an agent or thread filter. Both filters may intersect. Agent views
+For message listing, an agent actor defaults `agent_id` to its own only when
+neither filter is supplied. An explicit thread suppresses that default, so any
+registered actor can inspect any existing thread. An owner must supply an
+agent or thread filter. Two explicit filters intersect. Agent views
 include sent and received messages once each. Positive continuation cursors need
 their recovery epoch; a supplied stale epoch fails with `target_changed`.
 Validate agent/thread existence. Use a global immutable `message_seq` for this
@@ -64,6 +66,14 @@ fixed `message_delivery` job records the unmet runtime dependency and waits
 with `dependency_unavailable`. It performs no terminal effect or automatic start.
 Future dispatch will replace that real dependency boundary, not introduce a
 second message store. Preserve recovery holds and the pending message.
+
+Within `Application.activate_recovery`'s existing transaction, change unfinished
+safe deliveries from pending/deferred to `deferred`, `reason=recovery_review`,
+with attributed delivery transition events. Preserve exact messages, handling
+and terminal failures; do not turn a known unsafe payload into retryable work.
+Any future uncertain attempt must retain its uncertainty, not become ordinary
+pending work. No automatic worker releases this hold. This domain hook belongs
+to the chat builder's already-owned application assembly/recovery scope.
 
 Handling view: `message_id`, `handled_by`, `handled_at`, `note`. Acknowledgment
 records the actual caller, who may intentionally handle another agent's message.
@@ -145,6 +155,18 @@ a SQL transaction is open. Guard job/recovery/agent coordinates before effects
 and before saving progress; hold the existing installation effect gate.
 Renew the job lease between bounded pages during long staging; no whole-day
 size cap may be used to hide an unrenewed lease or an unbounded memory buffer.
+
+Ownership is established before staging and rechecked before attaching its
+receipt and before final publication progress. Match the staged parent
+device/inode to the checked transcript directory. Once attached, that explicit
+file receipt authorizes installation into that exact previously checked parent;
+the ordinary `file_install` handler retains its existing parent/hash/recovery
+checks and needs no transcript-specific marker callback. A marker change after
+attachment can therefore leave the exact staged bytes installed in the pinned
+directory, but blocks new staging and publication-cursor advancement until
+ownership is valid again. A replaced parent fails the existing receipt check.
+This is the precise effect boundary, not an atomic live-marker or hostile-writer
+guarantee. Do not modify generic Files/Jobs semantics for this assignment.
 
 For replacements, the previous committed hash is the expected file hash; for
 the first publication require absent or matching content under existing file
