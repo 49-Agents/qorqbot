@@ -1,0 +1,13 @@
+{
+  "provenance": "New synthetic stand-ins for pinned P06 terminal_composer conventions; never native screen captures.",
+  "claude": {
+    "version": "2.1.287",
+    "empty": "Synthetic assistant output.\n\n────────────\n> \u001b[2mTry a task\u001b[0m\n────────────\n  \u001b[2m? for shortcuts\u001b[0m\n",
+    "cursor": [2, 3, true]
+  },
+  "codex": {
+    "version": "0.160.0",
+    "empty": "Synthetic assistant output.\n\n› \u001b[2mAsk Codex\u001b[0m\n  \u001b[2m? for shortcuts   100% context left\u001b[0m\n",
+    "cursor": [2, 2, true]
+  }
+}
