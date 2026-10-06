@@ -117,6 +117,30 @@ Expose a parsing checkpoint barrier to M08: every raw range through a selected f
 
 Browser/file cards render from domain IDs. A native transcript tool record can link to a known operation but never create/re-execute a request or reference. Exact native metadata may link owner-message echoes; equal text cannot deduplicate them. Default chat omits technical raw records by display policy while the archive retains them. UI descriptions, iframe URLs and live VNC bytes do not belong in native transcript normalization. See [UI-PLAN.md](../UI-PLAN.md).
 
+### Automatic dated transcript files
+
+D33 requires core to save every owner/agent chat automatically under
+`agents/<agent-id>/transcripts/YYYY-MM-DD.jsonl`. Use the durable entry's UTC
+recording date for the filename, retaining original occurrence timestamps.
+Publish full user and assistant content, stable entry/conversation IDs and
+known run/provider/source provenance. This includes onbash and continued chats
+across CLI/model switches. No agent save tool, open UI or manual export is needed.
+
+Use durable history and the conversation entry ledger as inputs to a resumable
+core publisher. Track committed file progress so crashes, repeated events and
+late native parsing cannot duplicate or silently omit entries. Verified native
+echoes refer to their original owner-message identity. Different equal-text
+messages remain distinct. Interrupted writes and disk-full failures retain the
+durable source and expose lag/error; reconciliation resumes without waiting for
+the owner to send another message. Keep file work outside SQL transactions.
+
+Safely create the reserved directory under an established agent ownership marker
+without reseeding workspace files. Raw terminal/native chunks and unsupported
+or partial record evidence remain independently archived; dated copies never
+replace those bytes or imply unsupported content has been normalized. M09/M11
+include the copies and publication state in full export/restore. The concrete
+publisher/checkpoint contract will be frozen with conversation projection.
+
 ## 7. Implementation sequence
 
 1. **M07.01 P0 recorder:** verify nested PTY behavior, process lifetime and durable-before-display ordering under deterministic producers/native fixtures.
@@ -126,7 +150,7 @@ Browser/file cards render from domain IDs. A native transcript tool record can l
 5. **M07.05 Projections:** adapt Claude/Codex format knowledge, normalized record schema, stable provenance and FTS reindexing.
 6. **M07.06 Control integration:** expose readiness/backlog/blocked states; connect storage pressure to M03 input and process pause; provide M08 drain checkpoints and M11 backup inventories.
 7. **M07.07 Fault campaign:** execute every storage/ACK boundary and real VM network/reboot scenario before G3 approval.
-8. **M07.08 Conversation projection:** integrate platform cards/owner messages for Phase 4, retain stable insertion coordinates and prove reconnect/late parsing/provider switches do not duplicate cards or effects. G3 archive completion does not wait on the chat UI.
+8. **M07.08 Conversation projection and transcript files:** integrate platform cards/owner messages for Phase 4, retain stable insertion coordinates and automatically publish dated per-agent transcript files under D33. Prove reconnect/late parsing/provider switches and publication crashes do not duplicate or lose entries, cards or effects. Publication runs without the UI; G3 raw archive completion does not wait on chat rendering.
 
 ## 8. Source decision and done gate
 

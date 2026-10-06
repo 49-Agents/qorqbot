@@ -23,7 +23,7 @@ The owner values lean code and high quality, with no deadline-driven reason to w
 | R07 Durable coordination | Complete direct messages, threads, timestamps, sender/recipient identity, offline delivery and explicit handling receipts | M05 |
 | R08 Advertised state | Every agent is discoverable with ID/name, current status, activity and freshness; status is at most 100 words | M01, M10 |
 | R09 Permanent changes | Every changed status/state and every creation is recorded; message history does not expire | M00, M01, M05 |
-| R10 Complete captured history | All supported native streams and terminal output are collected with visible health, durable retry and no whole-file ceiling | M03, M04, M07 |
+| R10 Complete captured history | All supported native streams and terminal output are collected with visible health, durable retry and no whole-file ceiling; core automatically maintains dated chat copies in each agent's `transcripts/` folder | M03, M04, M07 |
 | R11 Provider changes preserve work | Same agent and logical history; files/browser persist; new runtime receives the chosen restoration packet | M08, M09 |
 | R12 Unrestricted v1 | No role grants, capability policies or signoff engine; caller identity and target validation remain | M00, M10 |
 | R13 Single-page chat UI | Left agent list, central conversation, collapsible right inspector; inline live browser requests with modal expansion; separate browser/machine control | M02, M06, M07, M10 |
@@ -32,6 +32,12 @@ The owner values lean code and high quality, with no deadline-driven reason to w
 | R16 Agent appearance | Independent display name/icon, twenty fixed monochrome icon choices, creation picker and double-click inline rename; stable IDs for routing | M01, M10 |
 
 “Always collect” has a precise storage contract in [M07](modules/07-transcripts.md). Captured bytes must not silently disappear. Provider-internal data never emitted, a killed CLI's unflushed buffer, and physically lost storage without backup are outside an achievable collection guarantee. These limits are exposed as health/evidence, never concealed by claiming complete Chat.
+
+Under D33, every owner/agent chat also produces automatic dated transcript files
+in `agents/<id>/transcripts/`, including both sides of the conversation. Core
+owns saving and restart recovery independently of the UI, selected CLI/model
+and any optional export action. M07 owns publication; M09 preserves the files
+in full export/restore. This is a required part of the completed chat workflow.
 
 ## 2. Chosen shape
 
@@ -200,6 +206,10 @@ not replace real VNC/input enforcement or core transaction acceptance.
 Complete M05/M06 and the operational portions of M10. Browser supervision/tools develop in `qorqut-browser`, durable coordination and integration in core, and presentation in `qorqutbot-ui`. Browser work can proceed in parallel with Phase 3, but unattended work waits for capture readiness.
 
 Deliver direct messages/offline queues, guarded terminal delivery, semantic handling receipts, dedicated browser/machine surfaces and input request/Done/Cancel transitions. Add M09 file references, M07 conversation projection and the M10 single-page shell: agent list/icons/rename, central chat/composer, inline browser cards with expansion, compact file cards and collapsible inspector. File opening is deferred. Manual browser takeover reuses the request state machine. Tools describe intent without layout mechanics. All agents can discover/contact/create peers through shared operations.
+
+Core automatically publishes dated per-agent chat transcripts as those durable
+conversation entries arrive, including after reconnection or provider switching.
+File publication and restart/replay acceptance do not depend on the UI being open.
 
 **Gate G4:** three agents can create/contact peers and preserve offline messages; human control defers automatic input; browser takeover settles commands and resolves once; login persists. The chat renders one durable card per browser/file request, directly controls the inline browser and expands the same session; icons/rename preserve routing. Machine control and responsive/focus behavior complete integrated G6 acceptance.
 

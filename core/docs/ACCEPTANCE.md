@@ -35,7 +35,7 @@ All acceptance groups below are mandatory for the first complete v1 release. Ind
 | R07 Durable coordination | A03.2–A03.4, A05.1–A05.5 | M03, M05 | G4 |
 | R08 Advertised status and state | A01.5–A01.7, A10.1–A10.3 | M01, M04, M10 | G1, G4 |
 | R09 Permanent change/message/creation history | A00.1–A00.3, A01.1, A01.5–A01.7, A05.1–A05.2 | M00, M01, M05 | G1, G4 |
-| R10 All supported captured history | A04.2–A04.3, A07.1–A07.9, C01–C11 | M03, M04, M07 | G3 |
+| R10 All supported captured history and automatic dated chat copies | A04.2–A04.3, A07.1–A07.10, C01–C11 | M03, M04, M07 | G3 raw archive; G4 dated chat copies |
 | R11 Continuity across providers | A08.1–A08.4, A09.1–A09.2 | M08, M09 | G5 |
 | R12 All public operations allowed | A00.4, A10.1 | M00, M10 | G1, G4 |
 | R13 Single-page chat UI | A06.2–A06.8, A10.2–A10.9 | M02, M06, M07, M10 | G4, G6 |
@@ -113,6 +113,7 @@ Use known byte streams and saved hashes as the oracle. Compare reconstructed sou
 | A07.7 | Native resume, identical repeated text, known native echoes, terminal/native overlap | Source reused through explicit run link; deduplication uses proven coordinates/native IDs; distinct equal-text turns stay distinct; terminal not guessed into semantic Chat |
 | A07.8 | Unknown/invalid schema, parser crash, parser version upgrade and FTS rebuild | Raw hashes unchanged; outcomes/counts/lag visible; rebuilding gives equivalent expected records; unindexed content remains retrievable |
 | A07.9 | Large-history list/search/raw downloads under ongoing capture | Stable bounded cursors and exact byte ranges; reads do not change capture; memory bounded by chunks, not whole transcript size |
+| A07.10 | Owner/agent chat, day boundary, delayed native echo, core restart, interrupted write/disk full and provider switch, with UI closed | Core automatically writes both sides to dated files in that agent's `transcripts/`; stable IDs/timestamps/provenance, no duplicate echoes or lost equal-text turns; visible lag/errors and restart catch-up without another message; onbash and full export/restore preserve files and progress |
 
 ### Crash boundaries
 
@@ -177,7 +178,7 @@ The included chat scope is in [UI-PLAN.md](UI-PLAN.md). No large design system o
 | G1 Durable identity | A00.1–A00.4, A01.1–A01.8 with fake executors where necessary; HTTP/MCP parity for completed operations |
 | G2 Execution | A02.1–A02.5, A03.1–A03.4, A04.1/A04.2 on real processes/guests; early recorder active |
 | G3 History | A04.3, A07.1–A07.9 and C01–C11, including real VM/network/disk cases; C11 uses fake switch/backup consumers until integrated G5/G6; complete supported-source inventory |
-| G4 Coordination/chat | A05.1–A05.5, A06.1–A06.5/A06.7, A09.5, A10.1–A10.3/A10.6–A10.9; real inline browser interaction and durable cards; earlier guarantees still hold |
+| G4 Coordination/chat | A05.1–A05.5, A06.1–A06.5/A06.7, A07.10, A09.5, A10.1–A10.3/A10.6–A10.9; real inline browser interaction, durable cards and automatic dated transcript files; earlier guarantees still hold |
 | G5 Continuity | A04.4, A08.1–A08.4, A09.1–A09.2 on both supported native adapters |
 | G6 Deployable release | A06.6–A06.8 integrated surfaces/control, A09.3–A09.4, A10.4–A10.5, A11.1–A11.5 and L5 smoke for each adapter; all R01–R16 traced to passing evidence for the candidate build |
 

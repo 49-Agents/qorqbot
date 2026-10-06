@@ -1,5 +1,34 @@
 # Architecture decisions
 
+## D33 — Core automatically publishes dated per-agent chat transcripts
+
+**Owner requirement:** whenever the owner chats with an agent, `qorqut-core`
+automatically saves the conversation in that agent's `transcripts/` folder,
+with dates. Saving must not require an agent tool call, UI export action or a
+particular provider to remain selected.
+
+**Implementation direction:** publish UTF-8 JSONL under
+`agents/<agent-id>/transcripts/YYYY-MM-DD.jsonl`, partitioned by the durable
+entry's UTC recording date. Retain original occurrence timestamps separately.
+Include full user/assistant content, stable entry/conversation identity and
+known run/provider/source provenance. Replay, native echoes and provider
+switches use existing entry/source identities, never equal-text deduplication.
+
+M07 owns automatic publication from durable conversation entries through core's
+existing background work, with a persisted publication cursor, crash-safe
+filesystem progress and visible lag/errors. Resume after restart without
+duplicating entries or requiring another chat message. Core safely creates the
+reserved directory inside an established owned agent folder when needed; this
+does not authorize reseeding authored files. M09 includes these files in full
+agent export/restore. Onbash follows the same rule.
+
+These convenient dated copies are derived from durable history; immutable raw
+native/terminal archives remain intact and retain unsupported/partial records.
+Publication failure cannot discard durable chat or silently claim files are
+current. This requirement joins conversation/history acceptance before a chat
+workflow is considered complete. It is planned, not implemented by the already
+accepted registry/archive or the separate native-prefix assignment.
+
 ## D32 — Verify file prefixes using permanent spool receipts
 
 **Decision, 2026-10-08:** implement [NATIVE-PREFIX.md](NATIVE-PREFIX.md) before

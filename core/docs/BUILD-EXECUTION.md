@@ -154,6 +154,14 @@ source attestation, ingestion and persistent native-reader checkpoints remain
 the subsequent Manager design. It cannot enable automated input or provider
 readiness. The host archive and browser lanes retain their separate boundaries.
 
+D33 adds the owner's explicit requirement for automatic dated chat copies under
+each agent's `transcripts/`. Core/M07 owns publishing both sides from durable
+conversation entries, including restart catch-up and provider switches; M09
+preserves files/progress in full exports. A07.10 is required for completed chat
+acceptance. This is planned work for conversation publication, not implemented
+by native-prefix or the accepted host archive. It does not change the completed
+native-prefix candidate's assigned scope or independent review baseline.
+
 UI becomes a builder assignment as the domain API stabilizes, taking a released
 slot. VM installation/lifecycle waits for the pending substrate decision. Later
 backup/restore and continuity work likewise follows its actual dependencies.

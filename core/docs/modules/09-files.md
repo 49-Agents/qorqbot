@@ -36,6 +36,7 @@ Distinguish authored-work export from a full portable agent bundle. A full bundl
 - Its central status/state/creation/message/history/operation/file-reference/conversation-entry records with original IDs and cross-agent references.
 - Authored workspace, exact memory and required attachments/context packets.
 - Source manifests and immutable transcript inventory/hashes.
+- Core-published dated `transcripts/` files and their publication progress, with durable source records retained for reconciliation (D33).
 - Stopped VM root/state disks or host native HOME, with base-image digest/dependencies.
 - Consistent runner/spool database, browser service control/command database and unacknowledged events; these are inside the VM state disk but separate `runtime/spool.sqlite3` and `runtime/browser.sqlite3` for onbash. Use SQLite backup/checkpoint semantics, never copy only a live main file while omitting WAL commits.
 - Runtime capability/image/protocol pins and actual quiescence/backup evidence.

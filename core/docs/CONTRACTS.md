@@ -225,6 +225,18 @@ No total-transcript size ceiling. Preserve partial lines and huge records as raw
 
 Expose `local_captured_offset`, `host_archived_offset`, finalized checkpoint, parser version/offset, attachment gaps and last error for each source. A native session can append again after resume; finalization states “complete through N at checkpoint C,” not permanently closed for all time.
 
+Core automatically publishes owner/agent conversation entries to
+`agents/<agent-id>/transcripts/YYYY-MM-DD.jsonl` (D33), using their durable UTC
+recording date for the partition and retaining original occurrence times.
+Records contain full user/assistant content, stable entry/conversation IDs and
+known run/provider/source provenance. Saving requires no tool call or UI export.
+Provider changes preserve the same agent folder. Publication is resumable and
+idempotent by entry identity, including restart, delayed native capture and
+verified user-message echoes. Unrelated equal-text turns remain separate.
+Expose publication lag/failure; never treat raw archival or a successful chat
+write as proof that a dated copy has already been fsynced. Immutable raw history
+remains authoritative; the dated files do not replace it or invent missing data.
+
 ## 9. Context restoration contract
 
 One stable main conversation belongs to the agent. Same-client native resume uses the verified native session when supported, without an extra automatic startup prompt. A different client starts a new run with a saved context packet containing current instructions, a captured memory snapshot, unresolved input/message references, pinned artifacts and a bounded selection of prior conversation. References do not substitute for or trigger delivery of pending messages.

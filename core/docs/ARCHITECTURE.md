@@ -143,6 +143,8 @@ The configured data root is independent of the source checkout and release direc
       chunks/                         immutable raw transcript objects
       attachments/                    captured referenced assets
       context-packets/                exact restoration packets and provenance
+    transcripts/
+      YYYY-MM-DD.jsonl                core-published dated chat copies (UTC recording date)
     runtime/
       credentials/                    registration and runner identities
       vm/root-g<generation>.qcow2     boot overlay over pinned image
@@ -158,6 +160,12 @@ The configured data root is independent of the source checkout and release direc
 Do not create a second canonical mutable configuration store in `agent.json`. SQLite is authoritative for display name/icon key, desired state, configuration revisions and coordination. The file is a versioned recovery/export projection containing agent ID, layout version, config revision and relevant pins. Reconciliation repairs stale projections from committed records. An imported folder needs an explicit import manifest; directory discovery never silently registers it as a new agent.
 
 The agent folder is the unit of owned filesystem data. Full portability also requires the agent's slice of central records, included by export. Merely copying `agents/<id>` while the database is live is not a complete operational export.
+
+Core automatically maintains `transcripts/` as described in D33 and M07. It is
+a reserved backend output, separate from authored workspace and immutable raw
+archive objects. Full exports include it. Existing agents acquire the directory
+through the future transcript publisher's checked filesystem work; the accepted
+initial registry implementation does not yet create or populate it.
 
 ### VM storage
 
