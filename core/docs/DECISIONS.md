@@ -17,6 +17,14 @@ terminal/descriptor/signal state must still be restored. Group termination and
 direct-child reaping are different claims; detached-subtree supervision remains
 the later systemd/cgroup integration boundary.
 
+An unreaped leader keeps the group observable even when only zombies remain.
+Cleanup may inspect minimal `/proc` stat fields for membership in the already
+verified owned SID and original/foreground PGID set. The owned PTY supplies
+foreground ownership; the scan does not select unrelated groups. Count live
+states separately from zombies, refresh process-start/membership evidence, and
+keep incomplete observations or elapsed deadlines explicitly unsuccessful.
+Do not read or retain unrelated command lines, environments or process contents.
+
 Block forwarded signals across fork and child handler/PTY setup. Restore the
 parent mask on every path and the child's intended mask before exec. A pending
 signal must reach the exact owned child even before its group exists; an ESRCH
