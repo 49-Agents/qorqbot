@@ -50,7 +50,8 @@ accepts `https://core.internal:8443/handoff` without contacting it.
 - Config/credential/token files must be owned private regular files, without
   symlink traversal. Tokens are distinct and at least 32 bearer characters.
   Error messages are static, SDK validation diagnostic prose is removed, and
-  SDK log filters suppress raw payload/traceback prose. Identity has no paths
+  an assembly-installed LogRecordFactory sanitizes SDK-origin records before
+  handlers run, including SDK calls to the root logger. Identity has no paths
   or secrets. SDK transport validation remains enabled; Host/Origin are exact
   configured loopback values, with no permissive CORS or proxy-header trust.
 - JSON bodies, including chunked input, and complete responses are bounded to
@@ -81,14 +82,50 @@ tests/test_service_config.py
 docs/evidence/browser-mcp-r2.md
 ```
 
-## Passed checks
+## Revision 1: SDK-origin diagnostics
+
+Manager review 60 identified a real gap in candidate
+`d46fba1a53a8a68b9e9adfc9570b92a29f672331`: the original four named logger filters
+missed root `logging.warning` calls from MCP's shared session validation. The
+prior claim about SDK log sanitization was incomplete even though responses
+were sanitized. An extended wire regression reproduced the leak before this
+fix (one failing test in 1.925s, at the captured-log sentinel assertion).
+
+The filters were removed. Application assembly now installs one idempotent
+standard LogRecordFactory wrapper before constructing the SDK server. It
+delegates to the previous factory, recognizes `mcp`/`mcp.*` names and source
+paths under the installed MCP package (including root-named records), replaces
+message/arguments and clears cached message, exception and stack prose. Level,
+source metadata, unrelated diagnostics and handler/level configuration remain
+intact. Imports do not install the wrapper. No SDK patch, vendoring, validator
+copy, dependency change or local-effect primitive change was made.
+
+The diagnostic source is retained in the existing wire redaction test in
+`tests/test_server.py`. Its compact parameterized cases include an invalid
+envelope, `tools/call` with a unique synthetic secret string as `arguments`, and
+`notifications/cancelled` with `requestId={}` and a different secret as `reason`.
+Actual HTTP/SDK responses are checked as 400/200 sanitized JSON-RPC errors or an
+empty 202 notification response. After the owned service exits and flushes its
+combined stdout/stderr/log capture, no sentinel may remain and generic SDK
+diagnostics must still be present. Existing handler-argument redaction remains.
+
+One focused assembly check in `tests/test_service_config.py` verifies that
+repeated setup retains the same wrapper, invokes an existing factory once per
+record, preserves its metadata and unrelated formatted diagnostics, and clears
+message/arguments/cached exception/stack fields for named and root-origin SDK
+records. Fixtures always stop their own service and clean temporary data.
+
+Only four paths changed for revision 1: `src/qorqut_browser/transport.py`,
+`tests/test_server.py`, `tests/test_service_config.py`, and this evidence file.
+
+## Passed checks (revision 1)
 
 ```text
 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
-32 tests passed in 32.870s (20 existing owning tests + 12 new tests).
+33 tests passed in 28.980s (20 unchanged local-effect tests + 13 transport/configuration tests).
 
-PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_server.py -v
-7 tests passed in 12.608s after explicitly disabling optional SSE GET.
+PYTHONPATH=src:tests .venv/bin/python -m unittest test_server.ServerWireTest.test_attribution_is_per_request_and_rejections_do_not_echo_secrets test_service_config.ServiceConfigurationTest.test_assembly_sanitizes_sdk_records_and_preserves_logging_chain -v
+Both focused regressions passed in 2.369s.
 ```
 
 These are actual official SDK client initialization/discovery/resource/tool
@@ -128,23 +165,28 @@ Packaging and isolated installation:
 .venv/bin/python -m pip check
 ```
 
-Both dependency checks reported no broken requirements. The final wheel is
-29,258 bytes, SHA-256
-`d68a39b11c74f47c74ded0c8f5871e960c7d5bfae06dfa20a3a9c29992644713`.
+The rebuilt/reinstalled revision wheel passed `pip check`. All 30 existing
+runtime/build dependency versions were compared to the unchanged lock and
+matched. The revision wheel is 29,432 bytes, SHA-256
+`a4628d7104bfbb067a7196679c99dec3dd071a0df924ec892340c94945ed43bf`.
 Build/runtime dependencies were installed only in disposable task virtualenvs.
 
 From the empty worktree-local `.venv/isolated` directory, the installed Python
 with `-I` imported all nine package modules from `install-check/lib`, created no
-files and loaded no `bazarlyk`, `qorqut_core` or UI modules. The installed wheel
-also ran the configuration/actual-entrypoint checks with:
+files and loaded no `bazarlyk`, `qorqut_core` or UI modules. The record factory
+was identical before and after imports, proving no import-time installation.
+The revised installed wheel also ran the configuration/actual-entrypoint and
+wire-redaction checks with:
 
 ```text
 /home/alp/qorqut-browser/worktrees/browser-mcp-r2/.venv/install-check/bin/python -I -m unittest discover -s /home/alp/qorqut-browser/worktrees/browser-mcp-r2/tests -p test_service_config.py -v
+/home/alp/qorqut-browser/worktrees/browser-mcp-r2/.venv/install-check/bin/python -I -m unittest discover -s /home/alp/qorqut-browser/worktrees/browser-mcp-r2/tests -p test_server.py -k test_attribution_is_per_request_and_rejections_do_not_echo_secrets -v
 ```
 
 This exercises the installed production server, including its real readiness
-failure and missing-state refusal. Both tests passed. Git whitespace checks
-also passed. No native/model client calls were made.
+failure and missing-state refusal, as well as the logging chain and real SDK
+validation paths. All three configuration tests and the selected wire test
+passed. Git whitespace checks also passed. No native/model client calls were made.
 
 ## Versions and source provenance
 
@@ -175,6 +217,11 @@ no file-local license/copyright notice. Existing P08/P09 provenance remains in
 `browser-r1.md`, with no changes to their translation, gate, state or supervisor.
 No live configuration, database, credential, profile or native store was read.
 
+For revision 1, the installed MCP 1.30.0 `mcp/shared/session.py` validation paths
+were inspected (SHA-256
+`473c151ed51ec617466e63b525c42a0f31db997c2812be78477deff40e3e9ba0`).
+No SDK implementation was copied or modified.
+
 ## Still pending
 
 Real agent-browser compatibility, Chrome DOM/cookies and cookie persistence,
@@ -187,13 +234,14 @@ or global gate is claimed. There was no system installation, desktop provisionin
 environment selection, PR, merge, rebase, deployment or release, and no nested
 agent/self-review. Fresh independent Manager-assigned review is still required.
 
-## Delivery addendum
+## Initial delivery (superseded by revision 1)
 
 Completed implementation, checks and initial evidence were committed together as
 `8d98a1574120cbae44ee24a619b2487f7d52fcb6`. The command
 `git push origin HEAD:refs/heads/codex/browser-mcp-r2` succeeded, and
 `git ls-remote origin refs/heads/codex/browser-mcp-r2` returned that exact SHA.
-The worktree was clean after that push. This addendum is the only subsequent
-change; the bound ACLA completion report records its final delivery SHA and
-matching remote verification. No source, dependency or test changed after the
-reported checks. Both commits remain unmerged and undeployed.
+The worktree was clean after that push. An evidence-only addendum was then
+committed and pushed at `d46fba1a53a8a68b9e9adfc9570b92a29f672331`. That candidate
+remained unapproved because of the SDK root-logging defect described above.
+All implementation and evidence commits remain unmerged and undeployed; the
+revision's final SHA and branch-push verification accompany its completion report.

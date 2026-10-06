@@ -1,4 +1,6 @@
+import io
 import json
+import logging
 import os
 from pathlib import Path
 import subprocess
@@ -8,6 +10,7 @@ import time
 import unittest
 
 import httpx
+import mcp
 from pydantic import ValidationError
 
 from qorqut_browser.config import Credentials, HandoffConfig, load_config, load_credentials, load_token
@@ -23,6 +26,57 @@ class ServiceConfigurationTest(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.server = BrowserServer(self.root)
         self.addCleanup(self.server.close)
+
+    def test_assembly_sanitizes_sdk_records_and_preserves_logging_chain(self):
+        original = logging.getLogRecordFactory()
+        self.addCleanup(logging.setLogRecordFactory, original)
+        calls = []
+
+        def previous(*args, **kwargs):
+            record = original(*args, **kwargs)
+            record.previous_factory = "retained"
+            if record.exc_info:
+                record.message = record.exc_text = "synthetic-secret cached diagnostic"
+            calls.append(record)
+            return record
+
+        logging.setLogRecordFactory(previous)
+        logger = logging.getLogger("qorqut-browser.logging-fixture")
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s %(previous_factory)s %(message)s"))
+        self.addCleanup(logger.removeHandler, handler)
+        self.addCleanup(logger.setLevel, logger.level)
+        logger.addHandler(handler)
+        logger.setLevel(logging.WARNING)
+        handlers, level = list(logger.handlers), logger.level
+        create_app(self.server.config)
+        installed = logging.getLogRecordFactory()
+        self.assertIsNot(installed, previous)
+        create_app(self.server.config)
+        self.assertIs(logging.getLogRecordFactory(), installed)
+        self.assertEqual((logger.handlers, logger.level), (handlers, level))
+        logger.warning("Unrelated diagnostic %s", "still works")
+        self.assertIn("WARNING qorqut-browser.logging-fixture retained Unrelated diagnostic still works", stream.getvalue())
+        sdk_path = str(Path(mcp.__file__).parent / "shared" / "session.py")
+        for name, source in (("mcp", __file__), ("mcp.future.child", __file__), ("root", sdk_path)):
+            with self.subTest(name=name):
+                before = len(calls)
+                record = installed(name, logging.WARNING, source, 42, "private %s", ("synthetic-secret",),
+                    (ValueError, ValueError("synthetic-secret"), None), func="source_function",
+                    sinfo="synthetic-secret stack")
+                self.assertEqual(len(calls), before + 1)
+                self.assertEqual(record.previous_factory, "retained")
+                self.assertEqual((record.name, record.levelno, record.pathname, record.lineno, record.funcName),
+                                 (name, logging.WARNING, source, 42, "source_function"))
+                self.assertEqual(record.getMessage(), "MCP SDK diagnostic")
+                self.assertEqual(record.message, "MCP SDK diagnostic")
+                self.assertEqual(record.args, ())
+                self.assertIsNone(record.exc_info)
+                self.assertIsNone(record.exc_text)
+                self.assertIsNone(record.stack_info)
+                handler.handle(record)
+        self.assertNotIn("synthetic-secret", stream.getvalue())
 
     def test_private_inputs_reject_bad_credentials_permissions_and_overrides(self):
         server = self.server

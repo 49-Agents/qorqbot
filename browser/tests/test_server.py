@@ -113,12 +113,33 @@ class ServerWireTest(unittest.IsolatedAsyncioTestCase):
             bad = await self.http("POST", "/v1/browser/command", json=spoof)
             self.assertEqual(bad.status_code, 400)
             self.assertNotIn(str(server.actor_b), bad.text)
-        # The SDK's own envelope validation must also be scrubbed.
-        invalid = await self.http("POST", "/mcp", json={"jsonrpc": TOKEN_A, "id": 1, "method": "initialize"},
-                                 headers={**server.headers(), "Accept": "application/json"})
-        self.assertEqual(invalid.status_code, 400)
-        self.assertNotIn(TOKEN_A, invalid.text)
-        self.assertNotIn(TOKEN_A, server.log.read_text())
+        # Envelope and shared-session validation take different SDK paths. The
+        # latter uses root logging.warning, including for invalid notifications.
+        sentinels = ["synthetic-sdk-secret-" + uuid4().hex for _ in range(3)]
+        cases = [
+            (400, {"jsonrpc": sentinels[0], "id": 1, "method": "initialize"}),
+            (200, {"jsonrpc": "2.0", "id": 201, "method": "tools/call",
+                   "params": {"name": "browser_turn", "arguments": sentinels[1]}}),
+            (202, {"jsonrpc": "2.0", "method": "notifications/cancelled",
+                   "params": {"requestId": {}, "reason": sentinels[2]}}),
+        ]
+        for status, payload in cases:
+            with self.subTest(method=payload["method"]):
+                response = await self.http("POST", "/mcp", json=payload,
+                    headers={**server.headers(), "Accept": "application/json, text/event-stream"})
+                self.assertEqual(response.status_code, status)
+                if status == 202:
+                    self.assertEqual(response.content, b"")
+                else:
+                    self.assertEqual(response.json()["error"], {
+                        "code": -32602, "message": "Invalid or unavailable MCP request"})
+                for sentinel in sentinels:
+                    self.assertNotIn(sentinel, response.text)
+        server.stop()  # flush captured stdout/stderr/logging before checking it
+        output = server.log.read_text()
+        for sentinel in [*sentinels, private_text, TOKEN_A]:
+            self.assertNotIn(sentinel, output)
+        self.assertGreaterEqual(output.count("MCP SDK diagnostic"), 2)
 
     async def test_http_and_mcp_body_bounds_and_origin_checks(self):
         stream = await self.http("GET", "/mcp", headers={**self.server.headers(), "Accept": "text/event-stream"})

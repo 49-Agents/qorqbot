@@ -5,9 +5,11 @@ from functools import partial
 import hmac
 import json
 import logging
+from pathlib import Path
 from uuid import UUID
 
 import anyio
+import mcp
 from pydantic import ValidationError
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
@@ -105,21 +107,34 @@ class BlockingWork:
             raise BrowserError("unavailable", "Operation is unavailable") from None
 
 
-class _SDKLogFilter(logging.Filter):
-    def filter(self, record):
-        # The pinned SDK's debug and validation diagnostics include full messages.
-        # Keep diagnostic level/module but never payloads or traceback prose.
-        record.msg, record.args = "MCP transport diagnostic", ()
-        record.exc_info = record.exc_text = record.stack_info = None
-        return True
-
-
 def sanitize_sdk_logs():
-    for name in ("mcp.server.lowlevel.server", "mcp.server.streamable_http",
-                 "mcp.server.streamable_http_manager", "mcp.server.transport_security"):
-        logger = logging.getLogger(name)
-        if not any(isinstance(f, _SDKLogFilter) for f in logger.filters):
-            logger.addFilter(_SDKLogFilter())
+    """Install once during assembly, before any SDK server is constructed.
+
+    The SDK also calls root logging functions, so logger filters cannot cover
+    its validation diagnostics. Sanitize at creation, before any handler sees
+    a record, while retaining the existing factory and logging configuration.
+    """
+    previous = logging.getLogRecordFactory()
+    if getattr(previous, "_qorqut_browser_mcp_sanitizer", False):
+        return
+    package = Path(mcp.__file__).resolve().parent
+
+    def factory(*args, **kwargs):
+        record = previous(*args, **kwargs)
+        sdk = isinstance(record.name, str) and (record.name == "mcp" or record.name.startswith("mcp."))
+        if not sdk:
+            try:
+                sdk = Path(record.pathname).resolve().is_relative_to(package)
+            except (OSError, ValueError, TypeError, RuntimeError):
+                pass
+        if sdk:
+            record.msg = record.message = "MCP SDK diagnostic"
+            record.args = ()
+            record.exc_info = record.exc_text = record.stack_info = None
+        return record
+
+    factory._qorqut_browser_mcp_sanitizer = True
+    logging.setLogRecordFactory(factory)
 
 
 class PrivateTransport:
