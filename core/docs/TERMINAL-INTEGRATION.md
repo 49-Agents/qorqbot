@@ -104,6 +104,22 @@ suite or a new protocol test matrix. Existing source/browser checks already
 cover queue limits, malformed framing and synthetic effect/cancellation cases.
 Add targeted private diagnostics only for concrete integration concerns.
 
+Clarification 215: normal tmux consumes the four pane-emitted device/status/
+cursor/window queries used by this probe, answering the pane itself; the browser
+does not receive those query bytes while controlling. The compact real-path
+check therefore records their raw capture, absence from viewer output, exact
+deliberate command input and absence of additional browser input frames. Also
+verify the actual initial attachment queries reach the view-only browser without
+input. Preserve these separate observations; do not call them a controlled-xterm
+query injection. That controlled parser behavior is covered by the separately
+accepted real-Chrome UI tests with their synthetic WebSocket peer and matching
+compiled asset bytes. Both layers are required evidence with their limits stated.
+Do not alter tmux options, insert viewer frames or add a passthrough mode solely
+to force this probe through a different runtime path. After the probe, a normal
+user control key may clear tmux's response text from the fixture Bash prompt
+before subsequent commands. This is a verification-scope correction based on
+the observed normal terminal path, not a product/configuration change.
+
 ## Completion and limits
 
 Commit/push concise evidence on the assigned branch: exact core/UI commits,
