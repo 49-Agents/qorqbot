@@ -14,7 +14,8 @@ The local recorded-shell increment has also passed
 activation and Terminal UI connection remain pending.
 Manual creation has passed [scoped review](evidence/manual-creation-manager-acceptance.md)
 and its [combined core/UI check](MANUAL-CREATION-INTEGRATION.md) is now in
-independent review, alongside the completed adapter corrections.
+independent review. [Adapter corrections](evidence/adapter-rehearsal-manager-acceptance.md)
+have passed bounded acceptance; captured composer recognition still denies live paste.
 
 The [global implementation plan](IMPLEMENTATION-PLAN.md) is the entry point and the authority for scope, dependencies and delivery gates. Module plans expand it; they do not silently override shared contracts.
 

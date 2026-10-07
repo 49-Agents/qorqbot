@@ -10,11 +10,11 @@ Status: global plan, updated 2026-10-08. The reviewed core primitive package is
 merged in PR #1; [BUILD-EXECUTION.md](BUILD-EXECUTION.md) records exact bounded
 acceptance. No deployment or complete system gate has been accepted.
 
-D37's [inbox ownership](INBOX-OWNERSHIP.md) and
-[persistent recorded shell](RECORDED-SHELL.md) increments have passed bounded
-acceptance; [adapter corrections](ADAPTER-REHEARSAL-FIXES.md) and the
-[paired creation integration](MANUAL-CREATION-INTEGRATION.md) are in independent
-review. Only ownership changes host schema/application assembly. Connecting
+D37's [inbox ownership](INBOX-OWNERSHIP.md),
+[persistent recorded shell](RECORDED-SHELL.md) and
+[adapter corrections](ADAPTER-REHEARSAL-FIXES.md) increments have passed bounded
+acceptance. The [paired creation integration](MANUAL-CREATION-INTEGRATION.md)
+remains in independent review. Only ownership changes host schema/application assembly. Connecting
 startup hooks, recorded shells, Terminal UI, delivery and native capture remains
 the following runtime integration; accepted components alone do not prove it.
 

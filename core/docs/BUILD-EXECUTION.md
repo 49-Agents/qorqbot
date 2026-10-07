@@ -11,11 +11,13 @@ landing them together. Native rehearsal
 corrections passed [Manager acceptance](evidence/native-rehearsal-manager-acceptance.md).
 Its product observations are not a completed runtime.
 
-D37's independent [inbox ownership](INBOX-OWNERSHIP.md) and
-[recorded shell](RECORDED-SHELL.md) increments are accepted. The
-[adapter corrections](ADAPTER-REHEARSAL-FIXES.md) revision `9737e2a` is in fresh
-Astra MAX review after the final manifest-write race correction. The paired
-creation integration review runs independently. These completed interfaces feed
+D37's independent [inbox ownership](INBOX-OWNERSHIP.md),
+[recorded shell](RECORDED-SHELL.md) and
+[adapter corrections](ADAPTER-REHEARSAL-FIXES.md) increments are accepted. Adapter
+revision `9737e2a` passed fresh Astra MAX review and
+[Manager checks](evidence/adapter-rehearsal-manager-acceptance.md), including the
+final manifest-write race correction. The paired creation integration review
+runs independently. These completed interfaces feed
 one explicitly owned runtime integration, followed by the actual Terminal UI
 and onbash flow check; the existing ten-actor cap remains.
 No automatic CLI orchestration or context-packet work is authorized by old plans.
@@ -75,6 +77,7 @@ None of these assignments declares VM/native/browser control complete.
 
 | Assignment | Accepted revision | Independent review and Manager evidence | Remaining work |
 | --- | --- | --- | --- |
+| Native config preservation and captured composers | `9737e2a` | Fresh Astra MAX review passed 32 source and five installed checks plus generated-mode race and original-fixture diagnostics. Manager matched 56 package files, passed two installed preservation/composer checks and reproduced rejection of the original final-write race. [Acceptance](evidence/adapter-rehearsal-manager-acceptance.md). | Offline compatibility only; `native_verified` and `permits_paste` remain false. Startup association, live input and native ingestion still require integration. |
 | Persistent recorded shell and human attachment | `395d831` | Fresh Astra MAX review passed seven source and two installed checks, including actual recorder import provenance. Manager inspected the implementation, matched 59 package files and passed two installed process-restart/capture and uncertain-input/recorder-failure checks. [Acceptance](evidence/recorded-shell-manager-acceptance.md). | Host activation, startup/native association, Terminal transport/UI, Chat delivery, native ingestion, VM/browser and service-lifetime integration. |
 | Identity-only creation and immutable historical replay | `8d2039f` | Fresh Astra MAX review of the corrected flow found no defects. Manager verified 56 installed package files and passed the formerly failing timing scenario against the real server worker. [Scoped acceptance](evidence/manual-creation-manager-acceptance.md). | Combined schema-6 core and actual compiled UI acceptance before landing; native Terminal/Chat integration remains separate. |
 | Local onbash inbox ownership | `1af5f85` | Fresh Astra MAX review found no in-scope defects; twelve runtime and three inventory/schema checks plus an installed real-child flow passed. Manager verified 61 package files and passed four installed ownership/recovery checks. [Acceptance](evidence/inbox-ownership-manager-acceptance.md). | Native hook/process association, shell composition, delivery, assistant capture, Terminal UI and VM/browser integration. `input_ready` remains false. |
