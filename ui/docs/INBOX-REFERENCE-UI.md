@@ -2,6 +2,10 @@
 
 D53 is frozen in [core's plan](https://github.com/qorqutbot/qorqut-core/blob/9685beefaa0ccbd72fdd4eee46d1e49eac9270dc/docs/INBOX-REFERENCE-VIEW.md).
 
+The UI and core candidates passed [Manager review and the paired response check](https://github.com/qorqutbot/qorqut-core/blob/main/docs/evidence/inbox-reference-manager-acceptance.md)
+on 2026-10-09. The focused Chrome check used a synthetic API; this adds no
+native-provider or deployment acceptance.
+
 Conversation items may add `inbox_reference: {message_id: UUID, message_entry_id: UUID} | null`.
 Older cores omit it. It is a core-derived read view; UI must not infer it by
 parsing text, joining messages or interpreting delivery attempts.
