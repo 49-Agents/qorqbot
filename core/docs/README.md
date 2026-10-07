@@ -13,6 +13,7 @@ The agreed repositories are `qorqut-core` (backend/configuration/coordination), 
 | [First agent-management increment](AGENT-REGISTRY.md) | Concrete identity/onbash, directory/persona seeding, status and five-operation contract; explicit runtime dependency |
 | [Durable chat and transcript files](CHAT-IMPLEMENTATION.md) | Message/inbox/handling operations, conversation cursors and automatic dated publication using existing file receipts |
 | [Console server](CONSOLE-SERVER.md) | Headless job processing, receipt recovery, browser sessions and optional same-origin static UI |
+| [Chat/server integration](CHAT-SERVER-INTEGRATION.md) | Combined real-server dated publication and restart recovery, without manual queue pumping or an open UI |
 | [Live recorder observation](RECORDER-PROBE.md) | Bounded local query of the actual capture loop; separate from native/provider readiness |
 | [Durable host transcript intake](HOST-ARCHIVE.md) | Immutable host chunk receipts, fsync-before-ACK, source lineage, conflicts and restore holds |
 | [Native prefix verification](NATIVE-PREFIX.md) | Read-only receipt pages and bounded verification of an open file after local payload reclamation; prerequisite to native-reader composition |

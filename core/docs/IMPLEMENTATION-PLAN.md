@@ -241,6 +241,9 @@ headless job execution/browser sessions, and the separately built minimal UI
 proceed in parallel. This does not certify native replies or live VM/browser
 control. The UI's current supported operations and truthful dependency states
 must follow core discovery, then expand as those runtime integrations land.
+The reviewed core pieces now follow
+[CHAT-SERVER-INTEGRATION.md](CHAT-SERVER-INTEGRATION.md) to prove automatic
+headless publication and receipt recovery before combined main acceptance.
 
 Each module plan contains its own implementation sequence, interfaces, extraction decision, failure behavior and definition of done. Each change should land as a coherent reviewable package:
 

@@ -1,9 +1,13 @@
 # Managed implementation and review
 
 Manager decision, 2026-10-07. The owner authorized implementation through ACLA,
-up to ten concurrent Astra MAX actors, no native self-review, and a separate
-Astra MAX reviewer after each completed assignment. This supersedes local Sonnet
-defaults for this run. The owner subsequently granted standing authorization on
+up to ten concurrent actors, no native self-review, and a separate reviewer after
+each completed assignment. Initial assignments used the owner's Astra MAX
+override. On 2026-10-08 the owner supplied replacement launch instructions:
+new Workers use Claude Code Sonnet 5.5 at xhigh effort for general work and
+medium effort for UI work; existing Workers retain their saved model/backend/
+effort. Self-review remains disabled. Historical Astra reviews below retain
+their actual provenance. The owner previously granted standing authorization on
 2026-10-07 to merge and push anything related to this project across all three
 repositories. Manager can land reviewed work without asking again. Deployment
 and the open VM choice are unchanged; individual worker handoffs still control
@@ -23,16 +27,18 @@ host migration 5 and application assembly. The server builder owns transport
 and job-runner helpers without editing that schema; UI owns its repository.
 All three use the frozen operation/session contracts and receive separate
 fresh reviews. Native prefix and console hosting have passed their bounded
-reviews and Manager checks. The initial UI and chat-domain reviews found
-recoverability defects; their builders are receiving targeted corrections.
-Integrated headless publication and actual-browser UI tests follow acceptance
-of those revisions and their combination. None of these assignments declares
-VM/native/browser control complete.
+reviews and Manager checks. The corrected chat domain has also passed independent
+review and Manager checks. Its combination with console hosting remains on the
+coordination branch pending [running-server verification](CHAT-SERVER-INTEGRATION.md).
+UI review found a further uncertainty-retention defect; its correction remains
+pending. Actual-browser UI/backend testing follows acceptance of both pieces.
+None of these assignments declares VM/native/browser control complete.
 
 ## Accepted bounded results
 
 | Assignment | Accepted revision | Independent review and Manager evidence | Remaining work |
 | --- | --- | --- | --- |
+| Durable messages and dated conversation files | [`5a79f48`](https://github.com/qorqutbot/qorqut-core/blob/5a79f480b448c1eb3d4172e6e83947146015283d/docs/evidence/chat-domain-r1.md) | Fresh Astra MAX review passed 22 source and four installed checks without remaining findings. Manager reviewed the production/schema change, matched 142 tracked and 50 installed Python files plus 29 runtime pins, passed two installed message/publication checks and replayed both corrected failure diagnostics. [Manager acceptance](evidence/chat-domain-manager-acceptance.md). | Combined running-server publication and real UI checks; native assistant capture/delivery, browser/VM lifecycle, export/restore and system gates remain pending. |
 | Headless jobs, console sessions and optional static UI | [`b51f309`](https://github.com/qorqutbot/qorqut-core/blob/b51f3099c2cb4ed6690667882cd1bcad63cf1675/docs/evidence/console-server-r1.md) | Fresh Astra MAX review found no defects; 28 final-source tests, five installed checks and a real file-effect/mutation cancellation diagnostic passed. Manager inspected the complete production change, verified 133 tracked files, 46 installed Python files, 31 pins and the clean/pushed SHA, then passed two installed static-serving/startup-cancellation checks. [Manager acceptance](evidence/console-server-manager-acceptance.md). | Actual chat publisher and UI integration, native collection/delivery/replies, browser/VM runtime and system gates remain pending. No deployment or whole G0–G6 acceptance. |
 | Native receipt and file-prefix verification | [`c4ac16d`](https://github.com/qorqutbot/qorqut-core/blob/c4ac16d6fe1963774026f43a74b5fa491b5c5f89/docs/evidence/native-prefix-r1.md) | Fresh Astra MAX review passed nine prefix and nine existing spool source tests plus nine installed prefix tests. Manager checked the complete production diff, exact clean/pushed scope, unchanged prior spool AST and independent wheel bytes, then passed three separate reclaim/concurrency/mutation checks. [Manager acceptance](evidence/native-prefix-manager-acceptance.md). | Read-only comparison only. Native ownership, reader/checkpoints, collection, normalization and runtime/system gates remain pending. |
 | Core durable application foundation | [`ef18e59`](https://github.com/qorqutbot/qorqut-core/blob/ef18e59e2df372963f5fba222156fe6b6e50195f/docs/evidence/foundation-r1.md) | Fresh Astra MAX review found no in-scope defects; its 26-test suite passed from source and the installed wheel. Manager inspected application, transaction, event, job and file boundaries; independently passed six focused durability/concurrency checks and both installed-package diagnostics, including a newer schema present only in WAL. Clean/pushed SHA and all four upstream source hashes verified. | Domain operations, transports, managed resources, restore/import integration and real archive acceptance remain pending. Local process/fault checks are not hardware power-loss certification. No whole-module or G0–G6 acceptance. |
