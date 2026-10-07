@@ -744,8 +744,9 @@ test('synthetic runtime inspector validates session/native observations, fences 
   await page.route(runtimeURL, route => route.fulfill(transientRefusal), { times: 1 });
   await read();
   await expect(session.getByRole('alert')).toHaveText('Session information unavailable. Retry to refresh.');
-  await expect(session.getByText('Claude', { exact: true })).toHaveCount(0);
-  await expect(native.getByText('No native history observation available.')).toBeVisible();
+  await expect(session.getByText('Last reported (stale): Session connected.')).toBeVisible();
+  await expect(session.getByText('Claude', { exact: true })).toBeVisible();
+  await expect(native.getByText('Last-reported observations · stale')).toBeVisible();
   // The Retry button replaces an automatic retry already in flight.
   const automatic = api.hold('runtime_get');
   await poll(); await automatic.seen;
@@ -821,6 +822,153 @@ test('synthetic runtime inspector validates session/native observations, fences 
   await expect(page.getByLabel('Console token')).toBeVisible();
   await expect(session).toHaveCount(0);
   expect(calls(api, 'runtime_get').every(c => Object.keys(c.args).join() === 'agent_id')).toBe(true);
+});
+
+test('synthetic read recovery retains a live Terminal and qualified runtime observations through transient failures', async ({ page, api }, testInfo) => {
+  const terminal = new SyntheticTerminal(api, alpha);
+  await terminal.route(page);
+  api.operations.push('runtime_get');
+  const stamp = '2026-10-08T12:00:00Z';
+  api.runtimes.set(alpha, { agent_id: alpha, status: 'connected', observed_at: stamp, input_ready: false,
+    current_owner: { owner_id: randomUUID(), run_id: randomUUID(), run_generation: 1,
+      conversation_id: api.agents[0].conversation_id, terminal_id: terminal.view.terminal_id!, recovery_epoch: api.epoch,
+      environment_generation: 1, boot_id: randomUUID(), provider: 'codex', cli_version: 'synthetic-version',
+      native_session_id: randomUUID(), connected_at: stamp },
+    native_setup: { state: 'ready', reason: 'configuration_installed', observed_at: stamp },
+    native_capture: { state: 'collecting', reason: 'active', observed_at: stamp, source_count: 2, pending_archive_bytes: 10, pending_parse_bytes: 20 } });
+  await signIn(page, api);
+  await message(page).fill('Read recovery draft');
+  await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+  await page.getByRole('button', { name: 'Take control', exact: true }).click();
+  const pane = page.getByLabel('Terminal view'), session = page.getByRole('region', { name: 'Session', exact: true });
+  const native = page.getByRole('region', { name: 'Native history', exact: true });
+  const warning = pane.getByRole('alert').filter({ hasText: 'Terminal observation unavailable.' });
+  const input = page.getByRole('textbox', { name: 'Terminal input', exact: true });
+  await expect(pane.getByRole('button', { name: 'Release control', exact: true })).toBeVisible();
+  const peer = terminal.current, epoch = terminal.view.control!.epoch;
+  const oldControl = structuredClone(terminal.view.control);
+  terminal.output('Output before read failure\r\n');
+  await expect(page.locator('.xterm-screen')).toContainText('Output before read failure');
+  for (const kind of ['unavailable', 'network', '503'] as const) {
+    const before = terminal.inputs.length;
+    terminal.holdNextInput = true;
+    await input.press('a');
+    await expect.poll(() => terminal.inputs.length).toBe(before + 1);
+    const pending = terminal.inputs.at(-1)!;
+    await input.press('b');
+    for (const operation of ['terminal_get', 'runtime_get']) {
+      await page.route(`**/api/v1/operations/${operation}`, route => kind === 'network' ? route.abort('connectionfailed')
+        : route.fulfill(kind === '503' ? transientRefusal : { status: 503, json: { ok: false, error: { code: 'unavailable', message: 'Synthetic unavailable observation' } } }), { times: 1 });
+    }
+    // The next normal poll is held so socket receipts cannot conceal the HTTP failure.
+    const terminalRead = api.hold('terminal_get'), runtimeRead = api.hold('runtime_get');
+    try {
+      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await expect(warning).toBeVisible();
+      await expect(session.getByRole('alert')).toHaveText('Session information unavailable. Retry to refresh.');
+      await expect(session.getByText('Last reported (stale): Session connected.')).toBeVisible();
+      await expect(session.getByText('synthetic-version', { exact: true })).toBeVisible();
+      await expect(session.locator('time').first()).toHaveAttribute('datetime', stamp);
+      await expect(native.getByText('Collecting · Collection active')).toBeVisible();
+      await expect(native.getByText('Last-reported observations · stale')).toBeVisible();
+      await expect(pane.getByText('You have control', { exact: true })).toBeVisible();
+      expect(terminal.inputs).toHaveLength(before + 1);
+      // Live state and frame receipts still apply; neither clears the read warning.
+      terminal.state({ ...terminal.view, control: oldControl });
+      terminal.autoReceipt = true; terminal.receipt(pending);
+      await expect.poll(() => terminal.inputs.length).toBe(before + 2);
+      expect(terminal.inputs.slice(before)).toEqual([
+        pending, { type: 'input', data: Buffer.from('b').toString('base64'), epoch, sequence: pending.sequence + 1 },
+      ]);
+      terminal.output(`Output during ${kind}\r\n`);
+      await expect(page.locator('.xterm-screen')).toContainText(`Output during ${kind}`);
+      await expect(page.locator('.xterm-screen')).toContainText('Output before read failure');
+      await Promise.all([terminalRead.seen, runtimeRead.seen]);
+      await expect(warning).toBeVisible();
+      await expect(session.getByText('Last reported (stale): Session connected.')).toBeVisible();
+      await expect(native.getByText('Last-reported observations · stale · refreshing…')).toBeVisible();
+      expect(terminal.current).toBe(peer); expect(peer.closed).toBe(false);
+      expect(terminal.connections).toHaveLength(1);
+      expect(peer.messages.filter(m => m.type === 'control')).toHaveLength(1);
+      if (kind === 'unavailable') await page.screenshot({ path: testInfo.outputPath('read-recovery-live-warning.png'), fullPage: true });
+    } finally { terminalRead.release(); runtimeRead.release(); }
+    await expect(warning).toHaveCount(0);
+    await expect(session.getByRole('alert')).toHaveCount(0);
+    await expect(session.getByText('Last reported: Session connected.')).toBeVisible();
+    await expect(native.getByText('Last-reported observations', { exact: true })).toBeVisible();
+    expect(terminal.inputs).toHaveLength(before + 2);
+  }
+  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  await expect(message(page)).toHaveValue('Read recovery draft');
+  await expect.poll(() => peer.closed).toBe(true);
+  expect(calls(api, 'messages_send')).toHaveLength(0);
+});
+
+test('synthetic read recovery requires a successful read to open or reconnect and tears down invalid observations', async ({ page, api }) => {
+  const terminal = new SyntheticTerminal(api, alpha);
+  await terminal.route(page);
+  await signIn(page, api);
+  await expect(page.getByRole('complementary').getByText('Terminal available.', { exact: true })).toBeVisible();
+  const url = '**/api/v1/operations/terminal_get';
+  let failing = true, refusals = 0;
+  await page.route(url, route => {
+    if (!failing) return route.continue();
+    refusals++; return route.fulfill(transientRefusal);
+  });
+  const poll = () => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await poll();
+  await expect(page.getByRole('complementary').getByRole('alert')).toHaveText('Terminal observation unavailable. Retry to refresh.');
+  await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+  const pane = page.getByLabel('Terminal view');
+  await expect(pane.getByText('Last reported: Terminal available.', { exact: true })).toBeVisible();
+  await expect.poll(() => refusals).toBeGreaterThan(1);
+  expect(terminal.connections).toHaveLength(0);
+  await expect(page.getByRole('textbox', { name: 'Terminal input', exact: true })).toHaveCount(0);
+  failing = false;
+  const fresh = api.hold('terminal_get');
+  try {
+    await pane.getByRole('button', { name: 'Retry terminal status' }).click(); await fresh.seen;
+    expect(terminal.connections).toHaveLength(0);
+    await expect(pane.getByRole('alert')).toHaveText('Terminal observation unavailable. Retry to refresh.');
+  } finally { fresh.release(); }
+  await expect(pane.getByText('View only', { exact: true })).toBeVisible();
+  expect(terminal.connections).toHaveLength(1); expect(terminal.current.messages).toEqual([]);
+  await pane.getByRole('button', { name: 'Take control', exact: true }).click();
+  await expect(pane.getByRole('button', { name: 'Release control', exact: true })).toBeVisible();
+  terminal.holdNextInput = true;
+  await page.getByRole('textbox', { name: 'Terminal input', exact: true }).press('q');
+  await expect.poll(() => terminal.inputs.length).toBe(1);
+  await page.getByRole('textbox', { name: 'Terminal input', exact: true }).press('r');
+  const first = terminal.current;
+  first.route.close();
+  await expect(pane.getByRole('button', { name: 'Reconnect terminal' })).toBeVisible();
+  failing = true;
+  await pane.getByRole('button', { name: 'Reconnect terminal' }).click();
+  await expect(pane.getByRole('alert').filter({ hasText: 'Terminal observation unavailable.' })).toBeVisible();
+  expect(terminal.connections).toHaveLength(1);
+  await expect(pane.getByText('Disconnected', { exact: true })).toBeVisible();
+  failing = false; terminal.autoReceipt = true;
+  await pane.getByRole('button', { name: 'Reconnect terminal' }).click();
+  await expect(pane.getByText('View only', { exact: true })).toBeVisible();
+  expect(terminal.connections).toHaveLength(2); expect(terminal.current.messages).toEqual([]);
+  expect(first.messages.filter(m => m.type === 'input')).toHaveLength(1);
+
+  const valid = structuredClone(terminal.view);
+  for (const data of [
+    { ...valid, status: 'unavailable' }, { ...valid, status: 'stopped' },
+    { ...valid, terminal_id: randomUUID() }, { ...valid, dimensions: null },
+    { ...valid, control: { ...valid.control!, viewer_id: randomUUID() } },
+  ]) {
+    const peer = terminal.current, count = terminal.connections.length;
+    await page.route(url, route => route.fulfill({ json: { ok: true, outcome: 'completed', data } }), { times: 1 });
+    await poll();
+    await expect.poll(() => peer.closed).toBe(true);
+    await expect(pane.getByRole('button', { name: 'Reconnect terminal' })).toBeVisible();
+    expect(terminal.connections).toHaveLength(count); expect(peer.messages).toEqual([]);
+    await pane.getByRole('button', { name: 'Reconnect terminal' }).click();
+    await expect(pane.getByText('View only', { exact: true })).toBeVisible();
+    expect(terminal.connections).toHaveLength(count + 1); expect(terminal.current.messages).toEqual([]);
+  }
 });
 
 test('synthetic Terminal views retain Chat drafts/history, report availability and scroll native grids on desktop/mobile', async ({ page, api }, testInfo) => {

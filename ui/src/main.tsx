@@ -201,7 +201,7 @@ function RuntimeSummary({ id }: { id: string }) {
     <section aria-label="Session"><h3>Session</h3>
       {!supported ? <p className="quiet">Session information is unavailable on this server.</p> : <>
         {view ? <>
-          <p>Last reported: {sessionStatus[view.status]}</p>
+          <p>Last reported{observation?.error ? ' (stale)' : ''}: {sessionStatus[view.status]}</p>
           <p className="quiet">Observed: <ObservationTime value={view.observed_at} /></p>
           {owner && <>
             <dl><dt>Reported provider</dt><dd>{owner.provider === 'claude' ? 'Claude' : 'Codex'}</dd><dt>CLI version</dt><dd>{owner.cli_version}</dd><dt>Connected at</dt><dd><ObservationTime value={owner.connected_at} /></dd></dl>
@@ -209,14 +209,15 @@ function RuntimeSummary({ id }: { id: string }) {
             <details className="runtime-details"><summary>Session details</summary><dl className="identity-details"><dt>Native session ID</dt><dd>{owner.native_session_id}</dd><dt>Run ID</dt><dd>{owner.run_id}</dd><dt>Run generation</dt><dd>{owner.run_generation}</dd></dl></details>
           </>}
           {view.status === 'disconnected' && <p className="quiet">Start and manage the CLI manually in Terminal.</p>}
-        </> : observation?.error ? <p role="alert">{observation.error}</p> : !observation?.loading && <p className="quiet">No session observation available.</p>}
+        </> : !observation?.error && !observation?.loading && <p className="quiet">No session observation available.</p>}
+        {observation?.error && <p role="alert">{observation.error}</p>}
         {observation?.loading && <p className="quiet" role="status">{view ? 'Refreshing last-reported session observation…' : 'Loading session observation…'}</p>}
         {observation?.error && <button type="button" onClick={() => void store.refreshRuntime(true)}>Retry session information</button>}
       </>}
     </section>
     <section aria-label="Native history"><h3>Native history</h3>
       {!supported ? <p className="quiet">Native history information is unavailable on this server.</p> : view ? <>
-        <p className="quiet">Last-reported observations{observation?.loading ? ' · refreshing…' : ''}</p>
+        <p className="quiet">Last-reported observations{observation?.error ? ' · stale' : ''}{observation?.loading ? ' · refreshing…' : ''}</p>
         {setup ? <dl><dt>Setup</dt><dd>{nativeStates[setup.state]} · {setupReasons[setup.reason]}</dd><dt>Setup observed</dt><dd><ObservationTime value={setup.observed_at} /></dd></dl> : <p className="quiet">No setup observation available.</p>}
         {capture ? <dl><dt>Collection</dt><dd>{nativeStates[capture.state]} · {collectionReasons[capture.reason]}</dd><dt>Collection observed</dt><dd><ObservationTime value={capture.observed_at} /></dd><dt>Sources</dt><dd>{capture.source_count.toLocaleString()}</dd><dt>Bytes awaiting archival</dt><dd>{capture.pending_archive_bytes.toLocaleString()}</dd><dt>Bytes awaiting parsing</dt><dd>{capture.pending_parse_bytes.toLocaleString()}</dd></dl> : <p className="quiet">No collection observation available.</p>}
       </> : <p className="quiet">{observation?.loading ? 'Loading native history observations…' : 'No native history observation available.'}</p>}

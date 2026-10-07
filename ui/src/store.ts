@@ -18,6 +18,8 @@ export type Scroll = { top: number; bottom: boolean };
 export type TerminalObservation = { view: TerminalView | null; loading: boolean; error: string };
 export type RuntimeObservation = { view: RuntimeView | null; loading: boolean; error: string };
 const failure = (e: unknown) => e instanceof ApiError ? e : new ApiError('unavailable', 'Request failed.');
+const transientRead = (e: unknown) => e instanceof ApiError && (e.code === 'unavailable' || e.code === 'connection_lost'
+  || (e.code === 'transport_refused' && e.status >= 500 && e.status < 600));
 const newChat = (): Chat => ({ items: [], epoch: '', hasOlder: false, loading: false, earlier: false, publication: null, error: '', refreshSeq: 0, change: 'initial' });
 
 export class Store {
@@ -324,10 +326,12 @@ export class Store {
       this.schedule(Math.min(30000, 2000 * 2 ** this.pollFailures));
     }
   }
-  acceptTerminal(view: TerminalView) {
+  acceptTerminal(view: TerminalView, fromRead = false) {
     if (this.phase !== 'ready' || view.agent_id !== this.selected || view.recovery_epoch !== this.epoch) return;
     const prior = this.terminals.get(view.agent_id);
-    this.terminals.set(view.agent_id, { view: mergeTerminal(prior?.view, view), loading: false, error: '' });
+    // Socket observations remain valid, but cannot certify a failed HTTP read.
+    this.terminals.set(view.agent_id, { view: mergeTerminal(prior?.view, view),
+      loading: !fromRead && !!prior?.loading, error: fromRead ? '' : prior?.error || '' });
     this.emit();
   }
   async refreshRuntime(force = false) {
@@ -353,7 +357,8 @@ export class Store {
     } catch (e) {
       if (!valid()) return;
       const err = failure(e);
-      this.runtimes.set(id, { view: null, loading: false, error: 'Session information unavailable. Retry to refresh.' });
+      this.runtimes.set(id, { view: transientRead(e) ? prior?.view || null : null,
+        loading: false, error: 'Session information unavailable. Retry to refresh.' });
       if (err.status === 401) this.expire();
       else if (err.code === 'target_changed') await this.recover(gen);
     } finally {
@@ -372,18 +377,19 @@ export class Store {
     const controller = this.controller(); this.terminalRead = controller;
     const gen = this.generation, selection = this.selectionVersion;
     const prior = this.terminals.get(id);
-    this.terminals.set(id, { view: prior?.view || null, loading: true, error: '' }); this.emit();
+    this.terminals.set(id, { view: prior?.view || null, loading: true, error: prior?.error || '' }); this.emit();
     const valid = () => gen === this.generation && selection === this.selectionVersion && id === this.selected && !controller.signal.aborted;
     try {
       const view = await operation<unknown>('terminal_get', { agent_id: id }, controller.signal);
       if (!valid()) return;
       if (!terminalView(view) || view.agent_id !== id) throw new ApiError('invalid_response', 'Terminal observation could not be verified.');
       if (view.recovery_epoch !== this.epoch) throw new ApiError('target_changed', 'Server recovery epoch changed.');
-      this.acceptTerminal(view);
+      this.acceptTerminal(view, true);
     } catch (e) {
       if (!valid()) return;
       const err = failure(e);
-      this.terminals.set(id, { view: null, loading: false, error: 'Terminal observation unavailable. Retry to refresh.' });
+      this.terminals.set(id, { view: transientRead(e) ? this.terminals.get(id)?.view || null : null,
+        loading: false, error: 'Terminal observation unavailable. Retry to refresh.' });
       if (err.status === 401) this.expire();
       else if (err.code === 'target_changed') await this.recover(gen);
     } finally {
