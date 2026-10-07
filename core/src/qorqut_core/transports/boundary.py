@@ -18,7 +18,7 @@ SECURITY_HEADERS = {
     b"cache-control": b"no-store",
     b"x-content-type-options": b"nosniff",
     b"content-security-policy": (
-        b"default-src 'self'; script-src 'self'; style-src 'self'; "
+        b"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
         b"img-src 'self' data:; connect-src 'self'; object-src 'none'; "
         b"base-uri 'none'; frame-ancestors 'self'; form-action 'self'"),
 }
@@ -65,6 +65,23 @@ class Boundary:
             return failure(403, "invalid_origin", "Origin is not allowed")
         if b"x-qorqut-actor" in headers:
             return failure(400, "invalid_request", "Caller identity overrides are not accepted")
+        if scope["type"] == "websocket":
+            if not origin:
+                return failure(403, "invalid_origin", "Origin is required")
+            if b"authorization" in headers:
+                return failure(401, "unauthenticated", "Browser session required")
+            try:
+                cookie = session_cookie(headers.get(b"cookie", []))
+            except ValueError:
+                return failure(400, "invalid_request", "Ambiguous or invalid cookies")
+            actor = self.sessions.actor(cookie)
+            if actor is None:
+                return failure(401, "unauthenticated", "Browser session required")
+            if scope.get("query_string"):
+                return failure(400, "invalid_request", "Query parameters are not supported")
+            scope["qorqut.session_cookie"] = cookie
+            scope["qorqut.invocation"] = Invocation(actor_id=actor)
+            return None
         path = scope["path"]
         protected = path == "/api" or path.startswith("/api/") or path == "/mcp" or path.startswith("/mcp/")
         if protected:
@@ -115,6 +132,12 @@ class Boundary:
         return None
 
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "websocket":
+            if self.admission.closing or self._check(scope) is not None:
+                await send({"type": "websocket.close", "code": 1008})
+                return
+            await self.app(scope, receive, send)
+            return
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return

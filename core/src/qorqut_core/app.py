@@ -131,6 +131,7 @@ class Application:
         from .conversation.publication import Publisher
         from .messaging.service import Messaging
         from .runtime import SessionOwners
+        from .runtime.terminals import Terminals
         from .transcripts.archive import Archive
 
         self.settings, self.db = settings, database
@@ -146,6 +147,7 @@ class Application:
         self.workspaces.jobs = self.jobs
         self.agents = Agents(self)
         self.session_owners = SessionOwners(self)
+        self.terminals = Terminals(self)
         operations = (
             Operation("config_get", ConfigGet, False, self._config_get, ConfigView),
             Operation("config_update", ConfigUpdate, True, self._config_update, ConfigView),
@@ -155,6 +157,7 @@ class Application:
             *self.messaging.operations(),
             *self.conversations.operations(),
             *self.session_owners.operations(),
+            *self.terminals.operations(),
         )
         self.registry = MappingProxyType({op.name: op for op in operations})
 
@@ -228,6 +231,7 @@ class Application:
             raise
 
     def close(self):
+        self.terminals.close()
         self.db.lock.close()
 
     def invoke(self, name: str, context: Invocation, arguments: dict | None = None) -> OperationResult:

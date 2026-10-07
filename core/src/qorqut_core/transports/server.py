@@ -3,21 +3,28 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
+from uuid import UUID
 
+import anyio
 import uvicorn
+from pydantic import ValidationError
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.responses import JSONResponse
-from starlette.routing import Route
+from starlette.routing import Route, WebSocketRoute
+from starlette.websockets import WebSocketDisconnect
 
 from ..app import Application
 from ..config import InstallationSettings
 from ..contracts import CoreError, Invocation, OperationResult
 from ..runtime import SessionMonitor
+from ..runtime.terminal_models import CLIENT_MESSAGE
+from ..runner.models import RunnerError
 from ..storage.worker import JobWorker
 from .boundary import Admission, Boundary, failure
 from .configuration import Credentials, InputError, json_object
@@ -27,6 +34,8 @@ from .sessions import COOKIE_NAME, SESSION_SECONDS, Sessions
 from .static import StaticUI
 
 MAX_CALLS = 4
+MAX_TERMINAL_TEXT = 96 * 1024
+TERMINAL_SEND_TIMEOUT = 5.0
 _STATUS = {
     "invalid_argument": 400, "not_found": 404,
     "revision_conflict": 409, "idempotency_conflict": 409, "invalid_transition": 409,
@@ -71,12 +80,182 @@ class Dispatcher:
         await _settle_sync(self.pool.shutdown)
 
 
+async def _join_tasks(tasks):
+    """Join cancelled async owners before closing their admitted effects/fds."""
+    future = asyncio.gather(*tasks, return_exceptions=True)
+    cancelled = False
+    with anyio.CancelScope(shield=True):
+        while True:
+            try:
+                await asyncio.shield(future)
+                break
+            except asyncio.CancelledError:
+                cancelled = True
+    if cancelled:
+        raise asyncio.CancelledError
+
+
+class TerminalSockets:
+    """Cookie-bound protocol framing; all terminal admission/effects are core's."""
+    def __init__(self, sessions, admission):
+        self.sessions, self.admission = sessions, admission
+        self.tasks = set()
+
+    async def close(self):
+        tasks = tuple(self.tasks)
+        for task in tasks:
+            task.cancel()
+        await _join_tasks(tasks)
+
+    async def endpoint(self, websocket):
+        task = asyncio.current_task()
+        self.tasks.add(task)
+        stream = None
+        tasks = []
+        actor = websocket.scope["qorqut.invocation"].actor_id
+        cookie = websocket.scope["qorqut.session_cookie"]
+        replies = asyncio.Queue(maxsize=1)
+
+        def authenticated():
+            if self.admission.closing or self.sessions.actor(cookie) != actor:
+                raise WebSocketDisconnect(1008)
+
+        async def send(message=None, data=None):
+            async with asyncio.timeout(TERMINAL_SEND_TIMEOUT):
+                if data is not None:
+                    await websocket.send_bytes(data)
+                else:
+                    await websocket.send_json(message)
+
+        async def reply(message):
+            delivered = asyncio.get_running_loop().create_future()
+            await replies.put((message, delivered))
+            await delivered  # No next frame is admitted behind a stalled reply.
+
+        def error(code, related=None, sequence=None):
+            return {"type": "error", "code": code, "message": "Terminal request was not confirmed",
+                    "related_type": related, "sequence": sequence}
+
+        async def receive():
+            while True:
+                message = await websocket.receive()
+                authenticated()  # Also applies to malformed/binary frames.
+                if message["type"] == "websocket.disconnect":
+                    return
+                related, sequence = None, None
+                try:
+                    text = message.get("text")
+                    if text is None or len(text.encode("utf-8")) > MAX_TERMINAL_TEXT:
+                        raise InputError("Invalid Terminal frame")
+                    body = json_object(text.encode("utf-8"))
+                    related = body.get("type") if body.get("type") in ("control", "input", "resize") else None
+                    sequence = body.get("sequence")
+                    if type(sequence) is not int or not 1 <= sequence <= 2**63 - 1:
+                        sequence = None
+                    frame = CLIENT_MESSAGE.validate_python(body)
+                except (InputError, ValidationError, UnicodeError):
+                    await reply(error("invalid_argument", related, sequence))
+                    continue
+                authenticated()
+                try:
+                    if frame.type == "control":
+                        result = await _settle_sync(lambda: stream.control(frame.action, frame.expected_epoch))
+                        result = {"type": "control", "control": result.model_dump(mode="json")}
+                    else:
+                        if frame.type == "input":
+                            result = await _settle_sync(lambda: stream.input(base64.b64decode(frame.data, validate=True),
+                                                                           epoch=frame.epoch, sequence=frame.sequence))
+                        else:
+                            result = await _settle_sync(lambda: stream.resize(frame.columns, frame.rows,
+                                                                             epoch=frame.epoch, sequence=frame.sequence))
+                        result = {"type": "frame", "kind": frame.type, **result.model_dump(mode="json")}
+                    await reply(result)
+                except (CoreError, RunnerError) as exc:
+                    code = str(exc.error.code) if isinstance(exc, CoreError) else exc.code
+                    # Codes are a closed application vocabulary; never expose
+                    # arbitrary exception strings or local target paths.
+                    if code not in _STATUS:
+                        code = "unavailable"
+                    await reply(error(code, related, sequence))
+                    if code in {"target_changed", "not_found"}:
+                        return
+
+        latest = None
+
+        async def watch():
+            nonlocal latest
+            while True:
+                authenticated()
+                latest = await _settle_sync(stream.state)
+                await asyncio.sleep(0.5)
+
+        async def write():
+            await send({"type": "hello", "protocol": 1, "viewer_id": str(stream.viewer_id),
+                        "terminal": stream.initial.model_dump(mode="json")})
+            next_state = 0
+            while True:
+                authenticated()
+                if not replies.empty():
+                    message, delivered = replies.get_nowait()
+                    await send(message)
+                    if not delivered.done():
+                        delivered.set_result(None)
+                now = asyncio.get_running_loop().time()
+                if now >= next_state:
+                    await send({"type": "state", "terminal": latest.model_dump(mode="json")})
+                    next_state = now + 1
+                data, closed = await _settle_sync(stream.read)
+                if data:
+                    await send(data=data)  # Next read waits for this send.
+                elif closed:
+                    return
+                else:
+                    await asyncio.sleep(0.02)
+
+        try:
+            authenticated()
+            agent_id = UUID(websocket.path_params["agent_id"])
+
+            def attach():
+                nonlocal stream
+                stream = websocket.app.state.application.terminals.attach(agent_id, actor)
+
+            # Assignment occurs inside the settled call, so cancellation after
+            # creation cannot lose the owned attachment before finally cleanup.
+            await _settle_sync(attach)
+            authenticated()
+            latest = stream.initial
+            async with asyncio.timeout(TERMINAL_SEND_TIMEOUT):
+                await websocket.accept()
+            tasks = [asyncio.create_task(function()) for function in (receive, watch, write)]
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        except (CoreError, RunnerError, ValueError, OSError, WebSocketDisconnect, TimeoutError):
+            pass
+        finally:
+            for child in tasks:
+                child.cancel()
+            try:
+                await _join_tasks(tasks)
+            finally:
+                try:
+                    if stream is not None:
+                        await _settle_sync(stream.close)
+                finally:
+                    self.tasks.discard(task)
+                    try:
+                        async with asyncio.timeout(TERMINAL_SEND_TIMEOUT):
+                            await websocket.close(code=1008)
+                    except (OSError, RuntimeError, TimeoutError):
+                        pass
+
+
 def create_app(settings: InstallationSettings, credentials: Credentials, ui_root: Path | None = None) -> Starlette:
     """Compose the logging/ASGI boundary; only lifespan startup opens storage."""
     if str(settings.listen_address) != "127.0.0.1":
         raise InputError("This increment requires listen_address 127.0.0.1")
     install_logging_boundary()
     sessions, admission = Sessions(), Admission()
+    terminals = TerminalSockets(sessions, admission)
     ui = StaticUI(ui_root) if ui_root is not None else None
 
     @asynccontextmanager
@@ -111,6 +290,7 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
                 monitor = SessionMonitor(application.session_owners)
                 web.state.session_monitor = monitor
                 await _settle_sync(monitor.start)
+                await _settle_sync(application.terminals.start)
                 try:
                     yield
                 finally:
@@ -119,8 +299,11 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
             admission.closing = True
             sessions.clear()
             try:
-                if dispatcher is not None:
-                    await dispatcher.close()
+                try:
+                    await terminals.close()
+                finally:
+                    if dispatcher is not None:
+                        await dispatcher.close()
             finally:
                 try:
                     if worker is not None:
@@ -194,7 +377,8 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
     async def ready(request):
         result = await request.app.state.dispatcher.invoke("config_get",
             Invocation(actor_id=credentials.readiness_actor_id), {})
-        healthy = result.ok and request.app.state.worker.ready and request.app.state.session_monitor.ready
+        healthy = (result.ok and request.app.state.worker.ready and request.app.state.session_monitor.ready
+                   and request.app.state.application.terminals.ready)
         return JSONResponse({"ready": healthy}, status_code=200 if healthy else 503,
                             headers={"Cache-Control": "no-store"})
 
@@ -224,6 +408,7 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
         Route("/api/v1/session", session, methods=["GET", "POST", "DELETE"]),
         Route("/api/v1/schema", schema, methods=["GET"]),
         Route("/api/v1/operations/{name}", operation, methods=["POST"]),
+        WebSocketRoute("/api/v1/terminal/{agent_id}", terminals.endpoint),
         # Stateless JSON MCP has no server-initiated stream. GET is optional in
         # Streamable HTTP; 405 avoids keeping an unused SSE stream alive forever.
         Route("/mcp", MCPRoute(), methods=["POST", "DELETE"]),
@@ -255,7 +440,8 @@ def serve(settings: InstallationSettings, credentials: Credentials, ui_root: Pat
     server = uvicorn.Server(uvicorn.Config(create_app(settings, credentials, ui_root), host="127.0.0.1",
         port=settings.listen_port, workers=1, reload=False, proxy_headers=False, forwarded_allow_ips=[],
         access_log=False, log_config=log_config, server_header=False, date_header=False,
-        http="h11", ws="none", lifespan="on", loop="asyncio", backlog=64, limit_concurrency=64,
+        http="h11", ws="websockets-sansio", ws_max_size=MAX_TERMINAL_TEXT, ws_per_message_deflate=False,
+        lifespan="on", loop="asyncio", backlog=64, limit_concurrency=64,
         timeout_keep_alive=5, timeout_graceful_shutdown=10))
     try:
         server.run()
