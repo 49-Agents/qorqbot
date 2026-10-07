@@ -115,7 +115,12 @@ accepted simple v1 tradeoff; do not introduce a hash-tree/cache system.
 `transfer(source_id, archive, context, *, max_chunks=16)` registers the saved
 source/run/epoch with the existing Archive, sends exact pending chunks, and ACKs
 only the returned matching durable receipt. Reclaim only acknowledged payloads;
-keep receipt hashes. Interrupted transfer resumes at the saved offsets. This is
+keep receipt hashes. Hold the existing local Archive lifetime/effects guards
+from registration through runner ACK/reclaim/intent settlement. Check the host
+recovery/conflict holds before every cleanup path, including saved ACKs and an
+empty pending page, and require the saved intent recovery epoch to match. A hold
+retains payload/intent with an observable fixed error; host SQL transactions
+stay short. Interrupted transfer resumes at the saved offsets. This is
 the local onbash composition; no new network protocol or VM claim.
 
 ## Native conversation
@@ -212,5 +217,12 @@ The parser and native conversation projection at
 four focused checks, including closed-session history and automatic dated
 publication. See `evidence/native-projection-r1.md`. This accepts the callable
 archive-to-conversation seam and schema 7; normal core scheduling, manual hook
-installation, native capture transfer and the connected CLI workflow still
-need their integration acceptance.
+installation, scheduled native capture transfer and the connected CLI workflow
+still need their integration acceptance.
+
+The native capture/archive-transfer callable at
+`68187794be1fbb2d9f7c6f96546d290055fb3c4d` has passed direct Manager review,
+three owning checks and an independent recovery-retention reproduction. See
+`evidence/native-capture-r1.md`. It preserves bytes and pending intent under
+host recovery/conflict holds. Its automatic scheduling and connection to the
+accepted projection seam are still pending.
