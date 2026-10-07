@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import unittest
 from contextlib import AsyncExitStack
 from uuid import uuid4
@@ -50,6 +51,12 @@ class ChatTransports(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(saved["data"]["message"]["sender_actor_id"], str(fixture.owner.actor_id))
             self.assertIsNone(saved["data"]["message"]["sender_agent_id"])
             filters = {"agent_id": agent["id"]}
+            # The running server publishes the saved entry concurrently. Compare
+            # complete views only after its publication observation has settled.
+            deadline = time.monotonic() + 20
+            while (await http.post("/api/v1/operations/conversation_list", json=filters)).json()["data"]["publication"]["state"] != "current":
+                self.assertLess(time.monotonic(), deadline)
+                await asyncio.sleep(0.05)
             for name in ("messages_list", "conversation_list"):
                 http_result = (await http.post("/api/v1/operations/" + name, json=filters)).json()
                 self.assertEqual(http_result, structured(await agent_sdk.call_tool(name, filters)))

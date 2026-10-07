@@ -74,14 +74,14 @@ class WorkerRecovery(AgentCase):
         self.assertEqual(self.app.jobs.get(job_id)["wait_reason"], "recovery_review")
 
     def fixture_jobs(self, inspector):
-        """Synthetic conversation kind tests the seam only, not M07 publication."""
+        """Synthetic stand-ins for the real conversation kinds test eligibility only, not publication."""
         executed = []
+        synthetic = ("conversation_publish", "message_delivery")
         def execute(claim):
             executed.append(claim.kind)
             return JobResolution(state="completed", progress=JobProgress(phase="synthetic"))
-        handlers = tuple(self.app.jobs.handlers.values()) + tuple(
-            JobHandler(kind, ProbeArgs, True, execute, inspector)
-            for kind in ("conversation_publish", "message_delivery"))
+        handlers = tuple(h for h in self.app.jobs.handlers.values() if h.kind not in synthetic) + tuple(
+            JobHandler(kind, ProbeArgs, True, execute, inspector) for kind in synthetic)
         self.app.jobs = Jobs(self.app.db, handlers)
         ids = []
         def create(tx, args, context, operation_id):

@@ -19,6 +19,9 @@ from qorqut_core.config import InstallationSettings, NewAgentDefaults
 from qorqut_core.contracts import Actor, Invocation
 
 
+FAULT_EXIT = 86  # An owned child's own exit status at its requested fault point.
+
+
 def write_private(path, value):
     path.write_text(value, encoding="utf-8")
     path.chmod(0o600)
@@ -62,6 +65,7 @@ class Installation:
         self.process = None
         self.log = None
         self.log_file = self.root / "server.log"
+        self.fault_file = self.root / "fault.json"
         entrypoint = Path(sys.executable).parent / "qorqut-core"
         # Source runs exercise python -m; installed-wheel runs exercise the
         # generated console script for both real serve and operator calls.
@@ -75,10 +79,10 @@ class Installation:
         defaults["cli"]["model"] = model
         return {"idempotency_key": key, "expected_revision": revision, "defaults": defaults}
 
-    def start(self, *, gated=False, ui_root=None, session_seconds=None):
+    def start(self, *, gated=False, ui_root=None, session_seconds=None, crash_point=None, claim_lease_seconds=None):
         self.log = self.log_file.open("ab")
         command = [*self.entrypoint, "serve"]
-        if gated or session_seconds is not None:
+        if gated or session_seconds is not None or crash_point is not None or claim_lease_seconds is not None:
             command = [sys.executable, str(Path(__file__).with_name("owned_server.py"))]
         command += ["--installation", str(self.installation_file), "--transport-config", str(self.transport_file)]
         if gated:
@@ -87,8 +91,15 @@ class Installation:
             command += ["--ui-root", str(ui_root)]
         if session_seconds is not None:
             command += ["--session-seconds", str(session_seconds)]
+        if crash_point is not None:
+            command += ["--crash-point", crash_point, "--fault-record", str(self.fault_file),
+                        "--fault-exit-code", str(FAULT_EXIT)]
+        if claim_lease_seconds is not None:
+            command += ["--claim-lease-seconds", str(claim_lease_seconds)]
         self.process = subprocess.Popen(command, env=self.env, cwd=self.root,
                                         stdout=self.log, stderr=self.log, stdin=subprocess.DEVNULL)
+        if crash_point is not None:
+            return  # The child exits itself; await that recorded exit with crashed().
         deadline = time.monotonic() + 15
         with httpx.Client(trust_env=False, timeout=0.3) as client:
             while time.monotonic() < deadline:
@@ -102,6 +113,18 @@ class Installation:
                     pass
                 time.sleep(0.03)
         raise AssertionError("Owned server startup timed out")
+
+    def crashed(self, point, timeout=30):
+        """Await the child's own recorded fault exit; any other process failure is an error."""
+        try:
+            status = self.process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise AssertionError("Owned server did not reach its fault point") from None
+        if status != FAULT_EXIT or not self.fault_file.is_file():
+            raise AssertionError(f"Owned server exited with {status} before its fault: " + self.log_file.read_text())
+        record = json.loads(self.fault_file.read_text(encoding="utf-8"))
+        if record != {"point": point, "pid": self.process.pid}:
+            raise AssertionError(f"Owned server recorded a different fault: {record}")
 
     def stop(self):
         if self.process is not None:
