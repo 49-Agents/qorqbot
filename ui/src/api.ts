@@ -6,7 +6,7 @@ export class ApiError extends Error {
   }
 }
 
-// No credentials or request bodies are logged or retained outside page memory.
+// Request bodies stay in page memory. Local access sends no browser credentials.
 export async function request<T>(path: string, init: RequestInit = {}, mutation = false): Promise<T> {
   const controller = new AbortController();
   const abort = () => controller.abort();
@@ -15,11 +15,11 @@ export async function request<T>(path: string, init: RequestInit = {}, mutation 
   const timer = window.setTimeout(abort, 15000);
   try {
     const response = await fetch(path, {
-      ...init, credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+      ...init, credentials: 'omit', cache: 'no-store', redirect: 'error',
       signal: controller.signal,
       headers: { 'Content-Type': 'application/json', ...init.headers },
     });
-    if (response.status === 401) throw new ApiError('authentication_required', 'Sign in to continue.', false, 401);
+    if (response.status === 401) throw new ApiError('transport_refused', 'Request refused (HTTP 401).', false, 401);
     let body: unknown;
     try { body = await response.json(); }
     catch { throw new ApiError('invalid_response', 'The server returned an unreadable response.', mutation, response.status); }

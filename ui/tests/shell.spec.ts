@@ -14,35 +14,63 @@ const test = base.extend<{ api: SyntheticAPI }>({
     expect(errors).toEqual([]);
   },
 });
-async function signIn(page: Page, api: SyntheticAPI) {
+async function openWorkspace(page: Page, api: SyntheticAPI) {
   await page.goto(api.url);
-  await page.getByLabel('Console token').fill('synthetic-console-token');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Atlas', exact: true }).first()).toBeVisible();
 }
 const message = (page: Page) => page.getByRole('textbox', { name: /^Message / });
 const agentButton = (page: Page, name: string) => page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: new RegExp(`^${name} Initializing`) });
 const calls = (api: SyntheticAPI, name: string) => api.calls.filter(c => c.name === name);
+const connectionRefusal = { status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'transport_refused' }) };
 const transientRefusal = { status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'unavailable', message: 'Synthetic transient refusal' } }) };
 
-test('session lifecycle, expired drafts, incompatible version and absent capabilities', async ({ page, api, context }) => {
-  await signIn(page, api);
-  expect(calls(api, 'agents_list').some(c => c.args.after_id && c.args.recovery_epoch === api.epoch)).toBeTruthy();
-  const cookies = await context.cookies();
-  expect(cookies.find(c => c.name === 'qorqut_session')).toMatchObject({ httpOnly: true, sameSite: 'Strict' });
-  await message(page).fill('An unsent private draft');
-  api.authenticated = false;
-  await expect(page.getByLabel('Console token')).toBeVisible();
-  await expect(page.getByText('Your session expired. Unsent drafts remain on this page.')).toBeVisible();
-  await page.getByLabel('Console token').fill('synthetic-console-token');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(message(page)).toHaveValue('An unsent private draft');
-  expect(await page.evaluate(() => JSON.stringify({ ...localStorage }))).not.toContain('private draft');
-  expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('synthetic-console-token');
-  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
-  await expect(page.getByLabel('Console token')).toHaveValue('');
-  await signIn(page, api);
+test('direct local opening, refused connection retry, workspace identity and recovery preserve drafts', async ({ page, api, context }, testInfo) => {
+  const requests: { path: string; method?: string; cookie?: string; authorization?: string; actor?: string | string[] }[] = [];
+  api.server.on('request', req => {
+    if (req.url?.startsWith('/api/')) requests.push({ path: req.url, method: req.method,
+      cookie: req.headers.cookie, authorization: req.headers.authorization, actor: req.headers['x-qorqut-actor'] });
+  });
+  await context.addCookies([{ name: 'obsolete_console_cookie', value: 'unused', url: api.url }]);
+  const noLogin = async () => {
+    await expect(page.getByRole('button', { name: /sign in|sign out/i })).toHaveCount(0);
+    await expect(page.locator('input[type=password]')).toHaveCount(0);
+  };
+  let releaseIdentity!: () => void;
+  const identityGate = new Promise<void>(resolve => { releaseIdentity = resolve; });
+  await page.route('**/api/v1/session', async route => { await identityGate; await route.fulfill(connectionRefusal); }, { times: 1 });
+  await page.goto(api.url);
+  await expect(page.getByRole('status')).toHaveText('Connecting…');
+  await noLogin();
+  await page.screenshot({ path: testInfo.outputPath('connecting-desktop.png'), fullPage: true });
+  releaseIdentity();
+  await expect(page.getByRole('alert')).toHaveText('Request refused (HTTP 401).');
+  await noLogin();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: testInfo.outputPath('connection-error-mobile.png'), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const identityResponse = page.waitForResponse(r => r.url().endsWith('/api/v1/session'));
+  await page.getByRole('button', { name: 'Retry connection' }).click();
+  const identity = await identityResponse;
+  expect(await identity.json()).toEqual({ actor_id: owner, api_version: 1 });
+  expect(identity.headers()['set-cookie']).toBeUndefined();
   await expect(message(page)).toHaveValue('');
+  await noLogin();
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await expect(page.getByRole('navigation', { name: 'Agents' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('local-workspace-desktop.png'), fullPage: true });
+  expect(requests.slice(0, 3).map(r => r.path)).toEqual(['/api/v1/session', '/api/v1/schema', '/api/v1/operations/config_get']);
+  expect(calls(api, 'agents_list').some(c => c.args.after_id && c.args.recovery_epoch === api.epoch)).toBeTruthy();
+  expect((await context.cookies()).map(c => c.name)).toEqual(['obsolete_console_cookie']);
+  await message(page).fill('An unsent private draft');
+  await page.route('**/api/v1/operations/events_list', route => route.fulfill(connectionRefusal), { times: 1 });
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.getByRole('button', { name: 'Retry connection' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveText('Request refused (HTTP 401).');
+  await expect(page.getByText('Unsent drafts remain on this page.')).toBeVisible();
+  await noLogin();
+  await page.getByRole('button', { name: 'Retry connection' }).click();
+  await expect(message(page)).toHaveValue('An unsent private draft');
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('private draft');
   await message(page).fill('Not persistent');
   await page.reload();
   await expect(message(page)).toHaveValue('');
@@ -63,10 +91,20 @@ test('session lifecycle, expired drafts, incompatible version and absent capabil
   await expect(page.getByRole('button', { name: 'Retry connection' })).toBeVisible();
   expect(schemaRequests).toBe(1);
   expect(api.calls).toHaveLength(stoppedAt);
+  api.actor = randomUUID();
   await page.getByRole('button', { name: 'Retry connection' }).click();
   await expect(message(page)).toHaveValue('Draft during recovery');
   expect(schemaRequests).toBe(2);
+  await expect(page.getByText('This request belongs to a different workspace identity. Reconnect to the original workspace to retry it.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Retry original request' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
   expect(calls(api, 'messages_send')).toHaveLength(1);
+  await page.route('**/api/v1/operations/events_list', route => route.fulfill(connectionRefusal), { times: 1 });
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.getByRole('button', { name: 'Retry connection' })).toBeVisible();
+  api.actor = owner;
+  await page.getByRole('button', { name: 'Retry connection' }).click();
+  await expect(message(page)).toHaveValue('Draft during recovery');
   await page.getByRole('button', { name: 'Retry original request' }).click();
   await expect(page.getByRole('button', { name: 'Retry original request' })).toHaveCount(0);
   await expect(message(page)).toHaveValue('Draft during recovery');
@@ -77,6 +115,10 @@ test('session lifecycle, expired drafts, incompatible version and absent capabil
   await expect(page.getByText('Incompatible API version. This interface requires version 1.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
   api.version = 1;
+  await page.route('**/api/v1/session', route => route.fulfill({ json: { actor_id: 'invalid', api_version: 1 } }), { times: 1 });
+  await page.getByRole('button', { name: 'Retry connection' }).click();
+  await expect(page.getByRole('alert')).toHaveText('The server did not provide a valid workspace identity.');
+  await noLogin();
   api.operations = ['config_get', 'agents_list', 'events_list'];
   await page.getByRole('button', { name: 'Retry connection' }).click();
   await expect(page.getByText('Sending messages is unavailable on this server.')).toBeVisible();
@@ -91,10 +133,13 @@ test('session lifecycle, expired drafts, incompatible version and absent capabil
   await page.unroute('**/api/v1/operations/config_get');
   await page.getByRole('button', { name: 'Retry connection' }).click();
   await expect(message(page)).toHaveValue('Retain after failed recovery');
+  expect(requests.filter(r => r.path === '/api/v1/session').every(r => r.method === 'GET')).toBe(true);
+  expect(requests.every(r => r.cookie === undefined && r.authorization === undefined && r.actor === undefined)).toBe(true);
+  await noLogin();
 });
 
 test('creation and fixed icons, duplicate names, rename cancellation and revision conflict', async ({ page, api }, testInfo) => {
-  await signIn(page, api);
+  await openWorkspace(page, api);
   await page.getByRole('button', { name: 'Create agent', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Create agent' });
   await expect(dialog.getByRole('radio')).toHaveCount(20);
@@ -185,7 +230,7 @@ test('creation and fixed icons, duplicate names, rename cancellation and revisio
 test('selection and late reads/mutations retain each draft and original target', async ({ page, api }) => {
   api.add(alpha, 'Atlas history'); api.add(beta, 'onbash history');
   const gate = api.hold('conversation_list', args => args.agent_id === alpha);
-  await signIn(page, api); await gate.seen;
+  await openWorkspace(page, api); await gate.seen;
   await message(page).fill('Atlas draft');
   await agentButton(page, 'onbash').click();
   await expect(page.getByText('onbash history', { exact: true })).toBeVisible();
@@ -207,19 +252,29 @@ test('selection and late reads/mutations retain each draft and original target',
   expect(calls(api, 'messages_send')[0].args.recipient_agent_id).toBe(alpha);
   await expect(page.getByText('Stored · queued · runtime unavailable').first()).toBeVisible();
   const late = api.hold('messages_send');
-  await message(page).fill('Late session result');
+  await message(page).fill('Late connection result');
   await page.getByRole('button', { name: 'Send', exact: true }).click(); await late.seen;
-  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
-  await expect(page.getByLabel('Console token')).toBeVisible();
-  await signIn(page, api);
-  await message(page).fill('New session draft');
+  const lateArgs = calls(api, 'messages_send').at(-1)!.args;
+  await page.route('**/api/v1/operations/events_list', route => route.fulfill(connectionRefusal), { times: 1 });
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.getByRole('button', { name: 'Retry connection' })).toBeVisible();
+  await page.getByRole('button', { name: 'Retry connection' }).click();
+  await expect(message(page)).toHaveValue('Late connection result');
+  await expect(page.getByText(/Confirmation uncertain/)).toBeVisible();
+  await message(page).fill('New connection draft');
   late.release();
   await expect.poll(() => api.messages.length).toBe(2);
-  await expect(message(page)).toHaveValue('New session draft');
+  await expect(message(page)).toHaveValue('New connection draft');
+  await expect(page.getByText(/Confirmation uncertain/)).toBeVisible();
+  await page.getByRole('button', { name: 'Retry original request' }).click();
+  await expect(page.locator('.mutation-error')).toHaveCount(0);
+  expect(calls(api, 'messages_send').at(-1)!.args).toEqual(lateArgs);
+  expect(api.messages).toHaveLength(2);
+  await expect(message(page)).toHaveValue('New connection draft');
 });
 
-test('ambiguous send retains same-key retries across session and application refusals, IME and UTF-8 limit', async ({ page, api }, testInfo) => {
-  await signIn(page, api);
+test('ambiguous send retains same-key retries across connection and application refusals, IME and UTF-8 limit', async ({ page, api }, testInfo) => {
+  await openWorkspace(page, api);
   const attempts: object[] = [];
   page.on('request', request => {
     if (request.url().endsWith('/operations/messages_send')) attempts.push(request.postDataJSON());
@@ -232,14 +287,11 @@ test('ambiguous send retains same-key retries across session and application ref
   // Allow a full polling interval; reads must never replay an uncertain mutation.
   await expect(page.getByText('same request', { exact: true })).toBeVisible();
   expect(calls(api, 'messages_send')).toHaveLength(1);
-  await page.route('**/api/v1/operations/messages_send', async route => {
-    api.authenticated = false;
-    await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'authentication_required' }) });
-  }, { times: 1 });
+  await page.route('**/api/v1/operations/messages_send', route => route.fulfill(connectionRefusal), { times: 1 });
   await page.getByRole('button', { name: 'Retry original request' }).click();
-  await expect(page.getByLabel('Console token')).toBeVisible();
-  await page.getByLabel('Console token').fill('synthetic-console-token');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText('Request refused (HTTP 401).');
+  await expect(page.locator('input[type=password]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Retry connection' }).click();
   await expect(message(page)).toHaveValue('same request');
   await expect(page.getByText(/Confirmation uncertain/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Dismiss error' })).toHaveCount(0);
@@ -248,7 +300,7 @@ test('ambiguous send retains same-key retries across session and application ref
   await message(page).press('Enter');
   expect(attempts).toHaveLength(2);
   await expect(message(page)).toHaveValue('same request');
-  await page.screenshot({ path: testInfo.outputPath('uncertainty-after-sign-in.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('uncertainty-after-connection-retry.png'), fullPage: true });
   await page.route('**/api/v1/operations/messages_send', route => route.fulfill({
     status: 400, contentType: 'application/json', body: JSON.stringify({
       ok: false, operation_id: null, outcome: null, data: null, event_seq: null,
@@ -304,7 +356,7 @@ test('ambiguous send retains same-key retries across session and application ref
 test('history paging anchors, equal text, quiet handling refresh and recovery', async ({ page, api }) => {
   for (let i = 1; i <= 65; i++) api.add(alpha, `Record ${i}\nA second line of saved content.`);
   const same1 = api.add(alpha, 'Equal text'); const same2 = api.add(alpha, 'Equal text');
-  await signIn(page, api);
+  await openWorkspace(page, api);
   await expect(page.locator('.entry')).toHaveCount(50);
   await expect(page.getByText('Equal text', { exact: true })).toHaveCount(2);
   const beforeEventSeq = api.events.length;
@@ -363,7 +415,7 @@ test('escaped content and desktop/mobile drawers, focus and screenshots', async 
   const nativeAgent = api.addNative(alpha, nativeText, 'agent', 'codex');
   expect(nativeUser.entry_id).not.toBe(nativeAgent.entry_id);
   api.publication = { pending_entries: 3, state: 'blocked', error: { code: 'storage_blocked', message: 'Publication needs inspection.' } };
-  await signIn(page, api);
+  await openWorkspace(page, api);
   await expect(page.locator('.message-body').first()).toContainText('<img src=x onerror="window.injected=true">');
   expect(await page.evaluate(() => 'injected' in window)).toBe(false);
   await expect(page.locator('.history img, .history iframe')).toHaveCount(0);
@@ -454,7 +506,7 @@ test('synthetic inbox references validate annotations, preserve native sender la
   const row = (entry: Entry) => page.locator(`[data-entry-id="${entry.entry_id}"]`);
   const response = page.waitForResponse(r => r.url().endsWith('/operations/conversation_list'));
   const servedUI = page.waitForResponse(r => r.url() === api.url + '/');
-  await signIn(page, api);
+  await openWorkspace(page, api);
   // Capture actual served bytes privately, without session requests or credentials.
   await writeFile(testInfo.outputPath('synthetic-conversation-response.json'), await (await response).body());
   await writeFile(testInfo.outputPath('served-ui.html'), await (await servedUI).body());
@@ -541,7 +593,7 @@ test('file-reference cards validate saved observations, copy exact paths and wra
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(await page.locator('.history, .file-card, .file-path, .file-note').evaluateAll(elements => elements.every(e => e.scrollWidth <= e.clientWidth))).toBe(true);
   };
-  await signIn(page, api);
+  await openWorkspace(page, api);
   await agentButton(page, 'onbash').click();
   await expect(page.locator('.file-card')).toHaveCount(2);
   for (const [entry, sender] of [[ownerEntry, 'Owner'], [agentEntry, 'onbash']] as const) {
@@ -729,7 +781,7 @@ test('synthetic runtime inspector validates session/native observations, fences 
   let schemas = 0;
   page.on('request', r => { if (r.url().endsWith('/api/v1/schema')) schemas++; });
 
-  await signIn(page, api);
+  await openWorkspace(page, api);
   await expect(session.getByText('Session information is unavailable on this server.')).toBeVisible();
   await expect(retry).toHaveCount(0);
   await expect.poll(() => calls(api, 'events_list').length).toBeGreaterThan(1);
@@ -900,22 +952,29 @@ test('synthetic runtime inspector validates session/native observations, fences 
   await expect(page.getByText('Saved runtime inspector history', { exact: true })).toHaveCount(0);
   expect(calls(api, 'messages_send')).toHaveLength(0);
 
-  // A runtime-specific 401 takes the normal expiry path and retains unsent drafts.
-  await page.route(runtimeURL, route => route.fulfill({ status: 401, json: { error: 'authentication_required' } }), { times: 1 });
+  // A refused runtime read shows a connection error, preserving drafts and native Session UI on retry.
+  await page.route(runtimeURL, route => route.fulfill(connectionRefusal), { times: 1 });
   await poll();
-  await expect(page.getByLabel('Console token')).toBeVisible();
-  await expect(page.getByText('Your session expired. Unsent drafts remain on this page.')).toBeVisible();
-  await page.getByLabel('Console token').fill('synthetic-console-token');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText('Request refused (HTTP 401).');
+  await expect(page.getByRole('button', { name: 'Retry connection' })).toBeVisible();
+  await expect(page.locator('input[type=password]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Retry connection' }).click();
   await expect(message(page)).toHaveValue('Retained runtime draft');
   await expect(session.getByText('recovered-version', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('recovered-version');
-  const logoutRead = api.hold('runtime_get');
-  await poll(); await logoutRead.seen;
-  const loggedOut = page.waitForEvent('requestfailed', r => r.url().endsWith('/operations/runtime_get'));
-  await page.getByRole('button', { name: 'Sign out', exact: true }).click(); await loggedOut; logoutRead.release();
-  await expect(page.getByLabel('Console token')).toBeVisible();
+  const staleRead = api.hold('runtime_get');
+  const disconnected = page.waitForEvent('requestfailed', r => r.url().endsWith('/operations/runtime_get'));
+  await page.route('**/api/v1/operations/conversation_list', async route => { await staleRead.seen; await route.fulfill(connectionRefusal); }, { times: 1 });
+  await poll(); await staleRead.seen;
+  await expect(page.getByRole('button', { name: 'Retry connection' })).toBeVisible();
+  await disconnected;
   await expect(session).toHaveCount(0);
+  await page.getByRole('button', { name: 'Retry connection' }).click();
+  await expect(session.getByText('recovered-version', { exact: true })).toBeVisible();
+  staleRead.release();
+  await expect(session.getByText('recovered-version', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  await expect(message(page)).toHaveValue('Retained runtime draft');
   expect(calls(api, 'runtime_get').every(c => Object.keys(c.args).join() === 'agent_id')).toBe(true);
 });
 
@@ -931,7 +990,7 @@ test('synthetic read recovery retains a live Terminal and qualified runtime obse
       native_session_id: randomUUID(), connected_at: stamp },
     native_setup: { state: 'ready', reason: 'configuration_installed', observed_at: stamp },
     native_capture: { state: 'collecting', reason: 'active', observed_at: stamp, source_count: 2, pending_archive_bytes: 10, pending_parse_bytes: 20 } });
-  await signIn(page, api);
+  await openWorkspace(page, api);
   await message(page).fill('Read recovery draft');
   await page.getByRole('button', { name: 'Terminal', exact: true }).click();
   await page.getByRole('button', { name: 'Take control', exact: true }).click();
@@ -1002,7 +1061,7 @@ test('synthetic read recovery retains a live Terminal and qualified runtime obse
 test('synthetic read recovery requires a successful read to open or reconnect and tears down invalid observations', async ({ page, api }) => {
   const terminal = new SyntheticTerminal(api, alpha);
   await terminal.route(page);
-  await signIn(page, api);
+  await openWorkspace(page, api);
   await expect(page.getByRole('complementary').getByText('Terminal available.', { exact: true })).toBeVisible();
   const url = '**/api/v1/operations/terminal_get';
   let failing = true, refusals = 0;
@@ -1071,7 +1130,7 @@ test('synthetic Terminal views retain Chat drafts/history, report availability a
   terminal.view = { ...terminal.view, dimensions: { columns: 132, rows: 60 } };
   await terminal.route(page);
   for (let i = 0; i < 30; i++) api.add(alpha, `Saved Chat record ${i}`);
-  await signIn(page, api);
+  await openWorkspace(page, api);
   await message(page).fill('Chat draft stays here');
   const history = page.getByLabel('Conversation with Atlas');
   await history.evaluate(e => { e.scrollTop = 170; });
@@ -1241,7 +1300,7 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   };
   const terminal = new SyntheticTerminal(api);
   await terminal.route(page);
-  await signIn(page, api); await agentButton(page, 'onbash').click();
+  await openWorkspace(page, api); await agentButton(page, 'onbash').click();
   await message(page).fill('A durable Chat draft');
   await page.getByRole('button', { name: 'Terminal', exact: true }).click();
   await expect(page.getByText('View only', { exact: true })).toBeVisible();
@@ -1624,8 +1683,11 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   expect(terminal.connections).toHaveLength(entryPressureConnections);
   expect(entryPressurePeer.messages).toEqual([]);
   await reconnect();
-  api.authenticated = false;
-  await expect(page.getByLabel('Console token')).toBeVisible();
+  await page.route('**/api/v1/operations/terminal_get', route => route.fulfill(connectionRefusal), { times: 1 });
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.getByRole('button', { name: 'Retry connection' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveText('Request refused (HTTP 401).');
+  await expect(page.locator('input[type=password]')).toHaveCount(0);
   await expect.poll(() => terminal.current.closed).toBe(true);
   expect(terminal.current.messages).toEqual([]);
 });

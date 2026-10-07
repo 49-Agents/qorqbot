@@ -7,7 +7,8 @@ export type Result<T> = {
   ok: boolean; operation_id: string | null; outcome: 'accepted' | 'completed' | null;
   data: T | null; event_seq: number | null; error: CoreError | null;
 };
-export type Session = { authenticated: boolean; actor_id: string; api_version: number };
+// D55: local workspace attribution, without browser authentication.
+export type WorkspaceIdentity = { actor_id: string; api_version: number };
 export type Schema = { api_version: number; operations: { name: string; mutation: boolean }[] };
 export type Config = {
   installation_id: string; recovery_epoch: string; revision: number;

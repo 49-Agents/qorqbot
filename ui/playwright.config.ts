@@ -16,7 +16,7 @@ export default defineConfig({
     launchOptions: { executablePath: '/usr/bin/google-chrome' },
     viewport: { width: 1440, height: 960 },
     screenshot: 'only-on-failure',
-    // Credentials are entered only in synthetic tests. Do not capture network traces.
+    // Keep synthetic browser artifacts limited to the requested checks.
     trace: 'off',
   },
 });

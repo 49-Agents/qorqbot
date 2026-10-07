@@ -30,7 +30,7 @@ export class SyntheticAPI {
   url = '';
   epoch = randomUUID();
   version = 1;
-  authenticated = false;
+  actor = owner;
   agents = [makeAgent(alpha, 'Atlas'), makeAgent(beta, 'onbash', 'host')];
   entries = new Map<string, Entry[]>([[alpha, []], [beta, []]]);
   calls: Call[] = [];
@@ -118,16 +118,9 @@ export class SyntheticAPI {
         const raw = Buffer.concat(chunks).toString('utf8');
         const args = raw ? JSON.parse(raw) : {};
         if (path === '/api/v1/session') {
-          if (req.method === 'DELETE') { this.authenticated = false; res.setHeader('Set-Cookie', 'qorqut_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); json(200, { authenticated: false }); return; }
-          if (req.method === 'POST') {
-            if (args.token !== 'synthetic-console-token') { json(401, { error: 'authentication_required' }); return; }
-            this.authenticated = true;
-            res.setHeader('Set-Cookie', 'qorqut_session=synthetic-session; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800');
-          }
-          if (!this.authenticated) { json(401, { error: 'authentication_required' }); return; }
-          json(200, { authenticated: true, actor_id: owner, api_version: 1 }); return;
+          if (req.method !== 'GET') { json(405, { error: 'method_not_allowed' }); return; }
+          json(200, { actor_id: this.actor, api_version: 1 }); return;
         }
-        if (!this.authenticated) { json(401, { error: 'authentication_required' }); return; }
         if (path === '/api/v1/schema') {
           json(200, { api_version: this.version, result_schema: { type: 'object' }, operations: this.operations.map(name => ({ name, mutation: ['agents_create', 'agents_update', 'messages_send'].includes(name), input_schema: { type: 'object' }, output_data_schema: { type: 'object' } })) }); return;
         }

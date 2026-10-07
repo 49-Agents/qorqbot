@@ -1,6 +1,6 @@
 import { ApiError, operation, request } from './api';
-import type { Agent, AgentPage, Config, ConversationPage, Entry, EventPage, Publication, RuntimeView, Schema, SendResult, Session, TerminalView } from './wire';
-import { mergeTerminal, terminalView } from './terminal-protocol';
+import type { Agent, AgentPage, Config, ConversationPage, Entry, EventPage, Publication, RuntimeView, Schema, SendResult, WorkspaceIdentity, TerminalView } from './wire';
+import { mergeTerminal, terminalView, uuid } from './terminal-protocol';
 import { runtimeView } from './runtime-view';
 
 export type Pending = {
@@ -23,7 +23,7 @@ const transientRead = (e: unknown) => e instanceof ApiError && (e.code === 'unav
 const newChat = (): Chat => ({ items: [], epoch: '', hasOlder: false, loading: false, earlier: false, publication: null, error: '', refreshSeq: 0, change: 'initial' });
 
 export class Store {
-  phase: 'checking' | 'login' | 'ready' | 'error' = 'checking';
+  phase: 'checking' | 'ready' | 'error' = 'checking';
   error = '';
   connection = 'Connecting';
   actor = '';
@@ -54,7 +54,6 @@ export class Store {
   private pollFailures = 0;
   private eventSeq = 0;
   private hint = '';
-  private logoutFailed = false;
 
   constructor() {
     try {
@@ -97,79 +96,46 @@ export class Store {
     this.scrolls.clear();
     this.terminals.clear();
     this.runtimes.clear();
+    this.actor = '';
     this.config = null;
     this.supported.clear();
     this.epoch = '';
     this.eventSeq = 0;
+    this.pollFailures = 0;
     this.directoryLoading = false;
     this.notice = '';
-  }
-  private expire() {
-    if (this.phase === 'login') return;
-    this.generation++;
-    this.resetServer();
     for (const mutation of this.pending.values()) {
       if (mutation.state === 'sending') {
         mutation.unresolvedAmbiguity = true;
         mutation.state = 'uncertain';
-        mutation.error = 'The session ended before confirmation. Retry the original request after signing in.';
+        mutation.error = 'The connection changed before confirmation. The original request may have been saved.';
       }
     }
-    this.phase = 'login';
-    this.connection = 'Signed out';
-    this.error = 'Your session expired. Unsent drafts remain on this page.';
+  }
+  private disconnect(error: ApiError) {
+    this.generation++;
+    this.resetServer();
+    this.phase = 'error';
+    this.connection = 'Offline';
+    this.error = error.message;
     this.emit();
   }
   async open() {
     const gen = ++this.generation;
     this.resetServer();
-    this.phase = 'checking'; this.error = ''; this.emit();
+    this.phase = 'checking'; this.connection = 'Connecting'; this.error = ''; this.emit();
     const controller = this.controller();
     try {
-      const identity = await request<Session>('/api/v1/session', { signal: controller.signal });
+      const identity = await request<WorkspaceIdentity>('/api/v1/session', { signal: controller.signal });
       if (gen === this.generation) await this.connected(identity, gen);
     } catch (e) {
       if (gen !== this.generation) return;
-      const err = failure(e);
-      this.phase = err.status === 401 ? 'login' : 'error';
-      this.error = err.status === 401 ? '' : err.message;
-      this.emit();
+      this.disconnect(failure(e));
     } finally { this.reads.delete(controller); }
   }
-  async login(token: string) {
-    const gen = ++this.generation;
-    this.phase = 'checking'; this.error = ''; this.emit();
-    try {
-      const identity = await request<Session>('/api/v1/session', { method: 'POST', body: JSON.stringify({ token }) });
-      token = '';
-      if (gen === this.generation) await this.connected(identity, gen);
-    } catch (e) {
-      token = '';
-      if (gen !== this.generation) return;
-      const err = failure(e);
-      this.phase = err.code === 'unsupported_schema' ? 'error' : 'login';
-      this.error = err.status === 401 ? 'The console token was not accepted.' : err.message;
-      this.emit();
-    }
-  }
-  async logout() {
-    ++this.generation;
-    this.resetServer();
-    this.pending.clear(); this.drafts.clear(); this.views.clear(); this.actor = ''; this.selected = '';
-    this.phase = 'checking'; this.error = ''; this.emit();
-    try {
-      await request('/api/v1/session', { method: 'DELETE' });
-      this.logoutFailed = false;
-    } catch {
-      this.logoutFailed = true;
-      this.error = 'Local data cleared, but sign-out was not confirmed. Retry sign-out.';
-    }
-    this.phase = 'login'; this.emit();
-  }
-  needsLogoutRetry = () => this.logoutFailed;
-  private async connected(identity: Session, gen: number) {
-    if (identity.api_version !== 1) throw new ApiError('unsupported_schema', 'Incompatible API version. This interface requires version 1.');
-    if (identity.authenticated !== true || typeof identity.actor_id !== 'string') throw new ApiError('invalid_response', 'The server did not confirm a session identity.');
+  private async connected(identity: WorkspaceIdentity, gen: number) {
+    if (identity?.api_version !== 1) throw new ApiError('unsupported_schema', 'Incompatible API version. This interface requires version 1.');
+    if (!uuid(identity.actor_id)) throw new ApiError('invalid_response', 'The server did not provide a valid workspace identity.');
     this.actor = identity.actor_id;
     const controller = this.controller();
     try {
@@ -245,35 +211,8 @@ export class Store {
   }
   private async recover(gen: number) {
     if (gen !== this.generation) return;
-    const nextGeneration = ++this.generation;
-    const selection = this.selected;
-    this.resetServer();
-    for (const mutation of this.pending.values()) {
-      if (mutation.state === 'sending') {
-        mutation.unresolvedAmbiguity = true;
-        mutation.state = 'uncertain';
-        mutation.error = 'Server recovery interrupted confirmation. The original request may have been saved.';
-      }
-    }
-    this.selected = selection;
-    this.phase = 'checking';
-    this.connection = 'Refreshing after server recovery';
-    this.emit();
-    // Fresh discovery invalidates every server-derived row and cursor; drafts stay in memory.
-    try {
-      await this.connected({ authenticated: true, actor_id: this.actor, api_version: 1 }, nextGeneration);
-    } catch (error) {
-      // Both recovery entry paths share the generation that owns discovery and its failures.
-      if (nextGeneration !== this.generation) return;
-      const err = failure(error);
-      if (err.status === 401) this.expire();
-      else {
-        clearTimeout(this.timer);
-        this.phase = 'error'; this.connection = 'Offline'; this.error = err.message;
-        this.directoryLoading = false;
-        this.emit();
-      }
-    }
+    // Rediscover the workspace identity as well as all server rows and cursors.
+    await this.open();
   }
   private schedule(delay = 2000) {
     clearTimeout(this.timer);
@@ -318,7 +257,7 @@ export class Store {
     } catch (e) {
       if (gen !== this.generation || controller.signal.aborted) return;
       const err = failure(e);
-      if (err.status === 401) this.expire();
+      if (err.status === 401) this.disconnect(err);
       else if (err.code === 'target_changed') await this.recover(gen);
       else { this.connection = 'Offline'; this.error = err.message; this.pollFailures++; }
     } finally {
@@ -359,7 +298,7 @@ export class Store {
       const err = failure(e);
       this.runtimes.set(id, { view: transientRead(e) ? prior?.view || null : null,
         loading: false, error: 'Session information unavailable. Retry to refresh.' });
-      if (err.status === 401) this.expire();
+      if (err.status === 401) this.disconnect(err);
       else if (err.code === 'target_changed') await this.recover(gen);
     } finally {
       this.reads.delete(controller);
@@ -390,7 +329,7 @@ export class Store {
       const err = failure(e);
       this.terminals.set(id, { view: transientRead(e) ? this.terminals.get(id)?.view || null : null,
         loading: false, error: 'Terminal observation unavailable. Retry to refresh.' });
-      if (err.status === 401) this.expire();
+      if (err.status === 401) this.disconnect(err);
       else if (err.code === 'target_changed') await this.recover(gen);
     } finally {
       this.reads.delete(controller);
@@ -452,7 +391,7 @@ export class Store {
     } catch (e) {
       if (!valid()) return;
       const err = failure(e);
-      if (err.status === 401) this.expire();
+      if (err.status === 401) this.disconnect(err);
       else if (err.code === 'target_changed') {
         // Let the one poll loop own recovery so concurrent reads cannot restart it twice.
         this.eventSeq = 0; this.schedule(0); chat.error = 'Server recovery detected. Refreshing conversation.';
@@ -542,7 +481,7 @@ export class Store {
       pending.error = pending.unresolvedAmbiguity && err.status === 401
         ? 'The retry was refused before confirmation. The original request may have been saved.'
         : err.message;
-      if (err.status === 401) this.expire();
+      if (err.status === 401) this.disconnect(err);
       else if (err.code === 'revision_conflict' && pending.agentId) {
         const controller = this.controller();
         try {
@@ -552,7 +491,7 @@ export class Store {
           } else await this.loadDirectory(controller.signal, gen);
         } catch (refreshError) {
           if (gen === this.generation && this.pending.get(key) === pending) {
-            if (failure(refreshError).status === 401) this.expire();
+            if (failure(refreshError).status === 401) this.disconnect(failure(refreshError));
             pending.error += pending.unresolvedAmbiguity
               ? ' Current name could not be refreshed; reconnect before retrying the original request.'
               : ' Current name could not be refreshed; reconnect before reapplying.';

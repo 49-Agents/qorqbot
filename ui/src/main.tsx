@@ -48,27 +48,22 @@ function MutationNotice({ item, requestKey }: { item?: Pending; requestKey: stri
   return <div className="error mutation-error" role="alert">
     <p>{item.unresolvedAmbiguity ? 'Confirmation uncertain. ' : ''}{item.error}</p>
     {item.operation === 'agents_update' && <p>Attempted {item.args.display_name !== undefined ? `name: “${item.args.display_name}”` : `icon: ${item.args.icon_key}`}.</p>}
-    {item.actor !== store.actor ? <p>Sign in as the original account to retry this request.</p> : <button type="button" onClick={() => void store.retry(requestKey)} disabled={!store.has(item.operation)}>
+    {item.actor !== store.actor ? <p>This request belongs to a different workspace identity. Reconnect to the original workspace to retry it.</p> : <button type="button" onClick={() => void store.retry(requestKey)} disabled={!store.has(item.operation)}>
       {!item.unresolvedAmbiguity && item.state === 'conflict' ? 'Apply attempted change to current revision' : 'Retry original request'}
     </button>}
     {!item.unresolvedAmbiguity && (item.state === 'failed' || item.state === 'conflict') && <button type="button" onClick={() => store.discard(requestKey)}>Dismiss error</button>}
     {item.unresolvedAmbiguity && <p className="quiet">Retry keeps the exact request and idempotency key.</p>}
   </div>;
 }
-function SignIn() {
-  const [token, setToken] = useState('');
-  return <main className="sign-in"><div className="sign-in-panel">
+function ConnectionPanel() {
+  return <main className="connection-page"><div className="connection-panel">
     <div className="brand"><span className="brand-mark">q</span><span>Qorqut</span></div>
-    <h1>Your agent workspace</h1><p className="quiet">Sign in with this installation’s console token.</p>
+    <h1>Your agent workspace</h1>
     {store.error && <p className="error" role="alert">{store.error}</p>}
-    {store.phase === 'checking' ? <p role="status">Connecting…</p> : store.phase === 'error' ? <button onClick={() => void store.open()}>Retry connection</button> : <form onSubmit={e => {
-      e.preventDefault(); const value = token; setToken(''); void store.login(value);
-    }}>
-      <label>Console token<input type="password" name="console-token" value={token} onInput={e => setToken(e.currentTarget.value)} autoComplete="off" autoCapitalize="off" spellcheck={false} required autoFocus /></label>
-      <button className="primary" type="submit" disabled={!token}>Sign in</button>
-    </form>}
-    {store.needsLogoutRetry() && <button onClick={() => void store.logout()}>Retry sign-out</button>}
-    <p className="footnote">The token is used once to establish a browser session.</p>
+    {store.phase === 'checking' ? <p role="status">Connecting…</p> : <>
+      <button onClick={() => void store.open()}>Retry connection</button>
+      <p className="quiet">Unsent drafts remain on this page.</p>
+    </>}
   </div></main>;
 }
 function Creation({ close }: { close: () => void }) {
@@ -120,7 +115,7 @@ function Navigation({ select, create, renameId, setRename }: { select: (id: stri
         {store.selected !== agent.id && <MutationNotice item={store.pending.get(`edit:${agent.id}`)} requestKey={`edit:${agent.id}`} />}
       </div>)}
     </div>
-    <div className="nav-bottom"><span className="quiet connection">{store.connection}</span><button onClick={() => void store.logout()}>Sign out</button></div>
+    <div className="nav-bottom"><span className="quiet connection">{store.connection}</span></div>
   </nav>;
 }
 function EntryRow({ entry }: { entry: Entry }) {
@@ -262,7 +257,7 @@ function App() {
   const select = (id: string) => { store.select(id); setNavOpen(false); setRename(''); };
   const navigation = <Navigation select={select} create={() => { setNavOpen(false); setCreateOpen(true); }} renameId={renameId} setRename={setRename} />;
   const inspector = agent && <Inspector agent={agent} rename={() => { setInspectOpen(false); setRename(agent.id); if (mobile) setNavOpen(true); }} changeIcon={() => { setInspectOpen(false); setIconAgent(agent.id); setIcon(agent.icon_key); }} />;
-  if (store.phase !== 'ready') return <SignIn />;
+  if (store.phase !== 'ready') return <ConnectionPanel />;
   return <div className={`workspace ${!overlayInspector && store.inspector && agent ? 'with-inspector' : ''}`}>
     {!mobile && navigation}
     <main className="conversation">
