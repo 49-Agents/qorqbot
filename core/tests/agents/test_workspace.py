@@ -30,7 +30,7 @@ class WorkspaceTests(AgentCase):
         return self.app.jobs.get(expected)
 
     def test_real_workspace_preserves_seed_and_honest_dependency_no_launch(self):
-        result = self.create(persona="\nExact\r\n persona\u2003é\n", start=True)
+        result = self.create(persona="\nExact\r\n persona\u2003é\n")
         agent_id, job_id, final, stage = self.coordinates(result)
         self.assertFalse(final.exists())
         with patch("subprocess.Popen", side_effect=AssertionError("provider/process launch")), \
@@ -54,10 +54,11 @@ class WorkspaceTests(AgentCase):
         current = self.get(agent_id)
         self.assertIsNotNone(current["workspace_initialized_at"])
         self.assertEqual(current["projection_revision"], 1)
-        self.assertEqual((current["lifecycle"], current["lifecycle_revision"], current["start_requested"]), ("provisioning", 1, True))
+        self.assertEqual((current["lifecycle"], current["lifecycle_revision"], current["start_requested"]), ("provisioning", 1, False))
         projection = json.loads((final / "agent.json").read_text())
         self.assertEqual((projection["id"], projection["revision"], projection["layout_version"]), (agent_id, 1, 1))
         self.assertNotIn("persona", projection)
+        self.assertIs(projection["start_requested"], False)
         self.assertEqual(len(self.events(agent_id, "agent.workspace_initialized")), 1)
         self.clock.advance(1000)
         self.assertIsNone(self.app.jobs.run_next(worker_id=uuid4()))
