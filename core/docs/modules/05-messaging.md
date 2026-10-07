@@ -1,5 +1,11 @@
 # M05 — Durable messages, terminal delivery and handling
 
+Current v1 scope: [D36, terminal-owned sessions](../TERMINAL-OWNED-SESSIONS.md)
+supersedes earlier automatic CLI start/restart/provider-switch and context-packet
+requirements below. Creation establishes an agent and shell; the user starts the
+CLI. One logical inbox owner connects Chat. See that plan for the exact current
+creation contract and revised acceptance. VM setup remains open.
+
 Status: Planned. Owns R07 and parts of R02/R09. Depends on M00/M01/M03; capture readiness comes from M07. All public messaging operations are available to all registered actors.
 
 Repository: `qorqut-core`. Messaging is an internal module sharing the application transaction and runner input path; it needs no separate comms service, package or UI dependency.

@@ -1,5 +1,11 @@
 # M04 — Native CLI adapters and preparation
 
+Current v1 scope: [D36, terminal-owned sessions](../TERMINAL-OWNED-SESSIONS.md)
+supersedes earlier automatic CLI start/restart/provider-switch and context-packet
+requirements below. Creation establishes an agent and shell; the user starts the
+CLI. One logical inbox owner connects Chat. See that plan for the exact current
+creation contract and revised acceptance. VM setup remains open.
+
 Status: Planned. Owns R05 and native-format parts of R08/R10/R11. Depends on M01/M03; supplies source definitions to M07 and resume/bootstrap behavior to M08.
 
 Repository: `qorqut-core`. Preparation installs separate `qorqut-core` and `qorqut-browser` MCP registrations with bound actor/target configuration. Browser owns its tool implementations and server; core never registers duplicate browser tools.

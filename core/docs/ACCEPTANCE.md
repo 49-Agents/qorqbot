@@ -1,5 +1,11 @@
 # Acceptance and release evidence
 
+Current v1 scope: [D36, terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md)
+supersedes earlier automatic CLI start/restart/provider-switch and context-packet
+requirements below. Creation establishes an agent and shell; the user starts the
+CLI. One logical inbox owner connects Chat. See that plan for the exact current
+creation contract and revised acceptance. VM setup remains open.
+
 Status: planned tests, not execution results. No qorqutbot runtime exists in this baseline. The exploratory Qorqut results in [RESEARCH.md](RESEARCH.md) are source-selection evidence only; they do not pass any gate below.
 
 This document defines how to verify the requirements and gates in the [global plan](IMPLEMENTATION-PLAN.md). The [shared contracts](CONTRACTS.md) define the expected behavior. A test that only reproduces an implementation's output is insufficient: assert durable invariants, externally observed effects and recovery outcomes.
@@ -52,9 +58,9 @@ All acceptance groups below are mandatory for the first complete v1 release. Ind
 | A00.3 | Restart mid-job, expired worker lease, long external call | Reconciliation uses persisted progress; external lifecycle lock prevents competing writers; SQLite transactions do not span external calls |
 | A00.4 | Owner and two agent identities invoke the implemented public operation inventory | Same validation/operation set for every actor; actual caller attribution retained; no hidden role, business-scope or signoff branch |
 | A01.1 | Owner/agent create, repeated and concurrent requests, crash during folder/VM provisioning | One UUID/folder/creation event per accepted create key; progress recoverable; partial registration is never advertised as ready |
-| A01.2 | Rename, duplicate names, archive/restore, config change, changed cwd and concurrent archive/start/switch | IDs/paths stable; archive invalidates queued launch intent and verifies all execution stopped; explicit restore required to reopen admission; unregistered folders not silently adopted |
+| A01.2 | Rename, duplicate names, archive/restore and concurrent startup registration | IDs/paths stable; archived agents refuse new inbox ownership, resource stop remains explicit; unregistered folders are not adopted |
 | A01.3 | Repeated/concurrent onbash initialization and archive/restore | Exactly one reserved host identity after bootstrap; same ID/history on restore; ordinary creates cannot create a second host-global identity |
-| A01.4 | Capacity exhausted or CLI authentication missing during start=true creation | Durable accepted operation reports waiting/setup reason; no silent host fallback, uncontrolled launch loop or false ready state |
+| A01.4 | Creation followed by manual Terminal startup with missing login/capability | Creation starts no CLI; folder/shell/resource progress is separate; user-driven setup reports its actual state without a host fallback or false ready state |
 | A01.5 | 1/100/101-word statuses, Unicode whitespace, empty/over-4096-character text | Shared normalization and limits across transports; invalid input changes nothing; every real change has old/new text, actor and revision |
 | A01.6 | Same-text status confirmation, repeated heartbeat, disconnect and recovery | No invented status-change events; review/contact times separate; one freshness transition to unknown, then one verified recovery transition |
 | A01.7 | Delayed, duplicate and out-of-order activity events from current/retired runs | Every valid distinct observation retained historically; stale observations cannot replace current state; running process is not assumed working |
@@ -139,10 +145,10 @@ The fault model assumes storage honors fsync. Losing the only physical storage d
 
 | ID | Scenario | Required evidence |
 | --- | --- | --- |
-| A08.1 | Claude → Codex → Claude with authored files, synthetic cookie, pending/uncertain messages | Same agent/conversation, workspace/profile and full raw inventory; distinct runs; captured context/native resume lineage; no silent replay or identity reset |
-| A08.2 | Long history, oversized mandatory/optional input, parsing lag/gaps and pinned facts | Selection waits for recorded raw/parsing checkpoint; explicit degraded ranges if chosen; deterministic bytes/hash; mandatory overflow fails visibly, optional omissions have references; no historical prompt promotion |
-| A08.3 | Kill at each switch checkpoint; old run unreachable; target launch/setup failure | One live input owner; old run verified stopped before replacement; saved packet and frozen queues recover; failed target is visible; no hidden rollback/model turn |
-| A08.4 | Same-client native resume or explicitly selected memory-only recipe | Exact resume binding verified without another automatic startup prompt; fallback is recorded; recipe follows D08; packet transport differs from observed recall |
+| A08.1 | User exits/starts Claude → Codex → Claude in Terminal | Same agent/conversation, workspace/profile, raw inventory and pending messages; distinct connected sessions recorded; no automatic startup prompt or identity reset |
+| A08.2 | Automatic context-packet selection | Deferred outside v1 by D36; not a required v1 gate |
+| A08.3 | Two startup claims, reconnect, exit/crash and delayed old release | Existing active inbox owner wins, same running session reconnects; conflict is explicit; transport failure is separate; stale release cannot revoke the replacement |
+| A08.4 | User selects same-client native resume in Terminal | Resume lineage is observed where supported; no extra injected startup turn; files/history remain available independently of native context |
 | A09.1 | Direct CLI edits plus API atomic file/memory writes, conflict, packet read during edit and restart | Plain files usable; API atomicity/hash checks hold; detected unstable reads retry/fail; selected bytes retained with hashes; no clobber or universal direct-edit version claim |
 | A09.2 | Stopped full-agent export/import with cross-agent messages and reused names | UUID/history/source hashes retained; central-record slice/provenance included; destination-local event cursors remapped; missing peers remain historical references; unfinished effects held |
 | A09.3 | Stopped full-installation backup of VM agents and onbash, restore under another absolute root | All owned writers verified stopped; onbash WAL-backed spool and separate browser receipt store included; exact disk backing images/paths and hashes verify; history/holds/queues survive; no automatic launch or replay |
@@ -179,7 +185,7 @@ The included chat scope is in [UI-PLAN.md](UI-PLAN.md). No large design system o
 | G2 Execution | A02.1–A02.5, A03.1–A03.4, A04.1/A04.2 on real processes/guests; early recorder active |
 | G3 History | A04.3, A07.1–A07.9 and C01–C11, including real VM/network/disk cases; C11 uses fake switch/backup consumers until integrated G5/G6; complete supported-source inventory |
 | G4 Coordination/chat | A05.1–A05.5, A06.1–A06.5/A06.7, A07.10, A09.5, A10.1–A10.3/A10.6–A10.9; real inline browser interaction, durable cards and automatic dated transcript files; earlier guarantees still hold |
-| G5 Continuity | A04.4, A08.1–A08.4, A09.1–A09.2 on both supported native adapters |
+| G5 Continuity | A04.4, A08.1/A08.3/A08.4, A09.1–A09.2 on both supported native adapters with manual Terminal startup; automatic packets excluded by D36 |
 | G6 Deployable release | A06.6–A06.8 integrated surfaces/control, A09.3–A09.4, A10.4–A10.5, A11.1–A11.5 and L5 smoke for each adapter; all R01–R16 traced to passing evidence for the candidate build |
 
 For each result, save: acceptance ID; owning repository/commit and integrated core/browser/UI pins; UTC execution time; command/reproduction steps; test layer; fixture seed/data manifest; host/kernel/filesystem and dependency versions; guest image digest; CLI/model/provider and API/runner protocol versions where applicable; expected invariant; observed outcome; injected failure point; before/after IDs/watermarks/hashes; artifact references; known limitations. Use explicit `passed`, `failed`, `blocked` or `not_run`, not an ambiguous checkmark. A skipped test is not passing evidence.

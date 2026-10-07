@@ -1,5 +1,16 @@
 # Managed implementation and review
 
+## Current work after owner scope agreement
+
+D36 is accepted: [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md). The next
+parallel implementation assignments are the core manual-creation contract and
+its UI cleanup. Both are bounded corrections to accepted code and receive fresh
+independent reviews. Native rehearsal is receiving report-only corrections;
+its product observations are not a completed runtime. Next Manager freezes
+startup/inbox registration and terminal-view contracts for the connected flow.
+No automatic CLI orchestration or context-packet work is authorized by old plans.
+The VM decision remains separate; common integration starts with onbash.
+
 Manager decision, 2026-10-07. The owner authorized implementation through ACLA,
 up to ten concurrent actors, no native self-review, and a separate reviewer after
 each completed assignment. Initial assignments used the owner's Astra MAX

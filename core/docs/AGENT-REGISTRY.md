@@ -1,5 +1,11 @@
 # Agent registration, authored workspace and status: first increment
 
+Current v1 scope: [D36, terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md)
+supersedes earlier automatic CLI start/restart/provider-switch and context-packet
+requirements below. Creation establishes an agent and shell; the user starts the
+CLI. One logical inbox owner connects Chat. See that plan for the exact current
+creation contract and revised acceptance. VM setup remains open.
+
 Manager design, 2026-10-08. Base: merged core `f168369d553f8378df1ba8bc2470a4e1105bf25c`
 ([PR #1](https://github.com/qorqutbot/qorqut-core/pull/1)), with this planning
 commit applied. This implements M01.01–03 and the initial directory portion of

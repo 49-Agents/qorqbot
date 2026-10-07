@@ -1,5 +1,11 @@
 # Shared backend contracts
 
+Current v1 scope: [D36, terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md)
+supersedes earlier automatic CLI start/restart/provider-switch and context-packet
+requirements below. Creation establishes an agent and shell; the user starts the
+CLI. One logical inbox owner connects Chat. See that plan for the exact current
+creation contract and revised acceptance. VM setup remains open.
+
 Status: normative planning baseline for `qorqut-core`. Implementation must keep these names and semantics aligned across modules, HTTP, both MCP servers, tests and generated agent instructions. `qorqutbot-ui` consumes core's network contract; `qorqut-browser` owns its independent MCP/control contract and core integrates it over versioned APIs. Changes require updating this document and the affected module plans.
 
 ## 1. Identity and coordinates
@@ -56,7 +62,12 @@ The authored workspace contains `persona.md`, `memory.md` and `notes/`, `researc
 
 There is at most one reserved host-global agent, initialized as `onbash`. The installation stores its ID. It cannot be silently replaced by another host identity. Archival preserves it and its history; restoring it uses the same ID.
 
-`agents_create` requires `display_name` and CLI configuration, with optional `icon_key` and initial persona text; ordinary creation uses `kind=vm`. Omitted persona text uses core's small default seed. Resolve installation defaults at creation and save the resulting agent configuration so later default changes do not rewrite existing agents. `start` defaults true but is explicit in the recorded arguments. The result is a created agent plus an asynchronous provisioning/start operation. Successful registration does not claim a VM or CLI is ready.
+`agents_create` requires `display_name`, with optional `icon_key`, persona and
+resources. Creation prepares identity/workspace and eventually a persistent tmux
+shell; the user starts the CLI. The D36 correction makes legacy `cli` metadata
+optional and `start` default false; fresh `start=true` is refused. Previously
+committed requests still replay their immutable result, with no execution.
+Registration and workspace completion never claim a VM, terminal or CLI is ready.
 
 No hard-delete operation is part of v1. Archive is a durable lifecycle transition that stops execution and retains files, messages and history. Restore is explicit. Creating an agent, archiving one, or restarting one is allowed to every registered actor under the same contract.
 
@@ -88,11 +99,17 @@ nor releases an unknown run's ownership. Timeout is not verified process death.
 
 ### Lifecycle precedence
 
-Serialize lifecycle intent with a revision and the per-agent lifecycle lock. Creation goes from `provisioning` to `active` after resource readiness; its start job may run only after that transition. `runtime_start/restart/switch` require an active, non-quiesced agent and a current intent revision. Recheck before each external effect. Setup failure after launching a process does not release run ownership: only verified exit does; uncertain existence is `unknown` even if the operation failed.
+Resource provisioning and archival retain a lifecycle revision. Creation may
+establish a workspace, VM and tmux shell, never a native CLI. The user controls
+CLI lifetime in Terminal. Inbox/Chat registration is admitted only for a current,
+non-archived agent; D36's existing active owner wins. Unknown ownership remains
+unresolved rather than being replaced by a new startup hook.
 
-Archive accepts provisioning/active/error agents, closes launch admission, advances lifecycle intent, and cancels superseded launch/switch work. An effect already executing under the lock must settle before archival stops and verifies its resources. Mark `archived` only after all managed execution is stopped; a timeout remains unresolved. `agents_restore` reopens an archived identity through provisioning/verification, with `start=false` by default. It is distinct from backup import. Only restore may reopen archived launch admission.
-
-`runtime_stop` means stop and verify the managed CLI run, leaving its VM/browser available. `runtime_restart` is a recorded CLI stop followed by start. Archive and stopped maintenance explicitly stop the whole included environment; onbash never shuts down the host OS.
+Archival closes new connection/delivery admission and settles/stops its owned
+resources before claiming completion; restore explicitly reopens the same
+identity through provisioning/verification and never starts a CLI. CLI exit
+alone preserves VM/browser availability. Archive and stopped maintenance may
+stop the included environment; onbash never shuts down the host OS.
 
 ## 4. Status and presence contract
 
@@ -242,15 +259,15 @@ Expose publication lag/failure; never treat raw archival or a successful chat
 write as proof that a dated copy has already been fsynced. Immutable raw history
 remains authoritative; the dated files do not replace it or invent missing data.
 
-## 9. Context restoration contract
+## 9. Manual provider continuity
 
-One stable main conversation belongs to the agent. Same-client native resume uses the verified native session when supported, without an extra automatic startup prompt. A different client starts a new run with a saved context packet containing current instructions, a captured memory snapshot, unresolved input/message references, pinned artifacts and a bounded selection of prior conversation. References do not substitute for or trigger delivery of pending messages.
-
-Record packet ID, exact bytes/hash, source history IDs/watermarks, selection recipe/version, target budget, omissions and delivery outcome. Old provider system/tool text is labeled historical context and does not become privileged new instructions. No hidden summarizer/model call is required.
-
-Packet selection binds to a finalized raw checkpoint and waits for parsing through that checkpoint, including explicit parse-gap outcomes; FTS completion is not required. Unavailable ranges cannot silently vanish. A blocked parser waits by default; an explicitly chosen degraded packet records excluded ranges/reasons. Snapshot plain files by checked stable reads and retain selected bytes in the packet or immutable attachments; detected concurrent edits cause retry/unavailable, not a claim of universal file versioning. Reserve mandatory instruction/identity budget first; oversized optional whole records become references with recorded omissions, while oversized mandatory content fails preparation visibly.
-
-Automatic restore is the planning default pending D08. The complete archive always remains queryable even when most of it is omitted from the initial packet. “Restoration delivered” is a verified transport outcome, not proof the model recalled every fact.
+D36 supersedes automatic context restoration. One stable conversation and folder
+belong to the agent. The user exits the old CLI and starts/resumes another through
+Terminal. Core preserves identity, persona/memory/files, browser profile, queued
+messages and all captured history, and binds the new connected session without
+injecting an extra startup turn. Native resume is observed and recorded where
+supported. Automatic cross-provider context packets are deferred outside v1;
+shared files and queryable history remain available to the new CLI.
 
 ## 10. Human input contract
 
@@ -291,7 +308,7 @@ Core application operations share their HTTP/MCP implementation where exposed. B
 | Configuration | `config_get`, `config_update` |
 | Directory/lifecycle | `agents_list`, `agents_get`, `agents_create`, `agents_update`, `agents_archive`, `agents_restore` |
 | Status/history | `agents_status_set`, `events_list`, `operations_get`, `operations_reconcile` |
-| Runtime | `runtime_get`, `runtime_start`, `runtime_stop`, `runtime_restart`, `runtime_switch`, `terminal_control` |
+| Runtime | `runtime_get`, `terminal_control`; user starts/stops/configures the CLI in Terminal |
 | Desktop surfaces | `surfaces_list`, `desktop_control` |
 | Messaging | `messages_send`, `messages_list`, `messages_acknowledge`, `deliveries_get`, `deliveries_resolve` |
 | Browser | `browser_turn`, `browser_request_input`, `input_requests_list`, `input_requests_complete`, `input_requests_cancel` |

@@ -1,5 +1,11 @@
 # M03 — Runner, tmux and terminal delivery
 
+Current v1 scope: [D36, terminal-owned sessions](../TERMINAL-OWNED-SESSIONS.md)
+supersedes earlier automatic CLI start/restart/provider-switch and context-packet
+requirements below. Creation establishes an agent and shell; the user starts the
+CLI. One logical inbox owner connects Chat. See that plan for the exact current
+creation contract and revised acceptance. VM setup remains open.
+
 Status: Planned. Owns R03/R04/R05/R07 execution boundaries. Depends on M00–M02 and shared protocol; integrates M04 adapters, M05 messages and M07 recorder.
 
 Repository: `qorqut-core`. Install the small runner from core's package; use a versioned client of the independent local browser service for Chrome/control/relay effects. Browser does not own tmux, message routing or the runner service. Its direct MCP calls and runner-proxied commands share the browser service's own command/control gate.

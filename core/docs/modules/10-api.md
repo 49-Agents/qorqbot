@@ -1,5 +1,11 @@
 # M10 — HTTP, Qorqut MCP, operator client and chat workspace
 
+Current v1 scope: [D36, terminal-owned sessions](../TERMINAL-OWNED-SESSIONS.md)
+supersedes earlier automatic CLI start/restart/provider-switch and context-packet
+requirements below. Creation establishes an agent and shell; the user starts the
+CLI. One logical inbox owner connects Chat. See that plan for the exact current
+creation contract and revised acceptance. VM setup remains open.
+
 Status: Planned. Owns R02/R08/R12/R13/R15/R16 transport/presentation behavior. Depends on M00 from the first phase and integrates each domain as it becomes available, especially M01/M06/M07/M09 for the chat scope.
 
 Repositories: `qorqut-core` owns HTTP/MCP, operator commands, sessions, application configuration API and stream proxies. `qorqutbot-ui` owns the frontend, API client and viewer assets. This is a cross-repository work package, not a reason to mix source ownership.

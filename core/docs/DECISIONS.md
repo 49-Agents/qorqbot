@@ -1,5 +1,20 @@
 # Architecture decisions
 
+## D36 — User-started terminals and one logical inbox owner
+
+Accepted by the owner, 2026-10-08. Creation prepares identity/files and a tmux
+shell, never a native CLI. The user starts/stops/configures providers in Terminal;
+Chat attaches to the observed session. First active inbox owner wins, same-session
+reconnect succeeds, and a competing session is refused and told to notify the
+user and wait. No launcher lock or deliberate-bypass defense. Transport failures
+are not conflicts; brief disconnects and completed turns do not release ownership.
+
+This supersedes D04's managed-launch framing, D08 automatic context restoration,
+D29's future start intent and old runtime start/restart/switch plans. Preserve
+raw/provider-independent history and core's dated transcripts. Follow
+[the current scope and assignments](TERMINAL-OWNED-SESSIONS.md); earlier evidence
+continues to describe only the implementation tested at its recorded revision.
+
 ## D35 — Headless jobs and same-origin console sessions
 
 **Decision:** [CONSOLE-SERVER.md](CONSOLE-SERVER.md) extends the initial local

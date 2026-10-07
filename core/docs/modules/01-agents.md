@@ -1,5 +1,11 @@
 # M01 — Agent identity, workspaces, status and presence
 
+Current v1 scope: [D36, terminal-owned sessions](../TERMINAL-OWNED-SESSIONS.md)
+supersedes earlier automatic CLI start/restart/provider-switch and context-packet
+requirements below. Creation establishes an agent and shell; the user starts the
+CLI. One logical inbox owner connects Chat. See that plan for the exact current
+creation contract and revised acceptance. VM setup remains open.
+
 Status: Planned. Owns R01/R02/R04/R08/R09/R16. Depends on M00; uses M02/M03 observations and M09 filesystem operations through narrow interfaces.
 
 Repository: `qorqut-core`. Agent management is an internal module, with no separate agent/template package.

@@ -1,5 +1,11 @@
 # M08 — Memory, native resume and provider switching
 
+Current v1 scope: [D36, terminal-owned sessions](../TERMINAL-OWNED-SESSIONS.md)
+supersedes earlier automatic CLI start/restart/provider-switch and context-packet
+requirements below. Creation establishes an agent and shell; the user starts the
+CLI. One logical inbox owner connects Chat. See that plan for the exact current
+creation contract and revised acceptance. VM setup remains open.
+
 Status: Planned. Owns R11. Depends on M01/M03/M04/M07/M09. Automatic bounded restoration is the pending-owner default D08.
 
 Repository: `qorqut-core`. Provider switching is backend coordination; its checkpoints never depend on UI state.

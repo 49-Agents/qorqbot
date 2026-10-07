@@ -1,5 +1,11 @@
 # Backend architecture
 
+Current v1 scope: [D36, terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md)
+supersedes earlier automatic CLI start/restart/provider-switch and context-packet
+requirements below. Creation establishes an agent and shell; the user starts the
+CLI. One logical inbox owner connects Chat. See that plan for the exact current
+creation contract and revised acceptance. VM setup remains open.
+
 Status: planned. Shared IDs, states and operation names are defined in [CONTRACTS.md](CONTRACTS.md).
 
 ## 1. Process model
@@ -241,13 +247,16 @@ Input delivery is a special external effect. Record intent before paste. An atte
 
 ## 6. End-to-end flows
 
-### Create and start
+### Create, open Terminal, connect Chat
 
-1. `agents_create` commits UUID, config, initial status, creation event and provisioning job under one idempotency key.
-2. The job establishes the owned folder and projections, provisions the selected environment and checks runner/mount readiness.
-3. If start was requested, a new run/generation is registered before launch. Preparation writes only generated inputs; authored files survive.
-4. The recorder and native CLI launch together. Hooks/registering sources bind exact native identities to the run.
-5. Capture readiness and native readiness are exposed independently. Missing login or trust input produces an explicit setup condition; it is not reported as a working agent.
+1. Creation commits identity/status/history and provisions the owned workspace.
+2. Environment readiness permits a persistent tmux shell at that workspace;
+   creating/opening the shell does not start a CLI.
+3. The user starts or resumes a CLI and chooses its configuration in Terminal.
+4. Startup integration requests inbox ownership. Existing active owner wins;
+   reconnect of that exact running session succeeds, a competing session waits.
+5. Core binds inbox/Chat and capture to the observed native session. View changes
+   do not affect its lifetime; exit disconnects delivery while retaining history.
 
 ### Message another agent
 

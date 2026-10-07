@@ -1,5 +1,11 @@
 # Qorqutbot backend implementation plan
 
+Current v1 scope: [D36, terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md)
+supersedes earlier automatic CLI start/restart/provider-switch and context-packet
+requirements below. Creation establishes an agent and shell; the user starts the
+CLI. One logical inbox owner connects Chat. See that plan for the exact current
+creation contract and revised acceptance. VM setup remains open.
+
 Status: global plan, updated 2026-10-08. The reviewed core primitive package is
 merged in PR #1; [BUILD-EXECUTION.md](BUILD-EXECUTION.md) records exact bounded
 acceptance. No deployment or complete system gate has been accepted.
@@ -15,7 +21,7 @@ The owner values lean code and high quality, with no deadline-driven reason to w
 | Requirement | Concrete meaning | Primary modules |
 | --- | --- | --- |
 | R01 Stable agents | Immutable UUID, dedicated `agents/<UUID>` folder with editable `persona.md`, notes/research/data; display names/icons are independent; IDs survive ordinary changes | M01, M09 |
-| R02 Create from either actor | Owner and agents call the same create operation; creation/provisioning/start have inspectable progress and permanent creation history | M00–M04, M10 |
+| R02 Create from either actor | Owner and agents call the same create operation; creation/workspace/shell provisioning have inspectable progress; CLI startup is manual and permanent creation history | M00–M04, M10 |
 | R03 Per-agent environment | Each ordinary agent has its own persistent Linux VM, workspace, native CLI stores and desktop | M02, M03 |
 | R04 Host-global onbash | Exactly one reserved global host agent; same contracts and files, no VM | M01–M04 |
 | R05 CLI/model independence | Claude and Codex initially; model choice belongs to configured CLI adapters rather than platform identity | M03, M04, M08 |
@@ -24,7 +30,7 @@ The owner values lean code and high quality, with no deadline-driven reason to w
 | R08 Advertised state | Every agent is discoverable with ID/name, current status, activity and freshness; status is at most 100 words | M01, M10 |
 | R09 Permanent changes | Every changed status/state and every creation is recorded; message history does not expire | M00, M01, M05 |
 | R10 Complete captured history | All supported native streams and terminal output are collected with visible health, durable retry and no whole-file ceiling; core automatically maintains dated chat copies in each agent's `transcripts/` folder | M03, M04, M07 |
-| R11 Provider changes preserve work | Same agent and logical history; files/browser persist; new runtime receives the chosen restoration packet | M08, M09 |
+| R11 Provider changes preserve work | Same agent and logical history; files/browser persist; the user starts the new CLI in Terminal; shared memory/history remains available | M08, M09 |
 | R12 Unrestricted v1 | No role grants, capability policies or signoff engine; caller identity and target validation remain | M00, M10 |
 | R13 Single-page chat UI | Left agent list, central conversation, collapsible right inspector; inline live browser requests with modal expansion; separate browser/machine control | M02, M06, M07, M10 |
 | R14 Recoverable operation | Restart, backup, restore, disk pressure and software upgrades have tested outcomes | M02, M07, M11 |
@@ -73,7 +79,7 @@ The initial planning repository is now the UI destination. Core and browser have
 The owner has been asked two preferences. This baseline proceeds with explicit defaults:
 
 - **D02:** “Own VM” means a real QEMU/KVM Linux VM, not merely a container or separate VNC display.
-- **D08:** A provider/client switch automatically restores a captured memory snapshot plus bounded relevant conversation context. Complete history remains available separately.
+- **D36 supersedes D08:** provider/client changes are manual in Terminal. Identity/files/history persist; automatic context packets are deferred outside v1.
 
 If the owner changes either preference, update the decision and affected module plans before implementing that dependency. Identity, message storage, raw archival and operation contracts are useful under either choice. No reply is treated as confirmation.
 
@@ -213,11 +219,17 @@ File publication and restart/replay acceptance do not depend on the UI being ope
 
 **Gate G4:** three agents can create/contact peers and preserve offline messages; human control defers automatic input; browser takeover settles commands and resolves once; login persists. The chat renders one durable card per browser/file request, directly controls the inline browser and expands the same session; icons/rename preserve routing. Machine control and responsive/focus behavior complete integrated G6 acceptance.
 
-### Phase 5 — Provider switching and portable work
+### Phase 5 — Manual provider continuity and portable work
 
-Complete M08/M09. Add native resume without duplicate startup input, deterministic context packets behind a raw/parsing checkpoint, retained memory/artifact snapshots, search/raw retrieval, stopped export/import and exact preservation checks.
+Complete the D36 revision of M08/M09: observe user-initiated native resume and
+provider changes; preserve authored workspace, memory, browser profile, pending
+messages and complete captured history. Finish search/raw retrieval and stopped
+export/import with exact preservation checks. No automatic launch/context packet.
 
-**Gate G5:** Claude → Codex → Claude preserves agent UUID, workspace, browser profile, full captured history and pending messages. Each new run has a recorded restoration packet or verified native resume. A failed target launch remains visible and recoverable without silently replaying uncertain input.
+**Gate G5:** a user exits/starts Claude → Codex → Claude through Terminal while
+identity, files/profile, captured history and pending messages persist. There is
+one connected inbox/Chat owner, no extra injected startup prompt and no replay
+of uncertain delivery. Unsupported source/resume behavior is explicit.
 
 ### Phase 6 — Operational acceptance and first deployable release
 

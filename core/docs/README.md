@@ -1,5 +1,8 @@
 # Backend planning documents
 
+Start with [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md) for the owner's
+2026-10-08 scope correction: manual CLI startup and one logical inbox owner.
+
 The [global implementation plan](IMPLEMENTATION-PLAN.md) is the entry point and the authority for scope, dependencies and delivery gates. Module plans expand it; they do not silently override shared contracts.
 
 The agreed repositories are `qorqut-core` (backend/configuration/coordination), `qorqut-browser` (its own MCP server and browser tooling) and `qorqutbot-ui` (frontend). Agents connect to separate core/browser MCP endpoints. The backend plans now live here in core; browser owns its work package and UI owns its chat plan. Link files preserve navigation from the original planning checkout. Module numbers identify work packages.
