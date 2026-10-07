@@ -1,5 +1,7 @@
 # Documentation index
 
+Current small UI increment: [D53 inbox references](INBOX-REFERENCE-UI.md).
+
 The [actual core/MCP/file-reference flow](evidence/file-reference-integration-manager-acceptance.md)
 is accepted: metadata cards, exact path copying, automatic dated history and restart.
 Next are core's [parallel connected native Chat checks](https://github.com/qorqutbot/qorqut-core/blob/main/docs/CONNECTED-CHAT-ACCEPTANCE.md).
