@@ -160,6 +160,26 @@ the same publisher. New native entries automatically appear in UTC dated files.
 No UI selection or manual save is involved. A later parser version must not
 automatically reinsert the entire history; rebuild/switch remains explicit.
 
+Clarification 222: when append_native receives no operation_id, create an
+internal `native_entry_import` operation receipt attributed to the registered
+agent actor, in the same transaction as entry and publication job. Its stable
+idempotency key hashes source/epoch/parser-version/native-ID/part; its input hash
+covers the validated item and provenance (use a missing-time marker rather than
+a newly sampled fallback time). Exact replay reuses the existing entry/receipt;
+changed input conflicts. Store an ordinary accepted OperationResult referring
+to the entry and queued publication, not a claim that publication is finished.
+A supplied operation_id must identify an existing current-epoch receipt for
+that agent actor. No new public operation, handler or alternative job path.
+
+consume uses transcripts.spool.RunBinding. Verify it against archive_runs, the
+saved source/epoch/run link and its session_owners row (owner_id equals run_id).
+Use that row's provider/version/native UUID, checking the source native UUID.
+An owner need not remain active/live to finish importing its archived history;
+archive recovery holds and conflicts still block consumption. Native provenance
+run_id denotes the admitted capture/import binding, not proof that a resumed
+file's earlier records were originally emitted by that process. Never replace
+it with whichever owner happens to be current.
+
 This lane also adds persisted parser checkpoints/gaps keyed by source/epoch/
 parser version, atomically advanced with insertion or an explicit gap. Provide
 `NativeProjector(application).consume(context, binding, source_id, source_epoch,
