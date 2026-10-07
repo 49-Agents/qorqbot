@@ -83,6 +83,13 @@ legend{padding:0;margin-bottom:9px}
 .recorded{color:#aaa;font-size:10px;margin:-3px 0 8px}
 .delivery{display:flex;flex-direction:column;color:#aaa;font-size:10px;margin-top:9px;gap:3px}
 .unsupported{padding:12px;border:1px solid #2b2b2b;color:#bbb}
+.entry.inbox-reference-entry{margin:14px 0}
+.inbox-reference{border:0;padding:0;color:#bbb}
+.inbox-reference summary{font-size:12px}
+.inbox-reference summary time{margin-left:12px}
+.inbox-reference .message-body{margin-top:8px;font-size:12px}
+.inbox-reference-id{font-size:11px;overflow-wrap:anywhere}
+.inbox-reference .recorded{margin:8px 0 0}
 .file-card{min-width:0;border:1px solid #414141;border-radius:6px;padding:14px}
 .file-card-title{display:flex;align-items:flex-start;gap:9px}
 .file-card-title strong{min-width:0;white-space:break-spaces}

@@ -2,6 +2,7 @@ import { test as base, expect, type Page } from '@playwright/test';
 import { SyntheticAPI, alpha, beta, owner } from './synthetic-api';
 import { SyntheticTerminal } from './synthetic-terminal';
 import { randomUUID } from 'node:crypto';
+import { writeFile } from 'node:fs/promises';
 import type { Entry, RuntimeView } from '../src/wire';
 
 const test = base.extend<{ api: SyntheticAPI }>({
@@ -370,7 +371,7 @@ test('escaped content and desktop/mobile drawers, focus and screenshots', async 
   await expect(page.getByText(/Recorded /).first()).toBeVisible();
   const expectNativeEntries = async () => {
     await expect(page.locator('.entry')).toHaveCount(5);
-    for (const [entry, sender] of [[nativeUser, 'Owner'], [nativeAgent, 'Atlas']] as const) {
+    for (const [entry, sender] of [[nativeUser, 'Terminal input'], [nativeAgent, 'Atlas']] as const) {
       const row = page.locator(`[data-entry-id="${entry.entry_id}"]`);
       await expect(row).toBeVisible();
       await expect(row.locator('header strong')).toHaveText(sender);
@@ -412,6 +413,100 @@ test('escaped content and desktop/mobile drawers, focus and screenshots', async 
   await expect(message(page)).toHaveValue('A mobile draft');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('mobile.png'), fullPage: true });
+});
+
+test('synthetic inbox references validate annotations, preserve native sender labels and expand by keyboard at 390px', async ({ page, api }, testInfo) => {
+  const requests: string[] = [], sockets: string[] = [];
+  page.on('request', request => requests.push(request.url()));
+  page.on('websocket', socket => sockets.push(socket.url()));
+  const stored = api.add(alpha, 'Stored message body stays in one entry.');
+  if (stored.source.type !== 'message') throw new Error('Expected synthetic message');
+  const annotation = { message_id: stored.source.message_id, message_entry_id: stored.entry_id };
+  const pointer = `[Qorqut inbox ${annotation.message_id}]`;
+  const reference = api.addNative(alpha, pointer, 'user', 'codex');
+  reference.inbox_reference = annotation;
+  // The referenced message can be outside this loaded page; UI does no history join.
+  const unloaded = { message_id: randomUUID(), message_entry_id: randomUUID() };
+  const otherReference = api.addNative(alpha, `[Qorqut inbox ${unloaded.message_id}]`, 'user', 'claude');
+  otherReference.inbox_reference = unloaded;
+  const ordinary: [Entry, string][] = [[stored, 'Owner']];
+  const absent = api.addNative(alpha, pointer, 'user', 'codex');
+  ordinary.push([absent, 'Terminal input']);
+  for (const value of [null, false, 1, pointer, [], {}, { message_id: annotation.message_id },
+    { message_entry_id: annotation.message_entry_id }, { ...annotation, message_id: 12 },
+    { ...annotation, message_id: 'invalid' }, { ...annotation, message_entry_id: null },
+    { ...annotation, message_entry_id: 'invalid' }, { ...annotation, message_id: annotation.message_id + '\n' }]) {
+    const entry = api.addNative(alpha, pointer, 'user', 'claude');
+    entry.inbox_reference = value as Entry['inbox_reference'];
+    ordinary.push([entry, 'Terminal input']);
+  }
+  const fromOwner = api.addNative(alpha, 'Attributed native user text', 'user', 'claude');
+  fromOwner.sender_actor_id = owner;
+  const fromPeer = api.addNative(alpha, 'Native user text from a known actor', 'user', 'codex');
+  fromPeer.sender_actor_id = api.agents[1].actor_id;
+  const fromAgent = api.addNative(alpha, pointer, 'agent', 'codex');
+  fromAgent.inbox_reference = annotation;
+  const notNative = api.add(alpha, pointer, { inbox_reference: annotation });
+  ordinary.push([fromOwner, 'Owner'], [fromPeer, 'onbash'], [fromAgent, 'Atlas'], [notNative, 'Owner']);
+  const wrongKind = api.addNative(alpha, pointer, 'user', 'claude');
+  wrongKind.kind = 'future_card'; wrongKind.inbox_reference = annotation;
+  const entries = api.entries.get(alpha)!;
+  const row = (entry: Entry) => page.locator(`[data-entry-id="${entry.entry_id}"]`);
+  const response = page.waitForResponse(r => r.url().endsWith('/operations/conversation_list'));
+  const servedUI = page.waitForResponse(r => r.url() === api.url + '/');
+  await signIn(page, api);
+  // Capture actual served bytes privately, without session requests or credentials.
+  await writeFile(testInfo.outputPath('synthetic-conversation-response.json'), await (await response).body());
+  await writeFile(testInfo.outputPath('served-ui.html'), await (await servedUI).body());
+  await expect(page.locator('.inbox-reference')).toHaveCount(2);
+  expect(await page.locator('.entry').evaluateAll(rows => rows.map(e => e.getAttribute('data-entry-id')))).toEqual(entries.map(e => e.entry_id));
+  await expect(page.getByText(stored.text, { exact: true })).toHaveCount(1);
+  for (const [entry, sender] of ordinary) {
+    await expect(row(entry).locator('header strong')).toHaveText(sender);
+    expect(await row(entry).locator('.message-body').textContent()).toBe(entry.text);
+    await expect(row(entry).locator('details')).toHaveCount(0);
+  }
+  await expect(row(wrongKind).locator('.unsupported')).toHaveText('Unsupported content: future_card');
+  await expect(row(wrongKind).locator('details')).toHaveCount(0);
+  for (const entry of [reference, otherReference]) {
+    await expect(row(entry).locator('summary time')).toHaveAttribute('datetime', entry.occurred_at);
+    await expect(row(entry).locator('.message-body')).toBeHidden();
+    await expect(row(entry).locator('header, .delivery, a, button')).toHaveCount(0);
+  }
+  const disclosure = row(reference).locator('details'), summary = disclosure.locator('summary');
+  await summary.focus();
+  await page.keyboard.press('Tab');
+  await expect(row(otherReference).locator('summary')).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(summary).toBeFocused();
+  await page.screenshot({ path: testInfo.outputPath('inbox-reference-desktop-collapsed.png') });
+  await page.keyboard.press('Enter');
+  await expect(disclosure).toHaveAttribute('open', '');
+  expect(await disclosure.locator('.message-body').textContent()).toBe(pointer);
+  await expect(disclosure.locator('.inbox-reference-id')).toHaveText(`Message ID: ${annotation.message_id}`);
+  await expect(disclosure.locator('.recorded time')).toHaveAttribute('datetime', reference.recorded_at);
+  await page.keyboard.press('Space');
+  await expect(disclosure).not.toHaveAttribute('open', '');
+  await page.keyboard.press('Enter');
+  const noOverflow = async () => {
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await page.locator('.history, .inbox-reference, .inbox-reference summary, .inbox-reference .message-body, .inbox-reference-id')
+      .evaluateAll(elements => elements.every(e => e.scrollWidth <= e.clientWidth))).toBe(true);
+  };
+  await noOverflow();
+  await page.screenshot({ path: testInfo.outputPath('inbox-reference-desktop-expanded.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await summary.scrollIntoViewIfNeeded();
+  await expect(summary).toBeFocused();
+  await expect(disclosure.locator('.message-body')).toBeVisible();
+  await noOverflow();
+  await page.screenshot({ path: testInfo.outputPath('inbox-reference-mobile-expanded.png') });
+  expect(requests.filter(value => {
+    const url = new URL(value);
+    return url.origin !== api.url || !/^(?:\/|\/assets\/[\w.-]+|\/api\/v1\/(?:session|schema|operations\/(?:config_get|agents_list|agents_get|events_list|conversation_list)))$/.test(url.pathname);
+  })).toEqual([]);
+  expect(sockets).toEqual([]);
+  expect(api.messages).toEqual([]);
 });
 
 test('file-reference cards validate saved observations, copy exact paths and wrap on desktop/mobile', async ({ page, api }, testInfo) => {

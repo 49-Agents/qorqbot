@@ -43,6 +43,8 @@ export type FileReference = {
   size_bytes: number; mtime_ns: string; observed_at: string; recorded_at: string; sha256: null;
 };
 export type FileReferenceSource = { type: 'file_reference'; reference: FileReference };
+// D53 ConversationItem read annotation, pinned at core 9685beefaa0ccbd72fdd4eee46d1e49eac9270dc.
+export type InboxReference = { message_id: string; message_entry_id: string };
 export type Entry = {
   entry_id: string; agent_id: string; conversation_id: string; conversation_seq: number;
   kind: string; role: string; direction: string; text: string; sender_actor_id: string | null;
@@ -55,6 +57,7 @@ export type Entry = {
         part_index: number; timestamp_origin: 'native' | 'ingestion' }
     | FileReferenceSource;
   delivery: Delivery | null; handling: Handling | null;
+  inbox_reference?: InboxReference | null;
 };
 export type Publication = { pending_entries: number; state: 'current' | 'pending' | 'blocked'; error: { code: string; message: string } | null };
 export type ConversationPage = {

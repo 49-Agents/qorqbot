@@ -7,6 +7,7 @@ import { TerminalPane, TerminalSummary } from './terminal';
 import { collectionReasons, nativeStates, sessionStatus, setupReasons } from './runtime-view';
 import { fileReferenceEntry } from './file-reference';
 import { FileReferenceCard } from './file-reference-card';
+import { inboxReferenceEntry } from './inbox-reference';
 import './style.css';
 
 const store = new Store();
@@ -123,7 +124,16 @@ function Navigation({ select, create, renameId, setRename }: { select: (id: stri
   </nav>;
 }
 function EntryRow({ entry }: { entry: Entry }) {
-  const sender = store.agents.find(a => a.actor_id === entry.sender_actor_id)?.display_name || (entry.role === 'user' ? 'Owner' : 'Agent');
+  if (inboxReferenceEntry(entry)) return <article className="entry inbox-reference-entry" data-entry-id={entry.entry_id}>
+    <details className="inbox-reference">
+      <summary><span>Inbox reference</span><time dateTime={entry.occurred_at} title={entry.occurred_at}>{time(entry.occurred_at)}</time></summary>
+      <p className="message-body">{entry.text}</p>
+      <p className="inbox-reference-id">Message ID: {entry.inbox_reference.message_id}</p>
+      {entry.recorded_at !== entry.occurred_at && <p className="recorded">Recorded <time dateTime={entry.recorded_at} title={entry.recorded_at}>{time(entry.recorded_at)}</time></p>}
+    </details>
+  </article>;
+  const nativeInput = entry.kind === 'message' && entry.source?.type === 'native' && entry.role === 'user' && entry.sender_actor_id == null;
+  const sender = nativeInput ? 'Terminal input' : store.agents.find(a => a.actor_id === entry.sender_actor_id)?.display_name || (entry.role === 'user' ? 'Owner' : 'Agent');
   const reference = fileReferenceEntry(entry) ? entry.source.reference : null;
   const message = entry.kind === 'message' && (entry.source?.type === 'message' || entry.source?.type === 'native');
   return <article className={`entry ${entry.role === 'user' ? 'owner-entry' : ''}`} data-entry-id={entry.entry_id}>
