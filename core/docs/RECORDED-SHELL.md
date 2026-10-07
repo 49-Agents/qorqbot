@@ -42,6 +42,12 @@ PATH or user input into shell source. Validate path/socket length constraints
 before launching. Dedicated socket/runtime paths must be owned by this uid and
 must not name a foreign or ambiguous existing tmux server.
 
+Question 161 clarification: each supplied runtime_root/socket_path is dedicated
+to one recorded terminal/agent. It is not a shared multi-agent tmux server. An
+attempt to bind another terminal/agent at that path is a conflict. Matching
+receipt recovery may reuse its recorded server; do not add separate shared-server
+ownership or multiplexing records.
+
 Serialize ensure with one per-agent flock and enforce one active/unknown shell
 slot for an installation/agent in the local store. A changed spec for an occupied
 slot is a conflict, not another allocation. Concurrent identical ensure calls
@@ -104,8 +110,25 @@ must not expose a ready-to-paste default.
 
 All viewers must be input-inert until the service writes an authorized frame;
 no automatic tmux attach-client initialization sequence may become shell input.
-Use tmux's read-only client mode for observers. User terminal escape processing
-is not a new security boundary against the machine's owner.
+All tmux attach clients use read-only mode, including an attachment whose
+logical `read_only=False` permits authorized write calls. Set the outer PTY raw
+before spawning that client, and never send key/resize bytes to its PTY master.
+Authorized `write` uses a separately gated, uniquely named tmux buffer and raw
+`paste-buffer -r` to the exact recorded pane, following the existing human-input
+pattern (no conditional bracketed-paste framing, newline conversion or extra
+Enter). Authorized resize addresses the exact recorded window through the same
+gate; do not rely on read-only attach-client dimensions. Reuse/adapt the narrow
+existing argv/effect checks without fabricating a native RunBinding or editing
+the frozen TerminalRunner API. Cleanup deletes only that attempt's buffer on
+the same verified server.
+
+The gate covers durable sequence consumption, last target/control checks and
+the tmux effect. Takeover/release cannot interleave a later stale frame. Bytes
+already admitted to the pane cannot be retracted; do not claim atomic revocation
+of earlier keystrokes or native processing. This avoids giving a writable attach
+client a second independent input queue. Test a delayed stale-viewer write after
+takeover. User terminal escape processing is not a new security boundary against
+the machine's owner.
 
 ## Checks and ownership
 
