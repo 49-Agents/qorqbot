@@ -1,9 +1,16 @@
 """Registration, setup, status and directory behavior at the owning SQL boundary."""
 
 import hashlib
+import io
 import json
+import os
 import sqlite3
+import subprocess
+import sys
+import tarfile
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 from qorqut_core.app import Application, register_actor
@@ -15,9 +22,37 @@ from test_foundation import Faults, InjectedCrash
 from agents.support import AgentCase
 
 
+# Last revision whose creation defaulted to start=true. Its source writes the historical receipts, never a hand-made row.
+LEGACY_BASE = "862d989edf0fef0bc6c5100a051e936cb5afbcde"
+LEGACY_CREATE = """
+import json, sys
+import qorqut_core
+from qorqut_core.app import Application
+from qorqut_core.config import InstallationSettings, NewAgentDefaults
+from qorqut_core.contracts import Actor, Invocation
+
+settings, defaults, owner = (cls.model_validate_json(arg) for cls, arg in
+    zip((InstallationSettings, NewAgentDefaults, Actor), sys.argv[1:]))
+app = Application.initialize(settings, defaults, owner)
+try:
+    context, cli = Invocation(actor_id=owner.actor_id), defaults.cli.model_dump(mode="json")
+    requests = {"explicit": {"idempotency_key": "old-explicit", "display_name": "Old explicit", "cli": cli, "start": True},
+                "omitted": {"idempotency_key": "old-omitted", "display_name": "Old omitted", "cli": cli}}
+    results = {name: app.invoke("agents_create", context, args).model_dump(mode="json") for name, args in requests.items()}
+finally:
+    app.close()
+print(json.dumps({"module": qorqut_core.__file__, "requests": requests, "results": results}))
+"""
+
+
+def table_rows(app, table):
+    with app.db.read() as tx:
+        return [dict(row) for row in tx.connection.execute(f"SELECT * FROM {table}")]
+
+
 class RegistryTests(AgentCase):
     def test_atomic_create_concurrent_replay_conflict_and_actor_attribution(self):
-        args = {"idempotency_key": "one", "display_name": "\u2003Research\n", "cli": self.defaults.cli.model_dump(mode="json"), "persona": "private persona"}
+        args = {"idempotency_key": "one", "display_name": "\u2003Research\n", "persona": "private persona"}
         before = {table: len(self.rows(table)) for table in ("agents", "actors", "events", "jobs", "operations")}
         for point in ("agent_after_registration", "agent_after_events", "operation_before_result", "operation_after_result", "transaction_before_commit"):
             with self.subTest(point=point):
@@ -33,7 +68,8 @@ class RegistryTests(AgentCase):
         self.assertEqual(first.outcome, "accepted")
         self.assertEqual(identity["display_name"], "Research")
         self.assertEqual(identity["kind"], "vm")
-        self.assertTrue(identity["start_requested"])
+        self.assertFalse(identity["start_requested"])
+        self.assertEqual(identity["cli"], self.defaults.cli.model_dump(mode="json"))
         self.assertEqual(identity["created_by"], str(self.owner.actor_id))
         self.assertEqual(len({identity[k] for k in ("id", "actor_id", "conversation_id")}), 3)
         for field in ("id", "actor_id", "conversation_id"):
@@ -52,6 +88,15 @@ class RegistryTests(AgentCase):
         self.assertNotEqual(peer.data["agent"]["id"], identity["id"])
         self.assertEqual(peer.data["agent"]["created_by"], identity["actor_id"])
         self.assertTrue(all(e["actor_id"] == identity["actor_id"] for e in self.events(peer.data["agent"]["id"])))
+        # A fresh start=true is refused by the handler before any registration write or receipt.
+        settled = {table: self.rows(table) for table in ("agents", "actors", "events", "jobs", "operations")}
+        for context in (self.context, Invocation(actor_id=identity["actor_id"])):
+            for legacy in ({}, {"cli": self.defaults.cli.model_dump(mode="json")}):
+                refused = self.app.invoke("agents_create", context, {**args, **legacy, "idempotency_key": "refused", "start": True})
+                self.assertEqual(refused.error.code, "invalid_argument")
+                self.assertIn("Terminal", refused.error.message)
+        self.assertEqual({table: self.rows(table) for table in settled}, settled)
+        self.assertTrue(self.app.invoke("agents_create", self.context, {**args, "idempotency_key": "refused"}).ok)
         self.restart()
         self.assertEqual(self.app.invoke("agents_create", self.context, args), first)
         self.assertEqual(self.get(identity["id"]), identity)
@@ -69,7 +114,7 @@ class RegistryTests(AgentCase):
 
     def test_response_loss_replays_identity_and_resolved_defaults_stay_copied(self):
         self.fault.point = "transaction_after_commit"
-        args = {"display_name": "First", "cli": self.defaults.cli.model_dump(mode="json"), "idempotency_key": "lost"}
+        args = {"display_name": "First", "idempotency_key": "lost"}
         with self.assertRaises(InjectedCrash):
             self.app.invoke("agents_create", self.context, args)
         first = self.app.invoke("agents_create", self.context, args)
@@ -84,10 +129,21 @@ class RegistryTests(AgentCase):
         second = self.create("second", start=False)
         self.assertEqual(second.data["agent"]["resources"]["cpu"], 7)
         self.assertFalse(second.data["agent"]["start_requested"])
+        # Absent legacy cli metadata snapshots the defaults current in the registration transaction.
+        self.assertEqual(second.data["agent"]["cli"], {"provider": "codex", "model": "different"})
+        self.assertEqual(first.data["agent"]["cli"], self.defaults.cli.model_dump(mode="json"))
         self.assertEqual(self.get(first.data["agent"]["id"])["resources"], self.defaults.resources.model_dump(mode="json"))
         self.assertEqual(self.app.invoke("agents_create", self.context, args), first)
         explicit = self.create("explicit", resources={"cpu": 3, "memory_mib": 1, "disk_gib": 1}, persona="")
         self.assertEqual(explicit.data["agent"]["resources"]["cpu"], 3)
+        legacy = self.create("legacy-cli", cli={"provider": "claude", "model": "legacy-metadata"})
+        self.assertEqual(legacy.data["agent"]["cli"], {"provider": "claude", "model": "legacy-metadata"})
+        # Omitted, false and onbash registrations all store false and none queue anything but provisioning.
+        self.assertEqual({row["start_requested"] for row in self.rows("agents")}, {0})
+        for created in (first, second, explicit, legacy):
+            payload = json.loads(self.events(created.data["agent"]["id"], "agent.created")[0]["payload_json"])
+            self.assertIs(payload["start_requested"], False)
+        self.assertEqual({row["kind"] for row in self.rows("jobs")}, {"agent_provision"})
         self.assertEqual(next(r for r in self.rows("agents") if r["id"] == explicit.data["agent"]["id"])["persona_seed"], "")
 
     def test_presentation_catalog_validation_revision_noop_and_stable_identity(self):
@@ -117,10 +173,10 @@ class RegistryTests(AgentCase):
         self.assertNotEqual(duplicate.data["agent"]["id"], agent_id)
         for field, bad in (("display_name", " \u2003"), ("display_name", "a" * 121), ("display_name", "bad\ud800"),
                            ("icon_key", "unknown"), ("persona", "bad\ud800"), ("persona", "é" * 32769),
-                           ("start", 1), ("start", "false"), ("kind", "host"), ("actor_id", str(uuid4())),
+                           ("start", 1), ("start", "false"), ("start", None), ("kind", "host"), ("actor_id", str(uuid4())),
                            ("workspace_path", "/tmp"), ("cli", {"provider": "codex"}), ("resources", {"cpu": 1})):
             with self.subTest(field=field, bad=repr(bad)[:40]):
-                args = {"idempotency_key": "invalid", "display_name": "Name", "cli": self.defaults.cli.model_dump(mode="json"), field: bad}
+                args = {"idempotency_key": "invalid", "display_name": "Name", field: bad}
                 self.assertEqual(self.app.invoke("agents_create", self.context, args).error.code, "invalid_argument")
         for bad in ({}, {"display_name": None}, {"icon_key": None}, {"icon_key": "bad"}, {"display_name": " "}):
             args = {"agent_id": agent_id, "expected_revision": original["revision"], "idempotency_key": "bad-update", **bad}
@@ -314,5 +370,76 @@ class RegistryTests(AgentCase):
             with app.db.read() as tx:
                 self.assertEqual(tx.connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
                 self.assertEqual(tx.connection.execute("PRAGMA foreign_key_check").fetchall(), [])
+        finally:
+            app.close()
+
+    def test_old_code_start_true_receipts_replay_unchanged_after_reopen_and_never_launch(self):
+        repo = Path(__file__).resolve().parents[2]
+        archive = subprocess.run(["git", "-C", str(repo), "archive", LEGACY_BASE, "src"], capture_output=True)
+        if archive.returncode:
+            self.skipTest("The pinned pre-D36 revision is unavailable in this checkout")
+        legacy_source = self.root / "legacy-source"
+        with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
+            tar.extractall(legacy_source, filter="data")
+        settings = self.settings.model_copy(update={"data_root": self.root / "legacy", "installation_id": uuid4()})
+        produced = subprocess.run([sys.executable, "-c", LEGACY_CREATE, settings.model_dump_json(),
+            self.defaults.model_dump_json(), self.owner.model_dump_json()], capture_output=True, text=True,
+            env={"PATH": os.defpath, "PYTHONPATH": str(legacy_source / "src"), "PYTHONNOUSERSITE": "1"})
+        self.assertEqual(produced.returncode, 0, produced.stderr)
+        old = json.loads(produced.stdout)
+        self.assertTrue(Path(old["module"]).is_relative_to(legacy_source))
+        self.assertTrue(all(r["ok"] and r["data"]["agent"]["start_requested"] for r in old["results"].values()))
+        watched = ("agents", "actors", "events", "jobs", "operations")
+
+        def replay(app):
+            before = {table: table_rows(app, table) for table in watched}
+            saved = {r["idempotency_key"]: json.loads(r["result_json"]) for r in before["operations"] if r["name"] == "agents_create"}
+            self.assertEqual(saved, {r["idempotency_key"]: old["results"][name] for name, r in old["requests"].items()})
+            self.assertEqual(app.invoke("agents_create", self.context, old["requests"]["explicit"]).model_dump(mode="json"),
+                             old["results"]["explicit"])
+            # Omitted start was committed as the then-default true; the strict-false default now hashes differently.
+            self.assertEqual(app.invoke("agents_create", self.context, old["requests"]["omitted"]).error.code, "idempotency_conflict")
+            normalized = {**old["requests"]["omitted"], "start": True}
+            self.assertEqual(app.invoke("agents_create", self.context, normalized).model_dump(mode="json"), old["results"]["omitted"])
+            self.assertEqual({table: table_rows(app, table) for table in watched}, before)
+            return before["operations"]
+
+        path = settings.data_root / "state.sqlite3"
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 5)
+            before_migration = {table: [dict(row) for row in conn.execute(f"SELECT * FROM {table}")]
+                                for table in watched}
+            checksums = [tuple(row) for row in conn.execute("SELECT version,checksum FROM schema_migrations")]
+        with self.assertRaises(CoreError) as old_schema:
+            Application.open(settings)
+        self.assertEqual(old_schema.exception.code, "unsupported_schema")
+        lock = HostLock(settings.data_root / "locks" / "host.lock").acquire()
+        try:
+            Database(path, lock, busy_timeout_ms=settings.busy_timeout_ms).migrate()
+        finally:
+            lock.close()
+        app = Application.open(settings)
+        try:
+            self.assertEqual({table: table_rows(app, table) for table in watched}, before_migration)
+            with app.db.read() as tx:
+                self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 6)
+                self.assertEqual([tuple(row) for row in tx.connection.execute(
+                    "SELECT version,checksum FROM schema_migrations WHERE version<=5")], checksums)
+            receipts = replay(app)
+            with patch("subprocess.Popen", side_effect=AssertionError("provider/process launch")), \
+                 patch("socket.socket", side_effect=AssertionError("network launch")):
+                while (job_id := app.jobs.run_next(worker_id=uuid4())) is not None:
+                    self.assertEqual(app.jobs.get(job_id)["wait_reason"], "dependency_unavailable")
+            self.assertEqual(table_rows(app, "operations"), receipts)
+        finally:
+            app.close()
+        app = Application.open(settings)
+        try:
+            self.assertEqual(replay(app), receipts)
+            for result in old["results"].values():
+                legacy = app.invoke("agents_get", self.context, {"agent_id": result["data"]["agent"]["id"]}).data
+                self.assertTrue(legacy["start_requested"])
+                self.assertIsNotNone(legacy["workspace_initialized_at"])
         finally:
             app.close()

@@ -88,9 +88,10 @@ class Agents:
             return Change(AgentCreated(agent=view(existing), provisioning_job_id=existing["provisioning_job_id"]), outcome="accepted")
         defaults = self.app._view(tx).defaults
         return self._register(tx, context, operation_id, display_name="onbash", icon_key="terminal",
-            cli=defaults.cli, resources=defaults.resources, persona=DEFAULT_PERSONA, start=False, kind="host")
+            cli=defaults.cli, resources=defaults.resources, persona=DEFAULT_PERSONA, kind="host")
 
-    def _register(self, tx, context, operation_id, *, display_name, icon_key, cli, resources, persona, start, kind):
+    def _register(self, tx, context, operation_id, *, display_name, icon_key, cli, resources, persona, kind):
+        # Registration never requests a CLI start; start_requested is legacy metadata fixed at false.
         tx.require_write()
         agent_id, actor_id, conversation_id = (self.db.id_factory() for _ in range(3))
         register_actor(tx, Actor(actor_id=actor_id, kind="agent", agent_id=agent_id))
@@ -101,10 +102,10 @@ class Agents:
             cli_provider,model,cpu,memory_mib,disk_gib,revision,lifecycle_revision,lifecycle,start_requested,
             created_by,created_at,updated_at,persona_seed,status_text,status_revision,status_updated_at,
             status_reviewed_at,status_actor_id,creation_operation_id,provisioning_job_id)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,1,1,'provisioning',?,?,?,?,?, 'Initializing.',1,?,?,?,?,?)""",
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,1,1,'provisioning',0,?,?,?,?, 'Initializing.',1,?,?,?,?,?)""",
             (str(agent_id), str(actor_id), str(conversation_id), kind, display_name, icon_key,
              cli.provider, cli.model, resources.cpu, resources.memory_mib, resources.disk_gib,
-             int(start), str(context.actor_id), now, now, persona, now, now, str(context.actor_id),
+             str(context.actor_id), now, now, persona, now, now, str(context.actor_id),
              str(operation_id), str(job_id)))
         if kind == "host":
             tx.connection.execute("UPDATE installation SET onbash_agent_id=? WHERE singleton=1", (str(agent_id),))
@@ -112,7 +113,7 @@ class Agents:
         payload = {"agent_id": str(agent_id), "actor_id": str(actor_id), "conversation_id": str(conversation_id),
             "kind": kind, "display_name": display_name, "icon_key": icon_key,
             "cli": cli.model_dump(mode="json"), "resources": resources.model_dump(mode="json"),
-            "revision": 1, "lifecycle_revision": 1, "lifecycle": "provisioning", "start_requested": start,
+            "revision": 1, "lifecycle_revision": 1, "lifecycle": "provisioning", "start_requested": False,
             "created_by": str(context.actor_id), "created_at": now, "provisioning_job_id": str(job_id),
             "persona_sha256": hashlib.sha256(persona.encode("utf-8")).hexdigest(),
             "persona_length": len(persona.encode("utf-8"))}
@@ -125,9 +126,15 @@ class Agents:
         return Change(AgentCreated(agent=view(get_row(tx, agent_id)), provisioning_job_id=job_id), seq, "accepted")
 
     def create(self, tx, args, context, operation_id):
-        resources = args.resources if args.resources is not None else self.app._view(tx).defaults.resources
+        # Receipt replay has already happened in Application.execute, so only a fresh request reaches this check.
+        if args.start:
+            raise CoreError("invalid_argument", "Creation never starts a CLI: omit start, then start or resume the "
+                "CLI in Terminal after the agent exists")
+        defaults = self.app._view(tx).defaults
         return self._register(tx, context, operation_id, display_name=args.display_name, icon_key=args.icon_key,
-            cli=args.cli, resources=resources, persona=args.persona, start=args.start, kind="vm")
+            cli=args.cli if args.cli is not None else defaults.cli,
+            resources=args.resources if args.resources is not None else defaults.resources,
+            persona=args.persona, kind="vm")
 
     def get(self, tx, args, context, operation_id):
         return Change(view(get_row(tx, args.agent_id)))

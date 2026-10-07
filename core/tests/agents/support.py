@@ -16,7 +16,7 @@ class AgentCase(unittest.TestCase):
     update_defaults = FoundationCase.update
 
     def create(self, key="create", **changes):
-        args = {"idempotency_key": key, "display_name": "Research", "cli": self.defaults.cli.model_dump(mode="json"), **changes}
+        args = {"idempotency_key": key, "display_name": "Research", **changes}
         result = self.app.invoke("agents_create", self.context, args)
         self.assertTrue(result.ok, result)
         return result

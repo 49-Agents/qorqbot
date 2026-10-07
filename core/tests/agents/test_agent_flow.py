@@ -1,19 +1,32 @@
 """One shared real HTTP/official SDK flow for the five agent operations."""
 
+import asyncio
 from contextlib import AsyncExitStack
+import time
 import unittest
 from uuid import uuid4
 
 import httpx
 
-from qorqut_core.app import Application
 from qorqut_core.contracts import OperationResult
 from transports.support import Installation
 from transports.test_transports import session, structured
 
 
 class AgentTransportFlow(unittest.IsolatedAsyncioTestCase):
-    async def test_shared_agent_http_mcp_flow_and_explicit_workspace_step(self):
+    async def wait_for_projection(self, http, agent_id, revision):
+        deadline = time.monotonic() + 20
+        while True:
+            response = await http.post("/api/v1/operations/agents_get", json={"agent_id": agent_id})
+            self.assertEqual(response.status_code, 200, response.text)
+            current = response.json()["data"]
+            if current["workspace_initialized_at"] is not None and current["projection_revision"] == revision:
+                return
+            self.assertLess(time.monotonic(), deadline,
+                f"Agent {agent_id} did not initialize workspace/projection revision {revision}: {current}")
+            await asyncio.sleep(0.05)
+
+    async def test_shared_agent_http_mcp_flow_identity_only_create_and_headless_provisioning(self):
         fixture = Installation()
         self.addCleanup(fixture.close)
         fixture.start()
@@ -33,24 +46,38 @@ class AgentTransportFlow(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(tools[name].inputSchema, operations[name]["input_schema"])
                 self.assertEqual(operations[name]["output_data_schema"], operation.output.model_json_schema())
                 self.assertEqual(tools[name].outputSchema, OperationResult.model_json_schema())
+            create_schema = operations["agents_create"]["input_schema"]
+            self.assertEqual(create_schema["required"], ["idempotency_key", "display_name"])
+            self.assertEqual([create_schema["properties"][key]["deprecated"] for key in ("cli", "start")], [True, True])
+            directory = (await http.post("/api/v1/operations/agents_list", json={})).json()
+            onbash_id = directory["data"]["onbash_agent_id"]
+            await self.wait_for_projection(http, onbash_id, 1)
             directory = (await http.post("/api/v1/operations/agents_list", json={})).json()
             self.assertEqual(structured(await actor.call_tool("agents_list", {})), directory)
             host = directory["data"]["items"][0]
+            self.assertEqual(host["id"], onbash_id)
             self.assertEqual(directory["data"]["onbash_agent_id"], host["id"])
-            self.assertEqual((host["kind"], host["start_requested"], host["workspace_initialized_at"]), ("host", False, None))
-            self.assertFalse((fixture.settings.data_root / "agents").exists())
-            args = {"idempotency_key": "shared-create", "display_name": "\t Shared agent \n",
-                "cli": fixture.defaults.cli.model_dump(mode="json"), "persona": "Exact synthetic seed\n", "start": True}
+            self.assertEqual((host["kind"], host["start_requested"]), ("host", False))
+            args = {"idempotency_key": "shared-create", "display_name": "\t Shared agent \n", "persona": "Exact synthetic seed\n"}
             response = await http.post("/api/v1/operations/agents_create", json=args)
             first = response.json()
             self.assertEqual(response.status_code, 200)
             self.assertEqual(first["outcome"], "accepted")
             self.assertEqual(structured(await owner.call_tool("agents_create", args)), first)
             agent_id = first["data"]["agent"]["id"]
+            # Identity-only creation snapshots current defaults as legacy metadata and requests no start.
+            self.assertEqual((first["data"]["agent"]["start_requested"], first["data"]["agent"]["cli"]),
+                             (False, fixture.defaults.cli.model_dump(mode="json")))
             get_args = {"agent_id": agent_id}
+            await self.wait_for_projection(http, agent_id, 1)
             get = (await http.post("/api/v1/operations/agents_get", json=get_args)).json()
             self.assertEqual(structured(await actor.call_tool("agents_get", get_args)), get)
-            self.assertEqual(get["data"], first["data"]["agent"])
+            self.assertIsNone(first["data"]["agent"]["workspace_initialized_at"])
+            self.assertEqual(first["data"]["agent"]["projection_revision"], 0)
+            self.assertIsNotNone(get["data"]["workspace_initialized_at"])
+            self.assertEqual(get["data"]["projection_revision"], 1)
+            self.assertEqual(get["data"], {**first["data"]["agent"],
+                "workspace_initialized_at": get["data"]["workspace_initialized_at"], "projection_revision": 1})
             conflict = {**args, "display_name": "Different"}
             response = await http.post("/api/v1/operations/agents_create", json=conflict)
             self.assertEqual(response.status_code, 409)
@@ -72,7 +99,8 @@ class AgentTransportFlow(unittest.IsolatedAsyncioTestCase):
                 headers=fixture.headers(fixture.agent))).json(), update)
             for name, invalid in (("agents_update", {**update_args, "expected_revision": True, "idempotency_key": "bad"}),
                                   ("agents_status_set", {**status_args, "expected_revision": "2", "idempotency_key": "bad"}),
-                                  ("agents_create", {**args, "start": "true", "idempotency_key": "bad"})):
+                                  ("agents_create", {**args, "start": "true", "idempotency_key": "bad"}),
+                                  ("agents_create", {**args, "start": True, "idempotency_key": "refused"})):
                 bad = await http.post("/api/v1/operations/" + name, json=invalid)
                 self.assertEqual(bad.status_code, 400)
                 self.assertEqual(bad.json()["error"]["code"], "invalid_argument")
@@ -87,21 +115,16 @@ class AgentTransportFlow(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.status_code, 409)
             self.assertEqual(structured(await actor.call_tool("agents_list", wrong_epoch)), response.json())
             events = structured(await actor.call_tool("events_list", {}))["data"]["items"]
-            target = [e for e in events if e["agent_id"] == agent_id]
+            # The running server's worker may append workspace events at any time, so compare registration/presentation events only.
+            target = [e for e in events if e["agent_id"] == agent_id and e["kind"].startswith(("agent.created", "agent.status", "agent.presentation"))]
             self.assertEqual([e["actor_id"] for e in target], [str(fixture.owner.actor_id)] * 2 + [str(fixture.agent.actor_id)] * 2)
-            self.assertFalse((fixture.settings.data_root / "agents").exists())
+            # The refused start=true requests registered nothing: only the reserved agent and the one created agent exist.
+            self.assertEqual(len(structured(await owner.call_tool("agents_list", {}))["data"]["items"]), 2)
+            # The headless server's worker provisions the folder and projection; no CLI or environment exists.
+            await self.wait_for_projection(http, agent_id, 2)
+            workspace = fixture.settings.data_root / "agents" / agent_id / "workspace"
+            self.assertEqual((workspace / "persona.md").read_text(), "Exact synthetic seed\n")
         fixture.stop()
-        # Only explicit in-process fixture work runs these real fixed jobs.
-        application = Application.open(fixture.settings)
-        try:
-            executed = []
-            while (job_id := application.jobs.run_next(worker_id=uuid4())) is not None:
-                executed.append(application.jobs.get(job_id))
-            self.assertEqual(len(executed), 3)
-            self.assertEqual(sorted(j["wait_reason"] for j in executed if j["kind"] == "agent_provision"), ["dependency_unavailable"] * 2)
-            self.assertEqual([j["state"] for j in executed if j["kind"] == "agent_project"], ["completed"])
-        finally:
-            application.close()
         fixture.start()
         async with AsyncExitStack() as stack:
             sdk = await session(stack, fixture)
@@ -116,7 +139,7 @@ class AgentTransportFlow(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((latest["revision"], latest["projection_revision"]), (2, 2))
             self.assertIsNotNone(latest["workspace_initialized_at"])
             self.assertEqual((latest["lifecycle"], latest["activity"], latest["capture_health"]), ("provisioning", "unknown", "unknown"))
-            self.assertTrue(latest["start_requested"])
+            self.assertFalse(latest["start_requested"])
             self.assertEqual(structured(await sdk.call_tool("agents_create", args)), first)
             directory = structured(await sdk.call_tool("agents_list", {}))["data"]
             self.assertEqual(directory["onbash_agent_id"], host["id"])

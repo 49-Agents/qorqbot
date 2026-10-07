@@ -43,11 +43,17 @@ Persona = Annotated[str, AfterValidator(_persona)]
 
 class AgentsCreate(Mutation):
     display_name: DisplayName
-    cli: CLIDefaults
+    # Legacy registration metadata only: callers omit both. They never select,
+    # configure or start a CLI. A committed historical request that carried
+    # start=true still validates so Application.execute can replay its receipt;
+    # the handler refuses a fresh one.
+    cli: Annotated[CLIDefaults | None, Field(json_schema_extra={"deprecated": True},
+        description="Deprecated legacy registration metadata; omit. It does not select or configure a CLI.")] = None
     resources: ResourceDefaults | None = None
     icon_key: IconKey = "circle"
     persona: Persona = DEFAULT_PERSONA
-    start: Annotated[bool, Field(strict=True)] = True
+    start: Annotated[bool, Field(strict=True, json_schema_extra={"deprecated": True},
+        description="Deprecated; omit. true is refused: start the CLI in Terminal after creation.")] = False
 
 
 class AgentsGet(Model):
