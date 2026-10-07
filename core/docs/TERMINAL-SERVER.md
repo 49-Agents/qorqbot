@@ -16,6 +16,12 @@ string passed to `ShellSpec`. Validate paths and the resulting socket length
 before creating resources. Missing configuration disables this capability;
 opening or initializing `Application` alone never starts a shell. Preserve old
 installation files and defaults; do not rewrite them merely to add a null field.
+Review clarification 202: preflight the complete UTF-8 bytes that would be saved
+to `installation.json`, including formatting/newline, against the existing
+16 KiB read limit before initialization creates directories, acquires its lock
+or writes a database. Reuse that exact encoding for saving. An individual PATH
+character bound cannot establish that the complete installation will reopen;
+keep the existing read limit and reject oversized input without partial setup.
 
 `Application.terminals` is a small application service, implemented in
 `runtime/terminals.py` with an owned models/helper file if needed. It owns target
@@ -140,6 +146,10 @@ chunk only when the previous send settles, with a five-second send deadline.
 Serialize JSON and binary sends. Slow/disconnected viewers are closed and
 discard only their live view; recording continues without them. A transient
 no-data read is not EOF: consult `attachment.closed`.
+An admitted input/control/resize call may wait for a runner gate. It must not
+make this output loop wait for the stream's effect lock: skip that read using a
+nonblocking acquisition, then continue bounded state/session checks. No extra
+reader queue or modification to the frozen ShellAttachment API is needed.
 
 Recheck cookie validity on every received frame and at least once per second,
 including output-only connections; logout, expiry and server shutdown close
@@ -148,6 +158,22 @@ target change closes the stream without taking over another terminal. Do not
 block the event loop with runner/process calls. Settle in-flight input and owned
 attachment cleanup across task cancellation, using the existing shutdown style;
 never close storage/fds while their admitted effect is still running.
+Review clarification 202: mark endpoint shutdown before cancelling its child
+tasks, and make reply delivery stop when its writer/endpoint is stopping. A
+settled RunnerError after cancellation must not enqueue an error and wait for
+an already cancelled writer. Pending reply futures cannot outlive that writer.
+Keep the shared lifetime helper unchanged; this endpoint owns its reply/stop
+coordination and still joins admitted effects before closing the attachment.
+
+The stream's observation gate must also require the same currently available
+terminal/capture binding, not only matching UUIDs. An unavailable, stopped or
+stale observation closes the viewer. Check that cached gate before another
+binary read and in the independent watch path so a tmux topology change cannot
+keep displaying another pane after core observes loss of the exact binding.
+This is bounded observation, not atomic verification of every output byte.
+Discard the viewer only; do not repair tmux topology, transfer control or stop
+the recorded shell. Preserve the established one-second observation and
+five-second cache-expiry bounds.
 
 Disconnect, expiry, logout and view changes preserve the durable human hold.
 Explicit release/takeover changes it; no timer releases it or makes Chat ready.
