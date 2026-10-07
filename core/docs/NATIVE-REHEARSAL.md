@@ -22,9 +22,23 @@ private configuration. Record their paths, version output and executable hashes.
 Compare with the accepted Claude `2.1.287` and Codex `0.160.0` profiles. A mismatch
 is evidence for Manager, not permission to change or pretend a supported profile.
 
+Manager amendment after question 144: the installed Codex executables now report
+`0.161.0` and `0.155.1`; neither satisfies the accepted profile. Preserve those
+observations. Rehearse Codex `0.160.0` using a separately acquired, pinned private
+copy from the official `@openai/codex` npm package. Manager verified that exact
+version's registry metadata. Acquire dependencies outside the loopback-only
+namespace into a new task-owned directory with clean npm HOME/config/cache,
+explicit registry and install scripts disabled. Do not modify global packages,
+PATH defaults, either installed executable or accepted capability profiles.
+Verify npm integrity, package version, launcher/native binary hashes and actual
+`--version` inside the namespace before using the private absolute executable
+with the matching adapter. Stop and ask if these checks fail; never substitute
+a version string or fall back to `0.161.0`. Label every resulting observation as
+the pinned private `0.160.0` rehearsal, not compatibility of the current host CLI.
+
 All native interaction and fake HTTP/MCP endpoints must run together inside an
 owned disposable network namespace with only loopback. Test user/network namespace
-availability first. Do not install packages, edit host networking, use elevated
+availability first. Do not install system packages, edit host networking, use elevated
 host changes, or fall back to external provider access. If this containment cannot
 be established, report the exact failure through a Manager question before any
 interactive native launch; independent read-only version/source checks may proceed.
