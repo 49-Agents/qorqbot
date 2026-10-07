@@ -14,7 +14,9 @@ edit. A fresh independent review remains required.
 `$RUN` below is the private run directory
 `/home/alp/.local/state/qorqut-builds/01a116b0-8d6d-72f2-9da9-76bd2e898f04/native-rehearsal-r1-validation`.
 Times are UTC clock times (HH:MM:SS.mmm) on 2026-10-08. Environment variables are
-named, never valued.
+named, never valued. Every hook time below is the fixture `hook_sink.py` record
+time (see [Fixture additions](#fixture-additions-not-adapter-output)); the CLI
+invoked the hook, the sink recorded it.
 
 ## What this does and does not establish
 
@@ -24,15 +26,23 @@ accepted recorder in a private tmux session, loaded the generated configuration,
 connected to both loopback MCP endpoints with their distinct synthetic
 credentials, accepted one prompt pasted by the accepted `TerminalRunner.attempt`
 path, displayed the canned answer, wrote a native store, and resumed that exact
-session under a distinct run binding. Accepted discovery ran for all four runs
-only after independent process/session evidence agreed.
+session under a distinct run binding. Accepted `discover` ran in all four runs.
+Codex runs had a programmatic fixture gate before it (thread-lock filename ==
+rollout-descriptor filename == hook `session_id`, all collected after first
+input). Claude runs had no gate: the fixture took the `native_session_id` it had
+itself supplied in argv and called `discover` unconditionally. Agreement of the
+Claude sessions file, hook payload and hook ancestry with that id was recorded in
+`links.json` for inspection afterward; it was not a precondition of `discover`.
 
 Not established: real inference; semantic tool use (no model requested a tool, so
 no MCP tool was ever called); authentication flows; multi-line, large, concurrent
 or busy-turn paste; complete transcript coverage, attachments or child sessions;
 behavior of any other CLI version; production composer gating (the accepted
 classifier did not classify any real empty composer as empty, see
-[Prompt driving](#setup-prompts-and-the-one-prompt)); product readiness. Fixture
+[Prompt driving](#setup-prompts-and-the-one-prompt)); a derivation of the
+provider protocols from primary or local sources (not established in this
+rehearsal, see [Provider protocols](#observation-1-and-2-preparation-configuration-loading-mcp-provider));
+product readiness. The observations here are not protocol conformance. Fixture
 behavior is labeled `FIXTURE` throughout.
 
 ## Versions, paths and hashes
@@ -91,8 +101,15 @@ points at this worktree's `src`, Node v22.22.0.
   The two MCP servers use the official SDK (`FastMCP`, streamable HTTP at
   `/mcp`), one `readOnlyHint` tool each (`qorqut_core_probe`,
   `qorqut_browser_probe`), require their own synthetic `Authorization: Bearer`
-  and `X-Qorqut-Target`, and log accept/reject. Cross-credential rejection was not
-  tested. They are test services, not the browser product.
+  and `X-Qorqut-Target`, and log accept/reject. They are test services, not the
+  browser product. Cross-credential rejection was exercised by the fixture
+  self-check only (`mcp_selfcheck.py`; the core credential sent to the browser
+  server was answered HTTP 401, last row of `$RUN/logs/selfcheck/mcp-browser.jsonl`),
+  not by either native CLI: both native clients connected with each endpoint's
+  own credentials (22 logged requests per server across the four runs, all
+  `auth_ok`) and neither
+  invoked a tool (no `tools/call`). Discovery (`initialize`/`tools/list`) is
+  therefore established, not tool use.
 - Orchestration used accepted APIs: `ClaudeAdapter`/`CodexAdapter.prepare`,
   `.launch`, `.discover`, `.translate_hook`, `.composer`,
   `runner.process.fingerprint`, `Tmux.inspect`,
@@ -113,6 +130,7 @@ points at this worktree's `src`, Node v22.22.0.
 | Launch env `PATH=$RUN/codex-pkg/shim:/usr/bin:/bin`, `FIXTURE_OPENAI_KEY` (synthetic) | Codex | Shim holds only symlinks `codex` → `codex.js` and `node` → nvm node, so `#!/usr/bin/env node` resolves; `exe` passed to `launch` was `$RUN/codex-pkg/shim/codex` |
 | Extra argv `-c model_provider="qfake" -c model_providers.qfake={name="qfake", base_url="http://127.0.0.1:18102/v1", wire_api="responses", env_key="FIXTURE_OPENAI_KEY"}` | Codex | Appended after the adapter argv so the generated `config.toml`/`hooks.json` stay byte-identical |
 | Fixture composer/readiness callbacks (`capture_ready` from a real recorder probe, `machine_hold` always false, a classifier and a paste verifier written after viewing each screen) | both | Required inputs to `TerminalRunner.attempt`; not production rules |
+| `$RUN/fixtures/hook_sink.py`, passed as the adapter's `hook_sink_argv` | both | Test-only collector, not a product hook registration or durable sink. Each invocation appends one record to `$RUN/logs/hooks-<provider>.jsonl`: payload, the `QORQUT_ADAPTER_BINDING_FILE` value, the environment variable names and a `/proc` ancestry sample taken by the sink itself. The CLIs' invocation of the hook is observed; the collection, the ancestry and every `reaches_native` flag derived from it are fixture output |
 | Setup keystrokes (below), logged with times | both | Sent with `tmux send-keys` |
 | `config.toml` restore/re-apply around the Codex resume `prepare` | Codex | See Codex resume |
 
@@ -133,12 +151,20 @@ Configuration loading:
 | MCP discovery | Both endpoints connected only after the setup dialogs finished (start of the interactive session), before first input: `POST server/discover` (protocol `2026-07-28`, HTTP 400 from the SDK server), then `initialize` (`2025-11-25`), `notifications/initialized`, `tools/list`, `prompts/list`, `resources/list`; `GET` stream; user agent `claude-code/2.1.287 (cli)` | Both endpoints connected right after the hooks dialog, before first input, and again at resume startup: `initialize` (`2025-06-18`), `notifications/initialized`, `tools/list` only; user agent `codex-mcp-client/0.160.0` |
 | Credentials | Every request from both endpoints carried the endpoint's own bearer and target (`auth_ok` true for all logged requests) | Same |
 | Tools in the model request | `mcp__qorqut-core__qorqut_core_probe` and `mcp__qorqut-browser__qorqut_browser_probe`, each under its own server | Not visible: the turn request has no `tools` key; tools are in a developer `additional_tools` item (14 entries: `exec`, `wait`, `request_user_input`…, `collaboration` tools). The strings `qorqut_core_probe`/`qorqut_browser_probe` appear nowhere in the request. The `exec` text says "Some deferred nested tools may be omitted from this description". Presentation to the model is therefore unproven, though `tools/list` was fetched |
-| Hooks | Settings hooks ran (SessionStart, UserPromptSubmit, Stop, SessionEnd) with `QORQUT_ADAPTER_BINDING_FILE` carrying the run | Ran after trust (SessionStart, UserPromptSubmit, Stop); SessionEnd and Interrupt never fired |
+| Hooks | Settings hooks were invoked (SessionStart, UserPromptSubmit, Stop, SessionEnd) with `QORQUT_ADAPTER_BINDING_FILE` carrying the run, as recorded by the fixture `hook_sink.py` | Invoked after trust (SessionStart, UserPromptSubmit, Stop), as recorded by the fixture sink; SessionEnd and Interrupt never fired |
 
-Provider protocols (version and uncertainty):
+Provider protocols (version and uncertainty). The requested derivation of these
+protocols from primary or local sources was not established in this rehearsal:
+no source reading is recorded as evidence. Everything below is what was
+observed with these CLI versions against the fixture, which is an accepted limit
+of the observations and is neither protocol conformance nor product readiness.
+The Codex override keys were chosen after an informal look at the pinned
+binary's strings and `--help` output, which was not saved; no source reading
+for the Claude override is saved either. Only the observed behavior (requests
+reached the fake) is evidence.
 
-- Claude: `POST /v1/messages?beta=true`, `stream: true`, selected by
-  `ANTHROPIC_BASE_URL` (documented). I served the Messages SSE events
+- Claude: `POST /v1/messages?beta=true`, `stream: true`, directed to the fake
+  by `ANTHROPIC_BASE_URL` (observed to work in the fixture). I served the Messages SSE events
   (`message_start`, `content_block_start`, `ping`, `content_block_delta`
   `text_delta`, `content_block_stop`, `message_delta`, `message_stop`). Claude
   also issued `HEAD /api/hello` at each session start (answered 200; the first at
@@ -146,10 +172,10 @@ Provider protocols (version and uncertainty):
   `POST /v1/messages` without tools besides the main turn (3 POSTs in total:
   two fresh, one resume). Canned reply rendered as
   `● qorqut-native-probe-complete`.
-- Codex: `POST /v1/responses`, `stream: true`, `store: false`, selected by the
-  documented `model_providers.<id>.base_url`/`wire_api = "responses"`/`env_key`
-  keys passed as `-c`. I served Responses SSE events from memory of the public
-  event names (`response.created`, `response.in_progress`,
+- Codex: `POST /v1/responses`, `stream: true`, `store: false`, directed to the
+  fake by `model_providers.<id>.base_url`/`wire_api = "responses"`/`env_key`
+  keys passed as `-c` (observed to work in the fixture). I served Responses SSE
+  events with these names (`response.created`, `response.in_progress`,
   `response.output_item.added`, `response.content_part.added`,
   `response.output_text.delta`/`.done`, `response.content_part.done`,
   `response.output_item.done`, `response.completed` with `usage`); Codex
@@ -173,8 +199,8 @@ Provider protocols (version and uncertainty):
   recorder's direct child is the native process.
 - Codex: tmux server → recorder → `node` running the launcher (direct child,
   its own session on the recorder's PTY) → native `codex` binary (grandchild; same
-  session, process group and TTY as node). Hook ancestry and the thread lock holder name the
-  grandchild. The recorder probe's `child` and the `RunBinding.native` that I
+  session, process group and TTY as node). The fixture sink's hook ancestry and the post-input
+  `/proc/locks` holder reading name the grandchild. The recorder probe's `child` and the `RunBinding.native` that I
   built (the pane's direct child) are the node launcher, not the native binary.
 - Successful-exec evidence: no `recorder: child exec failed` text in any of the
   four raw spools; the probe observation's `child` fingerprint (pid, start
@@ -254,18 +280,30 @@ Readiness and paste facts the installed CLIs actually show:
 Claude 2.1.287 (fresh, ns pids tmux 63 / recorder 64 / native 67; session
 `d97e2375-5404-4630-a515-67f23c1871ce`):
 
-- Evidence tying process, run and session, with times:
-  1. argv carries `--session-id d97e2375…` from process start (launch 15:50:40.172).
-  2. `.claude/sessions/67.json` (named by the native pid) appeared when the setup
-     dialogs finished (`startedAt` 15:51:49.236), 98 s before first input: `sessionId`, `procStart` equal to the process's `/proc` start ticks,
+- Evidence tying process, run and session, with times and the source of each
+  time. The session id is not a native discovery here: the adapter put it in argv
+  and the fixture's `native_session_id` is that same value.
+  1. argv carries `--session-id d97e2375…` from process start (launch
+     15:50:40.172; adapter-supplied).
+  2. `.claude/sessions/67.json` (named by the native pid) has `startedAt`
+     15:51:49.236 and mtime 15:51:49.559, when the setup dialogs finished, 98 s
+     before first input. It is present in the pre-input `tree-before-prompt.json`
+     snapshot (taken 15:52:52, metadata only). The file was not watched live
+     (the watcher started 15:53:21); its content was read and compared with
+     `/proc` afterward, in `links.json` at 15:54:36, after first input:
+     `sessionId`, `procStart` equal to the process's `/proc` start ticks,
      `pidDomain` containing the pid-namespace inode `4026533040`, `tmux`
-     `qnr-claude-fresh:@0.%0`, `version` `2.1.287`. A sibling
-     `67.<hash>.key` file was created 0.7 s after launch (15:50:40.842), before the dialogs. Both
-     were removed at exit. I could not reproduce the hash in `pidDomain`
-     from the boot id (md5/sha1/sha256 tried).
-  3. SessionStart hook at 15:51:49.278 carried the same `session_id` and the future
-     transcript path, with ancestry `[hook, sh, 67, 64, 63, 1]` and the run's
+     `qnr-claude-fresh:@0.%0`, `version` `2.1.287`. A sibling `67.<hash>.key`
+     file has mtime 15:50:40.843 (0.7 s after launch, before the dialogs) in the
+     same snapshot. Both were removed at exit. I could not reproduce the hash in
+     `pidDomain` from the boot id (md5/sha1/sha256 tried).
+  3. The fixture hook sink recorded the SessionStart hook live at 15:51:49.278
+     with the same `session_id` and the future transcript path, with the sink's
+     own `/proc` ancestry sample `[hook, sh, 67, 64, 63, 1]` and the run's
      `QORQUT_ADAPTER_BINDING_FILE`. The transcript file did not exist yet.
+  These three agreed when inspected in `links.json`, but nothing programmatic
+  required that agreement: the fixture passed its own supplied id to `discover`
+  unconditionally (see below).
 - Transcript: `projects/<cwd with / and . replaced by ->/d97e2375….jsonl`,
   created after first input (history.jsonl 15:53:27.777, transcript first seen
   15:53:27.981 at 281 bytes, final 151,061 bytes, inode 20753389). 24 JSON lines; record 0
@@ -274,12 +312,15 @@ Claude 2.1.287 (fresh, ns pids tmux 63 / recorder 64 / native 67; session
   attachment, `last-prompt`, `mode`, `permission-mode`, `atis-latch`, and two
   `system` records (`stop_hook_summary`, `turn_duration`). sha256
   `0d86705fa30ea403de57b468c3970f31e60acccea479cead7e83ae985f9801f9`.
-- Accepted `ClaudeAdapter("2.1.287").discover` with the independently
-  established binding returned one source (inode 20753389, size 151,061,
-  `claude-jsonl-p06-p11`, ownership proof: `native_session_id` offset 0 length
-  83) and gaps `child_association_contract_unverified`,
-  `attachment_coverage_partial`, and 12 `unsupported_attachment_reference`.
-  `translate_hook` accepted all three real payloads (idle, working, idle).
+- Accepted `ClaudeAdapter("2.1.287").discover`, called unconditionally by the
+  fixture with the adapter-supplied `native_session_id`, returned one source
+  (inode 20753389, size 151,061, `claude-jsonl-p06-p11`, ownership proof:
+  `native_session_id` offset 0 length 83) and gaps
+  `child_association_contract_unverified`, `attachment_coverage_partial`, and 12
+  `unsupported_attachment_reference`. FIXTURE: `translate_hook` was fed every
+  payload in the Claude hook log for diagnostic translation (three for this
+  run: idle, working, idle), see
+  [Accepted-API results](#accepted-api-results).
 - Raw bytes versus terminal capture: the transcript is 151,061 bytes of JSONL
   and the terminal spool 8,160 bytes of rendered PTY output. The spool contains
   the prompt text once and the canned reply once, and neither the session id
@@ -288,24 +329,52 @@ Claude 2.1.287 (fresh, ns pids tmux 63 / recorder 64 / native 67; session
 Codex 0.160.0 (fresh, ns pids tmux 670 / recorder 671 / node 674 / native 681;
 thread `01a11c47-4367-7b23-93da-768092953c1f`):
 
-- The session UUID is not in argv. Evidence, with times:
-  1. At startup after the hooks confirmation (16:09:54.810, 46 s before first input)
-     the native process holds an exclusive `flock` on
-     `.codex/thread-writer-locks/01a11c47-….lock` (`/proc/locks` entry for pid
-     681 and the lock inode) and wrote `.codex/shell_snapshots/01a11c47-….sh`.
-     The native's open descriptors name the lock and (later) the rollout.
-  2. The rollout file `.codex/sessions/2026/10/08/rollout-2026-10-08T12-09-54-01a11c47-….jsonl`
-     did not exist until first input: first seen 16:10:41.530 at 23,117 bytes (its name
-     carries the thread creation time, 47 s earlier, local time).
-  3. SessionStart hook (`source: startup`) fired at 16:10:41.628, after the rollout
-     appeared, not at startup; its payload carries `session_id`, `transcript_path`
-     and `model`, with ancestry `[hook, 681, 674, 671, 670, 1]`.
-  4. Also: Codex's log store (`logs_2.sqlite`) tags `pid:681:<process uuid>`
-     with `thread_id`, `state_5.sqlite` `threads` has the row with
-     `rollout_path`, `history.jsonl` and every request's
-     `x-codex-turn-metadata` repeat the id.
-  The lock name, rollout descriptor filename and hook `session_id` agreed; only
-  then did `discover` run.
+- The session UUID is not in argv. Evidence, separated by when it was recorded
+  and by who recorded it.
+
+  At startup, after the hooks confirmation (the confirmation Enter was sent at
+  16:09:54.740), 46 s before first input. Recorded live by the file watcher or
+  present in the pre-input `tree-before-prompt.json` snapshot (taken 16:10:40.7):
+  1. `.codex/thread-writer-locks/01a11c47-….lock` was first seen by the watcher
+     at 16:09:54.812 (mtime 16:09:54.794; also in the pre-input snapshot).
+  2. `.codex/shell_snapshots/01a11c47-….<ns>.sh` was first seen at 16:09:54.872
+     (tmp) / .926 (final); the pre-input snapshot has its name with the same UUID.
+  3. Read after the fact from copies of the SQLite files: the first
+     `logs_2.sqlite` row carrying this `thread_id` (target
+     `codex_core::shell_snapshot`) is tagged `pid:681:<process uuid>` with
+     `ts` 16:09:54 (one-second resolution; it is the only row with this `thread_id`
+     timestamped before 16:10:41, the second of first input), and `state_5.sqlite` `threads.created_at` is 16:09:54
+     (1791475794). Those timestamps are startup times; the reading itself was not
+     live.
+
+  Not at startup: the rollout
+  `.codex/sessions/2026/10/08/rollout-2026-10-08T12-09-54-01a11c47-….jsonl`,
+  `history.jsonl` and `thread_history_1.sqlite` are absent from the pre-input
+  snapshot and first seen at first input (`history.jsonl` and
+  `thread_history_1.sqlite` 16:10:41.529, rollout 16:10:41.530 at 23,117 bytes;
+  the rollout name carries the thread creation time, 47 s earlier, local time).
+  The SessionStart hook (`source: startup`) was recorded by the fixture sink at
+  16:10:41.628, after the rollout appeared, not at startup; its payload carries
+  `session_id`, `transcript_path` and `model`, with the sink's own ancestry
+  sample `[hook, 681, 674, 671, 670, 1]`.
+
+  After first input, collected by the fixture link script (`links.json` written
+  16:11:39 UTC): the native's open descriptors named the thread lock and the
+  rollout, and `/proc/locks` listed an exclusive `FLOCK` held by pid 681 on the
+  lock's inode. This holder/descriptor observation was not made before first
+  input: there is no earlier `/proc/locks` or descriptor reading in the
+  evidence, so I do not claim the lock was observed held at startup, only that
+  the lock file was created then. A startup PID-to-session association is
+  supported only by the `logs_2.sqlite` tag above (read afterward).
+
+  Agreement gate (fixture script, Codex only): `discover` ran only after the
+  thread-lock filename and the rollout-descriptor filename, both from the
+  native's descriptors, and the hook `session_id` from the sink record all
+  carried the same UUID. The `/proc/locks` holder row was recorded in
+  `links.json` but is not part of that comparison. All inputs to the gate were
+  collected after first input. Also present: `state_5.sqlite` `threads` has the
+  row with `rollout_path`, and `history.jsonl` and every request's
+  `x-codex-turn-metadata` repeat the id.
 - Rollout: 15 JSON lines, 44,580 bytes, inode 20753889, sha256
   `7402101fb96247ca91b235a9393364b4aaf39b62af412512aee8193be048d1ac`; record 0
   `session_meta` (22,818 bytes at offset 0, `id` = thread, `cli_version`
@@ -315,26 +384,48 @@ thread `01a11c47-4367-7b23-93da-768092953c1f`):
   `token_usage_record`, `token_count`, `task_complete`.
 - Accepted `CodexAdapter("0.160.0").discover` returned one source (ownership
   proof offset 0 length 22,818), no attachments, gaps
-  `child_association_contract_unverified` and `attachment_coverage_partial`;
-  `translate_hook` accepted the three payloads.
+  `child_association_contract_unverified` and `attachment_coverage_partial`.
+  FIXTURE: `translate_hook` was fed, for diagnostic translation, the three sink
+  records whose binding-file value named this run; it accepted them (see
+  [Accepted-API results](#accepted-api-results)).
 - Terminal spool 9,876 bytes versus rollout 44,580 bytes; the session id and
   persona are absent from the spool.
 
-Other native writes at startup (before any input), both CLIs:
+Other native writes, both CLIs, separated by what the pre-input snapshots
+(`tree-before-prompt.json`; Claude 15:52:52, Codex 16:10:40.7) contain and what
+first appears at first input (`tree-after-prompt.json`; the fresh Claude and
+Codex first inputs were 15:53:27 and 16:10:41). The Claude watcher started at
+15:53:21, so Claude startup writes are known from snapshot contents and file
+metadata, not from live first-seen times.
 
-- Claude: `.claude.json` rewritten (new inode) and `backups/.claude.json.backup.*`;
-  after the first prompt `.config/mimeapps.list` and
-  `.local/share/applications/claude-code-url-handler.desktop` were created.
-- Codex rewrote the adapter-generated `home/.codex/config.toml` at first start
-  (before any input): 675→718 bytes by appending
-  `[tui]\nscreen_reader_detection_done = true`; after the hooks confirmation it
-  grew to 2,847 bytes with a `[hooks.state."<home>/.codex/hooks.json:<event>:0:0"]`
-  `trusted_hash` table for each of the 8 hooks. `hooks.json` was unchanged. Codex
-  also created SQLite stores (`state_5`, `logs_2`, `goals_1`, `memories_1`,
-  `queue_1`, `thread_history_1`), `skills/.system/`, `installation_id`, `tmp/arg0`
-  entries (`apply_patch`, `codex-linux-sandbox`, …) that share one inode of
-  289,101,384 bytes, `.sandbox_migration` and `history.jsonl`. I read only copies
-  of the SQLite files.
+At startup, before any input:
+
+- Claude: `.claude.json` rewritten (new inode); `backups/.claude.json.backup.1791474640727`
+  (33 bytes) and `….1791474709240` (1,023 bytes); `sessions/67.json` and its
+  `.key` file (above); `settings.json` (one key,
+  `skipDangerousModePermissionPrompt: true`, mtime 15:51:49.238; not written by
+  the fixture); `session-env/<session id>/`; MCP debug
+  logs under `.cache/claude-cli-nodejs/<munged cwd>/mcp-logs-qorqut-{core,browser}/`.
+- Codex rewrote the adapter-generated `home/.codex/config.toml` at first start:
+  675→718 bytes by appending `[tui]\nscreen_reader_detection_done = true`; after
+  the hooks confirmation it grew to 2,847 bytes with a
+  `[hooks.state."<home>/.codex/hooks.json:<event>:0:0"]` `trusted_hash` table for
+  each of the 8 hooks. `hooks.json` was unchanged. Codex also created SQLite
+  stores (`state_5`, `logs_2`, `goals_1`, `memories_1`, `queue_1`),
+  `skills/.system/`, `installation_id`, `tmp/arg0` entries (`apply_patch`,
+  `codex-linux-sandbox`, …) that share one inode of 289,101,384 bytes,
+  `.sandbox_migration` (16:09:54.811), the thread-writer lock and the shell
+  snapshot (above). I read only copies of the SQLite files.
+
+At first input (absent from the pre-input snapshots):
+
+- Claude: `history.jsonl` (15:53:27.777), the `projects/<munged cwd>/` transcript
+  and its `memory/` directory, `backups/.claude.json.backup.1791474808085`
+  (15:53:28.085 by its name) with another `.claude.json` change, an update of `sessions/67.json`
+  (status/`updatedAt` 15:53:28.072), `.config/mimeapps.list` and
+  `.local/share/applications/claude-code-url-handler.desktop`.
+- Codex: `history.jsonl`, `thread_history_1.sqlite` (with `-shm`/`-wal`) and the
+  `sessions/2026/10/08/` rollout, all first seen 16:10:41.529–.530.
 
 ## Observation 6: resume
 
@@ -390,7 +481,10 @@ Codex resume (`codex resume 01a11c47-… …`, new run
 - Startup replay: the screen replayed the earlier prompt and answer. MCP
   reconnected at startup. The rollout appended 2,112 bytes at offset 44,580
   (`event_msg` `thread_settings_applied`) right after the hooks confirmation,
-  before any input. A new thread-writer lock was taken by pid 1001.
+  before any input (live watcher, 16:15:16.268). A `/proc/locks` reading made
+  after the resume prompt (`links.json`, 16:16:01) showed an exclusive `FLOCK` on
+  the thread lock held by pid 1001 (lock inode 20753860; the fresh run's reading
+  showed inode 20753863); no earlier holder reading exists.
 - On the prompt: a second `thread_settings_applied` plus the turn, 9 more
   records → 55,505 bytes, sha256
   `e500cc96aaf3247b4dd91a23e7aff1df75e06231e27b22d52c136265c61882d9`. Same
@@ -406,10 +500,25 @@ Codex resume (`codex resume 01a11c47-… …`, new run
   `attachment_coverage_partial` in every run; Claude's adds
   `unsupported_attachment_reference` per attachment record. I did not extend
   or work around any gap.
-- `translate_hook` accepted every real Claude and Codex payload I had
-  (`SessionStart`, `UserPromptSubmit`, `Stop`, Claude `SessionEnd` → activity
-  `unknown`). It does not check that a payload's run matches the `NativeBinding`
-  passed in (the resume script fed it every logged hook).
+- `translate_hook` accepted every real Claude and Codex payload the fixture fed
+  it (`SessionStart`, `UserPromptSubmit`, `Stop`, Claude `SessionEnd` → activity
+  `unknown`). Its contract (`adapters/hooks.py`) is that the runner validates
+  process ancestry and fingerprints before calling it, the payload only
+  corroborates the bound session id and transcript path, and the payload cannot
+  supply platform run fields (`run_id`, `recovery_epoch`,
+  `environment_generation`, `run_generation` are rejected if present). That
+  runner-side process/run verification did not run in this rehearsal; the sink
+  records and `reaches_native` flags are fixture output. The fixture fed
+  historical hooks through the resume binding for diagnostic translation only:
+  the Claude resume `links.json` translation list had 7 events, the fresh run's
+  four (SessionStart, UserPromptSubmit, Stop, SessionEnd) and the resume run's
+  three, because the Claude link script did not filter the sink log by run; the
+  Codex link scripts filtered the sink log by the run's binding-file value and
+  translated 3 events each. Acceptance of the fresh run's hooks under the resume
+  binding shows only that session id and transcript path matched; it is not
+  evidence that production would or should accept stale hooks. In the Claude
+  fresh run `links.json` was written before the SessionEnd, so three events
+  were translated.
 
 ## Failed attempts and diagnostics
 
@@ -435,11 +544,19 @@ run directory; the owned `unshare` launcher was SIGKILLed, which removed the
 namespace. Verified afterward: no host process whose command line references the
 run directory; no listener on 18101/18102/18111/18112 on the host; no tmux server
 using a `qnr-*` socket; the four `/tmp/qnr-*` socket directories (each containing
-only `t.sock`) removed; one stale `/tmp/cc-socks/115.sock` removed because it
-matched the Claude pid recorded in attempt 1. Two other zero-byte sockets,
-`/tmp/cc-socks/16.sock` and `45.sock`, were created within a second of my
-attempts 2 and 3 but I could not tie their pids to those attempts, so they were
-left in place. No `auth.json`, `.credentials.json` or similar credential store
+only `t.sock`) removed. One `/tmp/cc-socks/115.sock` was also removed. The only
+basis was that its file name equals the Claude pid recorded in attempt 1, which
+is a namespace-local pid number; `/tmp/cc-socks` is shared with the host and with
+other Claude sessions of the same user, so a pid-number match alone did not
+establish unique ownership of that file. Immediately before removal the same
+command printed its owner (`alp`) and mtime (15:47:38 UTC, about a minute before
+the attempt 1 archive directory's 15:48:40 UTC mtime), but that output was not
+saved under `$RUN`. The removal cannot be verified or undone and I treat it as
+an unproven ownership call, not a confirmed cleanup of my own file. Two other
+zero-byte sockets, `/tmp/cc-socks/16.sock` (mtime 15:49:41 UTC) and `45.sock`
+(15:50:24 UTC), have mtimes near my attempts 2 and 3 but I could not tie their
+pids to those attempts, so they remain as unattributed residue that may or may
+not be mine; I removed nothing else. No `auth.json`, `.credentials.json` or similar credential store
 exists in the disposable homes. The synthetic bearer/target/key values remain only
 in private mode-600 fixture files, copies of generated configs and hashed log
 lines under `$RUN`, valid only against the now-stopped loopback fakes.
