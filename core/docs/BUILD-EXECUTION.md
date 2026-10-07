@@ -3,10 +3,10 @@
 ## Current work after owner scope agreement
 
 D36 is accepted: [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md). Core and
-UI manual-creation implementations are complete; UI has passed review and core's
-shared transport test is receiving a focused synchronization correction after
-Astra MAX review. Paired
-running UI/core acceptance still precedes landing them. Native rehearsal
+UI manual-creation implementations have passed scoped review, including the
+core test's synchronization correction and fresh Astra MAX review. The
+[combined core/UI check](MANUAL-CREATION-INTEGRATION.md) still precedes landing
+them together. Native rehearsal
 corrections passed [Manager acceptance](evidence/native-rehearsal-manager-acceptance.md).
 Its product observations are not a completed runtime.
 
@@ -69,6 +69,7 @@ None of these assignments declares VM/native/browser control complete.
 
 | Assignment | Accepted revision | Independent review and Manager evidence | Remaining work |
 | --- | --- | --- | --- |
+| Identity-only creation and immutable historical replay | `8d2039f` | Fresh Astra MAX review of the corrected flow found no defects. Manager verified 56 installed package files and passed the formerly failing timing scenario against the real server worker. [Scoped acceptance](evidence/manual-creation-manager-acceptance.md). | Combined schema-6 core and actual compiled UI acceptance before landing; native Terminal/Chat integration remains separate. |
 | Local onbash inbox ownership | `1af5f85` | Fresh Astra MAX review found no in-scope defects; twelve runtime and three inventory/schema checks plus an installed real-child flow passed. Manager verified 61 package files and passed four installed ownership/recovery checks. [Acceptance](evidence/inbox-ownership-manager-acceptance.md). | Native hook/process association, shell composition, delivery, assistant capture, Terminal UI and VM/browser integration. `input_ready` remains false. |
 | Pinned native CLI rehearsal | `13227a8` | Fresh Sonnet 5.5 xhigh review and [Manager evidence acceptance](evidence/native-rehearsal-manager-acceptance.md); actual loopback-fake-provider fresh/resume observations, with fixture boundaries and timing corrections. | Manual startup/inbox/Chat integration, composer/config fixes, native reader/normalization, complete source coverage, actual provider and VM acceptance. |
 | First connected UI and actual core integration | UI [`cbff84d`](https://github.com/qorqutbot/qorqutbot-ui/blob/cbff84d1e92066d13f9ff5322b49a32fc7f0203a/docs/evidence/ui-shell-r1.md), core `faf311d` | Fresh Sonnet 5.5 medium review passed locked build and six grouped Chrome checks. Manager matched 40 UI and 56 installed core files, reproduced build hashes and passed two actual Chrome/core flows with no mock API: metadata, three messages, both dated files, restart, sessions and responsive layouts. [Manager acceptance](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/ui-shell-manager-acceptance.md). | Native assistant replies/delivery, browser/file cards, VM/browser execution, continuity/export/restore and full system gates remain pending. |
