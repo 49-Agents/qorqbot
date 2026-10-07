@@ -5,18 +5,19 @@
 D36 is accepted: [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md). Core and
 UI manual-creation implementations have passed scoped review, including the
 core test's synchronization correction and fresh Astra MAX review. The
-[combined core/UI check](MANUAL-CREATION-INTEGRATION.md) still precedes landing
-them together. Native rehearsal
+[combined core/UI check](MANUAL-CREATION-INTEGRATION.md) has completed at
+`5a50666` with UI `6a4841d` and is undergoing fresh Astra MAX review before
+landing them together. Native rehearsal
 corrections passed [Manager acceptance](evidence/native-rehearsal-manager-acceptance.md).
 Its product observations are not a completed runtime.
 
-D37 permits three independent builders now: [inbox ownership](INBOX-OWNERSHIP.md)
-(sole host migration/application owner), [recorded shell](RECORDED-SHELL.md)
-(new local runner modules), and [adapter corrections](ADAPTER-REHEARSAL-FIXES.md)
-(adapter files only). The creation review does not block them. Plan for three
-builders plus the creation reviewer, then fresh reviewers as builders finish,
-within the ten-actor cap. Their completed interfaces feed one explicitly owned
-runtime integration, followed by the actual Terminal UI and onbash flow check.
+D37's independent [inbox ownership](INBOX-OWNERSHIP.md) and
+[recorded shell](RECORDED-SHELL.md) increments are accepted. The
+[adapter corrections](ADAPTER-REHEARSAL-FIXES.md) revision `9737e2a` is in fresh
+Astra MAX review after the final manifest-write race correction. The paired
+creation integration review runs independently. These completed interfaces feed
+one explicitly owned runtime integration, followed by the actual Terminal UI
+and onbash flow check; the existing ten-actor cap remains.
 No automatic CLI orchestration or context-packet work is authorized by old plans.
 The VM decision remains separate; common integration starts with onbash.
 
@@ -24,6 +25,11 @@ The local onbash ownership increment is now accepted at `1af5f85`, with fresh
 Astra MAX review and [Manager checks](evidence/inbox-ownership-manager-acceptance.md).
 It adds schema 6 and `runtime_get`, preserving five handlers. Hook association,
 recorded-shell composition, delivery and native capture remain integration work.
+
+The recorded shell is accepted at `395d831`, with fresh Astra MAX review and
+[Manager checks](evidence/recorded-shell-manager-acceptance.md). It provides local
+recorded Bash execution and bounded human attachments; creation, startup hooks,
+the host server and Terminal UI do not yet invoke it.
 
 Manager decision, 2026-10-07. The owner authorized implementation through ACLA,
 up to ten concurrent actors, no native self-review, and a separate reviewer after
@@ -69,6 +75,7 @@ None of these assignments declares VM/native/browser control complete.
 
 | Assignment | Accepted revision | Independent review and Manager evidence | Remaining work |
 | --- | --- | --- | --- |
+| Persistent recorded shell and human attachment | `395d831` | Fresh Astra MAX review passed seven source and two installed checks, including actual recorder import provenance. Manager inspected the implementation, matched 59 package files and passed two installed process-restart/capture and uncertain-input/recorder-failure checks. [Acceptance](evidence/recorded-shell-manager-acceptance.md). | Host activation, startup/native association, Terminal transport/UI, Chat delivery, native ingestion, VM/browser and service-lifetime integration. |
 | Identity-only creation and immutable historical replay | `8d2039f` | Fresh Astra MAX review of the corrected flow found no defects. Manager verified 56 installed package files and passed the formerly failing timing scenario against the real server worker. [Scoped acceptance](evidence/manual-creation-manager-acceptance.md). | Combined schema-6 core and actual compiled UI acceptance before landing; native Terminal/Chat integration remains separate. |
 | Local onbash inbox ownership | `1af5f85` | Fresh Astra MAX review found no in-scope defects; twelve runtime and three inventory/schema checks plus an installed real-child flow passed. Manager verified 61 package files and passed four installed ownership/recovery checks. [Acceptance](evidence/inbox-ownership-manager-acceptance.md). | Native hook/process association, shell composition, delivery, assistant capture, Terminal UI and VM/browser integration. `input_ready` remains false. |
 | Pinned native CLI rehearsal | `13227a8` | Fresh Sonnet 5.5 xhigh review and [Manager evidence acceptance](evidence/native-rehearsal-manager-acceptance.md); actual loopback-fake-provider fresh/resume observations, with fixture boundaries and timing corrections. | Manual startup/inbox/Chat integration, composer/config fixes, native reader/normalization, complete source coverage, actual provider and VM acceptance. |

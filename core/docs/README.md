@@ -9,8 +9,12 @@ Current parallel implementation: [inbox ownership](INBOX-OWNERSHIP.md),
 ownership and the following combined integration check.
 The local inbox-owner increment has passed [bounded acceptance](evidence/inbox-ownership-manager-acceptance.md);
 it does not yet connect a native CLI to Chat.
+The local recorded-shell increment has also passed
+[bounded acceptance](evidence/recorded-shell-manager-acceptance.md); its host
+activation and Terminal UI connection remain pending.
 Manual creation has passed [scoped review](evidence/manual-creation-manager-acceptance.md)
-and proceeds to the [combined core/UI check](MANUAL-CREATION-INTEGRATION.md).
+and its [combined core/UI check](MANUAL-CREATION-INTEGRATION.md) is now in
+independent review, alongside the completed adapter corrections.
 
 The [global implementation plan](IMPLEMENTATION-PLAN.md) is the entry point and the authority for scope, dependencies and delivery gates. Module plans expand it; they do not silently override shared contracts.
 
