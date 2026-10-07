@@ -6,6 +6,10 @@ Implementation evidence, 2026-10-08. Branch `codex/manual-creation-r1`, exact ba
 Nothing here shows a Terminal, shell, inbox connection, VM, native-session
 observation or native capture. Operations stay 14, handlers five, schema version 5.
 
+The r1 results below are historical for candidate
+`020879eca62526652737f5d9dde5f2276903556c`; the latest test-only correction and its
+new checks are recorded in the final R2 section.
+
 ## What changed
 
 Production (`src/qorqut_core/agents/`):
@@ -154,3 +158,62 @@ by this change:
   they were outside this assignment's ownership and were not edited.
 - No Terminal API, inbox owner, hook bridge, native observation/capture, VM
   execution target or UI change exists in this branch. The UI is a separate repo.
+
+## R2: synchronize live reads with provisioning
+
+2026-10-08, branch `codex/manual-creation-r2-astra`, starting candidate
+`020879eca62526652737f5d9dde5f2276903556c`. Only `tests/agents/test_agent_flow.py`
+and this evidence file changed. All 160 other tracked files were byte-checked
+against that candidate, including production, dependencies, migrations and plans.
+
+Manager review 164 identified an ordering assumption left in r1: the real worker
+can initialize a workspace before the next live read, while the creation receipt
+remains immutable. The existing single flow now uses one bounded HTTP polling
+helper (the original 20-second deadline and 50-ms polling interval) for onbash
+revision 1, the created agent's revision 1, and revision 2 after rename. Onbash is
+identified from the initial directory; a fresh directory and fresh agent get are
+compared in full with MCP after provisioning, with no intervening mutation.
+
+The receipt explicitly retains `workspace_initialized_at=null` and
+`projection_revision=0`; the live record has a non-null timestamp and revision 1.
+Every other field is compared exactly using a new expected dictionary, without
+altering the receipt. All replay equalities, persona seed, schema, no-start/legacy
+metadata, refusal/conflict, attribution, dependency-hold and restart checks remain.
+
+Two new private Python 3.12.3 venvs installed the unchanged `requirements.lock`;
+all 31 locked distributions matched exactly (plus pip, and core in the installed
+venv), and both `pip check` runs passed. Dependencies came from pip's cache; index
+resolution was not claimed offline. Built with `pip wheel --no-deps
+--no-build-isolation --no-index` from an owned tracked-file copy, then installed
+that wheel with `--no-deps --no-index`. Installed checks used `python -I` from a
+tests-only directory with no source tree, and the real `qorqut-core serve` script.
+
+| Focused check | Result |
+| --- | --- |
+| Source: `PYTHONPATH=src python -m unittest discover -s tests/agents -t tests -p test_agent_flow.py -v` | 1 test OK, 5.215 s |
+| Installed: `python -I -m unittest discover -s tests/agents -t tests -p test_agent_flow.py -v` | 1 test OK, 5.135 s |
+| Private `check-delayed-response.py`, same unchanged installed flow | 1 test OK, 4.988 s; no failures/errors/skips |
+
+The diagnostic delayed returning only the original first successful create
+response until real read-only HTTP polling observed provisioning (27 polls,
+0.722 s). It returned the same response object with unchanged body bytes, headers
+and status. Receipt revision 0/null and live revision 1/timestamp differed in
+exactly those two fields. It neither paused/mocked the worker nor supplied fake
+server data or called in-process jobs. The unmodified flow passed under this
+schedule, including exact original receipt replay after restart.
+
+Byte/import provenance: all 56 package files match the starting candidate,
+worktree source, build copy, wheel contents and installed package. Source imports
+resolve to this worktree; installed imports resolve to the new venv. Wheel sha256:
+`46f2390e21bad55801ca04d3d726858eaec279a70ee3bc6660024a763267c24a`.
+Corrected test sha256 (worktree and tests-only copy):
+`3f7eea53573927551058b25f15fddb50fb60b11ca65e25993bd9ef4bc29bf8df`.
+Private round bundle `worker-manual-creation-r2-astra-b61d3c6b` retains the commands,
+logs, diagnostic/result, source manifest and source/installed provenance JSON.
+
+No unrelated backend suites were repeated for this test-only revision. The r1
+limitations and recorded unrelated archive failure remain; this correction adds
+no runtime readiness evidence. Tests used owned disposable installations and
+loopback servers, which the fixture closed and removed; no provider, owner data,
+VM or deployed service was used. Fresh independent review remains required; no
+merge, deployment or self-approval is part of this revision.

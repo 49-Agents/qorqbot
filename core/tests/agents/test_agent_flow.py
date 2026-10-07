@@ -14,6 +14,18 @@ from transports.test_transports import session, structured
 
 
 class AgentTransportFlow(unittest.IsolatedAsyncioTestCase):
+    async def wait_for_projection(self, http, agent_id, revision):
+        deadline = time.monotonic() + 20
+        while True:
+            response = await http.post("/api/v1/operations/agents_get", json={"agent_id": agent_id})
+            self.assertEqual(response.status_code, 200, response.text)
+            current = response.json()["data"]
+            if current["workspace_initialized_at"] is not None and current["projection_revision"] == revision:
+                return
+            self.assertLess(time.monotonic(), deadline,
+                f"Agent {agent_id} did not initialize workspace/projection revision {revision}: {current}")
+            await asyncio.sleep(0.05)
+
     async def test_shared_agent_http_mcp_flow_identity_only_create_and_headless_provisioning(self):
         fixture = Installation()
         self.addCleanup(fixture.close)
@@ -38,8 +50,12 @@ class AgentTransportFlow(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(create_schema["required"], ["idempotency_key", "display_name"])
             self.assertEqual([create_schema["properties"][key]["deprecated"] for key in ("cli", "start")], [True, True])
             directory = (await http.post("/api/v1/operations/agents_list", json={})).json()
+            onbash_id = directory["data"]["onbash_agent_id"]
+            await self.wait_for_projection(http, onbash_id, 1)
+            directory = (await http.post("/api/v1/operations/agents_list", json={})).json()
             self.assertEqual(structured(await actor.call_tool("agents_list", {})), directory)
             host = directory["data"]["items"][0]
+            self.assertEqual(host["id"], onbash_id)
             self.assertEqual(directory["data"]["onbash_agent_id"], host["id"])
             self.assertEqual((host["kind"], host["start_requested"]), ("host", False))
             args = {"idempotency_key": "shared-create", "display_name": "\t Shared agent \n", "persona": "Exact synthetic seed\n"}
@@ -53,9 +69,15 @@ class AgentTransportFlow(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((first["data"]["agent"]["start_requested"], first["data"]["agent"]["cli"]),
                              (False, fixture.defaults.cli.model_dump(mode="json")))
             get_args = {"agent_id": agent_id}
+            await self.wait_for_projection(http, agent_id, 1)
             get = (await http.post("/api/v1/operations/agents_get", json=get_args)).json()
             self.assertEqual(structured(await actor.call_tool("agents_get", get_args)), get)
-            self.assertEqual(get["data"], first["data"]["agent"])
+            self.assertIsNone(first["data"]["agent"]["workspace_initialized_at"])
+            self.assertEqual(first["data"]["agent"]["projection_revision"], 0)
+            self.assertIsNotNone(get["data"]["workspace_initialized_at"])
+            self.assertEqual(get["data"]["projection_revision"], 1)
+            self.assertEqual(get["data"], {**first["data"]["agent"],
+                "workspace_initialized_at": get["data"]["workspace_initialized_at"], "projection_revision": 1})
             conflict = {**args, "display_name": "Different"}
             response = await http.post("/api/v1/operations/agents_create", json=conflict)
             self.assertEqual(response.status_code, 409)
@@ -99,13 +121,7 @@ class AgentTransportFlow(unittest.IsolatedAsyncioTestCase):
             # The refused start=true requests registered nothing: only the reserved agent and the one created agent exist.
             self.assertEqual(len(structured(await owner.call_tool("agents_list", {}))["data"]["items"]), 2)
             # The headless server's worker provisions the folder and projection; no CLI or environment exists.
-            deadline = time.monotonic() + 20
-            while True:
-                current = (await http.post("/api/v1/operations/agents_get", json=get_args)).json()["data"]
-                if current["workspace_initialized_at"] is not None and current["projection_revision"] == 2:
-                    break
-                self.assertLess(time.monotonic(), deadline, current)
-                await asyncio.sleep(0.05)
+            await self.wait_for_projection(http, agent_id, 2)
             workspace = fixture.settings.data_root / "agents" / agent_id / "workspace"
             self.assertEqual((workspace / "persona.md").read_text(), "Exact synthetic seed\n")
         fixture.stop()
