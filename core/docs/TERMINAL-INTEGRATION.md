@@ -12,6 +12,21 @@ Manager documents. UI main is
 `e380b4c053a2bbc602e775cb2e167f6b3e30c32c`, containing accepted UI candidate
 `2faabdfc3558a5b50396032274d2caf622c6e9a8` unchanged.
 
+Clarification 212: the first real-host check found the UI's root-level
+`terminal-notices.txt` is not served by the established `/assets/*` route.
+Manager assigned a separate UI-only relocation of those unchanged bytes to
+`public/assets/terminal-notices.txt`; core hosting is unchanged. Functional
+checks may continue against the original pinned pair with the exact missing
+notice recorded as a failure. Final integration acceptance requires the
+separately reviewed corrected UI pin supplied by Manager. If its built HTML,
+JavaScript and CSS are byte-identical to those already exercised, preserve
+that functional evidence, verify every final distribution file through the
+normal host, and run one focused real Terminal input check with the corrected
+distribution. Otherwise repeat the affected functional checks. Never silently
+exclude the notice from final served-file provenance or declare it accepted
+before that correction. Wait for the final UI pin when the independent work
+is complete; do not consume an unreviewed actor worktree.
+
 The integration actor owns only `docs/evidence/terminal-integration-r1.md` in
 its assigned core worktree. Put executable harnesses, source exports, package
 environments, captures, screenshots and complete evidence in its private run
