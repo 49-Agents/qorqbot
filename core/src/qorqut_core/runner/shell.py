@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import signal
 import stat
 import subprocess
 import termios
@@ -22,7 +23,7 @@ from uuid import UUID, uuid4, uuid5
 
 from .models import MAX_BODY_BYTES, ProcessFingerprint, RunnerError, TmuxBinding, validate_dimensions
 from .process import fingerprint, verify_process
-from .shell_models import ShellCapture, ShellControl, ShellFrame, ShellSpec, ShellView, absolute_path
+from .shell_models import ShellCapture, ShellControl, ShellDimensions, ShellFrame, ShellSpec, ShellView, absolute_path
 from . import shell_storage as store
 from .storage import connect, input_lock
 from ..transcripts.probe import ProbeResult, probe_recorder
@@ -277,7 +278,7 @@ class ShellManager:
             raise RunnerError("target_changed", "private tmux socket changed")
         verify_process(target.server)
 
-    def _target(self, row, *, allow_dead=False) -> TmuxBinding:
+    def _target(self, row, *, allow_dead=False) -> tuple[TmuxBinding, ShellDimensions]:
         self._claims(row)
         info = self.socket_path.lstat()
         if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.geteuid():
@@ -285,11 +286,13 @@ class ShellManager:
         saved = TmuxBinding.model_validate_json(row["tmux_json"]) if row["tmux_json"] else None
         if saved:
             self._server(saved)
-        fields = "#{pid}|#{session_id}|#{window_id}|#{pane_id}|#{pane_pid}|#{pane_dead}|#{session_windows}|#{window_panes}"
+        fields = ("#{pid}|#{session_id}|#{window_id}|#{pane_id}|#{pane_pid}|#{pane_dead}|"
+                  "#{session_windows}|#{window_panes}|#{pane_width}|#{pane_height}")
         lines = self._command("list-panes", "-s", "-t", "=shell-" + row["terminal_id"], "-F", fields).decode().splitlines()
         if len(lines) != 1:
             raise RunnerError("target_changed", "terminal must have exactly one window and pane")
-        server, session, window, pane, pid, dead, windows, panes = lines[0].split("|")
+        server, session, window, pane, pid, dead, windows, panes, columns, rows = lines[0].split("|")
+        dimensions = ShellDimensions(columns=int(columns), rows=int(rows))
         if windows != "1" or panes != "1" or dead not in ("0", "1"):
             raise RunnerError("target_changed", "recorded terminal topology changed")
         if dead == "1" and not allow_dead:
@@ -321,15 +324,16 @@ class ShellManager:
         elif not saved or not _gone(saved.pane):
             raise RunnerError("target_changed", "dead-pane process is not corroborated")
         self._server(target)
-        return target
+        return target, dimensions
 
-    def _view(self, row, state, reason, *, tmux=None, shell=None, capture=None):
+    def _view(self, row, state, reason, *, tmux=None, shell=None, capture=None, dimensions=None):
         return ShellView(spec=ShellSpec.model_validate_json(row["spec_json"]), terminal_id=row["terminal_id"],
                          state=state, reason=reason, tmux=tmux, recorder=tmux.pane if tmux else None,
                          shell=shell, source_id=row["source_id"], source_epoch=row["source_epoch"],
                          probe_address="shell-" + row["terminal_id"],
                          capture=capture or ProbeResult(verified=False, terminal_active=False, reason="unavailable"),
-                         saved_capture=self._saved_capture(row), control=store.control(self.database, row["terminal_id"]))
+                         saved_capture=self._saved_capture(row), control=store.control(self.database, row["terminal_id"]),
+                         dimensions=dimensions)
 
     def inspect(self, terminal_id: UUID) -> ShellView:
         terminal_id = UUID(str(terminal_id))
@@ -342,7 +346,7 @@ class ShellManager:
             store.mark_stopped(self.database, row["terminal_id"])
             return self._view(row, "stopped", "shell_exited")
         try:
-            target = self._target(row)
+            target, _ = self._target(row)
             if not row["tmux_json"]:
                 store.save_binding(self.database, row["terminal_id"], target, None)
                 row = self._row(row["terminal_id"])
@@ -355,11 +359,13 @@ class ShellManager:
                 raise RunnerError("target_changed", "recorder child fingerprint changed")
             _program(child, self.shell_executable, [str(self.shell_executable), "--noprofile", "--norc", "-i"],
                      parent=target.pane)
-            if self._target(row) != target:
+            observed_target, dimensions = self._target(row)
+            if observed_target != target:
                 raise RunnerError("target_changed", "terminal changed during live observation")
             if saved_shell is None:
                 store.save_binding(self.database, row["terminal_id"], target, child)
-            return self._view(row, "running", "verified", tmux=target, shell=child, capture=result)
+            return self._view(row, "running", "verified", tmux=target, shell=child, capture=result,
+                              dimensions=dimensions)
         except (OSError, ValueError, RunnerError):
             return self._view(row, "unknown", "binding_unconfirmed")
 
@@ -395,7 +401,7 @@ class ShellManager:
         with input_lock(self.database, terminal_id):
             row = self._row(terminal_id)
             try:
-                target = self._target(row, allow_dead=True)
+                target, _ = self._target(row, allow_dead=True)
                 self._effect(target, ["kill-session", "-t", target.session_id], input_effect=False)
             except (OSError, ValueError, RunnerError):
                 # Even shutdown never treats an ambiguous socket as its own.
@@ -454,7 +460,7 @@ class ShellManager:
                                             "-x", str(columns), "-y", str(rows)], shell=view.shell)
                     # Mirror geometry is only display state: -r/ignore-size and
                     # manual window sizing keep authority in the gated command.
-                    termios.tcsetwinsize(attachment._fd, (rows, columns))
+                    attachment.set_display_size(columns, rows)
                 outcome = "submitted"
             except (OSError, RunnerError, subprocess.SubprocessError):
                 pass
@@ -528,6 +534,7 @@ class ShellAttachment:
     after EOF); ``closed`` distinguishes a closed client. write(bytes, epoch=,
     sequence=) sends one authorized raw frame, without framing or implicit Enter.
     resize(columns, rows, epoch=, sequence=) changes the exact tmux window.
+    set_display_size(columns, rows) changes only this mirror's owned PTY.
     A submitted receipt proves transport submission, never native processing.
     Earlier admitted bytes cannot be retracted by a subsequent control change.
     There is no Python output queue and the viewer is not an archive/replay API.
@@ -538,12 +545,16 @@ class ShellAttachment:
         self.terminal_id, self.viewer_id, self.read_only = view.terminal_id, viewer_id, read_only
         self._closed, self._fd, self._process = False, -1, None
         self._io_lock = threading.RLock()
+        if view.dimensions is None:
+            raise RunnerError("not_ready", "viewer requires verified pane dimensions")
+        self._dimensions = view.dimensions
         master, slave = os.openpty()
         self._fd = master
         try:
             # In particular disable ECHO before tmux emits terminal discovery
             # escapes. No client output or automatic response becomes input.
             tty.setraw(slave, termios.TCSANOW)
+            termios.tcsetwinsize(slave, (self._dimensions.rows, self._dimensions.columns))
             os.set_blocking(master, False)
             self._process = subprocess.Popen(
                 [str(manager.tmux_executable), "-N", "-S", str(manager.socket_path), "-f", "/dev/null",
@@ -578,10 +589,29 @@ class ShellAttachment:
         verify_process(self._fingerprint)
         self._manager._server(target)
         lines = self._manager._command("list-clients", "-t", target.session_id, "-F",
-                                       "#{client_pid}|#{session_id}|#{pane_id}|#{client_readonly}").decode().splitlines()
-        expected = f"{self._fingerprint.pid}|{target.session_id}|{target.pane_id}|1"
-        if lines.count(expected) != 1:
-            raise RunnerError("target_changed", "viewer is not attached read-only to the exact terminal")
+                                       "#{client_pid}|#{session_id}|#{pane_id}|#{client_readonly}|#{client_flags}").decode().splitlines()
+        expected = f"{self._fingerprint.pid}|{target.session_id}|{target.pane_id}|1|"
+        matched = [line[len(expected):].split(",") for line in lines if line.startswith(expected)]
+        if len(matched) != 1 or not {"read-only", "ignore-size"}.issubset(matched[0]):
+            raise RunnerError("target_changed", "viewer is not read-only and size-ignored on the exact terminal")
+
+    @property
+    def dimensions(self) -> ShellDimensions:
+        with self._io_lock:
+            return self._dimensions
+
+    def set_display_size(self, columns: int, rows: int) -> None:
+        validate_dimensions(columns, rows)
+        dimensions = ShellDimensions(columns=columns, rows=rows)
+        with self._io_lock:
+            if self.closed:
+                raise RunnerError("not_ready", "viewer is disconnected")
+            if dimensions != self._dimensions:
+                termios.tcsetwinsize(self._fd, (rows, columns))
+                self._dimensions = dimensions
+                # No controlling terminal is required: notify only the exact
+                # unreaped Popen child, serialized with descriptor/child close.
+                self._process.send_signal(signal.SIGWINCH)
 
     def read(self, max_bytes=MAX_BODY_BYTES) -> bytes:
         if type(max_bytes) is not int or not 1 <= max_bytes <= MAX_BODY_BYTES:

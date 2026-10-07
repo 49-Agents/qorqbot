@@ -11,6 +11,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import termios
 import threading
 import time
 import unittest
@@ -22,6 +23,8 @@ from pydantic import ValidationError
 from qorqut_core.runner.models import RunnerError
 from qorqut_core.runner.process import fingerprint, verify_process
 from qorqut_core.runner.shell import ShellManager, ShellSpec, ShellView
+from qorqut_core.runner.shell_models import ShellDimensions
+from qorqut_core.runner.storage import input_lock
 from qorqut_core.transcripts.spool import CaptureSpool
 
 
@@ -162,6 +165,85 @@ class ShellTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT count(*) FROM runner_shell_terminals").fetchone()[0], 0)
         self.assertFalse(self.args[2].exists())
         self.assertEqual(list(self.home.iterdir()), [])
+        for columns, rows in ((True, 24), (80, False), (80.0, 24), ("80", 24),
+                              (19, 24), (501, 24), (80, 4), (80, 251)):
+            with self.assertRaises(ValidationError):
+                ShellDimensions(columns=columns, rows=rows)
+        dimensions = ShellDimensions(columns=80, rows=24)
+        with self.assertRaises(ValidationError):
+            dimensions.columns = 100
+
+    def test_verified_geometry_and_local_mirror_size_are_independent_of_input(self):
+        view = self.start()
+        self.assertEqual(view.dimensions, ShellDimensions(columns=80, rows=24))
+        writer = self.attach(view, read_only=False)
+        control = self.manager.take_control(view.terminal_id, writer.viewer_id, 0)
+        self.assertEqual(writer.resize(132, 40, epoch=control.epoch, sequence=1).outcome, "submitted")
+        wide = self.manager.inspect(view.terminal_id)
+        self.assertEqual(wide.dimensions, ShellDimensions(columns=132, rows=40))
+        self.assertEqual(termios.tcgetwinsize(writer._fd), (40, 132))
+        writer.write(b"printf '\\033[2J\\033[1;100H%s\\033[35;1H%s\\033[2;1H' RIGHT_TAIL_217 BOTTOM_ROW_217\r",
+                     epoch=control.epoch, sequence=2)
+        wait_for(lambda: b"RIGHT_TAIL_217\x1b[35;1HBOTTOM_ROW_217" in self.captured(view))
+        screen = self.manager._command("capture-pane", "-p", "-t", view.tmux.pane_id).splitlines()
+        self.assertEqual(screen[0][99:], b"RIGHT_TAIL_217")
+        self.assertEqual(screen[34], b"BOTTOM_ROW_217")
+        observer = self.attach(wide)
+        self.assertEqual(observer.dimensions, wide.dimensions)
+        self.assertEqual(termios.tcgetwinsize(observer._fd), (40, 132))
+        def client_size(attachment):
+            lines = self.manager._command("list-clients", "-F",
+                "#{client_pid}|#{client_width}|#{client_height}|#{client_flags}").decode().splitlines()
+            return next(line.split("|")[1:] for line in lines if line.startswith(f"{attachment._process.pid}|"))
+        wait_for(lambda: client_size(observer)[:2] == ["132", "40"])
+        self.assertTrue({"read-only", "ignore-size"}.issubset(client_size(observer)[2].split(",")))
+        display = bytearray()
+        def visible():
+            display.extend(observer.read())
+            return b"RIGHT_TAIL_217" in display and b"BOTTOM_ROW_217" in display
+        wait_for(visible)
+        baseline, held = self.captured(view), self.manager.control(view.terminal_id)
+        # This display-only path must finish while a different thread owns the
+        # actual runner flock. No tmux/process query or PTY input is permitted.
+        with ThreadPoolExecutor(max_workers=1) as pool, input_lock(self.args[0], view.terminal_id):
+            with patch.object(self.manager, "_command", side_effect=AssertionError("Display resize queried tmux")), \
+                 patch("qorqut_core.runner.shell.verify_process", side_effect=AssertionError("Display resize probed processes")), \
+                 patch("os.write", side_effect=AssertionError("Display resize wrote PTY input")), \
+                 patch.object(observer._process, "send_signal", wraps=observer._process.send_signal) as notified, \
+                 patch("termios.tcsetwinsize", wraps=termios.tcsetwinsize) as sized:
+                pool.submit(observer.set_display_size, 90, 28).result(timeout=1)
+                pool.submit(observer.set_display_size, 90, 28).result(timeout=1)
+                notified.assert_called_once_with(signal.SIGWINCH)
+                sized.assert_called_once_with(observer._fd, (28, 90))
+        wait_for(lambda: client_size(observer)[:2] == ["90", "28"])
+        self.assertEqual(termios.tcgetwinsize(observer._fd), (28, 90))
+        self.assertEqual(self.manager.inspect(view.terminal_id).dimensions, wide.dimensions)
+        self.assertEqual(self.manager.control(view.terminal_id), held)
+        self.assertEqual(self.captured(view), baseline)
+        for columns, rows in ((True, 24), (80, "24"), (19, 24), (501, 24), (80, 4), (80, 251)):
+            with self.assertRaises(RunnerError):
+                observer.set_display_size(columns, rows)
+        self.assertEqual(observer.dimensions, ShellDimensions(columns=90, rows=28))
+        # Both immutable observations and attached geometry must fail closed on
+        # malformed/out-of-bound tmux output, including the final target check.
+        original = self.manager._command
+        for geometry in (b"bad|40", b"19|40", b"501|40", b"132|4", b"132|251"):
+            calls = 0
+            def malformed(*args, **kwargs):
+                nonlocal calls
+                result = original(*args, **kwargs)
+                if args[0] == "list-panes":
+                    calls += 1
+                    if calls == 2:
+                        return result.rsplit(b"|", 2)[0] + b"|" + geometry + b"\n"
+                return result
+            with patch.object(self.manager, "_command", side_effect=malformed):
+                unknown = self.manager.inspect(view.terminal_id)
+            self.assertEqual(unknown.state, "unknown")
+            self.assertIsNone(unknown.dimensions)
+        observer.close()
+        with self.assertRaises(RunnerError):
+            observer.set_display_size(90, 28)
 
     def test_ensure_reopen_capture_and_attachment_flow(self):
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "synthetic-not-for-child",

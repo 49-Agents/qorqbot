@@ -71,6 +71,11 @@ class ShellCapture(FrozenModel):
     drain_complete: bool
 
 
+class ShellDimensions(FrozenModel):
+    columns: Annotated[StrictInt, Field(ge=20, le=500)]
+    rows: Annotated[StrictInt, Field(ge=5, le=250)]
+
+
 class ShellView(FrozenModel):
     spec: ShellSpec
     terminal_id: UUID
@@ -85,6 +90,7 @@ class ShellView(FrozenModel):
     capture: ProbeResult
     saved_capture: ShellCapture | None = None
     control: ShellControl
+    dimensions: ShellDimensions | None = None
 
 
 class ShellFrame(FrozenModel):

@@ -13,8 +13,8 @@ durable input sequence. Keep fonts readable; do not shrink or reflow the native
 screen to conceal overflow.
 
 This supersedes D38's read-only local fitting rule. Core and UI implement the
-following frozen contract in parallel, receive separate fresh Astra MAX reviews,
-then repeat the combined real-browser flow on the accepted new pair. The notice
+following frozen contract in parallel, receive direct Manager review/testing
+under the latest owner instruction, then repeat the combined real-browser flow. The notice
 relocation remains independently accepted and must be included in the final UI.
 No native CLI, inbox/Chat connection, VM or browser-MCP behavior is added.
 
@@ -171,8 +171,8 @@ The peer remains synthetic evidence; the separate real-core flow follows.
 
 The original integration actor keeps its completed original-pair evidence and
 records finding 217 as a failure. It does not modify either product or rerun
-the same failing pair. After both corrected candidates have separate reviews
-and Manager acceptance, Manager supplies new immutable core/UI pins and resumes
+the same failing pair. After both corrected candidates have Manager review
+and acceptance, Manager supplies new immutable core/UI pins and resumes
 the complete real Terminal flow, including the served notice file.
 
 Add a mobile read-only check with a pane wider than 80 columns and taller than
@@ -181,6 +181,6 @@ right-edge and bottom markers, and verify no view-only input/resize/control
 messages or durable hold changes. Then take control and verify the pane resizes
 to the bounded viewport and the display follows. Switching back to view-only,
 server restart and another controlling viewer must preserve the same rules.
-Each builder commits/pushes its assigned branch and stops for a fresh independent
+Each builder commits/pushes its assigned branch and stops for Manager
 review. No deployment or full native/onbash workflow acceptance follows from
 this display correction alone.
