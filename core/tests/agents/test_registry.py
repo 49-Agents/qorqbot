@@ -404,8 +404,28 @@ class RegistryTests(AgentCase):
             self.assertEqual({table: table_rows(app, table) for table in watched}, before)
             return before["operations"]
 
+        path = settings.data_root / "state.sqlite3"
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 5)
+            before_migration = {table: [dict(row) for row in conn.execute(f"SELECT * FROM {table}")]
+                                for table in watched}
+            checksums = [tuple(row) for row in conn.execute("SELECT version,checksum FROM schema_migrations")]
+        with self.assertRaises(CoreError) as old_schema:
+            Application.open(settings)
+        self.assertEqual(old_schema.exception.code, "unsupported_schema")
+        lock = HostLock(settings.data_root / "locks" / "host.lock").acquire()
+        try:
+            Database(path, lock, busy_timeout_ms=settings.busy_timeout_ms).migrate()
+        finally:
+            lock.close()
         app = Application.open(settings)
         try:
+            self.assertEqual({table: table_rows(app, table) for table in watched}, before_migration)
+            with app.db.read() as tx:
+                self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 6)
+                self.assertEqual([tuple(row) for row in tx.connection.execute(
+                    "SELECT version,checksum FROM schema_migrations WHERE version<=5")], checksums)
             receipts = replay(app)
             with patch("subprocess.Popen", side_effect=AssertionError("provider/process launch")), \
                  patch("socket.socket", side_effect=AssertionError("network launch")):
