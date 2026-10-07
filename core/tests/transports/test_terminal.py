@@ -12,6 +12,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import termios
 import threading
 import time
 from types import SimpleNamespace
@@ -30,8 +31,9 @@ from qorqut_core.contracts import CoreError, Invocation
 from qorqut_core.runner.models import RunnerError
 from qorqut_core.runner.process import fingerprint, verify_process
 from qorqut_core.runner.shell import ShellManager
+from qorqut_core.runner.shell_models import ShellDimensions
 from qorqut_core.runner.storage import input_lock
-from qorqut_core.runtime.terminal_models import CLIENT_MESSAGE
+from qorqut_core.runtime.terminal_models import CLIENT_MESSAGE, TerminalView
 from qorqut_core.transcripts.spool import CaptureSpool
 from qorqut_core.transports.boundary import Admission, Boundary
 from qorqut_core.transports.configuration import read_configuration
@@ -197,6 +199,7 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
             view = app.invoke("terminal_get", Invocation(actor_id=f.owner.actor_id), {"agent_id": host}).data
             self.assertEqual(view["status"], "disabled")
             self.assertIsNone(view["observed_at"])
+            self.assertIsNone(view["dimensions"])
             app.terminals.observe()
         self.assertEqual(f.installation_file.read_bytes(), before)
         self.assertFalse((f.settings.data_root / "agents").exists())
@@ -213,9 +216,13 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
                       {"type": "input", "epoch": 0, "sequence": 1, "data": "eA==\n"},
                       {"type": "input", "epoch": 0, "sequence": 1, "data": base64.b64encode(b"x" * 65537).decode()},
                       {"type": "resize", "epoch": 0, "sequence": 1, "columns": True, "rows": 30},
+                      {"type": "resize", "epoch": 0, "sequence": 1, "columns": 501, "rows": 30},
+                      {"type": "resize", "epoch": 0, "sequence": 1, "columns": 80, "rows": 4},
                       {"type": "control", "action": "take", "expected_epoch": 0, "viewer_id": str(uuid4())}):
             with self.assertRaises(ValidationError):
                 CLIENT_MESSAGE.validate_python(frame)
+        with self.assertRaises(ValidationError):
+            TerminalView.model_validate({**view, "status": "available"})
         # Bound the complete saved UTF-8 document, including formatting/newline,
         # before setup creates a directory or acquires the host lock.
         for index, character in enumerate(("x", "ü")):
@@ -254,7 +261,8 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         self.assertEqual(view["recording"]["state"], "healthy")
         self.assertEqual(view["recording"]["host_archived_offset"], 0)
         self.assertEqual(view["control"]["mode"], "unclaimed")
-        self.assertEqual(set(view), {"agent_id", "recovery_epoch", "status", "terminal_id", "observed_at", "reason", "control", "recording"})
+        self.assertEqual(set(view), {"agent_id", "recovery_epoch", "status", "terminal_id", "observed_at", "reason", "control", "recording", "dimensions"})
+        self.assertEqual(view["dimensions"], {"columns": 80, "rows": 24})
         shell = f.shell()
         self.assertEqual(Path(f"/proc/{shell.shell.pid}/cmdline").read_bytes().split(b"\0")[:-1],
                          [b"/usr/bin/bash", b"--noprofile", b"--norc", b"-i"])
@@ -283,7 +291,8 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         baseline = f.captured()
         with f.websocket(cookie1) as first, f.websocket(cookie2) as second:
             hello1, hello2 = received(first, "hello"), received(second, "hello")
-            self.assertEqual(hello1["protocol"], 1)
+            self.assertEqual(hello1["protocol"], 2)
+            self.assertEqual(hello1["terminal"]["dimensions"], {"columns": 80, "rows": 24})
             self.assertNotEqual(hello1["viewer_id"], hello2["viewer_id"])
             self.assertEqual(received(first, "state")["terminal"]["terminal_id"], view["terminal_id"])
             self.assertEqual(f.captured(), baseline, "viewer initialization injected input")
@@ -328,9 +337,29 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
                 self.assertGreaterEqual(len(states), 4)
                 # Allow 150 ms of real process/network scheduling jitter.
                 self.assertLess(max(b - a for a, b in zip(states, states[1:])), 1.15)
-            resized = received(second, "frame")
+            changes = {}
+            while not {"frame", "size"}.issubset(changes):
+                raw = second.recv(timeout=5)
+                if isinstance(raw, str):
+                    message = json.loads(raw)
+                    self.assertNotEqual(message["type"], "error", message)
+                    changes[message["type"]] = message
+                else:
+                    self.assertLessEqual(len(raw), 65536)
+            resized = changes["frame"]
             self.assertEqual(resized["outcome"], "submitted")
             self.assertEqual(resized["sequence"], 1)
+            for size in (received(first, "size"), changes["size"]):
+                self.assertEqual(size, {"type": "size", "columns": 113, "rows": 31})
+            def clients_follow():
+                lines = f.manager()._command("list-clients", "-F",
+                    "#{client_width}|#{client_height}|#{client_flags}").decode().splitlines()
+                return len(lines) == 2 and all(line.startswith("113|31|") and
+                    {"read-only", "ignore-size"}.issubset(line.split("|")[2].split(",")) for line in lines)
+            wait_for(clients_follow)
+            with f.websocket(cookie1) as wide_viewer:
+                wide_hello = received(wide_viewer, "hello")
+                self.assertEqual(wide_hello["terminal"]["dimensions"], {"columns": 113, "rows": 31})
             input_frame(second, b"stty size > dimensions; sleep 40 & echo $! > child.pid\r", control2["epoch"], 2)
             wait_for(lambda: (f.workspace / "child.pid").exists())
             child = fingerprint(int((f.workspace / "child.pid").read_text()))
@@ -338,6 +367,8 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
             self.assertEqual((f.workspace / "dimensions").read_text(), "31 113\n")
             for malformed in ({"type": "control", "action": "take", "expected_epoch": True},
                               {"type": "input", "epoch": control2["epoch"], "sequence": 3, "data": "%%%"},
+                              {"type": "resize", "epoch": control2["epoch"], "sequence": 3, "columns": 19, "rows": 31},
+                              {"type": "resize", "epoch": control2["epoch"], "sequence": 3, "columns": 113, "rows": 251},
                               {"type": "resize", "epoch": control2["epoch"], "sequence": 3, "columns": 113, "rows": 31, "agent_id": agent}):
                 self.assertEqual(send(second, malformed, "error")["code"], "invalid_argument")
             self.assertEqual(f.manager().control(shell.terminal_id).last_sequence, 2)
@@ -355,6 +386,7 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
                          (shell.tmux, shell.recorder, shell.shell, shell.terminal_id))
         self.assertEqual(recovered["control"]["viewer_id"], hello2["viewer_id"])
         self.assertEqual(recovered["control"]["last_sequence"], 3)
+        self.assertEqual(recovered["dimensions"], {"columns": 113, "rows": 31})
         self.assertGreaterEqual(recovered["recording"]["local_captured_offset"], view["recording"]["local_captured_offset"])
         with self.assertRaises(InvalidStatus):
             f.websocket(cookie1)
@@ -465,12 +497,35 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         finally:
             app.terminals._streams = original_streams
         stream = app.terminals.attach(UUID(f.agent_id), f.owner.actor_id)
+        observer = app.terminals.attach(UUID(f.agent_id), f.owner.actor_id)
+        control = stream.control("take", 0)
+        self.assertEqual(stream.resize(132, 40, epoch=control.epoch, sequence=1).outcome, "submitted")
+        for viewer in (stream, observer):
+            data, closed, dimensions = viewer.read()
+            self.assertFalse(closed)
+            self.assertLessEqual(len(data), 65536)
+            self.assertEqual(dimensions, ShellDimensions(columns=132, rows=40))
+            self.assertEqual(termios.tcgetwinsize(viewer.attachment._fd), (40, 132))
+        # Uncertain resize is never retried/promoted, but its actual settled
+        # pane observation replaces the cached pre-effect dimensions.
+        manager, original = app.terminals._manager, app.terminals._manager._effect
+        def lost_resize(*args, **kwargs):
+            original(*args, **kwargs)
+            raise RunnerError("unavailable", "synthetic resize reply loss")
+        with patch.object(manager, "_effect", side_effect=lost_resize) as effect:
+            self.assertEqual(stream.resize(120, 35, epoch=control.epoch, sequence=2).outcome, "uncertain")
+            self.assertEqual(effect.call_count, 1)
+        for viewer in (stream, observer):
+            self.assertEqual(viewer.read()[2], ShellDimensions(columns=120, rows=35))
+        observer.close()
+        stream.control("release", control.epoch)
         target, cached, observed = app.terminals._cache
         app.terminals._cache = target, cached, observed - 6
         with patch.object(ShellManager, "inspect", side_effect=AssertionError("Read probed processes")):
             stale = app.invoke("terminal_get", context, {"agent_id": f.agent_id}).data
         self.assertEqual((stale["status"], stale["recording"]["state"]), ("unavailable", "unknown"))
-        with patch.object(stream.attachment, "read", side_effect=AssertionError("Stale viewer read output")):
+        with patch.object(stream.attachment, "read", side_effect=AssertionError("Stale viewer read output")), \
+             patch.object(stream.attachment, "set_display_size", side_effect=AssertionError("Stale viewer resized display")):
             with self.assertRaises(CoreError):
                 stream.state()
             with self.assertRaises(CoreError):
@@ -491,12 +546,12 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         self.addCleanup(app.close)
         self.assertEqual(app.terminals.observe().terminal_id, shell.terminal_id)
         stream = app.terminals.attach(UUID(f.agent_id), f.owner.actor_id)
-        stream.control("take", 0)
+        held = stream.control("take", f.manager().control(shell.terminal_id).epoch)
         result = app.activate_recovery(context, RecoveryActivation(expected_installation_id=f.settings.installation_id,
             expected_recovery_epoch=view.recovery_epoch, idempotency_key="terminal-recovery"))
         self.assertTrue(result.ok)
         with self.assertRaises(CoreError):
-            stream.input(b"bad\r", epoch=1, sequence=1)
+            stream.input(b"bad\r", epoch=held.epoch, sequence=1)
         with self.assertRaises(CoreError):
             stream.state()
         recovered = app.terminals.observe()
@@ -522,6 +577,7 @@ class Socket:
         self.closed = False
         self.accepted = False
         self.binary_sends = 0
+        self.wire = []
 
     async def accept(self):
         self.accepted = True
@@ -534,10 +590,12 @@ class Socket:
             self.sending.set()
             await self.release.wait()
         await self.messages.put(message)
+        self.wire.append(message)
 
     async def send_bytes(self, data):
         assert len(data) <= 65536
         self.binary_sends += 1
+        self.wire.append(data)
         if self.stalled:
             self.sending.set()
             await self.release.wait()
@@ -677,6 +735,27 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
         self.assertTrue(greeting.closed)
         self.assertEqual(app.terminals._streams, {})
         cookie = sessions.issue(f.owner.actor_id, None)
+        # The writer must use the immutable size supplied with each read, even
+        # when it carries no bytes. This synthetic read seam isolates ordering;
+        # the owning shell/console checks separately use real PTYs and tmux.
+        ordered = Socket(app, f.owner.actor_id, cookie, f.agent_id)
+        task = asyncio.create_task(sockets.endpoint(ordered))
+        hello = await ordered.next("hello")
+        self.assertEqual(hello["protocol"], 2)
+        stream = app.terminals._streams[UUID(hello["viewer_id"])][1]
+        reads = iter(((b"OLD_GRID", False, ShellDimensions(columns=80, rows=24)),
+                      (b"", False, ShellDimensions(columns=132, rows=40)),
+                      (b"NEW_GRID", False, ShellDimensions(columns=132, rows=40))))
+        with patch.object(stream, "read", side_effect=lambda: next(reads, (b"", False, None))):
+            await ordered.next("size")
+            async with asyncio.timeout(3):
+                while b"NEW_GRID" not in ordered.wire:
+                    await asyncio.sleep(0.01)
+            begin = ordered.wire.index(b"OLD_GRID")
+            self.assertEqual([item for item in ordered.wire[begin:] if isinstance(item, bytes) or item["type"] == "size"],
+                [b"OLD_GRID", {"type": "size", "columns": 132, "rows": 40}, b"NEW_GRID"])
+            await ordered.incoming.put({"type": "websocket.disconnect"})
+            await asyncio.wait_for(task, 3)
         ws = Socket(app, f.owner.actor_id, cookie, f.agent_id, stalled=True)
         with patch("qorqut_core.transports.server.TERMINAL_SEND_TIMEOUT", 0.15):
             task = asyncio.create_task(sockets.endpoint(ws))

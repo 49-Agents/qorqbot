@@ -1,14 +1,14 @@
-"""Bounded Terminal presentation and protocol-1 client frames."""
+"""Bounded Terminal presentation and protocol-2 client frames."""
 
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import Field, TypeAdapter, field_validator
+from pydantic import Field, TypeAdapter, field_validator, model_validator
 import base64
 import binascii
 
 from ..contracts import Counter, Model, Revision, Timestamp
-from ..runner.shell_models import ShellControl
+from ..runner.shell_models import ShellControl, ShellDimensions
 
 
 class TerminalGet(Model):
@@ -30,6 +30,13 @@ class TerminalView(Model):
     reason: Annotated[str, Field(max_length=100, pattern=r"^[a-z0-9_]+$")]
     control: ShellControl | None = None
     recording: Recording | None = None
+    dimensions: ShellDimensions | None = None
+
+    @model_validator(mode="after")
+    def available_dimensions(self):
+        if self.status == "available" and self.dimensions is None:
+            raise ValueError("An available terminal requires verified dimensions")
+        return self
 
 
 class ControlMessage(Model):

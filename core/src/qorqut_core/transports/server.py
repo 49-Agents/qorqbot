@@ -210,8 +210,9 @@ class TerminalSockets:
 
         async def write():
             try:
-                await send({"type": "hello", "protocol": 1, "viewer_id": str(stream.viewer_id),
+                await send({"type": "hello", "protocol": 2, "viewer_id": str(stream.viewer_id),
                             "terminal": stream.initial.model_dump(mode="json")})
+                dimensions = stream.initial.dimensions
                 next_state = 0
                 while True:
                     authenticated()
@@ -224,7 +225,10 @@ class TerminalSockets:
                     if now >= next_state:
                         await send({"type": "state", "terminal": latest.model_dump(mode="json")})
                         next_state = now + 1
-                    data, closed = await _settle_sync(stream.read)
+                    data, closed, read_dimensions = await _settle_sync(stream.read)
+                    if read_dimensions is not None and read_dimensions != dimensions:
+                        await send({"type": "size", **read_dimensions.model_dump()})
+                        dimensions = read_dimensions
                     if data:
                         await send(data=data)  # Next read waits for this send.
                     elif closed:

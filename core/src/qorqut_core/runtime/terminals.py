@@ -139,12 +139,12 @@ class Terminals:
                 state = "unknown"
             recording = Recording(state=state, local_captured_offset=saved.local_captured_offset,
                                   host_archived_offset=saved.host_archived_offset)
-        available = shell.state == "running" and probe.verified and probe.terminal_active
+        available = shell.state == "running" and probe.verified and probe.terminal_active and shell.dimensions is not None
         return TerminalView(agent_id=target.agent_id, recovery_epoch=target.recovery_epoch,
             terminal_id=shell.terminal_id, observed_at=self.db.clock(),
             status="available" if available else "stopped" if shell.state == "stopped" else "unavailable",
             reason="verified" if available else "shell_exited" if shell.state == "stopped" else "binding_unconfirmed",
-            control=shell.control, recording=recording)
+            control=shell.control, recording=recording, dimensions=shell.dimensions if available else None)
 
     def _paths(self, target):
         agent = self.app.settings.data_root / "agents" / str(target.agent_id)
@@ -307,7 +307,8 @@ class Terminals:
                     raise CoreError("target_changed", "Terminal binding is unavailable")
                 attachment = self._manager.attach(view.terminal_id, viewer, read_only=False)
                 stream = TerminalStream(self, target, actor_id, attachment)
-                stream.initial = self._publish(target, self._presentation(target, fresh))
+                stream.initial = self._publish(target, self._presentation(
+                    target, fresh.model_copy(update={"dimensions": attachment.dimensions})))
                 with self._lock:
                     self._streams[viewer] = (target.agent_id, stream)
                 return stream
@@ -348,7 +349,7 @@ class TerminalStream:
                 raise CoreError("target_changed", "Calling identity changed")
         if target != self.target or view.terminal_id != self.terminal_id:
             raise CoreError("target_changed", "Terminal target changed")
-        if view.status != "available":
+        if view.status != "available" or view.dimensions is None:
             raise CoreError("not_ready", "Exact live terminal is unavailable")
         return view
 
@@ -356,10 +357,11 @@ class TerminalStream:
         # A pending input/control effect may wait on the durable runner gate.
         # Skip output during contention so state/session checks keep running.
         if not self._lock.acquire(blocking=False):
-            return b"", False
+            return b"", False, None
         try:
-            self.state()  # Require a current available observation before bytes.
-            return self.attachment.read(), self.attachment.closed
+            view = self.state()  # Require a current available observation before bytes.
+            self.attachment.set_display_size(view.dimensions.columns, view.dimensions.rows)
+            return self.attachment.read(), self.attachment.closed, view.dimensions
         finally:
             self._lock.release()
 
@@ -384,7 +386,10 @@ class TerminalStream:
 
     def resize(self, columns, rows, *, epoch, sequence):
         with self._lock, self.service._binding(self.target, self.actor_id):
-            return self.attachment.resize(columns, rows, epoch=epoch, sequence=sequence)
+            frame = self.attachment.resize(columns, rows, epoch=epoch, sequence=sequence)
+            shell = self.service._manager.inspect(self.terminal_id)
+            self.service._publish(self.target, self.service._presentation(self.target, shell))
+            return frame
 
     def close(self):
         with self._lock:
