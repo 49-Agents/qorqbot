@@ -184,3 +184,16 @@ server restart and another controlling viewer must preserve the same rules.
 Each builder commits/pushes its assigned branch and stops for Manager
 review. No deployment or full native/onbash workflow acceptance follows from
 this display correction alone.
+
+## Reviewed pair for combined acceptance, 2026-10-08
+
+Core geometry candidate `f99ac1eea42b6e3c7e270af5756e8ad5af3f0d46` and UI
+geometry candidate `6fd80c494b1e4226aca486c0ef9c4d156ee1587c` have passed direct
+Manager review and focused checks. Resume the existing integration assignment
+using core `4cacde062bc36fad2ae9b560bf509a497d729217` and UI
+`3f5684ffd1f0c78d3a99690ea7a11c6ff07381fb`. The core pin also includes
+reviewed native callables and schema 7; public operations/handlers remain 16/5.
+No native CLI is started by this acceptance flow. The served notices correction
+is included in the UI pin. Repeat the complete real Terminal flow with mobile
+scrolling and preserve the original clipping failure as historical evidence.
+These pins are ready for combined verification, not already accepted as a pair.
