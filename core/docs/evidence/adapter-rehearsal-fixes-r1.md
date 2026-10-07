@@ -3,8 +3,9 @@
 2026-10-08. Implementation on `codex/build-adapter-rehearsal-fixes-r1`, exact
 base `f4506c705f77f9c1b6b1575f1905b95c77b7c27f`. Executes D37's
 [adapter correction assignment](../ADAPTER-REHEARSAL-FIXES.md) and Manager
-amendment 162 answering question 160. Astra MAX; no delegation or internal
-reviewers. Independent review and integration belong to Manager.
+amendment 162 answering question 160, followed by Manager review 175's final
+manifest-write correction. Astra MAX; no delegation or internal reviewers.
+Independent review and integration belong to Manager.
 
 ## Changes and boundary
 
@@ -19,11 +20,14 @@ unchanged generated files retain endpoint/header rotation; preserved files
 refuse changed owned fields before writes. No TOML writer or dependency added.
 
 Preflight still checks every destination. Config bytes are rechecked before
-installation, at that destination, and before committing the manifest last.
-Concurrent-edit injections abort without overwriting the native edit or committing
-its unvalidated hash. A change after other writes can leave complete per-run
-files, as with the existing interrupted-install contract; retry revalidates them.
-These observations do not lock a native writer against later edits.
+installation, at that destination, and before and after writing the manifest last.
+Earlier detected races leave the old manifest unchanged. A race during the final
+manifest write raises after the new manifest has been installed: that manifest
+records only the last validated hash and preservation mode, never adoption of the
+raced bytes, current readiness or a successful operation receipt. Native edits
+are not overwritten. There are no rollback writes or new locks; complete per-run
+files may remain, and an ordinary retry must revalidate the live config. These
+checks do not exclude edits after the final observation.
 
 Composer classification recognizes only the observed lower 120-column/40-row
 layouts for Claude 2.1.287 and Codex 0.160.0. SGR-aware prompt slicing preserves
@@ -34,7 +38,46 @@ input. Synthetic layouts retain their evidence label; recognized observations
 use `native_snapshot`. Every result still has `native_verified=false` and
 `permits_paste=false`; capabilities, callbacks and launch arguments are unchanged.
 
-## Checks
+## Final manifest-write correction: review 175
+
+Revision parent: `5799cf685566ce6c9b7546e25badc9da405727be`. Only
+`preparation.py`, the existing adapter test file and this evidence changed.
+Composer/types/fixtures and every other package file remain frozen. Manager's
+full numbered correction arrived as message 175; its plan clarification
+`b39bdda93ed70b475e5a0fb58732d4909b05f137` was not cherry-picked.
+
+The existing grouped config-race test now also intercepts `os.replace` for the
+exact owned manifest parent device/inode and destination name. It changes
+`approval_policy` inside that final replacement after the preceding config check.
+Against the prior production code the regression failed with `AdapterError not
+raised`, reproducing the false success. With the added post-write check it proves
+the exception, untouched incompatible edit, already-written manifest with only
+the earlier validated hash and sticky true mode, and a refusing ordinary retry
+with no additional file writes. Restoring the owned projection while retaining
+a new harmless user edit permits retry and records its actual preserved bytes/hash.
+The earlier two race cases retain their old-manifest and no-partial-write checks.
+The final observation applies to all Codex preparation, not only preserved mode.
+
+`$REVISION_CHECKS` denotes the private
+`adapter-rehearsal-fixes-r1-validation/review-175` directory;
+`$REVISION_PYTHON` is its new private `venv/bin/python`. Python remains 3.12.3;
+all 31 exact locked dependencies were copied from the prior private environment,
+excluding its installed core and any source path injection.
+
+- Owning source suite, run once after the fix: `PYTHONPATH=src "$REVISION_PYTHON" -m unittest discover -s tests/adapters -p test_adapters.py -v`: **32 passed**.
+- Fresh wheel from a new private source copy: `"$REVISION_PYTHON" -m pip wheel --no-deps --no-build-isolation --no-index --no-cache-dir --wheel-dir "$REVISION_CHECKS/wheels" "$REVISION_CHECKS/build-source"`; installed with `pip install --no-deps --no-index --no-cache-dir`.
+- From outside the worktree: `"$REVISION_PYTHON" -I -m unittest discover -s installed-checks -p test_adapters.py -k PreparationTests -v`: **13 passed**, including the final-write regression and its recovery assertions.
+- SHA-256 verification matched **all 56 package files** across worktree source, fresh wheel and installed files. Core/preparation imports resolve to the new private `site-packages`, and the copied test bytes match the source test file.
+
+Revision wheel SHA-256:
+`b9eb023f3e847867164f5c9b1538d35420460abe9ada7ab4480ec3135c86aac0`.
+The revision bundle retains `regression-before-fix.log`, `source-adapters.log`,
+`installed-preparation.log`, and dependency/source/installed provenance JSON.
+No native rehearsal, provider call, original private snapshot/config diagnostic,
+other backend suite or owner-store inspection was repeated for this correction.
+`native_verified` and `permits_paste` remain false. Independent review is pending.
+
+## Initial candidate checks (5799cf6)
 
 Python 3.12.3, with all 31 distributions from the existing `requirements.lock`
 copied at their exact versions into a new private venv. No source `.pth`, editable

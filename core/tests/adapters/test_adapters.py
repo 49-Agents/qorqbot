@@ -264,6 +264,53 @@ class PreparationTests(AdapterCase):
                 self.assertEqual(json.loads(manifest.read_bytes())["files"]["home:.codex/config.toml"],
                     hashlib.sha256(raced).hexdigest())
 
+        # The final replacement is a distinct window: its manifest may already
+        # be installed, but preparation must not report success for raced bytes.
+        validated = config.read_bytes()
+        prior_manifest = manifest.read_bytes()
+        self.assertIs(json.loads(prior_manifest)["codex_config_preserved"], True)
+        incompatible = validated.replace(b'approval_policy = "never"', b'approval_policy = "on-request"')
+        self.assertNotEqual(incompatible, validated)
+        next_data = data.model_copy(update={"run": self.run.model_copy(
+            update={"run_id": uuid4(), "run_generation": 3})})
+        parent_stat = manifest.parent.stat()
+        parent_identity = (parent_stat.st_dev, parent_stat.st_ino)
+        replace, edits = os.replace, 0
+
+        def change_during_manifest_replace(source, destination, *args, **kwargs):
+            nonlocal edits
+            result = replace(source, destination, *args, **kwargs)
+            if destination == manifest.name and "dst_dir_fd" in kwargs:
+                target = os.fstat(kwargs["dst_dir_fd"])
+                if (target.st_dev, target.st_ino) == parent_identity:
+                    config.write_bytes(incompatible)
+                    edits += 1
+            return result
+
+        with patch("qorqut_core.adapters.managed_io.os.replace", side_effect=change_during_manifest_replace), \
+                self.assertRaisesRegex(AdapterError, "changed during preparation"):
+            self.codex.prepare(next_data)
+        self.assertEqual(edits, 1)
+        self.assertEqual(config.read_bytes(), incompatible)
+        installed_manifest = manifest.read_bytes()
+        self.assertNotEqual(installed_manifest, prior_manifest)
+        recorded = json.loads(installed_manifest)
+        self.assertIs(recorded["codex_config_preserved"], True)
+        self.assertIs(recorded["native_verified"], False)
+        self.assertEqual(recorded["files"]["home:.codex/config.toml"], hashlib.sha256(validated).hexdigest())
+        self.assertNotEqual(recorded["files"]["home:.codex/config.toml"], hashlib.sha256(incompatible).hexdigest())
+        before_retry = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        with self.assertRaisesRegex(AdapterError, "changed owned Codex"):
+            self.codex.prepare(next_data)
+        self.assertEqual({p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}, before_retry)
+        recovered = validated + b"\n# harmless user edit retained after the conflict\n"
+        config.write_bytes(recovered)
+        self.codex.prepare(next_data)
+        self.assertEqual(config.read_bytes(), recovered)
+        recorded = json.loads(manifest.read_bytes())
+        self.assertIs(recorded["codex_config_preserved"], True)
+        self.assertEqual(recorded["files"]["home:.codex/config.toml"], hashlib.sha256(recovered).hexdigest())
+
     def test_long_history_manifest_compacts_without_changing_retained_bindings(self):
         for adapter in (self.claude, self.codex):
             with self.subTest(provider=adapter.provider):

@@ -217,6 +217,10 @@ def prepare(provider: Provider, version: str, data: PreparationInput) -> Prepara
         if provider == "codex":
             _check_codex_config(trees["home"], files["home", CODEX_CONFIG])
         trees["workspace"].atomic_write(manifest_name, manifest_bytes)
+        if provider == "codex":
+            # The manifest may already record the last validated generation;
+            # a native edit during its write must still prevent success.
+            _check_codex_config(trees["home"], files["home", CODEX_CONFIG])
     gaps = ("native_mcp_discovery_unverified", "authentication_requires_setup", "native_hooks_unverified")
     if not data.hook_sink_argv:
         gaps += ("durable_hook_sink_not_configured",)
