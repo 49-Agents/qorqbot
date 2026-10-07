@@ -20,6 +20,11 @@ ownership changes host schema/application assembly. Connecting
 startup hooks, recorded shells, Terminal UI, delivery and native capture remains
 the following runtime integration; accepted components alone do not prove it.
 
+D38 starts that integration with the [host Terminal server](TERMINAL-SERVER.md)
+and a parallel UI Chat/Terminal switch. It exposes the accepted recorded shell
+for onbash through the normal authenticated console. Native inbox/Chat/history
+connection remains a distinct following step, with accepted factual inputs.
+
 ## 1. Product contract
 
 Qorqutbot hosts persistent agents. A logical agent owns its identity, files, notes, research, browser profile and accumulated history independently of the currently selected CLI, model, native conversation or VM process. Agents work in interactive tmux-backed terminals and coordinate through Qorqut MCP. The owner can create agents, inspect them and intervene in their browsers. Agents can create and contact other agents themselves.

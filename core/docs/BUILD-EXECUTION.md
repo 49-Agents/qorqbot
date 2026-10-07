@@ -26,6 +26,20 @@ and onbash flow check; the existing ten-actor cap remains.
 No automatic CLI orchestration or context-packet work is authorized by old plans.
 The VM decision remains separate; common integration starts with onbash.
 
+The parallel startup-hook and native-conversation source explorations have both
+passed separate Astra MAX reviews and
+[Manager verification](evidence/manual-runtime-seams-manager-acceptance.md).
+They identify the remaining connection points without adding runtime behavior
+or delegating the following implementation design.
+
+D38 launches two implementation lanes against one frozen
+[Terminal protocol](TERMINAL-SERVER.md): core host/stream composition and UI
+Chat/Terminal interaction. They own different repositories and can build in
+parallel. Each receives a separate fresh Astra MAX reviewer; the accepted pair
+then gets an actual browser/installed-core flow. Native startup/inbox association,
+Chat dispatch and native history follow this usable-terminal step. This changes
+the earlier all-at-once integration sequence, not D36's completed user workflow.
+
 The local onbash ownership increment is now accepted at `1af5f85`, with fresh
 Astra MAX review and [Manager checks](evidence/inbox-ownership-manager-acceptance.md).
 It adds schema 6 and `runtime_get`, preserving five handlers. Hook association,

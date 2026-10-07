@@ -1,5 +1,22 @@
 # Architecture decisions
 
+## D38 — Usable host Terminal and parallel UI integration
+
+Manager decision, 2026-10-08. [Terminal server](TERMINAL-SERVER.md) composes the
+accepted recorded shell into the ordinary console application for reserved
+onbash, while UI implements the frozen protocol independently. Optional explicit
+installation settings enable the local target; other agents still await their
+VM target. The same core owns observation, viewer admission and durable human
+controls. There is no native CLI launch or second coordination service.
+
+One read operation and a bounded authenticated WebSocket expose the existing
+shell. A browser reconnect/view change cannot restart it, replay input or clear
+human control. This usable terminal is the first connected integration step;
+native startup/inbox, actual Chat dispatch and native history remain the next
+Manager-owned contracts. The two accepted seam reports provide those facts;
+no further general exploration is assigned. Each completed implementation gets
+a separate Astra MAX reviewer, then actual compiled UI/core verification.
+
 ## D37 — Parallel ownership, recorded-shell and adapter implementation
 
 Manager decision, 2026-10-08. The manual-creation review does not block three
