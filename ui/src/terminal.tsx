@@ -52,6 +52,6 @@ export function TerminalPane({ store, id }: { store: Store; id: string }) {
       {state.warning && <p className="terminal-warning" role="alert">{state.warning}</p>}
     </> : <div className="terminal-unavailable"><TerminalSummary store={store} id={id} /></div>}
     <div className="terminal-screen" ref={element} role="region" aria-label="Terminal display" tabIndex={0} hidden={!client.current && view?.status !== 'available'} />
-    <p className="terminal-note">Start and configure your CLI here. Chat delivery is not connected yet. Input receipts confirm submission only.</p>
+    <p className="terminal-note">Start and configure your CLI here. Input receipts confirm submission only.</p>
   </section>;
 }
