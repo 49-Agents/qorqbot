@@ -472,8 +472,14 @@ class NativeCapture:
         Older epochs drain first. Every admitted run is linked on the host; the
         epoch's first run supplies its transfer binding, retained across retries.
         No host state/read watermark is used as authorization to acknowledge.
+        The local host's lifetime/effects guards fence recovery and conflicts
+        through runner ACK, reclamation and saved-intent settlement.
         """
         _limit(max_chunks, 16)
+        with archive.db.lock.use(), archive.db.lock.effects:
+            return self._transfer(source_id, archive, context, max_chunks=max_chunks)
+
+    def _transfer(self, source_id, archive, context, *, max_chunks):
         self._complete_registration(source_id)
         source_row = self._source(source_id)
         source = Source(source_id, source_row["installation_id"], source_row["agent_id"], "native", source_row["native_session_id"])
@@ -487,8 +493,14 @@ class NativeCapture:
                 metadata = ArchiveMetadata.model_validate_json(epoch["metadata"])
                 for run in runs:
                     host = archive.register(context, run, source, key[1], metadata)
+                    if host.recovery_held:
+                        raise NativeCaptureError("archive_recovery_held")
+                    if host.conflicted:
+                        raise NativeCaptureError("archive_conflicted")
                 while count < max_chunks:
                     intent = self._catalog.execute("SELECT * FROM native_transfers WHERE source_id=? AND source_epoch=?", key).fetchone()
+                    if intent is not None and host.recovery_epoch != intent["recovery_epoch"]:
+                        raise NativeCaptureError("archive_recovery_changed")
                     if intent is not None and self.spool.state(*key)["host_archived_offset"] >= intent["offset"] + intent["length"]:
                         if intent["receipt"] is None:
                             raise NativeCaptureError("transfer_receipt_missing")
@@ -509,8 +521,7 @@ class NativeCapture:
                             self._catalog.execute("INSERT INTO native_transfers VALUES (?,?,?,?,?,?,?,NULL)",
                                 (*key, _json(asdict(runs[0])), chunk.offset, chunk.length, chunk.sha256, host.recovery_epoch))
                         intent = self._catalog.execute("SELECT * FROM native_transfers WHERE source_id=? AND source_epoch=?", key).fetchone()
-                    if ((chunk.offset, chunk.length, chunk.sha256) != (intent["offset"], intent["length"], intent["sha256"])
-                            or host.recovery_epoch != intent["recovery_epoch"] or host.recovery_held or host.conflicted):
+                    if (chunk.offset, chunk.length, chunk.sha256) != (intent["offset"], intent["length"], intent["sha256"]):
                         raise NativeCaptureError("transfer_intent_mismatch")
                     binding = RunBinding(**json.loads(intent["binding"]))
                     receipt = self._receipt(archive.receive(context, binding, chunk), intent)

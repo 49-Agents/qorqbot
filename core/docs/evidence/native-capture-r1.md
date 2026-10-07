@@ -30,9 +30,13 @@ schemas, recording behavior and application assembly are unchanged.
   intent before host intake. Only a returned durable receipt matching the exact
   run, source, epoch, host recovery epoch and chunk end authorizes ACK. ACK
   precedes reclaim. Interrupted transfer remains visible and resumes only on an
-  explicit transfer call. Receipt hashes survive reclamation.
+  explicit transfer call. Receipt hashes survive reclamation. The existing local
+  host lifetime/effects guards cover registration through ACK/reclaim/intent
+  settlement. Recovery/conflict holds and saved-intent recovery mismatches stop
+  cleanup with a fixed observable error, preserving retained payload and intent.
 
-Validation: the following owning check passed **3 grouped tests in 6.361s**:
+Validation: after the Manager-requested recovery correction, the following
+owning check passed **3 grouped tests in 7.619s**:
 
 ```sh
 PYTHONPATH=src:tests PYTHONDONTWRITEBYTECODE=1 \
@@ -48,7 +52,18 @@ watermarks, including a >9 MiB partial/giant stream, reopen/resume, crashes befo
 and after spool registration, truncation/prefix/ownership/inode divergence,
 unlinked-descriptor draining, finite checkpoints, lost host receipts, mismatched
 receipt bindings/coordinates, and interruption before/after ACK and after reclaim.
+The third group also verifies post-ACK/pre-reclaim recovery and actual Archive
+conflict holds, both with saved intent and with an empty pending page after
+deferred reclamation. Payloads and intent remain intact, errors are observable,
+and changed host recovery identity cannot authorize saved-ACK cleanup. A bounded
+guard-order check covers host registration/intake and runner ACK/reclaim outside
+host SQL transactions while retaining the one-chunk transfer limit.
 No unrelated terminal, adapter or browser suites were rerun.
+
+Manager review of `a0ad716` identified that the earlier saved-ACK and empty-page
+cleanup paths checked host holds too late. This revision moves the checks before
+those paths and extends the existing host guards across their local effects;
+the spool, Archive and migrations are unchanged.
 
 Limits: full-prefix verification on each poll is the accepted v1 cost. File
 checks are finite observations, not snapshots; unseen overwritten bytes and an

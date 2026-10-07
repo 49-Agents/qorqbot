@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import threading
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -12,6 +13,8 @@ from archive.support import ArchiveCase
 from test_foundation import InjectedCrash
 from qorqut_core.adapters.discovery import discover
 from qorqut_core.adapters.types import ManagedRoots, NativeBinding, RunBinding as AdapterRun
+from qorqut_core.contracts import CoreError
+from qorqut_core.storage.database import assert_external_io_allowed
 from qorqut_core.transcripts.native_capture import NativeCapture, NativeCaptureError
 from qorqut_core.transcripts.spool import CHUNK_BYTES, CaptureSpool
 
@@ -265,3 +268,89 @@ class NativeCaptureTests(ArchiveCase):
         self.assertEqual(self.capture.state(sid).host_archived_offset, len(expected))
         self.assertEqual(self.capture.spool.receipts(sid, epoch).through_offset, len(expected))
         self.assertEqual(len(self.rows("archive_chunks")), (len(expected) + CHUNK_BYTES - 1) // CHUNK_BYTES)
+
+        # The native transfer owns both existing host guards even outside host
+        # calls, so recovery/conflict cannot interleave with runner cleanup.
+        guarded = self.capture.register(self.native(b"g" * CHUNK_BYTES), self.binding)
+        self.capture.poll(guarded.source_id)
+        order = []
+        lock = self.app.archive.db.lock
+
+        def check_guard(name, call):
+            def checked(*args, **kwargs):
+                self.assertGreater(lock._threads.get(threading.get_ident(), 0), 0)
+                self.assertTrue(lock.effects._is_owned())
+                assert_external_io_allowed()  # No host SQL transaction spans runner I/O.
+                self.assertFalse(self.capture._catalog.in_transaction)
+                order.append(name)
+                return call(*args, **kwargs)
+            return checked
+
+        with patch.object(self.app.archive, "register", side_effect=check_guard("register", self.app.archive.register)), \
+                patch.object(self.app.archive, "receive", side_effect=check_guard("receive", self.app.archive.receive)), \
+                patch.object(self.capture.spool, "acknowledge", side_effect=check_guard("ack", self.capture.spool.acknowledge)), \
+                patch.object(self.capture.spool, "reclaim", side_effect=check_guard("reclaim", self.capture.spool.reclaim)):
+            limited = self.capture.transfer(guarded.source_id, self.app.archive, self.context, max_chunks=1)
+        self.assertEqual(order, ["register", "receive", "ack", "reclaim"])
+        self.assertEqual(limited.host_archived_offset, CHUNK_BYTES)
+        self.assertLess(limited.host_archived_offset, limited.local_captured_offset)
+
+        def retained(keep_intent):
+            registration = self.capture.register(self.native(b"finite retained bytes"), self.binding)
+            data = self.native_path.read_bytes()
+            self.capture.poll(registration.source_id)
+            if keep_intent:
+                acknowledge = self.capture.spool.acknowledge
+
+                def after_ack(*args):
+                    acknowledge(*args)
+                    raise InjectedCrash("after_ack_before_reclaim")
+
+                with patch.object(self.capture.spool, "acknowledge", side_effect=after_ack), self.assertRaises(InjectedCrash):
+                    self.capture.transfer(registration.source_id, self.app.archive, self.context)
+            else:
+                # Simulate deferred reclamation after a valid durable ACK, with
+                # no saved transfer intent and no pending chunks on the next call.
+                with patch.object(self.capture.spool, "reclaim", return_value=0):
+                    self.capture.transfer(registration.source_id, self.app.archive, self.context)
+            self.assertEqual(self.capture.state(registration.source_id).host_archived_offset, len(data))
+            self.assertEqual(self.local_bytes(registration), data)
+            return registration, data, keep_intent
+
+        def refused(fixture, reason):
+            registration, data, keep_intent = fixture
+            with patch.object(self.capture.spool, "reclaim", side_effect=AssertionError("held cleanup")), \
+                    self.assertRaisesRegex(NativeCaptureError, "^" + reason + "$"):
+                self.capture.transfer(registration.source_id, self.app.archive, self.context)
+            state = self.capture.state(registration.source_id)
+            self.assertEqual(self.local_bytes(registration), data)
+            self.assertEqual(state.transfer_pending, keep_intent)
+            self.assertEqual(state.last_error, reason)
+            self.assertEqual(state.host_archived_offset, len(data))
+
+        for keep_intent in (True, False):
+            fixture = retained(keep_intent)
+            registration, data, _ = fixture
+            accepted = self.app.archive.read_chunk(self.context, registration.source_id, registration.source_epoch, 0)
+            conflicting = b"X" + data[1:]
+            with self.assertRaises(CoreError) as conflict:
+                self.app.archive.receive(self.context, self.binding, replace(accepted,
+                    payload=conflicting, sha256=hashlib.sha256(conflicting).hexdigest()))
+            self.assertEqual(conflict.exception.code, "idempotency_conflict")
+            self.reopen_capture()
+            refused(fixture, "archive_conflicted")
+
+        fixtures = [retained(keep_intent) for keep_intent in (True, False)]
+        self.reopen_capture()
+        register = self.app.archive.register
+
+        def changed_host_epoch(*args):
+            return register(*args).model_copy(update={"recovery_epoch": str(uuid4())})
+
+        with patch.object(self.app.archive, "register", side_effect=changed_host_epoch):
+            refused(fixtures[0], "archive_recovery_changed")
+        self.assertTrue(self.recovery().ok)  # Real host recovery activation, not a mocked hold.
+        for fixture in fixtures:
+            registration = fixture[0]
+            self.assertTrue(self.app.archive.state(self.context, registration.source_id, registration.source_epoch).recovery_held)
+            refused(fixture, "archive_recovery_held")
