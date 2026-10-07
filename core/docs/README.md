@@ -28,6 +28,10 @@ The agreed repositories are `qorqut-core` (backend/configuration/coordination), 
 Implementation is managed through [BUILD-EXECUTION.md](BUILD-EXECUTION.md), which
 records staged ownership, the current owner launch policy and independent review.
 
+The next runtime prerequisite is the [isolated native rehearsal](NATIVE-REHEARSAL.md):
+actual prepared CLI/MCP/session/recorder observations against loopback fake providers,
+without owner credentials or external inference.
+
 | ID | Module | Repository | Owns |
 | --- | --- | --- | --- |
 | M00 | [Foundation and storage](modules/00-foundation.md) | `qorqut-core` | Configuration, application operations, SQLite, events, jobs, idempotency and file receipts |
