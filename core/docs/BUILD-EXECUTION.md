@@ -5,7 +5,8 @@
 D36 is accepted: [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md). The next
 parallel implementation assignments are the core manual-creation contract and
 its UI cleanup. Both are bounded corrections to accepted code and receive fresh
-independent reviews. Native rehearsal is receiving report-only corrections;
+independent reviews. Native rehearsal corrections passed fresh review and
+[Manager acceptance](evidence/native-rehearsal-manager-acceptance.md);
 its product observations are not a completed runtime. Next Manager freezes
 startup/inbox registration and terminal-view contracts for the connected flow.
 No automatic CLI orchestration or context-packet work is authorized by old plans.
@@ -54,6 +55,7 @@ None of these assignments declares VM/native/browser control complete.
 
 | Assignment | Accepted revision | Independent review and Manager evidence | Remaining work |
 | --- | --- | --- | --- |
+| Pinned native CLI rehearsal | `13227a8` | Fresh Sonnet 5.5 xhigh review and [Manager evidence acceptance](evidence/native-rehearsal-manager-acceptance.md); actual loopback-fake-provider fresh/resume observations, with fixture boundaries and timing corrections. | Manual startup/inbox/Chat integration, composer/config fixes, native reader/normalization, complete source coverage, actual provider and VM acceptance. |
 | First connected UI and actual core integration | UI [`cbff84d`](https://github.com/qorqutbot/qorqutbot-ui/blob/cbff84d1e92066d13f9ff5322b49a32fc7f0203a/docs/evidence/ui-shell-r1.md), core `faf311d` | Fresh Sonnet 5.5 medium review passed locked build and six grouped Chrome checks. Manager matched 40 UI and 56 installed core files, reproduced build hashes and passed two actual Chrome/core flows with no mock API: metadata, three messages, both dated files, restart, sessions and responsive layouts. [Manager acceptance](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/ui-shell-manager-acceptance.md). | Native assistant replies/delivery, browser/file cards, VM/browser execution, continuity/export/restore and full system gates remain pending. |
 | Running-server chat publication | [`4e969f9`](https://github.com/qorqutbot/qorqut-core/blob/4e969f944cd5736de7a42ead0ebc60592804b5c3/docs/evidence/chat-server-integration-r1.md) | Fresh Sonnet 5.5 xhigh review passed 30 source transport tests, source messaging, five installed checks and child-provenance checks without blocking findings. Manager inspected all six changed paths, verified unchanged product bytes, 158 tracked files, 56 installed files and 31 pins, then passed both installed publication/restart flows. [Manager acceptance](evidence/chat-server-manager-acceptance.md). | Real UI/backend browser testing; native assistant capture/delivery, VM/browser lifecycle, continuity/export/restore and full system gates remain pending. |
 | Durable messages and dated conversation files | [`5a79f48`](https://github.com/qorqutbot/qorqut-core/blob/5a79f480b448c1eb3d4172e6e83947146015283d/docs/evidence/chat-domain-r1.md) | Fresh Astra MAX review passed 22 source and four installed checks without remaining findings. Manager reviewed the production/schema change, matched 142 tracked and 50 installed Python files plus 29 runtime pins, passed two installed message/publication checks and replayed both corrected failure diagnostics. [Manager acceptance](evidence/chat-domain-manager-acceptance.md). | Combined running-server publication and real UI checks; native assistant capture/delivery, browser/VM lifecycle, export/restore and system gates remain pending. |
