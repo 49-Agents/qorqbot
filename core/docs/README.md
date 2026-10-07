@@ -3,6 +3,11 @@
 Start with [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md) for the owner's
 2026-10-08 scope correction: manual CLI startup and one logical inbox owner.
 
+Current parallel implementation: [inbox ownership](INBOX-OWNERSHIP.md),
+[recorded shells](RECORDED-SHELL.md), and
+[adapter rehearsal fixes](ADAPTER-REHEARSAL-FIXES.md). D37 assigns disjoint
+ownership and the following combined integration check.
+
 The [global implementation plan](IMPLEMENTATION-PLAN.md) is the entry point and the authority for scope, dependencies and delivery gates. Module plans expand it; they do not silently override shared contracts.
 
 The agreed repositories are `qorqut-core` (backend/configuration/coordination), `qorqut-browser` (its own MCP server and browser tooling) and `qorqutbot-ui` (frontend). Agents connect to separate core/browser MCP endpoints. The backend plans now live here in core; browser owns its work package and UI owns its chat plan. Link files preserve navigation from the original planning checkout. Module numbers identify work packages.
@@ -31,9 +36,9 @@ The agreed repositories are `qorqut-core` (backend/configuration/coordination), 
 Implementation is managed through [BUILD-EXECUTION.md](BUILD-EXECUTION.md), which
 records staged ownership, the current owner launch policy and independent review.
 
-The next runtime prerequisite is the [isolated native rehearsal](NATIVE-REHEARSAL.md):
-actual prepared CLI/MCP/session/recorder observations against loopback fake providers,
-without owner credentials or external inference.
+The [isolated native rehearsal](NATIVE-REHEARSAL.md) is complete within its
+[accepted evidence](evidence/native-rehearsal-manager-acceptance.md). D37 uses
+those observations without treating them as a connected runtime.
 
 | ID | Module | Repository | Owns |
 | --- | --- | --- | --- |

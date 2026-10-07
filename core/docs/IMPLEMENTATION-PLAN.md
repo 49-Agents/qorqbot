@@ -10,6 +10,11 @@ Status: global plan, updated 2026-10-08. The reviewed core primitive package is
 merged in PR #1; [BUILD-EXECUTION.md](BUILD-EXECUTION.md) records exact bounded
 acceptance. No deployment or complete system gate has been accepted.
 
+D37 starts three independent implementation lanes while creation is reviewed:
+[inbox ownership](INBOX-OWNERSHIP.md), [persistent recorded shell](RECORDED-SHELL.md)
+and [adapter corrections](ADAPTER-REHEARSAL-FIXES.md). Only the first owns host
+schema/application assembly. A combined runtime integration follows their reviews.
+
 ## 1. Product contract
 
 Qorqutbot hosts persistent agents. A logical agent owns its identity, files, notes, research, browser profile and accumulated history independently of the currently selected CLI, model, native conversation or VM process. Agents work in interactive tmux-backed terminals and coordinate through Qorqut MCP. The owner can create agents, inspect them and intervene in their browsers. Agents can create and contact other agents themselves.

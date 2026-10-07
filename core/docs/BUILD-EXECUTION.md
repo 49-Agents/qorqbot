@@ -2,24 +2,32 @@
 
 ## Current work after owner scope agreement
 
-D36 is accepted: [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md). The next
-parallel implementation assignments are the core manual-creation contract and
-its UI cleanup. Both are bounded corrections to accepted code and receive fresh
-independent reviews. Native rehearsal corrections passed fresh review and
-[Manager acceptance](evidence/native-rehearsal-manager-acceptance.md);
-its product observations are not a completed runtime. Next Manager freezes
-startup/inbox registration and terminal-view contracts for the connected flow.
+D36 is accepted: [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md). Core and
+UI manual-creation implementations are complete; UI has passed review and core
+gets a fresh Astra MAX review under the owner's latest instruction. Paired
+running UI/core acceptance still precedes landing them. Native rehearsal
+corrections passed [Manager acceptance](evidence/native-rehearsal-manager-acceptance.md).
+Its product observations are not a completed runtime.
+
+D37 permits three independent builders now: [inbox ownership](INBOX-OWNERSHIP.md)
+(sole host migration/application owner), [recorded shell](RECORDED-SHELL.md)
+(new local runner modules), and [adapter corrections](ADAPTER-REHEARSAL-FIXES.md)
+(adapter files only). The creation review does not block them. Plan for three
+builders plus the creation reviewer, then fresh reviewers as builders finish,
+within the ten-actor cap. Their completed interfaces feed one explicitly owned
+runtime integration, followed by the actual Terminal UI and onbash flow check.
 No automatic CLI orchestration or context-packet work is authorized by old plans.
 The VM decision remains separate; common integration starts with onbash.
 
 Manager decision, 2026-10-07. The owner authorized implementation through ACLA,
 up to ten concurrent actors, no native self-review, and a separate reviewer after
 each completed assignment. Initial assignments used the owner's Astra MAX
-override. On 2026-10-08 the owner supplied replacement launch instructions:
-new Workers use Claude Code Sonnet 5.5 at xhigh effort for general work and
-medium effort for UI work; existing Workers retain their saved model/backend/
-effort. Self-review remains disabled. Historical Astra reviews below retain
-their actual provenance. The owner previously granted standing authorization on
+override. After a temporary Sonnet launch policy on 2026-10-08, the owner's
+latest explicit correction is "only ASTRA MAX PLEASE". All new builders and
+reviewers use Codex gpt-6-astra/max with reviewLoop=false. The unaccepted Sonnet
+manual-creation review is stopped and superseded by a fresh Astra MAX review;
+no actor is converted in place. Historical accepted reviews retain their actual
+model provenance. The owner previously granted standing authorization on
 2026-10-07 to merge and push anything related to this project across all three
 repositories. Manager can land reviewed work without asking again. Deployment
 and the open VM choice are unchanged; individual worker handoffs still control

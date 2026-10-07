@@ -6,6 +6,15 @@ requirements below. Creation establishes an agent and shell; the user starts the
 CLI. One logical inbox owner connects Chat. See that plan for the exact current
 creation contract and revised acceptance. VM setup remains open.
 
+D37 freezes the next independent interfaces in [inbox ownership](INBOX-OWNERSHIP.md)
+and [recorded shell](RECORDED-SHELL.md). A persistent `terminal_id` outlives
+individual native session owners; the owner UUID is the native execution's
+`run_id`. Local raw terminal recording uses its terminal UUID as the capture
+producer run_id, not as proof of a native session. Integration preserves those
+separate identities and links the source rather than relabeling old bytes.
+The new `runtime_get` read is implemented by the ownership lane; connect/release
+remain trusted internal callables until the startup bridge is implemented.
+
 Status: normative planning baseline for `qorqut-core`. Implementation must keep these names and semantics aligned across modules, HTTP, both MCP servers, tests and generated agent instructions. `qorqutbot-ui` consumes core's network contract; `qorqut-browser` owns its independent MCP/control contract and core integrates it over versioned APIs. Changes require updating this document and the affected module plans.
 
 ## 1. Identity and coordinates

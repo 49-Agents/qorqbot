@@ -1,5 +1,22 @@
 # Architecture decisions
 
+## D37 — Parallel ownership, recorded-shell and adapter implementation
+
+Manager decision, 2026-10-08. The manual-creation review does not block three
+independent builders: [inbox ownership](INBOX-OWNERSHIP.md) owns host migration
+6/application observation; [recorded shell](RECORDED-SHELL.md) owns the local
+persistent Bash/recorder and PTY attachment; [adapter corrections](ADAPTER-REHEARSAL-FIXES.md)
+own demonstrated Codex re-preparation and captured composer defects. File and
+schema ownership are disjoint. All new builders/reviewers use the owner's latest
+explicit override: Astra MAX, with internal self-review disabled.
+
+Persistent terminal identity is distinct from a connected native-session owner.
+The terminal can exist before/between CLIs and records those bytes continuously.
+Only a verified native session obtains the single inbox claim. One combined
+integration assignment follows review to wire startup hooks, authenticated
+Terminal transport/UI and native delivery/capture. No component test substitutes
+for that running workflow, and no automated CLI launch is reintroduced.
+
 ## D36 — User-started terminals and one logical inbox owner
 
 Accepted by the owner, 2026-10-08. Creation prepares identity/files and a tmux
