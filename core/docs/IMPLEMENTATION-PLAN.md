@@ -32,6 +32,11 @@ The combined D38 check exposed read-only terminal clipping. The required
 each mirror and the scrollable UI, using protocol 2 for the corrected pair.
 The full Terminal integration gate remains open until that pair passes.
 
+D39's [native connection work](NATIVE-CONNECTION.md) now proceeds in three
+parallel implementation lanes alongside the Terminal correction. The owner has
+requested direct Manager review/testing in place of mandatory separate reviewer
+actors. The connected runtime gate still requires an actual combined flow.
+
 ## 1. Product contract
 
 Qorqutbot hosts persistent agents. A logical agent owns its identity, files, notes, research, browser profile and accumulated history independently of the currently selected CLI, model, native conversation or VM process. Agents work in interactive tmux-backed terminals and coordinate through Qorqut MCP. The owner can create agents, inspect them and intervene in their browsers. Agents can create and contact other agents themselves.

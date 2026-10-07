@@ -1,5 +1,13 @@
 # Managed implementation and review
 
+Latest owner direction (2026-10-08): maximize useful parallel implementation;
+Manager reviews and tests completed work directly. New separate review actors
+are optional, not a gate. Keep Astra MAX builders and self-review disabled.
+[D39](NATIVE-CONNECTION.md) assigns native hook admission, capture/transfer, and
+conversation parsing/publication to three independent lanes while two builders
+finish core/UI terminal geometry. Merge only after Manager acceptance, then run
+the combined workflow. Earlier evidence below retains its actual review history.
+
 ## Current work after owner scope agreement
 
 D36 is accepted: [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md). Core and
