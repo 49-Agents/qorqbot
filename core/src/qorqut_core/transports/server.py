@@ -115,9 +115,18 @@ class TerminalSockets:
         actor = websocket.scope["qorqut.invocation"].actor_id
         cookie = websocket.scope["qorqut.session_cookie"]
         replies = asyncio.Queue(maxsize=1)
+        pending_replies = set()
+        stopping = False
+
+        def stop():
+            nonlocal stopping
+            stopping = True
+            for delivered in pending_replies:
+                if not delivered.done():
+                    delivered.cancel()
 
         def authenticated():
-            if self.admission.closing or self.sessions.actor(cookie) != actor:
+            if stopping or self.admission.closing or self.sessions.actor(cookie) != actor:
                 raise WebSocketDisconnect(1008)
 
         async def send(message=None, data=None):
@@ -128,9 +137,15 @@ class TerminalSockets:
                     await websocket.send_json(message)
 
         async def reply(message):
+            if stopping:
+                raise asyncio.CancelledError
             delivered = asyncio.get_running_loop().create_future()
-            await replies.put((message, delivered))
-            await delivered  # No next frame is admitted behind a stalled reply.
+            pending_replies.add(delivered)
+            try:
+                replies.put_nowait((message, delivered))
+                await delivered  # No next frame is admitted behind a stalled reply.
+            finally:
+                pending_replies.discard(delivered)
 
         def error(code, related=None, sequence=None):
             return {"type": "error", "code": code, "message": "Terminal request was not confirmed",
@@ -171,6 +186,10 @@ class TerminalSockets:
                         result = {"type": "frame", "kind": frame.type, **result.model_dump(mode="json")}
                     await reply(result)
                 except (CoreError, RunnerError) as exc:
+                    # settle_sync can raise the settled effect's error after
+                    # cancellation. There is no writer left to deliver it to.
+                    if stopping or asyncio.current_task().cancelling():
+                        raise asyncio.CancelledError from exc
                     code = str(exc.error.code) if isinstance(exc, CoreError) else exc.code
                     # Codes are a closed application vocabulary; never expose
                     # arbitrary exception strings or local target paths.
@@ -190,27 +209,30 @@ class TerminalSockets:
                 await asyncio.sleep(0.5)
 
         async def write():
-            await send({"type": "hello", "protocol": 1, "viewer_id": str(stream.viewer_id),
-                        "terminal": stream.initial.model_dump(mode="json")})
-            next_state = 0
-            while True:
-                authenticated()
-                if not replies.empty():
-                    message, delivered = replies.get_nowait()
-                    await send(message)
-                    if not delivered.done():
-                        delivered.set_result(None)
-                now = asyncio.get_running_loop().time()
-                if now >= next_state:
-                    await send({"type": "state", "terminal": latest.model_dump(mode="json")})
-                    next_state = now + 1
-                data, closed = await _settle_sync(stream.read)
-                if data:
-                    await send(data=data)  # Next read waits for this send.
-                elif closed:
-                    return
-                else:
-                    await asyncio.sleep(0.02)
+            try:
+                await send({"type": "hello", "protocol": 1, "viewer_id": str(stream.viewer_id),
+                            "terminal": stream.initial.model_dump(mode="json")})
+                next_state = 0
+                while True:
+                    authenticated()
+                    if not replies.empty():
+                        message, delivered = replies.get_nowait()
+                        await send(message)
+                        if not delivered.done():
+                            delivered.set_result(None)
+                    now = asyncio.get_running_loop().time()
+                    if now >= next_state:
+                        await send({"type": "state", "terminal": latest.model_dump(mode="json")})
+                        next_state = now + 1
+                    data, closed = await _settle_sync(stream.read)
+                    if data:
+                        await send(data=data)  # Next read waits for this send.
+                    elif closed:
+                        return
+                    else:
+                        await asyncio.sleep(0.02)
+            finally:
+                stop()  # No queued or in-flight delivery may outlive its writer.
 
         try:
             authenticated()
@@ -232,6 +254,7 @@ class TerminalSockets:
         except (CoreError, RunnerError, ValueError, OSError, WebSocketDisconnect, TimeoutError):
             pass
         finally:
+            stop()
             for child in tasks:
                 child.cancel()
             try:

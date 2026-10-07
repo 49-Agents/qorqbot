@@ -348,11 +348,20 @@ class TerminalStream:
                 raise CoreError("target_changed", "Calling identity changed")
         if target != self.target or view.terminal_id != self.terminal_id:
             raise CoreError("target_changed", "Terminal target changed")
+        if view.status != "available":
+            raise CoreError("not_ready", "Exact live terminal is unavailable")
         return view
 
     def read(self):
-        with self._lock:
+        # A pending input/control effect may wait on the durable runner gate.
+        # Skip output during contention so state/session checks keep running.
+        if not self._lock.acquire(blocking=False):
+            return b"", False
+        try:
+            self.state()  # Require a current available observation before bytes.
             return self.attachment.read(), self.attachment.closed
+        finally:
+            self._lock.release()
 
     def control(self, action, expected_epoch):
         if action not in {"take", "release"}:

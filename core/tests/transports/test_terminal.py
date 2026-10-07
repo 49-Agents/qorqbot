@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import signal
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import threading
@@ -29,6 +30,7 @@ from qorqut_core.contracts import CoreError, Invocation
 from qorqut_core.runner.models import RunnerError
 from qorqut_core.runner.process import fingerprint, verify_process
 from qorqut_core.runner.shell import ShellManager
+from qorqut_core.runner.storage import input_lock
 from qorqut_core.runtime.terminal_models import CLIENT_MESSAGE
 from qorqut_core.transcripts.spool import CaptureSpool
 from qorqut_core.transports.boundary import Admission, Boundary
@@ -214,6 +216,35 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
                       {"type": "control", "action": "take", "expected_epoch": 0, "viewer_id": str(uuid4())}):
             with self.assertRaises(ValidationError):
                 CLIENT_MESSAGE.validate_python(frame)
+        # Bound the complete saved UTF-8 document, including formatting/newline,
+        # before setup creates a directory or acquires the host lock.
+        for index, character in enumerate(("x", "ü")):
+            local = LocalTerminalSettings(runtime_root=Path("/tmp/t"), python_executable=Path(sys.executable),
+                tmux_executable=Path("/usr/bin/tmux"), bash_executable=Path("/usr/bin/bash"),
+                path="/usr/bin:/" + character * 100)
+            bounded = f.settings.model_copy(update={"data_root": f.root / f"bounded-{index}", "local_terminal": local})
+            padding = 16384 - len((bounded.model_dump_json(indent=2) + "\n").encode("utf-8"))
+            local_args = local.model_dump()
+            local_args["path"] += "x" * padding
+            bounded = bounded.model_copy(update={"local_terminal": LocalTerminalSettings(**local_args)})
+            encoded = (bounded.model_dump_json(indent=2) + "\n").encode("utf-8")
+            self.assertEqual(len(encoded), 16384)
+            local_args["path"] += "x"
+            oversized = bounded.model_copy(update={"local_terminal": LocalTerminalSettings(**local_args)})
+            if character == "ü":
+                self.assertLess(len(oversized.model_dump_json(indent=2) + "\n"), 16384)
+            with patch("qorqut_core.app.HostLock.acquire", side_effect=AssertionError("Oversized setup acquired lock")):
+                with self.assertRaises(CoreError) as error:
+                    Application.initialize(oversized, f.defaults, f.owner)
+            self.assertEqual(error.exception.error.code, "invalid_argument")
+            self.assertFalse(bounded.data_root.exists())
+            initialized = Application.initialize(bounded, f.defaults, f.owner)
+            initialized.close()
+            saved = bounded.data_root / "installation.json"
+            self.assertEqual(saved.read_bytes(), encoded)
+            reopened = Application.open(bounded)
+            reopened.close()
+            self.assertEqual(saved.read_bytes(), encoded)
 
     def test_console_recording_control_authentication_and_restart(self):
         f = TerminalInstallation()
@@ -273,8 +304,33 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
                                 "data": base64.b64encode(b"printf BAD > bad\r").decode()}, "error")
             self.assertEqual(stale["code"], "revision_conflict")
             self.assertFalse((f.workspace / "bad").exists())
-            resized = send(second, {"type": "resize", "epoch": control2["epoch"], "sequence": 1, "columns": 113, "rows": 31}, "frame")
+            # Hold the actual runner flock while a real WebSocket resize waits.
+            # State/cookie delivery must continue at its one-second cadence.
+            received(second, "state")
+            with input_lock(f.database, shell.terminal_id):
+                second.send(json.dumps({"type": "resize", "epoch": control2["epoch"], "sequence": 1, "columns": 113, "rows": 31}))
+                started = time.monotonic()
+                states = [started]
+                while time.monotonic() < started + 3.25:
+                    try:
+                        raw = second.recv(timeout=max(0.001, started + 3.25 - time.monotonic()))
+                    except TimeoutError:
+                        break
+                    if isinstance(raw, bytes):
+                        self.assertLessEqual(len(raw), 65536)
+                        continue
+                    message = json.loads(raw)
+                    self.assertEqual(message["type"], "state", "Blocked resize settled before its gate opened")
+                    self.assertEqual(message["terminal"]["status"], "available")
+                    states.append(time.monotonic())
+                    if len(states) == 2:
+                        self.assertEqual(httpx.get(f.url + "/health/ready", trust_env=False, timeout=1).status_code, 200)
+                self.assertGreaterEqual(len(states), 4)
+                # Allow 150 ms of real process/network scheduling jitter.
+                self.assertLess(max(b - a for a, b in zip(states, states[1:])), 1.15)
+            resized = received(second, "frame")
             self.assertEqual(resized["outcome"], "submitted")
+            self.assertEqual(resized["sequence"], 1)
             input_frame(second, b"stty size > dimensions; sleep 40 & echo $! > child.pid\r", control2["epoch"], 2)
             wait_for(lambda: (f.workspace / "child.pid").exists())
             child = fingerprint(int((f.workspace / "child.pid").read_text()))
@@ -334,6 +390,40 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
                 self.assertEqual(result["data"]["terminal_id"], str(shell.terminal_id))
                 self.assertIsNone(result["operation_id"])
         asyncio.run(parity())
+        # An extra, positively owned window invalidates the exact capture
+        # binding even though the terminal UUID and recovery epoch are unchanged.
+        cookie = f.login()
+        with f.websocket(cookie) as changed:
+            received(changed, "hello")
+            held = f.manager().control(shell.terminal_id)
+            verify_process(shell.tmux.server)
+            tmux = ["/usr/bin/tmux", "-N", "-S", str(f.manager().socket_path), "-f", "/dev/null"]
+            result = subprocess.run([*tmux, "new-window", "-P", "-F", "#{window_id}|#{pane_id}|#{pane_pid}",
+                "-t", shell.tmux.session_id, "-n", "owned-test", "--", "/usr/bin/bash", "--noprofile", "--norc", "-c",
+                "printf 'ALTERED_INITIAL\\n'; read -r -t 3 REPLY; printf 'ALTERED_AFTER\\n'; read -r -t 20 REPLY"],
+                capture_output=True, text=True, check=True, timeout=3)
+            window, pane, pid = result.stdout.strip().split("|")
+            try:
+                f.known.append(fingerprint(int(pid)))
+                unavailable = wait_for(lambda: (v if (v := f.terminal())["status"] == "unavailable" else None))
+                self.assertEqual((unavailable["terminal_id"], unavailable["reason"]), (str(shell.terminal_id), "binding_unconfirmed"))
+                with self.assertRaises(ConnectionClosed):
+                    while True:
+                        raw = changed.recv(timeout=2)
+                        if isinstance(raw, bytes):
+                            self.assertNotIn(b"ALTERED_AFTER", raw)
+                def altered_output():
+                    verify_process(shell.tmux.server)
+                    return b"ALTERED_AFTER" in subprocess.run([*tmux, "capture-pane", "-p", "-t", pane],
+                        capture_output=True, check=True, timeout=3).stdout
+                wait_for(altered_output, timeout=5)
+                self.assertEqual(f.manager().control(shell.terminal_id), held)
+                self.assertNotIn(b"ALTERED_AFTER", f.captured())
+                verify_process(shell.shell)
+            finally:
+                verify_process(shell.tmux.server)
+                subprocess.run([*tmux, "kill-window", "-t", window], capture_output=True, check=True, timeout=3)
+        self.assertEqual(f.available()["terminal_id"], str(shell.terminal_id))
         cookie = f.login()
         with f.websocket(cookie) as exiting:
             current = received(exiting, "hello")["terminal"]["control"]
@@ -374,11 +464,18 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
                     app.terminals.attach(UUID(f.agent_id), f.owner.actor_id)
         finally:
             app.terminals._streams = original_streams
+        stream = app.terminals.attach(UUID(f.agent_id), f.owner.actor_id)
         target, cached, observed = app.terminals._cache
         app.terminals._cache = target, cached, observed - 6
         with patch.object(ShellManager, "inspect", side_effect=AssertionError("Read probed processes")):
             stale = app.invoke("terminal_get", context, {"agent_id": f.agent_id}).data
         self.assertEqual((stale["status"], stale["recording"]["state"]), ("unavailable", "unknown"))
+        with patch.object(stream.attachment, "read", side_effect=AssertionError("Stale viewer read output")):
+            with self.assertRaises(CoreError):
+                stream.state()
+            with self.assertRaises(CoreError):
+                stream.read()
+        stream.close()
         app.close()
         changed_local = f.local.model_copy(update={"path": "/usr/bin"})
         changed = f.settings.model_copy(update={"local_terminal": changed_local})
@@ -527,6 +624,48 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
         control = f.manager().control(UUID(hello["terminal"]["terminal_id"]))
         self.assertEqual((str(control.viewer_id), control.last_sequence), (hello["viewer_id"], 2))
         verify_process(f.shell().shell)
+
+        # Unlike the synthetic successful-effect barrier above, this delays an
+        # actual stale-control error with the runner's real durable input lock.
+        app = Application.open(f.settings)
+        self.addCleanup(app.close)
+        await asyncio.to_thread(app.terminals.observe)
+        ws = Socket(app, f.owner.actor_id, cookie, f.agent_id)
+        task = asyncio.create_task(sockets.endpoint(ws))
+        await ws.next("hello")
+        await ws.frame({"type": "control", "action": "take", "expected_epoch": control.epoch})
+        held = (await ws.next("control"))["control"]
+        manager = app.terminals._manager
+        inspect, take_control = manager.inspect, manager.take_control
+        entered, failed = threading.Event(), threading.Event()
+        settled = []
+        def inspecting(*args, **kwargs):
+            entered.set()
+            return inspect(*args, **kwargs)
+        def stale_control(*args, **kwargs):
+            try:
+                return take_control(*args, **kwargs)
+            except RunnerError as error:
+                settled.append(error.code)
+                failed.set()
+                raise
+        with patch.object(manager, "inspect", side_effect=inspecting), patch.object(manager, "take_control", side_effect=stale_control):
+            with input_lock(f.database, UUID(hello["terminal"]["terminal_id"])):
+                await ws.frame({"type": "control", "action": "take", "expected_epoch": control.epoch})
+                self.assertTrue(await asyncio.to_thread(entered.wait, 3))
+                closing = asyncio.create_task(sockets.close())
+                await asyncio.sleep(0.1)
+                self.assertFalse(closing.done())
+                self.assertFalse(ws.closed)
+            self.assertTrue(await asyncio.to_thread(failed.wait, 3))
+            done, _ = await asyncio.wait({closing}, timeout=3)
+            self.assertIn(closing, done, "Shutdown needed a second cancellation after the effect settled")
+            await closing
+        self.assertEqual(settled, ["revision_conflict"])
+        self.assertTrue(task.cancelled())
+        self.assertTrue(ws.closed)
+        self.assertEqual((sockets.tasks, app.terminals._streams), (set(), {}))
+        self.assertEqual(manager.control(UUID(hello["terminal"]["terminal_id"])).model_dump(mode="json"), held)
 
     async def test_slow_output_idle_expiry_and_recovery_close_only_viewers(self):
         f, app, sessions, cookie, sockets = await self.fixture()

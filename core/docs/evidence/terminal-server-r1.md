@@ -29,7 +29,11 @@ are unchanged. The implementation composes this repository's accepted APIs;
 no external Qorqut code, live installation data, native stores or other builder
 worktrees supplied implementation or fixtures.
 
-## Checks
+## Initial candidate checks
+
+These results describe the initial submission
+`5d56a45feda60cdcec7bea10457a4e1223f92eb8`. Its independent review found the four
+issues corrected below; these initial checks did not establish those boundaries.
 
 The disposable validation interpreter is Python 3.12.3. Actual local processes
 used tmux 3.4 and Bash 5.2.21. Uvicorn 0.54.0 with the required
@@ -81,7 +85,7 @@ source/final-source logs, final installed logs, wheel/build/install logs,
 `capture/` bytes and `final-verification.json`. No fixture credentials or
 operational databases were committed.
 
-Final wheel SHA-256:
+Initial candidate wheel SHA-256:
 `3c203d420c676c923d677ada665808c8157bada67433d99a792a30c6e3d4860c`.
 All 66 package Python/NOTICE files match source, wheel and installed bytes; all
 32 installed lock pins match. All 62 loaded core modules in the test process
@@ -108,3 +112,77 @@ startup/inbox/Chat delivery, assistant ingestion, VM/browser integration,
 systemd-cgroup/reboot survival and full G0–G6 acceptance were not exercised or
 claimed. There were no provider calls, owner sessions, VM/browser changes,
 merge, PR or deployment.
+
+## Review corrections
+
+Manager message 204 supplied four corrections and the amended D38 requirements.
+The revision changes only application settings persistence, Terminal stream
+admission/reads, the WebSocket endpoint, the existing six grouped tests and this
+evidence. The frozen runner and shared `transports/lifetime.py` are unchanged.
+
+- Endpoint shutdown marks reply delivery stopped before cancelling child tasks.
+  Writer exit cancels every outstanding delivery future. A runner error that
+  settles after cancellation completes cleanup without waiting for an error
+  reply from the stopped writer.
+- Stream state and each admitted binary read require an unexpired available
+  observation for the same binding. An unavailable/stopped/changed target
+  closes the viewer without replacing the shell or releasing its human hold.
+- Output reads acquire the existing stream effect lock without waiting. A
+  pending input/control effect therefore cannot stall periodic state and cookie
+  checks. Descriptor and effect cleanup retain their existing serialization.
+- Initialization encodes the complete saved JSON, including indentation and its
+  final newline, and refuses more than 16,384 UTF-8 bytes before directory, lock
+  or database effects. Persistence writes those exact checked bytes. Existing
+  bounded readers and installation files remain unchanged.
+
+The cancellation group now delays a real stale-control error with the runner's
+actual input lock, starts endpoint shutdown, then releases the gate. Shutdown
+finishes without a second cancellation, leaves zero streams and retains the
+exact human control record. This is distinct from the group's retained synthetic
+successful-effect/reply-loss barriers.
+
+The real console group holds that same runner lock for 3.25 seconds while a
+resize waits. Its fast real WebSocket continues receiving available state every
+second (the test allows 150 ms scheduling jitter); readiness stays responsive,
+and exactly one sequence settles when the gate opens. It also creates an exact
+returned tmux test window, waits for the core's `binding_unconfirmed` observation,
+and verifies viewer closure before subsequent output from that window. The
+original recorder does not misattribute the window's marker, Bash and the hold
+survive, and cleanup kills only the exact returned window before ordinary
+fixture cleanup. Observation remains bounded by the existing loop/cache cadence;
+this does not claim atomic verification of every output byte.
+
+The settings group checks both ASCII and non-ASCII documents: a 16,385-byte
+document is rejected without creating its data root or acquiring its host lock;
+exactly 16,384 bytes initialize, remain byte-identical and reopen successfully.
+The stale-cache group verifies that an existing attachment cannot read output
+after its observation expires.
+
+Revision validation passed without skips:
+
+- All 26 affected source tests passed in 46.166 seconds: the six Terminal
+  groups, all console tests, transport admission/lifetime and explicit-input
+  tests, plus foundation configuration, installation identity, passive import
+  and external-I/O checks.
+- All six owning groups passed from a fresh installed wheel in 51.748 seconds
+  under `strace -ff -s 4096 -e trace=execve,openat`. The normal console restart,
+  real Bash/recorder, owned child, raw capture and human-hold checks remain in
+  the same installed flow.
+- All 66 source Python/NOTICE files matched wheel and installed bytes, all 32
+  locked distributions matched, and all 62 imported core modules came from the
+  installed package. Traces verified both normal console starts and all four
+  recorder processes importing that package. All 14 recorded process identities
+  were gone after cleanup, and all four fixture data/HOME/socket roots were
+  removed. Retained raw capture still contains the console-away marker.
+
+Revised wheel SHA-256:
+`32e8f69216c8f74356aa21ceb08d95a5625fc8441730cd9b62b5d3460da76d3b`.
+Revision artifacts are retained separately in the same private validation root's
+`revision-204/`: `source-terminal.log`, `source-regressions.log`, build/install
+logs and wheel, `installed-checks.log`, `installed-provenance.json`,
+`final-verification.json`, `final-trace.*`, exact test copies and synthetic raw
+capture. Initial-candidate and Manager/reviewer evidence were preserved.
+
+The revised candidate still awaits fresh independent review and Manager's
+compiled-UI/installed-core integration. These checks do not establish native
+startup/inbox/Chat processing, VM/browser behavior or deployment acceptance.
