@@ -7,10 +7,18 @@ on `codex/build-native-hooks-r1`, following D39 and its explicit-provider handof
 through the existing `SessionOwners` service. It checks the exact hook start
 fingerprint, walks at most 32 parents to the supplied live shell, matches the
 configured native `/proc/<pid>/exe`, and rechecks process/parent/executable facts.
-Child metadata and a second matching native ancestor are refused. A wrapper is
+Child metadata and any second configured native ancestor are refused, including
+the other provider at a distinct executable path. A wrapper is
 not selected as the configured native process. Unsupported or unknown evidence
 returns unavailable. The incumbent-wins behavior is unchanged, including a
 different process presenting the same native UUID.
+
+Manager review of `5f9fd139035c25adb9569f4b0d976871d3c27a86` independently
+reproduced a cross-provider child admission missed by the original shared-binary
+fixture. The correction adds the required trusted `configured_programs` tuple
+to `NativeHooks.handle`, alongside the selected program. Ancestry checks count
+actual processes against the set of canonical configured executable paths;
+multiple configurations sharing one executable do not double-count a process.
 
 Only SessionStart may connect; repeats reconnect to the same owner. Stop records
 idle and SessionEnd records unknown activity without releasing ownership.
@@ -37,6 +45,13 @@ tracking, with no new thread, public operation, MCP tool or schema migration.
 HTTP conflict is 409; unavailable is 503. Malformed requests return a fixed 400
 diagnostic. Request input is bounded to 1 MiB.
 
+The route resolves the inventory from the current provider's private binding and
+the other provider's exact known binding path. An absent peer file permits a
+single-provider setup. Every existing peer must match roots and the complete
+agent/conversation/terminal/recovery/environment binding; malformed or mismatched
+peer configuration returns unavailable. The HTTP payload cannot supply an
+executable inventory. No glob, command-name search or global store is involved.
+
 The module client uses explicit headers, a bounded HTTP timeout and 16-KiB
 response limit, with no proxy environment, redirects or retries. Only a valid
 409 conflict response yields the exact incumbent instruction, printed to stderr
@@ -50,13 +65,20 @@ PYTHONPATH=src:tests /home/alp/.local/state/qorqut-builds/01a116b0-8d6d-72f2-9da
 git diff --check
 ```
 
-**6 tests passed, 4.547 seconds; whitespace check passed.** Grouped checks cover
+**6 tests passed, 5.332 seconds, zero skips; whitespace check passed.** Grouped checks cover
 real disposable Bash/wrapper/native/hook chains, reconnect, both conflict forms,
 exit/replacement, child/wrong-ancestry/start-identity rejection, unknown incumbent,
 Stop/unknown events, setup preservation/idempotence/conflicting edits, HTTP/client
 refusals and redaction, read-only terminal lookup/target change, and cancelled
 waiter shutdown drain. An initial client test used an already-consumed mock HTTP
 response; correcting its stream fixture resolved that test failure.
+
+The revised grouped checks use distinct copied executables for Claude and Codex,
+refuse both Claude-to-Codex and Codex-to-Claude child chains through direct and
+configured-route admission, and assert zero owners or successful events for those
+chains. They also retain root admission for either provider, explicit shared-path
+deduplication, single-provider setup with an absent peer, and refusal of malformed
+or mismatched existing peer bindings.
 
 The copied Python executables are **synthetic native stand-ins**. ShellViews and
 recorder observations in these tests are synthetic; HTTP uses the ASGI boundary

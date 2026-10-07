@@ -45,24 +45,24 @@ class NativeHooks(RuntimeCase):
         root = self.settings.data_root / "agents" / self.host["id"]
         self.roots = ManagedRoots(home=root / "runtime/home", workspace=root / "workspace")
         self.roots.home.mkdir(parents=True)
-        self.native = self.root / "synthetic-native-python"
-        shutil.copyfile(Path(sys.executable).resolve(), self.native)
-        self.native.chmod(0o700)
-        self.programs = tuple(NativeProgram(provider=p, cli_version=v, executable=self.native) for p, v in VERSIONS.items())
+        self.programs = tuple(NativeProgram(provider=p, cli_version=v, executable=self.root / f"synthetic-{p}-python")
+                              for p, v in VERSIONS.items())
+        for program in self.programs:
+            shutil.copyfile(Path(sys.executable).resolve(), program.executable)
+            program.executable.chmod(0o700)
+        self.native = self.programs[0].executable
         self.token = "synthetic-" + uuid4().hex
         self.core = MCPBinding(url="http://127.0.0.1:17501/mcp", headers=(("Authorization", "Bearer " + self.token),))
         self.processes = []
         self.script = self.root / "chain.py"
         self.script.write_text(
             "import os, subprocess, sys\n"
-            "native, python, depth = sys.argv[1:]\n"
-            "depth = int(depth)\n"
-            "if depth < 0:\n"
+            "executables = sys.argv[1:]\n"
+            "if not executables:\n"
             "    print(os.getpid(), flush=True)\n"
             "    sys.stdin.buffer.read()\n"
             "else:\n"
-            "    executable = native if depth else python\n"
-            "    child = subprocess.Popen([executable, __file__, native, python, str(depth-1)])\n"
+            "    child = subprocess.Popen([executables[0], __file__, *executables[1:]])\n"
             "    sys.exit(child.wait())\n")
 
     def tearDown(self):
@@ -71,10 +71,12 @@ class NativeHooks(RuntimeCase):
             process.stdout.close()
         super().tearDown()
 
-    def chain(self, *, depth=1, provider="claude", session=None, terminal_id=None):
+    def chain(self, *, depth=1, provider="claude", session=None, terminal_id=None, native_paths=None):
         # Bash -> ordinary Python wrapper (like Node) -> copied native binary
         # -> hook Python. depth=2 adds another configured native ancestor.
-        command = shlex.join((sys.executable, str(self.script), str(self.native), sys.executable, str(depth)))
+        if native_paths is None:
+            native_paths = (next(p.executable for p in self.programs if p.provider == provider),) * depth
+        command = shlex.join((sys.executable, str(self.script), *(str(path) for path in native_paths), sys.executable))
         process = subprocess.Popen(["/usr/bin/bash", "--noprofile", "--norc", "-c", command + "; wait"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             env={"PATH": os.defpath, "HOME": str(self.roots.home), "LC_ALL": "C.UTF-8"})
@@ -98,12 +100,13 @@ class NativeHooks(RuntimeCase):
 
     def handle(self, shell, request, **kw):
         return self.app.native_hooks.handle(self.context, request, terminal=shell,
-            program=kw.get("program", next(p for p in self.programs if p.provider == request.provider)))
+            program=kw.get("program", next(p for p in self.programs if p.provider == request.provider)),
+            configured_programs=kw.get("configured_programs", self.programs))
 
-    def configured(self, shell):
+    def configured(self, shell, *, programs=None):
         binding = ManualBinding(agent_id=shell.spec.agent_id, conversation_id=self.host["conversation_id"],
             terminal_id=shell.terminal_id, recovery_epoch=shell.spec.recovery_epoch, environment_generation=1)
-        return prepare_manual_hooks(self.roots, binding, self.core, self.programs,
+        return prepare_manual_hooks(self.roots, binding, self.core, self.programs if programs is None else programs,
                                     (sys.executable, "-m", "qorqut_core.runtime.hook_client"))
 
     def test_real_admission_reconnect_conflict_same_uuid_stop_unknown_and_exit(self):
@@ -114,6 +117,8 @@ class NativeHooks(RuntimeCase):
         self.assertEqual(os.readlink(f"/proc/{native_pid}/exe"), str(self.native))
         self.assertEqual(self.handle(shell, request).owner_id, result.owner_id)
         self.assertEqual(self.handle(shell, request).outcome, "reconnected")
+        shared_executable = (self.programs[0], self.programs[1].model_copy(update={"executable": self.native}))
+        self.assertEqual(self.handle(shell, request, configured_programs=shared_executable).outcome, "reconnected")
         self.assertFalse(self.runtime()["input_ready"])
         for event, activity in (("Stop", "idle"), ("SessionEnd", "unknown")):
             observation = request.model_copy(update={"payload": {**request.payload, "hook_event_name": event}})
@@ -154,6 +159,17 @@ class NativeHooks(RuntimeCase):
         self.assertEqual(self.handle(nested_shell, nested).outcome, "unavailable")
         self.assertEqual(self.handle(nested_shell.model_copy(update={"terminal_id": request.terminal_id}), request).outcome,
                          "unavailable")
+        for parent, child in (self.programs, self.programs[::-1]):
+            self.assertNotEqual(parent.executable, child.executable)
+            _, nested_shell, nested = self.chain(provider=child.provider, native_paths=(parent.executable, child.executable))
+            self.configured(nested_shell)
+            self.assertEqual(self.handle(nested_shell, nested).outcome, "unavailable")
+            with patch.object(self.app.terminals, "native_context", return_value=nested_shell):
+                self.assertEqual(self.app.native_hooks.receive(self.context, nested).outcome, "unavailable")
+            self.assertEqual(len(self.rows("session_owners")), 0)
+            self.assertFalse(self.events(self.host["id"], "session.connected"))
+            self.assertTrue(all(json.loads(event["payload_json"])["outcome"] == "unavailable"
+                                for event in self.events(self.host["id"], "native.hook")))
         stop = request.model_copy(update={"payload": {**request.payload, "hook_event_name": "Stop"}})
         self.assertEqual(self.handle(shell, stop).outcome, "unavailable")
         self.assertEqual(len(self.rows("session_owners")), 0)
@@ -220,10 +236,32 @@ class NativeHooks(RuntimeCase):
                     self.assertEqual(response.status_code, 401)
                     response = await client.post(path, headers=headers, json=request.model_dump(mode="json"))
                     self.assertEqual((response.status_code, response.json()["outcome"]), (503, "unavailable"))
-                    setup = self.configured(shell)
+                    setup = self.configured(shell, programs=(self.programs[0],))
+                    self.assertFalse(setup.binding_paths[0].with_name("codex.json").exists())
                     with patch.object(self.app.terminals, "native_context", return_value=shell):
                         response = await client.post(path, headers=headers, json=request.model_dump(mode="json"))
                         self.assertEqual((response.status_code, response.json()["outcome"]), (200, "connected"))
+                        setup = self.configured(shell)
+                        response = await client.post(path, headers=headers, json=request.model_dump(mode="json"))
+                        self.assertEqual((response.status_code, response.json()["outcome"]), (200, "reconnected"))
+                        peer_path = setup.binding_paths[1]
+                        peer = peer_path.read_bytes()
+                        bad_peers = [b"{"]
+                        for section, field, value in (
+                                *(("binding", field, str(uuid4())) for field in (
+                                    "agent_id", "conversation_id", "terminal_id", "recovery_epoch")),
+                                ("binding", "environment_generation", 2),
+                                ("roots", "home", str(self.root / "other-home")),
+                                ("roots", "workspace", str(self.root / "other-workspace")),
+                                ("program", "provider", "claude")):
+                            changed = json.loads(peer)
+                            changed[section][field] = value
+                            bad_peers.append(json.dumps(changed).encode())
+                        for bad_peer in bad_peers:
+                            peer_path.write_bytes(bad_peer)
+                            response = await client.post(path, headers=headers, json=request.model_dump(mode="json"))
+                            self.assertEqual((response.status_code, response.json()["outcome"]), (503, "unavailable"))
+                        peer_path.write_bytes(peer)
                         rival = request.model_copy(update={"payload": {**request.payload, "session_id": str(uuid4())}})
                         response = await client.post(path, headers=headers, json=rival.model_dump(mode="json"))
                         self.assertEqual((response.status_code, response.json()["message"]), (409, CONFLICT_MESSAGE))

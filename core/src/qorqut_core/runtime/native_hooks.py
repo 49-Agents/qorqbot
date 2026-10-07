@@ -84,10 +84,11 @@ def _node(process):
     return parent, executable
 
 
-def _native_process(hook, shell, program):
+def _native_process(hook, shell, program, configured_programs):
     """At most 32 parents, with a second pass over exact start/parent/exe facts."""
     assert_external_io_allowed()
     expected_executable = str(program.executable.resolve(strict=True))
+    configured_executables = {str(item.executable.resolve(strict=True)) for item in configured_programs}
     chain, selected, seen = [], [], set()
     process = hook
     for depth in range(33):
@@ -100,19 +101,19 @@ def _native_process(hook, shell, program):
             break
         if process.boot_id != shell.boot_id or process.uid != shell.uid or process.pid_namespace != shell.pid_namespace:
             raise ValueError("Native process domain differs from shell")
-        if executable == expected_executable and process != hook:
-            selected.append(process)
+        if executable in configured_executables and process != hook:
+            selected.append((process, executable))
         if depth == 32:
             raise ValueError("Live shell is outside bounded ancestry")
         process = fingerprint(parent)
     else:
         raise ValueError("Live shell is outside bounded ancestry")
-    if len(selected) != 1:
+    if len(selected) != 1 or selected[0][1] != expected_executable:
         raise ValueError("No unique root native executable in shell ancestry")
     for process, parent, executable in reversed(chain):
         if _node(process) != (parent, executable):
             raise ValueError("Native ancestry changed")
-    return selected[0]
+    return selected[0][0]
 
 
 def _hook_identity(payload, provider, home):
@@ -178,18 +179,29 @@ class NativeHooks:
                 workspace = self.app.settings.data_root / "agents" / agent["id"] / "workspace"
                 with self.app.workspaces.owned(agent, installation) as (_, guard):
                     config = read_hook_configuration(workspace / binding_relative(request.provider))
+                    configurations = [(request.provider, config)]
+                    peer_provider = "codex" if request.provider == "claude" else "claude"
+                    try:
+                        peer = read_hook_configuration(workspace / binding_relative(peer_provider))
+                    except FileNotFoundError:
+                        pass  # Explicit single-provider setup has no peer binding.
+                    else:
+                        configurations.append((peer_provider, peer))
                     terminal = self.app.terminals.native_context(request.agent_id, request.terminal_id)
                     expected = ManualBinding(agent_id=request.agent_id, conversation_id=agent["conversation_id"],
                         terminal_id=request.terminal_id, recovery_epoch=installation["recovery_epoch"],
                         environment_generation=terminal.spec.environment_generation)
-                    if (config.binding != expected or config.program.provider != request.provider
-                            or config.roots.workspace != workspace or config.roots.workspace != terminal.spec.workspace
-                            or config.roots.home != terminal.spec.home):
-                        raise ValueError("Manual hook configuration differs from current terminal")
+                    for provider, configured in configurations:
+                        if (configured.binding != expected or configured.program.provider != provider
+                                or configured.roots.workspace != workspace
+                                or configured.roots.workspace != terminal.spec.workspace
+                                or configured.roots.home != terminal.spec.home):
+                            raise ValueError("Manual hook configuration differs from current terminal")
                     guard()
                     if not self._same_target(before, self._target(context, request)):
                         raise ValueError("Native target changed")
-                    return self.handle(context, request, terminal=terminal, program=config.program)
+                    return self.handle(context, request, terminal=terminal, program=config.program,
+                                       configured_programs=tuple(item.program for _, item in configurations))
         except Exception:
             # Files/validation/observer errors may contain secrets. Never expose
             # their text or misclassify an unavailable bridge as a live conflict.
@@ -206,10 +218,13 @@ class NativeHooks:
         return result
 
     def handle(self, context, request: NativeHookRequest, *, terminal: ShellView,
-               program: NativeProgram) -> NativeHookResult:
+               program: NativeProgram, configured_programs: tuple[NativeProgram, ...]) -> NativeHookResult:
         try:
             request = NativeHookRequest.model_validate(request)
             terminal, program = ShellView.model_validate(terminal), NativeProgram.model_validate(program)
+            configured_programs = tuple(NativeProgram.model_validate(item) for item in configured_programs)
+            if program not in configured_programs:
+                raise ValueError("Selected native program is not configured")
             assert_external_io_allowed()
             with self.db.lock.use(), self.db.lock.effects:
                 before = self._target(context, request)
@@ -222,9 +237,10 @@ class NativeHooks:
                         or str(spec.recovery_epoch) != installation["recovery_epoch"]
                         or spec.home != root / "runtime/home" or spec.workspace != root / "workspace"):
                     raise ValueError("Native shell binding differs from registered target")
-                require_profile(program.provider, program.cli_version)
+                for configured in configured_programs:
+                    require_profile(configured.provider, configured.cli_version)
                 event, session, path = _hook_identity(request.payload, program.provider, spec.home)
-                native = _native_process(request.hook_process, terminal.shell, program)
+                native = _native_process(request.hook_process, terminal.shell, program, configured_programs)
                 candidate = OwnerCandidate(agent_id=request.agent_id, terminal_id=request.terminal_id,
                     recovery_epoch=spec.recovery_epoch, environment_generation=spec.environment_generation,
                     provider=program.provider, cli_version=program.cli_version, native_session_id=session, process=native)
