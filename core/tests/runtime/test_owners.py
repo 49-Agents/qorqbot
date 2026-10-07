@@ -131,7 +131,7 @@ class Owners(RuntimeCase):
             self.assertEqual(len(self.observed), seen)
         with self.assertRaises(ValidationError):
             OwnerCandidate.model_validate({**candidate.model_dump(), "environment_generation": True})
-        self.assertEqual(len(self.app.registry), 15)
+        self.assertEqual(len(self.app.registry), 16)
         self.assertEqual(len(self.app.jobs.handlers), 5)
         self.assertNotIn("session_connect", self.app.registry)
 

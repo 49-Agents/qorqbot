@@ -226,7 +226,9 @@ class StaticHTTP(unittest.TestCase):
                 self.assertEqual(response.headers["x-content-type-options"], "nosniff")
                 self.assertIn("frame-ancestors 'self'", response.headers["content-security-policy"])
                 self.assertIn("script-src 'self'", response.headers["content-security-policy"])
-                self.assertNotIn("unsafe-", response.headers["content-security-policy"])
+                self.assertIn("script-src 'self';", response.headers["content-security-policy"])
+                self.assertIn("style-src 'self' 'unsafe-inline';", response.headers["content-security-policy"])
+                self.assertEqual(response.headers["content-security-policy"].count("unsafe-"), 1)
                 self.assertNotIn("access-control-allow-origin", response.headers)
             self.assertEqual(client.head("/").content, b"")
             for path in ("/private.txt", "/assets/%2e%2e/private.txt", "/assets/linked.txt",

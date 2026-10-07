@@ -98,14 +98,14 @@ def load_settings(path: Path) -> InstallationSettings:
     return InstallationSettings.model_validate_json(raw)
 
 
-def _save_settings(settings: InstallationSettings):
+def _save_settings(settings: InstallationSettings, encoded: bytes):
     if _check_settings(settings):
         return
     target = settings.data_root / "installation.json"
     with tempfile.NamedTemporaryFile(dir=settings.data_root, prefix=".installation-", delete=False) as stream:
         staging = Path(stream.name)
         try:
-            stream.write((settings.model_dump_json(indent=2) + "\n").encode())
+            stream.write(encoded)
             stream.flush()
             os.fsync(stream.fileno())
         except BaseException:
@@ -131,6 +131,7 @@ class Application:
         from .conversation.publication import Publisher
         from .messaging.service import Messaging
         from .runtime import SessionOwners
+        from .runtime.terminals import Terminals
         from .transcripts.archive import Archive
 
         self.settings, self.db = settings, database
@@ -146,6 +147,7 @@ class Application:
         self.workspaces.jobs = self.jobs
         self.agents = Agents(self)
         self.session_owners = SessionOwners(self)
+        self.terminals = Terminals(self)
         operations = (
             Operation("config_get", ConfigGet, False, self._config_get, ConfigView),
             Operation("config_update", ConfigUpdate, True, self._config_update, ConfigView),
@@ -155,6 +157,7 @@ class Application:
             *self.messaging.operations(),
             *self.conversations.operations(),
             *self.session_owners.operations(),
+            *self.terminals.operations(),
         )
         self.registry = MappingProxyType({op.name: op for op in operations})
 
@@ -168,6 +171,9 @@ class Application:
     def initialize(cls, settings: InstallationSettings, initial_defaults: NewAgentDefaults,
                    initial_owner: Actor, *, clock=utc_now, id_factory=new_id, fault=None):
         assert_external_io_allowed()
+        encoded = (settings.model_dump_json(indent=2) + "\n").encode("utf-8")
+        if len(encoded) > 16384:
+            raise CoreError("invalid_argument", "Installation file is too large")
         _physical_roots(settings)
         if initial_owner.kind != "owner":
             raise CoreError("invalid_argument", "Initial actor must be an owner")
@@ -179,7 +185,7 @@ class Application:
         db.lock.acquire()
         try:
             db.check_installation_identity(settings.installation_id)
-            _save_settings(settings)
+            _save_settings(settings, encoded)
             db.migrate()
             with db.transaction() as tx:
                 old = tx.connection.execute("SELECT * FROM installation").fetchone()
@@ -228,6 +234,7 @@ class Application:
             raise
 
     def close(self):
+        self.terminals.close()
         self.db.lock.close()
 
     def invoke(self, name: str, context: Invocation, arguments: dict | None = None) -> OperationResult:

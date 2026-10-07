@@ -10,6 +10,7 @@ from uuid import UUID
 from pydantic import Field, field_validator, model_validator
 
 from .contracts import Model, Mutation, Revision
+from .runner.shell_models import ShellSpec, absolute_path
 
 ICON_KEYS = (
     "circle", "square", "triangle", "diamond", "star", "compass", "globe", "leaf",
@@ -44,6 +45,30 @@ class NewAgentDefaults(Model):
     resources: ResourceDefaults
 
 
+class LocalTerminalSettings(Model):
+    runtime_root: Path
+    python_executable: Path
+    tmux_executable: Path
+    bash_executable: Path
+    path: Annotated[str, Field(strict=True, min_length=1, max_length=32768)]
+
+    @field_validator("runtime_root", "python_executable", "tmux_executable", "bash_executable")
+    @classmethod
+    def absolute(cls, value):
+        return absolute_path(value)
+
+    @field_validator("path")
+    @classmethod
+    def explicit_path(cls, value):
+        return ShellSpec.path_string(value)
+
+    @model_validator(mode="after")
+    def socket_bound(self):
+        if len(bytes(self.runtime_root / ("0" * 32) / "tmux.sock")) > 100:
+            raise ValueError("Terminal socket path exceeds 100 bytes")
+        return self
+
+
 class InstallationSettings(Model):
     installation_id: UUID
     source_root: Path
@@ -54,6 +79,7 @@ class InstallationSettings(Model):
     private_network: IPv4Network | None = None
     busy_timeout_ms: Annotated[int, Field(strict=True, ge=1, le=60000)] = 1000
     policy: Literal["allow_all"] = "allow_all"
+    local_terminal: LocalTerminalSettings | None = None
 
     @field_validator("source_root", "release_root", "data_root")
     @classmethod

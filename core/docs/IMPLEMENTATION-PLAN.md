@@ -20,10 +20,12 @@ ownership changes host schema/application assembly. Connecting
 startup hooks, recorded shells, Terminal UI, delivery and native capture remains
 the following runtime integration; accepted components alone do not prove it.
 
-D38 starts that integration with the [host Terminal server](TERMINAL-SERVER.md)
-and a parallel UI Chat/Terminal switch. It exposes the accepted recorded shell
-for onbash through the normal authenticated console. Native inbox/Chat/history
-connection remains a distinct following step, with accepted factual inputs.
+D38's [host Terminal server](TERMINAL-SERVER.md) has passed fresh independent
+review and [Manager source acceptance](evidence/terminal-server-manager-acceptance.md).
+The parallel UI Chat/Terminal switch is also reviewed and merged. Their next
+gate is a real compiled-UI/installed-core check of the recorded onbash shell.
+Native inbox/Chat/history connection remains a distinct following step, with
+accepted factual inputs.
 
 ## 1. Product contract
 

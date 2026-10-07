@@ -10,8 +10,11 @@ ownership and the following combined integration check.
 The local inbox-owner increment has passed [bounded acceptance](evidence/inbox-ownership-manager-acceptance.md);
 it does not yet connect a native CLI to Chat.
 The local recorded-shell increment has also passed
-[bounded acceptance](evidence/recorded-shell-manager-acceptance.md); its host
-activation and Terminal UI connection remain pending.
+[bounded acceptance](evidence/recorded-shell-manager-acceptance.md). Its host
+Terminal server now has [source acceptance](evidence/terminal-server-manager-acceptance.md),
+and the separately reviewed Terminal UI is merged in `qorqutbot-ui`.
+Their [combined real-browser/installed-core acceptance](TERMINAL-INTEGRATION.md)
+remains next.
 Manual creation has passed [scoped review](evidence/manual-creation-manager-acceptance.md)
 and [combined core/UI acceptance](evidence/manual-creation-integration-manager-acceptance.md),
 including real browser checks, automatic dated files and normal restart.
@@ -21,7 +24,7 @@ Connecting a user-started CLI to the inbox, Terminal/Chat and native-history
 collection is the next integration; these local components do not prove that flow.
 The [accepted connection evidence](evidence/manual-runtime-seams-manager-acceptance.md)
 records the exact startup-hook and native-record facts for that integration.
-The current build contract is [D38's Terminal server](TERMINAL-SERVER.md), paired
+The current integration uses [D38's Terminal server](TERMINAL-SERVER.md), paired
 with the UI repository's Terminal implementation plan.
 
 The [global implementation plan](IMPLEMENTATION-PLAN.md) is the entry point and the authority for scope, dependencies and delivery gates. Module plans expand it; they do not silently override shared contracts.

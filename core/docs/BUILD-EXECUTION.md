@@ -32,13 +32,14 @@ passed separate Astra MAX reviews and
 They identify the remaining connection points without adding runtime behavior
 or delegating the following implementation design.
 
-D38 launches two implementation lanes against one frozen
-[Terminal protocol](TERMINAL-SERVER.md): core host/stream composition and UI
-Chat/Terminal interaction. They own different repositories and can build in
-parallel. Each receives a separate fresh Astra MAX reviewer; the accepted pair
-then gets an actual browser/installed-core flow. Native startup/inbox association,
-Chat dispatch and native history follow this usable-terminal step. This changes
-the earlier all-at-once integration sequence, not D36's completed user workflow.
+D38's two implementation lanes have passed separate fresh Astra MAX reviews.
+The core candidate `003c5bad` has
+[Manager acceptance](evidence/terminal-server-manager-acceptance.md); UI candidate
+`2faabdf` is accepted and merged at UI main `e380b4c`. The four core corrections
+from the initial review are resolved. The next gate is an actual compiled-browser/
+installed-core [flow](TERMINAL-INTEGRATION.md) against this accepted pair and the frozen
+[Terminal protocol](TERMINAL-SERVER.md). Native startup/inbox association,
+Chat dispatch and native history follow this usable-terminal step.
 
 The local onbash ownership increment is now accepted at `1af5f85`, with fresh
 Astra MAX review and [Manager checks](evidence/inbox-ownership-manager-acceptance.md).
@@ -47,8 +48,9 @@ recorded-shell composition, delivery and native capture remain integration work.
 
 The recorded shell is accepted at `395d831`, with fresh Astra MAX review and
 [Manager checks](evidence/recorded-shell-manager-acceptance.md). It provides local
-recorded Bash execution and bounded human attachments; creation, startup hooks,
-the host server and Terminal UI do not yet invoke it.
+recorded Bash execution and bounded human attachments. D38 now composes it in
+the normal host server and supplies the Terminal UI; their combined running
+flow is awaiting acceptance. Native startup hooks remain separate work.
 
 Manager decision, 2026-10-07. The owner authorized implementation through ACLA,
 up to ten concurrent actors, no native self-review, and a separate reviewer after
@@ -138,10 +140,11 @@ Use `ef18e59` as the concrete core baseline for dependent assignments. Its
 immutable [interface/evidence report](https://github.com/qorqutbot/qorqut-core/blob/ef18e59e2df372963f5fba222156fe6b6e50195f/docs/evidence/foundation-r1.md)
 defines the accepted signatures. `Application.invoke` is the shared public path;
 `Operation`/`Change` and `Application.execute` assemble fixed internal handlers.
-The fifteen current public operations are `config_get`, `config_update`,
+The sixteen current public operations are `config_get`, `config_update`,
 `operations_get`, `events_list`, `agents_create`, `agents_get`, `agents_list`,
 `agents_update`, `agents_status_set`, `messages_send`, `messages_list`,
-`messages_acknowledge`, `deliveries_get`, `conversation_list` and `runtime_get`.
+`messages_acknowledge`, `deliveries_get`, `conversation_list`, `runtime_get`
+and `terminal_get`. Terminal observation is specified in [D38](TERMINAL-SERVER.md).
 The ownership read is specified in [INBOX-OWNERSHIP.md](INBOX-OWNERSHIP.md). Chat contracts
 are specified in [CHAT-IMPLEMENTATION.md](CHAT-IMPLEMENTATION.md). The agent contracts are specified in
 [AGENT-REGISTRY.md](AGENT-REGISTRY.md); all use the same HTTP/MCP/operator

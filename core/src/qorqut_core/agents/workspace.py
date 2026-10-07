@@ -183,6 +183,40 @@ class Workspaces:
             raise CoreError("uncertain_effect", "Directory ownership or completion is not established")
         return marker
 
+    @contextmanager
+    def owned(self, row, installation):
+        """Verify an already published workspace; never seed or repair it.
+
+        The caller holds the installation effect/use guards and rechecks its
+        domain binding outside SQL transactions. The yielded guard detects path
+        substitution and reuses the provisioning marker's complete identity.
+        """
+        assert_external_io_allowed()
+        if row["workspace_initialized_at"] is None:
+            raise CoreError("not_ready", "Workspace has not been durably initialized")
+        with directory(self.root) as root, child_directory(root, "agents") as parent:
+            target = str(UUID(row["id"]))
+            with child_directory(parent, target) as final:
+                def guard():
+                    with self.db.read() as tx:
+                        current = get_row(tx, row["id"])
+                        installed = tx.connection.execute("SELECT * FROM installation WHERE singleton=1").fetchone()
+                        for key in ("id", "actor_id", "creation_operation_id", "provisioning_job_id",
+                                    "workspace_initialized_at", "lifecycle", "lifecycle_revision"):
+                            if current[key] != row[key]:
+                                raise CoreError("target_changed", "Registered workspace binding changed")
+                        if any(installed[key] != installation[key] for key in ("installation_id", "recovery_epoch")):
+                            raise CoreError("target_changed", "Workspace installation binding changed")
+                    same_child(root, "agents", parent)
+                    same_child(parent, target, final)
+                    self._marker(final, row, installation, complete=True)
+                    with directory(self.root) as reopened:
+                        if (os.fstat(reopened).st_dev, os.fstat(reopened).st_ino) != (os.fstat(root).st_dev, os.fstat(root).st_ino):
+                            raise CoreError("target_changed", "Installation directory changed")
+                guard()
+                yield final, guard
+                guard()
+
     def _atomic_file(self, fd, target, data, *, prefix, guard):
         regular_or_absent(fd, target)
         guard()
