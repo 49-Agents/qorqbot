@@ -1,5 +1,9 @@
 # Documentation index
 
+The [actual core/MCP/file-reference flow](evidence/file-reference-integration-manager-acceptance.md)
+is accepted: metadata cards, exact path copying, automatic dated history and restart.
+Next are core's [parallel connected native Chat checks](https://github.com/qorqutbot/qorqut-core/blob/main/docs/CONNECTED-CHAT-ACCEPTANCE.md).
+
 The owner agreed D36 on 2026-10-08: manual CLI startup/configuration in Terminal,
 with one logical inbox-owning session and Chat as another view. Read the
 [owning core scope](https://github.com/qorqutbot/qorqut-core/blob/main/docs/TERMINAL-OWNED-SESSIONS.md)
@@ -43,5 +47,5 @@ D47 adds [file-reference cards](FILE-REFERENCE-CARDS.md) from core's accepted
 metadata-only operation. The [runtime inspector](evidence/runtime-inspector-manager-acceptance.md)
 is accepted. The [file-card implementation](evidence/file-reference-cards-manager-acceptance.md)
 has passed Manager review and desktop/mobile Chrome checks; its
-[real-core/MCP publication flow](FILE-REFERENCE-INTEGRATION.md) is the next
-acceptance check.
+[real-core/MCP publication flow](evidence/file-reference-integration-manager-acceptance.md)
+has also passed Manager acceptance.
