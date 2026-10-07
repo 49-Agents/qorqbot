@@ -3,6 +3,13 @@
 Manager assignment, 2026-10-08. This verifies the accepted D38 implementations
 together. It changes no runtime contract and is not native CLI acceptance.
 
+Finding 217 blocks final acceptance of the original pair: narrow read-only
+viewing clips the native grid. [The geometry correction](TERMINAL-GEOMETRY.md)
+defines two parallel implementation lanes and the required resumed check.
+Preserve completed original-pair evidence; wait for Manager's accepted new
+core/UI pins before repeating the combined flow. Clarification 212's notice-only
+shortcut does not cover this executable UI/core change.
+
 ## Immutable inputs and ownership
 
 Core candidate `003c5badc3aa7e6d3f958b461e8e7a98dda49758` is accepted with the

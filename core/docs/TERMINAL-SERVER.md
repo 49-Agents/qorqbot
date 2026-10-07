@@ -2,6 +2,9 @@
 
 Manager decision D38, 2026-10-08. Implement the first usable onbash Terminal
 through the normal core server, in parallel with the UI's Chat/Terminal switch.
+Integration correction 217 is specified in [Terminal geometry](TERMINAL-GEOMETRY.md).
+It supersedes the original display-size behavior and upgrades the corrected
+pair's stream to protocol 2; other D38 requirements remain.
 Use the accepted `ShellManager`; do not replace it or start a native CLI.
 The [accepted connection evidence](evidence/manual-runtime-seams-manager-acceptance.md)
 informs subsequent native startup and history work. This increment exposes the

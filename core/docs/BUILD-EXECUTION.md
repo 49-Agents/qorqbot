@@ -41,6 +41,13 @@ installed-core [flow](TERMINAL-INTEGRATION.md) against this accepted pair and th
 [Terminal protocol](TERMINAL-SERVER.md). Native startup/inbox association,
 Chat dispatch and native history follow this usable-terminal step.
 
+Combined testing exposed finding 217: a narrow read-only emulator clips a wider
+pane, and mirrors need explicit native dimensions. Manager's
+[geometry contract](TERMINAL-GEOMETRY.md) freezes protocol 2 and assigns core
+dimension/mirror synchronization and UI scrolling/render ordering in parallel.
+Both need fresh reviews before the original integration actor resumes with the
+new accepted pair. The notice relocation is a separate bounded packaging fix.
+
 The local onbash ownership increment is now accepted at `1af5f85`, with fresh
 Astra MAX review and [Manager checks](evidence/inbox-ownership-manager-acceptance.md).
 It adds schema 6 and `runtime_get`, preserving five handlers. Hook association,

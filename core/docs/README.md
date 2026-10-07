@@ -14,7 +14,8 @@ The local recorded-shell increment has also passed
 Terminal server now has [source acceptance](evidence/terminal-server-manager-acceptance.md),
 and the separately reviewed Terminal UI is merged in `qorqutbot-ui`.
 Their [combined real-browser/installed-core acceptance](TERMINAL-INTEGRATION.md)
-remains next.
+found a narrow read-only display defect. The
+[geometry correction](TERMINAL-GEOMETRY.md) is required before that gate passes.
 Manual creation has passed [scoped review](evidence/manual-creation-manager-acceptance.md)
 and [combined core/UI acceptance](evidence/manual-creation-integration-manager-acceptance.md),
 including real browser checks, automatic dated files and normal restart.

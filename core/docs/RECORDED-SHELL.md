@@ -6,6 +6,11 @@ setup; it never invokes a model CLI. This assignment delivers a real persistent
 shell and bounded PTY attachment API, without installing a host service or
 advertising an unfinished WebSocket route.
 
+Integration finding 217 authorizes the narrow additive observation/mirror APIs
+in [Terminal geometry](TERMINAL-GEOMETRY.md): verified `ShellView.dimensions`
+and display-only `ShellAttachment.set_display_size`. The recorded shell's
+control, input, capture, process and storage contracts below remain unchanged.
+
 ## Fixed composition
 
 Add `runner/shell.py` and, if needed, small owned `shell_models.py` and

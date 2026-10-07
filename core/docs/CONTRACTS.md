@@ -15,6 +15,14 @@ separate identities and links the source rather than relabeling old bytes.
 The new `runtime_get` read is implemented by the ownership lane; connect/release
 remain trusted internal callables until the startup bridge is implemented.
 
+D38's corrected [Terminal geometry contract](TERMINAL-GEOMETRY.md) adds verified
+nullable dimensions to shell/Terminal observations and uses Terminal WebSocket
+protocol 2 with ordered server size announcements. Read-only mirror geometry
+and UI scrolling never acquire control or resize the real pane. The existing
+human input epoch/sequence gate remains authoritative for pane resize/input.
+This correction needs paired core/UI acceptance; it changes no host migration,
+operation count or native-session readiness contract.
+
 Status: normative planning baseline for `qorqut-core`. Implementation must keep these names and semantics aligned across modules, HTTP, both MCP servers, tests and generated agent instructions. `qorqutbot-ui` consumes core's network contract; `qorqut-browser` owns its independent MCP/control contract and core integrates it over versioned APIs. Changes require updating this document and the affected module plans.
 
 ## 1. Identity and coordinates

@@ -27,6 +27,11 @@ gate is a real compiled-UI/installed-core check of the recorded onbash shell.
 Native inbox/Chat/history connection remains a distinct following step, with
 accepted factual inputs.
 
+The combined D38 check exposed read-only terminal clipping. The required
+[geometry correction](TERMINAL-GEOMETRY.md) carries native pane dimensions into
+each mirror and the scrollable UI, using protocol 2 for the corrected pair.
+The full Terminal integration gate remains open until that pair passes.
+
 ## 1. Product contract
 
 Qorqutbot hosts persistent agents. A logical agent owns its identity, files, notes, research, browser profile and accumulated history independently of the currently selected CLI, model, native conversation or VM process. Agents work in interactive tmux-backed terminals and coordinate through Qorqut MCP. The owner can create agents, inspect them and intervene in their browsers. Agents can create and contact other agents themselves.
