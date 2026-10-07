@@ -6,6 +6,10 @@ review, recorded-shell work and adapter corrections. This is the ownership and
 observation boundary; startup-hook transport and delivery composition follow
 the three reviewed implementations in one integration assignment.
 
+The bounded local implementation at `1af5f852ccbc83cc898df11099beb4031ca0b2ca`
+has passed independent Astra MAX review and [Manager acceptance](evidence/inbox-ownership-manager-acceptance.md).
+Native startup association and the connected Terminal/Chat flow remain pending.
+
 ## Scope and interface
 
 Add `qorqut_core.runtime` with typed models, `SessionOwners`, and a small

@@ -7,6 +7,8 @@ Current parallel implementation: [inbox ownership](INBOX-OWNERSHIP.md),
 [recorded shells](RECORDED-SHELL.md), and
 [adapter rehearsal fixes](ADAPTER-REHEARSAL-FIXES.md). D37 assigns disjoint
 ownership and the following combined integration check.
+The local inbox-owner increment has passed [bounded acceptance](evidence/inbox-ownership-manager-acceptance.md);
+it does not yet connect a native CLI to Chat.
 
 The [global implementation plan](IMPLEMENTATION-PLAN.md) is the entry point and the authority for scope, dependencies and delivery gates. Module plans expand it; they do not silently override shared contracts.
 
@@ -59,4 +61,7 @@ those observations without treating them as a connected runtime.
 
 `Planned` means specified but unimplemented. `Implemented` requires source and focused tests. `Verified` requires the stated acceptance evidence for a named build and environment. Publication of a plan does not advance either status.
 
-All twelve modules are **Planned** in this baseline dated 2026-10-07.
+All twelve modules began as **Planned** in the 2026-10-07 baseline. Current
+accepted increments and their remaining work are recorded in
+[BUILD-EXECUTION.md](BUILD-EXECUTION.md); bounded acceptance does not complete a
+whole module or a system gate.

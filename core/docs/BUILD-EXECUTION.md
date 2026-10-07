@@ -3,8 +3,9 @@
 ## Current work after owner scope agreement
 
 D36 is accepted: [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md). Core and
-UI manual-creation implementations are complete; UI has passed review and core
-gets a fresh Astra MAX review under the owner's latest instruction. Paired
+UI manual-creation implementations are complete; UI has passed review and core's
+shared transport test is receiving a focused synchronization correction after
+Astra MAX review. Paired
 running UI/core acceptance still precedes landing them. Native rehearsal
 corrections passed [Manager acceptance](evidence/native-rehearsal-manager-acceptance.md).
 Its product observations are not a completed runtime.
@@ -18,6 +19,11 @@ within the ten-actor cap. Their completed interfaces feed one explicitly owned
 runtime integration, followed by the actual Terminal UI and onbash flow check.
 No automatic CLI orchestration or context-packet work is authorized by old plans.
 The VM decision remains separate; common integration starts with onbash.
+
+The local onbash ownership increment is now accepted at `1af5f85`, with fresh
+Astra MAX review and [Manager checks](evidence/inbox-ownership-manager-acceptance.md).
+It adds schema 6 and `runtime_get`, preserving five handlers. Hook association,
+recorded-shell composition, delivery and native capture remain integration work.
 
 Manager decision, 2026-10-07. The owner authorized implementation through ACLA,
 up to ten concurrent actors, no native self-review, and a separate reviewer after
@@ -63,6 +69,7 @@ None of these assignments declares VM/native/browser control complete.
 
 | Assignment | Accepted revision | Independent review and Manager evidence | Remaining work |
 | --- | --- | --- | --- |
+| Local onbash inbox ownership | `1af5f85` | Fresh Astra MAX review found no in-scope defects; twelve runtime and three inventory/schema checks plus an installed real-child flow passed. Manager verified 61 package files and passed four installed ownership/recovery checks. [Acceptance](evidence/inbox-ownership-manager-acceptance.md). | Native hook/process association, shell composition, delivery, assistant capture, Terminal UI and VM/browser integration. `input_ready` remains false. |
 | Pinned native CLI rehearsal | `13227a8` | Fresh Sonnet 5.5 xhigh review and [Manager evidence acceptance](evidence/native-rehearsal-manager-acceptance.md); actual loopback-fake-provider fresh/resume observations, with fixture boundaries and timing corrections. | Manual startup/inbox/Chat integration, composer/config fixes, native reader/normalization, complete source coverage, actual provider and VM acceptance. |
 | First connected UI and actual core integration | UI [`cbff84d`](https://github.com/qorqutbot/qorqutbot-ui/blob/cbff84d1e92066d13f9ff5322b49a32fc7f0203a/docs/evidence/ui-shell-r1.md), core `faf311d` | Fresh Sonnet 5.5 medium review passed locked build and six grouped Chrome checks. Manager matched 40 UI and 56 installed core files, reproduced build hashes and passed two actual Chrome/core flows with no mock API: metadata, three messages, both dated files, restart, sessions and responsive layouts. [Manager acceptance](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/ui-shell-manager-acceptance.md). | Native assistant replies/delivery, browser/file cards, VM/browser execution, continuity/export/restore and full system gates remain pending. |
 | Running-server chat publication | [`4e969f9`](https://github.com/qorqutbot/qorqut-core/blob/4e969f944cd5736de7a42ead0ebc60592804b5c3/docs/evidence/chat-server-integration-r1.md) | Fresh Sonnet 5.5 xhigh review passed 30 source transport tests, source messaging, five installed checks and child-provenance checks without blocking findings. Manager inspected all six changed paths, verified unchanged product bytes, 158 tracked files, 56 installed files and 31 pins, then passed both installed publication/restart flows. [Manager acceptance](evidence/chat-server-manager-acceptance.md). | Real UI/backend browser testing; native assistant capture/delivery, VM/browser lifecycle, continuity/export/restore and full system gates remain pending. |
@@ -102,10 +109,11 @@ Use `ef18e59` as the concrete core baseline for dependent assignments. Its
 immutable [interface/evidence report](https://github.com/qorqutbot/qorqut-core/blob/ef18e59e2df372963f5fba222156fe6b6e50195f/docs/evidence/foundation-r1.md)
 defines the accepted signatures. `Application.invoke` is the shared public path;
 `Operation`/`Change` and `Application.execute` assemble fixed internal handlers.
-The fourteen current public operations are `config_get`, `config_update`,
+The fifteen current public operations are `config_get`, `config_update`,
 `operations_get`, `events_list`, `agents_create`, `agents_get`, `agents_list`,
 `agents_update`, `agents_status_set`, `messages_send`, `messages_list`,
-`messages_acknowledge`, `deliveries_get` and `conversation_list`. Chat contracts
+`messages_acknowledge`, `deliveries_get`, `conversation_list` and `runtime_get`.
+The ownership read is specified in [INBOX-OWNERSHIP.md](INBOX-OWNERSHIP.md). Chat contracts
 are specified in [CHAT-IMPLEMENTATION.md](CHAT-IMPLEMENTATION.md). The agent contracts are specified in
 [AGENT-REGISTRY.md](AGENT-REGISTRY.md); all use the same HTTP/MCP/operator
 registry. Further domain operations require an explicit assignment and concrete
