@@ -219,7 +219,7 @@ class ComposerVerdict(Record):
     state: Literal["empty", "busy", "blocked", "unknown"]
     reason: str
     fingerprint: str
-    evidence: Literal["synthetic", "unsupported"]
+    evidence: Literal["synthetic", "native_snapshot", "unsupported"]
     native_verified: Literal[False] = False
 
     @property
