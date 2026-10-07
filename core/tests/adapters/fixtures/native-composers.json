@@ -1,0 +1,113 @@
+{
+  "provenance": "Derived from accepted isolated native rehearsal r1 snapshots; offline observations only. See docs/evidence/adapter-rehearsal-fixes-r1.md for original hashes and mechanical sanitization.",
+  "captures": [
+    {
+      "source": "claude-fresh/snap-t8-before-prompt",
+      "provider": "claude",
+      "version": "2.1.287",
+      "expected": "empty",
+      "original_ansi_sha256": "6b4e07493e51c8c4c681e09c6b3990e4b21617d070e2d28ec968998073475ad9",
+      "original_metadata_sha256": "2c1b543b01c4c3af82a2dbbd3f9e4e8a6de4a4a3732dee42395c61da1ade3e53",
+      "derived_ansi_sha256": "ea5aebe0b92161b0aee875cc4e14638497b6efd9b6b2e13ae507cc7969ba0ec3",
+      "path_replacements": 1,
+      "columns": 120,
+      "rows": 40,
+      "cursor": [
+        2,
+        37,
+        false
+      ],
+      "screen": "\n\u001b[38;5;174m ▐\u001b[48;5;16m▛███▛█\u001b[39m\u001b[49m   \u001b[1mClaude Code\u001b[0m \u001b[38;5;246mv2.1.287\u001b[39m\n\u001b[38;5;174m▝▜\u001b[48;5;16m█████\u001b[49m█▀\u001b[39m  \u001b[38;5;246mOpus 5.5 · API Usage Billing\u001b[39m\n\u001b[38;5;174m ▝▝   ▝▝ \u001b[39m  \u001b[38;5;246m/synthetic/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u001b[39m\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\u001b[38;5;244m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n\u001b[39m❯ \u001b[7m \u001b[0m\n\u001b[38;5;244m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;211m⏵⏵ bypass permissions on\u001b[38;5;246m (shift+tab to cycle) · ← for agents\u001b[39m\n"
+    },
+    {
+      "source": "claude-resume/snap-r2-before-prompt",
+      "provider": "claude",
+      "version": "2.1.287",
+      "expected": "empty",
+      "original_ansi_sha256": "91fbd61d3bccced392ef02435abf0f45fb28633f7ff894f9d4f16b23663c5a85",
+      "original_metadata_sha256": "5671260322dffd94e0f331dde554d73c7d6564553b454c9fc1d0be8c063b2ba4",
+      "derived_ansi_sha256": "690285876fb9a98c66241c14bd32c341ba92117966462002c103d2aff8fa2064",
+      "path_replacements": 1,
+      "columns": 120,
+      "rows": 40,
+      "cursor": [
+        2,
+        37,
+        false
+      ],
+      "screen": "\n\u001b[38;5;174m ▐\u001b[48;5;16m▛███▛█\u001b[39m\u001b[49m   \u001b[1mClaude Code\u001b[0m \u001b[38;5;246mv2.1.287\u001b[39m\n\u001b[38;5;174m▝▜\u001b[48;5;16m█████\u001b[49m█▀\u001b[39m  \u001b[38;5;246mOpus 5.5 · API Usage Billing\u001b[39m\n\u001b[38;5;174m ▝▝   ▝▝ \u001b[39m  \u001b[38;5;246m/synthetic/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u001b[39m\n\n\n\u001b[38;5;246m\u001b[48;5;237m❯ \u001b[38;5;231mPlease reply with one short sentence confirming you can read this.\u001b[39m\n\n\u001b[38;5;231m\u001b[49m●\u001b[39m qorqut-native-probe-complete\n\n\u001b[38;5;246m✻\u001b[39m \u001b[38;5;246mBrewed for 0s · done 11:53 AM\u001b[39m\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\u001b[38;5;244m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n\u001b[39m❯ \u001b[7m \u001b[0m\n\u001b[38;5;244m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;211m⏵⏵ bypass permissions on\u001b[38;5;246m (shift+tab to cycle) · ← for agents\u001b[39m\n"
+    },
+    {
+      "source": "codex-fresh/snap-t3-after-hooks",
+      "provider": "codex",
+      "version": "0.160.0",
+      "expected": "empty",
+      "original_ansi_sha256": "1fcb3d2cd910f36ffa9cf667d2fc7aaffdd0ca46e2e6497c1afed16da50b09d5",
+      "original_metadata_sha256": "9320e091799ecdcdf221a254427a0e746cccb25f748e6c67973206511228877c",
+      "derived_ansi_sha256": "b8db0152a4e43467513b6d170a0518af4b22aeb8d30108cd286765b6a774bb9a",
+      "path_replacements": 2,
+      "columns": 120,
+      "rows": 40,
+      "cursor": [
+        2,
+        36,
+        true
+      ],
+      "screen": "\n  \u001b[38;5;75m>_ \u001b[1m\u001b[39mOpenAI Codex\u001b[0;2m (v0.160.0)\u001b[0m\n     \u001b[2m/synthetic/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u001b[0m\n\u001b[2m  permissions: \u001b[0;1m\u001b[38;5;5mYOLO mode\u001b[0m\n\n  \u001b[38;5;75mHello, world. Hello, you.\u001b[39m\n\n\u001b[2m  To get started, describe a task or try one of these commands:\u001b[0m\n\n  /init\u001b[2m - create an AGENTS.md file with instructions for Codex\u001b[0m\n  /status\u001b[2m - show current session configuration\u001b[0m\n  /permissions\u001b[2m - choose what Codex is allowed to do\u001b[0m\n  /model\u001b[2m - choose what model and reasoning effort to use\u001b[0m\n  /review\u001b[2m - review any changes and find issues\u001b[0m\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\u001b[1m›\u001b[0m \u001b[2mAsk Codex to do anything\u001b[0m\n\n  \u001b[38;5;223mGPT-6.1-Sol default\u001b[39m · \u001b[38;5;151m/synthetic/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n\u001b[39m  \u001b[1m?\u001b[0m for shortcuts\n"
+    },
+    {
+      "source": "codex-resume/snap-r2-after-hooks",
+      "provider": "codex",
+      "version": "0.160.0",
+      "expected": "empty",
+      "original_ansi_sha256": "ee575221b031decb2922a52b94394e7a2e65d8d596349e48bfe595697b2fb678",
+      "original_metadata_sha256": "61b816c652845826750e7989becaa8bb59dfd1e94fb77a274f19d5e0e7240a29",
+      "derived_ansi_sha256": "1bb0f398df9c3b054581d7e87e21522298bf04ab9100919ba75b0409334d0c83",
+      "path_replacements": 2,
+      "columns": 120,
+      "rows": 40,
+      "cursor": [
+        2,
+        36,
+        true
+      ],
+      "screen": "\n  \u001b[38;5;75m>_ \u001b[1m\u001b[39mOpenAI Codex\u001b[0;2m (v0.160.0)\u001b[0m\n     \u001b[2m/synthetic/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u001b[0m\n\u001b[2m  permissions: \u001b[0;1m\u001b[38;5;5mYOLO mode\u001b[0m\n\n\u001b[2m  To get started, describe a task or try one of these commands:\u001b[0m\n\n  /init\u001b[2m - create an AGENTS.md file with instructions for Codex\u001b[0m\n  /status\u001b[2m - show current session configuration\u001b[0m\n  /permissions\u001b[2m - choose what Codex is allowed to do\u001b[0m\n  /model\u001b[2m - choose what model and reasoning effort to use\u001b[0m\n  /review\u001b[2m - review any changes and find issues\u001b[0m\n\n\n\u001b[1;2m› \u001b[0mPlease reply with one short sentence confirming you can read this.\n\n\n\u001b[2m• \u001b[0mqorqut-native-probe-complete\n\n\u001b[2m  Worked for <1s • 12:10\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\u001b[0;1m›\u001b[0m \u001b[2mAsk Codex to do anything\u001b[0m\n\n  \u001b[38;5;223mGPT-6.1-Sol default\u001b[39m · \u001b[38;5;151m/synthetic/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n\u001b[39m  \u001b[1m?\u001b[0m for shortcuts\n"
+    },
+    {
+      "source": "claude-fresh/snap-t1-initial",
+      "provider": "claude",
+      "version": "2.1.287",
+      "expected": "setup",
+      "original_ansi_sha256": "1f3c3ad446a10160374eb7fefd0f07e0514776bfc9b6d1d0ba6a18235a79df84",
+      "original_metadata_sha256": "a878dbcff9f700d7ba9267eaa182cbdf591434ebb9e458a67dcd08b0dcb9be49",
+      "derived_ansi_sha256": "9bfe61f5cdfdc60962a3f36da33eacfe1383cc226899df33cc3401453b9ad32c",
+      "path_replacements": 1,
+      "columns": 120,
+      "rows": 40,
+      "cursor": [
+        1,
+        14,
+        false
+      ],
+      "screen": "\n\u001b[38;5;220m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n\u001b[39m \u001b[1m\u001b[38;5;220mAccessing\u001b[0m \u001b[1m\u001b[38;5;220mworkspace:\u001b[0m\n\n \u001b[1m/synthetic/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u001b[0m\n \u001b[1m/workspace\u001b[0m\n\n Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source\n project, or work from your team). If not, take a moment to review what's in this folder first.\n\n Claude Code'll be able to read, edit, and execute files here.\n\n \u001b[38;5;246m\u001b]8;id=zaxmda;https://code.claude.com/docs/en/security\u001b\\Security guide\u001b[39m\u001b]8;;\u001b\\\n\n \u001b[38;5;153m❯\u001b[39m \u001b[38;5;153mNo,\u001b[39m \u001b[38;5;153mexit\u001b[39m\n   Yes, I trust this folder\n\n \u001b[38;5;246mEnter\u001b[39m \u001b[38;5;246mto\u001b[39m \u001b[38;5;246mconfirm\u001b[39m \u001b[38;5;246m·\u001b[39m \u001b[38;5;246mEsc\u001b[39m \u001b[38;5;246mto\u001b[39m \u001b[38;5;246mcancel\u001b[39m\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"
+    },
+    {
+      "source": "codex-fresh/snap-t1-initial",
+      "provider": "codex",
+      "version": "0.160.0",
+      "expected": "setup",
+      "original_ansi_sha256": "9a78c5515b0324018b8468fda5f989f0e51dce5799ba244dc251c8b0c9f1b9a1",
+      "original_metadata_sha256": "858ee05fcf6b80370059ab19d4a136c7a31e1e87b78fdb3056f87feae78cf66b",
+      "derived_ansi_sha256": "9a78c5515b0324018b8468fda5f989f0e51dce5799ba244dc251c8b0c9f1b9a1",
+      "path_replacements": 0,
+      "columns": 120,
+      "rows": 40,
+      "cursor": [
+        1,
+        36,
+        false
+      ],
+      "screen": "\n  \u001b[1mHooks need review\u001b[0m\n  \u001b[38;5;3m8 hooks are new or changed.\u001b[39m\n  \u001b[2mHooks can run outside the sandbox after you trust them.\u001b[0m\n\n\n\u001b[1;7m› 1. Review hooks\n\u001b[0m  2. Trust all and continue\n  3. Continue without trusting (hooks won't run)\n\n  \u001b[1menter\u001b[0;2m confirm · \u001b[0;1mesc\u001b[0;2m skip\n\u001b[0m\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"
+    }
+  ]
+}
