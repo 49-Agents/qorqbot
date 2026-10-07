@@ -57,6 +57,19 @@ and actual file hash together in the last-written manifest. Add grouped checks
 for preserve -> ordinary retry -> refused rotation without data loss, and for
 permitted rotation of an untouched generated config.
 
+Review 172 clarification: compare the config with the already validated expected
+bytes again after the final manifest atomic write returns, before reporting
+preparation success. A mismatch raises the existing preparation conflict and
+preserves the native edit. Do not add rollback writes or another lock protocol:
+the manifest may already be installed and records the last validated generation,
+not current readiness. Retry must revalidate the live config under the rules
+above; changed owned fields still refuse before writes. Earlier detected races
+retain the old manifest; this final window can leave the new one. No observation
+guarantees against a native edit after the final check. Extend the existing grouped
+race check with an edit inside the final manifest replacement, preserving the edit,
+refusing an incompatible retry, and accepting a later compatible retry with the
+actual preserved hash. No new test matrix or generic configuration manager.
+
 Extend the existing preparation tests with the observed native rewrite shape,
 including hook approval tables and model/effort/user extras. Prove bytes survive
 new-run prepare and ordinary retries; malformed/changed owned fields and mixed
