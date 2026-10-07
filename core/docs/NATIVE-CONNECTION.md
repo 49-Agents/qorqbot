@@ -33,7 +33,7 @@ running-core/manual-CLI check. A unit test of a seam is not that connected check
 ## Hook admission
 
 Implement a local `NativeHooks` service assembled on Application. Its trusted
-`handle(context, request, *, terminal, program)` entry receives a verified live
+`handle(context, request, *, terminal, program, configured_programs)` entry receives a verified live
 ShellView and an explicitly configured NativeProgram(provider, cli_version,
 absolute native executable). It returns connected/reconnected, conflict,
 unavailable, or observed, with a fixed explanation and optional owner identity.
@@ -43,9 +43,12 @@ the native JSON.
 
 Walk at most 32 /proc parents from that exact live hook process to the supplied
 shell. Recheck start fingerprints and the shell binding. Select the configured
-native executable in that chain, not Node or the hook helper. Reject another
-root native executable between the selected process and shell: a child agent
-must not connect independently. Check provider compatibility against the pinned
+native executable in that chain, not Node or the hook helper. The trusted
+configured_programs inventory includes each installed provider, and exactly one
+process in the chain may match any configured executable. Multiple provider
+configurations sharing one executable do not count that process twice. Reject
+another configured native ancestor, including a different provider: a child
+agent must not connect independently. Check provider compatibility against the pinned
 profiles. This prevents accidental association; it is not hostile-user security.
 
 SessionStart takes its UUID and transcript path from the native hook, derives
@@ -226,3 +229,11 @@ three owning checks and an independent recovery-retention reproduction. See
 `evidence/native-capture-r1.md`. It preserves bytes and pending intent under
 host recovery/conflict holds. Its automatic scheduling and connection to the
 accepted projection seam are still pending.
+
+The hook setup/client/admission seam at
+`5706c0e85a9c00887d46419abcdb92eb36bdde19` has passed direct Manager review and
+six focused checks. The internal receiver resolves both providers from their
+exact known private binding files; an absent peer permits single-provider
+setup, while malformed or mismatched existing peer configuration is unavailable.
+See `evidence/native-hooks-r1.md`. Normal configuration installation, periodic
+collection and actual manually started native CLI acceptance remain pending.

@@ -23,6 +23,7 @@ from ..app import Application
 from ..config import InstallationSettings
 from ..contracts import CoreError, Invocation, OperationResult
 from ..runtime import SessionMonitor
+from ..runtime.native_hooks import NativeHookRequest, NativeHookResult
 from ..runtime.terminal_models import CLIENT_MESSAGE
 from ..runner.models import RunnerError
 from ..storage.worker import JobWorker
@@ -78,6 +79,18 @@ class Dispatcher:
     async def close(self):
         self.closing = True
         await _settle_sync(self.pool.shutdown)
+
+    async def native_hook(self, context, request) -> NativeHookResult:
+        if self.closing or len(self.pending) >= MAX_CALLS:
+            return NativeHookResult.result("unavailable")
+        future = asyncio.get_running_loop().run_in_executor(
+            self.pool, self.application.native_hooks.receive, context, request)
+        self.pending.add(future)
+        future.add_done_callback(self._finished)
+        try:
+            return await asyncio.shield(future)
+        except Exception:
+            return NativeHookResult.result("unavailable")
 
 
 async def _join_tasks(tasks):
@@ -398,6 +411,21 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
                 "output_data_schema": op.output.model_json_schema() if op.output is not None else None}
                 for op in registry.values()]}, headers={"Cache-Control": "no-store"})
 
+    async def native_hook(request):
+        # This is a bearer-authenticated internal observation, not a browser or
+        # model operation. Boundary has already authenticated and bounded input.
+        if not request.headers.get("authorization"):
+            return failure(401, "unauthenticated", "Bearer authentication required")
+        if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+            return failure(415, "invalid_request", "Content-Type must be application/json")
+        try:
+            body = NativeHookRequest.model_validate(json_object(await request.body()))
+        except (InputError, ValidationError, ValueError, UnicodeError, RecursionError):
+            return JSONResponse(NativeHookResult.result("unavailable").model_dump(mode="json"), status_code=400)
+        result = await request.app.state.dispatcher.native_hook(request.scope["qorqut.invocation"], body)
+        status = 409 if result.outcome == "conflict" else 503 if result.outcome == "unavailable" else 200
+        return JSONResponse(result.model_dump(mode="json"), status_code=status)
+
     async def live(request):
         return JSONResponse({"live": True}, headers={"Cache-Control": "no-store"})
 
@@ -435,6 +463,7 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
         Route("/api/v1/session", session, methods=["GET", "POST", "DELETE"]),
         Route("/api/v1/schema", schema, methods=["GET"]),
         Route("/api/v1/operations/{name}", operation, methods=["POST"]),
+        Route("/api/v1/native/hook", native_hook, methods=["POST"]),
         WebSocketRoute("/api/v1/terminal/{agent_id}", terminals.endpoint),
         # Stateless JSON MCP has no server-initiated stream. GET is optional in
         # Streamable HTTP; 405 avoids keeping an unused SSE stream alive forever.

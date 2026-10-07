@@ -319,6 +319,37 @@ class Terminals:
                 self._streams.pop(viewer, None)
             raise
 
+    def native_context(self, agent_id, terminal_id):
+        """Inspect only the current recorded shell; never create or attach one."""
+        assert_external_io_allowed()
+        with self.db.lock.use(), self.db.lock.effects:
+            with self.db.read() as tx:
+                target, row, installation = self._target(tx, agent_id)
+            if self._base(target, row, installation).reason != "not_observed":
+                raise CoreError("not_ready", "Native terminal is unavailable")
+            with self._lock:
+                manager, cached = self._manager, self._cache
+                if (self._closing or manager is None or cached is None or cached[0] != target
+                        or cached[1].terminal_id != terminal_id):
+                    raise CoreError("not_ready", "Native terminal is unavailable")
+            with self.app.workspaces.owned(row, installation) as (_, guard):
+                shell = manager.inspect(terminal_id)
+                agent, _, _ = self._paths(target)
+                if (shell.terminal_id != terminal_id or shell.state != "running" or shell.shell is None
+                        or not shell.capture.verified or not shell.capture.terminal_active
+                        or shell.spec.agent_id != target.agent_id or shell.spec.recovery_epoch != target.recovery_epoch
+                        or str(shell.spec.installation_id) != installation["installation_id"]
+                        or shell.spec.environment_generation != 1
+                        or shell.spec.home != agent / "runtime/home" or shell.spec.workspace != agent / "workspace"):
+                    raise CoreError("target_changed", "Native shell binding is unavailable")
+                guard()
+                with self.db.read() as tx:
+                    current, _, _ = self._target(tx, agent_id)
+                with self._lock:
+                    if self._closing or self._manager is not manager or current != target:
+                        raise CoreError("target_changed", "Native terminal target changed")
+                return shell
+
     def close(self):
         with self._lock:
             self._closing = True
