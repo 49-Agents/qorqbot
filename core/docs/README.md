@@ -3,7 +3,7 @@
 Start with [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md) for the owner's
 2026-10-08 scope correction: manual CLI startup and one logical inbox owner.
 
-Current parallel implementation: [inbox ownership](INBOX-OWNERSHIP.md),
+Accepted local components: [inbox ownership](INBOX-OWNERSHIP.md),
 [recorded shells](RECORDED-SHELL.md), and
 [adapter rehearsal fixes](ADAPTER-REHEARSAL-FIXES.md). D37 assigns disjoint
 ownership and the following combined integration check.
@@ -13,9 +13,12 @@ The local recorded-shell increment has also passed
 [bounded acceptance](evidence/recorded-shell-manager-acceptance.md); its host
 activation and Terminal UI connection remain pending.
 Manual creation has passed [scoped review](evidence/manual-creation-manager-acceptance.md)
-and its [combined core/UI check](MANUAL-CREATION-INTEGRATION.md) is now in
-independent review. [Adapter corrections](evidence/adapter-rehearsal-manager-acceptance.md)
+and [combined core/UI acceptance](evidence/manual-creation-integration-manager-acceptance.md),
+including real browser checks, automatic dated files and normal restart.
+[Adapter corrections](evidence/adapter-rehearsal-manager-acceptance.md)
 have passed bounded acceptance; captured composer recognition still denies live paste.
+Connecting a user-started CLI to the inbox, Terminal/Chat and native-history
+collection is the next integration; these local components do not prove that flow.
 
 The [global implementation plan](IMPLEMENTATION-PLAN.md) is the entry point and the authority for scope, dependencies and delivery gates. Module plans expand it; they do not silently override shared contracts.
 

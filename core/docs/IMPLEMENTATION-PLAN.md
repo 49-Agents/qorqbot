@@ -14,7 +14,9 @@ D37's [inbox ownership](INBOX-OWNERSHIP.md),
 [persistent recorded shell](RECORDED-SHELL.md) and
 [adapter corrections](ADAPTER-REHEARSAL-FIXES.md) increments have passed bounded
 acceptance. The [paired creation integration](MANUAL-CREATION-INTEGRATION.md)
-remains in independent review. Only ownership changes host schema/application assembly. Connecting
+has also passed [independent review and Manager acceptance](evidence/manual-creation-integration-manager-acceptance.md)
+against the actual compiled UI and installed console server. Within D37, only
+ownership changes host schema/application assembly. Connecting
 startup hooks, recorded shells, Terminal UI, delivery and native capture remains
 the following runtime integration; accepted components alone do not prove it.
 

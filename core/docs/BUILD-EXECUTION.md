@@ -5,9 +5,11 @@
 D36 is accepted: [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md). Core and
 UI manual-creation implementations have passed scoped review, including the
 core test's synchronization correction and fresh Astra MAX review. The
-[combined core/UI check](MANUAL-CREATION-INTEGRATION.md) has completed at
-`5a50666` with UI `6a4841d` and is undergoing fresh Astra MAX review before
-landing them together. Native rehearsal
+[combined core/UI check](MANUAL-CREATION-INTEGRATION.md) at
+`5a50666` with UI `6a4841d` has passed fresh Astra MAX review and
+[Manager acceptance](evidence/manual-creation-integration-manager-acceptance.md).
+The accepted pair is integrated with the separately reviewed shell and adapter
+changes. Native rehearsal
 corrections passed [Manager acceptance](evidence/native-rehearsal-manager-acceptance.md).
 Its product observations are not a completed runtime.
 
@@ -16,8 +18,9 @@ D37's independent [inbox ownership](INBOX-OWNERSHIP.md),
 [adapter corrections](ADAPTER-REHEARSAL-FIXES.md) increments are accepted. Adapter
 revision `9737e2a` passed fresh Astra MAX review and
 [Manager checks](evidence/adapter-rehearsal-manager-acceptance.md), including the
-final manifest-write race correction. The paired creation integration review
-runs independently. These completed interfaces feed
+final manifest-write race correction. The accepted paired creation check includes
+actual browser/core sessions, automatic dated files and normal restart.
+These completed interfaces feed
 one explicitly owned runtime integration, followed by the actual Terminal UI
 and onbash flow check; the existing ten-actor cap remains.
 No automatic CLI orchestration or context-packet work is authorized by old plans.
@@ -77,9 +80,10 @@ None of these assignments declares VM/native/browser control complete.
 
 | Assignment | Accepted revision | Independent review and Manager evidence | Remaining work |
 | --- | --- | --- | --- |
+| Manual creation with actual compiled UI and schema-6 core | Core `5a50666`, UI `6a4841d` | Fresh Astra MAX review passed historical migration/replay, installed HTTP/MCP creation and both actual Chrome/core modes. Manager verified package/UI/artifact bytes, passed historical and installed creation checks, and inspected desktop/mobile screenshots. [Acceptance](evidence/manual-creation-integration-manager-acceptance.md). | User-started CLI association, shell activation, Terminal transport/UI, actual Chat delivery and native assistant ingestion. No deployment or whole-system acceptance. |
 | Native config preservation and captured composers | `9737e2a` | Fresh Astra MAX review passed 32 source and five installed checks plus generated-mode race and original-fixture diagnostics. Manager matched 56 package files, passed two installed preservation/composer checks and reproduced rejection of the original final-write race. [Acceptance](evidence/adapter-rehearsal-manager-acceptance.md). | Offline compatibility only; `native_verified` and `permits_paste` remain false. Startup association, live input and native ingestion still require integration. |
 | Persistent recorded shell and human attachment | `395d831` | Fresh Astra MAX review passed seven source and two installed checks, including actual recorder import provenance. Manager inspected the implementation, matched 59 package files and passed two installed process-restart/capture and uncertain-input/recorder-failure checks. [Acceptance](evidence/recorded-shell-manager-acceptance.md). | Host activation, startup/native association, Terminal transport/UI, Chat delivery, native ingestion, VM/browser and service-lifetime integration. |
-| Identity-only creation and immutable historical replay | `8d2039f` | Fresh Astra MAX review of the corrected flow found no defects. Manager verified 56 installed package files and passed the formerly failing timing scenario against the real server worker. [Scoped acceptance](evidence/manual-creation-manager-acceptance.md). | Combined schema-6 core and actual compiled UI acceptance before landing; native Terminal/Chat integration remains separate. |
+| Identity-only creation and immutable historical replay | `8d2039f` | Fresh Astra MAX review of the corrected flow found no defects. Manager verified 56 installed package files and passed the formerly failing timing scenario against the real server worker. [Scoped acceptance](evidence/manual-creation-manager-acceptance.md). | Combined schema-6 core/UI acceptance is recorded above; native Terminal/Chat integration remains separate. |
 | Local onbash inbox ownership | `1af5f85` | Fresh Astra MAX review found no in-scope defects; twelve runtime and three inventory/schema checks plus an installed real-child flow passed. Manager verified 61 package files and passed four installed ownership/recovery checks. [Acceptance](evidence/inbox-ownership-manager-acceptance.md). | Native hook/process association, shell composition, delivery, assistant capture, Terminal UI and VM/browser integration. `input_ready` remains false. |
 | Pinned native CLI rehearsal | `13227a8` | Fresh Sonnet 5.5 xhigh review and [Manager evidence acceptance](evidence/native-rehearsal-manager-acceptance.md); actual loopback-fake-provider fresh/resume observations, with fixture boundaries and timing corrections. | Manual startup/inbox/Chat integration, composer/config fixes, native reader/normalization, complete source coverage, actual provider and VM acceptance. |
 | First connected UI and actual core integration | UI [`cbff84d`](https://github.com/qorqutbot/qorqutbot-ui/blob/cbff84d1e92066d13f9ff5322b49a32fc7f0203a/docs/evidence/ui-shell-r1.md), core `faf311d` | Fresh Sonnet 5.5 medium review passed locked build and six grouped Chrome checks. Manager matched 40 UI and 56 installed core files, reproduced build hashes and passed two actual Chrome/core flows with no mock API: metadata, three messages, both dated files, restart, sessions and responsive layouts. [Manager acceptance](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/ui-shell-manager-acceptance.md). | Native assistant replies/delivery, browser/file cards, VM/browser execution, continuity/export/restore and full system gates remain pending. |
