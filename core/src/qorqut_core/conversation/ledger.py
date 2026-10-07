@@ -6,15 +6,25 @@ from ..agents.registry import get_row
 from ..app import Change, Operation
 from ..contracts import CoreError, canonical
 from ..messaging import records
-from .models import ConversationList, ConversationPage, Entry, MessageSource, Publication, PublishJob
+from .models import ConversationList, ConversationPage, Entry, MessageSource, NativeSource, Publication, PublishJob
 
 
-def entry_view(row) -> Entry:
+def entry_view(row, native=None) -> Entry:
+    if row["source_type"] == "native":
+        source = NativeSource(**{key: row[key] for key in (
+            "run_id", "provider", "source_id", "source_epoch", "offset", "length")},
+            **{key: native[key] for key in ("sha256", "parser_version", "native_id", "part_index", "timestamp_origin")})
+    else:
+        source = MessageSource(type=row["source_type"], **{key: row[key] for key in (
+            "message_id", "run_id", "provider", "source_id", "source_epoch", "offset", "length")})
     return Entry(**{key: row[key] for key in (
         "entry_id", "agent_id", "conversation_id", "conversation_seq", "kind", "role", "direction",
-        "text", "sender_actor_id", "occurred_at", "recorded_at")},
-        source=MessageSource(type=row["source_type"], **{key: row[key] for key in (
-            "message_id", "run_id", "provider", "source_id", "source_epoch", "offset", "length")}))
+        "text", "sender_actor_id", "occurred_at", "recorded_at")}, source=source)
+
+
+def entry_views(tx, rows):
+    return [entry_view(row, tx.connection.execute("SELECT * FROM conversation_native WHERE entry_id=?",
+        (row["entry_id"],)).fetchone() if row["source_type"] == "native" else None) for row in rows]
 
 
 def transcript_line(entry: Entry) -> bytes:
@@ -28,6 +38,12 @@ class Conversations:
 
     def operations(self):
         return (Operation("conversation_list", ConversationList, False, self.list, ConversationPage),)
+
+    def append_native(self, tx, agent_id, item, provenance, *, operation_id=None):
+        """Internal SQL-only native insertion; caller verifies the archived bytes."""
+        from .native import append_native
+
+        return append_native(self, tx, agent_id, item, provenance, operation_id=operation_id)
 
     def append_message(self, tx, agent_id, message, *, operation_id):
         """Internal platform insertion seam; not a public/native assistant writer.
@@ -99,8 +115,10 @@ class Conversations:
             (*values, args.limit)).fetchall()
         if order == "DESC":
             rows.reverse()
-        items = [{**entry_view(row).model_dump(mode="json"),
-            "delivery": records.delivery(tx, row["message_id"]), "handling": records.handling(tx, row["message_id"])} for row in rows]
+        items = [{**entry.model_dump(mode="json"),
+            "delivery": records.delivery(tx, row["message_id"]) if row["message_id"] else None,
+            "handling": records.handling(tx, row["message_id"]) if row["message_id"] else None}
+            for row, entry in zip(rows, entry_views(tx, rows))]
         first, last = (rows[0]["conversation_seq"], rows[-1]["conversation_seq"]) if rows else (None, None)
         # Empty pages still tell the caller on which side saved entries exist.
         older = ("conversation_seq<?", first) if rows else (

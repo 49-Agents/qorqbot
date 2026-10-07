@@ -388,5 +388,96 @@ MIGRATIONS = (
         """CREATE TRIGGER session_owners_no_delete BEFORE DELETE ON session_owners
             BEGIN SELECT RAISE(ABORT,'Session history is permanent'); END""",
     )),
+    Migration(7, (
+        # Keep every pre-native column/value, with native-only provenance in a
+        # companion table. Nothing refers to the old entries table as a parent.
+        """CREATE TABLE conversation_entries_v7 (
+            entry_id TEXT NOT NULL PRIMARY KEY,
+            agent_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
+            conversation_seq INTEGER NOT NULL CHECK(typeof(conversation_seq)='integer' AND conversation_seq>0),
+            kind TEXT NOT NULL CHECK(kind='message'), role TEXT NOT NULL CHECK(role IN ('user','agent')),
+            direction TEXT NOT NULL CHECK(direction IN ('incoming','outgoing')),
+            text TEXT NOT NULL CHECK(length(CAST(text AS BLOB)) BETWEEN 1 AND 65536),
+            sender_actor_id TEXT REFERENCES actors(actor_id),
+            source_type TEXT NOT NULL CHECK(source_type IN ('message','native')),
+            message_id TEXT REFERENCES messages(message_id),
+            run_id TEXT, provider TEXT, source_id TEXT, source_epoch TEXT,
+            offset INTEGER CHECK(offset IS NULL OR (typeof(offset)='integer' AND offset>=0)),
+            length INTEGER CHECK(length IS NULL OR (typeof(length)='integer' AND length>=0)),
+            occurred_at TEXT NOT NULL, recorded_at TEXT NOT NULL, recording_date TEXT NOT NULL,
+            FOREIGN KEY(agent_id,conversation_id) REFERENCES conversation_cursors(agent_id,conversation_id),
+            FOREIGN KEY(run_id,source_id,source_epoch) REFERENCES archive_run_sources(run_id,source_id,source_epoch),
+            UNIQUE(conversation_id,conversation_seq), UNIQUE(agent_id,conversation_seq), UNIQUE(agent_id,message_id),
+            UNIQUE(entry_id,source_id,source_epoch),
+            CHECK((source_type='message' AND message_id IS NOT NULL AND sender_actor_id IS NOT NULL)
+                OR (source_type='native' AND message_id IS NULL AND run_id IS NOT NULL
+                    AND provider IN ('claude','codex') AND provider IS NOT NULL
+                    AND source_id IS NOT NULL AND source_epoch IS NOT NULL AND offset IS NOT NULL
+                    AND length IS NOT NULL AND length>0 AND offset<=9223372036854775807-length
+                    AND ((role='user' AND sender_actor_id IS NULL AND direction='incoming')
+                        OR (role='agent' AND sender_actor_id IS NOT NULL AND direction='outgoing')))))""",
+        "INSERT INTO conversation_entries_v7 SELECT * FROM conversation_entries",
+        "DROP TABLE conversation_entries",
+        "ALTER TABLE conversation_entries_v7 RENAME TO conversation_entries",
+        "CREATE INDEX conversation_entries_day ON conversation_entries(agent_id,recording_date,conversation_seq)",
+        """CREATE TABLE conversation_native (
+            entry_id TEXT NOT NULL PRIMARY KEY,
+            source_id TEXT NOT NULL, source_epoch TEXT NOT NULL,
+            parser_version TEXT NOT NULL CHECK(length(parser_version) BETWEEN 1 AND 100),
+            native_id TEXT NOT NULL CHECK(length(native_id) BETWEEN 1 AND 512),
+            part_index INTEGER NOT NULL CHECK(typeof(part_index)='integer' AND part_index>=0),
+            sha256 TEXT NOT NULL CHECK(length(sha256)=64),
+            timestamp_origin TEXT NOT NULL CHECK(timestamp_origin IN ('native','ingestion')),
+            FOREIGN KEY(entry_id,source_id,source_epoch) REFERENCES conversation_entries(entry_id,source_id,source_epoch),
+            UNIQUE(source_id,source_epoch,parser_version,native_id,part_index))""",
+        """CREATE TRIGGER conversation_native_binding BEFORE INSERT ON conversation_native
+            WHEN NOT EXISTS (SELECT 1 FROM conversation_entries WHERE entry_id=NEW.entry_id AND source_type='native')
+            BEGIN SELECT RAISE(ABORT,'Native entry provenance disagrees'); END""",
+        """CREATE TRIGGER conversation_native_actor BEFORE INSERT ON conversation_entries
+            WHEN NEW.source_type='native' AND NEW.role='agent' AND NOT EXISTS
+                (SELECT 1 FROM agents WHERE id=NEW.agent_id AND actor_id=NEW.sender_actor_id)
+            BEGIN SELECT RAISE(ABORT,'Native agent attribution disagrees'); END""",
+        """CREATE TABLE native_projections (
+            source_id TEXT NOT NULL, source_epoch TEXT NOT NULL, parser_version TEXT NOT NULL,
+            PRIMARY KEY(source_id,source_epoch), UNIQUE(source_id,source_epoch,parser_version),
+            FOREIGN KEY(source_id,source_epoch) REFERENCES archive_epochs(source_id,source_epoch))""",
+        """CREATE TABLE native_parse_checkpoints (
+            source_id TEXT NOT NULL, source_epoch TEXT NOT NULL, parser_version TEXT NOT NULL,
+            through_offset INTEGER NOT NULL CHECK(typeof(through_offset)='integer' AND through_offset>=0),
+            scan_offset INTEGER NOT NULL CHECK(typeof(scan_offset)='integer' AND scan_offset>=through_offset),
+            ingested_at TEXT NOT NULL,
+            PRIMARY KEY(source_id,source_epoch,parser_version),
+            FOREIGN KEY(source_id,source_epoch,parser_version)
+                REFERENCES native_projections(source_id,source_epoch,parser_version))""",
+        """CREATE TABLE native_parse_gaps (
+            source_id TEXT NOT NULL, source_epoch TEXT NOT NULL, parser_version TEXT NOT NULL,
+            from_offset INTEGER NOT NULL CHECK(typeof(from_offset)='integer' AND from_offset>=0),
+            through_offset INTEGER NOT NULL CHECK(typeof(through_offset)='integer' AND through_offset>from_offset),
+            reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 100), recorded_at TEXT NOT NULL,
+            PRIMARY KEY(source_id,source_epoch,parser_version,from_offset),
+            FOREIGN KEY(source_id,source_epoch,parser_version)
+                REFERENCES native_parse_checkpoints(source_id,source_epoch,parser_version))""",
+        """CREATE TRIGGER native_parse_checkpoints_forward BEFORE UPDATE ON native_parse_checkpoints
+            WHEN NEW.source_id IS NOT OLD.source_id OR NEW.source_epoch IS NOT OLD.source_epoch
+                OR NEW.parser_version IS NOT OLD.parser_version OR NEW.through_offset<OLD.through_offset
+                OR NEW.scan_offset<OLD.scan_offset
+            BEGIN SELECT RAISE(ABORT,'Parser checkpoint cannot regress or change identity'); END""",
+        *tuple(statement for table, key in (
+            ("conversation_entries", "entry_id=NEW.entry_id OR (agent_id=NEW.agent_id AND message_id=NEW.message_id) OR (agent_id=NEW.agent_id AND conversation_seq=NEW.conversation_seq) OR (conversation_id=NEW.conversation_id AND conversation_seq=NEW.conversation_seq)"),
+            ("conversation_native", "entry_id=NEW.entry_id OR (source_id=NEW.source_id AND source_epoch=NEW.source_epoch AND parser_version=NEW.parser_version AND native_id=NEW.native_id AND part_index=NEW.part_index)"),
+            ("native_projections", "source_id=NEW.source_id AND source_epoch=NEW.source_epoch"),
+            ("native_parse_checkpoints", "source_id=NEW.source_id AND source_epoch=NEW.source_epoch AND parser_version=NEW.parser_version"),
+            ("native_parse_gaps", "source_id=NEW.source_id AND source_epoch=NEW.source_epoch AND parser_version=NEW.parser_version AND from_offset=NEW.from_offset"),
+        ) for statement in (
+            f"""CREATE TRIGGER {table}_no_replace BEFORE INSERT ON {table}
+                WHEN EXISTS (SELECT 1 FROM {table} WHERE {key})
+                BEGIN SELECT RAISE(ABORT,'Conversation evidence cannot be replaced'); END""",
+            f"""CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table}
+                BEGIN SELECT RAISE(ABORT,'Conversation evidence is permanent'); END""",
+        )),
+        *tuple(f"""CREATE TRIGGER {table}_no_update BEFORE UPDATE ON {table}
+            BEGIN SELECT RAISE(ABORT,'Conversation evidence is immutable'); END""" for table in (
+                "conversation_entries", "conversation_native", "native_projections", "native_parse_gaps")),
+    )),
 )
 SCHEMA_VERSION = MIGRATIONS[-1].version

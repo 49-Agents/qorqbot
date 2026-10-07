@@ -6,7 +6,8 @@ from uuid import UUID
 
 from pydantic import AfterValidator, Field, model_validator
 
-from ..contracts import Counter, ErrorCode, Model, Revision, Timestamp
+from ..adapters.native_records import NativeId
+from ..contracts import Counter, Digest, ErrorCode, Model, Revision, Timestamp
 from ..messaging.models import Body, DeliveryView, HandlingView, PageLimit
 
 
@@ -46,6 +47,24 @@ class MessageSource(Model):
     length: Counter | None = None
 
 
+class NativeProvenance(Model):
+    provider: Literal["claude", "codex"]
+    run_id: UUID
+    source_id: UUID
+    source_epoch: UUID
+    offset: Counter
+    length: Revision
+    sha256: Digest
+    parser_version: Annotated[str, Field(min_length=1, max_length=100)]
+
+
+class NativeSource(NativeProvenance):
+    type: Literal["native"] = "native"
+    native_id: NativeId
+    part_index: Counter
+    timestamp_origin: Literal["native", "ingestion"]
+
+
 class Entry(Model):
     entry_id: UUID
     agent_id: UUID
@@ -55,14 +74,14 @@ class Entry(Model):
     role: Literal["user", "agent"]
     direction: Literal["incoming", "outgoing"]
     text: Body
-    sender_actor_id: UUID
-    source: MessageSource
+    sender_actor_id: UUID | None
+    source: Annotated[MessageSource | NativeSource, Field(discriminator="type")]
     occurred_at: Timestamp
     recorded_at: Timestamp
 
 
 class ConversationItem(Entry):
-    delivery: DeliveryView
+    delivery: DeliveryView | None
     handling: HandlingView | None
 
 
