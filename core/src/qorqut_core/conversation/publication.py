@@ -11,7 +11,7 @@ from ..contracts import CoreError, JobProgress, JobResolution
 from ..storage.database import assert_external_io_allowed
 from ..storage.files import directory, file_hash
 from ..storage.jobs import JobHandler, after
-from .ledger import entry_view, transcript_line
+from .ledger import entry_views, transcript_line
 from .models import PublishJob
 
 PAGE_SIZE = 32  # At most 32 bounded message bodies, never a whole-day buffer.
@@ -138,11 +138,12 @@ class Publisher:
                 rows = tx.connection.execute("""SELECT * FROM conversation_entries WHERE agent_id=? AND recording_date=?
                     AND conversation_seq>? AND conversation_seq<=? ORDER BY conversation_seq LIMIT ?""",
                     (str(args.agent_id), args.date, after_seq, target, PAGE_SIZE)).fetchall()
+                entries = entry_views(tx, rows)
             if not rows:
                 raise CoreError("target_changed", "Frozen transcript partition has a missing ledger suffix")
             # Close the snapshot before every file write; renew between pages.
-            for row in rows:
-                yield transcript_line(entry_view(row))
+            for entry in entries:
+                yield transcript_line(entry)
             after_seq = rows[-1]["conversation_seq"]
             self.db.fault("conversation_after_page")
         verify()

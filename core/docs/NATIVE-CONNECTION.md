@@ -204,3 +204,13 @@ the existing synthetic provider harness. Verify one inbox owner, refusal of a
 second, restart/resume, raw bytes and automatic dated assistant history. Actual
 Chat dispatch remains separately gated by the accepted human hold and native
 composer behavior; connecting an inbox does not make pasted input safe.
+
+## Accepted seams
+
+The parser and native conversation projection at
+`76c3deba5df4571006c26c718bf913650631a1f6` have passed direct Manager review and
+four focused checks, including closed-session history and automatic dated
+publication. See `evidence/native-projection-r1.md`. This accepts the callable
+archive-to-conversation seam and schema 7; normal core scheduling, manual hook
+installation, native capture transfer and the connected CLI workflow still
+need their integration acceptance.

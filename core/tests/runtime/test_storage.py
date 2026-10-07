@@ -57,7 +57,7 @@ class Storage(RuntimeCase):
                     clause = " WHERE version<=5" if table == "schema_migrations" else ""
                     after = [tuple(r) for r in tx.connection.execute(f"SELECT * FROM {table}{clause}")]
                     self.assertEqual(after, before[table], table)
-                self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 6)
+                self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 7)
                 self.assertEqual(tx.connection.execute("PRAGMA foreign_key_check").fetchall(), [])
             replay = upgraded.invoke("messages_send", self.context, {"recipient_agent_id": host,
                 "body": "Original 文\nmessage", "idempotency_key": "pre-migration"})
