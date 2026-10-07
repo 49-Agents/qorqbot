@@ -28,8 +28,10 @@ and job-runner helpers without editing that schema; UI owns its repository.
 All three use the frozen operation/session contracts and receive separate
 fresh reviews. Native prefix and console hosting have passed their bounded
 reviews and Manager checks. The corrected chat domain has also passed independent
-review and Manager checks. Its combination with console hosting remains on the
-coordination branch pending [running-server verification](CHAT-SERVER-INTEGRATION.md).
+review and Manager checks. Their combination has now passed
+[running-server verification](CHAT-SERVER-INTEGRATION.md) and independent review;
+[Manager acceptance](evidence/chat-server-manager-acceptance.md) records the
+automatic publication and restart evidence for main integration.
 UI review found a further uncertainty-retention defect; its correction remains
 pending. Actual-browser UI/backend testing follows acceptance of both pieces.
 None of these assignments declares VM/native/browser control complete.
@@ -38,6 +40,7 @@ None of these assignments declares VM/native/browser control complete.
 
 | Assignment | Accepted revision | Independent review and Manager evidence | Remaining work |
 | --- | --- | --- | --- |
+| Running-server chat publication | [`4e969f9`](https://github.com/qorqutbot/qorqut-core/blob/4e969f944cd5736de7a42ead0ebc60592804b5c3/docs/evidence/chat-server-integration-r1.md) | Fresh Sonnet 5.5 xhigh review passed 30 source transport tests, source messaging, five installed checks and child-provenance checks without blocking findings. Manager inspected all six changed paths, verified unchanged product bytes, 158 tracked files, 56 installed files and 31 pins, then passed both installed publication/restart flows. [Manager acceptance](evidence/chat-server-manager-acceptance.md). | Real UI/backend browser testing; native assistant capture/delivery, VM/browser lifecycle, continuity/export/restore and full system gates remain pending. |
 | Durable messages and dated conversation files | [`5a79f48`](https://github.com/qorqutbot/qorqut-core/blob/5a79f480b448c1eb3d4172e6e83947146015283d/docs/evidence/chat-domain-r1.md) | Fresh Astra MAX review passed 22 source and four installed checks without remaining findings. Manager reviewed the production/schema change, matched 142 tracked and 50 installed Python files plus 29 runtime pins, passed two installed message/publication checks and replayed both corrected failure diagnostics. [Manager acceptance](evidence/chat-domain-manager-acceptance.md). | Combined running-server publication and real UI checks; native assistant capture/delivery, browser/VM lifecycle, export/restore and system gates remain pending. |
 | Headless jobs, console sessions and optional static UI | [`b51f309`](https://github.com/qorqutbot/qorqut-core/blob/b51f3099c2cb4ed6690667882cd1bcad63cf1675/docs/evidence/console-server-r1.md) | Fresh Astra MAX review found no defects; 28 final-source tests, five installed checks and a real file-effect/mutation cancellation diagnostic passed. Manager inspected the complete production change, verified 133 tracked files, 46 installed Python files, 31 pins and the clean/pushed SHA, then passed two installed static-serving/startup-cancellation checks. [Manager acceptance](evidence/console-server-manager-acceptance.md). | Actual chat publisher and UI integration, native collection/delivery/replies, browser/VM runtime and system gates remain pending. No deployment or whole G0–G6 acceptance. |
 | Native receipt and file-prefix verification | [`c4ac16d`](https://github.com/qorqutbot/qorqut-core/blob/c4ac16d6fe1963774026f43a74b5fa491b5c5f89/docs/evidence/native-prefix-r1.md) | Fresh Astra MAX review passed nine prefix and nine existing spool source tests plus nine installed prefix tests. Manager checked the complete production diff, exact clean/pushed scope, unchanged prior spool AST and independent wheel bytes, then passed three separate reclaim/concurrency/mutation checks. [Manager acceptance](evidence/native-prefix-manager-acceptance.md). | Read-only comparison only. Native ownership, reader/checkpoints, collection, normalization and runtime/system gates remain pending. |
@@ -74,9 +77,11 @@ Use `ef18e59` as the concrete core baseline for dependent assignments. Its
 immutable [interface/evidence report](https://github.com/qorqutbot/qorqut-core/blob/ef18e59e2df372963f5fba222156fe6b6e50195f/docs/evidence/foundation-r1.md)
 defines the accepted signatures. `Application.invoke` is the shared public path;
 `Operation`/`Change` and `Application.execute` assemble fixed internal handlers.
-The nine current public operations are `config_get`, `config_update`,
+The fourteen current public operations are `config_get`, `config_update`,
 `operations_get`, `events_list`, `agents_create`, `agents_get`, `agents_list`,
-`agents_update` and `agents_status_set`. The agent contracts are specified in
+`agents_update`, `agents_status_set`, `messages_send`, `messages_list`,
+`messages_acknowledge`, `deliveries_get` and `conversation_list`. Chat contracts
+are specified in [CHAT-IMPLEMENTATION.md](CHAT-IMPLEMENTATION.md). The agent contracts are specified in
 [AGENT-REGISTRY.md](AGENT-REGISTRY.md); all use the same HTTP/MCP/operator
 registry. Further domain operations require an explicit assignment and concrete
 handlers, not placeholder registrations.
@@ -310,7 +315,8 @@ production agent data are test fixtures.
    unresolved limits and scope completion once through ACLA. No interim reports.
 2. Manager freezes that completed SHA and launches a fresh ACLA review actor on
    a separate worktree at that SHA, with the full original handoff/amendments.
-   Reviewer uses Astra MAX, `reviewLoop=false`, and no nested delegation.
+   New reviewers follow the current owner launch policy above, with
+   `reviewLoop=false` and no nested delegation.
 3. Reviewer checks requirements against actual code and evidence. It may run
    the focused checks against temporary data, without editing tracked files,
    source worktrees, global configuration, deployments or live services. Report
