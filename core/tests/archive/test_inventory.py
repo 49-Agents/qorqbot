@@ -203,7 +203,7 @@ class InventoryTests(ArchiveCase):
         self.assertEqual(unsupported.exception.code, "unsupported_schema")
         db.migrate()
         with db.read() as tx:
-            self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 4)
+            self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 6)
             for table, rows in before.items():
                 condition = " WHERE version<=3" if table == "schema_migrations" else ""
                 self.assertEqual([tuple(r) for r in tx.connection.execute(f"SELECT * FROM {table}{condition}")], rows)
