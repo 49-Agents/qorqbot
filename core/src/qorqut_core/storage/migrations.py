@@ -343,5 +343,50 @@ MIGRATIONS = (
             BEGIN SELECT RAISE(ABORT,'Chat evidence is immutable'); END""" for table in (
                 "message_threads", "messages", "message_handling", "conversation_entries")),
     )),
+    Migration(6, (
+        """CREATE TABLE session_owners (
+            owner_id TEXT NOT NULL PRIMARY KEY,
+            installation_id TEXT NOT NULL REFERENCES installation(installation_id),
+            agent_id TEXT NOT NULL REFERENCES agents(id),
+            conversation_id TEXT NOT NULL REFERENCES agents(conversation_id),
+            terminal_id TEXT NOT NULL, recovery_epoch TEXT NOT NULL,
+            environment_generation INTEGER NOT NULL CHECK(typeof(environment_generation)='integer' AND environment_generation>0),
+            boot_id TEXT NOT NULL,
+            run_generation INTEGER NOT NULL CHECK(typeof(run_generation)='integer' AND run_generation>0),
+            provider TEXT NOT NULL CHECK(provider IN ('claude','codex')),
+            cli_version TEXT NOT NULL CHECK(length(cli_version) BETWEEN 1 AND 100),
+            native_session_id TEXT NOT NULL, process_json TEXT NOT NULL CHECK(json_valid(process_json)),
+            connected_by TEXT NOT NULL REFERENCES actors(actor_id), connected_at TEXT NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('active','closed','retired')),
+            observation TEXT NOT NULL CHECK(observation IN ('live','unknown','exited')),
+            last_observed_at TEXT NOT NULL, closed_at TEXT, close_reason TEXT,
+            UNIQUE(agent_id,run_generation),
+            CHECK((state='active' AND observation<>'exited' AND closed_at IS NULL AND close_reason IS NULL)
+                OR (state='closed' AND observation='exited' AND closed_at IS NOT NULL AND close_reason IS NOT NULL)
+                OR (state='retired' AND closed_at IS NOT NULL AND close_reason IS NOT NULL)))""",
+        "CREATE UNIQUE INDEX session_owners_active_agent ON session_owners(agent_id) WHERE state='active'",
+        """CREATE TRIGGER session_owners_binding BEFORE INSERT ON session_owners
+            WHEN NOT EXISTS (SELECT 1 FROM agents a JOIN actors actor ON actor.actor_id=a.actor_id
+                WHERE a.id=NEW.agent_id AND a.conversation_id=NEW.conversation_id
+                AND a.actor_id=NEW.connected_by AND actor.kind='agent' AND actor.agent_id=a.id)
+            BEGIN SELECT RAISE(ABORT,'Session agent and attribution disagree'); END""",
+        """CREATE TRIGGER session_owners_permanent BEFORE UPDATE ON session_owners
+            WHEN NEW.owner_id IS NOT OLD.owner_id OR NEW.installation_id IS NOT OLD.installation_id
+                OR NEW.agent_id IS NOT OLD.agent_id OR NEW.conversation_id IS NOT OLD.conversation_id
+                OR NEW.terminal_id IS NOT OLD.terminal_id OR NEW.recovery_epoch IS NOT OLD.recovery_epoch
+                OR NEW.environment_generation IS NOT OLD.environment_generation OR NEW.boot_id IS NOT OLD.boot_id
+                OR NEW.run_generation IS NOT OLD.run_generation OR NEW.provider IS NOT OLD.provider
+                OR NEW.cli_version IS NOT OLD.cli_version OR NEW.native_session_id IS NOT OLD.native_session_id
+                OR NEW.process_json IS NOT OLD.process_json OR NEW.connected_by IS NOT OLD.connected_by
+                OR NEW.connected_at IS NOT OLD.connected_at OR OLD.state<>'active'
+            BEGIN SELECT RAISE(ABORT,'Session identity and closed history are permanent'); END""",
+        """CREATE TRIGGER session_owners_no_replace BEFORE INSERT ON session_owners
+            WHEN EXISTS (SELECT 1 FROM session_owners WHERE owner_id=NEW.owner_id
+                OR (agent_id=NEW.agent_id AND run_generation=NEW.run_generation)
+                OR (agent_id=NEW.agent_id AND state='active' AND NEW.state='active'))
+            BEGIN SELECT RAISE(ABORT,'Session evidence cannot be replaced'); END""",
+        """CREATE TRIGGER session_owners_no_delete BEFORE DELETE ON session_owners
+            BEGIN SELECT RAISE(ABORT,'Session history is permanent'); END""",
+    )),
 )
 SCHEMA_VERSION = MIGRATIONS[-1].version

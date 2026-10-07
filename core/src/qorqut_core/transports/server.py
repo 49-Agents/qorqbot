@@ -17,6 +17,7 @@ from starlette.routing import Route
 from ..app import Application
 from ..config import InstallationSettings
 from ..contracts import CoreError, Invocation, OperationResult
+from ..runtime import SessionMonitor
 from ..storage.worker import JobWorker
 from .boundary import Admission, Boundary, failure
 from .configuration import Credentials, InputError, json_object
@@ -83,6 +84,7 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
         application = None
         dispatcher = None
         worker = None
+        monitor = None
 
         def open_application():
             nonlocal application
@@ -106,6 +108,9 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
                 worker = JobWorker(application.jobs)
                 web.state.worker = worker
                 await _settle_sync(worker.start)
+                monitor = SessionMonitor(application.session_owners)
+                web.state.session_monitor = monitor
+                await _settle_sync(monitor.start)
                 try:
                     yield
                 finally:
@@ -121,8 +126,12 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
                     if worker is not None:
                         await _settle_sync(worker.stop)
                 finally:
-                    if application is not None:
-                        await _settle_sync(application.close)
+                    try:
+                        if monitor is not None:
+                            await _settle_sync(monitor.stop)
+                    finally:
+                        if application is not None:
+                            await _settle_sync(application.close)
 
     def identity(actor_id):
         return JSONResponse({"authenticated": True, "actor_id": str(actor_id), "api_version": 1})
@@ -185,7 +194,7 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
     async def ready(request):
         result = await request.app.state.dispatcher.invoke("config_get",
             Invocation(actor_id=credentials.readiness_actor_id), {})
-        healthy = result.ok and request.app.state.worker.ready
+        healthy = result.ok and request.app.state.worker.ready and request.app.state.session_monitor.ready
         return JSONResponse({"ready": healthy}, status_code=200 if healthy else 503,
                             headers={"Cache-Control": "no-store"})
 

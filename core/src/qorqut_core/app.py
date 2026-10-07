@@ -130,6 +130,7 @@ class Application:
         from .conversation.ledger import Conversations
         from .conversation.publication import Publisher
         from .messaging.service import Messaging
+        from .runtime import SessionOwners
         from .transcripts.archive import Archive
 
         self.settings, self.db = settings, database
@@ -144,6 +145,7 @@ class Application:
         self.files.jobs = self.jobs
         self.workspaces.jobs = self.jobs
         self.agents = Agents(self)
+        self.session_owners = SessionOwners(self)
         operations = (
             Operation("config_get", ConfigGet, False, self._config_get, ConfigView),
             Operation("config_update", ConfigUpdate, True, self._config_update, ConfigView),
@@ -152,6 +154,7 @@ class Application:
             *self.agents.operations(),
             *self.messaging.operations(),
             *self.conversations.operations(),
+            *self.session_owners.operations(),
         )
         self.registry = MappingProxyType({op.name: op for op in operations})
 
@@ -340,6 +343,7 @@ class Application:
                 WHERE job_id=?""", (str(epoch), now, row["job_id"]))
             self.jobs._event(tx, row, row["state"], "queued", "recovery_epoch_changed", actor_id=context.actor_id)
         tx.connection.execute("UPDATE installation SET recovery_epoch=? WHERE singleton=1", (str(epoch),))
+        self.session_owners.retire_for_recovery(tx, context, operation_id)
         self.messaging.hold_for_recovery(tx, context, operation_id)
         self.publisher.hold_for_recovery(tx)
         seq = append_event(tx, EventInput(kind="installation.recovery_activated", actor_id=context.actor_id,
