@@ -15,9 +15,12 @@ The [native collector service](evidence/native-collector-r1.md) and
 passed Manager direct review. Collector owning checks passed independently.
 Codex standard paths were observed; Claude loading is qualified to the explicit
 fixture-only post-onboarding continuation, with the fresh-home failure preserved.
-Setup is under final review. After all lanes are accepted, compose the normal
-server and verify manual CLI startup through hooks/MCP, native raw capture,
-Chat and automatic dated files. No native workflow acceptance follows from these
+Managed setup is also accepted. Manager composed both services in the normal
+server and twelve focused checks passed. Two parallel provider assignments now
+verify [manual CLI startup](NATIVE-WORKFLOW-ACCEPTANCE.md) through hooks/MCP,
+native raw capture, Chat and automatic dated files. A third facts-only assignment
+checks the remaining native input and terminal archive connections for Manager
+design. No native workflow acceptance follows from these
 component results; Chat dispatch, browser, VM and full system gates remain open.
 
 ## Current work after owner scope agreement

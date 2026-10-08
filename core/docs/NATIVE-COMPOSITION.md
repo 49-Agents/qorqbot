@@ -24,16 +24,16 @@ is also passive, with `tick()`, `view(agent_id)` and `close()`. Its SQLite I/O
 and close run on the same monitor thread. Views become unknown/observation_stale
 after five seconds without observation; ordinary agents report unsupported_target.
 
-Setup adds `Application.native_setup` and reserves `Application.native_collector
-= None`. `SessionMonitor` accepts explicit optional native_setup/native_collector
+The accepted setup adds `Application.native_setup`; Manager composition now
+constructs `Application.native_collector = NativeCollector(self)`. `SessionMonitor` accepts explicit optional native_setup/native_collector
 objects, ticks them after ownership reconciliation, and closes them in its own
 thread's finally block. Bounded operational failures must not stop unrelated
 reconciliation; an unexpected fatal failure affects existing monitor readiness.
 No new thread, service, scheduler or generic extension system. The normal server
 configures setup's callback and passes both objects into the monitor.
 
-After acceptance, Manager replaces the None reservation with NativeCollector(self)
-and verifies the combined flow. Public operations remain sixteen, handlers five,
+Both services are now accepted and composed. Manager verifies the combined
+flow under [native workflow acceptance](NATIVE-WORKFLOW-ACCEPTANCE.md). Public operations remain sixteen, handlers five,
 host schema seven. RuntimeView gains nullable native_setup/native_capture fields
 using the frozen models. runtime_get copies their cached views only, without
 external I/O in its transaction. input_ready stays false until actual dispatch
@@ -205,3 +205,15 @@ lineage/registered-epoch guards remain mandatory. Recovery activation still hold
 actual work; no collector path clears a hold, rewrites a saved binding, manufactures
 a new epoch to evade recovery, or reconnects an old session. A future explicit
 recovery audit/release remains outside this increment.
+
+## Composed normal server
+
+Manager integrated the two accepted services after their independent owning
+checks passed. Application construction now instantiates the passive collector;
+the already reviewed SessionMonitor supplies tick/close ownership. The existing
+setup tests now assert collection-disabled behavior and automatic waiting_session
+observation through the normal server. No provider is launched and input_ready
+remains false. Twelve setup, monitor and collector checks passed together in
+42.951 seconds. Private commands/results: `manager-native-composition/` under
+the build state directory. Actual manual native startup and Chat rendering are
+the next gate, not established by this composition check.

@@ -84,4 +84,4 @@ accepted increments and their remaining work are recorded in
 [BUILD-EXECUTION.md](BUILD-EXECUTION.md); bounded acceptance does not complete a
 whole module or a system gate.
 
-Current connection work: [D40 manual CLI setup and continuous history](NATIVE-COMPOSITION.md). The [real recorded Terminal flow](evidence/terminal-integration-r1.md) is accepted; native setup/collection and combined native acceptance follow.
+Current connection work: [D40 manual CLI setup and continuous history](NATIVE-COMPOSITION.md). The [real recorded Terminal flow](evidence/terminal-integration-r1.md) is accepted; native setup and collection are composed and have passed focused checks. [Parallel native workflow acceptance](NATIVE-WORKFLOW-ACCEPTANCE.md) follows.

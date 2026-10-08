@@ -41,7 +41,9 @@ actors. The connected runtime gate still requires an actual combined flow.
 
 D40's [normal native composition](NATIVE-COMPOSITION.md) now joins accepted
 hook/capture/projection seams: owned hook/MCP setup and continuous native history
-collection build in parallel alongside a bounded actual-CLI config-loading check.
+collection are accepted and composed. Focused composition checks pass; qualified
+actual-CLI config-loading facts are recorded. Parallel [Claude/Codex workflow
+acceptance](NATIVE-WORKFLOW-ACCEPTANCE.md) now checks the complete connection.
 No automatic CLI launch is added.
 
 ## 1. Product contract

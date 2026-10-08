@@ -374,7 +374,7 @@ Native CLIs configure separate `qorqut-core` and `qorqut-browser` MCP servers. B
 
 Core owns `/api/v1` schemas and event payload versions. The UI checks supported API capabilities before dependent actions; unsupported versions produce a clear compatibility error. Core can start and complete HTTP/MCP/operator flows without UI assets, and UI releases do not migrate backend state. Serve frontend and API at one browser origin through optional static mounting or a conventional proxy; this does not add another backend service.
 
-## D40 additive runtime observations (implementation assigned)
+## D40 additive runtime observations (composed; native workflow acceptance pending)
 
 [D40](NATIVE-COMPOSITION.md) adds nullable native_setup and native_capture views
 to runtime_get; their exact models are frozen in runtime/native_models.py. They

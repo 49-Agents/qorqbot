@@ -160,8 +160,9 @@ class Observations(RuntimeCase):
             self.restart()
             self.owners = SessionOwners(self.app, observe_process=self.observe)
             self.app.native_setup.tick()
+            self.app.native_collector.tick()
             self.assertEqual(self.runtime()["native_setup"]["state"], "disabled")
-            self.assertIsNone(self.runtime()["native_capture"])
+            self.assertEqual(self.runtime()["native_capture"]["reason"], "not_configured")
         other = self.create().data["agent"]["id"]
         self.assertEqual(self.app.native_setup.view(UUID(other)).reason, "unsupported_target")
         self.assertFalse((self.settings.data_root / "agents" / self.host["id"] / "runtime/core-credential.json").exists())
@@ -218,7 +219,8 @@ class SetupServer(OwnedProcesses, unittest.TestCase):
         self.assertEqual(view["native_setup"]["reason"], "configuration_installed")
         self.assertEqual(view["status"], "disconnected")
         self.assertFalse(view["input_ready"])
-        self.assertIsNone(view["native_capture"])
+        capture = wait_for(lambda: (v if (v := setup_view(f))["native_capture"]["reason"] == "waiting_session" else None))
+        self.assertEqual(capture["native_capture"]["state"], "waiting")
         terminal = f.available()
         credential_path = f.workspace.parent / "runtime/core-credential.json"
         credential = json.loads(credential_path.read_bytes())
