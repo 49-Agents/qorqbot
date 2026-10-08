@@ -186,24 +186,23 @@ hold until its own implementation joins this storage path.
 
 Messages are immutable. A correction is another message. A reply preserves thread relationships; it does not acknowledge its parent. All registered actors can inspect messages under v1's all-allowed policy; filters are navigation and efficiency, not access grants.
 
-Message storage accepts and preserves the exact valid UTF-8 body within the size
-limit. Automated terminal text has a narrower transport constraint: allow LF
-(`U+000A`) and TAB (`U+0009`), but reject all other C0 characters (`U+0000`–`U+001F`),
-DEL (`U+007F`) and C1 (`U+0080`–`U+009F`). This includes CR and ESC. Reject the
-whole terminal request with `invalid_argument` and reason `unsafe_terminal_text`
-before creating a dispatch attempt or sending any tmux input. Do not normalize,
-strip, escape or truncate the message into a different payload. The host retains
-the original message and records a failed delivery with that reason; it does not
-automatically retry a permanent payload error. Explicitly corrected text is a
-new message. This constraint protects bracketed-paste framing and the separate
-guarded Enter step; it does not restrict raw human terminal key/control frames.
-See D23.
+Message storage preserves the exact valid UTF-8 body within its 64-KiB limit.
+D43 sends only `[Qorqut inbox <message-uuid>]` to the terminal and retrieves the
+full body plus sender/thread/handling through `messages_list(message_id=...)`.
+No message content is rewritten to accommodate a native composer. This exact-ID
+filter suppresses implicit self-agent filtering; other explicit filters intersect.
+New messages containing controls are eligible for a fixed ASCII notification;
+previous immutable failed delivery records are not automatically resurrected.
+
+The low-level automated terminal-text API retains D23's safety constraint: LF
+and TAB allowed, other C0/DEL/C1 rejected before input. This applies to the actual
+terminal payload, not the separately stored message. Human frames are unchanged.
 
 Delivery states: `pending`, `deferred`, `dispatching`, `submitted`, `uncertain`, `failed`, `cancelled`. A separate `handled_at`/handling receipt records semantic acknowledgment. One message can have successive explicit attempts, but an uncertain attempt must be reconciled or explicitly retried before another is created. Explicit retry after uncertainty records its rationale and duplicate-processing risk.
 
 The host and runner persist the stable attempt ID, exact payload hash and expected run binding. Before first input, the runner durably records dispatch intent. Repeating that attempt returns its saved outcome. Known pre-input failure may defer/retry the same intention. Possible paste/Enter without confirmation is uncertain; never retry blindly.
 
-Terminal text includes message ID, recorded sender identity and thread reference so the recipient can retrieve/acknowledge exact messages. Native echo can corroborate submission but cannot prove the requested work was completed. Unread/handled tracking is independent of transport state.
+Terminal text carries the canonical message ID; the exact MCP read returns recorded sender identity, thread and full body so the recipient can retrieve/acknowledge that message. Native echo can corroborate submission but cannot prove the requested work was completed. Unread/handled tracking is independent of transport state.
 
 ## 7. Runner protocol
 
@@ -307,6 +306,10 @@ Machine observation is read-only. `desktop_control(action=take|release)` targets
 Enable machine input only after all present participants are confirmed held; partial acquisition remains reconciling and records owned holds for release. An unrelated human terminal/browser request conflicts rather than being silently overridden. Release returns only its own holds; disconnect retains the hold until explicit resolution. Any actor may invoke it. Machine control is cooperative and does not claim arbitrary shell work has stopped.
 
 ## 11. File references and conversation presentation
+
+[D45](FILE-REFERENCES.md) freezes the first implemented metadata/wire contract.
+Relative host-owned workspaces are supported; ordinary-agent absolute paths
+remain unsupported until verified guest mapping exists. No VM mapping is claimed.
 
 `files_reference` requires a path; optional target agent, label and note. Default target is the caller's agent/main conversation. Relative paths resolve inside that workspace. Absolute paths resolve inside the target environment: `/workspace/...` maps to its workspace, other VM paths are inspected through its runner, and onbash paths resolve locally. Preserve source location/agent/environment metadata; never interpret a guest absolute path as a host path. Missing/unreachable/non-regular sources fail clearly before a successful reference is committed. Labels and notes are bounded plain text (200/4,000 characters); paths use a bounded 4,096-character request field and ordinary target OS validation.
 

@@ -507,3 +507,24 @@ inspector. Unknown/disconnected, stale/error observations and raw/history
 coverage remain distinct. Connection is not working/idle or Chat readiness.
 No backend schema, operation, launch control or automatic provider selection is
 added. The concrete frontend plan lives in qorqutbot-ui RUNTIME-INSPECTOR.md.
+
+## D43 — Short inbox notifications preserve exact stored message bodies
+
+Use a fixed message-ID notification in the native composer and retrieve full
+sender/thread/body through MCP. Native input observations exposed long-paste
+collapse and Claude TAB expansion. No body is truncated or rewritten. Add exact
+message-ID lookup and separate pure layout proof; connect actual dispatch after
+the shared input gate is accepted. [Contract and scope](INBOX-NOTIFICATIONS.md).
+
+## D44 — Reuse the recorded terminal gate for automated input
+
+Map native run receipts to the existing recorded terminal ID, lock and human
+control epoch. Keep the existing paste/Enter receipt implementation and reject a
+second human-control authority. [Concrete interface](SHARED-TERMINAL-INPUT.md).
+
+## D45 — File references record an observed path, not contents
+
+Implement metadata-only references, an explicit conversation variant and dated
+publication. Existing host workspaces support relative paths; only onbash accepts
+native absolute paths until a VM resolver exists. Idempotent replay precedes
+filesystem observation. [Schema and operation](FILE-REFERENCES.md).

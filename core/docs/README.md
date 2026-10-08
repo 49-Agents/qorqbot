@@ -1,5 +1,8 @@
 # Backend planning documents
 
+Current implementation wave: [inbox notifications](INBOX-NOTIFICATIONS.md),
+[shared terminal input](SHARED-TERMINAL-INPUT.md), and [file references](FILE-REFERENCES.md).
+
 Start with [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md) for the owner's
 2026-10-08 scope correction: manual CLI startup and one logical inbox owner.
 

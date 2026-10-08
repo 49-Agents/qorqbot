@@ -1,5 +1,7 @@
 # M09 — Files, scratchpads, memory and portable export
 
+Current bounded implementation: [Manager decision and fixed interface](../FILE-REFERENCES.md).
+
 Status: Planned. Owns filesystem aspects of R01/R11/R14 and file-reference R15. Depends on M00/M01, M03 for guest-local inspection and M02/M07 for export; full backup coordination belongs to M11.
 
 Repository: `qorqut-core`.

@@ -20,11 +20,11 @@ Agents can discover each other, send complete messages, retain threaded history,
 
 Store messages independently of delivery state so terminal problems cannot lose the conversation. Preserve full bodies and original attribution. Any display summary is derived and cannot replace the body.
 
-An otherwise valid stored message may contain control characters that cannot be
-safely sent as bracketed-paste text. If the runner returns `invalid_argument`
-with reason `unsafe_terminal_text`, retain the exact body and mark delivery
-failed with that reason. Do not normalize the body or repeatedly defer/retry this
-permanent payload failure. D23 and CONTRACTS section 6 define the transport rule.
+D43 uses a short ID-only terminal notification and exact full-message retrieval
+through MCP; see [INBOX-NOTIFICATIONS.md](../INBOX-NOTIFICATIONS.md). The runner's
+text restriction applies to that notification. New stored message bodies are
+not rejected for controls that never go to the terminal; historical failed
+records stay immutable. Delivery remains distinct from retrieval/handling.
 
 ## Records and transitions
 
@@ -34,7 +34,7 @@ Sending atomically inserts message, event, delivery and required job. Idempotent
 
 Handling records the actual authenticated actor and exact message IDs. All-allowed v1 permits an actor to handle another agent's message intentionally; do not falsely attribute that acknowledgment to the recipient. Record `handled_by` and optional note/outcome. Duplicate compatible acknowledgments return the prior receipt.
 
-Offline recipients retain pending deliveries indefinitely. Delivery does not start an offline agent automatically; callers can explicitly request `runtime_start`. Pending input, human terminal control, setup/login or unknown composer state defers delivery with a typed reason.
+Offline recipients retain pending deliveries indefinitely. Delivery does not start an offline agent automatically; the owner starts the CLI manually in Terminal. Pending input, human terminal control, setup/login or unknown composer state defers delivery with a typed reason.
 
 ## Dispatch and uncertainty
 

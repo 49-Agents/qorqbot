@@ -1,5 +1,15 @@
 # Managed implementation and review
 
+Current parallel wave (D43–D45): [inbox notification/layout support](INBOX-NOTIFICATIONS.md),
+[shared recorded-terminal input](SHARED-TERMINAL-INPUT.md) and
+[durable file references](FILE-REFERENCES.md). These are independent core builders
+alongside the UI runtime inspector. File references alone owns schema 8 and
+Application/conversation assembly. Manager directly verifies each completion,
+then connects the accepted input interfaces to message dispatch and tests the
+normal onbash workflow. Native input [facts](evidence/native-input-manager-acceptance.md)
+are accepted; automated delivery remains unimplemented until that integration.
+
+
 Latest owner direction (2026-10-08): maximize useful parallel implementation;
 Manager reviews and tests completed work directly. New separate review actors
 are optional, not a gate. Keep Astra MAX builders and self-review disabled.

@@ -1,5 +1,15 @@
 # Qorqutbot backend implementation plan
 
+Current parallel wave (D43–D45): [inbox notification/layout support](INBOX-NOTIFICATIONS.md),
+[shared recorded-terminal input](SHARED-TERMINAL-INPUT.md) and
+[durable file references](FILE-REFERENCES.md). These are independent core builders
+alongside the UI runtime inspector. File references alone owns schema 8 and
+Application/conversation assembly. Manager directly verifies each completion,
+then connects the accepted input interfaces to message dispatch and tests the
+normal onbash workflow. Native input [facts](evidence/native-input-manager-acceptance.md)
+are accepted; automated delivery remains unimplemented until that integration.
+
+
 Current v1 scope: [D36, terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md)
 supersedes earlier automatic CLI start/restart/provider-switch and context-packet
 requirements below. Creation establishes an agent and shell; the user starts the

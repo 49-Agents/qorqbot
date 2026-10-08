@@ -1,5 +1,7 @@
 # M04 — Native CLI adapters and preparation
 
+Current bounded implementation: [Manager decision and fixed interface](../INBOX-NOTIFICATIONS.md).
+
 Current v1 scope: [D36, terminal-owned sessions](../TERMINAL-OWNED-SESSIONS.md)
 supersedes earlier automatic CLI start/restart/provider-switch and context-packet
 requirements below. Creation establishes an agent and shell; the user starts the
