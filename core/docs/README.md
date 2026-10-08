@@ -2,7 +2,10 @@
 
 Accepted D43–D45: [inbox notifications](evidence/inbox-notifications-manager-acceptance.md),
 [shared terminal input](evidence/shared-terminal-input-manager-acceptance.md), and
-[file references](evidence/file-references-manager-acceptance.md). [Host dispatch](HOST-MESSAGE-DISPATCH.md) and file-reference UI are the next integration work.
+[file references](evidence/file-references-manager-acceptance.md). [Host dispatch](HOST-MESSAGE-DISPATCH.md) is being built. The file-reference UI has passed
+[scoped review](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/file-reference-cards-manager-acceptance.md);
+the actual core/MCP/UI flow follows. The [native-history audit](evidence/native-coverage-manager-acceptance.md)
+confirms remaining discovery and shutdown gaps without claiming complete history.
 
 Start with [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md) for the owner's
 2026-10-08 scope correction: manual CLI startup and one logical inbox owner.
