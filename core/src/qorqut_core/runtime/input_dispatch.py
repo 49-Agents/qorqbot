@@ -28,6 +28,7 @@ from ..runner.storage import input_lock
 from ..runner.terminal import TerminalRunner
 from ..runner.tmux import Tmux
 from ..storage.database import assert_external_io_allowed
+from ..transcripts.spool import RunBinding as CaptureBinding
 from .native_hooks import _native_process
 from .owners import _active
 
@@ -253,11 +254,15 @@ class RuntimeInput:
                     or local.execute("SELECT 1 FROM capture_conflicts WHERE source_id=? AND source_epoch=?",
                         (str(shell.source_id), str(shell.source_epoch))).fetchone()):
                 raise InputUnavailable("capture_unavailable")
-        view = self.app.native_collector.view(shell.spec.agent_id)
-        if (view.state != "collecting" or view.reason != "active" or view.observed_at is None
-                or datetime.fromisoformat(view.observed_at) < datetime.fromisoformat(owner["connected_at"])
-                or not 0 <= (datetime.fromisoformat(self.db.clock()) -
-                             datetime.fromisoformat(view.observed_at)).total_seconds() <= 5):
+        # D48 owns the memory-only, monotonically fresh raw-source observation.
+        # Aggregate parser/coverage warnings remain public and cannot grant or
+        # deny this proof. Until that private method exists, refuse input.
+        observe = getattr(self.app.native_collector, "input_observation", None)
+        view = observe(owner["owner_id"]) if callable(observe) else None
+        binding = CaptureBinding(owner["installation_id"], owner["agent_id"], owner["recovery_epoch"],
+            owner["environment_generation"], owner["boot_id"], owner["owner_id"], owner["run_generation"])
+        if (view is None or view.healthy is not True or view.binding != binding
+                or datetime.fromisoformat(view.observed_at) < datetime.fromisoformat(owner["connected_at"])):
             raise InputUnavailable("capture_unavailable")
         with self.db.read() as tx:
             sources = tx.connection.execute("""SELECT e.conflicted FROM archive_run_sources l

@@ -1,5 +1,7 @@
 """D46 input proofs: real disposable ancestry, synthetic recorder/layout evidence."""
 
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 import hashlib
 import json
 import os
@@ -24,6 +26,16 @@ from qorqut_core.runtime.native_collector import NativeCollector
 from qorqut_core.transcripts.archive_models import ArchiveMetadata
 from qorqut_core.transcripts.probe import ProbeResult
 from qorqut_core.transcripts.spool import CaptureSpool, RunBinding as CaptureBinding, Source
+
+
+@dataclass(frozen=True)
+class SyntheticRawObservation:
+    """Fixed D48 return contract, without its separately owned implementation."""
+
+    binding: CaptureBinding
+    observed_at: str
+    source_count: int
+    healthy: bool
 
 
 class InputFixture(NativeHookCase):
@@ -78,6 +90,10 @@ class InputFixture(NativeHookCase):
             "native", self.owner_row["native_session_id"])
         self.native_epoch = str(uuid4())
         self.admit_source()
+        self.raw_patch = patch.object(self.app.native_collector, "input_observation",
+            side_effect=self.raw_observation_for, create=True)
+        self.raw_patch.start()
+        self.addCleanup(self.raw_patch.stop)
         self.publish_capture()
         self.observations = 0
 
@@ -121,6 +137,11 @@ class InputFixture(NativeHookCase):
 
     def publish_capture(self):
         self.app.native_collector._publish(self.host["id"], state="collecting", reason="active", source_count=1)
+        self.raw_observation = SyntheticRawObservation(self.archive_binding, self.clock(), 1, True)
+
+    def raw_observation_for(self, run_id):
+        self.assertEqual(run_id, self.owner_row["owner_id"])
+        return self.raw_observation
 
     def admit_source(self):
         self.app.archive.register(Invocation(actor_id=self.host["actor_id"]), self.archive_binding,
@@ -204,9 +225,45 @@ class InputProofs(InputFixture):
     def test_long_idle_hook_is_valid_but_stale_collector_observation_is_not(self):
         before = self.input.prepare(UUID(self.host["id"]))
         self.clock.advance(3600)
+        # D48 returns None when its observation/source monotonic freshness
+        # expires. A fresh aggregate view must not serve as a fallback.
+        self.app.native_collector._publish(self.host["id"], state="collecting", reason="active", source_count=1)
+        self.raw_observation = None
         self.refuse("capture_unavailable")
         self.publish_capture()
         self.assertEqual(self.input.prepare(UUID(self.host["id"])), before)
+
+    def test_healthy_raw_observation_allows_visible_parser_and_coverage_gaps(self):
+        for reason in ("parser_gap", "capture_gap"):
+            self.app.native_collector._publish(self.host["id"], state="gap", reason=reason,
+                source_count=1, pending_archive_bytes=31, pending_parse_bytes=17)
+            before = self.runtime()["native_capture"]
+            target = self.input.prepare(UUID(self.host["id"]))
+            self.assertEqual(target.binding, self.binding)
+            self.assertEqual(self.runtime()["native_capture"], before)
+        receipt = self.input.submit(target, uuid4(), uuid4(), still_current=lambda: True)
+        self.assertEqual(receipt.state, "submitted")
+        self.assertEqual(self.runtime()["native_capture"], before)
+        self.assertEqual([effect[0] for effect in self.tmux.effects], ["paste", "enter"])
+
+    def test_absent_unhealthy_old_or_mismatched_raw_observation_refuses(self):
+        original = self.raw_observation
+        # No method on this branch is a known-no-input capture refusal.
+        with patch.object(self.app.native_collector, "input_observation", None):
+            self.refuse("capture_unavailable")
+        for value in (None, replace(original, healthy=False), replace(original, healthy=1),
+                      replace(original, observed_at=(datetime.fromisoformat(self.owner_row["connected_at"])
+                          - timedelta(seconds=1)).isoformat())):
+            self.raw_observation = value
+            self.refuse("capture_unavailable")
+        for key, value in (("installation_id", str(uuid4())), ("agent_id", str(uuid4())),
+                           ("recovery_epoch", str(uuid4())), ("environment_generation", 2),
+                           ("boot_id", str(uuid4())), ("run_id", str(uuid4())), ("run_generation", 2)):
+            with self.subTest(binding_field=key):
+                self.raw_observation = replace(original, binding=replace(original.binding, **{key: value}))
+                self.refuse("capture_unavailable")
+        self.raw_observation = original
+        self.assertEqual(self.input.prepare(UUID(self.host["id"])).binding, self.binding)
 
     def test_busy_waiting_end_and_rejected_rival_hooks(self):
         self.hook("UserPromptSubmit")
@@ -252,6 +309,7 @@ class InputProofs(InputFixture):
         with sqlite3.connect(self.database) as db:
             db.execute("UPDATE capture_epochs SET last_error=NULL")
         self.app.native_collector._publish(self.host["id"], state="waiting", reason="waiting_source")
+        self.raw_observation = replace(self.raw_observation, healthy=False)
         self.refuse("capture_unavailable")
         self.publish_capture()
         with self.app.db.transaction() as tx:
@@ -312,6 +370,7 @@ class InputProofs(InputFixture):
                 old(db, aid, state, phase, reason)
                 if stage == "after_enter_intent" and phase == "enter":
                     self.app.native_collector._publish(self.host["id"], state="blocked", reason="collection_blocked")
+                    self.raw_observation = replace(self.raw_observation, healthy=False)
 
             paste = self.tmux.paste
             if stage == "after_paste":
@@ -362,9 +421,8 @@ class MissingPrimary(InputFixture):
     def admit_source(self):
         pass
 
-    def test_collecting_alone_wrong_session_and_child_links_cannot_authorize_input(self):
+    def test_raw_health_alone_wrong_session_and_child_links_cannot_authorize_input(self):
         self.refuse("capture_unavailable")
-        from dataclasses import replace
         wrong = replace(self.native_source, source_id=str(uuid4()), native_session_id=str(uuid4()))
         self.app.archive.register(self.context, self.archive_binding, wrong, str(uuid4()),
                                   ArchiveMetadata(capability_evidence="synthetic wrong session"))
