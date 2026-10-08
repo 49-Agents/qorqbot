@@ -46,10 +46,13 @@ actual-CLI config-loading facts are recorded. Parallel [Claude/Codex workflow
 acceptance](NATIVE-WORKFLOW-ACCEPTANCE.md) now checks the complete connection.
 No automatic CLI launch is added.
 
-D41 adds two independent corrections alongside those fixed-version native checks:
-[automatic Terminal host archival](TERMINAL-ARCHIVE.md) and UI batching of queued
-terminal input. Both preserve existing capture/control contracts. Chat dispatch
-and real native paste-readiness remain separate unfinished work.
+D41's [automatic Terminal host archival](evidence/terminal-archive-manager-acceptance.md)
+and UI queued-input batching have passed bounded Manager acceptance and are merged.
+Qualified Claude/Codex manual-session history checks are also accepted. Chat
+submission remains unfinished and current native-input observations are factual
+inputs to its design. D42 adds [session/native-history inspector presentation](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/RUNTIME-INSPECTOR.md)
+using existing runtime_get; it adds no input readiness or lifecycle authority.
+A separate factual file-reference survey can proceed without those dependencies.
 
 ## 1. Product contract
 

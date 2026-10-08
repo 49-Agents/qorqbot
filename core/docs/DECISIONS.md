@@ -498,3 +498,12 @@ the UI combines adjacent unsent input bytes behind the existing single in-flight
 receipt. It preserves raw byte order, resize barriers and control epochs. These
 changes do not enable automated Chat input; native workflow verification keeps
 its already frozen executable pins.
+
+## D42 — Present existing runtime observations without granting input
+
+The UI reads selected-agent runtime_get within its existing poll and displays
+core's reported logical owner, setup and native-collection states in the
+inspector. Unknown/disconnected, stale/error observations and raw/history
+coverage remain distinct. Connection is not working/idle or Chat readiness.
+No backend schema, operation, launch control or automatic provider selection is
+added. The concrete frontend plan lives in qorqutbot-ui RUNTIME-INSPECTOR.md.
