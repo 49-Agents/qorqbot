@@ -111,10 +111,10 @@ class NativeSetup:
                 return NativeSetupView()
             return NativeSetupView(state="unknown", reason="observation_stale")
         host, view, observed = cached
-        if time.monotonic() - observed > 5:
-            return view.model_copy(update={"state": "unknown", "reason": "observation_stale"})
         if UUID(str(agent_id)) != host:
             return NativeSetupView(state="disabled", reason="unsupported_target", observed_at=view.observed_at)
+        if time.monotonic() - observed > 5:
+            return view.model_copy(update={"state": "unknown", "reason": "observation_stale"})
         return view
 
     def tick(self):

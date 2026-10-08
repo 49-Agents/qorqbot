@@ -89,6 +89,21 @@ Short owned Unix socket directories used `/tmp` for the socket-length bound.
 The existing fixture cleanup stopped and reaped its own Bash/recorder/tmux/server
 processes. No existing service, personal CLI home or agent session was a fixture.
 
+## Manager review correction
+
+The known non-onbash target check now precedes cache expiry. Ordinary agents
+remain `disabled/unsupported_target` after five seconds; onbash still becomes
+`unknown/observation_stale`. The view remains passive and memory-only.
+The existing grouped observation check includes the stale non-host assertion.
+Only that affected check was rerun; it passed in **0.376 seconds**:
+
+```text
+python -m unittest -v runtime.test_native_setup.Observations.test_passive_disabled_cached_views_and_monitor_thread_lifetime
+```
+
+`git diff --check` passed. The private log is `native-setup-r1/review-r2-check.log`
+under the run state directory above. No server-flow or broad-suite rerun occurred.
+
 ## Limits
 
 Ready means configuration installed. These checks did not launch Claude or

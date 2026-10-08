@@ -176,6 +176,8 @@ class Observations(RuntimeCase):
             self.assertFalse(self.runtime()["input_ready"])
         with patch("qorqut_core.runtime.native_setup.time.monotonic", return_value=time.monotonic() + 6):
             self.assertEqual(self.runtime()["native_setup"]["reason"], "observation_stale")
+            ordinary = self.app.native_setup.view(UUID(other))
+            self.assertEqual((ordinary.state, ordinary.reason), ("disabled", "unsupported_target"))
         calls, threads = [], []
         entered = threading.Event()
 
