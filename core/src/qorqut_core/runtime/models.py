@@ -7,6 +7,7 @@ from pydantic import Field
 
 from ..contracts import CoreError, Model, Revision, Timestamp
 from ..runner.models import ProcessFingerprint
+from .native_models import NativeCollectionView, NativeSetupView
 
 
 class SessionConflict(CoreError):
@@ -71,3 +72,5 @@ class RuntimeView(Model):
     current_owner: CurrentOwner | None
     observed_at: Timestamp | None
     input_ready: Literal[False] = False
+    native_setup: NativeSetupView | None = None
+    native_capture: NativeCollectionView | None = None

@@ -382,7 +382,7 @@ class RegistryTests(AgentCase):
         with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
             tar.extractall(legacy_source, filter="data")
         settings = self.settings.model_copy(update={"data_root": self.root / "legacy", "installation_id": uuid4()})
-        produced = subprocess.run([sys.executable, "-c", LEGACY_CREATE, settings.model_dump_json(),
+        produced = subprocess.run([sys.executable, "-c", LEGACY_CREATE, settings.model_dump_json(exclude={"local_terminal"}),
             self.defaults.model_dump_json(), self.owner.model_dump_json()], capture_output=True, text=True,
             env={"PATH": os.defpath, "PYTHONPATH": str(legacy_source / "src"), "PYTHONNOUSERSITE": "1"})
         self.assertEqual(produced.returncode, 0, produced.stderr)

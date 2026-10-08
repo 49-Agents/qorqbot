@@ -7,6 +7,7 @@ import json
 import os
 import re
 import stat
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -123,12 +124,35 @@ class Credentials:
     # Retain only digests; even an accidental repr cannot expose bearer tokens.
     bindings: Mapping[bytes, UUID] = field(repr=False)
     readiness_actor_id: UUID
+    _local: dict[bytes, UUID] = field(default_factory=dict, init=False, repr=False, compare=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
+
+    def __post_init__(self):
+        object.__setattr__(self, "bindings", MappingProxyType(dict(self.bindings)))
+
+    def register_local(self, actor_id: UUID, token: str):
+        try:
+            actor_id = UUID(str(actor_id))
+            digest = hashlib.sha256(_valid_token(token).encode("ascii")).digest()
+        except (ValueError, TypeError, UnicodeError):
+            raise InputError("Invalid local credential binding") from None
+        with self._lock:
+            for bindings in (self.bindings, self._local):
+                if digest in bindings and bindings[digest] != actor_id:
+                    raise InputError("Credential digest is already attributed differently")
+            self._local[digest] = actor_id
+
+    def clear_local(self):
+        with self._lock:
+            self._local.clear()
 
     def actor(self, authorization: bytes) -> UUID | None:
         scheme, separator, token = authorization.partition(b" ")
         if scheme.lower() != b"bearer" or not separator or not token:
             return None
-        return self.bindings.get(hashlib.sha256(token).digest())
+        digest = hashlib.sha256(token).digest()
+        with self._lock:
+            return self.bindings.get(digest) or self._local.get(digest)
 
 
 def read_credentials(path: Path, readiness_actor_id: UUID) -> Credentials:

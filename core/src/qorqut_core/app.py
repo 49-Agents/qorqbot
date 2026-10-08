@@ -132,6 +132,7 @@ class Application:
         from .messaging.service import Messaging
         from .runtime import SessionOwners
         from .runtime.native_hooks import NativeHooks
+        from .runtime.native_setup import NativeSetup
         from .runtime.terminals import Terminals
         from .transcripts.archive import Archive
 
@@ -150,6 +151,8 @@ class Application:
         self.session_owners = SessionOwners(self)
         self.terminals = Terminals(self)
         self.native_hooks = NativeHooks(self)
+        self.native_setup = NativeSetup(self)
+        self.native_collector = None
         operations = (
             Operation("config_get", ConfigGet, False, self._config_get, ConfigView),
             Operation("config_update", ConfigUpdate, True, self._config_update, ConfigView),
