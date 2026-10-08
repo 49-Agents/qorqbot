@@ -5,10 +5,14 @@ from pathlib import Path
 import subprocess
 import sys
 import tarfile
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
+from qorqut_core.app import Application
 from qorqut_core.contracts import CoreError
 from qorqut_core.messaging.notifications import notification_text
+from qorqut_core.storage.database import Database
+from qorqut_core.storage.migrations import MIGRATIONS
 from test_foundation import InjectedCrash
 
 from .support import ChatCase
@@ -94,8 +98,18 @@ class Messages(ChatCase):
         source = self.root / "pre-d43"
         with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
             tar.extractall(source, filter="data")
-        arguments = {"idempotency_key": "historical", "recipient_agent_id": self.a["id"], "body": "\x00\r\x1b\x85"}
         self.app.close()
+        # The old executable must receive a genuine v7 store, even after this
+        # test's normal fixture has advanced to a newer host schema.
+        self.settings = self.settings.model_copy(update={"data_root": self.root / "pre-d43-data"})
+        migrate = Database.migrate
+        with patch("qorqut_core.storage.database.SCHEMA_VERSION", 7), \
+                patch.object(Database, "migrate", lambda db: migrate(db, migrations=MIGRATIONS[:7])):
+            self.app = Application.initialize(self.settings, self.defaults, self.owner, clock=self.clock, fault=self.fault)
+            self.a = self.create("historical-agent").data["agent"]
+            self.pump()
+            self.app.close()
+        arguments = {"idempotency_key": "historical", "recipient_agent_id": self.a["id"], "body": "\x00\r\x1b\x85"}
         script = """
 import json, sys
 from qorqut_core.app import Application
@@ -114,6 +128,11 @@ finally:
         old = json.loads(produced.stdout)
         self.assertTrue(old["ok"], old)
         self.assertEqual(old["data"]["delivery"]["reason"], "unsafe_terminal_text")
+        self.app.db.lock.acquire()
+        try:
+            self.app.db.migrate()
+        finally:
+            self.app.db.lock.close()
         self.restart()
         watched = ("operations", "messages", "message_deliveries", "events", "jobs")
         before = {table: self.rows(table) for table in watched}

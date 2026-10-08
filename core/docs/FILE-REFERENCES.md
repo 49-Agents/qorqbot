@@ -21,7 +21,12 @@ variables or URLs. Normalize repeated separators and `.` with POSIX lexical
 rules for the saved location; reject root/directory/empty targets. Label must
 contain non-whitespace text and no controls; preserve its supplied spacing.
 Note preserves supplied text, allowing LF/TAB but no other C0/DEL/C1. Null note
-stays null. Default label is the normalized basename.
+stays null. Default label is the normalized basename. If that basename is
+whitespace-only use `File`; if longer than 200 Python Unicode characters use its
+first 199 characters plus U+2026. Other basenames retain their exact spacing.
+All saved labels share the same nonblank 1..200-character bound. This affects
+only the derived display label: full paths and original idempotency arguments
+remain unchanged, and valid supplied labels override the default exactly.
 
 Relative paths identify a file in the target's persistent authored workspace,
 which is already host-owned for both agent kinds. They need no native session.

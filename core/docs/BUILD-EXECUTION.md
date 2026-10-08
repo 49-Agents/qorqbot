@@ -1,13 +1,13 @@
 # Managed implementation and review
 
-Current parallel wave (D43–D45): [inbox notification/layout support](INBOX-NOTIFICATIONS.md),
-[shared recorded-terminal input](SHARED-TERMINAL-INPUT.md) and
-[durable file references](FILE-REFERENCES.md). These are independent core builders
-alongside the UI runtime inspector. File references alone owns schema 8 and
-Application/conversation assembly. Manager directly verifies each completion,
-then connects the accepted input interfaces to message dispatch and tests the
-normal onbash workflow. Native input [facts](evidence/native-input-manager-acceptance.md)
-are accepted; automated delivery remains unimplemented until that integration.
+D43–D45 are accepted and integrated: [inbox notification/layout support](evidence/inbox-notifications-manager-acceptance.md),
+[shared recorded-terminal input](evidence/shared-terminal-input-manager-acceptance.md),
+and [durable file references](evidence/file-references-manager-acceptance.md).
+Core is schema 8 with 17 public operations and five job handlers. The UI runtime
+inspector is also accepted. Next are host message dispatch through the shared
+terminal gate, file-reference cards, and actual connected-flow verification.
+Native input [facts](evidence/native-input-manager-acceptance.md) remain qualified;
+automated delivery is not implemented merely by accepting these components.
 
 
 Latest owner direction (2026-10-08): maximize useful parallel implementation;
