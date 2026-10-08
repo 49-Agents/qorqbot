@@ -9,7 +9,10 @@ automatic dated history and core restart. Manager reviews/tests directly;
 workers use Astra MAX with self-review off. Core has schema 9, 17 public
 operations and five handlers. These component results do not yet establish
 native Chat dispatch or complete transcript coverage. Shutdown drain,
-child/attachment support, browser/VM integration and full system gates remain open.
+child/attachment support, browser/VM integration and full system gates remain open. The pinned
+connected-flow check may need one manual seed prompt for either CLI before its
+primary native file exists. Decision 307 preserves this as an unresolved initial
+Chat-delivery limitation; qualifying a continued test does not settle it.
 
 Current v1 scope: [D36, terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md)
 supersedes earlier automatic CLI start/restart/provider-switch and context-packet

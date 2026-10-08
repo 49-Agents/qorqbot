@@ -35,8 +35,14 @@ qualification; do not write trust hashes or future-MCP trust. Answer displayed
 workspace/MCP/key dialogs deliberately. Codex keeps its accepted --no-daemon and
 loopback provider configuration, with actual hook consent. Use the exact accepted
 manual launch procedure; if it no longer works, preserve the failure and ask.
-If initial Codex has no primary source/idle hook, submit one short manual seed
-prompt, as already qualified by D46; label that prerequisite.
+If either pinned CLI has no primary source/idle hook, submit one short manual
+seed prompt through the explicitly human-controlled UI Terminal; label that
+prerequisite. Decision 307 extends this fixture qualification to Claude after
+its observed SessionStart/empty composer still had no primary transcript file.
+Preserve that original state. This continuation does not accept first-message
+Chat delivery immediately after CLI startup: the capture-before-input dependency
+remains a product limitation until separately resolved. Do not create native
+files, spoof idle events or relax production capture guards to continue.
 
 ## Fixed connected flow
 
