@@ -188,3 +188,20 @@ no trusted hashes, owner credentials, external traffic or extra config/session
 flags. This can establish standard config loading after onboarding only, not
 successful fresh onboarding or production login. Product setup remains unchanged
 and must never write this fixture seed.
+
+### Historical capture eligibility — clarification 247
+
+The current recovery-epoch filter applies to discovery/admission of new owners
+and sources. Already admitted capture mappings retain their exact historical
+run/owner bindings and remain eligible for late bytes, transfer and projection;
+do not impose run.recovery_epoch == current_host_epoch as another fence. This
+preserves HOST-ARCHIVE.md's distinction between source provenance and recovery
+admission. Reobservation of an already admitted source uses that same verified
+lineage; it does not admit an unrelated historical source or session.
+
+Existing workspace/provisioning recovery guards, Archive registered-epoch and
+conflict holds, exact transfer-intent recovery/receipt checks and NativeProjector
+lineage/registered-epoch guards remain mandatory. Recovery activation still holds
+actual work; no collector path clears a hold, rewrites a saved binding, manufactures
+a new epoch to evade recovery, or reconnects an old session. A future explicit
+recovery audit/release remains outside this increment.
