@@ -27,6 +27,7 @@ class MessagesSend(Mutation):
 
 
 class MessagesList(Model):
+    message_id: UUID | None = None
     agent_id: UUID | None = None
     thread_id: UUID | None = None
     after_seq: Counter = 0

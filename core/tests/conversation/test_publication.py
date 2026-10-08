@@ -405,7 +405,7 @@ class Publication(ChatCase):
 
     def test_restore_holds_pending_receipt_delivery_and_new_job_for_same_partition(self):
         safe = self.send()
-        unsafe = self.send("unsafe", "\x1b").data["message"]
+        controls = self.send("controls", "\x1b").data["message"]
         self.assertTrue(self.ack([safe.data["message"]["message_id"]]).ok)
         old_epoch = self.config()["recovery_epoch"]
         self.until_pending()
@@ -416,7 +416,8 @@ class Publication(ChatCase):
         self.assertFalse(self.path().exists())
         delivery = self.app.invoke("deliveries_get", self.context, {"message_id": safe.data["message"]["message_id"]}).data["delivery"]
         self.assertEqual((delivery["state"], delivery["reason"]), ("deferred", "recovery_review"))
-        self.assertEqual(self.app.invoke("deliveries_get", self.context, {"message_id": unsafe["message_id"]}).data["delivery"]["state"], "failed")
+        control_delivery = self.app.invoke("deliveries_get", self.context, {"message_id": controls["message_id"]}).data["delivery"]
+        self.assertEqual((control_delivery["state"], control_delivery["reason"]), ("deferred", "recovery_review"))
         self.assertEqual(len(self.rows("message_handling")), 1)
         events = [e for e in self.rows("events") if e["kind"] == "message.delivery_changed"]
         self.assertEqual(events[0]["actor_id"], str(self.owner.actor_id))

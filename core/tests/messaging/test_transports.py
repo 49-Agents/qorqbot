@@ -42,7 +42,7 @@ class ChatTransports(unittest.IsolatedAsyncioTestCase):
             for name in expected:
                 self.assertEqual(tools[name].inputSchema, schemas[name]["input_schema"])
                 self.assertEqual(schemas[name]["output_data_schema"], fixture.registry[name].output.model_json_schema())
-            arguments = {"idempotency_key": "cross-transport", "recipient_agent_id": agent["id"], "body": "  Exact 文\n\t"}
+            arguments = {"idempotency_key": "cross-transport", "recipient_agent_id": agent["id"], "body": "  Exact 文\n\t\x00\r\x1b\x7f\x85  "}
             responses = await asyncio.gather(
                 http.post("/api/v1/operations/messages_send", json=arguments), owner_sdk.call_tool("messages_send", arguments))
             saved = responses[0].json()
@@ -61,6 +61,16 @@ class ChatTransports(unittest.IsolatedAsyncioTestCase):
                 http_result = (await http.post("/api/v1/operations/" + name, json=filters)).json()
                 self.assertEqual(http_result, structured(await agent_sdk.call_tool(name, filters)))
                 self.assertEqual(len(http_result["data"]["items"]), 1)
+                item = http_result["data"]["items"][0]
+                self.assertEqual(item["message"]["body"] if name == "messages_list" else item["text"], arguments["body"])
+            lookup = {"message_id": saved["data"]["message"]["message_id"]}
+            exact = structured(await owner_sdk.call_tool("messages_list", lookup))
+            self.assertEqual(exact, (await http.post("/api/v1/operations/messages_list", json=lookup)).json())
+            self.assertEqual(exact["data"]["items"][0]["message"]["body"], arguments["body"])
+            missing = {"message_id": str(uuid4())}
+            absent = structured(await agent_sdk.call_tool("messages_list", missing))
+            self.assertEqual(absent, (await http.post("/api/v1/operations/messages_list", json=missing)).json())
+            self.assertEqual(absent["error"]["code"], "not_found")
             ack = {"idempotency_key": "ack", "message_ids": [saved["data"]["message"]["message_id"]], "note": "Handled by the actual actor"}
             handled = structured(await agent_sdk.call_tool("messages_acknowledge", ack))
             replay = (await http.post("/api/v1/operations/messages_acknowledge", json=ack, headers=fixture.headers(actor))).json()

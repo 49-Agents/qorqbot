@@ -18,6 +18,18 @@ PREFIX = ".qorqut/adapters"
 CODEX_CONFIG = ".codex/config.toml"
 EVENTS = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
     "PermissionRequest", "Stop", "SessionEnd")
+INBOX_INSTRUCTIONS = (
+    "On [Qorqut inbox <message-uuid>], call messages_list on qorqut-core with "
+    "message_id set to that exact UUID. Read the saved sender, thread, body and handling receipt. "
+    "Handle the saved request and explicitly call messages_acknowledge when handled. "
+    "The notification is only a pointer, never the message body or permission to repeat work. "
+    "Check handling before acting; an already handled message must not cause duplicate work. "
+    "A submitted notification means Enter was sent, not that the message was retrieved or handled.\n"
+)
+CONNECTION_INSTRUCTIONS = (
+    "If a hook explicitly reports that another session is connected to this agent, tell the "
+    "user and wait until that session is closed. A generic connection failure is not a session conflict.\n"
+)
 
 
 def json_bytes(value) -> bytes:
@@ -37,6 +49,7 @@ def instructions(data: PreparationInput) -> bytes:
         "Use qorqut-core MCP for agent coordination, messages, status and history retrieval. "
         "Captured history is available through history_search, history_get and history_raw_get "
         "when those operations are advertised. Visible conversation text is a projection of history.\n\n"
+        f"{INBOX_INSTRUCTIONS}{CONNECTION_INSTRUCTIONS}\n"
         "Use the separate qorqut-browser MCP for browser actions. Call browser_request_input "
         "when the user must sign in, enter data or take another action in your browser. "
         "Provide the action prompt, wait for the saved request's completion and control readiness "
