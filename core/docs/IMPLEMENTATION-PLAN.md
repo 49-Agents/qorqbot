@@ -358,3 +358,9 @@ Current Qorqut research is not a clean inherited test baseline: four focused che
 The first release provides the backend and the single-page chat scope in UI-PLAN.md. Multi-host scheduling, public hosted accounts, role-based permissions, rich collaborative editors, marketing/business workflows, task/project management, automatic model summarizers, billing and native mobile applications remain later product work. The owner explicitly deferred opening/previewing referenced files; retain durable file cards and add rendering separately. Browser cards, three-column layout, twenty icons and rename are included rather than deferred as a generic future Chat UI.
 
 Full agent/VM portability uses stopped export/import in v1. There is no live migration promise. Raw history has no automatic deletion. A future retention or compaction feature requires its own explicit data contract; it cannot be introduced as an invisible storage optimization.
+
+Current native workflow status: [Claude](evidence/manual-native-claude-manager-acceptance.md)
+and [Codex](evidence/manual-native-codex-manager-acceptance.md) have passed their
+qualified manual-start/resume/restart/history checks. The remaining
+[Chat input observations](CHAT-DELIVERY-EVIDENCE.md) are factual preparation for
+delivery, not activation of input_ready or a full system acceptance.

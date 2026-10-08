@@ -89,3 +89,9 @@ Current connection work: [D40 manual CLI setup and continuous history](NATIVE-CO
 Parallel D41 work: [automatic recorded-Terminal host archival](TERMINAL-ARCHIVE.md)
 and queued terminal-input batching in the UI. The fixed-version native workflow
 checks continue independently.
+
+Qualified manual native history checks are accepted for
+[Claude](evidence/manual-native-claude-manager-acceptance.md) and
+[Codex](evidence/manual-native-codex-manager-acceptance.md).
+[Native input observations for Chat delivery](CHAT-DELIVERY-EVIDENCE.md) follow
+alongside the D41 fixes; sending from Chat remains unimplemented.

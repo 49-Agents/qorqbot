@@ -485,3 +485,16 @@ automatic UTC-dated files at the frozen core/UI pins. The canned provider and
 fixture-only post-onboarding qualification remain explicit. This does not accept
 Chat dispatch, full source coverage or final shutdown drain. Codex verification
 and the two D41 corrections continue independently.
+
+## Both manual native history workflows accepted within their qualifications
+
+[Codex Manager acceptance](evidence/manual-native-codex-manager-acceptance.md)
+now joins [Claude acceptance](evidence/manual-native-claude-manager-acceptance.md).
+Manual start, exit/resume, live-native core restart and exact primary Chat/daily
+history are verified for both frozen versions with local canned providers.
+Fresh Claude onboarding and complete source coverage remain outside these gates.
+
+The two D41 implementation lanes continue. A parallel facts-only
+[native input assignment](CHAT-DELIVERY-EVIDENCE.md) now checks the actual remaining
+composer/paste observations needed before Manager connects Chat delivery. It owns
+no production changes and may use only completed fixtures copied privately.
