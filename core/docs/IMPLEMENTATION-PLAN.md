@@ -1,18 +1,21 @@
 # Qorqutbot backend implementation plan
 
-Next parallel wave: one core builder implements [D46 host dispatch](HOST-MESSAGE-DISPATCH.md),
-one UI builder implements [D47 file-reference cards](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/FILE-REFERENCE-CARDS.md),
-and a facts-only audit checks remaining native transcript coverage. Manager
-reviews/tests completed work directly. All three use Astra MAX, self-review off.
-Core dispatch owns schema 9; the other lanes do not edit its implementation.
-Actual pinned native Chat-delivery acceptance follows the completed core change.
+Current parallel work: [D46 host dispatch](HOST-MESSAGE-DISPATCH.md),
+[D48 continued native discovery/raw observations](NATIVE-COLLECTION-CONTINUITY.md),
+and the [real core/MCP/file-card check](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/FILE-REFERENCE-INTEGRATION.md).
+D47 cards and the native-coverage factual audit are accepted and merged. Manager
+reviews/tests completed work directly; workers use Astra MAX, self-review off.
+Core dispatch owns schema 9; collection owns only its service and tests; the
+file-card check uses the accepted pair independently. Actual pinned native
+Chat-delivery acceptance follows the composed D46/D48 code. Native shutdown
+drain and child/attachment coverage remain outstanding; the audit is not G3.
 
 D43–D45 are accepted and integrated: [inbox notification/layout support](evidence/inbox-notifications-manager-acceptance.md),
 [shared recorded-terminal input](evidence/shared-terminal-input-manager-acceptance.md),
 and [durable file references](evidence/file-references-manager-acceptance.md).
 Core is schema 8 with 17 public operations and five job handlers. The UI runtime
-inspector is also accepted. Next are host message dispatch through the shared
-terminal gate, file-reference cards, and actual connected-flow verification.
+inspector and file-reference cards are also accepted. Next are host message
+dispatch through the shared terminal gate and actual connected-flow verification.
 Native input [facts](evidence/native-input-manager-acceptance.md) remain qualified;
 automated delivery is not implemented merely by accepting these components.
 

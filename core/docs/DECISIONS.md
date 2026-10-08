@@ -542,3 +542,12 @@ Schema 9 is assigned only to this implementation; no additional service or tool.
 UI cards consume D45's typed historical metadata, preserve full paths and offer
 Copy path. They infer nothing from prose and do not open or fetch file contents.
 The concrete plan lives in qorqutbot-ui docs/FILE-REFERENCE-CARDS.md.
+
+## D48 — Rescan native sources and observe raw capture per run
+
+The accepted coverage audit exposed permanently cached discovery. The
+[collection correction](NATIVE-COLLECTION-CONTINUITY.md) adds bounded periodic
+rescans without replacing descriptors before their drain boundary. It also gives
+D46 private per-run raw-health evidence so semantic parser/coverage warnings do
+not masquerade as primary recording failure. Public gaps stay visible. Shutdown
+drain, child/attachment coverage and rename deduplication remain separate work.

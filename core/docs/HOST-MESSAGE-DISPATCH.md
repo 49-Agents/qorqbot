@@ -45,13 +45,19 @@ valid after fresh process/capture/composer checks. An unrelated rejected second
 session must not replace the incumbent's accepted observation.
 
 Capture requires a fresh verified active recorder probe for the exact recorded
-terminal, healthy saved capture with no terminal gap, and enabled native
-collection reporting collecting/active with a non-stale observation at or after
-this owner's connected_at. Also require an admitted primary native source link
+terminal and healthy saved capture with no terminal gap. For native capture use
+[D48's private per-run raw observation](NATIVE-COLLECTION-CONTINUITY.md), requiring
+healthy=true, the exact full RunBinding and observed_at at or after this owner's
+connected_at. Its memory-only accessor enforces source/observation freshness.
+Do not gate on the aggregate parser/coverage-gap state: those limitations remain
+visible but do not prove primary raw collection failed. Also require an admitted primary native source link
 in host archive_run_sources for this exact run/native session/installation and
 epoch, with no conflict. This intentionally waits for initial source discovery;
 for Codex the owner may need the already-observed first manual Terminal prompt.
-Do not read the collector's thread-owned NativeCapture object or pump it from
+Until the separately owned D48 method is present, refuse with capture_unavailable;
+never fall back to granting input from the old aggregate view. The D46 owning
+tests may supply this frozen private observation contract without consuming an
+unfinished D48 branch. Do not read the collector's thread-owned NativeCapture object or pump it from
 this worker. No zero-backlog or complete-source-coverage claim follows.
 
 The terminal must be unclaimed, and a fresh Tmux snapshot must yield empty from

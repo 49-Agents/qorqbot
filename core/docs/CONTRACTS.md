@@ -4,6 +4,11 @@ D46's concrete [host message dispatch contract](HOST-MESSAGE-DISPATCH.md)
 extends deliveries_get with typed attempts and assigns schema 9. It remains
 planned until its named implementation and integration checks are accepted.
 
+[D48](NATIVE-COLLECTION-CONTINUITY.md) gives that dispatcher a private, fresh,
+per-run raw-capture observation. Public native-history gaps remain visible and
+do not themselves authorize or prohibit input. The runtime proves all its other
+input prerequisites independently; no runtime_get schema or permission changes.
+
 Current v1 scope: [D36, terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md)
 supersedes earlier automatic CLI start/restart/provider-switch and context-packet
 requirements below. Creation establishes an agent and shell; the user starts the

@@ -6,6 +6,8 @@ Accepted D43–D45: [inbox notifications](evidence/inbox-notifications-manager-a
 [scoped review](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/file-reference-cards-manager-acceptance.md);
 the actual core/MCP/UI flow follows. The [native-history audit](evidence/native-coverage-manager-acceptance.md)
 confirms remaining discovery and shutdown gaps without claiming complete history.
+The next [collection correction](NATIVE-COLLECTION-CONTINUITY.md) owns repeated
+discovery and private per-run raw-capture observations, independently of dispatch.
 
 Start with [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md) for the owner's
 2026-10-08 scope correction: manual CLI startup and one logical inbox owner.
