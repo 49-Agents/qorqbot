@@ -131,3 +131,52 @@ class ChatTransports(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(published), 3)
         self.assertEqual(published[-1]["format_version"], 1)
         self.assertEqual(published[-1]["source"], {"type": "file_reference", "reference": reference})
+
+
+class DeliveryTransports(unittest.IsolatedAsyncioTestCase):
+    async def test_http_mcp_return_identical_typed_attempts_without_private_target(self):
+        from messaging.test_dispatch import SyntheticInput
+        from test_foundation import Clock
+
+        fixture = Installation()
+        self.addCleanup(fixture.close)
+        self.clock = Clock()
+        self.settings = fixture.settings
+        self.app = app = Application.open(self.settings, clock=self.clock)
+        context = Invocation(actor_id=fixture.owner.actor_id)
+        self.config = lambda: app.invoke("config_get", context).data
+        try:
+            with app.db.read() as tx:
+                self.onbash = dict(tx.connection.execute("SELECT * FROM agents WHERE kind='host'").fetchone())
+            while app.jobs.run_next(worker_id=uuid4()) is not None:
+                pass
+            runtime = app.runtime_input = SyntheticInput(self)
+            runtime.state = "deferred"
+            sent = app.invoke("messages_send", context, {"idempotency_key": "attempts",
+                "recipient_agent_id": self.onbash["id"], "body": "exact \x00\x1b\r body"})
+            self.assertTrue(sent.ok, sent)
+            args = {"message_id": sent.data["message"]["message_id"]}
+            while app.jobs.run_next(worker_id=uuid4()) is not None:
+                pass
+            runtime.state = "submitted"
+            self.clock.advance(3)
+            while app.jobs.run_next(worker_id=uuid4()) is not None:
+                pass
+            expected = app.invoke("deliveries_get", context, args).model_dump(mode="json")
+            self.assertEqual([a["state"] for a in expected["data"]["attempts"]], ["deferred", "submitted"])
+            self.assertEqual(len(runtime.submissions), 2)
+        finally:
+            app.close()
+        fixture.start()
+        async with AsyncExitStack() as stack:
+            http = await stack.enter_async_context(httpx.AsyncClient(base_url=fixture.url,
+                headers=fixture.headers(), trust_env=False, timeout=10))
+            sdk = await session(stack, fixture)
+            self.assertEqual((await http.post("/api/v1/operations/deliveries_get", json=args)).json(), expected)
+            self.assertEqual(structured(await sdk.call_tool("deliveries_get", args)), expected)
+            wire = json.dumps(expected)
+            for private in ("socket_path", "pid_namespace", "runner_receipt_json", "target_json"):
+                self.assertNotIn(private, wire)
+            schema = (await http.get("/api/v1/schema")).json()
+            output = next(item["output_data_schema"] for item in schema["operations"] if item["name"] == "deliveries_get")
+            self.assertEqual(output["properties"]["attempts"]["items"], {"$ref": "#/$defs/DeliveryAttempt"})

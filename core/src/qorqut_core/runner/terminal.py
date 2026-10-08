@@ -64,6 +64,7 @@ class TerminalRunner:
         verify_paste: Callable[[RunBinding, TerminalSnapshot, str], bool] | None = None,
         machine_hold: Callable[[RunBinding], bool] | None = None,
         paste_settle_timeout: float = 0.0,
+        existing: bool = False,
     ):
         if (type(paste_settle_timeout) not in (int, float)
                 or not 0 <= paste_settle_timeout <= 1 or not math.isfinite(paste_settle_timeout)):
@@ -75,8 +76,13 @@ class TerminalRunner:
         self.verify_paste = verify_paste
         self.machine_hold = machine_hold
         self.paste_settle_timeout = float(paste_settle_timeout)
-        with connect(self.database) as db:
-            ensure_schema(db)
+        with connect(self.database, create=not existing) as db:
+            if not existing:
+                ensure_schema(db)
+
+    def _connect(self):
+        # After construction a removed receipt store is never recreated.
+        return connect(self.database, create=False)
 
     @staticmethod
     def _saved_binding(db: sqlite3.Connection, run_id: UUID) -> sqlite3.Row | None:
@@ -129,7 +135,7 @@ class TerminalRunner:
     def _gate(self, run_id: UUID, *, registering: bool = False, terminal_id: UUID | None = None,
               observation: bool = False):
         while True:
-            with connect(self.database) as db:
+            with self._connect() as db:
                 before = self._saved_binding(db, run_id)
                 selected = self._mapping(before)
                 if observation and selected is None:
@@ -140,7 +146,7 @@ class TerminalRunner:
             gate_id = UUID(selected[0]) if selected else run_id
             if registering and before is None and terminal_id is not None:
                 gate_id = terminal_id
-            with input_lock(self.database, gate_id), connect(self.database) as db:
+            with input_lock(self.database, gate_id), self._connect() as db:
                 current = self._saved_binding(db, run_id)
                 mapping = self._mapping(current)
                 if mapping != selected:
@@ -323,7 +329,7 @@ class TerminalRunner:
 
     def inspect_attempt(self, attempt_id: UUID) -> AttemptReceipt | None:
         attempt_id = UUID(str(attempt_id))
-        with connect(self.database) as db:
+        with self._connect() as db:
             row = db.execute("SELECT run_id FROM runner_attempts WHERE attempt_id=?", (str(attempt_id),)).fetchone()
             if not row:
                 return None

@@ -108,18 +108,22 @@ class WorkerRecovery(AgentCase):
             return JobResolution(state="uncertain", progress=JobProgress(phase="synthetic_inspection"),
                 reason="reconciliation_required", next_attempt_at=self.clock())
         ids, executed = self.fixture_jobs(inspect)
-        before = {job_id: self.app.jobs.get(job_id) for job_id in ids[2:]}
-        self.assertEqual(self.app.jobs.reconcile_pending(limit=1), 1)
-        self.assertEqual(self.app.jobs.reconcile_pending(limit=1), 1)
-        self.assertEqual(set(inspected), set(ids[:2]))
+        eligible = ids[:2] + [ids[5]]
+        excluded = ids[2:5] + [ids[6]]
+        before = {job_id: self.app.jobs.get(job_id) for job_id in excluded}
+        for _ in eligible:
+            self.assertEqual(self.app.jobs.reconcile_pending(limit=1), 1)
+        self.assertEqual(set(inspected), set(eligible))
         self.assertEqual(self.app.jobs.reconcile_pending(), 0)
         self.assertEqual(executed, [])
-        for job_id in ids[:2]:
+        for job_id in eligible:
             self.assertEqual(self.app.jobs.get(job_id)["next_attempt_at"], after(self.clock(), 5))
         self.clock.advance(5)
-        self.assertEqual(self.app.jobs.reconcile_pending(), 2)
-        for job_id in ids[2:]:
+        self.assertEqual(self.app.jobs.reconcile_pending(), 3)
+        for job_id in excluded:
             self.assertEqual(self.app.jobs.get(job_id), before[job_id])
+        self.assertEqual(self.app.jobs.run_next(worker_id=uuid4()), ids[6])
+        self.assertEqual(executed, ["message_delivery"])
         self.assertIsNone(self.app.jobs.run_next(worker_id=uuid4()))
 
     def test_inspector_exception_and_missing_handler_remain_delayed_without_execution(self):
@@ -128,12 +132,15 @@ class WorkerRecovery(AgentCase):
         ids, executed = self.fixture_jobs(inspect)
         with self.assertRaisesRegex(RuntimeError, "synthetic inspector failure"):
             self.app.jobs.reconcile_pending(limit=1)
-        delayed = [job_id for job_id in ids[:2] if self.app.jobs.get(job_id)["next_attempt_at"] > self.clock()]
+        eligible = ids[:2] + [ids[5]]
+        delayed = [job_id for job_id in eligible if self.app.jobs.get(job_id)["next_attempt_at"] > self.clock()]
         self.assertEqual(len(delayed), 1)
-        self.app.jobs = Jobs(self.app.db, tuple(h for h in self.app.jobs.handlers.values() if h.kind != "conversation_publish"))
-        with self.assertRaises(CoreError) as raised:
-            self.app.jobs.reconcile_pending()
-        self.assertEqual(raised.exception.error.code, "unsupported_capability")
+        self.app.jobs = Jobs(self.app.db, tuple(h for h in self.app.jobs.handlers.values()
+            if h.kind not in {"conversation_publish", "message_delivery"}))
+        for _ in range(2):
+            with self.assertRaises(CoreError) as raised:
+                self.app.jobs.reconcile_pending(limit=1)
+            self.assertEqual(raised.exception.error.code, "unsupported_capability")
         self.assertEqual(self.app.jobs.reconcile_pending(), 0)
         self.assertEqual(executed, [])
-        self.assertEqual({self.app.jobs.get(job_id)["state"] for job_id in ids[:2]}, {"uncertain"})
+        self.assertEqual({self.app.jobs.get(job_id)["state"] for job_id in eligible}, {"uncertain"})

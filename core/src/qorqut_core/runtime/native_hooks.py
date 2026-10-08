@@ -84,7 +84,7 @@ def _node(process):
     return parent, executable
 
 
-def _native_process(hook, shell, program, configured_programs):
+def _native_process(hook, shell, program, configured_programs, *, include_start=False):
     """At most 32 parents, with a second pass over exact start/parent/exe facts."""
     assert_external_io_allowed()
     expected_executable = str(program.executable.resolve(strict=True))
@@ -101,7 +101,7 @@ def _native_process(hook, shell, program, configured_programs):
             break
         if process.boot_id != shell.boot_id or process.uid != shell.uid or process.pid_namespace != shell.pid_namespace:
             raise ValueError("Native process domain differs from shell")
-        if executable in configured_executables and process != hook:
+        if executable in configured_executables and (include_start or process != hook):
             selected.append((process, executable))
         if depth == 32:
             raise ValueError("Live shell is outside bounded ancestry")

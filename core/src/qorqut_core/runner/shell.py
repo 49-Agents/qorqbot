@@ -113,7 +113,7 @@ class ShellManager:
     """All paths are explicit. Construction starts no process or provider CLI."""
 
     def __init__(self, database, runtime_root, socket_path, python_executable,
-                 tmux_executable, shell_executable):
+                 tmux_executable, shell_executable, *, existing=False):
         self.database = absolute_path(database)
         self.runtime_root = absolute_path(runtime_root)
         self.socket_path = absolute_path(socket_path)
@@ -130,17 +130,18 @@ class ShellManager:
         _directory(self.database.parent)
         if self.database.resolve() != self.database:
             raise ValueError("database cannot cross symlinks")
-        if self.database.exists():
+        if existing or self.database.exists():
             info = self.database.lstat()
             if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_nlink != 1:
                 raise ValueError("database must be an owned regular file")
-        _directory(self.runtime_root, private=True, create=True)
+        _directory(self.runtime_root, private=True, create=not existing)
         _directory(self.socket_path.parent, private=True)
         self._launch_json = json.dumps({key: str(getattr(self, key)) for key in (
             "database", "runtime_root", "socket_path", "python_executable", "tmux_executable",
             "shell_executable",
         )}, sort_keys=True)
-        store.ensure_schema(self.database)
+        if not existing:
+            store.ensure_schema(self.database)
 
     def close(self) -> None:
         """There is no manager-owned live connection and no implicit shutdown."""
