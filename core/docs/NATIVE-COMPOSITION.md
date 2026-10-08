@@ -175,3 +175,16 @@ flow for each CLI: manual start, hook admission, MCP agent attribution, user and
 assistant Chat/daily publication, exit/resume and core restart. Use accepted fake
 providers and normal workers. Chat dispatch and source-verified echo association
 follow separately. Browser, VM, backup/restore and complete G0–G6 remain open.
+
+### Autoload clarification 245
+
+The unseeded isolated Claude startup reproduced the accepted rehearsal's
+onboarding failure: it attempted api.anthropic.com despite the local fake-provider
+overrides and exited before hooks or MCP discovery. Preserve that failed
+attempt. Manager authorizes a separately labeled fixture-only continuation with
+managed HOME `.claude/.claude.json` containing only `hasCompletedOnboarding: true`,
+as in the accepted rehearsal. Preserve native workspace/MCP/key trust dialogs;
+no trusted hashes, owner credentials, external traffic or extra config/session
+flags. This can establish standard config loading after onboarding only, not
+successful fresh onboarding or production login. Product setup remains unchanged
+and must never write this fixture seed.
