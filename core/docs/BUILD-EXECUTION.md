@@ -8,6 +8,18 @@ conversation parsing/publication to three independent lanes while two builders
 finish core/UI terminal geometry. Merge only after Manager acceptance, then run
 the combined workflow. Earlier evidence below retains its actual review history.
 
+## D40 composition progress
+
+The [native collector service](evidence/native-collector-r1.md) and
+[standard-config loading evidence](evidence/manual-native-autoload-r1.md) have
+passed Manager direct review. Collector owning checks passed independently.
+Codex standard paths were observed; Claude loading is qualified to the explicit
+fixture-only post-onboarding continuation, with the fresh-home failure preserved.
+Setup is under final review. After all lanes are accepted, compose the normal
+server and verify manual CLI startup through hooks/MCP, native raw capture,
+Chat and automatic dated files. No native workflow acceptance follows from these
+component results; Chat dispatch, browser, VM and full system gates remain open.
+
 ## Current work after owner scope agreement
 
 D36 is accepted: [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md). Core and
