@@ -60,7 +60,7 @@ class Storage(RuntimeCase):
                         self.assertTrue(all(row[-1] is None for row in after))
                         after = [row[:-1] for row in after]
                     self.assertEqual(after, before[table], table)
-                self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 8)
+                self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 9)
                 self.assertEqual(tx.connection.execute("PRAGMA foreign_key_check").fetchall(), [])
             replay = upgraded.invoke("messages_send", self.context, {"recipient_agent_id": host,
                 "body": "Original 文\nmessage", "idempotency_key": "pre-migration"})

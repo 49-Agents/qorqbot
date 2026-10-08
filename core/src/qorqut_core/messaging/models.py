@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import AfterValidator, Field, model_validator
 
-from ..contracts import Counter, Model, Mutation, Revision, Timestamp, _utf8
+from ..contracts import Counter, Digest, Model, Mutation, Revision, Timestamp, _utf8
 
 
 def _body(value: str) -> str:
@@ -115,10 +115,29 @@ class MessagesHandled(Model):
     items: list[HandlingView]
 
 
+class DeliveryAttempt(Model):
+    attempt_id: UUID
+    message_id: UUID
+    attempt_seq: Revision
+    previous_attempt_id: UUID | None
+    run_id: UUID
+    run_generation: Revision
+    terminal_id: UUID
+    provider: Literal["claude", "codex"]
+    cli_version: Annotated[str, Field(min_length=1, max_length=100)]
+    idle_event_seq: Revision
+    control_epoch: Counter
+    payload_sha256: Digest
+    payload_bytes: Literal[51]
+    state: Literal["prepared", "dispatching", "deferred", "submitted", "uncertain", "failed"]
+    reason: Annotated[str, Field(min_length=1, max_length=100)]
+    created_at: Timestamp
+    updated_at: Timestamp
+
+
 class DeliveryResult(Model):
     delivery: DeliveryView
-    # Dispatch owns the future attempts schema. This increment has no attempts.
-    attempts: Annotated[list, Field(max_length=0)]
+    attempts: list[DeliveryAttempt]
 
 
 class MessageDeliveryJob(Model):

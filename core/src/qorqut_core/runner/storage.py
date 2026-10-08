@@ -86,8 +86,9 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
 
 
 @contextmanager
-def connect(database: Path):
-    connection = sqlite3.connect(database, timeout=5)
+def connect(database: Path, *, create=True):
+    connection = sqlite3.connect(database.as_uri() + "?mode=" + ("rwc" if create else "rw"),
+                                 uri=True, timeout=5)
     connection.row_factory = sqlite3.Row
     try:
         configure(connection)

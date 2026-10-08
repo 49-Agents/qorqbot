@@ -581,5 +581,85 @@ MIGRATIONS = (
                 BEGIN SELECT RAISE(ABORT,'Conversation evidence is immutable'); END""",
         )),
     )),
+    Migration(9, (
+        """CREATE INDEX native_hook_owner_cursor ON events(json_extract(payload_json,'$.owner_id'),event_seq)
+            WHERE kind='native.hook'""",
+        """CREATE TABLE delivery_attempts (
+            attempt_id TEXT NOT NULL PRIMARY KEY,
+            message_id TEXT NOT NULL REFERENCES messages(message_id),
+            attempt_seq INTEGER NOT NULL CHECK(typeof(attempt_seq)='integer' AND attempt_seq>0),
+            previous_attempt_id TEXT REFERENCES delivery_attempts(attempt_id),
+            job_id TEXT NOT NULL REFERENCES jobs(job_id),
+            installation_id TEXT NOT NULL REFERENCES installation(installation_id),
+            recovery_epoch TEXT NOT NULL,
+            target_json TEXT NOT NULL CHECK(json_valid(target_json)),
+            target_sha256 TEXT NOT NULL CHECK(length(target_sha256)=64 AND target_sha256 NOT GLOB '*[^0-9a-f]*'),
+            payload_sha256 TEXT NOT NULL CHECK(length(payload_sha256)=64 AND payload_sha256 NOT GLOB '*[^0-9a-f]*'),
+            payload_bytes INTEGER NOT NULL CHECK(typeof(payload_bytes)='integer' AND payload_bytes=51),
+            created_at TEXT NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('prepared','dispatching','deferred','submitted','uncertain','failed')),
+            reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 100),
+            runner_receipt_json TEXT CHECK(runner_receipt_json IS NULL OR json_valid(runner_receipt_json)),
+            updated_at TEXT NOT NULL,
+            UNIQUE(message_id,attempt_seq), UNIQUE(previous_attempt_id),
+            CHECK((attempt_seq=1 AND previous_attempt_id IS NULL) OR (attempt_seq>1 AND previous_attempt_id IS NOT NULL)),
+            CHECK(typeof(json_extract(target_json,'$.idle_event_seq'))='integer'
+                AND json_extract(target_json,'$.idle_event_seq')>0
+                AND typeof(json_extract(target_json,'$.control_epoch'))='integer'
+                AND json_extract(target_json,'$.control_epoch')>=0),
+            CHECK(state NOT IN ('submitted','failed') OR runner_receipt_json IS NOT NULL),
+            CHECK(runner_receipt_json IS NULL OR
+                (json_extract(runner_receipt_json,'$.attempt_id') IS attempt_id
+                AND json_extract(runner_receipt_json,'$.state') IS state
+                AND json_extract(runner_receipt_json,'$.payload_sha256') IS payload_sha256
+                AND json_extract(runner_receipt_json,'$.payload_bytes') IS payload_bytes
+                AND json_extract(runner_receipt_json,'$.control_epoch') IS json_extract(target_json,'$.control_epoch')
+                AND json_extract(runner_receipt_json,'$.binding') IS json_extract(target_json,'$.binding'))))""",
+        "CREATE INDEX delivery_attempts_job ON delivery_attempts(job_id,attempt_seq)",
+        """CREATE INDEX delivery_attempts_idle ON delivery_attempts(
+            json_extract(target_json,'$.binding.run_id'),state,json_extract(target_json,'$.idle_event_seq'))""",
+        """CREATE TRIGGER delivery_attempts_binding BEFORE INSERT ON delivery_attempts
+            WHEN NEW.state<>'prepared' OR NEW.runner_receipt_json IS NOT NULL
+                OR NOT EXISTS (SELECT 1 FROM jobs j JOIN messages m ON m.message_id=NEW.message_id
+                JOIN agents a ON a.id=m.recipient_agent_id
+                JOIN operations o ON o.operation_id=j.operation_id
+                WHERE j.job_id=NEW.job_id AND j.kind='message_delivery' AND j.external_effect=1
+                    AND j.recovery_epoch=NEW.recovery_epoch AND j.target_id=m.recipient_agent_id
+                    AND o.actor_id=m.sender_actor_id
+                    AND json_extract(j.args_json,'$.message_id')=NEW.message_id
+                    AND json_extract(NEW.target_json,'$.binding.agent_id')=a.id
+                    AND json_extract(NEW.target_json,'$.conversation_id')=a.conversation_id
+                    AND json_extract(NEW.target_json,'$.binding.recovery_epoch')=NEW.recovery_epoch
+                    AND json_extract(NEW.target_json,'$.installation_id')=NEW.installation_id)
+                OR (NEW.previous_attempt_id IS NOT NULL AND NOT EXISTS
+                    (SELECT 1 FROM delivery_attempts WHERE attempt_id=NEW.previous_attempt_id
+                        AND message_id=NEW.message_id AND attempt_seq=NEW.attempt_seq-1
+                        AND job_id=NEW.job_id AND state='deferred'))
+            BEGIN SELECT RAISE(ABORT,'Delivery attempt binding disagrees'); END""",
+        """CREATE TRIGGER delivery_attempts_identity BEFORE UPDATE ON delivery_attempts
+            WHEN NEW.attempt_id IS NOT OLD.attempt_id OR NEW.message_id IS NOT OLD.message_id
+                OR NEW.attempt_seq IS NOT OLD.attempt_seq OR NEW.previous_attempt_id IS NOT OLD.previous_attempt_id
+                OR NEW.job_id IS NOT OLD.job_id OR NEW.installation_id IS NOT OLD.installation_id
+                OR NEW.recovery_epoch IS NOT OLD.recovery_epoch OR NEW.target_json IS NOT OLD.target_json
+                OR NEW.target_sha256 IS NOT OLD.target_sha256 OR NEW.payload_sha256 IS NOT OLD.payload_sha256
+                OR NEW.payload_bytes IS NOT OLD.payload_bytes OR NEW.created_at IS NOT OLD.created_at
+            BEGIN SELECT RAISE(ABORT,'Delivery attempt identity is permanent'); END""",
+        """CREATE TRIGGER delivery_attempts_state BEFORE UPDATE ON delivery_attempts
+            WHEN (OLD.state IN ('submitted','failed','deferred') AND
+                    (NEW.state IS NOT OLD.state OR NEW.reason IS NOT OLD.reason
+                        OR NEW.runner_receipt_json IS NOT OLD.runner_receipt_json))
+                OR (OLD.state='prepared' AND NEW.state NOT IN ('prepared','dispatching','deferred'))
+                OR (OLD.state='dispatching' AND NEW.state='prepared')
+                OR (OLD.state='uncertain' AND (NEW.state IN ('prepared','dispatching')
+                    OR (NEW.state<>'uncertain' AND NEW.runner_receipt_json IS NULL)))
+            BEGIN SELECT RAISE(ABORT,'Delivery attempt outcome cannot regress'); END""",
+        """CREATE TRIGGER delivery_attempts_no_replace BEFORE INSERT ON delivery_attempts
+            WHEN EXISTS (SELECT 1 FROM delivery_attempts WHERE attempt_id=NEW.attempt_id
+                OR (message_id=NEW.message_id AND attempt_seq=NEW.attempt_seq)
+                OR previous_attempt_id=NEW.previous_attempt_id)
+            BEGIN SELECT RAISE(ABORT,'Delivery attempt evidence cannot be replaced'); END""",
+        """CREATE TRIGGER delivery_attempts_no_delete BEFORE DELETE ON delivery_attempts
+            BEGIN SELECT RAISE(ABORT,'Delivery attempt evidence is permanent'); END""",
+    )),
 )
 SCHEMA_VERSION = MIGRATIONS[-1].version

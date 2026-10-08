@@ -109,8 +109,9 @@ class Jobs:
         with self.db.transaction() as tx:
             self._expire(tx)
             epoch = tx.connection.execute("SELECT recovery_epoch FROM installation").fetchone()[0]
-            row = tx.connection.execute("""SELECT * FROM jobs WHERE recovery_epoch=? AND
-                (state='queued' OR (state='waiting' AND wait_reason='retry_delay' AND next_attempt_at<=?))
+            row = tx.connection.execute("""SELECT * FROM jobs WHERE recovery_epoch=? AND wait_reason IS NOT 'recovery_review' AND
+                (state='queued' OR (state='waiting' AND next_attempt_at<=? AND
+                    (wait_reason='retry_delay' OR (kind='message_delivery' AND wait_reason='dependency_unavailable'))))
                 ORDER BY created_at,job_id LIMIT 1""", (epoch, self.db.clock())).fetchone()
             if row is None:
                 return None
@@ -198,7 +199,7 @@ class Jobs:
             return resolution
 
     def reconcile_pending(self, *, limit: int = 16, retry_seconds: int = 5) -> int:
-        """Inspect only this epoch's uncertain, receipt-backed file work.
+        """Inspect only this epoch's uncertain, receipt-backed work.
 
         Keep the lifetime/effect gates across selection and inspection so recovery
         cannot turn an eligible original-epoch job into held work between them.
@@ -216,7 +217,7 @@ class Jobs:
                     recovery_epoch=(SELECT recovery_epoch FROM installation) AND
                     external_effect=1 AND state='uncertain' AND
                     wait_reason='reconciliation_required' AND
-                    kind IN ('file_install','conversation_publish') AND
+                    kind IN ('file_install','conversation_publish','message_delivery') AND
                     (next_attempt_at IS NULL OR next_attempt_at<=?)
                     ORDER BY next_attempt_at,created_at,job_id LIMIT ?""",
                     (self.db.clock(), limit)).fetchall()

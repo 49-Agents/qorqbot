@@ -146,11 +146,13 @@ class Application:
         from .conversation.publication import Publisher
         from .files.references import FileReferences
         from .messaging.service import Messaging
+        from .messaging.dispatch import MessageDispatcher
         from .runtime import SessionOwners
         from .runtime.native_hooks import NativeHooks
         from .runtime.native_collector import NativeCollector
         from .runtime.native_setup import NativeSetup
         from .runtime.terminals import Terminals
+        from .runtime.input_dispatch import RuntimeInput
         from .transcripts.archive import Archive
 
         self.settings, self.db = settings, database
@@ -160,6 +162,7 @@ class Application:
         self.conversations = Conversations(self)
         self.publisher = Publisher(self)
         self.messaging = Messaging(self)
+        self.message_dispatcher = MessageDispatcher(self)
         self.file_references = FileReferences(self)
         self.jobs = Jobs(database, (self.files.handler(), *self.workspaces.handlers(),
             self.messaging.handler(), self.publisher.handler()))
@@ -171,6 +174,7 @@ class Application:
         self.native_hooks = NativeHooks(self)
         self.native_setup = NativeSetup(self)
         self.native_collector = NativeCollector(self)
+        self.runtime_input = RuntimeInput(self)
         operations = (
             Operation("config_get", ConfigGet, False, self._config_get, ConfigView),
             Operation("config_update", ConfigUpdate, True, self._config_update, ConfigView),

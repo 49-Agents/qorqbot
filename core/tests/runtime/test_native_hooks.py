@@ -39,7 +39,7 @@ from qorqut_core.transports.server import Dispatcher, create_app
 from runtime.support import RuntimeCase
 
 
-class NativeHooks(RuntimeCase):
+class NativeHookCase(RuntimeCase):
     def setUp(self):
         super().setUp()
         root = self.settings.data_root / "agents" / self.host["id"]
@@ -107,7 +107,10 @@ class NativeHooks(RuntimeCase):
         binding = ManualBinding(agent_id=shell.spec.agent_id, conversation_id=self.host["conversation_id"],
             terminal_id=shell.terminal_id, recovery_epoch=shell.spec.recovery_epoch, environment_generation=1)
         return prepare_manual_hooks(self.roots, binding, self.core, self.programs if programs is None else programs,
-                                    (sys.executable, "-m", "qorqut_core.runtime.hook_client"))
+                                    (sys.executable, "-I", "-m", "qorqut_core.runtime.hook_client"))
+
+
+class NativeHooks(NativeHookCase):
 
     def test_real_admission_reconnect_conflict_same_uuid_stop_unknown_and_exit(self):
         first, shell, request = self.chain()

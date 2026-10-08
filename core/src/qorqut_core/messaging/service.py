@@ -1,12 +1,12 @@
-"""Transactional messages and handling; delivery truthfully awaits runtime integration."""
+"""Transactional messages and handling, separate from runtime submission."""
 
 from uuid import UUID
 
 from ..agents.registry import get_row
 from ..app import Change, Operation
-from ..contracts import CoreError, JobProgress, JobResolution
+from ..contracts import CoreError
 from ..storage.events import EventInput, append_event
-from ..storage.jobs import JobHandler, after
+from ..storage.jobs import JobHandler
 from . import records
 from .models import (
     DeliveriesGet, DeliveryResult, EntryReference, HandlingView, MessageDeliveryJob,
@@ -27,8 +27,6 @@ class Messaging:
         )
 
     def handler(self):
-        # External intent remains recovery-held even though this increment never
-        # attempts terminal input. A future dispatcher must retain this store.
         return JobHandler("message_delivery", MessageDeliveryJob, True, self._execute_delivery, self._inspect_delivery)
 
     def send(self, tx, args, context, operation_id):
@@ -99,8 +97,11 @@ class Messaging:
         return Change(MessagesHandled(items=receipts), seq)
 
     def deliveries_get(self, tx, args, context, operation_id):
+        from .attempts import list_attempts
+
         records.message(tx, args.message_id)
-        return Change(DeliveryResult(delivery=records.delivery(tx, args.message_id), attempts=[]))
+        return Change(DeliveryResult(delivery=records.delivery(tx, args.message_id),
+                                     attempts=list_attempts(tx, args.message_id)))
 
     def list(self, tx, args, context, operation_id):
         agent_id = args.agent_id
@@ -137,33 +138,11 @@ class Messaging:
         return Change(MessagePage(items=items, next_after_seq=items[-1]["message"]["message_seq"] if items else args.after_seq,
             has_more=len(rows) > args.limit, recovery_epoch=epoch))
 
-    def _delivery_resolution(self, tx, job, claim=None):
-        if claim is not None:
-            self.app.jobs._current_claim(tx, claim)
-        else:
-            current = tx.connection.execute("SELECT * FROM jobs WHERE job_id=?", (job["job_id"],)).fetchone()
-            if current is None or dict(current) != job:
-                raise CoreError("target_changed", "Delivery job changed during inspection")
-        args = MessageDeliveryJob.model_validate_json(job["args_json"])
-        message = records.message(tx, args.message_id)
-        get_row(tx, message.recipient_agent_id)
-        if job["kind"] != "message_delivery" or job["target_id"] != str(message.recipient_agent_id):
-            raise CoreError("target_changed", "Delivery job target disagrees")
-        epoch = tx.connection.execute("SELECT recovery_epoch FROM installation").fetchone()[0]
-        held = job["wait_reason"] == "recovery_review" or job["recovery_epoch"] != epoch
-        return JobResolution(state="waiting", reason="recovery_review" if held else "dependency_unavailable",
-            next_attempt_at=after(self.db.clock(), 60), progress=JobProgress(phase="recovery_held" if held else "runtime_unavailable"),
-            error=CoreError("uncertain_effect" if held else "unsupported_capability",
-                "Message delivery is held for recovery review" if held else "Message saved; runtime dispatch is not implemented").error)
-
     def _execute_delivery(self, claim):
-        with self.db.read() as tx:
-            job = dict(self.app.jobs._current_claim(tx, claim))
-            return self._delivery_resolution(tx, job, claim)
+        return self.app.message_dispatcher.execute(claim)
 
     def _inspect_delivery(self, job):
-        with self.db.read() as tx:
-            return self._delivery_resolution(tx, job)
+        return self.app.message_dispatcher.inspect(job)
 
     def hold_for_recovery(self, tx, context, operation_id):
         """Called within explicit restore activation; never release a held delivery."""
