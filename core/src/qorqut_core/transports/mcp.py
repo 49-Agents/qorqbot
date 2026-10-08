@@ -55,7 +55,7 @@ class MCP:
 
         @self.server.list_tools()
         async def list_tools():
-            return [types.Tool(name=op.name, description=op.name.replace("_", " "),
+            return [types.Tool(name=op.name, description=op.description if op.description is not None else op.name.replace("_", " "),
                 inputSchema=op.arguments.model_json_schema(), outputSchema=OperationResult.model_json_schema(),
                 annotations=types.ToolAnnotations(readOnlyHint=not op.mutation)) for op in registry.values()]
 

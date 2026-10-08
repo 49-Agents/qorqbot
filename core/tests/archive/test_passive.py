@@ -41,9 +41,9 @@ app = Application(settings, db)
 assert isinstance(app.archive, Archive)
 assert set(app.registry) == {"config_get", "config_update", "operations_get", "events_list",
     "agents_create", "agents_get", "agents_list", "agents_update", "agents_status_set",
-    "messages_send", "messages_list", "messages_acknowledge", "deliveries_get", "conversation_list", "runtime_get", "terminal_get"}
+    "messages_send", "messages_list", "messages_acknowledge", "deliveries_get", "conversation_list", "runtime_get", "terminal_get", "files_reference"}
 assert set(app.jobs.handlers) == {"file_install", "agent_provision", "agent_project", "message_delivery", "conversation_publish"}
-assert SCHEMA_VERSION == 7
+assert SCHEMA_VERSION == 8
 expected = Path(sys.argv[1]).resolve()
 for name, module in tuple(sys.modules.items()):
     if name == "qorqut_core" or name.startswith("qorqut_core."):

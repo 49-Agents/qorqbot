@@ -479,5 +479,107 @@ MIGRATIONS = (
             BEGIN SELECT RAISE(ABORT,'Conversation evidence is immutable'); END""" for table in (
                 "conversation_entries", "conversation_native", "native_projections", "native_parse_gaps")),
     )),
+    Migration(8, (
+        """CREATE TABLE file_references (
+            reference_id TEXT NOT NULL PRIMARY KEY,
+            agent_id TEXT NOT NULL REFERENCES agents(id),
+            conversation_id TEXT NOT NULL REFERENCES agents(conversation_id),
+            actor_id TEXT NOT NULL REFERENCES actors(actor_id),
+            installation_id TEXT NOT NULL, recovery_epoch TEXT NOT NULL,
+            state TEXT NOT NULL CHECK(state='referenced'),
+            location TEXT NOT NULL CHECK(location IN ('workspace','host')),
+            path TEXT NOT NULL CHECK(length(path) BETWEEN 1 AND 4096),
+            requested_path TEXT NOT NULL CHECK(length(requested_path) BETWEEN 1 AND 4096),
+            label TEXT NOT NULL CHECK(length(label) BETWEEN 1 AND 200),
+            note TEXT CHECK(length(note)<=4000),
+            size_bytes INTEGER NOT NULL CHECK(typeof(size_bytes)='integer' AND size_bytes>=0),
+            mtime_ns TEXT NOT NULL CHECK(typeof(mtime_ns)='text' AND
+                ((length(mtime_ns)>0 AND mtime_ns NOT GLOB '*[^0-9]*') OR
+                 (substr(mtime_ns,1,1)='-' AND length(mtime_ns)>1 AND substr(mtime_ns,2) NOT GLOB '*[^0-9]*'))),
+            observed_at TEXT NOT NULL, recorded_at TEXT NOT NULL,
+            sha256 TEXT CHECK(sha256 IS NULL))""",
+        """CREATE TRIGGER file_references_binding BEFORE INSERT ON file_references
+            WHEN NOT EXISTS (SELECT 1 FROM agents WHERE id=NEW.agent_id AND conversation_id=NEW.conversation_id)
+            BEGIN SELECT RAISE(ABORT,'File reference conversation disagrees'); END""",
+        # Rebuild the native child alongside its parent with foreign keys enabled.
+        # Copy every old column unchanged and append only the nullable file link.
+        """CREATE TABLE conversation_entries_v8 (
+            entry_id TEXT NOT NULL PRIMARY KEY,
+            agent_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
+            conversation_seq INTEGER NOT NULL CHECK(typeof(conversation_seq)='integer' AND conversation_seq>0),
+            kind TEXT NOT NULL CHECK(kind IN ('message','file_reference')),
+            role TEXT NOT NULL CHECK(role IN ('user','agent')),
+            direction TEXT NOT NULL CHECK(direction IN ('incoming','outgoing')),
+            text TEXT NOT NULL CHECK(length(CAST(text AS BLOB)) BETWEEN 1 AND 65536),
+            sender_actor_id TEXT REFERENCES actors(actor_id),
+            source_type TEXT NOT NULL CHECK(source_type IN ('message','native','file_reference')),
+            message_id TEXT REFERENCES messages(message_id),
+            run_id TEXT, provider TEXT, source_id TEXT, source_epoch TEXT,
+            offset INTEGER CHECK(offset IS NULL OR (typeof(offset)='integer' AND offset>=0)),
+            length INTEGER CHECK(length IS NULL OR (typeof(length)='integer' AND length>=0)),
+            occurred_at TEXT NOT NULL, recorded_at TEXT NOT NULL, recording_date TEXT NOT NULL,
+            file_reference_id TEXT UNIQUE REFERENCES file_references(reference_id),
+            FOREIGN KEY(agent_id,conversation_id) REFERENCES conversation_cursors(agent_id,conversation_id),
+            FOREIGN KEY(run_id,source_id,source_epoch) REFERENCES archive_run_sources(run_id,source_id,source_epoch),
+            UNIQUE(conversation_id,conversation_seq), UNIQUE(agent_id,conversation_seq), UNIQUE(agent_id,message_id),
+            UNIQUE(entry_id,source_id,source_epoch),
+            CHECK((kind='message' AND file_reference_id IS NULL AND
+                    ((source_type='message' AND message_id IS NOT NULL AND sender_actor_id IS NOT NULL)
+                    OR (source_type='native' AND message_id IS NULL AND run_id IS NOT NULL
+                        AND provider IN ('claude','codex') AND provider IS NOT NULL
+                        AND source_id IS NOT NULL AND source_epoch IS NOT NULL AND offset IS NOT NULL
+                        AND length IS NOT NULL AND length>0 AND offset<=9223372036854775807-length
+                        AND ((role='user' AND sender_actor_id IS NULL AND direction='incoming')
+                            OR (role='agent' AND sender_actor_id IS NOT NULL AND direction='outgoing')))))
+                OR (kind='file_reference' AND source_type='file_reference' AND file_reference_id IS NOT NULL
+                    AND sender_actor_id IS NOT NULL AND direction='outgoing' AND message_id IS NULL
+                    AND run_id IS NULL AND provider IS NULL AND source_id IS NULL AND source_epoch IS NULL
+                    AND offset IS NULL AND length IS NULL)))""",
+        "INSERT INTO conversation_entries_v8 SELECT *,NULL FROM conversation_entries",
+        """CREATE TABLE conversation_native_v8 (
+            entry_id TEXT NOT NULL PRIMARY KEY,
+            source_id TEXT NOT NULL, source_epoch TEXT NOT NULL,
+            parser_version TEXT NOT NULL CHECK(length(parser_version) BETWEEN 1 AND 100),
+            native_id TEXT NOT NULL CHECK(length(native_id) BETWEEN 1 AND 512),
+            part_index INTEGER NOT NULL CHECK(typeof(part_index)='integer' AND part_index>=0),
+            sha256 TEXT NOT NULL CHECK(length(sha256)=64),
+            timestamp_origin TEXT NOT NULL CHECK(timestamp_origin IN ('native','ingestion')),
+            FOREIGN KEY(entry_id,source_id,source_epoch) REFERENCES conversation_entries_v8(entry_id,source_id,source_epoch),
+            UNIQUE(source_id,source_epoch,parser_version,native_id,part_index))""",
+        "INSERT INTO conversation_native_v8 SELECT * FROM conversation_native",
+        "DROP TABLE conversation_native",
+        "DROP TABLE conversation_entries",
+        "ALTER TABLE conversation_entries_v8 RENAME TO conversation_entries",
+        "ALTER TABLE conversation_native_v8 RENAME TO conversation_native",
+        "CREATE INDEX conversation_entries_day ON conversation_entries(agent_id,recording_date,conversation_seq)",
+        """CREATE TRIGGER conversation_native_binding BEFORE INSERT ON conversation_native
+            WHEN NOT EXISTS (SELECT 1 FROM conversation_entries WHERE entry_id=NEW.entry_id AND source_type='native')
+            BEGIN SELECT RAISE(ABORT,'Native entry provenance disagrees'); END""",
+        """CREATE TRIGGER conversation_native_actor BEFORE INSERT ON conversation_entries
+            WHEN NEW.source_type='native' AND NEW.role='agent' AND NOT EXISTS
+                (SELECT 1 FROM agents WHERE id=NEW.agent_id AND actor_id=NEW.sender_actor_id)
+            BEGIN SELECT RAISE(ABORT,'Native agent attribution disagrees'); END""",
+        """CREATE TRIGGER conversation_file_reference_binding BEFORE INSERT ON conversation_entries
+            WHEN NEW.source_type='file_reference' AND NOT EXISTS
+                (SELECT 1 FROM file_references r JOIN actors a ON a.actor_id=r.actor_id
+                 WHERE r.reference_id=NEW.file_reference_id AND r.agent_id=NEW.agent_id
+                    AND r.conversation_id=NEW.conversation_id AND r.actor_id=NEW.sender_actor_id
+                    AND NEW.text=r.label AND NEW.occurred_at=r.observed_at AND NEW.recorded_at=r.recorded_at
+                    AND NEW.role=CASE a.kind WHEN 'owner' THEN 'user' ELSE 'agent' END)
+            BEGIN SELECT RAISE(ABORT,'File reference entry binding disagrees'); END""",
+        *tuple(statement for table, key in (
+            ("file_references", "reference_id=NEW.reference_id"),
+            ("conversation_entries", "entry_id=NEW.entry_id OR file_reference_id=NEW.file_reference_id OR (agent_id=NEW.agent_id AND message_id=NEW.message_id) OR (agent_id=NEW.agent_id AND conversation_seq=NEW.conversation_seq) OR (conversation_id=NEW.conversation_id AND conversation_seq=NEW.conversation_seq)"),
+            ("conversation_native", "entry_id=NEW.entry_id OR (source_id=NEW.source_id AND source_epoch=NEW.source_epoch AND parser_version=NEW.parser_version AND native_id=NEW.native_id AND part_index=NEW.part_index)"),
+        ) for statement in (
+            f"""CREATE TRIGGER {table}_no_replace BEFORE INSERT ON {table}
+                WHEN EXISTS (SELECT 1 FROM {table} WHERE {key})
+                BEGIN SELECT RAISE(ABORT,'Conversation evidence cannot be replaced'); END""",
+            f"""CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table}
+                BEGIN SELECT RAISE(ABORT,'Conversation evidence is permanent'); END""",
+            f"""CREATE TRIGGER {table}_no_update BEFORE UPDATE ON {table}
+                BEGIN SELECT RAISE(ABORT,'Conversation evidence is immutable'); END""",
+        )),
+    )),
 )
 SCHEMA_VERSION = MIGRATIONS[-1].version

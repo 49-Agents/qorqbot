@@ -5,12 +5,15 @@ from uuid import UUID
 from ..agents.registry import get_row
 from ..app import Change, Operation
 from ..contracts import CoreError, canonical
+from ..files.references import reference_record
 from ..messaging import records
-from .models import ConversationList, ConversationPage, Entry, MessageSource, NativeSource, Publication, PublishJob
+from .models import ConversationList, ConversationPage, Entry, FileReferenceSource, MessageSource, NativeSource, Publication, PublishJob
 
 
-def entry_view(row, native=None) -> Entry:
-    if row["source_type"] == "native":
+def entry_view(row, native=None, reference=None) -> Entry:
+    if row["source_type"] == "file_reference":
+        source = FileReferenceSource(reference=reference)
+    elif row["source_type"] == "native":
         source = NativeSource(**{key: row[key] for key in (
             "run_id", "provider", "source_id", "source_epoch", "offset", "length")},
             **{key: native[key] for key in ("sha256", "parser_version", "native_id", "part_index", "timestamp_origin")})
@@ -24,7 +27,8 @@ def entry_view(row, native=None) -> Entry:
 
 def entry_views(tx, rows):
     return [entry_view(row, tx.connection.execute("SELECT * FROM conversation_native WHERE entry_id=?",
-        (row["entry_id"],)).fetchone() if row["source_type"] == "native" else None) for row in rows]
+        (row["entry_id"],)).fetchone() if row["source_type"] == "native" else None,
+        reference_record(tx, row["file_reference_id"]) if row["source_type"] == "file_reference" else None) for row in rows]
 
 
 def transcript_line(entry: Entry) -> bytes:
@@ -44,6 +48,45 @@ class Conversations:
         from .native import append_native
 
         return append_native(self, tx, agent_id, item, provenance, operation_id=operation_id)
+
+    def append_file_reference(self, tx, reference, *, operation_id):
+        """Append only the exact saved observation, never an inferred path/card."""
+        tx.require_write()
+        if reference_record(tx, reference.reference_id) != reference:
+            raise CoreError("invalid_transition", "Entry must use the exact saved file reference")
+        agent = get_row(tx, reference.agent_id)
+        if agent["conversation_id"] != str(reference.conversation_id):
+            raise CoreError("target_changed", "File reference conversation binding disagrees")
+        existing = tx.connection.execute("SELECT * FROM conversation_entries WHERE file_reference_id=?",
+            (str(reference.reference_id),)).fetchone()
+        if existing:
+            return entry_view(existing, reference=reference)
+        cursor = tx.connection.execute("SELECT last_seq FROM conversation_cursors WHERE agent_id=?", (agent["id"],)).fetchone()
+        if cursor is None:
+            tx.connection.execute("INSERT INTO conversation_cursors VALUES (?,?,0)", (agent["id"], agent["conversation_id"]))
+        last_seq = cursor[0] if cursor else 0
+        if last_seq == 2**63 - 1:
+            raise CoreError("storage_blocked", "Conversation cursor exhausted")
+        actor = tx.connection.execute("SELECT kind FROM actors WHERE actor_id=?", (str(reference.actor_id),)).fetchone()
+        entry = Entry(entry_id=self.db.id_factory(), agent_id=reference.agent_id, conversation_id=reference.conversation_id,
+            conversation_seq=last_seq + 1, kind="file_reference", role="user" if actor["kind"] == "owner" else "agent",
+            direction="outgoing", text=reference.label, sender_actor_id=reference.actor_id,
+            source=FileReferenceSource(reference=reference), occurred_at=reference.observed_at, recorded_at=reference.recorded_at)
+        date = entry.recorded_at[:10]
+        tx.connection.execute("UPDATE conversation_cursors SET last_seq=? WHERE agent_id=?", (entry.conversation_seq, agent["id"]))
+        tx.connection.execute("""INSERT INTO conversation_entries (entry_id,agent_id,conversation_id,conversation_seq,
+            kind,role,direction,text,sender_actor_id,source_type,file_reference_id,occurred_at,recorded_at,recording_date)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (str(entry.entry_id), agent["id"], agent["conversation_id"], entry.conversation_seq, entry.kind, entry.role,
+             entry.direction, entry.text, str(entry.sender_actor_id), entry.source.type, str(reference.reference_id),
+             entry.occurred_at, entry.recorded_at, date))
+        if tx.connection.execute("SELECT 1 FROM conversation_publications WHERE agent_id=? AND recording_date=?",
+                (agent["id"], date)).fetchone() is None:
+            tx.connection.execute("INSERT INTO conversation_publications (agent_id,recording_date) VALUES (?,?)", (agent["id"], date))
+        self.app.jobs.enqueue(tx, "conversation_publish", PublishJob(agent_id=agent["id"], date=date,
+            required_seq=entry.conversation_seq), operation_id=operation_id, target_id=reference.agent_id)
+        self.db.fault("conversation_after_entry")
+        return entry
 
     def append_message(self, tx, agent_id, message, *, operation_id):
         """Internal platform insertion seam; not a public/native assistant writer.
