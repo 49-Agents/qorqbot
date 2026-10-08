@@ -2,7 +2,8 @@
 
 Accepted D43–D45: [inbox notifications](evidence/inbox-notifications-manager-acceptance.md),
 [shared terminal input](evidence/shared-terminal-input-manager-acceptance.md), and
-[file references](evidence/file-references-manager-acceptance.md). [Host dispatch](HOST-MESSAGE-DISPATCH.md) is being built. The file-reference UI has passed
+[file references](evidence/file-references-manager-acceptance.md). [Host dispatch](evidence/host-message-dispatch-manager-acceptance.md) has passed component review
+(schema 9); its production capture prerequisite awaits D48 and actual native-flow acceptance. The file-reference UI has passed
 [scoped review](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/file-reference-cards-manager-acceptance.md);
 the actual core/MCP/UI flow follows. The [native-history audit](evidence/native-coverage-manager-acceptance.md)
 confirms remaining discovery and shutdown gaps without claiming complete history.

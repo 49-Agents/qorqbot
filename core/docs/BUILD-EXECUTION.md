@@ -1,11 +1,11 @@
 # Managed implementation and review
 
-Current parallel work: [D46 host dispatch](HOST-MESSAGE-DISPATCH.md),
-[D48 continued native discovery/raw observations](NATIVE-COLLECTION-CONTINUITY.md),
+Current parallel work: [D48 continued native discovery/raw observations](NATIVE-COLLECTION-CONTINUITY.md)
 and the [real core/MCP/file-card check](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/FILE-REFERENCE-INTEGRATION.md).
-D47 cards and the native-coverage factual audit are accepted and merged. Manager
+D46 [host dispatch](evidence/host-message-dispatch-manager-acceptance.md), D47 cards
+and the native-coverage factual audit are accepted and merged. Manager
 reviews/tests completed work directly; workers use Astra MAX, self-review off.
-Current capacity allows three workers alongside Manager. D46 alone owns schema 9;
+Current capacity allows three workers alongside Manager. D46 adds schema 9;
 D48 owns only its collector/tests and the frozen private observation contract.
 The UI check uses the accepted pair independently. Actual native Chat acceptance
 follows the combined D46/D48 candidate; no source-completeness claim is implied.
