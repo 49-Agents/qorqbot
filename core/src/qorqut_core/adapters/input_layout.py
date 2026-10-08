@@ -110,7 +110,11 @@ def _observe(provider, version, snapshot, expected):
                 or plain[-1] != ("  ? for shortcuts" if expected is None else "")):
             return "unknown", "unknown_footer_or_multiline_input"
         if expected is None:
-            if tail != "\x1b[2mAsk Codex to do anything\x1b[0m":
+            # tmux can carry the exact dim placeholder through the blank row
+            # and emit its full reset at the start of the model/footer row.
+            reset_on_footer = (tail == "\x1b[2mAsk Codex to do anything"
+                and raw[row + 1] == "" and raw[-2].startswith("\x1b[0m  "))
+            if tail != "\x1b[2mAsk Codex to do anything\x1b[0m" and not reset_on_footer:
                 return "blocked", "composer_contains_text_or_unknown_placeholder"
         elif tail != expected:
             return "blocked", "composer_text_mismatch_or_styled_input"
