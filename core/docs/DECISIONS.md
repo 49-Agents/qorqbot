@@ -1,5 +1,20 @@
 # Architecture decisions
 
+## D40 — Compose manual startup and continuous native history
+
+The recorded Terminal is now an accepted real core/UI flow. [Native composition](NATIVE-COMPOSITION.md)
+uses per-agent attributed core credentials and managed hook/MCP configuration,
+then the existing session monitor composes discovery, capture, host archive,
+projection and dated publication. No new service, host migration or automatic CLI
+launch. Setup and collection build in parallel against frozen observation models;
+actual config loading is checked independently. Manager reviews directly.
+
+## D39 — Native admission, capture and projection seams
+
+[NATIVE-CONNECTION.md](NATIVE-CONNECTION.md) records accepted callable seams and
+their remaining composition boundary. These tests are not normal-server native
+acceptance; D40 provides the next connection.
+
 ## D38 — Usable host Terminal and parallel UI integration
 
 Manager decision, 2026-10-08. [Terminal server](TERMINAL-SERVER.md) composes the

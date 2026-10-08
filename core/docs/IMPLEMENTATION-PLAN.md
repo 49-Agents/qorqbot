@@ -22,20 +22,27 @@ the following runtime integration; accepted components alone do not prove it.
 
 D38's [host Terminal server](TERMINAL-SERVER.md) has passed fresh independent
 review and [Manager source acceptance](evidence/terminal-server-manager-acceptance.md).
-The parallel UI Chat/Terminal switch is also reviewed and merged. Their next
-gate is a real compiled-UI/installed-core check of the recorded onbash shell.
+The parallel UI Chat/Terminal switch is also reviewed and merged. Their real
+compiled-UI/installed-core check of the recorded onbash shell has passed.
 Native inbox/Chat/history connection remains a distinct following step, with
 accepted factual inputs.
 
 The combined D38 check exposed read-only terminal clipping. The required
 [geometry correction](TERMINAL-GEOMETRY.md) carries native pane dimensions into
 each mirror and the scrollable UI, using protocol 2 for the corrected pair.
-The full Terminal integration gate remains open until that pair passes.
+The corrected pair passed the [real Terminal integration](evidence/terminal-integration-r1.md),
+including restart/outage recording and read-only mobile scrolling. This is
+recorded Bash acceptance, not native CLI or complete G2/G3 acceptance.
 
 D39's [native connection work](NATIVE-CONNECTION.md) now proceeds in three
 parallel implementation lanes alongside the Terminal correction. The owner has
 requested direct Manager review/testing in place of mandatory separate reviewer
 actors. The connected runtime gate still requires an actual combined flow.
+
+D40's [normal native composition](NATIVE-COMPOSITION.md) now joins accepted
+hook/capture/projection seams: owned hook/MCP setup and continuous native history
+collection build in parallel alongside a bounded actual-CLI config-loading check.
+No automatic CLI launch is added.
 
 ## 1. Product contract
 

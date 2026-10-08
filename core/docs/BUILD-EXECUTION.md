@@ -420,3 +420,20 @@ production agent data are test fixtures.
 Use notification-driven ACLA handoffs. Manager ends its turn after dispatch and
 resumes for completion/blocker messages; it does not poll or inspect unfinished
 work. At most ten builders/reviewers execute concurrently across this run.
+
+## D40 parallel continuation — 2026-10-08
+
+The real core/UI recorded Terminal flow has passed Manager acceptance. Native
+admission, capture and projection callables are accepted.
+[The next concrete plan](NATIVE-COMPOSITION.md) assigns three disjoint lanes:
+
+| Lane | Scope | Acceptance after completion |
+| --- | --- | --- |
+| Native setup | Managed credential, hooks/MCP/instructions, monitor/server integration | Manager source review and focused setup checks |
+| Native collection | Admitted source polling, archive transfer, projection, publication scheduling | Manager review and focused durable pipeline checks |
+| Native autoload | Actual pinned CLI discovery of proposed standard config paths | Manager review of factual isolated evidence |
+
+All three use Astra MAX with self-review disabled. Manager integrates the
+reviewed collector into normal server composition and then checks actual manual
+CLI/user/assistant history through the real UI and dated files. No automatic
+CLI launch, paid calls, browser/VM installation or live owner fixtures.

@@ -373,3 +373,11 @@ Core pins the browser service/image version and protocol. Browser receives expli
 Native CLIs configure separate `qorqut-core` and `qorqut-browser` MCP servers. Browser uses a private local Streamable HTTP endpoint and survives CLI/runner restarts. All its direct and forwarded commands share control fencing. Without a configured application handoff/completion integration it does not advertise human takeover capability. Browser owns no agent directory, message system or installation-wide configuration store. Cross-agent selection resolves through core to the target browser service, preserving the original identity/idempotency binding; a local execution endpoint cannot silently operate another browser or recursively forward commands.
 
 Core owns `/api/v1` schemas and event payload versions. The UI checks supported API capabilities before dependent actions; unsupported versions produce a clear compatibility error. Core can start and complete HTTP/MCP/operator flows without UI assets, and UI releases do not migrate backend state. Serve frontend and API at one browser origin through optional static mounting or a conventional proxy; this does not add another backend service.
+
+## D40 additive runtime observations (implementation assigned)
+
+[D40](NATIVE-COMPOSITION.md) adds nullable native_setup and native_capture views
+to runtime_get; their exact models are frozen in runtime/native_models.py. They
+report managed configuration and capture/parse observations, and never grant
+input readiness or imply all native sources are covered. Existing operation
+names/count, host schema and job handlers stay unchanged.
