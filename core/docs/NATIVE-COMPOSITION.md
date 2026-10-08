@@ -15,7 +15,8 @@ observation still never start a native CLI; the user manages it in Terminal.
 3. Native autoload explorer: execute the bounded actual-CLI loading checks
    below. Report facts only; no production code or design changes.
 
-`runtime/native_models.py` freezes observation models before dispatch.
+`runtime/native_models.py` and the optional LocalTerminalSettings.native_programs
+field freeze shared observation/configuration types before dispatch.
 `NativeSetup(application)` is passive; `configure_credentials(register)` sets
 its internal credential callback. `tick()` attempts setup, `view(agent_id)` is
 thread-safe and memory-only, and `close()` clears the cache. `NativeCollector(application)`

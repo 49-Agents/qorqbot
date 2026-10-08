@@ -9,6 +9,8 @@ from uuid import UUID
 
 from pydantic import Field, field_validator, model_validator
 
+from .adapters.capabilities import require_profile
+from .adapters.manual_hooks import NativeProgram
 from .contracts import Model, Mutation, Revision
 from .runner.shell_models import ShellSpec, absolute_path
 
@@ -51,6 +53,16 @@ class LocalTerminalSettings(Model):
     tmux_executable: Path
     bash_executable: Path
     path: Annotated[str, Field(strict=True, min_length=1, max_length=32768)]
+    native_programs: tuple[NativeProgram, ...] = ()
+
+    @field_validator("native_programs")
+    @classmethod
+    def pinned_native_programs(cls, value):
+        if len(value) > 2 or len({item.provider for item in value}) != len(value):
+            raise ValueError("Supply at most two distinct native providers")
+        for item in value:
+            require_profile(item.provider, item.cli_version)
+        return value
 
     @field_validator("runtime_root", "python_executable", "tmux_executable", "bash_executable")
     @classmethod
