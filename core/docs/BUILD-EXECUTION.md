@@ -476,3 +476,12 @@ Both receive direct Manager review and focused actual-flow checks. The concurren
 Claude/Codex native workflow verifiers keep core a2a162ce and UI 5a9090c fixed.
 Chat dispatch/readiness, browser/VM integration and full system acceptance remain
 unfinished. This allocation is not implementation acceptance.
+
+## Qualified Claude workflow accepted
+
+[Manager acceptance](evidence/manual-native-claude-manager-acceptance.md) verifies
+actual manual start, positive exit/resume, live-CLI core restart, native Chat and
+automatic UTC-dated files at the frozen core/UI pins. The canned provider and
+fixture-only post-onboarding qualification remain explicit. This does not accept
+Chat dispatch, full source coverage or final shutdown drain. Codex verification
+and the two D41 corrections continue independently.
