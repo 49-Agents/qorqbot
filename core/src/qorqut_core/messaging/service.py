@@ -57,17 +57,17 @@ class Messaging:
             sender_agent_id,recipient_agent_id,body,occurred_at,recorded_at) VALUES (?,?,?,?,?,?,?,?,?)""",
             (str(message_id), str(thread_id), str(args.reply_to_message_id) if args.reply_to_message_id else None,
              str(context.actor_id), sender["id"] if sender else None, recipient["id"], args.body, now, now))
-        unsafe = any((ord(char) < 0x20 and char not in "\n\t") or 0x7f <= ord(char) <= 0x9f for char in args.body)
-        state, reason = ("failed", "unsafe_terminal_text") if unsafe else ("pending", "runtime_unavailable")
+        # Only the fixed ASCII message-ID notification will enter the terminal.
+        # Stored bodies retain all valid UTF-8, including control characters.
+        state, reason = "pending", "runtime_unavailable"
         tx.connection.execute("INSERT INTO message_deliveries VALUES (?,?,?,?,?)", (str(message_id), recipient["id"], state, reason, now))
         message = records.message(tx, message_id)
         targets = [sender["id"]] if sender else []
         if recipient["id"] not in targets:
             targets.append(recipient["id"])
         entries = [self.app.conversations.append_message(tx, target, message, operation_id=operation_id) for target in targets]
-        if not unsafe:
-            self.app.jobs.enqueue(tx, "message_delivery", MessageDeliveryJob(message_id=message_id),
-                operation_id=operation_id, target_id=args.recipient_agent_id)
+        self.app.jobs.enqueue(tx, "message_delivery", MessageDeliveryJob(message_id=message_id),
+            operation_id=operation_id, target_id=args.recipient_agent_id)
         seq = append_event(tx, EventInput(kind="message.saved", actor_id=context.actor_id, agent_id=args.recipient_agent_id,
             operation_id=operation_id, payload={"message_id": str(message_id), "thread_id": str(thread_id),
                 "sender_agent_id": sender["id"] if sender else None, "recipient_agent_id": recipient["id"],
@@ -104,10 +104,10 @@ class Messaging:
 
     def list(self, tx, args, context, operation_id):
         agent_id = args.agent_id
-        if agent_id is None and args.thread_id is None:
+        if agent_id is None and args.thread_id is None and args.message_id is None:
             actor = tx.connection.execute("SELECT agent_id FROM actors WHERE actor_id=?", (str(context.actor_id),)).fetchone()
             if actor[0] is None:
-                raise CoreError("invalid_argument", "An owner message list requires an agent or thread filter")
+                raise CoreError("invalid_argument", "An owner message list requires an agent, thread or message filter")
             agent_id = UUID(actor[0])
         return self._page(tx, args, agent_id)
 
@@ -116,6 +116,10 @@ class Messaging:
         if args.recovery_epoch is not None and str(args.recovery_epoch) != epoch:
             raise CoreError("target_changed", "Message cursor belongs to another recovery epoch")
         where, values = ["m.message_seq>?"], [args.after_seq]
+        if args.message_id is not None:
+            records.message(tx, args.message_id)
+            where.append("m.message_id=?")
+            values.append(str(args.message_id))
         if agent_id is not None:
             get_row(tx, agent_id)
             where.append("(m.sender_agent_id=? OR m.recipient_agent_id=?)")

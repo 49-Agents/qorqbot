@@ -1,6 +1,14 @@
-from uuid import uuid4
+import io
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tarfile
+from uuid import UUID, uuid4
 
 from qorqut_core.contracts import CoreError
+from qorqut_core.messaging.notifications import notification_text
 from test_foundation import InjectedCrash
 
 from .support import ChatCase
@@ -21,8 +29,8 @@ class Messages(ChatCase):
         saved = self.send(body=body, sender=self.actor(self.b))
         self.assertEqual(saved.outcome, "accepted")
         self.assertEqual(saved.data["message"]["body"], body)
-        self.assertEqual(saved.data["delivery"]["state"], "failed")
-        self.assertEqual(saved.data["delivery"]["reason"], "unsafe_terminal_text")
+        self.assertEqual(saved.data["delivery"]["state"], "pending")
+        self.assertEqual(saved.data["delivery"]["reason"], "runtime_unavailable")
         self.assertEqual(len(saved.data["entries"]), 2)
         counts = self.counts()
         self.restart()
@@ -30,9 +38,11 @@ class Messages(ChatCase):
         self.assertEqual(self.counts(), counts)
         self.assertEqual(self.app.invoke("messages_send", self.actor(self.b), {
             "idempotency_key": "send", "recipient_agent_id": self.a["id"], "body": "changed"}).error.code, "idempotency_conflict")
-        self.assertFalse(any(j["kind"] == "message_delivery" for j in self.rows("jobs")))
+        self.assertEqual(len([j for j in self.rows("jobs") if j["kind"] == "message_delivery"]), 1)
         self.pump()
         self.assertEqual(self.conversation()["items"][0]["text"], body)
+        self.assertEqual(json.loads(self.path().read_bytes())["text"], body)
+        self.assertEqual(self.messages(message_id=saved.data["message"]["message_id"])["items"][0]["message"]["body"], body)
         self.fault.point = "transaction_after_commit"
         with self.assertRaises(InjectedCrash):
             self.send("lost-response", "saved before response loss")
@@ -40,6 +50,82 @@ class Messages(ChatCase):
         recovered = self.send("lost-response", "saved before response loss")
         self.assertEqual(len(self.rows("messages")), 2)
         self.assertEqual(self.messages(agent_id=self.a["id"])["items"][-1]["message"], recovered.data["message"])
+
+    def test_notification_is_only_the_canonical_uuid(self):
+        message_id = UUID("ABCDEF12-3456-4789-ABCD-0123456789AB")
+        text = notification_text(message_id)
+        self.assertEqual(text, "[Qorqut inbox abcdef12-3456-4789-abcd-0123456789ab]")
+        self.assertEqual(len(text.encode("ascii")), 51)
+        for value in (str(message_id), "\x1b injected", None):
+            with self.assertRaises(TypeError):
+                notification_text(value)
+
+    def test_exact_id_reads_intersect_filters_without_implicit_self(self):
+        first = self.send("first", sender=self.actor(self.a), recipient=self.b).data["message"]
+        other = self.send("other", recipient=self.onbash).data["message"]
+        filters = {"message_id": first["message_id"]}
+        for caller in (self.context, self.actor(self.a), self.actor(self.b), self.actor(self.onbash)):
+            page = self.messages(caller=caller, **filters)
+            self.assertEqual([item["message"] for item in page["items"]], [first])
+            self.assertIsNone(page["items"][0]["handling"])
+            self.assertFalse(page["has_more"])
+            self.assertEqual(page["next_after_seq"], first["message_seq"])
+        self.assertEqual(len(self.messages(**filters, agent_id=self.a["id"], thread_id=first["thread_id"], limit=1)["items"]), 1)
+        for extra in ({"agent_id": self.onbash["id"]}, {"thread_id": other["thread_id"]},
+                      {"after_seq": first["message_seq"], "recovery_epoch": page["recovery_epoch"]}):
+            self.assertEqual(self.messages(**filters, **extra)["items"], [])
+        self.assertEqual(self.app.invoke("messages_list", self.context, {**filters, "after_seq": 1}).error.code, "invalid_argument")
+        self.assertEqual(self.app.invoke("messages_list", self.context,
+            {**filters, "recovery_epoch": str(uuid4())}).error.code, "target_changed")
+        for extra in ({"message_id": str(uuid4())}, {**filters, "agent_id": str(uuid4())},
+                      {**filters, "thread_id": str(uuid4())}):
+            self.assertEqual(self.app.invoke("messages_list", self.context, extra).error.code, "not_found")
+        receipt = self.ack([first["message_id"]], caller=self.actor(self.onbash)).data["items"][0]
+        self.assertEqual(self.messages(**filters, unhandled_only=True)["items"], [])
+        self.assertEqual(self.messages(**filters)["items"][0]["handling"], receipt)
+
+    def test_pre_d43_failed_receipt_replays_without_resurrection(self):
+        # Actual pre-D43 code writes the historical receipt into disposable data.
+        base = "0fc5ffbc71cc0036f81967e34e9b670846e1fc6e"
+        repo = Path(__file__).resolve().parents[2]
+        archive = subprocess.run(["git", "-C", str(repo), "archive", base, "src"], capture_output=True)
+        if archive.returncode:
+            self.skipTest("Pinned pre-D43 source is unavailable")
+        source = self.root / "pre-d43"
+        with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
+            tar.extractall(source, filter="data")
+        arguments = {"idempotency_key": "historical", "recipient_agent_id": self.a["id"], "body": "\x00\r\x1b\x85"}
+        self.app.close()
+        script = """
+import json, sys
+from qorqut_core.app import Application
+from qorqut_core.config import InstallationSettings
+from qorqut_core.contracts import Invocation
+app = Application.open(InstallationSettings.model_validate_json(sys.argv[1]))
+try:
+    print(app.invoke('messages_send', Invocation.model_validate_json(sys.argv[2]), json.loads(sys.argv[3])).model_dump_json())
+finally:
+    app.close()
+"""
+        produced = subprocess.run([sys.executable, "-B", "-c", script, self.settings.model_dump_json(),
+            self.context.model_dump_json(), json.dumps(arguments)], capture_output=True, text=True,
+            env={"PATH": os.defpath, "PYTHONPATH": str(source / "src"), "PYTHONNOUSERSITE": "1"})
+        self.assertEqual(produced.returncode, 0, produced.stderr)
+        old = json.loads(produced.stdout)
+        self.assertTrue(old["ok"], old)
+        self.assertEqual(old["data"]["delivery"]["reason"], "unsafe_terminal_text")
+        self.restart()
+        watched = ("operations", "messages", "message_deliveries", "events", "jobs")
+        before = {table: self.rows(table) for table in watched}
+        self.assertEqual(self.app.invoke("messages_send", self.context, arguments).model_dump(mode="json"), old)
+        self.assertEqual({table: self.rows(table) for table in watched}, before)
+        self.recovery()
+        item = self.messages(message_id=old["data"]["message"]["message_id"])["items"][0]
+        self.assertEqual(item["delivery"], old["data"]["delivery"])
+        self.assertFalse(any(job["kind"] == "message_delivery" for job in self.rows("jobs")))
+        self.assertEqual(self.app.invoke("messages_send", self.context, arguments).model_dump(mode="json"), old)
+        new = self.send("new-controls", arguments["body"])
+        self.assertEqual(new.data["delivery"]["state"], "pending")
 
     def test_validation_authorship_threads_and_immutable_handling(self):
         for body in ("", "🙂" * 16385, "\ud800"):

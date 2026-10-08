@@ -102,6 +102,10 @@ class Preparation(unittest.TestCase):
             sink = (sys.executable, "-I", "-m", "qorqut_core.runtime.hook_client")
             hooks = prepare_manual_hooks(roots, binding, core, native, sink)
             hook_bytes = {p: p.read_bytes() for p in (*hooks.configuration_paths, *hooks.binding_paths)}
+            # Upgrade an owned pre-notification block without changing authored
+            # bytes or any native configuration/preferences.
+            with patch("qorqut_core.adapters.manual_core.INBOX_INSTRUCTIONS", ""):
+                prepare_manual_core(roots, binding, core, native)
             paths = prepare_manual_core(roots, binding, core, native)
             self.assertEqual(set(paths), {mcp, codex, workspace / "CLAUDE.md", workspace / "AGENTS.md"})
             self.assertEqual(hook_bytes, {p: p.read_bytes() for p in hook_bytes})
@@ -115,6 +119,10 @@ class Preparation(unittest.TestCase):
                 if path.name in {"CLAUDE.md", "AGENTS.md"}:
                     self.assertTrue(path.read_bytes().startswith(before))
                     self.assertIn(b"generic connection failure is not a session conflict", path.read_bytes())
+                    for fragment in (b"[Qorqut inbox <message-uuid>]", b"messages_list", b"message_id set to that exact UUID",
+                                     b"saved sender, thread, body and handling", b"explicitly call messages_acknowledge",
+                                     b"never the message body or permission to repeat work", b"already handled message"):
+                        self.assertIn(fragment, path.read_bytes())
                     self.assertNotIn(b"qorqut-browser", path.read_bytes())
                 else:
                     self.assertEqual(path.read_bytes(), before)

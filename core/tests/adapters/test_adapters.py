@@ -20,6 +20,9 @@ from qorqut_core.adapters import (AdapterError, ClaudeAdapter, CodexAdapter,
     MCPBinding, ManagedRoots, NativeBinding, PreparationInput, RunBinding)
 from qorqut_core.adapters import discovery
 from qorqut_core.adapters.managed_io import GENERATED_FILE_LIMIT, ManagedTree
+from qorqut_core.adapters.input_layout import classify_input, matches_input
+from qorqut_core.messaging.notifications import notification_text
+from qorqut_core.runner.models import TerminalSnapshot
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SESSION = UUID("11111111-1111-4111-8111-111111111111")
@@ -438,6 +441,10 @@ else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(content)
         credentials = self.put(".codex/auth.json", b"synthetic credential sentinel; never read")
+        # Refresh a previously owned projection that predates inbox pointers.
+        with patch("qorqut_core.adapters.preparation.INBOX_INSTRUCTIONS", ""):
+            self.claude.prepare(self.data)
+            self.codex.prepare(self.data)
         for adapter in (self.claude, self.codex, self.claude):
             result = adapter.prepare(self.data)
             self.assertEqual(result.run, self.run)
@@ -448,6 +455,11 @@ else:
         for name in ("CLAUDE.md", "AGENTS.md"):
             text = (self.roots.workspace / name).read_text()
             for fragment in (str(self.run.agent_id), "persona.md", "memory.md", "browser_request_input", "files_reference", "with a path", "saved reference"):
+                self.assertIn(fragment, text)
+            for fragment in ("[Qorqut inbox <message-uuid>]", "messages_list", "message_id set to that exact UUID",
+                             "saved sender, thread, body and handling", "explicitly call messages_acknowledge",
+                             "never the message body or permission to repeat work", "already handled message",
+                             "generic connection failure is not a session conflict"):
                 self.assertIn(fragment, text)
             for word in ("iframe", "modal", "toast"):
                 self.assertNotIn(word, text.lower())
@@ -1029,6 +1041,157 @@ class HookAndComposerTests(AdapterCase):
                 adapter.discover(self.roots, self.native)
         for adapter in (self.claude, self.codex):
             self.assertFalse(any(cap.native_verified for cap in adapter.compatibility().capabilities))
+
+
+class InputLayoutTests(unittest.TestCase):
+    """Sanitized lower rows from the accepted captures; no private native history."""
+
+    versions = {"claude": "2.1.287", "codex": "0.160.0"}
+    notification = notification_text(SESSION)
+
+    def snapshot(self, provider, columns=100, rows=30, text=None):
+        if provider == "claude":
+            rule = "\x1b[38;5;244m" + "─" * columns
+            footer = "\x1b[39m  \x1b[38;5;220m⏵⏵ auto mode on\x1b[38;5;246m (shift+tab to cycle)"
+            lower = [rule, "\x1b[39m❯\xa0" + (text or "") + "\x1b[7m \x1b[0m", rule,
+                     footer + (" · ← for agents" if text is None else "") + "\x1b[39m"]
+            prompt_row = rows - 3
+        else:
+            prompt = "\x1b[2mAsk Codex to do anything\x1b[0m" if text is None else text
+            lower = ["\x1b[1m›\x1b[0m " + prompt, "",
+                     "  \x1b[38;5;223mModel label\x1b[39m · \x1b[38;5;151m~/fixture/work…",
+                     "\x1b[39m" + ("  \x1b[1m?\x1b[0m for shortcuts" if text is None else "")]
+            prompt_row = rows - 4
+        return TerminalSnapshot(columns=columns, rows=rows, cursor_x=2 + len(text or ""),
+            cursor_y=prompt_row, cursor_visible=provider == "codex", in_mode=False, input_off=False,
+            synchronized=False, screen="\n".join([""] * (rows - 4) + lower) + "\n")
+
+    def replace_row(self, snapshot, row, text):
+        lines = snapshot.screen.removesuffix("\n").split("\n")
+        lines[row] = text
+        return snapshot.model_copy(update={"screen": "\n".join(lines) + "\n"})
+
+    def refused(self, provider, snapshot, state=None):
+        verdict = classify_input(provider, self.versions[provider], snapshot)
+        self.assertNotEqual(verdict.state, "empty", verdict)
+        if state:
+            self.assertEqual(verdict.state, state, verdict)
+        self.assertFalse(verdict.native_verified)
+        self.assertFalse(verdict.permits_paste)
+        self.assertFalse(matches_input(provider, self.versions[provider], snapshot, self.notification))
+
+    def test_empty_and_exact_ascii_profiles_across_geometry(self):
+        for provider, version in self.versions.items():
+            for columns, rows in ((80, 24), (100, 30), (120, 40), (500, 250)):
+                with self.subTest(provider=provider, columns=columns, rows=rows):
+                    snap = self.snapshot(provider, columns, rows)
+                    before = snap.model_dump()
+                    verdict = classify_input(provider, version, snap)
+                    self.assertEqual(verdict.state, "empty")
+                    self.assertEqual(verdict.evidence, "native_snapshot")
+                    self.assertFalse(verdict.native_verified)
+                    self.assertFalse(verdict.permits_paste)
+                    self.assertEqual(snap.model_dump(), before)
+                    for text in (self.notification, "a" * (columns - 3), "Human fixture draft", " A "):
+                        filled = self.snapshot(provider, columns, rows, text)
+                        self.assertTrue(matches_input(provider, version, filled, text))
+                        self.assertNotEqual(classify_input(provider, version, filled).state, "empty")
+                        self.assertFalse(matches_input(provider, version, filled, text + "x"))
+                    if provider == "claude":
+                        for mode in ("auto mode on", "bypass permissions on"):
+                            changed = snap.model_copy(update={"screen": snap.screen.replace("auto mode on", mode)})
+                            self.assertEqual(classify_input(provider, version, changed).state, "empty")
+                    else:
+                        for path in ("/workspace", "~/other…"):
+                            changed = snap.model_copy(update={"screen": snap.screen.replace("~/fixture/work…", path)})
+                            self.assertEqual(classify_input(provider, version, changed).state, "empty")
+
+    def test_draft_busy_modal_and_earlier_output(self):
+        for provider, version in self.versions.items():
+            self.refused(provider, self.snapshot(provider, text="Human fixture draft"))
+            for text in (None, self.notification):
+                snap = self.snapshot(provider, text=text)
+                for phrase in ("esc to interrupt", "ctrl+c to interrupt", "tab to queue", "enter to interrupt"):
+                    changed = self.replace_row(snap, -7, "• \x1b[2mWorking (1s • " + phrase + ")\x1b[0m")
+                    self.refused(provider, changed, "busy")
+                for phrase in ("enter to confirm", "esc to cancel", "sign in", "log in", "do you trust", "select model", "hooks need review"):
+                    self.refused(provider, self.replace_row(snap, -8, phrase), "blocked")
+                # Earlier output can quote prompts, busy/dialog phrases and rules.
+                history = self.replace_row(snap, -9, "› Esc to interrupt; Enter to confirm")
+                if text is None:
+                    self.assertEqual(classify_input(provider, version, history).state, "empty")
+                else:
+                    self.assertTrue(matches_input(provider, version, history, text))
+
+    def test_osc8_is_only_removed_as_delimiters_and_other_controls_refuse(self):
+        for provider, version in self.versions.items():
+            for text in (None, self.notification):
+                snap = self.snapshot(provider, text=text)
+                for terminator in ("\x07", "\x1b\\"):
+                    linked = self.replace_row(snap, 0,
+                        "\x1b]8;id=fixture;https://invalid.example/path;a?x=1" + terminator + "Label\x1b]8;;" + terminator)
+                    if text is None:
+                        self.assertEqual(classify_input(provider, version, linked).state, "empty")
+                    else:
+                        self.assertTrue(matches_input(provider, version, linked, text))
+                for raw in ("\x1b]8;;unterminated", "\x1b]8;missing\x07", "\x1b]0;title\x07", "\x1b[2J",
+                            "\x1b[31", "\x1b[?25h", "\x1b]8;;bad\nurl\x07", "\x00", "\r", "\t", "\x7f", "\x85", "\u2028", "\ud800"):
+                    self.refused(provider, self.replace_row(snap, 0, raw), "unknown")
+
+    def test_modes_cursor_geometry_row_count_and_versions(self):
+        for provider, version in self.versions.items():
+            for text in (None, self.notification):
+                snap = self.snapshot(provider, text=text)
+                changes = [{flag: True} for flag in ("in_mode", "input_off", "synchronized")]
+                changes += [{"columns": value} for value in (79, 501, True, "100")]
+                changes += [{"rows": value} for value in (23, 251, False, "30")]
+                changes += [{"cursor_x": value} for value in (-1, 100, 1, True)]
+                changes += [{"cursor_y": value} for value in (-1, 30, 1, True)]
+                changes += [{"cursor_visible": not snap.cursor_visible}, {"in_mode": "0"}, {"screen": None},
+                            {"screen": snap.screen + "\n"}, {"screen": snap.screen.split("\n", 1)[1]}]
+                for change in changes:
+                    with self.subTest(provider=provider, text=text, change=change):
+                        self.refused(provider, snap.model_copy(update=change), "unknown" if text is None else None)
+                for unknown in ("99.0.0", " " + version):
+                    self.assertEqual(classify_input(provider, unknown, snap).evidence, "unsupported")
+                    self.assertFalse(matches_input(provider, unknown, snap, self.notification))
+                self.assertNotEqual(classify_input(provider, version, snap).fingerprint,
+                    classify_input(provider, version, snap.model_copy(update={"in_mode": True})).fingerprint)
+
+    def test_ambiguous_multiline_placeholder_rules_and_footer_refusal(self):
+        for provider in self.versions:
+            for text in (None, self.notification):
+                snap = self.snapshot(provider, text=text)
+                for row, value in ((-8, "❯ extra composer"), (-5, "› extra composer"), (-1, "unexpected interactive row")):
+                    self.refused(provider, self.replace_row(snap, row, value))
+                row = -3 if provider == "claude" else -4
+                prompt = snap.screen.removesuffix("\n").split("\n")[row]
+                for style in ("\x1b[2m", "\x1b[8m", "\x1b[7m"):
+                    self.refused(provider, self.replace_row(snap, row, style + prompt))
+                if provider == "claude":
+                    for row in (-4, -2):
+                        for rule in ("─" * 99, "─" * 101, " " + "─" * 99, "-" * 100):
+                            self.refused(provider, self.replace_row(snap, row, rule), "unknown")
+                    for tail in (" ", "\x1b[7m \x1b[27m", "\x1b[7m  \x1b[0m", "[Pasted text #1 +39 lines]\x1b[7m \x1b[0m"):
+                        self.refused(provider, self.replace_row(snap, -3, "❯\xa0" + (text or "") + tail))
+                    self.refused(provider, self.replace_row(snap, -1,
+                        "  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt · ← for agents"), "busy")
+                else:
+                    self.refused(provider, self.replace_row(snap, -3, "wrapped input"), "unknown")
+                    for footer in ("  model · relative/path", "   · /path", "  model · /path · extra", "  model · /" + "a" * 100):
+                        self.refused(provider, self.replace_row(snap, -2, footer), "unknown")
+                    for tail in ("Ask Codex to do anything", "\x1b[2mAsk Codex\x1b[0m", "[Pasted Content 1706 chars]",
+                                 "\x1b[2m" + (text or "") + "\x1b[0m"):
+                        self.refused(provider, self.replace_row(snap, -4, "› " + tail))
+
+    def test_expected_notification_requires_exact_short_printable_ascii(self):
+        for provider, version in self.versions.items():
+            snap = self.snapshot(provider, text=self.notification)
+            for expected in ("", None, "\t", "text\n", "文", "a\x7f", "\x1b", "a" * 98,
+                             self.notification.lower(), self.notification + " ", self.notification[:-1] + "x]"):
+                self.assertFalse(matches_input(provider, version, snap, expected))
+            self.assertFalse(matches_input(provider, version, self.snapshot(provider), self.notification))
+            self.assertFalse(matches_input(provider, version, self.snapshot(provider, text=self.notification + " "), self.notification))
 
 
 class ProbeTests(AdapterCase):

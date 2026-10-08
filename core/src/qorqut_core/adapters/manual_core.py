@@ -10,7 +10,7 @@ import tomllib
 from .capabilities import require_profile
 from .managed_io import ManagedTree, validate_generated_size
 from .manual_hooks import ManualBinding, NativeProgram
-from .preparation import CODEX_CONFIG, PREFIX, _typed, json_bytes
+from .preparation import CODEX_CONFIG, CONNECTION_INSTRUCTIONS, INBOX_INSTRUCTIONS, PREFIX, _typed, json_bytes
 from .types import AdapterError, ManagedRoots, MCPBinding
 
 MANIFEST = ".qorqut/manual-core/preparation.json"
@@ -48,8 +48,7 @@ def _instructions(binding):
         "notes/, research/ and data/; maintain useful findings there across CLI sessions.\n"
         "Use the advertised qorqut-core MCP tools for agent coordination, messages, status and "
         "conversation retrieval. Native tools remain available.\n"
-        "If a hook explicitly reports that another session is connected to this agent, tell the "
-        "user and wait until that session is closed. A generic connection failure is not a session conflict.\n"
+        f"{INBOX_INSTRUCTIONS}{CONNECTION_INSTRUCTIONS}"
         "Installed configuration does not establish native login, trust, MCP connection or input readiness.\n"
         f"{END}\n")
 
