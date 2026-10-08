@@ -1,5 +1,9 @@
 # Shared backend contracts
 
+D46's concrete [host message dispatch contract](HOST-MESSAGE-DISPATCH.md)
+extends deliveries_get with typed attempts and assigns schema 9. It remains
+planned until its named implementation and integration checks are accepted.
+
 Current v1 scope: [D36, terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md)
 supersedes earlier automatic CLI start/restart/provider-switch and context-packet
 requirements below. Creation establishes an agent and shell; the user starts the

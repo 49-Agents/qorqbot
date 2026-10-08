@@ -1,5 +1,12 @@
 # Qorqutbot backend implementation plan
 
+Next parallel wave: one core builder implements [D46 host dispatch](HOST-MESSAGE-DISPATCH.md),
+one UI builder implements [D47 file-reference cards](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/FILE-REFERENCE-CARDS.md),
+and a facts-only audit checks remaining native transcript coverage. Manager
+reviews/tests completed work directly. All three use Astra MAX, self-review off.
+Core dispatch owns schema 9; the other lanes do not edit its implementation.
+Actual pinned native Chat-delivery acceptance follows the completed core change.
+
 D43–D45 are accepted and integrated: [inbox notification/layout support](evidence/inbox-notifications-manager-acceptance.md),
 [shared recorded-terminal input](evidence/shared-terminal-input-manager-acceptance.md),
 and [durable file references](evidence/file-references-manager-acceptance.md).

@@ -1,5 +1,8 @@
 # M05 — Durable messages, terminal delivery and handling
 
+The next connected implementation is [D46](../HOST-MESSAGE-DISPATCH.md):
+incumbent onbash input, durable attempts and original-receipt recovery.
+
 Current v1 scope: [D36, terminal-owned sessions](../TERMINAL-OWNED-SESSIONS.md)
 supersedes earlier automatic CLI start/restart/provider-switch and context-packet
 requirements below. Creation establishes an agent and shell; the user starts the

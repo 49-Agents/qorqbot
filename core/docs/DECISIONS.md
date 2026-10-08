@@ -528,3 +528,17 @@ Implement metadata-only references, an explicit conversation variant and dated
 publication. Existing host workspaces support relative paths; only onbash accepts
 native absolute paths until a VM resolver exists. Idempotent replay precedes
 filesystem observation. [Schema and operation](FILE-REFERENCES.md).
+
+## D46 — Dispatch through the incumbent recorded terminal
+
+[Host message dispatch](HOST-MESSAGE-DISPATCH.md) composes D43/D44 with one
+durable host attempt ledger, fresh target-specific readiness and receipt-based
+recovery. One notification per accepted idle hook prevents queued-message races.
+Creation/manual CLI management and the separate handling receipt stay unchanged.
+Schema 9 is assigned only to this implementation; no additional service or tool.
+
+## D47 — Present explicit file references
+
+UI cards consume D45's typed historical metadata, preserve full paths and offer
+Copy path. They infer nothing from prose and do not open or fetch file contents.
+The concrete plan lives in qorqutbot-ui docs/FILE-REFERENCE-CARDS.md.
