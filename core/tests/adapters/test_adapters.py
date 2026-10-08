@@ -1106,6 +1106,40 @@ class InputLayoutTests(unittest.TestCase):
                             changed = snap.model_copy(update={"screen": snap.screen.replace("~/fixture/work…", path)})
                             self.assertEqual(classify_input(provider, version, changed).state, "empty")
 
+    def test_codex_placeholder_reset_at_model_row(self):
+        snap = self.snapshot("codex", columns=104, rows=50)
+        prefix = "\x1b[1m›\x1b[0m "
+        placeholder = "\x1b[2mAsk Codex to do anything"
+        footer = snap.screen.removesuffix("\n").split("\n")[-2]
+        deferred = self.replace_row(snap, -4, prefix + placeholder)
+        deferred = self.replace_row(deferred, -2, "\x1b[0m" + footer)
+        for reset_row, sample in (("prompt", snap), ("model", deferred)):
+            with self.subTest(reset_row=reset_row):
+                before = sample.model_dump()
+                verdict = classify_input("codex", self.versions["codex"], sample)
+                self.assertEqual(verdict.state, "empty")
+                self.assertEqual(verdict.reason, "native_snapshot_empty_layout_live_unverified")
+                self.assertFalse(verdict.native_verified)
+                self.assertFalse(verdict.permits_paste)
+                self.assertFalse(matches_input("codex", self.versions["codex"], sample, self.notification))
+                self.assertEqual(sample.model_dump(), before)
+        for row, value in (
+            (-2, footer),
+            (-2, "\x1b[22m" + footer),
+            (-2, "  \x1b[0m" + footer[2:]),
+            (-3, " "),
+            (-3, "wrapped input"),
+            (-3, "\x1b[0m"),
+            (-4, prefix + "Human fixture draft"),
+            (-4, prefix + "\x1b[2mHuman fixture draft"),
+            (-4, prefix + "Ask Codex to do anything"),
+            (-4, prefix + placeholder + "?"),
+            (-4, prefix + placeholder + "\x1b[22m"),
+        ):
+            with self.subTest(row=row, value=value):
+                self.refused("codex", self.replace_row(deferred, row, value))
+        self.refused("codex", deferred.model_copy(update={"cursor_x": 3}), "unknown")
+
     def test_draft_busy_modal_and_earlier_output(self):
         for provider, version in self.versions.items():
             self.refused(provider, self.snapshot(provider, text="Human fixture draft"))
