@@ -107,3 +107,29 @@ compatibility matrix. Existing ownership conflict and recorder-outage unit/real
 checks are not repeated. This gate does not accept real provider login/inference,
 Chat-to-CLI dispatch, terminal raw host transfer, browser/VM integration, backup/
 restore, deployment or complete G0–G6.
+
+## Clarification 257: queued keyboard input and timing
+
+The Codex fixture's 536-byte launcher was entered with per-character
+Playwright keyboard.type. Its copied helper's 45-second settlement assertion
+expired, while the real UI continued draining its queue. Manager independently
+checked the saved cutoff: 347 bytes matched the exact requested prefix, 346
+submitted receipts matched their frames, and no Enter or newline was sent.
+The observed per-character receipt delay is a real responsiveness concern and
+remains open; it is not hidden by this harness correction.
+
+Preserve the in-flight input. Observe its remaining queue for up to another
+180 seconds without replay or clearing. Only after exact complete input bytes,
+matching receipts, unchanged viewer/control and no errors are verified may the
+fixture send one separate Enter and continue. If those conditions do not hold,
+report the retained state and ask Manager; do not resend an uncertain command.
+For subsequent long text, Playwright keyboard.insertText through the actual
+Terminal input handler, followed by a separately acknowledged Enter, is allowed.
+The native flow gate measures correct input effects and history continuity;
+passing it does not accept per-character responsiveness. Product code, protocol,
+input ownership and all history assertions stay unchanged.
+
+The parallel facts-only connection investigation also traces this accepted UI's
+serial frame queue and the core's per-frame verification/effect path, reporting
+evidence for latency contributors. It does not implement batching, relax
+verification or redesign the protocol. Manager owns that correction separately.

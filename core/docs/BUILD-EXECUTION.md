@@ -452,3 +452,12 @@ All three use Astra MAX with self-review disabled. Manager integrates the
 reviewed collector into normal server composition and then checks actual manual
 CLI/user/assistant history through the real UI and dated files. No automatic
 CLI launch, paid calls, browser/VM installation or live owner fixtures.
+
+## Native workflow finding 257
+
+The actual Codex UI check exposed slow sequential keyboard frames while entering
+a long command. At the saved cutoff, Manager verified exact bytes/receipts and
+no Enter, loss or transport error. The [queued-input clarification](NATIVE-WORKFLOW-ACCEPTANCE.md)
+lets the existing command drain and keeps the native workflow moving. Keyboard
+responsiveness remains a separate open usability issue; the facts-only actor
+will trace its accepted code path for Manager's correction.
