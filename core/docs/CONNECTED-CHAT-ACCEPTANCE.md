@@ -116,3 +116,23 @@ fixture-only Claude onboarding and canned-provider limitations; acceptance does
 not establish real login/inference, complete child/attachment/shutdown history,
 browser takeover, ordinary VM execution, backup/restore or deployment. Manager
 owns review, interpretation, subsequent design and merging.
+
+## Claude native approval limitation (decision 311)
+
+The fixed Claude fixture submitted both notifications, but the CLI's automatic
+approval classifier could not evaluate the canned provider's auxiliary responses
+and blocked messages_list before execution. Preserve these native refusal results.
+Do not script approval verdicts, change permission mode to work around the refusal,
+retry submitted notifications or use an out-of-band MCP call to satisfy this gate.
+The actual MCP-body/acknowledgment acceptance remains incomplete.
+
+Finish independent evidence only: compare both saved messages, attempts/receipts,
+raw notification echoes and all projected/daily entries; perform the already
+planned normal core restart with the same live idle CLI and verify identities,
+content, no duplicate attempts/pastes and empty handling persist. Omit the new
+post-restart Chat message because its tool path is blocked. Capture the planned
+screenshots, normally exit through explicit human Terminal control, and clean up
+only owned processes. Commit the report as a qualified delivery observation plus
+a blocked tool-execution result, not a full connected-flow pass. Preserve the
+initial manual-seed qualification and original failed attempts. No deployment
+or complete transcript/Claude MCP acceptance follows.

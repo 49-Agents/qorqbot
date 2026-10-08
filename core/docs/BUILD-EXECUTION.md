@@ -19,6 +19,14 @@ conversation parsing/publication to three independent lanes while two builders
 finish core/UI terminal geometry. Merge only after Manager acceptance, then run
 the combined workflow. Earlier evidence below retains its actual review history.
 
+## Claude tool-execution boundary
+
+Decision 311 preserves successful two-notification delivery observations while
+Claude's native automatic approval check refuses actual MCP reads in the canned
+fixture. The verifier completes independent restart/persistence and cleanup only;
+no permission bypass or synthetic approval is authorized. MCP read/handling and
+the complete connected Claude flow remain unaccepted.
+
 ## Connected-flow correction
 
 The actual Codex check reported blocker 309 before any automated input: its
