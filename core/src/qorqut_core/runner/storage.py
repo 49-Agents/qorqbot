@@ -32,6 +32,21 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
                 binding_digest TEXT NOT NULL,
                 binding_json TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS runner_binding_terminals (
+                run_id TEXT PRIMARY KEY REFERENCES runner_bindings(run_id),
+                terminal_id TEXT NOT NULL REFERENCES runner_shell_terminals(terminal_id),
+                spec_hash TEXT NOT NULL
+            );
+            CREATE TRIGGER IF NOT EXISTS runner_binding_terminals_no_update
+                BEFORE UPDATE ON runner_binding_terminals
+                BEGIN SELECT RAISE(ABORT,'Terminal mappings are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS runner_binding_terminals_no_delete
+                BEFORE DELETE ON runner_binding_terminals
+                BEGIN SELECT RAISE(ABORT,'Terminal mappings are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS runner_binding_terminals_no_replace
+                BEFORE INSERT ON runner_binding_terminals
+                WHEN EXISTS (SELECT 1 FROM runner_binding_terminals WHERE run_id=NEW.run_id)
+                BEGIN SELECT RAISE(ABORT,'Terminal mappings are immutable'); END;
             CREATE TABLE IF NOT EXISTS runner_control (
                 run_id TEXT PRIMARY KEY REFERENCES runner_bindings(run_id),
                 mode TEXT NOT NULL CHECK (mode IN ('automation','human')),

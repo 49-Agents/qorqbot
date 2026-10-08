@@ -2,6 +2,7 @@
 
 import ctypes
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,6 +21,7 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
+from qorqut_core.runner import RunBinding, TerminalRunner, Tmux
 from qorqut_core.runner.models import RunnerError
 from qorqut_core.runner.process import fingerprint, verify_process
 from qorqut_core.runner.shell import ShellManager, ShellSpec, ShellView
@@ -148,6 +150,88 @@ class ShellTests(unittest.TestCase):
                     return data
                 data += b"".join(chunk.payload for chunk in page.chunks)
                 offset = page.next_offset
+
+    def test_mapped_automation_and_shell_human_control_share_thread_and_process_gate(self):
+        view = self.start()
+        attachment = self.attach(view, read_only=False)
+        # Bash is a synthetic input receiver here, not a claimed native owner.
+        binding = RunBinding(agent_id=self.spec.agent_id, recovery_epoch=self.spec.recovery_epoch,
+                             environment_generation=1, boot_id=view.recorder.boot_id, run_id=uuid4(),
+                             run_generation=1, tmux=view.tmux, recorder=view.recorder, native=view.shell)
+        pasted, release = threading.Event(), threading.Event()
+
+        class PausedPaste(Tmux):
+            def paste(self, *args):
+                super().paste(*args)
+                pasted.set()
+                if not release.wait(8):
+                    raise RuntimeError("fixture paste release timed out")
+
+        body = "printf auto >> shared-order"
+        digest = hashlib.sha256(body.encode()).hexdigest()
+        runner = TerminalRunner(self.args[0], tmux=PausedPaste(), paste_settle_timeout=0.5,
+                                capture_ready=lambda _: True, machine_hold=lambda _: False,
+                                classify_composer=lambda *_: "empty",
+                                verify_paste=lambda b, s, d: d == digest and body in s.screen)
+        runner.register_binding(binding, terminal_id=view.terminal_id)
+        restarted = TerminalRunner(self.args[0])
+        attempt_id = uuid4()
+        started, result_path = self.root / "take-started", self.root / "take-result.json"
+        child = None
+        with ThreadPoolExecutor(4) as pool:
+            attempt = pool.submit(runner.attempt, binding, attempt_id, body, expected_epoch=0)
+            try:
+                self.assertTrue(pasted.wait(5))
+                code = """
+import json, sys
+from pathlib import Path
+from uuid import UUID
+from qorqut_core.runner.shell import ShellManager
+manager = ShellManager(*json.loads(sys.argv[1]))
+Path(sys.argv[4]).touch()
+result = manager.take_control(UUID(sys.argv[2]), UUID(sys.argv[3]), 0)
+Path(sys.argv[5]).write_text(result.model_dump_json())
+"""
+                child = subprocess.Popen([sys.executable, "-I", "-c", code, json.dumps([str(p) for p in self.args]),
+                    str(view.terminal_id), str(attachment.viewer_id), str(started), str(result_path)],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    env={"PATH": "/usr/bin:/bin", "HOME": str(self.root), "LC_ALL": "C.UTF-8"})
+                wait_for(started.exists)
+                observations = [pool.submit(restarted.inspect_binding, binding.run_id),
+                                pool.submit(restarted.inspect_control, binding),
+                                pool.submit(restarted.inspect_attempt, attempt_id)]
+                time.sleep(0.1)
+                self.assertIsNone(child.poll())
+                self.assertFalse(result_path.exists())
+                self.assertTrue(all(not future.done() for future in observations))
+                self.assertFalse((self.workspace / "shared-order").exists())
+            finally:
+                release.set()
+                if child is not None:
+                    try:
+                        stdout, stderr = child.communicate(timeout=8)
+                    except subprocess.TimeoutExpired:
+                        child.kill()
+                        child.communicate(timeout=3)
+                        raise
+            self.assertEqual(0, child.returncode, (stdout + stderr).decode())
+            receipt = attempt.result(timeout=5)
+            self.assertEqual("submitted", receipt.state)
+            self.assertEqual(binding, observations[0].result(timeout=5))
+            observations[1].result(timeout=5)
+            self.assertEqual(receipt, observations[2].result(timeout=5))
+        control = self.manager.control(view.terminal_id)
+        self.assertEqual(("human", 1, attachment.viewer_id), (control.mode, control.epoch, control.viewer_id))
+        held = runner.attempt(binding, uuid4(), body, expected_epoch=1)
+        self.assertEqual(("deferred", "human_control"), (held.state, held.reason))
+        self.assertEqual(receipt, restarted.attempt(binding, attempt_id, body, expected_epoch=0))
+        frame = attachment.write(b"printf human >> shared-order\r", epoch=1, sequence=1)
+        self.assertEqual("submitted", frame.outcome)
+        order_path = self.workspace / "shared-order"
+        wait_for(lambda: order_path.exists() and order_path.read_text() == "autohuman")
+        self.assertEqual(1, runner.inspect_control(binding).last_sequence)
+        self.manager.release_control(view.terminal_id, attachment.viewer_id, 1)
+        self.assertEqual(("automation", 2), (runner.inspect_control(binding).mode, runner.inspect_control(binding).epoch))
 
     def test_arguments_and_initialization_are_passive_and_bounded(self):
         with patch("subprocess.Popen", side_effect=AssertionError("constructor launched a process")):
