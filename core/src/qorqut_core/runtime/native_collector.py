@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import deque
 from contextlib import contextmanager
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 import os
 import sqlite3
 import stat
@@ -31,6 +31,7 @@ from .native_models import NativeCollectionView
 
 _BYTES = 1048576
 _LIMIT = 16
+_FRESH_SECONDS = 5
 _OPERATIONAL = (CoreError, CaptureError, OSError, sqlite3.Error, ValueError)
 _RECOVERY_ERRORS = {"archive_recovery_held", "archive_recovery_changed"}
 _DISCOVERY_LIMITS = {"child_association_contract_unverified", "attachment_coverage_partial",
@@ -41,6 +42,16 @@ _DISCOVERY_LIMITS = {"child_association_contract_unverified", "attachment_covera
 class _RecoveryHeld(CoreError):
     def __init__(self):
         super().__init__("not_ready", "Native collection requires recovery review")
+
+
+@dataclass(frozen=True)
+class NativeInputObservation:
+    """Private raw capture evidence, never reusable permission to send input."""
+
+    binding: RunBinding
+    observed_at: str
+    source_count: int
+    healthy: bool
 
 
 def _binding(owner):
@@ -82,14 +93,17 @@ class NativeCollector:
                              and application.settings.local_terminal.native_programs)
         self._lock = threading.Lock()
         self._cache = None
+        self._input_cache = {}
+        self._source_observed = {}
         self._thread = None
         self._closed = False
         self._capture = None
         self._directories = None
         self._database_identity = None
         self._discovered = set()
-        self._rediscover = set()
+        self._reobserve = set()
         self._attempted = {}
+        self._owner_states = {}
         self._owner_queue, self._source_queue = deque(), deque()
         self._epoch_queues = {}
         self._errors, self._discovery_gaps = {}, set()
@@ -115,6 +129,17 @@ class NativeCollector:
             return view.model_copy(update={"state": "unknown", "reason": "observation_stale"})
         return view
 
+    def input_observation(self, run_id: str) -> NativeInputObservation | None:
+        """Copy immutable memory only; source service clocks age independently."""
+        with self._lock:
+            cached = self._input_cache.get(run_id)
+            if self._closed or cached is None:
+                return None
+            observation, oldest = cached
+            if time.monotonic() - oldest > _FRESH_SECONDS:
+                return None
+            return observation
+
     def _publish(self, agent_id, **fields):
         view = NativeCollectionView(observed_at=self.db.clock(), **fields)
         with self._lock:
@@ -128,8 +153,10 @@ class NativeCollector:
                 self._capture.close()
         finally:
             self._capture = None
+            self._source_observed.clear()
             with self._lock:
                 self._cache = None
+                self._input_cache = {}
 
     def _snapshot(self):
         with self.db.read() as tx:
@@ -206,9 +233,8 @@ class NativeCollector:
                         states = self._capture.list_states()
                         self._discovered.update(run.run_id for state in states for run in state.runs)
                         current = {(r.source_id, r.source_epoch) for r in self._capture.list_registered()}
-                        self._rediscover.update(run.run_id for state in states
-                            if (state.source_id, state.source_epoch) in current and state.observation_required
-                            for run in state.runs)
+                        self._reobserve.update((state.source_id, state.source_epoch) for state in states
+                            if (state.source_id, state.source_epoch) in current and state.observation_required)
                     guard(recovery=False)
                     yield guard
                     guard(recovery=False)
@@ -241,27 +267,37 @@ class NativeCollector:
                     WHERE r.agent_id=? ORDER BY l.rowid""", (agent["id"],)):
                 epoch = epochs.get((row["source_id"], row["source_epoch"]))
                 owner = owners.get(row["run_id"])
-                if (epoch is None or owner is None or "binding" in epoch or epoch["parent_source_id"] is not None
+                if (epoch is None or owner is None or epoch["parent_source_id"] is not None
                         or owner["native_session_id"] != epoch["native_session_id"]
                         or owner["conversation_id"] != agent["conversation_id"]):
                     continue
                 binding = _binding(owner)
                 if all(row[key] == value for key, value in asdict(binding).items()):
                     # ORDER BY link rowid fixes provenance across resume/restart.
-                    epoch["binding"] = binding
+                    epoch.setdefault("binding", binding)
+                    epoch.setdefault("bindings", set()).add(binding)
         return epochs
 
     def _discover(self, owners, installation, guard):
         now = time.monotonic()
+        states = self._capture.list_states()
+        self._reobserve.intersection_update((r.source_id, r.source_epoch) for r in self._capture.list_registered())
+        reobserving = {run.run_id for state in states
+                      if (state.source_id, state.source_epoch) in self._reobserve for run in state.runs}
+        for key, owner in owners.items():
+            if owner["state"] == "closed" and self._owner_states.get(key) != "closed":
+                self._attempted.pop(key, None)
+            self._owner_states[key] = owner["state"]
         eligible = [key for key, owner in owners.items()
                     if (owner["recovery_epoch"] == installation["recovery_epoch"]
-                        or (key in self._discovered and key in self._rediscover))
-                    and (key not in self._discovered or key in self._rediscover)
-                    and now - self._attempted.get(key, float("-inf")) >= 1]
+                        or (key in self._discovered and key in reobserving))
+                    and now >= self._attempted.get(key, float("-inf")) + (
+                        1 if key not in self._discovered or key in reobserving
+                        else 60 if owner["state"] == "closed" else 5)]
         priority = [key for key in eligible if owners[key]["state"] == "active"]
         priority += [key for key in reversed(eligible) if key not in self._attempted]
         for key in _round_robin(self._owner_queue, eligible, priority):
-            self._attempted[key] = now
+            self._attempted[key] = time.monotonic()
             owner = owners[key]
             try:
                 run = _binding(owner)
@@ -272,27 +308,38 @@ class NativeCollector:
                 result = discover(owner["provider"], owner["cli_version"], self._capture.roots, native)
                 guard()
                 observations = result.sources
+                mapped = [state for state in self._capture.list_states()
+                          if run in state.runs and state.provider == owner["provider"]
+                          and state.native_session_id == owner["native_session_id"]]
+                paths = {state.relative_path for state in mapped}
                 if owner["recovery_epoch"] != installation["recovery_epoch"]:
                     # Historical lineage permits verified reobservation only
                     # of its already admitted mappings, never fresh old sources.
-                    paths = {state.relative_path for state in self._capture.list_states()
-                             if run in state.runs and state.provider == owner["provider"]
-                             and state.native_session_id == owner["native_session_id"]}
                     observations = tuple(source for source in observations if source.relative_path in paths)
                 if any(gap.code not in _DISCOVERY_LIMITS for gap in result.gaps):
                     self._discovery_gaps.add(key)
                 else:
                     self._discovery_gaps.discard(key)
                 for observation in observations:
+                    ready = {(state.source_id, state.source_epoch) for state in mapped
+                             if state.relative_path == observation.relative_path
+                             and (state.source_id, state.source_epoch) in self._reobserve}
+                    if observation.relative_path in paths and not ready:
+                        # An ordinary scan must not replace a retained descriptor,
+                        # including one still draining a divergent source.
+                        continue
                     guard()
-                    self._capture.register(observation, run)
+                    registered = self._capture.register(observation, run)
                     guard()
+                    self._reobserve = {key for key in self._reobserve if key[0] != registered.source_id}
                 if observations:
                     self._discovered.add(key)
-                    self._rediscover.discard(key)
                 self._errors.pop(("owner", key), None)
             except _OPERATIONAL as exc:
                 self._errors["owner", key] = _reason(exc)
+                for state in states:
+                    if any(run.run_id == key for run in state.runs):
+                        self._source_observed.pop((state.source_id, state.source_epoch), None)
 
     def _service(self, agent, installation, owners, guard):
         states = self._capture.list_states()
@@ -304,6 +351,8 @@ class NativeCollector:
         context = Invocation(actor_id=agent["actor_id"])
         for source_id in _round_robin(self._source_queue, source_ids, priority):
             local = [s for s in states if s.source_id == source_id]
+            for state in local:
+                self._source_observed.pop((state.source_id, state.source_epoch), None)
             try:
                 guard()
                 if local:
@@ -311,14 +360,17 @@ class NativeCollector:
                         raise CoreError("target_changed", "Native capture admission changed")
                     current = self._capture.state(source_id)
                     polled = self._capture.poll(source_id, max_bytes=_BYTES)
+                    observed = time.monotonic()
                     guard()
                     # Drain the held descriptor in bounded ticks before verified
                     # rediscovery replaces it. A closed/unreopenable fd makes no progress.
                     if (polled.observation_required
                             and polled.local_captured_offset - current.local_captured_offset < _BYTES):
-                        self._rediscover.update(r.run_id for r in polled.runs)
-                    self._capture.transfer(source_id, self.app.archive, context, max_chunks=_LIMIT)
+                        self._reobserve.add((polled.source_id, polled.source_epoch))
+                    transferred = self._capture.transfer(source_id, self.app.archive, context, max_chunks=_LIMIT)
                     guard()
+                    if not (polled.gap or polled.observation_required or transferred.last_error):
+                        self._source_observed[polled.source_id, polled.source_epoch] = observed
                 self._errors.pop(("source", source_id), None)
             except _OPERATIONAL as exc:
                 self._errors["source", source_id] = _reason(exc)
@@ -353,6 +405,45 @@ class NativeCollector:
                     self._errors.pop(("epoch", key), None)
                 except _OPERATIONAL as exc:
                     self._errors["epoch", key] = _reason(exc)
+                    # An operational failure in this epoch's storage/ownership
+                    # path is distinct from a persisted semantic parser gap.
+                    self._source_observed.pop(key, None)
+
+    def _input_observations(self, agent, installation, owners, states, epochs, *, failure):
+        current = ({(r.source_id, r.source_epoch) for r in self._capture.list_registered()}
+                   if self._capture is not None else set())
+        self._source_observed = {key: observed for key, observed in self._source_observed.items()
+                                 if key in current}
+        observed_at, now = self.db.clock(), time.monotonic()
+        cache = {}
+        for run_id, owner in owners.items():
+            if (owner["recovery_epoch"] != installation["recovery_epoch"]
+                    or owner["installation_id"] != installation["installation_id"]
+                    or owner["agent_id"] != agent["id"]
+                    or owner["conversation_id"] != agent["conversation_id"]):
+                continue
+            binding = _binding(owner)
+            mapped = [state for state in states if (state.source_id, state.source_epoch) in current
+                      and any(run.run_id == run_id for run in state.runs)]
+            healthy = bool(mapped) and not failure and ("owner", run_id) not in self._errors
+            oldest = now
+            for state in mapped:
+                key = state.source_id, state.source_epoch
+                serviced = self._source_observed.get(key)
+                if serviced is not None:
+                    oldest = min(oldest, serviced)
+                epoch = epochs.get(key, {})
+                healthy = healthy and (
+                    self._admitted(state, owners, agent, installation) and binding in state.runs
+                    and serviced is not None and now - serviced <= _FRESH_SECONDS
+                    and not (state.gap or state.observation_required or state.last_error
+                             or (state.checkpoint and state.checkpoint.gap)
+                             or ("source", state.source_id) in self._errors
+                             or ("epoch", key) in self._errors or epoch.get("conflicted"))
+                    and epoch.get("registered_recovery_epoch") == installation["recovery_epoch"]
+                    and binding in epoch.get("bindings", ()))
+            cache[run_id] = NativeInputObservation(binding, observed_at, len(mapped), bool(healthy)), oldest
+        return cache
 
     def _observation(self, agent, installation, owners, *, failure=None):
         states = self._capture.list_states() if self._capture is not None else ()
@@ -382,11 +473,23 @@ class NativeCollector:
         self._publish(agent["id"], state=state, reason=reason, source_count=len(sources),
             pending_archive_bytes=sum(s.local_captured_offset - s.host_archived_offset for s in states),
             pending_parse_bytes=sum(e["host_archived_offset"] - e["handled"] for e in epochs.values()))
+        inputs = self._input_observations(agent, installation, owners, states, epochs, failure=failure)
+        with self._lock:
+            self._input_cache = inputs
 
     def tick(self):
         self._own_thread()
         if self._closed:
             raise RuntimeError("native_collector_closed")
+        with self._lock:
+            self._input_cache = {}
+        try:
+            self._tick()
+        except Exception:
+            self._source_observed.clear()
+            raise
+
+    def _tick(self):
         assert_external_io_allowed()
         with self.db.lock.use(), self.db.lock.effects:
             agent, installation, owners = self._snapshot()
@@ -407,4 +510,5 @@ class NativeCollector:
                     self._service(agent, installation, owners, guard)
             except _OPERATIONAL as exc:
                 failure = _reason(exc)
+                self._source_observed.clear()
             self._observation(agent, installation, owners, failure=failure)

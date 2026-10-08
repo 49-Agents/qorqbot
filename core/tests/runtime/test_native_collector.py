@@ -5,6 +5,8 @@ No native executable, model provider, personal HOME or existing session is used.
 """
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
+from dataclasses import FrozenInstanceError
 import hashlib
 import json
 import os
@@ -26,9 +28,10 @@ from qorqut_core.adapters.manual_hooks import NativeProgram
 from qorqut_core.app import Application
 from qorqut_core.config import LocalTerminalSettings
 from qorqut_core.contracts import CoreError, Invocation
-from qorqut_core.runtime.native_collector import NativeCollector
+from qorqut_core.runtime.native_collector import NativeCollector, NativeInputObservation
 from qorqut_core.storage.database import assert_external_io_allowed
 from qorqut_core.transcripts.native_capture import NativeCaptureError
+from qorqut_core.transcripts.spool import RunBinding
 from test_foundation import InjectedCrash
 
 
@@ -82,6 +85,12 @@ class NativeCollection(RuntimeCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         return path
+
+    def additional_source(self, path, data):
+        # A separately eligible pinned Codex rollout filename, not a child.
+        extra = path.with_name(path.stem + "_" + str(uuid4()) + ".jsonl")
+        extra.write_bytes(data)
+        return extra
 
     def record(self, candidate, text, *, assistant=False):
         session = str(candidate.native_session_id)
@@ -151,8 +160,11 @@ class NativeCollection(RuntimeCase):
                 candidate, owner = self.bind(provider)
                 with patch("qorqut_core.runtime.native_collector.discover", wraps=discover) as discovery:
                     self.assertEqual(self.tick().reason, "waiting_source")
+                    calls = discovery.call_count
                     self.collector.tick()
-                    self.assertEqual(discovery.call_count, 1)  # One missing retry per second/owner.
+                    self.assertEqual(discovery.call_count, calls)
+                    self.assertEqual(sum(str(c.args[3].run.run_id) == str(owner.run_id)
+                                         for c in discovery.call_args_list), 1)
                 first = self.header(candidate) + self.record(candidate, provider + " user 文🙂\n")
                 path = self.source(candidate, first)
                 self.assertEqual(self.tick().source_count, len(expected_text) // 4 + 1)
@@ -170,8 +182,11 @@ class NativeCollection(RuntimeCase):
                 self.reopen()
                 with path.open("ab") as stream:
                     stream.write(tail[split:])
-                with patch("qorqut_core.runtime.native_collector.discover", side_effect=AssertionError("restart rediscovery")):
+                with patch("qorqut_core.runtime.native_collector.discover", wraps=discover) as discovery, \
+                        patch("qorqut_core.runtime.native_collector.NativeCapture.register",
+                              side_effect=AssertionError("reopen must keep admitted mappings")):
                     self.assertEqual(self.tick().pending_parse_bytes, 0)
+                self.assertIn(str(owner.run_id), [str(call.args[3].run.run_id) for call in discovery.call_args_list])
                 self.exit_child(self.child_process)
                 self.app.session_owners.reconcile()
                 late = self.record(candidate, provider + " late", assistant=True)
@@ -224,7 +239,7 @@ class NativeCollection(RuntimeCase):
             self.assertEqual(tx.connection.execute("PRAGMA foreign_key_check").fetchall(), [])
 
     def test_lost_receipt_recovery_retains_bytes_intent_and_honest_lag(self):
-        candidate, _ = self.bind()
+        candidate, owner = self.bind()
         payload = self.header(candidate) + self.record(candidate, "retained after recovery")
         self.source(candidate, payload)
         self.fault.point = "archive_after_receipt_commit"
@@ -239,10 +254,15 @@ class NativeCollection(RuntimeCase):
         self.assertEqual(len(intent), 1)
         self.assertIsNone(intent[0]["receipt"])
         self.assertTrue(self.recovery().ok)
+        path = self.source(candidate, payload)
+        self.additional_source(path, self.header(candidate) + self.record(candidate, "not admitted after restore"))
         self.reopen()
         with patch("qorqut_core.transcripts.spool.CaptureSpool.acknowledge", side_effect=AssertionError("held ACK")), \
-                patch("qorqut_core.transcripts.spool.CaptureSpool.reclaim", side_effect=AssertionError("held reclaim")):
+                patch("qorqut_core.transcripts.spool.CaptureSpool.reclaim", side_effect=AssertionError("held reclaim")), \
+                patch("qorqut_core.runtime.native_collector.discover", side_effect=AssertionError("held discovery")):
             view = self.tick()
+        self.assertIsNone(self.collector.input_observation(str(owner.run_id)))
+        self.assertEqual(len(self.capture_states()), 1)
         self.assertEqual((view.state, view.reason, view.source_count), ("blocked", "recovery_review", 1))
         self.assertEqual((view.pending_archive_bytes, view.pending_parse_bytes), (len(payload), len(payload)))
         self.assertEqual(self.local("capture_chunks"), retained)
@@ -359,3 +379,303 @@ class NativeCollection(RuntimeCase):
         self.assertEqual(self.tick().reason, "parser_gap")
         self.reopen()
         self.assertEqual(self.tick().reason, "parser_gap")
+
+    def test_periodic_discovery_finds_late_primary_and_child_diagnostic(self):
+        candidate, owner = self.bind()
+        first = self.header(candidate) + self.record(candidate, "first primary")
+        path = self.source(candidate, first)
+        self.assertEqual(self.tick().source_count, 1)
+        scanned = self.elapsed
+        later = self.header(candidate) + self.record(candidate, "later primary")
+        self.additional_source(path, later)
+        child = path.parent / "subagents/agent-synthetic.jsonl"
+        child.parent.mkdir()
+        child.write_bytes(first)
+        with patch("qorqut_core.runtime.native_collector.discover", wraps=discover) as discovery, \
+                patch.object(self.collector._capture, "register", wraps=self.collector._capture.register) as register:
+            self.elapsed = scanned + 4.99
+            self.collector.tick()
+            self.assertEqual(discovery.call_count, 0)
+            self.assertEqual(self.collector.view(self.host["id"]).source_count, 1)
+            self.elapsed = scanned + 5
+            self.collector.tick()
+            self.assertEqual(discovery.call_count, 1)
+            self.assertEqual(register.call_count, 1)
+            self.assertEqual(self.collector.view(self.host["id"]).reason, "capture_gap")
+            self.assertEqual({self.archived(s) for s in self.capture_states()}, {first, later})
+            observation = self.collector.input_observation(str(owner.run_id))
+            self.assertEqual((observation.source_count, observation.healthy), (2, True))
+            child.unlink()
+            self.elapsed += 5
+            self.collector.tick()
+            self.assertEqual(discovery.call_count, 2)
+            self.assertEqual(register.call_count, 1)
+            self.assertEqual(self.collector.view(self.host["id"]).reason, "parser_gap")
+
+    def test_closed_transition_is_due_immediately_then_scans_every_sixty_seconds(self):
+        candidate, _ = self.bind()
+        payload = self.header(candidate) + self.record(candidate, "before exit")
+        path = self.source(candidate, payload)
+        self.tick()
+        self.exit_child(self.child_process)
+        self.app.session_owners.reconcile()
+        with patch("qorqut_core.runtime.native_collector.discover", wraps=discover) as discovery:
+            self.collector.tick()  # No elapsed time since the active scan.
+            self.assertEqual(discovery.call_count, 1)
+            closed_scan = self.elapsed
+            self.additional_source(path, payload + self.record(candidate, "late after exit"))
+            self.elapsed = closed_scan + 59.99
+            self.collector.tick()
+            self.assertEqual(discovery.call_count, 1)
+            self.assertEqual(self.collector.view(self.host["id"]).source_count, 1)
+            self.elapsed = closed_scan + 60
+            self.collector.tick()
+            self.assertEqual(discovery.call_count, 2)
+            self.assertEqual(self.collector.view(self.host["id"]).source_count, 2)
+        # Never-discovered closed owners still get the one-second interval.
+        candidate, _ = self.bind()
+        self.exit_child(self.child_process)
+        self.app.session_owners.reconcile()
+        with patch("qorqut_core.runtime.native_collector.discover", wraps=discover) as discovery:
+            self.collector.tick()
+            self.elapsed += 0.99
+            self.collector.tick()
+            self.assertEqual(discovery.call_count, 1)
+            self.elapsed += 0.02
+            self.collector.tick()
+            self.assertEqual(discovery.call_count, 2)
+
+    def test_archived_path_after_reopen_preserves_new_bytes_and_original_missing_gap(self):
+        candidate, owner = self.bind()
+        original = self.header(candidate) + self.record(candidate, "before move")
+        path = self.source(candidate, original)
+        self.tick()
+        old = self.capture_states()[0]
+        destination = self.home / ".codex/archived_sessions" / path.name
+        destination.parent.mkdir(parents=True)
+        path.rename(destination)
+        late = self.record(candidate, "late moved bytes", assistant=True)
+        with destination.open("ab") as stream:
+            stream.write(late)
+        self.reopen()  # No original descriptor remains available to drain.
+        self.assertEqual(self.tick().reason, "capture_gap")
+        states = self.capture_states()
+        self.assertEqual(len(states), 2)
+        before = next(s for s in states if s.source_id == old.source_id)
+        moved = next(s for s in states if s.source_id != old.source_id)
+        self.assertEqual((before.gap, self.archived(before)), ("source_missing", original))
+        self.assertEqual(self.archived(moved), original + late)
+        self.assertIsNone(moved.previous_epoch)
+        self.assertNotEqual(moved.source_epoch, old.source_epoch)
+        self.assertEqual(moved.runs, old.runs)
+        self.assertFalse(self.collector.input_observation(str(owner.run_id)).healthy)
+        self.reopen()
+        self.assertEqual(self.tick().reason, "capture_gap")
+        self.assertEqual(next(s for s in self.capture_states() if s.source_id == old.source_id).gap, "source_missing")
+        self.assertEqual(self.archived(moved), original + late)
+
+    def test_scans_and_one_ready_reobservation_do_not_replace_another_draining_descriptor(self):
+        candidate, owner = self.bind()
+        first = self.header(candidate) + self.record(candidate, "original")
+        path = self.source(candidate, first)
+        extra = self.additional_source(path, first)
+        self.tick()
+        capture = self.collector._capture
+        originals = {s.relative_path: s for s in self.capture_states()}
+        tails = [self.record(candidate, "short tail"),
+                 self.record(candidate, "x" * (3 * 1048576 + 1000))]
+        replacements = []
+        for i, current_path in enumerate((path, extra)):
+            with current_path.open("ab") as stream:
+                stream.write(tails[i])
+            current_path.rename(current_path.with_suffix(".held"))
+            replacement = self.header(candidate) + self.record(candidate, "replacement " + str(i))
+            current_path.write_bytes(replacement)
+            replacements.append(replacement)
+        with patch.object(capture, "register", wraps=capture.register) as register:
+            self.elapsed += 5
+            self.collector.tick()  # Periodic discovery precedes the first bounded drain.
+            self.assertEqual(register.call_count, 0)
+            self.assertFalse(self.collector.input_observation(str(owner.run_id)).healthy)
+            long_old = originals[str(extra.relative_to(self.home))]
+            self.assertEqual(capture.state(long_old.source_id).local_captured_offset, len(first) + 1048576)
+            self.tick()  # Only the short source has met the drain prerequisite.
+            self.assertEqual(register.call_count, 1)
+            self.assertEqual(register.call_args.args[0].path, path)
+            self.assertEqual(capture.state(long_old.source_id).source_epoch, long_old.source_epoch)
+            self.elapsed += 5
+            self.collector.tick()  # Still a full MiB of progress: not ready for replacement.
+            self.assertEqual(register.call_count, 1)
+            self.elapsed += 5
+            self.collector.tick()  # Remaining suffix drains before reobservation.
+            self.assertEqual(register.call_count, 1)
+            self.tick()
+            self.assertEqual(register.call_count, 2)
+        for i, current_path in enumerate((path, extra)):
+            old = originals[str(current_path.relative_to(self.home))]
+            self.assertEqual(self.archived(old), first + tails[i])
+            new = capture.state(old.source_id)
+            self.assertEqual(new.previous_epoch, old.source_epoch)
+            self.assertEqual(self.archived(new), replacements[i])
+        self.assertTrue(self.collector.input_observation(str(owner.run_id)).healthy)
+        self.assertEqual(self.collector.view(self.host["id"]).reason, "capture_gap")
+
+    def test_input_observation_is_frozen_exact_memory_only_and_ignores_semantic_gaps(self):
+        candidate, owner = self.bind("claude")
+        run_id = str(owner.run_id)
+        self.assertIsNone(self.collector.input_observation(run_id))
+        self.assertIsNone(self.collector.input_observation(str(uuid4())))
+        self.source(candidate, self.record(candidate, "primary") + b"bad-json\n"
+                    + raw(claude("embedded child", sessionId=str(candidate.native_session_id), isSidechain=True)))
+        self.assertEqual(self.tick().reason, "capture_gap")
+        self.assertTrue(self.rows("native_parse_gaps"))
+        expected_binding = RunBinding(str(self.settings.installation_id), self.host["id"],
+            str(candidate.recovery_epoch), candidate.environment_generation, str(candidate.process.boot_id),
+            run_id, owner.run_generation)
+        observation = self.collector.input_observation(run_id)
+        self.assertEqual(observation, NativeInputObservation(expected_binding, self.clock(), 1, True))
+        with self.assertRaises(FrozenInstanceError):
+            observation.healthy = False
+        with self.assertRaises(FrozenInstanceError):
+            observation.binding.boot_id = str(uuid4())
+        with ThreadPoolExecutor(1) as pool, ExitStack() as stack:
+            pool.submit(lambda: None).result()
+            for target, name in ((self.app.db, "read"), (self.app.db, "clock"),
+                    (self.collector._capture, "list_states"), (self.collector._capture, "list_registered"),
+                    (self.collector._capture, "poll"), (self.collector._capture, "transfer"),
+                    (self.app.session_owners, "reconcile"), (self.collector, "tick")):
+                stack.enter_context(patch.object(target, name, side_effect=AssertionError("input read I/O")))
+            for target in ("builtins.open", "os.open", "os.stat", "os.pread",
+                           "qorqut_core.runtime.native_collector.discover"):
+                stack.enter_context(patch(target, side_effect=AssertionError("input read I/O")))
+            self.assertIs(pool.submit(self.collector.input_observation, run_id).result(), observation)
+            self.elapsed += 5
+            self.assertEqual(self.collector.input_observation(run_id), observation)
+            self.elapsed += 0.001
+            self.assertIsNone(self.collector.input_observation(run_id))
+        self.tick()
+        self.collector.close()
+        self.assertIsNone(self.collector.input_observation(run_id))
+
+    def test_all_current_sources_need_fresh_service_even_when_aggregate_is_rebuilt(self):
+        candidate, owner = self.bind()
+        payload = self.header(candidate) + self.record(candidate, "primary")
+        path = self.source(candidate, payload)
+        for _ in range(17):
+            self.additional_source(path, payload)
+        self.tick()
+        first_service = self.elapsed
+        observation = self.collector.input_observation(str(owner.run_id))
+        self.assertEqual((observation.source_count, observation.healthy), (18, False))
+        capture = self.collector._capture
+        with patch.object(capture, "poll", wraps=capture.poll) as poll:
+            self.elapsed += 4
+            self.clock.advance(4)
+            self.collector.tick()
+            self.assertEqual(poll.call_count, 16)
+        self.assertTrue(self.collector.input_observation(str(owner.run_id)).healthy)
+        self.elapsed = first_service + 5.001
+        self.assertNotEqual(self.collector.view(self.host["id"]).reason, "observation_stale")
+        self.assertIsNone(self.collector.input_observation(str(owner.run_id)))
+        self.clock.advance(1)
+        self.collector._observation(*self.collector._snapshot())
+        self.assertIsNone(self.collector.input_observation(str(owner.run_id)))
+        self.tick()
+        self.assertTrue(self.collector.input_observation(str(owner.run_id)).healthy)
+
+    def test_raw_failures_invalidate_cached_health_and_pending_bytes_can_be_healthy(self):
+        candidate, owner = self.bind()
+        path = self.source(candidate, self.header(candidate) + self.record(candidate, "primary"))
+        run_id = str(owner.run_id)
+        self.tick()
+        capture = self.collector._capture
+        for method in ("poll", "transfer"):
+            with self.subTest(method=method):
+                self.assertTrue(self.collector.input_observation(run_id).healthy)
+                def failed(*args, **kwargs):
+                    self.assertIsNone(self.collector.input_observation(run_id))
+                    raise NativeCaptureError("synthetic raw failure")
+                with patch.object(capture, method, side_effect=failed):
+                    self.tick()
+                self.assertFalse(self.collector.input_observation(run_id).healthy)
+                self.collector._observation(*self.collector._snapshot())
+                self.assertFalse(self.collector.input_observation(run_id).healthy)
+                self.tick()
+                self.assertTrue(self.collector.input_observation(run_id).healthy)
+        with path.open("ab") as stream:
+            stream.write(self.record(candidate, "projection storage failure"))
+        with patch.object(self.collector._projector, "consume", side_effect=OSError("synthetic epoch storage failure")):
+            self.tick()
+        self.assertFalse(self.collector.input_observation(run_id).healthy)
+        self.tick()
+        self.assertTrue(self.collector.input_observation(run_id).healthy)
+        with path.open("ab") as stream:
+            stream.write(self.record(candidate, "x" * (1048576 + 1000)))
+        transfer = capture.transfer
+        def partial(*args, **kwargs):
+            self.assertEqual(kwargs, {"max_chunks": 16})
+            return transfer(*args, max_chunks=1)
+        with patch.object(capture, "transfer", side_effect=partial):
+            self.assertGreater(self.tick().pending_archive_bytes, 0)
+        self.assertTrue(self.collector.input_observation(run_id).healthy)
+        marker = self.base / ".qorqut-owner.json"
+        original = marker.read_bytes()
+        marker.write_text("{}")
+        self.assertEqual(self.tick().reason, "collection_blocked")
+        self.assertFalse(self.collector.input_observation(run_id).healthy)
+        marker.write_bytes(original)
+        self.tick()
+        self.assertTrue(self.collector.input_observation(run_id).healthy)
+        with patch.object(self.collector, "_snapshot", side_effect=sqlite3.OperationalError("synthetic storage failure")):
+            with self.assertRaises(sqlite3.OperationalError):
+                self.tick()
+        self.assertIsNone(self.collector.input_observation(run_id))
+        self.tick()
+        self.assertTrue(self.collector.input_observation(run_id).healthy)
+        self.elapsed += 5
+        with patch("qorqut_core.runtime.native_collector.discover", side_effect=OSError("synthetic discovery storage failure")):
+            self.collector.tick()
+        self.assertFalse(self.collector.input_observation(run_id).healthy)
+        self.elapsed += 5
+        self.collector.tick()
+        self.assertTrue(self.collector.input_observation(run_id).healthy)
+        with self.app.db.transaction() as tx:
+            tx.connection.execute("UPDATE archive_epochs SET conflicted=1")
+        self.tick()
+        self.assertFalse(self.collector.input_observation(run_id).healthy)
+
+    def test_resumed_run_needs_its_exact_host_link_and_retired_failure_is_independent(self):
+        candidate, owner = self.bind()
+        self.source(candidate, self.header(candidate) + self.record(candidate, "initial"))
+        self.tick()
+        prior_binding = self.collector.input_observation(str(owner.run_id)).binding
+        resumed, current = self.bind(session=candidate.native_session_id)
+        capture = self.collector._capture
+        # Registration links the local run first. A synthetic no-op transfer
+        # isolates the required host-link check from ordinary transfer failures.
+        with patch.object(capture, "transfer", side_effect=lambda sid, *args, **kwargs: capture.state(sid)):
+            self.tick()
+        self.assertFalse(self.collector.input_observation(str(current.run_id)).healthy)
+        self.tick()
+        observation = self.collector.input_observation(str(current.run_id))
+        self.assertTrue(observation.healthy)
+        self.assertNotEqual(observation.binding, prior_binding)
+        self.assertEqual(observation.binding.run_generation, current.run_generation)
+        self.assertEqual(observation.binding.boot_id, str(resumed.process.boot_id))
+        self.assertTrue(self.collector.input_observation(str(owner.run_id)).healthy)
+        old_source = self.capture_states()[0].source_id
+        # Retired history is immutable and does not own the new input route.
+        with self.app.db.transaction() as tx:
+            tx.connection.execute("""UPDATE session_owners SET state='retired',closed_at=?,
+                close_reason='synthetic_retirement' WHERE owner_id=?""", (self.clock(), str(current.run_id)))
+        active, active_owner = self.bind("claude")
+        self.source(active, self.record(active, "independent primary") + b"bad-json\n")
+        poll = capture.poll
+        def failing(sid, **kwargs):
+            if sid == old_source:
+                raise NativeCaptureError("retired source failure")
+            return poll(sid, **kwargs)
+        with patch.object(capture, "poll", side_effect=failing):
+            self.assertEqual(self.tick().reason, "collection_blocked")
+        self.assertTrue(self.collector.input_observation(str(active_owner.run_id)).healthy)
+        self.assertFalse(self.collector.input_observation(str(current.run_id)).healthy)
