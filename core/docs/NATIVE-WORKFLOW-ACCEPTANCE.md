@@ -133,3 +133,13 @@ The parallel facts-only connection investigation also traces this accepted UI's
 serial frame queue and the core's per-frame verification/effect path, reporting
 evidence for latency contributors. It does not implement batching, relax
 verification or redesign the protocol. Manager owns that correction separately.
+
+Clarification 261: the Claude fixture independently hit the same helper limit
+and had already closed its viewer and cleaned up before continuing. Manager
+verified its saved 139 input bytes / 138 submitted receipts, no Enter, and
+complete owned cleanup. Preserve this failed attempt and start a separately
+labeled fresh disposable attempt with the identical executable pins. Reuse
+unchanged exports/environments/assets, use the actual UI insertText path for
+long commands, verify exact bytes/receipts, then submit Enter separately. Do not
+resume or replay the abandoned partial command. This authorizes a fixture retry,
+not a product patch or keyboard-responsiveness acceptance.
