@@ -423,7 +423,7 @@ class RegistryTests(AgentCase):
         try:
             self.assertEqual({table: table_rows(app, table) for table in watched}, before_migration)
             with app.db.read() as tx:
-                self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 7)
+                self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 8)
                 self.assertEqual([tuple(row) for row in tx.connection.execute(
                     "SELECT version,checksum FROM schema_migrations WHERE version<=5")], checksums)
             receipts = replay(app)

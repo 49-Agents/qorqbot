@@ -37,13 +37,18 @@ class Change:
     outcome: str = "completed"
 
 
+OperationHandler = Callable[[Transaction, Model, Invocation, UUID | None], Change]
+
+
 @dataclass(frozen=True)
 class Operation:
     name: str
     arguments: type[Model]
     mutation: bool
-    handler: Callable[[Transaction, Model, Invocation, UUID | None], Change]
+    handler: OperationHandler
     output: type[Model] | None = None
+    prepare: Callable[[Model, Invocation], OperationHandler] | None = None
+    description: str | None = None
 
 
 def register_actor(tx: Transaction, actor: Actor):
@@ -62,6 +67,16 @@ def register_actor(tx: Transaction, actor: Actor):
 def _check_actor(tx: Transaction, context: Invocation):
     if tx.connection.execute("SELECT 1 FROM actors WHERE actor_id=?", (str(context.actor_id),)).fetchone() is None:
         raise CoreError("not_found", "Calling actor is not registered")
+
+
+def _prior_result(tx, operation, context, validated, hashed):
+    prior = tx.connection.execute("SELECT * FROM operations WHERE actor_id=? AND name=? AND idempotency_key=?",
+        (str(context.actor_id), operation.name, validated.idempotency_key)).fetchone()
+    if prior:
+        if prior["input_hash"] != hashed:
+            raise CoreError("idempotency_conflict", "Key already identifies different validated arguments")
+        return OperationResult.model_validate_json(prior["result_json"])
+    return None
 
 
 def _physical_roots(settings: InstallationSettings):
@@ -129,6 +144,7 @@ class Application:
         from .agents.workspace import Workspaces
         from .conversation.ledger import Conversations
         from .conversation.publication import Publisher
+        from .files.references import FileReferences
         from .messaging.service import Messaging
         from .runtime import SessionOwners
         from .runtime.native_hooks import NativeHooks
@@ -144,6 +160,7 @@ class Application:
         self.conversations = Conversations(self)
         self.publisher = Publisher(self)
         self.messaging = Messaging(self)
+        self.file_references = FileReferences(self)
         self.jobs = Jobs(database, (self.files.handler(), *self.workspaces.handlers(),
             self.messaging.handler(), self.publisher.handler()))
         self.files.jobs = self.jobs
@@ -164,6 +181,7 @@ class Application:
             *self.conversations.operations(),
             *self.session_owners.operations(),
             *self.terminals.operations(),
+            *self.file_references.operations(),
         )
         self.registry = MappingProxyType({op.name: op for op in operations})
 
@@ -263,18 +281,29 @@ class Application:
         if operation.mutation and not isinstance(validated, Mutation):
             raise CoreError("invalid_argument", "Mutation schema must require an idempotency key")
         hashed = canonical_hash({"version": 1, "arguments": validated.model_dump(mode="json", exclude={"idempotency_key"})})
+        if operation.prepare is not None:
+            if not operation.mutation:
+                raise CoreError("invalid_transition", "Preparation requires a mutation")
+            with self.db.lock.use(), self.db.lock.effects:
+                with self.db.read() as tx:
+                    _check_actor(tx, context)
+                    prior = _prior_result(tx, operation, context, validated, hashed)
+                    if prior is not None:
+                        return prior
+                handler = operation.prepare(validated, context)
+                return self._execute_validated(operation, context, validated, hashed, handler)
+        return self._execute_validated(operation, context, validated, hashed, operation.handler)
+
+    def _execute_validated(self, operation, context, validated, hashed, handler):
         with self.db.transaction(writable=operation.mutation) as tx:
             _check_actor(tx, context)
             operation_id = None
             if operation.mutation:
-                prior = tx.connection.execute("SELECT * FROM operations WHERE actor_id=? AND name=? AND idempotency_key=?",
-                    (str(context.actor_id), operation.name, validated.idempotency_key)).fetchone()
-                if prior:
-                    if prior["input_hash"] != hashed:
-                        raise CoreError("idempotency_conflict", "Key already identifies different validated arguments")
-                    return OperationResult.model_validate_json(prior["result_json"])
+                prior = _prior_result(tx, operation, context, validated, hashed)
+                if prior is not None:
+                    return prior
                 operation_id = self.db.id_factory()
-            change = operation.handler(tx, validated, context, operation_id)
+            change = handler(tx, validated, context, operation_id)
             data = change.data.model_dump(mode="json") if isinstance(change.data, Model) else change.data
             if operation.output is not None:
                 try:
