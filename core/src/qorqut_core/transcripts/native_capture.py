@@ -185,6 +185,13 @@ class NativeCapture:
             "SELECT source_id,current_epoch FROM native_sources WHERE home=? AND workspace=? ORDER BY rowid",
             (str(self.roots.home), str(self.roots.workspace))))
 
+    def list_states(self) -> tuple[NativeState, ...]:
+        """Read every admitted epoch, including retained divergent history."""
+        return tuple(self.state(row[0], row[1]) for row in self._catalog.execute(
+            """SELECT e.source_id,e.source_epoch FROM native_epochs e
+                JOIN native_sources s USING(source_id) WHERE s.home=? AND s.workspace=?
+                ORDER BY e.rowid""", (str(self.roots.home), str(self.roots.workspace))))
+
     def state(self, source_id: str, source_epoch: str | None = None) -> NativeState:
         """Read saved progress, including historical epochs; no polling or retries."""
         source, epoch = self._source(source_id), self._epoch(source_id, source_epoch)
