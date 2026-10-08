@@ -143,3 +143,23 @@ unchanged exports/environments/assets, use the actual UI insertText path for
 long commands, verify exact bytes/receipts, then submit Enter separately. Do not
 resume or replay the abandoned partial command. This authorizes a fixture retry,
 not a product patch or keyboard-responsiveness acceptance.
+
+Clarification 263: after actual Claude consent, restarting setup canonicalizes
+object-key order in workspace/.claude/settings.local.json. Manager compared all
+seven captured configuration files: six were byte-identical; this file alone
+changed and its complete typed JSON value and array order were identical.
+The existing hook merge serializes that JSON; D40 preserves its settings and
+hooks semantically and does not promise Claude JSON formatting. The workflow's
+byte-equality assertion was stronger than that contract. For this file only,
+compare the full parsed JSON without dropping fields, changing types or sorting
+arrays, and retain before/after bytes/hashes as evidence. Credential, binding,
+authored instruction and other configuration byte checks remain unchanged.
+
+The cleaned-up Claude attempt proved the first two turns/resume and preserved
+process/owner/history across core restart, but sent no third turn. Preserve it,
+then rerun the bounded connected flow in a fresh labeled fixture with the same
+artifacts and corrected comparison to complete the post-restart turn. The broad
+MCP consent actually selected in that fixture must be reported accurately; use
+the displayed single-core-server choice in the fresh attempt. No product trust
+seed or permissions change is introduced. All original native-workflow limits
+and the open per-character responsiveness issue remain.
