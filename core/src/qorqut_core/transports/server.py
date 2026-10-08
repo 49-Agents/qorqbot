@@ -293,6 +293,7 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
     """Compose the logging/ASGI boundary; only lifespan startup opens storage."""
     if str(settings.listen_address) != "127.0.0.1":
         raise InputError("This increment requires listen_address 127.0.0.1")
+    credentials = Credentials(credentials.bindings, credentials.readiness_actor_id)
     install_logging_boundary()
     sessions, admission = Sessions(), Admission()
     terminals = TerminalSockets(sessions, admission)
@@ -312,6 +313,7 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
         try:
             admission.closing = False
             sessions.clear()
+            credentials.clear_local()
             if ui is not None:
                 await _settle_sync(ui.validate)
             await _settle_sync(open_application)
@@ -327,7 +329,9 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
                 worker = JobWorker(application.jobs)
                 web.state.worker = worker
                 await _settle_sync(worker.start)
-                monitor = SessionMonitor(application.session_owners)
+                application.native_setup.configure_credentials(credentials.register_local)
+                monitor = SessionMonitor(application.session_owners,
+                    native_setup=application.native_setup, native_collector=application.native_collector)
                 web.state.session_monitor = monitor
                 await _settle_sync(monitor.start)
                 await _settle_sync(application.terminals.start)
@@ -353,8 +357,11 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
                         if monitor is not None:
                             await _settle_sync(monitor.stop)
                     finally:
-                        if application is not None:
-                            await _settle_sync(application.close)
+                        try:
+                            if application is not None:
+                                await _settle_sync(application.close)
+                        finally:
+                            credentials.clear_local()
 
     def identity(actor_id):
         return JSONResponse({"authenticated": True, "actor_id": str(actor_id), "api_version": 1})

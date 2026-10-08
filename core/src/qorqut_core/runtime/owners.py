@@ -192,11 +192,16 @@ class SessionOwners:
 
     def get(self, tx, args, context, operation_id):
         get_row(tx, args.agent_id)
+        observations = {
+            "native_setup": self.app.native_setup.view(args.agent_id) if self.app.native_setup is not None else None,
+            "native_capture": self.app.native_collector.view(args.agent_id) if self.app.native_collector is not None else None,
+        }
         row = _active(tx, args.agent_id)
         if row is None:
-            return Change(RuntimeView(agent_id=args.agent_id, status="disconnected", current_owner=None, observed_at=None))
+            return Change(RuntimeView(agent_id=args.agent_id, status="disconnected", current_owner=None,
+                                      observed_at=None, **observations))
         age = (datetime.fromisoformat(self.db.clock()) - datetime.fromisoformat(row["last_observed_at"])).total_seconds()
         connected = row["observation"] == "live" and 0 <= age <= 5 and row["recovery_epoch"] == _installation(tx)[1]
         owner = CurrentOwner(**{key: row[key] for key in CurrentOwner.model_fields if key != "run_id"}, run_id=row["owner_id"])
         return Change(RuntimeView(agent_id=args.agent_id, status="connected" if connected else "unknown",
-                                  current_owner=owner, observed_at=row["last_observed_at"]))
+                                  current_owner=owner, observed_at=row["last_observed_at"], **observations))
