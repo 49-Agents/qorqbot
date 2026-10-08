@@ -17,12 +17,14 @@ from uuid import UUID, uuid4
 from ..agents.registry import get_row, reserved
 from ..agents.workspace import child_directory, same_child
 from ..app import Change, Operation
-from ..contracts import CoreError
+from ..contracts import CoreError, Invocation
 from ..runner.models import RunnerError
 from ..runner.shell import ShellManager, ShellSpec
 from ..runner.shell_models import absolute_path
 from ..storage.database import assert_external_io_allowed
 from ..storage.files import directory
+from ..transcripts.spool import CaptureError
+from .terminal_archive import saved_capture, transfer
 from .terminal_models import Recording, TerminalGet, TerminalView
 
 _LOG = logging.getLogger(__name__)
@@ -235,6 +237,19 @@ class Terminals:
                             os.fsync(home)
                             os.fsync(local)
                             guard()
+                            try:
+                                transfer(configuration["database"], shell, self.app.archive,
+                                         Invocation(actor_id=row["actor_id"]))
+                            except (CoreError, CaptureError, OSError, ValueError, TypeError, sqlite3.Error):
+                                # Host archival failure does not close the shell
+                                # or change recorder health. Retry stored work.
+                                _LOG.warning("terminal_archive_transfer_failed")
+                            try:
+                                captured = saved_capture(configuration["database"], shell)
+                            except (CoreError, OSError, ValueError, sqlite3.Error):
+                                _LOG.warning("terminal_archive_counters_unavailable")
+                                captured = None
+                            shell = shell.model_copy(update={"saved_capture": captured})
                     return self._publish(target, self._presentation(target, shell))
             except (CoreError, RunnerError, OSError, ValueError, sqlite3.Error) as exc:
                 code = exc.error.code if isinstance(exc, CoreError) else exc.code if isinstance(exc, RunnerError) else "unavailable"
