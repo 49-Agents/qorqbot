@@ -1,24 +1,15 @@
 # Qorqutbot backend implementation plan
 
-Current parallel work: [D48 continued native discovery/raw observations](NATIVE-COLLECTION-CONTINUITY.md)
-and the [real core/MCP/file-card check](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/FILE-REFERENCE-INTEGRATION.md).
-D46 [host dispatch](evidence/host-message-dispatch-manager-acceptance.md), D47 cards
-and the native-coverage factual audit are accepted and merged. Manager
-reviews/tests completed work directly; workers use Astra MAX, self-review off.
-Core dispatch adds schema 9; collection owns only its service and tests; the
-file-card check uses the accepted pair independently. Actual pinned native
-Chat-delivery acceptance follows the composed D46/D48 code. Native shutdown
-drain and child/attachment coverage remain outstanding; the audit is not G3.
-
-D43–D45 are accepted and integrated: [inbox notification/layout support](evidence/inbox-notifications-manager-acceptance.md),
-[shared recorded-terminal input](evidence/shared-terminal-input-manager-acceptance.md),
-and [durable file references](evidence/file-references-manager-acceptance.md).
-Core is schema 9 with 17 public operations and five job handlers. The UI runtime
-inspector and file-reference cards are also accepted. Next are host message
-dispatch through the shared terminal gate and actual connected-flow verification.
-Native input [facts](evidence/native-input-manager-acceptance.md) remain qualified;
-automated delivery is not implemented merely by accepting these components.
-
+Accepted and integrated: D46 [host dispatch](evidence/host-message-dispatch-manager-acceptance.md)
+and D48 [continued native collection](evidence/native-collection-continuity-manager-acceptance.md).
+The [actual core/MCP/file-card flow](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/file-reference-integration-manager-acceptance.md)
+also passed bounded acceptance. Next, two parallel [connected Chat checks](CONNECTED-CHAT-ACCEPTANCE.md)
+exercise manually started Claude and Codex through real MCP calls, replies,
+automatic dated history and core restart. Manager reviews/tests directly;
+workers use Astra MAX with self-review off. Core has schema 9, 17 public
+operations and five handlers. These component results do not yet establish
+native Chat dispatch or complete transcript coverage. Shutdown drain,
+child/attachment support, browser/VM integration and full system gates remain open.
 
 Current v1 scope: [D36, terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md)
 supersedes earlier automatic CLI start/restart/provider-switch and context-packet

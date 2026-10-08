@@ -3,7 +3,8 @@
 D46's concrete [host message dispatch contract](HOST-MESSAGE-DISPATCH.md)
 extends deliveries_get with typed attempts and adds schema 9. Its
 [component implementation is accepted](evidence/host-message-dispatch-manager-acceptance.md);
-the combined D48/native-CLI flow remains an acceptance gate.
+[D48 is also accepted](evidence/native-collection-continuity-manager-acceptance.md);
+the [actual native-CLI flow](CONNECTED-CHAT-ACCEPTANCE.md) remains an acceptance gate.
 
 [D48](NATIVE-COLLECTION-CONTINUITY.md) gives that dispatcher a private, fresh,
 per-run raw-capture observation. Public native-history gaps remain visible and

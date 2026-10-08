@@ -1,14 +1,15 @@
 # Backend planning documents
 
-Accepted D43–D45: [inbox notifications](evidence/inbox-notifications-manager-acceptance.md),
-[shared terminal input](evidence/shared-terminal-input-manager-acceptance.md), and
-[file references](evidence/file-references-manager-acceptance.md). [Host dispatch](evidence/host-message-dispatch-manager-acceptance.md) has passed component review
-(schema 9); its production capture prerequisite awaits D48 and actual native-flow acceptance. The file-reference UI has passed
-[scoped review](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/file-reference-cards-manager-acceptance.md);
-the actual core/MCP/UI flow follows. The [native-history audit](evidence/native-coverage-manager-acceptance.md)
-confirms remaining discovery and shutdown gaps without claiming complete history.
-The next [collection correction](NATIVE-COLLECTION-CONTINUITY.md) owns repeated
-discovery and private per-run raw-capture observations, independently of dispatch.
+Accepted and integrated: D46 [host dispatch](evidence/host-message-dispatch-manager-acceptance.md)
+and D48 [continued native collection](evidence/native-collection-continuity-manager-acceptance.md).
+The [actual core/MCP/file-card flow](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/file-reference-integration-manager-acceptance.md)
+also passed bounded acceptance. Next, two parallel [connected Chat checks](CONNECTED-CHAT-ACCEPTANCE.md)
+exercise manually started Claude and Codex through real MCP calls, replies,
+automatic dated history and core restart. Manager reviews/tests directly;
+workers use Astra MAX with self-review off. Core has schema 9, 17 public
+operations and five handlers. These component results do not yet establish
+native Chat dispatch or complete transcript coverage. Shutdown drain,
+child/attachment support, browser/VM integration and full system gates remain open.
 
 Start with [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md) for the owner's
 2026-10-08 scope correction: manual CLI startup and one logical inbox owner.
@@ -104,4 +105,4 @@ Qualified manual native history checks are accepted for
 [Claude](evidence/manual-native-claude-manager-acceptance.md) and
 [Codex](evidence/manual-native-codex-manager-acceptance.md).
 [Native input observations for Chat delivery](CHAT-DELIVERY-EVIDENCE.md) follow
-alongside the D41 fixes; sending from Chat remains unimplemented.
+alongside the D41 fixes. The merged dispatcher now awaits the connected native checks above.
