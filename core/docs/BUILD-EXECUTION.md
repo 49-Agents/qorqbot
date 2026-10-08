@@ -31,8 +31,9 @@ the complete connected Claude flow remain unaccepted.
 
 The actual Codex check reported blocker 309 before any automated input: its
 empty placeholder's reset appears on the footer row. Manager reproduced the
-classification failure and assigned the bounded
-[reset-placement correction](INPUT-PLACEHOLDER-CORRECTION.md). The verifier
+classification failure. The bounded
+[reset-placement correction is now accepted](evidence/codex-placeholder-reset-manager-acceptance.md)
+after seven checks and replay of the original native screen. The verifier
 preserves the failed flow and completes owned cleanup; actual dispatch remains
 unaccepted. The independent Claude check continues with its explicit initial
 manual-seed qualification. No production gate is bypassed.

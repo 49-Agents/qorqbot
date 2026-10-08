@@ -1,5 +1,10 @@
 # Backend planning documents
 
+The [observed Codex placeholder correction](evidence/codex-placeholder-reset-manager-acceptance.md)
+is accepted; the connected Codex flow needs its corrected pin. Claude delivered
+two notifications but native automatic approval blocked MCP execution in the
+canned fixture; that boundary remains explicit in [the connected plan](CONNECTED-CHAT-ACCEPTANCE.md).
+
 Accepted and integrated: D46 [host dispatch](evidence/host-message-dispatch-manager-acceptance.md)
 and D48 [continued native collection](evidence/native-collection-continuity-manager-acceptance.md).
 The [actual core/MCP/file-card flow](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/file-reference-integration-manager-acceptance.md)
