@@ -75,7 +75,10 @@ Codex: prompt row is rows-4; next row is blank; model/path row has nonempty mode
 ` · ` and absolute or ~/ path (including observed visual truncation), never an
 extra interactive row. Empty prompt uses the exact dim/reset
 `Ask Codex to do anything` placeholder and final `  ? for shortcuts` row;
-cursor=(2,prompt-row,true). Expected nonempty input has exactly the ASCII text
+cursor=(2,prompt-row,true). The [observed reset-placement correction](INPUT-PLACEHOLDER-CORRECTION.md)
+also permits the exact dim placeholder without its same-row reset only when the
+next raw row is empty and the model/footer raw row begins with a full SGR reset
+followed by the two existing spaces. All other checks remain required. Expected nonempty input has exactly the ASCII text
 after `› `, no dim placeholder styling, a blank final row and cursor immediately
 after it. No wrapped/collapsed/multiline text or cursor guess. Do not demand a
 specific model name or private path. Expected text must be printable ASCII,

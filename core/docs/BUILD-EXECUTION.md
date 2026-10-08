@@ -19,6 +19,16 @@ conversation parsing/publication to three independent lanes while two builders
 finish core/UI terminal geometry. Merge only after Manager acceptance, then run
 the combined workflow. Earlier evidence below retains its actual review history.
 
+## Connected-flow correction
+
+The actual Codex check reported blocker 309 before any automated input: its
+empty placeholder's reset appears on the footer row. Manager reproduced the
+classification failure and assigned the bounded
+[reset-placement correction](INPUT-PLACEHOLDER-CORRECTION.md). The verifier
+preserves the failed flow and completes owned cleanup; actual dispatch remains
+unaccepted. The independent Claude check continues with its explicit initial
+manual-seed qualification. No production gate is bypassed.
+
 ## D40 composition progress
 
 The [native collector service](evidence/native-collector-r1.md) and
