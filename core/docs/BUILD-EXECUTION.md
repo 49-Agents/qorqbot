@@ -33,9 +33,11 @@ The actual Codex check reported blocker 309 before any automated input: its
 empty placeholder's reset appears on the footer row. Manager reproduced the
 classification failure. The bounded
 [reset-placement correction is now accepted](evidence/codex-placeholder-reset-manager-acceptance.md)
-after seven checks and replay of the original native screen. The verifier
-preserves the failed flow and completes owned cleanup; actual dispatch remains
-unaccepted. The independent Claude check continues with its explicit initial
+after seven checks and replay of the original native screen. The [original blocked report](evidence/connected-chat-codex-r1.md), exact candidate
+`8ac24ea1eacc190439a09480ca90aae37fdd06ac`, is accepted as evidence only. Manager
+checked its body/daily/native hashes, saved zero-attempt refusal, cleanup audit
+and narrow screenshot. Its supervisor exit143 remains qualified. The corrected
+Codex flow will run in a new isolated fixture; actual dispatch remains unaccepted. The independent Claude check continues with its explicit initial
 manual-seed qualification. No production gate is bypassed.
 
 ## D40 composition progress
