@@ -46,6 +46,11 @@ actual-CLI config-loading facts are recorded. Parallel [Claude/Codex workflow
 acceptance](NATIVE-WORKFLOW-ACCEPTANCE.md) now checks the complete connection.
 No automatic CLI launch is added.
 
+D41 adds two independent corrections alongside those fixed-version native checks:
+[automatic Terminal host archival](TERMINAL-ARCHIVE.md) and UI batching of queued
+terminal input. Both preserve existing capture/control contracts. Chat dispatch
+and real native paste-readiness remain separate unfinished work.
+
 ## 1. Product contract
 
 Qorqutbot hosts persistent agents. A logical agent owns its identity, files, notes, research, browser profile and accumulated history independently of the currently selected CLI, model, native conversation or VM process. Agents work in interactive tmux-backed terminals and coordinate through Qorqut MCP. The owner can create agents, inspect them and intervene in their browsers. Agents can create and contact other agents themselves.

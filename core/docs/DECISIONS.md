@@ -487,3 +487,14 @@ Keep these plans together until implementation bootstrap moves each authoritativ
 Run one browser service beside each agent's Chrome, including a separately bound onbash instance. Use the official SDK's Streamable HTTP on a private local endpoint, independent of CLI/runner lifetime. Its local control/command receipts persist on the agent's state disk; they are execution evidence, not another message/request database. Direct MCP calls and runner-proxied operations enter the same command lock and control-epoch checks. Service restart preserves Chrome and cannot reset a human hold or replay an uncertain command.
 
 Core supplies configuration and an authenticated HTTP handoff bridge. Browser forwards requests with stable idempotency/actor/target bindings; core atomically persists request/event/job/conversation entry and later Done/Cancel/message. Core reconciles its desired control epoch through the runner to browser's private control interface. Readiness requires browser acknowledgment. If the bridge is unavailable, the tool reports unavailability or an unresolved outcome, never successful notification without a durable receipt. In reuse without a handoff bridge, browser automation works independently and takeover is not advertised. No UI or core Python import is required by browser.
+
+## D41 — Bounded Terminal archival and queued input batches
+
+The recorder's terminal producer uses the existing host Archive independently
+of native-session ownership. [TERMINAL-ARCHIVE.md](TERMINAL-ARCHIVE.md) specifies
+the normal observer connection and durable receipt-before-ACK contract in the
+existing local spool file. No new service or host schema is needed. In parallel,
+the UI combines adjacent unsent input bytes behind the existing single in-flight
+receipt. It preserves raw byte order, resize barriers and control epochs. These
+changes do not enable automated Chat input; native workflow verification keeps
+its already frozen executable pins.

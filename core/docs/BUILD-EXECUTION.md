@@ -461,3 +461,18 @@ no Enter, loss or transport error. The [queued-input clarification](NATIVE-WORKF
 lets the existing command drain and keeps the native workflow moving. Keyboard
 responsiveness remains a separate open usability issue; the facts-only actor
 will trace its accepted code path for Manager's correction.
+
+## D41 parallel Terminal corrections
+
+Manager verified exploration completion 264 against the accepted source and all
+59 referenced artifact hashes. Messaging still has no dispatch caller; terminal
+spools have a compatible producer binding but no host transfer caller; UI input
+currently pays one receipt round trip per key. The static 36 tmux calls per
+input frame are not a measured per-call cost profile.
+
+Two independently owned implementation lanes now follow: the core
+[Terminal archive connection](TERMINAL-ARCHIVE.md) and UI queued-input batching.
+Both receive direct Manager review and focused actual-flow checks. The concurrent
+Claude/Codex native workflow verifiers keep core a2a162ce and UI 5a9090c fixed.
+Chat dispatch/readiness, browser/VM integration and full system acceptance remain
+unfinished. This allocation is not implementation acceptance.
