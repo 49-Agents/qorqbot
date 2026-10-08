@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import ctypes
+import hashlib
 from contextlib import AsyncExitStack
 import json
 import os
@@ -34,7 +35,6 @@ from qorqut_core.runner.shell import ShellManager
 from qorqut_core.runner.shell_models import ShellDimensions
 from qorqut_core.runner.storage import input_lock
 from qorqut_core.runtime.terminal_models import CLIENT_MESSAGE, TerminalView
-from qorqut_core.transcripts.spool import CaptureSpool
 from qorqut_core.transports.boundary import Admission, Boundary
 from qorqut_core.transports.configuration import read_configuration
 from qorqut_core.transports.server import TerminalSockets, create_app
@@ -80,14 +80,21 @@ class TerminalInstallation(Installation):
 
     def captured(self):
         shell = self.shell()
-        data, offset = b"", 0
-        with CaptureSpool(self.database) as spool:
-            while True:
-                page = spool.pending(str(shell.source_id), str(shell.source_epoch), after=offset)
-                if not page.chunks:
-                    return data
-                data += b"".join(chunk.payload for chunk in page.chunks)
-                offset = page.next_offset
+        # Automatic archival can reclaim local BLOBs. Follow their immutable
+        # coordinates to the durable host copy without weakening byte checks.
+        with sqlite3.connect(self.database) as db:
+            rows = db.execute("SELECT offset,length,sha256,payload FROM capture_chunks "
+                              "WHERE source_id=? AND source_epoch=? ORDER BY offset",
+                              (str(shell.source_id), str(shell.source_epoch))).fetchall()
+        root = self.workspace.parent / "history/chunks" / str(shell.source_id) / str(shell.source_epoch)
+        data = b""
+        for offset, length, digest, payload in rows:
+            if payload is None:
+                payload = (root / f"{offset}-{length}-{digest}.bin").read_bytes()
+            assert offset == len(data) and len(payload) == length
+            assert hashlib.sha256(payload).hexdigest() == digest
+            data += payload
+        return data
 
     def terminal(self):
         result = self.post("terminal_get", {"agent_id": self.agent_id}).json()
@@ -259,7 +266,8 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         f.start()  # Normal installed console entrypoint; no test server wrapper.
         view = f.available()
         self.assertEqual(view["recording"]["state"], "healthy")
-        self.assertEqual(view["recording"]["host_archived_offset"], 0)
+        self.assertGreater(view["recording"]["host_archived_offset"], 0)
+        self.assertLessEqual(view["recording"]["host_archived_offset"], view["recording"]["local_captured_offset"])
         self.assertEqual(view["control"]["mode"], "unclaimed")
         self.assertEqual(set(view), {"agent_id", "recovery_epoch", "status", "terminal_id", "observed_at", "reason", "control", "recording", "dimensions"})
         self.assertEqual(view["dimensions"], {"columns": 80, "rows": 24})
