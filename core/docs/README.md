@@ -1,7 +1,10 @@
 # Backend planning documents
 
 Start with [current connected-flow acceptance](evidence/connected-chat-manager-acceptance.md)
-and the next [responsiveness corrections](RESPONSIVENESS-CORRECTIONS.md).
+and the [responsiveness corrections](RESPONSIVENESS-CORRECTIONS.md). Their
+combined archive timing check failed; [D50 transfer ranges](TERMINAL-TRANSFER-RANGES.md)
+are the next correction. [Native cold-start facts](evidence/native-cold-start-manager-acceptance.md)
+identify the separate first-Chat gap without changing session admission.
 Codex completed three actual native MCP message flows, including after restart.
 Claude delivered two notifications but its canned fixture's automatic approval
 blocked MCP execution. Both results retain their limits.

@@ -7,7 +7,11 @@ extends deliveries_get with typed attempts and adds schema 9. Its
 the [actual native-CLI flow](evidence/connected-chat-manager-acceptance.md) has
 qualified Codex acceptance; Claude MCP execution remains blocked. D49's
 [bounded request wait](RESPONSIVENESS-CORRECTIONS.md) changes only transport
-admission and has component acceptance; combined verification is pending.
+admission and has component acceptance. The combined run passed its bounded
+read bursts but failed archive catch-up. D50's [Terminal transfer ranges](TERMINAL-TRANSFER-RANGES.md)
+allow one host object to contain several contiguous original recorder chunks.
+The local capture ledger keeps its original offsets/hashes; host byte ranges
+and returned receipts retain the existing durability and identity contract.
 
 [D48](NATIVE-COLLECTION-CONTINUITY.md) gives that dispatcher a private, fresh,
 per-run raw-capture observation. Public native-history gaps remain visible and

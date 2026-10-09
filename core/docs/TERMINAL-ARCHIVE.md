@@ -1,5 +1,12 @@
 # Automatic host archival of the recorded Terminal
 
+Current transfer framing follows [D50](TERMINAL-TRANSFER-RANGES.md): preserve
+original local capture chunks, combine contiguous chunks into bounded host
+ranges, and keep durable manifests with exact receipt-based ACK/replay.
+That decision supersedes the single-chunk intent description below. D49 replaced
+the original four-chunk scheduling limit; the remaining ownership/durability
+rules still apply.
+
 Manager decision D41, 2026-10-09. The accepted recorder saves Bash's PTY output
 in `runtime/terminal.sqlite3`; its host ACK remains zero because no production
 caller transfers it. Archive already accepts this terminal producer independently

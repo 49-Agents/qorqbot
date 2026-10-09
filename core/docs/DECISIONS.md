@@ -560,3 +560,13 @@ reads, and slow four-chunk Terminal archival. The
 calls with a small timed waiter bound, distinguish failed status reads from actual
 terminal changes, and use a bounded time/byte/chunk archive batch. No new service,
 schema, retry of possible effects or provider-selection control is introduced.
+
+## D50 — Batch Terminal transfer bytes, preserving original capture records
+
+D49's actual workload still missed its 30-second archival gate despite passing
+bounded UI/read checks. [Terminal transfer ranges](TERMINAL-TRANSFER-RANGES.md)
+combine up to 128 contiguous original chunks and 256 KiB into one existing host
+archive object, with a saved constituent manifest and exact receipt replay.
+The recorder and original local coordinate/hash ledger are unchanged. Only the
+local transfer-intent table gains a nullable manifest for legacy compatibility;
+host schemas/APIs, native archival and observer cadence do not change.

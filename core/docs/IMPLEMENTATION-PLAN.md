@@ -8,7 +8,12 @@ now have bounded Manager acceptance: Codex completed actual native MCP reads,
 acknowledgments, replies and a fresh message after core restart; Claude's native
 MCP calls were blocked, while notification/restart evidence passed. The three
 [responsiveness corrections](RESPONSIVENESS-CORRECTIONS.md) have component
-acceptance; their combined real-core/UI verification is next.
+acceptance. Their combined run passed bounded request bursts and kept Terminal
+connected, but failed the 30-second archive catch-up gate. D50's
+[contiguous transfer ranges](TERMINAL-TRANSFER-RANGES.md) address the observed
+per-chunk cost while preserving original capture bytes and ledgers.
+[Pre-prompt native-session facts](evidence/native-cold-start-manager-acceptance.md)
+are accepted as design inputs; initial Chat remains unresolved.
 Manager reviews/tests directly;
 workers use Astra MAX with self-review off. Core has schema 9, 17 public
 operations and five handlers. These qualified runs do not establish
