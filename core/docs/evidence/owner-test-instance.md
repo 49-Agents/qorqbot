@@ -1,5 +1,9 @@
 # Owner test instance
 
+Updated by [D55 acceptance](local-access-manager-acceptance.md): this same URL now
+opens directly without console credentials. The record below describes the
+initial test deployment before the owner removed authentication.
+
 2026-10-09. At the owner's request to make the build available immediately, a
 separate test installation is running on this machine. Core is `95c479b`; UI is
 `b0401eccb2d2aa16e32af3f59c56c8299332d6fe`. The reviewed shutdown correction is
