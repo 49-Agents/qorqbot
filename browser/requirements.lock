@@ -1,4 +1,4 @@
-# Exact tested Python 3.12 runtime and build resolution for browser-mcp-r2.
+# Exact Python 3.12 runtime/build resolution, including desktop CDP close.
 # setuptools is the build backend; MCP owns its required transitive dependencies.
 annotated-types==0.8.0
 anyio==4.15.1
@@ -30,3 +30,4 @@ starlette==1.7.0
 typing-extensions==4.16.0
 typing-inspection==0.4.4
 uvicorn==0.54.0
+websockets==17.2

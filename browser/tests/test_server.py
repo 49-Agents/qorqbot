@@ -10,7 +10,9 @@ import httpx
 from mcp.shared.exceptions import McpError
 
 from qorqut_browser.transport import MAX_BODY_BYTES
-from wire_fixture import APPLICATION_TOKEN, TOKEN_A, TOKEN_B, BrowserServer
+from wire_fixture import BrowserServer
+
+TOKEN_A = "synthetic-existing-diagnostic"
 
 
 class ServerWireTest(unittest.IsolatedAsyncioTestCase):
@@ -53,7 +55,7 @@ class ServerWireTest(unittest.IsolatedAsyncioTestCase):
             direct = asyncio.create_task(session.call_tool("browser_turn", command))
             directory = await server.wait_effect(command)
             proxy = asyncio.create_task(self.http("POST", "/v1/browser/command", json=command,
-                headers=server.headers(APPLICATION_TOKEN, server.actor_a)))
+                headers=server.headers(server.actor_a)))
             await asyncio.sleep(.05)
             self.assertFalse(proxy.done())
             (directory / "release").touch()
@@ -81,20 +83,13 @@ class ServerWireTest(unittest.IsolatedAsyncioTestCase):
             # Historical retries retain the original binding and success.
             self.assertEqual((await session.call_tool("browser_turn", command)).structuredContent, proxy_result.json())
 
-    async def test_attribution_is_per_request_and_rejections_do_not_echo_secrets(self):
+    async def test_local_default_and_forwarded_attribution_share_control(self):
         server = self.server
         await server.reconcile(self.client)
-        for headers in ({}, server.headers("wrong"), server.headers(APPLICATION_TOKEN),
-                        server.headers(TOKEN_A, server.actor_b), server.headers(APPLICATION_TOKEN, "bad-uuid")):
-            response = await self.http("GET", "/v1/identity", headers=headers)
-            self.assertEqual(response.status_code, 401)
-        for path in ("/mcp", "/mcp/"):
-            response = await self.http("POST", path, json={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
-                                      headers=server.headers(APPLICATION_TOKEN, server.actor_a))
-            self.assertEqual(response.status_code, 401)
-        response = await self.http("POST", "/v1/browser/control", json={})
-        self.assertEqual(response.status_code, 401)
-        async with server.session() as a, server.session(TOKEN_B) as b:
+        self.assertEqual((await self.http("GET", "/v1/identity", headers={})).status_code, 200)
+        malformed = await self.http("GET", "/v1/identity", headers=server.headers("bad-uuid"))
+        self.assertEqual(malformed.status_code, 400)
+        async with server.session() as a, server.session(server.actor_b) as b:
             commands = [server.command(), server.command()]
             results = await asyncio.gather(a.call_tool("browser_turn", commands[0]),
                                            b.call_tool("browser_turn", commands[1]))
@@ -113,6 +108,8 @@ class ServerWireTest(unittest.IsolatedAsyncioTestCase):
             bad = await self.http("POST", "/v1/browser/command", json=spoof)
             self.assertEqual(bad.status_code, 400)
             self.assertNotIn(str(server.actor_b), bad.text)
+
+    async def test_existing_sdk_error_logging(self):
         # Envelope and shared-session validation take different SDK paths. The
         # latter uses root logging.warning, including for invalid notifications.
         sentinels = ["synthetic-sdk-secret-" + uuid4().hex for _ in range(3)]
@@ -135,9 +132,9 @@ class ServerWireTest(unittest.IsolatedAsyncioTestCase):
                         "code": -32602, "message": "Invalid or unavailable MCP request"})
                 for sentinel in sentinels:
                     self.assertNotIn(sentinel, response.text)
-        server.stop()  # flush captured stdout/stderr/logging before checking it
-        output = server.log.read_text()
-        for sentinel in [*sentinels, private_text, TOKEN_A]:
+        self.server.stop()  # flush captured stdout/stderr/logging before checking it
+        output = self.server.log.read_text()
+        for sentinel in [*sentinels, TOKEN_A]:
             self.assertNotIn(sentinel, output)
         self.assertGreaterEqual(output.count("MCP SDK diagnostic"), 2)
 
@@ -172,7 +169,7 @@ class ServerWireTest(unittest.IsolatedAsyncioTestCase):
                 reader, writer = await asyncio.open_connection("127.0.0.1", self.server.port)
                 connections.append((reader, writer))
                 writer.write((f"POST /v1/browser/command HTTP/1.1\r\nHost: 127.0.0.1:{self.server.port}\r\n"
-                              f"Authorization: Bearer {TOKEN_A}\r\nContent-Length: 2\r\n"
+                              "Content-Length: 2\r\n"
                               "Content-Type: application/json\r\n\r\n{").encode())
                 await writer.drain()
             for _ in range(50):
@@ -218,7 +215,7 @@ class ServerWireTest(unittest.IsolatedAsyncioTestCase):
             (directory / "release").touch()
             await take
             saved = await self.http("POST", "/v1/browser/command", json=command,
-                                    headers=server.headers(APPLICATION_TOKEN, server.actor_a))
+                                    headers=server.headers(server.actor_a))
             self.assertEqual(saved.status_code, 200)
             self.assertEqual(saved.json()["outcome"], "completed")
             self.assertEqual((await session.call_tool("browser_turn", command)).structuredContent, saved.json())
@@ -231,9 +228,7 @@ class ServerWireTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failed.status_code, 200)
         self.assertEqual(failed.json()["outcome"], "uncertain")
         witness = (server.config.browser.artifacts / command["command_id"] / "seen.json").read_bytes()
-        # Explicit settlement can reopen admission without rewriting the receipt.
-        await server.reconcile(self.client, settled=(command["command_id"],))
-        self.assertTrue(server.store.status().ready)
+        self.assertFalse(server.store.status().ready)
         server.stop()
         await server.start()
         self.assertFalse(server.store.status().ready)
@@ -244,6 +239,18 @@ class ServerWireTest(unittest.IsolatedAsyncioTestCase):
             new = await session.call_tool("browser_turn", server.command())
             self.assertEqual(new.structuredContent["error"]["code"], "not_ready")
         self.assertEqual((server.config.browser.artifacts / command["command_id"] / "seen.json").read_bytes(), witness)
+        current = server.store.status().binding.model_dump(mode="json")
+        pending = await self.http("POST", "/v1/browser/control", json={
+            "command_id": str(uuid4()), "expected": current,
+            "desired": {**current, "control_epoch": current["control_epoch"] + 1},
+            "mode": "automation", "evidence": "Restart must retain unresolved effect"})
+        self.assertEqual(pending.json()["outcome"], "pending")
+        self.assertEqual(pending.json()["error"], "uncertain_effect")
+        self.assertFalse(server.store.status().ready)
+        # Only explicit settlement reopens admission; the original receipt remains.
+        await server.reconcile(self.client, settled=(command["command_id"],))
+        self.assertTrue(server.store.status().ready)
+        self.assertEqual((await self.http("GET", "/v1/browser/commands/" + command["command_id"])).json(), failed.json())
 
     async def test_service_death_leaves_helper_lock_held_and_receipt_observation_inert(self):
         server = self.server
@@ -267,7 +274,7 @@ class ServerWireTest(unittest.IsolatedAsyncioTestCase):
         request = {"command_id": str(uuid4()), "expected": current, "desired": desired,
                    "mode": "human", "evidence": "Observe surviving synthetic helper"}
         take = asyncio.create_task(self.http("POST", "/v1/browser/control", json=request,
-                headers=server.headers(APPLICATION_TOKEN, server.actor_a)))
+                headers=server.headers(server.actor_a)))
         for _ in range(200):
             if server.store.status().mode == "yielding":
                 break

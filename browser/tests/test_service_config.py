@@ -13,10 +13,11 @@ import httpx
 import mcp
 from pydantic import ValidationError
 
-from qorqut_browser.config import Credentials, HandoffConfig, load_config, load_credentials, load_token
+from qorqut_browser.config import HandoffConfig, load_config
 from qorqut_browser.contracts import BrowserError
 from qorqut_browser.server import create_app
-from wire_fixture import APPLICATION_TOKEN, TOKEN_A, BrowserServer, private_file
+from wire_fixture import BrowserServer, private_file
+from uuid import uuid4
 
 
 class ServiceConfigurationTest(unittest.TestCase):
@@ -78,44 +79,14 @@ class ServiceConfigurationTest(unittest.TestCase):
                 handler.handle(record)
         self.assertNotIn("synthetic-secret", stream.getvalue())
 
-    def test_private_inputs_reject_bad_credentials_permissions_and_overrides(self):
+    def test_public_attribution_config_and_explicit_inputs(self):
         server = self.server
-        raw = json.loads(server.credentials.read_text())
-        for mutation in (lambda v: v.pop("application_token"),
-                         lambda v: v["actors"][0].update(token="short"),
-                         lambda v: v["actors"][0].update(token=APPLICATION_TOKEN),
-                         lambda v: v["actors"][1].update(token=TOKEN_A),
-                         lambda v: v["actors"][0].update(actor_id="bad-id"),
-                         lambda v: v["actors"][0].pop("agent_id")):
-            value = json.loads(json.dumps(raw))
-            mutation(value)
-            private_file(server.credentials, value)
-            with self.assertRaises(BrowserError) as error:
-                load_credentials(server.credentials)
-            self.assertNotIn(TOKEN_A, str(error.exception))
-            with self.assertRaises(BrowserError):
-                create_app(server.config)
-        private_file(server.credentials, raw)
-        self.assertNotIn(TOKEN_A, repr(load_credentials(server.credentials)))
-        with self.assertRaises(ValidationError) as error:
-            Credentials.model_validate({**raw, "application_token": TOKEN_A})
-        self.assertNotIn(TOKEN_A, str(error.exception))
-        server.credentials.chmod(0o640)
-        with self.assertRaises(BrowserError):
-            load_credentials(server.credentials)
-        server.credentials.chmod(0o600)
-        link = self.root / "symlink"
-        link.symlink_to(server.credentials)
-        with self.assertRaises(BrowserError):
-            load_credentials(link)
-        token = private_file(self.root / "bridge.token", TOKEN_A)
-        token.chmod(0o644)
-        with self.assertRaises(BrowserError):
-            load_token(token)
         config = server.config.model_dump(mode="json")
         path = private_file(self.root / "service.json", config)
         self.assertEqual(load_config(path), server.config)
-        for key, value in (("fake_mode", True), ("workers", 2), ("host", "0.0.0.0")):
+        for key, value in (("fake_mode", True), ("workers", 2), ("host", "0.0.0.0"),
+                           ("credentials_file", str(self.root / "old.json")),
+                           ("agent_id", str(uuid4())), ("actor_id", "invalid")):
             private_file(path, {**config, key: value})
             with self.assertRaises(BrowserError):
                 load_config(path)
@@ -126,11 +97,11 @@ class ServiceConfigurationTest(unittest.TestCase):
         for url in ("ftp://127.0.0.1/path", "http://user:password@127.0.0.1/path", "http://127.0.0.1/#fragment",
                     "/relative", "http://127.0.0.1:invalid/", "http://127.0.0.1/\n"):
             with self.assertRaises(ValidationError):
-                HandoffConfig(url=url, token_file=token)
-        # Manager amendment 1: deployment owns private destination routing.
-        # Accept configured DNS syntactically without resolving/contacting it.
-        endpoint = "https://core.internal:8443/handoff"
-        self.assertEqual(HandoffConfig(url=endpoint, token_file=token).url, endpoint)
+                HandoffConfig(url=url)
+        self.assertEqual(HandoffConfig(url="https://core.internal:8443/handoff").url,
+                         "https://core.internal:8443/handoff")
+        with self.assertRaises(ValidationError):
+            HandoffConfig(url="http://127.0.0.1/handoff", token_file="/old/token")
 
     def test_production_entrypoint_has_real_readiness_and_does_not_initialize_missing_state(self):
         server = self.server
@@ -160,7 +131,7 @@ class ServiceConfigurationTest(unittest.TestCase):
                     request = {"command_id": server.command()["command_id"], "expected": expected, "desired": desired,
                                "mode": "automation", "evidence": "Missing real desktop must remain closed"}
                     response = client.post(server.url + "/v1/browser/control", json=request,
-                                           headers=server.headers(APPLICATION_TOKEN, server.actor_a), timeout=10)
+                                           headers=server.headers(server.actor_a), timeout=10)
                     self.assertEqual(response.status_code, 200)
                     self.assertEqual(response.json()["outcome"], "pending")
                     self.assertEqual(response.json()["error"], "not_ready")
@@ -174,7 +145,6 @@ class ServiceConfigurationTest(unittest.TestCase):
         missing = subprocess.run(command, capture_output=True, text=True, timeout=10)
         self.assertNotEqual(missing.returncode, 0)
         self.assertFalse(server.config.browser.database.exists())
-        self.assertNotIn(TOKEN_A, missing.stderr + log_path.read_text())
         self.assertFalse(server.config.browser.state_file.exists())
 
 

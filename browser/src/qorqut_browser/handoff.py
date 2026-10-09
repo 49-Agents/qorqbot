@@ -6,7 +6,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from .config import HandoffConfig
 from .contracts import Binding, BrowserError, FrozenModel, canonical
@@ -63,10 +63,10 @@ class ErrorEnvelope(FrozenModel):
 
 
 class HandoffClient:
-    def __init__(self, config: HandoffConfig, token: SecretStr, *, timeout=10.0):
+    def __init__(self, config: HandoffConfig, *, timeout=10.0):
         if not 0 < timeout <= 60:
             raise ValueError("A finite bridge timeout is required")
-        self._url, self._token, self.timeout = config.url, token, timeout
+        self._url, self.timeout = config.url, timeout
 
     def request(self, request: InputRequest, *, actor_id: UUID, agent_id: UUID) -> HandoffReceipt:
         payload = request.model_dump(mode="json")
@@ -87,8 +87,7 @@ class HandoffClient:
             try:
                 path = (url.path or "/") + ("?" + url.query if url.query else "")
                 connection.request("POST", path,
-                                   body=encoded, headers={"Authorization": "Bearer " + self._token.get_secret_value(),
-                                   "Content-Type": "application/json", "Accept": "application/json"})
+                                   body=encoded, headers={"Content-Type": "application/json", "Accept": "application/json"})
                 response = connection.getresponse()
                 body = bytearray()
                 while True:
@@ -117,7 +116,7 @@ class HandoffClient:
                 # Only well-formed definite rejections are treated as such. A
                 # redirect or server failure could hide a committed request.
                 allowed_errors = {
-                    400: {"invalid_argument"}, 401: {"unauthenticated"}, 404: {"not_found"},
+                    400: {"invalid_argument"}, 404: {"not_found"},
                     409: {"target_changed", "idempotency_conflict", "revision_conflict",
                           "invalid_transition", "uncertain_effect"},
                     422: {"unsupported_capability"},

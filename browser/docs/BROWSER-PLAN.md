@@ -8,6 +8,18 @@ The local effect increment at `a94e537` passed separate review and Manager check
 its evidence is [browser-r1.md](evidence/browser-r1.md). The next bounded server
 increment follows [PROTOCOL.md](PROTOCOL.md). The rest of this plan remains pending.
 
+Owner/Manager-directed host increment, 2026-10-09: a foreground local desktop
+supervisor now owns Chrome/TigerVNC/Openbox separately from MCP. Explicit `init`
+prepares owned paths; every actual start consumes a caller-supplied fresh browser
+instance, retained in lifecycle state after stop/failure. MCP startup still closes
+admission and requires explicit control reconciliation. The owner replaced local
+application authentication with public actor/agent attribution and passwordless
+loopback VNC. This supersedes earlier local credential/token requirements below
+and in linked planning baselines. See [operations](OPERATIONS.md),
+[protocol](PROTOCOL.md) and [functional evidence](evidence/browser-desktop.md).
+No installed runtime unit, core/UI changes, VNC fencing or real-guest acceptance
+is included in this increment. Manager retains global/cross-repository planning.
+
 ## Outcome and boundary
 
 Every agent has one persistent headed Chrome profile and application desktop. Browser commands, screenshots/downloads and owner intervention use that exact instance. Login state survives ordinary Chrome/VM restart because its profile is retained. An owner can answer a browser input request without opening a separate browser profile.

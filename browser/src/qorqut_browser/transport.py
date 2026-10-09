@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from functools import partial
-import hmac
 import json
 import logging
 from pathlib import Path
@@ -14,7 +13,6 @@ from pydantic import ValidationError
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 
-from .config import Credentials
 from .contracts import BrowserError
 
 MAX_BODY_BYTES = 1024 * 1024
@@ -26,7 +24,6 @@ PRINCIPAL_SCOPE_KEY = "qorqut_browser.principal"
 # Do not echo exception prose from validation, storage, paths or remote peers.
 ERRORS = {
     "invalid_argument": (400, "Invalid request arguments"),
-    "unauthenticated": (401, "Missing or invalid attribution"),
     "not_found": (404, "Receipt or resource not found"),
     "target_changed": (409, "Browser binding changed"),
     "idempotency_conflict": (409, "Identifier already has different arguments or attribution"),
@@ -58,34 +55,20 @@ def failure(error: Exception) -> JSONResponse:
 @dataclass(frozen=True)
 class Principal:
     actor_id: UUID
-    agent_id: UUID | None
-    application: bool = False
+    agent_id: UUID
 
 
-def authenticate(headers: Headers, credentials: Credentials, *, mcp: bool) -> Principal:
-    def invalid():
-        return BrowserError("unauthenticated", "Invalid attribution")
-
-    values = headers.getlist("authorization")
-    if len(values) != 1:
-        raise invalid()
-    scheme, separator, token = values[0].partition(" ")
-    if scheme.lower() != "bearer" or not separator or not token.isascii():
-        raise invalid()
+def attribute(headers: Headers, default: Principal) -> Principal:
+    """Public local attribution only; no authentication or permission policy."""
     attribution = headers.getlist("x-qorqut-actor")
-    if hmac.compare_digest(token, credentials.application_token.get_secret_value()):
-        if mcp or len(attribution) != 1:
-            raise invalid()
-        try:
-            return Principal(UUID(attribution[0]), None, True)
-        except ValueError:
-            raise invalid() from None
-    for actor in credentials.actors:
-        if hmac.compare_digest(token, actor.token.get_secret_value()):
-            if attribution:
-                raise invalid()
-            return Principal(actor.actor_id, actor.agent_id)
-    raise invalid()
+    if not attribution:
+        return default
+    try:
+        if len(attribution) != 1:
+            raise ValueError()
+        return Principal(UUID(attribution[0]), default.agent_id)
+    except ValueError:
+        raise BrowserError("invalid_argument", "Invalid actor UUID") from None
 
 
 class BlockingWork:
@@ -137,11 +120,11 @@ def sanitize_sdk_logs():
     logging.setLogRecordFactory(factory)
 
 
-class PrivateTransport:
+class LocalTransport:
     """Small ASGI boundary; the official SDK still dispatches all MCP messages."""
 
-    def __init__(self, app, credentials: Credentials, port: int):
-        self.app, self.credentials = app, credentials
+    def __init__(self, app, principal: Principal, port: int):
+        self.app, self.principal = app, principal
         self.host = f"127.0.0.1:{port}"
         self.origin = f"http://{self.host}"
         self.requests = anyio.CapacityLimiter(MAX_REQUESTS)
@@ -156,9 +139,8 @@ class PrivateTransport:
             if (headers.getlist("host") != [self.host]
                     or headers.getlist("origin") not in ([], [self.origin])):
                 raise BrowserError("invalid_argument", "Unconfigured HTTP origin or host")
-            scope[PRINCIPAL_SCOPE_KEY] = authenticate(headers, self.credentials,
-                                                    mcp=scope["path"].rstrip("/") == "/mcp")
-            # Identity/credentials belong in headers, never query strings.
+            scope[PRINCIPAL_SCOPE_KEY] = attribute(headers, self.principal)
+            # The local protocol has no query-string inputs.
             if scope.get("query_string"):
                 raise BrowserError("invalid_argument", "Query arguments are unsupported")
             try:

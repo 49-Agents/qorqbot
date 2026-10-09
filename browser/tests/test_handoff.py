@@ -14,7 +14,9 @@ from uuid import uuid4
 import httpx
 
 from qorqut_browser.config import HandoffConfig
-from wire_fixture import BRIDGE_TOKEN, TOKEN_B, BrowserServer, private_file
+from wire_fixture import BrowserServer, private_file
+
+BRIDGE_TOKEN = "synthetic-error-detail"
 
 
 class ApplicationFixture:
@@ -32,10 +34,7 @@ class ApplicationFixture:
             def do_POST(self):
                 raw = self.rfile.read(int(self.headers["Content-Length"]))
                 payload = json.loads(raw)
-                fixture.received.append((raw, self.headers["Authorization"], self.path))
-                if self.headers["Authorization"] != "Bearer " + BRIDGE_TOKEN:
-                    self.send_error(401)
-                    return
+                fixture.received.append((raw, self.headers.get("Authorization"), self.path))
                 key = (payload["actor_id"], payload["idempotency_key"])
                 if key not in fixture.saved:
                     receipt = {"protocol": 1, "actor_id": payload["actor_id"],
@@ -103,8 +102,7 @@ class HandoffWireTest(unittest.IsolatedAsyncioTestCase):
         self.root = Path(self.temporary.name)
         self.application = ApplicationFixture(self.root)
         self.addCleanup(self.application.close)
-        token = private_file(self.root / "bridge.token", BRIDGE_TOKEN + "\n")
-        self.server = BrowserServer(self.root, HandoffConfig(url=self.application.url, token_file=token))
+        self.server = BrowserServer(self.root, HandoffConfig(url=self.application.url))
         self.addCleanup(self.server.close)
         with patch.dict(os.environ, {"HTTP_PROXY": "http://127.0.0.1:1", "HTTPS_PROXY": "http://127.0.0.1:1",
                                      "ALL_PROXY": "http://127.0.0.1:1", "NO_PROXY": ""}):
@@ -119,7 +117,7 @@ class HandoffWireTest(unittest.IsolatedAsyncioTestCase):
     async def test_response_loss_retry_preserves_original_actor_target_key_and_observation(self):
         server, fixture = self.server, self.application
         intent = self.intent()
-        async with server.session(TOKEN_B) as session:
+        async with server.session(server.actor_b) as session:
             tool = next(t for t in (await session.list_tools()).tools if t.name == "browser_request_input")
             self.assertEqual(set(tool.inputSchema["properties"]),
                              {"idempotency_key", "prompt", "target_agent_id", "observed_tab"})
@@ -144,10 +142,10 @@ class HandoffWireTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(fixture.received[0], fixture.received[1])
             transmitted = json.loads(fixture.received[0][0])
             self.assertEqual(transmitted, {**intent, "protocol": 1, "actor_id": str(server.actor_b)})
-            self.assertEqual(fixture.received[0][1:], ("Bearer " + BRIDGE_TOKEN, "/handoff?version=1"))
+            self.assertEqual(fixture.received[0][1:], (None, "/handoff?version=1"))
             self.assertEqual(json.loads((self.root / (receipt["request_id"] + ".json")).read_text()), receipt)
             defaulted = await session.call_tool("browser_request_input", {"idempotency_key": "default-target", "prompt": "Act"})
-            self.assertEqual(defaulted.structuredContent["target_agent_id"], str(server.agent_b))
+            self.assertEqual(defaulted.structuredContent["target_agent_id"], str(server.config.agent_id))
             self.assertIsNone(json.loads(fixture.received[-1][0])["observed_tab"])
             bad = await session.call_tool("browser_request_input", {**intent, "actor_id": str(server.actor_a)})
             self.assertTrue(bad.isError)

@@ -125,6 +125,28 @@ class BrowserFixture(unittest.TestCase):
         self.fail("Timed out waiting for an actual fixture boundary")
 
 class GateTest(BrowserFixture):
+    def test_committed_completion_releases_lock_retained_by_idle_descendant(self):
+        children = []
+        def completed(command, fd):
+            child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                                     pass_fds=(fd,), start_new_session=True)
+            children.append(child)
+            def cleanup():
+                child.terminate()
+                child.wait(3)
+            self.addCleanup(cleanup)
+            return EffectResult(text="confirmed completion")
+        self.gate.executor = completed
+        command = self.command()
+        receipt = self.gate.execute(command, actor_id=ACTOR)
+        self.assertEqual(receipt.outcome, "completed")
+        with self.store.connection() as db:
+            self.assertEqual(Store.get_receipt(db, command.command_id), receipt)
+        self.assertIsNone(children[0].poll())
+        self.gate.executor = successful
+        self.assertEqual(self.gate.execute(self.command(), actor_id=ACTOR, timeout=.05).outcome, "completed")
+        self.assertIsNone(children[0].poll())
+
     def test_distinct_bindings_cannot_share_receipts_or_paths(self):
         other = configuration(self.root)
         other_store = Store(other)
@@ -613,20 +635,27 @@ while True:
                          window_manager=wm, display=display, timeout=.05)
         self.assertIsNone(display.process.poll())
 
-    def test_start_argv_requires_existing_profile_credentials_and_keeps_locks(self):
+    def test_start_argv_requires_existing_profile_xauthority_and_keeps_locks(self):
         xauth = self.config.home / "xauthority"
-        password = self.config.home / "vnc-password"
-        for path in (xauth, password):
-            exclusive_file(path, b"synthetic")
+        exclusive_file(xauth, b"synthetic")
         binaries = DesktopBinaries(*(Path(sys.executable) for _ in range(3)))
-        commands = desktop_argv(self.config, binaries, xauthority=xauth, vnc_password=password)
+        commands = desktop_argv(self.config, binaries, xauthority=xauth)
+        self.assertEqual(commands["display"][commands["display"].index("-SecurityTypes") + 1], "None")
+        self.assertNotIn("-PasswordFile", commands["display"])
+        self.assertIn("-auth", commands["display"])
         self.assertEqual(child_environment(self.config, xauthority=xauth)["XAUTHORITY"], str(xauth))
         self.assertIn(f"--user-data-dir={self.config.profile}", commands["chrome"])
         self.assertIn("--remote-debugging-address=127.0.0.1", commands["chrome"])
         self.assertNotIn("--no-sandbox", commands["chrome"])
+        with socket.socket() as listener:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            claimed = self.config.model_copy(update={"cdp_port": listener.getsockname()[1]})
+            self.assert_code("not_ready", desktop_argv, claimed, binaries, xauthority=xauth)
         lock = self.config.profile / "SingletonLock"
         lock.symlink_to("unverified-host-999999")
-        self.assert_code("not_ready", desktop_argv, self.config, binaries, xauthority=xauth, vnc_password=password)
+        self.assert_code("not_ready", desktop_argv, self.config, binaries, xauthority=xauth)
         self.assertTrue(lock.is_symlink())
         self.assertEqual(os.readlink(lock), "unverified-host-999999")
 

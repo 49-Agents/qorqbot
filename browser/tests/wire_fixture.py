@@ -21,8 +21,6 @@ from qorqut_browser.state import Store
 from qorqut_browser.tools import AgentBrowser
 from test_browser import FAKE_HELPER, configuration, ready
 
-TOKEN_A, TOKEN_B, APPLICATION_TOKEN, BRIDGE_TOKEN = (letter * 40 for letter in "ABCD")
-
 
 def private_file(path, value):
     path.write_text(value if isinstance(value, str) else json.dumps(value))
@@ -50,15 +48,11 @@ class BrowserServer:
         self.port = self.listener.getsockname()[1]
         self.url = f"http://127.0.0.1:{self.port}"
         browser = configuration(root).model_copy(update={"service_port": self.port})
-        self.actor_a, self.actor_b, self.agent_b = uuid4(), uuid4(), uuid4()
-        self.credentials = private_file(root / "credentials.json", {
-            "actors": [{"token": TOKEN_A, "actor_id": str(self.actor_a), "agent_id": str(browser.binding.identity.agent_id)},
-                       {"token": TOKEN_B, "actor_id": str(self.actor_b), "agent_id": str(self.agent_b)}],
-            "application_token": APPLICATION_TOKEN})
+        self.actor_a, self.actor_b = uuid4(), uuid4()
         helper = root / "synthetic-agent-browser"
         helper.write_text(f"#!{sys.executable}\n" + FAKE_HELPER)
         helper.chmod(0o700)
-        self.config = ServiceConfig(browser=browser, credentials_file=self.credentials,
+        self.config = ServiceConfig(browser=browser, actor_id=self.actor_a, agent_id=browser.binding.identity.agent_id,
                                     helper_executable=helper, handoff=handoff)
         self.store = Store(browser)
         self.store.initialize()
@@ -100,15 +94,15 @@ class BrowserServer:
         self.stop()
         self.listener.close()
 
-    def headers(self, token=TOKEN_A, actor=None):
-        value = {"Authorization": "Bearer " + token}
+    def headers(self, actor=None):
+        value = {}
         if actor is not None:
             value["X-Qorqut-Actor"] = str(actor)
         return value
 
     @asynccontextmanager
-    async def session(self, token=TOKEN_A):
-        async with httpx.AsyncClient(headers=self.headers(token), trust_env=False, timeout=15) as client:
+    async def session(self, actor=None):
+        async with httpx.AsyncClient(headers=self.headers(actor), trust_env=False, timeout=15) as client:
             async with streamable_http_client(self.url + "/mcp", http_client=client) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
@@ -120,7 +114,7 @@ class BrowserServer:
         request = Reconcile(command_id=uuid4(), expected=current, desired=desired, mode=mode,
                             settled_commands=settled, evidence="Synthetic application reconciliation")
         response = await client.post(self.url + "/v1/browser/control", json=request.model_dump(mode="json"),
-                                     headers=self.headers(APPLICATION_TOKEN, self.actor_a))
+                                     headers=self.headers(self.actor_a))
         if response.status_code != 200 or response.json()["outcome"] != "completed":
             raise AssertionError(response.text)
         return desired

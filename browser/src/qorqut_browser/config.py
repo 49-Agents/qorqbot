@@ -2,12 +2,11 @@
 
 import os
 from pathlib import Path
-import re
 import stat
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from .contracts import BrowserConfig, BrowserError, FrozenModel, absolute_path
 
@@ -34,42 +33,12 @@ def private_bytes(path: Path, limit: int = MAX_CONFIG_BYTES) -> bytes:
         raise BrowserError("not_ready", "Private service input is unavailable or invalid") from None
 
 
-def bearer_secret(value: SecretStr) -> SecretStr:
-    if not re.fullmatch(r"[A-Za-z0-9._~+/-]{32,4096}=*", value.get_secret_value()):
-        raise ValueError("A bearer secret of at least 32 characters is required")
-    return value
-
-
 class PrivateModel(FrozenModel):
     model_config = ConfigDict(hide_input_in_errors=True)
 
 
-class ActorCredential(PrivateModel):
-    token: SecretStr = Field(repr=False)
-    actor_id: UUID
-    agent_id: UUID
-
-    _secret = field_validator("token")(bearer_secret)
-
-
-class Credentials(PrivateModel):
-    actors: tuple[ActorCredential, ...] = Field(min_length=1)
-    application_token: SecretStr = Field(repr=False)
-
-    _secret = field_validator("application_token")(bearer_secret)
-
-    @model_validator(mode="after")
-    def distinct(self):
-        tokens = [a.token.get_secret_value() for a in self.actors]
-        tokens.append(self.application_token.get_secret_value())
-        if len(tokens) != len(set(tokens)):
-            raise ValueError("Every credential must have a distinct token")
-        return self
-
-
 class HandoffConfig(PrivateModel):
     url: str = Field(repr=False, min_length=1, max_length=4096)
-    token_file: Path = Field(repr=False)
 
     @field_validator("url")
     @classmethod
@@ -85,16 +54,32 @@ class HandoffConfig(PrivateModel):
             raise ValueError("An explicit application HTTP(S) endpoint is required") from None
         return value
 
-    _path = field_validator("token_file")(absolute_path)
+
+class DesktopConfig(PrivateModel):
+    chrome: Path
+    xvnc: Path
+    window_manager: Path
+    width: int = Field(default=1280, strict=True, ge=320, le=8192)
+    height: int = Field(default=900, strict=True, ge=240, le=8192)
+
+    _paths = field_validator("chrome", "xvnc", "window_manager")(absolute_path)
 
 
 class ServiceConfig(PrivateModel):
     browser: BrowserConfig
     helper_executable: Path
-    credentials_file: Path = Field(repr=False)
+    actor_id: UUID
+    agent_id: UUID
     handoff: HandoffConfig | None = None
+    desktop: DesktopConfig | None = None
 
-    _paths = field_validator("helper_executable", "credentials_file")(absolute_path)
+    _paths = field_validator("helper_executable")(absolute_path)
+
+    @model_validator(mode="after")
+    def ownership(self):
+        if self.agent_id != self.browser.binding.identity.agent_id:
+            raise ValueError("Default agent must own the configured browser")
+        return self
 
 
 def load_config(path: Path) -> ServiceConfig:
@@ -102,17 +87,3 @@ def load_config(path: Path) -> ServiceConfig:
         return ServiceConfig.model_validate_json(private_bytes(path))
     except ValueError:
         raise BrowserError("not_ready", "Invalid service configuration") from None
-
-
-def load_credentials(path: Path) -> Credentials:
-    try:
-        return Credentials.model_validate_json(private_bytes(path))
-    except ValueError:
-        raise BrowserError("not_ready", "Invalid service credentials") from None
-
-
-def load_token(path: Path) -> SecretStr:
-    try:
-        return bearer_secret(SecretStr(private_bytes(path, 8192).decode("ascii").strip()))
-    except ValueError:
-        raise BrowserError("not_ready", "Invalid application bridge credential") from None

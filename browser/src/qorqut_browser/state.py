@@ -10,7 +10,7 @@ import re
 import sqlite3
 import stat
 import time
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from .contracts import (
     Binding, BrowserConfig, BrowserError, ControlStatus, EffectResult, Mount,
@@ -74,6 +74,19 @@ def exclusive_file(path: Path, content: bytes):
         stream.flush()
         os.fsync(stream.fileno())
     fsync_directory(path.parent)
+
+
+def replace_file(path: Path, content: bytes, uid: int):
+    """Durably replace an owned small state record without following symlinks."""
+    if os.path.lexists(path):
+        checked_path(path, uid)
+    temporary = path.with_name(path.name + "." + uuid4().hex + ".tmp")
+    try:
+        exclusive_file(temporary, content)
+        os.replace(temporary, path)
+        fsync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def check_paths(config: BrowserConfig, *, claims=True):
@@ -233,8 +246,9 @@ class Store:
                 raise BrowserError("not_ready", "Command lock inode changed")
             yield fd
         finally:
-            # close, not LOCK_UN: a child helper inherits this open description so
-            # it continues holding admission across a service crash until it exits.
+            # Close-only by default: inherited helpers keep admission held after
+            # a service crash. Gate explicitly unlocks a completed invocation only
+            # after its settled receipt commits; lookup/control do not unlock it.
             os.close(fd)
 
     @staticmethod

@@ -16,11 +16,11 @@ import time
 
 from .contracts import (
     Artifact, BrowserConfig, BrowserError, Click, Command, EffectResult, Fill,
-    Navigate, Screenshot, Snapshot, digest,
+    Navigate, Screenshot, Snapshot,
 )
 from .control import Gate, NotStarted
 from .state import Store, check_paths, checked_path, exclusive_file, fsync_directory
-from .supervisor import check_ready, child_environment
+from .supervisor import check_ready, child_environment, helper_session, record_helper
 
 SOURCE_HELPER_VERSION = "0.38.1"
 
@@ -49,10 +49,8 @@ def helper_argv(config: BrowserConfig, executable: Path, command: Command, direc
             args.append("--full")
     else:
         raise BrowserError("unsupported_capability", "Unsupported browser action")
-    session = "qorqut-" + digest({"identity": config.binding.identity.model_dump(mode="json"),
-                                 "resources": config.resource_hash})[:24]
     return [str(executable), "--config", str(directory / "agent-browser.json"),
-            "--session", session, "--cdp", config.cdp_endpoint, *args]
+            "--session", helper_session(config), "--cdp", config.cdp_endpoint, *args]
 
 
 def _run(argv, *, directory, environment, lock_fd, prefix, timeout, limit):
@@ -160,8 +158,11 @@ class AgentBrowser:
             raise
         except Exception as error:
             raise NotStarted("not_ready", "Helper preparation failed before browser dispatch") from error
-        code, paths = _run(argv, directory=directory, environment=environment, lock_fd=lock_fd,
-                           prefix="command", timeout=self.timeout, limit=self.artifact_limit)
+        try:
+            code, paths = _run(argv, directory=directory, environment=environment, lock_fd=lock_fd,
+                               prefix="command", timeout=self.timeout, limit=self.artifact_limit)
+        finally:
+            record_helper(config, self.executable)
         if code:
             raise BrowserError("uncertain_effect", "Helper failed after possible browser dispatch")
         artifacts = []

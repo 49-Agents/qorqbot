@@ -16,14 +16,14 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route, Router
 import uvicorn
 
-from .config import ServiceConfig, load_config, load_credentials, load_token
+from .config import ServiceConfig, load_config
 from .contracts import BrowserError, Command, Receipt, Reconcile, canonical
 from .control import Gate
 from .handoff import HandoffClient, HandoffReceipt, InputRequest
 from .state import Store
 from .supervisor import check_ready
 from .tools import AgentBrowser
-from .transport import (BlockingWork, MAX_BODY_BYTES, PRINCIPAL_SCOPE_KEY, PrivateTransport,
+from .transport import (BlockingWork, MAX_BODY_BYTES, PRINCIPAL_SCOPE_KEY, LocalTransport, Principal,
                         error_value, failure, sanitize_sdk_logs)
 
 ACTION_NAMES = ("snapshot", "navigate", "click", "fill", "screenshot")
@@ -40,8 +40,7 @@ class _MCPApplication:
 
 def create_app(config: ServiceConfig, *, readiness=check_ready, executor=None):
     """Tests may inject the accepted seams; the CLI has no fake-mode settings."""
-    credentials = load_credentials(config.credentials_file)
-    handoff = (HandoffClient(config.handoff, load_token(config.handoff.token_file))
+    handoff = (HandoffClient(config.handoff)
                if config.handoff is not None else None)
     store = Store(config.browser)
     effect = executor if executor is not None else AgentBrowser(
@@ -95,8 +94,6 @@ def create_app(config: ServiceConfig, *, readiness=check_ready, executor=None):
 
     async def http_control(request):
         principal = request.scope[PRINCIPAL_SCOPE_KEY]
-        if not principal.application:
-            raise BrowserError("unauthenticated", "Application attribution is required")
         reconcile = Reconcile.model_validate_json(await request.body())
         result = await work.run(gate.reconcile, reconcile, actor_id=principal.actor_id)
         return JSONResponse(result.model_dump(mode="json"))
@@ -139,7 +136,7 @@ def create_app(config: ServiceConfig, *, readiness=check_ready, executor=None):
             # Never store a current actor on the server or a reusable session.
             request = mcp.request_context.request
             if request is None or PRINCIPAL_SCOPE_KEY not in request.scope:
-                raise BrowserError("unauthenticated", "No request attribution")
+                raise BrowserError("invalid_argument", "No request attribution")
             principal = request.scope[PRINCIPAL_SCOPE_KEY]
             if name == "browser_turn":
                 command = Command.model_validate(arguments)
@@ -170,7 +167,7 @@ def create_app(config: ServiceConfig, *, readiness=check_ready, executor=None):
         Route("/v1/browser/commands/{command_id}", http_receipt, methods=["GET"]),
         Route("/v1/browser/control", http_control, methods=["POST"]),
     ], lifespan=lifespan, default=unknown, redirect_slashes=False)
-    return PrivateTransport(app, credentials, config.browser.service_port)
+    return LocalTransport(app, Principal(config.actor_id, config.agent_id), config.browser.service_port)
 
 
 def main(argv=None):

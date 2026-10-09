@@ -1,5 +1,6 @@
 """One process-safe admission gate for future direct and forwarded transports."""
 
+import fcntl
 from uuid import UUID, uuid4
 
 from .contracts import (
@@ -109,6 +110,11 @@ class Gate:
                 Store.finish(db, receipt, settled=settled)
                 if not settled:
                     self._hold(db, "Effect outcome requires explicit reconciliation")
+            if settled:
+                # The persistent helper daemon may retain this open file
+                # description. Release only after the settled receipt commits.
+                # Crashes, uncertain effects and failed commits remain close-only.
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
             return receipt
 
     def _admitted(self, db, command):

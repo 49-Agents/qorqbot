@@ -1,9 +1,9 @@
 # Browser service protocol v1
 
-Manager contract for the next bounded increment, 2026-10-07. Local effects at
+Local owner-only contract, amended by owner/Manager handoff on 2026-10-09. Local effects at
 `a94e537519ba19d484375a7f8fb986339149285a` passed independent and Manager review.
-This specification is not evidence that its server or real Chrome/VNC integration
-already exists. Core consumes this contract over HTTP without package imports.
+Core consumes this contract over HTTP without package imports. Functional evidence
+is recorded separately; this contract does not certify core/UI/VM integration.
 
 ## Composition and startup
 
@@ -16,7 +16,8 @@ cannot cancel an effect and then label it safely retryable.
 
 Entrypoint: `python -m qorqut_browser.server --config PATH`. Explicit private JSON
 configuration contains `browser` (existing `BrowserConfig`), absolute
-`helper_executable`, absolute `credentials_file` and optional `handoff`. Imports
+`helper_executable`, public UUID defaults `actor_id` and `agent_id`, and optional
+`desktop` and `handoff`. `agent_id` must equal `browser.binding.identity.agent_id`. Imports
 do nothing. Bind only `127.0.0.1` at `browser.service_port`. Production uses actual
 readiness checks, with no configuration switch to fake them. Tests may inject
 the existing executor/readiness seams.
@@ -28,27 +29,23 @@ the epoch and gates admission. Receipt lookup remains observation.
 
 ## Attribution and bounds
 
-The private credentials file contains `actors` entries with a distinct secret
-`token`, UUID `actor_id` and UUID `agent_id`, plus a distinct secret
-`application_token`. Reject missing, duplicate or short (under 32 characters)
-tokens and nonprivate file permissions. These are application-supplied identity
-projections, not another registry or role policy. Never expose secrets in logs,
-exceptions, representations, tool schemas or identity output.
+This standalone service has no login, password, token file, Authorization header
+or authentication middleware. It runs on loopback for the local owner. Every
+request uses the configured public `actor_id` and `agent_id` by default. Optional
+`X-Qorqut-Actor: UUID` supplies attribution for a local forwarded request, including
+MCP; it never grants permission and never changes browser ownership. Malformed or
+duplicate attribution headers return `invalid_argument`. There is no actor
+registry. An `actor_id` body argument remains outside the command/tool schemas.
 
-Every route, including MCP initialization/resources, authenticates Authorization
-bearer credentials. Actor tokens fix actor identity and default target agent;
-reject an `actor_id` argument or `X-Qorqut-Actor` attribution override. For private
-HTTP forwarding/control, the application token requires `X-Qorqut-Actor: UUID`:
-the trusted application has already authenticated that originating actor. The
-application token is not accepted on `/mcp`. Control reconciliation is an
-application operation; model callers request it through the handoff tool. All
-configured actors have the same model tools; no permission engine is introduced.
+Control is an explicit local HTTP operation; the model-facing tools do not expose
+reconciliation. Binding, control epoch and actor-sensitive idempotency checks
+remain mandatory to prevent accidental wrong-target or duplicate effects.
 
 Use stateless MCP HTTP so sessions cannot retain another request's actor. Keep
 SDK transport validation; reject unconfigured Host/Origin values and enable no
 permissive CORS. Bound JSON requests to 1 MiB, including chunked bodies. Use
 finite client timeouts and bounded response reads. Callers cannot supply helper
-executables, CDP addresses, output paths, credentials or forwarding URLs.
+executables, CDP addresses, output paths or forwarding URLs.
 
 ## Local HTTP API
 
@@ -60,21 +57,27 @@ substitute a current epoch for the original command binding on retry.
 | Route | Body/result and behavior |
 | --- | --- |
 | `GET /v1/identity` | `{protocol: 1, identity: Identity, control: ControlStatus, actions: [...], handoff_enabled: bool}`; no secret/path exposure or effects |
-| `POST /v1/browser/command` | `Command` to `Receipt` through `Gate.execute`, with authenticated actor |
+| `POST /v1/browser/command` | `Command` to `Receipt` through `Gate.execute`, with local actor attribution |
 | `GET /v1/browser/commands/{command_id}` | Saved `Receipt` or `not_found`; never execute or settle during lookup |
-| `POST /v1/browser/control` | `Reconcile` to `Receipt` through `Gate.reconcile`; application token and forwarded actor required |
+| `POST /v1/browser/control` | `Reconcile` to `Receipt` through `Gate.reconcile`; default or forwarded local actor attribution |
 
-Actor credentials can inspect identity/receipts and issue local commands. The
-authenticated application may forward them with original actor attribution.
-Local commands must match the configured browser and exact control binding;
-these endpoints never forward recursively.
+Any local caller can inspect identity/receipts, issue commands or reconcile
+control. Local commands must match the configured browser and exact control
+binding; these endpoints never forward recursively.
+
+The command lock is inherited by helper subprocesses. After a completed effect
+or proven pre-dispatch failure, the gate explicitly unlocks only once the settled
+receipt commits; this permits a persistent idle helper daemon to retain its file
+descriptor without blocking later commands. Uncertain outcomes, failed commits
+and service crashes retain close-only cleanup. Receipt lookup never unlocks
+another invocation's file description or settles an effect.
 
 HTTP errors use `{error: {code, message}}`, with bounded nonsecret messages:
-400 invalid arguments; 401 missing/invalid attribution; 404 unknown receipt;
+400 invalid arguments/attribution; 404 unknown receipt;
 409 binding/idempotency/uncertain-effect conflict; 422 unsupported capability;
 503 unavailable/not-ready/storage-blocked. Saved receipts return HTTP 200 even
 when failed, pending or uncertain. Preserve historical outcomes. Unexpected
-errors reveal no traceback, credentials, fill text or page contents.
+errors reveal no traceback, fill text or page contents.
 
 ## MCP tools and resource
 
@@ -94,7 +97,7 @@ the browser again after completion. Do not describe UI mechanics. Arguments:
 
 - `idempotency_key`: 1–200 characters.
 - `prompt`: nonblank, 1–4096 characters, preserved exactly.
-- `target_agent_id`: optional UUID, defaulting to the authenticated actor's agent.
+- `target_agent_id`: optional UUID, defaulting to configured `agent_id`.
 - `observed_tab`: optional object with `binding: Binding` and opaque `tab_id` of
   1–256 characters; the application validates that observation's original target.
 
@@ -103,13 +106,13 @@ This requests notification, not proof that the user acted or control is ready.
 ## Application handoff bridge
 
 Optional configuration contains `url` (complete private application HTTP/HTTPS
-endpoint, no userinfo/fragment) and absolute `token_file` (private bearer secret).
-Do not inherit HTTP proxies or follow redirects. Send one authenticated POST
+endpoint, no userinfo/fragment), with no token configuration or headers.
+Do not inherit HTTP proxies or follow redirects. Send one local POST
 with `protocol: 1`, original `actor_id`, resolved `target_agent_id`, original
 `idempotency_key`, exact `prompt` and `observed_tab` or null. Identical retries
 produce identical payloads; do not inject a newly observed epoch or service actor.
 
-Core authenticates the bridge, validates actor/target/observation, resolves the
+Core consumes the public actor attribution, validates target/observation, resolves the
 conversation/surface/browser and commits its request/event/conversation/job
 transaction. Another application can implement this same endpoint. Browser adds
 no local request/message store and imports no core code.
@@ -135,7 +138,7 @@ Handoff does not reconcile control itself; core's transition job does that.
 
 Use official MCP client initialization, discovery, resource reads and tool calls
 against an actual isolated server. Check conditional handoff discovery,
-attribution rejection/isolation, direct/proxy command deduplication through one
+default/forwarded attribution, direct/proxy command deduplication through one
 gate, and control closing both paths. One small application fixture proves that
 response-loss retry retains actor/target/key and yields one saved request; check
 mismatched receipts and absence of a bridge. Reuse existing gate/helper fixtures
@@ -143,7 +146,8 @@ without duplicating their full failure suite or adding examples.
 
 Check startup keeps admission closed and existing uncertain receipts remain inert
 across service restart. Build/install the standalone wheel with pinned tested
-dependencies. No live accounts or core/UI runtime imports. These checks establish
-actual MCP/HTTP behavior with synthetic browser effects. Real helper, DOM/cookies,
-desktop supervision, VNC/RFB fencing, machine holds, core transactions and G0–G6
-acceptance remain pending.
+dependencies. No live accounts or core/UI runtime imports. The disposable desktop
+acceptance adds actual Chrome/TigerVNC, pinned-helper DOM
+actions, persistent synthetic cookies and ordered stop/restart. VNC/RFB fencing,
+machine holds, core transactions, UI/noVNC and real-guest G0–G6 acceptance remain
+pending. See [operations](OPERATIONS.md) and the recorded evidence.
