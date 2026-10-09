@@ -1,3 +1,6 @@
+D56: [Minimal workspace feedback](UI-SIMPLIFICATION.md) supersedes the
+header, rename and manual Terminal-control presentation below.
+
 # Plan moved
 
 [D55 local access](https://github.com/qorqutbot/qorqut-core/blob/main/docs/LOCAL-ACCESS.md)

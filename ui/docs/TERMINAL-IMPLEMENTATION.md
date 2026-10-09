@@ -1,3 +1,6 @@
+D56: [Minimal workspace feedback](UI-SIMPLIFICATION.md) supersedes the
+header, rename and manual Terminal-control presentation below.
+
 # Chat and real Terminal views
 
 Manager decision D38, 2026-10-08. Implement against

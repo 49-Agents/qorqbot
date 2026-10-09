@@ -1,3 +1,6 @@
+D56: [Minimal workspace feedback](UI-SIMPLIFICATION.md) supersedes the
+header, rename and manual Terminal-control presentation below.
+
 # Chat workspace and agent presentation
 
 The owner agreed D36 on 2026-10-08: manual CLI startup/configuration in Terminal,
