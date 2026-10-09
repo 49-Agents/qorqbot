@@ -61,3 +61,10 @@ belong to Manager after the facts arrive.
 
 Owner instructions: Astra MAX only, no review rounds, no mobile/auth work; merge
 and deployment authorized. This repair is not full-system acceptance.
+
+## Operator outcome
+
+The fix was merged and deployed on 2026-10-10. All committed old terminal bytes
+were archived, the failed store/runtime were preserved, and a fresh Bash shell
+was restored without launching a model. See the [recovery evidence](evidence/terminal-storage-recovery.md)
+for preservation checks, the restored service definition and remaining limits.
