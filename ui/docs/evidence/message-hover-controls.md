@@ -15,3 +15,9 @@ Private logs/screenshots are under the current build state directory as
 `message-hover-build.log`, `message-hover-checks.log`, and `message-hover-checks/`.
 The browser-package implementation is a separate ACLA assignment and is not
 represented as complete by this UI change.
+
+Follow-up: tightened the gap between consecutive bubbles from 28px to 16px.
+The hover label uses a compact line height and 2px offset to fit that gap.
+The production build and existing desktop message-layout/clipboard check passed;
+the hover screenshot was inspected. No new tests were added. Screenshots are in
+`message-spacing-checks/` under the same private build state directory.
