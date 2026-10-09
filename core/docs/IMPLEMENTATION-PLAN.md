@@ -16,6 +16,9 @@ pinned Codex: manual launch, first Chat without a seed, actual native tool calls
 and automatic transcript publication. [D53 inbox references](INBOX-REFERENCE-VIEW.md)
 passed [paired core/UI acceptance](evidence/inbox-reference-manager-acceptance.md),
 separating compact Chat presentation from the preserved native pointer.
+[D54 exit checkpoints](NATIVE-EXIT-CHECKPOINTS.md) now scopes the final bounded
+collection pass and finite byte evidence after observed exit. It remains pending;
+it does not claim all-source completeness or stop the user's CLI.
 Manager reviews/tests directly;
 workers use Astra MAX with self-review off. Core has schema 9, 17 public
 operations and five handlers. These qualified runs do not establish

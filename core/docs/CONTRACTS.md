@@ -31,6 +31,11 @@ corroborated inbox pointer. This is reference presentation, not proof of the
 input's author or causal attempt. Entry/native provenance, daily transcripts,
 raw archives and pagination remain unchanged.
 
+[D54](NATIVE-EXIT-CHECKPOINTS.md) composes the existing finite prefix checkpoint
+after observed exit and adds one orderly-shutdown collection pass. It changes no
+public shape or schema and never seals a resumable source or claims all writers
+are stopped. An unfinished EOF record retains its raw bytes and parser cursors.
+
 [D48](NATIVE-COLLECTION-CONTINUITY.md) gives that dispatcher a private, fresh,
 per-run raw-capture observation. Public native-history gaps remain visible and
 do not themselves authorize or prohibit input. The runtime proves all its other

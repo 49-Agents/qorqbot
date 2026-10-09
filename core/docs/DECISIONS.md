@@ -593,3 +593,11 @@ bootstrap remains a separate required design; no automatic CLI launch is added.
 [INBOX-REFERENCE-VIEW.md](INBOX-REFERENCE-VIEW.md) adds a nullable read view and
 a compact UI disclosure. Matching is core-owned and uses saved message, receipt
 and source lineage; no causal attribution or immutable-history deletion.
+
+## D54 — Checkpoint exited sources without sealing native history
+
+[NATIVE-EXIT-CHECKPOINTS.md](NATIVE-EXIT-CHECKPOINTS.md) adds a final bounded
+collection pass on orderly core stop and reuses finite prefix proofs after
+verified owner exit. Unfinished EOF records stay recoverable and visibly pending.
+No automatic CLI stop, source sealing, parser-cursor invention or full-completeness
+claim follows from a process exit or service shutdown.
