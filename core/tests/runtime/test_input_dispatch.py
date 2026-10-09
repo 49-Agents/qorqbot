@@ -14,15 +14,19 @@ from uuid import UUID, uuid4
 from runtime.test_native_hooks import NativeHookCase
 from runner.support import FakeTmux, synthetic_binding
 from qorqut_core.config import LocalTerminalSettings
-from qorqut_core.contracts import CoreError, Invocation
+from qorqut_core.contracts import CoreError, Invocation, canonical, canonical_hash
+from qorqut_core.messaging.attempts import target as saved_target
 from qorqut_core.messaging.notifications import notification_text
 from qorqut_core.runner.models import ProcessFingerprint, RunnerError, TerminalSnapshot
 from qorqut_core.runner.shell import ShellManager
 from qorqut_core.runner.shell_models import ShellCapture
 from qorqut_core.runner.storage import input_lock
 from qorqut_core.runner.terminal import TerminalRunner
-from qorqut_core.runtime.input_dispatch import InputUnavailable, RuntimeInput
+from qorqut_core.runtime.input_dispatch import InputTarget, InputUnavailable, RuntimeInput
+from qorqut_core.runtime.models import OwnerCandidate
 from qorqut_core.runtime.native_collector import NativeCollector
+from qorqut_core.runtime.native_hooks import _native_process
+from qorqut_core.storage.events import EventInput, append_event
 from qorqut_core.transcripts.archive_models import ArchiveMetadata
 from qorqut_core.transcripts.probe import ProbeResult
 from qorqut_core.transcripts.spool import CaptureSpool, RunBinding as CaptureBinding, Source
@@ -36,9 +40,12 @@ class SyntheticRawObservation:
     observed_at: str
     source_count: int
     healthy: bool
+    awaiting_primary: bool = False
 
 
 class InputFixture(NativeHookCase):
+    provider = "claude"
+
     def setUp(self):
         super().setUp()
         local = LocalTerminalSettings(runtime_root=self.root / "r", python_executable=Path(sys.executable),
@@ -48,8 +55,8 @@ class InputFixture(NativeHookCase):
         self.app.settings = self.settings
         self.app.terminals.settings = local
         self.app.native_collector = NativeCollector(self.app)
-        self.process, shell, self.request = self.chain()
-        result = self.handle(shell, self.request)
+        self.process, shell, self.request = self.chain(provider=self.provider)
+        result = self.connect(shell)
         self.assertEqual(result.outcome, "connected")
         self.owner_row = self.rows("session_owners")[0]
         self.native_process = ProcessFingerprint.model_validate_json(self.owner_row["process_json"])
@@ -126,14 +133,22 @@ class InputFixture(NativeHookCase):
         self.tmux.paste = painted
 
     def snapshot(self, payload=None):
-        fixture = json.loads((Path(__file__).parents[1] / "adapters/fixtures/native-composers.json").read_bytes())["captures"][0]
+        captures = json.loads((Path(__file__).parents[1] / "adapters/fixtures/native-composers.json").read_bytes())["captures"]
+        fixture = next(c for c in captures if c["provider"] == self.provider and c["expected"] == "empty")
         snapshot = TerminalSnapshot(columns=fixture["columns"], rows=fixture["rows"],
             cursor_x=fixture["cursor"][0], cursor_y=fixture["cursor"][1], cursor_visible=fixture["cursor"][2],
             in_mode=False, input_off=False, synchronized=False, screen=fixture["screen"])
         if payload:
+            screen = (snapshot.screen.replace("❯\xa0\x1b[7m", "❯\xa0" + payload + "\x1b[7m")
+                      if self.provider == "claude" else snapshot.screen.replace(
+                          "›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m", "›\x1b[0m " + payload)
+                          .replace("  \x1b[1m?\x1b[0m for shortcuts", ""))
             snapshot = snapshot.model_copy(update={"cursor_x": 2 + len(payload),
-                "screen": snapshot.screen.replace("❯\xa0\x1b[7m", "❯\xa0" + payload + "\x1b[7m")})
+                "screen": screen})
         return snapshot
+
+    def connect(self, shell):
+        return self.handle(shell, self.request)
 
     def publish_capture(self):
         self.app.native_collector._publish(self.host["id"], state="collecting", reason="active", source_count=1)
@@ -421,6 +436,32 @@ class MissingPrimary(InputFixture):
     def admit_source(self):
         pass
 
+    def test_initial_session_start_waiting_preserves_terminal_human_and_composer_guards(self):
+        waiting = replace(self.raw_observation, healthy=False, source_count=0, awaiting_primary=True)
+        self.raw_observation = waiting
+        target = self.input.prepare(UUID(self.host["id"]))
+        viewer = uuid4()
+        self.manager.take_control(self.shell.terminal_id, expected_epoch=0, viewer_id=viewer)
+        self.refuse("human_control")
+        self.manager.release_control(self.shell.terminal_id, expected_epoch=1, viewer_id=viewer)
+        self.tmux.snapshot = self.snapshot("human draft")
+        self.refuse("composer_blocked")
+        self.tmux.snapshot = self.empty
+        original = self.shell
+        self.shell = original.model_copy(update={"capture": ProbeResult(
+            verified=False, terminal_active=False, reason="unavailable")})
+        self.refuse("capture_unavailable")
+        self.shell = original
+        for value in (None, replace(waiting, awaiting_primary=False), replace(waiting, awaiting_primary=1),
+                      replace(waiting, source_count=1), replace(waiting, binding=replace(waiting.binding, run_id=str(uuid4())))):
+            self.raw_observation = value
+            self.refuse("capture_unavailable")
+        self.raw_observation = waiting
+        self.hook("Stop")
+        self.refuse("capture_unavailable")
+        self.hook("SessionStart")
+        self.assertGreater(self.input.prepare(UUID(self.host["id"])).idle_event_seq, target.idle_event_seq)
+
     def test_raw_health_alone_wrong_session_and_child_links_cannot_authorize_input(self):
         self.refuse("capture_unavailable")
         wrong = replace(self.native_source, source_id=str(uuid4()), native_session_id=str(uuid4()))
@@ -432,3 +473,140 @@ class MissingPrimary(InputFixture):
         self.refuse("capture_unavailable")
         InputFixture.admit_source(self)
         self.assertEqual(self.input.prepare(UUID(self.host["id"])).binding, self.binding)
+
+
+class StartupFirstInput(InputFixture):
+    provider = "codex"
+
+    def admit_source(self):
+        pass
+
+    def connect(self, shell):
+        program = next(p for p in self.programs if p.provider == self.provider)
+        native = _native_process(self.request.hook_process, shell.shell, program, self.programs)
+        candidate = OwnerCandidate(agent_id=shell.spec.agent_id, terminal_id=shell.terminal_id,
+            recovery_epoch=shell.spec.recovery_epoch, environment_generation=1, provider=self.provider,
+            cli_version=program.cli_version, native_session_id=self.request.payload["session_id"], process=native)
+        connected = self.app.session_owners.connect(candidate)
+        self.startup_payload = {**candidate.model_dump(mode="json", exclude={"process"}),
+            "owner_id": str(connected.owner_id), "run_generation": connected.run_generation,
+            "native_process": native.model_dump(mode="json"), "evidence_kind": "codex_writer_lock"}
+        self.startup_seq = self.startup()
+        return connected
+
+    def startup(self, *, actor=None, **changes):
+        with self.app.db.transaction() as tx:
+            return append_event(tx, EventInput(kind="native.startup_observed",
+                actor_id=actor or self.host["actor_id"], agent_id=self.host["id"],
+                payload={**self.startup_payload, **changes}))
+
+    def publish_capture(self):
+        super().publish_capture()
+        self.raw_observation = replace(self.raw_observation, healthy=False, source_count=0, awaiting_primary=True)
+
+    def queue_two(self):
+        messages = []
+        for i in range(2):
+            result = self.app.invoke("messages_send", self.context, {"idempotency_key": str(i),
+                "recipient_agent_id": self.host["id"], "body": "distinct first Chat " + str(i)})
+            self.assertTrue(result.ok, result)
+            messages.append(result.data["message"]["message_id"])
+        return messages
+
+    def due(self):
+        self.clock.advance(3)
+        while self.app.jobs.run_next(worker_id=uuid4()) is not None:
+            pass
+
+    def test_startup_exact_provenance_and_real_hooks_never_fall_back(self):
+        self.assertEqual(self.input.prepare(UUID(self.host["id"])).idle_event_seq, self.startup_seq)
+        for change in ({"provider": "claude"}, {"cli_version": "unknown"}):
+            with self.assertRaises(InputUnavailable):
+                self.input._idle({**self.owner_row, **change}, self.host)
+        for key, value in (("agent_id", str(uuid4())), ("terminal_id", str(uuid4())),
+                           ("native_session_id", str(uuid4())), ("run_generation", 9), ("provider", "claude"),
+                           ("cli_version", "unknown"), ("environment_generation", 2),
+                           ("recovery_epoch", str(uuid4())), ("evidence_kind", "unknown"),
+                           ("native_process", self.native_process.model_copy(update={"start_ticks": 1}).model_dump(mode="json"))):
+            self.startup(**{key: value})
+            self.refuse("hook_unavailable")
+            self.startup()
+        self.startup(actor=self.context.actor_id)
+        self.refuse("hook_unavailable")
+        self.startup()
+        self.hook("SessionStart")
+        self.assertGreater(self.input.prepare(UUID(self.host["id"])).idle_event_seq, self.startup_seq)
+        for event, reason in (("UserPromptSubmit", "native_busy"), ("PermissionRequest", "native_waiting_user"),
+                              ("SessionEnd", "hook_unavailable"), ("Stop", "capture_unavailable")):
+            self.hook(event)
+            self.startup()  # Even a newer startup cannot replace an accepted hook.
+            self.refuse(reason)
+        original = json.loads(self.events(self.host["id"], "native.hook")[-1]["payload_json"])
+        with self.app.db.transaction() as tx:
+            append_event(tx, EventInput(kind="native.hook", actor_id=self.host["actor_id"], agent_id=self.host["id"],
+                payload={**original, "native_session_id": str(uuid4())}))
+        self.refuse("hook_unavailable")
+
+    def test_startup_event_is_revalidated_and_waiting_loss_after_paste_is_uncertain(self):
+        target = self.input.prepare(UUID(self.host["id"]))
+        self.startup()
+        with self.assertRaises(RunnerError):
+            self.input.submit(target, uuid4(), uuid4(), still_current=lambda: True)
+        self.assertEqual(self.tmux.effects, [])
+        target = self.input.prepare(UUID(self.host["id"]))
+        paste = self.tmux.paste
+        def lose_waiting(binding, buffer):
+            paste(binding, buffer)
+            self.raw_observation = None
+        self.tmux.paste = lose_waiting
+        receipt = self.input.submit(target, uuid4(), uuid4(), still_current=lambda: True)
+        self.assertEqual(receipt.state, "uncertain")
+        self.assertEqual([e[0] for e in self.tmux.effects], ["paste"])
+        self.assertEqual(self.input.inspect(target, receipt.attempt_id), receipt)
+
+    def test_startup_consumes_one_event_then_normal_hook_allows_second_message(self):
+        messages = self.queue_two()
+        self.due()
+        self.tmux.snapshot = self.empty  # Empty alone cannot consume startup again.
+        self.due()
+        view = self.app.invoke("deliveries_get", self.context, {"message_id": messages[1]}).data
+        self.assertEqual(view["delivery"]["reason"], "awaiting_native_turn")
+        self.assertEqual(view["attempts"], [])
+        self.assertEqual([e[0] for e in self.tmux.effects], ["paste", "enter"])
+        first = self.rows("delivery_attempts")[0]
+        self.assertEqual(first["state"], "submitted")
+        self.assertEqual(saved_target(first).idle_event_seq, self.startup_seq)
+        InputFixture.admit_source(self)
+        InputFixture.publish_capture(self)
+        self.hook("Stop")
+        self.due()
+        self.assertEqual([e[0] for e in self.tmux.effects], ["paste", "enter", "paste", "enter"])
+        self.assertEqual([r["state"] for r in self.rows("delivery_attempts")], ["submitted", "submitted"])
+
+    def test_uncertain_first_message_never_retries_or_reuses_startup(self):
+        messages = self.queue_two()
+        paste = self.tmux.paste
+        def lose_waiting(binding, buffer):
+            paste(binding, buffer)
+            self.raw_observation = None
+        self.tmux.paste = lose_waiting
+        self.due()
+        self.publish_capture()
+        self.tmux.snapshot = self.empty
+        self.due()
+        first, second = [self.app.invoke("deliveries_get", self.context, {"message_id": mid}).data for mid in messages]
+        self.assertEqual(first["delivery"]["state"], "uncertain")
+        self.assertEqual(len(first["attempts"]), 1)
+        self.assertEqual(second["delivery"]["reason"], "awaiting_native_turn")
+        self.assertEqual(second["attempts"], [])
+        self.assertEqual([e[0] for e in self.tmux.effects], ["paste"])
+
+    def test_historical_target_json_and_hash_stay_byte_compatible(self):
+        target = self.input.prepare(UUID(self.host["id"]))
+        # Frozen D46 shape: no new optional field may enter canonical old hashes.
+        historical = {key: target.model_dump(mode="json")[key] for key in (
+            "installation_id", "conversation_id", "terminal_id", "native_session_id", "provider",
+            "cli_version", "idle_event_seq", "control_epoch", "binding")}
+        wire = canonical(historical)
+        self.assertEqual(canonical(InputTarget.model_validate_json(wire)), wire)
+        self.assertEqual(canonical_hash(InputTarget.model_validate_json(wire)), hashlib.sha256(wire.encode()).hexdigest())

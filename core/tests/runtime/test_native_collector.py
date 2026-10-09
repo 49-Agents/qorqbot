@@ -25,13 +25,15 @@ from runtime.support import RuntimeCase
 from qorqut_core.adapters.capabilities import VERSIONS
 from qorqut_core.adapters.discovery import discover
 from qorqut_core.adapters.manual_hooks import NativeProgram
+from qorqut_core.adapters.types import DiscoveryGap, DiscoveryResult
 from qorqut_core.app import Application
 from qorqut_core.config import LocalTerminalSettings
 from qorqut_core.contracts import CoreError, Invocation
 from qorqut_core.runtime.native_collector import NativeCollector, NativeInputObservation
 from qorqut_core.storage.database import assert_external_io_allowed
 from qorqut_core.transcripts.native_capture import NativeCaptureError
-from qorqut_core.transcripts.spool import RunBinding
+from qorqut_core.transcripts.archive_models import ArchiveMetadata
+from qorqut_core.transcripts.spool import RunBinding, Source
 from test_foundation import InjectedCrash
 
 
@@ -524,6 +526,7 @@ class NativeCollection(RuntimeCase):
         candidate, owner = self.bind("claude")
         run_id = str(owner.run_id)
         self.assertIsNone(self.collector.input_observation(run_id))
+
         self.assertIsNone(self.collector.input_observation(str(uuid4())))
         self.source(candidate, self.record(candidate, "primary") + b"bad-json\n"
                     + raw(claude("embedded child", sessionId=str(candidate.native_session_id), isSidechain=True)))
@@ -556,6 +559,140 @@ class NativeCollection(RuntimeCase):
         self.tick()
         self.collector.close()
         self.assertIsNone(self.collector.input_observation(run_id))
+
+    def test_cold_discovery_waits_without_sources_then_collects_both_providers(self):
+        for provider in ("codex", "claude"):
+            with self.subTest(provider=provider):
+                candidate, owner = self.bind(provider)
+                run_id = str(owner.run_id)
+                self.assertIsNone(self.collector.input_observation(run_id))
+                view = self.tick()
+                if provider == "codex":
+                    self.assertEqual(view.reason, "waiting_source")
+                waiting = self.collector.input_observation(run_id)
+                self.assertEqual((waiting.healthy, waiting.source_count, waiting.awaiting_primary), (False, 0, True))
+                self.assertEqual(waiting.binding.run_id, run_id)
+                with patch.object(self.app.db, "read", side_effect=AssertionError("waiting read SQL")), \
+                        patch("os.stat", side_effect=AssertionError("waiting read I/O")), ThreadPoolExecutor(1) as pool:
+                    self.assertIs(pool.submit(self.collector.input_observation, run_id).result(), waiting)
+                payload = self.header(candidate) + self.record(candidate, "first input")
+                self.source(candidate, payload)
+                self.tick()
+                captured = self.collector.input_observation(run_id)
+                self.assertEqual((captured.healthy, captured.source_count, captured.awaiting_primary), (True, 1, False))
+                state = next(s for s in self.capture_states() if s.native_session_id == str(candidate.native_session_id))
+                self.assertEqual(self.archived(state), payload)
+
+    def test_waiting_freshness_uses_discovery_and_clears_on_failure_close_and_reopen(self):
+        _, owner = self.bind()
+        run_id = str(owner.run_id)
+        self.tick()
+        waiting = self.collector.input_observation(run_id)
+        self.elapsed += 5
+        self.clock.advance(5)
+        self.collector._observation(*self.collector._snapshot())
+        self.assertEqual(self.collector.input_observation(run_id), waiting)
+        self.elapsed += .001
+        self.collector._observation(*self.collector._snapshot())
+        self.assertIsNone(self.collector.input_observation(run_id))
+        self.tick()
+        marker = self.base / ".qorqut-owner.json"
+        original = marker.read_bytes()
+        marker.write_text("{}")
+        self.assertEqual(self.tick().reason, "collection_blocked")
+        self.assertFalse(self.collector.input_observation(run_id).awaiting_primary)
+        marker.write_bytes(original)
+        self.collector._observation(*self.collector._snapshot())
+        self.assertFalse(self.collector.input_observation(run_id).awaiting_primary)
+        self.tick()
+        self.assertTrue(self.collector.input_observation(run_id).awaiting_primary)
+        self.reopen()
+        self.assertIsNone(self.collector.input_observation(run_id))
+        self.tick()
+        self.assertTrue(self.collector.input_observation(run_id).awaiting_primary)
+        self.collector.close()
+        self.assertIsNone(self.collector.input_observation(run_id))
+
+    def test_failed_or_malformed_discovery_cannot_publish_waiting(self):
+        candidate, owner = self.bind()
+        run_id = str(owner.run_id)
+        self.tick()
+        with patch("qorqut_core.runtime.native_collector.discover", side_effect=OSError("discovery failure")):
+            self.assertEqual(self.tick().reason, "collection_blocked")
+        self.assertFalse(self.collector.input_observation(run_id).awaiting_primary)
+        for contents in (b"", b"{", b"invalid\n", self.header(candidate).replace(
+                str(candidate.native_session_id).encode(), str(uuid4()).encode())):
+            with self.subTest(contents=contents):
+                path = self.source(candidate, contents)
+                self.tick()
+                observation = self.collector.input_observation(run_id)
+                self.assertFalse(observation.awaiting_primary)
+                self.assertFalse(observation.healthy)
+                self.assertEqual(self.capture_states(), ())
+                path.unlink()
+        for code in ("unsupported_child_association", "source_changed_during_discovery", "unknown_gap"):
+            with patch("qorqut_core.runtime.native_collector.discover", return_value=DiscoveryResult(
+                    sources=(), attachments=(), gaps=(DiscoveryGap(code=code),))):
+                self.tick()
+            self.assertFalse(self.collector.input_observation(run_id).awaiting_primary)
+        self.tick()
+        self.assertTrue(self.collector.input_observation(run_id).awaiting_primary)
+
+    def test_missing_root_gap_requires_that_exact_provider_root_to_be_absent(self):
+        _, owner = self.bind()
+        run_id = str(owner.run_id)
+        root = self.home / ".codex/sessions"
+        def gap(path):
+            return patch("qorqut_core.runtime.native_collector.discover", return_value=DiscoveryResult(
+                sources=(), attachments=(), gaps=(DiscoveryGap(
+                    code="managed_source_unavailable:FileNotFoundError", relative_path=path),)))
+        for relative in (".codex/sessions", ".codex/archived_sessions"):
+            with gap(relative):
+                self.tick()
+                self.assertTrue(self.collector.input_observation(run_id).awaiting_primary)
+        root.mkdir(parents=True)
+        with gap(".codex/sessions"):
+            self.tick()  # A file disappeared inside an existing root.
+            self.assertFalse(self.collector.input_observation(run_id).awaiting_primary)
+            with patch("qorqut_core.runtime.native_collector.ManagedTree.parent", side_effect=PermissionError):
+                self.tick()
+            self.assertFalse(self.collector.input_observation(run_id).awaiting_primary)
+        for relative in (".claude/projects", ".codex/sessions/missing.jsonl", "../outside", None):
+            with gap(relative):
+                self.tick()
+            self.assertFalse(self.collector.input_observation(run_id).awaiting_primary)
+
+    def test_waiting_denies_inactive_recovery_and_prior_local_or_host_primary(self):
+        candidate, owner = self.bind()
+        run_id = str(owner.run_id)
+        self.tick()
+        self.exit_child(self.child_process)
+        self.app.session_owners.reconcile()
+        self.tick()
+        self.assertFalse(self.collector.input_observation(run_id).awaiting_primary)
+        candidate, owner = self.bind()
+        run_id = str(owner.run_id)
+        self.tick()
+        binding = self.collector.input_observation(run_id).binding
+        source = Source(str(uuid4()), str(self.settings.installation_id), self.host["id"],
+                        "native", str(candidate.native_session_id))
+        self.app.archive.register(self.context, binding, source, str(uuid4()),
+                                  ArchiveMetadata(capability_evidence="synthetic prior host primary"))
+        _, resumed = self.bind(session=candidate.native_session_id)
+        self.tick()
+        self.assertFalse(self.collector.input_observation(str(resumed.run_id)).awaiting_primary)
+        candidate, owner = self.bind()
+        path = self.source(candidate, self.header(candidate))
+        with patch.object(self.collector._capture, "transfer", side_effect=OSError("local only")):
+            self.tick()
+        path.unlink()
+        _, resumed = self.bind(session=candidate.native_session_id)
+        self.tick()
+        self.assertFalse(self.collector.input_observation(str(resumed.run_id)).awaiting_primary)
+        _, owner = self.bind()
+        self.recovery()
+        self.tick()
+        self.assertIsNone(self.collector.input_observation(str(owner.run_id)))
 
     def test_all_current_sources_need_fresh_service_even_when_aggregate_is_rebuilt(self):
         candidate, owner = self.bind()

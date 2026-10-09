@@ -18,6 +18,7 @@ import threading
 import time
 
 from ..adapters.discovery import discover
+from ..adapters.managed_io import ManagedTree
 from ..adapters.native_records import PARSER_VERSION
 from ..adapters.types import ManagedRoots, NativeBinding, RunBinding as AdapterRun
 from ..agents.registry import reserved
@@ -37,6 +38,8 @@ _RECOVERY_ERRORS = {"archive_recovery_held", "archive_recovery_changed"}
 _DISCOVERY_LIMITS = {"child_association_contract_unverified", "attachment_coverage_partial",
                      "bound_native_source_not_found", "managed_source_unavailable:FileNotFoundError",
                      "incomplete_metadata_record", "metadata_record_too_large", "invalid_metadata_record"}
+_WAITING_GAPS = {"child_association_contract_unverified", "attachment_coverage_partial",
+                 "bound_native_source_not_found"}
 
 
 class _RecoveryHeld(CoreError):
@@ -52,6 +55,7 @@ class NativeInputObservation:
     observed_at: str
     source_count: int
     healthy: bool
+    awaiting_primary: bool = False
 
 
 def _binding(owner):
@@ -95,6 +99,7 @@ class NativeCollector:
         self._cache = None
         self._input_cache = {}
         self._source_observed = {}
+        self._primary_wait = {}
         self._thread = None
         self._closed = False
         self._capture = None
@@ -154,6 +159,7 @@ class NativeCollector:
         finally:
             self._capture = None
             self._source_observed.clear()
+            self._primary_wait.clear()
             with self._lock:
                 self._cache = None
                 self._input_cache = {}
@@ -278,6 +284,29 @@ class NativeCollector:
                     epoch.setdefault("bindings", set()).add(binding)
         return epochs
 
+    def _waiting_discovery(self, owner, result):
+        if result.sources:
+            return False
+        bases = ({".claude/projects"} if owner["provider"] == "claude"
+                 else {".codex/sessions", ".codex/archived_sessions"})
+        for gap in result.gaps:
+            if gap.code in _WAITING_GAPS:
+                continue
+            if (gap.code != "managed_source_unavailable:FileNotFoundError"
+                    or gap.relative_path not in bases):
+                return False
+            # Discovery also reports disappearing *files* against their root.
+            # Only an actually absent named provider root is a cold-start gap.
+            with ManagedTree(self._capture.roots.home) as home:
+                try:
+                    with home.parent(gap.relative_path) as (fd, name):
+                        os.stat(name, dir_fd=fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                else:
+                    return False
+        return True
+
     def _discover(self, owners, installation, guard):
         now = time.monotonic()
         states = self._capture.list_states()
@@ -298,6 +327,7 @@ class NativeCollector:
         priority += [key for key in reversed(eligible) if key not in self._attempted]
         for key in _round_robin(self._owner_queue, eligible, priority):
             self._attempted[key] = time.monotonic()
+            self._primary_wait.pop(key, None)
             owner = owners[key]
             try:
                 run = _binding(owner)
@@ -306,6 +336,8 @@ class NativeCollector:
                     native_session_id=owner["native_session_id"])
                 guard()
                 result = discover(owner["provider"], owner["cli_version"], self._capture.roots, native)
+                discovered_at, discovered_clock = time.monotonic(), self.db.clock()
+                waiting = self._waiting_discovery(owner, result)
                 guard()
                 observations = result.sources
                 mapped = [state for state in self._capture.list_states()
@@ -335,6 +367,8 @@ class NativeCollector:
                 if observations:
                     self._discovered.add(key)
                 self._errors.pop(("owner", key), None)
+                if waiting:
+                    self._primary_wait[key] = discovered_clock, discovered_at
             except _OPERATIONAL as exc:
                 self._errors["owner", key] = _reason(exc)
                 for state in states:
@@ -410,6 +444,8 @@ class NativeCollector:
                     self._source_observed.pop(key, None)
 
     def _input_observations(self, agent, installation, owners, states, epochs, *, failure):
+        if failure or self._errors:
+            self._primary_wait.clear()
         current = ({(r.source_id, r.source_epoch) for r in self._capture.list_registered()}
                    if self._capture is not None else set())
         self._source_observed = {key: observed for key, observed in self._source_observed.items()
@@ -442,7 +478,19 @@ class NativeCollector:
                              or ("epoch", key) in self._errors or epoch.get("conflicted"))
                     and epoch.get("registered_recovery_epoch") == installation["recovery_epoch"]
                     and binding in epoch.get("bindings", ()))
-            cache[run_id] = NativeInputObservation(binding, observed_at, len(mapped), bool(healthy)), oldest
+            waiting = self._primary_wait.get(run_id)
+            awaiting = bool(waiting and not mapped and not failure and not self._errors
+                and owner["state"] == "active" and owner["observation"] == "live"
+                and owner["connected_by"] == agent["actor_id"]
+                and agent["workspace_initialized_at"] is not None
+                and agent["lifecycle"] in {"active", "provisioning"}
+                and not any(s.native_session_id == owner["native_session_id"] for s in states)
+                and not any(e["native_session_id"] == owner["native_session_id"]
+                            and e["parent_source_id"] is None for e in epochs.values()))
+            clock = observed_at
+            if awaiting:
+                clock, oldest = waiting
+            cache[run_id] = NativeInputObservation(binding, clock, len(mapped), bool(healthy), awaiting), oldest
         return cache
 
     def _observation(self, agent, installation, owners, *, failure=None):
@@ -487,6 +535,7 @@ class NativeCollector:
             self._tick()
         except Exception:
             self._source_observed.clear()
+            self._primary_wait.clear()
             raise
 
     def _tick(self):
@@ -511,4 +560,5 @@ class NativeCollector:
             except _OPERATIONAL as exc:
                 failure = _reason(exc)
                 self._source_observed.clear()
+                self._primary_wait.clear()
             self._observation(agent, installation, owners, failure=failure)

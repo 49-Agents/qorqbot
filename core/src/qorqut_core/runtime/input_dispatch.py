@@ -223,6 +223,10 @@ class RuntimeInput:
                 AND json_extract(payload_json,'$.owner_id')=?
                 AND json_extract(payload_json,'$.outcome') IN ('connected','reconnected','observed')
                 ORDER BY event_seq DESC LIMIT 1""", (owner["owner_id"],)).fetchone()
+            if row is None and (owner["provider"], owner["cli_version"]) == ("codex", "0.160.0"):
+                row = tx.connection.execute("""SELECT * FROM events WHERE kind='native.startup_observed'
+                    AND json_extract(payload_json,'$.owner_id')=?
+                    ORDER BY event_seq DESC LIMIT 1""", (owner["owner_id"],)).fetchone()
         if (row is None or row["actor_id"] != agent["actor_id"] or row["agent_id"] != agent["id"]
                 or row["origin_installation_id"] != owner["installation_id"]):
             raise InputUnavailable("hook_unavailable")
@@ -232,15 +236,20 @@ class RuntimeInput:
                 or canonical(data.get("native_process")) != owner["process_json"]
                 or row["recorded_at"] < owner["connected_at"]):
             raise InputUnavailable("hook_unavailable")
+        if row["kind"] == "native.startup_observed":
+            if data.get("evidence_kind") != "codex_writer_lock" or data.get("agent_id") != agent["id"]:
+                raise InputUnavailable("hook_unavailable")
+            # Binding evidence only. The fresh classifier below proves empty.
+            return row["event_seq"], True
         if data.get("activity") == "working":
             raise InputUnavailable("native_busy")
         if data.get("activity") == "waiting_user":
             raise InputUnavailable("native_waiting_user")
         if data.get("activity") != "idle" or data.get("event") not in {"SessionStart", "Stop", "Interrupt"}:
             raise InputUnavailable("hook_unavailable")
-        return row["event_seq"]
+        return row["event_seq"], data["event"] == "SessionStart"
 
-    def _capture(self, shell, owner, database):
+    def _capture(self, shell, owner, database, *, initial):
         saved = shell.saved_capture
         if (not shell.capture.verified or not shell.capture.terminal_active or saved is None
                 or saved.health != "healthy" or saved.recorder_finished_at is not None):
@@ -261,8 +270,12 @@ class RuntimeInput:
         view = observe(owner["owner_id"]) if callable(observe) else None
         binding = CaptureBinding(owner["installation_id"], owner["agent_id"], owner["recovery_epoch"],
             owner["environment_generation"], owner["boot_id"], owner["owner_id"], owner["run_generation"])
-        if (view is None or view.healthy is not True or view.binding != binding
+        if (view is None or view.binding != binding
                 or datetime.fromisoformat(view.observed_at) < datetime.fromisoformat(owner["connected_at"])):
+            raise InputUnavailable("capture_unavailable")
+        if (initial and view.awaiting_primary is True and view.healthy is False and view.source_count == 0):
+            return
+        if view.healthy is not True:
             raise InputUnavailable("capture_unavailable")
         with self.db.read() as tx:
             sources = tx.connection.execute("""SELECT e.conflicted FROM archive_run_sources l
@@ -297,7 +310,7 @@ class RuntimeInput:
         except Exception:
             raise InputUnavailable("session_unavailable") from None
         idle = self._idle(owner, agent)
-        self._capture(shell, owner, manager.database)
+        self._capture(shell, owner, manager.database, initial=idle[1])
         if shell.control.mode != "unclaimed" or shell.control.viewer_id is not None:
             raise InputUnavailable("human_control")
         guard()
@@ -305,7 +318,7 @@ class RuntimeInput:
             raise InputUnavailable("target_changed")
         return InputTarget(installation_id=shell.spec.installation_id, conversation_id=owner["conversation_id"],
             terminal_id=shell.terminal_id, native_session_id=owner["native_session_id"], provider=owner["provider"],
-            cli_version=owner["cli_version"], idle_event_seq=idle, control_epoch=shell.control.epoch,
+            cli_version=owner["cli_version"], idle_event_seq=idle[0], control_epoch=shell.control.epoch,
             binding=RunBinding(agent_id=shell.spec.agent_id, recovery_epoch=shell.spec.recovery_epoch,
                 environment_generation=shell.spec.environment_generation, boot_id=native.boot_id,
                 run_id=owner["owner_id"], run_generation=owner["run_generation"], tmux=shell.tmux,
