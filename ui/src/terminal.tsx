@@ -16,7 +16,7 @@ export function TerminalSummary({ store, id }: { store: Store; id: string }) {
     {view ? <p>{observation?.error && 'Last reported: '}{labels[view.status]}</p> : !observation?.error && <p>Reading terminal status…</p>}
     {observation?.error && <p className="terminal-warning" role="alert">{observation.error}</p>}
     {view?.recording && <p className="quiet">Local recording: {view.recording.state} · {view.recording.local_captured_offset.toLocaleString()} bytes captured · {view.recording.host_archived_offset.toLocaleString()} bytes archived by host.</p>}
-    {view?.control?.mode === 'human' && <p className="quiet">Human control is held until explicitly released or taken over.</p>}
+    {view?.control?.mode === 'human' && <p className="quiet">An open Terminal viewer holds human control. Closing that connection releases its own hold when the server can confirm it.</p>}
     {view?.recording && <p className="quiet">Terminal recording is separate from native history.</p>}
     {(!view || view.status !== 'available' || observation?.error) && <button type="button" onClick={() => void store.refreshTerminal(true)} disabled={observation?.loading}>Retry terminal status</button>}
   </>;
@@ -48,15 +48,10 @@ export function TerminalPane({ store, id }: { store: Store; id: string }) {
   };
   return <section className="terminal-pane" aria-label="Terminal view">
     {client.current || (view?.status === 'available' && !observation?.error) ? <>
-      <div className="terminal-toolbar">
-        <span role="status">{state.connection === 'closed' ? 'Disconnected' : state.connection === 'connecting' ? 'Connecting…' : state.owned ? 'You have control' : 'View only'}</span>
-        {state.connection === 'closed' ? <button onClick={() => void reconnect()} disabled={observation?.loading}>Reconnect terminal</button>
-          : <button onClick={() => client.current?.control(state.owned ? 'release' : 'take')} disabled={state.connection !== 'connected' || state.controlPending || !view?.control}>{state.controlPending ? 'Confirming control…' : state.owned ? 'Release control' : 'Take control'}</button>}
-      </div>
+      {(state.connection === 'connecting' || state.controlPending) && <p className="terminal-connecting quiet" role="status">Connecting…</p>}
       {observation?.error && <p className="terminal-warning" role="alert">{observation.error} <button onClick={() => void store.refreshTerminal(true)} disabled={observation.loading}>Retry terminal status</button></p>}
-      {state.warning && <p className="terminal-warning" role="alert">{state.warning}</p>}
+      {(state.warning || state.connection === 'closed' || (state.connection === 'connected' && !state.controlPending && !state.owned)) && <p className="terminal-warning" role="alert">{state.warning || 'Terminal disconnected.'} <button onClick={() => void reconnect()} disabled={observation?.loading}>Reconnect terminal</button></p>}
     </> : <div className="terminal-unavailable"><TerminalSummary store={store} id={id} /></div>}
     <div className="terminal-screen" ref={element} role="region" aria-label="Terminal display" tabIndex={0} hidden={!client.current && (view?.status !== 'available' || !!observation?.error)} />
-    <p className="terminal-note">Start and configure your CLI here. Input receipts confirm submission only.</p>
   </section>;
 }

@@ -16,13 +16,27 @@ const test = base.extend<{ api: SyntheticAPI }>({
 });
 async function openWorkspace(page: Page, api: SyntheticAPI) {
   await page.goto(api.url);
-  await expect(page.getByRole('heading', { name: 'Atlas', exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Chat', exact: true })).toHaveAttribute('aria-pressed', 'true');
 }
 const message = (page: Page) => page.getByRole('textbox', { name: /^Message / });
 const agentButton = (page: Page, name: string) => page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: new RegExp(`^${name} Initializing`) });
 const calls = (api: SyntheticAPI, name: string) => api.calls.filter(c => c.name === name);
 const connectionRefusal = { status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'transport_refused' }) };
 const transientRefusal = { status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'unavailable', message: 'Synthetic transient refusal' } }) };
+
+async function inspectorTab(page: Page, name: 'Details' | 'Library' | 'Computer') {
+  const toggle = page.getByRole('button', { name: 'Details', exact: true, includeHidden: true });
+  await expect(toggle).toBeVisible();
+  // A viewport change delivers the media-query event before the following render.
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  if (await toggle.getAttribute('aria-expanded') === 'false') await toggle.click();
+  await page.getByRole('tab', { name, exact: true }).click();
+}
+async function moreDetails(page: Page) {
+  await inspectorTab(page, 'Details');
+  const more = page.locator('.more-details');
+  if (await more.getAttribute('open') === null) await more.locator(':scope > summary').click();
+}
 
 test('direct local opening, refused connection retry, workspace identity and recovery preserve drafts', async ({ page, api, context }, testInfo) => {
   const requests: { path: string; method?: string; cookie?: string; authorization?: string; actor?: string | string[] }[] = [];
@@ -45,8 +59,8 @@ test('direct local opening, refused connection retry, workspace identity and rec
   releaseIdentity();
   await expect(page.getByRole('alert')).toHaveText('Request refused (HTTP 401).');
   await noLogin();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: testInfo.outputPath('connection-error-mobile.png'), fullPage: true });
+  await page.setViewportSize({ width: 937, height: 779 });
+  await page.screenshot({ path: testInfo.outputPath('connection-error-937.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const identityResponse = page.waitForResponse(r => r.url().endsWith('/api/v1/session'));
   await page.getByRole('button', { name: 'Retry connection' }).click();
@@ -138,9 +152,12 @@ test('direct local opening, refused connection retry, workspace identity and rec
   await noLogin();
 });
 
-test('creation and fixed icons, duplicate names, rename cancellation and revision conflict', async ({ page, api }, testInfo) => {
+test('creation and fixed icons, direct rename blur/Enter/cancel/pending/conflict and stable targets', async ({ page, api }, testInfo) => {
   await openWorkspace(page, api);
-  await page.getByRole('button', { name: 'Create agent', exact: true }).click();
+  const create = page.getByRole('button', { name: 'Create agent', exact: true });
+  await expect(page.locator('.nav-top, .conversation-header, .row-rename')).toHaveCount(0);
+  expect((await create.boundingBox())!.y).toBeGreaterThan(850);
+  await create.click();
   const dialog = page.getByRole('dialog', { name: 'Create agent' });
   await expect(dialog.getByRole('radio')).toHaveCount(20);
   await expect(dialog.getByLabel('Provider')).toHaveCount(0);
@@ -159,61 +176,94 @@ test('creation and fixed icons, duplicate names, rename cancellation and revisio
   await expect(page.getByText('Atlas registered — provisioning.')).toBeVisible();
   const createArgs = calls(api, 'agents_create').at(-1)!.args;
   expect(createArgs).toMatchObject({ display_name: 'Atlas', icon_key: 'feather' });
-  await expect(page.getByRole('complementary', { name: 'Agent details' }).getByText(/Provider|Model|Start requested|CLI configuration/)).toHaveCount(0);
   expect(Object.keys(createArgs).sort()).toEqual(['display_name', 'icon_key', 'idempotency_key']);
   expect(api.agents.filter(a => a.display_name === 'Atlas')).toHaveLength(2);
   const created = api.agents.find(a => a.id !== alpha && a.id !== beta)!;
-  await page.getByRole('complementary', { name: 'Agent details' }).getByRole('button', { name: 'Rename', exact: true }).click();
-  let rename = page.getByRole('textbox', { name: 'Rename Atlas' });
+  const inspector = page.getByRole('complementary', { name: 'Agent details' });
+  const name = inspector.locator('.identity-name');
+  const rename = inspector.getByRole('textbox', { name: /^Rename / });
+  await expect(inspector.getByText(/Provider|Model|Start requested|CLI configuration/)).toHaveCount(0);
+  await expect(name).toHaveText('Atlas');
+  await expect(inspector.getByRole('button', { name: 'Change icon' })).toHaveText('');
+  await name.focus(); await name.press('Enter');
   await rename.fill('Never committed'); await rename.press('Escape');
+  for (const value of ['Atlas', '   ']) {
+    await name.click(); await rename.fill(value); await message(page).click();
+  }
   expect(calls(api, 'agents_update')).toHaveLength(0);
-  await page.getByRole('complementary').getByRole('button', { name: 'Rename', exact: true }).click();
-  await rename.fill('Blur cancels'); await message(page).click();
+  await name.click(); await rename.fill('  Blur saved  ');
+  await rename.dispatchEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true });
+  await expect(rename).toBeVisible();
   expect(calls(api, 'agents_update')).toHaveLength(0);
-  await page.getByRole('complementary').getByRole('button', { name: 'Rename', exact: true }).click();
+  await message(page).click();
+  await expect(name).toHaveText('Blur saved');
+  expect(calls(api, 'agents_update')).toHaveLength(1);
+  expect(calls(api, 'agents_update')[0].args.display_name).toBe('Blur saved');
+  const held = api.hold('agents_update');
+  await name.click(); await rename.fill('Enter saved'); await rename.press('Enter');
+  await held.seen;
+  await message(page).click();
+  await expect(inspector.getByRole('status')).toHaveText('Saving request…');
+  await expect(name).toBeDisabled();
+  await expect(inspector.getByRole('button', { name: 'Change icon' })).toBeDisabled();
+  await agentButton(page, 'Blur saved').dblclick();
+  await expect(page.getByRole('textbox', { name: /^Rename / })).toHaveCount(0);
+  expect(calls(api, 'agents_update')).toHaveLength(2);
+  held.release();
+  await expect(name).toHaveText('Enter saved');
+  await name.click(); await rename.fill('x'.repeat(121)); await rename.press('Enter');
+  await expect(inspector.getByText('Display names require 1–120 characters after trimming')).toBeVisible();
+  await expect(inspector.getByText(`Attempted name: “${'x'.repeat(121)}”.`)).toBeVisible();
+  await inspector.getByRole('button', { name: 'Dismiss error' }).click();
+  const beforeConflict = calls(api, 'agents_update').length;
   api.conflictUpdate = true;
-  await rename.fill('Attempted name'); await rename.press('Enter');
-  await expect(page.getByRole('heading', { name: 'Changed elsewhere', exact: true }).first()).toBeVisible();
-  await expect(page.getByText('Attempted name: “Attempted name”.')).toBeVisible();
-  await page.getByRole('button', { name: 'Apply attempted change to current revision' }).click();
-  await expect(page.getByRole('heading', { name: 'Attempted name', exact: true }).first()).toBeVisible();
-  const updates = calls(api, 'agents_update');
-  expect(updates[0].args.expected_revision).toBe(1); expect(updates[1].args.expected_revision).toBe(2);
+  await name.click(); await rename.fill('Attempted name'); await rename.press('Enter');
+  await expect(name).toHaveText('Changed elsewhere');
+  await expect(inspector.getByText('Attempted name: “Attempted name”.')).toBeVisible();
+  await page.getByRole('tab', { name: 'Library', exact: true }).click();
+  await expect(inspector.getByText('Attempted name: “Attempted name”.')).toBeVisible();
+  await page.getByRole('tab', { name: 'Details', exact: true }).click();
+  await inspector.getByRole('button', { name: 'Apply attempted change to current revision' }).click();
+  await expect(name).toHaveText('Attempted name');
+  const updates = calls(api, 'agents_update').slice(beforeConflict);
+  expect(updates).toHaveLength(2);
+  expect(updates[1].args.expected_revision).toBe(updates[0].args.expected_revision + 1);
   expect(updates[0].args.idempotency_key).not.toBe(updates[1].args.idempotency_key);
-  expect(created.id).toBe(updates[1].args.agent_id);
-  await page.getByRole('button', { name: 'Change icon', exact: true }).click();
+  expect(updates.every(c => c.args.agent_id === created.id)).toBe(true);
+  await inspector.getByRole('button', { name: 'Change icon' }).click();
+  await page.getByRole('radio', { name: 'anchor', exact: true }).check();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(created.icon_key).toBe('feather');
+  await inspector.getByRole('button', { name: 'Change icon' }).click();
   await page.getByRole('radio', { name: 'anchor', exact: true }).check();
   await page.getByRole('button', { name: 'Save icon', exact: true }).click();
   await expect.poll(() => created.icon_key).toBe('anchor');
-  expect(calls(api, 'agents_update').at(-1)!.args).toMatchObject({ agent_id: created.id, expected_revision: 3, icon_key: 'anchor' });
+  expect(calls(api, 'agents_update').at(-1)!.args).toMatchObject({ agent_id: created.id, icon_key: 'anchor' });
   await agentButton(page, 'Attempted name').dblclick();
-  rename = page.getByRole('textbox', { name: 'Rename Attempted name' });
-  await rename.fill('Keyboard rename'); await rename.press('Enter');
-  await expect(page.getByRole('heading', { name: 'Keyboard rename', exact: true }).first()).toBeVisible();
-
-  const priorUpdates = calls(api, 'agents_update').length;
+  await page.getByRole('textbox', { name: 'Rename Attempted name' }).fill('Keyboard rename');
+  await page.getByRole('textbox', { name: 'Rename Attempted name' }).press('Enter');
+  await expect(name).toHaveText('Keyboard rename');
   await message(page).fill('Keep this active draft');
+  const priorUpdates = calls(api, 'agents_update').length;
   api.conflictUpdate = true;
-  await page.getByRole('button', { name: 'Rename onbash', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Rename onbash', exact: true }).fill('Background agent');
-  await page.getByRole('textbox', { name: 'Rename onbash', exact: true }).press('Enter');
+  await agentButton(page, 'onbash').dblclick();
+  await page.getByRole('textbox', { name: 'Rename onbash' }).fill('Background agent');
+  // Blur during navigation saves the original ID only, without selecting it again.
+  await agentButton(page, 'Keyboard rename').click();
   const attemptedText = 'Attempted name: “Background agent”.';
   await expect(page.getByRole('navigation').getByText(attemptedText, { exact: true })).toBeVisible();
   await expect(page.getByText(attemptedText, { exact: true })).toHaveCount(1);
   await expect(agentButton(page, 'Changed elsewhere')).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.locator('.conversation-title h1')).toHaveText('Keyboard rename');
+  await expect(name).toHaveText('Keyboard rename');
   await expect(message(page)).toHaveValue('Keep this active draft');
   await page.screenshot({ path: testInfo.outputPath('desktop-row-conflict.png'), fullPage: true });
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('button', { name: 'Open agents' }).click();
-  const drawer = page.getByRole('dialog', { name: 'Agents', exact: true });
+  await page.setViewportSize({ width: 937, height: 779 });
+  const drawer = page.getByRole('navigation', { name: 'Agents', exact: true });
   await expect(drawer.getByText(attemptedText, { exact: true })).toBeVisible();
   const reapply = drawer.getByRole('button', { name: 'Apply attempted change to current revision' });
-  await reapply.focus();
-  await expect(reapply).toBeFocused();
+  await reapply.focus(); await expect(reapply).toBeFocused();
   expect(await drawer.evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true);
-  await page.screenshot({ path: testInfo.outputPath('mobile-row-conflict.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('937-row-conflict.png'), fullPage: true });
   await reapply.press('Enter');
   await expect(drawer.getByText(attemptedText, { exact: true })).toHaveCount(0);
   await expect(agentButton(page, 'Background agent')).toHaveAttribute('aria-pressed', 'false');
@@ -222,8 +272,15 @@ test('creation and fixed icons, duplicate names, rename cancellation and revisio
   expect(backgroundUpdates[0].args).toMatchObject({ agent_id: beta, expected_revision: 1, display_name: 'Background agent' });
   expect(backgroundUpdates[1].args).toMatchObject({ agent_id: beta, expected_revision: 2, display_name: 'Background agent' });
   expect(backgroundUpdates[0].args.idempotency_key).not.toBe(backgroundUpdates[1].args.idempotency_key);
-  await page.getByRole('button', { name: 'Close Agents', exact: true }).click();
-  await expect(page.locator('.conversation-title h1')).toHaveText('Keyboard rename');
+  await drawer.getByRole('button', { name: 'Create agent', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: 'Details' }).click();
+  await expect(name).toHaveText('Keyboard rename');
+  await name.click(); await rename.fill('Desktop drawer blur saved');
+  await inspector.getByRole('heading', { name: 'Current work' }).click();
+  await expect(name).toHaveText('Desktop drawer blur saved');
+  await page.getByRole('button', { name: 'Close Inspector', exact: true }).click();
   await expect(message(page)).toHaveValue('Keep this active draft');
 });
 
@@ -231,7 +288,12 @@ test('selection and late reads/mutations retain each draft and original target',
   api.add(alpha, 'Atlas history'); api.add(beta, 'onbash history');
   const gate = api.hold('conversation_list', args => args.agent_id === alpha);
   await openWorkspace(page, api); await gate.seen;
+  const initialComposerHeight = (await message(page).boundingBox())!.height;
+  expect(initialComposerHeight).toBeLessThan(50);
+  await message(page).fill('One\nTwo\nThree\nFour');
+  expect((await message(page).boundingBox())!.height).toBeGreaterThan(initialComposerHeight);
   await message(page).fill('Atlas draft');
+  expect((await message(page).boundingBox())!.height).toBeLessThan(50);
   await agentButton(page, 'onbash').click();
   await expect(page.getByText('onbash history', { exact: true })).toBeVisible();
   gate.release();
@@ -406,9 +468,10 @@ test('history paging anchors, equal text, quiet handling refresh and recovery', 
   await expect.poll(() => calls(api, 'conversation_list').some(c => c.args.recovery_epoch === api.epoch)).toBeTruthy();
 });
 
-test('escaped content and desktop/mobile drawers, focus and screenshots', async ({ page, api }, testInfo) => {
+test('escaped bubbles, compact composer and desktop inspector drawers, focus and screenshots', async ({ page, api }, testInfo) => {
+  api.agents[0].needs_user_input = true;
   api.add(alpha, '<img src=x onerror="window.injected=true">\n  Indented & untouched', { occurred_at: '2026-10-07T12:00:00.000000Z' });
-  api.add(alpha, 'No card should be inferred from browser_request_input or /workspace/report.pdf');
+  api.add(alpha, 'No card should be inferred from browser_request_input or /workspace/report.pdf\n' + '/long-path'.repeat(150));
   api.add(alpha, 'future content', { kind: 'future_card' });
   const nativeText = '  Native café 👩‍💻 e\u0301 <script>window.injected=true</script>\n\tbrowser_request_input & /workspace/report.pdf  \n';
   const nativeUser = api.addNative(alpha, nativeText, 'user', 'claude');
@@ -419,7 +482,10 @@ test('escaped content and desktop/mobile drawers, focus and screenshots', async 
   await expect(page.locator('.message-body').first()).toContainText('<img src=x onerror="window.injected=true">');
   expect(await page.evaluate(() => 'injected' in window)).toBe(false);
   await expect(page.locator('.history img, .history iframe')).toHaveCount(0);
+  await expect(page.locator('.agent-attention')).toHaveAttribute('aria-label', 'Needs your attention');
+  await expect(page.locator('.agent-activity')).toHaveCount(0);
   await expect(page.getByText('Unsupported content: future_card')).toBeVisible();
+  await page.locator('.entry-details summary').first().click();
   await expect(page.getByText(/Recorded /).first()).toBeVisible();
   const expectNativeEntries = async () => {
     await expect(page.locator('.entry')).toHaveCount(5);
@@ -434,40 +500,64 @@ test('escaped content and desktop/mobile drawers, focus and screenshots', async 
       await expect(row.locator('.recorded time')).toHaveAttribute('datetime', entry.recorded_at);
     }
     await expect(page.getByText('Stored · queued · runtime unavailable', { exact: true })).toHaveCount(3);
-    await expect(page.locator('.composer-note')).toHaveText('Start and manage the CLI in Terminal. Messages are saved for delivery.');
+    await expect(page.locator('.composer-note, .composer-footer')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveText('');
     expect(await page.evaluate(() => 'injected' in window)).toBe(false);
   };
   await expectNativeEntries();
+  const ownerBubble = page.locator(`[data-entry-id="${nativeUser.entry_id}"]`), agentBubble = page.locator(`[data-entry-id="${nativeAgent.entry_id}"]`);
+  expect(await ownerBubble.evaluate(e => getComputedStyle(e).backgroundColor)).toBe('rgb(51, 51, 51)');
+  expect(await agentBubble.evaluate(e => getComputedStyle(e).backgroundColor)).toBe('rgb(32, 32, 32)');
+  expect((await ownerBubble.boundingBox())!.x).toBeGreaterThan((await agentBubble.boundingBox())!.x);
   await expect.poll(() => calls(api, 'conversation_list').some(c => c.args.after_seq === nativeAgent.conversation_seq && c.args.recovery_epoch === api.epoch)).toBe(true);
   await page.reload();
   await expectNativeEntries();
+  await moreDetails(page);
   await expect(page.getByText('Blocked · 3 pending entries')).toBeVisible();
   await expect(page.getByText('storage_blocked: Publication needs inspection.')).toBeVisible();
+  await message(page).fill(Array.from({ length: 20 }, () => 'long-composer-path'.repeat(60)).join('\n'));
+  const checkScrollbars = async () => {
+    for (const selector of ['.history', '.composer textarea']) {
+      expect(await page.locator(selector).evaluate(e => {
+        const style = (pseudo: string) => getComputedStyle(e, pseudo);
+        return { fits: e.scrollWidth <= e.clientWidth, width: style('::-webkit-scrollbar').width,
+          thumb: style('::-webkit-scrollbar-thumb').backgroundColor, track: style('::-webkit-scrollbar-track').backgroundColor,
+          arrows: style('::-webkit-scrollbar-button').display, corner: style('::-webkit-scrollbar-corner').backgroundColor };
+      })).toEqual({ fits: true, width: '1px', thumb: 'rgb(65, 65, 65)', track: 'rgba(0, 0, 0, 0)', arrows: 'none', corner: 'rgba(0, 0, 0, 0)' });
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect(page.locator('.conversation-header, .nav-top')).toHaveCount(0);
+    for (const [name, path] of [['Chat', 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'], ['Terminal', 'm4 17 6-6-6-6M12 19h8']]) {
+      await expect(page.getByRole('button', { name, exact: true }).locator('path')).toHaveAttribute('d', path);
+    }
+  };
+  await checkScrollbars();
+  await page.setViewportSize({ width: 937, height: 779 });
+  await checkScrollbars();
+  await page.screenshot({ path: testInfo.outputPath('chat-937.png'), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 960 });
   await page.screenshot({ path: testInfo.outputPath('desktop.png'), fullPage: true });
-  await page.getByRole('button', { name: 'Close inspector' }).click();
+  await page.getByRole('button', { name: 'Details' }).click();
   await expect(page.getByRole('complementary')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Open inspector' }).click();
+  await page.getByRole('button', { name: 'Details' }).click();
   await expect(page.getByRole('complementary')).toBeVisible();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole('navigation')).toHaveCount(0);
-  await message(page).fill('A mobile draft');
-  await page.getByRole('button', { name: 'Open agents' }).click();
-  const navigation = page.getByRole('dialog', { name: 'Agents', exact: true });
-  await expect(navigation).toBeVisible();
-  for (let i = 0; i < 8; i++) { await page.keyboard.press('Tab'); expect(await navigation.evaluate(e => e.contains(document.activeElement))).toBe(true); }
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', { name: 'Open agents' })).toBeFocused();
-  await page.getByRole('button', { name: 'Open inspector' }).click();
-  await expect(page.getByRole('dialog', { name: 'Inspector', exact: true })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath('mobile-inspector.png'), fullPage: true });
+  await page.setViewportSize({ width: 937, height: 779 });
+  await expect(page.getByRole('navigation')).toBeVisible();
+  await checkScrollbars();
+  await message(page).fill('A desktop drawer draft');
+  await page.getByRole('button', { name: 'Details' }).click();
+  const inspectorDrawer = page.getByRole('dialog', { name: 'Inspector', exact: true });
+  await expect(inspectorDrawer).toBeVisible();
+  for (const key of ['Tab', 'Shift+Tab']) for (let i = 0; i < 8; i++) { await page.keyboard.press(key); expect(await inspectorDrawer.evaluate(e => e.contains(document.activeElement))).toBe(true); }
+  await page.screenshot({ path: testInfo.outputPath('937-inspector.png'), fullPage: true });
   await page.getByRole('button', { name: 'Close Inspector', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Open inspector' })).toBeFocused();
-  await expect(message(page)).toHaveValue('A mobile draft');
+  await expect(page.getByRole('button', { name: 'Details' })).toBeFocused();
+  await expect(message(page)).toHaveValue('A desktop drawer draft');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: testInfo.outputPath('mobile.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('chat-937-drawer-closed.png'), fullPage: true });
 });
 
-test('synthetic inbox references validate annotations, preserve native sender labels and expand by keyboard at 390px', async ({ page, api }, testInfo) => {
+test('synthetic inbox references validate annotations, preserve native sender labels and expand by keyboard at 937px', async ({ page, api }, testInfo) => {
   const requests: string[] = [], sockets: string[] = [];
   page.on('request', request => requests.push(request.url()));
   page.on('websocket', socket => sockets.push(socket.url()));
@@ -516,10 +606,10 @@ test('synthetic inbox references validate annotations, preserve native sender la
   for (const [entry, sender] of ordinary) {
     await expect(row(entry).locator('header strong')).toHaveText(sender);
     expect(await row(entry).locator('.message-body').textContent()).toBe(entry.text);
-    await expect(row(entry).locator('details')).toHaveCount(0);
+    await expect(row(entry).locator('.inbox-reference')).toHaveCount(0);
   }
   await expect(row(wrongKind).locator('.unsupported')).toHaveText('Unsupported content: future_card');
-  await expect(row(wrongKind).locator('details')).toHaveCount(0);
+  await expect(row(wrongKind).locator('.inbox-reference')).toHaveCount(0);
   for (const entry of [reference, otherReference]) {
     await expect(row(entry).locator('summary time')).toHaveAttribute('datetime', entry.occurred_at);
     await expect(row(entry).locator('.message-body')).toBeHidden();
@@ -547,12 +637,12 @@ test('synthetic inbox references validate annotations, preserve native sender la
   };
   await noOverflow();
   await page.screenshot({ path: testInfo.outputPath('inbox-reference-desktop-expanded.png') });
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 937, height: 779 });
   await summary.scrollIntoViewIfNeeded();
   await expect(summary).toBeFocused();
   await expect(disclosure.locator('.message-body')).toBeVisible();
   await noOverflow();
-  await page.screenshot({ path: testInfo.outputPath('inbox-reference-mobile-expanded.png') });
+  await page.screenshot({ path: testInfo.outputPath('inbox-reference-937-expanded.png') });
   expect(requests.filter(value => {
     const url = new URL(value);
     return url.origin !== api.url || !/^(?:\/|\/assets\/[\w.-]+|\/api\/v1\/(?:session|schema|operations\/(?:config_get|agents_list|agents_get|events_list|conversation_list)))$/.test(url.pathname);
@@ -561,7 +651,7 @@ test('synthetic inbox references validate annotations, preserve native sender la
   expect(api.messages).toEqual([]);
 });
 
-test('file-reference cards validate saved observations, copy exact paths and wrap on desktop/mobile', async ({ page, api }, testInfo) => {
+test('file-reference cards validate saved observations, copy exact paths and wrap on wide/937px desktop', async ({ page, api }, testInfo) => {
   const requests: string[] = [], sockets: string[] = [];
   page.on('request', request => requests.push(request.url()));
   page.on('websocket', socket => sockets.push(socket.url()));
@@ -629,6 +719,8 @@ test('file-reference cards validate saved observations, copy exact paths and wra
   await expect(ownerCard.getByRole('status')).toHaveText('Copied');
   await expect(agentCard.getByRole('status')).toBeEmpty();
   await page.keyboard.press('Tab');
+  await expect(row(ownerEntry).locator('.entry-details summary')).toBeFocused();
+  await page.keyboard.press('Tab');
   await expect(agentCopy).toBeFocused();
   expect(await agentCopy.evaluate(e => getComputedStyle(e).outlineStyle)).toBe('solid');
   await page.keyboard.press('Space');
@@ -651,15 +743,15 @@ test('file-reference cards validate saved observations, copy exact paths and wra
     const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
     const value = selection.toString(); selection.removeAllRanges(); return value;
   })).toBe(ownerPath);
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 937, height: 779 });
   await ownerCopy.focus();
   await expect(ownerCopy).toBeFocused();
   await noOverflow();
-  await page.screenshot({ path: testInfo.outputPath('file-reference-mobile-owner.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('file-reference-937-owner.png'), fullPage: true });
   await agentCopy.focus();
   await expect(agentCopy).toBeFocused();
   await noOverflow();
-  await page.screenshot({ path: testInfo.outputPath('file-reference-mobile-agent.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('file-reference-937-agent.png'), fullPage: true });
 
   // The same Chrome group checks D45 code-point bounds and malformed wire content.
   const boundaryPath = '🙂/'.repeat(2047) + '🙂🙂';
@@ -719,12 +811,76 @@ test('file-reference cards validate saved observations, copy exact paths and wra
   await expect.poll(() => calls(api, 'conversation_list').filter(c => c.args.agent_id === beta && c.args.after_seq === last.conversation_seq).length, { timeout: 12000 }).toBeGreaterThanOrEqual(2);
   for (const entry of [ownerEntry, agentEntry, boundary]) await expect(row(entry).locator('.file-card')).toHaveCount(1);
   await page.reload();
-  await page.getByRole('button', { name: 'Open agents' }).click();
   await agentButton(page, 'onbash').click();
   await expect(page.locator('.file-card')).toHaveCount(3);
   for (const entry of [ownerEntry, agentEntry, boundary]) await expect(row(entry).getByRole('status')).toBeEmpty();
   await expect(page.locator('.unsupported')).toHaveCount(malformed.length);
   expect(await page.evaluate(() => 'injected' in window)).toBe(false);
+  await page.setViewportSize({ width: 1440, height: 960 });
+  const earlierFile = api.addFileReference(alpha, { path: 'files/earlier.txt', label: 'Earlier report' });
+  for (let i = 0; i < 55; i++) api.add(alpha, `Archive record ${i}`);
+  const shared = api.addFileReference(alpha, { path: 'files/current.txt', label: 'Current report' });
+  if (shared.source.type !== 'file_reference') throw new Error('Expected file reference');
+  api.addFileReference(alpha, { ...shared.source.reference });
+  await agentButton(page, 'Atlas').click();
+  await expect(page.getByRole('tab', { name: 'Details', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.more-details')).not.toHaveAttribute('open', '');
+  await message(page).fill('Library preserves this draft');
+  const history = page.getByLabel('Conversation with Atlas');
+  await history.evaluate(e => { e.scrollTop = 130; });
+  const beforeTabs = await history.evaluate(e => e.scrollTop);
+  await inspectorTab(page, 'Library');
+  const library = page.getByRole('tabpanel', { name: 'Library', exact: true });
+  await expect(library.getByRole('heading', { name: 'Files shared in chat' })).toBeVisible();
+  await expect(library.getByRole('region', { name: 'File reference' })).toHaveCount(1);
+  await expect(library.locator('.file-path')).toHaveText('files/current.txt');
+  await expect(library.getByText('Earlier report')).toHaveCount(0);
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (path: string) => { (window as unknown as { __fileCopies: string[] }).__fileCopies.push(path); } } }));
+  await library.getByRole('button', { name: 'Copy path' }).click();
+  expect((await copies()).at(-1)).toBe('files/current.txt');
+  await expect(library.getByRole('status')).toHaveText('Copied');
+  await page.route('**/api/v1/operations/conversation_list', route => route.request().postDataJSON().before_seq
+    ? route.fulfill({ status: 503, json: { ok: false, error: { code: 'unavailable', message: 'Earlier shared files unavailable.' } } }) : route.continue());
+  await library.getByRole('button', { name: 'Load earlier shared files' }).click();
+  await expect(library.getByRole('alert')).toContainText('Earlier shared files unavailable.');
+  await page.unroute('**/api/v1/operations/conversation_list');
+  const earlier = api.hold('conversation_list', args => args.agent_id === alpha && !!args.before_seq);
+  await library.getByRole('button', { name: 'Load earlier shared files' }).click(); await earlier.seen;
+  await expect(library.getByRole('button', { name: 'Loading earlier shared files…' })).toBeDisabled();
+  earlier.release();
+  await expect(library.getByText('Earlier report', { exact: true })).toBeVisible();
+  await expect(library.getByRole('region', { name: 'File reference' })).toHaveCount(2);
+  await expect(library.getByRole('button', { name: 'Load earlier shared files' })).toHaveCount(0);
+  expect(earlierFile.source.type === 'file_reference').toBe(true);
+  await expect(message(page)).toHaveValue('Library preserves this draft');
+  expect(await history.evaluate(e => e.scrollTop)).toBeGreaterThan(beforeTabs);
+  const afterEarlier = await history.evaluate(e => e.scrollTop);
+  await page.getByRole('tab', { name: 'Library', exact: true }).press('ArrowRight');
+  await expect(page.getByRole('tab', { name: 'Computer', exact: true })).toHaveAttribute('aria-selected', 'true');
+  const computer = page.getByRole('tabpanel', { name: 'Computer', exact: true });
+  for (const surface of ['Browser', 'Machine']) {
+    const card = computer.getByRole('region', { name: surface, exact: true });
+    await expect(card.getByText(/Unavailable/)).toBeVisible();
+    await expect(card.getByRole('button')).toHaveCount(0);
+  }
+  await expect(computer.getByText('Terminal unavailable on this server.')).toBeVisible();
+  await page.getByRole('tab', { name: 'Computer', exact: true }).press('Home');
+  await expect(page.getByRole('tab', { name: 'Details', exact: true })).toBeFocused();
+  expect(await history.evaluate(e => e.scrollTop)).toBe(afterEarlier);
+  await inspectorTab(page, 'Library');
+  await page.screenshot({ path: testInfo.outputPath('library-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 937, height: 779 });
+  await inspectorTab(page, 'Library');
+  await noOverflow();
+  await page.screenshot({ path: testInfo.outputPath('library-937.png'), fullPage: true });
+  await inspectorTab(page, 'Computer');
+  await page.screenshot({ path: testInfo.outputPath('computer-937.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Close Inspector', exact: true }).click();
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await agentButton(page, 'onbash').click();
+  await expect(page.getByRole('tab', { name: 'Details', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await inspectorTab(page, 'Library');
+  await expect(page.getByRole('tabpanel', { name: 'Library' }).getByText('Current report', { exact: true })).toHaveCount(0);
   // Only static assets, session/discovery and existing read operations were requested.
   expect(requests.filter(value => {
     const url = new URL(value);
@@ -735,24 +891,10 @@ test('file-reference cards validate saved observations, copy exact paths and wra
 });
 
 // These two owning flows exercise the compiled UI with synthetic HTTP/WS peers only.
-// Measure the actual glyph range against the scroll viewport, not merely its row.
-async function terminalTextVisible(page: Page, text: string) {
-  return page.locator('.terminal-screen').evaluate((viewport, text) => {
-    const row = [...viewport.querySelectorAll('.xterm-rows > div')].find(e => e.textContent?.includes(text));
-    if (!row) return false;
-    const start = row.textContent!.indexOf(text), end = start + text.length;
-    const range = document.createRange(), walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
-    let offset = 0, begun = false;
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const length = node.textContent!.length;
-      if (!begun && start < offset + length) { range.setStart(node, start - offset); begun = true; }
-      if (begun && end <= offset + length) { range.setEnd(node, end - offset); break; }
-      offset += length;
-    }
-    const glyphs = range.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
-    return glyphs.left >= bounds.left && glyphs.right <= bounds.left + viewport.clientWidth
-      && glyphs.top >= bounds.top && glyphs.bottom <= bounds.top + viewport.clientHeight;
-  }, text);
+async function terminalReady(page: Page, terminal: SyntheticTerminal) {
+  await expect(page.getByRole('textbox', { name: 'Terminal input', exact: true })).toBeEditable();
+  await expect.poll(() => terminal.frames.some(frame => frame.type === 'resize')).toBe(true);
+  expect(terminal.current.messages.filter(m => m.type === 'control')).toHaveLength(1);
 }
 test('synthetic runtime inspector validates session/native observations, fences reads and preserves Terminal/Chat', async ({ page, api }, testInfo) => {
   test.setTimeout(120000);
@@ -782,12 +924,14 @@ test('synthetic runtime inspector validates session/native observations, fences 
   page.on('request', r => { if (r.url().endsWith('/api/v1/schema')) schemas++; });
 
   await openWorkspace(page, api);
+  await moreDetails(page);
   await expect(session.getByText('Session information is unavailable on this server.')).toBeVisible();
   await expect(retry).toHaveCount(0);
   await expect.poll(() => calls(api, 'events_list').length).toBeGreaterThan(1);
   expect(calls(api, 'runtime_get')).toHaveLength(0);
   api.operations.push('runtime_get');
   await page.reload();
+  await moreDetails(page);
   await expect(session.getByText('Last reported: No session is connected.')).toBeVisible();
   await expect(session.getByText('No observation time available.')).toBeVisible();
   await expect(native.getByText('No setup observation available.')).toBeVisible();
@@ -823,7 +967,7 @@ test('synthetic runtime inspector validates session/native observations, fences 
   await expect(page.getByRole('heading', { name: 'Current run', exact: true })).toHaveCount(0);
   const work = page.locator('.inspector section').filter({ has: page.getByRole('heading', { name: 'Current work' }) });
   await expect(work.getByText('Initializing.', { exact: true })).toBeVisible();
-  await expect(work.getByText('unknown', { exact: true })).toBeVisible();
+  await expect(work.getByText('unknown', { exact: true })).toHaveCount(0);
   await expect(work.getByText('Capture', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Stored · queued · runtime unavailable', { exact: true })).toBeVisible();
   await expect(session.getByText(ownerId, { exact: true })).toBeHidden();
@@ -848,16 +992,18 @@ test('synthetic runtime inspector validates session/native observations, fences 
   await expect(native.getByText('0', { exact: true })).toHaveCount(2);
   await expect(native.getByText(/do not confirm Chat delivery or complete history coverage/)).toBeVisible();
   await details.press('Enter');
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('button', { name: 'Open inspector' }).click();
+  await page.setViewportSize({ width: 937, height: 779 });
+  await page.getByRole('button', { name: 'Details' }).click();
   const drawer = page.getByRole('dialog', { name: 'Inspector', exact: true });
+  await moreDetails(page);
   await session.scrollIntoViewIfNeeded(); await overflow();
   expect(await drawer.evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true);
-  await page.screenshot({ path: testInfo.outputPath('runtime-mobile-session.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('runtime-937-session.png'), fullPage: true });
   await native.scrollIntoViewIfNeeded(); await overflow();
-  await page.screenshot({ path: testInfo.outputPath('runtime-mobile-native-gap.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('runtime-937-native-gap.png'), fullPage: true });
   await page.getByRole('button', { name: 'Close Inspector', exact: true }).click();
   await page.setViewportSize({ width: 1440, height: 960 });
+  await moreDetails(page);
   await observe({ ...unknown, native_setup: { state: 'unknown', reason: 'recovery_review', observed_at: null },
     native_capture: { ...unknown.native_capture!, state: 'blocked', reason: 'collection_blocked' } });
   await expect(native.getByText('Unknown · Needs recovery review')).toBeVisible();
@@ -875,17 +1021,19 @@ test('synthetic runtime inspector validates session/native observations, fences 
   await expect(native.getByText('Last-reported observations · refreshing…')).toBeVisible();
   const cancelled = page.waitForEvent('requestfailed', r => r.url().endsWith('/operations/runtime_get'));
   await agentButton(page, 'onbash').click(); await cancelled; late.release();
+  await moreDetails(page);
   await expect(session.getByText('Last reported: No session is connected.')).toBeVisible();
   await expect(session.getByText('Claude', { exact: true })).toHaveCount(0);
   await expect(native.getByText('No collection observation available.')).toBeVisible();
   await expect.poll(() => calls(api, 'runtime_get').at(-1)?.args).toEqual({ agent_id: beta });
   api.runtimes.set(alpha, connected);
   await agentButton(page, 'Atlas').click();
+  await moreDetails(page);
   await expect(message(page)).toHaveValue('Retained runtime draft');
   await expect(page.getByText('Saved runtime inspector history', { exact: true })).toBeVisible();
   await expect(session.getByText('Last reported: Session connected.')).toBeVisible();
   await page.getByRole('button', { name: 'Terminal', exact: true }).click();
-  await expect(page.getByText('View only', { exact: true })).toBeVisible();
+  await terminalReady(page, terminal);
   const live = terminal.current;
   const connections = terminal.connections.length;
   await page.route(runtimeURL, route => route.fulfill(transientRefusal), { times: 1 });
@@ -901,7 +1049,8 @@ test('synthetic runtime inspector validates session/native observations, fences 
   await read(() => retry.click()); await replaced; automatic.release();
   await expect(session.getByText('Last reported: Session connected.')).toBeVisible();
   expect(terminal.connections).toHaveLength(connections); expect(live.closed).toBe(false);
-  expect(live.messages).toEqual([]);
+  expect(live.messages.filter(m => m.type === 'control')).toHaveLength(1);
+  expect(terminal.inputs).toHaveLength(0);
   terminal.output('Runtime retry left Terminal connected');
   await expect(page.locator('.xterm-screen')).toContainText('Runtime retry left Terminal connected');
   await expect(page.getByRole('button', { name: 'Terminal', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -943,6 +1092,7 @@ test('synthetic runtime inspector validates session/native observations, fences 
   await retry.click();
   await expect.poll(() => schemas).toBe(beforeRecovery + 1);
   events.release();
+  await moreDetails(page);
   await expect(session.getByText('recovered-version', { exact: true })).toBeVisible();
   await expect(session.getByText('Codex', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Terminal', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -959,6 +1109,7 @@ test('synthetic runtime inspector validates session/native observations, fences 
   await expect(page.getByRole('button', { name: 'Retry connection' })).toBeVisible();
   await expect(page.locator('input[type=password]')).toHaveCount(0);
   await page.getByRole('button', { name: 'Retry connection' }).click();
+  await moreDetails(page);
   await expect(message(page)).toHaveValue('Retained runtime draft');
   await expect(session.getByText('recovered-version', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('recovered-version');
@@ -970,6 +1121,7 @@ test('synthetic runtime inspector validates session/native observations, fences 
   await disconnected;
   await expect(session).toHaveCount(0);
   await page.getByRole('button', { name: 'Retry connection' }).click();
+  await moreDetails(page);
   await expect(session.getByText('recovered-version', { exact: true })).toBeVisible();
   staleRead.release();
   await expect(session.getByText('recovered-version', { exact: true })).toBeVisible();
@@ -991,14 +1143,14 @@ test('synthetic read recovery retains a live Terminal and qualified runtime obse
     native_setup: { state: 'ready', reason: 'configuration_installed', observed_at: stamp },
     native_capture: { state: 'collecting', reason: 'active', observed_at: stamp, source_count: 2, pending_archive_bytes: 10, pending_parse_bytes: 20 } });
   await openWorkspace(page, api);
+  await moreDetails(page);
   await message(page).fill('Read recovery draft');
   await page.getByRole('button', { name: 'Terminal', exact: true }).click();
-  await page.getByRole('button', { name: 'Take control', exact: true }).click();
   const pane = page.getByLabel('Terminal view'), session = page.getByRole('region', { name: 'Session', exact: true });
   const native = page.getByRole('region', { name: 'Native history', exact: true });
   const warning = pane.getByRole('alert').filter({ hasText: 'Terminal observation unavailable.' });
   const input = page.getByRole('textbox', { name: 'Terminal input', exact: true });
-  await expect(pane.getByRole('button', { name: 'Release control', exact: true })).toBeVisible();
+  await terminalReady(page, terminal);
   const peer = terminal.current, epoch = terminal.view.control!.epoch;
   const oldControl = structuredClone(terminal.view.control);
   terminal.output('Output before read failure\r\n');
@@ -1025,7 +1177,7 @@ test('synthetic read recovery retains a live Terminal and qualified runtime obse
       await expect(session.locator('time').first()).toHaveAttribute('datetime', stamp);
       await expect(native.getByText('Collecting · Collection active')).toBeVisible();
       await expect(native.getByText('Last-reported observations · stale')).toBeVisible();
-      await expect(pane.getByText('You have control', { exact: true })).toBeVisible();
+      await expect(input).toBeEditable();
       expect(terminal.inputs).toHaveLength(before + 1);
       // Live state and frame receipts still apply; neither clears the read warning.
       terminal.state({ ...terminal.view, control: oldControl });
@@ -1062,6 +1214,7 @@ test('synthetic read recovery requires a successful read to open or reconnect an
   const terminal = new SyntheticTerminal(api, alpha);
   await terminal.route(page);
   await openWorkspace(page, api);
+  await inspectorTab(page, 'Computer');
   await expect(page.getByRole('complementary').getByText('Terminal available.', { exact: true })).toBeVisible();
   const url = '**/api/v1/operations/terminal_get';
   let failing = true, refusals = 0;
@@ -1085,10 +1238,8 @@ test('synthetic read recovery requires a successful read to open or reconnect an
     expect(terminal.connections).toHaveLength(0);
     await expect(pane.getByRole('alert')).toHaveText('Terminal observation unavailable. Retry to refresh.');
   } finally { fresh.release(); }
-  await expect(pane.getByText('View only', { exact: true })).toBeVisible();
-  expect(terminal.connections).toHaveLength(1); expect(terminal.current.messages).toEqual([]);
-  await pane.getByRole('button', { name: 'Take control', exact: true }).click();
-  await expect(pane.getByRole('button', { name: 'Release control', exact: true })).toBeVisible();
+  await terminalReady(page, terminal);
+  expect(terminal.connections).toHaveLength(1); expect(terminal.inputs).toHaveLength(0);
   terminal.holdNextInput = true;
   await page.getByRole('textbox', { name: 'Terminal input', exact: true }).press('q');
   await expect.poll(() => terminal.inputs.length).toBe(1);
@@ -1100,37 +1251,38 @@ test('synthetic read recovery requires a successful read to open or reconnect an
   await pane.getByRole('button', { name: 'Reconnect terminal' }).click();
   await expect(pane.getByRole('alert').filter({ hasText: 'Terminal observation unavailable.' })).toBeVisible();
   expect(terminal.connections).toHaveLength(1);
-  await expect(pane.getByText('Disconnected', { exact: true })).toBeVisible();
+  await expect(pane.getByRole('alert').filter({ hasText: 'Terminal connection closed.' })).toBeVisible();
   failing = false; terminal.autoReceipt = true;
   await pane.getByRole('button', { name: 'Reconnect terminal' }).click();
-  await expect(pane.getByText('View only', { exact: true })).toBeVisible();
-  expect(terminal.connections).toHaveLength(2); expect(terminal.current.messages).toEqual([]);
+  await terminalReady(page, terminal);
+  expect(terminal.connections).toHaveLength(2); expect(terminal.inputs).toHaveLength(0);
   expect(first.messages.filter(m => m.type === 'input')).toHaveLength(1);
 
   const valid = structuredClone(terminal.view);
   for (const data of [
     { ...valid, status: 'unavailable' }, { ...valid, status: 'stopped' },
     { ...valid, terminal_id: randomUUID() }, { ...valid, dimensions: null },
-    { ...valid, control: { ...valid.control!, viewer_id: randomUUID() } },
+    { ...valid, control: { ...valid.control!, mode: 'unclaimed', viewer_id: randomUUID() } },
   ]) {
     const peer = terminal.current, count = terminal.connections.length;
     await page.route(url, route => route.fulfill({ json: { ok: true, outcome: 'completed', data } }), { times: 1 });
     await poll();
     await expect.poll(() => peer.closed).toBe(true);
     await expect(pane.getByRole('button', { name: 'Reconnect terminal' })).toBeVisible();
-    expect(terminal.connections).toHaveLength(count); expect(peer.messages).toEqual([]);
+    expect(terminal.connections).toHaveLength(count); expect(peer.messages.filter(m => m.type === 'input')).toHaveLength(0);
     await pane.getByRole('button', { name: 'Reconnect terminal' }).click();
-    await expect(pane.getByText('View only', { exact: true })).toBeVisible();
-    expect(terminal.connections).toHaveLength(count + 1); expect(terminal.current.messages).toEqual([]);
+    await terminalReady(page, terminal);
+    expect(terminal.connections).toHaveLength(count + 1); expect(terminal.inputs).toHaveLength(0);
   }
 });
 
-test('synthetic Terminal views retain Chat drafts/history, report availability and scroll native grids on desktop/mobile', async ({ page, api }, testInfo) => {
+test('synthetic Terminal views retain Chat drafts/history, release owned control and fit wide/937px desktop without horizontal scroll', async ({ page, api }, testInfo) => {
   const terminal = new SyntheticTerminal(api);
   terminal.view = { ...terminal.view, dimensions: { columns: 132, rows: 60 } };
   await terminal.route(page);
   for (let i = 0; i < 30; i++) api.add(alpha, `Saved Chat record ${i}`);
   await openWorkspace(page, api);
+  await inspectorTab(page, 'Computer');
   await message(page).fill('Chat draft stays here');
   const history = page.getByLabel('Conversation with Atlas');
   await history.evaluate(e => { e.scrollTop = 170; });
@@ -1153,77 +1305,102 @@ test('synthetic Terminal views retain Chat drafts/history, report availability a
   await expect(message(page)).toHaveValue('Chat draft stays here');
   expect(await history.evaluate(e => e.scrollTop)).toBeCloseTo(170, 0);
   await agentButton(page, 'onbash').click();
+  await inspectorTab(page, 'Computer');
   await message(page).fill('onbash draft');
   await expect(page.getByRole('complementary').getByText('Terminal available.')).toBeVisible();
   expect(terminal.connections).toHaveLength(0);
   await page.getByRole('button', { name: 'Terminal', exact: true }).click();
-  await expect(page.getByText('View only', { exact: true })).toBeVisible();
+  await terminalReady(page, terminal);
   expect(terminal.current.route.url()).toBe(api.url.replace('http:', 'ws:') + `/api/v1/terminal/${beta}`);
-  expect(terminal.current.messages).toEqual([]);
-  const initialControl = structuredClone(terminal.view.control);
-  terminal.output('Synthetic recorded terminal\r\n$ \x1b[2;115HRIGHT-132-EDGE\x1b[59;1HBOTTOM-60-END\x1b[60;112HLOWER-RIGHT-132-60\x1b[3;1H');
-  await expect(page.locator('.xterm-screen')).toContainText('Synthetic recorded terminal');
-  await expect(page.locator('.xterm-rows > div')).toHaveCount(60);
+  expect(terminal.current.messages[0]).toEqual({ type: 'control', action: 'take', expected_epoch: 0 });
+  const first = terminal.current;
+  await expect(page.locator('.terminal-toolbar, .terminal-note')).toHaveCount(0);
+  await expect(page.getByText(/View only|You have control|Input receipts confirm submission only/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^(Take|Release) control$/ })).toHaveCount(0);
   const display = page.getByRole('region', { name: 'Terminal display', exact: true });
-  const font = await page.locator('.xterm-rows').evaluate(e => getComputedStyle(e).fontSize);
-  expect(font).toBe('13px');
+  const fit = async () => {
+    await expect.poll(async () => (await page.locator('.xterm-screen').boundingBox())!.width <= (await display.boundingBox())!.width).toBe(true);
+    expect(await display.evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+    expect(await page.locator('.xterm-rows').evaluate(e => getComputedStyle(e).fontSize)).toBe('13px');
+    for (const name of ['Chat', 'Terminal', 'Details']) {
+      const button = page.getByRole('button', { name, exact: true });
+      await expect(button).toBeInViewport(); await expect(button).toHaveAttribute('title', name);
+      const bounds = (await button.boundingBox())!; expect(bounds.width).toBeGreaterThanOrEqual(44); expect(bounds.height).toBeGreaterThanOrEqual(44);
+    }
+  };
+  terminal.output('Synthetic recorded terminal\r\n' + '/very-long-native-path'.repeat(35) + '\r\n');
+  await expect(page.locator('.xterm-screen')).toContainText('Synthetic recorded terminal');
+  await fit();
   await page.screenshot({ path: testInfo.outputPath('terminal-desktop.png'), fullPage: true });
-  const wide = await page.locator('.xterm-screen').boundingBox();
-  const viewportBefore = await display.boundingBox();
-  await page.getByRole('button', { name: 'Close inspector' }).click();
-  await expect.poll(async () => (await display.boundingBox())!.width).toBeGreaterThan(viewportBefore!.width);
-  expect((await page.locator('.xterm-screen').boundingBox())!.width).toBe(wide!.width);
-  expect(terminal.current.messages).toEqual([]);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole('button', { name: 'Open agents' })).toBeVisible();
-  await expect.poll(async () => (await display.boundingBox())!.width).toBeLessThan(390);
-  expect((await page.locator('.xterm-screen').boundingBox())!.width).toBe(wide!.width);
-  await expect(page.locator('.xterm-rows > div')).toHaveCount(60);
-  expect(await terminalTextVisible(page, 'RIGHT-132-EDGE')).toBe(false);
-  expect(await terminalTextVisible(page, 'BOTTOM-60-END')).toBe(false);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: testInfo.outputPath('terminal-mobile.png'), fullPage: true });
-  // Real browser keyboard scrolling of the focusable native overflow region.
-  await display.focus();
-  for (let i = 0; i < 35; i++) await page.keyboard.press('ArrowRight');
-  await expect.poll(() => terminalTextVisible(page, 'RIGHT-132-EDGE')).toBe(true);
-  await page.screenshot({ path: testInfo.outputPath('terminal-mobile-right.png'), fullPage: true });
-  await page.keyboard.press('End');
-  await expect.poll(() => terminalTextVisible(page, 'LOWER-RIGHT-132-60')).toBe(true);
-  await page.screenshot({ path: testInfo.outputPath('terminal-mobile-bottom-right.png'), fullPage: true });
-  for (let i = 0; i < 35; i++) await page.keyboard.press('ArrowLeft');
-  await expect.poll(() => terminalTextVisible(page, 'BOTTOM-60-END')).toBe(true);
-  await expect(page.getByRole('button', { name: 'Take control', exact: true })).toBeInViewport();
-  await expect(page.locator('.terminal-note')).toBeInViewport();
-  expect(await page.locator('.xterm-rows').evaluate(e => getComputedStyle(e).fontSize)).toBe(font);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true);
-  expect(terminal.current.messages).toEqual([]);
-  expect(terminal.view.control).toEqual(initialControl);
-  await (await import('node:fs/promises')).writeFile(testInfo.outputPath('mobile-native-grid.json'), JSON.stringify(await display.evaluate(e => ({
-    viewport: { width: e.clientWidth, height: e.clientHeight }, grid: { width: e.scrollWidth, height: e.scrollHeight },
-    scroll: { left: e.scrollLeft, top: e.scrollTop }, rows: e.querySelectorAll('.xterm-rows > div').length,
-    font: getComputedStyle(e.querySelector('.xterm-rows')!).fontSize,
-  })), null, 2));
-  await page.screenshot({ path: testInfo.outputPath('terminal-mobile-bottom.png'), fullPage: true });
-  await page.getByRole('button', { name: 'Open inspector' }).click();
+  const tabsPeer = terminal.current;
+  await inspectorTab(page, 'Library');
+  await expect(page.getByRole('tabpanel', { name: 'Library' }).getByText('No files shared in the loaded chat pages.')).toBeVisible();
+  await page.getByRole('tab', { name: 'Library', exact: true }).press('Home');
+  await expect(page.getByRole('tab', { name: 'Details', exact: true })).toBeFocused();
+  await page.getByRole('tab', { name: 'Details', exact: true }).press('End');
+  await expect(page.getByRole('tab', { name: 'Computer', exact: true })).toBeFocused();
+  expect(terminal.connections).toHaveLength(1); expect(terminal.current).toBe(tabsPeer);
+  expect(tabsPeer.messages.filter(m => m.type === 'control')).toHaveLength(1);
+  const beforeDetails = terminal.frames.length;
+  await page.getByRole('button', { name: 'Details' }).click();
+  await expect.poll(() => terminal.frames.length).toBeGreaterThan(beforeDetails);
+  await fit();
+  for (const viewport of [{ width: 937, height: 779 }]) {
+    const before = terminal.frames.length;
+    await page.setViewportSize(viewport);
+    await expect.poll(() => terminal.frames.length).toBeGreaterThan(before);
+    await fit();
+    await page.screenshot({ path: testInfo.outputPath(`terminal-${viewport.width}.png`), fullPage: true });
+  }
+  terminal.output(Array.from({ length: 180 }, (_, i) => `Scroll line ${i}\r\n`).join(''));
+  await expect(page.locator('.xterm-screen')).toContainText('Scroll line 179');
+  const scroller = page.locator('.xterm-scrollable-element');
+  await display.hover();
+  const styles = await scroller.evaluate(e => {
+    const rail = e.querySelector<HTMLElement>('.scrollbar.vertical')!, thumb = rail.querySelector<HTMLElement>('.slider')!;
+    return { rail: getComputedStyle(rail).width, thumb: getComputedStyle(thumb).width,
+      background: getComputedStyle(rail).backgroundColor, color: getComputedStyle(thumb).backgroundColor,
+      arrows: [...e.querySelectorAll('.scra')].filter(n => getComputedStyle(n).display !== 'none').length,
+      horizontal: [...e.querySelectorAll('.scrollbar.horizontal')].filter(n => getComputedStyle(n).display !== 'none').length };
+  });
+  expect(styles).toEqual({ rail: '1px', thumb: '1px', background: 'rgba(0, 0, 0, 0)', color: 'rgb(65, 65, 65)', arrows: 0, horizontal: 0 });
+  await writeFile(testInfo.outputPath('terminal-scrollbars.json'), JSON.stringify(styles, null, 2));
+  const firstLine = () => page.locator('.xterm-rows > div').first().textContent();
+  const bottom = await firstLine();
+  await page.mouse.wheel(0, -450);
+  await expect.poll(firstLine).not.toBe(bottom);
+  const beforeKeyboard = await firstLine();
+  await page.getByRole('textbox', { name: 'Terminal input', exact: true }).press('Shift+PageUp');
+  await expect.poll(firstLine).not.toBe(beforeKeyboard);
+  expect(terminal.inputs).toHaveLength(0);
+  await page.screenshot({ path: testInfo.outputPath('terminal-937-scrolled.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Details' }).click();
+  await inspectorTab(page, 'Computer');
   await expect(page.getByRole('dialog', { name: 'Inspector', exact: true }).getByText(/Local recording: healthy/)).toBeVisible();
   await page.getByRole('dialog', { name: 'Inspector', exact: true }).getByText(/Local recording: healthy/).scrollIntoViewIfNeeded();
-  await page.screenshot({ path: testInfo.outputPath('terminal-mobile-inspector.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('terminal-937-inspector.png'), fullPage: true });
   await page.getByRole('button', { name: 'Close Inspector' }).click();
   await page.getByRole('button', { name: 'Chat', exact: true }).click();
   await expect(message(page)).toHaveValue('onbash draft');
   await expect.poll(() => terminal.current.closed).toBe(true);
-  expect(terminal.current.messages).toEqual([]);
+  expect(terminal.view.control!.mode).toBe('unclaimed');
+  expect(first.messages.filter(m => m.type === 'control')).toHaveLength(1);
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.getByRole('button', { name: 'Terminal', exact: true }).click();
   await expect.poll(() => terminal.connections.length).toBe(2);
+  await terminalReady(page, terminal);
   const second = terminal.current;
+  expect(second.viewer).not.toBe(first.viewer);
+  expect(second.messages[0]).toMatchObject({ type: 'control', action: 'take', expected_epoch: 2 });
   await agentButton(page, 'Atlas').click();
   await expect(message(page)).toHaveValue('Chat draft stays here');
   await expect.poll(() => second.closed).toBe(true);
   await agentButton(page, 'onbash').click();
+  await inspectorTab(page, 'Computer');
   await expect(page.getByRole('button', { name: 'Terminal', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(() => terminal.connections.length).toBe(3);
+  await terminalReady(page, terminal);
   // An old selected-agent observation must not bind the next viewer.
   const gate = api.hold('terminal_get', args => args.agent_id === beta);
   await gate.seen;
@@ -1299,24 +1476,24 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
     })).toEqual(['first', 'second']);
   };
   const terminal = new SyntheticTerminal(api);
+  terminal.autoControl = false;
   await terminal.route(page);
   await openWorkspace(page, api); await agentButton(page, 'onbash').click();
+  await inspectorTab(page, 'Computer');
   await message(page).fill('A durable Chat draft');
   await page.getByRole('button', { name: 'Terminal', exact: true }).click();
-  await expect(page.getByText('View only', { exact: true })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Terminal input', exact: true })).not.toBeEditable();
+  await expect.poll(() => terminal.current.messages.length).toBe(1);
   const input = page.getByRole('textbox', { name: 'Terminal input', exact: true });
   const inputText = () => terminal.inputs.map(f => Buffer.from(f.data, 'base64').toString('utf8')).join('');
-  const take = async () => {
-    await page.getByRole('button', { name: 'Take control', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Release control', exact: true })).toBeVisible();
-    await expect.poll(() => terminal.frames.some(f => f.type === 'resize')).toBe(true);
-  };
   const reconnect = async () => {
-    const count = terminal.connections.length;
+    const count = terminal.connections.length, previous = terminal.current;
+    terminal.autoReceipt = true;
     await page.getByRole('button', { name: 'Reconnect terminal', exact: true }).click();
-    await expect(page.getByText('View only', { exact: true })).toBeVisible();
+    await terminalReady(page, terminal);
+    await expect.poll(() => previous.closed).toBe(true);
     expect(terminal.connections).toHaveLength(count + 1);
-    expect(terminal.current.messages).toEqual([]);
+    expect(terminal.inputs).toHaveLength(0);
     terminal.output(`Viewer ready ${count + 1}\r\n`);
     await expect(page.locator('.xterm-screen')).toContainText(`Viewer ready ${count + 1}`);
   };
@@ -1336,7 +1513,7 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await expect(page.getByRole('complementary').getByText(/121 bytes captured/)).toBeVisible();
   await expect(page.locator('.xterm-rows > div')).toHaveCount(24);
   expect((await page.locator('.xterm-screen').boundingBox())!.width).toBe(initialGrid!.width);
-  expect(terminal.current.messages).toEqual([]);
+  expect(terminal.current.messages).toEqual([{ type: 'control', action: 'take', expected_epoch: 0 }]);
   await resumeRenderer();
   await expect(page.locator('.xterm-rows > div')).toHaveCount(40);
   const rowText = (row: number) => page.locator('.xterm-rows > div').nth(row).evaluate(e => e.textContent!.replace(/\u00a0/g, ' ').trimEnd());
@@ -1356,10 +1533,8 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
     await page.evaluate(value => navigator.clipboard.writeText(value), text);
     await input.focus(); await page.keyboard.press('Control+Shift+v');
   };
-  await input.focus(); await page.keyboard.type('read only'); await paste('not admitted');
-  expect(terminal.current.messages).toEqual([]);
-  terminal.autoControl = false;
-  await page.getByRole('button', { name: 'Take control', exact: true }).click();
+  await input.focus(); await page.keyboard.type('before ack'); await paste('not admitted');
+  expect(terminal.current.messages).toEqual([{ type: 'control', action: 'take', expected_epoch: 0 }]);
   await expect.poll(() => terminal.current.messages.length).toBe(1);
   expect(terminal.current.messages[0]).toEqual({ type: 'control', action: 'take', expected_epoch: 0 });
   terminal.view = { ...terminal.view, control: { mode: 'human', epoch: 1, viewer_id: terminal.current.viewer, last_sequence: 7 } };
@@ -1367,7 +1542,7 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await input.focus(); await page.keyboard.type('before reply');
   expect(terminal.inputs).toHaveLength(0);
   terminal.send({ type: 'control', control: terminal.view.control });
-  await expect(page.getByRole('button', { name: 'Release control', exact: true })).toBeVisible();
+  await terminalReady(page, terminal);
   await expect.poll(() => terminal.frames.length).toBe(1);
   expect(terminal.frames[0]).toMatchObject({ type: 'resize', epoch: 1, sequence: 8 });
   const fitted = terminal.frames[0];
@@ -1512,29 +1687,30 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   expect(terminal.inputs.slice(beforeQueueInputs).map(f => Buffer.from(f.data, 'base64').length)).toEqual([1, 65536]);
   for (let i = 1; i < terminal.frames.length; i++) expect(terminal.frames[i].sequence).toBe(terminal.frames[i - 1].sequence + 1);
   terminal.autoReceipt = true;
-  await page.getByRole('button', { name: 'Release control', exact: true }).click();
-  await expect(page.getByText('View only', { exact: true })).toBeVisible();
-  expect(terminal.view.control!.mode).toBe('unclaimed');
-  const releasedGrid = await page.locator('.xterm-screen').boundingBox();
-  const releasedFrames = terminal.frames.length;
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole('button', { name: 'Open agents' })).toBeVisible();
-  expect((await page.locator('.xterm-screen').boundingBox())!.width).toBe(releasedGrid!.width);
-  expect(terminal.frames).toHaveLength(releasedFrames);
-  await take();
-  await expect.poll(() => terminal.frames.length).toBe(releasedFrames + 1);
-  const mobileFit = terminal.frames.at(-1)!;
-  if (mobileFit.type !== 'resize') throw new Error('Expected mobile control to fit');
-  await expect(page.locator('.xterm-rows > div')).toHaveCount(mobileFit.rows);
-  expect((await page.locator('.xterm-screen').boundingBox())!.width).toBeLessThan(390);
-  await page.screenshot({ path: testInfo.outputPath('terminal-mobile-controlled.png'), fullPage: true });
+  await reconnect();
+  const narrowFrames = terminal.frames.length;
+  await page.setViewportSize({ width: 937, height: 779 });
+  await expect.poll(() => terminal.frames.length).toBeGreaterThan(narrowFrames);
+  const narrowFit = terminal.frames.at(-1)!;
+  if (narrowFit.type !== 'resize') throw new Error('Expected the 937px control to fit');
+  await expect(page.locator('.xterm-rows > div')).toHaveCount(narrowFit.rows);
+  expect((await page.locator('.xterm-screen').boundingBox())!.width).toBeLessThan(937);
+  await page.screenshot({ path: testInfo.outputPath('terminal-937-controlled.png'), fullPage: true });
   // Clamp proposals at the frozen protocol bounds, using real viewport changes.
-  await page.setViewportSize({ width: 160, height: 250 });
-  await expect.poll(() => terminal.frames.at(-1)).toMatchObject({ type: 'resize', columns: 20, rows: 5 });
   await page.setViewportSize({ width: 6000, height: 5000 });
   await expect.poll(() => terminal.frames.at(-1)).toMatchObject({ type: 'resize', columns: 500, rows: 250 });
   await page.setViewportSize({ width: 1440, height: 960 });
-  await expect.poll(() => terminal.frames.at(-1)).toMatchObject({ type: 'resize', columns: fitted.columns, rows: fitted.rows });
+  await expect.poll(() => terminal.frames.at(-1)?.type === 'resize' && terminal.view.dimensions!.rows === fitted.rows).toBe(true);
+  // xterm rounds the whole canvas before deriving per-cell metrics. After the
+  // large-grid round trip, permit that one CSS pixel of rounding in the fit.
+  const fittedGeometry = async () => {
+    const viewport = (await page.locator('.terminal-screen').boundingBox())!, grid = (await page.locator('.xterm-screen').boundingBox())!;
+    const columns = terminal.view.dimensions!.columns, spare = viewport.width - 1 - grid.width, cell = grid.width / columns;
+    return { viewport: viewport.width, grid: grid.width, columns, spare, cell, fits: spare >= 0 && spare < cell + 1 };
+  };
+  await expect.poll(fittedGeometry).toMatchObject({ fits: true });
+  await writeFile(testInfo.outputPath('fit-rounding.json'), JSON.stringify(await fittedGeometry(), null, 2));
+  await inspectorTab(page, 'Computer');
   // A newer viewer revokes admission immediately; stale state/receipts cannot restore it.
   terminal.holdNextInput = true;
   await input.focus(); await page.keyboard.type('p');
@@ -1547,7 +1723,8 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   terminal.output('Delayed before takeover'); terminal.size(132, 60);
   terminal.view = { ...terminal.view, control: { mode: 'human', epoch: terminal.view.control!.epoch + 1, viewer_id: '30000000-0000-4000-8000-000000000001', last_sequence: 0 } };
   terminal.state();
-  await expect(page.getByText('View only', { exact: true })).toBeVisible();
+  await expect(input).not.toBeEditable();
+  await expect(page.getByRole('button', { name: 'Reconnect terminal' })).toBeVisible();
   const beforeTakeover = terminal.frames.length;
   terminal.state(older); terminal.receipt(pending);
   await input.focus(); await page.keyboard.type('ignored');
@@ -1556,9 +1733,13 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await expect(page.locator('.xterm-rows > div')).toHaveCount(60);
   expect(terminal.frames).toHaveLength(beforeTakeover);
   terminal.autoReceipt = true;
-  await take();
+  const replacedViewer = terminal.current, replacementControl = structuredClone(terminal.view.control);
+  await reconnect();
+  expect(replacedViewer.closed).toBe(true);
   expect(terminal.current.messages.filter(m => m.type === 'control').at(-1)).toMatchObject({ expected_epoch: older.control!.epoch + 1 });
-  expect(terminal.inputs.at(-1)?.data).toBe(Buffer.from('p').toString('base64'));
+  expect(terminal.view.control!.epoch).toBe(replacementControl!.epoch + 1);
+  expect(terminal.inputs).toHaveLength(0);
+  expect(replacedViewer.messages.filter(m => m.type === 'control')).toHaveLength(1);
   const beforeOldComposition = terminal.inputs.length;
   // Synthetic late composition-end from the old binding must not revive it.
   await input.dispatchEvent('compositionend', { data: '旧', bubbles: true });
@@ -1574,28 +1755,31 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await expect(message(page)).toHaveValue('A durable Chat draft');
   await expect.poll(() => terminal.current.closed).toBe(true);
   const hold = structuredClone(terminal.view.control);
+  expect(hold!.mode).toBe('unclaimed');
   const priorViewer = terminal.current.viewer;
   terminal.view = { ...terminal.view, dimensions: { columns: 90, rows: 30 } };
   await page.getByRole('button', { name: 'Terminal', exact: true }).click();
-  await expect(page.getByText('View only', { exact: true })).toBeVisible();
-  expect(terminal.view.control).toEqual(hold);
+  await terminalReady(page, terminal);
+  expect(terminal.current.messages[0]).toMatchObject({ type: 'control', action: 'take', expected_epoch: hold!.epoch });
   expect(terminal.current.viewer).not.toBe(priorViewer);
-  expect(terminal.current.messages).toEqual([]);
+  expect(terminal.inputs).toHaveLength(0);
   await resumeRenderer();
-  await expect(page.locator('.xterm-rows > div')).toHaveCount(30);
+  await expect(page.locator('.xterm-rows > div')).toHaveCount(terminal.view.dimensions!.rows);
   terminal.output('Fresh viewer after disposal');
   await expect(page.locator('.xterm-screen')).toContainText('Fresh viewer after disposal');
   await expect(page.locator('.xterm-screen')).not.toContainText('Disposed pending write');
-  expect(terminal.current.messages).toEqual([]);
-  // A stale take refreshes observations and awaits another explicit click.
+  expect(terminal.inputs).toHaveLength(0);
+  // A stale auto-take refreshes once and waits for explicit reconnect.
+  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  await expect.poll(() => terminal.current.closed).toBe(true);
   terminal.conflictNextControl = true;
   const readsBeforeConflict = calls(api, 'terminal_get').length;
-  await page.getByRole('button', { name: 'Take control', exact: true }).click();
-  await expect(page.getByRole('alert').filter({ hasText: /Control changed/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: /Terminal control changed/ })).toBeVisible();
   await expect.poll(() => calls(api, 'terminal_get').length).toBeGreaterThan(readsBeforeConflict);
   await settleViewport();
   expect(terminal.current.messages).toHaveLength(1);
-  await take();
+  await reconnect();
   terminal.holdNextInput = true;
   await input.focus(); await page.keyboard.type('u');
   await expect.poll(() => terminal.inputs.length).toBe(1);
@@ -1605,7 +1789,6 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await expect(page.getByRole('alert').filter({ hasText: /Earlier input may have arrived/ })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('terminal-uncertain.png'), fullPage: true });
   await reconnect();
-  terminal.autoReceipt = true; await take();
   terminal.holdNextInput = true; await input.focus(); await page.keyboard.type('r');
   await expect.poll(() => terminal.inputs.length).toBe(1);
   terminal.send({ type: 'error', code: 'revision_conflict', message: '<img src=x onerror="window.injected=true">', related_type: 'input', sequence: terminal.frames.at(-1)!.sequence });
@@ -1634,6 +1817,11 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
     await expect(page.getByRole('button', { name: 'Take control', exact: true })).toHaveCount(0);
   }
   terminal.hello = null; await reconnect();
+  // A duplicate hello is invalid and can never trigger a second take.
+  terminal.send({ type: 'hello', protocol: 2, viewer_id: terminal.current.viewer, terminal: terminal.view });
+  await expect(page.getByRole('button', { name: 'Reconnect terminal' })).toBeVisible();
+  expect(terminal.current.messages.filter(m => m.type === 'control')).toHaveLength(1);
+  await reconnect();
   terminal.send({ type: 'state', terminal: { ...terminal.view, socket_path: '/not-a-public-field' } });
   await expect(page.getByRole('button', { name: 'Reconnect terminal' })).toBeVisible();
   await reconnect();
@@ -1643,22 +1831,24 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   ]) {
     terminal.send({ type: 'size', ...invalid });
     await expect(page.getByRole('button', { name: 'Reconnect terminal' })).toBeVisible();
-    expect(terminal.current.messages).toEqual([]);
+    expect(terminal.inputs).toHaveLength(0);
     await reconnect();
   }
-  // Fresh view-only peers have received no keyboard input; reconnect's rendered
+  // Fresh controlled peers have received no keyboard input; reconnect's rendered
   // sentinel precedes this directly verified public timer stall.
   await freezePressure();
   const bytePressurePeer = terminal.current;
   for (let i = 0; i < 18; i++) terminal.output(Buffer.alloc(65536, 65));
   await expect.poll(() => bytePressurePeer.closed).toBe(true);
   await expect(page.getByRole('alert').filter({ hasText: /Live output exceeded the display limit/ })).toBeVisible();
-  expect(bytePressurePeer.messages).toEqual([]);
+  expect(bytePressurePeer.messages.filter(m => m.type === 'input')).toHaveLength(0);
+  expect(bytePressurePeer.messages.filter(m => m.type === 'control')).toHaveLength(1);
   const bytePressureConnections = terminal.connections.length;
   await thawPressure();
   expect(bytePressurePeer.closed).toBe(true);
   expect(terminal.connections).toHaveLength(bytePressureConnections);
-  expect(bytePressurePeer.messages).toEqual([]);
+  expect(bytePressurePeer.messages.filter(m => m.type === 'input')).toHaveLength(0);
+  expect(bytePressurePeer.messages.filter(m => m.type === 'control')).toHaveLength(1);
   await reconnect();
   // Mixed geometry/byte entries have a separate 1,024-entry bound, even well
   // below 1 MiB. The pending callback must not apply queued sizes after closure.
@@ -1671,7 +1861,7 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   terminal.view = { ...terminal.view, recording: { ...terminal.view.recording!, local_captured_offset: 123 } };
   terminal.state();
   await expect(page.getByRole('complementary').getByText(/123 bytes captured/)).toBeVisible();
-  await expect(page.getByText('View only', { exact: true })).toBeVisible();
+  await terminalReady(page, terminal);
   expect(entryPressurePeer.closed).toBe(false);
   terminal.output('one entry too many');
   await expect.poll(() => entryPressurePeer.closed).toBe(true);
@@ -1681,7 +1871,8 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await expect(page.locator('.xterm-rows > div')).toHaveCount(rowsBeforeOverflow);
   expect(entryPressurePeer.closed).toBe(true);
   expect(terminal.connections).toHaveLength(entryPressureConnections);
-  expect(entryPressurePeer.messages).toEqual([]);
+  expect(entryPressurePeer.messages.filter(m => m.type === 'input')).toHaveLength(0);
+  expect(entryPressurePeer.messages.filter(m => m.type === 'control')).toHaveLength(1);
   await reconnect();
   await page.route('**/api/v1/operations/terminal_get', route => route.fulfill(connectionRefusal), { times: 1 });
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -1689,5 +1880,5 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   await expect(page.getByRole('alert')).toHaveText('Request refused (HTTP 401).');
   await expect(page.locator('input[type=password]')).toHaveCount(0);
   await expect.poll(() => terminal.current.closed).toBe(true);
-  expect(terminal.current.messages).toEqual([]);
+  expect(terminal.inputs).toHaveLength(0);
 });

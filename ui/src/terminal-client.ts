@@ -19,7 +19,7 @@ export class TerminalClient {
   private viewer = '';
   private view: TerminalView;
   private acknowledgedEpoch: number | null = null;
-  private pendingControl: { action: 'take' | 'release'; epoch: number } | null = null;
+  private pendingControl: { epoch: number } | null = null;
   private queue: PendingFrame[] = [];
   private queuedBytes = 0;
   private pendingFrame: { kind: 'input' | 'resize'; epoch: number; sequence: number; bytes: number } | null = null;
@@ -41,7 +41,9 @@ export class TerminalClient {
     this.view = view;
     this.terminal = new Terminal({
       disableStdin: true, scrollback: 2000, fontSize: 13, fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+      overviewRuler: { width: 1, showTopBorder: false, showBottomBorder: false },
       theme: { background: '#0b0b0b', foreground: '#eeeeee', cursor: '#eeeeee', selectionBackground: '#444444',
+        scrollbarSliderBackground: '#414141', scrollbarSliderHoverBackground: '#414141', scrollbarSliderActiveBackground: '#414141', overviewRulerBorder: '#00000000',
         black: '#111111', red: '#aaaaaa', green: '#bbbbbb', yellow: '#cccccc', blue: '#aaaaaa', magenta: '#bbbbbb', cyan: '#cccccc', white: '#eeeeee',
         brightBlack: '#777777', brightRed: '#dddddd', brightGreen: '#dddddd', brightYellow: '#eeeeee', brightBlue: '#dddddd', brightMagenta: '#dddddd', brightCyan: '#eeeeee', brightWhite: '#ffffff' },
     });
@@ -158,6 +160,7 @@ export class TerminalClient {
     const control = mergeControl(previous, next);
     if (control && (!previous || control.epoch > previous.epoch)) {
       if (this.queue.length || this.pendingFrame) this.warning = 'Control changed. Earlier input may have arrived; unsent input was cleared.';
+      else if (this.acknowledgedEpoch !== null) this.warning = 'Terminal control changed. Reconnect to continue.';
       this.acknowledgedEpoch = null; this.clearQueue();
     }
     this.view = { ...this.view, control };
@@ -206,7 +209,7 @@ export class TerminalClient {
     if (message.type === 'hello') {
       if (this.viewer || !sameTerminal(this.view, message.terminal) || message.terminal.status !== 'available') { this.fail('Terminal identity changed.'); return; }
       this.viewer = message.viewer_id; this.observe(message.terminal);
-      if (this.active) { this.display({ type: 'size', ...message.terminal.dimensions! }); this.publish(); }
+      if (this.active) { this.display({ type: 'size', ...message.terminal.dimensions! }); this.takeControl(); this.publish(); }
     } else if (message.type === 'size') {
       this.display(message);
     } else if (message.type === 'state') {
@@ -216,20 +219,18 @@ export class TerminalClient {
       this.applyControl(message.control);
       this.pendingControl = null;
       if (pending && message.control.epoch === pending.epoch + 1 && message.control.epoch === this.view.control?.epoch) {
-        if (pending.action === 'take' && message.control.mode === 'human' && message.control.viewer_id === this.viewer) {
+        if (message.control.mode === 'human' && message.control.viewer_id === this.viewer) {
           this.acknowledgedEpoch = message.control.epoch; this.lastSequence = this.view.control.last_sequence;
           this.overflow = false; this.warning = '';
           this.fitViewport();
-        } else if (pending.action === 'release' && message.control.mode === 'unclaimed') {
-          this.acknowledgedEpoch = null; this.warning = ''; this.overflow = false;
         } else { this.fail('Control reply did not match the request.'); return; }
-      }
+      } else if (pending) { this.fail('Control reply did not match the request.'); return; }
       this.publish();
     } else if (message.type === 'frame') this.receipt(message);
     else {
       if (message.related_type === 'control' && message.code === 'revision_conflict' && this.pendingControl) {
         this.pendingControl = null; this.acknowledgedEpoch = null; this.clearQueue();
-        this.warning = 'Control changed. Refreshing the observation; take control again when ready.';
+        this.warning = 'Terminal control changed. Reconnect to continue.';
         this.callbacks.refresh(); this.emit();
       } else {
         this.fail('The server could not confirm the terminal request.');
@@ -237,19 +238,18 @@ export class TerminalClient {
       }
     }
   }
-  control(action: 'take' | 'release') {
+  private takeControl() {
     if (!this.valid() || !this.viewer || this.pendingControl || !this.view.control) return;
-    if (action === 'release' && !this.owned()) return;
     this.clearQueue(); this.acknowledgedEpoch = null;
-    this.pendingControl = { action, epoch: this.view.control.epoch };
-    this.send({ type: 'control', action, expected_epoch: this.pendingControl.epoch }); this.emit();
+    this.pendingControl = { epoch: this.view.control.epoch };
+    this.send({ type: 'control', action: 'take', expected_epoch: this.pendingControl.epoch }); this.emit();
   }
   input(data: string) {
     if (!this.valid() || !this.owned() || this.overflow || !data) return;
     const bytes = encoder.encode(data);
     if (bytes.length > INPUT_LIMIT) { this.warn('Input exceeds 64 KiB and was not sent.'); return; }
     if (this.queuedBytes + bytes.length > INPUT_LIMIT) {
-      this.overflow = true; this.warn('Input queue is full. Additional input was not sent. Release and take control to resume.'); return;
+      this.overflow = true; this.warn('Input queue is full. Additional input was not sent. Reconnect to resume.'); return;
     }
     this.queue.push({ type: 'input', bytes }); this.queuedBytes += bytes.length; this.flush();
   }

@@ -3,6 +3,11 @@ also applies to chat bubbles, compact composer and inspector tabs.
 
 # Minimal workspace feedback
 
+Owner correction, 2026-10-09 (review message 370): acceptance for this pass is
+desktop only, at 937×779 and a wide desktop. Mobile/touch acceptance is explicitly
+deferred; no touch gesture handler or responsive redesign is included. This
+supersedes the mobile/touch checks below and in UI-REFERENCE-DIRECTION.md.
+
 Decision D56, 2026-10-09, from the owner's seven annotated layout requests and
 follow-up removal of the Terminal footer. This supersedes conflicting header,
 rename-on-blur and manual viewer-control details in UI-PLAN and

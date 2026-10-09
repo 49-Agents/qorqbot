@@ -2,6 +2,7 @@ import { render, type ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'preact/hooks';
 import { Store, type Pending } from './store';
 import { Icon, IconPicker } from './icons';
+import { ViewIcon } from './view-icons';
 import type { Agent, Entry } from './wire';
 import { TerminalPane, TerminalSummary } from './terminal';
 import { collectionReasons, nativeStates, sessionStatus, setupReasons } from './runtime-view';
@@ -28,7 +29,7 @@ function Dialog({ title, children, onClose, drawer = '' }: { title: string; chil
   }, []);
   return <dialog ref={ref} className={`dialog ${drawer}`} aria-label={title} onCancel={e => { e.preventDefault(); close.current(); }} onKeyDown={e => {
     if (e.key !== 'Tab') return;
-    const focusable = [...e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]')].filter(el => el.getClientRects().length);
+    const focusable = [...e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]')].filter(el => el.tabIndex >= 0 && el.checkVisibility());
     const first = focusable[0], last = focusable.at(-1);
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
@@ -88,34 +89,45 @@ function Creation({ close }: { close: () => void }) {
 function RenameInput({ agent, done }: { agent: Agent; done: () => void }) {
   const [name, set] = useState(agent.display_name);
   const ref = useRef<HTMLInputElement>(null);
+  const original = useRef({ id: agent.id, name: agent.display_name, selected: store.selected, epoch: store.epoch, actor: store.actor });
+  const finished = useRef(false);
+  useLayoutEffect(() => () => { finished.current = true; }, []);
   useEffect(() => { ref.current?.focus(); ref.current?.select(); }, []);
-  return <input ref={ref} aria-label={`Rename ${agent.display_name}`} value={name} className="rename-input" onInput={e => set(e.currentTarget.value)} onBlur={done} onKeyDown={e => {
-    if (e.isComposing) return;
-    if (e.key === 'Escape') { e.preventDefault(); done(); }
-    if (e.key === 'Enter') { e.preventDefault(); done(); void store.update(agent.id, { display_name: name }); }
+  const finish = (save: boolean) => {
+    if (finished.current) return;
+    finished.current = true; done();
+    const start = original.current, value = name.trim();
+    if (save && value && value !== start.name && store.phase === 'ready' && store.selected === start.selected && store.epoch === start.epoch && store.actor === start.actor) {
+      void store.update(start.id, { display_name: value });
+    }
+  };
+  return <input ref={ref} aria-label={`Rename ${agent.display_name}`} value={name} className="rename-input" disabled={store.pending.has(`edit:${agent.id}`)} onInput={e => set(e.currentTarget.value)} onBlur={() => finish(true)} onKeyDown={e => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
   }} />;
 }
 function Navigation({ select, create, renameId, setRename }: { select: (id: string) => void; create: () => void; renameId: string; setRename: (id: string) => void }) {
   return <nav className="navigation" aria-label="Agents">
-    <div className="nav-top"><div className="brand"><span className="brand-mark">q</span><span>Qorqut</span></div>
-      {store.has('agents_create') && store.config && <button className="new-agent" aria-label="Create agent" onClick={create}>＋</button>}</div>
     <div className="section-label">AGENTS <span>{store.agents.length}</span></div>
     <div className="agent-list">
       {store.directoryLoading && <p role="status">Loading agents…</p>}
       {!store.has('agents_list') && <p className="quiet">Agent directory unavailable on this server.</p>}
       {store.has('agents_list') && !store.directoryLoading && !store.agents.length && <p className="quiet">No agents registered.</p>}
       {store.agents.map(agent => <div className={`agent-row ${store.selected === agent.id ? 'selected' : ''}`} key={agent.id}>
-        {renameId === agent.id ? <div className="rename-row"><Icon name={agent.icon_key} /><RenameInput agent={agent} done={() => setRename('')} /></div> : <button className="agent-select" aria-pressed={store.selected === agent.id} onClick={() => select(agent.id)} onDblClick={() => { if (store.has('agents_update')) setRename(agent.id); }}>
+        {renameId === agent.id ? <div className="rename-row"><Icon name={agent.icon_key} /><RenameInput key={agent.id} agent={agent} done={() => setRename('')} /></div> : <button className="agent-select" aria-pressed={store.selected === agent.id} onClick={() => select(agent.id)} onDblClick={() => { if (store.has('agents_update') && !store.pending.has(`edit:${agent.id}`)) setRename(agent.id); }}>
           <span className="agent-icon"><Icon name={agent.icon_key} /></span><span className="agent-labels"><strong>{agent.display_name}</strong>
-            <span className="agent-status">{agent.status.text}</span><span className="agent-activity">{agent.needs_user_input ? 'Needs your attention · ' : ''}{agent.activity === 'unknown' ? 'Activity unknown' : agent.activity}</span>
+            <span className="agent-status">{agent.status.text}</span>
+            {agent.needs_user_input && <span className="agent-attention" title="Needs your attention" aria-label="Needs your attention">●</span>}
             {store.agents.filter(a => a.display_name === agent.display_name).length > 1 && <span className="disambiguation">{agent.id}</span>}
           </span>
         </button>}
-        {store.has('agents_update') && !renameId && !store.pending.has(`edit:${agent.id}`) && <button className="row-rename" aria-label={`Rename ${agent.display_name}`} title="Rename" onClick={() => setRename(agent.id)}>⋯</button>}
         {store.selected !== agent.id && <MutationNotice item={store.pending.get(`edit:${agent.id}`)} requestKey={`edit:${agent.id}`} />}
       </div>)}
     </div>
-    <div className="nav-bottom"><span className="quiet connection">{store.connection}</span></div>
+    <div className="nav-bottom"><span className="quiet connection">{store.connection}</span>
+      {store.has('agents_create') && store.config && <button className="new-agent" aria-label="Create agent" title="Create agent" onClick={create}>＋</button>}
+    </div>
   </nav>;
 }
 function EntryRow({ entry }: { entry: Entry }) {
@@ -133,8 +145,8 @@ function EntryRow({ entry }: { entry: Entry }) {
   const message = entry.kind === 'message' && (entry.source?.type === 'message' || entry.source?.type === 'native');
   return <article className={`entry ${entry.role === 'user' ? 'owner-entry' : ''}`} data-entry-id={entry.entry_id}>
     <header><strong>{sender}</strong><time dateTime={entry.occurred_at} title={entry.occurred_at}>{reference && 'Observed '}{time(entry.occurred_at)}</time></header>
-    {entry.recorded_at !== entry.occurred_at && <p className="recorded">Recorded <time dateTime={entry.recorded_at} title={entry.recorded_at}>{time(entry.recorded_at)}</time></p>}
     {reference ? <FileReferenceCard reference={reference} /> : message ? <p className="message-body">{entry.text}</p> : <p className="unsupported">Unsupported content: {entry.kind}</p>}
+    {entry.recorded_at !== entry.occurred_at && <details className="entry-details"><summary>Record details</summary><p className="recorded">Recorded <time dateTime={entry.recorded_at} title={entry.recorded_at}>{time(entry.recorded_at)}</time></p></details>}
     <div className="delivery">
       {entry.delivery && <span>{({ pending: 'Stored · queued', deferred: 'Stored · deferred', dispatching: 'Stored · dispatching', submitted: 'Submitted', uncertain: 'Delivery uncertain', failed: 'Stored · delivery failed', cancelled: 'Stored · delivery cancelled' } as Record<string, string>)[entry.delivery.state] || `Delivery: ${entry.delivery.state}`}{entry.delivery.reason ? ` · ${entry.delivery.reason.replaceAll('_', ' ')}` : ''}</span>}
       {entry.handling && <span title={`Handled by ${entry.handling.handled_by}`}>Handled · {time(entry.handling.handled_at)}</span>}
@@ -147,9 +159,21 @@ function Chat({ agent }: { agent: Agent }) {
   const pending = store.pending.get(`send:${agent.id}`);
   const bytes = new TextEncoder().encode(draft.text).length;
   const ref = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const previous = useRef<{ id: string; first?: string; last?: string; height: number }>({ id: '', height: 0 });
   const [newMessages, setNewMessages] = useState(false);
   const composing = useRef(false);
+  const fitComposer = () => {
+    const input = composerRef.current; if (!input) return;
+    input.style.height = '0px'; input.style.height = `${input.scrollHeight}px`;
+  };
+  useLayoutEffect(fitComposer, [agent.id, draft.text]);
+  useLayoutEffect(() => {
+    const input = composerRef.current; if (!input) return;
+    let width = input.clientWidth;
+    const observer = new ResizeObserver(() => { if (input.clientWidth !== width) { width = input.clientWidth; fitComposer(); } });
+    observer.observe(input); return () => observer.disconnect();
+  }, [agent.id]);
   useLayoutEffect(() => {
     const box = ref.current; if (!box) return;
     const prior = previous.current;
@@ -185,12 +209,12 @@ function Chat({ agent }: { agent: Agent }) {
       <MutationNotice item={pending} requestKey={`send:${agent.id}`} />
       {store.has('messages_send') ? <form className="composer" onSubmit={e => { e.preventDefault(); void store.send(agent.id); }}>
         <label className="sr-only" htmlFor="message">Message {agent.display_name}</label>
-        <textarea id="message" placeholder={`Message ${agent.display_name}`} value={draft.text} rows={3} onInput={e => store.setDraft(agent.id, e.currentTarget.value)} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} onKeyDown={e => {
+        <textarea id="message" ref={composerRef} placeholder={`Message ${agent.display_name}`} value={draft.text} rows={1} onInput={e => store.setDraft(agent.id, e.currentTarget.value)} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} onKeyDown={e => {
           if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !composing.current && e.keyCode !== 229) { e.preventDefault(); if (!pending && bytes <= 65536) void store.send(agent.id); }
         }} />
-        <div className="composer-footer"><span className={bytes > 65536 ? 'error' : 'quiet'}>{bytes > 65536 ? `${bytes.toLocaleString()} / 65,536 bytes — message is too long` : 'Enter to send · Shift + Enter for a new line'}</span><button className="primary" type="submit" disabled={!draft.text || bytes > 65536 || !!pending}>Send <span aria-hidden="true">↑</span></button></div>
+        <button className="primary send-message" type="submit" aria-label="Send" title="Send" disabled={!draft.text || bytes > 65536 || !!pending}><ViewIcon name="send" /></button>
       </form> : <p className="quiet">Sending messages is unavailable on this server.</p>}
-      <p className="composer-note">Start and manage the CLI in Terminal. Messages are saved for delivery.</p>
+      {bytes > 65536 && <p className="composer-limit error" role="alert">{bytes.toLocaleString()} / 65,536 bytes — message is too long</p>}
     </div>
   </>;
 }
@@ -230,19 +254,50 @@ function RuntimeSummary({ id }: { id: string }) {
     </section>
   </>;
 }
-function Inspector({ agent, rename, changeIcon }: { agent: Agent; rename: () => void; changeIcon: () => void }) {
-  const publication = store.chat(agent.id)?.publication;
+function Inspector({ agent, changeIcon }: { agent: Agent; changeIcon: () => void }) {
+  const chat = store.chat(agent.id), publication = chat?.publication;
+  const [renaming, setRenaming] = useState(false);
+  const tabs = ['Details', 'Library', 'Computer'] as const;
+  const [tab, setTab] = useState<typeof tabs[number]>('Details');
+  const pending = store.pending.get(`edit:${agent.id}`), editable = store.has('agents_update');
+  const files = [...new Map((chat?.items || []).filter(fileReferenceEntry).map(entry => [entry.source.reference.reference_id, entry.source.reference])).values()];
   return <aside className="inspector" aria-label="Agent details">
-    <div className="inspector-identity"><Icon name={agent.icon_key} size={30} /><h2>{agent.display_name}</h2><p className="quiet">{agent.kind === 'host' ? 'Host agent' : 'VM agent'} · {agent.lifecycle}</p>
-      {store.has('agents_update') && <div className="inline-actions"><button onClick={rename} disabled={store.pending.has(`edit:${agent.id}`)}>Rename</button><button onClick={changeIcon} disabled={store.pending.has(`edit:${agent.id}`)}>Change icon</button></div>}
+    <div className="inspector-identity">
+      {editable ? <button className="identity-icon" aria-label="Change icon" title="Change icon" onClick={changeIcon} disabled={!!pending}><Icon name={agent.icon_key} size={56} /></button> : <Icon name={agent.icon_key} size={56} />}
+      <h2>{renaming ? <RenameInput key={agent.id} agent={agent} done={() => setRenaming(false)} /> : editable ? <button className="identity-name" aria-label={`Rename ${agent.display_name}`} title="Rename" onClick={() => setRenaming(true)} disabled={!!pending}>{agent.display_name}</button> : agent.display_name}</h2>
     </div>
-    <section><h3>Current work</h3><p>{agent.status.text}</p><dl><dt>Activity</dt><dd>{agent.activity}</dd><dt>Attention</dt><dd>{agent.needs_user_input ? 'Needs your input' : 'None reported'}</dd><dt>Status reviewed</dt><dd>{time(agent.status.reviewed_at)}</dd><dt>Activity observed</dt><dd>{time(agent.activity_observed_at)}</dd><dt>Last contact</dt><dd>{time(agent.last_contact_at)}</dd></dl></section>
-    <RuntimeSummary id={agent.id} />
-    <section><h3>Transcript publication</h3>{publication ? <><p>{publication.state === 'current' ? 'Current' : publication.state === 'blocked' ? 'Blocked' : 'Pending'} · {publication.pending_entries} pending entries</p>{publication.error && <p className="error">{publication.error.code}: {publication.error.message}</p>}<p className="quiet">Last saved publication observation.</p></> : <p className="quiet">No publication observation available.</p>}</section>
-    <section><h3>Browser</h3><p className="quiet">Unavailable. Browser viewing and control are not connected.</p></section>
-    <section><h3>{agent.kind === 'host' ? 'Desktop' : 'Machine'}</h3><p className="quiet">Unavailable. No desktop surface is connected.</p></section>
-    <section><h3>Terminal</h3><TerminalSummary store={store} id={agent.id} /></section>
-    <details><summary>Identity & workspace</summary><dl className="identity-details"><dt>Agent ID</dt><dd>{agent.id}</dd><dt>Conversation ID</dt><dd>{agent.conversation_id}</dd><dt>Workspace</dt><dd>{agent.workspace_path}</dd><dt>Workspace initialized</dt><dd>{agent.workspace_initialized_at ? time(agent.workspace_initialized_at) : 'Not yet'}</dd><dt>Metadata revision</dt><dd>{agent.revision}</dd></dl></details>
+    <div className="inspector-tabs" role="tablist" aria-label="Agent details tabs">{tabs.map(name => <button key={name} type="button" role="tab" id={`tab-${agent.id}-${name}`} aria-controls={`panel-${agent.id}`} aria-selected={tab === name} tabIndex={tab === name ? 0 : -1} onClick={() => setTab(name)} onKeyDown={e => {
+      const index = tabs.indexOf(name);
+      const next = e.key === 'ArrowRight' ? (index + 1) % tabs.length : e.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : -1;
+      if (next < 0) return;
+      e.preventDefault(); setTab(tabs[next]);
+      e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('button')[next].focus();
+    }}>{name}</button>)}</div>
+    <MutationNotice item={pending} requestKey={`edit:${agent.id}`} />
+    <div className="inspector-tabpanel" role="tabpanel" id={`panel-${agent.id}`} aria-labelledby={`tab-${agent.id}-${tab}`}>
+      {tab === 'Details' ? <>
+        <section className="current-work"><h3>Current work</h3><p>{agent.status.text}</p>
+          {(agent.activity !== 'unknown' || agent.needs_user_input) && <dl>{agent.activity !== 'unknown' && <><dt>Activity</dt><dd>{agent.activity}</dd></>}{agent.needs_user_input && <><dt>Attention</dt><dd>Needs your input</dd></>}</dl>}
+        </section>
+        <details className="more-details"><summary>More details</summary>
+          <dl><dt>Agent type</dt><dd>{agent.kind === 'host' ? 'Host agent' : 'VM agent'} · {agent.lifecycle}</dd><dt>Status reviewed</dt><dd>{time(agent.status.reviewed_at)}</dd><dt>Activity observed</dt><dd>{time(agent.activity_observed_at)}</dd><dt>Last contact</dt><dd>{time(agent.last_contact_at)}</dd></dl>
+          <RuntimeSummary id={agent.id} />
+          <section><h3>Transcript publication</h3>{publication ? <><p>{publication.state === 'current' ? 'Current' : publication.state === 'blocked' ? 'Blocked' : 'Pending'} · {publication.pending_entries} pending entries</p>{publication.error && <p className="error">{publication.error.code}: {publication.error.message}</p>}<p className="quiet">Last saved publication observation.</p></> : <p className="quiet">No publication observation available.</p>}</section>
+          <details><summary>Identity & workspace</summary><dl className="identity-details"><dt>Agent ID</dt><dd>{agent.id}</dd><dt>Conversation ID</dt><dd>{agent.conversation_id}</dd><dt>Workspace</dt><dd>{agent.workspace_path}</dd><dt>Workspace initialized</dt><dd>{agent.workspace_initialized_at ? time(agent.workspace_initialized_at) : 'Not yet'}</dd><dt>Metadata revision</dt><dd>{agent.revision}</dd></dl></details>
+        </details>
+      </> : tab === 'Library' ? <div className="shared-files">
+        <h3>Files shared in chat</h3>
+        {files.map(reference => <FileReferenceCard key={reference.reference_id} reference={reference} />)}
+        {!store.has('conversation_list') ? <p className="quiet">Shared files are unavailable on this server.</p> : chat?.loading ? <p className="quiet" role="status">Loading shared files…</p> : !files.length && <p className="quiet">No files shared in the loaded chat pages.</p>}
+        {chat?.error && <div className="error" role="alert">{chat.error} <button onClick={() => void store.refreshConversation(chat.epoch ? 'refresh' : 'initial')}>Retry shared files</button></div>}
+        {chat?.hasOlder && <button onClick={() => void store.refreshConversation('earlier')} disabled={chat.earlier}>{chat.earlier ? 'Loading earlier shared files…' : 'Load earlier shared files'}</button>}
+      </div> : <>
+        {['Browser', agent.kind === 'host' ? 'Desktop' : 'Machine'].map(surface => <section className="surface-card" key={surface} aria-label={surface}>
+          <div className="surface-preview" aria-hidden="true"><ViewIcon name="computer" /></div><h3>{surface}</h3><p className="quiet">{surface === 'Browser' ? 'Unavailable. Browser viewing and control are not connected.' : 'Unavailable. No desktop surface is connected.'}</p>
+        </section>)}
+        <section aria-label="Terminal status"><h3>Terminal</h3><TerminalSummary store={store} id={agent.id} /></section>
+      </>}
+    </div>
   </aside>;
 }
 function App() {
@@ -256,20 +311,19 @@ function App() {
   useEffect(() => { if (store.phase !== 'ready') { setNavOpen(false); setInspectOpen(false); setCreateOpen(false); setIconAgent(''); setRename(''); } }, [store.phase]);
   const select = (id: string) => { store.select(id); setNavOpen(false); setRename(''); };
   const navigation = <Navigation select={select} create={() => { setNavOpen(false); setCreateOpen(true); }} renameId={renameId} setRename={setRename} />;
-  const inspector = agent && <Inspector agent={agent} rename={() => { setInspectOpen(false); setRename(agent.id); if (mobile) setNavOpen(true); }} changeIcon={() => { setInspectOpen(false); setIconAgent(agent.id); setIcon(agent.icon_key); }} />;
+  const inspector = agent && <Inspector key={agent.id} agent={agent} changeIcon={() => { setIconAgent(agent.id); setIcon(agent.icon_key); }} />;
   if (store.phase !== 'ready') return <ConnectionPanel />;
   return <div className={`workspace ${!overlayInspector && store.inspector && agent ? 'with-inspector' : ''}`}>
     {!mobile && navigation}
     <main className="conversation">
-      <header className="conversation-header">
-        {mobile && <button aria-label="Open agents" onClick={() => setNavOpen(true)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg></button>}
-        <div className="conversation-title">{agent && <Icon name={agent.icon_key} />}<div><h1>{agent?.display_name || 'Conversations'}</h1><p>{agent ? `${agent.lifecycle} · ${agent.activity === 'unknown' ? 'Activity unknown' : agent.activity}` : 'Your agent workspace'}</p></div></div>
-        {agent && <div className="view-switch" role="group" aria-label="Agent view"><button aria-pressed={store.view(agent.id) === 'chat'} onClick={() => store.setView(agent.id, 'chat')}>Chat</button><button aria-pressed={store.view(agent.id) === 'terminal'} onClick={() => store.setView(agent.id, 'terminal')}>Terminal</button></div>}
-        {agent && <button aria-label={overlayInspector ? 'Open inspector' : store.inspector ? 'Close inspector' : 'Open inspector'} aria-expanded={overlayInspector ? inspectOpen : store.inspector} onClick={() => overlayInspector ? setInspectOpen(true) : store.toggleInspector()}>Details</button>}
-      </header>
+      <div className="workspace-controls">
+        {mobile && <button aria-label="Open agents" title="Agents" aria-expanded={navOpen} onClick={() => setNavOpen(true)}><ViewIcon name="agents" /></button>}
+        {agent && <div className="view-switch" role="group" aria-label="Agent view"><button aria-label="Chat" title="Chat" aria-pressed={store.view(agent.id) === 'chat'} onClick={() => store.setView(agent.id, 'chat')}><ViewIcon name="chat" /></button><button aria-label="Terminal" title="Terminal" aria-pressed={store.view(agent.id) === 'terminal'} onClick={() => store.setView(agent.id, 'terminal')}><ViewIcon name="terminal" /></button></div>}
+        {agent && <button aria-label="Details" title="Details" aria-expanded={overlayInspector ? inspectOpen : store.inspector} onClick={() => overlayInspector ? setInspectOpen(true) : store.toggleInspector()}><ViewIcon name="details" /></button>}
+      </div>
       {store.error && <div className="connection-error error" role="alert">{store.error}</div>}
       {store.notice && <div className="notice" role="status">{store.notice}<button aria-label="Dismiss notice" onClick={() => { store.notice = ''; store.emit(); }}>×</button></div>}
-      {agent && <MutationNotice item={store.pending.get(`edit:${agent.id}`)} requestKey={`edit:${agent.id}`} />}
+      {agent && !(overlayInspector ? inspectOpen : store.inspector) && <MutationNotice item={store.pending.get(`edit:${agent.id}`)} requestKey={`edit:${agent.id}`} />}
       {agent ? store.view(agent.id) === 'terminal' ? <TerminalPane key={agent.id} store={store} id={agent.id} /> : <Chat agent={agent} /> : <div className="empty"><h2>Select an agent</h2><p>Conversations stay with each agent.</p></div>}
     </main>
     {!overlayInspector && store.inspector && inspector}

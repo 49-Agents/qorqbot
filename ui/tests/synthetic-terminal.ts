@@ -29,8 +29,17 @@ export class SyntheticTerminal {
   async route(page: Page) {
     await page.routeWebSocket('**/api/v1/terminal/*', route => {
       const connection = { route, viewer: randomUUID(), messages: [] as (Control | Frame)[], closed: false };
+      const { terminal_id, recovery_epoch } = this.view;
       this.connections.push(connection);
-      route.onClose(() => { connection.closed = true; });
+      route.onClose(() => {
+        connection.closed = true;
+        const c = this.view.control;
+        // Received fixture effects settle synchronously, independently of held receipts.
+        // D56 closes only this binding's owned hold, never a replacement viewer's.
+        if (this.view.terminal_id === terminal_id && this.view.recovery_epoch === recovery_epoch && c?.mode === 'human' && c.viewer_id === connection.viewer) {
+          this.view = { ...this.view, control: { mode: 'unclaimed', epoch: c.epoch + 1, viewer_id: null, last_sequence: 0 } };
+        }
+      });
       route.onMessage(raw => {
         const message: Control | Frame = JSON.parse(raw.toString()); connection.messages.push(message);
         if (message.type === 'control') {
