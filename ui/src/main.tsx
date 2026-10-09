@@ -161,7 +161,7 @@ function EntryRow({ entry }: { entry: Entry }) {
       <p className="inbox-reference-id">Message ID: {entry.inbox_reference!.message_id}</p>
     </details> : reference ? <FileReferenceCard reference={reference} /> : message ? <p className="message-body">{entry.text}</p> : <p className="unsupported">Unsupported content: {entry.kind}</p>}
     <div className="delivery">
-      {entry.delivery && <span>{({ pending: 'Stored · queued', deferred: 'Stored · deferred', dispatching: 'Stored · dispatching', submitted: 'Submitted', uncertain: 'Delivery uncertain', failed: 'Stored · delivery failed', cancelled: 'Stored · delivery cancelled' } as Record<string, string>)[entry.delivery.state] || `Delivery: ${entry.delivery.state}`}{entry.delivery.reason ? ` · ${entry.delivery.reason.replaceAll('_', ' ')}` : ''}</span>}
+      {entry.delivery && !['pending', 'deferred', 'dispatching'].includes(entry.delivery.state) && <span>{({ submitted: 'Submitted', uncertain: 'Delivery uncertain', failed: 'Delivery failed', cancelled: 'Delivery cancelled' } as Record<string, string>)[entry.delivery.state] || `Delivery: ${entry.delivery.state}`}{entry.delivery.reason ? ` · ${entry.delivery.reason.replaceAll('_', ' ')}` : ''}</span>}
       {entry.handling && <span title={`Handled by ${entry.handling.handled_by}`}>Handled · {time(entry.handling.handled_at)}</span>}
     </div>
     </div>

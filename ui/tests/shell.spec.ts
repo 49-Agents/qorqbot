@@ -312,7 +312,7 @@ test('selection and late reads/mutations retain each draft and original target',
   await agentButton(page, 'Atlas').click();
   await expect(message(page)).toHaveValue('Typed while saving');
   expect(calls(api, 'messages_send')[0].args.recipient_agent_id).toBe(alpha);
-  await expect(page.getByText('Stored · queued · runtime unavailable').first()).toBeVisible();
+  await expect(page.locator('.message-body').filter({ hasText: 'Atlas draft' })).toBeVisible();
   const late = api.hold('messages_send');
   await message(page).fill('Late connection result');
   await page.getByRole('button', { name: 'Send', exact: true }).click(); await late.seen;
@@ -500,7 +500,7 @@ test('escaped bubbles, compact composer and desktop inspector drawers, focus and
       await expect(row.locator('header time')).toHaveAttribute('datetime', entry.occurred_at);
       await expect(row.locator('header time')).toHaveText(/\d+ days ago/);
     }
-    await expect(page.getByText('Stored · queued · runtime unavailable', { exact: true })).toHaveCount(3);
+    await expect(page.getByText(/^Stored · (queued|deferred|dispatching)/)).toHaveCount(0);
     await expect(page.locator('.composer-note, .composer-footer')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveText('');
     expect(await page.evaluate(() => 'injected' in window)).toBe(false);
@@ -987,7 +987,7 @@ test('synthetic runtime inspector validates session/native observations, fences 
   await expect(work.getByText('Initializing.', { exact: true })).toBeVisible();
   await expect(work.getByText('unknown', { exact: true })).toHaveCount(0);
   await expect(work.getByText('Capture', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('Stored · queued · runtime unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText('Stored · queued · runtime unavailable', { exact: true })).toHaveCount(0);
   await expect(session.getByText(ownerId, { exact: true })).toBeHidden();
   await session.scrollIntoViewIfNeeded(); await overflow();
   await page.screenshot({ path: testInfo.outputPath('runtime-desktop-connected.png'), fullPage: true });

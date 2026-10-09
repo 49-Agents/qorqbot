@@ -71,11 +71,12 @@ legend{padding:0;margin-bottom:9px}
 .terminal-unavailable button,.inspector section button{font-size:12px;margin-top:12px}
 .history{flex:1;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overflow-anchor:none;scrollbar-color:#414141 transparent}
 .history-content{min-width:0;max-width:930px;margin:0 auto;padding:12px 62px 24px 24px}
-.entry{position:relative;width:fit-content;max-width:86%;margin:16px 0 8px;overflow-wrap:anywhere}
+.entry{position:relative;width:fit-content;max-width:86%;margin:5px 0;overflow-wrap:anywhere}
+.entry:hover,.entry:focus-within{z-index:1}
 .entry.owner-entry{margin-left:auto}
 .message-bubble{padding:12px 16px;border-radius:18px;background:#202020}
 .owner-entry>.message-bubble{background:#333}
-.message-meta{position:absolute;bottom:calc(100% + 2px);left:0;display:flex;gap:8px;align-items:baseline;width:max-content;max-width:min(360px,60vw);white-space:nowrap;color:#888;opacity:0;pointer-events:none;font-size:11px;line-height:1.2}
+.message-meta{position:absolute;bottom:calc(100% + 2px);left:0;display:flex;gap:8px;align-items:baseline;width:max-content;max-width:min(360px,60vw);white-space:nowrap;color:#888;background:#0b0b0b;border-radius:3px;padding:0 3px;opacity:0;pointer-events:none;font-size:11px;line-height:1.2}
 .owner-entry>.message-meta{left:auto;right:0}
 .message-meta strong{font-weight:400;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .message-meta time{flex:none;font-size:10px;color:#777}

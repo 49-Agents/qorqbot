@@ -21,3 +21,10 @@ The hover label uses a compact line height and 2px offset to fit that gap.
 The production build and existing desktop message-layout/clipboard check passed;
 the hover screenshot was inspected. No new tests were added. Screenshots are in
 `message-spacing-checks/` under the same private build state directory.
+
+Second owner follow-up: reduced the gap to 5px and removed routine Stored/queued,
+deferred and dispatching text from bubbles. Hover labels have a neutral backing
+so they remain readable over the tighter spacing. TypeScript/Vite build and the
+three affected existing Chrome groups passed (selection/send, message layout and
+runtime inspector). Screenshot inspection confirmed the compact layout; artifacts
+are in `compact-message-bubbles-checks/` in the private build state directory.

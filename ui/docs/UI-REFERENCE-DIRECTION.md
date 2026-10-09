@@ -1,5 +1,10 @@
 # Reference-driven chat and inspector
 
+Owner follow-up, 2026-10-09: use a 5px gap between consecutive messages. Hover
+metadata overlays the compact gap with a neutral backing. Hide routine queued,
+deferred and dispatching labels (including composer-unknown reasons) in bubbles;
+retain confirmed submission, handling and actual delivery problems.
+
 Owner update, 2026-10-09: message name/time appear only on hover (or keyboard
 focus), subtly above the bubble, with relative minutes/hours/days. Remove the
 Record details line. A hover/focus copy icon sits outside the bubble on its right
