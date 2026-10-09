@@ -392,7 +392,10 @@ class SetupServer(OwnedProcesses, unittest.TestCase):
             self.assertIsNone(first.state.application.native_setup._cache)
             self.assertFalse(first.state.session_monitor._thread.is_alive())
 
-        asyncio.run(check())
+        with patch("qorqut_core.runtime.native_startup._discover",
+                   side_effect=PermissionError("PRIVATE startup observation")) as discovery:
+            asyncio.run(check())
+        self.assertGreater(discovery.call_count, 0)
         actor, other = uuid4(), uuid4()
         token = "synthetic-local-" + uuid4().hex
         digest = hashlib.sha256(token.encode()).digest()

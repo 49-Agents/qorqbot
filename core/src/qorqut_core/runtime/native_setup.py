@@ -21,10 +21,11 @@ from ..adapters.preparation import json_bytes
 from ..adapters.types import AdapterError, ManagedRoots, MCPBinding
 from ..agents.registry import reserved
 from ..agents.workspace import child_directory, same_child
-from ..contracts import CoreError, Model
+from ..contracts import CoreError, Invocation, Model
 from ..runner.models import RunnerError
 from ..storage.database import assert_external_io_allowed
 from .native_models import NativeSetupView
+from .native_startup import NativeStartup
 from .terminal_models import TerminalGet
 
 CREDENTIAL = "core-credential.json"
@@ -90,6 +91,7 @@ class NativeSetup:
         self._register = None
         self._cache = None
         self._installed = None
+        self._startup = NativeStartup(application)
 
     def configure_credentials(self, register):
         with self._lock:
@@ -201,6 +203,8 @@ class NativeSetup:
                         checked()
                         with self._lock:
                             self._installed = key
+                    self._startup.observe(Invocation(actor_id=row["actor_id"]), terminal=shell,
+                                          programs=settings.native_programs, guard=checked)
                 self._publish(agent_id, "ready", "configuration_installed")
         except (CoreError, RunnerError, OSError, ValueError, sqlite3.Error):
             # Fixed observations only: no tokens, native settings, paths or
