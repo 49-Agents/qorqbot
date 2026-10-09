@@ -112,7 +112,8 @@ class TerminalArchiveTests(AgentCase):
                 local.execute("BEGIN IMMEDIATE")
                 local.rollback()
             return receive(context, binding, chunk)
-        with patch.object(self.app.archive, "receive", side_effect=checked), \
+        with patch.object(terminal_archive, "monotonic", return_value=0.0), \
+                patch.object(self.app.archive, "receive", side_effect=checked), \
                 patch.object(self.app.archive, "state", side_effect=AssertionError("state cannot authorize ACK")):
             self.transfer()
             self.assertEqual(len(calls), 4)
@@ -147,6 +148,83 @@ class TerminalArchiveTests(AgentCase):
                          [(c.offset, c.length, c.sha256) for c in calls])
         refreshed = terminal_archive.saved_capture(self.database, self.shell)
         self.assertEqual((refreshed.local_captured_offset, refreshed.host_archived_offset), (len(payload), len(payload)))
+
+    def test_small_chunks_count_budget_and_receipt_based_continuation(self):
+        payloads = [bytes([i]) * (i % 17 + 1) for i in range(130)]
+        for payload in payloads:
+            self.append(payload)
+        before = self.local_rows("capture_chunks")
+        with patch.object(terminal_archive, "monotonic", return_value=0.0), \
+                patch.object(self.app.archive, "state", side_effect=AssertionError("state cannot authorize ACK")), \
+                patch.object(self.app.archive, "receive", wraps=self.app.archive.receive) as receive:
+            self.transfer()
+        calls = [call.args[2] for call in receive.call_args_list]
+        self.assertEqual(len(calls), 128)
+        self.assertEqual(self.state()["host_archived_offset"], sum(map(len, payloads[:128])))
+        self.assertEqual(self.payloads(), [None] * 128 + payloads[128:])
+        self.assertEqual(self.host_bytes(), b"".join(payloads[:128]))
+        self.assertIsNone(self.intent())
+        self.restart()
+        with patch.object(terminal_archive, "monotonic", return_value=0.0), \
+                patch.object(self.app.archive, "state", side_effect=AssertionError("state cannot authorize ACK")), \
+                patch.object(self.app.archive, "receive", wraps=self.app.archive.receive) as receive:
+            self.transfer()
+        calls += [call.args[2] for call in receive.call_args_list]
+        self.assertEqual([chunk.payload for chunk in calls], payloads)
+        self.assertEqual([(r["offset"], r["length"], r["sha256"]) for r in before],
+                         [(c.offset, c.length, c.sha256) for c in calls])
+        self.assertEqual(len(self.host_chunks()), 130)
+        self.assertEqual(self.host_bytes(), b"".join(payloads))
+        self.assertEqual(self.state()["host_archived_offset"], sum(map(len, payloads)))
+        self.assertEqual(self.payloads(), [None] * 130)
+        self.assertIsNone(self.intent())
+
+    def test_byte_budget_never_splits_or_skips_the_next_original_chunk(self):
+        payloads = [b"x"] + [bytes([i]) * CHUNK_BYTES for i in range(4)] + [b"tail"]
+        for payload in payloads:
+            self.append(payload)
+        with patch.object(terminal_archive, "monotonic", return_value=0.0), \
+                patch.object(self.app.archive, "receive", wraps=self.app.archive.receive) as receive:
+            self.transfer()
+            self.assertEqual([call.args[2].payload for call in receive.call_args_list], payloads[:4])
+            self.assertEqual(self.state()["host_archived_offset"], 1 + 3 * CHUNK_BYTES)
+            self.assertEqual(self.payloads(), [None] * 4 + payloads[4:])
+            self.assertIsNone(self.intent())
+            self.transfer()
+            self.assertEqual([call.args[2].payload for call in receive.call_args_list], payloads)
+        self.assertEqual(self.host_bytes(), b"".join(payloads))
+        self.assertEqual(self.payloads(), [None] * len(payloads))
+        self.assertIsNone(self.intent())
+
+    def test_time_budget_allows_first_chunk_and_completes_receipt_ack_cleanup(self):
+        for setup_delay, chunk_delay, count in ((0.25, 0.0, 1), (0.0, 0.125, 2),
+                                               (0.0, 0.2, 1), (0.0, 1.0, 1)):
+            with self.subTest(setup_delay=setup_delay, chunk_delay=chunk_delay):
+                self.new_terminal()
+                payloads = [b"first", b"second", b"third"]
+                for payload in payloads:
+                    self.append(payload)
+                now = 0.0
+                register, receive = self.app.archive.register, self.app.archive.receive
+                def delayed_register(*args):
+                    nonlocal now
+                    result = register(*args)
+                    now += setup_delay
+                    return result
+                def delayed_receive(*args):
+                    nonlocal now
+                    result = receive(*args)
+                    now += chunk_delay
+                    return result
+                with patch.object(terminal_archive, "monotonic", side_effect=lambda: now), \
+                        patch.object(self.app.archive, "register", side_effect=delayed_register), \
+                        patch.object(self.app.archive, "receive", side_effect=delayed_receive) as received:
+                    self.transfer()
+                self.assertEqual(received.call_count, count)
+                self.assertEqual(self.state()["host_archived_offset"], sum(map(len, payloads[:count])))
+                self.assertEqual(self.host_bytes(), b"".join(payloads[:count]))
+                self.assertEqual(self.payloads(), [None] * count + payloads[count:])
+                self.assertIsNone(self.intent())
 
     def test_interrupted_receive_receipt_ack_reclaim_and_retirement_retry(self):
         for point in ("intent", "receive_before", "receive_after", "receipt", "ack_before", "ack_after",
