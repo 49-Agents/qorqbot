@@ -1,19 +1,19 @@
 # Backend planning documents
 
-The [observed Codex placeholder correction](evidence/codex-placeholder-reset-manager-acceptance.md)
-is accepted; the connected Codex flow needs its corrected pin. Claude delivered
-two notifications but native automatic approval blocked MCP execution in the
-canned fixture; that boundary remains explicit in [the connected plan](CONNECTED-CHAT-ACCEPTANCE.md).
+Start with [current connected-flow acceptance](evidence/connected-chat-manager-acceptance.md)
+and the next [responsiveness corrections](RESPONSIVENESS-CORRECTIONS.md).
+Codex completed three actual native MCP message flows, including after restart.
+Claude delivered two notifications but its canned fixture's automatic approval
+blocked MCP execution. Both results retain their limits.
 
 Accepted and integrated: D46 [host dispatch](evidence/host-message-dispatch-manager-acceptance.md)
 and D48 [continued native collection](evidence/native-collection-continuity-manager-acceptance.md).
 The [actual core/MCP/file-card flow](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/file-reference-integration-manager-acceptance.md)
-also passed bounded acceptance. Next, two parallel [connected Chat checks](CONNECTED-CHAT-ACCEPTANCE.md)
-exercise manually started Claude and Codex through real MCP calls, replies,
-automatic dated history and core restart. Manager reviews/tests directly;
+also passed bounded acceptance. The [connected Chat checks](CONNECTED-CHAT-ACCEPTANCE.md)
+are recorded at their frozen pins. Manager reviews/tests directly;
 workers use Astra MAX with self-review off. Core has schema 9, 17 public
-operations and five handlers. These component results do not yet establish
-native Chat dispatch or complete transcript coverage. Shutdown drain,
+operations and five handlers. These qualified results do not establish
+complete transcript coverage. Shutdown drain,
 child/attachment support, browser/VM integration and full system gates remain open.
 
 Start with [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md) for the owner's

@@ -3,12 +3,15 @@
 Accepted and integrated: D46 [host dispatch](evidence/host-message-dispatch-manager-acceptance.md)
 and D48 [continued native collection](evidence/native-collection-continuity-manager-acceptance.md).
 The [actual core/MCP/file-card flow](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/file-reference-integration-manager-acceptance.md)
-also passed bounded acceptance. Next, two parallel [connected Chat checks](CONNECTED-CHAT-ACCEPTANCE.md)
-exercise manually started Claude and Codex through real MCP calls, replies,
-automatic dated history and core restart. Manager reviews/tests directly;
+also passed bounded acceptance. The [connected Chat reports](evidence/connected-chat-manager-acceptance.md)
+now have bounded Manager acceptance: Codex completed actual native MCP reads,
+acknowledgments, replies and a fresh message after core restart; Claude's native
+MCP calls were blocked, while notification/restart evidence passed. Next are
+three parallel [responsiveness corrections](RESPONSIVENESS-CORRECTIONS.md).
+Manager reviews/tests directly;
 workers use Astra MAX with self-review off. Core has schema 9, 17 public
-operations and five handlers. These component results do not yet establish
-native Chat dispatch or complete transcript coverage. Shutdown drain,
+operations and five handlers. These qualified runs do not establish
+complete transcript coverage. Shutdown drain,
 child/attachment support, browser/VM integration and full system gates remain open. The pinned
 connected-flow check may need one manual seed prompt for either CLI before its
 primary native file exists. Decision 307 preserves this as an unresolved initial

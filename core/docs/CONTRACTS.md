@@ -4,7 +4,10 @@ D46's concrete [host message dispatch contract](HOST-MESSAGE-DISPATCH.md)
 extends deliveries_get with typed attempts and adds schema 9. Its
 [component implementation is accepted](evidence/host-message-dispatch-manager-acceptance.md);
 [D48 is also accepted](evidence/native-collection-continuity-manager-acceptance.md);
-the [actual native-CLI flow](CONNECTED-CHAT-ACCEPTANCE.md) remains an acceptance gate.
+the [actual native-CLI flow](evidence/connected-chat-manager-acceptance.md) has
+qualified Codex acceptance; Claude MCP execution remains blocked. D49's
+[bounded request wait](RESPONSIVENESS-CORRECTIONS.md) changes only transport
+admission and is planned, not yet implemented.
 
 [D48](NATIVE-COLLECTION-CONTINUITY.md) gives that dispatcher a private, fresh,
 per-run raw-capture observation. Public native-history gaps remain visible and

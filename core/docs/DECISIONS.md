@@ -551,3 +551,12 @@ rescans without replacing descriptors before their drain boundary. It also gives
 D46 private per-run raw-health evidence so semantic parser/coverage warnings do
 not masquerade as primary recording failure. Public gaps stay visible. Shutdown
 drain, child/attachment coverage and rename deduplication remain separate work.
+
+## D49 — Bounded burst waiting and observation recovery
+
+The connected Codex run exposed transport refusals, UI disconnection after failed
+reads, and slow four-chunk Terminal archival. The
+[three correction scopes](RESPONSIVENESS-CORRECTIONS.md) retain four executing
+calls with a small timed waiter bound, distinguish failed status reads from actual
+terminal changes, and use a bounded time/byte/chunk archive batch. No new service,
+schema, retry of possible effects or provider-selection control is introduced.

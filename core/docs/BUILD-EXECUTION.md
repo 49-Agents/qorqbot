@@ -530,3 +530,17 @@ The two D41 implementation lanes continue. A parallel facts-only
 [native input assignment](CHAT-DELIVERY-EVIDENCE.md) now checks the actual remaining
 composer/paste observations needed before Manager connects Chat delivery. It owns
 no production changes and may use only completed fixtures copied privately.
+
+## D49 connected-flow correction wave — 2026-10-09
+
+The [connected reports](evidence/connected-chat-manager-acceptance.md) are
+accepted within their recorded qualifications. Codex exercised native MCP
+handling and a new message after restart; Claude MCP remains blocked.
+
+Three independent Astra MAX lanes follow the
+[fixed correction plan](RESPONSIVENESS-CORRECTIONS.md): transport admission,
+UI transient-read recovery, and small-chunk Terminal archive throughput.
+Manager directly reviews/tests completed code under the owner's latest review
+instruction; no internal reviewer or separate mandatory review actor. The active
+capacity is three workers plus Manager. The combined real-core/UI check follows
+integration. This is planned work, not completed acceptance.
