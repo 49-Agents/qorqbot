@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import sqlite3
 import stat
+from time import monotonic
 
 from ..contracts import CoreError, Invocation
 from ..runner.shell_models import ShellCapture, ShellSpec, ShellView, absolute_path
@@ -96,12 +97,17 @@ def _receipt(value, intent):
 
 
 def transfer(database: Path, shell: ShellView, archive: Archive, context: Invocation) -> None:
-    """Transfer at most four original chunks (1 MiB), including resumed intents.
+    """Transfer at most 128 original chunks / 1 MiB, including resumed intents.
+
+    Allow one whole pending chunk, then stop starting chunks after 200 ms.
+    Receipt/ACK/reclamation always finish; I/O can exceed this scheduling budget.
 
     Caller retains its workspace/provisioning guards. Keep the host lifetime and
     effects guards through local cleanup as well as receive; no SQL transaction
     surrounds host filesystem or recorder I/O. Stopped/unprobed shells can drain.
     """
+    deadline = monotonic() + 0.2
+    transferred_bytes = 0
     assert_external_io_allowed()
     with archive.db.lock.use(), archive.db.lock.effects, _local(database) as local:
         with archive.db.read() as tx:
@@ -129,7 +135,9 @@ def transfer(database: Path, shell: ShellView, archive: Archive, context: Invoca
                     PRIMARY KEY(source_id,source_epoch),
                     FOREIGN KEY(source_id,source_epoch) REFERENCES capture_epochs(source_id,source_epoch)
                 )""")
-            for _ in range(4):
+            for completed in range(128):
+                if completed and (transferred_bytes >= 1024 * 1024 or monotonic() >= deadline):
+                    break
                 chunk = None
                 intent = local.execute("SELECT * FROM terminal_archive_transfers WHERE source_id=? AND source_epoch=?",
                                        key).fetchone()
@@ -141,6 +149,8 @@ def transfer(database: Path, shell: ShellView, archive: Archive, context: Invoca
                     chunk = validate_chunk(page.chunks[0])
                     if chunk.offset != acknowledged:
                         raise ValueError("Terminal archive cursor disagrees with chunk")
+                    if transferred_bytes + chunk.length > 1024 * 1024:
+                        break
                     with local:
                         local.execute("INSERT INTO terminal_archive_transfers VALUES (?,?,?,?,?,?,?,NULL)",
                             (*key, json.dumps(asdict(binding), sort_keys=True), chunk.offset,
@@ -184,3 +194,4 @@ def transfer(database: Path, shell: ShellView, archive: Archive, context: Invoca
                 spool.reclaim(*key)
                 with local:
                     local.execute("DELETE FROM terminal_archive_transfers WHERE source_id=? AND source_epoch=?", key)
+                transferred_bytes += intent["length"]
