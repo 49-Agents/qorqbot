@@ -11,7 +11,8 @@ bounded corrections, not authorization for startup/browser/VM redesign.
 All three components are accepted: [archive budget](evidence/terminal-archive-budget-manager-acceptance.md),
 [request admission](evidence/dispatch-admission-manager-acceptance.md) and
 [UI read recovery](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/read-recovery-manager-acceptance.md).
-The combined real-core/UI run passed 24 bounded burst reads and retained its
+The [reviewed combined real-core/UI run](evidence/responsiveness-integration-manager-acceptance.md)
+passed 24 bounded burst reads and retained its
 Terminal connection, but failed the 30-second archive catch-up gate. Its original
 failed measurement is preserved. [D50](TERMINAL-TRANSFER-RANGES.md) supersedes
 the one-host-object-per-original-chunk restriction below; other D49 scopes stay.

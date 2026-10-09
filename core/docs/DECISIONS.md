@@ -570,3 +570,13 @@ archive object, with a saved constituent manifest and exact receipt replay.
 The recorder and original local coordinate/hash ledger are unchanged. Only the
 local transfer-intent table gains a nullable manifest for legacy compatibility;
 host schemas/APIs, native archival and observer cadence do not change.
+
+## D51 — Observe the native Codex startup identity before the delayed hook
+
+The accepted cold-start exploration found a held UUID-named writer lock before
+Codex's first input. [Startup connection](NATIVE-STARTUP-CONNECTION.md) verifies
+that exact native process, lock and recorded-shell ancestry, then uses the
+existing incumbent-wins owner boundary. It runs on the existing setup tick,
+records a distinct binding observation and creates no native transcript or
+input-readiness claim. Claude keeps its real startup hook. First-message capture
+bootstrap remains a separate required design; no automatic CLI launch is added.

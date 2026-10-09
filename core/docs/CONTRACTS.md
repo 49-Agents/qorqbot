@@ -13,6 +13,11 @@ allow one host object to contain several contiguous original recorder chunks.
 The local capture ledger keeps its original offsets/hashes; host byte ranges
 and returned receipts retain the existing durability and identity contract.
 
+[D51](NATIVE-STARTUP-CONNECTION.md) admits a manually started, exactly observed
+Codex session through existing Owners.connect before its delayed startup hook.
+Its distinct native.startup_observed event is binding evidence only: it does
+not establish idle/readiness, create a native source or grant initial input.
+
 [D48](NATIVE-COLLECTION-CONTINUITY.md) gives that dispatcher a private, fresh,
 per-run raw-capture observation. Public native-history gaps remain visible and
 do not themselves authorize or prohibit input. The runtime proves all its other

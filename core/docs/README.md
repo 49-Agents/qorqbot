@@ -5,6 +5,10 @@ and the [responsiveness corrections](RESPONSIVENESS-CORRECTIONS.md). Their
 combined archive timing check failed; [D50 transfer ranges](TERMINAL-TRANSFER-RANGES.md)
 are the next correction. [Native cold-start facts](evidence/native-cold-start-manager-acceptance.md)
 identify the separate first-Chat gap without changing session admission.
+[D51 startup connection](NATIVE-STARTUP-CONNECTION.md) plans pre-prompt
+Codex binding through existing inbox ownership; first-message readiness is a
+separate step. [Reviewed D49 evidence](evidence/responsiveness-integration-manager-acceptance.md)
+retains the failed timing gate alongside the successful independent restart.
 Codex completed three actual native MCP message flows, including after restart.
 Claude delivered two notifications but its canned fixture's automatic approval
 blocked MCP execution. Both results retain their limits.

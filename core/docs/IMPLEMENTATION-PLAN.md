@@ -13,7 +13,12 @@ connected, but failed the 30-second archive catch-up gate. D50's
 [contiguous transfer ranges](TERMINAL-TRANSFER-RANGES.md) address the observed
 per-chunk cost while preserving original capture bytes and ledgers.
 [Pre-prompt native-session facts](evidence/native-cold-start-manager-acceptance.md)
-are accepted as design inputs; initial Chat remains unresolved.
+are accepted as design inputs. [D51 startup connection](NATIVE-STARTUP-CONNECTION.md)
+is planned in parallel with D50 to observe the manually started Codex session
+independently of its delayed hook; it will not grant first-Chat input. The
+[combined D49 evidence](evidence/responsiveness-integration-manager-acceptance.md)
+also accepts independent restart/recording checks while preserving the failed
+archive timing gate. Initial Chat remains unresolved.
 Manager reviews/tests directly;
 workers use Astra MAX with self-review off. Core has schema 9, 17 public
 operations and five handlers. These qualified runs do not establish
