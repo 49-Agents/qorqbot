@@ -1,4 +1,4 @@
-# Working on qorqutbot-ui
+# Working on qorqbot-ui
 
 Read `docs/IMPLEMENTATION-PLAN.md`, `docs/CONTRACTS.md`, and the applicable module plan before implementation. This is a backend-first project. The planning baseline is not evidence that a feature exists or has passed acceptance.
 
@@ -6,7 +6,7 @@ Read `docs/IMPLEMENTATION-PLAN.md`, `docs/CONTRACTS.md`, and the applicable modu
 
 - Preserve the owner's requirements: stable agent identity and folder, per-agent execution/browser, host-global onbash, unrestricted v1 operations, durable communication/status/creation history, and provider-independent captured history.
 - Keep one core host application and a small runner, plus the owner's explicitly requested independent browser MCP service beside each browser. Other module boundaries do not justify another service, database server, broker, framework, or generic plugin system.
-- Follow the monorepo module boundary: `core/` (`qorqut-core`) owns backend coordination/configuration and agents/runtime/messaging/history; `browser/` (`qorqut-browser`) owns browser tooling and its separate MCP server; `ui/` (`qorqutbot-ui`) owns the frontend. Core runs headlessly. Keep the UI free of backend business rules and browser free of core/UI imports. Register browser tools only on browser's MCP endpoint.
+- Follow the monorepo module boundary: `core/` (`qorqut-core`) owns backend coordination/configuration and agents/runtime/messaging/history; `browser/` (`qorqut-browser`) owns browser tooling and its separate MCP server; `ui/` (`qorqbot-ui`) owns the frontend. Core runs headlessly. Keep the UI free of backend business rules and browser free of core/UI imports. Register browser tools only on browser's MCP endpoint.
 - Reuse Qorqut selectively using `docs/PORTING.md`; do not import its live installation, database, business roles, private records, credentials, or configuration into this repository.
 - Keep raw archives and derived views separate. Never call a visible Chat projection a complete transcript archive. Never call pasted input processed work or silently retry an uncertain external effect.
 - Use the shared application operations from HTTP, MCP and the operator client. Transport adapters do not implement separate business rules.

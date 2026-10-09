@@ -1,6 +1,6 @@
 # qorqut-core
 
-Backend for persistent CLI-driven agents, in the [Qorqutbot monorepo](../README.md).
+Backend for persistent CLI-driven agents, in the [Qorqbot monorepo](../README.md).
 Owns agent identities/personas/files, terminal execution, recording/history,
 messaging, coordination and application configuration.
 

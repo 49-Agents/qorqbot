@@ -124,15 +124,15 @@ observed. None of these is the primary transcript. The only JSONL was the
 core native spool existed, with no source registration or raw health proof.
 
 Configuration evidence is preserved before launch and at every snapshot.
-[NativeSetup](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/native_setup.py#L153-L204)
+[NativeSetup](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/native_setup.py#L153-L204)
 uses the recorded shell binding and installs the core connection and hook sink.
-[manual_hooks.py](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/adapters/manual_hooks.py#L151-L176)
+[manual_hooks.py](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/adapters/manual_hooks.py#L151-L176)
 writes the seven shared events plus Codex Interrupt or Claude PostToolUseFailure,
 each with a three-second command timeout. Codex reads managed HOME
 `.codex/hooks.json`; Claude reads workspace `.claude/settings.local.json`.
 The command is the configured Python `-I -m qorqut_core.runtime.hook_client
 --binding <workspace>/.qorqut/manual-hooks/<provider>.json --provider <provider>`.
-[manual_core.py](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/adapters/manual_core.py#L155-L174)
+[manual_core.py](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/adapters/manual_core.py#L155-L174)
 installs only the managed core MCP entry and inbox instructions; it does not
 select native model/effort or create a session. Exact expanded commands and
 config bytes are private, including synthetic credentials.
@@ -154,32 +154,32 @@ Current failing prerequisites follow directly from these measured absences and
 the accepted source. **No fresh Chat dispatch was attempted**, so the refusal
 names here are source-derived consequences, not newly observed delivery rows:
 
-1. **Owner admission:** [native_hooks.py 87–136](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/native_hooks.py#L87-L136)
-   and [242–267](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/native_hooks.py#L242-L267)
+1. **Owner admission:** [native_hooks.py 87–136](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/native_hooks.py#L87-L136)
+   and [242–267](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/native_hooks.py#L242-L267)
    requires a real hook's native UUID/path and a twice-verified bounded ancestry
    with exactly one configured native executable. Only SessionStart connects;
    other events need a matching incumbent. A missing fresh file is allowed at
-   admission. [owners.py 87–146](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/owners.py#L87-L146)
+   admission. [owners.py 87–146](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/owners.py#L87-L146)
    preserves live/unknown incumbents. Core does not admit owners from the native
    lock or Claude peer metadata. Codex therefore fails
-   [RuntimeInput._owner](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/input_dispatch.py#L158-L169)
+   [RuntimeInput._owner](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/input_dispatch.py#L158-L169)
    with `session_unavailable` before its later checks.
-2. **Accepted idle:** [input_dispatch.py 217–241](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/input_dispatch.py#L217-L241)
+2. **Accepted idle:** [input_dispatch.py 217–241](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/input_dispatch.py#L217-L241)
    requires the latest accepted, agent-attributed, exact-owner event to match
    process/session/provider/version/terminal/generations and be idle
    SessionStart, Stop or Interrupt. Codex lacks this; Claude has it. A blank
    composer or peer `status=idle` does not replace this event.
 3. **Primary-source admission and healthy capture:**
-   [discovery.py 129–223](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/adapters/discovery.py#L129-L223)
+   [discovery.py 129–223](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/adapters/discovery.py#L129-L223)
    needs an eligible exact-session JSONL filename **and matching native identity
    in complete file records**, with stable file/proof spans. Neither absent nor
-   empty files satisfy that. [NativeCollector](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/native_collector.py#L281-L336)
+   empty files satisfy that. [NativeCollector](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/native_collector.py#L281-L336)
    discovers from saved owners, retrying never-discovered owners at minimum
-   one-second intervals. [Raw health](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/native_collector.py#L412-L445)
+   one-second intervals. [Raw health](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/native_collector.py#L412-L445)
    requires at least one admitted mapped primary epoch, a successful service
    observation no older than five seconds and matching archive lineage without
    raw failure/recovery holds. Source count zero cannot be healthy.
-   [RuntimeInput._capture](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/input_dispatch.py#L243-L279)
+   [RuntimeInput._capture](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/input_dispatch.py#L243-L279)
    requires that exact full RunBinding health, observation at/after connection,
    and an unconflicted primary native archive link. Both lack this; Claude's
    initial blocker is consequently `capture_unavailable`.
@@ -187,10 +187,10 @@ names here are source-derived consequences, not newly observed delivery rows:
    installation/recovery/environment/terminal identities, live executable and
    ancestry, fresh recorder/no terminal gap, unclaimed human control and the
    pinned empty-composer classifier still apply, with final rechecks under the
-   input gate. See [input_dispatch.py 172–215](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/input_dispatch.py#L172-L215)
-   and [281–365](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/input_dispatch.py#L281-L365).
-   The normal dispatcher [defers prepare failures before creating an attempt](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/messaging/dispatch.py#L161-L211).
-   Public `input_ready` is a [literal false](https://github.com/49-Agents/qorqutbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/models.py#L74),
+   input gate. See [input_dispatch.py 172–215](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/input_dispatch.py#L172-L215)
+   and [281–365](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/input_dispatch.py#L281-L365).
+   The normal dispatcher [defers prepare failures before creating an attempt](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/messaging/dispatch.py#L161-L211).
+   Public `input_ready` is a [literal false](https://github.com/49-Agents/qorqbot/blob/756261057f7448cb57e6b8282d6d5c1c6420762d/core/src/qorqut_core/runtime/models.py#L74),
    not a reusable readiness grant or the diagnosis of this failure.
 
 Only immutable main-Qorqut source from PORTING's

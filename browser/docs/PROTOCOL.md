@@ -5,7 +5,7 @@ Local owner-only contract, amended by owner/Manager handoff on 2026-10-09. Local
 Core consumes this contract over HTTP without package imports. Functional evidence
 is recorded separately; this contract does not certify core/UI/VM integration.
 The human-only relay follows Manager's
-[D57](https://github.com/49-Agents/qorqutbot/blob/fabb57151bb7f842a0e01c02b031798bf7081160/core/docs/BROWSER-APP-INTEGRATION.md),
+[D57](https://github.com/49-Agents/qorqbot/blob/fabb57151bb7f842a0e01c02b031798bf7081160/core/docs/BROWSER-APP-INTEGRATION.md),
 which supersedes the earlier passive-viewer/RFB-filter plan for this increment.
 
 ## Composition and startup

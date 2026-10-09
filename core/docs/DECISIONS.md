@@ -611,7 +611,7 @@ noVNC in chat/inspector/modal. No extra service or application authentication.
 
 ## D61 — One repository, unchanged module boundaries
 
-The owner requested a new public Qorqutbot monorepo. Import core, browser and UI
+The owner requested a new public Qorqbot monorepo. Import core, browser and UI
 history under their own directories, retain the independent browser MCP and
 separate package builds, and keep operational data outside Git. The
 [monorepo decision](../../docs/MONOREPO.md) supersedes the three-repository

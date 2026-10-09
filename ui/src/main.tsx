@@ -59,7 +59,7 @@ function Dialog({ title, children, onClose, drawer = '' }: { title: string; chil
 function MutationNotice(props: { item?: Pending; requestKey: string }) { return <PendingNotice store={store} {...props} />; }
 function ConnectionPanel() {
   return <main className="connection-page"><div className="connection-panel">
-    <div className="brand"><span className="brand-mark">q</span><span>Qorqut</span></div>
+    <div className="brand"><span className="brand-mark">q</span><span>Qorqbot</span></div>
     <h1>Your agent workspace</h1>
     {store.error && <p className="error" role="alert">{store.error}</p>}
     {store.phase === 'checking' ? <p role="status">Connecting…</p> : <>

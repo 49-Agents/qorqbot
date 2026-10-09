@@ -1,6 +1,6 @@
 # Inbox reference presentation
 
-D53 is frozen in [core's plan](https://github.com/49-Agents/qorqutbot/blob/b07604cc52486581da5f55c3e67eb07f14823897/core/docs/INBOX-REFERENCE-VIEW.md).
+D53 is frozen in [core's plan](https://github.com/49-Agents/qorqbot/blob/b07604cc52486581da5f55c3e67eb07f14823897/core/docs/INBOX-REFERENCE-VIEW.md).
 
 The UI and core candidates passed [Manager review and the paired response check](../../core/docs/evidence/inbox-reference-manager-acceptance.md)
 on 2026-10-09. The focused Chrome check used a synthetic API; this adds no

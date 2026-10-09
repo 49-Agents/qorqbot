@@ -1,6 +1,6 @@
 # qorqut-browser
 
-Independent browser MCP service within [Qorqutbot](../README.md), with persistent
+Independent browser MCP service within [Qorqbot](../README.md), with persistent
 agent-owned Chrome profiles, agent browser tools and TigerVNC human control.
 It imports neither core nor UI and keeps its own dependencies and service process.
 

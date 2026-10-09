@@ -1,4 +1,4 @@
-# Qorqutbot documentation
+# Qorqbot documentation
 
 One repository, three modules. Start with the [README](../README.md) and
 [development instructions](DEVELOPMENT.md).

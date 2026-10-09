@@ -1,4 +1,4 @@
-Current repository layout: [D61, one Qorqutbot repository](../../docs/MONOREPO.md).
+Current repository layout: [D61, one Qorqbot repository](../../docs/MONOREPO.md).
 The module boundaries remain; older references to separate repositories describe
 the pre-migration arrangement.
 
@@ -23,7 +23,7 @@ dated publication and deployment. VM/machine and full-system gates remain open.
 D56: [Terminal control follows the open view](TERMINAL-AUTO-CONTROL.md)
 supersedes Terminal-viewer hold retention on close/disconnect.
 
-# Qorqutbot backend implementation plan
+# Qorqbot backend implementation plan
 
 2026-10-09 browser update: standalone host Chrome/TigerVNC/MCP implementation
 `19c4577` is merged and deployed beside onbash, with a separate persistent
@@ -122,7 +122,7 @@ A separate factual file-reference survey can proceed without those dependencies.
 
 ## 1. Product contract
 
-Qorqutbot hosts persistent agents. A logical agent owns its identity, files, notes, research, browser profile and accumulated history independently of the currently selected CLI, model, native conversation or VM process. Agents work in interactive tmux-backed terminals and coordinate through Qorqut MCP. The owner can create agents, inspect them and intervene in their browsers. Agents can create and contact other agents themselves.
+Qorqbot hosts persistent agents. A logical agent owns its identity, files, notes, research, browser profile and accumulated history independently of the currently selected CLI, model, native conversation or VM process. Agents work in interactive tmux-backed terminals and coordinate through Qorqut MCP. The owner can create agents, inspect them and intervene in their browsers. Agents can create and contact other agents themselves.
 
 The owner values lean code and high quality, with no deadline-driven reason to weaken correctness. Minimize deployed components and duplicated concepts. Use selective extraction, focused failure tests and recovery rehearsal; no usage examples, example applications or redundant test suites are required.
 
@@ -314,7 +314,7 @@ Deliver durable all-source registration, local transactional spooling, immutable
 ### Phase 4 — Coordination and browser intervention
 
 Browser's standalone MCP/HTTP transport increment follows its owned
-[protocol v1](https://github.com/49-Agents/qorqutbot/blob/1902b159d9e3aa860414004b46be6777478ca911/browser/docs/PROTOCOL.md).
+[protocol v1](https://github.com/49-Agents/qorqbot/blob/1902b159d9e3aa860414004b46be6777478ca911/browser/docs/PROTOCOL.md).
 Its reviewed local gate remains the sole effect/control path. Implement core's
 durable handoff endpoint against that contract; transport fixture success does
 not replace real VNC/input enforcement or core transaction acceptance.

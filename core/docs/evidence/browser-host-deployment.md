@@ -4,7 +4,7 @@
 repository's main branch and deployed beside the existing onbash test agent.
 The owner explicitly waived another review. No additional code review or
 test-suite rerun was performed by Manager. The completed worker's
-[evidence](https://github.com/49-Agents/qorqutbot/blob/1902b159d9e3aa860414004b46be6777478ca911/browser/docs/evidence/browser-desktop.md)
+[evidence](https://github.com/49-Agents/qorqbot/blob/1902b159d9e3aa860414004b46be6777478ca911/browser/docs/evidence/browser-desktop.md)
 records the real installed-wheel Chrome/TigerVNC/MCP flow and focused checks.
 The earlier provider-blocked review remains unperformed; its material and actions
 were not resumed or used as acceptance evidence.
@@ -25,7 +25,7 @@ Operational state stays outside Git under the existing local test installation.
 Browser runtime has a short persistent directory; profile, downloads and
 artifacts belong to the onbash agent. The desktop service has no automatic
 restart: a new Chrome lifetime requires fresh explicit instance configuration.
-Package [operations](https://github.com/49-Agents/qorqutbot/blob/1902b159d9e3aa860414004b46be6777478ca911/browser/docs/OPERATIONS.md)
+Package [operations](https://github.com/49-Agents/qorqbot/blob/1902b159d9e3aa860414004b46be6777478ca911/browser/docs/OPERATIONS.md)
 describe lifecycle and recovery constraints.
 
 This is a standalone browser component deployment. Core still needs persisted

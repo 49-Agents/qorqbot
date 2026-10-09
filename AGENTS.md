@@ -1,4 +1,4 @@
-# Working on Qorqutbot
+# Working on Qorqbot
 
 This is one repository with three modules. Read `docs/MONOREPO.md`,
 `core/docs/IMPLEMENTATION-PLAN.md`, `core/docs/CONTRACTS.md`, and the owning

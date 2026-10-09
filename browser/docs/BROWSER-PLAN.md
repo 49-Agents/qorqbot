@@ -1,4 +1,4 @@
-Current repository layout: [D61, one Qorqutbot repository](../../docs/MONOREPO.md).
+Current repository layout: [D61, one Qorqbot repository](../../docs/MONOREPO.md).
 The module boundaries remain; older references to separate repositories describe
 the pre-migration arrangement.
 

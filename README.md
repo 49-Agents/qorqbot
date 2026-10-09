@@ -1,6 +1,6 @@
 <div align="center">
 
-# Qorqutbot
+# Qorqbot
 
 **Grokbot, but provider-agnostic. Your subscriptions. Your machine.**
 
@@ -12,14 +12,14 @@ Local agents with their own workspace, terminal, browser and memory.
 
 ---
 
-Qorqutbot gives CLI agents a shared home. Talk to them in Chat, switch to their
+Qorqbot gives CLI agents a shared home. Talk to them in Chat, switch to their
 Terminal, take over their browser, and let them coordinate with one another.
 Your agent's identity and files outlive any individual model session.
 
-Use the subscriptions you already have for Codex or Claude Code. Qorqutbot
+Use the subscriptions you already have for Codex or Claude Code. Qorqbot
 connects to their CLIs; model and provider selection stays in the terminal.
 
-| | Qorqutbot |
+| | Qorqbot |
 | --- | --- |
 | Agents | Stable identity, editable persona, notes, research and files |
 | Chat & Terminal | Two views of the same manually started CLI session |
@@ -36,7 +36,7 @@ supported native conversation events. One connected session owns each agent's
 inbox; creating an agent never starts a model automatically.
 
 ```text
-                     Qorqutbot UI
+                     Qorqbot UI
                      Chat / Terminal
                             │
                        Qorqut Core

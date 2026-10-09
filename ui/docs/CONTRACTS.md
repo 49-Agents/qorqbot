@@ -4,7 +4,7 @@ remain supported. Native prompt detection stays in core.
 
 D57 adds the validated browser observation/request views and nullable
 ConversationItem.browser_request annotation. See [UI implementation](BROWSER-IMPLEMENTATION.md)
-and the [frozen core contract](https://github.com/49-Agents/qorqutbot/blob/fabb57151bb7f842a0e01c02b031798bf7081160/core/docs/BROWSER-APP-INTEGRATION.md).
+and the [frozen core contract](https://github.com/49-Agents/qorqbot/blob/fabb57151bb7f842a0e01c02b031798bf7081160/core/docs/BROWSER-APP-INTEGRATION.md).
 The UI uses the existing operation envelope and core-only browser stream route.
 
 # Plan moved

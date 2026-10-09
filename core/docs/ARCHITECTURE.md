@@ -1,4 +1,4 @@
-Current repository layout: [D61, one Qorqutbot repository](../../docs/MONOREPO.md).
+Current repository layout: [D61, one Qorqbot repository](../../docs/MONOREPO.md).
 The module boundaries remain; older references to separate repositories describe
 the pre-migration arrangement.
 
@@ -51,7 +51,7 @@ flowchart LR
     LV -->|Private graphical console| MACHINE
 ```
 
-The host service and runner belong to `qorqut-core`. The host owns application decisions and configuration; the runner owns local process observations and execution/capture receipts. `qorqut-browser` runs as a separate service next to Chrome, owning its MCP endpoint, command/control receipts and browser effects. The recorder is a small process inside tmux, independent of the runner service's lifetime. It records native CLI output before forwarding it to the visible terminal and tails all sources registered for that run. `qorqutbot-ui` is an independent client of the host API.
+The host service and runner belong to `qorqut-core`. The host owns application decisions and configuration; the runner owns local process observations and execution/capture receipts. `qorqut-browser` runs as a separate service next to Chrome, owning its MCP endpoint, command/control receipts and browser effects. The recorder is a small process inside tmux, independent of the runner service's lifetime. It records native CLI output before forwarding it to the visible terminal and tails all sources registered for that run. `qorqbot-ui` is an independent client of the host API.
 
 Host application restarts do not restart libvirt domains, runner services, tmux sessions, recorders or Chrome. Runner-service restarts do not terminate the recorder or native CLI. VM reboot is an actual process loss and must be recorded as such; persistent disks do not preserve a running tmux process across reboot.
 
@@ -67,7 +67,7 @@ One repository, with three modules and separate package builds. Core has one hos
 | --- | --- | --- |
 | `core/` (`qorqut-core`) | Application configuration and coordination; agents/personas/files, VM/host runtime, tmux/CLI adapters, recording/history, messaging, continuity, durable requests, HTTP/MCP/operator APIs, installation and backup | The browser service from the same checkout, built separately, and its versioned control protocol |
 | `browser/` (`qorqut-browser`) | Independent MCP server, Chrome/profile supervision, agent browser tools, takeover bridge, control receipts, TigerVNC/Openbox setup and remote-control transport | Explicit local configuration and application handoff API; no core/UI imports |
-| `ui/` (`qorqutbot-ui`) | Chat, navigation, inspector, browser/terminal viewer assets, interaction and client state | Core's versioned HTTP/events/WebSocket API |
+| `ui/` (`qorqbot-ui`) | Chat, navigation, inspector, browser/terminal viewer assets, interaction and client state | Core's versioned HTTP/events/WebSocket API |
 
 Proposed source layout, created incrementally as modules are implemented:
 

@@ -1,7 +1,7 @@
 # D57 browser UI implementation
 
 2026-10-09. Implements the UI lane of the Manager's frozen
-[D57 contract at core c96952f](https://github.com/49-Agents/qorqutbot/blob/fabb57151bb7f842a0e01c02b031798bf7081160/core/docs/BROWSER-APP-INTEGRATION.md).
+[D57 contract at core c96952f](https://github.com/49-Agents/qorqbot/blob/fabb57151bb7f842a0e01c02b031798bf7081160/core/docs/BROWSER-APP-INTEGRATION.md).
 This records frontend behavior; combined installed-core/TigerVNC acceptance and
 deployment belong to Manager.
 

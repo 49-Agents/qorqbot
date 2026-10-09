@@ -1,4 +1,4 @@
-# D61 — One Qorqutbot repository
+# D61 — One Qorqbot repository
 
 The owner requested one new local checkout and a new public GitHub repository
 on 2026-10-10. This supersedes the earlier three-repository arrangement.
@@ -9,7 +9,7 @@ on 2026-10-10. This supersedes the earlier three-repository arrangement.
   inbox, messages, transcripts, configuration and application APIs.
 - `browser/` retains the `qorqut-browser` Python package and its independent
   MCP/HTTP service, Chrome profiles, browser controls and TigerVNC desktop.
-- `ui/` retains the `qorqutbot-ui` frontend package and static build.
+- `ui/` contains the `qorqbot-ui` frontend package and static build.
 - `docs/` indexes the shared plans. Detailed plans and historical evidence stay
   beside their owning module so their relative links remain useful.
 
@@ -45,3 +45,11 @@ locked dependencies, service behavior and stored user data remain unchanged.
 The separate core/browser builds and frontend build are verified in the new
 layout. Existing acceptance evidence remains scoped to its recorded environment;
 publication does not imply completed VM support or full-system acceptance.
+
+## Product name
+
+The owner shortened the product and repository name to **Qorqbot**. The public
+repository is [49-Agents/qorqbot](https://github.com/49-Agents/qorqbot), and the UI
+package is `qorqbot-ui`. The existing `qorqut-core` and `qorqut-browser` package
+and executable names remain stable; this branding change does not rename
+protocol fields, installed services or operational data.
