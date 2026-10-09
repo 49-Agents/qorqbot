@@ -601,3 +601,10 @@ collection pass on orderly core stop and reuses finite prefix proofs after
 verified owner exit. Unfinished EOF records stay recoverable and visibly pending.
 No automatic CLI stop, source sealing, parser-cursor invention or full-completeness
 claim follows from a process exit or service shutdown.
+
+## D57 — Connect browser tools, durable handoff and one live viewer
+
+[BROWSER-APP-INTEGRATION.md](BROWSER-APP-INTEGRATION.md) freezes the three
+parallel contracts. Core adopts prepared browser services and owns requests;
+browser holds its existing command lock for each human-only RFB relay; UI uses
+noVNC in chat/inspector/modal. No extra service or application authentication.

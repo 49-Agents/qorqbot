@@ -1,3 +1,6 @@
+D57: [Connected browser integration](BROWSER-APP-INTEGRATION.md) is the current
+implementation contract for attached browsers, durable handoff and the UI stream.
+
 D56: [Terminal control follows the open view](TERMINAL-AUTO-CONTROL.md)
 supersedes browser-viewer hold retention on close/disconnect.
 
