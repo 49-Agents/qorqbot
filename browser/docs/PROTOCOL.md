@@ -4,6 +4,9 @@ Local owner-only contract, amended by owner/Manager handoff on 2026-10-09. Local
 `a94e537519ba19d484375a7f8fb986339149285a` passed independent and Manager review.
 Core consumes this contract over HTTP without package imports. Functional evidence
 is recorded separately; this contract does not certify core/UI/VM integration.
+The human-only relay follows Manager's
+[D57](https://github.com/qorqutbot/qorqut-core/blob/c96952f/docs/BROWSER-APP-INTEGRATION.md),
+which supersedes the earlier passive-viewer/RFB-filter plan for this increment.
 
 ## Composition and startup
 
@@ -60,6 +63,7 @@ substitute a current epoch for the original command binding on retry.
 | `POST /v1/browser/command` | `Command` to `Receipt` through `Gate.execute`, with local actor attribution |
 | `GET /v1/browser/commands/{command_id}` | Saved `Receipt` or `not_found`; never execute or settle during lookup |
 | `POST /v1/browser/control` | `Reconcile` to `Receipt` through `Gate.reconcile`; default or forwarded local actor attribution |
+| `WS /v1/browser/view` | Exact protocol-1 binding handshake, then binary RFB for one ready human viewer |
 
 Any local caller can inspect identity/receipts, issue commands or reconcile
 control. Local commands must match the configured browser and exact control
@@ -78,6 +82,55 @@ HTTP errors use `{error: {code, message}}`, with bounded nonsecret messages:
 503 unavailable/not-ready/storage-blocked. Saved receipts return HTTP 200 even
 when failed, pending or uncertain. Preserve historical outcomes. Unexpected
 errors reveal no traceback, fill text or page contents.
+
+## Human viewer relay
+
+Core connects to `/v1/browser/view` with the same optional public
+`X-Qorqut-Actor` attribution and configured Host/Origin rules as HTTP. No query
+arguments, credentials or caller-supplied destinations are accepted. The only
+target is `127.0.0.1` at this browser's configured `vnc_port`. The optional
+`binary` WebSocket subprotocol is selected when requested; it is not required.
+
+The first client message must be text JSON with exactly
+`{protocol: 1, binding: Binding}`. The exact identity and control epoch must
+match this service, its current incarnation must still own admission, and
+control must be ready in human mode. Admission verifies actual desktop
+readiness using the existing supervisor check. The response is exactly
+`{type: "ready", protocol: 1, binding: Binding}` before any RFB bytes. Every
+subsequent message in either direction is binary RFB. This is one interactive
+human viewer; there is no passive viewer or RFB filtering mode.
+
+The viewer acquires the existing process-shared command lock without waiting
+and holds it for the connection's lifetime, including cleanup. A competing
+viewer is rejected. Automation continues to use the same gate and cannot run
+while the viewer owns that lock. Before every client-to-VNC write, the relay
+checks the original binding, ready human mode and service incarnation again.
+A watcher checks at 50 ms intervals with a 50 ms observation deadline, closing
+on a changed binding, mode, readiness or incarnation, or an unavailable check.
+Its read worker capacity is separate from commands waiting on the lock.
+
+Reconciliation publishes the advanced epoch and closed yielding/reconciling
+state before awaiting this same lock. The relay joins its forwarding tasks and
+closes both sockets before releasing the lock. A completed control receipt
+therefore cannot coexist with old forwarding. Disconnect and service shutdown
+do not release the durable human hold, complete a request or reset Chrome.
+ASGI lifespan shutdown cancels and joins all active viewer handlers; Chrome,
+TigerVNC and their profile remain independently owned by the desktop supervisor.
+
+Handshake text is limited to 4 KiB. Binary messages and VNC read chunks are at
+most 64 KiB; the installed server's WebSocket receive queue is four messages,
+with compression disabled. Each direction awaits writes for backpressure,
+with five-second handshake/connect/write deadlines and bounded close cleanup.
+After upgrade, admission/handshake failures close with code 1008 and a stable
+error code as reason; text in the RFB phase closes with 1003, oversized RFB with
+1009, and unavailable I/O/state with 1011. Header/query failures use the ordinary
+HTTP error envelope before upgrade when ASGI denial responses are supported.
+No error frame is inserted into the RFB stream, and input is never replayed.
+
+Core owns the same-origin request stream and durable request lifecycle. UI's
+pinned noVNC 1.7.0 connects through that core route and moves one live viewer
+between placements. Browser's existing HTTP control schema, MCP tools and
+`browser://identity` response are unchanged.
 
 ## MCP tools and resource
 
@@ -148,6 +201,10 @@ Check startup keeps admission closed and existing uncertain receipts remain iner
 across service restart. Build/install the standalone wheel with pinned tested
 dependencies. No live accounts or core/UI runtime imports. The disposable desktop
 acceptance adds actual Chrome/TigerVNC, pinned-helper DOM
-actions, persistent synthetic cookies and ordered stop/restart. VNC/RFB fencing,
-machine holds, core transactions, UI/noVNC and real-guest G0–G6 acceptance remain
-pending. See [operations](OPERATIONS.md) and the recorded evidence.
+actions, persistent synthetic cookies and ordered stop/restart. Relay acceptance
+reuses that disposable fixture for an actual TigerVNC/WebSocket handshake,
+rendered pixels, pointer/keyboard input, exclusive human control, epoch closure,
+retained hold on disconnect and Chrome survival across MCP shutdown. See
+[relay evidence](evidence/browser-human-stream.md). Machine holds, combined core
+transactions/UI/noVNC and real-guest G0–G6 acceptance remain separate gates.
+See [operations](OPERATIONS.md) and the recorded evidence.

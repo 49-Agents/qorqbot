@@ -1,5 +1,6 @@
 """One process-safe admission gate for future direct and forwarded transports."""
 
+from contextlib import contextmanager
 import fcntl
 from uuid import UUID, uuid4
 
@@ -33,6 +34,33 @@ class Gate:
         row = db.execute("SELECT service_token FROM browser_state WHERE singleton=1").fetchone()
         if self._token is None or row[0] != self._token:
             raise BrowserError("not_ready", "This service incarnation has not reconciled startup")
+
+    def check_view(self, binding, service_token):
+        """Observe human admission with a short, bounded database wait.
+
+        The viewer holds the command lock, not a SQLite transaction. Reconcile
+        must be able to publish its closed epoch while that viewer is connected.
+        """
+        with self.store.connection(timeout=.02) as db:
+            self._service(db)
+            if service_token is None or service_token != self._token:
+                raise BrowserError("not_ready", "Viewer service incarnation changed")
+            current = Store.status_in(db)
+            if (binding != current.binding
+                    or binding.identity != self.store.config.binding.identity):
+                raise BrowserError("target_changed", "Viewer browser binding changed")
+            if current.mode != "human" or not current.ready:
+                raise BrowserError("not_ready", "Human browser admission is closed")
+
+    @contextmanager
+    def view(self, binding):
+        """One human viewer; the caller closes/joins its relay before exiting."""
+        with self.store.lock(0):
+            token = self._token
+            self.check_view(binding, token)
+            self.readiness(self.store.config)
+            self.check_view(binding, token)
+            yield token
 
     @staticmethod
     def _same(saved, proposed):

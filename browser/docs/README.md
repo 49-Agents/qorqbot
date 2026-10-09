@@ -4,6 +4,7 @@
 - [Browser MCP/control/handoff protocol v1](PROTOCOL.md)
 - [Local desktop setup and operations](OPERATIONS.md)
 - [Host desktop functional evidence](evidence/browser-desktop.md)
+- [Human viewer relay evidence](evidence/browser-human-stream.md)
 - [Core architecture](https://github.com/qorqutbot/qorqut-core/blob/main/docs/ARCHITECTURE.md)
 - [Shared integration contracts](https://github.com/qorqutbot/qorqut-core/blob/main/docs/CONTRACTS.md)
 - [Implementation order and gates](https://github.com/qorqutbot/qorqut-core/blob/main/docs/IMPLEMENTATION-PLAN.md)

@@ -78,7 +78,7 @@ class DesktopInitializationTest(unittest.TestCase):
 
 
 @unittest.skipUnless(os.environ.get("QORQUT_REAL_DESKTOP") == "1", "opt-in actual Chrome/TigerVNC flow")
-class RealDesktopTest(unittest.IsolatedAsyncioTestCase):
+class DesktopFixture(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         parent = os.environ.get("QORQUT_DESKTOP_EVIDENCE")
         self.root = Path(tempfile.mkdtemp(prefix="actual-desktop-", dir=parent))
@@ -226,6 +226,8 @@ document.getElementById('result').textContent='Saved '+document.getElementById('
         self.assertEqual(result.structuredContent["outcome"], "completed", result)
         return command, result.structuredContent
 
+
+class RealDesktopTest(DesktopFixture):
     async def test_dom_persistence_holds_receipts_and_owned_restart(self):
         self.assertFalse(self.config.browser.profile.exists())
         initialized = self.cli("init")

@@ -180,7 +180,7 @@ class Store:
             fsync_directory(self.config.database.parent)
 
     @contextmanager
-    def connection(self, *, validate=True):
+    def connection(self, *, validate=True, timeout=5):
         check_paths(self.config)
         checked_path(self.config.database, self.config.uid)
         for suffix in ("-wal", "-shm"):
@@ -189,10 +189,10 @@ class Store:
                 checked_path(path, self.config.uid)
         try:
             db = sqlite3.connect(self.config.database.as_uri() + "?mode=rw", uri=True,
-                                 timeout=5, isolation_level=None)
+                                 timeout=timeout, isolation_level=None)
             db.row_factory = sqlite3.Row
             try:
-                db.execute("PRAGMA busy_timeout=5000")
+                db.execute(f"PRAGMA busy_timeout={int(timeout * 1000)}")
                 db.execute("PRAGMA foreign_keys=ON")
                 if db.execute("PRAGMA journal_mode=WAL").fetchone()[0] != "wal":
                     raise BrowserError("storage_blocked", "Browser receipts require WAL")

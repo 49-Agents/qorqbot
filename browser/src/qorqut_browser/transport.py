@@ -12,6 +12,7 @@ import mcp
 from pydantic import ValidationError
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
+from starlette.websockets import WebSocket
 
 from .contracts import BrowserError
 
@@ -130,7 +131,7 @@ class LocalTransport:
         self.requests = anyio.CapacityLimiter(MAX_REQUESTS)
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
+        if scope["type"] not in {"http", "websocket"}:
             await self.app(scope, receive, send)
             return
         acquired = False
@@ -148,6 +149,9 @@ class LocalTransport:
                 acquired = True
             except anyio.WouldBlock:
                 raise BrowserError("unavailable", "Concurrent request limit reached") from None
+            if scope["type"] == "websocket":
+                await self.app(scope, receive, send)
+                return
             lengths = headers.getlist("content-length")
             if lengths and (len(lengths) != 1 or not lengths[0].isascii()
                             or not lengths[0].isdigit() or int(lengths[0]) > MAX_BODY_BYTES):
@@ -211,7 +215,14 @@ class LocalTransport:
             start["headers"].extend([(b"content-length", str(len(output)).encode()),
                                      (b"cache-control", b"no-store")])
         except Exception as error:
-            await failure(error)(scope, receive, send)
+            if scope["type"] == "websocket":
+                websocket = WebSocket(scope, receive, send)
+                if "websocket.http.response" in scope.get("extensions", {}):
+                    await websocket.send_denial_response(failure(error))
+                else:
+                    await websocket.close(code=1008, reason=error_value(error)[1]["error"]["code"])
+            else:
+                await failure(error)(scope, receive, send)
             return
         finally:
             if acquired:

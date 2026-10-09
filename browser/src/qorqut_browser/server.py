@@ -13,13 +13,14 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import McpError
 from starlette.responses import JSONResponse
-from starlette.routing import Route, Router
+from starlette.routing import Route, Router, WebSocketRoute
 import uvicorn
 
 from .config import ServiceConfig, load_config
 from .contracts import BrowserError, Command, Receipt, Reconcile, canonical
 from .control import Gate
 from .handoff import HandoffClient, HandoffReceipt, InputRequest
+from .remote import MAX_FRAME_BYTES, Viewers
 from .state import Store
 from .supervisor import check_ready
 from .tools import AgentBrowser
@@ -47,6 +48,7 @@ def create_app(config: ServiceConfig, *, readiness=check_ready, executor=None):
         config.browser, config.helper_executable, readiness=readiness)
     gate = Gate(store, effect, readiness=readiness)
     work = BlockingWork()
+    viewers = Viewers(gate)
     sanitize_sdk_logs()
     mcp = Server("qorqut-browser", version="0.1.0")
     host = f"127.0.0.1:{config.browser.service_port}"
@@ -64,7 +66,10 @@ def create_app(config: ServiceConfig, *, readiness=check_ready, executor=None):
         except Exception:
             raise RuntimeError("Browser service could not open its provisioned state") from None
         async with manager.run():
-            yield
+            try:
+                yield
+            finally:
+                await viewers.shutdown()
 
     async def identity():
         control = await work.run(store.status)
@@ -156,6 +161,9 @@ def create_app(config: ServiceConfig, *, readiness=check_ready, executor=None):
                                     structuredContent=value, isError=is_error)
 
     async def unknown(scope, receive, send):
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 1008, "reason": "not_found"})
+            return
         await failure(BrowserError("not_found", "Unknown route"))(scope, receive, send)
 
     app = Router(routes=[
@@ -166,6 +174,7 @@ def create_app(config: ServiceConfig, *, readiness=check_ready, executor=None):
         Route("/v1/browser/command", http_command, methods=["POST"]),
         Route("/v1/browser/commands/{command_id}", http_receipt, methods=["GET"]),
         Route("/v1/browser/control", http_control, methods=["POST"]),
+        WebSocketRoute("/v1/browser/view", viewers.connect),
     ], lifespan=lifespan, default=unknown, redirect_slashes=False)
     return LocalTransport(app, Principal(config.actor_id, config.agent_id), config.browser.service_port)
 
@@ -182,6 +191,7 @@ def main(argv=None):
         return 1
     uvicorn.run(app, host="127.0.0.1", port=config.browser.service_port, workers=1,
                 reload=False, proxy_headers=False, access_log=False, server_header=False,
+                ws_max_size=MAX_FRAME_BYTES, ws_max_queue=4, ws_per_message_deflate=False,
                 log_level="warning", timeout_keep_alive=5, timeout_graceful_shutdown=60)
     return 0
 
