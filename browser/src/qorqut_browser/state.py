@@ -185,8 +185,16 @@ class Store:
         checked_path(self.config.database, self.config.uid)
         for suffix in ("-wal", "-shm"):
             path = Path(str(self.config.database) + suffix)
-            if os.path.lexists(path):
-                checked_path(path, self.config.uid)
+            try:
+                # SQLite may remove these optional entries between connections.
+                info = path.lstat()
+                if (info.st_uid != self.config.uid or info.st_mode & 0o022
+                        or not stat.S_ISREG(info.st_mode)):
+                    raise ValueError("ownership or type")
+            except FileNotFoundError:
+                pass
+            except (OSError, ValueError) as error:
+                raise BrowserError("not_ready", f"Owned path unavailable: {path}") from error
         try:
             db = sqlite3.connect(self.config.database.as_uri() + "?mode=rw", uri=True,
                                  timeout=timeout, isolation_level=None)

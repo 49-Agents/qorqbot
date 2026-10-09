@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
@@ -360,6 +361,27 @@ class GateTest(BrowserFixture):
         self.assert_code("target_changed", replacement.execute, self.command(), actor_id=ACTOR)
         self.enable(replacement)
         self.assertEqual(self.store.status().binding.identity.browser_instance, new_identity.browser_instance)
+
+    def test_optional_sidecars_can_disappear_during_observation(self):
+        lstat = Path.lstat
+        # Keep real SQLite sidecars present before the disappearing-leaf seam.
+        with self.store.connection() as db:
+            expected = Store.status_in(db)
+            for suffix in ("-wal", "-shm"):
+                with self.subTest(suffix=suffix):
+                    sidecar = Path(str(self.config.database) + suffix)
+                    self.assertTrue(sidecar.exists())
+                    observed = []
+
+                    def disappearing(path):
+                        if path == sidecar:
+                            observed.append(path)
+                            raise FileNotFoundError(path)
+                        return lstat(path)
+
+                    with patch.object(Path, "lstat", disappearing):
+                        self.assertEqual(self.store.status(), expected)
+                    self.assertEqual(observed, [sidecar])
 
     def test_missing_state_profile_mount_and_readiness_fail_closed(self):
         self.assert_code("not_ready", check_ready, self.config)

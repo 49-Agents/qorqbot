@@ -48,3 +48,40 @@ Tested wheel: `wheels/qorqut_browser-0.1.0-py3-none-any.whl`, SHA-256
 Build/install and dependency checks passed. Combined actual core/noVNC acceptance
 remains Manager's next check; this smaller RFB flow does not certify it. No
 broad suite, nested review, merge or deployment was performed by this worker.
+
+## Optional SQLite sidecar lifecycle correction
+
+Follow-up to `ea85cba7f97816b3b243f01205ab2c4ed2eb182a`, per Manager message 395.
+The next actual core/noVNC run exposed a separate normal-operation race:
+`browser.sqlite3-wal` disappeared between `lexists` and `checked_path`, closing
+the relay with `1008/not_ready`. `Store.connection` now takes one `lstat`
+observation per optional `-wal`/`-shm` file. Absence is allowed; an observed entry
+still requires the configured uid, regular-file type and non-group/world-writable
+mode. Other OSErrors retain `not_ready`. Required-file/path checks and all binding,
+admission, lease and deadline behavior are unchanged. No cache, connection
+redesign, retry, schema or API change was added.
+
+One owning regression uses real initialized storage with SQLite sidecars present,
+then raises `FileNotFoundError` only at each sidecar's `lstat` observation. It
+reproduced both failures against the previous installed wheel. Against the new
+wheel, that group and the two existing relay groups passed: **3 tests, 2.344 s**.
+The ordinary real RFB flow passed on its **single follow-up run**, in **14.033 s**,
+with **4,608,000** pixel bytes, actual saved input and close-before-control-receipt
+ordering. Cleanup again confirmed stopped fixture processes/listeners/display.
+
+New private evidence is under `E/sidecar395`: `baseline-regression.log`,
+`installed-owning-checks.log`, `actual-rfb-flow.log`, `package-provenance.json`,
+`cleanup-confirmation.json` and fixture `actual-desktop-4oj_dgw4/`. Build/install
+and `pip check` passed in its fresh venv. Only tests were on `PYTHONPATH`;
+both `state.py` and `remote.py` match source, wheel and installed bytes.
+
+```sh
+PYTHONPATH=tests "$E/sidecar395/venv/bin/python" -m unittest -v \
+  test_browser.GateTest.test_optional_sidecars_can_disappear_during_observation \
+  test_remote.RelayGateTest
+```
+
+New wheel: `E/sidecar395/wheels/qorqut_browser-0.1.0-py3-none-any.whl`, SHA-256
+`cd1a333f6da834b37660c7cb9c488ec05d468d0f49e6da94f1f62db1c8161a08`.
+Combined actual core/noVNC acceptance remains with Manager. No owner services,
+Manager harness or other repository files were changed; no merge/deployment.
