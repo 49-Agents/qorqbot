@@ -1,5 +1,9 @@
 # Qorqutbot backend implementation plan
 
+[D55 local access](LOCAL-ACCESS.md) supersedes earlier application authentication:
+the owner requested no login, tokens or passwords. Core and UI now target direct
+local-owner access while retaining actor attribution and durable history.
+
 Accepted and integrated: D46 [host dispatch](evidence/host-message-dispatch-manager-acceptance.md)
 and D48 [continued native collection](evidence/native-collection-continuity-manager-acceptance.md).
 The [actual core/MCP/file-card flow](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/file-reference-integration-manager-acceptance.md)

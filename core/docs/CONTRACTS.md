@@ -1,5 +1,10 @@
 # Shared backend contracts
 
+[D55 local access](LOCAL-ACCESS.md) replaces bearer/cookie authentication with
+default local-owner attribution and optional public `X-Qorqut-Actor` identity.
+The retained GET identity endpoint returns actor_id/api_version without a cookie.
+Earlier authentication clauses below are superseded by that decision.
+
 D46's concrete [host message dispatch contract](HOST-MESSAGE-DISPATCH.md)
 extends deliveries_get with typed attempts and adds schema 9. Its
 [component implementation is accepted](evidence/host-message-dispatch-manager-acceptance.md);
