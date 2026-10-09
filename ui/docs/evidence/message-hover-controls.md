@@ -28,3 +28,8 @@ so they remain readable over the tighter spacing. TypeScript/Vite build and the
 three affected existing Chrome groups passed (selection/send, message layout and
 runtime inspector). Screenshot inspection confirmed the compact layout; artifacts
 are in `compact-message-bubbles-checks/` in the private build state directory.
+
+The owner then withdrew the 5px spacing request: restored the previous 16px
+spacing and hover-label styling, retaining the delivery-label removal. Production
+build and the existing desktop message-layout/clipboard check passed. Artifacts:
+`restore-message-spacing-checks/` in the private build state directory.
