@@ -1,5 +1,12 @@
 # Managed implementation and review
 
+Latest owner direction (2026-10-09): merge and deploy completed work without
+another review round. The browser implementation at `19c4577` was integrated
+under that instruction using its worker-reported real desktop flow, then
+deployed beside onbash. See [host deployment](evidence/browser-host-deployment.md)
+for exact scope and remaining application seams. Earlier review policy and
+evidence below retain their historical context.
+
 Accepted and integrated: D46 [host dispatch](evidence/host-message-dispatch-manager-acceptance.md)
 and D48 [continued native collection](evidence/native-collection-continuity-manager-acceptance.md).
 The [actual core/MCP/file-card flow](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/file-reference-integration-manager-acceptance.md)

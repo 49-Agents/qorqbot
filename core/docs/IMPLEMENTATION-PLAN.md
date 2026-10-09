@@ -1,7 +1,15 @@
 D56: [Terminal control follows the open view](TERMINAL-AUTO-CONTROL.md)
-supersedes browser-viewer hold retention on close/disconnect.
+supersedes Terminal-viewer hold retention on close/disconnect.
 
 # Qorqutbot backend implementation plan
+
+2026-10-09 browser update: standalone host Chrome/TigerVNC/MCP implementation
+`19c4577` is merged and deployed beside onbash, with a separate persistent
+profile and no application authentication. The worker's installed-wheel real
+browser flow passed; the owner waived further review. See
+[deployment scope](evidence/browser-host-deployment.md). Core-managed browser
+configuration, native-CLI MCP registration, the handoff endpoint and UI/noVNC
+viewer remain integration work; this does not pass G4/G6 or VM acceptance.
 
 [D55 local access](LOCAL-ACCESS.md) supersedes earlier application authentication:
 the owner requested no login, tokens or passwords. Core and UI passed
@@ -134,7 +142,7 @@ Use exactly three source repositories:
 | `qorqut-browser` | Independent browser MCP server, Chrome/profile lifecycle, agent controls, takeover bridge, TigerVNC setup and remote-control transport |
 | `qorqutbot-ui` | Independent frontend consuming core's API/events/streams; chat, viewers, inspector and appearance |
 
-Agent management, runtime and communications remain modules inside core. Browser runs its own MCP service and imports neither core nor UI. Each native CLI connects to core MCP and its agent's browser MCP separately; browser tools are not re-exported by core MCP. Core supplies configuration and an authenticated handoff API that commits requests and notifications through shared operations. UI owns presentation and may edit configuration through core; it owns no backend orchestration or authoritative configuration store.
+Agent management, runtime and communications remain modules inside core. Browser runs its own MCP service and imports neither core nor UI. Each native CLI connects to core MCP and its agent's browser MCP separately; browser tools are not re-exported by core MCP. Core supplies configuration and a local handoff API that commits requests and notifications through shared operations. UI owns presentation and may edit configuration through core; it owns no backend orchestration or authoritative configuration store.
 
 The deployment stays lean:
 
@@ -283,7 +291,7 @@ Deliver durable all-source registration, local transactional spooling, immutable
 ### Phase 4 — Coordination and browser intervention
 
 Browser's standalone MCP/HTTP transport increment follows its owned
-[protocol v1](https://github.com/qorqutbot/qorqut-browser/blob/codex/browser-mcp-plan/docs/PROTOCOL.md).
+[protocol v1](https://github.com/qorqutbot/qorqut-browser/blob/19c4577795f20ffd4261ca41464afb63767cb046/docs/PROTOCOL.md).
 Its reviewed local gate remains the sole effect/control path. Implement core's
 durable handoff endpoint against that contract; transport fixture success does
 not replace real VNC/input enforcement or core transaction acceptance.
