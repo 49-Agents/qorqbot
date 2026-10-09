@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/brand/qorqbot-logo-dark.png" alt="Qorqbot" width="120" height="120" />
+</p>
+
 <h1 align="center">Qorqbot</h1>
 
 <p align="center">Grokbot, but provider-agnostic and local.</p>
