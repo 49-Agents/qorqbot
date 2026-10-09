@@ -6,8 +6,9 @@ The [actual core/MCP/file-card flow](https://github.com/qorqutbot/qorqutbot-ui/b
 also passed bounded acceptance. The [connected Chat reports](evidence/connected-chat-manager-acceptance.md)
 now have bounded Manager acceptance: Codex completed actual native MCP reads,
 acknowledgments, replies and a fresh message after core restart; Claude's native
-MCP calls were blocked, while notification/restart evidence passed. Next are
-three parallel [responsiveness corrections](RESPONSIVENESS-CORRECTIONS.md).
+MCP calls were blocked, while notification/restart evidence passed. The three
+[responsiveness corrections](RESPONSIVENESS-CORRECTIONS.md) have component
+acceptance; their combined real-core/UI verification is next.
 Manager reviews/tests directly;
 workers use Astra MAX with self-review off. Core has schema 9, 17 public
 operations and five handlers. These qualified runs do not establish

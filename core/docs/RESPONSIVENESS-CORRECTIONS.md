@@ -8,8 +8,10 @@ The final private Terminal spool contains 3,320 chunks totaling 188,511 bytes;
 budget is inadequate for these small PTY writes. These are three independent,
 bounded corrections, not authorization for startup/browser/VM redesign.
 
-The [archive budget component is accepted](evidence/terminal-archive-budget-manager-acceptance.md).
-Admission/UI changes and combined verification remain pending.
+All three components are accepted: [archive budget](evidence/terminal-archive-budget-manager-acceptance.md),
+[request admission](evidence/dispatch-admission-manager-acceptance.md) and
+[UI read recovery](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/read-recovery-manager-acceptance.md).
+Combined real-core/UI verification remains pending.
 
 ## Core request admission
 

@@ -7,7 +7,7 @@ extends deliveries_get with typed attempts and adds schema 9. Its
 the [actual native-CLI flow](evidence/connected-chat-manager-acceptance.md) has
 qualified Codex acceptance; Claude MCP execution remains blocked. D49's
 [bounded request wait](RESPONSIVENESS-CORRECTIONS.md) changes only transport
-admission and is planned, not yet implemented.
+admission and has component acceptance; combined verification is pending.
 
 [D48](NATIVE-COLLECTION-CONTINUITY.md) gives that dispatcher a private, fresh,
 per-run raw-capture observation. Public native-history gaps remain visible and
