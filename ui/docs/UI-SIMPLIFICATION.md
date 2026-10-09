@@ -1,3 +1,6 @@
+The owner's subsequent [reference direction](UI-REFERENCE-DIRECTION.md)
+also applies to chat bubbles, compact composer and inspector tabs.
+
 # Minimal workspace feedback
 
 Decision D56, 2026-10-09, from the owner's seven annotated layout requests and
