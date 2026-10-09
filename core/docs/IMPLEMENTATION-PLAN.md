@@ -1,3 +1,6 @@
+D56: [Terminal control follows the open view](TERMINAL-AUTO-CONTROL.md)
+supersedes browser-viewer hold retention on close/disconnect.
+
 # Qorqutbot backend implementation plan
 
 [D55 local access](LOCAL-ACCESS.md) supersedes earlier application authentication:

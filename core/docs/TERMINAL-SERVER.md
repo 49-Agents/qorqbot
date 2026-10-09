@@ -1,3 +1,6 @@
+D56: [Terminal control follows the open view](TERMINAL-AUTO-CONTROL.md)
+supersedes browser-viewer hold retention on close/disconnect.
+
 # Recorded Terminal in the host application
 
 Manager decision D38, 2026-10-08. Implement the first usable onbash Terminal
