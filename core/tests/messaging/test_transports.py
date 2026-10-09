@@ -9,7 +9,7 @@ import httpx
 
 from qorqut_core.app import Application
 from qorqut_core.contracts import Actor, Invocation
-from transports.support import Installation, write_private
+from transports.support import Installation
 from transports.test_transports import session, structured
 
 
@@ -28,9 +28,6 @@ class ChatTransports(unittest.IsolatedAsyncioTestCase):
             source = fixture.settings.data_root / agent["workspace_path"] / "files/reference 文.txt"
             source.write_text("Synthetic artifact", encoding="utf-8")
             actor = Actor(actor_id=agent["actor_id"], kind="agent", agent_id=agent["id"])
-            fixture.tokens[actor.actor_id] = "synthetic-" + uuid4().hex + uuid4().hex
-            write_private(fixture.credentials_file, json.dumps({"actors": [
-                {"actor_id": str(key), "token": value} for key, value in fixture.tokens.items()]}))
         finally:
             app.close()
         fixture.start()

@@ -28,10 +28,9 @@ from ..runtime.terminal_models import CLIENT_MESSAGE
 from ..runner.models import RunnerError
 from ..storage.worker import JobWorker
 from .boundary import Admission, Boundary, failure
-from .configuration import Credentials, InputError, json_object
+from .configuration import InputError, json_object
 from .lifetime import settle_sync as _settle_sync
 from .mcp import MCP, install_logging_boundary
-from .sessions import COOKIE_NAME, SESSION_SECONDS, Sessions
 from .static import StaticUI
 
 MAX_CALLS = 4
@@ -136,9 +135,9 @@ async def _join_tasks(tasks):
 
 
 class TerminalSockets:
-    """Cookie-bound protocol framing; all terminal admission/effects are core's."""
-    def __init__(self, sessions, admission):
-        self.sessions, self.admission = sessions, admission
+    """Attributed protocol framing; all terminal admission/effects are core's."""
+    def __init__(self, admission):
+        self.admission = admission
         self.tasks = set()
 
     async def close(self):
@@ -153,7 +152,6 @@ class TerminalSockets:
         stream = None
         tasks = []
         actor = websocket.scope["qorqut.invocation"].actor_id
-        cookie = websocket.scope["qorqut.session_cookie"]
         replies = asyncio.Queue(maxsize=1)
         pending_replies = set()
         stopping = False
@@ -165,8 +163,8 @@ class TerminalSockets:
                 if not delivered.done():
                     delivered.cancel()
 
-        def authenticated():
-            if stopping or self.admission.closing or self.sessions.actor(cookie) != actor:
+        def admitted():
+            if stopping or self.admission.closing:
                 raise WebSocketDisconnect(1008)
 
         async def send(message=None, data=None):
@@ -194,7 +192,7 @@ class TerminalSockets:
         async def receive():
             while True:
                 message = await websocket.receive()
-                authenticated()  # Also applies to malformed/binary frames.
+                admitted()  # Also applies to malformed/binary frames.
                 if message["type"] == "websocket.disconnect":
                     return
                 related, sequence = None, None
@@ -211,7 +209,7 @@ class TerminalSockets:
                 except (InputError, ValidationError, UnicodeError):
                     await reply(error("invalid_argument", related, sequence))
                     continue
-                authenticated()
+                admitted()
                 try:
                     if frame.type == "control":
                         result = await _settle_sync(lambda: stream.control(frame.action, frame.expected_epoch))
@@ -244,7 +242,7 @@ class TerminalSockets:
         async def watch():
             nonlocal latest
             while True:
-                authenticated()
+                admitted()
                 latest = await _settle_sync(stream.state)
                 await asyncio.sleep(0.5)
 
@@ -255,7 +253,7 @@ class TerminalSockets:
                 dimensions = stream.initial.dimensions
                 next_state = 0
                 while True:
-                    authenticated()
+                    admitted()
                     if not replies.empty():
                         message, delivered = replies.get_nowait()
                         await send(message)
@@ -279,7 +277,7 @@ class TerminalSockets:
                 stop()  # No queued or in-flight delivery may outlive its writer.
 
         try:
-            authenticated()
+            admitted()
             agent_id = UUID(websocket.path_params["agent_id"])
 
             def attach():
@@ -289,7 +287,7 @@ class TerminalSockets:
             # Assignment occurs inside the settled call, so cancellation after
             # creation cannot lose the owned attachment before finally cleanup.
             await _settle_sync(attach)
-            authenticated()
+            admitted()
             latest = stream.initial
             async with asyncio.timeout(TERMINAL_SEND_TIMEOUT):
                 await websocket.accept()
@@ -316,14 +314,13 @@ class TerminalSockets:
                         pass
 
 
-def create_app(settings: InstallationSettings, credentials: Credentials, ui_root: Path | None = None) -> Starlette:
+def create_app(settings: InstallationSettings, ui_root: Path | None = None) -> Starlette:
     """Compose the logging/ASGI boundary; only lifespan startup opens storage."""
     if str(settings.listen_address) != "127.0.0.1":
         raise InputError("This increment requires listen_address 127.0.0.1")
-    credentials = Credentials(credentials.bindings, credentials.readiness_actor_id)
     install_logging_boundary()
-    sessions, admission = Sessions(), Admission()
-    terminals = TerminalSockets(sessions, admission)
+    admission = Admission()
+    terminals = TerminalSockets(admission)
     ui = StaticUI(ui_root) if ui_root is not None else None
 
     @asynccontextmanager
@@ -339,16 +336,16 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
 
         try:
             admission.closing = False
-            sessions.clear()
-            credentials.clear_local()
             if ui is not None:
                 await _settle_sync(ui.validate)
             await _settle_sync(open_application)
+            try:
+                web.state.local_owner = await _settle_sync(application.local_owner)
+            except CoreError as exc:
+                if exc.error.code == "invalid_argument":
+                    logging.getLogger(__name__).error("Local access requires exactly one registered owner")
+                raise
             dispatcher = Dispatcher(application)
-            for actor_id in credentials.bindings.values():
-                result = await dispatcher.invoke("config_get", Invocation(actor_id=actor_id), {})
-                if not result.ok:
-                    raise RuntimeError("Configured credential identity is unavailable")
             mcp = MCP(dispatcher, application.registry, settings.listen_port)
             web.state.application, web.state.dispatcher = application, dispatcher
             web.state.mcp = mcp
@@ -356,7 +353,6 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
                 worker = JobWorker(application.jobs)
                 web.state.worker = worker
                 await _settle_sync(worker.start)
-                application.native_setup.configure_credentials(credentials.register_local)
                 monitor = SessionMonitor(application.session_owners,
                     native_setup=application.native_setup, native_collector=application.native_collector)
                 web.state.session_monitor = monitor
@@ -368,7 +364,6 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
                     admission.closing = True
         finally:
             admission.closing = True
-            sessions.clear()
             try:
                 try:
                     await terminals.close()
@@ -384,46 +379,15 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
                         if monitor is not None:
                             await _settle_sync(monitor.stop)
                     finally:
-                        try:
-                            if application is not None:
-                                await _settle_sync(application.close)
-                        finally:
-                            credentials.clear_local()
-
-    def identity(actor_id):
-        return JSONResponse({"authenticated": True, "actor_id": str(actor_id), "api_version": 1})
+                        if application is not None:
+                            await _settle_sync(application.close)
 
     async def session(request):
-        prior = request.scope.get("qorqut.session_cookie")
-        if request.method in {"GET", "HEAD"}:
-            return identity(request.scope["qorqut.invocation"].actor_id)
-        if request.method == "DELETE":
-            sessions.revoke(prior)
-            response = JSONResponse({"authenticated": False})
-            response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="strict")
-            return response
-        if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
-            return failure(415, "invalid_request", "Content-Type must be application/json")
-        try:
-            arguments = json_object(await request.body())
-            if set(arguments) != {"token"} or not isinstance(arguments["token"], str):
-                raise InputError("Invalid sign-in input")
-            actor_id = credentials.actor(b"Bearer " + arguments["token"].encode("ascii"))
-        except (InputError, UnicodeError):
-            return failure(400, "invalid_request", "Expected a sign-in token")
-        if actor_id is None:
-            return failure(401, "unauthenticated", "Invalid sign-in credential")
-        result = await request.app.state.dispatcher.invoke("config_get", Invocation(actor_id=actor_id), {})
+        context = request.scope["qorqut.invocation"]
+        result = await request.app.state.dispatcher.invoke("config_get", context, {})
         if not result.ok:
-            return failure(503, "unavailable", "Sign-in identity is unavailable")
-        if admission.closing:
-            return failure(503, "unavailable", "Server is stopping")
-        token = sessions.issue(actor_id, prior)
-        if token is None:
-            return failure(503, "unavailable", "Browser session capacity unavailable")
-        response = identity(actor_id)
-        response.set_cookie(COOKIE_NAME, token, max_age=SESSION_SECONDS, path="/", httponly=True, samesite="strict")
-        return response
+            return failure(_STATUS[result.error.code], result.error.code, result.error.message)
+        return JSONResponse({"actor_id": str(context.actor_id), "api_version": 1})
 
     async def operation(request):
         if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
@@ -446,10 +410,7 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
                 for op in registry.values()]}, headers={"Cache-Control": "no-store"})
 
     async def native_hook(request):
-        # This is a bearer-authenticated internal observation, not a browser or
-        # model operation. Boundary has already authenticated and bounded input.
-        if not request.headers.get("authorization"):
-            return failure(401, "unauthenticated", "Bearer authentication required")
+        # Internal observation with the same public actor attribution as MCP.
         if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
             return failure(415, "invalid_request", "Content-Type must be application/json")
         try:
@@ -465,7 +426,7 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
 
     async def ready(request):
         result = await request.app.state.dispatcher.invoke("config_get",
-            Invocation(actor_id=credentials.readiness_actor_id), {})
+            Invocation(actor_id=request.app.state.local_owner), {})
         healthy = (result.ok and request.app.state.worker.ready and request.app.state.session_monitor.ready
                    and request.app.state.application.terminals.ready)
         return JSONResponse({"ready": healthy}, status_code=200 if healthy else 503,
@@ -494,7 +455,7 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
     app = Starlette(lifespan=lifespan, routes=[
         Route("/health/live", live, methods=["GET"]),
         Route("/health/ready", ready, methods=["GET"]),
-        Route("/api/v1/session", session, methods=["GET", "POST", "DELETE"]),
+        Route("/api/v1/session", session, methods=["GET"]),
         Route("/api/v1/schema", schema, methods=["GET"]),
         Route("/api/v1/operations/{name}", operation, methods=["POST"]),
         Route("/api/v1/native/hook", native_hook, methods=["POST"]),
@@ -504,8 +465,7 @@ def create_app(settings: InstallationSettings, credentials: Credentials, ui_root
         Route("/mcp", MCPRoute(), methods=["POST", "DELETE"]),
         Route("/api/{tail:path}", unknown_api, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]),
         *([Route("/", index, methods=["GET"]), Route("/assets/{asset:path}", asset, methods=["GET"])] if ui else []),
-    ], middleware=[Middleware(Boundary, credentials=credentials, port=settings.listen_port,
-                              sessions=sessions, admission=admission)])
+    ], middleware=[Middleware(Boundary, port=settings.listen_port, admission=admission)])
     app.router.redirect_slashes = False
     return app
 
@@ -519,7 +479,7 @@ class ServerFormatter(logging.Formatter):
         return super().format(record)
 
 
-def serve(settings: InstallationSettings, credentials: Credentials, ui_root: Path | None = None) -> None:
+def serve(settings: InstallationSettings, ui_root: Path | None = None) -> None:
     log_config = {"version": 1, "disable_existing_loggers": False,
         "formatters": {"private": {"()": ServerFormatter, "format": "%(levelname)s: %(message)s"}},
         "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "private", "stream": "ext://sys.stderr"}},
@@ -527,7 +487,7 @@ def serve(settings: InstallationSettings, credentials: Credentials, ui_root: Pat
             "uvicorn": {"handlers": ["console"], "level": "INFO", "propagate": False},
             "uvicorn.error": {"handlers": [], "level": "INFO", "propagate": True},
             "uvicorn.access": {"handlers": [], "propagate": False}}}
-    server = uvicorn.Server(uvicorn.Config(create_app(settings, credentials, ui_root), host="127.0.0.1",
+    server = uvicorn.Server(uvicorn.Config(create_app(settings, ui_root), host="127.0.0.1",
         port=settings.listen_port, workers=1, reload=False, proxy_headers=False, forwarded_allow_ips=[],
         access_log=False, log_config=log_config, server_header=False, date_header=False,
         http="h11", ws="websockets-sansio", ws_max_size=MAX_TERMINAL_TEXT, ws_per_message_deflate=False,

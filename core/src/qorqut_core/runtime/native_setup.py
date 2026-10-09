@@ -2,57 +2,24 @@
 
 from __future__ import annotations
 
-import json
 import os
-import re
-import secrets
 import sqlite3
 import threading
 import time
-from typing import Literal
 from uuid import UUID
-
-from pydantic import Field, SecretStr, field_validator
 
 from ..adapters.managed_io import ManagedTree
 from ..adapters.manual_core import prepare_manual_core
 from ..adapters.manual_hooks import ManualBinding, prepare_manual_hooks
-from ..adapters.preparation import json_bytes
 from ..adapters.types import AdapterError, ManagedRoots, MCPBinding
 from ..agents.registry import reserved
 from ..agents.workspace import child_directory, same_child
-from ..contracts import CoreError, Invocation, Model
+from ..contracts import CoreError, Invocation
 from ..runner.models import RunnerError
 from ..storage.database import assert_external_io_allowed
 from .native_models import NativeSetupView
 from .native_startup import NativeStartup
 from .terminal_models import TerminalGet
-
-CREDENTIAL = "core-credential.json"
-
-
-class _Credential(Model):
-    schema_version: Literal[1] = 1
-    installation_id: UUID
-    agent_id: UUID
-    token: SecretStr = Field(repr=False)
-
-    @field_validator("token")
-    @classmethod
-    def bearer(cls, value):
-        if re.fullmatch(r"[0-9a-f]{64}", value.get_secret_value()) is None:
-            raise ValueError("Invalid managed core credential")
-        return value
-
-
-def _pairs(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError("Invalid managed core credential")
-        result[key] = value
-    return result
-
 
 def _private(fd):
     info = os.fstat(fd)
@@ -60,43 +27,13 @@ def _private(fd):
         raise AdapterError("Native setup requires private owned runtime files")
 
 
-def _credential(tree, installation_id, agent_id):
-    with tree.lock("core-credential.lock"):
-        try:
-            with tree.open_read(CREDENTIAL) as stream:
-                _private(stream.fileno())
-                if os.fstat(stream.fileno()).st_nlink != 1:
-                    raise AdapterError("Managed core credential must not have aliases")
-                raw = stream.read(4097)
-        except FileNotFoundError:
-            value = {"schema_version": 1, "installation_id": str(installation_id),
-                     "agent_id": str(agent_id), "token": secrets.token_hex(32)}
-            tree.atomic_write(CREDENTIAL, json_bytes(value))
-            return _Credential.model_validate(value)
-        try:
-            if len(raw) > 4096:
-                raise ValueError
-            value = _Credential.model_validate(json.loads(raw, object_pairs_hook=_pairs))
-            if value.installation_id != installation_id or value.agent_id != agent_id:
-                raise ValueError
-            return value
-        except (ValueError, UnicodeError, RecursionError):
-            raise AdapterError("Managed core credential is invalid or bound differently") from None
-
-
 class NativeSetup:
     def __init__(self, application):
         self.app, self.db = application, application.db
         self._lock = threading.Lock()
-        self._register = None
         self._cache = None
         self._installed = None
         self._startup = NativeStartup(application)
-
-    def configure_credentials(self, register):
-        with self._lock:
-            self._register = register
-            self._installed = None
 
     def _publish(self, agent_id, state, reason):
         view = NativeSetupView(state=state, reason=reason, observed_at=self.db.clock())
@@ -148,10 +85,6 @@ class NativeSetup:
                 if row["workspace_initialized_at"] is None or terminal.status != "available" or terminal.terminal_id is None:
                     self._publish(agent_id, "waiting", "waiting_terminal")
                     return
-                with self._lock:
-                    register = self._register
-                if register is None:
-                    raise AdapterError("Native setup credential registration is unavailable")
                 shell = self.app.terminals.native_context(agent_id, terminal.terminal_id)
                 binding = ManualBinding(agent_id=agent_id, conversation_id=row["conversation_id"],
                     terminal_id=shell.terminal_id, recovery_epoch=shell.spec.recovery_epoch,
@@ -184,18 +117,12 @@ class NativeSetup:
 
                     identities = checked()
                     key = (binding, row["actor_id"], settings, self.app.settings.listen_address,
-                           self.app.settings.listen_port, identities, register)
+                           self.app.settings.listen_port, identities)
                     with self._lock:
                         installed = self._installed
                     if key != installed:
-                        credential = _credential(tree, self.app.settings.installation_id, agent_id)
-                        checked()
-                        try:
-                            register(UUID(row["actor_id"]), credential.token.get_secret_value())
-                        except Exception:
-                            raise AdapterError("Native setup credential registration failed") from None
                         core = MCPBinding(url=f"http://127.0.0.1:{self.app.settings.listen_port}/mcp",
-                            headers=(("Authorization", "Bearer " + credential.token.get_secret_value()),))
+                            headers=(("X-Qorqut-Actor", row["actor_id"]),))
                         prepare_manual_core(roots, binding, core, settings.native_programs)
                         checked()
                         prepare_manual_hooks(roots, binding, core, settings.native_programs,
@@ -208,7 +135,7 @@ class NativeSetup:
                 self._publish(agent_id, "ready", "configuration_installed")
         except (CoreError, RunnerError, OSError, ValueError, sqlite3.Error):
             # Fixed observations only: no tokens, native settings, paths or
-            # arbitrary filesystem/validation/callback diagnostics escape.
+            # arbitrary filesystem/validation diagnostics escape.
             if agent_id is not None:
                 self._publish(agent_id, "blocked", "setup_unavailable")
             else:
@@ -217,4 +144,4 @@ class NativeSetup:
 
     def close(self):
         with self._lock:
-            self._cache = self._installed = self._register = None
+            self._cache = self._installed = None

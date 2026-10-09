@@ -228,8 +228,8 @@ class MonitorLifetime(unittest.IsolatedAsyncioTestCase):
     def fixture(self):
         fixture = Installation()
         self.addCleanup(fixture.close)
-        settings, credentials = read_configuration(fixture.installation_file, fixture.transport_file)
-        return fixture, settings, create_app(settings, credentials)
+        settings = read_configuration(fixture.installation_file)
+        return fixture, settings, create_app(settings)
 
     async def test_uncaught_failure_is_not_ready_and_claim_is_retained(self):
         fixture, settings, web = self.fixture()

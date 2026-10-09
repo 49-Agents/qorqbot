@@ -17,7 +17,7 @@ import httpx
 
 from qorqut_core.app import Application
 from qorqut_core.contracts import Actor, Invocation
-from transports.support import Installation, write_private
+from transports.support import Installation
 from transports.test_transports import session, structured
 
 CURRENT = {"pending_entries": 0, "state": "current", "error": None}
@@ -46,14 +46,9 @@ def register(fixture, app, *names):
     return [result.data["agent"] for result in created]
 
 
-def bind(fixture, agents):
-    """Credentials for the actors actually registered above."""
-    actors = [Actor(actor_id=agent["actor_id"], kind="agent", agent_id=agent["id"]) for agent in agents]
-    for actor in actors:
-        fixture.tokens[actor.actor_id] = "synthetic-" + uuid4().hex + uuid4().hex
-    write_private(fixture.credentials_file, json.dumps({"actors": [
-        {"actor_id": str(key), "token": value} for key, value in fixture.tokens.items()]}))
-    return actors
+def actors(agents):
+    """Public attribution identities for the actors registered above."""
+    return [Actor(actor_id=agent["actor_id"], kind="agent", agent_id=agent["id"]) for agent in agents]
 
 
 async def settled(observe, wanted, timeout=60):
@@ -68,11 +63,11 @@ async def settled(observe, wanted, timeout=60):
         await asyncio.sleep(0.1)
 
 
-async def sign_in(stack, fixture):
+async def local_client(stack, fixture):
     client = await stack.enter_async_context(httpx.AsyncClient(
         base_url=fixture.url, trust_env=False, timeout=10, headers={"Origin": fixture.url}))
-    signed = await client.post("/api/v1/session", json={"token": fixture.tokens[fixture.owner.actor_id]})
-    assert signed.status_code == 200 and signed.json()["actor_id"] == str(fixture.owner.actor_id)
+    identity = await client.get("/api/v1/session")
+    assert identity.status_code == 200 and identity.json()["actor_id"] == str(fixture.owner.actor_id)
     return client
 
 
@@ -94,7 +89,7 @@ def expected_files(pages):
     days = {}
     for agent_id, page in pages.items():
         for item in page["items"]:
-            entry = {key: value for key, value in item.items() if key not in ("delivery", "handling")}
+            entry = {key: value for key, value in item.items() if key not in ("delivery", "handling", "inbox_reference")}
             days.setdefault((agent_id, entry["recorded_at"][:10]), []).append({"format_version": 1, **entry})
     return days
 
@@ -134,7 +129,7 @@ class ChatPublication(unittest.IsolatedAsyncioTestCase):
             alpha, beta = register(f, app, "alpha", "beta")
             onbash = next(a for a in app.invoke("agents_list", Invocation(actor_id=f.owner.actor_id), {}).data["items"]
                           if a["kind"] == "host")
-        alpha_actor, _ = bind(f, [alpha, beta])
+        alpha_actor, _ = actors([alpha, beta])
         ids = [alpha["id"], beta["id"], onbash["id"]]
         f.start()  # Normal entry point, no UI root; server startup and its worker provision the folders.
         for agent_id in ids:
@@ -146,7 +141,7 @@ class ChatPublication(unittest.IsolatedAsyncioTestCase):
 
         owner_id, alpha_actor_id = str(f.owner.actor_id), str(alpha_actor.actor_id)
         async with AsyncExitStack() as stack:
-            browser = await sign_in(stack, f)
+            browser = await local_client(stack, f)
 
             async def send(key, recipient, body):
                 response = await browser.post("/api/v1/operations/messages_send", json={
@@ -195,7 +190,7 @@ class ChatPublication(unittest.IsolatedAsyncioTestCase):
         saved = {key: transcript_path(f, *key).read_bytes() for key in expected}
 
         async with AsyncExitStack() as stack:
-            browser = await sign_in(stack, f)
+            browser = await local_client(stack, f)
             current = {agent_id: CURRENT for agent_id in ids}
             self.assertEqual(await settled(lambda: publications(browser, ids), current), current)
             self.assertEqual(await conversations(browser, ids), with_current(pages))
@@ -203,7 +198,7 @@ class ChatPublication(unittest.IsolatedAsyncioTestCase):
         f.stop()
         f.start()
         async with AsyncExitStack() as stack:
-            browser = await sign_in(stack, f)
+            browser = await local_client(stack, f)
             self.assertEqual(await conversations(browser, ids), with_current(pages))
             replay = await browser.post("/api/v1/operations/messages_send", json={
                 "idempotency_key": "owner-1", "recipient_agent_id": alpha["id"], "body": EQUAL_TEXT})
@@ -254,7 +249,7 @@ class ChatPublication(unittest.IsolatedAsyncioTestCase):
 
         f.start()  # Unmodified entry point and real clock; nothing below sends, runs or reconciles work.
         async with AsyncExitStack() as stack:
-            browser = await sign_in(stack, f)
+            browser = await local_client(stack, f)
             # Staging progress renews the crashed claim with the production 30-second lease, so its expiry
             # may follow the crash by that long; the bound covers it plus the finite retry delays.
             current = {agent["id"]: CURRENT}

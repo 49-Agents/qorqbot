@@ -1,7 +1,6 @@
-"""Local HTTP sessions/static assets and explicit worker lifetime acceptance."""
+"""Local identity/static assets and explicit worker lifetime acceptance."""
 
 import asyncio
-import hashlib
 import os
 import threading
 import time
@@ -9,6 +8,7 @@ import unittest
 from contextlib import AsyncExitStack
 from pathlib import Path
 from unittest.mock import patch
+from uuid import uuid4
 
 import httpx
 
@@ -17,37 +17,30 @@ from qorqut_core.contracts import CoreError
 from qorqut_core.storage.worker import JobWorker
 from qorqut_core.transports.configuration import MAX_INPUT_BYTES, InputError, read_configuration
 from qorqut_core.transports.server import create_app
-from qorqut_core.transports.sessions import COOKIE_NAME, MAX_SESSIONS, SESSION_SECONDS, Sessions
 from transports.support import Installation
 from transports.test_transports import session, structured
 
 
 class BrowserHTTP(unittest.IsolatedAsyncioTestCase):
-    async def test_login_mutation_sdk_rotation_logout_restart_and_real_workspace(self):
+    async def test_local_identity_mutation_sdk_restart_and_real_workspace(self):
         f = Installation()
         self.addCleanup(f.close)
         f.start()
-        cookies = []
         async with AsyncExitStack() as stack:
             client = await stack.enter_async_context(httpx.AsyncClient(base_url=f.url, trust_env=False))
             origin = {"Origin": f.url}
             self.assertEqual((await client.get("/")).status_code, 404)  # Headless.
-            self.assertEqual((await client.get("/api/v1/session")).status_code, 401)
-            self.assertEqual((await client.head("/api/v1/session")).status_code, 401)
-            signed = await client.post("/api/v1/session", json={"token": f.tokens[f.owner.actor_id]}, headers=origin)
-            self.assertEqual(signed.json(), {"authenticated": True, "actor_id": str(f.owner.actor_id), "api_version": 1})
-            header = signed.headers["set-cookie"]
-            for flag in ("HttpOnly", "SameSite=strict", "Path=/", "Max-Age=28800"):
-                self.assertIn(flag, header)
-            self.assertNotIn("Secure", header)
-            first_cookie = client.cookies.get(COOKIE_NAME)
-            cookies.append(first_cookie)
-            self.assertEqual((await client.get("/api/v1/session")).json(), signed.json())
+            identity = await client.get("/api/v1/session")
+            self.assertEqual(identity.json(), {"actor_id": str(f.owner.actor_id), "api_version": 1})
+            self.assertNotIn("set-cookie", identity.headers)
+            self.assertEqual(dict(client.cookies), {})
             self.assertEqual((await client.head("/api/v1/session")).status_code, 200)
+            for method in ("POST", "DELETE"):
+                self.assertEqual((await client.request(method, "/api/v1/session")).status_code, 404)
             self.assertEqual((await client.get("/api/v1/schema")).status_code, 200)
             changed = await client.post("/api/v1/operations/config_update", json=f.update(), headers=origin)
             self.assertEqual(changed.status_code, 200)
-            sdk = await session(stack, f)
+            sdk = await session(stack, f, client=client)
             self.assertEqual(structured(await sdk.call_tool("config_update", f.update())), changed.json())
             self.assertEqual(f.post("config_update", f.update()).json(), changed.json())
 
@@ -76,132 +69,51 @@ class BrowserHTTP(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(view["lifecycle"], "provisioning")
             self.assertIsNotNone(view["workspace_initialized_at"])
 
-            rotated = await client.post("/api/v1/session", json={"token": f.tokens[f.agent.actor_id]}, headers=origin)
-            self.assertEqual(rotated.json()["actor_id"], str(f.agent.actor_id))
-            second_cookie = client.cookies.get(COOKIE_NAME)
-            cookies.append(second_cookie)
-            self.assertNotEqual(first_cookie, second_cookie)
-            self.assertEqual((await client.get("/api/v1/session", headers={"Cookie": f"{COOKIE_NAME}={first_cookie}"})).status_code, 401)
-            logout = await client.delete("/api/v1/session", headers=origin)
-            self.assertEqual(logout.json(), {"authenticated": False})
-            self.assertIn("Max-Age=0", logout.headers["set-cookie"])
-            self.assertEqual((await client.delete("/api/v1/session", headers=origin)).status_code, 200)
-            self.assertEqual((await client.get("/api/v1/session", headers={"Cookie": f"{COOKIE_NAME}={second_cookie}"})).status_code, 401)
-            await client.post("/api/v1/session", json={"token": f.tokens[f.owner.actor_id]}, headers=origin)
-            cookies.append(client.cookies.get(COOKIE_NAME))
         f.stop()
         f.start()
         async with httpx.AsyncClient(base_url=f.url, trust_env=False) as client:
-            self.assertEqual((await client.get("/api/v1/session", headers={"Cookie": f"{COOKIE_NAME}={cookies[-1]}"})).status_code, 401)
-        for secret in [*cookies, *f.tokens.values()]:
-            self.assertNotIn(secret, f.log_file.read_text())
+            self.assertEqual((await client.get("/api/v1/session")).json(), identity.json())
 
-    async def test_origin_credential_ambiguity_bounds_and_sanitized_refusal(self):
+    async def test_origin_identity_legacy_headers_and_bounds(self):
         f = Installation()
         self.addCleanup(f.close)
         f.start()
         async with httpx.AsyncClient(base_url=f.url, trust_env=False) as client:
-            token = f.tokens[f.owner.actor_id]
-            for headers in ({}, {"Origin": "null"}, {"Origin": "https://evil.invalid"},
-                            [("Origin", f.url), ("Origin", f.url)], {"Origin": f.url, "Host": "evil.invalid"}):
-                refused = await client.post("/api/v1/session", json={"token": token}, headers=headers)
-                self.assertIn(refused.status_code, (403, 421))
-                self.assertNotIn(token, refused.text)
-            signed = await client.post("/api/v1/session", json={"token": token}, headers={"Origin": f.url})
-            cookie = client.cookies.get(COOKIE_NAME)
-            self.assertEqual(signed.status_code, 200)
-            cookie_header = f"{COOKIE_NAME}={cookie}"
-            for headers in ({}, {"Origin": "https://evil.invalid"},
-                {"Origin": f.url, **f.headers()},
-                [("Origin", f.url), ("Cookie", cookie_header), ("Cookie", cookie_header)],
-                {"Origin": f.url, "Cookie": cookie_header + "; " + cookie_header},
-                {"Origin": f.url, "Cookie": cookie_header + '; qorqut_session="ambiguous"'},
-                {"Origin": f.url, "Cookie": "qorqut_session=invalid"},
-                {"Origin": f.url, "X-Qorqut-Actor": str(f.agent.actor_id)}):
+            for headers, status in (({"Origin": "null"}, 403), ({"Origin": "https://evil.invalid"}, 403),
+                    ([("Origin", f.url), ("Origin", f.url)], 403), ({"Host": "evil.invalid"}, 421),
+                    ({"X-Qorqut-Actor": "PRIVATE-invalid"}, 400), ({"X-Qorqut-Actor": ""}, 400),
+                    ({"X-Qorqut-Actor": f"{f.owner.actor_id},{f.agent.actor_id}"}, 400),
+                    ([("X-Qorqut-Actor", str(f.owner.actor_id))] * 2, 400)):
                 refused = await client.post("/api/v1/operations/config_update", json=f.update(), headers=headers)
-                self.assertIn(refused.status_code, (400, 401, 403))
+                self.assertEqual(refused.status_code, status)
                 self.assertNotIn("operation_id", refused.json())
-                self.assertNotIn(cookie, refused.text)
-                self.assertNotIn(token, refused.text)
-            self.assertEqual((await client.get("/api/v1/session", headers={"Origin": "null"})).status_code, 403)
-            self.assertEqual((await client.get("/api/v1/session", headers=f.headers())).status_code, 401)
-            self.assertEqual((await client.delete("/api/v1/session")).status_code, 403)
-            self.assertEqual((await client.post("/mcp", json={})).status_code, 401)
-            # MCP still uses the exact supplied bearer even with a browser cookie.
-            async with AsyncExitStack() as stack:
-                bearer = await stack.enter_async_context(httpx.AsyncClient(headers={**f.headers(), "Cookie": cookie_header}, trust_env=False))
-                sdk = await session(stack, f, client=bearer)
-                self.assertEqual(structured(await sdk.call_tool("config_get", {})), f.initial)
-            origin = {"Origin": f.url, "Content-Type": "application/json"}
-            for content in (b'[]', b'{"token":123}', b'{"token":{"private":"SECRET"}}',
-                            json_token_duplicate(token), b'{"token":"SECRET","extra":1}'):
-                refused = await client.post("/api/v1/session", content=content, headers=origin)
-                self.assertEqual(refused.status_code, 400)
-                self.assertNotIn("SECRET", refused.text)
-                self.assertNotIn(token, refused.text)
+                self.assertNotIn("PRIVATE", refused.text)
+            identity = {"actor_id": str(f.owner.actor_id), "api_version": 1}
+            for headers in ({}, {"Authorization": "Bearer obsolete", "Cookie": "qorqut_session=obsolete"},
+                    [("Authorization", "one"), ("Authorization", "two"), ("Cookie", "broken"), ("Cookie", "duplicate")]):
+                response = await client.get("/api/v1/session", headers=headers)
+                self.assertEqual(response.json(), identity)
+                self.assertNotIn("set-cookie", response.headers)
+                self.assertEqual((await client.post("/api/v1/operations/config_get", json={}, headers=headers)).json(), f.initial)
+            selected = await client.get("/api/v1/session", headers=f.headers(f.agent))
+            self.assertEqual(selected.json(), {"actor_id": str(f.agent.actor_id), "api_version": 1})
+            unknown = {"X-Qorqut-Actor": str(uuid4())}
+            self.assertEqual((await client.get("/api/v1/session", headers=unknown)).status_code, 404)
+            refusal = await client.post("/api/v1/operations/config_update", json=f.update(), headers=unknown)
+            self.assertEqual(refusal.status_code, 404)
+            self.assertIsNone(refusal.json()["operation_id"])
             for content in (b"x" * (MAX_INPUT_BYTES + 1), large_chunks()):
-                refused = await client.post("/api/v1/session", content=content, headers=origin)
+                refused = await client.post("/api/v1/operations/config_update", content=content,
+                                           headers={"Content-Type": "application/json"})
                 self.assertEqual(refused.status_code, 413)
-            refused = await client.post("/api/v1/session", json={"token": "SECRET"}, headers=origin)
-            self.assertEqual(refused.status_code, 401)
-            self.assertNotIn("SECRET", refused.text)
-            self.assertEqual((await client.get("/api/v1/session?token=" + token)).status_code, 400)
-            self.assertEqual((await client.get("/api/v1/session")).status_code, 200)  # Failed sign-in did not revoke.
+            self.assertEqual((await client.get("/api/v1/session?token=PRIVATE")).status_code, 400)
             self.assertEqual(f.post("events_list").json()["data"]["items"], f.initial_events)
-        for secret in (token, cookie, "SECRET"):
-            self.assertNotIn(secret, f.log_file.read_text())
-
-    async def test_absolute_expiry_over_real_http(self):
-        f = Installation()
-        self.addCleanup(f.close)
-        f.start(session_seconds=0.5)  # Test-only clock acceleration, production cookie contract unchanged.
-        async with httpx.AsyncClient(base_url=f.url, trust_env=False) as client:
-            self.assertEqual((await client.post("/api/v1/session", headers={"Origin": f.url},
-                json={"token": f.tokens[f.owner.actor_id]})).status_code, 200)
-            deadline = time.monotonic() + 3
-            while (await client.get("/api/v1/session")).status_code == 200:
-                self.assertLess(time.monotonic(), deadline)
-                await asyncio.sleep(0.03)
-            self.assertEqual((await client.post("/api/v1/operations/config_get", json={}, headers={"Origin": f.url})).status_code, 401)
-
-
-def json_token_duplicate(token):
-    return ('{"token":"' + token + '","token":"' + token + '"}').encode()
+        self.assertNotIn("PRIVATE", f.log_file.read_text())
 
 
 async def large_chunks():
     for _ in range(17):
         yield b"x" * 65536
-
-
-class SessionCapacity(unittest.IsolatedAsyncioTestCase):
-    async def test_digest_only_bounded_capacity_rotation_and_expiry(self):
-        f = Installation()
-        self.addCleanup(f.close)
-        settings, credentials = read_configuration(f.installation_file, f.transport_file)
-        store = Sessions()
-        with patch("qorqut_core.transports.sessions.monotonic", return_value=10) as clock:
-            tokens = [store.issue(f.owner.actor_id, None) for _ in range(MAX_SESSIONS)]
-            self.assertEqual(set(store._entries), {hashlib.sha256(token.encode()).digest() for token in tokens})
-            self.assertNotIn(tokens[0], repr(store))
-            with patch("qorqut_core.transports.server.Sessions", return_value=store):
-                web = create_app(settings, credentials)
-            async with web.router.lifespan_context(web):
-                tokens = [store.issue(f.owner.actor_id, None) for _ in range(MAX_SESSIONS)]
-                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=web), base_url=f.url,
-                                             headers={"Origin": f.url}) as client:
-                    login = {"token": f.tokens[f.agent.actor_id]}
-                    self.assertEqual((await client.post("/api/v1/session", json=login)).status_code, 503)
-                    self.assertEqual(store.actor(tokens[-1]), f.owner.actor_id)
-                    rotated = await client.post("/api/v1/session", json=login,
-                        headers={"Cookie": f"{COOKIE_NAME}={tokens[0]}"})
-                    self.assertEqual(rotated.status_code, 200)
-                    self.assertIsNone(store.actor(tokens[0]))
-                    clock.return_value = 10 + SESSION_SECONDS
-                    self.assertEqual((await client.get("/api/v1/session")).status_code, 401)
-                    self.assertEqual((await client.post("/api/v1/session", json=login)).status_code, 200)
-                    self.assertEqual(len(store._entries), 1)
-            self.assertEqual(store._entries, {})
 
 
 class StaticHTTP(unittest.TestCase):
@@ -243,18 +155,16 @@ class StaticHTTP(unittest.TestCase):
             self.assertEqual(client.get("/assets").status_code, 404)
             # Replacing a previously good asset with a symlink cannot bypass the walk.
             (root / "assets/app.js").unlink()
-            (root / "assets/app.js").symlink_to(f.credentials_file)
+            (root / "assets/app.js").symlink_to(f.installation_file)
             self.assertEqual(client.get("/assets/app.js").status_code, 404)
         f.stop()
-        for secret in f.tokens.values():
-            self.assertNotIn(secret, f.log_file.read_text())
 
 
 class ConsoleLifetime(unittest.IsolatedAsyncioTestCase):
     async def test_bad_ui_and_worker_start_failure_release_lock(self):
         f = Installation()
         self.addCleanup(f.close)
-        settings, credentials = read_configuration(f.installation_file, f.transport_file)
+        settings = read_configuration(f.installation_file)
         root = f.root / "ui"
         root.mkdir()
         (root / "index.html").write_text("synthetic")
@@ -262,16 +172,16 @@ class ConsoleLifetime(unittest.IsolatedAsyncioTestCase):
         link.symlink_to(root, target_is_directory=True)
         (root / "bad").symlink_to(f.root, target_is_directory=True)
         for path in (Path("relative"), f.root / "missing", f.root, link, root / "bad/../ui"):
-            web = create_app(settings, credentials, path)
+            web = create_app(settings, path)
             with self.assertRaises(InputError):
                 async with web.router.lifespan_context(web):
                     self.fail("Invalid static build admitted")
         (root / "index.html").unlink()
-        (root / "index.html").symlink_to(f.credentials_file)
+        (root / "index.html").symlink_to(f.installation_file)
         with self.assertRaises(InputError):
-            async with create_app(settings, credentials, root).router.lifespan_context(None):
+            async with create_app(settings, root).router.lifespan_context(None):
                 self.fail("Symlinked index admitted")
-        web = create_app(settings, credentials)
+        web = create_app(settings)
         with patch.object(JobWorker, "start", side_effect=RuntimeError("synthetic startup failure")):
             with self.assertRaises(ExceptionGroup) as raised:
                 async with web.router.lifespan_context(web):
@@ -283,8 +193,8 @@ class ConsoleLifetime(unittest.IsolatedAsyncioTestCase):
     async def test_cancelled_startup_after_worker_launch_joins_before_lock_release(self):
         f = Installation()
         self.addCleanup(f.close)
-        settings, credentials = read_configuration(f.installation_file, f.transport_file)
-        web = create_app(settings, credentials)
+        settings = read_configuration(f.installation_file)
+        web = create_app(settings)
         entered, release = threading.Event(), threading.Event()
         self.addCleanup(release.set)
         start_worker = JobWorker.start
@@ -324,8 +234,8 @@ class ConsoleLifetime(unittest.IsolatedAsyncioTestCase):
     async def test_cancelled_shutdown_drains_worker_effect_and_closes_admission(self):
         f = Installation()
         self.addCleanup(f.close)
-        settings, credentials = read_configuration(f.installation_file, f.transport_file)
-        web = create_app(settings, credentials)
+        settings = read_configuration(f.installation_file)
+        web = create_app(settings)
         entered, release = threading.Event(), threading.Event()
         self.addCleanup(release.set)
         opened = Application.open
@@ -383,8 +293,8 @@ class ConsoleLifetime(unittest.IsolatedAsyncioTestCase):
     async def test_worker_failure_and_lost_lock_are_not_ready(self):
         f = Installation()
         self.addCleanup(f.close)
-        settings, credentials = read_configuration(f.installation_file, f.transport_file)
-        web = create_app(settings, credentials)
+        settings = read_configuration(f.installation_file)
+        web = create_app(settings)
         async with web.router.lifespan_context(web):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=web), base_url=f.url) as client:
                 deadline = time.monotonic() + 4

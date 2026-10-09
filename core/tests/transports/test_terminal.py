@@ -38,7 +38,6 @@ from qorqut_core.runtime.terminal_models import CLIENT_MESSAGE, TerminalView
 from qorqut_core.transports.boundary import Admission, Boundary
 from qorqut_core.transports.configuration import read_configuration
 from qorqut_core.transports.server import TerminalSockets, create_app
-from qorqut_core.transports.sessions import Sessions
 
 from transports.support import Installation
 from transports.test_transports import session, structured
@@ -86,11 +85,19 @@ class TerminalInstallation(Installation):
             rows = db.execute("SELECT offset,length,sha256,payload FROM capture_chunks "
                               "WHERE source_id=? AND source_epoch=? ORDER BY offset",
                               (str(shell.source_id), str(shell.source_epoch))).fetchall()
-        root = self.workspace.parent / "history/chunks" / str(shell.source_id) / str(shell.source_epoch)
         data = b""
         for offset, length, digest, payload in rows:
             if payload is None:
-                payload = (root / f"{offset}-{length}-{digest}.bin").read_bytes()
+                # D50 host objects may contain several original recorder chunks.
+                with sqlite3.connect(self.settings.data_root / "state.sqlite3") as db:
+                    archived = db.execute("SELECT offset,length,sha256,object_path FROM archive_chunks "
+                        "WHERE source_id=? AND source_epoch=? AND offset<=? AND offset+length>=?",
+                        (str(shell.source_id), str(shell.source_epoch), offset, offset + length)).fetchone()
+                assert archived is not None
+                start, size, sha256, path = archived
+                body = (self.settings.data_root / path).read_bytes()
+                assert len(body) == size and hashlib.sha256(body).hexdigest() == sha256
+                payload = body[offset - start:offset - start + length]
             assert offset == len(data) and len(payload) == length
             assert hashlib.sha256(payload).hexdigest() == digest
             data += payload
@@ -104,17 +111,10 @@ class TerminalInstallation(Installation):
     def available(self):
         return wait_for(lambda: (v if (v := self.terminal())["status"] == "available" else None))
 
-    def login(self):
-        with httpx.Client(trust_env=False) as client:
-            response = client.post(self.url + "/api/v1/session", json={"token": self.tokens[self.owner.actor_id]},
-                                   headers={"Origin": self.url})
-            assert response.status_code == 200, response.text
-            return "qorqut_session=" + client.cookies.get("qorqut_session")
-
-    def websocket(self, cookie, *, path=None, origin=True, headers=None):
+    def websocket(self, *, path=None, origin=True, headers=None):
         return connect(self.url.replace("http:", "ws:") + (path or "/api/v1/terminal/" + self.agent_id),
             origin=self.url if origin is True else origin or None,
-            additional_headers={"Cookie": cookie, **(headers or {})}, proxy=None,
+            additional_headers=headers, proxy=None,
             open_timeout=4, close_timeout=2, max_size=96 * 1024)
 
     def close(self):
@@ -260,7 +260,7 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
             reopened.close()
             self.assertEqual(saved.read_bytes(), encoded)
 
-    def test_console_recording_control_authentication_and_restart(self):
+    def test_cookie_free_console_recording_control_and_restart(self):
         f = TerminalInstallation()
         self.addCleanup(f.close)
         f.start()  # Normal installed console entrypoint; no test server wrapper.
@@ -281,34 +281,33 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         ordinary = f.post("terminal_get", {"agent_id": agent}).json()["data"]
         self.assertEqual(ordinary["status"], "unsupported_target")
         self.assertFalse((f.local.runtime_root / UUID(agent).hex).exists())
-        cookie1, cookie2 = f.login(), f.login()
         for options in ({"origin": False}, {"origin": "http://foreign.invalid"},
-                        {"headers": {"Authorization": "Bearer " + f.tokens[f.owner.actor_id]}},
-                        {"headers": {"x-qorqut-actor": str(f.owner.actor_id)}},
+                        {"headers": {"X-Qorqut-Actor": str(uuid4())}},
+                        {"headers": {"X-Qorqut-Actor": "invalid"}},
                         {"path": "/api/v1/terminal/" + f.agent_id + "?command=x"},
                         {"path": "/api/v1/terminal/" + agent}, {"path": "/unknown"},
                         {"path": "/api/v1/terminal/not-a-uuid"}):
             with self.assertRaises(InvalidStatus):
-                f.websocket(cookie1, **options)
-        with f.websocket(cookie1) as oversized:
+                f.websocket(**options)
+        with f.websocket() as oversized:
             received(oversized, "hello")
             oversized.send("x" * (96 * 1024 + 1))
             with self.assertRaises(ConnectionClosed):
                 received(oversized, "never")
         wait_for(lambda: b"bash-" in f.captured())
         baseline = f.captured()
-        with f.websocket(cookie1) as first, f.websocket(cookie2) as second:
+        with f.websocket() as first, f.websocket() as second:
             hello1, hello2 = received(first, "hello"), received(second, "hello")
             self.assertEqual(hello1["protocol"], 2)
             self.assertEqual(hello1["terminal"]["dimensions"], {"columns": 80, "rows": 24})
             self.assertNotEqual(hello1["viewer_id"], hello2["viewer_id"])
             self.assertEqual(received(first, "state")["terminal"]["terminal_id"], view["terminal_id"])
             self.assertEqual(f.captured(), baseline, "viewer initialization injected input")
-            with f.websocket(cookie1) as third, f.websocket(cookie2) as fourth:
+            with f.websocket() as third, f.websocket() as fourth:
                 received(third, "hello")
                 received(fourth, "hello")
                 with self.assertRaises(InvalidStatus):
-                    f.websocket(cookie1)
+                    f.websocket()
             denied = send(first, {"type": "input", "epoch": 0, "sequence": 1, "data": "eA=="}, "error")
             self.assertEqual(denied["code"], "revision_conflict")
             control1 = take(first, 0)
@@ -322,7 +321,7 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
             self.assertEqual(stale["code"], "revision_conflict")
             self.assertFalse((f.workspace / "bad").exists())
             # Hold the actual runner flock while a real WebSocket resize waits.
-            # State/cookie delivery must continue at its one-second cadence.
+            # State delivery must continue at its one-second cadence.
             received(second, "state")
             with input_lock(f.database, shell.terminal_id):
                 second.send(json.dumps({"type": "resize", "epoch": control2["epoch"], "sequence": 1, "columns": 113, "rows": 31}))
@@ -365,7 +364,7 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
                 return len(lines) == 2 and all(line.startswith("113|31|") and
                     {"read-only", "ignore-size"}.issubset(line.split("|")[2].split(",")) for line in lines)
             wait_for(clients_follow)
-            with f.websocket(cookie1) as wide_viewer:
+            with f.websocket() as wide_viewer:
                 wide_hello = received(wide_viewer, "hello")
                 self.assertEqual(wide_hello["terminal"]["dimensions"], {"columns": 113, "rows": 31})
             input_frame(second, b"stty size > dimensions; sleep 40 & echo $! > child.pid\r", control2["epoch"], 2)
@@ -396,10 +395,7 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         self.assertEqual(recovered["control"]["last_sequence"], 3)
         self.assertEqual(recovered["dimensions"], {"columns": 113, "rows": 31})
         self.assertGreaterEqual(recovered["recording"]["local_captured_offset"], view["recording"]["local_captured_offset"])
-        with self.assertRaises(InvalidStatus):
-            f.websocket(cookie1)
-        cookie = f.login()
-        with f.websocket(cookie) as viewer:
+        with f.websocket() as viewer:
             hello = received(viewer, "hello")
             self.assertNotIn(hello["viewer_id"], (hello1["viewer_id"], hello2["viewer_id"]))
             final = take(viewer, recovered["control"]["epoch"])
@@ -407,13 +403,12 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
             self.assertEqual(released["control"]["mode"], "unclaimed")
             held = take(viewer, released["control"]["epoch"])
             with httpx.Client(trust_env=False) as client:
-                self.assertEqual(client.delete(f.url + "/api/v1/session", headers={"Cookie": cookie, "Origin": f.url}).status_code, 200)
-            with self.assertRaises(ConnectionClosed):
-                received(viewer, "never", timeout=3)
+                self.assertEqual(client.delete(f.url + "/api/v1/session", headers={"Origin": f.url}).status_code, 404)
+            self.assertEqual(input_frame(viewer, b"printf 'LOCAL_ACCESS\\n'\r", held["epoch"], 1)["outcome"], "submitted")
             self.assertEqual(f.manager().control(shell.terminal_id).epoch, held["epoch"])
         args = f.root / "terminal-arguments.json"
         args.write_text(json.dumps({"agent_id": f.agent_id}))
-        command = f.command("call", "terminal_get", "--url", f.url, "--token-file", f.token_files[f.owner.actor_id], "--arguments-file", args, "--json")
+        command = f.command("call", "terminal_get", "--url", f.url, "--arguments-file", args, "--json")
         self.assertEqual(command.returncode, 0, command.stderr)
         self.assertEqual(json.loads(command.stdout)["data"]["terminal_id"], str(shell.terminal_id))
         with sqlite3.connect(f.database) as db:
@@ -432,8 +427,7 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         asyncio.run(parity())
         # An extra, positively owned window invalidates the exact capture
         # binding even though the terminal UUID and recovery epoch are unchanged.
-        cookie = f.login()
-        with f.websocket(cookie) as changed:
+        with f.websocket() as changed:
             received(changed, "hello")
             held = f.manager().control(shell.terminal_id)
             verify_process(shell.tmux.server)
@@ -464,15 +458,14 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
                 verify_process(shell.tmux.server)
                 subprocess.run([*tmux, "kill-window", "-t", window], capture_output=True, check=True, timeout=3)
         self.assertEqual(f.available()["terminal_id"], str(shell.terminal_id))
-        cookie = f.login()
-        with f.websocket(cookie) as exiting:
+        with f.websocket() as exiting:
             current = received(exiting, "hello")["terminal"]["control"]
             control = take(exiting, current["epoch"])
             input_frame(exiting, b"exit\r", control["epoch"], 1)
         stopped = wait_for(lambda: (v if (v := f.terminal())["status"] == "stopped" else None))
         self.assertEqual(stopped["terminal_id"], str(shell.terminal_id))
         with self.assertRaises(InvalidStatus):
-            f.websocket(cookie)
+            f.websocket()
         self.assertEqual(httpx.get(f.url + "/health/ready", trust_env=False).status_code, 200)
 
     def test_workspace_and_recovery_configuration_fences_never_replace_shell(self):
@@ -573,9 +566,9 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
 
 class Socket:
     """Bounded ASGI send/receive seam for deterministic disconnect/backpressure."""
-    def __init__(self, app, actor, cookie, agent_id, *, stalled=False, stall_hello=False):
+    def __init__(self, app, actor, agent_id, *, stalled=False, stall_hello=False):
         self.app = SimpleNamespace(state=SimpleNamespace(application=app))
-        self.scope = {"qorqut.invocation": Invocation(actor_id=actor), "qorqut.session_cookie": cookie}
+        self.scope = {"qorqut.invocation": Invocation(actor_id=actor)}
         self.path_params = {"agent_id": agent_id}
         self.incoming, self.messages = asyncio.Queue(), asyncio.Queue()
         self.stalled = stalled
@@ -631,15 +624,13 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
         await asyncio.to_thread(app.jobs.run_next, worker_id=uuid4())
         view = await asyncio.to_thread(app.terminals.observe)
         self.assertEqual(view.status, "available")
-        sessions = Sessions()
-        cookie = sessions.issue(f.owner.actor_id, None)
-        sockets = TerminalSockets(sessions, Admission())
+        sockets = TerminalSockets(Admission())
         self.addAsyncCleanup(sockets.close)
-        return f, app, sessions, cookie, sockets
+        return f, app, sockets
 
     async def test_uncertain_input_and_cancelled_shutdown_settle_owned_effect(self):
-        f, app, sessions, cookie, sockets = await self.fixture()
-        ws = Socket(app, f.owner.actor_id, cookie, f.agent_id)
+        f, app, sockets = await self.fixture()
+        ws = Socket(app, f.owner.actor_id, f.agent_id)
         task = asyncio.create_task(sockets.endpoint(ws))
         hello = await ws.next("hello")
         await ws.frame({"type": "control", "action": "take", "expected_epoch": 0})
@@ -696,7 +687,7 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
         app = Application.open(f.settings)
         self.addCleanup(app.close)
         await asyncio.to_thread(app.terminals.observe)
-        ws = Socket(app, f.owner.actor_id, cookie, f.agent_id)
+        ws = Socket(app, f.owner.actor_id, f.agent_id)
         task = asyncio.create_task(sockets.endpoint(ws))
         await ws.next("hello")
         await ws.frame({"type": "control", "action": "take", "expected_epoch": control.epoch})
@@ -733,20 +724,20 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
         self.assertEqual((sockets.tasks, app.terminals._streams), (set(), {}))
         self.assertEqual(manager.control(UUID(hello["terminal"]["terminal_id"])).model_dump(mode="json"), held)
 
-    async def test_slow_output_idle_expiry_and_recovery_close_only_viewers(self):
-        f, app, sessions, cookie, sockets = await self.fixture()
-        greeting = Socket(app, f.owner.actor_id, cookie, f.agent_id, stall_hello=True)
+    async def test_slow_output_idle_disconnect_and_recovery_close_only_viewers(self):
+        f, app, sockets = await self.fixture()
+        greeting = Socket(app, f.owner.actor_id, f.agent_id, stall_hello=True)
         task = asyncio.create_task(sockets.endpoint(greeting))
         await asyncio.wait_for(greeting.sending.wait(), 3)
-        sessions.revoke(cookie)
-        await asyncio.wait_for(task, 2)
+        await sockets.close()
+        with self.assertRaises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 2)
         self.assertTrue(greeting.closed)
         self.assertEqual(app.terminals._streams, {})
-        cookie = sessions.issue(f.owner.actor_id, None)
         # The writer must use the immutable size supplied with each read, even
         # when it carries no bytes. This synthetic read seam isolates ordering;
         # the owning shell/console checks separately use real PTYs and tmux.
-        ordered = Socket(app, f.owner.actor_id, cookie, f.agent_id)
+        ordered = Socket(app, f.owner.actor_id, f.agent_id)
         task = asyncio.create_task(sockets.endpoint(ordered))
         hello = await ordered.next("hello")
         self.assertEqual(hello["protocol"], 2)
@@ -764,7 +755,7 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
                 [b"OLD_GRID", {"type": "size", "columns": 132, "rows": 40}, b"NEW_GRID"])
             await ordered.incoming.put({"type": "websocket.disconnect"})
             await asyncio.wait_for(task, 3)
-        ws = Socket(app, f.owner.actor_id, cookie, f.agent_id, stalled=True)
+        ws = Socket(app, f.owner.actor_id, f.agent_id, stalled=True)
         with patch("qorqut_core.transports.server.TERMINAL_SEND_TIMEOUT", 0.15):
             task = asyncio.create_task(sockets.endpoint(ws))
             await ws.next("hello")
@@ -775,9 +766,9 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.terminals._streams, {})
         shell = f.shell()
         verify_process(shell.shell)
-        # Real idle reads return b'' without closing the observer; output-only
-        # connections still check expiry without another received frame.
-        ws = Socket(app, f.owner.actor_id, cookie, f.agent_id)
+        # Real idle reads return b'' without closing the observer; an explicit
+        # disconnect closes only its viewer and preserves the control hold.
+        ws = Socket(app, f.owner.actor_id, f.agent_id)
         task = asyncio.create_task(sockets.endpoint(ws))
         await ws.next("hello")
         await ws.next("state")
@@ -785,12 +776,11 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ws.closed)
         await ws.frame({"type": "control", "action": "take", "expected_epoch": 0})
         held = (await ws.next("control"))["control"]
-        sessions._entries[sessions._digest(cookie)] = f.owner.actor_id, time.monotonic() - 1
+        await ws.incoming.put({"type": "websocket.disconnect"})
         await asyncio.wait_for(task, 3)
         self.assertTrue(ws.closed)
         self.assertEqual(f.manager().control(shell.terminal_id).epoch, held["epoch"])
-        cookie = sessions.issue(f.owner.actor_id, None)
-        ws = Socket(app, f.owner.actor_id, cookie, f.agent_id)
+        ws = Socket(app, f.owner.actor_id, f.agent_id)
         task = asyncio.create_task(sockets.endpoint(ws))
         hello = await ws.next("hello")
         result = await asyncio.to_thread(app.activate_recovery, Invocation(actor_id=f.owner.actor_id),
@@ -801,28 +791,32 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ws.closed)
         verify_process(shell.shell)
 
-    async def test_origin_cookie_boundary_and_observation_loop_readiness(self):
+    async def test_origin_identity_boundary_and_observation_loop_readiness(self):
         f = Installation()
         self.addCleanup(f.close)
-        settings, credentials = read_configuration(f.installation_file, f.transport_file)
-        sessions, admission = Sessions(), Admission()
-        cookie = sessions.issue(f.owner.actor_id, None)
+        settings = read_configuration(f.installation_file)
+        admission = Admission()
         called = []
         async def downstream(scope, receive, send):
             called.append(scope)
-        boundary = Boundary(downstream, credentials=credentials, port=settings.listen_port,
-                            sessions=sessions, admission=admission)
+        boundary = Boundary(downstream, port=settings.listen_port, admission=admission)
         headers = [(b"host", f.url.removeprefix("http://").encode()), (b"origin", f.url.encode()),
-                   (b"cookie", ("qorqut_session=" + cookie).encode())]
+                   (b"x-qorqut-actor", str(f.owner.actor_id).encode())]
         scope = {"type": "websocket", "path": "/unknown", "headers": headers, "query_string": b""}
-        for extra in ([(b"host", headers[0][1])], [(b"origin", f.url.encode())], [(b"cookie", headers[2][1])]):
+        for extra in ([(b"host", headers[0][1])], [(b"origin", f.url.encode())], [(b"x-qorqut-actor", headers[2][1])]):
             sent = []
             async def record(message):
                 sent.append(message)
             await boundary({**scope, "headers": headers + extra}, None, record)
             self.assertEqual(sent[0]["type"], "websocket.close")
         self.assertEqual(called, [])
-        web = create_app(settings, credentials)
+        local = SimpleNamespace(state=SimpleNamespace(local_owner=f.owner.actor_id))
+        for identity, actor in (([], f.owner.actor_id),
+                ([(b"x-qorqut-actor", str(f.agent.actor_id).encode())], f.agent.actor_id)):
+            await boundary({**scope, "app": local, "headers": headers[:2] + identity + [
+                (b"authorization", b"Bearer obsolete"), (b"cookie", b"qorqut_session=obsolete")]}, None, record)
+            self.assertEqual(called[-1]["qorqut.invocation"].actor_id, actor)
+        web = create_app(settings)
         async with web.router.lifespan_context(web):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=web), base_url=f.url) as client:
                 deadline = time.monotonic() + 5

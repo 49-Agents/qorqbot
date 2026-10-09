@@ -6,7 +6,6 @@ No authenticated native stores, native model turns, or live owner sessions.
 
 import asyncio
 from contextlib import redirect_stderr, redirect_stdout
-import hashlib
 import io
 import json
 import os
@@ -34,7 +33,6 @@ from qorqut_core.runtime.hook_client import main, submit
 from qorqut_core.runtime.native_hooks import (CONFLICT_MESSAGE, MAX_HOOK_BYTES, UNAVAILABLE_MESSAGE,
                                             NativeHookRequest, NativeHookResult)
 from qorqut_core.transcripts.probe import ProbeResult
-from qorqut_core.transports.configuration import Credentials
 from qorqut_core.transports.server import Dispatcher, create_app
 from runtime.support import RuntimeCase
 
@@ -51,8 +49,7 @@ class NativeHookCase(RuntimeCase):
             shutil.copyfile(Path(sys.executable).resolve(), program.executable)
             program.executable.chmod(0o700)
         self.native = self.programs[0].executable
-        self.token = "synthetic-" + uuid4().hex
-        self.core = MCPBinding(url="http://127.0.0.1:17501/mcp", headers=(("Authorization", "Bearer " + self.token),))
+        self.core = MCPBinding(url="http://127.0.0.1:17501/mcp", headers=(("X-Qorqut-Actor", str(self.context.actor_id)),))
         self.processes = []
         self.script = self.root / "chain.py"
         self.script.write_text(
@@ -209,13 +206,11 @@ class NativeHooks(NativeHookCase):
             self.assertEqual(saved["hooks"]["SessionStart"][0], authored["hooks"]["SessionStart"][0])
             command = saved["hooks"]["SessionStart"][1]["hooks"][0]["command"]
             self.assertEqual(shlex.split(command)[-2:], ["--provider", provider])
-            self.assertNotIn(self.token, command)
             saved["unrelated"] = "preserved later edit"
             path.write_text(json.dumps(saved))
         self.configured(shell)
         for path in setup.binding_paths:
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
-            self.assertNotIn(self.token, repr(read_hook_configuration(path)))
         saved = json.loads(claude.read_bytes())
         saved["hooks"]["SessionStart"][1]["hooks"][0]["command"] += " edited"
         claude.write_text(json.dumps(saved))
@@ -225,24 +220,24 @@ class NativeHooks(NativeHookCase):
 
     def test_internal_http_resolves_binding_and_has_fixed_private_failures(self):
         _, shell, request = self.chain()
-        credentials = Credentials({hashlib.sha256(self.token.encode()).digest(): self.context.actor_id}, self.context.actor_id)
-        web = create_app(self.settings, credentials)
+        web = create_app(self.settings)
+        web.state.local_owner = self.app.local_owner()
         web.state.application = self.app
         web.state.dispatcher = Dispatcher(self.app)
-        headers = {"Authorization": "Bearer " + self.token}
+        headers = {"X-Qorqut-Actor": str(self.context.actor_id)}
 
         async def check():
             try:
                 async with httpx.AsyncClient(transport=httpx.ASGITransport(app=web), base_url="http://127.0.0.1:17501") as client:
                     path = "/api/v1/native/hook"
                     response = await client.post(path, json=request.model_dump(mode="json"))
-                    self.assertEqual(response.status_code, 401)
+                    self.assertEqual((response.status_code, response.json()["outcome"]), (503, "unavailable"))
                     response = await client.post(path, headers=headers, json=request.model_dump(mode="json"))
                     self.assertEqual((response.status_code, response.json()["outcome"]), (503, "unavailable"))
                     setup = self.configured(shell, programs=(self.programs[0],))
                     self.assertFalse(setup.binding_paths[0].with_name("codex.json").exists())
                     with patch.object(self.app.terminals, "native_context", return_value=shell):
-                        response = await client.post(path, headers=headers, json=request.model_dump(mode="json"))
+                        response = await client.post(path, json=request.model_dump(mode="json"))
                         self.assertEqual((response.status_code, response.json()["outcome"]), (200, "connected"))
                         setup = self.configured(shell)
                         response = await client.post(path, headers=headers, json=request.model_dump(mode="json"))
@@ -278,7 +273,6 @@ class NativeHooks(NativeHookCase):
                         json={**request.model_dump(mode="json"), "filename": "PRIVATE-FILENAME"})
                     self.assertEqual(response.status_code, 400)
                     self.assertNotIn("PRIVATE-FILENAME", response.text)
-                    self.assertNotIn(self.token, response.text)
                     response = await client.post(path, headers={**headers, "Content-Type": "application/json"},
                                                  content=b"x" * (MAX_HOOK_BYTES + 1))
                     self.assertEqual(response.status_code, 413)
@@ -289,7 +283,6 @@ class NativeHooks(NativeHookCase):
 
         asyncio.run(check())
         for event in self.events(self.host["id"], "native.hook"):
-            self.assertNotIn(self.token, event["payload_json"])
             self.assertNotIn("PRIVATE-PROMPT-BODY", event["payload_json"])
 
     def test_client_conflict_unavailable_redaction_and_native_context(self):
@@ -308,8 +301,10 @@ class NativeHooks(NativeHookCase):
             result = submit(path, "claude", json.dumps(request.payload).encode())
         self.assertEqual(result.message, CONFLICT_MESSAGE)
         self.assertEqual(seen[0].url.path, "/api/v1/native/hook")
+        self.assertEqual(seen[0].headers["X-Qorqut-Actor"], str(self.context.actor_id))
+        self.assertNotIn("Authorization", seen[0].headers)
         self.assertEqual(json.loads(seen[0].content)["hook_process"]["pid"], os.getpid())
-        with patch("qorqut_core.runtime.hook_client.httpx.Client", side_effect=RuntimeError(self.token + " PRIVATE-BODY")):
+        with patch("qorqut_core.runtime.hook_client.httpx.Client", side_effect=RuntimeError("PRIVATE-BODY")):
             result = submit(path, "claude", json.dumps(request.payload).encode())
         self.assertEqual((result.outcome, result.message), ("unavailable", UNAVAILABLE_MESSAGE))
         for status, body in ((409, b'{"message":"PRIVATE-BODY"}'),

@@ -1,9 +1,7 @@
 """D40 setup checks: owned Bash/normal server, synthetic native configuration only."""
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import AsyncExitStack
-import hashlib
 import json
 from pathlib import Path
 import shlex
@@ -28,7 +26,7 @@ from qorqut_core.app import Application, RecoveryActivation
 from qorqut_core.contracts import CoreError, Invocation
 from qorqut_core.runtime import SessionMonitor, SessionOwners
 from qorqut_core.runtime.native_models import NativeCollectionView
-from qorqut_core.transports.configuration import Credentials, InputError, read_configuration
+from qorqut_core.transports.configuration import read_configuration
 from qorqut_core.transports.server import create_app
 
 from runtime.support import RuntimeCase
@@ -147,9 +145,20 @@ class Preparation(unittest.TestCase):
                 self.assertNotIn("PRIVATE", str(error.exception))
                 self.assertEqual(snapshot, {p: p.read_bytes() for p in paths})
                 path.write_bytes(saved)
-            with self.assertRaisesRegex(AdapterError, "Replacing an owned Codex core table is unsupported"):
-                prepare_manual_core(roots, binding, core.model_copy(update={"url": "http://127.0.0.1:17002/mcp"}), native)
-            self.assertEqual({p: value[0] for p, value in before.items()}, {p: p.read_bytes() for p in paths})
+            # Replace a previously generated token binding through the normal
+            # ownership manifests, preserving all authored bytes and native trust.
+            core = MCPBinding(url=core.url, headers=(("X-Qorqut-Actor", str(uuid4())),))
+            prepare_manual_core(roots, binding, core, native)
+            prepare_manual_hooks(roots, binding, core, native, sink)
+            self.assertEqual(tomllib.loads(codex.read_text())["mcp_servers"]["qorqut-core"]["http_headers"], dict(core.headers))
+            self.assertEqual(json.loads(mcp.read_bytes())["mcpServers"]["qorqut-core"]["headers"], dict(core.headers))
+            self.assertTrue(codex.read_bytes().startswith(native_bytes))
+            self.assertTrue(codex.read_bytes().endswith(b'\n[projects."/native-trust"]\ntrust_level = "trusted"\n'))
+            for path in hooks.binding_paths:
+                self.assertEqual(read_hook_configuration(path).core, core)
+            before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in paths}
+            prepare_manual_core(roots, binding, core, native)
+            self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in paths})
             # Missing manifest may be an interrupted first installation; only
             # identical existing core entries can be adopted.
             (workspace / ".qorqut/manual-core/preparation.json").unlink()
@@ -231,14 +240,9 @@ class SetupServer(OwnedProcesses, unittest.TestCase):
         self.assertEqual(capture["native_capture"]["state"], "waiting")
         terminal = f.available()
         credential_path = f.workspace.parent / "runtime/core-credential.json"
-        credential = json.loads(credential_path.read_bytes())
-        token = credential["token"]
-        self.assertEqual(len(bytes.fromhex(token)), 32)
-        self.assertEqual(credential["installation_id"], str(f.settings.installation_id))
-        self.assertEqual(credential["agent_id"], f.agent_id)
-        self.assertEqual(credential_path.stat().st_mode & 0o777, 0o600)
+        self.assertFalse(credential_path.exists())
         agent = f.post("agents_get", {"agent_id": f.agent_id}).json()["data"]
-        headers = {"Authorization": "Bearer " + token}
+        headers = {"X-Qorqut-Actor": agent["actor_id"]}
         mcp_path = f.workspace / ".mcp.json"
         mcp = json.loads(mcp_path.read_bytes())["mcpServers"]["qorqut-core"]
         self.assertEqual(mcp, {"type": "http", "url": f.url + "/mcp", "headers": headers})
@@ -252,7 +256,6 @@ class SetupServer(OwnedProcesses, unittest.TestCase):
             self.assertEqual(str(binding.binding.terminal_id), terminal["terminal_id"])
             self.assertEqual(binding.program, program)
             self.assertEqual(dict(binding.core.headers), headers)
-            self.assertNotIn(token, repr(binding))
             config_path = (f.workspace / ".claude/settings.local.json" if program.provider == "claude"
                            else f.workspace.parent / "runtime/home/.codex/hooks.json")
             command = json.loads(config_path.read_bytes())["hooks"]["SessionStart"][0]["hooks"][0]["command"]
@@ -263,7 +266,7 @@ class SetupServer(OwnedProcesses, unittest.TestCase):
                 "expected_revision": 1, "text": "HTTP attributed", "idempotency_key": "setup-http"})
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["data"]["status"]["actor_id"], agent["actor_id"])
-            self.assertEqual(client.post("/api/v1/native/hook", json={}).status_code, 400)  # Authenticated, invalid hook.
+            self.assertEqual(client.post("/api/v1/native/hook", json={}).status_code, 400)  # Attributed, invalid hook.
 
         async def check_mcp():
             async with AsyncExitStack() as stack:
@@ -276,26 +279,27 @@ class SetupServer(OwnedProcesses, unittest.TestCase):
                 self.assertEqual(result["data"]["status"]["actor_id"], agent["actor_id"])
 
         asyncio.run(check_mcp())
-        paths = [credential_path, mcp_path, codex, *hook_files, f.workspace / "CLAUDE.md", f.workspace / "AGENTS.md",
+        paths = [mcp_path, codex, *hook_files, f.workspace / "CLAUDE.md", f.workspace / "AGENTS.md",
                  f.workspace / ".qorqut/manual-hooks/preparation.json"]
         snapshot = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in paths}
-        for before, _ in snapshot.values():
-            for configured_token in f.tokens.values():
-                self.assertNotIn(configured_token.encode(), before)
         time.sleep(1.2)  # A second real monitor tick must use the successful binding cache.
         self.assertEqual(snapshot, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in paths})
         codex.write_bytes(codex.read_bytes() + b'\n[projects."/authored"]\ntrust_level = "trusted"\n')
         snapshot[codex] = codex.read_bytes(), codex.stat().st_mtime_ns
         f.stop()
+        old_core = MCPBinding(url=f.url + "/mcp", headers=(("Authorization", "Bearer " + "a" * 64),))
+        roots = binding.roots
+        prepare_manual_core(roots, binding.binding, old_core, f.local.native_programs)
+        prepare_manual_hooks(roots, binding.binding, old_core, f.local.native_programs,
+            (sys.executable, "-I", "-m", "qorqut_core.runtime.hook_client"))
+        credential_path.write_bytes(b"UNUSED legacy credential fixture")
+        credential_before = credential_path.read_bytes(), credential_path.stat().st_mtime_ns
         f.start()
         setup_state(f, "ready")
         self.assertEqual(f.available()["terminal_id"], terminal["terminal_id"])
         self.assertEqual({p: before[0] for p, before in snapshot.items()}, {p: p.read_bytes() for p in paths})
-        self.assertEqual(credential_path.stat().st_mtime_ns, snapshot[credential_path][1])
-        self.assertEqual(codex.stat().st_mtime_ns, snapshot[codex][1])
+        self.assertEqual((credential_path.read_bytes(), credential_path.stat().st_mtime_ns), credential_before)
         self.assertFalse((f.root / "unexpected-native-launch").exists())
-        self.assertNotIn(token, f.log_file.read_text())
-        self.assertNotIn(token, json.dumps(f.post("events_list", {}).json()))
         with sqlite3.connect(f.settings.data_root / "state.sqlite3") as db:
             self.assertEqual(db.execute("SELECT count(*) FROM session_owners").fetchone()[0], 0)
 
@@ -306,38 +310,22 @@ class SetupServer(OwnedProcesses, unittest.TestCase):
         setup_state(f, "ready")
         f.stop()
         credential = f.workspace.parent / "runtime/core-credential.json"
+        credential.write_bytes(b"UNUSED obsolete credential")
         original = credential.read_bytes()
-        wrong = json.loads(original)
-        wrong["agent_id"] = str(uuid4())
         mcp = f.workspace / ".mcp.json"
         saved_mcp = mcp.read_bytes()
-        for mode, body in ((0o600, b"PRIVATE invalid"), (0o600, json.dumps(wrong).encode()), (0o640, original)):
-            credential.write_bytes(body)
-            credential.chmod(mode)
-            f.start()
-            self.assertEqual(setup_state(f, "blocked")["native_setup"]["reason"], "setup_unavailable")
-            self.assertEqual(f.available()["status"], "available")
-            self.assertTrue(f.post("config_get", {}).json()["ok"])
-            f.stop()
-            self.assertEqual(credential.read_bytes(), body)
-            self.assertEqual(mcp.read_bytes(), saved_mcp)
-        credential.write_bytes(original)
-        credential.chmod(0o600)
-        alias = credential.with_suffix(".alias")
-        credential.rename(alias)
-        credential.symlink_to(alias)
+        # Legacy credential contents and permissions are not read or rewritten.
+        credential.chmod(0o640)
         f.start()
-        setup_state(f, "blocked")
-        self.assertTrue(credential.is_symlink())
-        self.assertEqual(alias.read_bytes(), original)
+        setup_state(f, "ready")
         f.stop()
-        credential.unlink()
-        alias.rename(credential)
+        self.assertEqual(credential.read_bytes(), original)
+        self.assertEqual(mcp.read_bytes(), saved_mcp)
         mcp.write_bytes(b'{"mcpServers": "PRIVATE malformed"}')
         f.start()
         self.assertEqual(setup_state(f, "blocked")["native_setup"]["reason"], "setup_unavailable")
         # A setup error leaves the real shell usable through the existing viewer.
-        with f.websocket(f.login()) as ws:
+        with f.websocket() as ws:
             state = received(ws, "state")["terminal"]
             control = take(ws, state["control"]["epoch"])
             input_frame(ws, b"printf 'SETUP_SHELL_USABLE\\n'\n", control["epoch"], 1)
@@ -362,54 +350,28 @@ class SetupServer(OwnedProcesses, unittest.TestCase):
         self.assertTrue(f.post("config_get", {}).json()["ok"])
         self.assertFalse((f.root / "unexpected-native-launch").exists())
 
-    def test_credential_overlay_is_private_to_each_application_lifespan(self):
+    def test_setup_monitor_lifetime_preserves_unavailable_startup_observation(self):
         f = fixture()
         self.addCleanup(f.close)
-        settings, credentials = read_configuration(f.installation_file, f.transport_file)
-        first, second = create_app(settings, credentials), create_app(settings, credentials)
+        web = create_app(read_configuration(f.installation_file))
 
         async def check():
-            async with first.router.lifespan_context(first):
-                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=first), base_url=f.url) as client:
+            async with web.router.lifespan_context(web):
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=web), base_url=f.url) as client:
                     deadline = time.monotonic() + 12
                     while True:
-                        response = await client.post("/api/v1/operations/runtime_get", headers=f.headers(), json={"agent_id": f.agent_id})
+                        response = await client.post("/api/v1/operations/runtime_get", json={"agent_id": f.agent_id})
                         if response.json()["data"]["native_setup"]["state"] == "ready":
                             break
                         self.assertLess(time.monotonic(), deadline)
                         await asyncio.sleep(0.05)
-                    token = json.loads((f.workspace.parent / "runtime/core-credential.json").read_bytes())["token"]
-                    headers = {"Authorization": "Bearer " + token}
-                    self.assertEqual((await client.post("/api/v1/operations/config_get", headers=headers, json={})).status_code, 200)
-                    active_credentials = first.state.application.native_setup._register.__self__
-                    self.assertIsNone(credentials.actor(headers["Authorization"].encode()))
-                    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=second), base_url=f.url) as other:
-                        self.assertEqual((await other.post("/api/v1/operations/config_get", headers=headers, json={})).status_code, 401)
-            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=first), base_url=f.url) as closed:
-                self.assertEqual((await closed.post("/api/v1/operations/config_get", headers=headers, json={})).status_code, 503)
-            self.assertIsNone(active_credentials.actor(headers["Authorization"].encode()))
-            self.assertEqual(active_credentials.actor(f.headers()["Authorization"].encode()), f.owner.actor_id)
-            self.assertIsNone(first.state.application.native_setup._cache)
-            self.assertFalse(first.state.session_monitor._thread.is_alive())
+                    self.assertEqual((await client.post("/api/v1/operations/config_get", json={})).status_code, 200)
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=web), base_url=f.url) as closed:
+                self.assertEqual((await closed.post("/api/v1/operations/config_get", json={})).status_code, 503)
+            self.assertIsNone(web.state.application.native_setup._cache)
+            self.assertFalse(web.state.session_monitor._thread.is_alive())
 
         with patch("qorqut_core.runtime.native_startup._discover",
                    side_effect=PermissionError("PRIVATE startup observation")) as discovery:
             asyncio.run(check())
         self.assertGreater(discovery.call_count, 0)
-        actor, other = uuid4(), uuid4()
-        token = "synthetic-local-" + uuid4().hex
-        digest = hashlib.sha256(token.encode()).digest()
-        overlay = Credentials({digest: actor}, actor)
-        with self.assertRaises(InputError):
-            overlay.register_local(other, token)
-        local = "synthetic-new-" + uuid4().hex
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            list(pool.map(lambda _: overlay.register_local(other, local), range(20)))
-        self.assertEqual(overlay.actor(b"Bearer " + local.encode()), other)
-        with self.assertRaises(InputError):
-            overlay.register_local(actor, local)
-        self.assertNotIn(local, repr(overlay))
-        self.assertNotIn(local, repr(overlay._local))
-        overlay.clear_local()
-        self.assertIsNone(overlay.actor(b"Bearer " + local.encode()))
-        self.assertEqual(overlay.actor(b"Bearer " + token.encode()), actor)

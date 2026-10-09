@@ -17,16 +17,14 @@ from qorqut_core.transports.server import serve
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--installation", type=Path)
-    parser.add_argument("--transport-config", type=Path)
     parser.add_argument("--gate", type=Path)
     parser.add_argument("--ui-root", type=Path)
-    parser.add_argument("--session-seconds", type=float, default=28800)
     parser.add_argument("--crash-point")
     parser.add_argument("--fault-record", type=Path)
     parser.add_argument("--fault-exit-code", type=int)
     parser.add_argument("--claim-lease-seconds", type=int)
     args = parser.parse_args()
-    settings, credentials = read_configuration(args.installation, args.transport_config)
+    settings = read_configuration(args.installation)
     opened = Application.open
     run_next = Jobs.run_next
 
@@ -52,7 +50,6 @@ if __name__ == "__main__":
 
     with ExitStack() as stack:
         stack.enter_context(patch.object(Application, "open", side_effect=lambda s: opened(s, fault=fault)))
-        stack.enter_context(patch("qorqut_core.transports.sessions.SESSION_SECONDS", args.session_seconds))
         if args.claim_lease_seconds is not None:
             stack.enter_context(patch.object(Jobs, "run_next", short_claim))
-        serve(settings, credentials, ui_root=args.ui_root)
+        serve(settings, ui_root=args.ui_root)

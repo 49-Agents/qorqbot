@@ -1,35 +1,24 @@
-"""Bounded, explicit transport input. Credentials never become application data."""
+"""Bounded, explicit installation and operator input."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
-import re
 import stat
-import threading
-from dataclasses import dataclass, field
 from pathlib import Path
-from types import MappingProxyType
-from typing import Annotated, Mapping
-from uuid import UUID
-
-from pydantic import Field, SecretStr, ValidationError, field_validator
 
 from ..app import load_settings
 from ..config import InstallationSettings
-from ..contracts import Model
 
 MAX_INPUT_BYTES = 1024 * 1024
-_BEARER = re.compile(r"[A-Za-z0-9._~+/-]+=*", re.ASCII)
 
 
 class InputError(Exception):
     """Only fixed diagnostics belong here, never paths, values or validation errors."""
 
 
-def read_file(path: Path, *, private: bool = False) -> bytes:
-    """Read at most 1 MiB; no symlink component, device, FIFO or permissive secret."""
+def read_file(path: Path) -> bytes:
+    """Read at most 1 MiB; no symlink component, device or FIFO."""
     fd = None
     try:
         # Preserve '..' while walking descriptors: lexical normalization could
@@ -46,8 +35,6 @@ def read_file(path: Path, *, private: bool = False) -> bytes:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             raise InputError("Input must be a regular file without symbolic links")
-        if private and (info.st_mode & 0o077 or info.st_uid != os.geteuid()):
-            raise InputError("Credential files must be private and owned by the current user")
         if info.st_size > MAX_INPUT_BYTES:
             raise InputError("Input file exceeds 1 MiB")
         with os.fdopen(fd, "rb") as stream:
@@ -86,110 +73,15 @@ def json_object(raw: bytes) -> dict:
         raise InputError("Expected a valid JSON object") from None
 
 
-def _valid_token(value: str) -> str:
-    if len(value) < 32 or not _BEARER.fullmatch(value):
-        raise ValueError("A bearer token of at least 32 characters is required")
-    return value
-
-
-class _Binding(Model):
-    actor_id: UUID
-    token: SecretStr = Field(repr=False)
-
-    @field_validator("token")
-    @classmethod
-    def valid_token(cls, value):
-        _valid_token(value.get_secret_value())
-        return value
-
-
-class _Credentials(Model):
-    actors: Annotated[tuple[_Binding, ...], Field(min_length=1)]
-
-
-class TransportSettings(Model):
-    credentials_file: Path
-    readiness_actor_id: UUID
-
-    @field_validator("credentials_file")
-    @classmethod
-    def absolute_credentials(cls, value):
-        if not value.is_absolute():
-            raise ValueError("An absolute credential file is required")
-        return value
-
-
-@dataclass(frozen=True)
-class Credentials:
-    # Retain only digests; even an accidental repr cannot expose bearer tokens.
-    bindings: Mapping[bytes, UUID] = field(repr=False)
-    readiness_actor_id: UUID
-    _local: dict[bytes, UUID] = field(default_factory=dict, init=False, repr=False, compare=False)
-    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
-
-    def __post_init__(self):
-        object.__setattr__(self, "bindings", MappingProxyType(dict(self.bindings)))
-
-    def register_local(self, actor_id: UUID, token: str):
-        try:
-            actor_id = UUID(str(actor_id))
-            digest = hashlib.sha256(_valid_token(token).encode("ascii")).digest()
-        except (ValueError, TypeError, UnicodeError):
-            raise InputError("Invalid local credential binding") from None
-        with self._lock:
-            for bindings in (self.bindings, self._local):
-                if digest in bindings and bindings[digest] != actor_id:
-                    raise InputError("Credential digest is already attributed differently")
-            self._local[digest] = actor_id
-
-    def clear_local(self):
-        with self._lock:
-            self._local.clear()
-
-    def actor(self, authorization: bytes) -> UUID | None:
-        scheme, separator, token = authorization.partition(b" ")
-        if scheme.lower() != b"bearer" or not separator or not token:
-            return None
-        digest = hashlib.sha256(token).digest()
-        with self._lock:
-            return self.bindings.get(digest) or self._local.get(digest)
-
-
-def read_credentials(path: Path, readiness_actor_id: UUID) -> Credentials:
-    try:
-        supplied = _Credentials.model_validate(json_object(read_file(path, private=True)))
-        bindings = {}
-        actors = set()
-        for binding in supplied.actors:
-            digest = hashlib.sha256(binding.token.get_secret_value().encode("ascii")).digest()
-            if digest in bindings or binding.actor_id in actors:
-                raise InputError("Duplicate credential binding")
-            bindings[digest] = binding.actor_id
-            actors.add(binding.actor_id)
-        if readiness_actor_id not in actors:
-            raise InputError("Readiness identity must have a configured credential binding")
-        return Credentials(MappingProxyType(bindings), readiness_actor_id)
-    except (ValidationError, ValueError):
-        raise InputError("Invalid credential configuration") from None
-
-
-def read_configuration(installation: Path, transport_config: Path) -> tuple[InstallationSettings, Credentials]:
+def read_configuration(installation: Path) -> InstallationSettings:
     try:
         # Preflight rejects unsafe file types before the foundation's bounded reader.
         read_file(installation)
         settings = load_settings(installation)
         if str(settings.listen_address) != "127.0.0.1":
             raise InputError("This increment requires listen_address 127.0.0.1")
-        transport = TransportSettings.model_validate(json_object(read_file(transport_config)))
-        return settings, read_credentials(transport.credentials_file, transport.readiness_actor_id)
+        return settings
     except InputError:
         raise
     except Exception:
-        raise InputError("Invalid installation or transport configuration") from None
-
-
-def read_token(path: Path) -> SecretStr:
-    try:
-        return SecretStr(_valid_token(read_file(path, private=True).decode("ascii").strip()))
-    except (ValueError, UnicodeError):
-        raise InputError("Invalid credential file") from None
+        raise InputError("Invalid installation configuration") from None

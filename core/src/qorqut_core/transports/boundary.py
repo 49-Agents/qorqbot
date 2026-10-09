@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from uuid import UUID
 
 from starlette.responses import JSONResponse
 
 from ..contracts import Invocation
-from .configuration import MAX_INPUT_BYTES, Credentials
-from .sessions import Sessions, session_cookie
+from .configuration import MAX_INPUT_BYTES
 
 MAX_REQUESTS = 32
 BODY_TIMEOUT = 10.0
@@ -43,10 +43,8 @@ def origins(port: int) -> tuple[list[str], list[str]]:
 
 
 class Boundary:
-    def __init__(self, app, *, credentials: Credentials, port: int,
-                 sessions: Sessions | None = None, admission: Admission | None = None):
-        self.app, self.credentials = app, credentials
-        self.sessions = sessions if sessions is not None else Sessions()
+    def __init__(self, app, *, port: int, admission: Admission | None = None):
+        self.app = app
         self.admission = admission if admission is not None else Admission()
         hosts, allowed_origins = origins(port)
         self.hosts = {s.encode("ascii") for s in hosts}
@@ -63,57 +61,23 @@ class Boundary:
         origin = headers.get(b"origin", [])
         if origin and (len(origin) != 1 or origin[0] not in self.origins):
             return failure(403, "invalid_origin", "Origin is not allowed")
-        if b"x-qorqut-actor" in headers:
-            return failure(400, "invalid_request", "Caller identity overrides are not accepted")
+        identity = headers.get(b"x-qorqut-actor", [])
+        if identity:
+            try:
+                if len(identity) != 1:
+                    raise ValueError
+                actor = UUID(identity[0].decode("ascii"))
+            except (ValueError, UnicodeError):
+                return failure(400, "invalid_request", "Expected one X-Qorqut-Actor UUID")
+        else:
+            actor = scope["app"].state.local_owner
+        scope["qorqut.invocation"] = Invocation(actor_id=actor)
         if scope["type"] == "websocket":
             if not origin:
                 return failure(403, "invalid_origin", "Origin is required")
-            if b"authorization" in headers:
-                return failure(401, "unauthenticated", "Browser session required")
-            try:
-                cookie = session_cookie(headers.get(b"cookie", []))
-            except ValueError:
-                return failure(400, "invalid_request", "Ambiguous or invalid cookies")
-            actor = self.sessions.actor(cookie)
-            if actor is None:
-                return failure(401, "unauthenticated", "Browser session required")
             if scope.get("query_string"):
                 return failure(400, "invalid_request", "Query parameters are not supported")
-            scope["qorqut.session_cookie"] = cookie
-            scope["qorqut.invocation"] = Invocation(actor_id=actor)
             return None
-        path = scope["path"]
-        protected = path == "/api" or path.startswith("/api/") or path == "/mcp" or path.startswith("/mcp/")
-        if protected:
-            auth = headers.get(b"authorization", [])
-            try:
-                cookie = session_cookie(headers.get(b"cookie", []))
-            except ValueError:
-                return failure(400, "invalid_request", "Ambiguous or invalid cookies")
-            api_v1 = path == "/api/v1" or path.startswith("/api/v1/")
-            session_route = path == "/api/v1/session"
-            if len(auth) > 1 or (api_v1 and auth and cookie is not None):
-                return failure(401, "unauthenticated", "Ambiguous credentials",
-                               headers={"WWW-Authenticate": "Bearer"})
-            method = scope.get("method", "GET")
-            if ((session_route and method in {"POST", "DELETE"}) or
-                    (api_v1 and cookie is not None and method == "POST")) and not origin:
-                return failure(403, "invalid_origin", "Origin is required")
-            if session_route:
-                if auth:
-                    return failure(401, "unauthenticated", "Browser session required")
-                scope["qorqut.session_cookie"] = cookie
-                actor = self.sessions.actor(cookie)
-                if method in {"GET", "HEAD"} and actor is None:
-                    return failure(401, "unauthenticated", "Browser session required")
-            else:
-                actor = (self.sessions.actor(cookie) if api_v1 and cookie is not None
-                         else self.credentials.actor(auth[0]) if len(auth) == 1 else None)
-                if actor is None:
-                    return failure(401, "unauthenticated", "Authentication required",
-                                   headers={"WWW-Authenticate": "Bearer"})
-            if actor is not None:
-                scope["qorqut.invocation"] = Invocation(actor_id=actor)
         if scope.get("query_string"):
             return failure(400, "invalid_request", "Query parameters are not supported")
         # Reject ambiguous framing even when this ASGI app is embedded elsewhere.

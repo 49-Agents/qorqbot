@@ -48,7 +48,7 @@ class RuntimeTransports(unittest.IsolatedAsyncioTestCase):
             operation = next(op for op in schema["operations"] if op["name"] == "runtime_get")
             self.assertFalse(operation["mutation"])
             self.assertEqual(operation["input_schema"], tools["runtime_get"].inputSchema)
-            self.assertEqual(len(tools), 16)
+            self.assertEqual(len(tools), 17)
             self.assertFalse({"session_connect", "session_release", "runtime_start"} & tools.keys())
             args = {"agent_id": agent_id}
             direct = (await http.post("/api/v1/operations/runtime_get", json=args)).json()
@@ -64,7 +64,7 @@ class RuntimeTransports(unittest.IsolatedAsyncioTestCase):
             arguments = fixture.root / "runtime-arguments.json"
             arguments.write_text(json.dumps(args))
             operator = fixture.command("call", "runtime_get", "--url", fixture.url,
-                "--token-file", fixture.token_files[fixture.owner.actor_id], "--arguments-file", arguments, "--json")
+                "--arguments-file", arguments, "--json")
             self.assertEqual(operator.returncode, 0, operator.stderr)
             self.assertEqual(json.loads(operator.stdout)["data"]["current_owner"], saved_owner)
             for invalid in ({}, {"agent_id": "bad"}, {"agent_id": str(uuid4())}, {**args, "owner_id": str(connection.owner_id)}):
@@ -79,7 +79,14 @@ class RuntimeTransports(unittest.IsolatedAsyncioTestCase):
                     break
                 self.assertLess(time.monotonic(), deadline)
                 await asyncio.sleep(0.03)
-            self.assertEqual(disconnected, structured(await sdk.call_tool("runtime_get", args)))
+            replay = structured(await sdk.call_tool("runtime_get", args))
+            # Native setup/capture observations can advance on the monitor tick
+            # between transport reads, just like the live-owner observation.
+            for result in (disconnected, replay):
+                for field in ("native_setup", "native_capture"):
+                    if result["data"][field] is not None:
+                        result["data"][field]["observed_at"] = None
+            self.assertEqual(disconnected, replay)
             self.assertIsNone(disconnected["data"]["current_owner"])
         fixture.stop()
         application = Application.open(fixture.settings)

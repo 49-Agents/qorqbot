@@ -92,6 +92,15 @@ def _toml(raw):
         raise AdapterError("Invalid Codex core configuration") from None
 
 
+def _codex_table(entry):
+    table = 'mcp_servers."qorqut-core"'
+    lines = [f"[{table}]", "url = " + json.dumps(entry["url"], ensure_ascii=False),
+             "required = false", f"[{table}.http_headers]"]
+    lines.extend(json.dumps(key, ensure_ascii=False) + " = " + json.dumps(value, ensure_ascii=False)
+                 for key, value in entry["http_headers"].items())
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
 def _codex(raw, previous, desired):
     config = _toml(raw)
     servers = config.get("mcp_servers", {})
@@ -99,23 +108,22 @@ def _codex(raw, previous, desired):
     if previous is not None:
         if _typed(present) != _typed(previous):
             raise AdapterError("Owned Codex core table was changed")
-        if _typed(previous) != _typed(desired):
-            raise AdapterError("Replacing an owned Codex core table is unsupported")
     elif "qorqut-core" in servers and _typed(present) != _typed(desired):
         raise AdapterError("Unowned Codex core table conflicts")
     if _typed(present) == _typed(desired):
         return raw  # Preserve every byte, including native-added trust tables.
-    table = 'mcp_servers."qorqut-core"'
-    lines = [f"[{table}]", "url = " + json.dumps(desired["url"], ensure_ascii=False),
-             "required = false", f"[{table}.http_headers]"]
-    lines.extend(json.dumps(key, ensure_ascii=False) + " = " + json.dumps(value, ensure_ascii=False)
-                 for key, value in desired["http_headers"].items())
-    body = (raw or b"") + b"\n" + ("\n".join(lines) + "\n").encode("utf-8")
+    if previous is not None:
+        old = _codex_table(previous)
+        if raw.count(old) != 1:
+            raise AdapterError("Replacing the changed Codex core table is unsupported")
+        body = raw.replace(old, _codex_table(desired), 1)
+    else:
+        body = (raw or b"") + b"\n" + _codex_table(desired)
     # Inline/otherwise closed native table shapes may not accept an append.
     # Refuse those shapes without attempting a whole-document rewrite.
     expected = {**config, "mcp_servers": {**servers, "qorqut-core": desired}}
     if _typed(_toml(body)) != _typed(expected):
-        raise AdapterError("Appending the Codex core table is unsupported")
+        raise AdapterError("Updating the Codex core table is unsupported")
     return body
 
 

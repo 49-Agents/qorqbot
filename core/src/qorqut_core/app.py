@@ -265,6 +265,14 @@ class Application:
         self.terminals.close()
         self.db.lock.close()
 
+    def local_owner(self) -> UUID:
+        """Resolve the sole installation owner for local transport attribution."""
+        with self.db.read() as tx:
+            owners = tx.connection.execute("SELECT actor_id FROM actors WHERE kind='owner' LIMIT 2").fetchall()
+            if len(owners) != 1:
+                raise CoreError("invalid_argument", "Local access requires exactly one registered owner")
+            return UUID(owners[0]["actor_id"])
+
     def invoke(self, name: str, context: Invocation, arguments: dict | None = None) -> OperationResult:
         try:
             operation = self.registry.get(name)
@@ -280,7 +288,7 @@ class Application:
     def execute(self, operation: Operation, context: Invocation, arguments: dict) -> OperationResult:
         """Assembly/internal seam for a concrete operation; no runtime registration."""
         if not isinstance(context, Invocation):
-            raise CoreError("invalid_argument", "Authenticated invocation context required")
+            raise CoreError("invalid_argument", "Attributed invocation context required")
         validated = operation.arguments.model_validate(arguments)
         if operation.mutation and not isinstance(validated, Mutation):
             raise CoreError("invalid_argument", "Mutation schema must require an idempotency key")

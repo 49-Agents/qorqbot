@@ -7,12 +7,13 @@ import re
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import httpx
-from pydantic import SecretStr, ValidationError
+from pydantic import ValidationError
 
 from ..contracts import OperationResult, canonical
-from .configuration import MAX_INPUT_BYTES, InputError, json_object, read_configuration, read_file, read_token
+from .configuration import MAX_INPUT_BYTES, InputError, json_object, read_configuration, read_file
 
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 
@@ -44,8 +45,14 @@ def endpoint(base: str, name: str) -> str:
         raise InputError("An explicit HTTP/HTTPS origin and operation name are required") from None
 
 
-def call(url: str, name: str, token: SecretStr, arguments: dict) -> OperationResult:
+def call(url: str, name: str, arguments: dict, actor_id: UUID | None = None) -> OperationResult:
     target = endpoint(url, name)
+    headers = {"Content-Type": "application/json", "Accept": "application/json", "Accept-Encoding": "identity"}
+    if actor_id is not None:
+        try:
+            headers["X-Qorqut-Actor"] = str(UUID(str(actor_id)))
+        except ValueError:
+            raise InputError("Expected an actor UUID") from None
     try:
         body = canonical(arguments).encode("utf-8")
         if len(body) > MAX_INPUT_BYTES:
@@ -58,9 +65,7 @@ def call(url: str, name: str, token: SecretStr, arguments: dict) -> OperationRes
         with httpx.Client(trust_env=False, follow_redirects=False, verify=True,
                 timeout=httpx.Timeout(30.0, connect=5.0, pool=5.0),
                 transport=httpx.HTTPTransport(retries=0, verify=True, trust_env=False)) as client:
-            with client.stream("POST", target, content=body, headers={
-                    "Authorization": "Bearer " + token.get_secret_value(), "Content-Type": "application/json",
-                    "Accept": "application/json", "Accept-Encoding": "identity"}) as response:
+            with client.stream("POST", target, content=body, headers=headers) as response:
                 if response.is_redirect or response.headers.get("content-encoding", "identity") != "identity":
                     raise TransportError("Unexpected transport response")
                 length = response.headers.get("content-length")
@@ -84,29 +89,27 @@ def main(argv=None) -> int:
     commands = parser.add_subparsers(dest="command", required=True, parser_class=Parser)
     server = commands.add_parser("serve", help="Serve an explicitly initialized installation", allow_abbrev=False)
     server.add_argument("--installation", required=True, type=Path)
-    server.add_argument("--transport-config", required=True, type=Path)
     server.add_argument("--ui-root", type=Path, help="Optional absolute static UI build directory")
     client = commands.add_parser("call", help="Call one shared operation over HTTP", allow_abbrev=False)
     client.add_argument("name")
     client.add_argument("--url", required=True)
-    client.add_argument("--token-file", required=True, type=Path)
+    client.add_argument("--actor-id", type=UUID, help="Optional registered actor for attribution")
     client.add_argument("--arguments-file", type=Path)
     client.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args(argv)
     try:
         if args.command == "serve":
-            settings, credentials = read_configuration(args.installation, args.transport_config)
+            settings = read_configuration(args.installation)
             from .server import serve
             try:
-                serve(settings, credentials, ui_root=args.ui_root)
+                serve(settings, ui_root=args.ui_root)
             except Exception:
                 print("Core server failed; verify explicit configuration and installation availability", file=sys.stderr)
                 return 1
             return 0
         endpoint(args.url, args.name)
-        token = read_token(args.token_file)
         arguments = json_object(read_file(args.arguments_file)) if args.arguments_file else {}
-        result = call(args.url, args.name, token, arguments)
+        result = call(args.url, args.name, arguments, args.actor_id)
         if args.as_json:
             print(canonical(result))
         elif result.ok:

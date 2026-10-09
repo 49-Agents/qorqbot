@@ -43,12 +43,6 @@ class Installation:
                                         resources={"cpu": 1, "memory_mib": 512, "disk_gib": 4})
         self.owner = Actor(actor_id=uuid4(), kind="owner")
         self.agent = Actor(actor_id=uuid4(), kind="agent", agent_id=uuid4())
-        self.tokens = {a.actor_id: "synthetic-" + uuid4().hex + uuid4().hex for a in (self.owner, self.agent)}
-        self.token_files = {key: write_private(self.root / f"{key}.token", value + "\n") for key, value in self.tokens.items()}
-        self.credentials_file = write_private(self.root / "credentials.json", json.dumps({"actors": [
-            {"actor_id": str(a.actor_id), "token": self.tokens[a.actor_id]} for a in (self.owner, self.agent)]}))
-        self.transport_file = write_private(self.root / "transport.json", json.dumps({
-            "credentials_file": str(self.credentials_file), "readiness_actor_id": str(self.owner.actor_id)}))
         self.installation_file = self.settings.data_root / "installation.json"
         application = Application.initialize(self.settings, self.defaults, self.owner)
         try:
@@ -72,25 +66,23 @@ class Installation:
         self.entrypoint = [str(entrypoint)] if entrypoint.is_file() else [sys.executable, "-m", "qorqut_core"]
 
     def headers(self, actor=None):
-        return {"Authorization": "Bearer " + self.tokens[(actor or self.owner).actor_id]}
+        return {"X-Qorqut-Actor": str((actor or self.owner).actor_id)}
 
     def update(self, key="shared-key", revision=1, model="updated"):
         defaults = self.defaults.model_dump(mode="json")
         defaults["cli"]["model"] = model
         return {"idempotency_key": key, "expected_revision": revision, "defaults": defaults}
 
-    def start(self, *, gated=False, ui_root=None, session_seconds=None, crash_point=None, claim_lease_seconds=None):
+    def start(self, *, gated=False, ui_root=None, crash_point=None, claim_lease_seconds=None):
         self.log = self.log_file.open("ab")
         command = [*self.entrypoint, "serve"]
-        if gated or session_seconds is not None or crash_point is not None or claim_lease_seconds is not None:
+        if gated or crash_point is not None or claim_lease_seconds is not None:
             command = [sys.executable, str(Path(__file__).with_name("owned_server.py"))]
-        command += ["--installation", str(self.installation_file), "--transport-config", str(self.transport_file)]
+        command += ["--installation", str(self.installation_file)]
         if gated:
             command += ["--gate", str(self.root)]
         if ui_root is not None:
             command += ["--ui-root", str(ui_root)]
-        if session_seconds is not None:
-            command += ["--session-seconds", str(session_seconds)]
         if crash_point is not None:
             command += ["--crash-point", crash_point, "--fault-record", str(self.fault_file),
                         "--fault-exit-code", str(FAULT_EXIT)]

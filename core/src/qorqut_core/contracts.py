@@ -101,7 +101,7 @@ class Actor(Model):
 
 
 class Invocation(Model):
-    """Constructed by a trusted adapter from its authenticated registration."""
+    """Transport attribution; application operations validate the registered actor."""
 
     actor_id: UUID
 

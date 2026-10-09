@@ -23,11 +23,11 @@ import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from qorqut_core.app import Application, RecoveryActivation
-from qorqut_core.contracts import CoreError, Invocation, OperationResult
+from qorqut_core.app import Application, RecoveryActivation, register_actor
+from qorqut_core.contracts import Actor, CoreError, Invocation, OperationResult
 from qorqut_core.runtime.native_hooks import NativeHookResult
 from qorqut_core.transports.configuration import (
-    MAX_INPUT_BYTES, InputError, read_configuration, read_credentials, read_file, read_token,
+    MAX_INPUT_BYTES, InputError, read_configuration, read_file,
 )
 from qorqut_core.transports.operator import MAX_RESPONSE_BYTES, call
 from qorqut_core.transports.boundary import Boundary
@@ -112,12 +112,17 @@ class SharedFlow(unittest.IsolatedAsyncioTestCase):
                              [first, second, first, second])
             shared_client = await stack.enter_async_context(httpx.AsyncClient(headers=f.headers(), trust_env=False, timeout=5))
             shared_sdk = await session(stack, f, client=shared_client)
+            shared_client.headers.update({"Authorization": "Bearer obsolete", "Cookie": "qorqut_session=obsolete"})
             # Even a client initialized under the owner must attribute its next
-            # request to the newly supplied token, not its initialization identity.
+            # request to the newly supplied actor UUID, not its initialization identity.
             shared_client.headers.update(f.headers(f.agent))
             self.assertEqual(structured(await shared_sdk.call_tool("config_update", agent_args)), second)
             shared_client.headers.update(f.headers())
             self.assertEqual(structured(await shared_sdk.call_tool("config_update", owner_args)), first)
+            shared_client.headers["X-Qorqut-Actor"] = str(uuid4())
+            unknown_actor = structured(await shared_sdk.call_tool("config_update", f.update(key="unknown-actor")))
+            self.assertEqual(unknown_actor["error"]["code"], "not_found")
+            self.assertIsNone(unknown_actor["operation_id"])
             for expected, actor in ((first, f.owner), (second, f.agent)):
                 args = {"operation_id": expected["operation_id"]}
                 lookup = structured(await agent.call_tool("operations_get", args))
@@ -187,18 +192,13 @@ class HTTPBoundary(unittest.TestCase):
         self.addCleanup(self.f.close)
         self.f.start()
 
-    def test_auth_host_origin_override_unknown_versions_and_private_protocol_errors(self):
+    def test_local_host_origin_identity_unknown_versions_and_private_protocol_errors(self):
         f = self.f
         paths = ["/api/v1/schema", "/api/v1/operations/config_get", "/mcp"]
         with httpx.Client(base_url=f.url, trust_env=False, timeout=5) as client:
             for path in paths:
-                for headers in ({}, {"Authorization": "Bearer invalid"}, {"Cookie": "token=" + f.tokens[f.owner.actor_id]}):
-                    response = client.request("GET" if path.endswith("schema") else "POST", path, headers=headers, json={})
-                    self.assertEqual(response.status_code, 401)
-                    self.assertEqual(response.headers["www-authenticate"], "Bearer")
-                    self.assertNotIn("operation_id", response.json())
                 for extra, status in (({"Host": "malicious.invalid"}, 421), ({"Origin": "http://malicious.invalid"}, 403),
-                                      ({"Origin": f.url + "/"}, 403), ({"X-Qorqut-Actor": str(f.agent.actor_id)}, 400)):
+                                      ({"Origin": f.url + "/"}, 403), ({"X-Qorqut-Actor": "invalid"}, 400)):
                     response = client.request("GET" if path.endswith("schema") else "POST", path,
                                               headers={**f.headers(), **extra}, json={})
                     self.assertEqual(response.status_code, status)
@@ -218,7 +218,7 @@ class HTTPBoundary(unittest.TestCase):
             self.assertEqual(client.get("/health/ready").json(), {"ready": True})
             # Official SDK still determines protocol failures. Its raw Pydantic
             # diagnostics must not echo submitted values to responses or logs.
-            sentinel = "PRIVATE-SUBMITTED-CONTENT-" + f.tokens[f.owner.actor_id]
+            sentinel = "PRIVATE-SUBMITTED-CONTENT"
             headers = {**f.headers(), "Accept": "application/json, text/event-stream"}
             malformed = [
                 {"jsonrpc": sentinel, "id": 1, "method": "tools/list"},
@@ -253,8 +253,6 @@ class HTTPBoundary(unittest.TestCase):
         self.assertGreaterEqual(captured.count("MCP transport diagnostic"), 4)
         self.assertIn("Application startup complete", captured)
         self.assertIn("Application shutdown complete", captured)
-        for token in f.tokens.values():
-            self.assertNotIn(token, captured)
         # Assembly installs once, preserving custom factory behavior and normal
         # unrelated diagnostics rather than globally disabling logging.
         prior = logging.getLogRecordFactory()
@@ -264,7 +262,7 @@ class HTTPBoundary(unittest.TestCase):
             return record
         try:
             logging.setLogRecordFactory(custom_factory)
-            create_app(*read_configuration(f.installation_file, f.transport_file))
+            create_app(read_configuration(f.installation_file))
             installed = logging.getLogRecordFactory()
             install_logging_boundary()
             self.assertIs(installed, logging.getLogRecordFactory())
@@ -298,7 +296,7 @@ class HTTPBoundary(unittest.TestCase):
 
     def test_cli_http_path_exit_codes_proxy_isolation_and_restart_lock(self):
         f = self.f
-        params = ["--url", f.url, "--token-file", f.token_files[f.owner.actor_id]]
+        params = ["--url", f.url]
         result = f.command("call", "config_get", *params, "--json", env={
             "HTTP_PROXY": "http://127.0.0.1:1", "ALL_PROXY": "http://127.0.0.1:1", "NO_PROXY": ""})
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -311,29 +309,36 @@ class HTTPBoundary(unittest.TestCase):
         result = f.command("call", "operations_get", *params, "--json")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(json.loads(result.stdout)["error"]["code"], "invalid_argument")
-        for invalid_url in (f.url + "?credential=" + f.tokens[f.owner.actor_id], "http://\u2603.invalid"):
+        for invalid_url in (f.url + "?unsupported=PRIVATE-CONTENT", "http://\u2603.invalid"):
             with self.subTest(invalid_url=invalid_url.split("?")[0]):
-                result = f.command("call", "config_get", "--url", invalid_url,
-                                   "--token-file", f.token_files[f.owner.actor_id])
+                result = f.command("call", "config_get", "--url", invalid_url)
                 self.assertEqual(result.returncode, 2)
                 self.assertEqual(result.stdout, "")
                 self.assertEqual(result.stderr, "An explicit HTTP/HTTPS origin and operation name are required\n")
-                for private in ("Traceback", "\u2603.invalid", f.tokens[f.owner.actor_id], "may have occurred"):
+                for private in ("Traceback", "\u2603.invalid", "PRIVATE-CONTENT", "may have occurred"):
                     self.assertNotIn(private, result.stderr)
                 # Refusal must precede even opening a client, not just fail DNS.
                 with patch("qorqut_core.transports.operator.httpx.Client",
                            side_effect=AssertionError("Local URL validation opened a client")) as client:
                     with self.assertRaises(InputError):
-                        call(invalid_url, "config_get", read_token(f.token_files[f.owner.actor_id]), {})
+                        call(invalid_url, "config_get", {})
                     client.assert_not_called()
-        result = f.command("call", "config_get", *params, "--unexpected", f.tokens[f.owner.actor_id])
+        result = f.command("call", "config_get", *params, "--unexpected", "PRIVATE-CONTENT")
         self.assertEqual(result.returncode, 2)
-        self.assertNotIn(f.tokens[f.owner.actor_id], result.stderr)
-        wrong = write_private(f.root / "wrong.token", "x" * 40)
-        result = f.command("call", "config_get", "--url", f.url, "--token-file", wrong)
+        self.assertNotIn("PRIVATE-CONTENT", result.stderr)
+        result = f.command("call", "config_get", *params, "--actor-id", "invalid")
+        self.assertEqual(result.returncode, 2)
+        result = f.command("call", "config_get", *params, "--actor-id", uuid4(), "--json")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("may have occurred", result.stderr)
-        second = f.command("serve", "--installation", f.installation_file, "--transport-config", f.transport_file)
+        self.assertEqual(json.loads(result.stdout)["error"]["code"], "not_found")
+        actor_args = f.update(key="operator-actor", revision=2)
+        arguments.write_text(json.dumps(actor_args))
+        result = f.command("call", "config_update", *params, "--actor-id", f.agent.actor_id,
+                           "--arguments-file", arguments, "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        operation = json.loads(result.stdout)["operation_id"]
+        self.assertEqual(f.post("operations_get", {"operation_id": operation}).json()["data"]["actor_id"], str(f.agent.actor_id))
+        second = f.command("serve", "--installation", f.installation_file)
         self.assertEqual(second.returncode, 1)
         with self.assertRaises(CoreError):
             Application.open(f.settings)
@@ -345,8 +350,6 @@ class HTTPBoundary(unittest.TestCase):
             after.close()
         f.start()
         self.assertEqual(f.post("config_get").json()["data"]["recovery_epoch"], f.initial["data"]["recovery_epoch"])
-        for token in f.tokens.values():
-            self.assertNotIn(token, f.log_file.read_text())
 
 
 class Disconnect(unittest.IsolatedAsyncioTestCase):
@@ -369,7 +372,7 @@ class Disconnect(unittest.IsolatedAsyncioTestCase):
         sock = socket.create_connection(("127.0.0.1", f.settings.listen_port), timeout=3)
         self.addCleanup(sock.close)
         head = (f"POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{f.settings.listen_port}\r\n"
-                f"Authorization: Bearer {f.tokens[f.owner.actor_id]}\r\nContent-Type: application/json\r\n"
+                "Content-Type: application/json\r\n"
                 f"Accept: application/json, text/event-stream\r\nContent-Length: {len(data)}\r\n\r\n").encode()
         sock.sendall(head + data)
         deadline = time.monotonic() + 5
@@ -399,78 +402,52 @@ class ExplicitInputs(unittest.TestCase):
         self.f = Installation()
         self.addCleanup(self.f.close)
 
-    def test_strict_private_bounded_credentials_and_configuration(self):
+    def test_bounded_explicit_configuration(self):
         f = self.f
-        settings, credentials = read_configuration(f.installation_file, f.transport_file)
-        self.assertEqual(settings, f.settings)
-        self.assertEqual(credentials.actor(f.headers()["Authorization"].encode()), f.owner.actor_id)
-        self.assertNotIn(f.tokens[f.owner.actor_id], repr(credentials))
-        self.assertNotIn(f.tokens[f.owner.actor_id], repr(read_token(f.token_files[f.owner.actor_id])))
-        original = json.loads(f.credentials_file.read_text())
-        bad = [
-            {**original, "unknown": True}, {"actors": [original["actors"][0]] * 2},
-            {"actors": [original["actors"][0], {**original["actors"][1], "token": original["actors"][0]["token"]}]},
-            {"actors": [original["actors"][0], {**original["actors"][1], "actor_id": original["actors"][0]["actor_id"]}]},
-            {"actors": [{**original["actors"][0], "extra": "secret"}]},
-            {"actors": [{**original["actors"][0], "token": "short"}]},
-            {"actors": [{**original["actors"][0], "actor_id": "invalid"}]}, {"actors": []},
-        ]
-        for value in bad:
-            write_private(f.credentials_file, json.dumps(value))
-            with self.assertRaises(InputError) as raised:
-                read_credentials(f.credentials_file, f.owner.actor_id)
-            self.assertNotIn(f.tokens[f.owner.actor_id], str(raised.exception))
-        write_private(f.credentials_file, json.dumps(original))
-        with self.assertRaises(InputError):
-            read_credentials(f.credentials_file, uuid4())
-        f.credentials_file.chmod(0o640)
-        with self.assertRaises(InputError):
-            read_credentials(f.credentials_file, f.owner.actor_id)
-        f.credentials_file.chmod(0o600)
-        link = f.root / "credentials-link"
-        link.symlink_to(f.credentials_file)
+        self.assertEqual(read_configuration(f.installation_file), f.settings)
+        link = f.root / "installation-link"
+        link.symlink_to(f.installation_file)
         linked_dir = f.root / "linked-directory"
-        linked_dir.symlink_to(f.root, target_is_directory=True)
-        fifo = f.root / "credentials-fifo"
+        linked_dir.symlink_to(f.settings.data_root, target_is_directory=True)
+        fifo = f.root / "installation-fifo"
         os.mkfifo(fifo, mode=0o600)
-        for path in (link, linked_dir / "credentials.json", linked_dir / ".." / f.root.name / "credentials.json", f.root, fifo):
+        for path in (link, linked_dir / "installation.json", linked_dir / ".." / "data/installation.json", f.root, fifo):
             with self.assertRaises(InputError):
-                read_credentials(path, f.owner.actor_id)
+                read_configuration(path)
         large = write_private(f.root / "large.json", " " * (MAX_INPUT_BYTES + 1))
         with self.assertRaises(InputError):
             read_file(large)
-        for value in ({"credentials_file": "relative", "readiness_actor_id": str(f.owner.actor_id)},
-                      {"credentials_file": str(f.credentials_file), "readiness_actor_id": str(f.owner.actor_id), "extra": True}):
-            write_private(f.transport_file, json.dumps(value))
-            with self.assertRaises(InputError):
-                read_configuration(f.installation_file, f.transport_file)
-        write_private(f.transport_file, json.dumps({"credentials_file": str(f.credentials_file), "readiness_actor_id": str(f.owner.actor_id)}))
         for address in ("0.0.0.0", "::1"):
             configured = json.loads(f.installation_file.read_text())
             configured["listen_address"] = address
             alternative = write_private(f.root / "alternative.json", json.dumps(configured))
             with self.assertRaises(InputError):
-                read_configuration(alternative, f.transport_file)
+                read_configuration(alternative)
 
-    def test_startup_refuses_unregistered_bindings_and_does_not_initialize(self):
+    def test_startup_requires_exactly_one_owner_and_does_not_initialize(self):
         f = self.f
-        supplied = json.loads(f.credentials_file.read_text())
-        supplied["actors"][1]["actor_id"] = str(uuid4())
-        write_private(f.credentials_file, json.dumps(supplied))
-        result = f.command("serve", "--installation", f.installation_file, "--transport-config", f.transport_file)
-        self.assertEqual(result.returncode, 1)
-        self.assertNotIn("Traceback", result.stderr)
-        reopened = Application.open(f.settings)
-        try:
+        for count in (0, 2):
+            app = Application.open(f.settings)
+            with app.db.transaction() as tx:
+                if count == 0:
+                    tx.connection.execute("UPDATE actors SET kind='agent',agent_id=? WHERE actor_id=?", (str(uuid4()), str(f.owner.actor_id)))
+                else:
+                    tx.connection.execute("UPDATE actors SET kind='owner',agent_id=NULL WHERE actor_id=?", (str(f.owner.actor_id),))
+                    register_actor(tx, Actor(actor_id=uuid4(), kind="owner"))
+            with self.assertRaisesRegex(CoreError, "exactly one registered owner"):
+                app.local_owner()
+            app.close()
+            result = f.command("serve", "--installation", f.installation_file)
+            self.assertEqual(result.returncode, 1)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertIn("Local access requires exactly one registered owner", result.stderr)
+            reopened = Application.open(f.settings)
             self.assertEqual(reopened.invoke("config_get", Invocation(actor_id=f.owner.actor_id)).model_dump(mode="json"), f.initial)
-        finally:
             reopened.close()
-        supplied["actors"][1]["actor_id"] = str(f.agent.actor_id)
-        write_private(f.credentials_file, json.dumps(supplied))
         configured = json.loads(f.installation_file.read_text())
         configured["data_root"] = str(f.root / "absent-data")
         absent = write_private(f.root / "uninitialized.json", json.dumps(configured))
-        result = f.command("serve", "--installation", absent, "--transport-config", f.transport_file)
+        result = f.command("serve", "--installation", absent)
         self.assertEqual(result.returncode, 1)
         self.assertFalse((f.root / "absent-data").exists())
 
@@ -623,8 +600,8 @@ class AdmissionAndLifetime(unittest.IsolatedAsyncioTestCase):
     async def test_cancelled_startup_cannot_lose_application_ownership(self):
         f = Installation()
         self.addCleanup(f.close)
-        settings, credentials = read_configuration(f.installation_file, f.transport_file)
-        web = create_app(settings, credentials)
+        settings = read_configuration(f.installation_file)
+        web = create_app(settings)
         opened = Application.open
         release, entered = threading.Event(), threading.Event()
         self.addCleanup(release.set)
@@ -736,8 +713,8 @@ class AdmissionAndLifetime(unittest.IsolatedAsyncioTestCase):
     async def test_readiness_failure_is_minimal_and_lifespan_releases_lock(self):
         f = Installation()
         self.addCleanup(f.close)
-        settings, credentials = read_configuration(f.installation_file, f.transport_file)
-        web = create_app(settings, credentials)
+        settings = read_configuration(f.installation_file)
+        web = create_app(settings)
         # Composition must not open the installation before explicit lifespan.
         application = Application.open(settings)
         application.close()
@@ -762,15 +739,14 @@ class AdmissionAndLifetime(unittest.IsolatedAsyncioTestCase):
     async def test_framing_duplicates_slow_body_and_disconnect_never_dispatch(self):
         f = Installation()
         self.addCleanup(f.close)
-        _, credentials = read_configuration(f.installation_file, f.transport_file)
         calls = []
 
         async def probe(scope, receive, send):
             calls.append(True)
 
-        boundary = Boundary(probe, credentials=credentials, port=f.settings.listen_port)
+        boundary = Boundary(probe, port=f.settings.listen_port)
         base_headers = [(b"host", f"127.0.0.1:{f.settings.listen_port}".encode()),
-                        (b"authorization", f.headers()["Authorization"].encode())]
+                        (b"x-qorqut-actor", str(f.owner.actor_id).encode())]
 
         async def exercise(headers, receive):
             sent = []
@@ -782,7 +758,7 @@ class AdmissionAndLifetime(unittest.IsolatedAsyncioTestCase):
         async def empty():
             return {"type": "http.request", "body": b""}
 
-        for extra, status in (([(b"authorization", b"Bearer duplicate")], 401),
+        for extra, status in (([(b"x-qorqut-actor", str(f.owner.actor_id).encode())], 400),
                               ([(b"content-length", b"0"), (b"content-length", b"0")], 400),
                               ([(b"content-length", b"0"), (b"transfer-encoding", b"chunked")], 400),
                               ([(b"content-length", b"-1")], 400)):
@@ -877,7 +853,7 @@ class OperatorBoundary(unittest.TestCase):
         for mode in ("redirect", "drop", "declared_large", "streamed_below", "streamed_large"):
             body_gate = threading.Event()
             with self.subTest(mode=mode), operator_peer(mode, body_gate=body_gate) as (url, calls, accepted):
-                result = f.command("call", "config_update", "--url", url, "--token-file", f.token_files[f.owner.actor_id],
+                result = f.command("call", "config_update", "--url", url,
                                    "--arguments-file", arguments, "--json")
                 self.assertEqual(len(calls), 1)
                 if mode == "streamed_below":
@@ -888,7 +864,6 @@ class OperatorBoundary(unittest.TestCase):
                 self.assertEqual(result.returncode, 1)
                 self.assertEqual(result.stderr, "No valid operation result received; execution may have occurred. "
                                  "Preserve the original idempotency key.\n")
-                self.assertNotIn(f.tokens[f.owner.actor_id], result.stderr)
                 self.assertEqual(result.stdout, "")
                 if mode == "declared_large":
                     self.assertFalse(body_gate.is_set())
@@ -896,7 +871,7 @@ class OperatorBoundary(unittest.TestCase):
     def test_accepted_output_does_not_claim_completion(self):
         f = self.f
         with operator_peer("accepted") as (url, calls, accepted):
-            params = ["call", "config_update", "--url", url, "--token-file", f.token_files[f.owner.actor_id]]
+            params = ["call", "config_update", "--url", url]
             result = f.command(*params)
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stdout, f"Accepted ({accepted['operation_id']})\n")
@@ -926,8 +901,7 @@ class OperatorBoundary(unittest.TestCase):
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(cert_path, key_path)
         with operator_peer("accepted", tls=context) as (url, calls, _):
-            result = f.command("call", "config_get", "--url", url, "--token-file", f.token_files[f.owner.actor_id],
+            result = f.command("call", "config_get", "--url", url,
                                env={"SSL_CERT_FILE": str(cert_path)})
             self.assertEqual(result.returncode, 1)
             self.assertEqual(calls, [])
-            self.assertNotIn(f.tokens[f.owner.actor_id], result.stderr)
