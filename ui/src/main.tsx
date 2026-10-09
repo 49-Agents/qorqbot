@@ -9,6 +9,9 @@ import { collectionReasons, nativeStates, sessionStatus, setupReasons } from './
 import { fileReferenceEntry } from './file-reference';
 import { FileReferenceCard } from './file-reference-card';
 import { inboxReferenceEntry } from './inbox-reference';
+import { browserRequestEntry } from './browser-view';
+import { BrowserRequestCard, BrowserWorkspace, ComputerBrowser } from './browser';
+import { MutationNotice as PendingNotice } from './mutation-notice';
 import './style.css';
 
 const store = new Store();
@@ -52,19 +55,7 @@ function Dialog({ title, children, onClose, drawer = '' }: { title: string; chil
     {children}
   </dialog>;
 }
-function MutationNotice({ item, requestKey }: { item?: Pending; requestKey: string }) {
-  if (!item) return null;
-  if (item.state === 'sending') return <p className="quiet" role="status">Saving request…</p>;
-  return <div className="error mutation-error" role="alert">
-    <p>{item.unresolvedAmbiguity ? 'Confirmation uncertain. ' : ''}{item.error}</p>
-    {item.operation === 'agents_update' && <p>Attempted {item.args.display_name !== undefined ? `name: “${item.args.display_name}”` : `icon: ${item.args.icon_key}`}.</p>}
-    {item.actor !== store.actor ? <p>This request belongs to a different workspace identity. Reconnect to the original workspace to retry it.</p> : <button type="button" onClick={() => void store.retry(requestKey)} disabled={!store.has(item.operation)}>
-      {!item.unresolvedAmbiguity && item.state === 'conflict' ? 'Apply attempted change to current revision' : 'Retry original request'}
-    </button>}
-    {!item.unresolvedAmbiguity && (item.state === 'failed' || item.state === 'conflict') && <button type="button" onClick={() => store.discard(requestKey)}>Dismiss error</button>}
-    {item.unresolvedAmbiguity && <p className="quiet">Retry keeps the exact request and idempotency key.</p>}
-  </div>;
-}
+function MutationNotice(props: { item?: Pending; requestKey: string }) { return <PendingNotice store={store} {...props} />; }
 function ConnectionPanel() {
   return <main className="connection-page"><div className="connection-panel">
     <div className="brand"><span className="brand-mark">q</span><span>Qorqut</span></div>
@@ -146,16 +137,17 @@ function EntryRow({ entry }: { entry: Entry }) {
   const nativeInput = entry.kind === 'message' && entry.source?.type === 'native' && entry.role === 'user' && entry.sender_actor_id == null;
   const sender = nativeInput ? 'Terminal input' : store.agents.find(a => a.actor_id === entry.sender_actor_id)?.display_name || (entry.role === 'user' ? 'Owner' : 'Agent');
   const reference = fileReferenceEntry(entry) ? entry.source.reference : null;
+  const browser = browserRequestEntry(entry) && entry.agent_id === store.selected && entry.conversation_id === store.agent()?.conversation_id;
   const message = entry.kind === 'message' && (entry.source?.type === 'message' || entry.source?.type === 'native');
   const copy = async () => {
     try { await navigator.clipboard.writeText(entry.text); setCopyState('Copied'); }
     catch { setCopyState('Could not copy. Select and copy the message manually.'); }
   };
-  return <article className={`entry ${inbox ? 'inbox-reference-entry' : entry.role === 'user' ? 'owner-entry' : ''}`} data-entry-id={entry.entry_id}
+  return <article className={`entry ${entry.kind === 'browser_request' ? 'browser-entry' : inbox ? 'inbox-reference-entry' : entry.role === 'user' ? 'owner-entry' : ''}`} data-entry-id={entry.entry_id}
     onMouseEnter={() => { setHoverTime(Date.now()); setCopyState(''); }} onFocusCapture={() => setHoverTime(Date.now())}>
     <header className="message-meta"><strong>{sender}</strong><time dateTime={entry.occurred_at} title={time(entry.occurred_at)}>{relativeTime(entry.occurred_at, hoverTime)}</time></header>
     <div className="message-bubble">
-    {inbox ? <details className="inbox-reference">
+    {browser ? <BrowserRequestCard request={entry.browser_request!} /> : entry.kind === 'browser_request' ? <div className="browser-card"><p className="message-body">{entry.text}</p><p className="quiet">Browser request unavailable. Its details could not be verified.</p></div> : inbox ? <details className="inbox-reference">
       <summary>Inbox reference</summary>
       <p className="message-body">{entry.text}</p>
       <p className="inbox-reference-id">Message ID: {entry.inbox_reference!.message_id}</p>
@@ -307,9 +299,10 @@ function Inspector({ agent, changeIcon }: { agent: Agent; changeIcon: () => void
         {chat?.error && <div className="error" role="alert">{chat.error} <button onClick={() => void store.refreshConversation(chat.epoch ? 'refresh' : 'initial')}>Retry shared files</button></div>}
         {chat?.hasOlder && <button onClick={() => void store.refreshConversation('earlier')} disabled={chat.earlier}>{chat.earlier ? 'Loading earlier shared files…' : 'Load earlier shared files'}</button>}
       </div> : <>
-        {['Browser', agent.kind === 'host' ? 'Desktop' : 'Machine'].map(surface => <section className="surface-card" key={surface} aria-label={surface}>
-          <div className="surface-preview" aria-hidden="true"><ViewIcon name="computer" /></div><h3>{surface}</h3><p className="quiet">{surface === 'Browser' ? 'Unavailable. Browser viewing and control are not connected.' : 'Unavailable. No desktop surface is connected.'}</p>
-        </section>)}
+        <ComputerBrowser agent={agent} />
+        <section className="surface-card" aria-label={agent.kind === 'host' ? 'Desktop' : 'Machine'}>
+          <div className="surface-preview" aria-hidden="true"><ViewIcon name="computer" /></div><h3>{agent.kind === 'host' ? 'Desktop' : 'Machine'}</h3><p className="quiet">Unavailable. No desktop surface is connected.</p>
+        </section>
         <section aria-label="Terminal status"><h3>Terminal</h3><TerminalSummary store={store} id={agent.id} /></section>
       </>}
     </div>
@@ -328,7 +321,7 @@ function App() {
   const navigation = <Navigation select={select} create={() => { setNavOpen(false); setCreateOpen(true); }} renameId={renameId} setRename={setRename} />;
   const inspector = agent && <Inspector key={agent.id} agent={agent} changeIcon={() => { setIconAgent(agent.id); setIcon(agent.icon_key); }} />;
   if (store.phase !== 'ready') return <ConnectionPanel />;
-  return <div className={`workspace ${!overlayInspector && store.inspector && agent ? 'with-inspector' : ''}`}>
+  return <BrowserWorkspace store={store}><div className={`workspace ${!overlayInspector && store.inspector && agent ? 'with-inspector' : ''}`}>
     {!mobile && navigation}
     <main className="conversation">
       <div className="workspace-controls">
@@ -346,7 +339,7 @@ function App() {
     {overlayInspector && inspectOpen && inspector && <Dialog title="Inspector" drawer="drawer right-drawer" onClose={() => setInspectOpen(false)}>{inspector}</Dialog>}
     {createOpen && store.config && <Creation close={() => setCreateOpen(false)} />}
     {iconAgent && store.config && <Dialog title="Change icon" onClose={() => setIconAgent('')}><IconPicker value={icon} onChange={setIcon} keys={store.config.icon_keys} /><div className="form-actions"><button onClick={() => setIconAgent('')}>Cancel</button><button className="primary" onClick={() => { const id = iconAgent; setIconAgent(''); void store.update(id, { icon_key: icon }); }}>Save icon</button></div></Dialog>}
-  </div>;
+  </div></BrowserWorkspace>;
 }
 
 render(<App />, document.getElementById('app')!);

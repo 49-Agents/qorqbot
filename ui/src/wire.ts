@@ -46,6 +46,24 @@ export type FileReference = {
 export type FileReferenceSource = { type: 'file_reference'; reference: FileReference };
 // D53 ConversationItem read annotation, pinned at core 9685beefaa0ccbd72fdd4eee46d1e49eac9270dc.
 export type InboxReference = { message_id: string; message_entry_id: string };
+// D57 frozen core contract (c96952f), browser protocol 1.
+export type BrowserBinding = {
+  identity: { agent_id: string; recovery_epoch: string; environment_generation: number;
+    boot_id: string; browser_instance: string; protocol: 1 };
+  control_epoch: number;
+};
+export type InputRequestView = {
+  request_id: string; agent_id: string; conversation_id: string; surface_id: string; requester_actor_id: string;
+  prompt: string; state: 'requested' | 'ready' | 'completed' | 'cancelled' | 'interrupted';
+  revision: number; created_at: string; updated_at: string; note: string | null;
+  browser_binding: BrowserBinding | null; control_pending: boolean; error: { code: string; message: string } | null;
+};
+export type BrowserSurface = {
+  surface_id: string; agent_id: string; kind: 'browser'; status: 'available' | 'unavailable'; reason: string | null;
+  binding: BrowserBinding | null; control: { mode: 'automation' | 'yielding' | 'human' | 'reconciling'; ready: boolean } | null;
+};
+export type BrowserView = { agent_id: string; recovery_epoch: string; surface: BrowserSurface | null; active_request: InputRequestView | null };
+export type BrowserRequestSource = { type: 'browser_request'; request_id: string };
 export type Entry = {
   entry_id: string; agent_id: string; conversation_id: string; conversation_seq: number;
   kind: string; role: string; direction: string; text: string; sender_actor_id: string | null;
@@ -56,9 +74,10 @@ export type Entry = {
     | { type: 'native'; provider: 'claude' | 'codex'; run_id: string; source_id: string; source_epoch: string;
         offset: number; length: number; sha256: string; parser_version: string; native_id: string;
         part_index: number; timestamp_origin: 'native' | 'ingestion' }
-    | FileReferenceSource;
+    | FileReferenceSource | BrowserRequestSource;
   delivery: Delivery | null; handling: Handling | null;
   inbox_reference?: InboxReference | null;
+  browser_request?: InputRequestView | null;
 };
 export type Publication = { pending_entries: number; state: 'current' | 'pending' | 'blocked'; error: { code: string; message: string } | null };
 export type ConversationPage = {

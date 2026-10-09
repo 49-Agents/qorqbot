@@ -1,3 +1,7 @@
+D57: [Browser UI implementation](BROWSER-IMPLEMENTATION.md) implements the
+[Manager-frozen browser integration](https://github.com/qorqutbot/qorqut-core/blob/c96952f/docs/BROWSER-APP-INTEGRATION.md).
+It supersedes earlier browser-viewer deferrals; Machine/Desktop stays unavailable.
+
 D56: [Minimal workspace feedback](UI-SIMPLIFICATION.md) supersedes the
 header, rename and manual Terminal-control presentation below.
 

@@ -1,3 +1,8 @@
+D57 adds the validated browser observation/request views and nullable
+ConversationItem.browser_request annotation. See [UI implementation](BROWSER-IMPLEMENTATION.md)
+and the [frozen core contract](https://github.com/qorqutbot/qorqut-core/blob/c96952f/docs/BROWSER-APP-INTEGRATION.md).
+The UI uses the existing operation envelope and core-only browser stream route.
+
 # Plan moved
 
 [D55 local access](https://github.com/qorqutbot/qorqut-core/blob/main/docs/LOCAL-ACCESS.md)

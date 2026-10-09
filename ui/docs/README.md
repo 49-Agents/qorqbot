@@ -1,6 +1,10 @@
 # Documentation index
 
-Current small UI increment: [D53 inbox references](INBOX-REFERENCE-UI.md).
+Current UI increment: [D57 browser integration](BROWSER-IMPLEMENTATION.md), with
+[focused frontend evidence](evidence/browser-app-ui-r1.md). Combined installed-core
+and TigerVNC acceptance is separate.
+
+Earlier increment: [D53 inbox references](INBOX-REFERENCE-UI.md).
 
 The [actual core/MCP/file-reference flow](evidence/file-reference-integration-manager-acceptance.md)
 is accepted: metadata cards, exact path copying, automatic dated history and restart.

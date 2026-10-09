@@ -1,3 +1,7 @@
+D57: [Browser UI implementation](BROWSER-IMPLEMENTATION.md) implements the
+[Manager-frozen browser integration](https://github.com/qorqutbot/qorqut-core/blob/c96952f/docs/BROWSER-APP-INTEGRATION.md).
+It supersedes earlier browser-viewer deferrals; Machine/Desktop stays unavailable.
+
 # First connected chat interface
 
 [D55 local access](https://github.com/qorqutbot/qorqut-core/blob/main/docs/LOCAL-ACCESS.md)

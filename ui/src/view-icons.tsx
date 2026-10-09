@@ -10,6 +10,8 @@ const paths = {
   computer: 'M3 4h18v13H3ZM12 17v4m-4 0h8',
   copy: 'M8 8h12v12H8ZM16 8V4H4v12h4',
   check: 'm5 12 4 4L19 6',
+  expand: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5',
+  collapse: 'M3 8h5V3m8 0v5h5M8 21v-5H3m13 5v-5h5',
 };
 export function ViewIcon({ name }: { name: keyof typeof paths }) {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;

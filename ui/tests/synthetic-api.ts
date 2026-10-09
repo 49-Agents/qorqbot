@@ -3,7 +3,8 @@ import { createServer, type Server, type ServerResponse } from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { Agent, Config, Entry, FileReference, Publication, RuntimeView, TerminalView } from '../src/wire';
+import type { Duplex } from 'node:stream';
+import type { Agent, BrowserView, Config, Entry, FileReference, InputRequestView, Publication, RuntimeView, TerminalView } from '../src/wire';
 
 export const owner = '00000000-0000-4000-8000-000000000001';
 export const alpha = '10000000-0000-4000-8000-000000000001';
@@ -27,6 +28,7 @@ type Call = { name: string; args: Args };
 type Gate = { name: string; matches: (args: Args) => boolean; wait: Promise<void>; release: () => void; seen: Promise<void>; mark: () => void };
 export class SyntheticAPI {
   server!: Server;
+  private upgraded = new Set<Duplex>();
   url = '';
   epoch = randomUUID();
   version = 1;
@@ -39,6 +41,10 @@ export class SyntheticAPI {
   publication: Publication = { pending_entries: 0, state: 'current', error: null };
   terminals = new Map<string, TerminalView>();
   runtimes = new Map<string, RuntimeView>();
+  browsers = new Map<string, BrowserView>();
+  browserRequests = new Map<string, InputRequestView>();
+  browserAutoReady = true;
+  dropBrowser = false;
   receipts = new Map<string, object>();
   messages: object[] = [];
   dropSend = false;
@@ -102,6 +108,39 @@ export class SyntheticAPI {
     this.event('file.referenced', id);
     return entry;
   }
+  enableBrowser(id = alpha) {
+    for (const name of ['browser_get', 'input_requests_create', 'input_requests_complete', 'input_requests_cancel', 'input_requests_resume']) {
+      if (!this.operations.includes(name)) this.operations.push(name);
+    }
+    const view: BrowserView = { agent_id: id, recovery_epoch: this.epoch, active_request: null, surface: {
+      surface_id: randomUUID(), agent_id: id, kind: 'browser', status: 'available', reason: null,
+      binding: { identity: { agent_id: id, recovery_epoch: this.epoch, environment_generation: 1, boot_id: randomUUID(), browser_instance: randomUUID(), protocol: 1 }, control_epoch: 0 },
+      control: { mode: 'automation', ready: true },
+    } };
+    this.browsers.set(id, view); return view;
+  }
+  addBrowserRequest(id = alpha, state: InputRequestView['state'] = 'ready', prompt = 'Enter the requested information in the browser.') {
+    const browser = this.browsers.get(id) || this.enableBrowser(id), agent = this.agents.find(a => a.id === id)!;
+    const request: InputRequestView = { request_id: randomUUID(), agent_id: id, conversation_id: agent.conversation_id,
+      surface_id: browser.surface!.surface_id, requester_actor_id: owner, prompt, state, revision: 1,
+      created_at: now, updated_at: now, note: null, browser_binding: structuredClone(browser.surface!.binding),
+      control_pending: state === 'requested', error: null };
+    this.add(id, prompt, { kind: 'browser_request', role: 'user', direction: 'outgoing', sender_actor_id: owner,
+      source: { type: 'browser_request', request_id: request.request_id }, delivery: null, handling: null, browser_request: request });
+    this.setBrowserRequest(request); return request;
+  }
+  setBrowserRequest(request: InputRequestView) {
+    this.browserRequests.set(request.request_id, request);
+    const browser = this.browsers.get(request.agent_id)!;
+    const active = ['requested', 'ready', 'interrupted'].includes(request.state);
+    browser.active_request = active ? request : null;
+    browser.surface!.control = { mode: active ? 'human' : 'automation', ready: request.state !== 'requested' };
+    browser.surface!.binding = request.browser_binding;
+    for (const entry of this.entries.get(request.agent_id)!) {
+      if (entry.source.type === 'browser_request' && entry.source.request_id === request.request_id) entry.browser_request = request;
+    }
+    this.event('browser.request_changed', request.agent_id);
+  }
   recover() { this.epoch = randomUUID(); this.entries.set(alpha, []); this.entries.set(beta, []); this.events = []; }
   async start() {
     this.server = createServer(async (req, res) => {
@@ -122,7 +161,7 @@ export class SyntheticAPI {
           json(200, { actor_id: this.actor, api_version: 1 }); return;
         }
         if (path === '/api/v1/schema') {
-          json(200, { api_version: this.version, result_schema: { type: 'object' }, operations: this.operations.map(name => ({ name, mutation: ['agents_create', 'agents_update', 'messages_send'].includes(name), input_schema: { type: 'object' }, output_data_schema: { type: 'object' } })) }); return;
+          json(200, { api_version: this.version, result_schema: { type: 'object' }, operations: this.operations.map(name => ({ name, mutation: name.startsWith('input_requests_') || ['agents_create', 'agents_update', 'messages_send'].includes(name), input_schema: { type: 'object' }, output_data_schema: { type: 'object' } })) }); return;
         }
         const name = path.split('/').at(-1)!;
         this.calls.push({ name, args: structuredClone(args) });
@@ -131,6 +170,7 @@ export class SyntheticAPI {
         this.dispatch(name, args, res, json);
       } catch { if (!res.headersSent) res.writeHead(500); res.end(); }
     });
+    this.server.on('upgrade', (_request, socket) => { this.upgraded.add(socket); socket.once('close', () => this.upgraded.delete(socket)); });
     await new Promise<void>(r => this.server.listen(0, '127.0.0.1', r));
     this.url = `http://127.0.0.1:${(this.server.address() as { port: number }).port}`;
     return this;
@@ -190,6 +230,29 @@ export class SyntheticAPI {
     } else if (name === 'terminal_get') {
       json(200, success(this.terminals.get(args.agent_id) || { agent_id: args.agent_id, recovery_epoch: this.epoch,
         terminal_id: null, observed_at: null, status: 'disabled', reason: 'not_configured', control: null, recording: null, dimensions: null }));
+    } else if (name === 'browser_get') {
+      json(200, success(this.browsers.get(args.agent_id) || { agent_id: args.agent_id, recovery_epoch: this.epoch, surface: null, active_request: null }));
+    } else if (name.startsWith('input_requests_')) {
+      let request: InputRequestView;
+      if (name === 'input_requests_create') {
+        if (this.browsers.get(args.target_agent_id)?.active_request) { error('existing_request', 'A browser request is already open.'); return; }
+        request = this.addBrowserRequest(args.target_agent_id, this.browserAutoReady ? 'ready' : 'requested', args.prompt);
+      } else {
+        const current = this.browserRequests.get(args.request_id);
+        if (!current) { error('not_found', 'Browser request not found', 404); return; }
+        if (current.revision !== args.expected_revision) { error('revision_conflict', 'Browser request changed.'); return; }
+        request = { ...current, revision: current.revision + 1, control_pending: false, error: null,
+          state: name === 'input_requests_complete' ? 'completed' : name === 'input_requests_cancel' ? 'cancelled' : 'ready', note: args.note ?? null };
+        if (name === 'input_requests_resume') request.browser_binding = { ...current.browser_binding!, control_epoch: current.browser_binding!.control_epoch + 1 };
+        this.setBrowserRequest(request);
+        if (request.state === 'completed' || request.state === 'cancelled') this.messages.push({ body: `${request.state}: ${request.prompt}`, note: request.note });
+      }
+      const result = success(structuredClone(request), true);
+      if (this.dropBrowser) {
+        this.dropBrowser = false;
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': '100000' }); res.write('{"ok":');
+        setTimeout(() => res.destroy(), 20);
+      } else json(200, result);
     } else if (name === 'messages_send') {
       if (this.refuseSend) { this.refuseSend = false; json(503, { error: { code: 'unavailable', message: 'Transport unavailable' } }); return; }
       if (!args.body || Buffer.byteLength(args.body) > 65536) { error('invalid_argument', 'Message exceeds UTF-8 limit', 400); return; }
@@ -209,6 +272,7 @@ export class SyntheticAPI {
   }
   async close() {
     for (const gate of this.gates) gate.release();
+    for (const socket of this.upgraded) socket.destroy();
     this.server.closeAllConnections();
     await new Promise<void>(r => this.server.close(() => r()));
   }

@@ -1,10 +1,12 @@
 import { ApiError, operation, request } from './api';
-import type { Agent, AgentPage, Config, ConversationPage, Entry, EventPage, Publication, RuntimeView, Schema, SendResult, WorkspaceIdentity, TerminalView } from './wire';
+import type { Agent, AgentPage, BrowserView, Config, ConversationPage, Entry, EventPage, InputRequestView, Publication, RuntimeView, Schema, SendResult, WorkspaceIdentity, TerminalView } from './wire';
 import { mergeTerminal, terminalView, uuid } from './terminal-protocol';
 import { runtimeView } from './runtime-view';
+import { browserRequestEntry, browserView, inputRequestView, sameRequest, streamReady, unresolved } from './browser-view';
 
+export type BrowserAction = 'input_requests_complete' | 'input_requests_cancel' | 'input_requests_resume';
 export type Pending = {
-  operation: 'messages_send' | 'agents_update' | 'agents_create'; args: Record<string, unknown>;
+  operation: 'messages_send' | 'agents_update' | 'agents_create' | 'input_requests_create' | BrowserAction; args: Record<string, unknown>;
   actor: string; agentId?: string; draftVersion?: number;
   unresolvedAmbiguity: boolean;
   state: 'sending' | 'uncertain' | 'failed' | 'conflict'; error?: string;
@@ -17,6 +19,7 @@ export type Draft = { text: string; version: number };
 export type Scroll = { top: number; bottom: boolean };
 export type TerminalObservation = { view: TerminalView | null; loading: boolean; error: string };
 export type RuntimeObservation = { view: RuntimeView | null; loading: boolean; error: string };
+export type BrowserObservation = { view: BrowserView | null; loading: boolean; error: string };
 const failure = (e: unknown) => e instanceof ApiError ? e : new ApiError('unavailable', 'Request failed.');
 const transientRead = (e: unknown) => e instanceof ApiError && (e.code === 'unavailable' || e.code === 'connection_lost'
   || (e.code === 'transport_refused' && e.status >= 500 && e.status < 600));
@@ -40,6 +43,9 @@ export class Store {
   views = new Map<string, 'chat' | 'terminal'>();
   terminals = new Map<string, TerminalObservation>();
   runtimes = new Map<string, RuntimeObservation>();
+  browsers = new Map<string, BrowserObservation>();
+  browserRequests = new Map<string, InputRequestView>();
+  browserNotes = new Map<string, string>();
   pending = new Map<string, Pending>();
   notice = '';
   private listeners = new Set<() => void>();
@@ -49,6 +55,7 @@ export class Store {
   private conversationRead?: AbortController;
   private terminalRead?: AbortController;
   private runtimeRead?: AbortController;
+  private browserRead?: AbortController;
   private timer?: number;
   private pollBusy = false;
   private pollFailures = 0;
@@ -90,12 +97,15 @@ export class Store {
     this.conversationRead?.abort();
     this.terminalRead?.abort();
     this.runtimeRead?.abort();
+    this.browserRead?.abort();
     this.selectionVersion++;
     this.agents = [];
     this.chats.clear();
     this.scrolls.clear();
     this.terminals.clear();
     this.runtimes.clear();
+    this.browsers.clear();
+    this.browserRequests.clear();
     this.actor = '';
     this.config = null;
     this.supported.clear();
@@ -190,6 +200,7 @@ export class Store {
       if (!this.chats.has(this.selected)) void this.refreshConversation('initial');
       if (!this.terminals.has(this.selected)) void this.refreshTerminal();
       if (!this.runtimes.has(this.selected)) void this.refreshRuntime();
+      if (!this.browsers.has(this.selected)) void this.refreshBrowser();
     }
     this.emit();
   }
@@ -198,7 +209,9 @@ export class Store {
     this.conversationRead?.abort();
     this.terminalRead?.abort();
     this.runtimeRead?.abort();
+    this.browserRead?.abort();
     this.selectionVersion++;
+    if (id !== this.selected) this.browsers.delete(id);
     this.selected = id;
     this.hint = id;
     try { localStorage.setItem('qorqut.selected', id); } catch { /* optional */ }
@@ -207,6 +220,7 @@ export class Store {
       void this.refreshConversation(this.chats.has(id) ? 'refresh' : 'initial');
       void this.refreshTerminal();
       void this.refreshRuntime();
+      void this.refreshBrowser();
     }
   }
   private async recover(gen: number) {
@@ -247,7 +261,7 @@ export class Store {
         this.eventSeq = page.next_after_seq;
       }
       if (gen !== this.generation || controller.signal.aborted) return;
-      await Promise.all([this.refreshConversation('refresh'), this.refreshTerminal(), this.refreshRuntime()]);
+      await Promise.all([this.refreshConversation('refresh'), this.refreshTerminal(), this.refreshRuntime(), this.refreshBrowser()]);
       if (gen !== this.generation || controller.signal.aborted) return;
       if (this.chats.get(this.selected)?.error) {
         this.connection = 'Offline'; this.pollFailures++;
@@ -272,6 +286,54 @@ export class Store {
     this.terminals.set(view.agent_id, { view: mergeTerminal(prior?.view, view),
       loading: !fromRead && !!prior?.loading, error: fromRead ? '' : prior?.error || '' });
     this.emit();
+  }
+  browserSupported = () => ['browser_get', 'input_requests_complete', 'input_requests_cancel', 'input_requests_resume'].every(this.has);
+  browserReady(request: InputRequestView) {
+    const observation = this.browsers.get(request.agent_id);
+    return this.phase === 'ready' && this.selected === request.agent_id && this.browserSupported()
+      && !observation?.error && !this.pending.has(`browser:${request.request_id}`)
+      && streamReady(observation?.view, request, this.epoch);
+  }
+  private acceptBrowserRequest(view: InputRequestView) {
+    const agent = this.agents.find(a => a.id === view.agent_id);
+    const prior = this.browserRequests.get(view.request_id);
+    if (!agent || view.conversation_id !== agent.conversation_id || (prior && !sameRequest(prior, view))) {
+      throw new ApiError('invalid_response', 'Browser request could not be verified.');
+    }
+    // A late poll or an exact-key receipt cannot undo a newer request revision.
+    if (!prior || view.revision >= prior.revision) this.browserRequests.set(view.request_id, view);
+  }
+  async refreshBrowser(force = false) {
+    const id = this.selected;
+    if (!id || !this.has('browser_get') || this.phase !== 'ready') return;
+    if (this.browserRead && !this.browserRead.signal.aborted) {
+      if (!force) return;
+      this.browserRead.abort();
+    }
+    const controller = this.controller(); this.browserRead = controller;
+    const gen = this.generation, selection = this.selectionVersion;
+    const prior = this.browsers.get(id);
+    this.browsers.set(id, { view: prior?.view || null, loading: true, error: prior?.error || '' }); this.emit();
+    const valid = () => gen === this.generation && selection === this.selectionVersion && id === this.selected && !controller.signal.aborted;
+    try {
+      const view = await operation<unknown>('browser_get', { agent_id: id }, controller.signal);
+      if (!valid()) return;
+      if (!browserView(view) || view.agent_id !== id) throw new ApiError('invalid_response', 'Browser observation could not be verified.');
+      if (view.recovery_epoch !== this.epoch) throw new ApiError('target_changed', 'Server recovery epoch changed.');
+      if (view.active_request) this.acceptBrowserRequest(view.active_request);
+      this.browsers.set(id, { view, loading: false, error: '' });
+    } catch (e) {
+      if (!valid()) return;
+      const err = failure(e);
+      this.browsers.set(id, { view: transientRead(e) ? prior?.view || null : null,
+        loading: false, error: 'Browser information unavailable. Retry to refresh.' });
+      if (err.status === 401) this.disconnect(err);
+      else if (err.code === 'target_changed') await this.recover(gen);
+    } finally {
+      this.reads.delete(controller);
+      if (this.browserRead === controller) this.browserRead = undefined;
+      this.emit();
+    }
   }
   async refreshRuntime(force = false) {
     const id = this.selected;
@@ -359,7 +421,13 @@ export class Store {
     };
     const merge = (page: ConversationPage, change: Chat['change']) => {
       const rows = new Map(chat.items.map(entry => [entry.entry_id, entry]));
-      for (const entry of page.items) rows.set(entry.entry_id, entry);
+      for (const entry of page.items) {
+        if (browserRequestEntry(entry) && entry.agent_id === id && entry.conversation_id === this.agent()?.conversation_id) {
+          try { this.acceptBrowserRequest(entry.browser_request); }
+          catch { rows.set(entry.entry_id, { ...entry, browser_request: null }); continue; }
+        }
+        rows.set(entry.entry_id, entry);
+      }
       chat.items = [...rows.values()].sort((a, b) => a.conversation_seq - b.conversation_seq);
       chat.epoch = page.recovery_epoch; chat.publication = page.publication; chat.change = change;
     };
@@ -431,6 +499,24 @@ export class Store {
     });
     await this.mutate(`edit:${id}`);
   }
+  async createBrowser(id: string) {
+    const key = `browser-create:${id}`, observation = this.browsers.get(id);
+    if (this.selected !== id || !this.browserSupported() || !this.has('input_requests_create') || this.pending.has(key)
+      || observation?.error || observation?.view?.surface?.status !== 'available' || observation.view.active_request) return;
+    this.pending.set(key, { operation: 'input_requests_create', args: { target_agent_id: id, prompt: 'Manual browser control', observed_tab: null,
+      idempotency_key: crypto.randomUUID() }, actor: this.actor, agentId: id, unresolvedAmbiguity: false, state: 'sending' });
+    return this.mutate(key);
+  }
+  async browserAction(request: InputRequestView, action: BrowserAction) {
+    const current = this.browserRequests.get(request.request_id), key = `browser:${request.request_id}`;
+    if (!current || this.selected !== current.agent_id || !this.browserSupported() || !this.has(action) || !unresolved(current) || this.pending.has(key)) return;
+    const note = this.browserNotes.get(current.request_id) || '';
+    if ([...note].length > 4096) return;
+    this.pending.set(key, { operation: action, args: { request_id: current.request_id, expected_revision: current.revision,
+      idempotency_key: crypto.randomUUID(), ...(action === 'input_requests_resume' ? {} : { note: note || null }) },
+      actor: this.actor, agentId: current.agent_id, unresolvedAmbiguity: false, state: 'sending' });
+    return this.mutate(key);
+  }
   discard(key: string) {
     const pending = this.pending.get(key);
     if (pending && !pending.unresolvedAmbiguity && (pending.state === 'failed' || pending.state === 'conflict')) { this.pending.delete(key); this.emit(); }
@@ -440,9 +526,10 @@ export class Store {
     if (!pending || pending.state === 'sending' || pending.actor !== this.actor || !this.has(pending.operation)) return;
     // Reapplying is a new mutation only if no prior attempt remains unresolved.
     if (!pending.unresolvedAmbiguity && pending.state === 'conflict') {
-      const agent = this.agents.find(a => a.id === pending.agentId);
-      if (!agent) return;
-      pending.args = { ...pending.args, expected_revision: agent.revision, idempotency_key: crypto.randomUUID() };
+      const target = pending.operation.startsWith('input_requests_')
+        ? this.browserRequests.get(pending.args.request_id as string) : this.agents.find(a => a.id === pending.agentId);
+      if (!target) return;
+      pending.args = { ...pending.args, expected_revision: target.revision, idempotency_key: crypto.randomUUID() };
     }
     await this.mutate(key);
   }
@@ -457,9 +544,23 @@ export class Store {
     pending.state = 'sending'; pending.error = ''; this.emit();
     try {
       // Mutation is not tied to selected-agent read cancellation. It may commit after navigation.
-      const data = await operation<SendResult | Agent | { agent: Agent }>(pending.operation, pending.args, undefined, true);
+      const data = await operation<SendResult | Agent | { agent: Agent } | InputRequestView>(pending.operation, pending.args, undefined, true);
       if (gen !== this.generation || this.pending.get(key) !== pending) return;
-      if (pending.operation === 'messages_send') {
+      if (pending.operation.startsWith('input_requests_')) {
+        if (!inputRequestView(data) || data.agent_id !== pending.agentId
+          || (pending.args.request_id && data.request_id !== pending.args.request_id)
+          || (pending.operation === 'input_requests_create' && (data.prompt !== pending.args.prompt || data.requester_actor_id !== pending.actor))) {
+          throw new ApiError('invalid_response', 'Browser confirmation could not be verified. The request may have been saved.', true);
+        }
+        try { this.acceptBrowserRequest(data); }
+        catch { throw new ApiError('invalid_response', 'Browser confirmation could not be verified. The request may have been saved.', true); }
+        this.pending.delete(key);
+        if (this.selected === pending.agentId) {
+          void this.refreshBrowser(true);
+          void this.refreshConversation('refresh');
+        }
+        return data;
+      } else if (pending.operation === 'messages_send') {
         const id = pending.agentId!;
         if (this.draft(id).version === pending.draftVersion) this.drafts.set(id, { text: '', version: this.draft(id).version + 1 });
         this.pending.delete(key);
@@ -482,6 +583,9 @@ export class Store {
         ? 'The retry was refused before confirmation. The original request may have been saved.'
         : err.message;
       if (err.status === 401) this.disconnect(err);
+      else if (pending.operation.startsWith('input_requests_')) {
+        if (this.selected === pending.agentId) void this.refreshBrowser(true);
+      }
       else if (err.code === 'revision_conflict' && pending.agentId) {
         const controller = this.controller();
         try {
