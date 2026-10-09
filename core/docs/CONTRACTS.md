@@ -1,3 +1,7 @@
+D59: [Native attention in Chat](NATIVE-ATTENTION.md) defines the additive nullable
+runtime_get.attention observation and agent-directory attention projection.
+It authorizes no input and creates no new public mutation or schema migration.
+
 D57: [Connected browser integration](BROWSER-APP-INTEGRATION.md) is the current
 implementation contract for attached browsers, durable handoff and the UI stream.
 The [core candidate evidence](evidence/browser-app-core.md) records focused

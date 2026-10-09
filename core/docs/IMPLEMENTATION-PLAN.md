@@ -1,3 +1,7 @@
+D59: [Native attention in Chat](NATIVE-ATTENTION.md) adds visible approval and
+question notices backed by fresh observations of the current native terminal.
+Implementation and deployment are pending.
+
 D58: [Codex composer compatibility](CHAT-COMPOSER-COMPATIBILITY.md) corrects
 the normal narrow-terminal and warning-footer layouts that are currently
 preventing the owner's stored Chat messages from being dispatched.
