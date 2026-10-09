@@ -7,6 +7,7 @@ No native executable, model provider, personal HOME or existing session is used.
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import FrozenInstanceError
+from datetime import timedelta
 import hashlib
 import json
 import os
@@ -30,6 +31,7 @@ from qorqut_core.app import Application
 from qorqut_core.config import LocalTerminalSettings
 from qorqut_core.contracts import CoreError, Invocation
 from qorqut_core.runtime.native_collector import NativeCollector, NativeInputObservation
+from qorqut_core.runtime.models import ProcessObservation
 from qorqut_core.storage.database import assert_external_io_allowed
 from qorqut_core.transcripts.native_capture import NativeCaptureError
 from qorqut_core.transcripts.archive_models import ArchiveMetadata
@@ -148,6 +150,225 @@ class NativeCollection(RuntimeCase):
         self.pump()  # Explicit service-level job pumping, not a running server.
         path = self.base / "transcripts" / (self.clock()[:10] + ".jsonl")
         return [json.loads(line) for line in path.read_bytes().splitlines()]
+
+    def test_exited_checkpoints_are_finite_reusable_and_resumable(self):
+        # Keep checkpoint time just after the fixture's owner-observation clock.
+        timer = patch("qorqut_core.transcripts.native_capture.datetime",
+                      SimpleNamespace(now=lambda tz: self.clock.now + timedelta(microseconds=1)))
+        timer.start()
+        self.addCleanup(timer.stop)
+        candidate, owner = self.bind()
+        header = raw({"type": "session_meta", "payload": {
+            "id": str(candidate.native_session_id), "source": "cli", "cli_version": VERSIONS["codex"]}})
+        first = header + self.record(candidate, "before exit")
+        tail = self.record(candidate, "unfinished 文🙂", assistant=True)
+        split = tail.index("🙂".encode()) + 2
+        payload = first + tail[:split]
+        path = self.source(candidate, payload)
+
+        def append(data):
+            with path.open("ab") as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+
+        with self.subTest("active and unknown owners do not checkpoint"):
+            self.assertEqual(self.tick().reason, "active")
+            with patch.object(self.app.session_owners, "observe_process", return_value=ProcessObservation(
+                    state="unknown", observed_at=self.clock(), reason="fixture_unknown")):
+                self.app.session_owners.reconcile()
+            self.assertEqual(self.tick().reason, "active")
+            self.assertEqual(self.local("native_checkpoints"), [])
+            self.assertEqual(len(self.entries()), 1)
+            parsed = self.rows("native_parse_checkpoints")
+            self.assertEqual((parsed[0]["through_offset"], parsed[0]["scan_offset"]), (len(first), len(payload)))
+
+        with self.subTest("verified exit exposes pending EOF without altering parsing"):
+            self.exit_child(self.child_process)
+            self.app.session_owners.reconcile()
+            view = self.tick()
+            state = self.capture_states()[0]
+            key = state.source_id, state.source_epoch
+            self.assertEqual((view.state, view.reason, view.pending_parse_bytes), ("gap", "parser_gap", split))
+            self.assertEqual((state.checkpoint.proof.through_offset, state.checkpoint.proof.file_size,
+                              state.local_captured_offset, state.host_archived_offset), (len(payload),) * 4)
+            self.assertIsNone(state.checkpoint.gap)
+            self.assertEqual(self.archived(state), payload)
+            self.assertEqual(self.rows("native_parse_checkpoints"), parsed)
+            self.assertEqual(self.rows("native_parse_gaps"), [])
+            self.assertEqual([entry["text"] for entry in self.entries()], ["before exit"])
+            saved = self.local("native_checkpoints")
+            self.assertEqual(len(saved), 1)
+
+        with self.subTest("repeat and reopen reuse the durable unchanged proof"):
+            self.reopen()
+            with patch("qorqut_core.runtime.native_collector.NativeCapture.checkpoint",
+                       side_effect=AssertionError("unchanged checkpoint must be reused")):
+                self.assertEqual(self.tick().reason, "parser_gap")
+                self.assertEqual(self.tick().reason, "parser_gap")
+            self.assertEqual(self.local("native_checkpoints"), saved)
+            self.assertEqual(self.rows("native_parse_checkpoints"), parsed)
+            # Finite evidence remains visible when this source sits out a tick
+            # in the bounded source ring; viewing it does not append evidence.
+            from qorqut_core.runtime.native_collector import _round_robin
+            with patch("qorqut_core.runtime.native_collector._round_robin",
+                       side_effect=lambda queue, *args, **kwargs: [] if queue is self.collector._source_queue
+                       else _round_robin(queue, *args, **kwargs)):
+                self.assertEqual(self.tick().reason, "parser_gap")
+            self.assertEqual(self.local("native_checkpoints"), saved)
+
+        with self.subTest("an unlinked resume and a newer closure invalidate exited evidence"):
+            capture = self.collector._capture
+            transfer = capture.transfer
+            resumed = []
+
+            def resume_during_transfer(*args, **kwargs):
+                result = transfer(*args, **kwargs)
+                resumed.append(self.bind(session=candidate.native_session_id)[1])
+                return result
+
+            with patch.object(capture, "transfer", side_effect=resume_during_transfer), \
+                    patch.object(capture, "checkpoint", side_effect=AssertionError("active unlinked owner")):
+                self.assertNotEqual(self.tick().reason, "parser_gap")
+            self.assertEqual(len(capture.state(key[0]).runs), 1)
+            self.assertNotIn(str(resumed[0].run_id), [r["run_id"] for r in self.rows("archive_run_sources")])
+            self.assertEqual(self.local("native_checkpoints"), saved)
+            self.clock.advance(1)
+            self.exit_child(self.child_process)
+            self.app.session_owners.reconcile()
+            self.assertEqual(self.tick().reason, "parser_gap")
+            saved = self.local("native_checkpoints")
+            self.assertEqual(len(saved), 2)
+            self.assertEqual(len(capture.state(key[0]).runs), 2)
+            self.assertEqual(capture.state(key[0]).source_epoch, key[1])
+            self.assertGreater(saved[-1]["recorded_at"], self.rows("session_owners")[-1]["closed_at"])
+
+        with self.subTest("owner changes during checkpoint cannot publish exited EOF"):
+            info = path.stat()
+            os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns + 1))
+            checkpoint = capture.checkpoint
+
+            def resume_after_proof(*args):
+                proof = checkpoint(*args)
+                self.bind(session=candidate.native_session_id)
+                return proof
+
+            with patch.object(capture, "checkpoint", side_effect=resume_after_proof):
+                self.assertNotEqual(self.tick().reason, "parser_gap")
+            self.assertEqual(len(self.local("native_checkpoints")), len(saved) + 1)
+            append(tail[split:])
+            payload = first + tail
+            self.assertEqual(self.tick().pending_parse_bytes, 0)
+            self.assertEqual([entry["text"] for entry in self.entries()], ["before exit", "unfinished 文🙂"])
+            self.assertEqual(capture.state(key[0]).source_epoch, key[1])
+            self.assertEqual(len(capture.state(key[0]).runs), 3)
+            self.exit_child(self.child_process)
+            self.app.session_owners.reconcile()
+            self.tick()
+
+        with self.subTest("bounded capture and ACK backlog are not drained EOF"):
+            large_text = "x" * (2 * 1048576 + 1000)
+            large = self.record(candidate, large_text, assistant=True)
+            append(large[:-1])  # Valid JSON lacking its final newline remains pending.
+            payload += large[:-1]
+            before = capture.state(key[0]).local_captured_offset
+            view = self.tick()
+            state = capture.state(key[0])
+            self.assertEqual(state.local_captured_offset - before, 1048576)
+            self.assertEqual(state.host_archived_offset, state.local_captured_offset)
+            self.assertEqual(self.rows("native_parse_checkpoints")[0]["scan_offset"], state.host_archived_offset)
+            self.assertLess(state.checkpoint.proof.through_offset, state.checkpoint.proof.file_size)
+            self.assertNotEqual(view.reason, "parser_gap")
+            before = state.local_captured_offset
+
+            def one_chunk(*args, **kwargs):
+                self.assertEqual(kwargs, {"max_chunks": 16})
+                return transfer(*args, max_chunks=1)
+
+            with patch.object(capture, "transfer", side_effect=one_chunk):
+                view = self.tick()
+                state = capture.state(key[0])
+                self.assertEqual(state.local_captured_offset - before, 1048576)
+                self.assertLess(state.checkpoint.proof.through_offset, state.checkpoint.proof.file_size)
+                self.assertGreater(view.pending_archive_bytes, 0)
+                self.assertNotEqual(view.reason, "parser_gap")
+                view = self.tick()
+                state = capture.state(key[0])
+                self.assertEqual(state.checkpoint.proof.through_offset, len(payload))
+                self.assertEqual(state.checkpoint.proof.file_size, len(payload))
+                self.assertGreater(view.pending_archive_bytes, 0)
+                self.assertNotEqual(view.reason, "parser_gap")
+            # Raw proof reuse is independent of the host ACK catching up.
+            with patch.object(capture, "checkpoint", side_effect=AssertionError("reuse finite proof")):
+                consume = self.collector._projector.consume
+                with patch.object(self.collector._projector, "consume",
+                                  side_effect=lambda *args, **kwargs: consume(*args, max_bytes=1)):
+                    view = self.tick()
+                    self.assertEqual(view.pending_archive_bytes, 0)
+                    self.assertNotEqual(view.reason, "parser_gap")
+                self.assertEqual(self.tick().reason, "parser_gap")
+            self.assertEqual(self.archived(state), payload)
+            self.assertEqual(self.rows("native_parse_gaps"), [])
+
+        with self.subTest("raw, checkpoint and ownership failures refuse EOF evidence"):
+            saved = self.local("native_checkpoints")
+            for method in ("poll", "transfer", "checkpoint"):
+                if method == "checkpoint":
+                    info = path.stat()
+                    os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns + 1))
+                with patch.object(capture, method, side_effect=NativeCaptureError("PRIVATE fixture failure")):
+                    view = self.tick()
+                self.assertEqual(view.reason, "collection_blocked")
+                self.assertNotIn("PRIVATE", view.model_dump_json())
+                self.assertEqual(self.local("native_checkpoints"), saved)
+            self.assertEqual(self.tick().reason, "parser_gap")
+            marker = self.base / ".qorqut-owner.json"
+            original = marker.read_bytes()
+            try:
+                marker.write_text("{}")
+                with patch.object(capture, "checkpoint", side_effect=AssertionError("ownership guard")):
+                    self.assertEqual(self.tick().reason, "collection_blocked")
+            finally:
+                marker.write_bytes(original)
+            self.assertEqual(self.tick().reason, "parser_gap")
+
+        with self.subTest("late append completes the same record without sealing or duplicate entries"):
+            append(b"\n")
+            payload += b"\n"
+            view = self.tick()
+            self.assertEqual((view.reason, view.pending_parse_bytes, view.pending_archive_bytes), ("active", 0, 0))
+            # The existing projection splits large text into bounded entries.
+            entries = self.entries()
+            self.assertEqual("".join(entry["text"] for entry in entries[2:]), large_text)
+            self.tick()
+            self.assertEqual(self.entries(), entries)
+            self.assertEqual(len(self.capture_states()), 1)
+            self.assertEqual(self.archived(capture.state(key[0])), payload)
+            self.assertEqual(self.local("native_epochs")[0]["capture_closed"], 0)
+            self.assertIsNone(self.local("capture_epochs")[0]["recorder_finished_at"])
+            self.assertIsNone(self.local("capture_epochs")[0]["finalized_offset"])
+            self.assertEqual(self.rows("native_parse_gaps"), [])
+
+        with self.subTest("recovery-retired owner and host conflicts cannot checkpoint"):
+            self.bind(session=candidate.native_session_id)
+            self.tick()
+            with self.app.db.transaction() as tx:
+                self.app.session_owners.retire_for_recovery(tx, self.context, None)
+            saved = self.local("native_checkpoints")
+            with patch.object(capture, "checkpoint", side_effect=AssertionError("retired owner")):
+                self.tick()
+            self.assertEqual(self.local("native_checkpoints"), saved)
+            with self.app.db.transaction() as tx:
+                tx.connection.execute("UPDATE archive_epochs SET conflicted=1")
+            with patch.object(capture, "checkpoint", side_effect=AssertionError("conflicted source")):
+                self.assertEqual(self.tick().reason, "collection_blocked")
+            self.assertTrue(self.recovery().ok)
+            self.reopen()
+            with patch("qorqut_core.runtime.native_collector.NativeCapture.checkpoint",
+                       side_effect=AssertionError("recovery held")):
+                self.assertEqual(self.tick().reason, "recovery_review")
+            self.assertEqual(self.local("native_checkpoints"), saved)
+            self.assertEqual(self.archived(self.capture_states()[0]), payload)
 
     def test_both_providers_delayed_append_partial_reopen_exit_resume_and_publication(self):
         with patch.object(self.app.db, "read", side_effect=AssertionError("passive construction/view")):

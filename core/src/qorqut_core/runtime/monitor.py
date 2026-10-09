@@ -55,6 +55,16 @@ class SessionMonitor:
         except BaseException:
             # No observer/process content in logs or thread exception hooks.
             _LOG.error("session_monitor_stopped")
+        else:
+            # Only an orderly stop reaches this pass, after the current iteration
+            # has settled. Keep collection on its owning thread and its usual
+            # finite budgets; shutdown neither prepares nor stops a native CLI.
+            try:
+                self.session_owners.reconcile()
+                if self.native_collector is not None:
+                    self.native_collector.tick()
+            except BaseException:
+                _LOG.error("session_monitor_final_collection_failed")
         finally:
             self._healthy.clear()
             for service in (self.native_setup, self.native_collector):
