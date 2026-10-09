@@ -7,6 +7,7 @@ from ..app import Change, Operation
 from ..contracts import CoreError, canonical
 from ..files.references import reference_record
 from ..messaging import records
+from .inbox_reference import inbox_references
 from .models import ConversationList, ConversationPage, Entry, FileReferenceSource, MessageSource, NativeSource, Publication, PublishJob
 
 
@@ -158,10 +159,13 @@ class Conversations:
             (*values, args.limit)).fetchall()
         if order == "DESC":
             rows.reverse()
+        entries = entry_views(tx, rows)
+        references = inbox_references(tx, entries)
         items = [{**entry.model_dump(mode="json"),
             "delivery": records.delivery(tx, row["message_id"]) if row["message_id"] else None,
-            "handling": records.handling(tx, row["message_id"]) if row["message_id"] else None}
-            for row, entry in zip(rows, entry_views(tx, rows))]
+            "handling": records.handling(tx, row["message_id"]) if row["message_id"] else None,
+            "inbox_reference": references.get(entry.entry_id)}
+            for row, entry in zip(rows, entries)]
         first, last = (rows[0]["conversation_seq"], rows[-1]["conversation_seq"]) if rows else (None, None)
         # Empty pages still tell the caller on which side saved entries exist.
         older = ("conversation_seq<?", first) if rows else (

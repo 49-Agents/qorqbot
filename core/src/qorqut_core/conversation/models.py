@@ -86,9 +86,15 @@ class Entry(Model):
     recorded_at: Timestamp
 
 
+class InboxReference(Model):
+    message_id: UUID
+    message_entry_id: UUID
+
+
 class ConversationItem(Entry):
     delivery: DeliveryView | None
     handling: HandlingView | None
+    inbox_reference: InboxReference | None = None
 
 
 class PublicationError(Model):
