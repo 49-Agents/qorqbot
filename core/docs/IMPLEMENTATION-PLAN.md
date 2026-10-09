@@ -12,6 +12,9 @@ acceptance. Their combined run passed bounded request bursts and kept Terminal
 connected, but failed the 30-second archive catch-up gate. D50's
 [contiguous transfer ranges](TERMINAL-TRANSFER-RANGES.md) address the observed
 per-chunk cost while preserving original capture bytes and ledgers.
+D50's implementation and isolated installed measurement have
+[component acceptance](evidence/terminal-transfer-ranges-manager-acceptance.md);
+the original combined two-tab workload is being rechecked at the new core pin.
 [Pre-prompt native-session facts](evidence/native-cold-start-manager-acceptance.md)
 are accepted as design inputs. [D51 startup connection](NATIVE-STARTUP-CONNECTION.md)
 is planned in parallel with D50 to observe the manually started Codex session

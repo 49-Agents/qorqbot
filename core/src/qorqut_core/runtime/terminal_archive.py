@@ -26,7 +26,11 @@ from ..transcripts.archive_models import (
     ArchiveMetadata, ArchiveReceipt, chunk_coordinates, validate_binding, validate_chunk,
     validate_source,
 )
-from ..transcripts.spool import CaptureSpool, Chunk, RunBinding, Source
+from ..transcripts.spool import CHUNK_BYTES, CaptureSpool, Chunk, ChunkReceipt, RunBinding, Source
+
+
+_RANGE_CHUNKS = 128
+_OBSERVATION_BYTES = 1024 * 1024
 
 
 @contextmanager
@@ -96,10 +100,100 @@ def _receipt(value, intent):
     return value
 
 
+def _manifest_object(pairs):
+    value = dict(pairs)
+    if len(value) != len(pairs):
+        raise ValueError("Terminal archive manifest has duplicate fields")
+    return value
+
+
+def _manifest(intent):
+    """NULL alone denotes the old single-chunk format, including saved receipts."""
+    if intent["chunks_json"] is None:
+        return (ChunkReceipt(intent["offset"], intent["length"], intent["sha256"]),)
+    raw = intent["chunks_json"]
+    # A compact maximal manifest is under 16 KiB. Bound parsing too, allowing
+    # whitespace without letting a corrupt local intent allocate unbounded JSON.
+    if type(raw) is not str or len(raw) > 32 * 1024:
+        raise ValueError("Terminal archive manifest is oversized")
+    try:
+        value = json.loads(raw, object_pairs_hook=_manifest_object)
+    except RecursionError:
+        raise ValueError("Terminal archive manifest is malformed") from None
+    if (type(value) is not dict or set(value) != {"version", "chunks"}
+            or type(value["version"]) is not int or value["version"] != 1
+            or type(value["chunks"]) is not list or not 1 <= len(value["chunks"]) <= _RANGE_CHUNKS):
+        raise ValueError("Terminal archive manifest is unsupported")
+    entries, cursor = [], intent["offset"]
+    for item in value["chunks"]:
+        if type(item) is not dict or set(item) != {"offset", "length", "sha256"}:
+            raise ValueError("Terminal archive manifest entry is malformed")
+        entry = ChunkReceipt(**item)
+        chunk_coordinates(Chunk(intent["source_id"], intent["source_epoch"],
+                                entry.offset, entry.length, entry.sha256, b""))
+        if entry.offset != cursor:
+            raise ValueError("Terminal archive manifest is not contiguous")
+        cursor += entry.length
+        entries.append(entry)
+    if cursor != intent["offset"] + intent["length"]:
+        raise ValueError("Terminal archive manifest disagrees with intent")
+    return tuple(entries)
+
+
+def _range(spool, key, offset, *, count, byte_limit):
+    """Assemble whole originals through bounded pages, without waiting for more."""
+    entries, payload = [], bytearray()
+    cursor = offset
+    while len(entries) < count and len(payload) < byte_limit:
+        limit = min(16, count - len(entries))
+        page = spool.pending(*key, after=cursor, limit=limit)
+        if len(page.chunks) > limit:
+            raise ValueError("Terminal archive pending page is oversized")
+        page_end = cursor
+        for chunk in page.chunks:
+            validate_chunk(chunk)
+            if (chunk.source_id, chunk.source_epoch) != key or chunk.offset != page_end:
+                raise ValueError("Terminal archive cursor disagrees with chunk")
+            page_end += chunk.length
+        if page.next_offset != page_end:
+            raise ValueError("Terminal archive pending cursor changed")
+        if not page.chunks:
+            break
+        for chunk in page.chunks:
+            if len(payload) + chunk.length > byte_limit:
+                break
+            entries.append(ChunkReceipt(chunk.offset, chunk.length, chunk.sha256))
+            payload.extend(chunk.payload)
+            cursor = chunk.offset + chunk.length
+        if cursor != page.next_offset:
+            break  # Leave the next whole chunk for a later range/observation.
+    if not entries:
+        return None, ()
+    data = bytes(payload)
+    return Chunk(*key, offset, len(data), hashlib.sha256(data).hexdigest(), data), tuple(entries)
+
+
+def _check_ledger(spool, source, key, intent, entries):
+    """Corroborate every original boundary even after payload reclamation."""
+    cursor, end = intent["offset"], intent["offset"] + intent["length"]
+    checked = 0
+    while checked < len(entries):
+        limit = min(16, len(entries) - checked)
+        page = spool.receipts(*key, after=cursor, through=end, limit=limit)
+        expected = entries[checked:checked + limit]
+        if (page.source != source or page.source_epoch != key[1] or page.through_offset != end
+                or page.receipts != expected
+                or page.next_offset != expected[-1].offset + expected[-1].length):
+            raise ValueError("Terminal archive intent disagrees with capture")
+        cursor = page.next_offset
+        checked += len(expected)
+
+
 def transfer(database: Path, shell: ShellView, archive: Archive, context: Invocation) -> None:
     """Transfer at most 128 original chunks / 1 MiB, including resumed intents.
 
-    Allow one whole pending chunk, then stop starting chunks after 200 ms.
+    Each range contains at most 128 originals / 256 KiB. Allow one whole pending
+    range, then stop starting ranges after 200 ms. Count originals, not receives.
     Receipt/ACK/reclamation always finish; I/O can exceed this scheduling budget.
 
     Caller retains its workspace/provisioning guards. Keep the host lifetime and
@@ -107,7 +201,7 @@ def transfer(database: Path, shell: ShellView, archive: Archive, context: Invoca
     surrounds host filesystem or recorder I/O. Stopped/unprobed shells can drain.
     """
     deadline = monotonic() + 0.2
-    transferred_bytes = 0
+    transferred_bytes = completed = 0
     assert_external_io_allowed()
     with archive.db.lock.use(), archive.db.lock.effects, _local(database) as local:
         with archive.db.read() as tx:
@@ -126,35 +220,38 @@ def transfer(database: Path, shell: ShellView, archive: Archive, context: Invoca
             if host.conflicted:
                 raise CoreError("idempotency_conflict", "Terminal archive has a preserved conflict")
             with local:
+                local.execute("BEGIN IMMEDIATE")
                 local.execute("""CREATE TABLE IF NOT EXISTS terminal_archive_transfers (
                     source_id TEXT NOT NULL, source_epoch TEXT NOT NULL,
                     binding TEXT NOT NULL, offset INTEGER NOT NULL CHECK(offset >= 0),
                     length INTEGER NOT NULL CHECK(length BETWEEN 1 AND 262144),
                     sha256 TEXT NOT NULL CHECK(length(sha256)=64),
-                    recovery_epoch TEXT NOT NULL, receipt TEXT,
+                    recovery_epoch TEXT NOT NULL, receipt TEXT, chunks_json TEXT,
                     PRIMARY KEY(source_id,source_epoch),
                     FOREIGN KEY(source_id,source_epoch) REFERENCES capture_epochs(source_id,source_epoch)
                 )""")
-            for completed in range(128):
-                if completed and (transferred_bytes >= 1024 * 1024 or monotonic() >= deadline):
+                if "chunks_json" not in {row["name"] for row in local.execute(
+                        "PRAGMA table_info(terminal_archive_transfers)")}:
+                    local.execute("ALTER TABLE terminal_archive_transfers ADD COLUMN chunks_json TEXT")
+            while completed < _RANGE_CHUNKS:
+                if completed and (transferred_bytes >= _OBSERVATION_BYTES or monotonic() >= deadline):
                     break
-                chunk = None
                 intent = local.execute("SELECT * FROM terminal_archive_transfers WHERE source_id=? AND source_epoch=?",
                                        key).fetchone()
                 acknowledged = spool.state(*key)["host_archived_offset"]
                 if intent is None:
-                    page = spool.pending(*key, limit=1)
-                    if not page.chunks:
+                    chunk, entries = _range(spool, key, acknowledged, count=_RANGE_CHUNKS - completed,
+                        byte_limit=min(CHUNK_BYTES, _OBSERVATION_BYTES - transferred_bytes))
+                    if chunk is None:
                         break  # An empty page never authorizes cleanup.
-                    chunk = validate_chunk(page.chunks[0])
-                    if chunk.offset != acknowledged:
-                        raise ValueError("Terminal archive cursor disagrees with chunk")
-                    if transferred_bytes + chunk.length > 1024 * 1024:
-                        break
                     with local:
-                        local.execute("INSERT INTO terminal_archive_transfers VALUES (?,?,?,?,?,?,?,NULL)",
+                        local.execute("""INSERT INTO terminal_archive_transfers
+                            (source_id,source_epoch,binding,offset,length,sha256,recovery_epoch,chunks_json)
+                            VALUES (?,?,?,?,?,?,?,?)""",
                             (*key, json.dumps(asdict(binding), sort_keys=True), chunk.offset,
-                             chunk.length, chunk.sha256, host.recovery_epoch))
+                             chunk.length, chunk.sha256, host.recovery_epoch,
+                             json.dumps({"version": 1, "chunks": [asdict(e) for e in entries]},
+                                        separators=(",", ":"))))
                     intent = local.execute("SELECT * FROM terminal_archive_transfers WHERE source_id=? AND source_epoch=?",
                                            key).fetchone()
                 original = validate_binding(RunBinding(**json.loads(intent["binding"])))
@@ -164,11 +261,8 @@ def transfer(database: Path, shell: ShellView, archive: Archive, context: Invoca
                     raise CoreError("target_changed", "Terminal archive transfer binding changed")
                 if acknowledged not in (intent["offset"], end):
                     raise ValueError("Terminal archive ACK disagrees with intent")
-                # Corroborate the exact original ledger even after ACK/reclaim.
-                ledger = spool.receipts(*key, after=intent["offset"], through=end, limit=1).receipts
-                if (len(ledger) != 1 or (ledger[0].offset, ledger[0].length, ledger[0].sha256)
-                        != (intent["offset"], intent["length"], intent["sha256"])):
-                    raise ValueError("Terminal archive intent disagrees with capture")
+                entries = _manifest(intent)
+                _check_ledger(spool, source, key, intent, entries)
                 # reclaim() releases a prefix. Do not sweep older retained data
                 # for which this callable has no saved receipt authorization.
                 if local.execute("SELECT 1 FROM capture_chunks WHERE source_id=? AND source_epoch=? "
@@ -177,12 +271,11 @@ def transfer(database: Path, shell: ShellView, archive: Archive, context: Invoca
                 if intent["receipt"] is None:
                     if acknowledged != intent["offset"]:
                         raise ValueError("Terminal archive ACK has no saved receipt")
-                    if chunk is None:
-                        page = spool.pending(*key, limit=1)
-                        if not page.chunks:
-                            raise ValueError("Terminal archive intent has no pending payload")
-                        chunk = validate_chunk(page.chunks[0])
-                    if (chunk.offset, chunk.length, chunk.sha256) != (intent["offset"], intent["length"], intent["sha256"]):
+                    chunk, retained = _range(spool, key, intent["offset"], count=len(entries),
+                                             byte_limit=intent["length"])
+                    if (chunk is None or retained != entries or
+                            (chunk.offset, chunk.length, chunk.sha256) !=
+                            (intent["offset"], intent["length"], intent["sha256"])):
                         raise ValueError("Terminal archive intent disagrees with payload")
                     receipt = _receipt(archive.receive(context, original, chunk), intent)
                     with local:
@@ -195,3 +288,4 @@ def transfer(database: Path, shell: ShellView, archive: Archive, context: Invoca
                 with local:
                     local.execute("DELETE FROM terminal_archive_transfers WHERE source_id=? AND source_epoch=?", key)
                 transferred_bytes += intent["length"]
+                completed += len(entries)

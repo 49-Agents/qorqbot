@@ -1,5 +1,9 @@
 # Transfer contiguous Terminal chunks together
 
+Implementation has [Manager component acceptance](evidence/terminal-transfer-ranges-manager-acceptance.md).
+Its isolated installed measurement passed. The full original two-tab workload
+with the changed transfer framing is the next integration check.
+
 Manager decision D50, 2026-10-09. D49's combined run kept its Terminal connected
 and passed all 24 bounded burst reads, but failed the original 30-second archive
 catch-up gate: 6,460 of 29,014 captured bytes were on the host. Its recorder made
