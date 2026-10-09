@@ -1,3 +1,7 @@
+D60: [Terminal capture storage and recovery](TERMINAL-STORAGE-RECOVERY.md)
+addresses large-ledger scans and the failed onbash terminal, preserving capture
+and public contracts.
+
 D59: [Native attention in Chat](NATIVE-ATTENTION.md) defines the additive nullable
 runtime_get.attention observation and agent-directory attention projection.
 It authorizes no input and creates no new public mutation or schema migration.

@@ -1,3 +1,7 @@
+D60: [Terminal capture storage and recovery](TERMINAL-STORAGE-RECOVERY.md)
+addresses large-ledger scans and the failed onbash terminal, preserving capture
+and public contracts.
+
 D59: [Native attention in Chat](NATIVE-ATTENTION.md) adds visible approval and
 question notices backed by fresh observations of the current native terminal.
 Implementation and deployment are pending.
