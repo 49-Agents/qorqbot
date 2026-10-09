@@ -1,11 +1,15 @@
 import { test as base, expect, type Page } from '@playwright/test';
-import { SyntheticAPI, alpha, beta, owner } from './synthetic-api';
+import { SyntheticAPI, alpha, beta, owner, makeAgent } from './synthetic-api';
 import { SyntheticTerminal } from './synthetic-terminal';
 import { SyntheticBrowser } from './synthetic-browser';
 import { browserRequestEntry, browserView, inputRequestView } from '../src/browser-view';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
-import type { Entry, RuntimeView } from '../src/wire';
+import type { Agent, Entry, RuntimeView } from '../src/wire';
+import { isValidElement, type ComponentChildren, type VNode } from 'preact';
+import { runtimeView } from '../src/runtime-view';
+import { NativeAttentionNotice } from '../src/native-attention';
+import { Store } from '../src/store';
 
 const test = base.extend<{ api: SyntheticAPI }>({
   api: async ({}, use) => { const api = await new SyntheticAPI().start(); try { await use(api); } finally { await api.close(); } },
@@ -916,6 +920,126 @@ async function terminalReady(page: Page, terminal: SyntheticTerminal) {
   await expect.poll(() => terminal.frames.some(frame => frame.type === 'resize')).toBe(true);
   expect(terminal.current.messages.filter(m => m.type === 'control')).toHaveLength(1);
 }
+function attentionRuntime(agent: Agent): RuntimeView {
+  const stamp = '2026-10-09T12:00:00.123456Z', ownerId = randomUUID(), terminalId = randomUUID();
+  return { agent_id: agent.id, status: 'connected', observed_at: stamp, input_ready: false,
+    native_setup: null, native_capture: null,
+    current_owner: { owner_id: ownerId, terminal_id: terminalId, run_id: randomUUID(), run_generation: 1,
+      conversation_id: agent.conversation_id, recovery_epoch: randomUUID(), environment_generation: 1,
+      boot_id: randomUUID(), provider: 'codex', cli_version: '0.160.0', native_session_id: randomUUID(), connected_at: stamp },
+    attention: { state: 'waiting', kind: 'approval', prompt: 'Allow synthetic tool?\n1. Allow\n2. Cancel',
+      truncated: false, observed_at: stamp, owner_id: ownerId, terminal_id: terminalId } };
+}
+
+// These use the existing runner without page/browser fixtures or a listening API.
+base('D59 pure runtime attention validation accepts old core and rejects inconsistent current prompts', () => {
+  const view = attentionRuntime(makeAgent(alpha, 'Atlas')), attention = view.attention!;
+  const { attention: omitted, ...oldCore } = view;
+  expect(runtimeView(oldCore)).toBe(true);
+  expect(runtimeView({ ...view, attention: null })).toBe(true);
+  expect(runtimeView(view)).toBe(true);
+  expect(runtimeView({ ...view, attention: { ...attention, kind: 'question', prompt: 'Which file?\nOther: <input> & text' } })).toBe(true);
+  expect(runtimeView({ ...view, attention: { ...attention, prompt: '😀'.repeat(6000), truncated: true } })).toBe(true);
+  for (const state of ['none', 'unknown']) {
+    expect(runtimeView({ ...view, attention: { ...attention, state, kind: null, prompt: null, truncated: false } })).toBe(true);
+  }
+  expect(runtimeView({ ...oldCore, status: 'disconnected', current_owner: null,
+    attention: { state: 'unknown', kind: null, prompt: null, truncated: false, observed_at: null, owner_id: null, terminal_id: null } })).toBe(true);
+  for (const change of [
+    { state: 'future' }, { state: 'none' }, { state: 'unknown' }, { kind: null }, { kind: 'choice' },
+    { prompt: null }, { prompt: '' }, { prompt: '😀'.repeat(6001) }, { prompt: 'text\u001b[31m' }, { prompt: 'text\u0000' },
+    { truncated: 1 }, { observed_at: null }, { observed_at: '2026-02-30T00:00:00Z' }, { observed_at: '2026-10-09T12:00:00+01:00' },
+    { owner_id: null }, { owner_id: randomUUID() }, { terminal_id: 'invalid' }, { terminal_id: randomUUID() }, { extra: true },
+  ]) expect(runtimeView({ ...view, attention: { ...attention, ...change } }), JSON.stringify(change).slice(0, 100)).toBe(false);
+  for (const change of [{ status: 'disconnected' }, { status: 'unknown' }, { current_owner: null }, { input_ready: true }, { extra: true }, { attention: undefined }]) {
+    expect(runtimeView({ ...view, ...change })).toBe(false);
+  }
+  const cleared = { ...attention, state: 'none', kind: null, prompt: null, truncated: false };
+  for (const change of [{ kind: 'approval' }, { prompt: 'Old question' }, { truncated: true }, { observed_at: 'yesterday' }, { owner_id: 'invalid' }, { terminal_id: 1 }]) {
+    expect(runtimeView({ ...view, attention: { ...cleared, ...change } })).toBe(false);
+  }
+});
+
+base('D59 pure runtime store and notice retain drafts, clear waits and fence stale reads without input effects', async () => {
+  const agent = makeAgent(alpha, '<Atlas>'), other = makeAgent(beta, 'Other'), store = new Store();
+  const waiting = attentionRuntime(agent), otherWaiting = attentionRuntime(other);
+  const stamp = waiting.observed_at!;
+  const cleared: RuntimeView = { ...waiting, attention: { state: 'none', kind: null, prompt: null, truncated: false,
+    observed_at: stamp, owner_id: waiting.current_owner!.owner_id, terminal_id: waiting.current_owner!.terminal_id } };
+  store.phase = 'ready'; store.agents = [agent, other]; store.selected = alpha; store.epoch = waiting.current_owner!.recovery_epoch;
+  store.supported.add('runtime_get'); store.setDraft(alpha, 'Keep this draft'); store.scrolls.set(alpha, { top: 123, bottom: false });
+  const draft = store.draft(alpha), scroll = store.scrolls.get(alpha);
+  const originalFetch = globalThis.fetch, originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const reads: { path: string; args: object }[] = [];
+  const response = (view: RuntimeView) => new Response(JSON.stringify({ ok: true, data: view, outcome: 'completed' }));
+  let fetchResult: () => Promise<Response> = async () => response(waiting);
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { setTimeout } });
+  globalThis.fetch = async (path, init) => { reads.push({ path: String(path), args: JSON.parse(String(init?.body)) }); return fetchResult(); };
+  type NoticeNode = VNode<{ children?: ComponentChildren; [key: string]: unknown }>;
+  const nodes = (value: ComponentChildren): NoticeNode[] => Array.isArray(value) ? value.flatMap(nodes)
+    : isValidElement(value) ? [value as NoticeNode, ...nodes((value as NoticeNode).props.children)] : [];
+  const texts = (value: ComponentChildren): string => Array.isArray(value) ? value.map(texts).join(' ')
+    : isValidElement(value) ? texts((value as NoticeNode).props.children) : typeof value === 'string' ? value : '';
+  const notice = (readUnavailable = false) => NativeAttentionNotice({ agent, observation: store.runtimes.get(alpha), readUnavailable,
+    openTerminal: () => store.setView(agent.id, 'terminal') });
+  const observe = async (view: RuntimeView) => { fetchResult = async () => response(view); await store.refreshRuntime(); };
+  try {
+    await store.refreshRuntime();
+    expect(texts(notice())).toContain('Needs your input'); expect(texts(notice())).toContain('Approval requested');
+    const buttons = nodes(notice()).filter(node => node.type === 'button');
+    expect(buttons).toHaveLength(1); expect(texts(buttons[0])).toBe('Open Terminal');
+    (buttons[0].props.onClick as () => void)();
+    expect(store.view(alpha)).toBe('terminal'); expect(store.selected).toBe(alpha); expect(store.view(beta)).toBe('chat');
+    expect(store.draft(alpha)).toBe(draft); expect(store.scrolls.get(alpha)).toBe(scroll); expect(store.pending.size).toBe(0);
+    store.setView(alpha, 'chat');
+    const prompt = '<img src=x onerror="injected=true"> & Which file?\n1. A\n2. B\n3. Other\n\tEnter text';
+    const question: RuntimeView = { ...waiting, attention: { ...waiting.attention!, state: 'waiting', kind: 'question',
+      prompt, truncated: true, observed_at: stamp, owner_id: waiting.current_owner!.owner_id, terminal_id: waiting.current_owner!.terminal_id } };
+    await observe(question);
+    expect(texts(notice())).toContain('Question from <Atlas>'); expect(texts(notice())).toContain('Prompt truncated.');
+    // The prompt/choices are a literal text child, never HTML or active form controls.
+    const promptNode = nodes(notice()).find(node => node.props.className === 'native-attention-text')!;
+    expect(promptNode.props.children).toBe(prompt);
+    expect(nodes(notice()).some(node => node.props.dangerouslySetInnerHTML || ['input', 'select', 'textarea', 'img'].includes(String(node.type)))).toBe(false);
+    expect(texts(notice(true))).toContain('observation unavailable'); expect(texts(notice(true))).not.toContain(prompt);
+    fetchResult = async () => { throw new Error('Synthetic failed read'); };
+    await store.refreshRuntime();
+    expect(store.runtimes.get(alpha)?.view).toEqual(question); // Existing inspector keeps its qualified last observation.
+    expect(texts(notice())).toContain('observation unavailable'); expect(texts(notice())).not.toContain(prompt);
+    await observe({ ...cleared, attention: { ...cleared.attention!, state: 'unknown', kind: null, prompt: null, truncated: false } });
+    expect(texts(notice())).toContain('observation unavailable');
+    for (const view of [cleared, { ...cleared, status: 'disconnected' as const, current_owner: null },
+      { ...cleared, current_owner: { ...waiting.current_owner!, owner_id: randomUUID() }, attention: null },
+      { ...waiting, attention: null }]) { await observe(view); expect(notice()).toBeNull(); }
+    const { attention: omitted, ...oldCore } = waiting;
+    await observe(oldCore); expect(notice()).toBeNull();
+    await observe(waiting);
+    let release!: (value: Response) => void;
+    fetchResult = () => new Promise(resolve => { release = resolve; });
+    const obsolete = store.refreshRuntime();
+    expect(texts(notice())).toContain('Refreshing observation');
+    fetchResult = async () => response(cleared);
+    await store.refreshRuntime(true); expect(notice()).toBeNull();
+    release(response(waiting)); await obsolete; expect(notice()).toBeNull();
+    await observe(waiting);
+    fetchResult = () => new Promise(resolve => { release = resolve; });
+    const oldSelection = store.refreshRuntime();
+    store.runtimes.set(beta, { view: otherWaiting, loading: false, error: '' });
+    store.supported.clear(); // Isolate selection cancellation without starting unrelated reads.
+    store.select(beta); expect(store.runtimes.has(beta)).toBe(false);
+    release(response(question)); await oldSelection;
+    expect(store.selected).toBe(beta); expect(store.runtimes.has(beta)).toBe(false);
+    expect(store.runtimes.get(alpha)?.view).toEqual(waiting);
+    expect(store.draft(alpha)).toBe(draft); expect(store.scrolls.get(alpha)).toBe(scroll);
+    expect(store.chats.size).toBe(0); expect(store.pending.size).toBe(0);
+    expect(reads.every(read => read.path === '/api/v1/operations/runtime_get' && JSON.stringify(read.args) === JSON.stringify({ agent_id: alpha }))).toBe(true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow);
+    else Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
 test('synthetic runtime inspector validates session/native observations, fences reads and preserves Terminal/Chat', async ({ page, api }, testInfo) => {
   test.setTimeout(120000);
   const terminal = new SyntheticTerminal(api, alpha);

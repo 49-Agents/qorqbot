@@ -107,10 +107,18 @@ export type NativeCollectionView = {
     | 'collection_blocked' | 'capture_gap' | 'parser_gap' | 'recovery_review' | 'observation_stale';
   source_count: number; pending_archive_bytes: number; pending_parse_bytes: number;
 };
+export type NativeAttentionView = {
+  state: 'waiting'; kind: 'approval' | 'question'; prompt: string; truncated: boolean;
+  observed_at: string; owner_id: string; terminal_id: string;
+} | {
+  state: 'none' | 'unknown'; kind: null; prompt: null; truncated: false;
+  observed_at: string | null; owner_id: string | null; terminal_id: string | null;
+};
 export type RuntimeView = {
   agent_id: string; status: 'disconnected' | 'connected' | 'unknown'; current_owner: CurrentOwner | null;
   observed_at: string | null; input_ready: false;
   native_setup: NativeSetupView | null; native_capture: NativeCollectionView | null;
+  attention?: NativeAttentionView | null;
 };
 
 // D38 Terminal protocol 2; geometry contract pinned at 6149b1bd1e82f637e62d9e7e1f5d51ea29b8a8a2.

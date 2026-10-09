@@ -12,6 +12,7 @@ import { inboxReferenceEntry } from './inbox-reference';
 import { browserRequestEntry } from './browser-view';
 import { BrowserRequestCard, BrowserWorkspace, ComputerBrowser } from './browser';
 import { MutationNotice as PendingNotice } from './mutation-notice';
+import { NativeAttentionNotice } from './native-attention';
 import './style.css';
 
 const store = new Store();
@@ -119,6 +120,7 @@ function Navigation({ select, create, renameId, setRename }: { select: (id: stri
           <span className="agent-icon"><Icon name={agent.icon_key} /></span><span className="agent-labels"><strong>{agent.display_name}</strong>
             <span className="agent-status">{agent.status.text}</span>
             {agent.needs_user_input && <span className="agent-attention" title="Needs your attention" aria-label="Needs your attention">●</span>}
+            {agent.needs_user_input && <span className="agent-attention-label">Needs input</span>}
             {store.agents.filter(a => a.display_name === agent.display_name).length > 1 && <span className="disambiguation">{agent.id}</span>}
           </span>
         </button>}
@@ -214,6 +216,7 @@ function Chat({ agent }: { agent: Agent }) {
     {newMessages && <button className="new-messages" onClick={() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight; setNewMessages(false); }}>New messages ↓</button>}
     <div className="composer-wrap">
       <MutationNotice item={pending} requestKey={`send:${agent.id}`} />
+      <NativeAttentionNotice agent={agent} observation={store.runtimes.get(agent.id)} readUnavailable={store.connection === 'Offline'} openTerminal={() => store.setView(agent.id, 'terminal')} />
       {store.has('messages_send') ? <form className="composer" onSubmit={e => { e.preventDefault(); void store.send(agent.id); }}>
         <label className="sr-only" htmlFor="message">Message {agent.display_name}</label>
         <textarea id="message" ref={composerRef} placeholder={`Message ${agent.display_name}`} value={draft.text} rows={1} onInput={e => store.setDraft(agent.id, e.currentTarget.value)} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} onKeyDown={e => {

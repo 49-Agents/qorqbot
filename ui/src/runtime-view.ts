@@ -1,4 +1,4 @@
-import type { CurrentOwner, NativeCollectionView, NativeSetupView, RuntimeView } from './wire';
+import type { CurrentOwner, NativeAttentionView, NativeCollectionView, NativeSetupView, RuntimeView } from './wire';
 
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const fields = (v: Record<string, unknown>, names: string) => {
@@ -33,11 +33,25 @@ function collection(v: unknown): v is NativeCollectionView {
     && typeof v.reason === 'string' && Object.hasOwn(collectionReasons, v.reason)
     && counter(v.source_count) && counter(v.pending_archive_bytes) && counter(v.pending_parse_bytes);
 }
+function attention(v: unknown, status: unknown, current: CurrentOwner | null): v is NativeAttentionView {
+  if (!record(v) || !fields(v, 'state kind prompt truncated observed_at owner_id terminal_id')
+    || !oneOf(v.state, 'waiting none unknown') || typeof v.truncated !== 'boolean'
+    || !nullableTime(v.observed_at) || !(v.owner_id === null || uuid(v.owner_id))
+    || !(v.terminal_id === null || uuid(v.terminal_id))) return false;
+  if (v.state !== 'waiting') return v.kind === null && v.prompt === null && v.truncated === false;
+  return status === 'connected' && current !== null
+    && v.owner_id === current.owner_id && v.terminal_id === current.terminal_id
+    && timestamp(v.observed_at) && oneOf(v.kind, 'approval question')
+    && typeof v.prompt === 'string' && [...v.prompt].length >= 1 && [...v.prompt].length <= 6000
+    // Plain text only: decoration must already have been removed by core.
+    && !/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(v.prompt);
+}
 export function runtimeView(v: unknown): v is RuntimeView {
-  return record(v) && fields(v, 'agent_id status current_owner observed_at input_ready native_setup native_capture')
+  return record(v) && fields(v, `agent_id status current_owner observed_at input_ready native_setup native_capture${Object.hasOwn(v, 'attention') ? ' attention' : ''}`)
     && uuid(v.agent_id) && oneOf(v.status, 'disconnected connected unknown') && v.input_ready === false
     && nullableTime(v.observed_at) && (v.current_owner === null || owner(v.current_owner))
-    && (v.native_setup === null || setup(v.native_setup)) && (v.native_capture === null || collection(v.native_capture));
+    && (v.native_setup === null || setup(v.native_setup)) && (v.native_capture === null || collection(v.native_capture))
+    && (!Object.hasOwn(v, 'attention') || v.attention === null || attention(v.attention, v.status, v.current_owner));
 }
 
 export const sessionStatus: Record<RuntimeView['status'], string> = {

@@ -211,7 +211,10 @@ export class Store {
     this.runtimeRead?.abort();
     this.browserRead?.abort();
     this.selectionVersion++;
-    if (id !== this.selected) this.browsers.delete(id);
+    if (id !== this.selected) {
+      this.browsers.delete(id);
+      this.runtimes.delete(id);
+    }
     this.selected = id;
     this.hint = id;
     try { localStorage.setItem('qorqut.selected', id); } catch { /* optional */ }
