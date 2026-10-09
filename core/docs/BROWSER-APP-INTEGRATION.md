@@ -33,8 +33,13 @@ Support the optional `binary` WebSocket subprotocol. No credentials.
 Use a human-only viewer instead of implementing a second read-only RFB parser.
 One viewer holds the existing process-shared command lock for its entire
 connection. Take it without indefinitely waiting. Recheck the binding/human
-state before client-to-VNC writes. A bounded watcher (at most 100 ms) closes
-the relay when the epoch, ready flag, service identity or mode changes.
+state before client-to-VNC writes. The watcher targets a 50 ms polling interval;
+each complete read-only observation has a one-second deadline, including thread
+scheduling and resource validation. Failed or timed-out observations close the
+relay, as do changes to epoch, ready flag, service identity or mode. This is the
+Manager's 2026-10-09 timing amendment after actual noVNC traffic exposed false
+disconnects with a 50 ms observation deadline; it replaces the original hard
+100 ms watcher bound and does not promise real-time shutdown.
 Reconcile already closes admission before awaiting this lock: close both
 sockets and join all relay tasks before releasing it. Consequently a completed
 reconciliation cannot leave the prior relay forwarding input. Disconnect keeps

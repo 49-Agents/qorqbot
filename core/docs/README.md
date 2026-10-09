@@ -1,5 +1,10 @@
 # Backend planning documents
 
+The [connected browser increment](evidence/browser-connected-manager-acceptance.md)
+has passed actual core/browser/UI acceptance and is deployed on the owner test
+instance. The separately reported narrow Codex/warning-footer Chat delivery
+defect is being corrected. VM/machine support and full-system gates remain open.
+
 Start with [startup and combined Terminal acceptance](evidence/startup-and-responsiveness-manager-acceptance.md)
 and [first-Chat acceptance](evidence/first-chat-manager-acceptance.md).
 The combined workload and first Codex Chat now pass; original failed evidence
@@ -15,10 +20,10 @@ The [actual core/MCP/file-card flow](https://github.com/qorqutbot/qorqutbot-ui/b
 also passed bounded acceptance. The [connected Chat checks](CONNECTED-CHAT-ACCEPTANCE.md)
 are recorded at their frozen pins. Manager reviews/tests directly;
 workers use Astra MAX with self-review off. The D57 core candidate has schema 10, 24 public
-operations and six handlers; combined browser/UI acceptance and deployment remain
-Manager-owned. These qualified results do not establish
+operations and six handlers; combined browser/UI acceptance and deployment are
+recorded above. These qualified results do not establish
 complete transcript coverage. Shutdown drain,
-child/attachment support, browser/VM integration and full system gates remain open.
+child/attachment support, VM integration and full system gates remain open.
 
 Start with [Terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md) for the owner's
 2026-10-08 scope correction: manual CLI startup and one logical inbox owner.

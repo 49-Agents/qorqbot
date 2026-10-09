@@ -1,7 +1,8 @@
 D57: [Connected browser integration](BROWSER-APP-INTEGRATION.md) is the current
 implementation contract for attached browsers, durable handoff and the UI stream.
-The [core candidate evidence](evidence/browser-app-core.md) records focused
-installed-package checks; combined acceptance and deployment remain pending.
+The [combined browser evidence](evidence/browser-connected-manager-acceptance.md)
+records actual Chrome/TigerVNC/noVNC interaction, restart, durable notifications,
+dated publication and deployment. VM/machine and full-system gates remain open.
 
 D56: [Terminal control follows the open view](TERMINAL-AUTO-CONTROL.md)
 supersedes Terminal-viewer hold retention on close/disconnect.
