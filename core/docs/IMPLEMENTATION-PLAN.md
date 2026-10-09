@@ -6,22 +6,14 @@ The [actual core/MCP/file-card flow](https://github.com/qorqutbot/qorqutbot-ui/b
 also passed bounded acceptance. The [connected Chat reports](evidence/connected-chat-manager-acceptance.md)
 now have bounded Manager acceptance: Codex completed actual native MCP reads,
 acknowledgments, replies and a fresh message after core restart; Claude's native
-MCP calls were blocked, while notification/restart evidence passed. The three
-[responsiveness corrections](RESPONSIVENESS-CORRECTIONS.md) have component
-acceptance. Their combined run passed bounded request bursts and kept Terminal
-connected, but failed the 30-second archive catch-up gate. D50's
-[contiguous transfer ranges](TERMINAL-TRANSFER-RANGES.md) address the observed
-per-chunk cost while preserving original capture bytes and ledgers.
-D50's implementation and isolated installed measurement have
-[component acceptance](evidence/terminal-transfer-ranges-manager-acceptance.md);
-the original combined two-tab workload is being rechecked at the new core pin.
-[Pre-prompt native-session facts](evidence/native-cold-start-manager-acceptance.md)
-are accepted as design inputs. [D51 startup connection](NATIVE-STARTUP-CONNECTION.md)
-is planned in parallel with D50 to observe the manually started Codex session
-independently of its delayed hook; it will not grant first-Chat input. The
-[combined D49 evidence](evidence/responsiveness-integration-manager-acceptance.md)
-also accepts independent restart/recording checks while preserving the failed
-archive timing gate. Initial Chat remains unresolved.
+MCP calls were blocked, while notification/restart evidence passed. The [combined responsiveness recheck](evidence/startup-and-responsiveness-manager-acceptance.md)
+passed after D50's contiguous transfer ranges: 24 successful burst reads,
+2.895-second archive catch-up and recording through core restart. The original
+r1 failure and two unexplained r2 log diagnostics remain documented.
+[D51 startup connection](NATIVE-STARTUP-CONNECTION.md) is accepted for pinned
+Codex before its delayed hook. [D52 first Chat](FIRST-CHAT.md) is the next
+implementation: fresh collector waiting evidence plus the existing empty-composer
+and single-attempt checks, without a manual seed prompt.
 Manager reviews/tests directly;
 workers use Astra MAX with self-review off. Core has schema 9, 17 public
 operations and five handlers. These qualified runs do not establish

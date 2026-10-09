@@ -7,8 +7,8 @@ extends deliveries_get with typed attempts and adds schema 9. Its
 the [actual native-CLI flow](evidence/connected-chat-manager-acceptance.md) has
 qualified Codex acceptance; Claude MCP execution remains blocked. D49's
 [bounded request wait](RESPONSIVENESS-CORRECTIONS.md) changes only transport
-admission and has component acceptance. The combined run passed its bounded
-read bursts but failed archive catch-up. D50's [Terminal transfer ranges](TERMINAL-TRANSFER-RANGES.md)
+admission and has component acceptance. The original combined archive timing
+failure is retained; the D50 recheck passed. [Terminal transfer ranges](TERMINAL-TRANSFER-RANGES.md)
 allow one host object to contain several contiguous original recorder chunks.
 The local capture ledger keeps its original offsets/hashes; host byte ranges
 and returned receipts retain the existing durability and identity contract.
@@ -17,6 +17,13 @@ and returned receipts retain the existing durability and identity contract.
 Codex session through existing Owners.connect before its delayed startup hook.
 Its distinct native.startup_observed event is binding evidence only: it does
 not establish idle/readiness, create a native source or grant initial input.
+
+[D52](FIRST-CHAT.md) adds one initial dispatch path using that exact startup
+event (or an actual SessionStart), fresh private collector `awaiting_primary`
+evidence, healthy Terminal capture and the existing empty-composer checks.
+Waiting evidence never claims healthy native capture. The existing saved
+`idle_event_seq` and one-notification-per-event barrier are preserved; no
+public schema or historical attempt JSON changes.
 
 [D48](NATIVE-COLLECTION-CONTINUITY.md) gives that dispatcher a private, fresh,
 per-run raw-capture observation. Public native-history gaps remain visible and

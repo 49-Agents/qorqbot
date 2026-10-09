@@ -571,6 +571,13 @@ The recorder and original local coordinate/hash ledger are unchanged. Only the
 local transfer-intent table gains a nullable manifest for legacy compatibility;
 host schemas/APIs, native archival and observer cadence do not change.
 
+## D52 — Admit the first Chat notification before primary-file creation
+
+[FIRST-CHAT.md](FIRST-CHAT.md) uses the existing composer and single-attempt
+guards, with exact startup binding and fresh collector waiting evidence.
+Missing primary data is never advertised as healthy capture. No public schema,
+saved attempt JSON, permission mode or automatic CLI launch changes.
+
 ## D51 — Observe the native Codex startup identity before the delayed hook
 
 The accepted cold-start exploration found a held UUID-named writer lock before

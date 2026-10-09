@@ -1,14 +1,9 @@
 # Backend planning documents
 
-Start with [current connected-flow acceptance](evidence/connected-chat-manager-acceptance.md)
-and the [responsiveness corrections](RESPONSIVENESS-CORRECTIONS.md). Their
-combined archive timing check failed; [D50 transfer ranges](TERMINAL-TRANSFER-RANGES.md)
-are the next correction. [Native cold-start facts](evidence/native-cold-start-manager-acceptance.md)
-identify the separate first-Chat gap without changing session admission.
-[D51 startup connection](NATIVE-STARTUP-CONNECTION.md) plans pre-prompt
-Codex binding through existing inbox ownership; first-message readiness is a
-separate step. [Reviewed D49 evidence](evidence/responsiveness-integration-manager-acceptance.md)
-retains the failed timing gate alongside the successful independent restart.
+Start with [startup and combined Terminal acceptance](evidence/startup-and-responsiveness-manager-acceptance.md)
+and [D52 first Chat](FIRST-CHAT.md). The combined workload now passes after
+D50; the original r1 failure remains recorded. D51 connects pinned Codex before
+its first prompt; D52 removes the separate initial-message dependency.
 Codex completed three actual native MCP message flows, including after restart.
 Claude delivered two notifications but its canned fixture's automatic approval
 blocked MCP execution. Both results retain their limits.
