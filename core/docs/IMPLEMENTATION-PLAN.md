@@ -1,3 +1,7 @@
+D58: [Codex composer compatibility](CHAT-COMPOSER-COMPATIBILITY.md) corrects
+the normal narrow-terminal and warning-footer layouts that are currently
+preventing the owner's stored Chat messages from being dispatched.
+
 D57: [Connected browser integration](BROWSER-APP-INTEGRATION.md) is the current
 implementation contract for attached browsers, durable handoff and the UI stream.
 The [combined browser evidence](evidence/browser-connected-manager-acceptance.md)
