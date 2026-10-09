@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" role="img" aria-labelledby="title desc">
+  <title id="title">Qorqbot — small mustache mascot</title>
+  <desc id="desc">A round white mascot with tilted, tapered black eyes and a small upward-curled black mustache.</desc>
+  <path fill="#ffffff" d="M31 86 C31 60 52 37 79 37 C106 36 129 59 130 86 C131 113 109 136 81 136 C54 137 31 115 31 86 Z"/>
+  <g fill="#000000" transform="rotate(-22 80 86)">
+    <path d="M85 62 C89 60 94 64 95 68 L98 80 C98 85 91 86 88 80 L83 69 C81 66 82 63 85 62 Z"/>
+    <path d="M113 62 C116 60 120 62 121 66 L123 77 C124 81 119 84 116 80 L111 68 C110 65 111 63 113 62 Z"/>
+    <path transform="translate(91 103) scale(.65) translate(-91 -103)" d="M91 101 C86 96 82 97 75 101 C64 107 54 103 53 90 C46 108 58 120 73 115 C82 113 88 108 91 105 C95 108 101 113 109 114 C123 117 134 106 127 89 C126 102 117 106 107 101 C100 97 96 96 91 101 Z"/>
+  </g>
+</svg>
