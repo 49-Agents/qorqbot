@@ -12,9 +12,10 @@ import sys
 import threading
 import time
 import unittest
-from contextlib import AsyncExitStack, contextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -24,13 +25,14 @@ from mcp.client.streamable_http import streamable_http_client
 
 from qorqut_core.app import Application, RecoveryActivation
 from qorqut_core.contracts import CoreError, Invocation, OperationResult
+from qorqut_core.runtime.native_hooks import NativeHookResult
 from qorqut_core.transports.configuration import (
     MAX_INPUT_BYTES, InputError, read_configuration, read_credentials, read_file, read_token,
 )
 from qorqut_core.transports.operator import MAX_RESPONSE_BYTES, call
 from qorqut_core.transports.boundary import Boundary
 from qorqut_core.transports.mcp import install_logging_boundary
-from qorqut_core.transports.server import Dispatcher, MAX_CALLS, create_app
+from qorqut_core.transports.server import ADMISSION_TIMEOUT, Dispatcher, MAX_CALLS, MAX_WAITERS, create_app
 
 from transports.support import Installation, write_private
 
@@ -520,6 +522,104 @@ print("passive imports and NOTICE verified")
 
 
 class AdmissionAndLifetime(unittest.IsolatedAsyncioTestCase):
+    async def wait_until(self, predicate):
+        async with asyncio.timeout(3):
+            while not predicate():
+                await asyncio.sleep(0.001)
+
+    @asynccontextmanager
+    async def blocked_dispatcher(self):
+        """Synthetic call boundaries; no native hook or provider execution."""
+        release, entered, tasks = threading.Event(), [], []
+
+        def blocked(context, result):
+            entered.append(context)
+            if not release.wait(5):
+                raise RuntimeError("Test gate timed out")
+            return result
+
+        application = SimpleNamespace(
+            invoke=lambda name, context, arguments: blocked(context, OperationResult(ok=True, outcome="completed", data=arguments)),
+            native_hooks=SimpleNamespace(receive=lambda context, request: blocked(context, request)))
+        dispatcher = Dispatcher(application)
+        try:
+            yield dispatcher, release, entered, tasks
+        finally:
+            release.set()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            await dispatcher.close()
+
+    async def test_short_burst_waits_then_executes_each_invocation_and_hook_once(self):
+        async with self.blocked_dispatcher() as (dispatcher, release, entered, tasks):
+            hook = NativeHookResult.result("observed", uuid4(), 1)
+            with patch.object(dispatcher.pool, "submit", wraps=dispatcher.pool.submit) as submitted:
+                for number in range(MAX_CALLS + MAX_WAITERS):
+                    call = (dispatcher.native_hook(number, hook) if number % 2 else
+                            dispatcher.invoke("config_get", number, {"number": number}))
+                    tasks.append(asyncio.create_task(call))
+                await self.wait_until(lambda: len(entered) == MAX_CALLS and dispatcher.waiters == MAX_WAITERS)
+                self.assertEqual(submitted.call_count, 4)
+                self.assertEqual(dispatcher.waiters, 12)
+                self.assertTrue(all(not task.done() for task in tasks))
+                release.set()
+                results = await asyncio.wait_for(asyncio.gather(*tasks), 3)
+                for number, result in enumerate(results):
+                    if number % 2:
+                        self.assertIs(result, hook)
+                    else:
+                        self.assertTrue(result.ok)
+                        self.assertEqual(result.data, {"number": number})
+                self.assertEqual(sorted(entered), list(range(MAX_CALLS + MAX_WAITERS)))
+                self.assertEqual(submitted.call_count, len(tasks))
+                self.assertEqual(dispatcher.waiters, 0)
+
+    async def test_waiting_overflow_timeout_and_cancellation_never_execute(self):
+        async with self.blocked_dispatcher() as (dispatcher, release, entered, tasks):
+            hook = NativeHookResult.result("conflict")
+            tasks.extend(asyncio.create_task(dispatcher.invoke("config_get", number, {}))
+                         for number in range(MAX_CALLS))
+            await self.wait_until(lambda: len(entered) == MAX_CALLS)
+            started = time.monotonic()
+            waiting = [asyncio.create_task(dispatcher.native_hook(number, hook) if number % 2 else
+                       dispatcher.invoke("config_get", number, {}))
+                       for number in range(MAX_CALLS, MAX_CALLS + MAX_WAITERS)]
+            tasks.extend(waiting)
+            await self.wait_until(lambda: dispatcher.waiters == MAX_WAITERS)
+            # Overflow must resolve immediately, not consume another wait budget.
+            rejected = await asyncio.wait_for(dispatcher.invoke("config_get", "overflow", {}), 0.2)
+            self.assertFalse(rejected.ok)
+            self.assertTrue(rejected.error.retryable)
+            self.assertIn("not admitted", rejected.error.message)
+            self.assertIsNone(rejected.operation_id)
+            rejected_hook = await asyncio.wait_for(dispatcher.native_hook("overflow-hook", hook), 0.2)
+            self.assertEqual(rejected_hook, NativeHookResult.result("unavailable"))
+            for task in waiting[:2]:
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+            self.assertEqual(dispatcher.waiters, MAX_WAITERS - 2)
+            replacements = [asyncio.create_task(dispatcher.invoke("config_get", "replacement", {})),
+                            asyncio.create_task(dispatcher.native_hook("replacement-hook", hook))]
+            tasks.extend(replacements)
+            await self.wait_until(lambda: dispatcher.waiters == MAX_WAITERS)
+            self.assertTrue(all(not task.done() for task in replacements))
+            refused = await asyncio.wait_for(asyncio.gather(*waiting[2:], *replacements), 2)
+            self.assertGreaterEqual(time.monotonic() - started, ADMISSION_TIMEOUT * 0.9)
+            for result in refused:
+                if isinstance(result, OperationResult):
+                    self.assertFalse(result.ok)
+                    self.assertTrue(result.error.retryable)
+                    self.assertIsNone(result.operation_id)
+                else:
+                    self.assertEqual(result, NativeHookResult.result("unavailable"))
+            self.assertEqual(dispatcher.waiters, 0)
+            self.assertCountEqual(entered, range(MAX_CALLS))
+            release.set()
+            self.assertTrue(all(result.ok for result in await asyncio.gather(*tasks[:MAX_CALLS])))
+            self.assertTrue((await dispatcher.invoke("config_get", "after-timeout", {})).ok)
+            self.assertIs(await dispatcher.native_hook("after-timeout-hook", hook), hook)
+            self.assertCountEqual(entered, [*range(MAX_CALLS), "after-timeout", "after-timeout-hook"])
+
     async def test_cancelled_startup_cannot_lose_application_ownership(self):
         f = Installation()
         self.addCleanup(f.close)
@@ -568,44 +668,69 @@ class AdmissionAndLifetime(unittest.IsolatedAsyncioTestCase):
         release = threading.Event()
         self.addCleanup(release.set)
         entered = []
+        hook = NativeHookResult.result("conflict")
 
-        def blocked(*args):
+        def enter():
             entered.append(True)
             if not release.wait(5):
                 raise RuntimeError("Test gate timed out")
+
+        def blocked(*args):
+            enter()
             return original(*args)
 
+        def blocked_hook(*args):
+            enter()
+            return hook
+
         tasks = []
+        waiting = []
+        closing = None
         try:
-            with patch.object(application, "invoke", side_effect=blocked):
-                tasks = [asyncio.create_task(dispatcher.invoke("config_get", Invocation(actor_id=f.owner.actor_id), {}))
-                         for _ in range(MAX_CALLS)]
+            with (patch.object(application, "invoke", side_effect=blocked),
+                  patch.object(application.native_hooks, "receive", side_effect=blocked_hook) as receive):
+                context = Invocation(actor_id=f.owner.actor_id)
+                tasks = [asyncio.create_task(dispatcher.native_hook(context, None) if number % 2 else
+                         dispatcher.invoke("config_get", context, {})) for number in range(MAX_CALLS)]
                 deadline = time.monotonic() + 3
                 while len(entered) < MAX_CALLS:
                     self.assertLess(time.monotonic(), deadline)
                     await asyncio.sleep(0.01)
-                tasks[0].cancel()
-                with self.assertRaises(asyncio.CancelledError):
-                    await tasks[0]
-                rejected = await dispatcher.invoke("config_get", Invocation(actor_id=f.owner.actor_id), {})
+                for task in tasks[:2]:
+                    task.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                waiting = [asyncio.create_task(dispatcher.invoke("config_get", context, {})),
+                           asyncio.create_task(dispatcher.native_hook(context, None))]
+                await self.wait_until(lambda: dispatcher.waiters == 2)
+                self.assertTrue(all(not task.done() for task in waiting))
+                closing = asyncio.create_task(dispatcher.close())
+                rejected, rejected_hook = await asyncio.wait_for(asyncio.gather(*waiting), 0.5)
                 self.assertFalse(rejected.ok)
+                self.assertTrue(rejected.error.retryable)
                 self.assertIn("not admitted", rejected.error.message)
                 self.assertIsNone(rejected.operation_id)
-                closing = asyncio.create_task(dispatcher.close())
+                self.assertEqual(rejected_hook, NativeHookResult.result("unavailable"))
+                self.assertFalse((await dispatcher.invoke("config_get", context, {})).ok)
+                self.assertEqual(await dispatcher.native_hook(context, None), rejected_hook)
+                self.assertEqual(receive.call_count, 2)
                 await asyncio.sleep(0.02)
                 self.assertFalse(closing.done())
                 closing.cancel()
                 await asyncio.sleep(0.02)
                 self.assertFalse(closing.done())
                 release.set()
-                completed = await asyncio.gather(*tasks[1:])
+                completed, completed_hook = await asyncio.gather(*tasks[2:])
                 with self.assertRaises(asyncio.CancelledError):
                     await closing
-                self.assertTrue(all(result.ok for result in completed))
+                self.assertTrue(completed.ok)
+                self.assertIs(completed_hook, hook)
                 self.assertEqual(len(entered), MAX_CALLS)
+                self.assertEqual(dispatcher.waiters, 0)
+                self.assertEqual(len(dispatcher.pending), 0)
         finally:
             release.set()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await asyncio.gather(*tasks, *waiting, *([closing] if closing else []), return_exceptions=True)
             await dispatcher.close()
 
     async def test_readiness_failure_is_minimal_and_lifespan_releases_lock(self):
@@ -620,7 +745,7 @@ class AdmissionAndLifetime(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(CoreError):
                 Application.open(settings)
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=web), base_url=f.url) as client:
-                with patch.object(web.state.application, "invoke", side_effect=RuntimeError("SECRET-UNEXPECTED-ERROR")):
+                with patch.object(web.state.application, "invoke", side_effect=RuntimeError("SECRET-UNEXPECTED-ERROR")) as invoke:
                     response = await client.get("/health/ready")
                     self.assertEqual(response.status_code, 503)
                     self.assertEqual(response.json(), {"ready": False})
@@ -628,6 +753,8 @@ class AdmissionAndLifetime(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(response.status_code, 503)
                     self.assertNotIn("SECRET", response.text)
                     self.assertIn("may have occurred", response.text)
+                    self.assertFalse(response.json()["error"]["retryable"])
+                    self.assertEqual(invoke.call_count, 2)
                     self.assertEqual((await client.get("/health/live")).json(), {"live": True})
         application = Application.open(settings)
         application.close()

@@ -35,6 +35,8 @@ from .sessions import COOKIE_NAME, SESSION_SECONDS, Sessions
 from .static import StaticUI
 
 MAX_CALLS = 4
+MAX_WAITERS = 12
+ADMISSION_TIMEOUT = 1.0
 MAX_TERMINAL_TEXT = 96 * 1024
 TERMINAL_SEND_TIMEOUT = 5.0
 _STATUS = {
@@ -46,30 +48,57 @@ _STATUS = {
 
 
 class Dispatcher:
-    """At most four admitted calls, with no unbounded thread-executor queue.
+    """Four executing calls plus twelve async waiters, each waiting at most a second.
 
-    A disconnected/cancelled waiter does not cancel its running invocation or
-    free its slot. Shutdown drains every admitted invocation before closing core.
+    Cancellation withdraws a waiting call, but never frees a running slot.
+    Shutdown refuses waiters and drains executing calls before closing core.
     """
 
     def __init__(self, application: Application):
         self.application = application
         self.pool = ThreadPoolExecutor(max_workers=MAX_CALLS, thread_name_prefix="qorqut-invoke")
         self.pending = set()
+        self.waiters = 0
+        self.available = asyncio.Event()
         self.closing = False
 
     def _finished(self, future):
         self.pending.discard(future)
+        self.available.set()
         # Retrieve failures even when the HTTP/MCP waiter has disconnected.
         if not future.cancelled():
             future.exception()
 
-    async def invoke(self, name, context, arguments) -> OperationResult:
-        if self.closing or len(self.pending) >= MAX_CALLS:
-            return OperationResult(ok=False, error=CoreError("unavailable", "Operation capacity unavailable; call not admitted").error)
-        future = asyncio.get_running_loop().run_in_executor(self.pool, self.application.invoke, name, context, arguments)
+    async def _submit(self, function, *args):
+        if self.closing:
+            return None
+        if len(self.pending) >= MAX_CALLS:
+            if self.waiters >= MAX_WAITERS:
+                return None
+            self.waiters += 1
+            try:
+                async with asyncio.timeout(ADMISSION_TIMEOUT):
+                    while not self.closing and len(self.pending) >= MAX_CALLS:
+                        self.available.clear()
+                        await self.available.wait()
+            except TimeoutError:
+                return None
+            finally:
+                self.waiters -= 1
+        if self.closing:
+            return None
+        # No await between checking capacity and recording the submitted call.
+        # Only executing calls enter the pool, never the asynchronous waiters.
+        future = asyncio.get_running_loop().run_in_executor(self.pool, function, *args)
         self.pending.add(future)
         future.add_done_callback(self._finished)
+        return future
+
+    async def invoke(self, name, context, arguments) -> OperationResult:
+        future = await self._submit(self.application.invoke, name, context, arguments)
+        if future is None:
+            return OperationResult(ok=False, error=CoreError("unavailable",
+                "Operation capacity unavailable; call not admitted", retryable=True).error)
         try:
             return await asyncio.shield(future)
         except Exception:
@@ -78,15 +107,13 @@ class Dispatcher:
 
     async def close(self):
         self.closing = True
+        self.available.set()
         await _settle_sync(self.pool.shutdown)
 
     async def native_hook(self, context, request) -> NativeHookResult:
-        if self.closing or len(self.pending) >= MAX_CALLS:
+        future = await self._submit(self.application.native_hooks.receive, context, request)
+        if future is None:
             return NativeHookResult.result("unavailable")
-        future = asyncio.get_running_loop().run_in_executor(
-            self.pool, self.application.native_hooks.receive, context, request)
-        self.pending.add(future)
-        future.add_done_callback(self._finished)
         try:
             return await asyncio.shield(future)
         except Exception:
