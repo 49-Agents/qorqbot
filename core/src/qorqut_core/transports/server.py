@@ -341,7 +341,8 @@ def create_app(settings: InstallationSettings, ui_root: Path | None = None) -> S
                 web.state.worker = worker
                 await _settle_sync(worker.start)
                 monitor = SessionMonitor(application.session_owners,
-                    native_setup=application.native_setup, native_collector=application.native_collector)
+                    native_setup=application.native_setup, native_collector=application.native_collector,
+                    native_attention=application.native_attention)
                 web.state.session_monitor = monitor
                 await _settle_sync(monitor.start)
                 await _settle_sync(application.terminals.start)

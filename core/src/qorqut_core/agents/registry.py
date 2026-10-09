@@ -139,8 +139,7 @@ class Agents:
     def get(self, tx, args, context, operation_id):
         return Change(self.read_view(tx, get_row(tx, args.agent_id)))
 
-    @staticmethod
-    def read_view(tx, row):
+    def read_view(self, tx, row):
         # Explicit migration rehearsals may read pre-D57 directories; ordinary
         # Application.open still requires the current schema before assembly.
         if tx.connection.execute("PRAGMA user_version").fetchone()[0] < 10:
@@ -148,7 +147,11 @@ class Agents:
         unresolved = tx.connection.execute("SELECT 1 FROM input_requests WHERE agent_id=? AND state IN ('requested','ready','interrupted') LIMIT 1",
             (row["id"],)).fetchone() is not None
         original = view(row)
-        return original.model_copy(update={"needs_user_input": original.needs_user_input or unresolved})
+        attention = self.app.native_attention.view(tx, row["id"])
+        waiting = attention.state == "waiting"
+        return original.model_copy(update={"needs_user_input": original.needs_user_input or unresolved or waiting,
+            "activity": "waiting_user" if waiting else original.activity,
+            "activity_observed_at": attention.observed_at if waiting else original.activity_observed_at})
 
     def list(self, tx, args, context, operation_id):
         host = reserved(tx)

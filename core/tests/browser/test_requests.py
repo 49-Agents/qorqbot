@@ -10,6 +10,7 @@ from messaging.support import ChatCase
 from qorqut_core.app import Application
 from qorqut_core.browser.models import Binding
 from qorqut_core.contracts import CoreError, Invocation
+from qorqut_core.runtime.models import NativeAttentionView
 from qorqut_core.storage.database import assert_external_io_allowed
 from test_foundation import InjectedCrash
 from .peer import Peer
@@ -56,6 +57,11 @@ class Requests(ChatCase):
         self.assertEqual(original.data['state'], 'requested')
         self.assertTrue(original.data['control_pending'])
         self.assertTrue(self.get(self.onbash['id'])['needs_user_input'])
+        waiting = NativeAttentionView(state='waiting', kind='question', prompt='Local fixture?',
+            observed_at=self.clock(), owner_id=uuid4(), terminal_id=uuid4())
+        for attention in (waiting, NativeAttentionView(state='none', observed_at=self.clock()), NativeAttentionView()):
+            with patch.object(self.app.native_attention, 'view', return_value=attention):
+                self.assertTrue(self.get(self.onbash['id'])['needs_user_input'])
         with patch.object(self.app.browsers.client, 'observe', side_effect=AssertionError('Receipt replay did I/O')):
             self.assertEqual(self.request(observed_tab=observed), original)
         self.assertEqual(self.request('other').error.code, 'invalid_transition')
@@ -83,6 +89,8 @@ class Requests(ChatCase):
         for fragment in ('completed', card['text'], original.data['request_id'], 'Entered a value; inspect it'):
             self.assertIn(fragment, message['body'])
         self.assertFalse(self.get(self.onbash['id'])['needs_user_input'])
+        with patch.object(self.app.native_attention, 'view', return_value=waiting):
+            self.assertTrue(self.get(self.onbash['id'])['needs_user_input'])
         self.assertEqual(len(self.rows('input_requests')), 1)
         self.assertEqual(len(self.rows('messages')), 1)
         self.assertEqual(sum(e['kind'] == 'browser_request' for e in self.rows('conversation_entries')), 1)

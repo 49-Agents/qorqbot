@@ -12,9 +12,10 @@ _LOG = logging.getLogger(__name__)
 
 
 class SessionMonitor:
-    def __init__(self, session_owners, *, native_setup=None, native_collector=None):
+    def __init__(self, session_owners, *, native_setup=None, native_collector=None, native_attention=None):
         self.session_owners = session_owners
         self.native_setup, self.native_collector = native_setup, native_collector
+        self.native_attention = native_attention
         self._stop = threading.Event()
         self._healthy = threading.Event()
         self._thread = threading.Thread(target=self._run, name="qorqut-sessions", daemon=False)
@@ -43,7 +44,7 @@ class SessionMonitor:
                         raise
                 else:
                     self._healthy.set()
-                for service in (self.native_setup, self.native_collector):
+                for service in (self.native_setup, self.native_attention, self.native_collector):
                     if service is not None:
                         try:
                             service.tick()
@@ -67,7 +68,7 @@ class SessionMonitor:
                 _LOG.error("session_monitor_final_collection_failed")
         finally:
             self._healthy.clear()
-            for service in (self.native_setup, self.native_collector):
+            for service in (self.native_setup, self.native_attention, self.native_collector):
                 if service is not None:
                     try:
                         service.close()

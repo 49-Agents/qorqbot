@@ -152,6 +152,7 @@ class Application:
         from .runtime import SessionOwners
         from .runtime.native_hooks import NativeHooks
         from .runtime.native_collector import NativeCollector
+        from .runtime.native_attention import NativeAttention
         from .runtime.native_setup import NativeSetup
         from .runtime.terminals import Terminals
         from .runtime.input_dispatch import RuntimeInput
@@ -178,6 +179,7 @@ class Application:
         self.native_setup = NativeSetup(self)
         self.native_collector = NativeCollector(self)
         self.runtime_input = RuntimeInput(self)
+        self.native_attention = NativeAttention(self)
         operations = (
             Operation("config_get", ConfigGet, False, self._config_get, ConfigView),
             Operation("config_update", ConfigUpdate, True, self._config_update, ConfigView),

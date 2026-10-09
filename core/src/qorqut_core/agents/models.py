@@ -130,8 +130,8 @@ class AgentView(Model):
     workspace_initialized_at: Timestamp | None
     projection_revision: Counter
     status: AgentStatus
-    activity: Literal["unknown"] = "unknown"
-    activity_observed_at: None = None
+    activity: Literal["unknown", "waiting_user"] = "unknown"
+    activity_observed_at: Timestamp | None = None
     last_contact_at: None = None
     current_run: None = None
     capture_health: Literal["unknown"] = "unknown"

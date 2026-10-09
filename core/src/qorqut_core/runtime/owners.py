@@ -14,7 +14,7 @@ from ..contracts import CoreError, canonical
 from ..runner.models import ProcessFingerprint
 from ..storage.database import assert_external_io_allowed
 from ..storage.events import EventInput, append_event
-from .models import CurrentOwner, OwnerCandidate, OwnerConnection, ProcessObservation, RuntimeGet, RuntimeView, SessionConflict
+from .models import CurrentOwner, NativeAttentionView, OwnerCandidate, OwnerConnection, ProcessObservation, RuntimeGet, RuntimeView, SessionConflict
 from .process import observe_process as local_observation
 
 
@@ -195,6 +195,7 @@ class SessionOwners:
         observations = {
             "native_setup": self.app.native_setup.view(args.agent_id) if self.app.native_setup is not None else None,
             "native_capture": self.app.native_collector.view(args.agent_id) if self.app.native_collector is not None else None,
+            "attention": self.app.native_attention.view(tx, args.agent_id),
         }
         row = _active(tx, args.agent_id)
         if row is None:
@@ -202,6 +203,8 @@ class SessionOwners:
                                       observed_at=None, **observations))
         age = (datetime.fromisoformat(self.db.clock()) - datetime.fromisoformat(row["last_observed_at"])).total_seconds()
         connected = row["observation"] == "live" and 0 <= age <= 5 and row["recovery_epoch"] == _installation(tx)[1]
+        if not connected:
+            observations["attention"] = NativeAttentionView()
         owner = CurrentOwner(**{key: row[key] for key in CurrentOwner.model_fields if key != "run_id"}, run_id=row["owner_id"])
         return Change(RuntimeView(agent_id=args.agent_id, status="connected" if connected else "unknown",
                                   current_owner=owner, observed_at=row["last_observed_at"], **observations))

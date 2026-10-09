@@ -22,7 +22,7 @@ from ..adapters.preparation import EVENTS
 from ..contracts import CoreError, Counter, Model, Revision, canonical
 from ..messaging.notifications import notification_text
 from ..runner.models import AttemptReceipt, ProcessFingerprint, RunBinding, RunnerError, TmuxBinding
-from ..runner.shell import ShellManager
+from ..runner.shell import ShellManager, _program
 from ..runner.shell_models import ShellSpec
 from ..runner.storage import input_lock
 from ..runner.terminal import TerminalRunner
@@ -337,6 +337,53 @@ class RuntimeInput:
                             verdict.state, "composer_unknown"))
                     guard()
                     return target
+        except InputUnavailable:
+            raise
+        except Exception:
+            raise InputUnavailable("session_unavailable") from None
+
+    def attention_snapshot(self, agent_id):
+        """Read the exact saved shell/owner under its gate, without input proof.
+
+        Do not call _inspect: its recovery path can save/adopt bindings. These
+        checks require the already-saved shell and terminal and only inspect.
+        Human control, hook activity and composer readiness are immaterial.
+        """
+        try:
+            with self._owned(agent_id) as (config, row, agent, guard):
+                manager = ShellManager(**config, existing=True)
+                with input_lock(config["database"], UUID(row["terminal_id"])):
+                    spec = ShellSpec.model_validate_json(row["spec_json"])
+                    shell = ProcessFingerprint.model_validate_json(row["shell_json"])
+                    owner = self._owner(agent, row)
+                    programs = self.app.settings.local_terminal.native_programs
+                    program = next((p for p in programs if p.provider == owner["provider"]
+                                    and p.cli_version == owner["cli_version"]), None)
+                    if program is None or row["stopped"]:
+                        raise InputUnavailable("session_unavailable")
+                    native = ProcessFingerprint.model_validate_json(owner["process_json"])
+
+                    def verified():
+                        guard()
+                        if manager._row(UUID(row["terminal_id"])) != row or self._owner(agent, row) != owner:
+                            raise InputUnavailable("target_changed")
+                        target, _ = manager._target(row)
+                        _program(shell, manager.shell_executable,
+                                 [str(manager.shell_executable), "--noprofile", "--norc", "-i"],
+                                 parent=target.pane)
+                        if _native_process(native, shell, program, programs, include_start=True) != native:
+                            raise InputUnavailable("target_changed")
+                        return target
+
+                    target = verified()
+                    binding = RunBinding(agent_id=spec.agent_id, recovery_epoch=spec.recovery_epoch,
+                        environment_generation=spec.environment_generation, boot_id=native.boot_id,
+                        run_id=owner["owner_id"], run_generation=owner["run_generation"], tmux=target,
+                        recorder=target.pane, native=native)
+                    snapshot = Tmux(str(manager.tmux_executable)).inspect(binding)
+                    if verified() != target:
+                        raise InputUnavailable("target_changed")
+                return owner, snapshot
         except InputUnavailable:
             raise
         except Exception:

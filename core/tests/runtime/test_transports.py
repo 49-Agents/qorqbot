@@ -59,6 +59,12 @@ class RuntimeTransports(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result["data"]["current_owner"], saved_owner)
                 self.assertEqual(result["data"]["status"], "connected")
                 self.assertFalse(result["data"]["input_ready"])
+                attention = result["data"]["attention"]
+                self.assertEqual((attention["state"], attention["kind"], attention["prompt"],
+                                  attention["truncated"], attention["observed_at"]),
+                                 ("unknown", None, None, False, None))
+                self.assertIn(attention["owner_id"], (None, saved_owner["owner_id"]))
+                self.assertIn(attention["terminal_id"], (None, saved_owner["terminal_id"]))
                 self.assertIsNotNone(result["data"]["observed_at"])
                 self.assertIsNone(result["operation_id"])
             arguments = fixture.root / "runtime-arguments.json"

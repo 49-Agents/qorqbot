@@ -1,0 +1,123 @@
+{
+  "mcp_approval": {
+    "columns": 69,
+    "rows": 68,
+    "cursor_x": 1,
+    "cursor_y": 46,
+    "cursor_visible": false,
+    "in_mode": false,
+    "input_off": false,
+    "synchronized": false,
+    "screen": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n  \u001b[2mField 1/1\u001b[0m\n  Allow the fixture-core MCP server to run tool\n  \"fixture_check\"?\n\n  case_id: synthetic\n\n\n\n\n\n  \u001b[1;7m› 1. Allow                   \u001b[0;7mRun the tool and continue\u001b[1m           \u001b[0m\n    2. Allow for this session  \u001b[2mRun the tool and remember this\u001b[0m\n                               \u001b[2mchoice for this session\u001b[0m\n    3. Always allow            \u001b[2mRun the tool and remember this\u001b[0m\n                               \u001b[2mchoice for future tool calls\u001b[0m\n    4. Cancel                  \u001b[2mCancel this tool call\u001b[0m\n  \u001b[1menter\u001b[0m to submit\u001b[2m | \u001b[0;1mesc\u001b[0m to cancel\n\n"
+  },
+  "question-choice": {
+    "columns": 80,
+    "rows": 40,
+    "cursor_x": 1,
+    "cursor_y": 39,
+    "cursor_visible": false,
+    "in_mode": false,
+    "input_off": false,
+    "synchronized": false,
+    "screen": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n  \u001b[2mQuestion 1/1 (1 unanswered)\u001b[0m\n  \u001b[38;5;75mWhich fixture color should be used?\u001b[39m\n\n  \u001b[1;7m› 1. Blue (Recommended)  \u001b[0;7mUse the blue fixture.\u001b[1m                              \u001b[0m\n    2. Green               \u001b[2mUse the green fixture.\u001b[0m\n    3. Red                 \u001b[2mUse the red fixture.\u001b[0m\n    4. None of the above   \u001b[2mOptionally, add details in notes (tab)\u001b[0m\n\n  \u001b[1mtab\u001b[0m to add notes\u001b[2m | \u001b[0;1menter\u001b[0m to submit answer\u001b[2m | \u001b[0;1mesc\u001b[0m to interrupt\n\n"
+  },
+  "question-selected": {
+    "columns": 80,
+    "rows": 40,
+    "cursor_x": 78,
+    "cursor_y": 34,
+    "cursor_visible": false,
+    "in_mode": false,
+    "input_off": false,
+    "synchronized": false,
+    "screen": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n  \u001b[2mQuestion 1/1 (1 unanswered)\u001b[0m\n  \u001b[38;5;75mWhich fixture color should be used?\u001b[39m\n\n    1. Blue (Recommended)  \u001b[2mUse the blue fixture.\u001b[0m\n  \u001b[1;7m› 2. Green               \u001b[0;7mUse the green fixture.\u001b[1m                             \u001b[0m\n    3. Red                 \u001b[2mUse the red fixture.\u001b[0m\n    4. None of the above   \u001b[2mOptionally, add details in notes (tab)\u001b[0m\n\n  \u001b[1mtab\u001b[0m to add notes\u001b[2m | \u001b[0;1menter\u001b[0m to submit answer\u001b[2m | \u001b[0;1mesc\u001b[0m to interrupt\n\n"
+  },
+  "question-notes": {
+    "columns": 80,
+    "rows": 40,
+    "cursor_x": 4,
+    "cursor_y": 36,
+    "cursor_visible": true,
+    "in_mode": false,
+    "input_off": false,
+    "synchronized": false,
+    "screen": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n  \u001b[2mQuestion 1/1 (1 unanswered)\u001b[0m\n  \u001b[38;5;75mWhich fixture color should be used?\u001b[39m\n\n    1. Blue (Recommended)  \u001b[2mUse the blue fixture.\u001b[0m\n  \u001b[1;7m› 2. Green               \u001b[0;7mUse the green fixture.\u001b[1m                             \u001b[0m\n    3. Red                 \u001b[2mUse the red fixture.\u001b[0m\n    4. None of the above   \u001b[2mOptionally, add details in notes (tab)\u001b[0m\n\n  \u001b[1m›\u001b[0m \u001b[2mAdd notes\u001b[0m\n\n  \u001b[1mtab\u001b[0;2m or \u001b[0;1mesc\u001b[0;2m to clear notes | \u001b[0;1menter\u001b[0m to submit answer\n\n"
+  },
+  "question-multi-first": {
+    "columns": 80,
+    "rows": 40,
+    "cursor_x": 1,
+    "cursor_y": 39,
+    "cursor_visible": false,
+    "in_mode": false,
+    "input_off": false,
+    "synchronized": false,
+    "screen": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n  \u001b[2mQuestion 1/2 (2 unanswered)\u001b[0m\n  \u001b[38;5;75mWhich fixture color should be used?\u001b[39m\n\n  \u001b[1;7m› 1. Blue (Recommended)  \u001b[0;7mUse the blue fixture.\u001b[1m                              \u001b[0m\n    2. Green               \u001b[2mUse the green fixture.\u001b[0m\n    3. Red                 \u001b[2mUse the red fixture.\u001b[0m\n    4. None of the above   \u001b[2mOptionally, add details in notes (tab)\u001b[0m\n\n  \u001b[1mtab\u001b[0m to add notes\u001b[2m | \u001b[0;1menter\u001b[0m to submit answer\u001b[2m | \u001b[0;1m←/→\u001b[0m to navigate questions\n  \u001b[1mesc\u001b[0m to interrupt\n\n"
+  },
+  "question-multi-second": {
+    "columns": 80,
+    "rows": 40,
+    "cursor_x": 1,
+    "cursor_y": 38,
+    "cursor_visible": false,
+    "in_mode": false,
+    "input_off": false,
+    "synchronized": false,
+    "screen": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n  \u001b[2mQuestion 2/2 (2 unanswered)\u001b[0m\n  \u001b[38;5;75mWhat note should this fixture record?\u001b[39m\n\n  \u001b[1;7m› 1. Short              \u001b[0;7mRecord one short note.\u001b[1m                              \u001b[0m\n    2. Detailed           \u001b[2mRecord a detailed note.\u001b[0m\n    3. None of the above  \u001b[2mOptionally, add details in notes (tab)\u001b[0m\n\n  \u001b[1mtab\u001b[0m to add notes\u001b[2m | \u001b[0;1menter\u001b[0m to submit all\u001b[2m | \u001b[0;1m←/→\u001b[0m to navigate questions\n  \u001b[1mesc\u001b[0m to interrupt\n\n\n"
+  },
+  "question-multi-notes": {
+    "columns": 80,
+    "rows": 40,
+    "cursor_x": 4,
+    "cursor_y": 36,
+    "cursor_visible": true,
+    "in_mode": false,
+    "input_off": false,
+    "synchronized": false,
+    "screen": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n  \u001b[2mQuestion 2/2 (2 unanswered)\u001b[0m\n  \u001b[38;5;75mWhat note should this fixture record?\u001b[39m\n\n    1. Short              \u001b[2mRecord one short note.\u001b[0m\n    2. Detailed           \u001b[2mRecord a detailed note.\u001b[0m\n  \u001b[1;7m› 3. None of the above  \u001b[0;7mOptionally, add details in notes (tab)\u001b[1m              \u001b[0m\n\n  \u001b[1m›\u001b[0m \u001b[2mAdd notes\u001b[0m\n\n  \u001b[1mtab\u001b[0;2m or \u001b[0;1mesc\u001b[0;2m to clear notes | \u001b[0;1menter\u001b[0m to submit all\n\n"
+  },
+  "question-multi-after": {
+    "columns": 80,
+    "rows": 40,
+    "cursor_x": 1,
+    "cursor_y": 36,
+    "cursor_visible": false,
+    "in_mode": false,
+    "input_off": false,
+    "synchronized": false,
+    "screen": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n  \u001b[1mSubmit with unanswered questions?\u001b[0m\n  \u001b[2m1 unanswered question\u001b[0m\n\n  \u001b[1;7m› 1. Proceed  \u001b[0;7mSubmit with 1 unanswered question\u001b[1m                             \u001b[0m\n    2. Go back  \u001b[2mReturn to the first unanswered question\u001b[0m\n\n  Press \u001b[1menter\u001b[0m to confirm or \u001b[1mesc\u001b[0m to go back\n\n\n\n\n"
+  },
+  "question-narrow": {
+    "columns": 69,
+    "rows": 68,
+    "cursor_x": 1,
+    "cursor_y": 67,
+    "cursor_visible": false,
+    "in_mode": false,
+    "input_off": false,
+    "synchronized": false,
+    "screen": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n  \u001b[2mQuestion 1/2 (1 unanswered)\u001b[0m\n  \u001b[38;5;75mWhich fixture color should be used?\u001b[39m\n\n  \u001b[1;7m› 1. Blue (Recommended)  \u001b[0;7mUse the blue fixture.\u001b[1m                   \u001b[0m\n    2. Green               \u001b[2mUse the green fixture.\u001b[0m\n    3. Red                 \u001b[2mUse the red fixture.\u001b[0m\n    4. None of the above   \u001b[2mOptionally, add details in notes (tab)\u001b[0m\n\n  \u001b[1mtab\u001b[0m to add notes\u001b[2m | \u001b[0;1menter\u001b[0m to submit answer\n  \u001b[1m←/→\u001b[0m to navigate questions\u001b[2m | \u001b[0;1mesc\u001b[0m to interrupt\n\n"
+  },
+  "question-cleared": {
+    "columns": 80,
+    "rows": 40,
+    "cursor_x": 2,
+    "cursor_y": 37,
+    "cursor_visible": true,
+    "in_mode": false,
+    "input_off": false,
+    "synchronized": false,
+    "screen": "\u001b[1;2m› \u001b[0mdiscover tools\n\n\n\u001b[38;5;1m■ stream disconnected before completion: error sending request\u001b[39m\n\n\n\u001b[1;2m› \u001b[0mdiscover tools\n\n\n\u001b[2m• \u001b[0mLocal fixture complete.\n\n\u001b[2m  Worked for <1s • 19:22\u001b[0m\n\n\u001b[2m• \u001b[0mModel changed to gpt-6.1-sol medium for Plan mode.\n\n\n\u001b[1;2m› \u001b[0mdiscover tools\n\n\n\u001b[2m• \u001b[0mLocal fixture complete.\n\n\u001b[2m  Worked for <1s • 19:25\u001b[0m\n\n\n\u001b[1;2m› \u001b[0mfixture choice\n\n\n\u001b[2m•\u001b[0m \u001b[1mQuestions\u001b[0;2m 1/1 answered\u001b[0m\n  • Which fixture color should be used?\n\u001b[2m    answer: \u001b[0m\u001b[38;5;75mGreen\u001b[39m\n\u001b[2m    note: \u001b[0m\u001b[38;5;75mSynthetic note\u001b[39m\n\n\u001b[2m• \u001b[0mLocal fixture complete.\n\n\u001b[2m  Worked for 26s • 19:26\u001b[0m\n\n\n\u001b[1m›\u001b[0m \u001b[2mAsk Codex to do anything\u001b[0m\n\n  \u001b[38;5;223mGPT-6.1-Sol medium\u001b[39m · \u001b[38;5;151m/fixture\u001b[39m \u001b[38;5;5mPlan mode\u001b[39m    ⚠ \u001b[38;5;179m2 warnings\u001b[39m · \u001b[1mf2\u001b[0m to view\n"
+  },
+  "plan-mode": {
+    "columns": 80,
+    "rows": 40,
+    "cursor_x": 2,
+    "cursor_y": 37,
+    "cursor_visible": true,
+    "in_mode": false,
+    "input_off": false,
+    "synchronized": false,
+    "screen": "\n\n\u001b[2m• \u001b[0mLocal fixture complete.\n\n\u001b[2m  Worked for 21s • 19:15\u001b[0m\n\n\n\u001b[1;2m› \u001b[0mfixture choice\n\n\n\u001b[2m• \u001b[0mWhich fixture color should be used?\n\n  • Blue\n  • Green\n  • Red\n\n\u001b[2m• \u001b[0mLocal fixture complete.\n\n\u001b[2m  Worked for <1s • 19:17\u001b[0m\n\n\n\u001b[1;2m› \u001b[0mdiscover tools\n\n\n\u001b[38;5;1m■ stream disconnected before completion: error sending request\u001b[39m\n\n\n\u001b[1;2m› \u001b[0mdiscover tools\n\n\n\u001b[2m• \u001b[0mLocal fixture complete.\n\n\u001b[2m  Worked for <1s • 19:22\u001b[0m\n\n\u001b[2m• \u001b[0mModel changed to gpt-6.1-sol medium for Plan mode.\n\n\n\u001b[1m›\u001b[0m \u001b[2mAsk Codex to do anything\u001b[0m\n\n  \u001b[38;5;223mGPT-6.1-Sol medium\u001b[39m · \u001b[38;5;151m/fixture\u001b[39m \u001b[38;5;5mPlan mode\u001b[39m    ⚠ \u001b[38;5;179m2 warnings\u001b[39m · \u001b[1mf2\u001b[0m to view\n"
+  }
+}
