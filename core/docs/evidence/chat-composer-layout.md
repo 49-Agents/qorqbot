@@ -51,3 +51,37 @@ Existing `unsupported_record`/`unsupported_item` parser gaps remain visible;
 the verified raw archive and dated Chat projection do not claim full parser
 coverage. No owner session, queue or configuration was changed. Merge and
 deployment remain Manager-owned.
+
+## Deployment and native helper repair
+
+Manager merged candidate `0ae8929fd430d5443f730a5d9d43eb07f3734659` through
+`758fdd1d2337b38fcf45c87d8922411f6207640e`, pushed main, and installed the wheel
+above on the local test instance. Core restarted; the existing Bash, Codex,
+terminal, inbox owner and browser lifetime stayed unchanged. No additional
+review was performed, as requested by the owner.
+
+The normal dispatcher then submitted the four previously deferred messages.
+Read-only terminal observation confirmed Codex received all four inbox pointers,
+but its tool calls failed because the deployed native package omitted
+`codex-code-mode-host`. The matching helper was restored from the accepted
+0.160.0 package beside the unchanged pinned executable. Its SHA-256 is
+`37cab1584302611e9936902219640ab5e7a79fcfccd2504c6e85ea8cb97d0e10`.
+Future native packaging must retain companion executables, not copy only `codex`.
+
+A focused disposable check using that exact executable and a local canned
+Responses endpoint reproduced a missing helper, installed it between tool
+calls, and observed the next JavaScript tool call succeed in the same process.
+A fresh invocation of the deployed executable also executed both tool calls.
+No native restart is required for this repair. The check used a separate empty
+home and no paid inference, owner credentials, inbox or terminal input.
+
+Core readiness returned HTTP 200 and the original inbox owner remained
+connected. The four earlier messages remain submitted and unacknowledged;
+they were not replayed or marked handled. Live post-repair inbox handling awaits
+the owner's next message. One transient Stop-hook diagnostic also reported
+invalid output; this deployment does not claim that separate hook issue fixed.
+
+Private installation, process fingerprints, queue observations and helper
+checks are in `chat-composer-deployment/` and `native-helper-repair/` under the
+existing build-state directory. These results establish this delivery repair,
+not full-system acceptance.
