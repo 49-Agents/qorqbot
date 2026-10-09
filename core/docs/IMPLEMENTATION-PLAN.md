@@ -14,7 +14,8 @@ r1 failure and two unexplained r2 log diagnostics remain documented.
 [D52 first Chat](evidence/first-chat-manager-acceptance.md) are accepted for
 pinned Codex: manual launch, first Chat without a seed, actual native tool calls
 and automatic transcript publication. [D53 inbox references](INBOX-REFERENCE-VIEW.md)
-now separates compact Chat presentation from the preserved native pointer.
+passed [paired core/UI acceptance](evidence/inbox-reference-manager-acceptance.md),
+separating compact Chat presentation from the preserved native pointer.
 Manager reviews/tests directly;
 workers use Astra MAX with self-review off. Core has schema 9, 17 public
 operations and five handlers. These qualified runs do not establish
