@@ -587,3 +587,9 @@ existing incumbent-wins owner boundary. It runs on the existing setup tick,
 records a distinct binding observation and creates no native transcript or
 input-readiness claim. Claude keeps its real startup hook. First-message capture
 bootstrap remains a separate required design; no automatic CLI launch is added.
+
+## D53 — Present corroborated inbox pointers as compact references
+
+[INBOX-REFERENCE-VIEW.md](INBOX-REFERENCE-VIEW.md) adds a nullable read view and
+a compact UI disclosure. Matching is core-owned and uses saved message, receipt
+and source lineage; no causal attribution or immutable-history deletion.

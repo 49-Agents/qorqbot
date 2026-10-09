@@ -1,9 +1,10 @@
 # Backend planning documents
 
 Start with [startup and combined Terminal acceptance](evidence/startup-and-responsiveness-manager-acceptance.md)
-and [D52 first Chat](FIRST-CHAT.md). The combined workload now passes after
-D50; the original r1 failure remains recorded. D51 connects pinned Codex before
-its first prompt; D52 removes the separate initial-message dependency.
+and [first-Chat acceptance](evidence/first-chat-manager-acceptance.md).
+The combined workload and first Codex Chat now pass; original failed evidence
+remains recorded. [D53 inbox references](INBOX-REFERENCE-VIEW.md) is the next
+small paired core/UI change.
 Codex completed three actual native MCP message flows, including after restart.
 Claude delivered two notifications but its canned fixture's automatic approval
 blocked MCP execution. Both results retain their limits.

@@ -10,18 +10,17 @@ MCP calls were blocked, while notification/restart evidence passed. The [combine
 passed after D50's contiguous transfer ranges: 24 successful burst reads,
 2.895-second archive catch-up and recording through core restart. The original
 r1 failure and two unexplained r2 log diagnostics remain documented.
-[D51 startup connection](NATIVE-STARTUP-CONNECTION.md) is accepted for pinned
-Codex before its delayed hook. [D52 first Chat](FIRST-CHAT.md) is the next
-implementation: fresh collector waiting evidence plus the existing empty-composer
-and single-attempt checks, without a manual seed prompt.
+[D51 startup connection](NATIVE-STARTUP-CONNECTION.md) and
+[D52 first Chat](evidence/first-chat-manager-acceptance.md) are accepted for
+pinned Codex: manual launch, first Chat without a seed, actual native tool calls
+and automatic transcript publication. [D53 inbox references](INBOX-REFERENCE-VIEW.md)
+now separates compact Chat presentation from the preserved native pointer.
 Manager reviews/tests directly;
 workers use Astra MAX with self-review off. Core has schema 9, 17 public
 operations and five handlers. These qualified runs do not establish
 complete transcript coverage. Shutdown drain,
-child/attachment support, browser/VM integration and full system gates remain open. The pinned
-connected-flow check may need one manual seed prompt for either CLI before its
-primary native file exists. Decision 307 preserves this as an unresolved initial
-Chat-delivery limitation; qualifying a continued test does not settle it.
+child/attachment support, browser/VM integration and full system gates remain open. D52 resolves the initial seed dependency for the tested Codex flow; Claude
+has unit coverage for the same collector waiting path but no renewed MCP acceptance.
 
 Current v1 scope: [D36, terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md)
 supersedes earlier automatic CLI start/restart/provider-switch and context-packet

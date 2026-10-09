@@ -25,6 +25,12 @@ Waiting evidence never claims healthy native capture. The existing saved
 `idle_event_seq` and one-notification-per-event barrier are preserved; no
 public schema or historical attempt JSON changes.
 
+[D53](INBOX-REFERENCE-VIEW.md) adds the nullable read-only
+ConversationItem.inbox_reference (`message_id`, `message_entry_id`) for a
+corroborated inbox pointer. This is reference presentation, not proof of the
+input's author or causal attempt. Entry/native provenance, daily transcripts,
+raw archives and pagination remain unchanged.
+
 [D48](NATIVE-COLLECTION-CONTINUITY.md) gives that dispatcher a private, fresh,
 per-run raw-capture observation. Public native-history gaps remain visible and
 do not themselves authorize or prohibit input. The runtime proves all its other
