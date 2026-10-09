@@ -210,9 +210,9 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
             app.terminals.observe()
         self.assertEqual(f.installation_file.read_bytes(), before)
         self.assertFalse((f.settings.data_root / "agents").exists())
-        self.assertEqual(len(app.registry), 17)
-        self.assertEqual(len(app.jobs.handlers), 5)
-        self.assertEqual(app.db.validate(), 9)
+        self.assertEqual(len(app.registry), 24)
+        self.assertEqual(len(app.jobs.handlers), 6)
+        self.assertEqual(app.db.validate(), 10)
         for delta in ({"runtime_root": "/tmp/" + "x" * 70}, {"runtime_root": "relative"},
                       {"path": "bad\0PATH"}, {"bash_executable": "/bad/../bash"}, {"path": True}):
             with self.assertRaises(ValidationError):
@@ -419,7 +419,7 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
             async with AsyncExitStack() as stack:
                 sdk = await session(stack, f, f.agent)
                 tools = {tool.name: tool for tool in (await sdk.list_tools()).tools}
-                self.assertEqual(len(tools), 17)
+                self.assertEqual(len(tools), 24)
                 self.assertEqual(tools["terminal_get"].inputSchema["required"], ["agent_id"])
                 result = structured(await sdk.call_tool("terminal_get", {"agent_id": f.agent_id}))
                 self.assertTrue(result["ok"])

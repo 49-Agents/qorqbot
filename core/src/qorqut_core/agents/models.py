@@ -135,7 +135,7 @@ class AgentView(Model):
     last_contact_at: None = None
     current_run: None = None
     capture_health: Literal["unknown"] = "unknown"
-    needs_user_input: Literal[False] = False
+    needs_user_input: bool = False
 
 
 class AgentCreated(Model):

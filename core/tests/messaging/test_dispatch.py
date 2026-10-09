@@ -319,4 +319,4 @@ class Dispatch(ChatCase):
         self.assertEqual({e["actor_id"] for e in events}, {str(self.context.actor_id)})
         with self.app.db.read() as tx:
             self.assertEqual(tx.connection.execute("PRAGMA foreign_key_check").fetchall(), [])
-        self.assertEqual((len(self.app.registry), len(self.app.jobs.handlers)), (17, 5))
+        self.assertEqual((len(self.app.registry), len(self.app.jobs.handlers)), (24, 6))

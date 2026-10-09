@@ -183,7 +183,7 @@ class Observations(RuntimeCase):
         other = self.create().data["agent"]["id"]
         self.assertEqual(self.app.native_setup.view(UUID(other)).reason, "unsupported_target")
         self.assertFalse((self.settings.data_root / "agents" / self.host["id"] / "runtime/core-credential.json").exists())
-        self.assertEqual((self.app.db.validate(), len(self.app.registry), len(self.app.jobs.handlers)), (9, 17, 5))
+        self.assertEqual((self.app.db.validate(), len(self.app.registry), len(self.app.jobs.handlers)), (10, 24, 6))
         capture = NativeCollectionView(state="waiting", reason="waiting_session")
         self.app.native_collector = SimpleNamespace(view=lambda agent_id: capture)
         self.assertEqual(self.runtime()["native_capture"], capture.model_dump(mode="json"))
@@ -272,7 +272,7 @@ class SetupServer(OwnedProcesses, unittest.TestCase):
             async with AsyncExitStack() as stack:
                 client = await stack.enter_async_context(httpx.AsyncClient(headers=headers, trust_env=False))
                 sdk = await session(stack, f, client=client)
-                self.assertEqual(len((await sdk.list_tools()).tools), 17)
+                self.assertEqual(len((await sdk.list_tools()).tools), 24)
                 result = structured(await sdk.call_tool("agents_status_set", {"agent_id": f.agent_id,
                     "expected_revision": 2, "text": "MCP attributed", "idempotency_key": "setup-mcp"}))
                 self.assertTrue(result["ok"])

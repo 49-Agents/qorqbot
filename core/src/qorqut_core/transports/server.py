@@ -10,7 +10,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import UUID
 
-import anyio
 import uvicorn
 from pydantic import ValidationError
 from starlette.applications import Starlette
@@ -20,6 +19,8 @@ from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocketDisconnect
 
 from ..app import Application
+from ..browser.models import Handoff
+from ..browser.stream import BrowserSockets
 from ..config import InstallationSettings
 from ..contracts import CoreError, Invocation, OperationResult
 from ..runtime import SessionMonitor
@@ -29,7 +30,7 @@ from ..runner.models import RunnerError
 from ..storage.worker import JobWorker
 from .boundary import Admission, Boundary, failure
 from .configuration import InputError, json_object
-from .lifetime import settle_sync as _settle_sync
+from .lifetime import join_tasks as _join_tasks, settle_sync as _settle_sync
 from .mcp import MCP, install_logging_boundary
 from .static import StaticUI
 
@@ -117,21 +118,6 @@ class Dispatcher:
             return await asyncio.shield(future)
         except Exception:
             return NativeHookResult.result("unavailable")
-
-
-async def _join_tasks(tasks):
-    """Join cancelled async owners before closing their admitted effects/fds."""
-    future = asyncio.gather(*tasks, return_exceptions=True)
-    cancelled = False
-    with anyio.CancelScope(shield=True):
-        while True:
-            try:
-                await asyncio.shield(future)
-                break
-            except asyncio.CancelledError:
-                cancelled = True
-    if cancelled:
-        raise asyncio.CancelledError
 
 
 class TerminalSockets:
@@ -321,6 +307,7 @@ def create_app(settings: InstallationSettings, ui_root: Path | None = None) -> S
     install_logging_boundary()
     admission = Admission()
     terminals = TerminalSockets(admission)
+    browsers = BrowserSockets(admission)
     ui = StaticUI(ui_root) if ui_root is not None else None
 
     @asynccontextmanager
@@ -366,7 +353,10 @@ def create_app(settings: InstallationSettings, ui_root: Path | None = None) -> S
             admission.closing = True
             try:
                 try:
-                    await terminals.close()
+                    try:
+                        await browsers.close()
+                    finally:
+                        await terminals.close()
                 finally:
                     if dispatcher is not None:
                         await dispatcher.close()
@@ -421,6 +411,23 @@ def create_app(settings: InstallationSettings, ui_root: Path | None = None) -> S
         status = 409 if result.outcome == "conflict" else 503 if result.outcome == "unavailable" else 200
         return JSONResponse(result.model_dump(mode="json"), status_code=status)
 
+    async def browser_handoff(request):
+        if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+            return failure(400, "invalid_argument", "Content-Type must be application/json")
+        try:
+            body = Handoff.model_validate(json_object(await request.body()))
+        except (InputError, ValidationError, ValueError, UnicodeError, RecursionError):
+            return failure(400, "invalid_argument", "Invalid browser handoff payload")
+        # Protocol 1 carries the original public actor in its body. The browser
+        # bridge sends no header and must not become the transport's local owner.
+        result = await request.app.state.dispatcher.invoke("input_requests_create", Invocation(actor_id=body.actor_id),
+            body.model_dump(mode="json", exclude={"protocol", "actor_id"}))
+        if not result.ok:
+            return failure(_STATUS[result.error.code], result.error.code, result.error.message)
+        return JSONResponse({"protocol": 1, "actor_id": str(body.actor_id),
+            "target_agent_id": str(body.target_agent_id), "idempotency_key": body.idempotency_key,
+            **{key: result.data[key] for key in ("request_id", "conversation_id", "surface_id", "state", "browser_binding")}})
+
     async def live(request):
         return JSONResponse({"live": True}, headers={"Cache-Control": "no-store"})
 
@@ -459,6 +466,8 @@ def create_app(settings: InstallationSettings, ui_root: Path | None = None) -> S
         Route("/api/v1/schema", schema, methods=["GET"]),
         Route("/api/v1/operations/{name}", operation, methods=["POST"]),
         Route("/api/v1/native/hook", native_hook, methods=["POST"]),
+        Route("/api/v1/browser/handoff", browser_handoff, methods=["POST"]),
+        WebSocketRoute("/api/v1/browser/{request_id}/stream", browsers.endpoint),
         WebSocketRoute("/api/v1/terminal/{agent_id}", terminals.endpoint),
         # Stateless JSON MCP has no server-initiated stream. GET is optional in
         # Streamable HTTP; 405 avoids keeping an unused SSE stream alive forever.

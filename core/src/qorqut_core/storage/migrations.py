@@ -661,5 +661,170 @@ MIGRATIONS = (
         """CREATE TRIGGER delivery_attempts_no_delete BEFORE DELETE ON delivery_attempts
             BEGIN SELECT RAISE(ABORT,'Delivery attempt evidence is permanent'); END""",
     )),
+    Migration(10, (
+        """CREATE TABLE browser_surfaces (
+            surface_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL UNIQUE REFERENCES agents(id),
+            attachment_id TEXT NOT NULL REFERENCES browser_attachments(attachment_id) DEFERRABLE INITIALLY DEFERRED,
+            latest_command_id TEXT REFERENCES browser_control_intents(command_id) DEFERRABLE INITIALLY DEFERRED,
+            created_at TEXT NOT NULL)""",
+        """CREATE TABLE browser_attachments (
+            attachment_id TEXT PRIMARY KEY, surface_id TEXT NOT NULL REFERENCES browser_surfaces(surface_id) DEFERRABLE INITIALLY DEFERRED,
+            service_url TEXT NOT NULL, identity_json TEXT NOT NULL, initial_control_json TEXT NOT NULL,
+            recovery_epoch TEXT NOT NULL, actor_id TEXT NOT NULL REFERENCES actors(actor_id),
+            operation_id TEXT NOT NULL REFERENCES operations(operation_id) DEFERRABLE INITIALLY DEFERRED,
+            created_at TEXT NOT NULL)""",
+        """CREATE TABLE input_requests (
+            request_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id),
+            conversation_id TEXT NOT NULL REFERENCES agents(conversation_id),
+            surface_id TEXT NOT NULL REFERENCES browser_surfaces(surface_id),
+            requester_actor_id TEXT NOT NULL REFERENCES actors(actor_id),
+            prompt TEXT NOT NULL CHECK(length(prompt) BETWEEN 1 AND 4096),
+            idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 1 AND 200),
+            observed_tab_json TEXT, creation_json TEXT NOT NULL, recovery_epoch TEXT NOT NULL,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('requested','ready','completed','cancelled','interrupted')),
+            revision INTEGER NOT NULL CHECK(revision>0), note TEXT CHECK(length(note)<=4096),
+            browser_binding_json TEXT, error_json TEXT,
+            latest_command_id TEXT REFERENCES browser_control_intents(command_id) DEFERRABLE INITIALLY DEFERRED,
+            notification_message_id TEXT UNIQUE REFERENCES messages(message_id),
+            UNIQUE(requester_actor_id,idempotency_key))""",
+        "CREATE UNIQUE INDEX input_requests_unresolved ON input_requests(surface_id) WHERE state IN ('requested','ready','interrupted')",
+        "CREATE INDEX input_requests_cursor ON input_requests(agent_id,created_at,request_id)",
+        """CREATE TABLE browser_control_intents (
+            command_id TEXT PRIMARY KEY, attachment_id TEXT NOT NULL REFERENCES browser_attachments(attachment_id),
+            request_id TEXT REFERENCES input_requests(request_id),
+            previous_command_id TEXT REFERENCES browser_control_intents(command_id),
+            actor_id TEXT NOT NULL REFERENCES actors(actor_id), payload_json TEXT NOT NULL,
+            purpose TEXT NOT NULL CHECK(purpose IN ('initialize','take','release')),
+            job_id TEXT NOT NULL UNIQUE REFERENCES jobs(job_id) DEFERRABLE INITIALLY DEFERRED,
+            operation_id TEXT NOT NULL REFERENCES operations(operation_id) DEFERRABLE INITIALLY DEFERRED,
+            recovery_epoch TEXT NOT NULL, created_at TEXT NOT NULL)""",
+        """CREATE TABLE browser_control_receipts (
+            command_id TEXT NOT NULL REFERENCES browser_control_intents(command_id),
+            receipt_json TEXT NOT NULL, recorded_at TEXT NOT NULL,
+            PRIMARY KEY(command_id,receipt_json))""",
+        """CREATE TRIGGER input_requests_binding BEFORE INSERT ON input_requests
+            WHEN NOT EXISTS (SELECT 1 FROM browser_surfaces s JOIN agents a ON a.id=s.agent_id
+                WHERE s.surface_id=NEW.surface_id AND a.id=NEW.agent_id AND a.conversation_id=NEW.conversation_id)
+            BEGIN SELECT RAISE(ABORT,'Browser request binding disagrees'); END""",
+        """CREATE TRIGGER input_requests_facts BEFORE UPDATE ON input_requests
+            WHEN NEW.request_id IS NOT OLD.request_id OR NEW.agent_id IS NOT OLD.agent_id
+                OR NEW.conversation_id IS NOT OLD.conversation_id OR NEW.surface_id IS NOT OLD.surface_id
+                OR NEW.requester_actor_id IS NOT OLD.requester_actor_id OR NEW.prompt IS NOT OLD.prompt
+                OR NEW.idempotency_key IS NOT OLD.idempotency_key OR NEW.observed_tab_json IS NOT OLD.observed_tab_json
+                OR NEW.creation_json IS NOT OLD.creation_json OR NEW.created_at IS NOT OLD.created_at
+                OR NEW.recovery_epoch IS NOT OLD.recovery_epoch
+                OR (OLD.state IN ('completed','cancelled') AND (NEW.state IS NOT OLD.state OR NEW.note IS NOT OLD.note
+                    OR NEW.notification_message_id IS NOT OLD.notification_message_id))
+            BEGIN SELECT RAISE(ABORT,'Browser request facts are immutable'); END""",
+        """CREATE TRIGGER browser_surfaces_identity BEFORE UPDATE ON browser_surfaces
+            WHEN NEW.surface_id IS NOT OLD.surface_id OR NEW.agent_id IS NOT OLD.agent_id OR NEW.created_at IS NOT OLD.created_at
+            BEGIN SELECT RAISE(ABORT,'Browser surface identity is immutable'); END""",
+        *tuple(statement for table, key in (
+            ('browser_surfaces','surface_id=NEW.surface_id OR agent_id=NEW.agent_id'),
+            ('browser_attachments','attachment_id=NEW.attachment_id'),
+            ('input_requests','request_id=NEW.request_id OR (requester_actor_id=NEW.requester_actor_id AND idempotency_key=NEW.idempotency_key)'),
+            ('browser_control_intents','command_id=NEW.command_id OR job_id=NEW.job_id'),
+            ('browser_control_receipts','command_id=NEW.command_id AND receipt_json=NEW.receipt_json'),
+        ) for statement in (
+            f"""CREATE TRIGGER {table}_no_replace BEFORE INSERT ON {table}
+                WHEN EXISTS (SELECT 1 FROM {table} WHERE {key})
+                BEGIN SELECT RAISE(ABORT,'Browser evidence cannot be replaced'); END""",
+            f"""CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table}
+                BEGIN SELECT RAISE(ABORT,'Browser evidence is permanent'); END""",
+        )),
+        *tuple(f"""CREATE TRIGGER {table}_no_update BEFORE UPDATE ON {table}
+            BEGIN SELECT RAISE(ABORT,'Browser evidence is immutable'); END"""
+            for table in ('browser_attachments','browser_control_intents','browser_control_receipts')),
+        """CREATE TABLE conversation_entries_v10 (
+            entry_id TEXT NOT NULL PRIMARY KEY,
+            agent_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
+            conversation_seq INTEGER NOT NULL CHECK(typeof(conversation_seq)='integer' AND conversation_seq>0),
+            kind TEXT NOT NULL CHECK(kind IN ('message','file_reference','browser_request')),
+            role TEXT NOT NULL CHECK(role IN ('user','agent')),
+            direction TEXT NOT NULL CHECK(direction IN ('incoming','outgoing')),
+            text TEXT NOT NULL CHECK(length(CAST(text AS BLOB)) BETWEEN 1 AND 65536),
+            sender_actor_id TEXT REFERENCES actors(actor_id),
+            source_type TEXT NOT NULL CHECK(source_type IN ('message','native','file_reference','browser_request')),
+            message_id TEXT REFERENCES messages(message_id),
+            run_id TEXT, provider TEXT, source_id TEXT, source_epoch TEXT,
+            offset INTEGER CHECK(offset IS NULL OR (typeof(offset)='integer' AND offset>=0)),
+            length INTEGER CHECK(length IS NULL OR (typeof(length)='integer' AND length>=0)),
+            occurred_at TEXT NOT NULL, recorded_at TEXT NOT NULL, recording_date TEXT NOT NULL,
+            file_reference_id TEXT UNIQUE REFERENCES file_references(reference_id),
+            browser_request_id TEXT UNIQUE REFERENCES input_requests(request_id),
+            FOREIGN KEY(agent_id,conversation_id) REFERENCES conversation_cursors(agent_id,conversation_id),
+            FOREIGN KEY(run_id,source_id,source_epoch) REFERENCES archive_run_sources(run_id,source_id,source_epoch),
+            UNIQUE(conversation_id,conversation_seq), UNIQUE(agent_id,conversation_seq), UNIQUE(agent_id,message_id),
+            UNIQUE(entry_id,source_id,source_epoch),
+            CHECK((kind='message' AND browser_request_id IS NULL AND file_reference_id IS NULL AND
+                    ((source_type='message' AND message_id IS NOT NULL AND sender_actor_id IS NOT NULL)
+                    OR (source_type='native' AND message_id IS NULL AND run_id IS NOT NULL
+                        AND provider IN ('claude','codex') AND provider IS NOT NULL
+                        AND source_id IS NOT NULL AND source_epoch IS NOT NULL AND offset IS NOT NULL
+                        AND length IS NOT NULL AND length>0 AND offset<=9223372036854775807-length
+                        AND ((role='user' AND sender_actor_id IS NULL AND direction='incoming')
+                            OR (role='agent' AND sender_actor_id IS NOT NULL AND direction='outgoing')))))
+                OR (kind='file_reference' AND browser_request_id IS NULL AND source_type='file_reference' AND file_reference_id IS NOT NULL
+                    AND sender_actor_id IS NOT NULL AND direction='outgoing' AND message_id IS NULL
+                    AND run_id IS NULL AND provider IS NULL AND source_id IS NULL AND source_epoch IS NULL
+                    AND offset IS NULL AND length IS NULL)
+                OR (kind='browser_request' AND source_type='browser_request' AND browser_request_id IS NOT NULL
+                    AND file_reference_id IS NULL AND sender_actor_id IS NOT NULL AND direction='outgoing'
+                    AND message_id IS NULL AND run_id IS NULL AND provider IS NULL AND source_id IS NULL
+                    AND source_epoch IS NULL AND offset IS NULL AND length IS NULL)))""",
+        "INSERT INTO conversation_entries_v10 SELECT *,NULL FROM conversation_entries",
+        """CREATE TABLE conversation_native_v10 (
+            entry_id TEXT NOT NULL PRIMARY KEY,
+            source_id TEXT NOT NULL, source_epoch TEXT NOT NULL,
+            parser_version TEXT NOT NULL CHECK(length(parser_version) BETWEEN 1 AND 100),
+            native_id TEXT NOT NULL CHECK(length(native_id) BETWEEN 1 AND 512),
+            part_index INTEGER NOT NULL CHECK(typeof(part_index)='integer' AND part_index>=0),
+            sha256 TEXT NOT NULL CHECK(length(sha256)=64),
+            timestamp_origin TEXT NOT NULL CHECK(timestamp_origin IN ('native','ingestion')),
+            FOREIGN KEY(entry_id,source_id,source_epoch) REFERENCES conversation_entries_v10(entry_id,source_id,source_epoch),
+            UNIQUE(source_id,source_epoch,parser_version,native_id,part_index))""",
+        "INSERT INTO conversation_native_v10 SELECT * FROM conversation_native",
+        "DROP TABLE conversation_native",
+        "DROP TABLE conversation_entries",
+        "ALTER TABLE conversation_entries_v10 RENAME TO conversation_entries",
+        "ALTER TABLE conversation_native_v10 RENAME TO conversation_native",
+        "CREATE INDEX conversation_entries_day ON conversation_entries(agent_id,recording_date,conversation_seq)",
+        """CREATE TRIGGER conversation_native_binding BEFORE INSERT ON conversation_native
+            WHEN NOT EXISTS (SELECT 1 FROM conversation_entries WHERE entry_id=NEW.entry_id AND source_type='native')
+            BEGIN SELECT RAISE(ABORT,'Native entry provenance disagrees'); END""",
+        """CREATE TRIGGER conversation_native_actor BEFORE INSERT ON conversation_entries
+            WHEN NEW.source_type='native' AND NEW.role='agent' AND NOT EXISTS
+                (SELECT 1 FROM agents WHERE id=NEW.agent_id AND actor_id=NEW.sender_actor_id)
+            BEGIN SELECT RAISE(ABORT,'Native agent attribution disagrees'); END""",
+        """CREATE TRIGGER conversation_file_reference_binding BEFORE INSERT ON conversation_entries
+            WHEN NEW.source_type='file_reference' AND NOT EXISTS
+                (SELECT 1 FROM file_references r JOIN actors a ON a.actor_id=r.actor_id
+                 WHERE r.reference_id=NEW.file_reference_id AND r.agent_id=NEW.agent_id
+                    AND r.conversation_id=NEW.conversation_id AND r.actor_id=NEW.sender_actor_id
+                    AND NEW.text=r.label AND NEW.occurred_at=r.observed_at AND NEW.recorded_at=r.recorded_at
+                    AND NEW.role=CASE a.kind WHEN 'owner' THEN 'user' ELSE 'agent' END)
+            BEGIN SELECT RAISE(ABORT,'File reference entry binding disagrees'); END""",
+        *tuple(statement for table, key in (
+            ("conversation_entries", "entry_id=NEW.entry_id OR browser_request_id=NEW.browser_request_id OR file_reference_id=NEW.file_reference_id OR (agent_id=NEW.agent_id AND message_id=NEW.message_id) OR (agent_id=NEW.agent_id AND conversation_seq=NEW.conversation_seq) OR (conversation_id=NEW.conversation_id AND conversation_seq=NEW.conversation_seq)"),
+            ("conversation_native", "entry_id=NEW.entry_id OR (source_id=NEW.source_id AND source_epoch=NEW.source_epoch AND parser_version=NEW.parser_version AND native_id=NEW.native_id AND part_index=NEW.part_index)"),
+        ) for statement in (
+            f"""CREATE TRIGGER {table}_no_replace BEFORE INSERT ON {table}
+                WHEN EXISTS (SELECT 1 FROM {table} WHERE {key})
+                BEGIN SELECT RAISE(ABORT,'Conversation evidence cannot be replaced'); END""",
+            f"""CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table}
+                BEGIN SELECT RAISE(ABORT,'Conversation evidence is permanent'); END""",
+            f"""CREATE TRIGGER {table}_no_update BEFORE UPDATE ON {table}
+                BEGIN SELECT RAISE(ABORT,'Conversation evidence is immutable'); END""",
+        )),
+        """CREATE TRIGGER conversation_browser_request_binding BEFORE INSERT ON conversation_entries
+            WHEN NEW.source_type='browser_request' AND NOT EXISTS
+                (SELECT 1 FROM input_requests r JOIN actors a ON a.actor_id=r.requester_actor_id
+                 WHERE r.request_id=NEW.browser_request_id AND r.agent_id=NEW.agent_id
+                    AND r.conversation_id=NEW.conversation_id AND r.requester_actor_id=NEW.sender_actor_id
+                    AND NEW.text=r.prompt AND NEW.occurred_at=r.created_at AND NEW.recorded_at=r.created_at
+                    AND NEW.role=CASE a.kind WHEN 'owner' THEN 'user' ELSE 'agent' END)
+            BEGIN SELECT RAISE(ABORT,'Browser request entry binding disagrees'); END""",
+    )),
 )
 SCHEMA_VERSION = MIGRATIONS[-1].version

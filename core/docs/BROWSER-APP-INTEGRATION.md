@@ -224,3 +224,25 @@ started CLI where supported; never drive the owner's live native terminal.
 Commit/push the three candidates, merge and deploy under standing authorization,
 preserving the live owner terminal and browser profile. Report tested scope and
 any required native MCP refresh honestly; don't call VM/machine support done.
+
+## Manager clarifications implemented in the core candidate
+
+2026-10-09, decisions 385 and 389. The seven operations and public shapes above
+remain frozen. A fresh-key `browsers_attach` explicitly replaces an attachment
+only after all its requests are terminal. Same-identity endpoint changes require
+all old control intents settled. A freshly validated different Identity may
+replace an unavailable service with unconfirmed intents: retain every original
+endpoint, identity, payload and observed receipt; retire outstanding dispatch
+with `retired_attachment`, preserve an error explaining that release/effect was
+unconfirmed, and send no additional notification. Keep the stable surface UUID.
+The old service is not claimed to have released control or stopped. Old jobs
+cannot dispatch through, or grant readiness to, the replacement attachment.
+
+A fresh-key same-endpoint/same-identity attach is also the explicit idle reconnect
+after service restart, but only with a fresh `reconciling`, not-ready observation,
+no unresolved request, and all prior intents completed. Save one new initialization
+command from that observed binding, increment its epoch, select automation, and
+keep `settled_commands` empty. Original-key replay is unchanged; ready automation
+is a no-op; human/yielding holds and unsettled effects remain fenced. Requests use
+`input_requests_resume` instead. Reads never reopen admission. First attachment
+and replacement likewise never clear an existing human hold or uncertain effect.

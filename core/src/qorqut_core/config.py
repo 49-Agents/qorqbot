@@ -126,6 +126,6 @@ class ConfigView(Model):
     icon_keys: tuple[str, ...] = ICON_KEYS
     api_versions: tuple[int, ...] = (1,)
     event_payload_versions: tuple[int, ...] = (1,)
-    # Transports and independent browser integration have not been implemented.
+    # VM runner setup remains unsupported; attached browsers use protocol 1.
     runner_protocol_versions: tuple[int, ...] = ()
-    browser_protocol_versions: tuple[int, ...] = ()
+    browser_protocol_versions: tuple[int, ...] = (1,)

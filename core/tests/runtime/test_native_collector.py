@@ -456,9 +456,9 @@ class NativeCollection(RuntimeCase):
                 view.source_count = 99
             self.elapsed += 5.01
             self.assertEqual(self.collector.view(self.host["id"]).reason, "observation_stale")
-        self.assertEqual((len(self.app.registry), len(self.app.jobs.handlers)), (17, 5))
+        self.assertEqual((len(self.app.registry), len(self.app.jobs.handlers)), (24, 6))
         with self.app.db.read() as tx:
-            self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 9)
+            self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 10)
             self.assertEqual(tx.connection.execute("PRAGMA foreign_key_check").fetchall(), [])
 
     def test_lost_receipt_recovery_retains_bytes_intent_and_honest_lag(self):

@@ -1,5 +1,7 @@
 D57: [Connected browser integration](BROWSER-APP-INTEGRATION.md) is the current
 implementation contract for attached browsers, durable handoff and the UI stream.
+The [core candidate evidence](evidence/browser-app-core.md) records focused
+installed-package checks; combined acceptance and deployment remain pending.
 
 D56: [Terminal control follows the open view](TERMINAL-AUTO-CONTROL.md)
 supersedes Terminal-viewer hold retention on close/disconnect.
@@ -40,8 +42,9 @@ separating compact Chat presentation from the preserved native pointer.
 for the final bounded collection pass and finite byte evidence after observed exit.
 It does not claim all-source completeness or stop the user's CLI.
 Manager reviews/tests directly;
-workers use Astra MAX with self-review off. Core has schema 9, 17 public
-operations and five handlers. These qualified runs do not establish
+workers use Astra MAX with self-review off. The D57 core candidate has schema 10, 24 public
+operations and six handlers; combined browser/UI acceptance and deployment are
+Manager-owned and pending. These qualified runs do not establish
 complete transcript coverage. Shutdown drain,
 child/attachment support, browser/VM integration and full system gates remain open. D52 resolves the initial seed dependency for the tested Codex flow; Claude
 has unit coverage for the same collector waiting path but no renewed MCP acceptance.

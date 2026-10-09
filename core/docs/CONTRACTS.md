@@ -1,8 +1,11 @@
 D57: [Connected browser integration](BROWSER-APP-INTEGRATION.md) is the current
 implementation contract for attached browsers, durable handoff and the UI stream.
+The [core candidate evidence](evidence/browser-app-core.md) records focused
+installed-package checks; combined acceptance and deployment remain pending.
 
 D56: [Terminal control follows the open view](TERMINAL-AUTO-CONTROL.md)
-supersedes browser-viewer hold retention on close/disconnect.
+supersedes Terminal-viewer hold retention on close/disconnect. Browser viewer
+disconnect retains its human hold under D57.
 
 # Shared backend contracts
 

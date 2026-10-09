@@ -8,11 +8,13 @@ from ..contracts import CoreError, canonical
 from ..files.references import reference_record
 from ..messaging import records
 from .inbox_reference import inbox_references
-from .models import ConversationList, ConversationPage, Entry, FileReferenceSource, MessageSource, NativeSource, Publication, PublishJob
+from .models import BrowserRequestSource, ConversationList, ConversationPage, Entry, FileReferenceSource, MessageSource, NativeSource, Publication, PublishJob
 
 
 def entry_view(row, native=None, reference=None) -> Entry:
-    if row["source_type"] == "file_reference":
+    if row["source_type"] == "browser_request":
+        source = BrowserRequestSource(request_id=row["browser_request_id"])
+    elif row["source_type"] == "file_reference":
         source = FileReferenceSource(reference=reference)
     elif row["source_type"] == "native":
         source = NativeSource(**{key: row[key] for key in (
@@ -42,7 +44,37 @@ class Conversations:
         self.app, self.db = application, application.db
 
     def operations(self):
-        return (Operation("conversation_list", ConversationList, False, self.list, ConversationPage),)
+        return (Operation("conversation_list", ConversationList, False, self.list, ConversationPage,
+            prepare=self.app.browsers.prepare_conversation),)
+
+    def append_browser_request(self, tx, request, *, operation_id):
+        """The creation prompt/actor are immutable; status is a separate read view."""
+        tx.require_write()
+        agent = get_row(tx, request["agent_id"])
+        cursor = tx.connection.execute("SELECT last_seq FROM conversation_cursors WHERE agent_id=?", (agent["id"],)).fetchone()
+        if cursor is None:
+            tx.connection.execute("INSERT INTO conversation_cursors VALUES (?,?,0)", (agent["id"], agent["conversation_id"]))
+        last = cursor[0] if cursor else 0
+        if last == 2**63 - 1:
+            raise CoreError("storage_blocked", "Conversation cursor exhausted")
+        actor = tx.connection.execute("SELECT kind FROM actors WHERE actor_id=?", (request["requester_actor_id"],)).fetchone()
+        entry = Entry(entry_id=self.db.id_factory(), agent_id=agent["id"], conversation_id=agent["conversation_id"],
+            conversation_seq=last + 1, kind="browser_request", role="user" if actor["kind"] == "owner" else "agent",
+            direction="outgoing", text=request["prompt"], sender_actor_id=request["requester_actor_id"],
+            source=BrowserRequestSource(request_id=request["request_id"]), occurred_at=request["created_at"], recorded_at=request["created_at"])
+        date = entry.recorded_at[:10]
+        tx.connection.execute("UPDATE conversation_cursors SET last_seq=? WHERE agent_id=?", (entry.conversation_seq, agent["id"]))
+        tx.connection.execute("""INSERT INTO conversation_entries (entry_id,agent_id,conversation_id,conversation_seq,
+            kind,role,direction,text,sender_actor_id,source_type,browser_request_id,occurred_at,recorded_at,recording_date)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (str(entry.entry_id), agent["id"], agent["conversation_id"], entry.conversation_seq,
+            entry.kind, entry.role, entry.direction, entry.text, str(entry.sender_actor_id), entry.source.type,
+            request["request_id"], entry.occurred_at, entry.recorded_at, date))
+        if tx.connection.execute("SELECT 1 FROM conversation_publications WHERE agent_id=? AND recording_date=?", (agent["id"], date)).fetchone() is None:
+            tx.connection.execute("INSERT INTO conversation_publications (agent_id,recording_date) VALUES (?,?)", (agent["id"], date))
+        self.app.jobs.enqueue(tx, "conversation_publish", PublishJob(agent_id=agent["id"], date=date, required_seq=entry.conversation_seq),
+            operation_id=operation_id, target_id=entry.agent_id)
+        self.db.fault("conversation_after_entry")
+        return entry
 
     def append_native(self, tx, agent_id, item, provenance, *, operation_id=None):
         """Internal SQL-only native insertion; caller verifies the archived bytes."""
@@ -142,7 +174,8 @@ class Conversations:
         return Publication(pending_entries=pending, state="blocked" if error else "pending" if pending else "current",
             error={"code": error[0], "message": error[1]} if error else None)
 
-    def list(self, tx, args, context, operation_id):
+    def list(self, tx, args, context, operation_id, *, browser_observation=(None, None)):
+        from ..browser.service import request_row, request_view
         agent = get_row(tx, args.agent_id)
         epoch = tx.connection.execute("SELECT recovery_epoch FROM installation").fetchone()[0]
         if args.recovery_epoch is not None and str(args.recovery_epoch) != epoch:
@@ -164,7 +197,9 @@ class Conversations:
         items = [{**entry.model_dump(mode="json"),
             "delivery": records.delivery(tx, row["message_id"]) if row["message_id"] else None,
             "handling": records.handling(tx, row["message_id"]) if row["message_id"] else None,
-            "inbox_reference": references.get(entry.entry_id)}
+            "inbox_reference": references.get(entry.entry_id),
+            "browser_request": request_view(tx, request_row(tx, row["browser_request_id"]), *browser_observation)
+                if row["source_type"] == "browser_request" else None}
             for row, entry in zip(rows, entries)]
         first, last = (rows[0]["conversation_seq"], rows[-1]["conversation_seq"]) if rows else (None, None)
         # Empty pages still tell the caller on which side saved entries exist.

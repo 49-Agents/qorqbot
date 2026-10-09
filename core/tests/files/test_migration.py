@@ -60,13 +60,14 @@ class Migration(ChatCase):
                 current = [dict(row) for row in tx.connection.execute(f"SELECT * FROM {table}{clause}")]
                 if table == "conversation_entries":
                     self.assertTrue(all(row.pop("file_reference_id") is None for row in current))
+                    self.assertTrue(all(row.pop("browser_request_id") is None for row in current))
                 self.assertEqual(current, rows, table)
             current_triggers = {r[0] for r in tx.connection.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
             self.assertTrue(triggers <= current_triggers)
-            self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 9)
+            self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 10)
             self.assertEqual(tx.connection.execute("PRAGMA foreign_key_check").fetchall(), [])
             self.assertEqual(tx.connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
-        self.assertEqual((len(self.app.registry), len(self.app.jobs.handlers)), (17, 5))
+        self.assertEqual((len(self.app.registry), len(self.app.jobs.handlers)), (24, 6))
         self.assertEqual(self.path(self.onbash).read_bytes(), old_file)
         self.assertEqual(self.conversation(self.onbash), old_wire)
         self.assertEqual(self.send("legacy", "legacy exact 文\n", recipient=self.onbash), saved)

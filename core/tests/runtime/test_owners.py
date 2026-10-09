@@ -131,8 +131,8 @@ class Owners(RuntimeCase):
             self.assertEqual(len(self.observed), seen)
         with self.assertRaises(ValidationError):
             OwnerCandidate.model_validate({**candidate.model_dump(), "environment_generation": True})
-        self.assertEqual(len(self.app.registry), 17)
-        self.assertEqual(len(self.app.jobs.handlers), 5)
+        self.assertEqual(len(self.app.registry), 24)
+        self.assertEqual(len(self.app.jobs.handlers), 6)
         self.assertNotIn("session_connect", self.app.registry)
 
     def test_stale_release_and_reconcile_cannot_touch_replacement(self):

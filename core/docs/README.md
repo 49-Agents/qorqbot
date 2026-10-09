@@ -14,8 +14,9 @@ and D48 [continued native collection](evidence/native-collection-continuity-mana
 The [actual core/MCP/file-card flow](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/file-reference-integration-manager-acceptance.md)
 also passed bounded acceptance. The [connected Chat checks](CONNECTED-CHAT-ACCEPTANCE.md)
 are recorded at their frozen pins. Manager reviews/tests directly;
-workers use Astra MAX with self-review off. Core has schema 9, 17 public
-operations and five handlers. These qualified results do not establish
+workers use Astra MAX with self-review off. The D57 core candidate has schema 10, 24 public
+operations and six handlers; combined browser/UI acceptance and deployment remain
+Manager-owned. These qualified results do not establish
 complete transcript coverage. Shutdown drain,
 child/attachment support, browser/VM integration and full system gates remain open.
 

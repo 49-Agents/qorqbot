@@ -9,6 +9,7 @@ from pydantic import AfterValidator, Field, model_validator
 from ..adapters.native_records import NativeId
 from ..contracts import Counter, Digest, ErrorCode, Model, Revision, Timestamp
 from ..files.models import FileReference
+from ..browser.models import InputRequestView
 from ..messaging.models import Body, DeliveryView, HandlingView, PageLimit
 
 
@@ -71,17 +72,22 @@ class FileReferenceSource(Model):
     reference: FileReference
 
 
+class BrowserRequestSource(Model):
+    type: Literal["browser_request"] = "browser_request"
+    request_id: UUID
+
+
 class Entry(Model):
     entry_id: UUID
     agent_id: UUID
     conversation_id: UUID
     conversation_seq: Revision
-    kind: Literal["message", "file_reference"]
+    kind: Literal["message", "file_reference", "browser_request"]
     role: Literal["user", "agent"]
     direction: Literal["incoming", "outgoing"]
     text: Body
     sender_actor_id: UUID | None
-    source: Annotated[MessageSource | NativeSource | FileReferenceSource, Field(discriminator="type")]
+    source: Annotated[MessageSource | NativeSource | FileReferenceSource | BrowserRequestSource, Field(discriminator="type")]
     occurred_at: Timestamp
     recorded_at: Timestamp
 
@@ -95,6 +101,7 @@ class ConversationItem(Entry):
     delivery: DeliveryView | None
     handling: HandlingView | None
     inbox_reference: InboxReference | None = None
+    browser_request: InputRequestView | None = None
 
 
 class PublicationError(Model):

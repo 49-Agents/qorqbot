@@ -190,7 +190,7 @@ class NativeProjection(ChatCase):
         self.assertEqual(self.rows("conversation_entries"), [{**row, "file_reference_id": None} for row in old_rows])
         self.assertEqual(self.rows("operations"), old_operations)
         self.assertEqual(self.path(self.onbash).read_bytes(), old_file)
-        self.assertEqual((len(self.app.registry), len(self.app.jobs.handlers)), (17, 5))
+        self.assertEqual((len(self.app.registry), len(self.app.jobs.handlers)), (24, 6))
         self.bind("claude")
         self.observation = "exited"
         self.assertTrue(self.owners.release(UUID(self.binding.run_id), self.candidate.process))

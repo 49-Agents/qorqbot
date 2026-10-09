@@ -9,7 +9,7 @@ import time
 from uuid import UUID
 
 from ..adapters.managed_io import ManagedTree
-from ..adapters.manual_core import prepare_manual_core
+from ..adapters.manual_core import prepare_manual_browser, prepare_manual_core
 from ..adapters.manual_hooks import ManualBinding, prepare_manual_hooks
 from ..adapters.types import AdapterError, ManagedRoots, MCPBinding
 from ..agents.registry import reserved
@@ -68,6 +68,10 @@ class NativeSetup:
                     job = tx.connection.execute("SELECT recovery_epoch,wait_reason FROM jobs WHERE job_id=?",
                                                 (row["provisioning_job_id"],)).fetchone()
                     terminal = self.app.terminals.get(tx, TerminalGet(agent_id=agent_id), None, None).data
+                    attachment = self.app.browsers.attachment(tx, agent_id)
+                    if attachment and attachment["recovery_epoch"] != installation["recovery_epoch"]:
+                        self._publish(agent_id, "blocked", "recovery_review")
+                        return
                 settings = self.app.settings.local_terminal
                 if settings is None or not settings.native_programs:
                     self._publish(agent_id, "disabled", "not_configured")
@@ -113,11 +117,14 @@ class NativeSetup:
                             if (current["actor_id"] != row["actor_id"] or current["conversation_id"] != row["conversation_id"]
                                     or current_job is None or tuple(current_job) != tuple(job)):
                                 raise AdapterError("Native setup binding changed")
+                            current_browser = self.app.browsers.attachment(tx, agent_id)
+                            if (current_browser and current_browser["attachment_id"]) != (attachment and attachment["attachment_id"]):
+                                raise AdapterError("Native browser attachment changed")
                         return identities
 
                     identities = checked()
                     key = (binding, row["actor_id"], settings, self.app.settings.listen_address,
-                           self.app.settings.listen_port, identities)
+                           self.app.settings.listen_port, identities, attachment and attachment["attachment_id"])
                     with self._lock:
                         installed = self._installed
                     if key != installed:
@@ -128,6 +135,11 @@ class NativeSetup:
                         prepare_manual_hooks(roots, binding, core, settings.native_programs,
                             (str(settings.python_executable), "-I", "-m", "qorqut_core.runtime.hook_client"))
                         checked()
+                        if attachment:
+                            browser = MCPBinding(url=attachment["service_url"] + "/mcp",
+                                headers=(("X-Qorqut-Actor", row["actor_id"]),))
+                            prepare_manual_browser(roots, binding, browser, settings.native_programs)
+                            checked()
                         with self._lock:
                             self._installed = key
                     self._startup.observe(Invocation(actor_id=row["actor_id"]), terminal=shell,

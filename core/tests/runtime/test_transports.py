@@ -48,7 +48,7 @@ class RuntimeTransports(unittest.IsolatedAsyncioTestCase):
             operation = next(op for op in schema["operations"] if op["name"] == "runtime_get")
             self.assertFalse(operation["mutation"])
             self.assertEqual(operation["input_schema"], tools["runtime_get"].inputSchema)
-            self.assertEqual(len(tools), 17)
+            self.assertEqual(len(tools), 24)
             self.assertFalse({"session_connect", "session_release", "runtime_start"} & tools.keys())
             args = {"agent_id": agent_id}
             direct = (await http.post("/api/v1/operations/runtime_get", json=args)).json()

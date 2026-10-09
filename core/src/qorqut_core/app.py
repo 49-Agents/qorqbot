@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -142,6 +143,7 @@ class Application:
         """Pure assembly; caller must explicitly initialize/open storage first."""
         from .agents.registry import Agents
         from .agents.workspace import Workspaces
+        from .browser.service import Browsers
         from .conversation.ledger import Conversations
         from .conversation.publication import Publisher
         from .files.references import FileReferences
@@ -164,8 +166,9 @@ class Application:
         self.messaging = Messaging(self)
         self.message_dispatcher = MessageDispatcher(self)
         self.file_references = FileReferences(self)
+        self.browsers = Browsers(self)
         self.jobs = Jobs(database, (self.files.handler(), *self.workspaces.handlers(),
-            self.messaging.handler(), self.publisher.handler()))
+            self.messaging.handler(), self.publisher.handler(), self.browsers.handler()))
         self.files.jobs = self.jobs
         self.workspaces.jobs = self.jobs
         self.agents = Agents(self)
@@ -186,6 +189,7 @@ class Application:
             *self.session_owners.operations(),
             *self.terminals.operations(),
             *self.file_references.operations(),
+            *self.browsers.operations(),
         )
         self.registry = MappingProxyType({op.name: op for op in operations})
 
@@ -294,12 +298,12 @@ class Application:
             raise CoreError("invalid_argument", "Mutation schema must require an idempotency key")
         hashed = canonical_hash({"version": 1, "arguments": validated.model_dump(mode="json", exclude={"idempotency_key"})})
         if operation.prepare is not None:
-            if not operation.mutation:
-                raise CoreError("invalid_transition", "Preparation requires a mutation")
-            with self.db.lock.use(), self.db.lock.effects:
+            # Prepared reads observe bounded external state before opening SQL;
+            # mutations retain the existing serialized effect/receipt boundary.
+            with self.db.lock.use(), self.db.lock.effects if operation.mutation else nullcontext():
                 with self.db.read() as tx:
                     _check_actor(tx, context)
-                    prior = _prior_result(tx, operation, context, validated, hashed)
+                    prior = _prior_result(tx, operation, context, validated, hashed) if operation.mutation else None
                     if prior is not None:
                         return prior
                 handler = operation.prepare(validated, context)

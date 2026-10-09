@@ -13,8 +13,9 @@ The [actual core/MCP/file-card flow](https://github.com/qorqutbot/qorqutbot-ui/b
 also passed bounded acceptance. Next, two parallel [connected Chat checks](CONNECTED-CHAT-ACCEPTANCE.md)
 exercise manually started Claude and Codex through real MCP calls, replies,
 automatic dated history and core restart. Manager reviews/tests directly;
-workers use Astra MAX with self-review off. Core has schema 9, 17 public
-operations and five handlers. These component results do not yet establish
+workers use Astra MAX with self-review off. The D57 core candidate has schema 10, 24 public
+operations and six handlers; combined browser/UI acceptance and deployment remain
+Manager-owned. These component results do not yet establish
 native Chat dispatch or complete transcript coverage. Shutdown drain,
 child/attachment support, browser/VM integration and full system gates remain open.
 

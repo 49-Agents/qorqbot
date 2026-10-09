@@ -217,7 +217,7 @@ class Jobs:
                     recovery_epoch=(SELECT recovery_epoch FROM installation) AND
                     external_effect=1 AND state='uncertain' AND
                     wait_reason='reconciliation_required' AND
-                    kind IN ('file_install','conversation_publish','message_delivery') AND
+                    kind IN ('file_install','conversation_publish','message_delivery','browser_control') AND
                     (next_attempt_at IS NULL OR next_attempt_at<=?)
                     ORDER BY next_attempt_at,created_at,job_id LIMIT ?""",
                     (self.db.clock(), limit)).fetchall()

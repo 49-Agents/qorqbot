@@ -53,32 +53,32 @@ def _instructions(binding):
         f"{END}\n")
 
 
-def _instruction_file(raw, previous, desired):
+def _instruction_file(raw, previous, desired, *, begin=BEGIN, end=END):
     content = raw or b""
     block = desired.encode("utf-8")
     old = previous.encode("utf-8") if previous is not None else block
-    if previous is not None or BEGIN.encode() in content or END.encode() in content:
-        if (content.count(old) != 1 or content.count(BEGIN.encode()) != 1
-                or content.count(END.encode()) != 1):
+    if previous is not None or begin.encode() in content or end.encode() in content:
+        if (content.count(old) != 1 or content.count(begin.encode()) != 1
+                or content.count(end.encode()) != 1):
             raise AdapterError("Owned core instruction block was changed")
         return content.replace(old, block, 1)
     return content + (b"\n\n" if content else b"") + block
 
 
-def _claude(raw, previous, desired):
+def _claude(raw, previous, desired, *, name="qorqut-core"):
     config = _object(raw)
     servers = config.setdefault("mcpServers", {})
     if not isinstance(servers, dict):
         raise AdapterError("Invalid Claude MCP server configuration")
-    present = servers.get("qorqut-core")
+    present = servers.get(name)
     if previous is not None:
         if _typed(present) != _typed(previous):
             raise AdapterError("Owned Claude core entry was changed")
-    elif "qorqut-core" in servers and _typed(present) != _typed(desired):
+    elif name in servers and _typed(present) != _typed(desired):
         raise AdapterError("Unowned Claude core entry conflicts")
     if _typed(present) == _typed(desired):
         return raw
-    servers["qorqut-core"] = desired
+    servers[name] = desired
     return json_bytes(config)
 
 
@@ -92,8 +92,8 @@ def _toml(raw):
         raise AdapterError("Invalid Codex core configuration") from None
 
 
-def _codex_table(entry):
-    table = 'mcp_servers."qorqut-core"'
+def _codex_table(entry, name="qorqut-core"):
+    table = "mcp_servers." + json.dumps(name)
     lines = [f"[{table}]", "url = " + json.dumps(entry["url"], ensure_ascii=False),
              "required = false", f"[{table}.http_headers]"]
     lines.extend(json.dumps(key, ensure_ascii=False) + " = " + json.dumps(value, ensure_ascii=False)
@@ -101,27 +101,27 @@ def _codex_table(entry):
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
-def _codex(raw, previous, desired):
+def _codex(raw, previous, desired, *, name="qorqut-core"):
     config = _toml(raw)
     servers = config.get("mcp_servers", {})
-    present = servers.get("qorqut-core")
+    present = servers.get(name)
     if previous is not None:
         if _typed(present) != _typed(previous):
             raise AdapterError("Owned Codex core table was changed")
-    elif "qorqut-core" in servers and _typed(present) != _typed(desired):
+    elif name in servers and _typed(present) != _typed(desired):
         raise AdapterError("Unowned Codex core table conflicts")
     if _typed(present) == _typed(desired):
         return raw  # Preserve every byte, including native-added trust tables.
     if previous is not None:
-        old = _codex_table(previous)
+        old = _codex_table(previous, name)
         if raw.count(old) != 1:
             raise AdapterError("Replacing the changed Codex core table is unsupported")
-        body = raw.replace(old, _codex_table(desired), 1)
+        body = raw.replace(old, _codex_table(desired, name), 1)
     else:
-        body = (raw or b"") + b"\n" + _codex_table(desired)
+        body = (raw or b"") + b"\n" + _codex_table(desired, name)
     # Inline/otherwise closed native table shapes may not accept an append.
     # Refuse those shapes without attempting a whole-document rewrite.
-    expected = {**config, "mcp_servers": {**servers, "qorqut-core": desired}}
+    expected = {**config, "mcp_servers": {**servers, name: desired}}
     if _typed(_toml(body)) != _typed(expected):
         raise AdapterError("Updating the Codex core table is unsupported")
     return body
@@ -129,6 +129,23 @@ def _codex(raw, previous, desired):
 
 def prepare_manual_core(roots: ManagedRoots, binding: ManualBinding, core: MCPBinding,
                         programs: tuple[NativeProgram, ...]) -> tuple[Path, ...]:
+    return _prepare(roots, binding, core, programs, server_name="qorqut-core", manifest_path=MANIFEST,
+        owned_key="core", instructions=_instructions(binding), begin=BEGIN, end=END)
+
+
+def prepare_manual_browser(roots: ManagedRoots, binding: ManualBinding, browser: MCPBinding,
+                           programs: tuple[NativeProgram, ...]) -> tuple[Path, ...]:
+    begin, end = "<!-- QORQUT BROWSER INSTRUCTIONS BEGIN -->", "<!-- QORQUT BROWSER INSTRUCTIONS END -->"
+    block = (f"{begin}\nUse qorqut-browser MCP tools for your owned browser. Request input with "
+        "browser_request_input when the user must act, retaining the original idempotency key on retry. "
+        "After a completion or cancellation notification, inspect the browser again before continuing; "
+        "the notification does not establish the result of an action.\n" + end + "\n")
+    return _prepare(roots, binding, browser, programs, server_name="qorqut-browser",
+        manifest_path=".qorqut/manual-browser/preparation.json", owned_key="browser",
+        instructions=block, begin=begin, end=end)
+
+
+def _prepare(roots, binding, core, programs, *, server_name, manifest_path, owned_key, instructions, begin, end):
     roots, binding, core = (ManagedRoots.model_validate(roots), ManualBinding.model_validate(binding),
                             MCPBinding.model_validate(core))
     programs = tuple(NativeProgram.model_validate(program) for program in programs)
@@ -151,7 +168,7 @@ def prepare_manual_core(roots: ManagedRoots, binding: ManualBinding, core: MCPBi
             prior = tree.read(marker)
             if prior is not None and prior != identity_bytes:
                 raise AdapterError("Managed roots belong to another binding")
-        manifest_before = trees["workspace"].read(MANIFEST)
+        manifest_before = trees["workspace"].read(manifest_path)
         manifest = _object(manifest_before)
         if manifest and (manifest.get("identity") != identity or type(manifest.get("schema_version")) is not int
                          or manifest["schema_version"] != 1):
@@ -163,8 +180,8 @@ def prepare_manual_core(roots: ManagedRoots, binding: ManualBinding, core: MCPBi
         for program in programs:
             provider = program.provider
             previous = owned.get(provider)
-            if provider in owned and (not isinstance(previous, dict) or set(previous) != {"core", "instructions"}
-                    or not isinstance(previous["core"], dict) or not isinstance(previous["instructions"], str)):
+            if provider in owned and (not isinstance(previous, dict) or set(previous) != {owned_key, "instructions"}
+                    or not isinstance(previous[owned_key], dict) or not isinstance(previous["instructions"], str)):
                 raise AdapterError("Invalid manual core ownership record")
             if provider == "claude":
                 root, path, merge = "workspace", ".mcp.json", _claude
@@ -173,15 +190,15 @@ def prepare_manual_core(roots: ManagedRoots, binding: ManualBinding, core: MCPBi
                 root, path, merge = "home", CODEX_CONFIG, _codex
                 desired = {"url": core.url, "required": False, "http_headers": dict(core.headers)}
             before = trees[root].read(path)
-            files[root, path] = (before, merge(before, previous["core"] if previous is not None else None, desired))
+            files[root, path] = (before, merge(before, previous[owned_key] if previous is not None else None, desired, name=server_name))
             instruction_path = "CLAUDE.md" if provider == "claude" else "AGENTS.md"
             before = trees["workspace"].read(instruction_path)
-            block = _instructions(binding)
+            block = instructions
             files["workspace", instruction_path] = (before, _instruction_file(
-                before, previous["instructions"] if previous is not None else None, block))
-            owned[provider] = {"core": desired, "instructions": block}
+                before, previous["instructions"] if previous is not None else None, block, begin=begin, end=end))
+            owned[provider] = {owned_key: desired, "instructions": block}
         manifest_body = json_bytes({"schema_version": 1, "identity": identity, "providers": owned})
-        files["workspace", MANIFEST] = (manifest_before, manifest_body)
+        files["workspace", manifest_path] = (manifest_before, manifest_body)
         for body in (identity_bytes, *(body for _, body in files.values())):
             validate_generated_size(body)
         for (root, path), (before, _) in files.items():
@@ -198,4 +215,4 @@ def prepare_manual_core(roots: ManagedRoots, binding: ManualBinding, core: MCPBi
         for (root, path), (_, body) in files.items():
             if trees[root].read(path) != body:
                 raise AdapterError("Core configuration changed during preparation")
-    return tuple(getattr(roots, root) / path for root, path in files if path != MANIFEST)
+    return tuple(getattr(roots, root) / path for root, path in files if path != manifest_path)

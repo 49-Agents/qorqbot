@@ -137,7 +137,18 @@ class Agents:
             persona=args.persona, kind="vm")
 
     def get(self, tx, args, context, operation_id):
-        return Change(view(get_row(tx, args.agent_id)))
+        return Change(self.read_view(tx, get_row(tx, args.agent_id)))
+
+    @staticmethod
+    def read_view(tx, row):
+        # Explicit migration rehearsals may read pre-D57 directories; ordinary
+        # Application.open still requires the current schema before assembly.
+        if tx.connection.execute("PRAGMA user_version").fetchone()[0] < 10:
+            return view(row)
+        unresolved = tx.connection.execute("SELECT 1 FROM input_requests WHERE agent_id=? AND state IN ('requested','ready','interrupted') LIMIT 1",
+            (row["id"],)).fetchone() is not None
+        original = view(row)
+        return original.model_copy(update={"needs_user_input": original.needs_user_input or unresolved})
 
     def list(self, tx, args, context, operation_id):
         host = reserved(tx)
@@ -146,7 +157,7 @@ class Agents:
             raise CoreError("target_changed", "Agent cursor belongs to another recovery epoch")
         rows = tx.connection.execute("SELECT * FROM agents WHERE id>? ORDER BY id LIMIT ?",
             (str(args.after_id) if args.after_id is not None else "", args.limit + 1)).fetchall()
-        items = [view(row) for row in rows[:args.limit]]
+        items = [self.read_view(tx, row) for row in rows[:args.limit]]
         return Change(AgentPage(items=items, next_after_id=items[-1].id if items else args.after_id,
             has_more=len(rows) > args.limit, recovery_epoch=epoch, onbash_agent_id=host["id"]))
 
