@@ -1,4 +1,4 @@
-"""D41's owning boundary: synthetic terminal recordings and the real Archive.
+"""D41/D50's owning boundary: original terminal chunks and real host ranges.
 
 Normal installed-server acceptance is recorded separately. No native session,
 provider call, live installation or new transfer protocol is a fixture here.
@@ -89,6 +89,10 @@ class TerminalArchiveTests(AgentCase):
     def payloads(self):
         return [row["payload"] for row in self.local_rows("capture_chunks")]
 
+    def ledger(self):
+        return [{name: row[name] for name in ("offset", "length", "sha256")}
+                for row in self.local_rows("capture_chunks")]
+
     def host_chunks(self):
         return [row for row in self.rows("archive_chunks") if row["source_id"] == self.key[0]]
 
@@ -153,55 +157,80 @@ class TerminalArchiveTests(AgentCase):
         payloads = [bytes([i]) * (i % 17 + 1) for i in range(130)]
         for payload in payloads:
             self.append(payload)
-        before = self.local_rows("capture_chunks")
+        before = self.ledger()
+        manifests, pending_calls, receipt_calls = [], [], []
+        real_receive = self.app.archive.receive
+        pending, receipts = CaptureSpool.pending, CaptureSpool.receipts
+        def received(*args):
+            manifests.append(json.loads(self.intent()["chunks_json"]))
+            return real_receive(*args)
+        def pending_page(spool, *args, **kwargs):
+            pending_calls.append(kwargs)
+            return pending(spool, *args, **kwargs)
+        def receipt_page(spool, *args, **kwargs):
+            receipt_calls.append(kwargs)
+            return receipts(spool, *args, **kwargs)
         with patch.object(terminal_archive, "monotonic", return_value=0.0), \
                 patch.object(self.app.archive, "state", side_effect=AssertionError("state cannot authorize ACK")), \
-                patch.object(self.app.archive, "receive", wraps=self.app.archive.receive) as receive:
+                patch.object(CaptureSpool, "pending", pending_page), \
+                patch.object(CaptureSpool, "receipts", receipt_page), \
+                patch.object(self.app.archive, "receive", side_effect=received) as receive:
             self.transfer()
         calls = [call.args[2] for call in receive.call_args_list]
-        self.assertEqual(len(calls), 128)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(manifests, [{"version": 1, "chunks": before[:128]}])
+        offsets = [before[i]["offset"] for i in range(0, 128, 16)]
+        self.assertEqual([c["after"] for c in pending_calls], offsets * 2)
+        self.assertEqual([c["after"] for c in receipt_calls], offsets)
+        self.assertTrue(all(c["limit"] == 16 for c in pending_calls + receipt_calls))
+        self.assertEqual({c["through"] for c in receipt_calls}, {sum(map(len, payloads[:128]))})
         self.assertEqual(self.state()["host_archived_offset"], sum(map(len, payloads[:128])))
         self.assertEqual(self.payloads(), [None] * 128 + payloads[128:])
         self.assertEqual(self.host_bytes(), b"".join(payloads[:128]))
         self.assertIsNone(self.intent())
         self.restart()
+        real_receive = self.app.archive.receive
         with patch.object(terminal_archive, "monotonic", return_value=0.0), \
                 patch.object(self.app.archive, "state", side_effect=AssertionError("state cannot authorize ACK")), \
-                patch.object(self.app.archive, "receive", wraps=self.app.archive.receive) as receive:
+                patch.object(self.app.archive, "receive", side_effect=received) as receive:
             self.transfer()
         calls += [call.args[2] for call in receive.call_args_list]
-        self.assertEqual([chunk.payload for chunk in calls], payloads)
-        self.assertEqual([(r["offset"], r["length"], r["sha256"]) for r in before],
-                         [(c.offset, c.length, c.sha256) for c in calls])
-        self.assertEqual(len(self.host_chunks()), 130)
+        self.assertEqual([chunk.payload for chunk in calls], [b"".join(payloads[:128]), b"".join(payloads[128:])])
+        self.assertEqual(manifests[-1], {"version": 1, "chunks": before[128:]})
+        self.assertEqual(self.ledger(), before)
+        self.assertEqual(len(self.host_chunks()), 2)
         self.assertEqual(self.host_bytes(), b"".join(payloads))
         self.assertEqual(self.state()["host_archived_offset"], sum(map(len, payloads)))
         self.assertEqual(self.payloads(), [None] * 130)
         self.assertIsNone(self.intent())
 
     def test_byte_budget_never_splits_or_skips_the_next_original_chunk(self):
-        payloads = [b"x"] + [bytes([i]) * CHUNK_BYTES for i in range(4)] + [b"tail"]
+        payloads = [b"x", b"yz"] + [bytes([i]) * CHUNK_BYTES for i in range(4)] + [b"tail"]
         for payload in payloads:
             self.append(payload)
+        before = self.ledger()
+        ranges = [b"xyz"] + payloads[2:]
         with patch.object(terminal_archive, "monotonic", return_value=0.0), \
                 patch.object(self.app.archive, "receive", wraps=self.app.archive.receive) as receive:
             self.transfer()
-            self.assertEqual([call.args[2].payload for call in receive.call_args_list], payloads[:4])
-            self.assertEqual(self.state()["host_archived_offset"], 1 + 3 * CHUNK_BYTES)
-            self.assertEqual(self.payloads(), [None] * 4 + payloads[4:])
+            self.assertEqual([call.args[2].payload for call in receive.call_args_list], ranges[:4])
+            self.assertEqual(self.state()["host_archived_offset"], 3 + 3 * CHUNK_BYTES)
+            self.assertEqual(self.payloads(), [None] * 5 + payloads[5:])
             self.assertIsNone(self.intent())
             self.transfer()
-            self.assertEqual([call.args[2].payload for call in receive.call_args_list], payloads)
+            self.assertEqual([call.args[2].payload for call in receive.call_args_list], ranges)
         self.assertEqual(self.host_bytes(), b"".join(payloads))
+        self.assertEqual(self.ledger(), before)
         self.assertEqual(self.payloads(), [None] * len(payloads))
         self.assertIsNone(self.intent())
 
-    def test_time_budget_allows_first_chunk_and_completes_receipt_ack_cleanup(self):
+    def test_time_budget_allows_first_range_and_completes_receipt_ack_cleanup(self):
         for setup_delay, chunk_delay, count in ((0.25, 0.0, 1), (0.0, 0.125, 2),
                                                (0.0, 0.2, 1), (0.0, 1.0, 1)):
             with self.subTest(setup_delay=setup_delay, chunk_delay=chunk_delay):
                 self.new_terminal()
-                payloads = [b"first", b"second", b"third"]
+                payloads = [bytes([i]) * (CHUNK_BYTES // 2) for i in range(6)]
+                ranges = [b"".join(payloads[i:i + 2]) for i in range(0, 6, 2)]
                 for payload in payloads:
                     self.append(payload)
                 now = 0.0
@@ -221,9 +250,9 @@ class TerminalArchiveTests(AgentCase):
                         patch.object(self.app.archive, "receive", side_effect=delayed_receive) as received:
                     self.transfer()
                 self.assertEqual(received.call_count, count)
-                self.assertEqual(self.state()["host_archived_offset"], sum(map(len, payloads[:count])))
-                self.assertEqual(self.host_bytes(), b"".join(payloads[:count]))
-                self.assertEqual(self.payloads(), [None] * count + payloads[count:])
+                self.assertEqual(self.state()["host_archived_offset"], count * CHUNK_BYTES)
+                self.assertEqual(self.host_bytes(), b"".join(ranges[:count]))
+                self.assertEqual(self.payloads(), [None] * (2 * count) + payloads[2 * count:])
                 self.assertIsNone(self.intent())
 
     def test_interrupted_receive_receipt_ack_reclaim_and_retirement_retry(self):
@@ -232,8 +261,10 @@ class TerminalArchiveTests(AgentCase):
             with self.subTest(point=point):
                 self.new_terminal()
                 self.transfer()  # Empty source registration/table initialization only.
-                payload = b"raw\x00\xff exact partial bytes"
-                self.append(payload)
+                payloads = [b"raw\x00\xff" + bytes([i]) for i in range(17)]
+                for part in payloads:
+                    self.append(part)
+                payload, before = b"".join(payloads), self.ledger()
                 real_receive, calls = self.app.archive.receive, []
                 def receive(context, binding, chunk):
                     calls.append((binding, chunk))
@@ -270,6 +301,7 @@ class TerminalArchiveTests(AgentCase):
                     self.assertEqual(json.loads(intent["binding"]), asdict(self.binding))
                     self.assertEqual((intent["offset"], intent["length"], intent["sha256"]),
                                      (0, len(payload), hashlib.sha256(payload).hexdigest()))
+                    self.assertEqual(json.loads(intent["chunks_json"]), {"version": 1, "chunks": before})
                     if point in {"receive_before", "receive_after", "receipt"}:
                         self.assertIsNone(intent["receipt"])
                     else:
@@ -277,23 +309,221 @@ class TerminalArchiveTests(AgentCase):
                         self.assertEqual(receipt.host_archived_offset, len(payload))
                 acked = point in {"ack_after", "reclaim_before", "reclaim_after", "retire"}
                 self.assertEqual(self.state()["host_archived_offset"], len(payload) if acked else 0)
-                self.assertEqual(self.payloads(), [None if point in {"reclaim_after", "retire"} else payload])
+                self.assertEqual(self.payloads(), [None] * 17 if point in {"reclaim_after", "retire"} else payloads)
                 with connect(self.database) as local, local:
                     local.execute("DROP TRIGGER IF EXISTS interrupted")
                 self.restart()  # Retry through newly opened host/local connections.
-                with patch.object(self.app.archive, "receive", wraps=self.app.archive.receive) as retried:
+                # New recording bytes must never enlarge a persisted old range.
+                for part in (b"new output", b" during retry"):
+                    self.append(part)
+                retry_intents = []
+                real_receive = self.app.archive.receive
+                def retry(*args):
+                    retry_intents.append(self.intent())
+                    return real_receive(*args)
+                with patch.object(terminal_archive, "monotonic", return_value=0.0), \
+                        patch.object(self.app.archive, "receive", side_effect=retry) as retried:
                     self.transfer()
                 if point in {"intent", "receive_before", "receive_after", "receipt"}:
-                    self.assertEqual(retried.call_count, 1)
+                    self.assertEqual(retried.call_count, 1 if point == "intent" else 2)
                     if calls:
-                        self.assertEqual(retried.call_args.args[1:], calls[0])
+                        self.assertEqual(retried.call_args_list[0].args[1:], calls[0])
+                        self.assertEqual(retry_intents[0], intent)
                 else:
-                    self.assertEqual(retried.call_count, 0)
-                self.assertEqual(self.state()["host_archived_offset"], len(payload))
-                self.assertEqual(self.payloads(), [None])
-                self.assertEqual(self.host_bytes(), payload)
-                self.assertEqual(len(self.host_chunks()), 1)
+                    self.assertEqual(retried.call_count, 1)
+                    self.assertEqual(retried.call_args.args[2].offset, len(payload))
+                self.assertEqual(self.state()["host_archived_offset"], len(payload) + 23)
+                self.assertEqual(self.payloads(), [None] * 19)
+                self.assertEqual(self.ledger()[:17], before)
+                self.assertEqual(self.host_bytes(), payload + b"new output during retry")
+                self.assertEqual(len(self.host_chunks()), 1 if point == "intent" else 2)
                 self.assertIsNone(self.intent())
+
+    def test_invalid_manifest_ledger_or_payload_never_authorizes_ack(self):
+        cases = ("json", "null", "fields", "version", "boolean_version", "empty", "count", "size",
+                 "entry_fields", "boolean_offset", "boolean_length", "zero_length", "large_length",
+                 "overflow", "gap", "order", "total", "hash", "aggregate", "ledger", "missing", "payload")
+        for failure in cases:
+            with self.subTest(failure=failure):
+                self.new_terminal()
+                for i in range(17):
+                    self.append(bytes([i, 255, 0]))
+                with patch.object(self.app.archive, "receive", side_effect=OSError("offline")), self.assertRaises(OSError):
+                    self.transfer()
+                manifest = json.loads(self.intent()["chunks_json"])
+                entries = manifest["chunks"]
+                if failure == "fields":
+                    manifest["extra"] = 1
+                elif failure in {"version", "boolean_version"}:
+                    manifest["version"] = 2 if failure == "version" else True
+                elif failure == "empty":
+                    manifest["chunks"] = []
+                elif failure == "count":
+                    manifest["chunks"] = entries * 8
+                elif failure == "entry_fields":
+                    entries[-1]["extra"] = 1
+                elif failure == "boolean_offset":
+                    entries[0]["offset"] = False
+                elif failure == "boolean_length":
+                    entries[-1]["length"] = True
+                elif failure in {"zero_length", "large_length"}:
+                    entries[-1]["length"] = 0 if failure == "zero_length" else CHUNK_BYTES + 1
+                elif failure == "overflow":
+                    entries[-1]["offset"] = 2**63 - 1
+                elif failure == "gap":
+                    entries[-1]["offset"] += 1
+                elif failure == "order":
+                    entries[0], entries[1] = entries[1], entries[0]
+                elif failure == "total":
+                    entries.pop()
+                elif failure == "hash":
+                    entries[-1]["sha256"] = "a" * 64
+                raw = {"json": "{", "null": "null", "size": " " * 32769}.get(failure, json.dumps(manifest))
+                with connect(self.database) as local, local:
+                    local.execute("UPDATE terminal_archive_transfers SET chunks_json=?", (raw,))
+                    if failure == "aggregate":
+                        local.execute("UPDATE terminal_archive_transfers SET sha256=?", ("a" * 64,))
+                    elif failure == "ledger":
+                        local.execute("UPDATE capture_chunks SET sha256=? WHERE offset=48", ("a" * 64,))
+                    elif failure in {"missing", "payload"}:
+                        local.execute("UPDATE capture_chunks SET payload=? WHERE offset=48",
+                                      (None if failure == "missing" else b"bad",))
+                before, intent = self.payloads(), self.intent()
+                with patch.object(self.app.archive, "receive", side_effect=AssertionError("invalid receive")), \
+                        patch.object(CaptureSpool, "acknowledge", side_effect=AssertionError("invalid ACK")), \
+                        self.assertRaises((CoreError, ValueError, CaptureError)):
+                    self.transfer()
+                self.assertEqual(self.state()["host_archived_offset"], 0)
+                self.assertEqual(self.payloads(), before)
+                self.assertEqual(self.intent(), intent)
+                self.assertEqual(self.host_chunks(), [])
+
+        # A saved receipt cannot skip manifest/ledger validation after reclaim.
+        for failure in ("hash", "ledger", "gap", "null", "duplicate"):
+            with self.subTest(reclaimed=failure):
+                self.new_terminal()
+                self.transfer()
+                for i in range(17):
+                    self.append(bytes([i]))
+                with connect(self.database) as local, local:
+                    local.execute("CREATE TRIGGER interrupted BEFORE DELETE ON terminal_archive_transfers "
+                                  "BEGIN SELECT RAISE(FAIL,'retirement interrupted'); END")
+                with self.assertRaises(sqlite3.Error):
+                    self.transfer()
+                self.assertEqual(self.payloads(), [None] * 17)
+                manifest = json.loads(self.intent()["chunks_json"])
+                if failure == "hash":
+                    manifest["chunks"][-1]["sha256"] = "a" * 64
+                elif failure == "gap":
+                    manifest["chunks"][-1]["offset"] += 1
+                raw = json.dumps(manifest)
+                if failure == "duplicate":
+                    raw = raw.replace('"version": 1', '"version": 2, "version": 1')
+                with connect(self.database) as local, local:
+                    local.execute("DROP TRIGGER interrupted")
+                    local.execute("UPDATE terminal_archive_transfers SET chunks_json=?",
+                                  (None if failure == "null" else raw,))
+                    if failure == "ledger":
+                        local.execute("UPDATE capture_chunks SET sha256=? WHERE offset=16", ("a" * 64,))
+                intent = self.intent()
+                self.restart()
+                with patch.object(CaptureSpool, "pending", side_effect=AssertionError("reclaimed payload needed")), \
+                        patch.object(CaptureSpool, "acknowledge", side_effect=AssertionError("invalid ACK")), \
+                        patch.object(CaptureSpool, "reclaim", side_effect=AssertionError("invalid cleanup")), \
+                        self.assertRaises((CoreError, ValueError, CaptureError)):
+                    self.transfer()
+                self.assertEqual(self.intent(), intent)
+                self.assertEqual(self.state()["host_archived_offset"], 17)
+
+    def test_pending_pages_must_keep_source_epoch_contiguity_and_cursor(self):
+        for failure in ("source", "epoch", "offset", "hash", "cursor"):
+            with self.subTest(failure=failure):
+                self.new_terminal()
+                for i in range(17):
+                    self.append(bytes([i]))
+                pending = CaptureSpool.pending
+                def changed(spool, *args, **kwargs):
+                    page = pending(spool, *args, **kwargs)
+                    if kwargs["after"] == 16:
+                        chunk = page.chunks[0]
+                        if failure == "cursor":
+                            return replace(page, next_offset=18)
+                        updates = {"source": {"source_id": str(uuid4())},
+                                   "epoch": {"source_epoch": str(uuid4())},
+                                   "offset": {"offset": 17}, "hash": {"sha256": "a" * 64}}
+                        return replace(page, chunks=(replace(chunk, **updates[failure]),))
+                    return page
+                with patch.object(CaptureSpool, "pending", changed), \
+                        patch.object(self.app.archive, "receive", side_effect=AssertionError("invalid receive")), \
+                        self.assertRaises(ValueError):
+                    self.transfer()
+                self.assertEqual(self.state()["host_archived_offset"], 0)
+                self.assertIsNone(self.intent())
+                self.assertTrue(all(p is not None for p in self.payloads()))
+
+    def test_legacy_intents_upgrade_and_replay_before_and_after_saved_receipt(self):
+        for stage in ("before_receipt", "saved_receipt", "acked", "reclaimed"):
+            with self.subTest(stage=stage):
+                self.new_terminal()
+                payloads = [b"earlier host object", b"legacy pending", b"new", b" range"]
+                for payload in payloads:
+                    self.append(payload)
+                before = self.ledger()
+                host = self.app.archive.register(self.agent_context, self.binding, self.source,
+                                                self.key[1], self.metadata)
+                with CaptureSpool(self.database) as spool:
+                    chunks = spool.pending(*self.key).chunks
+                    prior = self.app.archive.receive(self.agent_context, self.binding, chunks[0])
+                    spool.acknowledge(*self.key, prior.host_archived_offset)
+                    spool.reclaim(*self.key)
+                    legacy = chunks[1]
+                    receipt = None
+                    if stage != "before_receipt":
+                        receipt = self.app.archive.receive(self.agent_context, self.binding, legacy)
+                        if stage in {"acked", "reclaimed"}:
+                            spool.acknowledge(*self.key, receipt.host_archived_offset)
+                        if stage == "reclaimed":
+                            spool.reclaim(*self.key)
+                # Genuine pre-D50 table and row; no new manifest was ever stored.
+                with connect(self.database) as local, local:
+                    local.execute("""CREATE TABLE terminal_archive_transfers (
+                        source_id TEXT NOT NULL, source_epoch TEXT NOT NULL,
+                        binding TEXT NOT NULL, offset INTEGER NOT NULL CHECK(offset >= 0),
+                        length INTEGER NOT NULL CHECK(length BETWEEN 1 AND 262144),
+                        sha256 TEXT NOT NULL CHECK(length(sha256)=64),
+                        recovery_epoch TEXT NOT NULL, receipt TEXT,
+                        PRIMARY KEY(source_id,source_epoch),
+                        FOREIGN KEY(source_id,source_epoch) REFERENCES capture_epochs(source_id,source_epoch)
+                    )""")
+                    local.execute("INSERT INTO terminal_archive_transfers VALUES (?,?,?,?,?,?,?,?)",
+                        (*self.key, json.dumps(asdict(self.binding)), legacy.offset, legacy.length,
+                         legacy.sha256, host.recovery_epoch, receipt.model_dump_json() if receipt else None))
+                self.restart()
+                receive, received, manifests = self.app.archive.receive, [], []
+                def checked(*args):
+                    received.append(args[2])
+                    manifests.append(self.intent()["chunks_json"])
+                    return receive(*args)
+                with patch.object(terminal_archive, "monotonic", return_value=0.0), \
+                        patch.object(self.app.archive, "receive", side_effect=checked):
+                    self.transfer()
+                if stage == "before_receipt":
+                    self.assertEqual(received[0], legacy)
+                    self.assertIsNone(manifests[0])
+                else:
+                    self.assertEqual(len(received), 1)
+                self.assertEqual(received[-1].payload, b"new range")
+                self.assertEqual(json.loads(manifests[-1]), {"version": 1, "chunks": before[2:]})
+                self.assertEqual(self.host_bytes(), b"".join(payloads))
+                self.assertEqual(len(self.host_chunks()), 3)
+                self.assertEqual(self.ledger(), before)
+                self.assertEqual(self.payloads(), [None] * 4)
+                self.assertEqual(self.state()["host_archived_offset"], sum(map(len, payloads)))
+                self.assertIsNone(self.intent())
+                with connect(self.database) as local:
+                    columns = [dict(r) for r in local.execute("PRAGMA table_info(terminal_archive_transfers)")]
+                    column, = [c for c in columns if c["name"] == "chunks_json"]
+                    self.assertEqual((column["type"], column["notnull"], column["dflt_value"]), ("TEXT", 0, None))
 
     def test_receipt_mismatch_never_authorizes_ack(self):
         fields = ["binding." + name for name in RunBinding.__dataclass_fields__]
