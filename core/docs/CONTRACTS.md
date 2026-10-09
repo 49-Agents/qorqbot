@@ -1,3 +1,7 @@
+Current repository layout: [D61, one Qorqutbot repository](../../docs/MONOREPO.md).
+The module boundaries remain; older references to separate repositories describe
+the pre-migration arrangement.
+
 D60: [Terminal capture storage and recovery](TERMINAL-STORAGE-RECOVERY.md)
 addresses large-ledger scans and the failed onbash terminal, preserving capture
 and public contracts.

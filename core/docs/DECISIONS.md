@@ -608,3 +608,11 @@ claim follows from a process exit or service shutdown.
 parallel contracts. Core adopts prepared browser services and owns requests;
 browser holds its existing command lock for each human-only RFB relay; UI uses
 noVNC in chat/inspector/modal. No extra service or application authentication.
+
+## D61 — One repository, unchanged module boundaries
+
+The owner requested a new public Qorqutbot monorepo. Import core, browser and UI
+history under their own directories, retain the independent browser MCP and
+separate package builds, and keep operational data outside Git. The
+[monorepo decision](../../docs/MONOREPO.md) supersedes the three-repository
+arrangement and records the publication timestamp policy.

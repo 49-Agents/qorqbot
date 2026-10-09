@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qorqut-browser"
+version = "0.1.0"
+description = "Independent browser MCP and private HTTP service"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic==2.13.5",
+    "mcp==1.30.0",
+    "anyio==4.15.1",
+    "starlette==1.7.0",
+    "uvicorn==0.54.0",
+    "websockets==17.2",
+]
+
+[project.scripts]
+qorqut-browser = "qorqut_browser.server:main"
+qorqut-browser-desktop = "qorqut_browser.desktop:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

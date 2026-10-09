@@ -1,3 +1,7 @@
+Current repository layout: [D61, one Qorqutbot repository](../../docs/MONOREPO.md).
+The module boundaries remain; older references to separate repositories describe
+the pre-migration arrangement.
+
 # Backend planning documents
 
 The [connected browser increment](evidence/browser-connected-manager-acceptance.md)
@@ -16,7 +20,7 @@ blocked MCP execution. Both results retain their limits.
 
 Accepted and integrated: D46 [host dispatch](evidence/host-message-dispatch-manager-acceptance.md)
 and D48 [continued native collection](evidence/native-collection-continuity-manager-acceptance.md).
-The [actual core/MCP/file-card flow](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/file-reference-integration-manager-acceptance.md)
+The [actual core/MCP/file-card flow](../../ui/docs/evidence/file-reference-integration-manager-acceptance.md)
 also passed bounded acceptance. The [connected Chat checks](CONNECTED-CHAT-ACCEPTANCE.md)
 are recorded at their frozen pins. Manager reviews/tests directly;
 workers use Astra MAX with self-review off. The D57 core candidate has schema 10, 24 public

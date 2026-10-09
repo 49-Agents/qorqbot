@@ -10,7 +10,7 @@ bounded corrections, not authorization for startup/browser/VM redesign.
 
 All three components are accepted: [archive budget](evidence/terminal-archive-budget-manager-acceptance.md),
 [request admission](evidence/dispatch-admission-manager-acceptance.md) and
-[UI read recovery](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/read-recovery-manager-acceptance.md).
+[UI read recovery](../../ui/docs/evidence/read-recovery-manager-acceptance.md).
 The [reviewed combined real-core/UI run](evidence/responsiveness-integration-manager-acceptance.md)
 passed 24 bounded burst reads and retained its
 Terminal connection, but failed the 30-second archive catch-up gate. Its original

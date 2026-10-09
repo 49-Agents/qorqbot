@@ -1,7 +1,12 @@
 # qorqut-core
 
-Private backend for persistent CLI-driven agents. Owns agent identity/personas/files, environments, tmux execution, recording/history, messaging, coordination and application configuration.
+Backend for persistent CLI-driven agents, in the [Qorqutbot monorepo](../README.md).
+Owns agent identities/personas/files, terminal execution, recording/history,
+messaging, coordination and application configuration.
 
-Start with the [documentation index](docs/README.md), [implementation plan](docs/IMPLEMENTATION-PLAN.md) and [contracts](docs/CONTRACTS.md). Browser tooling lives in [qorqut-browser](https://github.com/qorqutbot/qorqut-browser); presentation lives in [qorqutbot-ui](https://github.com/qorqutbot/qorqutbot-ui).
+Start with the [documentation index](docs/README.md), [implementation plan](docs/IMPLEMENTATION-PLAN.md)
+and [contracts](docs/CONTRACTS.md). Browser tooling lives in [browser/](../browser/)
+and presentation in [ui/](../ui/). Build instructions are in [development](../docs/DEVELOPMENT.md).
 
-This initial repository bootstrap contains plans only. Implementation and acceptance evidence follow on isolated feature branches. No deployment is performed.
+Acceptance is limited to the recorded evidence. Per-agent VM support and full
+system coverage remain unfinished.

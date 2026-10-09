@@ -1,3 +1,7 @@
+Current repository layout: [D61, one Qorqutbot repository](../../docs/MONOREPO.md).
+The module boundaries remain; older references to separate repositories describe
+the pre-migration arrangement.
+
 D60: [Terminal capture storage and recovery](TERMINAL-STORAGE-RECOVERY.md)
 addresses large-ledger scans and the failed onbash terminal, preserving capture
 and public contracts.
@@ -36,7 +40,7 @@ instance now opens directly, retaining actor attribution and durable history.
 
 Accepted and integrated: D46 [host dispatch](evidence/host-message-dispatch-manager-acceptance.md)
 and D48 [continued native collection](evidence/native-collection-continuity-manager-acceptance.md).
-The [actual core/MCP/file-card flow](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/evidence/file-reference-integration-manager-acceptance.md)
+The [actual core/MCP/file-card flow](../../ui/docs/evidence/file-reference-integration-manager-acceptance.md)
 also passed bounded acceptance. The [connected Chat reports](evidence/connected-chat-manager-acceptance.md)
 now have bounded Manager acceptance: Codex completed actual native MCP reads,
 acknowledgments, replies and a fresh message after core restart; Claude's native
@@ -112,7 +116,7 @@ D41's [automatic Terminal host archival](evidence/terminal-archive-manager-accep
 and UI queued-input batching have passed bounded Manager acceptance and are merged.
 Qualified Claude/Codex manual-session history checks are also accepted. Chat
 submission remains unfinished and current native-input observations are factual
-inputs to its design. D42 adds [session/native-history inspector presentation](https://github.com/qorqutbot/qorqutbot-ui/blob/main/docs/RUNTIME-INSPECTOR.md)
+inputs to its design. D42 adds [session/native-history inspector presentation](../../ui/docs/RUNTIME-INSPECTOR.md)
 using existing runtime_get; it adds no input readiness or lifecycle authority.
 A separate factual file-reference survey can proceed without those dependencies.
 
@@ -310,7 +314,7 @@ Deliver durable all-source registration, local transactional spooling, immutable
 ### Phase 4 — Coordination and browser intervention
 
 Browser's standalone MCP/HTTP transport increment follows its owned
-[protocol v1](https://github.com/qorqutbot/qorqut-browser/blob/19c4577795f20ffd4261ca41464afb63767cb046/docs/PROTOCOL.md).
+[protocol v1](https://github.com/49-Agents/qorqutbot/blob/1902b159d9e3aa860414004b46be6777478ca911/browser/docs/PROTOCOL.md).
 Its reviewed local gate remains the sole effect/control path. Implement core's
 durable handoff endpoint against that contract; transport fixture success does
 not replace real VNC/input enforcement or core transaction acceptance.

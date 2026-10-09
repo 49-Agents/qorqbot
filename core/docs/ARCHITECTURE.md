@@ -1,3 +1,7 @@
+Current repository layout: [D61, one Qorqutbot repository](../../docs/MONOREPO.md).
+The module boundaries remain; older references to separate repositories describe
+the pre-migration arrangement.
+
 # Backend architecture
 
 Current v1 scope: [D36, terminal-owned sessions](TERMINAL-OWNED-SESSIONS.md)
@@ -57,18 +61,18 @@ Place each agent's managed tmux/recorder/CLI and desktop in independently superv
 
 ## 2. Repository and package boundaries
 
-Three repositories, with small internal modules. Core has one host service and a runner; browser has its own per-browser MCP service; UI is a static client:
+One repository, with three modules and separate package builds. Core has one host service and a runner; browser has its own per-browser MCP service; UI is a static client:
 
-| Repository | Owns | Depends on |
+| Module / package | Owns | Depends on |
 | --- | --- | --- |
-| `qorqut-core` | Application configuration and coordination; agents/personas/files, VM/host runtime, tmux/CLI adapters, recording/history, messaging, continuity, durable requests, HTTP/MCP/operator APIs, installation and backup | A pinned browser service release and versioned control protocol |
-| `qorqut-browser` | Independent MCP server, Chrome/profile supervision, agent browser tools, takeover bridge, control receipts, TigerVNC/Openbox setup and remote-control transport | Explicit local configuration and application handoff API; no core/UI imports |
-| `qorqutbot-ui` | Chat, navigation, inspector, browser/terminal viewer assets, interaction and client state | Core's versioned HTTP/events/WebSocket API |
+| `core/` (`qorqut-core`) | Application configuration and coordination; agents/personas/files, VM/host runtime, tmux/CLI adapters, recording/history, messaging, continuity, durable requests, HTTP/MCP/operator APIs, installation and backup | The browser service from the same checkout, built separately, and its versioned control protocol |
+| `browser/` (`qorqut-browser`) | Independent MCP server, Chrome/profile supervision, agent browser tools, takeover bridge, control receipts, TigerVNC/Openbox setup and remote-control transport | Explicit local configuration and application handoff API; no core/UI imports |
+| `ui/` (`qorqutbot-ui`) | Chat, navigation, inspector, browser/terminal viewer assets, interaction and client state | Core's versioned HTTP/events/WebSocket API |
 
 Proposed source layout, created incrementally as modules are implemented:
 
 ```text
-qorqut-core/
+core/
   src/qorqut_core/
     app.py, config.py, contracts.py
     storage/             transactions, configuration, events, jobs, receipts
@@ -86,7 +90,7 @@ qorqut-core/
   images/                guest image recipe, consuming browser setup assets
   tests/                 core behavior and integrated backend contracts
 
-qorqut-browser/
+browser/
   src/qorqut_browser/
     contracts.py         MCP, control and handoff protocol values
     supervisor.py        Chrome, persistent profile, Xtigervnc and Openbox
@@ -98,7 +102,7 @@ qorqut-browser/
   setup/                 pinned prerequisites, units and setup instructions
   tests/                 browser behavior with a small handoff-API fixture
 
-qorqutbot-ui/
+ui/
   src/                   API client, chat, agents, inspector and viewers
   assets/                pinned noVNC/terminal assets and icon artwork
   tests/                 focused interaction and API-integration checks
