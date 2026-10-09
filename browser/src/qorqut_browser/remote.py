@@ -11,7 +11,8 @@ MAX_FRAME_BYTES = 64 * 1024
 MAX_HELLO_BYTES = 4096
 IO_TIMEOUT = 5
 WATCH_INTERVAL = .05
-CHECK_TIMEOUT = .05
+# The observation budget includes worker scheduling and Store validation.
+CHECK_TIMEOUT = 1.0
 
 
 class ViewHello(FrozenModel):

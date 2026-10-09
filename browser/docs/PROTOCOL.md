@@ -105,9 +105,16 @@ and holds it for the connection's lifetime, including cleanup. A competing
 viewer is rejected. Automation continues to use the same gate and cannot run
 while the viewer owns that lock. Before every client-to-VNC write, the relay
 checks the original binding, ready human mode and service incarnation again.
-A watcher checks at 50 ms intervals with a 50 ms observation deadline, closing
-on a changed binding, mode, readiness or incarnation, or an unavailable check.
-Its read worker capacity is separate from commands waiting on the lock.
+A watcher waits 50 ms between observations. This is a normal polling target,
+not a hard real-time shutdown promise under thread scheduling or host load.
+Each entire read-only observation has a one-second deadline, including worker
+scheduling and `Store.connection` path/read validation. The SQLite busy wait
+remains 20 ms, and read worker capacity stays separate from commands waiting on
+the lock. Changed binding, mode, readiness or incarnation, failed checks and
+timed-out checks still close the relay; input never proceeds on stale state.
+This cadence/deadline distinction is Manager's 2026-10-09 correction to D57's
+original at-most-100 ms watcher bound; see the
+[deadline correction evidence](evidence/browser-view-deadline.md).
 
 Reconciliation publishes the advanced epoch and closed yielding/reconciling
 state before awaiting this same lock. The relay joins its forwarding tasks and

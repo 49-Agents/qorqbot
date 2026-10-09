@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 import httpx
@@ -17,6 +18,7 @@ from websockets.exceptions import ConnectionClosed
 
 from qorqut_browser.config import ServiceConfig
 from qorqut_browser.contracts import BrowserError, EffectResult
+from qorqut_browser.control import Gate
 from qorqut_browser.server import create_app
 from qorqut_browser.state import Store
 from qorqut_browser.supervisor import verify_process
@@ -149,8 +151,16 @@ class RelayGateTest(unittest.IsolatedAsyncioTestCase):
                 self.fail("Viewer must hold the process-shared command lock")
         denied = await self.peer().hello(human)
         self.assertEqual(denied["reason"], "not_ready")
-        peer.input.put_nowait({"type": "websocket.receive", "bytes": b"bounded fixture bytes"})
-        self.assertEqual((await peer.receive())["bytes"], b"bounded fixture bytes")
+        check_view = Gate.check_view
+
+        def slow_check(gate, binding, token):
+            time.sleep(.12)  # Valid observation exceeding the 50 ms poll target.
+            return check_view(gate, binding, token)
+
+        with patch.object(Gate, "check_view", slow_check):
+            peer.input.put_nowait({"type": "websocket.receive", "bytes": b"bounded fixture bytes"})
+            self.assertEqual((await peer.receive())["bytes"], b"bounded fixture bytes")
+            self.assertFalse(peer.closed)
 
         # Gate calls readiness only after acquiring the process-shared lock.
         # The relay's close has to be observable at this pre-receipt boundary.
