@@ -98,3 +98,25 @@ No hands-on browser/UX check was performed: the owner's built-in Chrome bridge
 was unavailable, and no replacement browser tooling was used. This is core
 acceptance only. Integration, live read-only observation and deployment belong
 to Manager; this worker has not merged or deployed.
+
+## Integrated local deployment
+
+Manager merged and pushed core `27f61d503ce4025b90ab03d3d7d34458c88dd937`
+and UI `fd96ee4140bc0ddaa69a15cd6355fd3e17b3a80e`, then deployed the completed
+wheel and built UI on the local test instance on 2026-10-09. The owner waived
+additional review; the focused checks above are the builder's evidence.
+
+Read-only live verification found the existing MCP approval with attention
+`waiting/approval`, a connected matching owner and `needs_user_input=true`.
+The core readiness endpoint returned 200. The public application route served
+the exact new UI index, and both new JavaScript/CSS assets matched their build.
+The original Bash and Codex process identities, terminal, inbox owner and browser
+lifetime survived the core restart. No terminal input, approval or message was
+sent by Manager.
+
+Codex's built-in browser inventory still returned no browsers. Actual rendered
+Chat layout and clicking Open Terminal remain unverified; API/static-asset
+verification is not a hands-on UX test. Default-mode asynchronous questions,
+shell approvals and unrecognized native layouts remain outside this profile.
+Private deployment and continuity evidence is in `native-attention-deployment/`
+under the existing build-state directory.
