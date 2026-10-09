@@ -5,11 +5,13 @@ provider call, live installation or new transfer protocol is a fixture here.
 """
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import asdict, replace
 import hashlib
 import json
 import sqlite3
 import threading
+from time import perf_counter
 import unittest
 from unittest.mock import patch
 from uuid import UUID, uuid4
@@ -203,6 +205,98 @@ class TerminalArchiveTests(AgentCase):
         self.assertEqual(self.state()["host_archived_offset"], sum(map(len, payloads)))
         self.assertEqual(self.payloads(), [None] * 130)
         self.assertIsNone(self.intent())
+
+    def test_million_receipts_near_tail_transfer_uses_bounded_index_work(self):
+        # One synthetic ledger, not a million recorder/fsync calls. Seed the
+        # already-reclaimed prefix and preserve genuine host receipt authority
+        # for its bytes; the normal transfer owns the remaining tail.
+        count, retained = 1_000_000, 16
+        payload = b"abc"
+        digest = hashlib.sha256(payload).hexdigest()
+        start = (count - retained) * len(payload)
+        end = count * len(payload)
+        with connect(self.database) as local, local:
+            local.executemany("INSERT INTO capture_chunks VALUES (?,?,?,?,?,?,?)", (
+                (*self.key, i * 3, 3, digest, payload if i >= count - retained else None,
+                 "2026-10-10T00:00:00Z") for i in range(count)))
+            local.execute("UPDATE capture_epochs SET local_captured_offset=?, host_archived_offset=?",
+                          (end, start))
+        self.app.archive.register(self.agent_context, self.binding, self.source, self.key[1], self.metadata)
+        prefix = payload * (count - retained)
+        for offset in range(0, start, CHUNK_BYTES):
+            data = prefix[offset:offset + CHUNK_BYTES]
+            self.app.archive.receive(self.agent_context, self.binding,
+                Chunk(*self.key, offset, len(data), hashlib.sha256(data).hexdigest(), data))
+
+        metrics = []
+        statements = []
+
+        @contextmanager
+        def measured(connection, name):
+            metric = {"connection": name, "sqlite_steps": 0}
+            def progress():
+                metric["sqlite_steps"] += 1
+                return 0
+            connection.set_progress_handler(progress, 1)
+            connection.set_trace_callback(statements.append)
+            began = perf_counter()
+            try:
+                yield
+            finally:
+                metric["seconds"] = perf_counter() - began
+                connection.set_progress_handler(None, 0)
+                connection.set_trace_callback(None)
+                metrics.append(metric)
+
+        class MeasuredSpool(CaptureSpool):
+            def __enter__(spool):
+                spool.measurement = measured(spool._connection, "spool")
+                spool.measurement.__enter__()
+                return spool
+            def __exit__(spool, *args):
+                spool.measurement.__exit__(*args)
+                super().__exit__(*args)
+
+        original_local = terminal_archive._local
+        @contextmanager
+        def measured_local(database):
+            with original_local(database) as local, measured(local, "archive_local"):
+                yield local
+
+        before = perf_counter()
+        with patch.object(terminal_archive, "CaptureSpool", MeasuredSpool), \
+                patch.object(terminal_archive, "_local", measured_local):
+            self.transfer()
+        elapsed = perf_counter() - before
+        # Deterministic VM-instruction bound, not a wall-clock pass threshold.
+        # A history scan executes millions of steps for this fixture.
+        for metric in metrics:
+            self.assertLess(metric["sqlite_steps"], 50_000, metric)
+        plans = []
+        with connect(self.database) as local:
+            for sql in dict.fromkeys(statements):
+                if "FROM capture_chunks" in sql or sql.startswith("UPDATE capture_chunks"):
+                    plan = [row[3] for row in local.execute("EXPLAIN QUERY PLAN " + sql)]
+                    plans.append({"query": " ".join(sql.split()), "plan": plan})
+                    self.assertTrue(all("SEARCH capture_chunks USING " in row and "INDEX" in row
+                                        for row in plan), plan)
+            retained_plans = [p for p in plans if "payload IS NOT NULL" in p["query"]]
+            self.assertEqual(len(retained_plans), 3)  # older-prefix, reclaim SELECT and UPDATE
+            self.assertTrue(all("capture_chunks_retained" in p["plan"][0] for p in retained_plans))
+            # Check every original coordinate/hash after cleanup, outside the
+            # measured transfer; no historical receipt has been compacted away.
+            actual = 0
+            for i, row in enumerate(local.execute(
+                    "SELECT offset,length,sha256,payload FROM capture_chunks ORDER BY offset")):
+                self.assertEqual(tuple(row), (i * 3, 3, digest, None))
+                actual += 1
+            self.assertEqual(actual, count)
+        self.assertEqual(self.state()["host_archived_offset"], end)
+        self.assertIsNone(self.intent())
+        self.assertEqual(self.host_bytes(), payload * count)
+        print("D60 large-ledger evidence: " + json.dumps({"receipts": count,
+            "retained_before": retained, "transfer_seconds": elapsed, "metrics": metrics,
+            "query_plans": plans}, sort_keys=True), flush=True)
 
     def test_byte_budget_never_splits_or_skips_the_next_original_chunk(self):
         payloads = [b"x", b"yz"] + [bytes([i]) * CHUNK_BYTES for i in range(4)] + [b"tail"]

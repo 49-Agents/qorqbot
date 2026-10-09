@@ -76,6 +76,53 @@ class SpoolTests(unittest.TestCase):
             self.assertEqual(reopened.append(self.sid, self.epoch, 0, giant), cursor)
             self.assertEqual(reopened.append(self.sid, self.epoch, len(giant), partial), cursor)
 
+    def test_existing_store_gains_retained_index_without_changing_receipts(self):
+        self.spool.append(self.sid, self.epoch, 0, b"first")
+        self.spool.append(self.sid, self.epoch, 5, b"second")
+        self.spool.acknowledge(self.sid, self.epoch, 5)
+        self.spool.reclaim(self.sid, self.epoch)
+        connection = self.spool._connection
+        connection.execute("DROP INDEX capture_chunks_retained")
+        before = [tuple(row) for row in connection.execute("SELECT * FROM capture_chunks ORDER BY offset")]
+        state = self.spool.state(self.sid, self.epoch)
+        with CaptureSpool(self.path) as reopened:
+            self.assertEqual([tuple(row) for row in reopened._connection.execute(
+                "SELECT * FROM capture_chunks ORDER BY offset")], before)
+            self.assertEqual(reopened.state(self.sid, self.epoch), state)
+            self.assertEqual(reopened._connection.execute(
+                "SELECT count(*) FROM capture_chunks INDEXED BY capture_chunks_retained "
+                "WHERE payload IS NOT NULL").fetchone()[0], 1)
+            self.assertEqual(reopened.pending(self.sid, self.epoch).chunks[0].payload, b"second")
+
+    def test_interior_cursors_keep_whole_chunks_and_partial_ack_cannot_reclaim(self):
+        payloads = (b"first", b"second", b"third")
+        cursor = 0
+        for payload in payloads:
+            cursor = self.spool.append(self.sid, self.epoch, cursor, payload)
+        for after, expected, end in ((0, b"first", 5), (3, b"first", 5), (5, b"second", 11),
+                                     (6, b"second", 11), (11, b"third", 16), (15, b"third", 16)):
+            page = self.spool.pending(self.sid, self.epoch, after=after, limit=1)
+            self.assertEqual([c.payload for c in page.chunks], [expected])
+            self.assertEqual(page.next_offset, end)
+        self.assertEqual(self.spool.pending(self.sid, self.epoch, after=16).chunks, ())
+        self.spool.acknowledge(self.sid, self.epoch, 7)
+        self.assertEqual(self.spool.reclaim(self.sid, self.epoch), 5)
+        self.spool.acknowledge(self.sid, self.epoch, 9)
+        self.spool.acknowledge(self.sid, self.epoch, 9)
+        self.assertEqual(self.spool.reclaim(self.sid, self.epoch), 0)
+        self.assertEqual([c.payload for c in self.spool.pending(self.sid, self.epoch, after=0).chunks],
+                         [b"second", b"third"])
+        self.spool.acknowledge(self.sid, self.epoch, 12)
+        self.assertEqual(self.spool.reclaim(self.sid, self.epoch), 6)
+        self.assertEqual(raw(self.path, self.sid, self.epoch), b"third")
+        self.assertEqual(self.spool.append(self.sid, self.epoch, 5, b"second"), 16)
+        # Deleting the overlapping predecessor must not authorize an ACK
+        # through its missing suffix, even when the target has a later chunk.
+        self.spool._connection.execute("DELETE FROM capture_chunks WHERE offset=11")
+        with self.assertRaises(InvalidAcknowledgment):
+            self.spool.acknowledge(self.sid, self.epoch, 16)
+        self.assertEqual(self.spool.state(self.sid, self.epoch)["host_archived_offset"], 12)
+
     def test_relink_identity_parent_and_explicit_epoch_do_not_rewrite_history(self):
         original = "same native bytes 🧭".encode()
         self.spool.append(self.sid, self.epoch, 0, original)
@@ -172,6 +219,7 @@ class SpoolTests(unittest.TestCase):
         state = self.spool.state(self.sid, self.epoch)
         self.assertEqual(state["local_captured_offset"], 9)
         self.assertEqual(state["health"], "blocked")
+        self.assertEqual(state["last_error"], "IntegrityError: SQLITE_CONSTRAINT_TRIGGER")
         with self.assertRaises(CaptureBlocked):
             self.spool.require_healthy(self.sid, self.epoch)
         with CaptureSpool(self.path) as reopened:
@@ -203,7 +251,7 @@ class SpoolTests(unittest.TestCase):
         self.assertEqual(failure.exception.__cause__.sqlite_errorcode, sqlite3.SQLITE_FULL)
         self.assertEqual(raw(self.path, self.sid, self.epoch), b"accepted prefix")
         self.assertEqual(self.spool.state(self.sid, self.epoch)["local_captured_offset"], 15)
-        self.assertIsNotNone(self.spool.last_error)
+        self.assertEqual(self.spool.last_error, "OperationalError: SQLITE_FULL")
         with self.assertRaises(CaptureBlocked):
             self.spool.require_healthy(self.sid, self.epoch)
 

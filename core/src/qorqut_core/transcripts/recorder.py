@@ -28,7 +28,7 @@ from typing import Callable, Sequence
 from ..runner.models import ProcessFingerprint, RunnerError
 from ..runner.process import fingerprint, verify_process
 from . import probe
-from .spool import CHUNK_BYTES, CaptureBlocked, CaptureError, CaptureSpool, RunBinding, Source
+from .spool import CHUNK_BYTES, CaptureBlocked, CaptureError, CaptureSpool, RunBinding, Source, _failure_category
 
 
 _FORWARDED_SIGNALS = (
@@ -456,7 +456,7 @@ class Recorder:
             self._active = False
             if claimed:
                 try:
-                    self.spool.block(self.source_id, self.source_epoch, type(exc).__name__)
+                    self.spool.block(self.source_id, self.source_epoch, _failure_category(exc))
                 except BaseException:
                     exc.add_note("Blocked health could not be persisted; admission remains closed.")
             raise
@@ -498,7 +498,7 @@ class Recorder:
                         restoration_errors.append(exc)
             if cleanup_error is not None or restoration_errors:
                 cause = cleanup_error or restoration_errors[0]
-                reason = f"{type(failure).__name__ if failure else 'recorder'}: cleanup/restoration unconfirmed"
+                reason = f"{_failure_category(failure) if failure else 'recorder'}: cleanup/restoration unconfirmed"
                 try:
                     self.spool.block(self.source_id, self.source_epoch, reason)
                 except BaseException:
@@ -538,7 +538,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                               probe_address=args.probe_address).run(args.child[1:])
             return status if status >= 0 else 128 - status
     except (CaptureError, OSError, ValueError, sqlite3.Error) as exc:
-        sys.stderr.write(f"recorder: capture unavailable ({type(exc).__name__})\n")
+        sys.stderr.write(f"recorder: capture unavailable ({_failure_category(exc)})\n")
         return 74
 
 

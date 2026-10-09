@@ -41,6 +41,24 @@ class CaptureBlocked(CaptureError):
     pass
 
 
+def _failure_category(error: BaseException) -> str:
+    """Bounded diagnostics from types/codes only, never exception messages."""
+    outer = type(error).__name__[:128]
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, sqlite3.Error):
+            name = getattr(error, "sqlite_errorname", None)
+            if (isinstance(name, str) and name.startswith("SQLITE_") and len(name) <= 64
+                    and all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789" for c in name)):
+                return f"{outer}: {name}"
+            code = getattr(error, "sqlite_errorcode", None)
+            if type(code) is int and 0 <= code <= 2**31 - 1:
+                return f"{outer}: sqlite_errorcode={code}"
+        error = error.__cause__ if error.__cause__ is not None else error.__context__
+    return outer
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -183,6 +201,8 @@ _SCHEMA = (
         FOREIGN KEY(source_id, source_epoch) REFERENCES capture_epochs(source_id, source_epoch),
         CHECK(payload IS NULL OR length(payload) = length)
     )""",
+    """CREATE INDEX IF NOT EXISTS capture_chunks_retained
+        ON capture_chunks(source_id, source_epoch, offset) WHERE payload IS NOT NULL""",
     """CREATE TABLE IF NOT EXISTS capture_conflicts (
         conflict_id TEXT PRIMARY KEY, source_id TEXT NOT NULL, source_epoch TEXT NOT NULL,
         offset INTEGER NOT NULL, length INTEGER NOT NULL, sha256 TEXT NOT NULL,
@@ -486,12 +506,22 @@ class CaptureSpool:
                             (str(uuid4()), source_id, source_epoch, position, len(part), digest, part, _now()),
                         )
                 except sqlite3.Error as exc:
-                    self.block(source_id, source_epoch, type(exc).__name__)
+                    self.block(source_id, source_epoch, _failure_category(exc))
                     raise CaptureBlocked("could not persist coordinate conflict") from exc
             raise
         except sqlite3.Error as exc:
-            self.block(source_id, source_epoch, type(exc).__name__)
+            self.block(source_id, source_epoch, _failure_category(exc))
             raise CaptureBlocked("capture transaction failed") from exc
+
+    def _overlap_start(self, source_id: str, source_epoch: str, cursor: int) -> int:
+        # Seek to the only original chunk which can overlap an interior cursor.
+        # Call inside the same transaction as the subsequent forward range read.
+        row = self._connection.execute(
+            """SELECT offset FROM capture_chunks WHERE source_id=? AND source_epoch=?
+                AND offset<=? ORDER BY offset DESC LIMIT 1""",
+            (source_id, source_epoch, cursor),
+        ).fetchone()
+        return row["offset"] if row is not None else cursor
 
     def pending(self, source_id: str, source_epoch: str, *, after: int | None = None,
                 limit: int = 4) -> PendingPage:
@@ -504,10 +534,11 @@ class CaptureSpool:
             if after is not None:
                 _integer(after, maximum=epoch["local_captured_offset"])
             cursor = max(epoch["host_archived_offset"], after or 0)
+            start = self._overlap_start(source_id, source_epoch, cursor)
             rows = self._connection.execute(
                 """SELECT * FROM capture_chunks WHERE source_id=? AND source_epoch=?
-                    AND offset+length>? ORDER BY offset LIMIT ?""",
-                (source_id, source_epoch, cursor, limit),
+                    AND offset>=? AND offset+length>? ORDER BY offset LIMIT ?""",
+                (source_id, source_epoch, start, cursor, limit),
             ).fetchall()
         chunks = []
         for row in rows:
@@ -605,10 +636,11 @@ class CaptureSpool:
             cursor = epoch["host_archived_offset"]
             if not cursor <= offset <= epoch["local_captured_offset"]:
                 raise InvalidAcknowledgment("ACK must be monotonic and within captured bytes")
+            start = self._overlap_start(source_id, source_epoch, cursor)
             rows = self._connection.execute(
                 """SELECT offset, length FROM capture_chunks WHERE source_id=? AND source_epoch=?
-                    AND offset+length>? AND offset<? ORDER BY offset""",
-                (source_id, source_epoch, cursor, offset),
+                    AND offset>=? AND offset+length>? AND offset<? ORDER BY offset""",
+                (source_id, source_epoch, start, cursor, offset),
             )
             for row in rows:
                 if row["offset"] > cursor:
@@ -625,13 +657,16 @@ class CaptureSpool:
         """Release only wholly acknowledged payloads, retaining coordinate receipts."""
         with _transaction(self._connection):
             epoch = self._epoch(source_id, source_epoch)
-            params = (source_id, source_epoch, epoch["host_archived_offset"])
+            acknowledged = epoch["host_archived_offset"]
+            params = (source_id, source_epoch, acknowledged, acknowledged)
             size = self._connection.execute(
-                """SELECT coalesce(sum(length), 0) FROM capture_chunks WHERE source_id=?
-                    AND source_epoch=? AND offset+length<=? AND payload IS NOT NULL""", params,
+                """SELECT coalesce(sum(length), 0) FROM capture_chunks INDEXED BY capture_chunks_retained
+                    WHERE source_id=? AND source_epoch=? AND offset<?
+                    AND offset+length<=? AND payload IS NOT NULL""", params,
             ).fetchone()[0]
             self._connection.execute(
-                """UPDATE capture_chunks SET payload=NULL WHERE source_id=? AND source_epoch=?
+                """UPDATE capture_chunks INDEXED BY capture_chunks_retained SET payload=NULL
+                    WHERE source_id=? AND source_epoch=? AND offset<?
                     AND offset+length<=? AND payload IS NOT NULL""", params,
             )
             return size

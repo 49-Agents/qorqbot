@@ -1,5 +1,6 @@
 import errno
 import fcntl
+import io
 import json
 import os
 from pathlib import Path
@@ -14,8 +15,9 @@ import termios
 import time
 import tty
 import unittest
+from unittest.mock import patch
 
-from qorqut_core.transcripts.recorder import Recorder
+from qorqut_core.transcripts.recorder import Recorder, main
 from qorqut_core.transcripts.spool import CaptureBlocked, CaptureSpool
 from support import binding, child_env, cli_args, new_id, raw, registered
 
@@ -263,9 +265,31 @@ os.write(1, b"ADMITTED")
         self.assertEqual(raw(self.path, source.source_id, epoch), b"READY")
         self.assertFalse(recorder.admission_ready)
         self.assertEqual(spool.state(source.source_id, epoch)["health"], "blocked")
+        self.assertEqual(spool.state(source.source_id, epoch)["last_error"],
+                         "CaptureBlocked: SQLITE_CONSTRAINT_TRIGGER")
         self.assertEqual(spool.state(source.source_id, epoch)["drain_complete"], 0)
         with self.assertRaises(CaptureBlocked):
             spool.claim_recording(source.source_id, epoch, run.run_id)
+
+    def test_cli_preserves_only_bounded_sqlite_category_through_wrapping(self):
+        run = binding()
+        args = cli_args(self.path, run, new_id(), new_id(), ["/bin/true"])[3:]
+        private = "private payload /private/path SELECT secret FROM private"
+        for name, code, expected in (("SQLITE_BUSY", sqlite3.SQLITE_BUSY, "SQLITE_BUSY"),
+                                      (None, sqlite3.SQLITE_IOERR, "sqlite_errorcode=10"),
+                                      (private, None, None)):
+            with self.subTest(name=name):
+                underlying = sqlite3.OperationalError(private)
+                if name is not None:
+                    underlying.sqlite_errorname = name
+                if code is not None:
+                    underlying.sqlite_errorcode = code
+                failure = CaptureBlocked(private)
+                failure.__cause__ = underlying
+                with patch.object(Recorder, "run", side_effect=failure), patch("sys.stderr", new_callable=io.StringIO) as output:
+                    self.assertEqual(main(args), 74)
+                category = "CaptureBlocked" + (f": {expected}" if expected else "")
+                self.assertEqual(output.getvalue(), f"recorder: capture unavailable ({category})\n")
 
     def test_killed_recorder_retains_committed_bytes_and_restart_refuses_relaunch(self):
         terminal = self.terminal(r'''
