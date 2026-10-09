@@ -468,10 +468,10 @@ test('history paging anchors, equal text, quiet handling refresh and recovery', 
   await expect.poll(() => calls(api, 'conversation_list').some(c => c.args.recovery_epoch === api.epoch)).toBeTruthy();
 });
 
-test('escaped bubbles, compact composer and desktop inspector drawers, focus and screenshots', async ({ page, api }, testInfo) => {
+test('escaped bubbles, compact composer and desktop inspector drawers, focus and screenshots', async ({ page, api, context }, testInfo) => {
   api.agents[0].needs_user_input = true;
-  api.add(alpha, '<img src=x onerror="window.injected=true">\n  Indented & untouched', { occurred_at: '2026-10-07T12:00:00.000000Z' });
-  api.add(alpha, 'No card should be inferred from browser_request_input or /workspace/report.pdf\n' + '/long-path'.repeat(150));
+  api.add(alpha, '<img src=x onerror="window.injected=true">\n  Indented & untouched', { occurred_at: new Date(Date.now() - 5 * 60000).toISOString() });
+  api.add(alpha, 'No card should be inferred from browser_request_input or /workspace/report.pdf\n' + '/long-path'.repeat(150), { occurred_at: new Date(Date.now() - 2 * 3600000).toISOString() });
   api.add(alpha, 'future content', { kind: 'future_card' });
   const nativeText = '  Native café 👩‍💻 e\u0301 <script>window.injected=true</script>\n\tbrowser_request_input & /workspace/report.pdf  \n';
   const nativeUser = api.addNative(alpha, nativeText, 'user', 'claude');
@@ -485,8 +485,9 @@ test('escaped bubbles, compact composer and desktop inspector drawers, focus and
   await expect(page.locator('.agent-attention')).toHaveAttribute('aria-label', 'Needs your attention');
   await expect(page.locator('.agent-activity')).toHaveCount(0);
   await expect(page.getByText('Unsupported content: future_card')).toBeVisible();
-  await page.locator('.entry-details summary').first().click();
-  await expect(page.getByText(/Recorded /).first()).toBeVisible();
+  await expect(page.locator('.entry-details, .recorded')).toHaveCount(0);
+  await expect(page.locator('.message-meta time').nth(0)).toHaveText('5 minutes ago');
+  await expect(page.locator('.message-meta time').nth(1)).toHaveText('2 hours ago');
   const expectNativeEntries = async () => {
     await expect(page.locator('.entry')).toHaveCount(5);
     for (const [entry, sender] of [[nativeUser, 'Terminal input'], [nativeAgent, 'Atlas']] as const) {
@@ -497,7 +498,7 @@ test('escaped bubbles, compact composer and desktop inspector drawers, focus and
       await expect(row.locator('.message-body > *')).toHaveCount(0);
       await expect(row.locator('.delivery')).toBeEmpty();
       await expect(row.locator('header time')).toHaveAttribute('datetime', entry.occurred_at);
-      await expect(row.locator('.recorded time')).toHaveAttribute('datetime', entry.recorded_at);
+      await expect(row.locator('header time')).toHaveText(/\d+ days ago/);
     }
     await expect(page.getByText('Stored · queued · runtime unavailable', { exact: true })).toHaveCount(3);
     await expect(page.locator('.composer-note, .composer-footer')).toHaveCount(0);
@@ -506,9 +507,23 @@ test('escaped bubbles, compact composer and desktop inspector drawers, focus and
   };
   await expectNativeEntries();
   const ownerBubble = page.locator(`[data-entry-id="${nativeUser.entry_id}"]`), agentBubble = page.locator(`[data-entry-id="${nativeAgent.entry_id}"]`);
-  expect(await ownerBubble.evaluate(e => getComputedStyle(e).backgroundColor)).toBe('rgb(51, 51, 51)');
-  expect(await agentBubble.evaluate(e => getComputedStyle(e).backgroundColor)).toBe('rgb(32, 32, 32)');
+  expect(await ownerBubble.locator('.message-bubble').evaluate(e => getComputedStyle(e).backgroundColor)).toBe('rgb(51, 51, 51)');
+  expect(await agentBubble.locator('.message-bubble').evaluate(e => getComputedStyle(e).backgroundColor)).toBe('rgb(32, 32, 32)');
   expect((await ownerBubble.boundingBox())!.x).toBeGreaterThan((await agentBubble.boundingBox())!.x);
+  await page.locator('.navigation').hover();
+  await expect(agentBubble.locator('.message-meta')).toHaveCSS('opacity', '0');
+  await expect(agentBubble.locator('.message-actions')).toHaveCSS('opacity', '0');
+  await agentBubble.hover();
+  await expect(agentBubble.locator('.message-meta')).toHaveCSS('opacity', '1');
+  await expect(agentBubble.locator('.message-actions')).toHaveCSS('opacity', '1');
+  const copy = agentBubble.getByRole('button', { name: 'Copy message', exact: true });
+  await expect(copy).toHaveText('');
+  expect((await copy.boundingBox())!.x).toBeGreaterThan((await agentBubble.boundingBox())!.x + (await agentBubble.boundingBox())!.width);
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await copy.click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(nativeText);
+  await expect(agentBubble.getByRole('status')).toHaveText('Copied');
+  await page.screenshot({ path: testInfo.outputPath('message-hover-copy.png') });
   await expect.poll(() => calls(api, 'conversation_list').some(c => c.args.after_seq === nativeAgent.conversation_seq && c.args.recovery_epoch === api.epoch)).toBe(true);
   await page.reload();
   await expectNativeEntries();
@@ -611,14 +626,19 @@ test('synthetic inbox references validate annotations, preserve native sender la
   await expect(row(wrongKind).locator('.unsupported')).toHaveText('Unsupported content: future_card');
   await expect(row(wrongKind).locator('.inbox-reference')).toHaveCount(0);
   for (const entry of [reference, otherReference]) {
-    await expect(row(entry).locator('summary time')).toHaveAttribute('datetime', entry.occurred_at);
+    await expect(row(entry).locator('header time')).toHaveAttribute('datetime', entry.occurred_at);
     await expect(row(entry).locator('.message-body')).toBeHidden();
-    await expect(row(entry).locator('header, .delivery, a, button')).toHaveCount(0);
+    await expect(row(entry).locator('.delivery')).toBeEmpty();
+    await expect(row(entry).locator('a')).toHaveCount(0);
   }
   const disclosure = row(reference).locator('details'), summary = disclosure.locator('summary');
   await summary.focus();
   await page.keyboard.press('Tab');
+  await expect(row(reference).getByRole('button', { name: 'Copy message' })).toBeFocused();
+  await page.keyboard.press('Tab');
   await expect(row(otherReference).locator('summary')).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(row(reference).getByRole('button', { name: 'Copy message' })).toBeFocused();
   await page.keyboard.press('Shift+Tab');
   await expect(summary).toBeFocused();
   await page.screenshot({ path: testInfo.outputPath('inbox-reference-desktop-collapsed.png') });
@@ -626,7 +646,7 @@ test('synthetic inbox references validate annotations, preserve native sender la
   await expect(disclosure).toHaveAttribute('open', '');
   expect(await disclosure.locator('.message-body').textContent()).toBe(pointer);
   await expect(disclosure.locator('.inbox-reference-id')).toHaveText(`Message ID: ${annotation.message_id}`);
-  await expect(disclosure.locator('.recorded time')).toHaveAttribute('datetime', reference.recorded_at);
+  await expect(disclosure.locator('.recorded')).toHaveCount(0);
   await page.keyboard.press('Space');
   await expect(disclosure).not.toHaveAttribute('open', '');
   await page.keyboard.press('Enter');
@@ -689,13 +709,13 @@ test('file-reference cards validate saved observations, copy exact paths and wra
   for (const [entry, sender] of [[ownerEntry, 'Owner'], [agentEntry, 'onbash']] as const) {
     await expect(row(entry).locator('header strong')).toHaveText(sender);
     await expect(row(entry).locator('header time')).toHaveAttribute('datetime', entry.occurred_at);
-    await expect(row(entry).locator('header time')).toContainText('Observed');
+    await expect(row(entry).locator('header time')).toHaveText(/(?:ago|just now)/);
     await expect(row(entry).locator('.delivery')).toBeEmpty();
     await expect(row(entry).locator('.file-card a, .file-card [role="button"], .file-card button:disabled')).toHaveCount(0);
     await expect(row(entry).locator('.file-card button')).toHaveCount(1);
   }
   expect(ownerEntry.source.type === 'file_reference' && ownerEntry.source.reference.recovery_epoch).not.toBe(api.epoch);
-  await expect(row(ownerEntry).locator('.recorded time')).toHaveAttribute('datetime', ownerEntry.recorded_at);
+  await expect(row(ownerEntry).locator('.recorded')).toHaveCount(0);
   await expect(row(agentEntry).locator('.recorded')).toHaveCount(0);
   await expect(ownerCard.getByText('Agent workspace', { exact: true })).toBeVisible();
   await expect(agentCard.getByText('Host path', { exact: true })).toBeVisible();
@@ -718,8 +738,6 @@ test('file-reference cards validate saved observations, copy exact paths and wra
   await expect(ownerCopy).toBeFocused();
   await expect(ownerCard.getByRole('status')).toHaveText('Copied');
   await expect(agentCard.getByRole('status')).toBeEmpty();
-  await page.keyboard.press('Tab');
-  await expect(row(ownerEntry).locator('.entry-details summary')).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(agentCopy).toBeFocused();
   expect(await agentCopy.evaluate(e => getComputedStyle(e).outlineStyle)).toBe('solid');

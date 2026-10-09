@@ -19,6 +19,15 @@ function useMedia(query: string) {
   return matches;
 }
 const time = (value: string | null) => value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'Unknown';
+const relativeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'always' });
+function relativeTime(value: string, now: number) {
+  const minutes = Math.max(0, Math.floor((now - Date.parse(value)) / 60000));
+  if (!Number.isFinite(minutes)) return 'Unknown date';
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return relativeFormatter.format(-minutes, 'minute');
+  if (minutes < 1440) return relativeFormatter.format(-Math.floor(minutes / 60), 'hour');
+  return relativeFormatter.format(-Math.floor(minutes / 1440), 'day');
+}
 function Dialog({ title, children, onClose, drawer = '' }: { title: string; children: ComponentChildren; onClose: () => void; drawer?: string }) {
   const ref = useRef<HTMLDialogElement>(null);
   const close = useRef(onClose); close.current = onClose;
@@ -131,26 +140,32 @@ function Navigation({ select, create, renameId, setRename }: { select: (id: stri
   </nav>;
 }
 function EntryRow({ entry }: { entry: Entry }) {
-  if (inboxReferenceEntry(entry)) return <article className="entry inbox-reference-entry" data-entry-id={entry.entry_id}>
-    <details className="inbox-reference">
-      <summary><span>Inbox reference</span><time dateTime={entry.occurred_at} title={entry.occurred_at}>{time(entry.occurred_at)}</time></summary>
-      <p className="message-body">{entry.text}</p>
-      <p className="inbox-reference-id">Message ID: {entry.inbox_reference.message_id}</p>
-      {entry.recorded_at !== entry.occurred_at && <p className="recorded">Recorded <time dateTime={entry.recorded_at} title={entry.recorded_at}>{time(entry.recorded_at)}</time></p>}
-    </details>
-  </article>;
+  const [hoverTime, setHoverTime] = useState(Date.now);
+  const [copyState, setCopyState] = useState('');
+  const inbox = inboxReferenceEntry(entry);
   const nativeInput = entry.kind === 'message' && entry.source?.type === 'native' && entry.role === 'user' && entry.sender_actor_id == null;
   const sender = nativeInput ? 'Terminal input' : store.agents.find(a => a.actor_id === entry.sender_actor_id)?.display_name || (entry.role === 'user' ? 'Owner' : 'Agent');
   const reference = fileReferenceEntry(entry) ? entry.source.reference : null;
   const message = entry.kind === 'message' && (entry.source?.type === 'message' || entry.source?.type === 'native');
-  return <article className={`entry ${entry.role === 'user' ? 'owner-entry' : ''}`} data-entry-id={entry.entry_id}>
-    <header><strong>{sender}</strong><time dateTime={entry.occurred_at} title={entry.occurred_at}>{reference && 'Observed '}{time(entry.occurred_at)}</time></header>
-    {reference ? <FileReferenceCard reference={reference} /> : message ? <p className="message-body">{entry.text}</p> : <p className="unsupported">Unsupported content: {entry.kind}</p>}
-    {entry.recorded_at !== entry.occurred_at && <details className="entry-details"><summary>Record details</summary><p className="recorded">Recorded <time dateTime={entry.recorded_at} title={entry.recorded_at}>{time(entry.recorded_at)}</time></p></details>}
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(entry.text); setCopyState('Copied'); }
+    catch { setCopyState('Could not copy. Select and copy the message manually.'); }
+  };
+  return <article className={`entry ${inbox ? 'inbox-reference-entry' : entry.role === 'user' ? 'owner-entry' : ''}`} data-entry-id={entry.entry_id}
+    onMouseEnter={() => { setHoverTime(Date.now()); setCopyState(''); }} onFocusCapture={() => setHoverTime(Date.now())}>
+    <header className="message-meta"><strong>{sender}</strong><time dateTime={entry.occurred_at} title={time(entry.occurred_at)}>{relativeTime(entry.occurred_at, hoverTime)}</time></header>
+    <div className="message-bubble">
+    {inbox ? <details className="inbox-reference">
+      <summary>Inbox reference</summary>
+      <p className="message-body">{entry.text}</p>
+      <p className="inbox-reference-id">Message ID: {entry.inbox_reference!.message_id}</p>
+    </details> : reference ? <FileReferenceCard reference={reference} /> : message ? <p className="message-body">{entry.text}</p> : <p className="unsupported">Unsupported content: {entry.kind}</p>}
     <div className="delivery">
       {entry.delivery && <span>{({ pending: 'Stored · queued', deferred: 'Stored · deferred', dispatching: 'Stored · dispatching', submitted: 'Submitted', uncertain: 'Delivery uncertain', failed: 'Stored · delivery failed', cancelled: 'Stored · delivery cancelled' } as Record<string, string>)[entry.delivery.state] || `Delivery: ${entry.delivery.state}`}{entry.delivery.reason ? ` · ${entry.delivery.reason.replaceAll('_', ' ')}` : ''}</span>}
       {entry.handling && <span title={`Handled by ${entry.handling.handled_by}`}>Handled · {time(entry.handling.handled_at)}</span>}
     </div>
+    </div>
+    {message && <div className="message-actions"><button type="button" className="copy-message" aria-label="Copy message" title={copyState || 'Copy message'} onClick={() => void copy()}><ViewIcon name={copyState === 'Copied' ? 'check' : 'copy'} /></button><span className="sr-only" role="status">{copyState}</span></div>}
   </article>;
 }
 function Chat({ agent }: { agent: Agent }) {

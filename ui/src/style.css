@@ -70,28 +70,29 @@ legend{padding:0;margin-bottom:9px}
 .terminal-unavailable{flex:1;padding:32px 24px;color:#bbb;font-size:13px}
 .terminal-unavailable button,.inspector section button{font-size:12px;margin-top:12px}
 .history{flex:1;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overflow-anchor:none;scrollbar-color:#414141 transparent}
-.history-content{min-width:0;max-width:930px;margin:0 auto;padding:12px 24px 24px}
-.entry{width:fit-content;max-width:86%;margin:12px 0;padding:12px 16px;border-radius:18px;background:#202020;overflow-wrap:anywhere}
-.entry.owner-entry{margin-left:auto;background:#333}
-.entry-details{border:0;padding-top:6px;margin-top:6px}
-.entry-details summary{font-size:10px}
-.entry-details .recorded{margin:8px 0 0}
-.entry header{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;margin-bottom:6px;color:#bbb}
-.entry header strong{font-size:11px;font-weight:500}
-.entry time{font-size:10px;color:#aaa}
+.history-content{min-width:0;max-width:930px;margin:0 auto;padding:12px 62px 24px 24px}
+.entry{position:relative;width:fit-content;max-width:86%;margin:28px 0 12px;overflow-wrap:anywhere}
+.entry.owner-entry{margin-left:auto}
+.message-bubble{padding:12px 16px;border-radius:18px;background:#202020}
+.owner-entry>.message-bubble{background:#333}
+.message-meta{position:absolute;bottom:calc(100% + 4px);left:0;display:flex;gap:8px;align-items:baseline;width:max-content;max-width:min(360px,60vw);white-space:nowrap;color:#888;opacity:0;pointer-events:none;font-size:11px}
+.owner-entry>.message-meta{left:auto;right:0}
+.message-meta strong{font-weight:400;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.message-meta time{flex:none;font-size:10px;color:#777}
+.message-actions{position:absolute;left:100%;top:0;padding-left:6px;opacity:0;pointer-events:none}
+.copy-message{display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;color:#999}
+.entry:hover .message-meta,.entry:focus-within .message-meta,.entry:hover .message-actions,.entry:focus-within .message-actions{opacity:1;pointer-events:auto}
 .message-body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.6}
-.recorded{color:#aaa;font-size:10px;margin:-3px 0 8px}
 .delivery{display:flex;flex-direction:column;color:#aaa;font-size:10px;margin-top:9px;gap:3px}
+.delivery:empty{display:none}
 .unsupported{padding:12px;border:1px solid #2b2b2b;color:#bbb}
-.entry.inbox-reference-entry{margin:12px 0;padding:8px 12px;background:#171717}
+.inbox-reference-entry>.message-bubble{padding:8px 12px;background:#171717}
 .inbox-reference{border:0;padding:0;color:#bbb}
 .inbox-reference summary{font-size:12px}
-.inbox-reference summary time{margin-left:12px}
 .inbox-reference .message-body{margin-top:8px;font-size:12px}
 .inbox-reference-id{font-size:11px;overflow-wrap:anywhere}
-.inbox-reference .recorded{margin:8px 0 0}
 .file-card{min-width:0;border:1px solid #353535;border-radius:12px;background:#191919;padding:12px}
-.entry:has(>.file-card){background:transparent;padding:0}
+.message-bubble:has(>.file-card){background:transparent;padding:0}
 .file-card-title{display:flex;align-items:flex-start;gap:9px}
 .file-card-title strong{min-width:0;white-space:break-spaces}
 .file-location,.file-size{font-size:11px;color:#aaa;margin-top:10px}
@@ -181,7 +182,7 @@ summary{font-size:11px;cursor:pointer;color:#bbb}
 
 
 @media(max-width:1100px){.workspace{grid-template-columns:240px minmax(0,1fr)}
-.history-content{padding:12px 24px 24px}
+.history-content{padding:12px 62px 24px 24px}
 .composer-wrap{min-width:0;overflow-wrap:anywhere;padding:8px 24px 16px}
 }
 
@@ -189,7 +190,7 @@ summary{font-size:11px;cursor:pointer;color:#bbb}
 @media(max-width:700px){.workspace{grid-template-columns:minmax(0,1fr)}
 .workspace-controls{right:8px}
 .terminal-screen{margin:0 10px 10px}
-.history-content{padding:10px 12px 20px}
+.history-content{padding:10px 50px 20px 12px}
 .entry{max-width:92%}
 .composer-wrap{min-width:0;overflow-wrap:anywhere;padding:8px 12px max(12px,env(safe-area-inset-bottom))}
 .composer textarea{font-size:16px}

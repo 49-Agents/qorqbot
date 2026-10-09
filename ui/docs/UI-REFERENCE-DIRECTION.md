@@ -1,5 +1,11 @@
 # Reference-driven chat and inspector
 
+Owner update, 2026-10-09: message name/time appear only on hover (or keyboard
+focus), subtly above the bubble, with relative minutes/hours/days. Remove the
+Record details line. A hover/focus copy icon sits outside the bubble on its right
+and copies only the original message text. Leave room for this control without
+horizontal scrolling. This supersedes the always-visible metadata below.
+
 D56 visual amendment, 2026-10-09. The owner supplied chat/sidebar and right-pane
 reference images while the minimal-workspace implementation was running. Use
 their layout/density, retaining the previously requested monochrome palette,
