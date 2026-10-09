@@ -386,6 +386,7 @@ class TerminalStream:
         self.viewer_id, self.terminal_id = attachment.viewer_id, attachment.terminal_id
         self.initial = None
         self._lock = threading.RLock()
+        self._closed = False
 
     def state(self):
         with self.service.db.read() as tx:
@@ -439,6 +440,31 @@ class TerminalStream:
 
     def close(self):
         with self._lock:
-            self.attachment.close()
-        with self.service._lock:
-            self.service._streams.pop(self.viewer_id, None)
+            try:
+                if self._closed:
+                    return
+                self._closed = True
+                # Settle this stream's effects before releasing its exact hold.
+                # The mirror may already be disconnected; it does not own control.
+                with self.service._binding(self.target, self.actor_id):
+                    manager = self.service._manager
+                    if manager is None:
+                        return
+                    shell = manager.inspect(self.terminal_id)
+                    if (shell.state != "running" or not shell.capture.verified or not shell.capture.terminal_active
+                            or shell.spec.agent_id != self.target.agent_id
+                            or shell.spec.recovery_epoch != self.target.recovery_epoch):
+                        return
+                    if shell.control.mode == "human" and shell.control.viewer_id == self.viewer_id:
+                        control = manager.release_control(self.terminal_id, self.viewer_id, shell.control.epoch)
+                        self.service._publish(self.target, self.service._presentation(
+                            self.target, shell.model_copy(update={"control": control})))
+            except (CoreError, RunnerError, OSError, ValueError, sqlite3.Error):
+                # No retry or claimed release after a changed/unavailable binding.
+                _LOG.warning("terminal_control_release_unconfirmed")
+            finally:
+                try:
+                    self.attachment.close()
+                finally:
+                    with self.service._lock:
+                        self.service._streams.pop(self.viewer_id, None)

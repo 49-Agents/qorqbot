@@ -380,8 +380,10 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
                 self.assertEqual(send(second, malformed, "error")["code"], "invalid_argument")
             self.assertEqual(f.manager().control(shell.terminal_id).last_sequence, 2)
             input_frame(second, b"(sleep 0.4; printf 'AWAY_%s\\n' MARKER) &\r", control2["epoch"], 3)
-        # Disconnect preserves the hold. Normal console shutdown is not shell shutdown.
-        self.assertEqual(f.manager().control(shell.terminal_id).viewer_id, UUID(hello2["viewer_id"]))
+        # Disconnect releases this viewer's hold without stopping execution.
+        released = wait_for(lambda: (c if (c := f.manager().control(shell.terminal_id)).mode == "unclaimed" else None))
+        self.assertEqual((released.epoch, released.viewer_id, released.last_sequence), (control2["epoch"] + 1, None, 0))
+        wait_for(lambda: f.terminal()["control"] == released.model_dump(mode="json"))
         f.stop()
         verify_process(child)
         verify_process(shell.shell)
@@ -391,8 +393,7 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         again = f.shell()
         self.assertEqual((again.tmux, again.recorder, again.shell, again.terminal_id),
                          (shell.tmux, shell.recorder, shell.shell, shell.terminal_id))
-        self.assertEqual(recovered["control"]["viewer_id"], hello2["viewer_id"])
-        self.assertEqual(recovered["control"]["last_sequence"], 3)
+        self.assertEqual(recovered["control"], released.model_dump(mode="json"))
         self.assertEqual(recovered["dimensions"], {"columns": 113, "rows": 31})
         self.assertGreaterEqual(recovered["recording"]["local_captured_offset"], view["recording"]["local_captured_offset"])
         with f.websocket() as viewer:
@@ -428,7 +429,8 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         # An extra, positively owned window invalidates the exact capture
         # binding even though the terminal UUID and recovery epoch are unchanged.
         with f.websocket() as changed:
-            received(changed, "hello")
+            current = received(changed, "hello")["terminal"]["control"]
+            take(changed, current["epoch"])
             held = f.manager().control(shell.terminal_id)
             verify_process(shell.tmux.server)
             tmux = ["/usr/bin/tmux", "-N", "-S", str(f.manager().socket_path), "-f", "/dev/null"]
@@ -562,6 +564,61 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         with sqlite3.connect(f.database) as db:
             self.assertEqual(db.execute("SELECT count(*) FROM runner_shell_terminals").fetchone()[0], 1)
         stream.close()
+        self.assertTrue(stream.attachment.closed)
+        self.assertEqual(app.terminals._streams, {})
+        self.assertEqual(f.manager().control(shell.terminal_id), held)
+
+    def test_close_releases_only_its_hold_and_always_cleans_up(self):
+        f = TerminalInstallation()
+        self.addCleanup(f.close)
+        app = Application.open(f.settings)
+        self.addCleanup(app.close)
+        app.jobs.run_next(worker_id=uuid4())
+        app.terminals.observe()
+        manager = app.terminals._manager
+        shell = f.shell()
+        old = app.terminals.attach(UUID(f.agent_id), f.owner.actor_id)
+        held = old.control("take", 0)
+        replacement = app.terminals.attach(UUID(f.agent_id), f.owner.actor_id)
+        held = replacement.control("take", held.epoch)
+        with patch.object(manager, "release_control", wraps=manager.release_control) as release:
+            old.close()
+            old.close()
+            release.assert_not_called()
+            self.assertTrue(old.attachment.closed)
+            self.assertNotIn(old.viewer_id, app.terminals._streams)
+            self.assertEqual(manager.control(shell.terminal_id), held)
+            # A runner mirror disconnect alone retains control; core still owns
+            # release and cleanup even when attachment.closed is already true.
+            replacement.attachment.close()
+            self.assertEqual(manager.control(shell.terminal_id), held)
+            replacement.close()
+            replacement.close()
+            release.assert_called_once_with(shell.terminal_id, replacement.viewer_id, held.epoch)
+        released = manager.control(shell.terminal_id)
+        self.assertEqual((released.mode, released.epoch, released.viewer_id, released.last_sequence),
+                         ("unclaimed", held.epoch + 1, None, 0))
+        self.assertEqual(app.terminals._cache[1].control, released)
+        self.assertEqual(app.terminals._streams, {})
+        verify_process(shell.shell)
+        verify_process(shell.recorder)
+
+        stream = app.terminals.attach(UUID(f.agent_id), f.owner.actor_id)
+        held = stream.control("take", released.epoch)
+        close_attachment = stream.attachment.close
+        def failed_cleanup():
+            close_attachment()
+            raise OSError("synthetic attachment cleanup failure")
+        with patch.object(manager, "release_control", side_effect=RunnerError("revision_conflict", "synthetic release race")) as release:
+            with patch.object(stream.attachment, "close", side_effect=failed_cleanup):
+                with self.assertRaises(OSError):
+                    stream.close()
+            self.assertTrue(stream.attachment.closed)
+            self.assertEqual(app.terminals._streams, {})
+            self.assertEqual(manager.control(shell.terminal_id), held)
+            self.assertEqual(app.terminals._cache[1].control, held)
+            stream.close()
+            release.assert_called_once_with(shell.terminal_id, stream.viewer_id, held.epoch)
 
 
 class Socket:
@@ -706,7 +763,9 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
                 settled.append(error.code)
                 failed.set()
                 raise
-        with patch.object(manager, "inspect", side_effect=inspecting), patch.object(manager, "take_control", side_effect=stale_control):
+        with patch.object(manager, "inspect", side_effect=inspecting), \
+             patch.object(manager, "take_control", side_effect=stale_control), \
+             patch.object(manager, "release_control", wraps=manager.release_control) as release_control:
             with input_lock(f.database, UUID(hello["terminal"]["terminal_id"])):
                 await ws.frame({"type": "control", "action": "take", "expected_epoch": control.epoch})
                 self.assertTrue(await asyncio.to_thread(entered.wait, 3))
@@ -714,15 +773,20 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0.1)
                 self.assertFalse(closing.done())
                 self.assertFalse(ws.closed)
+                release_control.assert_not_called()
             self.assertTrue(await asyncio.to_thread(failed.wait, 3))
             done, _ = await asyncio.wait({closing}, timeout=3)
             self.assertIn(closing, done, "Shutdown needed a second cancellation after the effect settled")
             await closing
+            release_control.assert_called_once_with(UUID(hello["terminal"]["terminal_id"]), UUID(held["viewer_id"]), held["epoch"])
         self.assertEqual(settled, ["revision_conflict"])
         self.assertTrue(task.cancelled())
         self.assertTrue(ws.closed)
         self.assertEqual((sockets.tasks, app.terminals._streams), (set(), {}))
-        self.assertEqual(manager.control(UUID(hello["terminal"]["terminal_id"])).model_dump(mode="json"), held)
+        released = manager.control(UUID(hello["terminal"]["terminal_id"]))
+        self.assertEqual((released.mode, released.epoch, released.viewer_id, released.last_sequence),
+                         ("unclaimed", held["epoch"] + 1, None, 0))
+        self.assertEqual(app.terminals._cache[1].control, released)
 
     async def test_slow_output_idle_disconnect_and_recovery_close_only_viewers(self):
         f, app, sockets = await self.fixture()
@@ -767,7 +831,7 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
         shell = f.shell()
         verify_process(shell.shell)
         # Real idle reads return b'' without closing the observer; an explicit
-        # disconnect closes only its viewer and preserves the control hold.
+        # disconnect closes its viewer and releases only its control hold.
         ws = Socket(app, f.owner.actor_id, f.agent_id)
         task = asyncio.create_task(sockets.endpoint(ws))
         await ws.next("hello")
@@ -779,7 +843,8 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
         await ws.incoming.put({"type": "websocket.disconnect"})
         await asyncio.wait_for(task, 3)
         self.assertTrue(ws.closed)
-        self.assertEqual(f.manager().control(shell.terminal_id).epoch, held["epoch"])
+        released = f.manager().control(shell.terminal_id)
+        self.assertEqual((released.mode, released.epoch, released.viewer_id), ("unclaimed", held["epoch"] + 1, None))
         ws = Socket(app, f.owner.actor_id, f.agent_id)
         task = asyncio.create_task(sockets.endpoint(ws))
         hello = await ws.next("hello")
