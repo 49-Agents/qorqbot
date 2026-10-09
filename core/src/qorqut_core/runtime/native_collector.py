@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import deque
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
+from datetime import datetime
 import os
 import sqlite3
 import stat
@@ -99,6 +100,7 @@ class NativeCollector:
         self._cache = None
         self._input_cache = {}
         self._source_observed = {}
+        self._exited_sources = {}
         self._primary_wait = {}
         self._thread = None
         self._closed = False
@@ -159,6 +161,7 @@ class NativeCollector:
         finally:
             self._capture = None
             self._source_observed.clear()
+            self._exited_sources.clear()
             self._primary_wait.clear()
             with self._lock:
                 self._cache = None
@@ -253,6 +256,76 @@ class NativeCollector:
             and owner["conversation_id"] == agent["conversation_id"]
             and owner["provider"] == state.provider and owner["native_session_id"] == state.native_session_id
             for run in state.runs)
+
+    def _exited_owners(self, state, owners, agent, installation):
+        if not self._admitted(state, owners, agent, installation):
+            return None
+        # A resumed owner can precede discovery and its local/host source link.
+        # Consult every owner of this UUID, including recovery-retired owners.
+        relevant = [owner for owner in owners.values()
+                    if owner["agent_id"] == agent["id"] and owner["provider"] == state.provider
+                    and owner["native_session_id"] == state.native_session_id]
+        if not relevant or any(
+                owner["state"] != "closed" or owner["observation"] != "exited"
+                or owner["closed_at"] is None
+                or owner["recovery_epoch"] != installation["recovery_epoch"]
+                or owner["installation_id"] != installation["installation_id"]
+                or owner["conversation_id"] != agent["conversation_id"]
+                or ("owner", owner["owner_id"]) in self._errors
+                or owner["owner_id"] in self._discovery_gaps for owner in relevant):
+            return None
+        return tuple((owner["owner_id"], owner["closed_at"]) for owner in relevant)
+
+    @staticmethod
+    def _checkpoint_covers(state, closures):
+        checkpoint = state.checkpoint
+        return bool(checkpoint and not checkpoint.gap and closures
+            and (checkpoint.proof.source_id, checkpoint.proof.source_epoch)
+                == (state.source_id, state.source_epoch)
+            and checkpoint.proof.through_offset == state.local_captured_offset
+            and datetime.fromisoformat(checkpoint.recorded_at)
+                > max(datetime.fromisoformat(closed_at) for _, closed_at in closures))
+
+    def _checkpoint_unchanged(self, state):
+        proof = state.checkpoint.proof
+        with ManagedTree(self._capture.roots.home) as home, home.parent(state.relative_path) as (fd, name):
+            info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+        return (stat.S_ISREG(info.st_mode) and
+                (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+                == (proof.device, proof.inode, proof.file_size, proof.mtime_ns, proof.ctime_ns))
+
+    def _checkpoint_exited(self, state, agent, installation, guard):
+        # This proves only a finite captured prefix. EOF and ACK coverage are
+        # independent conditions, checked when deriving the runtime observation.
+        if state.gap or state.observation_required or state.divergence_reason or state.last_error:
+            return
+        guard()
+        _, _, owners = self._snapshot()
+        closures = self._exited_owners(state, owners, agent, installation)
+        if closures is None:
+            return
+        if not (self._checkpoint_covers(state, closures) and self._checkpoint_unchanged(state)):
+            self._capture.checkpoint(state.source_id)
+        guard()
+        _, _, owners = self._snapshot()
+        current = self._capture.state(state.source_id)
+        if (self._exited_owners(current, owners, agent, installation) == closures
+                and self._checkpoint_covers(current, closures)
+                and self._checkpoint_unchanged(current)):
+            self._exited_sources[current.source_id, current.source_epoch] = closures
+
+    def _unfinished_eof(self, state, epoch, owners, agent, installation):
+        closures = self._exited_sources.get((state.source_id, state.source_epoch))
+        return bool(closures and closures == self._exited_owners(state, owners, agent, installation)
+            and self._checkpoint_covers(state, closures)
+            and not (state.gap or state.observation_required or state.divergence_reason
+                     or state.last_error or state.transfer_pending or epoch.get("conflicted"))
+            and epoch.get("registered_recovery_epoch") == installation["recovery_epoch"]
+            and all(run in epoch.get("bindings", ()) for run in state.runs)
+            and state.checkpoint.proof.through_offset == state.checkpoint.proof.file_size
+                == state.local_captured_offset == state.host_archived_offset
+                == epoch.get("host_archived_offset") == epoch.get("scanned")
+            and epoch["handled"] < epoch["scanned"])
 
     def _archive(self, agent, installation, owners):
         """Inventory includes historical epochs and archive-only pending parses."""
@@ -387,6 +460,7 @@ class NativeCollector:
             local = [s for s in states if s.source_id == source_id]
             for state in local:
                 self._source_observed.pop((state.source_id, state.source_epoch), None)
+                self._exited_sources.pop((state.source_id, state.source_epoch), None)
             try:
                 guard()
                 if local:
@@ -405,6 +479,7 @@ class NativeCollector:
                     guard()
                     if not (polled.gap or polled.observation_required or transferred.last_error):
                         self._source_observed[polled.source_id, polled.source_epoch] = observed
+                    self._checkpoint_exited(transferred, agent, installation, guard)
                 self._errors.pop(("source", source_id), None)
             except _OPERATIONAL as exc:
                 self._errors["source", source_id] = _reason(exc)
@@ -509,7 +584,9 @@ class NativeCollector:
             state, reason = "blocked", "collection_blocked"
         elif any(s.gap or s.divergence_reason or (s.checkpoint and s.checkpoint.gap) for s in states) or self._discovery_gaps:
             state, reason = "gap", "capture_gap"
-        elif any(e["parse_gap"] for e in epochs.values()):
+        elif (any(e["parse_gap"] for e in epochs.values())
+                or any(self._unfinished_eof(s, epochs.get((s.source_id, s.source_epoch), {}),
+                                           owners, agent, installation) for s in states)):
             state, reason = "gap", "parser_gap"
         elif any(key not in self._discovered for key, owner in owners.items()
                  if owner["recovery_epoch"] == installation["recovery_epoch"]):
@@ -535,6 +612,7 @@ class NativeCollector:
             self._tick()
         except Exception:
             self._source_observed.clear()
+            self._exited_sources.clear()
             self._primary_wait.clear()
             raise
 
@@ -560,5 +638,9 @@ class NativeCollector:
             except _OPERATIONAL as exc:
                 failure = _reason(exc)
                 self._source_observed.clear()
+                self._exited_sources.clear()
                 self._primary_wait.clear()
+            # Connections can change while file work is in progress. The final
+            # derived EOF view must also see owners not yet linked to a source.
+            _, _, owners = self._snapshot()
             self._observation(agent, installation, owners, failure=failure)
