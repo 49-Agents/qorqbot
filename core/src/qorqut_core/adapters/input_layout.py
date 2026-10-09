@@ -23,6 +23,9 @@ OSC8 = re.compile(r"\x1b\]8;[^;\x00-\x1f\x7f-\x9f]*;[^\x00-\x1f\x7f-\x9f]*(?:\x0
 PROMPT = re.compile(r"^[❯›>][ \xa0]")
 CLAUDE_FOOTER = re.compile(
     r"  ⏵⏵ (?:auto mode on|bypass permissions on) \(shift\+tab to cycle\)(?: · ← for agents)?")
+CODEX_WARNING = r"⚠ +[1-9][0-9]* +warnings? +· +f2 +to +view"
+CODEX_EMPTY_FOOTER = re.compile(rf"  \? for shortcuts(?: +{CODEX_WARNING} *)?")
+CODEX_INPUT_FOOTER = re.compile(rf"(?: +{CODEX_WARNING} *)?")
 
 
 def _lines(screen: str):
@@ -65,8 +68,9 @@ def _tail(provider, line):
 def _observe(provider, version, snapshot, expected):
     if VERSIONS.get(provider) != version or provider not in VERSIONS:
         return "unknown", "unsupported_version"
+    minimum_columns = 54 if provider == "codex" else 80
     if (type(snapshot.columns) is not int or type(snapshot.rows) is not int
-            or not 80 <= snapshot.columns <= 500 or not 24 <= snapshot.rows <= 250):
+            or not minimum_columns <= snapshot.columns <= 500 or not 24 <= snapshot.rows <= 250):
         return "unknown", "unsupported_geometry"
     if (type(snapshot.cursor_x) is not int or type(snapshot.cursor_y) is not int
             or not 0 <= snapshot.cursor_x < snapshot.columns or not 0 <= snapshot.cursor_y < snapshot.rows
@@ -104,10 +108,11 @@ def _observe(provider, version, snapshot, expected):
         visible = False
     else:
         model, separator, path = plain[-2][2:].partition(" · ")
+        footer = CODEX_EMPTY_FOOTER if expected is None else CODEX_INPUT_FOOTER
         if (plain[row + 1] != "" or not plain[-2].startswith("  ")
                 or not model.strip() or not separator or not path.startswith(("/", "~/"))
                 or " · " in path or len(plain[-2]) > snapshot.columns
-                or plain[-1] != ("  ? for shortcuts" if expected is None else "")):
+                or len(plain[-1]) > snapshot.columns or not footer.fullmatch(plain[-1])):
             return "unknown", "unknown_footer_or_multiline_input"
         if expected is None:
             # tmux can carry the exact dim placeholder through the blank row

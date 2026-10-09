@@ -1071,6 +1071,18 @@ class InputLayoutTests(unittest.TestCase):
         lines[row] = text
         return snapshot.model_copy(update={"screen": "\n".join(lines) + "\n"})
 
+    def codex_warning_snapshot(self, text=None, columns=69, warning="2 warnings"):
+        snap = self.snapshot("codex", columns=columns, rows=68, text=text)
+        prompt = "\x1b[2mAsk Codex to do anything\x1b[0m" if text is None else text
+        snap = self.replace_row(snap, -4, "\x1b[0;1m›\x1b[0m " + prompt)
+        # Only the observed lower-row layout is retained; model/path are synthetic.
+        snap = self.replace_row(snap, -2,
+            "  \x1b[38;5;223mFixture model\x1b[39m · \x1b[38;5;151m~/fixture/work…")
+        left = "  \x1b[1m?\x1b[0m for shortcuts" if text is None else ""
+        padding = columns - (17 if text is None else 0) - len("⚠ " + warning + " · f2 to view")
+        return self.replace_row(snap, -1, "\x1b[39m" + left + " " * padding
+            + "⚠ \x1b[38;5;179m" + warning + "\x1b[39m · \x1b[1mf2\x1b[0m to view")
+
     def refused(self, provider, snapshot, state=None):
         verdict = classify_input(provider, self.versions[provider], snapshot)
         self.assertNotEqual(verdict.state, "empty", verdict)
@@ -1140,6 +1152,62 @@ class InputLayoutTests(unittest.TestCase):
                 self.refused("codex", self.replace_row(deferred, row, value))
         self.refused("codex", deferred.model_copy(update={"cursor_x": 3}), "unknown")
 
+    def test_codex_narrow_warning_empty_and_exact_pointer(self):
+        self.assertEqual(len(self.notification.encode("ascii")), 51)
+        for columns in (54, 69):
+            for warning in ("1 warning", "2 warnings", "12 warnings"):
+                for text in (None, self.notification):
+                    with self.subTest(columns=columns, warning=warning, text=text):
+                        snap = self.codex_warning_snapshot(text, columns, warning)
+                        before = snap.model_dump()
+                        if text is None:
+                            verdict = classify_input("codex", self.versions["codex"], snap)
+                            self.assertEqual(verdict.state, "empty")
+                            self.assertFalse(verdict.native_verified)
+                            self.assertFalse(verdict.permits_paste)
+                            self.assertEqual((snap.cursor_x, snap.cursor_y), (2, 64))
+                        else:
+                            self.assertTrue(matches_input("codex", self.versions["codex"], snap, text))
+                            self.assertFalse(matches_input("codex", self.versions["codex"], snap, text + "x"))
+                            self.assertNotEqual(classify_input("codex", self.versions["codex"], snap).state, "empty")
+                        self.assertEqual(snap.model_dump(), before)
+
+    def test_provider_width_floors_preserve_unwrapped_input(self):
+        for text in (None, self.notification):
+            for columns in (54, 69, 79):
+                snap = self.snapshot("codex", columns=columns, rows=68, text=text)
+                if text is None:
+                    self.assertEqual(classify_input("codex", self.versions["codex"], snap).state, "empty")
+                else:
+                    self.assertTrue(matches_input("codex", self.versions["codex"], snap, text))
+            self.refused("codex", self.snapshot("codex", columns=53, text=text), "unknown")
+            self.refused("codex", self.codex_warning_snapshot(text, columns=53), "unknown")
+            self.refused("claude", self.snapshot("claude", columns=79, text=text), "unknown")
+        wrapped = self.snapshot("codex", columns=54, text=self.notification + "x")
+        self.assertFalse(matches_input("codex", self.versions["codex"], wrapped, self.notification + "x"))
+
+    def test_warning_footer_does_not_admit_unknown_or_interactive_input(self):
+        for text in (None, self.notification):
+            snap = self.codex_warning_snapshot(text)
+            left = "  ? for shortcuts" if text is None else ""
+            for warning in ("⚠ 0 warnings · f2 to view", "⚠ -1 warning · f2 to view",
+                            "⚠ 02 warnings · f2 to view", "⚠ ٢ warnings · f2 to view",
+                            "⚠ 2 alerts · f2 to view", "! 2 warnings · f2 to view",
+                            "⚠ 2 warnings · f3 to view", "⚠ 2 warnings - f2 to view",
+                            "⚠ 2 warnings · f2 to view extra", "⚠ 2 warnings",
+                            "⚠ 2 warnings\t· f2 to view"):
+                with self.subTest(text=text, warning=warning):
+                    self.refused("codex", self.replace_row(snap, -1, left + "  " + warning), "unknown")
+            for row, value in ((-4, "› Human fixture draft"), (-3, "wrapped input"),
+                               (-5, "› extra composer"), (-1, "  ⚠ 2 warnings · f2 to view" if text is None
+                                else "  ? for shortcuts  ⚠ 2 warnings · f2 to view")):
+                self.refused("codex", self.replace_row(snap, row, value))
+            self.refused("codex", self.replace_row(snap, -1, left + " " * 69 + "⚠ 2 warnings · f2 to view"))
+            self.refused("codex", self.replace_row(snap, -7, "Working (esc to interrupt)"), "busy")
+            self.refused("codex", self.replace_row(snap, -8, "enter to confirm"), "blocked")
+            self.refused("codex", snap.model_copy(update={"cursor_x": snap.cursor_x + 1}), "unknown")
+            self.refused("codex", snap.model_copy(update={"screen": snap.screen + "\n"}), "unknown")
+
     def test_draft_busy_modal_and_earlier_output(self):
         for provider, version in self.versions.items():
             self.refused(provider, self.snapshot(provider, text="Human fixture draft"))
@@ -1177,7 +1245,7 @@ class InputLayoutTests(unittest.TestCase):
             for text in (None, self.notification):
                 snap = self.snapshot(provider, text=text)
                 changes = [{flag: True} for flag in ("in_mode", "input_off", "synchronized")]
-                changes += [{"columns": value} for value in (79, 501, True, "100")]
+                changes += [{"columns": value} for value in (53 if provider == "codex" else 79, 501, True, "100")]
                 changes += [{"rows": value} for value in (23, 251, False, "30")]
                 changes += [{"cursor_x": value} for value in (-1, 100, 1, True)]
                 changes += [{"cursor_y": value} for value in (-1, 30, 1, True)]
