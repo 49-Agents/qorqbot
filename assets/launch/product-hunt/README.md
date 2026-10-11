@@ -9,12 +9,14 @@
 | `03-tmux-streaming-v1.png` | Earlier streaming draft with a browser invitation. |
 | `03-tmux-streaming-v2.png` | Earlier draft using the fuller owner-supplied Claude terminal. |
 | `03-tmux-streaming-v3.png` | Earlier draft with the narrower terminal and matching chat exchange. |
-| `03-tmux-streaming-v4.png` | Current draft. Simplified terminal and matching chat exchange; headline appearance matched to the approved provider-choice slide. |
+| `03-tmux-streaming-v4.png` | Approved. Simplified terminal and matching chat exchange; headline appearance matched to the approved provider-choice slide. |
+| `04-local-context-v1.png` | Draft. Notion, Google Drive and Obsidian icons point into the black Qorqbot mascot. Centered headline, no subheadline. Editable standalone SVG alongside. |
 
-The PNG images are made with the built-in image editor.
-They are generated product concepts, not captured application screenshots.
-The matching `.prompt.md` files preserve prompts and provenance. Provider
-readiness remains as documented in the project README.
+Slides 1–3 are made with the built-in image editor. They are generated product
+concepts, not captured application screenshots. The matching `.prompt.md` files
+preserve prompts and provenance. Slide 4 is composed directly in SVG from the
+original brand icons, mascot and font; its `.design.md` records sources and the
+brief. Provider readiness remains as documented in the project README.
 
 `sources/claude-code-terminal.png` is the owner's unmodified terminal capture
 used as an input for slide 3. The composed slide and chat messages are generated.

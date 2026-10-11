@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="25 30 110 112" role="img" aria-labelledby="title desc">
+  <title id="title">Qorqbot logo</title>
+  <desc id="desc">A black Qorqbot mascot with white almond eyes and an upward-curled white mustache.</desc>
+  <path fill="#000000" d="M31 86 C31 60 52 37 79 37 C106 36 129 59 130 86 C131 113 109 136 81 136 C54 137 31 115 31 86 Z" />
+  <g fill="#ffffff" transform="rotate(-22 80 86)">
+    <path transform="translate(90 73) rotate(-12)" d="M0 -12 C8 -7 8 7 0 12 C-8 7 -8 -7 0 -12 Z" />
+    <path transform="translate(116.5 72) rotate(-12)" d="M0 -10.5 C6 -6 6 6 0 10.5 C-6 6 -6 -6 0 -10.5 Z" />
+  </g>
+  <g fill="#ffffff" transform="translate(5 0) rotate(-22 80 86)">
+    <path transform="translate(91 103) scale(.65) translate(-91 -103)" d="M91 101 C86 96 82 97 75 101 C64 107 54 103 53 90 C46 108 58 120 73 115 C82 113 88 108 91 105 C95 108 101 113 109 114 C123 117 134 106 127 89 C126 102 117 106 107 101 C100 97 96 96 91 101 Z" />
+  </g>
+</svg>
