@@ -1,0 +1,37 @@
+{
+  "id": "01-ensemble",
+  "title": "The ensemble",
+  "duration": 30,
+  "width": 1920,
+  "height": 1080,
+  "entry": "index.html",
+  "reused_assets": [
+    "assets/brand/qorqbot-logo.svg",
+    "assets/launch/product-hunt/sources/context-icons/qorqbot-mark-dark.svg",
+    "assets/launch/product-hunt/02-provider-choice.png",
+    "assets/launch/product-hunt/01-cover.png",
+    "assets/launch/product-hunt/04-local-context-v2.svg",
+    "ui/src/view-icons.tsx",
+    "/home/alp/qorqbot/worktrees/landing-concepts/site/dist/index.html",
+    "/home/alp/qorqbot/worktrees/landing-concepts/site/dist/styles.css",
+    "/home/alp/qorqbot/worktrees/landing-concepts/site/dist/mascot.js",
+    "/home/alp/qorqbot/worktrees/landing-concepts/site/dist/mascot.css",
+    "/home/alp/businesses/49IDE/code/landing/anim/runtime/gsap.min.js",
+    "/home/alp/businesses/49IDE/code/landing/anim/runtime/CustomEase.min.js",
+    "/home/alp/businesses/49IDE/code/landing/anim/runtime/LICENSE-gsap.txt",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/fonts/ZenKakuGothicNew-Light.woff2",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/fonts/ZenKakuGothicNew-Regular.woff2",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/fonts/ZenKakuGothicNew-Medium.woff2",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/fonts/OFL-ZenKakuGothicNew.txt",
+    "/home/alp/businesses/49IDE/code/landing/anim/index.html",
+    "/home/alp/businesses/49IDE/code/landing/anim/STYLE.md",
+    "/home/alp/businesses/49IDE/code/landing/anim/frames/01-ma.js"
+  ],
+  "scenes": [
+    { "start": 0, "end": 4, "label": "The mascot wakes; four faces slide out along an arc" },
+    { "start": 4, "end": 10, "label": "Mike, Turgut, Adam and Borte connect to Codex, Claude and DeepSeek" },
+    { "start": 10, "end": 17, "label": "The agents become the chat navigation; Adam's conversation" },
+    { "start": 17, "end": 24, "label": "Browser invitation with the landing page and Take control" },
+    { "start": 24, "end": 30, "label": "The faces return behind the mascot; endcard" }
+  ]
+}
