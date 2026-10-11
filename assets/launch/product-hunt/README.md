@@ -8,7 +8,8 @@
 | `02-provider-choice.png` | Approved with final names: Mike, Turgut, Adam, Borte. |
 | `03-tmux-streaming-v1.png` | Earlier streaming draft with a browser invitation. |
 | `03-tmux-streaming-v2.png` | Earlier draft using the fuller owner-supplied Claude terminal. |
-| `03-tmux-streaming-v3.png` | Current draft. Narrower, simplified Claude terminal showing the same exchange as Adam's chat; lighter header type. |
+| `03-tmux-streaming-v3.png` | Earlier draft with the narrower terminal and matching chat exchange. |
+| `03-tmux-streaming-v4.png` | Current draft. Simplified terminal and matching chat exchange; headline appearance matched to the approved provider-choice slide. |
 
 The PNG images are made with the built-in image editor.
 They are generated product concepts, not captured application screenshots.
