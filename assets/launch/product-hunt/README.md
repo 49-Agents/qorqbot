@@ -10,7 +10,8 @@
 | `03-tmux-streaming-v2.png` | Earlier draft using the fuller owner-supplied Claude terminal. |
 | `03-tmux-streaming-v3.png` | Earlier draft with the narrower terminal and matching chat exchange. |
 | `03-tmux-streaming-v4.png` | Approved. Simplified terminal and matching chat exchange; headline appearance matched to the approved provider-choice slide. |
-| `04-local-context-v1.png` | Draft. Notion, Google Drive and Obsidian icons point into the black Qorqbot mascot. Centered headline, no subheadline. Editable standalone SVG alongside. |
+| `04-local-context-v1.png` | Earlier context slide with source labels. |
+| `04-local-context-v2.png` | Current draft. Wider arrowhead clearance, source labels removed, actual Zen headline font. Editable standalone SVG alongside. |
 
 Slides 1–3 are made with the built-in image editor. They are generated product
 concepts, not captured application screenshots. The matching `.prompt.md` files
