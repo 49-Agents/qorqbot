@@ -1,0 +1,36 @@
+{
+  "id": "03-context-orbit",
+  "title": "Context orbit",
+  "duration": 30,
+  "width": 1920,
+  "height": 1080,
+  "entry": "index.html",
+  "reused_assets": [
+    "assets/launch/product-hunt/04-local-context-v2.svg",
+    "assets/launch/product-hunt/sources/context-icons/notion.svg",
+    "assets/launch/product-hunt/sources/context-icons/google-drive.png",
+    "assets/launch/product-hunt/sources/context-icons/obsidian.svg",
+    "assets/launch/product-hunt/sources/context-icons/qorqbot-mark-dark.svg",
+    "assets/brand/qorqbot-logo.svg",
+    "assets/launch/product-hunt/02-provider-choice.png",
+    "/home/alp/businesses/49IDE/code/landing/anim/runtime/gsap.min.js",
+    "/home/alp/businesses/49IDE/code/landing/anim/runtime/CustomEase.min.js",
+    "/home/alp/businesses/49IDE/code/landing/anim/runtime/LICENSE-gsap.txt",
+    "/home/alp/businesses/49IDE/code/landing/anim/index.html",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/japanese-minimalism/motion-curves.md",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/fonts/ZenKakuGothicNew-Light.woff2",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/fonts/ZenKakuGothicNew-Regular.woff2",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/fonts/ZenKakuGothicNew-Medium.woff2",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/fonts/OFL-ZenKakuGothicNew.txt",
+    "/home/alp/qorqbot/worktrees/landing-concepts/site/dist/mascot.js",
+    "/home/alp/qorqbot/worktrees/landing-concepts/site/dist/index.html",
+    "/home/alp/qorqbot/worktrees/landing-concepts/site/dist/styles.css"
+  ],
+  "scenes": [
+    { "start": 0, "end": 5, "label": "your context stays local: slide 04 composition, the three paths draw and the face glances at each" },
+    { "start": 5, "end": 12, "label": "Three document cards follow the paths into a stack; the camera pulls out and a workspace boundary draws" },
+    { "start": 12, "end": 19, "label": "your favourite models working together: Mike, Turgut, Adam and Borte orbit the workspace; pulses travel from the stack; Codex, Codex, Claude, DeepSeek" },
+    { "start": 19, "end": 24, "label": "The satellites form a dark chat row; Launch checklist resolves from the stack: Ready for your review." },
+    { "start": 24, "end": 30, "label": "The diagram contracts into the black face; get stuff done / stay independent, qorqbot, See on Github (held)" }
+  ]
+}
