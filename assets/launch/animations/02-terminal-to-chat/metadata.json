@@ -1,0 +1,35 @@
+{
+  "id": "02-terminal-to-chat",
+  "title": "Terminal to chat",
+  "duration": 30,
+  "width": 1920,
+  "height": 1080,
+  "entry": "index.html",
+  "reused_assets": [
+    "assets/launch/product-hunt/03-tmux-streaming-v4.png",
+    "assets/launch/product-hunt/sources/claude-code-terminal.png",
+    "assets/launch/product-hunt/02-provider-choice.png",
+    "assets/launch/product-hunt/sources/context-icons/qorqbot-mark-dark.svg",
+    "/home/alp/qorqbot/worktrees/landing-concepts/site/dist/index.html",
+    "/home/alp/qorqbot/worktrees/landing-concepts/site/dist/mascot.css",
+    "/home/alp/qorqbot/worktrees/landing-concepts/site/dist/assets/preview/agency-20261004/portfolio/booking.css",
+    "/home/alp/businesses/49IDE/code/landing/anim/runtime/gsap.min.js",
+    "/home/alp/businesses/49IDE/code/landing/anim/runtime/CustomEase.min.js",
+    "/home/alp/businesses/49IDE/code/landing/anim/runtime/LICENSE-gsap.txt",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/fonts/ZenKakuGothicNew-Light.woff2",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/fonts/ZenKakuGothicNew-Regular.woff2",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/fonts/ZenKakuGothicNew-Medium.woff2",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/fonts/GeistMono.woff2",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/fonts/OFL-ZenKakuGothicNew.txt",
+    "/home/alp/businesses/49IDE/code/landing/anim/assets/fonts/OFL-GeistMono.txt",
+    "/home/alp/businesses/49IDE/code/landing/anim/index.html",
+    "/home/alp/businesses/49IDE/code/landing/anim/STYLE.md"
+  ],
+  "scenes": [
+    { "start": 0, "end": 5, "label": "Claude Code in a narrow terminal: one prompt, one reply" },
+    { "start": 5, "end": 12, "label": "The same lines travel into the chat; the second exchange streams in both views" },
+    { "start": 12, "end": 18, "label": "use your subscription, not API pricing: one conversation, two views" },
+    { "start": 18, "end": 24, "label": "any cli, any provider: compact agent rail under the pair" },
+    { "start": 24, "end": 30, "label": "The views fold into one conversation; mascot endcard holds" }
+  ]
+}
