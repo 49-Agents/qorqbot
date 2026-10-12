@@ -1,0 +1,15 @@
+The CustomEase 3.13.0 plugin is inlined verbatim in index.html next to GSAP core,
+with the @license banner it ships with, quoted here in full:
+
+/*!
+ * CustomEase 3.13.0
+ * https://gsap.com
+ * 
+ * @license Copyright 2025, GreenSock. All rights reserved.
+ * Subject to the terms at https://gsap.com/standard-license.
+ * @author: Jack Doyle, jack@greensock.com
+ */
+
+Both files were copied from the 49IDE landing animation runtime
+(49IDE/code/landing/anim/runtime/gsap.min.js and CustomEase.min.js);
+LICENSE-gsap.txt is that runtime's accompanying notice, copied unchanged.
