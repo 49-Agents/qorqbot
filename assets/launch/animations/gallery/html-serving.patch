@@ -1,0 +1,28 @@
+--- a/gallery/bazarlyk_content/server.py
++++ b/gallery/bazarlyk_content/server.py
+@@ -240,7 +240,11 @@
+     def _stream(self, full, safe=False):
+         size = os.path.getsize(full)
+         ctype = mimetypes.guess_type(full)[0] or 'application/octet-stream'
+-        preview = ctype in ('image/png', 'image/jpeg', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', 'text/plain')
++        animation = safe and ctype == 'text/html' and os.path.basename(full) in {
++            '01-ensemble.html', '02-terminal-to-chat.html', '03-context-orbit.html',
++            '04-browser-invitation.html', '05-kinetic-type.html',
++        }
++        preview = animation or ctype in ('image/png', 'image/jpeg', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', 'text/plain')
+         start, end, code = 0, size - 1, 200
+         requested = self.headers.get('Range')
+         if requested:
+@@ -255,6 +259,12 @@
+         headers = {'Content-Type': ctype if preview or not safe else 'application/octet-stream', 'Content-Length': str(max(0, end-start+1)),
+                    'Accept-Ranges': 'bytes', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-cache'}
+         if safe and not preview:headers.update({'Content-Disposition': 'attachment', 'Content-Security-Policy': "sandbox; default-src 'none'"})
++        if animation:
++            headers['Content-Security-Policy'] = (
++                "sandbox allow-scripts allow-popups; default-src 'none'; "
++                "script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
++                "font-src data:; img-src data:; connect-src 'none'; base-uri 'none'"
++            )
+         if code == 206:headers['Content-Range'] = f'bytes {start}-{end}/{size}'
+         for k, v in headers.items():self.send_header(k, v)
+         self.end_headers()
