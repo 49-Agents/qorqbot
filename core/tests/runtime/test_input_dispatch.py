@@ -54,7 +54,7 @@ class InputFixture(NativeHookCase):
         self.settings = self.settings.model_copy(update={"local_terminal": local})
         self.app.settings = self.settings
         self.app.terminals.settings = local
-        self.app.native_collector = NativeCollector(self.app)
+        self.app.native_collector = NativeCollector(self.app, self.host["id"])
         self.process, shell, self.request = self.chain(provider=self.provider)
         result = self.connect(shell)
         self.assertEqual(result.outcome, "connected")

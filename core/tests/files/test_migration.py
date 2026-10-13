@@ -64,7 +64,7 @@ class Migration(ChatCase):
                 self.assertEqual(current, rows, table)
             current_triggers = {r[0] for r in tx.connection.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
             self.assertTrue(triggers <= current_triggers)
-            self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 10)
+            self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 11)
             self.assertEqual(tx.connection.execute("PRAGMA foreign_key_check").fetchall(), [])
             self.assertEqual(tx.connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
         self.assertEqual((len(self.app.registry), len(self.app.jobs.handlers)), (24, 6))

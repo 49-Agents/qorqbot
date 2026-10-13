@@ -1,8 +1,10 @@
-"""Bounded workspace publication and generated identity projection.
+"""Bounded workspace publication, generated identity projection and shell-ready activation.
 
 Only positively owned stages may be resumed. Published authored files are never
 reseeded. The installation effect gate serializes cooperating effects; arbitrary
-shell writers are not fenced. No resource/provider is launched here.
+shell writers are not fenced. After the workspace is published, provisioning
+prepares the agent's own recorded Bash shell (D62) and only then activates the
+agent. No native CLI/provider is launched here.
 """
 
 from __future__ import annotations
@@ -23,11 +25,13 @@ from ..storage.events import EventInput, append_event
 from ..storage.files import directory
 from ..storage.jobs import JobClaim, JobHandler, after
 from .models import AgentJob
-from .registry import get_row, view
+from .registry import advance, get_row, view
 
 MARKER = ".qorqut-owner.json"
 LAYOUT_VERSION = 1
 MAX_PROJECTION_BYTES = 16384
+INITIAL_STATUS = "Initializing."
+SHELL_READY_STATUS = "Shell ready. Start a CLI in Terminal to connect Chat."
 DIRECTORIES = (
     "workspace", "workspace/notes", "workspace/research", "workspace/data", "workspace/files",
     "workspace/downloads", "workspace/scratch", "runtime", "history", "history/sources",
@@ -137,6 +141,7 @@ class Workspaces:
     def __init__(self, db, root):
         self.db, self.root = db, root
         self.jobs = None
+        self.terminals = None  # Assigned by Application assembly.
 
     def handlers(self):
         return (
@@ -158,11 +163,28 @@ class Workspaces:
         row = get_row(tx, args.agent_id)
         if (current["kind"] not in ("agent_provision", "agent_project")
                 or current["target_id"] != row["id"] or current["expected_generation"] != args.expected_lifecycle_revision
-                or row["lifecycle_revision"] != args.expected_lifecycle_revision or row["lifecycle"] != "provisioning"
+                or not self._lifecycle(tx, current, row, args)
                 or (current["kind"] == "agent_provision" and
                     (current["job_id"] != row["provisioning_job_id"] or current["operation_id"] != row["creation_operation_id"]))):
             raise CoreError("target_changed", "Workspace lifecycle or registration coordinates changed")
         return dict(row), dict(installation), held
+
+    @staticmethod
+    def _activated(tx, row, job_id):
+        return tx.connection.execute("""SELECT 1 FROM events WHERE kind='agent.lifecycle_changed' AND agent_id=?
+            AND json_extract(payload_json,'$.provisioning_job_id')=? LIMIT 1""", (row["id"], job_id)).fetchone() is not None
+
+    def _lifecycle(self, tx, job, row, args):
+        expected = args.expected_lifecycle_revision
+        if row["lifecycle"] == "provisioning":
+            return row["lifecycle_revision"] == expected
+        if row["lifecycle"] != "active":
+            return False
+        # A projection always writes the latest committed row, so one queued before
+        # activation stays valid. Provisioning resumes only after its own activation.
+        if job["kind"] == "agent_project":
+            return row["lifecycle_revision"] >= expected
+        return row["lifecycle_revision"] == expected + 1 and self._activated(tx, row, job["job_id"])
 
     def _snapshot(self, job, claim=None, *, allow_hold=False):
         with self.db.read() as tx:
@@ -324,6 +346,80 @@ class Workspaces:
             progress=JobProgress(phase="runtime_integration_required", completed=1, total=2),
             error=CoreError("unsupported_capability", "Workspace is initialized; resource/runtime integration is not implemented").error)
 
+    def _shell_wait(self):
+        # Explicit inspection time, not an automatic effect retry. The terminal
+        # observer settles this job once it verifies the shell.
+        return JobResolution(state="waiting", reason="dependency_unavailable",
+            next_attempt_at=after(self.db.clock(), 60),
+            progress=JobProgress(phase="terminal_not_ready", completed=1, total=2),
+            error=CoreError("not_ready", "Workspace is initialized; the recorded shell is not verified").error)
+
+    def _local(self, job, claim, *, inspecting):
+        """Prepare (or only observe, when inspecting) this agent's recorded shell, then activate.
+
+        Preparing a verified shell is the only extra effect. A recorded launch is
+        never repeated, and nothing here starts a native CLI.
+        """
+        if self.terminals is None or not self.terminals.enabled:
+            return self._dependency()
+        agent_id = AgentJob.model_validate_json(job["args_json"]).agent_id
+        shell = self.terminals.observe(agent_id, create=not inspecting)
+        if shell.status == "disabled":
+            return self._dependency()
+        if shell.status != "available" or shell.reason != "verified":
+            return self._shell_wait()
+        self._activate(job, claim, shell)
+        # Publish under the new lifecycle coordinates without waiting for the observer.
+        self.terminals.observe(agent_id, create=False)
+        return JobResolution(state="completed", progress=JobProgress(phase="shell_ready", completed=2, total=2))
+
+    def _activate(self, job, claim, shell):
+        with self.db.transaction() as tx:
+            row, installation, _ = self._coordinates(tx, job, claim)
+            if row["lifecycle"] == "active":
+                return  # This job's activation already committed; settle idempotently.
+            now, revision = self.db.clock(), advance(row["lifecycle_revision"])
+            tx.connection.execute("UPDATE agents SET lifecycle='active',lifecycle_revision=? WHERE id=?",
+                                  (revision, row["id"]))
+            append_event(tx, EventInput(kind="agent.lifecycle_changed", actor_id=row["created_by"],
+                agent_id=row["id"], operation_id=row["creation_operation_id"],
+                payload={"agent_id": row["id"], "old_lifecycle": "provisioning", "lifecycle": "active",
+                         "old_lifecycle_revision": row["lifecycle_revision"], "lifecycle_revision": revision,
+                         "provisioning_job_id": row["provisioning_job_id"], "terminal_id": str(shell.terminal_id),
+                         "reason": "recorded_shell_verified", "changed_at": now}))
+            if row["status_revision"] == 1 and row["status_text"] == INITIAL_STATUS:
+                # Only the untouched seed status; authored status is never replaced.
+                status_revision = advance(row["status_revision"])
+                tx.connection.execute("""UPDATE agents SET status_text=?,status_revision=?,status_updated_at=?,
+                    status_reviewed_at=?,status_actor_id=? WHERE id=?""",
+                    (SHELL_READY_STATUS, status_revision, now, now, row["created_by"], row["id"]))
+                append_event(tx, EventInput(kind="agent.status_changed", actor_id=row["created_by"],
+                    agent_id=row["id"], operation_id=row["creation_operation_id"],
+                    payload={"old_text": INITIAL_STATUS, "new_text": SHELL_READY_STATUS,
+                             "status_revision": status_revision}))
+            self.jobs.enqueue(tx, "agent_project", AgentJob(agent_id=row["id"], expected_lifecycle_revision=revision),
+                operation_id=UUID(row["creation_operation_id"]), target_id=UUID(row["id"]),
+                expected_generation=revision)
+            self.db.fault("agent_before_activation_commit")
+        self.db.fault("agent_after_activation_commit")
+
+    def settle(self, agent_id):
+        """Complete a provisioning job that waits only on the shell, once the observer verifies it.
+
+        Uses the fixed typed handler's inspection (never a second launch); an
+        uncertain or recovery-held job is left for explicit reconciliation.
+        """
+        with self.db.read() as tx:
+            row = get_row(tx, agent_id)
+            job = tx.connection.execute("SELECT job_id,state,wait_reason FROM jobs WHERE job_id=?",
+                                        (row["provisioning_job_id"],)).fetchone()
+        if (row["lifecycle"] == "provisioning" and job is not None
+                and (job["state"], job["wait_reason"]) == ("waiting", "dependency_unavailable")):
+            try:
+                self.jobs.reconcile(UUID(job["job_id"]))
+            except CoreError:
+                pass
+
     def _wait_workspace(self):
         return JobResolution(state="waiting", reason="retry_delay", next_attempt_at=after(self.db.clock(), 5),
             progress=JobProgress(phase="workspace_required"),
@@ -400,8 +496,9 @@ class Workspaces:
                 if job["kind"] == "agent_project" and row["workspace_initialized_at"] is None:
                     return self._wait_workspace()
                 raise CoreError("uncertain_effect", "Workspace ownership evidence is missing") from None
-        return self._dependency() if job["kind"] == "agent_provision" else JobResolution(
-            state="completed", progress=JobProgress(phase="projected", completed=1, total=1))
+        if job["kind"] == "agent_provision":
+            return self._local(job, claim, inspecting=inspecting)
+        return JobResolution(state="completed", progress=JobProgress(phase="projected", completed=1, total=1))
 
     def _inspect_hold(self, job, row, installation):
         # Deliberately no mkdir/write/fsync/finalization. Even complete evidence

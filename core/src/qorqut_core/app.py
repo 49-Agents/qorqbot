@@ -151,7 +151,7 @@ class Application:
         from .messaging.dispatch import MessageDispatcher
         from .runtime import SessionOwners
         from .runtime.native_hooks import NativeHooks
-        from .runtime.native_collector import NativeCollector
+        from .runtime.native_collector import NativeCollectors
         from .runtime.native_attention import NativeAttention
         from .runtime.native_setup import NativeSetup
         from .runtime.terminals import Terminals
@@ -175,9 +175,10 @@ class Application:
         self.agents = Agents(self)
         self.session_owners = SessionOwners(self)
         self.terminals = Terminals(self)
+        self.workspaces.terminals = self.terminals
         self.native_hooks = NativeHooks(self)
         self.native_setup = NativeSetup(self)
-        self.native_collector = NativeCollector(self)
+        self.native_collector = NativeCollectors(self)
         self.runtime_input = RuntimeInput(self)
         self.native_attention = NativeAttention(self)
         operations = (

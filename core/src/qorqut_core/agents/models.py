@@ -116,13 +116,14 @@ class AgentView(Model):
     conversation_id: UUID
     display_name: DisplayName
     icon_key: IconKey
+    # 'vm' is a historical value no shipped executor supports (D62).
     kind: Literal["host", "vm"]
     workspace_path: str
     cli: CLIDefaults
     resources: ResourceDefaults
     revision: Revision
     lifecycle_revision: Revision
-    lifecycle: Literal["provisioning"]
+    lifecycle: Literal["provisioning", "active"]
     start_requested: bool
     created_by: UUID
     created_at: Timestamp

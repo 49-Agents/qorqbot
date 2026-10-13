@@ -6,6 +6,11 @@ requirements below. Creation establishes an agent and shell; the user starts the
 CLI. One logical inbox owner connects Chat. See that plan for the exact current
 creation contract and revised acceptance. VM setup remains open.
 
+D62 ([local agents](LOCAL-AGENTS.md)) replaces the VM direction for this version:
+ordinary agents register as `kind='host'`, creation prepares a local workspace,
+private native HOME and recorded tmux shell, and the lifecycle becomes `active`
+when that shell is verified (not when a CLI connects). Only onbash is reserved.
+
 Manager design, 2026-10-08. Base: merged core `f168369d553f8378df1ba8bc2470a4e1105bf25c`
 ([PR #1](https://github.com/qorqutbot/qorqut-core/pull/1)), with this planning
 commit applied. This implements M01.01–03 and the initial directory portion of

@@ -181,9 +181,10 @@ class Observations(RuntimeCase):
             self.assertEqual(self.runtime()["native_setup"]["state"], "disabled")
             self.assertEqual(self.runtime()["native_capture"]["reason"], "not_configured")
         other = self.create().data["agent"]["id"]
-        self.assertEqual(self.app.native_setup.view(UUID(other)).reason, "unsupported_target")
+        # D62: an ordinary agent is a local host; here it is merely not configured.
+        self.assertEqual(self.app.native_setup.view(UUID(other)).reason, "not_configured")
         self.assertFalse((self.settings.data_root / "agents" / self.host["id"] / "runtime/core-credential.json").exists())
-        self.assertEqual((self.app.db.validate(), len(self.app.registry), len(self.app.jobs.handlers)), (10, 24, 6))
+        self.assertEqual((self.app.db.validate(), len(self.app.registry), len(self.app.jobs.handlers)), (11, 24, 6))
         capture = NativeCollectionView(state="waiting", reason="waiting_session")
         self.app.native_collector = SimpleNamespace(view=lambda agent_id: capture)
         self.assertEqual(self.runtime()["native_capture"], capture.model_dump(mode="json"))
@@ -195,7 +196,7 @@ class Observations(RuntimeCase):
         with patch("qorqut_core.runtime.native_setup.time.monotonic", return_value=time.monotonic() + 6):
             self.assertEqual(self.runtime()["native_setup"]["reason"], "observation_stale")
             ordinary = self.app.native_setup.view(UUID(other))
-            self.assertEqual((ordinary.state, ordinary.reason), ("disabled", "unsupported_target"))
+            self.assertEqual((ordinary.state, ordinary.reason), ("disabled", "not_configured"))
         calls, threads = [], []
         entered = threading.Event()
 
@@ -224,7 +225,7 @@ class Observations(RuntimeCase):
         self.assertEqual(calls[-2:], ["close_setup", "close_collect"])
         self.assertEqual(set(threads), {monitor._thread.ident})
         self.app.native_setup.close()
-        self.assertIsNone(self.app.native_setup._cache)
+        self.assertEqual(self.app.native_setup._cache, {})
 
 
 class SetupServer(OwnedProcesses, unittest.TestCase):
@@ -241,7 +242,8 @@ class SetupServer(OwnedProcesses, unittest.TestCase):
         terminal = f.available()
         credential_path = f.workspace.parent / "runtime/core-credential.json"
         self.assertFalse(credential_path.exists())
-        agent = f.post("agents_get", {"agent_id": f.agent_id}).json()["data"]
+        # D62: the verified recorded shell activates the agent, which moves its untouched status once.
+        agent = wait_for(lambda: (a if (a := f.post("agents_get", {"agent_id": f.agent_id}).json()["data"])["lifecycle"] == "active" else None))
         headers = {"X-Qorqut-Actor": agent["actor_id"]}
         mcp_path = f.workspace / ".mcp.json"
         mcp = json.loads(mcp_path.read_bytes())["mcpServers"]["qorqut-core"]
@@ -263,7 +265,7 @@ class SetupServer(OwnedProcesses, unittest.TestCase):
             hook_files += [path, config_path]
         with httpx.Client(base_url=f.url, headers=headers, trust_env=False) as client:
             response = client.post("/api/v1/operations/agents_status_set", json={"agent_id": f.agent_id,
-                "expected_revision": 1, "text": "HTTP attributed", "idempotency_key": "setup-http"})
+                "expected_revision": agent["status"]["revision"], "text": "HTTP attributed", "idempotency_key": "setup-http"})
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["data"]["status"]["actor_id"], agent["actor_id"])
             self.assertEqual(client.post("/api/v1/native/hook", json={}).status_code, 400)  # Attributed, invalid hook.
@@ -274,7 +276,7 @@ class SetupServer(OwnedProcesses, unittest.TestCase):
                 sdk = await session(stack, f, client=client)
                 self.assertEqual(len((await sdk.list_tools()).tools), 24)
                 result = structured(await sdk.call_tool("agents_status_set", {"agent_id": f.agent_id,
-                    "expected_revision": 2, "text": "MCP attributed", "idempotency_key": "setup-mcp"}))
+                    "expected_revision": agent["status"]["revision"] + 1, "text": "MCP attributed", "idempotency_key": "setup-mcp"}))
                 self.assertTrue(result["ok"])
                 self.assertEqual(result["data"]["status"]["actor_id"], agent["actor_id"])
 
@@ -368,7 +370,7 @@ class SetupServer(OwnedProcesses, unittest.TestCase):
                     self.assertEqual((await client.post("/api/v1/operations/config_get", json={})).status_code, 200)
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=web), base_url=f.url) as closed:
                 self.assertEqual((await closed.post("/api/v1/operations/config_get", json={})).status_code, 503)
-            self.assertIsNone(web.state.application.native_setup._cache)
+            self.assertEqual(web.state.application.native_setup._cache, {})
             self.assertFalse(web.state.session_monitor._thread.is_alive())
 
         with patch("qorqut_core.runtime.native_startup._discover",

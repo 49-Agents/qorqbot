@@ -46,9 +46,8 @@ class SessionOwners:
         agent = get_row(tx, agent_id)
         if admission and agent["lifecycle"] in {"archiving", "archived"}:
             raise CoreError("invalid_transition", "Agent is not admitting session connections")
-        host = tx.connection.execute("SELECT onbash_agent_id FROM installation WHERE singleton=1").fetchone()[0]
-        if agent["kind"] != "host" or agent["id"] != host:
-            raise CoreError("unsupported_capability", "Local session ownership supports only the reserved onbash agent")
+        if agent["kind"] != "host":
+            raise CoreError("unsupported_capability", "Local session ownership supports only local host agents")
         actor = tx.connection.execute("SELECT kind,agent_id FROM actors WHERE actor_id=?", (agent["actor_id"],)).fetchone()
         if actor is None or tuple(actor) != ("agent", agent["id"]):
             raise CoreError("target_changed", "Registered agent actor binding changed")
@@ -172,8 +171,8 @@ class SessionOwners:
             installation = _installation(tx)
             rows = [dict(row) for row in tx.connection.execute(
                 "SELECT s.* FROM session_owners s JOIN agents a ON a.id=s.agent_id "
-                "JOIN installation i ON i.onbash_agent_id=a.id "
-                "WHERE s.state='active' AND a.kind='host' AND s.recovery_epoch=i.recovery_epoch")]
+                "JOIN installation i ON i.singleton=1 "
+                "WHERE s.state='active' AND a.kind='host' AND s.recovery_epoch=i.recovery_epoch ORDER BY s.agent_id")]
         for row in rows:
             observed = self._observe(ProcessFingerprint.model_validate_json(row["process_json"]))
             with self.db.transaction() as tx:

@@ -11,6 +11,11 @@ APPLICATION_ID = 0x514F5251
 class Migration:
     version: int
     statements: tuple[str, ...]
+    # A table rebuild of a widely referenced parent needs foreign-key enforcement
+    # off for the DROP/RENAME. The migration connection disables it before BEGIN,
+    # runs foreign_key_check/integrity_check before COMMIT and restores it on
+    # every exit. The flag is not part of the checksum.
+    rebuild: bool = False
 
     @property
     def checksum(self) -> str:
@@ -826,5 +831,71 @@ MIGRATIONS = (
                     AND NEW.role=CASE a.kind WHEN 'owner' THEN 'user' ELSE 'agent' END)
             BEGIN SELECT RAISE(ABORT,'Browser request entry binding disagrees'); END""",
     )),
+    # D62: ordinary agents are local host agents. Rebuild agents to drop the
+    # one-host unique index and admit the active lifecycle. Legacy ordinary 'vm'
+    # registrations become 'host'; no identity, conversation, workspace, message,
+    # receipt or event is rewritten. A generated-projection refresh is queued for
+    # each converted agent (the file itself is rewritten later by the job).
+    Migration(11, (
+        """CREATE TABLE agents_v11 (
+            id TEXT PRIMARY KEY,
+            actor_id TEXT NOT NULL UNIQUE REFERENCES actors(actor_id),
+            conversation_id TEXT NOT NULL UNIQUE,
+            kind TEXT NOT NULL CHECK(kind IN ('vm','host')),
+            display_name TEXT NOT NULL,
+            icon_key TEXT NOT NULL CHECK(icon_key IN ('circle','square','triangle','diamond','star',
+                'compass','globe','leaf','feather','book','notebook','flask','microscope',
+                'telescope','code','terminal','wrench','gear','lightbulb','anchor')),
+            cli_provider TEXT NOT NULL CHECK(cli_provider IN ('claude','codex')),
+            model TEXT NOT NULL, cpu INTEGER NOT NULL CHECK(cpu>0),
+            memory_mib INTEGER NOT NULL CHECK(memory_mib>0), disk_gib INTEGER NOT NULL CHECK(disk_gib>0),
+            revision INTEGER NOT NULL CHECK(revision>0),
+            lifecycle_revision INTEGER NOT NULL CHECK(lifecycle_revision>0),
+            lifecycle TEXT NOT NULL CHECK(lifecycle IN ('provisioning','active')),
+            start_requested INTEGER NOT NULL CHECK(start_requested IN (0,1)),
+            created_by TEXT NOT NULL REFERENCES actors(actor_id),
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            persona_seed TEXT NOT NULL CHECK(length(CAST(persona_seed AS BLOB))<=65536),
+            status_text TEXT NOT NULL, status_revision INTEGER NOT NULL CHECK(status_revision>0),
+            status_updated_at TEXT NOT NULL, status_reviewed_at TEXT NOT NULL,
+            status_actor_id TEXT NOT NULL REFERENCES actors(actor_id),
+            creation_operation_id TEXT NOT NULL UNIQUE REFERENCES operations(operation_id) DEFERRABLE INITIALLY DEFERRED,
+            provisioning_job_id TEXT NOT NULL UNIQUE REFERENCES jobs(job_id) DEFERRABLE INITIALLY DEFERRED,
+            workspace_initialized_at TEXT,
+            projection_revision INTEGER NOT NULL DEFAULT 0 CHECK(projection_revision>=0 AND projection_revision<=revision))""",
+        """INSERT INTO agents_v11 (id,actor_id,conversation_id,kind,display_name,icon_key,cli_provider,model,cpu,
+                memory_mib,disk_gib,revision,lifecycle_revision,lifecycle,start_requested,created_by,created_at,
+                updated_at,persona_seed,status_text,status_revision,status_updated_at,status_reviewed_at,
+                status_actor_id,creation_operation_id,provisioning_job_id,workspace_initialized_at,projection_revision)
+            SELECT id,actor_id,conversation_id,CASE kind WHEN 'vm' THEN 'host' ELSE kind END,display_name,icon_key,
+                cli_provider,model,cpu,memory_mib,disk_gib,revision,lifecycle_revision,lifecycle,start_requested,
+                created_by,created_at,updated_at,persona_seed,status_text,status_revision,status_updated_at,
+                status_reviewed_at,status_actor_id,creation_operation_id,provisioning_job_id,
+                workspace_initialized_at,projection_revision FROM agents""",
+        """INSERT INTO jobs (job_id,operation_id,kind,args_json,target_id,expected_generation,external_effect,
+                recovery_epoch,state,progress_json,created_at,updated_at)
+            SELECT lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||substr(hex(randomblob(2)),2)||'-'
+                    ||substr('89ab',1+(abs(random())%4),1)||substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6))),
+                creation_operation_id,'agent_project',
+                json_object('agent_id',id,'expected_lifecycle_revision',lifecycle_revision),
+                id,lifecycle_revision,1,(SELECT recovery_epoch FROM installation WHERE singleton=1),'queued',
+                '{"completed":0,"phase":"queued","total":null}',
+                strftime('%Y-%m-%dT%H:%M:%S','now')||'.000000Z',strftime('%Y-%m-%dT%H:%M:%S','now')||'.000000Z'
+            FROM agents WHERE kind='vm'""",
+        "DROP TABLE agents",
+        "ALTER TABLE agents_v11 RENAME TO agents",
+        """CREATE TRIGGER agents_actor_binding BEFORE INSERT ON agents
+            WHEN NOT EXISTS (SELECT 1 FROM actors WHERE actor_id=NEW.actor_id AND kind='agent' AND agent_id=NEW.id)
+            BEGIN SELECT RAISE(ABORT,'Agent actor binding disagrees'); END""",
+        """CREATE TRIGGER agents_permanent_identity BEFORE UPDATE ON agents
+            WHEN NEW.id IS NOT OLD.id OR NEW.actor_id IS NOT OLD.actor_id
+                OR NEW.conversation_id IS NOT OLD.conversation_id OR NEW.kind IS NOT OLD.kind
+                OR NEW.created_by IS NOT OLD.created_by OR NEW.created_at IS NOT OLD.created_at
+                OR NEW.creation_operation_id IS NOT OLD.creation_operation_id
+                OR NEW.provisioning_job_id IS NOT OLD.provisioning_job_id
+            BEGIN SELECT RAISE(ABORT,'Agent identity is permanent'); END""",
+        """CREATE TRIGGER agents_no_delete BEFORE DELETE ON agents
+            BEGIN SELECT RAISE(ABORT,'Agent identity is permanent'); END""",
+    ), rebuild=True),
 )
 SCHEMA_VERSION = MIGRATIONS[-1].version

@@ -63,7 +63,7 @@ class NativeCollection(RuntimeCase):
         timer = patch("qorqut_core.runtime.native_collector.time", SimpleNamespace(monotonic=lambda: self.elapsed))
         timer.start()
         self.addCleanup(timer.stop)
-        self.collector = NativeCollector(self.app)
+        self.collector = NativeCollector(self.app, self.host["id"])
         self.child_process = None
 
     def tearDown(self):
@@ -117,7 +117,7 @@ class NativeCollection(RuntimeCase):
     def reopen(self):
         self.collector.close()
         self.restart()
-        self.collector = NativeCollector(self.app)
+        self.collector = NativeCollector(self.app, self.host["id"])
 
     def capture_states(self):
         return self.collector._capture.list_states()
@@ -373,7 +373,7 @@ class NativeCollection(RuntimeCase):
     def test_both_providers_delayed_append_partial_reopen_exit_resume_and_publication(self):
         with patch.object(self.app.db, "read", side_effect=AssertionError("passive construction/view")):
             self.assertEqual(self.collector.view(self.host["id"]).reason, "observation_stale")
-            other = NativeCollector(self.app)
+            other = NativeCollector(self.app, self.host["id"])
             other.close()
         self.assertFalse((self.base / "runtime/native.sqlite3").exists())
         self.assertEqual(self.tick().reason, "waiting_session")
@@ -458,7 +458,7 @@ class NativeCollection(RuntimeCase):
             self.assertEqual(self.collector.view(self.host["id"]).reason, "observation_stale")
         self.assertEqual((len(self.app.registry), len(self.app.jobs.handlers)), (24, 6))
         with self.app.db.read() as tx:
-            self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 10)
+            self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 11)
             self.assertEqual(tx.connection.execute("PRAGMA foreign_key_check").fetchall(), [])
 
     def test_lost_receipt_recovery_retains_bytes_intent_and_honest_lag(self):
@@ -577,7 +577,7 @@ class NativeCollection(RuntimeCase):
 
     def test_disabled_and_changed_workspace_stop_effects(self):
         with patch.object(self.app, "settings", self.settings.model_copy(update={"local_terminal": None})):
-            disabled = NativeCollector(self.app)
+            disabled = NativeCollector(self.app, self.host["id"])
         with patch("qorqut_core.runtime.native_collector.NativeCapture", side_effect=AssertionError("disabled I/O")):
             disabled.tick()
         self.assertEqual(disabled.view(self.host["id"]).reason, "not_configured")
@@ -1037,3 +1037,94 @@ class NativeCollection(RuntimeCase):
             self.assertEqual(self.tick().reason, "collection_blocked")
         self.assertTrue(self.collector.input_observation(str(active_owner.run_id)).healthy)
         self.assertFalse(self.collector.input_observation(str(current.run_id)).healthy)
+
+    def drain(self):
+        """Run claimable jobs once; an undeliverable Chat message keeps its own retry wait (no CLI is started here)."""
+        while self.app.jobs.run_next(worker_id=uuid4()) is not None:
+            pass
+
+    def test_two_local_agents_collect_into_their_own_conversations_and_dated_transcripts(self):
+        # Synthetic native fixtures only (no provider login): proves service routing, not a real model reply.
+        second_id = self.create("second-local", display_name="Second").data["agent"]["id"]
+        self.pump()
+        second_row = next(row for row in self.rows("agents") if row["id"] == second_id)
+        self.assertEqual(second_row["kind"], "host")
+        second_base = self.settings.data_root / "agents" / second_id
+        second_home = second_base / "runtime/home"
+        second_home.mkdir(mode=0o700)
+        first, first_owner = self.bind()
+        child, process = self.child()
+        second = self.candidate(process).model_copy(update={"agent_id": UUID(second_id), "provider": "codex",
+            "cli_version": VERSIONS["codex"], "native_session_id": uuid4()})
+        second_owner = self.app.session_owners.connect(second)
+        self.assertNotEqual(first_owner.owner_id, second_owner.owner_id)
+        # One active logical owner per agent: a second live session on either agent is refused.
+        stranger, stranger_process = self.child()
+        for base in (first, second):
+            with self.assertRaises(CoreError) as refused:
+                self.app.session_owners.connect(base.model_copy(update={
+                    "process": stranger_process, "native_session_id": uuid4()}))
+            self.assertEqual(refused.exception.code, "invalid_transition")
+        def header(candidate):
+            return raw({"type": "session_meta", "payload": {"id": str(candidate.native_session_id),
+                "source": "cli", "cli_version": VERSIONS["codex"]}})
+
+        first_data = header(first) + self.record(first, "first agent only")
+        second_data = header(second) + self.record(second, "second agent only")
+        self.source(first, first_data)
+        rollout = second_home / (f".codex/sessions/2026/10/08/rollout-2026-10-08T12-00-00-{second.native_session_id}.jsonl")
+        rollout.parent.mkdir(parents=True)
+        rollout.write_bytes(second_data)
+        service = self.app.native_collector
+        for _ in range(3):
+            self.elapsed += 1.01
+            self.clock.advance(1)
+            service.tick()
+        sent = self.app.invoke("messages_send", self.context, {"idempotency_key": "to-second",
+            "recipient_agent_id": second_id, "body": "Only for the second agent\n"})
+        self.assertTrue(sent.ok, sent)
+        self.drain()
+
+        def texts(agent_id):
+            result = self.app.invoke("conversation_list", self.context, {"agent_id": agent_id})
+            self.assertTrue(result.ok, result)
+            return [entry["text"] for entry in result.data["items"]]
+
+        first_texts, second_texts = texts(self.host["id"]), texts(second_id)
+        self.assertIn("first agent only", first_texts)
+        self.assertNotIn("second agent only", first_texts)
+        self.assertNotIn("Only for the second agent\n", first_texts)
+        self.assertIn("second agent only", second_texts)
+        self.assertIn("Only for the second agent\n", second_texts)
+        self.assertNotIn("first agent only", second_texts)
+        # Each agent keeps its own runtime store and its own dated, UTC-named derived transcript.
+        date = self.clock()[:10]
+        for base, mine, other in ((self.base, "first agent only", "second agent only"),
+                                  (second_base, "second agent only", "first agent only")):
+            self.assertTrue((base / "runtime/native.sqlite3").is_file())
+            transcript = base / "transcripts" / (date + ".jsonl")
+            body = transcript.read_bytes()
+            self.assertIn(mine.encode(), body)
+            self.assertNotIn(other.encode(), body)
+            self.assertTrue(all(json.loads(line) for line in body.splitlines()))
+        self.assertNotEqual((self.base / "runtime/native.sqlite3").resolve(), (second_base / "runtime/native.sqlite3").resolve())
+        # Raw capture is per agent and separate from the derived conversation.
+        views = {agent: service.view(agent) for agent in (self.host["id"], second_id)}
+        for view in views.values():
+            self.assertEqual((view.state, view.reason), ("collecting", "active"))
+        states = {agent: service._collectors[agent]._capture.list_states() for agent in (self.host["id"], second_id)}
+        self.assertEqual({len(v) for v in states.values()}, {1})
+        self.assertEqual(states[self.host["id"]][0].host_archived_offset, len(first_data))
+        self.assertEqual(states[second_id][0].host_archived_offset, len(second_data))
+        self.assertNotEqual(states[self.host["id"]][0].source_id, states[second_id][0].source_id)
+        # One agent's collection failure never skips the other.
+        with patch.object(service._collectors[self.host["id"]], "tick", side_effect=CoreError("storage_blocked", "synthetic")):
+            before = len(texts(second_id))
+            more = self.record(second, "second again")
+            rollout.write_bytes(second_data + more)
+            for _ in range(2):
+                self.elapsed += 1.01
+                self.clock.advance(1)
+                service.tick()
+            self.drain()
+        self.assertEqual(len(texts(second_id)), before + 1)

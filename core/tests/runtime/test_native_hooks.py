@@ -329,7 +329,7 @@ class NativeHooks(NativeHookCase):
         terminals = self.app.terminals
         with self.assertRaises(CoreError):
             terminals.native_context(UUID(self.host["id"]), shell.terminal_id)
-        self.assertIsNone(terminals._manager)
+        self.assertEqual(terminals._managers, {})
         terminals.settings = SimpleNamespace(runtime_root=self.root / "runtime")
         with self.app.db.read() as tx:
             target, _, _ = terminals._target(tx, shell.spec.agent_id)
@@ -338,7 +338,7 @@ class NativeHooks(NativeHookCase):
         fresh = shell.model_copy(update={"capture": ProbeResult.model_construct(
             verified=True, terminal_active=True, observation=None, reason="active")})
         manager = SimpleNamespace(inspect=lambda terminal_id: fresh)
-        terminals._manager = manager
+        terminals._managers[shell.spec.agent_id] = manager
         terminals._publish(target, terminals._presentation(target, fresh))
         self.assertEqual(terminals.native_context(shell.spec.agent_id, shell.terminal_id), fresh)
         self.assertEqual(fresh.control, shell.control)

@@ -44,7 +44,7 @@ assert set(app.registry) == {"config_get", "config_update", "operations_get", "e
     "messages_send", "messages_list", "messages_acknowledge", "deliveries_get", "conversation_list", "runtime_get", "terminal_get", "files_reference", "browsers_attach", "browser_get", "input_requests_create",
     "input_requests_list", "input_requests_complete", "input_requests_cancel", "input_requests_resume"}
 assert set(app.jobs.handlers) == {"file_install", "agent_provision", "agent_project", "message_delivery", "conversation_publish", "browser_control"}
-assert SCHEMA_VERSION == 10
+assert SCHEMA_VERSION == 11
 expected = Path(sys.argv[1]).resolve()
 for name, module in tuple(sys.modules.items()):
     if name == "qorqut_core" or name.startswith("qorqut_core."):

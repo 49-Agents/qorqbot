@@ -6,6 +6,13 @@ creation-time provider/model choices, launcher exclusivity and automatic
 cross-provider context-restoration requirements. Accepted code/evidence remains
 bounded by its recorded checks; this plan does not declare a connected runtime.
 
+D62 ([local agents](LOCAL-AGENTS.md)) extends the recorded shell, native
+collection and the one-logical-owner rule from the reserved onbash agent to every
+local agent, each with its own runtime directory, tmux socket, recorder identity
+and owner. A different live session on the same agent still conflicts; sessions
+on different agents are independent. The `unsupported_target` terminal state now
+applies only to non-host kinds.
+
 ## User flow
 
 Creation records the permanent agent, prepares its folder/persona/files and

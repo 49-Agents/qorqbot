@@ -127,8 +127,9 @@ class ChatPublication(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(f.close)
         with application(f) as app:
             alpha, beta = register(f, app, "alpha", "beta")
-            onbash = next(a for a in app.invoke("agents_list", Invocation(actor_id=f.owner.actor_id), {}).data["items"]
-                          if a["kind"] == "host")
+            # D62: every local agent is kind 'host'; only the installation pointer names onbash.
+            listing = app.invoke("agents_list", Invocation(actor_id=f.owner.actor_id), {}).data
+            onbash = next(a for a in listing["items"] if a["id"] == listing["onbash_agent_id"])
         alpha_actor, _ = actors([alpha, beta])
         ids = [alpha["id"], beta["id"], onbash["id"]]
         f.start()  # Normal entry point, no UI root; server startup and its worker provision the folders.

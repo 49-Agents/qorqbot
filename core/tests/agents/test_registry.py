@@ -67,7 +67,7 @@ class RegistryTests(AgentCase):
         identity = first.data["agent"]
         self.assertEqual(first.outcome, "accepted")
         self.assertEqual(identity["display_name"], "Research")
-        self.assertEqual(identity["kind"], "vm")
+        self.assertEqual(identity["kind"], "host")  # D62: ordinary agents are local host agents
         self.assertFalse(identity["start_requested"])
         self.assertEqual(identity["cli"], self.defaults.cli.model_dump(mode="json"))
         self.assertEqual(identity["created_by"], str(self.owner.actor_id))
@@ -125,7 +125,9 @@ class RegistryTests(AgentCase):
         self.app.close()
         self.app = Application.initialize(self.settings, self.defaults, self.owner, clock=self.clock, fault=self.fault)
         self.assertEqual(self.get(host["id"])["resources"], self.defaults.resources.model_dump(mode="json"))
-        self.assertEqual(len([row for row in self.rows("agents") if row["kind"] == "host"]), 1)
+        # D62: onbash plus the earlier ordinary local agent; only the pointer is reserved.
+        self.assertEqual(len([row for row in self.rows("agents") if row["kind"] == "host"]), 2)
+        self.assertEqual(self.app.invoke("agents_list", self.context).data["onbash_agent_id"], host["id"])
         second = self.create("second", start=False)
         self.assertEqual(second.data["agent"]["resources"]["cpu"], 7)
         self.assertFalse(second.data["agent"]["start_requested"])
@@ -307,22 +309,21 @@ class RegistryTests(AgentCase):
                         self.assertEqual(tx.connection.execute("SELECT count(*) FROM jobs WHERE kind='agent_provision'").fetchone()[0], 1)
                 finally:
                     app.close()
-        vm = self.create().data["agent"]["id"]
+        local = self.create().data["agent"]["id"]
         host = next(row for row in self.rows("agents") if row["kind"] == "host")
-        for sql, args in (("UPDATE installation SET onbash_agent_id=?", (vm,)),
+        self.assertNotEqual(local, host["id"])
+        # D62: several host agents exist, but the reserved pointer is immutable and
+        # kind is never rewritten by an ordinary write after schema 11.
+        for sql, args in (("UPDATE installation SET onbash_agent_id=?", (local,)),
                           ("UPDATE installation SET onbash_agent_id=NULL", ()),
-                          ("UPDATE agents SET kind='host' WHERE id=?", (vm,)),
+                          ("UPDATE agents SET kind='vm' WHERE id=?", (local,)),
                           ("DELETE FROM agents WHERE id=?", (host["id"],))):
             with self.assertRaises(CoreError):
                 with self.app.db.transaction() as tx:
                     tx.connection.execute(sql, args)
-        with self.assertRaises(CoreError):
-            with self.app.db.transaction() as tx:
-                columns = list(host)
-                other = dict(host, id=str(uuid4()), actor_id=str(uuid4()), conversation_id=str(uuid4()),
-                    creation_operation_id=str(uuid4()), provisioning_job_id=str(uuid4()))
-                register_actor(tx, Actor(actor_id=other["actor_id"], kind="agent", agent_id=other["id"]))
-                tx.connection.execute(f"INSERT INTO agents ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})", [other[k] for k in columns])
+        page = self.app.invoke("agents_list", self.context).data
+        self.assertEqual(page["onbash_agent_id"], host["id"])
+        self.assertEqual({row["id"]: row["kind"] for row in self.rows("agents")}, {host["id"]: "host", local: "host"})
         self.assertNotIn("installation_ensure_onbash", self.app.registry)
         # Deliberate corruption of a disposable fixture proves open refuses an
         # inconsistent pointer instead of replaying setup or adopting by name.
@@ -423,7 +424,7 @@ class RegistryTests(AgentCase):
         try:
             self.assertEqual({table: table_rows(app, table) for table in watched}, before_migration)
             with app.db.read() as tx:
-                self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 10)
+                self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 11)
                 self.assertEqual([tuple(row) for row in tx.connection.execute(
                     "SELECT version,checksum FROM schema_migrations WHERE version<=5")], checksums)
             receipts = replay(app)

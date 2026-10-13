@@ -35,19 +35,28 @@ def view(row) -> AgentView:
 
 
 def reserved(tx, *, required=True):
-    installation = tx.connection.execute("SELECT * FROM installation WHERE singleton=1").fetchone()
-    host = tx.connection.execute("SELECT * FROM agents WHERE kind='host'").fetchone()
-    pointer = installation["onbash_agent_id"]
-    if host is None and pointer is None:
+    """The one onbash identity, resolved only through the installation pointer.
+
+    Other host agents exist (D62), so kind alone never identifies it.
+    """
+    pointer = tx.connection.execute("SELECT onbash_agent_id FROM installation WHERE singleton=1").fetchone()[0]
+    if pointer is None:
         if required:
             raise CoreError("not_ready", "Reserved agent is missing; run explicit installation setup")
         return None
-    if host is None or pointer != host["id"]:
+    host = tx.connection.execute("SELECT * FROM agents WHERE id=?", (pointer,)).fetchone()
+    if host is None or host["kind"] != "host":
         raise CoreError("target_changed", "Reserved agent identity disagrees; explicit setup inspection is required")
     actor = tx.connection.execute("SELECT * FROM actors WHERE actor_id=?", (host["actor_id"],)).fetchone()
     if actor is None or actor["kind"] != "agent" or actor["agent_id"] != host["id"]:
         raise CoreError("target_changed", "Reserved agent actor disagrees; explicit setup inspection is required")
     return host
+
+
+def local_agent_ids(tx):
+    """A finite ordered snapshot of agents whose runtime is local to this host."""
+    return [UUID(row[0]) for row in tx.connection.execute(
+        "SELECT id FROM agents WHERE kind='host' AND lifecycle IN ('provisioning','active') ORDER BY id")]
 
 
 def advance(revision):
@@ -88,9 +97,10 @@ class Agents:
             return Change(AgentCreated(agent=view(existing), provisioning_job_id=existing["provisioning_job_id"]), outcome="accepted")
         defaults = self.app._view(tx).defaults
         return self._register(tx, context, operation_id, display_name="onbash", icon_key="terminal",
-            cli=defaults.cli, resources=defaults.resources, persona=DEFAULT_PERSONA, kind="host")
+            cli=defaults.cli, resources=defaults.resources, persona=DEFAULT_PERSONA, kind="host", reserve=True)
 
-    def _register(self, tx, context, operation_id, *, display_name, icon_key, cli, resources, persona, kind):
+    def _register(self, tx, context, operation_id, *, display_name, icon_key, cli, resources, persona, kind,
+                  reserve=False):
         # Registration never requests a CLI start; start_requested is legacy metadata fixed at false.
         tx.require_write()
         agent_id, actor_id, conversation_id = (self.db.id_factory() for _ in range(3))
@@ -107,7 +117,8 @@ class Agents:
              cli.provider, cli.model, resources.cpu, resources.memory_mib, resources.disk_gib,
              str(context.actor_id), now, now, persona, now, now, str(context.actor_id),
              str(operation_id), str(job_id)))
-        if kind == "host":
+        if reserve:
+            # Only ensure_onbash assigns the immutable reserved pointer.
             tx.connection.execute("UPDATE installation SET onbash_agent_id=? WHERE singleton=1", (str(agent_id),))
         self.db.fault("agent_after_registration")
         payload = {"agent_id": str(agent_id), "actor_id": str(actor_id), "conversation_id": str(conversation_id),
@@ -134,7 +145,7 @@ class Agents:
         return self._register(tx, context, operation_id, display_name=args.display_name, icon_key=args.icon_key,
             cli=args.cli if args.cli is not None else defaults.cli,
             resources=args.resources if args.resources is not None else defaults.resources,
-            persona=args.persona, kind="vm")
+            persona=args.persona, kind="host")
 
     def get(self, tx, args, context, operation_id):
         return Change(self.read_view(tx, get_row(tx, args.agent_id)))

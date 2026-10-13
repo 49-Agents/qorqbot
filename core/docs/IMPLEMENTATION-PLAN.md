@@ -2,6 +2,14 @@ Current repository layout: [D61, one Qorqbot repository](../../docs/MONOREPO.md)
 The module boundaries remain; older references to separate repositories describe
 the pre-migration arrangement.
 
+D62: [Ordinary agents are local folders and tmux shells](LOCAL-AGENTS.md)
+supersedes the per-agent VM requirements below (R03, G2 and the VM phases) for
+this version. Ordinary agents are `kind='host'` with their own workspace, private
+native HOME and persistent recorded shell; they are not security-isolated VMs.
+onbash stays the single reserved identity. Schema 11 and the per-agent runtime
+are implemented on a candidate branch; real provider replies and full-system
+gates are not claimed.
+
 D60: [Terminal capture storage and recovery](TERMINAL-STORAGE-RECOVERY.md)
 addresses large-ledger scans and the failed onbash terminal, preserving capture
 and public contracts.

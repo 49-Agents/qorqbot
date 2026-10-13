@@ -1,4 +1,8 @@
-"""Lazy onbash composition of the accepted recorded shell and its input gates."""
+"""Lazy per-agent composition of the accepted recorded shell and its input gates (D62).
+
+Every local (host) agent has its own manager, observation cache and runtime root.
+The background service observes a finite snapshot; one agent cannot abort another.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +18,7 @@ import threading
 import time
 from uuid import UUID, uuid4
 
-from ..agents.registry import get_row, reserved
+from ..agents.registry import get_row, local_agent_ids, reserved
 from ..agents.workspace import child_directory, same_child
 from ..app import Change, Operation
 from ..contracts import CoreError, Invocation
@@ -71,16 +75,24 @@ class Terminals:
         self.app, self.db = application, application.db
         self.settings = application.settings.local_terminal
         self._lock = threading.Lock()
-        self._cache = None
-        self._manager = None
+        self._cache = {}
+        self._managers = {}
         self._streams = {}
         self._closing = False
         self._stop = threading.Event()
         self._healthy = threading.Event()
         self._thread = None
 
+    @property
+    def enabled(self):
+        return self.settings is not None
+
     def operations(self):
         return (Operation("terminal_get", TerminalGet, False, self.get, TerminalView),)
+
+    def _manager(self, agent_id):
+        with self._lock:
+            return self._managers.get(UUID(str(agent_id)))
 
     def _target(self, tx, agent_id=None):
         row = dict(reserved(tx) if agent_id is None else get_row(tx, agent_id))
@@ -98,21 +110,22 @@ class Terminals:
         status, reason = "unavailable", "not_observed"
         if self.settings is None:
             status, reason = "disabled", "not_configured"
-        elif row["kind"] != "host" or installation["onbash_agent_id"] != row["id"]:
-            status, reason = "unsupported_target", "local_onbash_only"
+        elif row["kind"] != "host":
+            status, reason = "unsupported_target", "local_host_only"
         elif row["lifecycle"] not in {"provisioning", "active"}:
             reason = "lifecycle_unavailable"
         elif row["workspace_initialized_at"] is None:
             status, reason = "waiting_workspace", "workspace_not_initialized"
         with self._lock:
-            known = self._cache[1].terminal_id if self._cache is not None and self._cache[0].agent_id == target.agent_id else None
+            cached = self._cache.get(target.agent_id)
+            known = cached[1].terminal_id if cached is not None else None
         return TerminalView(agent_id=target.agent_id, recovery_epoch=target.recovery_epoch,
                             status=status, reason=reason, terminal_id=known)
 
     def _cached(self, target, row, installation):
         base = self._base(target, row, installation)
         with self._lock:
-            cached = self._cache
+            cached = self._cache.get(target.agent_id)
         if base.reason != "not_observed" or cached is None:
             return base
         binding, view, observed = cached
@@ -129,7 +142,7 @@ class Terminals:
 
     def _publish(self, target, view):
         with self._lock:
-            self._cache = target, view, time.monotonic()
+            self._cache[target.agent_id] = target, view, time.monotonic()
         return view
 
     def _presentation(self, target, shell):
@@ -179,11 +192,16 @@ class Terminals:
         finally:
             connection.close()
 
-    def observe(self):
+    def observe(self, agent_id=None, *, create=True):
+        """Observe (and, when `create`, prepare) one agent's recorded shell.
+
+        `create=False` only inspects an attempt that already exists: it creates no
+        directory, shell or manager state and never launches a second shell.
+        """
         assert_external_io_allowed()
         with self.db.lock.use(), self.db.lock.effects:
             with self.db.read() as tx:
-                target, row, installation = self._target(tx)
+                target, row, installation = self._target(tx, agent_id)
                 job = tx.connection.execute("SELECT recovery_epoch,wait_reason FROM jobs WHERE job_id=?",
                                             (row["provisioning_job_id"],)).fetchone()
             base = self._base(target, row, installation)
@@ -209,6 +227,8 @@ class Terminals:
                         _owned(workspace, private=False)
                         _owned(local)
                         prior = self._attempt(configuration["database"])
+                        if prior is None and not create:
+                            raise CoreError("not_ready", "Terminal has not been prepared")
                         if prior is not None:
                             base = base.model_copy(update={"terminal_id": UUID(prior["terminal_id"])})
                             if (ShellSpec.model_validate_json(prior["spec_json"]) != spec or
@@ -226,9 +246,13 @@ class Terminals:
                             same_child(fd, "workspace", workspace)
                             same_child(fd, "runtime", local)
                             same_child(local, "home", home)
-                            if self._manager is None:
-                                self._manager = ShellManager(**configuration)
-                            shell = self._manager.ensure(spec)
+                            with self._lock:
+                                manager = self._managers.get(target.agent_id)
+                            if manager is None:
+                                manager = ShellManager(**configuration, existing=not create)
+                                with self._lock:
+                                    manager = self._managers.setdefault(target.agent_id, manager)
+                            shell = manager.ensure(spec)
                             # Shell creates native/XDG directories. Sync their
                             # parent entries, also when recovering a prior attempt.
                             for suffix in (".local/share", ".local", ".codex", ".claude", ".config", ".cache"):
@@ -267,17 +291,41 @@ class Terminals:
             self._thread = threading.Thread(target=self._run, name="qorqut-terminals", daemon=False)
             self._thread.start()
 
+    def observe_all(self):
+        """A finite sequential snapshot of local agents; each agent is isolated."""
+        with self.db.read() as tx:
+            agents = local_agent_ids(tx)
+        unexpected = None
+        for agent_id in agents:
+            if self._stop.is_set():
+                break
+            try:
+                shell = self.observe(agent_id)
+                if shell.status == "available":
+                    self.app.workspaces.settle(agent_id)
+            except (CoreError, RunnerError, OSError, ValueError, sqlite3.Error):
+                # One agent's domain or environment failure never aborts the others; its cache expires.
+                _LOG.warning("terminal_observation_agent_failed")
+            except Exception as exc:
+                # Every agent still gets this pass, then the unexpected error stops the observer and readiness.
+                unexpected = unexpected or exc
+        if unexpected is not None:
+            raise unexpected
+
     def _run(self):
         try:
             while not self._stop.is_set():
+                started = time.monotonic()
                 try:
-                    self.observe()
+                    self.observe_all()
                 except CoreError:
                     # A domain/maintenance hold is not observer death. Existing
                     # cache expires and read/effect admission still revalidates.
                     pass
                 self._healthy.set()
-                self._stop.wait(1)
+                # One pass visits every local agent, so the cadence is a start-to-start
+                # second: a longer pass is not followed by a further idle second.
+                self._stop.wait(max(0.05, 1 - (time.monotonic() - started)))
         except BaseException:
             _LOG.error("terminal_observation_stopped")
         finally:
@@ -310,17 +358,18 @@ class Terminals:
             if self._closing or len(self._streams) >= MAX_STREAMS or sum(
                     agent == target.agent_id for agent, _ in self._streams.values()) >= MAX_AGENT_STREAMS:
                 raise CoreError("unavailable", "Terminal stream capacity unavailable")
-            if view.status != "available" or self._manager is None:
+            manager = self._managers.get(target.agent_id)
+            if view.status != "available" or manager is None:
                 raise CoreError("not_ready", "Terminal is unavailable")
             viewer = uuid4()
             self._streams[viewer] = (target.agent_id, None)
         attachment = None
         try:
             with self._binding(target, actor_id):
-                fresh = self._manager.inspect(view.terminal_id)
+                fresh = manager.inspect(view.terminal_id)
                 if fresh.spec.agent_id != target.agent_id or fresh.spec.recovery_epoch != target.recovery_epoch or fresh.state != "running":
                     raise CoreError("target_changed", "Terminal binding is unavailable")
-                attachment = self._manager.attach(view.terminal_id, viewer, read_only=False)
+                attachment = manager.attach(view.terminal_id, viewer, read_only=False)
                 stream = TerminalStream(self, target, actor_id, attachment)
                 stream.initial = self._publish(target, self._presentation(
                     target, fresh.model_copy(update={"dimensions": attachment.dimensions})))
@@ -343,7 +392,7 @@ class Terminals:
             if self._base(target, row, installation).reason != "not_observed":
                 raise CoreError("not_ready", "Native terminal is unavailable")
             with self._lock:
-                manager, cached = self._manager, self._cache
+                manager, cached = self._managers.get(target.agent_id), self._cache.get(target.agent_id)
                 if (self._closing or manager is None or cached is None or cached[0] != target
                         or cached[1].terminal_id != terminal_id):
                     raise CoreError("not_ready", "Native terminal is unavailable")
@@ -361,7 +410,7 @@ class Terminals:
                 with self.db.read() as tx:
                     current, _, _ = self._target(tx, agent_id)
                 with self._lock:
-                    if self._closing or self._manager is not manager or current != target:
+                    if self._closing or self._managers.get(target.agent_id) is not manager or current != target:
                         raise CoreError("target_changed", "Native terminal target changed")
                 return shell
 
@@ -418,7 +467,9 @@ class TerminalStream:
         with self._lock, self.service._binding(self.target, self.actor_id):
             if self.attachment.closed:
                 raise CoreError("not_ready", "Terminal viewer is closed")
-            manager = self.service._manager
+            manager = self.service._manager(self.target.agent_id)
+            if manager is None:
+                raise CoreError("not_ready", "Terminal is unavailable")
             shell = manager.inspect(self.terminal_id)
             if shell.state != "running" or not shell.capture.verified or not shell.capture.terminal_active:
                 raise CoreError("not_ready", "Exact live terminal is unavailable")
@@ -434,7 +485,7 @@ class TerminalStream:
     def resize(self, columns, rows, *, epoch, sequence):
         with self._lock, self.service._binding(self.target, self.actor_id):
             frame = self.attachment.resize(columns, rows, epoch=epoch, sequence=sequence)
-            shell = self.service._manager.inspect(self.terminal_id)
+            shell = self.service._manager(self.target.agent_id).inspect(self.terminal_id)
             self.service._publish(self.target, self.service._presentation(self.target, shell))
             return frame
 
@@ -447,7 +498,7 @@ class TerminalStream:
                 # Settle this stream's effects before releasing its exact hold.
                 # The mirror may already be disconnected; it does not own control.
                 with self.service._binding(self.target, self.actor_id):
-                    manager = self.service._manager
+                    manager = self.service._manager(self.target.agent_id)
                     if manager is None:
                         return
                     shell = manager.inspect(self.terminal_id)
