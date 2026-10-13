@@ -1785,7 +1785,8 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   terminal.output('\x1b[?2004hBatch paste enabled\r\n');
   await expect(page.locator('.xterm-screen')).toContainText('Batch paste enabled');
   await paste('batch\nlines\té');
-  const batchBytes = Buffer.from(burst + 'é🙂\x03\x1b[D\x1b[200~batch\rlines\té\x1b[201~');
+  // Ctrl+C ends its batch; ArrowLeft and the framed paste form the next one.
+  const interruptBytes = Buffer.from(burst + 'é🙂\x03'), afterInterruptBytes = Buffer.from('\x1b[D\x1b[200~batch\rlines\té\x1b[201~');
   await page.setViewportSize({ width: 1200, height: 960 });
   await expect.poll(async () => (await page.locator('.terminal-screen').boundingBox())!.width).toBe(588);
   await settleViewport();
@@ -1794,22 +1795,29 @@ test('synthetic Terminal protocol fences control and human input, bounds queues,
   terminal.receipt(burstHead);
   await expect.poll(() => terminal.frames.length).toBe(beforeBurst + 2);
   const batch = terminal.frames.at(-1)!;
-  expect(batch).toEqual({ type: 'input', epoch: burstHead.epoch, sequence: burstHead.sequence + 1, data: batchBytes.toString('base64') });
+  expect(batch).toEqual({ type: 'input', epoch: burstHead.epoch, sequence: burstHead.sequence + 1, data: interruptBytes.toString('base64') });
+  // The interrupt boundary: nothing after Ctrl+C is sent until its own receipt.
+  expect(terminal.frames).toHaveLength(beforeBurst + 2);
   terminal.receipt(batch);
   await expect.poll(() => terminal.frames.length).toBe(beforeBurst + 3);
-  const barrier = terminal.frames.at(-1)!;
-  expect(barrier).toMatchObject({ type: 'resize', epoch: burstHead.epoch, sequence: burstHead.sequence + 2 });
-  terminal.receipt(barrier);
+  const afterInterrupt = terminal.frames.at(-1)!;
+  expect(afterInterrupt).toEqual({ type: 'input', epoch: burstHead.epoch, sequence: burstHead.sequence + 2, data: afterInterruptBytes.toString('base64') });
+  expect(terminal.frames).toHaveLength(beforeBurst + 3);
+  terminal.receipt(afterInterrupt);
   await expect.poll(() => terminal.frames.length).toBe(beforeBurst + 4);
+  const barrier = terminal.frames.at(-1)!;
+  expect(barrier).toMatchObject({ type: 'resize', epoch: burstHead.epoch, sequence: burstHead.sequence + 3 });
+  terminal.receipt(barrier);
+  await expect.poll(() => terminal.frames.length).toBe(beforeBurst + 5);
   const afterBarrier = terminal.frames.at(-1)!;
-  expect(afterBarrier).toEqual({ type: 'input', epoch: burstHead.epoch, sequence: burstHead.sequence + 3, data: Buffer.from('after resize').toString('base64') });
+  expect(afterBarrier).toEqual({ type: 'input', epoch: burstHead.epoch, sequence: burstHead.sequence + 4, data: Buffer.from('after resize').toString('base64') });
   terminal.receipt(afterBarrier);
   terminal.output('\x1b[?2004lBatch receipts settled\r\n');
   await expect(page.locator('.xterm-screen')).toContainText('Batch receipts settled');
-  expect(terminal.frames).toHaveLength(beforeBurst + 4);
+  expect(terminal.frames).toHaveLength(beforeBurst + 5);
   terminal.autoReceipt = true;
   await page.setViewportSize({ width: 1441, height: 960 });
-  await expect.poll(() => terminal.frames.length).toBe(beforeBurst + 5);
+  await expect.poll(() => terminal.frames.length).toBe(beforeBurst + 6);
   // Hold a receipt; at most one frame is sent, with 64 KiB queued and coalesced resize.
   const beforeQueueInputs = terminal.inputs.length;
   terminal.holdNextInput = true;

@@ -5,7 +5,7 @@ import type { TerminalControl, TerminalDimensions, TerminalFrame, TerminalView }
 
 const INPUT_LIMIT = 65536, OUTPUT_LIMIT = 1024 * 1024, DISPLAY_ENTRY_LIMIT = 1024;
 const encoder = new TextEncoder();
-type PendingFrame = { type: 'input'; bytes: Uint8Array } | ({ type: 'resize' } & TerminalDimensions);
+type PendingFrame = { type: 'input'; bytes: Uint8Array; barrier?: true } | ({ type: 'resize' } & TerminalDimensions);
 type DisplayEntry = { type: 'bytes'; bytes: Uint8Array } | ({ type: 'size' } & TerminalDimensions);
 export type TerminalState = { connection: 'connecting' | 'connected' | 'closed'; owned: boolean; controlPending: boolean; warning: string };
 
@@ -86,7 +86,10 @@ export class TerminalClient {
     // Ordinary onData also contains parser/device replies and is never an input source.
     const key = this.terminal.onKey(({ key, domEvent }) => {
       if (domEvent.isComposing || this.compositionEpoch !== null || !this.valid() || !this.owned() || this.overflow) return;
-      domEvent.preventDefault(); this.input(key);
+      domEvent.preventDefault();
+      // An explicit interrupt/suspend key ends its batch: the tty discards input that
+      // races its signal handling, so later keys wait for this frame's receipt.
+      this.input(key, key === '\x03' || key === '\x1a');
     });
     const data = this.terminal.onData(value => { this.pasteOutput?.push(value); });
     const input = (event: Event) => {
@@ -244,14 +247,14 @@ export class TerminalClient {
     this.pendingControl = { epoch: this.view.control.epoch };
     this.send({ type: 'control', action: 'take', expected_epoch: this.pendingControl.epoch }); this.emit();
   }
-  input(data: string) {
+  input(data: string, barrier = false) {
     if (!this.valid() || !this.owned() || this.overflow || !data) return;
     const bytes = encoder.encode(data);
     if (bytes.length > INPUT_LIMIT) { this.warn('Input exceeds 64 KiB and was not sent.'); return; }
     if (this.queuedBytes + bytes.length > INPUT_LIMIT) {
       this.overflow = true; this.warn('Input queue is full. Additional input was not sent. Reconnect to resume.'); return;
     }
-    this.queue.push({ type: 'input', bytes }); this.queuedBytes += bytes.length; this.flush();
+    this.queue.push(barrier ? { type: 'input', bytes, barrier: true } : { type: 'input', bytes }); this.queuedBytes += bytes.length; this.flush();
   }
   private warn(message: string) { this.warning = message; this.emit(); }
   private fitViewport() {
@@ -273,18 +276,19 @@ export class TerminalClient {
     if (!this.valid() || !this.owned() || this.pendingFrame || !this.queue.length) return;
     let frame = this.queue[0];
     if (frame.type === 'input') {
-      // Batch only the admitted input prefix. A resize remains an ordered barrier.
+      // Batch only the admitted input prefix. A resize or an interrupt/suspend key is
+      // an ordered barrier: the batch ends there and later input waits for the receipt.
       let count = 0, length = 0;
       for (const next of this.queue) {
         if (next.type !== 'input') break;
         count++; length += next.bytes.length;
+        if (next.barrier) break;
       }
       if (count > 1) {
         const bytes = new Uint8Array(length);
         let offset = 0;
-        for (const next of this.queue) {
-          if (next.type !== 'input') break;
-          bytes.set(next.bytes, offset); offset += next.bytes.length;
+        for (const next of this.queue.slice(0, count)) {
+          if (next.type === 'input') { bytes.set(next.bytes, offset); offset += next.bytes.length; }
         }
         frame = { type: 'input', bytes };
       }

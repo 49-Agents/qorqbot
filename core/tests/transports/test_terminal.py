@@ -111,11 +111,11 @@ class TerminalInstallation(Installation):
     def available(self):
         return wait_for(lambda: (v if (v := self.terminal())["status"] == "available" else None))
 
-    def websocket(self, *, path=None, origin=True, headers=None):
+    def websocket(self, *, path=None, origin=True, headers=None, open_timeout=4):
         return connect(self.url.replace("http:", "ws:") + (path or "/api/v1/terminal/" + self.agent_id),
             origin=self.url if origin is True else origin or None,
             additional_headers=headers, proxy=None,
-            open_timeout=4, close_timeout=2, max_size=96 * 1024)
+            open_timeout=open_timeout, close_timeout=2, max_size=96 * 1024)
 
     def close(self):
         self.stop()
@@ -307,7 +307,7 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
                 received(third, "hello")
                 received(fourth, "hello")
                 with self.assertRaises(InvalidStatus):
-                    f.websocket()
+                    f.websocket(open_timeout=7)
             denied = send(first, {"type": "input", "epoch": 0, "sequence": 1, "data": "eA=="}, "error")
             self.assertEqual(denied["code"], "revision_conflict")
             control1 = take(first, 0)

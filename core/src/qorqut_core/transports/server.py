@@ -16,7 +16,7 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.responses import JSONResponse
 from starlette.routing import Route, WebSocketRoute
-from starlette.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from ..app import Application
 from ..browser.models import Handoff
@@ -26,6 +26,7 @@ from ..contracts import CoreError, Invocation, OperationResult
 from ..runtime import SessionMonitor
 from ..runtime.native_hooks import NativeHookRequest, NativeHookResult
 from ..runtime.terminal_models import CLIENT_MESSAGE
+from ..runtime.terminals import MAX_AGENT_STREAMS, MAX_STREAMS
 from ..runner.models import RunnerError
 from ..storage.worker import JobWorker
 from .boundary import Admission, Boundary, failure
@@ -39,6 +40,8 @@ MAX_WAITERS = 12
 ADMISSION_TIMEOUT = 1.0
 MAX_TERMINAL_TEXT = 96 * 1024
 TERMINAL_SEND_TIMEOUT = 5.0
+TERMINAL_WAITERS = 12
+TERMINAL_ADMISSION_TIMEOUT = 5.0
 _STATUS = {
     "invalid_argument": 400, "not_found": 404,
     "revision_conflict": 409, "idempotency_conflict": 409, "invalid_transition": 409,
@@ -120,11 +123,63 @@ class Dispatcher:
             return NativeHookResult.result("unavailable")
 
 
+class _Slot:
+    """One transport reservation, held from before attach until the stream is closed."""
+    held = False
+    agent_id = None
+
+
 class TerminalSockets:
-    """Attributed protocol framing; all terminal admission/effects are core's."""
+    """Attributed protocol framing; all terminal admission/effects are core's.
+
+    Core stays the authority on capacity. This transport only counts the viewer
+    lifetimes it owns, so that a viewer arriving while superseded ones are still
+    attaching or closing waits briefly for their release instead of being refused.
+    """
     def __init__(self, admission):
         self.admission = admission
         self.tasks = set()
+        self.total = 0
+        self.agents = {}
+        self.waiting = set()
+
+    def _free(self, agent_id):
+        return self.total < MAX_STREAMS and self.agents.get(agent_id, 0) < MAX_AGENT_STREAMS
+
+    def _release(self, slot):
+        if not slot.held:
+            return
+        slot.held = False
+        self.total -= 1
+        left = self.agents[slot.agent_id] - 1
+        if left:
+            self.agents[slot.agent_id] = left
+        else:
+            del self.agents[slot.agent_id]
+        for waiter in self.waiting:
+            if not waiter.done():
+                waiter.set_result(None)
+
+    async def _reserve(self, agent_id, slot, gone):
+        """Take a reservation, waiting at most five seconds for a transport release."""
+        if not self._free(agent_id):
+            if len(self.waiting) >= TERMINAL_WAITERS:
+                raise TimeoutError
+            async with asyncio.timeout(TERMINAL_ADMISSION_TIMEOUT):
+                while not self._free(agent_id):
+                    if gone.done() or self.admission.closing:
+                        raise WebSocketDisconnect(1008)
+                    waiter = asyncio.get_running_loop().create_future()
+                    self.waiting.add(waiter)
+                    try:
+                        await asyncio.wait({waiter, gone}, return_when=asyncio.FIRST_COMPLETED)
+                    finally:
+                        self.waiting.discard(waiter)
+                        waiter.cancel()
+        # No await between the final check and the reservation.
+        slot.agent_id, slot.held = agent_id, True
+        self.total += 1
+        self.agents[agent_id] = self.agents.get(agent_id, 0) + 1
 
     async def close(self):
         tasks = tuple(self.tasks)
@@ -262,9 +317,21 @@ class TerminalSockets:
             finally:
                 stop()  # No queued or in-flight delivery may outlive its writer.
 
+        slot = _Slot()
+        gone = attaching = None
         try:
             admitted()
             agent_id = UUID(websocket.path_params["agent_id"])
+            # Consume the connect event, then watch for a disconnect until accepted.
+            # Any other pre-accept event is refused, never buffered as input.
+            if getattr(websocket, "client_state", None) == WebSocketState.CONNECTING:
+                if (await websocket.receive())["type"] != "websocket.connect":
+                    raise WebSocketDisconnect(1008)
+            gone = asyncio.ensure_future(websocket.receive())
+            await self._reserve(agent_id, slot, gone)
+            admitted()
+            if gone.done():
+                raise WebSocketDisconnect(1006)
 
             def attach():
                 nonlocal stream
@@ -272,8 +339,16 @@ class TerminalSockets:
 
             # Assignment occurs inside the settled call, so cancellation after
             # creation cannot lose the owned attachment before finally cleanup.
-            await _settle_sync(attach)
+            attaching = asyncio.ensure_future(_settle_sync(attach))
+            await asyncio.wait({attaching, gone}, return_when=asyncio.FIRST_COMPLETED)
+            if not attaching.done():
+                raise WebSocketDisconnect(1006)
+            attaching.result()
             admitted()
+            gone.cancel()
+            await _join_tasks([gone])
+            if not gone.cancelled():
+                raise WebSocketDisconnect(1006)
             latest = stream.initial
             async with asyncio.timeout(TERMINAL_SEND_TIMEOUT):
                 await websocket.accept()
@@ -283,20 +358,22 @@ class TerminalSockets:
             pass
         finally:
             stop()
-            for child in tasks:
+            for child in (*tasks, *(t for t in (gone,) if t is not None)):
                 child.cancel()
             try:
-                await _join_tasks(tasks)
+                await _join_tasks(tasks + [t for t in (gone, attaching) if t is not None])
             finally:
                 try:
                     if stream is not None:
                         await _settle_sync(stream.close)
                 finally:
+                    # The reservation outlives the attach call and the owned close.
+                    self._release(slot)
                     self.tasks.discard(task)
                     try:
                         async with asyncio.timeout(TERMINAL_SEND_TIMEOUT):
                             await websocket.close(code=1008)
-                    except (OSError, RuntimeError, TimeoutError):
+                    except (OSError, RuntimeError, TimeoutError, WebSocketDisconnect):
                         pass
 
 
