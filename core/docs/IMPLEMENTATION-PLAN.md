@@ -4,8 +4,9 @@ the pre-migration arrangement.
 
 D63: [Local-agent file, browser and UI support](LOCAL-AGENT-CAPABILITIES.md)
 extends existing host file references and explicit browser attachments to ordinary
-local agents and aligns the desktop wording. Implementation is pending; no new
-service, operation, migration or automatic provider/browser launch is authorized.
+local agents and aligns the desktop wording. Core and UI passed
+[bounded Manager acceptance](evidence/desktop-qa-repairs-manager.md); no new
+service, operation, migration or automatic provider/browser launch was added.
 
 D62: [Ordinary agents are local folders and tmux shells](LOCAL-AGENTS.md)
 supersedes the per-agent VM requirements below (R03, G2 and the VM phases) for
@@ -14,7 +15,7 @@ native HOME and persistent recorded shell; they are not security-isolated VMs.
 onbash stays the single reserved identity. Schema 11 and the per-agent runtime
 passed 19 focused Manager checks and are integrated locally with the Terminal
 and UI repairs. Real provider replies and full-system gates are not claimed;
-this repair batch is not deployed.
+deployment is recorded separately from source acceptance.
 
 D60: [Terminal capture storage and recovery](TERMINAL-STORAGE-RECOVERY.md)
 addresses large-ledger scans and the failed onbash terminal, preserving capture

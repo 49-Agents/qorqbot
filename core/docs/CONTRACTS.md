@@ -5,7 +5,8 @@ the pre-migration arrangement.
 D63: [Local-agent capabilities](LOCAL-AGENT-CAPABILITIES.md) permits existing
 absolute host file references and explicit browser attachments for every prepared
 local host agent. Stable per-agent targets and browser identity checks remain;
-operation shapes, schema and inventory do not change. Implementation is pending.
+operation shapes, schema and inventory do not change. The implementation passed
+[bounded Manager acceptance](evidence/desktop-qa-repairs-manager.md).
 
 D62: [Ordinary agents are local folders and tmux shells](LOCAL-AGENTS.md)
 changes `agents_create` to register `kind='host'` agents (the `vm` kind is a

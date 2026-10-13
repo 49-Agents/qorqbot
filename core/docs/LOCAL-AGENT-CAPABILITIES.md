@@ -2,7 +2,8 @@
 
 Manager decision, 2026-10-13, following the owner's D62 local-folder/tmux choice
 and request to fix the desktop QA findings. This is a small extension of the
-existing operations, not a new runtime or service. Implementation is pending.
+existing operations, not a new runtime or service. Core and UI implementation
+passed [bounded Manager acceptance](evidence/desktop-qa-repairs-manager.md).
 
 ## Files
 
