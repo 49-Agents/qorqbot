@@ -25,9 +25,13 @@ const transientRead = (e: unknown) => e instanceof ApiError && (e.code === 'unav
   || (e.code === 'transport_refused' && e.status >= 500 && e.status < 600));
 // One content gate for every send path; valid bodies keep their exact bytes.
 export const meaningful = (text: string) => text.trim().length > 0;
-// Names are trimmed, then 1-120 Unicode code points of UTF-8-encodable text (as the server counts them).
+// Names use Python str.strip() whitespace (not JS trim(): U+001C-001F and U+0085 count, U+FEFF does not),
+// then must be 1-120 Unicode code points of UTF-8-encodable text, as the server counts them.
+const nameSpace = '[\\t-\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]+';
+const nameEdges = new RegExp(`^${nameSpace}|${nameSpace}$`, 'g');
+export const stripName = (raw: string) => raw.replace(nameEdges, '');
 export function nameProblem(raw: string) {
-  const value = raw.trim(), length = [...value].length;
+  const value = stripName(raw), length = [...value].length;
   if (!length || length > 120) return 'Name must be 1–120 characters.';
   try { encodeURIComponent(value); } catch { return 'Name contains text that cannot be saved.'; }
   return '';
@@ -508,7 +512,7 @@ export class Store {
   }
   async create(args: { display_name: string; icon_key: string }) {
     if (locked(this.pending.get('create')) || !this.has('agents_create') || nameProblem(args.display_name)) return;
-    this.pending.set('create', { operation: 'agents_create', args: { ...args, display_name: args.display_name.trim(), idempotency_key: crypto.randomUUID() }, actor: this.actor, unresolvedAmbiguity: false, state: 'sending' });
+    this.pending.set('create', { operation: 'agents_create', args: { ...args, display_name: stripName(args.display_name), idempotency_key: crypto.randomUUID() }, actor: this.actor, unresolvedAmbiguity: false, state: 'sending' });
     await this.mutate('create');
   }
   async update(id: string, fields: { display_name?: string; icon_key?: string }) {

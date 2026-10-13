@@ -1,7 +1,7 @@
 // Focused regressions for the 2026-10-13 QA repairs. Synthetic API only; no native provider is involved.
 import { test as base, expect, type Page, type Route } from '@playwright/test';
 import { SyntheticAPI, alpha, beta, makeAgent } from './synthetic-api';
-import { Store, meaningful, nameProblem } from '../src/store';
+import { Store, meaningful, nameProblem, stripName } from '../src/store';
 
 const test = base.extend<{ api: SyntheticAPI }>({
   api: async ({}, use) => { const api = await new SyntheticAPI().start(); try { await use(api); } finally { await api.close(); } },
@@ -113,6 +113,13 @@ test('name validation counts Unicode code points and corrects in place', async (
   expect(nameProblem('   ')).not.toBe('');
   expect(nameProblem('ok\ud800')).not.toBe('');
   expect(nameProblem(` ${'x'.repeat(120)} `)).toBe('');
+  // Python str.strip() whitespace: U+001C-001F and U+0085 are stripped, U+FEFF and U+180E are not.
+  expect(stripName('\x1c\x85 \u3000\u2029Ana\u00a0\x1f')).toBe('Ana');
+  expect(stripName('\ufeffAna\u180e')).toBe('\ufeffAna\u180e');
+  expect(stripName('A\x85B')).toBe('A\x85B');
+  expect(nameProblem('\x1c\x85\u2003')).not.toBe('');
+  expect(nameProblem('\ufeff')).toBe('');
+  expect(nameProblem('\ufeff'.repeat(121))).not.toBe('');
   await open(page, api);
   await page.getByRole('button', { name: 'Create agent', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Create agent' });
@@ -156,7 +163,10 @@ test('a definitive failure is corrected with a fresh key; an uncertain one stays
   const inspector = page.getByRole('complementary', { name: 'Agent details' });
   const name = inspector.locator('.identity-name');
   const rename = inspector.getByRole('textbox', { name: /^Rename / });
-  await page.route('**/api/v1/operations/agents_update', route => route.fulfill(rejection), { times: 1 });
+  // Record what the browser actually sent; intercepted attempts never reach the synthetic server.
+  const sent: Record<string, any>[] = [];
+  await page.route('**/api/v1/operations/agents_update', route => { sent.push(body(route)); return route.continue(); });
+  await page.route('**/api/v1/operations/agents_update', route => { sent.push(body(route)); return route.fulfill(rejection); }, { times: 1 });
   await name.click(); await rename.fill('First attempt'); await rename.press('Enter');
   await expect(inspector.getByText('Synthetic definitive rejection')).toBeVisible();
   await expect(inspector.getByText('Attempted name: “First attempt”.')).toBeVisible();
@@ -166,12 +176,16 @@ test('a definitive failure is corrected with a fresh key; an uncertain one stays
   await expect(rename).toHaveValue('First attempt');
   await rename.fill('Corrected'); await rename.press('Enter');
   await expect(name).toHaveText('Corrected');
-  const keys = calls(api, 'agents_update').map(c => c.args.idempotency_key);
-  expect(keys).toHaveLength(1);
-  // The rejected request never reached the synthetic server; the corrected one is a new request.
+  expect(sent).toHaveLength(2);
+  expect(sent[0]).toMatchObject({ display_name: 'First attempt' });
+  expect(sent[1]).toMatchObject({ display_name: 'Corrected' });
+  expect(sent[1].idempotency_key).not.toBe(sent[0].idempotency_key);
+  expect(calls(api, 'agents_update')).toHaveLength(1);
   await expect(inspector.getByRole('alert')).toHaveCount(0);
 
-  await page.route('**/api/v1/operations/agents_update', route => route.abort(), { times: 1 });
+  await page.unroute('**/api/v1/operations/agents_update');
+  const lost: Record<string, any>[] = [];
+  await page.route('**/api/v1/operations/agents_update', route => { lost.push(body(route)); return lost.length === 1 ? route.abort() : route.continue(); });
   await name.click(); await rename.fill('Lost confirmation'); await rename.press('Enter');
   await expect(inspector.getByText(/Confirmation uncertain/)).toBeVisible();
   await expect(name).toBeDisabled();
@@ -179,10 +193,9 @@ test('a definitive failure is corrected with a fresh key; an uncertain one stays
   await expect(retry).toBeVisible();
   await retry.click();
   await expect(name).toHaveText('Lost confirmation');
-  const sent = calls(api, 'agents_update');
-  expect(sent).toHaveLength(2);
-  expect(sent[1].args.display_name).toBe('Lost confirmation');
-  expect(sent[1].args.idempotency_key).not.toBe(sent[0].args.idempotency_key);
+  expect(lost).toHaveLength(2);
+  expect(lost[1]).toEqual(lost[0]);
+  expect(lost[0]).toMatchObject({ display_name: 'Lost confirmation' });
 });
 
 test('sidebar rename icon opens inline rename without selecting; focus returns on Escape but not on blur', async ({ page, api }) => {

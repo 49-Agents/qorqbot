@@ -161,7 +161,7 @@ test('direct local opening, refused connection retry, workspace identity and rec
 test('creation and fixed icons, direct rename blur/Enter/cancel/pending/conflict and stable targets', async ({ page, api }, testInfo) => {
   await openWorkspace(page, api);
   const create = page.getByRole('button', { name: 'Create agent', exact: true });
-  await expect(page.locator('.nav-top, .conversation-header, .row-rename')).toHaveCount(0);
+  await expect(page.locator('.nav-top, .conversation-header')).toHaveCount(0);
   expect((await create.boundingBox())!.y).toBeGreaterThan(850);
   await create.click();
   const dialog = page.getByRole('dialog', { name: 'Create agent' });
@@ -172,8 +172,8 @@ test('creation and fixed icons, direct rename blur/Enter/cancel/pending/conflict
   await expect(dialog.getByText('does not start a CLI')).toBeVisible();
   await dialog.getByLabel('Display name').fill('x'.repeat(121));
   await dialog.getByRole('button', { name: 'Create agent', exact: true }).click();
-  await expect(dialog.getByText('Display names require 1–120 characters after trimming')).toBeVisible();
-  await dialog.getByRole('button', { name: 'Dismiss error' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('Name must be 1–120 characters.');
+  expect(calls(api, 'agents_create')).toHaveLength(0);
   await expect(dialog.getByLabel('Display name')).toHaveValue('x'.repeat(121));
   await dialog.getByLabel('Display name').fill('Atlas');
   await dialog.getByRole('radio', { name: 'feather', exact: true }).check();
@@ -193,9 +193,13 @@ test('creation and fixed icons, direct rename blur/Enter/cancel/pending/conflict
   await expect(inspector.getByRole('button', { name: 'Change icon' })).toHaveText('');
   await name.focus(); await name.press('Enter');
   await rename.fill('Never committed'); await rename.press('Escape');
-  for (const value of ['Atlas', '   ']) {
-    await name.click(); await rename.fill(value); await message(page).click();
-  }
+  await name.click(); await rename.fill('Atlas'); await message(page).click();
+  // An empty name is never saved or silently closed; Escape cancels it.
+  await name.click(); await rename.fill('   '); await message(page).click();
+  await expect(rename).toBeVisible();
+  await expect(inspector.getByRole('alert')).toHaveText('Name must be 1–120 characters.');
+  await rename.press('Escape');
+  await expect(name).toBeFocused();
   expect(calls(api, 'agents_update')).toHaveLength(0);
   await name.click(); await rename.fill('  Blur saved  ');
   await rename.dispatchEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true });
@@ -212,15 +216,16 @@ test('creation and fixed icons, direct rename blur/Enter/cancel/pending/conflict
   await expect(inspector.getByRole('status')).toHaveText('Saving request…');
   await expect(name).toBeDisabled();
   await expect(inspector.getByRole('button', { name: 'Change icon' })).toBeDisabled();
-  await agentButton(page, 'Blur saved').dblclick();
+  await expect(page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: 'Rename Blur saved' })).toBeDisabled();
   await expect(page.getByRole('textbox', { name: /^Rename / })).toHaveCount(0);
   expect(calls(api, 'agents_update')).toHaveLength(2);
   held.release();
   await expect(name).toHaveText('Enter saved');
   await name.click(); await rename.fill('x'.repeat(121)); await rename.press('Enter');
-  await expect(inspector.getByText('Display names require 1–120 characters after trimming')).toBeVisible();
-  await expect(inspector.getByText(`Attempted name: “${'x'.repeat(121)}”.`)).toBeVisible();
-  await inspector.getByRole('button', { name: 'Dismiss error' }).click();
+  await expect(inspector.getByRole('alert')).toHaveText('Name must be 1–120 characters.');
+  await expect(rename).toHaveValue('x'.repeat(121));
+  expect(calls(api, 'agents_update')).toHaveLength(2);
+  await rename.press('Escape');
   const beforeConflict = calls(api, 'agents_update').length;
   api.conflictUpdate = true;
   await name.click(); await rename.fill('Attempted name'); await rename.press('Enter');
@@ -245,14 +250,14 @@ test('creation and fixed icons, direct rename blur/Enter/cancel/pending/conflict
   await page.getByRole('button', { name: 'Save icon', exact: true }).click();
   await expect.poll(() => created.icon_key).toBe('anchor');
   expect(calls(api, 'agents_update').at(-1)!.args).toMatchObject({ agent_id: created.id, icon_key: 'anchor' });
-  await agentButton(page, 'Attempted name').dblclick();
+  await page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: 'Rename Attempted name' }).click();
   await page.getByRole('textbox', { name: 'Rename Attempted name' }).fill('Keyboard rename');
   await page.getByRole('textbox', { name: 'Rename Attempted name' }).press('Enter');
   await expect(name).toHaveText('Keyboard rename');
   await message(page).fill('Keep this active draft');
   const priorUpdates = calls(api, 'agents_update').length;
   api.conflictUpdate = true;
-  await agentButton(page, 'onbash').dblclick();
+  await page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: 'Rename onbash' }).click();
   await page.getByRole('textbox', { name: 'Rename onbash' }).fill('Background agent');
   // Blur during navigation saves the original ID only, without selecting it again.
   await agentButton(page, 'Keyboard rename').click();

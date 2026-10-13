@@ -1,6 +1,6 @@
 import { render, type ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'preact/hooks';
-import { Store, correctable, locked, meaningful, nameProblem, type Pending } from './store';
+import { Store, correctable, locked, meaningful, nameProblem, stripName, type Pending } from './store';
 import { Icon, IconPicker } from './icons';
 import { ViewIcon } from './view-icons';
 import type { Agent, Entry } from './wire';
@@ -115,7 +115,7 @@ function RenameInput({ agent, done, trigger }: { agent: Agent; done: () => void;
       };
       setTimeout(() => refocus(20));
     }
-    const start = original.current, value = name.trim();
+    const start = original.current, value = stripName(name);
     if (save && value !== start.name && store.phase === 'ready' && store.selected === start.selected && store.epoch === start.epoch && store.actor === start.actor) {
       void store.update(start.id, { display_name: value });
     }
