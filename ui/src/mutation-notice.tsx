@@ -1,4 +1,4 @@
-import type { Store, Pending } from './store';
+import { correctable, type Store, type Pending } from './store';
 
 export function MutationNotice({ store, item, requestKey }: { store: Store; item?: Pending; requestKey: string }) {
   if (!item) return null;
@@ -6,7 +6,7 @@ export function MutationNotice({ store, item, requestKey }: { store: Store; item
   return <div className="error mutation-error" role="alert">
     <p>{item.unresolvedAmbiguity ? 'Confirmation uncertain. ' : ''}{item.error}</p>
     {item.operation === 'agents_update' && <p>Attempted {item.args.display_name !== undefined ? `name: “${item.args.display_name}”` : `icon: ${item.args.icon_key}`}.</p>}
-    {item.actor !== store.actor ? <p>This request belongs to a different workspace identity. Reconnect to the original workspace to retry it.</p> : <button type="button" onClick={() => void store.retry(requestKey)} disabled={!store.has(item.operation)}>
+    {item.actor !== store.actor ? <p>This request belongs to a different workspace identity. Reconnect to the original workspace to retry it.</p> : correctable(item) && item.retryable === false ? (item.operation === 'agents_update' || item.operation === 'agents_create') && item.args.display_name !== undefined ? <p className="quiet">Correct the name and submit it again.</p> : null : <button type="button" onClick={() => void store.retry(requestKey)} disabled={!store.has(item.operation)}>
       {!item.unresolvedAmbiguity && item.state === 'conflict' ? 'Apply attempted change to current revision' : 'Retry original request'}
     </button>}
     {!item.unresolvedAmbiguity && (item.state === 'failed' || item.state === 'conflict') && <button type="button" onClick={() => store.discard(requestKey)}>Dismiss error</button>}

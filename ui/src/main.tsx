@@ -1,6 +1,6 @@
 import { render, type ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'preact/hooks';
-import { Store, type Pending } from './store';
+import { Store, correctable, locked, meaningful, nameProblem, type Pending } from './store';
 import { Icon, IconPicker } from './icons';
 import { ViewIcon } from './view-icons';
 import type { Agent, Entry } from './wire';
@@ -72,41 +72,65 @@ function Creation({ close }: { close: () => void }) {
   const pending = store.pending.get('create');
   const [name, setName] = useState((pending?.args.display_name as string) || '');
   const [icon, setIcon] = useState((pending?.args.icon_key as string) || 'circle');
+  const [attempted, setAttempted] = useState(false);
+  const problem = attempted || name ? nameProblem(name) : '';
   const lastState = useRef(pending?.state);
   useEffect(() => {
     if (lastState.current === 'sending' && !pending) close();
     lastState.current = pending?.state;
   }, [pending, pending?.state]);
   return <Dialog title="Create agent" onClose={close}>
-    <form className="creation" onSubmit={e => { e.preventDefault(); void store.create({ display_name: name, icon_key: icon }); }}>
-      <label>Display name<input value={name} onInput={e => setName(e.currentTarget.value)} required autoFocus disabled={!!pending} /></label>
-      <IconPicker value={icon} onChange={setIcon} keys={store.config!.icon_keys} disabled={!!pending} />
+    <form className="creation" onSubmit={e => { e.preventDefault(); setAttempted(true); if (!nameProblem(name)) void store.create({ display_name: name, icon_key: icon }); }}>
+      <label>Display name<input value={name} onInput={e => setName(e.currentTarget.value)} autoFocus disabled={locked(pending)} aria-invalid={!!problem} aria-describedby={problem ? 'name-problem' : undefined} />
+        {problem && <span className="field-error" id="name-problem" role="alert">{problem}</span>}</label>
+      <IconPicker value={icon} onChange={setIcon} keys={store.config!.icon_keys} disabled={locked(pending)} />
       <p className="quiet">Registration starts provisioning only. Creating an agent does not start a CLI; you start and configure it yourself in Terminal. Runtime availability is reported separately.</p>
       <MutationNotice item={pending} requestKey="create" />
-      <div className="form-actions"><button type="button" onClick={close}>Close</button><button className="primary" type="submit" disabled={!!pending || !name.trim()}>Create agent</button></div>
+      <div className="form-actions"><button type="button" onClick={close}>Close</button><button className="primary" type="submit" disabled={locked(pending)}>Create agent</button></div>
     </form>
   </Dialog>;
 }
-function RenameInput({ agent, done }: { agent: Agent; done: () => void }) {
-  const [name, set] = useState(agent.display_name);
+function RenameInput({ agent, done, trigger }: { agent: Agent; done: () => void; trigger: string }) {
+  const failed = store.pending.get(`edit:${agent.id}`);
+  // A definitive failure keeps the attempted text so it can be corrected in place.
+  const [name, set] = useState(correctable(failed) && typeof failed!.args.display_name === 'string' ? failed!.args.display_name : agent.display_name);
+  const [problem, setProblem] = useState('');
   const ref = useRef<HTMLInputElement>(null);
   const original = useRef({ id: agent.id, name: agent.display_name, selected: store.selected, epoch: store.epoch, actor: store.actor });
   const finished = useRef(false);
   useLayoutEffect(() => () => { finished.current = true; }, []);
   useEffect(() => { ref.current?.focus(); ref.current?.select(); }, []);
-  const finish = (save: boolean) => {
+  const finish = (save: boolean, restore: boolean) => {
     if (finished.current) return;
+    const bad = save ? nameProblem(name) : '';
+    if (bad) { setProblem(bad); return; }
     finished.current = true; done();
+    // Only keyboard exits return focus; a blur must not steal it from the next target.
+    if (restore) {
+      // The trigger is disabled while the save is in flight; wait for it unless focus has moved on.
+      const refocus = (tries: number) => {
+        if (document.activeElement && document.activeElement !== document.body) return;
+        const control = document.querySelector<HTMLButtonElement>(`[data-rename-trigger="${trigger}"]`);
+        if (control && !control.disabled) control.focus(); else if (tries) setTimeout(() => refocus(tries - 1), 50);
+      };
+      setTimeout(() => refocus(20));
+    }
     const start = original.current, value = name.trim();
-    if (save && value && value !== start.name && store.phase === 'ready' && store.selected === start.selected && store.epoch === start.epoch && store.actor === start.actor) {
+    if (save && value !== start.name && store.phase === 'ready' && store.selected === start.selected && store.epoch === start.epoch && store.actor === start.actor) {
       void store.update(start.id, { display_name: value });
     }
   };
-  return <input ref={ref} aria-label={`Rename ${agent.display_name}`} value={name} className="rename-input" disabled={store.pending.has(`edit:${agent.id}`)} onInput={e => set(e.currentTarget.value)} onBlur={() => finish(true)} onKeyDown={e => {
-    if (e.isComposing || e.keyCode === 229) return;
-    if (e.key === 'Escape') { e.preventDefault(); finish(false); }
-    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
-  }} />;
+  const errorId = `rename-problem-${trigger}`;
+  return <span className="rename-field"><input ref={ref} aria-label={`Rename ${agent.display_name}`} value={name} className="rename-input" disabled={locked(failed)} aria-invalid={!!problem} aria-describedby={problem ? errorId : undefined}
+    onInput={e => { set(e.currentTarget.value); setProblem(''); }} onBlur={() => finish(true, false)} onKeyDown={e => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Escape') { e.preventDefault(); finish(false, true); }
+      if (e.key === 'Enter') { e.preventDefault(); finish(true, true); }
+    }} />
+    {problem && <span className="field-error" id={errorId} role="alert">{problem}</span>}</span>;
+}
+function RenameIcon() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>;
 }
 function Navigation({ select, create, renameId, setRename }: { select: (id: string) => void; create: () => void; renameId: string; setRename: (id: string) => void }) {
   return <nav className="navigation" aria-label="Agents">
@@ -116,14 +140,18 @@ function Navigation({ select, create, renameId, setRename }: { select: (id: stri
       {!store.has('agents_list') && <p className="quiet">Agent directory unavailable on this server.</p>}
       {store.has('agents_list') && !store.directoryLoading && !store.agents.length && <p className="quiet">No agents registered.</p>}
       {store.agents.map(agent => <div className={`agent-row ${store.selected === agent.id ? 'selected' : ''}`} key={agent.id}>
-        {renameId === agent.id ? <div className="rename-row"><Icon name={agent.icon_key} /><RenameInput key={agent.id} agent={agent} done={() => setRename('')} /></div> : <button className="agent-select" aria-pressed={store.selected === agent.id} onClick={() => select(agent.id)} onDblClick={() => { if (store.has('agents_update') && !store.pending.has(`edit:${agent.id}`)) setRename(agent.id); }}>
-          <span className="agent-icon"><Icon name={agent.icon_key} /></span><span className="agent-labels"><strong>{agent.display_name}</strong>
-            <span className="agent-status">{agent.status.text}</span>
-            {agent.needs_user_input && <span className="agent-attention" title="Needs your attention" aria-label="Needs your attention">●</span>}
-            {agent.needs_user_input && <span className="agent-attention-label">Needs input</span>}
-            {store.agents.filter(a => a.display_name === agent.display_name).length > 1 && <span className="disambiguation">{agent.id}</span>}
-          </span>
-        </button>}
+        {renameId === agent.id ? <div className="rename-row"><Icon name={agent.icon_key} /><RenameInput key={agent.id} agent={agent} trigger={`side:${agent.id}`} done={() => setRename('')} /></div> : <>
+          <button className="agent-select" aria-pressed={store.selected === agent.id} onClick={() => select(agent.id)}>
+            <span className="agent-icon"><Icon name={agent.icon_key} /></span><span className="agent-labels"><strong>{agent.display_name}</strong>
+              <span className="agent-status">{agent.status.text}</span>
+              {agent.needs_user_input && <span className="agent-attention" title="Needs your attention" aria-label="Needs your attention">●</span>}
+              {agent.needs_user_input && <span className="agent-attention-label">Needs input</span>}
+              {store.agents.filter(a => a.display_name === agent.display_name).length > 1 && <span className="disambiguation">{agent.id}</span>}
+            </span>
+          </button>
+          {store.has('agents_update') && <button className="row-rename" type="button" data-rename-trigger={`side:${agent.id}`} aria-label={`Rename ${agent.display_name}`} title="Rename" disabled={locked(store.pending.get(`edit:${agent.id}`))}
+            onClick={e => { e.stopPropagation(); setRename(agent.id); }}><RenameIcon /></button>}
+        </>}
         {store.selected !== agent.id && <MutationNotice item={store.pending.get(`edit:${agent.id}`)} requestKey={`edit:${agent.id}`} />}
       </div>)}
     </div>
@@ -142,8 +170,8 @@ function EntryRow({ entry }: { entry: Entry }) {
   const browser = browserRequestEntry(entry) && entry.agent_id === store.selected && entry.conversation_id === store.agent()?.conversation_id;
   const message = entry.kind === 'message' && (entry.source?.type === 'message' || entry.source?.type === 'native');
   const copy = async () => {
-    try { await navigator.clipboard.writeText(entry.text); setCopyState('Copied'); }
-    catch { setCopyState('Could not copy. Select and copy the message manually.'); }
+    try { await navigator.clipboard.writeText(entry.text); setCopyState('Copied'); setTimeout(() => setCopyState(state => state === 'Copied' ? '' : state), 2500); }
+    catch { setCopyState('Could not copy. Select the text to copy it.'); }
   };
   return <article className={`entry ${entry.kind === 'browser_request' ? 'browser-entry' : inbox ? 'inbox-reference-entry' : entry.role === 'user' ? 'owner-entry' : ''}`} data-entry-id={entry.entry_id}
     onMouseEnter={() => { setHoverTime(Date.now()); setCopyState(''); }} onFocusCapture={() => setHoverTime(Date.now())}>
@@ -159,7 +187,8 @@ function EntryRow({ entry }: { entry: Entry }) {
       {entry.handling && <span title={`Handled by ${entry.handling.handled_by}`}>Handled · {time(entry.handling.handled_at)}</span>}
     </div>
     </div>
-    {message && <div className="message-actions"><button type="button" className="copy-message" aria-label="Copy message" title={copyState || 'Copy message'} onClick={() => void copy()}><ViewIcon name={copyState === 'Copied' ? 'check' : 'copy'} /></button><span className="sr-only" role="status">{copyState}</span></div>}
+    {message && <div className="message-actions"><button type="button" className="copy-message" aria-label="Copy message" title={copyState || 'Copy message'} onClick={() => void copy()}><ViewIcon name={copyState === 'Copied' ? 'check' : 'copy'} /></button></div>}
+    {message && <span className="copy-feedback" role="status">{copyState}</span>}
   </article>;
 }
 function Chat({ agent }: { agent: Agent }) {
@@ -199,7 +228,9 @@ function Chat({ agent }: { agent: Agent }) {
     previous.current = { id: agent.id, first, last, height: box.scrollHeight };
     store.scrolls.set(agent.id, { top: box.scrollTop, bottom: box.scrollHeight - box.scrollTop - box.clientHeight < 64 });
   }, [agent.id, chat?.items]);
+  const sendable = meaningful(draft.text) && bytes <= 65536 && !pending;
   return <>
+    {store.has('messages_send') && <a className="skip-link" href="#message" onClick={e => { e.preventDefault(); composerRef.current?.focus(); }}>Skip to message</a>}
     <div className="history" ref={ref} aria-label={`Conversation with ${agent.display_name}`} onScroll={e => {
       const box = e.currentTarget;
       const bottom = box.scrollHeight - box.scrollTop - box.clientHeight < 64;
@@ -208,7 +239,8 @@ function Chat({ agent }: { agent: Agent }) {
     }}>
       <div className="history-content">
         {chat?.hasOlder && <button className="earlier" onClick={() => void store.refreshConversation('earlier')} disabled={chat.earlier}>{chat.earlier ? 'Loading earlier…' : 'Load earlier'}</button>}
-        {!store.has('conversation_list') ? <p className="empty">Conversation history unavailable on this server.</p> : chat?.loading ? <p className="empty" role="status">Loading conversation…</p> : !chat?.items.length && <div className="empty"><Icon name={agent.icon_key} size={32} /><h2>A conversation with {agent.display_name}</h2><p>No messages saved yet.</p></div>}
+        {chat?.earlierError && <div className="error earlier-error" role="alert">{chat.earlierError} <button onClick={() => void store.refreshConversation('earlier')}>Retry earlier messages</button></div>}
+        {!store.has('conversation_list') ? <p className="empty">Conversation history unavailable on this server.</p> : chat?.loading ? <p className="empty" role="status">Loading conversation…</p> : chat?.loaded && !chat.error && !chat.items.length && <div className="empty"><Icon name={agent.icon_key} size={32} /><h2>A conversation with {agent.display_name}</h2><p>No messages saved yet.</p></div>}
         {chat?.items.map(entry => <EntryRow key={entry.entry_id} entry={entry} />)}
         {chat?.error && <div className="error" role="alert">{chat.error} <button onClick={() => void store.refreshConversation(chat.epoch ? 'refresh' : 'initial')}>Retry history</button></div>}
       </div>
@@ -217,12 +249,12 @@ function Chat({ agent }: { agent: Agent }) {
     <div className="composer-wrap">
       <MutationNotice item={pending} requestKey={`send:${agent.id}`} />
       <NativeAttentionNotice agent={agent} observation={store.runtimes.get(agent.id)} readUnavailable={store.connection === 'Offline'} openTerminal={() => store.setView(agent.id, 'terminal')} />
-      {store.has('messages_send') ? <form className="composer" onSubmit={e => { e.preventDefault(); void store.send(agent.id); }}>
+      {store.has('messages_send') ? <form className="composer" onSubmit={e => { e.preventDefault(); if (sendable) void store.send(agent.id); }}>
         <label className="sr-only" htmlFor="message">Message {agent.display_name}</label>
         <textarea id="message" ref={composerRef} placeholder={`Message ${agent.display_name}`} value={draft.text} rows={1} onInput={e => store.setDraft(agent.id, e.currentTarget.value)} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} onKeyDown={e => {
-          if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !composing.current && e.keyCode !== 229) { e.preventDefault(); if (!pending && bytes <= 65536) void store.send(agent.id); }
+          if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !composing.current && e.keyCode !== 229) { e.preventDefault(); if (sendable) void store.send(agent.id); }
         }} />
-        <button className="primary send-message" type="submit" aria-label="Send" title="Send" disabled={!draft.text || bytes > 65536 || !!pending}><ViewIcon name="send" /></button>
+        <button className="primary send-message" type="submit" aria-label="Send" title="Send" disabled={!sendable}><ViewIcon name="send" /></button>
       </form> : <p className="quiet">Sending messages is unavailable on this server.</p>}
       {bytes > 65536 && <p className="composer-limit error" role="alert">{bytes.toLocaleString()} / 65,536 bytes — message is too long</p>}
     </div>
@@ -273,8 +305,8 @@ function Inspector({ agent, changeIcon }: { agent: Agent; changeIcon: () => void
   const files = [...new Map((chat?.items || []).filter(fileReferenceEntry).map(entry => [entry.source.reference.reference_id, entry.source.reference])).values()];
   return <aside className="inspector" aria-label="Agent details">
     <div className="inspector-identity">
-      {editable ? <button className="identity-icon" aria-label="Change icon" title="Change icon" onClick={changeIcon} disabled={!!pending}><Icon name={agent.icon_key} size={56} /></button> : <Icon name={agent.icon_key} size={56} />}
-      <h2>{renaming ? <RenameInput key={agent.id} agent={agent} done={() => setRenaming(false)} /> : editable ? <button className="identity-name" aria-label={`Rename ${agent.display_name}`} title="Rename" onClick={() => setRenaming(true)} disabled={!!pending}>{agent.display_name}</button> : agent.display_name}</h2>
+      {editable ? <button className="identity-icon" aria-label="Change icon" title="Change icon" onClick={changeIcon} disabled={locked(pending)}><Icon name={agent.icon_key} size={56} /></button> : <Icon name={agent.icon_key} size={56} />}
+      <h2>{renaming ? <RenameInput key={agent.id} agent={agent} trigger={`inspector:${agent.id}`} done={() => setRenaming(false)} /> : editable ? <button className="identity-name" data-rename-trigger={`inspector:${agent.id}`} aria-label={`Rename ${agent.display_name}`} title="Rename" onClick={() => setRenaming(true)} disabled={locked(pending)}>{agent.display_name}</button> : agent.display_name}</h2>
     </div>
     <div className="inspector-tabs" role="tablist" aria-label="Agent details tabs">{tabs.map(name => <button key={name} type="button" role="tab" id={`tab-${agent.id}-${name}`} aria-controls={`panel-${agent.id}`} aria-selected={tab === name} tabIndex={tab === name ? 0 : -1} onClick={() => setTab(name)} onKeyDown={e => {
       const index = tabs.indexOf(name);
@@ -298,8 +330,9 @@ function Inspector({ agent, changeIcon }: { agent: Agent; changeIcon: () => void
       </> : tab === 'Library' ? <div className="shared-files">
         <h3>Files shared in chat</h3>
         {files.map(reference => <FileReferenceCard key={reference.reference_id} reference={reference} />)}
-        {!store.has('conversation_list') ? <p className="quiet">Shared files are unavailable on this server.</p> : chat?.loading ? <p className="quiet" role="status">Loading shared files…</p> : !files.length && <p className="quiet">No files shared in the loaded chat pages.</p>}
+        {!store.has('conversation_list') ? <p className="quiet">Shared files are unavailable on this server.</p> : chat?.loading ? <p className="quiet" role="status">Loading shared files…</p> : chat?.loaded && !files.length && <p className="quiet">No files shared in the loaded chat pages.</p>}
         {chat?.error && <div className="error" role="alert">{chat.error} <button onClick={() => void store.refreshConversation(chat.epoch ? 'refresh' : 'initial')}>Retry shared files</button></div>}
+        {chat?.earlierError && <div className="error" role="alert">{chat.earlierError} <button onClick={() => void store.refreshConversation('earlier')}>Retry earlier shared files</button></div>}
         {chat?.hasOlder && <button onClick={() => void store.refreshConversation('earlier')} disabled={chat.earlier}>{chat.earlier ? 'Loading earlier shared files…' : 'Load earlier shared files'}</button>}
       </div> : <>
         <ComputerBrowser agent={agent} />

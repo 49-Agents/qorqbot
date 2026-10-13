@@ -1,7 +1,7 @@
 import type { Result } from './wire';
 
 export class ApiError extends Error {
-  constructor(public code: string, message: string, public ambiguous = false, public status = 0) {
+  constructor(public code: string, message: string, public ambiguous = false, public status = 0, public retryable?: boolean) {
     super(message);
   }
 }
@@ -45,7 +45,8 @@ export async function operation<T>(name: string, args: object, signal?: AbortSig
   }, mutation);
   if (typeof result?.ok !== 'boolean') throw new ApiError('invalid_response', 'Missing application receipt.', mutation);
   if (!result.ok) {
-    throw new ApiError(result.error?.code || 'invalid_response', result.error?.message || 'Request failed.', result.error?.code === 'uncertain_effect');
+    throw new ApiError(result.error?.code || 'invalid_response', result.error?.message || 'Request failed.', result.error?.code === 'uncertain_effect', 0,
+      typeof result.error?.retryable === 'boolean' ? result.error.retryable : undefined);
   }
   if (!result.data || !result.outcome) throw new ApiError('invalid_response', 'Incomplete application receipt.', mutation);
   return result.data;

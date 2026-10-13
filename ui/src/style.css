@@ -32,11 +32,11 @@ legend{padding:0;margin-bottom:9px}
 .brand-mark{border:1px solid #6d6d6d;border-radius:8px;width:27px;height:27px;display:grid;place-items:center;font-size:21px;line-height:1;padding-bottom:4px}
 .new-agent{font-size:23px;border:0;padding:0;width:44px;height:44px;flex:none}
 .section-label{font-size:10px;letter-spacing:.13em;color:#aaa;padding:16px 20px 12px;display:flex;justify-content:space-between}
-.agent-list{overflow-y:auto;flex:1;padding:0 8px}
+.agent-list{overflow-x:hidden;overflow-y:auto;flex:1;padding:0 8px}
 .agent-list>p{padding:12px}
 .agent-row{position:relative;border-radius:6px;margin-bottom:4px;min-width:0}
 .agent-row.selected{background:#202020}
-.agent-select{display:flex;align-items:center;gap:11px;padding:12px 20px 12px 12px;width:100%;text-align:left;border:0;min-width:0;background:transparent}
+.agent-select{display:flex;align-items:center;gap:11px;padding:12px 38px 12px 12px;width:100%;text-align:left;border:0;min-width:0;background:transparent}
 .agent-icon{color:#bababa}
 .agent-labels{display:flex;flex-direction:column;min-width:0;gap:3px}
 .agent-labels strong{font-weight:550;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;color:#ddd}
@@ -44,8 +44,15 @@ legend{padding:0;margin-bottom:9px}
 .agent-attention{position:absolute;right:10px;top:18px;font-size:8px;color:#ddd}
 .agent-attention-label{font-size:11px;color:#ddd}
 .disambiguation{font-size:9px;color:#aaa;overflow-wrap:anywhere}
-.rename-row{display:flex;align-items:center;gap:8px;padding:10px}
+.row-rename{position:absolute;right:6px;bottom:6px;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;color:#aaa;opacity:0}
+.agent-row:hover .row-rename,.agent-row:has(.agent-select:focus-visible) .row-rename,.row-rename:focus-visible{opacity:1}
+.rename-row{display:flex;align-items:flex-start;gap:8px;padding:10px}
+.rename-row>svg{margin-top:6px}
+.rename-field{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
 .rename-input{width:100%;padding:6px}
+.field-error{display:block;font-size:12px;color:#e0b4a8;overflow-wrap:anywhere}
+.skip-link:not(:focus){position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+.skip-link:focus{position:absolute;top:10px;left:16px;z-index:13;padding:7px 12px;border-radius:6px;background:#202020;color:#eee;border:1px solid #6d6d6d;font-size:12px}
 .nav-bottom{padding:14px 16px;border-top:1px solid #2b2b2b;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px}
 .connection{min-width:0;overflow-wrap:anywhere}
 .conversation{padding-top:60px;overflow:hidden;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative}
@@ -70,19 +77,23 @@ legend{padding:0;margin-bottom:9px}
 .terminal-screen .xterm-helper-textarea{min-height:0;max-height:none;padding:0;border:0;resize:none;outline:none}
 .terminal-unavailable{flex:1;padding:32px 24px;color:#bbb;font-size:13px}
 .terminal-unavailable button,.inspector section button{font-size:12px;margin-top:12px}
-.history{flex:1;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overflow-anchor:none;scrollbar-color:#414141 transparent}
+.history{flex:1;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overflow-anchor:none}
 .history-content{min-width:0;max-width:930px;margin:0 auto;padding:12px 62px 24px 24px}
 .entry{position:relative;width:fit-content;max-width:86%;margin:16px 0 8px;overflow-wrap:anywhere}
 .entry.owner-entry{margin-left:auto}
 .message-bubble{padding:12px 16px;border-radius:18px;background:#202020}
 .owner-entry>.message-bubble{background:#333}
-.message-meta{position:absolute;bottom:calc(100% + 2px);left:0;display:flex;gap:8px;align-items:baseline;width:max-content;max-width:min(360px,60vw);white-space:nowrap;color:#888;opacity:0;pointer-events:none;font-size:11px;line-height:1.2}
+.message-meta{position:absolute;bottom:calc(100% + 2px);left:0;display:flex;gap:8px;align-items:baseline;width:max-content;max-width:min(360px,60vw);white-space:nowrap;color:#999;opacity:0;pointer-events:none;font-size:11px;line-height:1.2}
 .owner-entry>.message-meta{left:auto;right:0}
 .message-meta strong{font-weight:400;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.message-meta time{flex:none;font-size:10px;color:#777}
+.message-meta time{flex:none;font-size:10px;color:#999}
 .message-actions{position:absolute;left:100%;top:0;padding-left:6px;opacity:0;pointer-events:none}
 .copy-message{display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;color:#999}
 .entry:hover .message-meta,.entry:focus-within .message-meta,.entry:hover .message-actions,.entry:focus-within .message-actions{opacity:1;pointer-events:auto}
+.copy-feedback{display:block;font-size:11px;color:#bbb;padding:0 16px}
+.copy-feedback:not(:empty){margin-top:4px}
+.entry.owner-entry>.copy-feedback{text-align:right}
+.composer textarea::placeholder{color:#999;opacity:1}
 .message-body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.6}
 .delivery{display:flex;flex-direction:column;color:#aaa;font-size:10px;margin-top:9px;gap:3px}
 .delivery:empty{display:none}
@@ -116,13 +127,13 @@ legend{padding:0;margin-bottom:9px}
 .native-attention-heading p{color:#bbb;margin-top:2px}
 .native-attention button{font-size:12px;flex:none}
 .native-attention-prompt{font-size:13px;line-height:1.5;max-height:9em;overflow:hidden}
-.native-attention-prompt.expanded{max-height:min(36vh,360px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:#414141 transparent}
+.native-attention-prompt.expanded{max-height:min(36vh,360px);overflow-y:auto}
 .native-attention-text{white-space:pre-wrap;overflow-wrap:anywhere}
 .native-attention .native-attention-expand{border:0;padding:4px 0;margin-top:4px;text-decoration:underline;text-underline-offset:3px}
 .native-attention-note{color:#aaa;font-size:11px;margin-top:6px}
 .native-attention.unavailable{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#bbb}
 .new-messages{position:absolute;bottom:90px;left:50%;transform:translateX(-50%);background:#222;font-size:12px;box-shadow:0 3px 14px #000}
-.inspector{border-left:1px solid #2b2b2b;background:#111;padding:27px 24px;overflow:auto;min-width:0;scrollbar-color:#414141 transparent}
+.inspector{border-left:1px solid #2b2b2b;background:#111;padding:27px 24px;overflow-x:hidden;overflow-y:auto;min-width:0}
 .inspector-identity{text-align:center;padding:4px 0 18px}
 .inspector-identity h2{font-size:19px;margin-top:8px;overflow-wrap:anywhere}
 .identity-name{font:inherit;text-align:center;overflow-wrap:anywhere;width:100%;min-height:44px;border:0;padding:5px 0}
@@ -213,16 +224,16 @@ summary{font-size:11px;cursor:pointer;color:#bbb}
 .new-messages{bottom:90px}
 }
 
-/* Chrome uses the exact native width; other engines keep a thin fallback. */
-.history,.composer textarea,.terminal-screen{scrollbar-width:thin;scrollbar-color:#414141 transparent}
+/* Chrome ignores ::-webkit-scrollbar once a standard scrollbar property is set, so Chromium resets both. */
+.history,.agent-list,.inspector,.composer textarea,.terminal-screen,.native-attention-prompt.expanded{scrollbar-width:thin;scrollbar-color:#414141 transparent}
 @supports selector(::-webkit-scrollbar){
-.history,.composer textarea,.terminal-screen{scrollbar-width:auto}
+.history,.agent-list,.inspector,.composer textarea,.terminal-screen,.native-attention-prompt.expanded{scrollbar-width:auto;scrollbar-color:auto}
 }
-.history::-webkit-scrollbar,.composer textarea::-webkit-scrollbar,.terminal-screen::-webkit-scrollbar{width:1px;height:0}
-.history::-webkit-scrollbar-thumb,.composer textarea::-webkit-scrollbar-thumb,.terminal-screen::-webkit-scrollbar-thumb{background:#414141;border:0;border-radius:0}
-.history::-webkit-scrollbar-track,.composer textarea::-webkit-scrollbar-track,.terminal-screen::-webkit-scrollbar-track{background:transparent}
-.history::-webkit-scrollbar-button,.composer textarea::-webkit-scrollbar-button,.terminal-screen::-webkit-scrollbar-button{display:none;width:0;height:0}
-.history::-webkit-scrollbar-corner,.composer textarea::-webkit-scrollbar-corner,.terminal-screen::-webkit-scrollbar-corner{background:transparent}
+.history::-webkit-scrollbar,.agent-list::-webkit-scrollbar,.inspector::-webkit-scrollbar,.composer textarea::-webkit-scrollbar,.terminal-screen::-webkit-scrollbar,.native-attention-prompt.expanded::-webkit-scrollbar{width:1px;height:0}
+.history::-webkit-scrollbar-thumb,.agent-list::-webkit-scrollbar-thumb,.inspector::-webkit-scrollbar-thumb,.composer textarea::-webkit-scrollbar-thumb,.terminal-screen::-webkit-scrollbar-thumb,.native-attention-prompt.expanded::-webkit-scrollbar-thumb{background:#414141;border:0;border-radius:0}
+.history::-webkit-scrollbar-track,.agent-list::-webkit-scrollbar-track,.inspector::-webkit-scrollbar-track,.composer textarea::-webkit-scrollbar-track,.terminal-screen::-webkit-scrollbar-track,.native-attention-prompt.expanded::-webkit-scrollbar-track{background:transparent}
+.history::-webkit-scrollbar-button,.agent-list::-webkit-scrollbar-button,.inspector::-webkit-scrollbar-button,.composer textarea::-webkit-scrollbar-button,.terminal-screen::-webkit-scrollbar-button,.native-attention-prompt.expanded::-webkit-scrollbar-button{display:none;width:0;height:0}
+.history::-webkit-scrollbar-corner,.agent-list::-webkit-scrollbar-corner,.inspector::-webkit-scrollbar-corner,.composer textarea::-webkit-scrollbar-corner,.terminal-screen::-webkit-scrollbar-corner,.native-attention-prompt.expanded::-webkit-scrollbar-corner{background:transparent}
 
 /* D57 browser cards retain the chat's existing 16px message spacing. */
 .entry.browser-entry{width:100%;max-width:100%;margin-left:0}

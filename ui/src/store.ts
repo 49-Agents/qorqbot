@@ -9,11 +9,11 @@ export type Pending = {
   operation: 'messages_send' | 'agents_update' | 'agents_create' | 'input_requests_create' | BrowserAction; args: Record<string, unknown>;
   actor: string; agentId?: string; draftVersion?: number;
   unresolvedAmbiguity: boolean;
-  state: 'sending' | 'uncertain' | 'failed' | 'conflict'; error?: string;
+  state: 'sending' | 'uncertain' | 'failed' | 'conflict'; error?: string; retryable?: boolean;
 };
 export type Chat = {
   items: Entry[]; epoch: string; hasOlder: boolean; loading: boolean; earlier: boolean;
-  publication: Publication | null; error: string; refreshSeq: number; change: 'initial' | 'append' | 'prepend' | 'refresh';
+  publication: Publication | null; error: string; earlierError: string; loaded: boolean; refreshSeq: number; change: 'initial' | 'append' | 'prepend' | 'refresh';
 };
 export type Draft = { text: string; version: number };
 export type Scroll = { top: number; bottom: boolean };
@@ -23,7 +23,19 @@ export type BrowserObservation = { view: BrowserView | null; loading: boolean; e
 const failure = (e: unknown) => e instanceof ApiError ? e : new ApiError('unavailable', 'Request failed.');
 const transientRead = (e: unknown) => e instanceof ApiError && (e.code === 'unavailable' || e.code === 'connection_lost'
   || (e.code === 'transport_refused' && e.status >= 500 && e.status < 600));
-const newChat = (): Chat => ({ items: [], epoch: '', hasOlder: false, loading: false, earlier: false, publication: null, error: '', refreshSeq: 0, change: 'initial' });
+// One content gate for every send path; valid bodies keep their exact bytes.
+export const meaningful = (text: string) => text.trim().length > 0;
+// Names are trimmed, then 1-120 Unicode code points of UTF-8-encodable text (as the server counts them).
+export function nameProblem(raw: string) {
+  const value = raw.trim(), length = [...value].length;
+  if (!length || length > 120) return 'Name must be 1–120 characters.';
+  try { encodeURIComponent(value); } catch { return 'Name contains text that cannot be saved.'; }
+  return '';
+}
+// A definitive failure took no effect, so an explicit correction may use a fresh request.
+export const correctable = (item?: Pending) => !!item && item.state === 'failed' && !item.unresolvedAmbiguity;
+export const locked = (item?: Pending) => !!item && !correctable(item);
+const newChat = (): Chat => ({ items: [], epoch: '', hasOlder: false, loading: false, earlier: false, publication: null, error: '', earlierError: '', loaded: false, refreshSeq: 0, change: 'initial' });
 
 export class Store {
   phase: 'checking' | 'ready' | 'error' = 'checking';
@@ -413,7 +425,10 @@ export class Store {
     const gen = this.generation, selection = this.selectionVersion;
     const chat = this.chats.get(id) || newChat(); this.chats.set(id, chat);
     if (!chat.epoch) mode = 'initial';
-    chat.loading = mode === 'initial'; chat.earlier = mode === 'earlier'; chat.error = ''; this.emit();
+    chat.loading = mode === 'initial'; chat.earlier = mode === 'earlier';
+    // Earlier-page failures are a separate channel so polling can neither clear them nor move their cursor.
+    if (mode === 'earlier') chat.earlierError = ''; else chat.error = '';
+    this.emit();
     const valid = () => gen === this.generation && selection === this.selectionVersion && id === this.selected && !controller.signal.aborted;
     const read = async (cursor: object) => {
       const page = await operation<ConversationPage>('conversation_list', { agent_id: id, limit: 50, ...cursor }, controller.signal);
@@ -439,7 +454,7 @@ export class Store {
       const last = chat.items.at(-1)?.conversation_seq;
       if (mode === 'initial') {
         const page = await read({}); if (!page) return;
-        chat.items = []; merge(page, 'initial'); chat.hasOlder = page.has_older;
+        chat.items = []; merge(page, 'initial'); chat.hasOlder = page.has_older; chat.loaded = true;
       } else if (mode === 'earlier') {
         if (first === undefined) return;
         const page = await read({ before_seq: first, recovery_epoch: chat.epoch }); if (!page) return;
@@ -467,7 +482,10 @@ export class Store {
         // Let the one poll loop own recovery so concurrent reads cannot restart it twice.
         this.eventSeq = 0; this.schedule(0); chat.error = 'Server recovery detected. Refreshing conversation.';
         if (!this.has('events_list')) await this.recover(gen);
-      } else { chat.error = err.message; this.connection = 'Offline'; }
+      } else {
+        if (mode === 'earlier') chat.earlierError = err.message; else chat.error = err.message;
+        this.connection = 'Offline';
+      }
     } finally {
       this.reads.delete(controller);
       if (this.conversationRead === controller) {
@@ -480,7 +498,7 @@ export class Store {
   async send(id: string) {
     if (!this.has('messages_send') || this.pending.has(`send:${id}`)) return;
     const draft = this.draft(id);
-    if (!draft.text || new TextEncoder().encode(draft.text).length > 65536) return;
+    if (!meaningful(draft.text) || new TextEncoder().encode(draft.text).length > 65536) return;
     const pending: Pending = {
       operation: 'messages_send', args: { recipient_agent_id: id, body: draft.text, idempotency_key: crypto.randomUUID() },
       actor: this.actor, agentId: id, draftVersion: draft.version, unresolvedAmbiguity: false, state: 'sending',
@@ -489,13 +507,14 @@ export class Store {
     await this.mutate(`send:${id}`);
   }
   async create(args: { display_name: string; icon_key: string }) {
-    if (this.pending.has('create') || !this.has('agents_create')) return;
-    this.pending.set('create', { operation: 'agents_create', args: { ...args, idempotency_key: crypto.randomUUID() }, actor: this.actor, unresolvedAmbiguity: false, state: 'sending' });
+    if (locked(this.pending.get('create')) || !this.has('agents_create') || nameProblem(args.display_name)) return;
+    this.pending.set('create', { operation: 'agents_create', args: { ...args, display_name: args.display_name.trim(), idempotency_key: crypto.randomUUID() }, actor: this.actor, unresolvedAmbiguity: false, state: 'sending' });
     await this.mutate('create');
   }
   async update(id: string, fields: { display_name?: string; icon_key?: string }) {
     const agent = this.agents.find(a => a.id === id);
-    if (!agent || !this.has('agents_update') || this.pending.has(`edit:${id}`)) return;
+    if (!agent || !this.has('agents_update') || locked(this.pending.get(`edit:${id}`))
+      || (fields.display_name !== undefined && nameProblem(fields.display_name))) return;
     this.pending.set(`edit:${id}`, {
       operation: 'agents_update', args: { agent_id: id, expected_revision: agent.revision, ...fields, idempotency_key: crypto.randomUUID() },
       actor: this.actor, agentId: id, unresolvedAmbiguity: false, state: 'sending',
@@ -527,6 +546,8 @@ export class Store {
   async retry(key: string) {
     const pending = this.pending.get(key);
     if (!pending || pending.state === 'sending' || pending.actor !== this.actor || !this.has(pending.operation)) return;
+    // A definitive nonretryable failure is corrected and resubmitted, never replayed.
+    if (correctable(pending) && pending.retryable === false) return;
     // Reapplying is a new mutation only if no prior attempt remains unresolved.
     if (!pending.unresolvedAmbiguity && pending.state === 'conflict') {
       const target = pending.operation.startsWith('input_requests_')
@@ -544,7 +565,7 @@ export class Store {
   private async mutate(key: string) {
     const pending = this.pending.get(key); if (!pending) return;
     const gen = this.generation;
-    pending.state = 'sending'; pending.error = ''; this.emit();
+    pending.state = 'sending'; pending.error = ''; pending.retryable = undefined; this.emit();
     try {
       // Mutation is not tied to selected-agent read cancellation. It may commit after navigation.
       const data = await operation<SendResult | Agent | { agent: Agent } | InputRequestView>(pending.operation, pending.args, undefined, true);
@@ -580,7 +601,7 @@ export class Store {
       if (gen !== this.generation || this.pending.get(key) !== pending) return;
       const err = failure(e);
       // A refused retry cannot settle an earlier attempt whose confirmation was lost.
-      pending.unresolvedAmbiguity ||= err.ambiguous;
+      pending.unresolvedAmbiguity ||= err.ambiguous; pending.retryable = err.retryable;
       pending.state = pending.unresolvedAmbiguity ? 'uncertain' : err.code === 'revision_conflict' ? 'conflict' : 'failed';
       pending.error = pending.unresolvedAmbiguity && err.status === 401
         ? 'The retry was refused before confirmation. The original request may have been saved.'
