@@ -270,18 +270,34 @@ class Database:
             self.validate(allow_older=True, migrations=migrations)
         with self.lock.use():
             conn = self._connect(create=True)
+            enforcement = False
             try:
-                self._validate(conn, allow_older=True, migrations=migrations)
+                current = self._validate(conn, allow_older=True, migrations=migrations)
                 if conn.execute("PRAGMA journal_mode=WAL").fetchone()[0] != "wal":
                     raise CoreError("storage_blocked", "Local WAL storage is required")
+                # A parent-table rebuild (DROP/RENAME of a widely referenced table)
+                # needs enforcement off, and the pragma is a no-op inside a
+                # transaction. Disable it only on this migration connection, before
+                # BEGIN, and only while such a migration is pending. Ordinary
+                # transactions never run with it off.
+                enforcement = any(m.rebuild and m.version > current for m in migrations)
+                if enforcement:
+                    conn.execute("PRAGMA foreign_keys=OFF")
                 conn.execute("BEGIN IMMEDIATE")
                 conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at TEXT NOT NULL)")
                 applied = dict(conn.execute("SELECT version,checksum FROM schema_migrations"))
                 for migration in migrations:
                     if migration.version in applied:
                         continue
+                    if migration.rebuild:
+                        # Only the rebuild itself: the rename must not rewrite the
+                        # dependents of the table it just dropped, while earlier
+                        # migrations keep their original rename semantics.
+                        conn.execute("PRAGMA legacy_alter_table=ON")
                     for statement in migration.statements:
                         conn.execute(statement)
+                    if migration.rebuild:
+                        conn.execute("PRAGMA legacy_alter_table=OFF")
                     self.fault("migration_before_version")
                     conn.execute("INSERT INTO schema_migrations VALUES (?,?,?)",
                                  (migration.version, migration.checksum, self.clock()))
@@ -289,6 +305,8 @@ class Database:
                 conn.execute(f"PRAGMA application_id={APPLICATION_ID}")
                 if conn.execute("PRAGMA foreign_key_check").fetchone():
                     raise CoreError("storage_blocked", "Migration violated a foreign key")
+                if enforcement and conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise CoreError("storage_blocked", "Migration failed the integrity check")
                 conn.commit()
             except sqlite3.Error as exc:
                 conn.rollback()
@@ -297,7 +315,12 @@ class Database:
                 conn.rollback()
                 raise
             finally:
-                conn.close()
+                try:
+                    if enforcement:
+                        conn.execute("PRAGMA legacy_alter_table=OFF")
+                        conn.execute("PRAGMA foreign_keys=ON")
+                finally:
+                    conn.close()
             fd = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY)
             try:
                 os.fsync(fd)

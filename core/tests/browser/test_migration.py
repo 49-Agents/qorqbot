@@ -54,6 +54,6 @@ class Migration(ChatCase):
             self.assertTrue(triggers <= {r[0] for r in tx.connection.execute("SELECT name FROM sqlite_master WHERE type='trigger'")})
             self.assertEqual(tx.connection.execute('PRAGMA foreign_key_check').fetchall(), [])
             self.assertEqual(tx.connection.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
-        self.assertEqual(self.app.db.validate(), 10)
+        self.assertEqual(self.app.db.validate(), 11)
         self.assertEqual(self.path(self.onbash).read_bytes(), before_file)
         self.assertEqual(len(self.conversation(self.onbash)['items']), 2)

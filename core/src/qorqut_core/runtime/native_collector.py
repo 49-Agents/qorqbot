@@ -4,6 +4,11 @@ The monitor owns tick/close and the local SQLite connections. Read-side views
 copy immutable memory only. Saved owners authorize history independently of
 process liveness; capture receipts, archive lineage and parser checkpoints
 remain the only durable progress. This service neither launches nor inputs a CLI.
+
+D62: `NativeCollector` is the single-agent logic and holds one agent's capture
+handles, directory/database identities, queues and cached observations.
+`NativeCollectors` is the one monitor-owned service: a finite pass over those
+per-agent collectors where one agent's failure never skips another.
 """
 
 from __future__ import annotations
@@ -22,7 +27,7 @@ from ..adapters.discovery import discover
 from ..adapters.managed_io import ManagedTree
 from ..adapters.native_records import PARSER_VERSION
 from ..adapters.types import ManagedRoots, NativeBinding, RunBinding as AdapterRun
-from ..agents.registry import reserved
+from ..agents.registry import get_row, local_agent_ids
 from ..agents.workspace import child_directory, same_child
 from ..contracts import CoreError, Invocation
 from ..conversation.native import NativeProjector
@@ -92,8 +97,9 @@ def _round_robin(queue, keys, priority=(), limit=_LIMIT):
 
 
 class NativeCollector:
-    def __init__(self, application):
+    def __init__(self, application, agent_id):
         self.app, self.db = application, application.db
+        self._agent_id = str(agent_id)
         self._enabled = bool(application.settings.local_terminal
                              and application.settings.local_terminal.native_programs)
         self._lock = threading.Lock()
@@ -169,7 +175,7 @@ class NativeCollector:
 
     def _snapshot(self):
         with self.db.read() as tx:
-            agent = dict(reserved(tx))
+            agent = dict(get_row(tx, self._agent_id))
             installation = dict(tx.connection.execute("SELECT * FROM installation").fetchone())
             actor = tx.connection.execute("SELECT kind,agent_id FROM actors WHERE actor_id=?",
                                           (agent["actor_id"],)).fetchone()
@@ -644,3 +650,63 @@ class NativeCollector:
             # derived EOF view must also see owners not yet linked to a source.
             _, _, owners = self._snapshot()
             self._observation(agent, installation, owners, failure=failure)
+
+
+class NativeCollectors:
+    """The monitor-owned service over per-agent collectors; it owns no capture state."""
+
+    def __init__(self, application):
+        self.app, self.db = application, application.db
+        self._lock = threading.Lock()
+        self._collectors = {}
+        self._closed = False
+
+    def _collector(self, agent_id):
+        key = str(agent_id)
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("native_collector_closed")
+            return self._collectors.setdefault(key, NativeCollector(self.app, key))
+
+    def view(self, agent_id) -> NativeCollectionView:
+        with self._lock:
+            collector = self._collectors.get(str(agent_id))
+        if collector is None:
+            return NativeCollectionView(state="unknown", reason="observation_stale")
+        return collector.view(agent_id)
+
+    def input_observation(self, run_id: str) -> NativeInputObservation | None:
+        """Resolve a run through its owning agent's own current observation."""
+        with self._lock:
+            collectors = tuple(self._collectors.values())
+        for collector in collectors:
+            observation = collector.input_observation(run_id)
+            if observation is not None:
+                return observation
+        return None
+
+    def tick(self):
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("native_collector_closed")
+        with self.db.read() as tx:
+            agents = local_agent_ids(tx)
+        for agent_id in agents:
+            try:
+                self._collector(agent_id).tick()
+            except _OPERATIONAL:
+                # One agent's hold or failure never skips another; its view ages out.
+                pass
+
+    def close(self):
+        with self._lock:
+            self._closed = True
+            collectors = tuple(self._collectors.values())
+        failure = None
+        for collector in collectors:
+            try:
+                collector.close()
+            except BaseException as exc:
+                failure = failure or exc
+        if failure is not None:
+            raise failure

@@ -46,6 +46,14 @@ The separate core/browser builds and frontend build are verified in the new
 layout. Existing acceptance evidence remains scoped to its recorded environment;
 publication does not imply completed VM support or full-system acceptance.
 
+## Current scope: local agents
+
+[D62](../core/docs/LOCAL-AGENTS.md) records the owner's answer for this version:
+ordinary agents are local folders with private native homes and persistent tmux
+shells on the owner's host, not VMs. The reserved onbash identity is unchanged.
+This note supersedes the "completed VM support" wording above only as a scope
+statement; nothing here claims VM, security-isolation or full-system acceptance.
+
 ## Product name
 
 The owner shortened the product and repository name to **Qorqbot**. The public

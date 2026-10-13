@@ -125,7 +125,9 @@ class References(ChatCase):
         self.assertEqual((cases[-1][0].data["reference"]["location"], cases[-1][0].data["reference"]["path"]), ("workspace", "files/report.txt"))
         with patch.object(self.app.file_references, "_observe", side_effect=AssertionError("No guest mapping")):
             for path in ("/workspace/files/report.txt", str(outside), str(self.workspace() / "files/report.txt")):
-                self.assertEqual(self.reference(path, key=path).error.code, "unsupported_capability")
+                # D62: the ordinary agent is a local host, but absolute host paths stay reserved to onbash
+                # (files/references.py is unchanged), so they are refused rather than mapped.
+                self.assertEqual(self.reference(path, key=path).error.code, "target_changed")
         self.assertEqual(self.rows("session_owners"), [])
 
     def test_schema_validation_preserves_literal_text_and_refuses_controls(self):
@@ -176,7 +178,7 @@ class References(ChatCase):
             for path, code in (("missing", "not_found"), ("missing/child", "not_found"), ("link", "invalid_argument"),
                     ("parent-link/report.txt", "invalid_argument"), ("files", "invalid_argument"), ("fifo", "invalid_argument"),
                     ("socket", "invalid_argument"), (".", "invalid_argument"), ("files/", "invalid_argument"),
-                    ("files/report.txt/.", "invalid_argument"), ("/", "unsupported_capability")):
+                    ("files/report.txt/.", "invalid_argument"), ("/", "target_changed")):
                 with self.subTest(path=path):
                     self.assertEqual(self.reference(path).error.code, code)
             self.assertEqual(self.snapshot(), before)

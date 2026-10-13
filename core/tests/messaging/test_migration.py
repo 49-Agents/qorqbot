@@ -98,7 +98,7 @@ finally:
                 self.assertEqual([dict(r) for r in tx.connection.execute(f"SELECT * FROM {table}{where}")], rows, table)
             self.assertEqual(tx.connection.execute("PRAGMA foreign_key_check").fetchall(), [])
             self.assertEqual(tx.connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
-            self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 10)
+            self.assertEqual(tx.connection.execute("PRAGMA user_version").fetchone()[0], 11)
         for kind in ("held", "current"):
             self.assertEqual(self.app.invoke("messages_send", self.context, old_receipts[kind + "_args"]).model_dump(mode="json"),
                              old_receipts[kind])

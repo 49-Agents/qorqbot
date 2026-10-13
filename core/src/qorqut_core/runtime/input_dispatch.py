@@ -75,7 +75,7 @@ class RuntimeInput:
         settings = self.app.settings.local_terminal
         if settings is None:
             raise InputUnavailable("runtime_unavailable")
-        if agent["kind"] != "host" or agent["id"] != installation["onbash_agent_id"]:
+        if agent["kind"] != "host":
             raise InputUnavailable("unsupported_target")
         if not historical:
             if not settings.native_programs:

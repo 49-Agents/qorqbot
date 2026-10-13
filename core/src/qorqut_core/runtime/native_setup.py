@@ -1,4 +1,4 @@
-"""Passive, monitor-driven preparation for the reserved agent's recorded shell."""
+"""Passive, monitor-driven preparation for each local agent's recorded shell (D62)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from ..adapters.managed_io import ManagedTree
 from ..adapters.manual_core import prepare_manual_browser, prepare_manual_core
 from ..adapters.manual_hooks import ManualBinding, prepare_manual_hooks
 from ..adapters.types import AdapterError, ManagedRoots, MCPBinding
-from ..agents.registry import reserved
+from ..agents.registry import get_row, local_agent_ids
 from ..agents.workspace import child_directory, same_child
 from ..contracts import CoreError, Invocation
 from ..runner.models import RunnerError
@@ -31,39 +31,48 @@ class NativeSetup:
     def __init__(self, application):
         self.app, self.db = application, application.db
         self._lock = threading.Lock()
-        self._cache = None
-        self._installed = None
+        self._cache = {}
+        self._installed = {}
         self._startup = NativeStartup(application)
 
     def _publish(self, agent_id, state, reason):
         view = NativeSetupView(state=state, reason=reason, observed_at=self.db.clock())
         with self._lock:
-            self._cache = UUID(str(agent_id)), view, time.monotonic()
+            self._cache[UUID(str(agent_id))] = view, time.monotonic()
 
     def view(self, agent_id):
         # Called within runtime_get's transaction: memory and time only.
         with self._lock:
-            cached = self._cache
+            cached = self._cache.get(UUID(str(agent_id)))
         if cached is None:
             settings = self.app.settings.local_terminal
             if settings is None or not settings.native_programs:
                 return NativeSetupView()
             return NativeSetupView(state="unknown", reason="observation_stale")
-        host, view, observed = cached
-        if UUID(str(agent_id)) != host:
-            return NativeSetupView(state="disabled", reason="unsupported_target", observed_at=view.observed_at)
+        view, observed = cached
         if time.monotonic() - observed > 5:
             return view.model_copy(update={"state": "unknown", "reason": "observation_stale"})
         return view
 
     def tick(self):
+        """A finite snapshot of local agents; an error for one never skips the others."""
         assert_external_io_allowed()
-        agent_id = None
+        with self.db.read() as tx:
+            agents = local_agent_ids(tx)
+        for agent_id in agents:
+            try:
+                self.tick_agent(agent_id)
+            except (CoreError, AdapterError, RunnerError, OSError, sqlite3.Error):
+                self._publish(agent_id, "blocked", "setup_unavailable")
+
+    def tick_agent(self, agent_id):
+        assert_external_io_allowed()
         try:
             with self.db.lock.use(), self.db.lock.effects:
                 with self.db.read() as tx:
-                    row = dict(reserved(tx))
-                    agent_id = UUID(row["id"])
+                    row = dict(get_row(tx, agent_id))
+                    if row["kind"] != "host":
+                        raise AdapterError("Native setup requires a local host agent")
                     installation = dict(tx.connection.execute("SELECT * FROM installation WHERE singleton=1").fetchone())
                     job = tx.connection.execute("SELECT recovery_epoch,wait_reason FROM jobs WHERE job_id=?",
                                                 (row["provisioning_job_id"],)).fetchone()
@@ -111,7 +120,7 @@ class NativeSetup:
                             if (tree.identity, opened_home.identity, opened_workspace.identity) != identities:
                                 raise AdapterError("Native setup directories changed")
                         with self.db.read() as tx:
-                            current = reserved(tx)
+                            current = get_row(tx, agent_id)
                             current_job = tx.connection.execute("SELECT recovery_epoch,wait_reason FROM jobs WHERE job_id=?",
                                 (current["provisioning_job_id"],)).fetchone()
                             if (current["actor_id"] != row["actor_id"] or current["conversation_id"] != row["conversation_id"]
@@ -126,7 +135,7 @@ class NativeSetup:
                     key = (binding, row["actor_id"], settings, self.app.settings.listen_address,
                            self.app.settings.listen_port, identities, attachment and attachment["attachment_id"])
                     with self._lock:
-                        installed = self._installed
+                        installed = self._installed.get(agent_id)
                     if key != installed:
                         core = MCPBinding(url=f"http://127.0.0.1:{self.app.settings.listen_port}/mcp",
                             headers=(("X-Qorqut-Actor", row["actor_id"]),))
@@ -141,19 +150,15 @@ class NativeSetup:
                             prepare_manual_browser(roots, binding, browser, settings.native_programs)
                             checked()
                         with self._lock:
-                            self._installed = key
+                            self._installed[agent_id] = key
                     self._startup.observe(Invocation(actor_id=row["actor_id"]), terminal=shell,
                                           programs=settings.native_programs, guard=checked)
                 self._publish(agent_id, "ready", "configuration_installed")
         except (CoreError, RunnerError, OSError, ValueError, sqlite3.Error):
             # Fixed observations only: no tokens, native settings, paths or
             # arbitrary filesystem/validation diagnostics escape.
-            if agent_id is not None:
-                self._publish(agent_id, "blocked", "setup_unavailable")
-            else:
-                with self._lock:
-                    self._cache = None
+            self._publish(agent_id, "blocked", "setup_unavailable")
 
     def close(self):
         with self._lock:
-            self._cache = self._installed = None
+            self._cache, self._installed = {}, {}

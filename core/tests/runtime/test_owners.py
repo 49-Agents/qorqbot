@@ -119,9 +119,8 @@ class Owners(RuntimeCase):
         self.assertEqual([json.loads(e["payload_json"])["observation"] for e in self.session_events()
                           if e["kind"] == "session.observation"], ["unknown", "live"])
 
-        vm = self.create(start=False).data["agent"]["id"]
-        for change, code in (({"agent_id": UUID(vm)}, "unsupported_capability"),
-                             ({"agent_id": uuid4()}, "not_found"),
+        # D62: an ordinary agent is a local host too (see the per-agent owner test below).
+        for change, code in (({"agent_id": uuid4()}, "not_found"),
                              ({"recovery_epoch": uuid4()}, "target_changed"),
                              ({"cli_version": "unsupported"}, "unsupported_capability")):
             seen = len(self.observed)
@@ -234,3 +233,35 @@ class Owners(RuntimeCase):
         self.owners = SessionOwners(self.app, observe_process=self.observe)
         replacement = self.owners.connect(self.candidate(second.process))
         self.assertEqual(replacement.run_generation, 2)
+
+    def test_each_local_agent_has_its_own_single_logical_owner(self):
+        # D62: ordinary agents are local hosts too; exclusivity is per agent, not per installation.
+        created = self.create("second", display_name="Second").data["agent"]["id"]
+        other = next(row for row in self.rows("agents") if row["id"] == created)
+        self.assertEqual((other["kind"], other["id"] == self.host["id"]), ("host", False))
+        first_child, second_child, intruder_child = self.child(), self.child(), self.child()
+        first = self.candidate(first_child[1])
+        second = self.candidate(second_child[1]).model_copy(update={"agent_id": UUID(other["id"])})
+        one, two = self.owners.connect(first), self.owners.connect(second)
+        self.assertEqual((one.outcome, two.outcome), ("connected", "connected"))
+        self.assertNotEqual(one.owner_id, two.owner_id)
+        active = {row["agent_id"]: row for row in self.rows("session_owners") if row["state"] == "active"}
+        self.assertEqual(set(active), {self.host["id"], other["id"]})
+        self.assertEqual(self.owners.connect(second).outcome, "reconnected")
+        # A different live session for the same agent conflicts; the other agent never does.
+        for victim, base in ((self.host["id"], first), (other["id"], second)):
+            intruder = base.model_copy(update={"process": intruder_child[1], "native_session_id": uuid4()})
+            with self.assertRaises(SessionConflict) as conflict:
+                self.owners.connect(intruder)
+            self.assertEqual(conflict.exception.reason, "session_conflict")
+        self.assertEqual(len(self.session_events()), 2)
+        # One agent's CLI exiting releases only that agent's logical owner.
+        self.state(second, "exited")
+        self.owners.reconcile()
+        states = {row["agent_id"]: row["state"] for row in self.rows("session_owners")}
+        self.assertEqual(states, {self.host["id"]: "active", other["id"]: "closed"})
+        # The freed agent accepts a new owner while the first agent's remains.
+        replacement = self.owners.connect(second.model_copy(update={"process": intruder_child[1], "native_session_id": uuid4()}))
+        self.assertEqual(replacement.run_generation, 2)
+        self.assertEqual(self.owners.connect(first).outcome, "reconnected")
+        self.assertEqual(self.runtime()["status"], "connected")

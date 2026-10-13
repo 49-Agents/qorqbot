@@ -765,8 +765,9 @@ class TerminalArchiveObservationTests(unittest.TestCase):
         self.addCleanup(fixture.close)
         app = Application.open(fixture.settings)
         self.addCleanup(app.close)
-        app.jobs.run_next(worker_id=uuid4())
         with patch.object(app.archive, "receive", side_effect=OSError("private path or raw content")):
+            # D62: the provisioning job itself prepares the recorded shell, so its first archival also fails.
+            app.jobs.run_next(worker_id=uuid4())
             with self.assertLogs("qorqut_core.runtime.terminals", level="WARNING") as logs:
                 view = app.terminals.observe()
         self.assertEqual(view.status, "available")

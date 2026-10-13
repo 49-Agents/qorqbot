@@ -51,7 +51,7 @@ class Monitor(RuntimeCase):
         initial = raw({"type": "session_meta", "payload": {"id": str(candidate.native_session_id),
             "source": "cli", "cli_version": VERSIONS["codex"]}})
         path.write_bytes(initial)
-        collector = NativeCollector(self.app)
+        collector = NativeCollector(self.app, self.host["id"])
         calls, threads, final_states = [], [], []
         entered, release, stopped = threading.Event(), threading.Event(), threading.Event()
         self.addCleanup(release.set)

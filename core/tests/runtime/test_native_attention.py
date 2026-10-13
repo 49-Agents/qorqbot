@@ -137,7 +137,7 @@ class Observer(RuntimeCase):
 
     def test_stale_failure_owner_replacement_and_recovery(self):
         self.service.tick()
-        with patch("qorqut_core.runtime.native_attention.time.monotonic", return_value=self.service._cache[-1] + 5.01):
+        with patch("qorqut_core.runtime.native_attention.time.monotonic", return_value=self.service._cache[self.host["id"]][-1] + 5.01):
             self.assertEqual(self.runtime()["attention"]["state"], "unknown")
             self.assertFalse(self.get(self.host["id"])["needs_user_input"])
         with patch.object(self.app.runtime_input, "attention_snapshot", side_effect=InputUnavailable("session_unavailable")):

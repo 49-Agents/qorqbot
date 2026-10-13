@@ -1,5 +1,13 @@
 # Architecture decisions
 
+## D62 — Ordinary agents are local folders and tmux shells
+
+The owner chose local folders and tmux shells for ordinary agents in this version.
+[LOCAL-AGENTS.md](LOCAL-AGENTS.md) records the decision, the `host` kind, shell-ready
+activation, per-agent runtime and the explicit schema 11 migration. It supersedes
+per-agent VMs for this version and keeps onbash, manual CLI start and one logical
+inbox owner per agent.
+
 ## D40 — Compose manual startup and continuous native history
 
 The recorded Terminal is now an accepted real core/UI flow. [Native composition](NATIVE-COMPOSITION.md)

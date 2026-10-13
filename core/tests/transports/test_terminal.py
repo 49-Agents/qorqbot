@@ -67,21 +67,27 @@ class TerminalInstallation(Installation):
         self.database = self.workspace.parent / "runtime/terminal.sqlite3"
         self.known = []
 
-    def manager(self):
-        runtime = self.local.runtime_root / UUID(self.agent_id).hex
-        return ShellManager(self.database, runtime, runtime / "tmux.sock", self.local.python_executable,
+    def database_of(self, agent=None):
+        return self.settings.data_root / "agents" / (agent or self.agent_id) / "runtime/terminal.sqlite3"
+
+    def workspace_of(self, agent=None):
+        return self.settings.data_root / "agents" / (agent or self.agent_id) / "workspace"
+
+    def manager(self, agent=None):
+        runtime = self.local.runtime_root / UUID(agent or self.agent_id).hex
+        return ShellManager(self.database_of(agent), runtime, runtime / "tmux.sock", self.local.python_executable,
                             self.local.tmux_executable, self.local.bash_executable)
 
-    def shell(self):
-        with sqlite3.connect(self.database) as db:
+    def shell(self, agent=None):
+        with sqlite3.connect(self.database_of(agent)) as db:
             terminal_id = UUID(db.execute("SELECT terminal_id FROM runner_shell_terminals").fetchone()[0])
-        return self.manager().inspect(terminal_id)
+        return self.manager(agent).inspect(terminal_id)
 
-    def captured(self):
-        shell = self.shell()
+    def captured(self, agent=None):
+        shell = self.shell(agent)
         # Automatic archival can reclaim local BLOBs. Follow their immutable
         # coordinates to the durable host copy without weakening byte checks.
-        with sqlite3.connect(self.database) as db:
+        with sqlite3.connect(self.database_of(agent)) as db:
             rows = db.execute("SELECT offset,length,sha256,payload FROM capture_chunks "
                               "WHERE source_id=? AND source_epoch=? ORDER BY offset",
                               (str(shell.source_id), str(shell.source_epoch))).fetchall()
@@ -103,16 +109,16 @@ class TerminalInstallation(Installation):
             data += payload
         return data
 
-    def terminal(self):
-        result = self.post("terminal_get", {"agent_id": self.agent_id}).json()
+    def terminal(self, agent=None):
+        result = self.post("terminal_get", {"agent_id": agent or self.agent_id}).json()
         assert result["ok"], result
         return result["data"]
 
-    def available(self):
-        return wait_for(lambda: (v if (v := self.terminal())["status"] == "available" else None))
+    def available(self, agent=None, timeout=10):
+        return wait_for(lambda: (v if (v := self.terminal(agent))["status"] == "available" else None), timeout)
 
-    def websocket(self, *, path=None, origin=True, headers=None, open_timeout=4):
-        return connect(self.url.replace("http:", "ws:") + (path or "/api/v1/terminal/" + self.agent_id),
+    def websocket(self, *, path=None, origin=True, headers=None, agent=None, open_timeout=4):
+        return connect(self.url.replace("http:", "ws:") + (path or "/api/v1/terminal/" + (agent or self.agent_id)),
             origin=self.url if origin is True else origin or None,
             additional_headers=headers, proxy=None,
             open_timeout=open_timeout, close_timeout=2, max_size=96 * 1024)
@@ -120,10 +126,15 @@ class TerminalInstallation(Installation):
     def close(self):
         self.stop()
         try:
-            if self.database.exists():
-                view = self.shell()
+            # Every agent owns its own recorded shell (D62); shut each one down.
+            for database in sorted((self.settings.data_root / "agents").glob("*/runtime/terminal.sqlite3")):
+                agent = database.parent.parent.name
+                try:
+                    view = self.shell(agent)
+                except (sqlite3.Error, TypeError, RunnerError):
+                    continue
                 self.known += [p for p in (view.shell, view.recorder, view.tmux.server if view.tmux else None) if p]
-                self.manager().shutdown(view.terminal_id)
+                self.manager(agent).shutdown(view.terminal_id)
             for process in self.known:
                 try:
                     fd = os.pidfd_open(process.pid)
@@ -212,7 +223,7 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         self.assertFalse((f.settings.data_root / "agents").exists())
         self.assertEqual(len(app.registry), 24)
         self.assertEqual(len(app.jobs.handlers), 6)
-        self.assertEqual(app.db.validate(), 10)
+        self.assertEqual(app.db.validate(), 11)
         for delta in ({"runtime_root": "/tmp/" + "x" * 70}, {"runtime_root": "relative"},
                       {"path": "bad\0PATH"}, {"bash_executable": "/bad/../bash"}, {"path": True}):
             with self.assertRaises(ValidationError):
@@ -277,15 +288,17 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         self.assertEqual(Path(f"/proc/{shell.shell.pid}/task/{shell.shell.pid}/children").read_text().strip(), "")
         self.assertEqual(Path(f"/proc/{shell.recorder.pid}/task/{shell.recorder.pid}/children").read_text().split(), [str(shell.shell.pid)])
         self.assertFalse(f.post("runtime_get", {"agent_id": f.agent_id}).json()["data"]["input_ready"])
-        agent = f.post("agents_create", {"display_name": "VM stays unavailable", "idempotency_key": "terminal-ordinary"}).json()["data"]["agent"]["id"]
+        agent = f.post("agents_create", {"display_name": "Ordinary local agent", "idempotency_key": "terminal-ordinary"}).json()["data"]["agent"]["id"]
+        # D62: an ordinary agent is a local host with its own recorded shell (see test_local_agents).
         ordinary = f.post("terminal_get", {"agent_id": agent}).json()["data"]
-        self.assertEqual(ordinary["status"], "unsupported_target")
-        self.assertFalse((f.local.runtime_root / UUID(agent).hex).exists())
+        self.assertNotEqual(ordinary["status"], "unsupported_target")
+        # Preparing that agent's shell holds the shared effect gate, so wait for it before onbash viewers attach.
+        f.available(agent, 60)
         for options in ({"origin": False}, {"origin": "http://foreign.invalid"},
                         {"headers": {"X-Qorqut-Actor": str(uuid4())}},
                         {"headers": {"X-Qorqut-Actor": "invalid"}},
                         {"path": "/api/v1/terminal/" + f.agent_id + "?command=x"},
-                        {"path": "/api/v1/terminal/" + agent}, {"path": "/unknown"},
+                        {"path": "/api/v1/terminal/" + str(uuid4())}, {"path": "/unknown"},
                         {"path": "/api/v1/terminal/not-a-uuid"}):
             with self.assertRaises(InvalidStatus):
                 f.websocket(**options)
@@ -478,7 +491,10 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         context = Invocation(actor_id=f.owner.actor_id)
         self.assertEqual(app.terminals.observe().status, "waiting_workspace")
         self.assertFalse(f.local.runtime_root.exists())
-        app.jobs.run_next(worker_id=uuid4())
+        # D62: the provisioning job also prepares the shell. Publish only the workspace here (the pre-D62
+        # dependency hold) so the ownership fence below is still the first thing a shell effect meets.
+        with patch.object(app.workspaces, "terminals", None):
+            app.jobs.run_next(worker_id=uuid4())
         marker = f.workspace.parent / ".qorqut-owner.json"
         original = marker.read_bytes()
         value = json.loads(original)
@@ -511,7 +527,8 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
             self.assertEqual(termios.tcgetwinsize(viewer.attachment._fd), (40, 132))
         # Uncertain resize is never retried/promoted, but its actual settled
         # pane observation replaces the cached pre-effect dimensions.
-        manager, original = app.terminals._manager, app.terminals._manager._effect
+        manager = next(iter(app.terminals._managers.values()))
+        original = manager._effect
         def lost_resize(*args, **kwargs):
             original(*args, **kwargs)
             raise RunnerError("unavailable", "synthetic resize reply loss")
@@ -522,8 +539,9 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
             self.assertEqual(viewer.read()[2], ShellDimensions(columns=120, rows=35))
         observer.close()
         stream.control("release", control.epoch)
-        target, cached, observed = app.terminals._cache
-        app.terminals._cache = target, cached, observed - 6
+        key = UUID(f.agent_id)
+        target, cached, observed = app.terminals._cache[key]
+        app.terminals._cache[key] = target, cached, observed - 6
         with patch.object(ShellManager, "inspect", side_effect=AssertionError("Read probed processes")):
             stale = app.invoke("terminal_get", context, {"agent_id": f.agent_id}).data
         self.assertEqual((stale["status"], stale["recording"]["state"]), ("unavailable", "unknown"))
@@ -575,7 +593,7 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         self.addCleanup(app.close)
         app.jobs.run_next(worker_id=uuid4())
         app.terminals.observe()
-        manager = app.terminals._manager
+        manager = next(iter(app.terminals._managers.values()))
         shell = f.shell()
         old = app.terminals.attach(UUID(f.agent_id), f.owner.actor_id)
         held = old.control("take", 0)
@@ -598,7 +616,7 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
         released = manager.control(shell.terminal_id)
         self.assertEqual((released.mode, released.epoch, released.viewer_id, released.last_sequence),
                          ("unclaimed", held.epoch + 1, None, 0))
-        self.assertEqual(app.terminals._cache[1].control, released)
+        self.assertEqual(next(iter(app.terminals._cache.values()))[1].control, released)
         self.assertEqual(app.terminals._streams, {})
         verify_process(shell.shell)
         verify_process(shell.recorder)
@@ -616,7 +634,7 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
             self.assertTrue(stream.attachment.closed)
             self.assertEqual(app.terminals._streams, {})
             self.assertEqual(manager.control(shell.terminal_id), held)
-            self.assertEqual(app.terminals._cache[1].control, held)
+            self.assertEqual(next(iter(app.terminals._cache.values()))[1].control, held)
             stream.close()
             release.assert_called_once_with(shell.terminal_id, stream.viewer_id, held.epoch)
 
@@ -692,7 +710,7 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
         hello = await ws.next("hello")
         await ws.frame({"type": "control", "action": "take", "expected_epoch": 0})
         control = (await ws.next("control"))["control"]
-        manager = app.terminals._manager
+        manager = next(iter(app.terminals._managers.values()))
         original = manager._effect
 
         def lost_reply(*args, **kwargs):
@@ -749,7 +767,7 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
         await ws.next("hello")
         await ws.frame({"type": "control", "action": "take", "expected_epoch": control.epoch})
         held = (await ws.next("control"))["control"]
-        manager = app.terminals._manager
+        manager = next(iter(app.terminals._managers.values()))
         inspect, take_control = manager.inspect, manager.take_control
         entered, failed = threading.Event(), threading.Event()
         settled = []
@@ -786,7 +804,7 @@ class TerminalLifetime(OwnedProcesses, unittest.IsolatedAsyncioTestCase):
         released = manager.control(UUID(hello["terminal"]["terminal_id"]))
         self.assertEqual((released.mode, released.epoch, released.viewer_id, released.last_sequence),
                          ("unclaimed", held["epoch"] + 1, None, 0))
-        self.assertEqual(app.terminals._cache[1].control, released)
+        self.assertEqual(next(iter(app.terminals._cache.values()))[1].control, released)
 
     async def test_slow_output_idle_disconnect_and_recovery_close_only_viewers(self):
         f, app, sockets = await self.fixture()
