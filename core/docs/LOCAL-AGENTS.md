@@ -1,5 +1,9 @@
 # D62 — Ordinary agents are local folders and tmux shells
 
+[D63](LOCAL-AGENT-CAPABILITIES.md) authorizes the follow-up removal of the
+onbash-only file/browser restrictions described below and aligns the desktop UI.
+Those restrictions remain an accurate limit of the original D62 commit.
+
 Manager decision D62, 2026-10-13. Recorded verbatim from the Manager's repair
 handoff (the sentences below are the decision; later sections are implementation
 notes for this version).

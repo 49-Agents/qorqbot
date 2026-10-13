@@ -1,3 +1,8 @@
+D63: [Local-agent capabilities](../../core/docs/LOCAL-AGENT-CAPABILITIES.md)
+updates creation/type wording and removes the unused Machine/Desktop placeholder.
+Computer retains its actual Browser and Terminal views. The existing manual CLI
+startup, mutation and runtime observation contracts remain unchanged.
+
 D57: [Browser UI implementation](BROWSER-IMPLEMENTATION.md) implements the
 [Manager-frozen browser integration](https://github.com/49-Agents/qorqbot/blob/fabb57151bb7f842a0e01c02b031798bf7081160/core/docs/BROWSER-APP-INTEGRATION.md).
 It supersedes earlier browser-viewer deferrals; Machine/Desktop stays unavailable.

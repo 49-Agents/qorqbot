@@ -1,5 +1,13 @@
 # Architecture decisions
 
+## D63 — Complete capabilities and presentation for local agents
+
+[LOCAL-AGENT-CAPABILITIES.md](LOCAL-AGENT-CAPABILITIES.md) extends existing
+absolute host file references and explicitly attached browser services to all
+prepared local host agents. Per-agent bindings and manual startup remain. The
+desktop UI reports creation without a stale lifecycle label and removes the
+unused Machine/Desktop placeholder. No new operation, schema or service.
+
 ## D62 — Ordinary agents are local folders and tmux shells
 
 The owner chose local folders and tmux shells for ordinary agents in this version.

@@ -1,5 +1,11 @@
 # D57 — Connect the owned browser to agents and the desktop UI
 
+[D63](LOCAL-AGENT-CAPABILITIES.md) allows every prepared local host agent to
+attach its own explicitly configured browser service with the same identity
+checks. It also removes the unused Machine/Desktop placeholder from Computer;
+the actual Browser and Terminal views remain. No service/profile is borrowed or
+automatically launched for an ordinary agent.
+
 2026-10-09. Owner: continue until browser integration is wired, tested and
 deployed. Preserve manual native CLI startup, no application authentication,
 desktop-only UI and the existing three repositories. This increment connects

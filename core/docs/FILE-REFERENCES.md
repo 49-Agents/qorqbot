@@ -1,5 +1,10 @@
 # D45 — Durable metadata-only file references
 
+[D63](LOCAL-AGENT-CAPABILITIES.md) extends the absolute host-path contract below
+from reserved onbash to every prepared local host agent. Workspace normalization
+uses the target agent's own workspace. Other validation and persistence rules
+stay unchanged; no legacy guest-path mapping is added.
+
 Manager decision, 2026-10-09. Implement the existing intent tool and its durable
 conversation record independently of input delivery. No file preview, download,
 content snapshot, general file API, VM mapping or UI is part of this core change.
