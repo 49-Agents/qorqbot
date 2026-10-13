@@ -89,6 +89,38 @@ already gone, and the `except` at line 299 lists only `OSError, RuntimeError, Ti
 It happens after cleanup (`stream.close`) completed, so no resource is affected; it only produces
 misleading error logs. No server change was made in this lane.
 
+### D repair (Manager decision on the trace above)
+
+Manager chose a transport-only repair in `TerminalSockets` (`core/src/qorqut_core/transports/server.py`);
+`runtime/terminals.py` and the 4-per-agent / 16 core limits are unchanged and core still refuses
+genuine overload. Each endpoint now takes a transport reservation (per agent and global, using
+`MAX_AGENT_STREAMS`/`MAX_STREAMS`) before the blocking attach and releases it only after the owned
+`stream.close` has settled, on every path. A viewer that finds the transport count full waits for a
+release event (at most 12 waiters, at most 5 s, no polling or retry) instead of being refused. After the
+ASGI connect event is consumed, one pre-accept receive task watches for `websocket.disconnect`: a
+queued viewer that goes away never calls attach; a running attach is settled, its stream closed, then
+the reservation released. The receiver is joined before accept. The final best-effort
+`websocket.close` also tolerates `WebSocketDisconnect`.
+
+Verification:
+- New `core/tests/transports/test_terminal_admission.py` (7 cases, real Starlette `WebSocket`, blocking fake
+  core): four closing lifetimes then a live viewer attaches after release; queued disconnected viewer never
+  attaches; cancel and disconnect during in-flight attach settle/close/release once; finite wait and waiter
+  limit; core refusal plus already-gone client quiet; pre-accept data refused. All end with zero
+  reservations, waiters and tasks. 7/7 passed.
+- Existing `transports.test_terminal` 7/7 passed with Manager's two test hunks: `TerminalInstallation.websocket`
+  takes an optional `open_timeout` (default 4) and the fifth-viewer genuine-capacity check uses 7 s and still
+  asserts `InvalidStatus`, because the 5 s wait now precedes that refusal.
+  `transports.test_transports` has unrelated failures that also occur on the unchanged base server (a
+  different 3-4 of its 17 fail from run to run on this host), so they are not attributed to this change.
+- Same Chrome rapid-switch reproduction on a fresh fixture and the traced server, built UI `index-B3Co151l.js`:
+  8 bursts of 20 switches, 81 sockets. Every final selected Terminal was owned and editable without
+  Reconnect (8/8; before: the final viewer was refused in 1 of 3 bursts). Server: 45 attaches, 45 closes, 0 refusals (before: 19 of 41),
+  0 ASGI error records and 0 diagnostic lines in `server.log` (before: 22), 33 queued viewers withdrew without
+  attaching, final stream count 0 and 0 established connections after the browser exited. No frame was sent
+  on any socket after it closed, and no input frame was sent on any socket (only control take and resize). Raw data: `terminal-evidence/d-fix/` (`browser-run1.json`, `fixture/trace.jsonl`,
+  `fixture/server.log`).
+
 ## Limits
 
 Fixture host load did not reproduce the QA's 0.5-2.9 s echo latency; slow receipts were
