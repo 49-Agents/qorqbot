@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from uuid import UUID
 
-from ..agents.registry import get_row, reserved
+from ..agents.registry import get_row
 from ..app import Change, Operation
 from ..contracts import CoreError, Invocation, JobProgress, JobResolution, canonical
 from ..messaging.models import MessagesSend
@@ -89,8 +89,8 @@ class Browsers:
     def target(self, tx, agent_id):
         agent = get_row(tx, agent_id)
         epoch = tx.connection.execute("SELECT recovery_epoch FROM installation").fetchone()[0]
-        if agent["kind"] != "host" or agent["id"] != reserved(tx)["id"]:
-            raise CoreError("unsupported_capability", "Browser attachment requires the prepared onbash environment; VM setup is unavailable")
+        if agent["kind"] != "host":
+            raise CoreError("unsupported_capability", "Browser attachment requires a prepared local agent; VM setup is unavailable")
         if agent["lifecycle"] not in {"provisioning", "active"} or not agent["workspace_initialized_at"]:
             raise CoreError("not_ready", "Browser target workspace is unavailable")
         return dict(agent), epoch

@@ -7,7 +7,7 @@ import stat
 from contextlib import ExitStack
 from pathlib import Path
 
-from ..agents.registry import get_row, reserved
+from ..agents.registry import get_row
 from ..agents.workspace import child_directory, same_child
 from ..app import Change, Operation
 from ..contracts import CoreError
@@ -79,11 +79,8 @@ class FileReferences:
         if agent["workspace_initialized_at"] is None:
             raise CoreError("not_ready", "Workspace has not been durably initialized")
         installation = tx.connection.execute("SELECT * FROM installation WHERE singleton=1").fetchone()
-        if args.path.startswith("/"):
-            if agent["kind"] != "host":
-                raise CoreError("unsupported_capability", "Absolute file paths require a supported target environment")
-            if reserved(tx)["id"] != agent["id"]:
-                raise CoreError("target_changed", "Reserved host identity changed")
+        if args.path.startswith("/") and agent["kind"] != "host":
+            raise CoreError("unsupported_capability", "Absolute file paths require a supported target environment")
         return dict(actor), dict(agent), dict(installation)
 
     def _observe(self, agent, installation, location, path):

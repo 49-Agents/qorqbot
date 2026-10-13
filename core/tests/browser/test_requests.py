@@ -3,6 +3,7 @@
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import json
+import sqlite3
 from uuid import UUID, uuid4
 from unittest.mock import patch
 
@@ -205,6 +206,10 @@ class Requests(ChatCase):
     def test_validation_cursor_target_and_no_network_inside_sql(self):
         for url in ('http://remote:1', 'http://127.0.0.1', 'https://127.0.0.1:10', self.peer.url + '/', self.peer.url + '?a=b'):
             self.assertEqual(self.attach(url, service_url=url).error.code, 'invalid_argument')
+        # D63: an ordinary agent is a local host and may attach; only a migrated legacy vm row is refused.
+        with sqlite3.connect(self.settings.data_root / 'state.sqlite3', timeout=10) as db:
+            db.execute('DROP TRIGGER agents_permanent_identity')  # kind is otherwise immutable
+            db.execute("UPDATE agents SET kind='vm' WHERE id=?", (self.a['id'],))
         self.assertEqual(self.attach('vm', agent_id=self.a['id']).error.code, 'unsupported_capability')
         old = self.peer.identity
         stale = self.peer.control.binding.model_dump(mode='json')
@@ -328,3 +333,79 @@ class InitialAttachment(ChatCase):
         self.assertEqual(message['sender_actor_id'], str(self.owner.actor_id))
         self.assertIn('cancelled', message['body'])
         self.assertEqual(peer.control.mode, 'automation')
+
+
+class LocalAgentPeers(ChatCase):
+    """Two ordinary local agents, each with its own SIMULATED HTTP browser peer (not Chrome, VNC or a provider)."""
+
+    def setUp(self):
+        super().setUp()
+        epoch = self.config()['recovery_epoch']
+        self.peers = {agent['id']: Peer(agent['id'], epoch) for agent in (self.a, self.b)}
+        for peer in self.peers.values():
+            self.addCleanup(peer.close)
+
+    def attach(self, agent, key='attach', peer=None):
+        return self.app.invoke('browsers_attach', self.context, {
+            'agent_id': agent['id'], 'service_url': (peer or self.peers[agent['id']]).url, 'idempotency_key': key})
+
+    def ask(self, agent, **extra):
+        return self.app.invoke('input_requests_create', self.context, {'target_agent_id': agent['id'],
+            'prompt': f"Enter the {agent['id']} form\n", 'idempotency_key': 'request-' + agent['id'], **extra})
+
+    def test_agents_get_distinct_surfaces_requests_control_cards_and_messages(self):
+        # Nothing is borrowed from onbash or from the other agent: no attachment means no surface and no request.
+        for agent in (self.onbash, self.a):
+            self.assertIsNone(self.app.invoke('browser_get', self.context, {'agent_id': agent['id']}).data['surface'])
+        self.assertFalse(self.ask(self.a).ok)
+        # A peer that presents the other agent's identity is refused, leaving no attachment behind.
+        self.assertEqual(self.attach(self.a, 'swapped', self.peers[self.b['id']]).error.code, 'target_changed')
+        self.assertEqual(self.rows('browser_attachments'), [])
+        attached = {agent['id']: self.attach(agent, 'attach-' + agent['id']) for agent in (self.a, self.b)}
+        self.assertTrue(all(result.ok for result in attached.values()), attached)
+        self.pump()
+        surfaces = {agent_id: result.data['surface']['surface_id'] for agent_id, result in attached.items()}
+        self.assertEqual(len(set(surfaces.values())), 2)
+        urls = {row['attachment_id']: row['service_url'] for row in self.rows('browser_attachments')}
+        self.assertEqual({row['agent_id']: urls[row['attachment_id']] for row in self.rows('browser_surfaces')},
+                         {agent_id: peer.url for agent_id, peer in self.peers.items()})
+        self.assertIsNone(self.app.invoke('browser_get', self.context, {'agent_id': self.onbash['id']}).data['surface'])
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            created = list(pool.map(self.ask, (self.a, self.b)))
+        self.assertTrue(all(result.ok for result in created), created)
+        self.pump()
+        for agent, result in zip((self.a, self.b), created):
+            card = self.conversation(agent)['items'][0]
+            self.assertEqual((card['kind'], card['source']['request_id'], card['browser_request']['state']),
+                             ('browser_request', result.data['request_id'], 'ready'))
+            self.assertEqual(card['text'], f"Enter the {agent['id']} form\n")
+            self.assertEqual(len(self.conversation(agent)['items']), 1)
+            self.assertEqual(self.conversation(self.onbash)['items'], [])
+        # Each peer saw control posts for its own agent only, with its own binding.
+        for agent_id, peer in self.peers.items():
+            self.assertTrue(peer.posts)
+            self.assertEqual({str(command.expected.identity.agent_id) for command, _ in peer.posts}, {agent_id})
+        # Independent completion and cancellation reach each agent, not the other or onbash.
+        views = {agent['id']: self.conversation(agent)['items'][0]['browser_request'] for agent in (self.a, self.b)}
+        done = self.app.invoke('input_requests_complete', self.context, {'request_id': views[self.a['id']]['request_id'],
+            'expected_revision': views[self.a['id']]['revision'], 'idempotency_key': 'finish-a', 'note': 'A entered it'})
+        cancelled = self.app.invoke('input_requests_cancel', self.context, {'request_id': views[self.b['id']]['request_id'],
+            'expected_revision': views[self.b['id']]['revision'], 'idempotency_key': 'cancel-b'})
+        self.assertTrue(done.ok and cancelled.ok, (done, cancelled))
+        self.pump()
+        messages = {row['recipient_agent_id']: row['body'] for row in self.rows('messages')}
+        self.assertEqual(set(messages), {self.a['id'], self.b['id']})
+        self.assertIn('completed', messages[self.a['id']])
+        self.assertIn('A entered it', messages[self.a['id']])
+        self.assertIn('cancelled', messages[self.b['id']])
+        self.assertNotIn('A entered it', messages[self.b['id']])
+        for agent_id, peer in self.peers.items():
+            self.assertEqual(peer.control.mode, 'automation')
+        # Saved cards publish to each agent's own dated transcript.
+        for agent in (self.a, self.b):
+            lines = [json.loads(line) for line in self.path(agent).read_bytes().splitlines()]
+            self.assertEqual([line['source']['request_id'] for line in lines if line['kind'] == 'browser_request'],
+                             [views[agent['id']]['request_id']])
+        self.assertFalse(self.path(self.onbash).exists())
+
