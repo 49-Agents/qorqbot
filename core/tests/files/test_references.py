@@ -6,6 +6,7 @@ import errno
 import json
 import os
 import socket
+import sqlite3
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -23,6 +24,12 @@ class References(ChatCase):
     def reference(self, path="files/report.txt", *, key="reference", caller=None, agent=None, **kwargs):
         return self.app.invoke("files_reference", caller or self.context, {
             "idempotency_key": key, "agent_id": (agent or self.a)["id"], "path": path, **kwargs})
+
+    def legacy_vm(self, agent):
+        """Only a migrated pre-D62 row is a vm; make one in the disposable database (kind is otherwise immutable)."""
+        with sqlite3.connect(self.settings.data_root / "state.sqlite3", timeout=10) as db:
+            db.execute("DROP TRIGGER agents_permanent_identity")
+            db.execute("UPDATE agents SET kind='vm' WHERE id=?", (agent["id"],))
 
     def snapshot(self):
         return {table: self.rows(table) for table in ("file_references", "conversation_entries", "conversation_cursors",
@@ -97,6 +104,10 @@ class References(ChatCase):
             (self.reference(key="owner", label="  Owner label  ", note="line\n\tstill exact "), self.a, self.context, "user"),
             (own, self.a, self.actor(self.a), "agent"),
             (self.reference(key="cross", caller=self.actor(self.a), agent=self.b), self.b, self.actor(self.a), "agent"),
+            # D63: every prepared local host agent may use absolute paths; only its own workspace is normalized.
+            (self.reference(str(outside), key="local-host", agent=self.b), self.b, self.context, "user"),
+            (self.reference(str(self.workspace(self.a)) + "//files/./report.txt", key="local-workspace"), self.a, self.context, "user"),
+            (self.reference(str(self.workspace(self.b) / "files/report.txt"), key="local-other-workspace"), self.a, self.context, "user"),
             (self.reference(str(outside), key="host", agent=self.onbash), self.onbash, self.context, "user"),
             (self.reference(str(self.workspace(self.onbash)) + "//files/./report.txt", key="absolute-workspace", agent=self.onbash),
                 self.onbash, self.context, "user"),
@@ -121,14 +132,51 @@ class References(ChatCase):
                 ("reference_id", "agent_id", "conversation_id", "location", "path")})
         self.assertEqual(cases[0][0].data["reference"]["label"], "  Owner label  ")
         self.assertEqual(cases[0][0].data["reference"]["note"], "line\n\tstill exact ")
+        host, own, other = (cases[index][0].data["reference"] for index in (3, 4, 5))
+        self.assertEqual((host["agent_id"], host["location"], host["path"]), (self.b["id"], "host", str(outside)))
+        self.assertEqual((own["agent_id"], own["location"], own["path"]), (self.a["id"], "workspace", "files/report.txt"))
+        self.assertEqual((other["agent_id"], other["location"], other["path"]),
+            (self.a["id"], "host", str(self.workspace(self.b) / "files/report.txt")))
         self.assertEqual((cases[-2][0].data["reference"]["location"], cases[-2][0].data["reference"]["path"]), ("host", str(outside)))
         self.assertEqual((cases[-1][0].data["reference"]["location"], cases[-1][0].data["reference"]["path"]), ("workspace", "files/report.txt"))
+        # Dated transcripts carry each agent's own references only.
+        self.pump()
+        for agent in (self.a, self.b, self.onbash):
+            lines = [json.loads(line) for line in self.path(agent).read_bytes().splitlines()]
+            saved = [e["source"]["reference"] for e in self.conversation(agent)["items"] if e["kind"] == "file_reference"]
+            self.assertTrue(saved)
+            self.assertEqual([line["source"]["reference"] for line in lines], saved)
+            self.assertEqual({ref["agent_id"] for ref in saved}, {agent["id"]})
+        # A legacy vm target still has no absolute guest-path mapping.
+        legacy = self.create("legacy-vm").data["agent"]
+        self.pump()
+        self.legacy_vm(legacy)
         with patch.object(self.app.file_references, "_observe", side_effect=AssertionError("No guest mapping")):
-            for path in ("/workspace/files/report.txt", str(outside), str(self.workspace() / "files/report.txt")):
-                # D62: the ordinary agent is a local host, but absolute host paths stay reserved to onbash
-                # (files/references.py is unchanged), so they are refused rather than mapped.
-                self.assertEqual(self.reference(path, key=path).error.code, "target_changed")
+            for path in ("/workspace/files/report.txt", str(outside), str(self.workspace(legacy) / "files/report.txt")):
+                self.assertEqual(self.reference(path, key=path, agent=legacy).error.code, "unsupported_capability")
         self.assertEqual(self.rows("session_owners"), [])
+
+    def test_ordinary_agent_absolute_references_replay_and_publish_after_source_removal(self):
+        inside, outside = self.workspace() / "files/report.txt", self.root / "host 文.txt"
+        inside.write_text("inside")
+        outside.write_text("outside")
+        args = [{"idempotency_key": key, "path": path} for key, path in (("inside", str(inside)), ("outside", str(outside)))]
+        actor = self.actor(self.a)
+        saved = [self.app.invoke("files_reference", actor, arg) for arg in args]
+        self.assertTrue(all(result.ok for result in saved), saved)
+        self.assertEqual([(r.data["reference"]["agent_id"], r.data["reference"]["location"], r.data["reference"]["path"])
+                          for r in saved], [(self.a["id"], "workspace", "files/report.txt"), (self.a["id"], "host", str(outside))])
+        inside.unlink()
+        outside.unlink()
+        self.restart()
+        with patch.object(self.app.file_references, "_observe", side_effect=AssertionError("No reopen")):
+            self.assertEqual([self.app.invoke("files_reference", actor, arg) for arg in args], saved)
+            self.pump()
+        entries = [e for e in self.conversation()["items"] if e["kind"] == "file_reference"]
+        self.assertEqual([e["source"]["reference"] for e in entries], [r.data["reference"] for r in saved])
+        lines = [json.loads(line) for line in self.path().read_bytes().splitlines()]
+        self.assertEqual([line["source"]["reference"] for line in lines], [r.data["reference"] for r in saved])
+        self.assertEqual(len(self.rows("file_references")), 2)
 
     def test_schema_validation_preserves_literal_text_and_refuses_controls(self):
         before = self.snapshot()
@@ -178,7 +226,7 @@ class References(ChatCase):
             for path, code in (("missing", "not_found"), ("missing/child", "not_found"), ("link", "invalid_argument"),
                     ("parent-link/report.txt", "invalid_argument"), ("files", "invalid_argument"), ("fifo", "invalid_argument"),
                     ("socket", "invalid_argument"), (".", "invalid_argument"), ("files/", "invalid_argument"),
-                    ("files/report.txt/.", "invalid_argument"), ("/", "target_changed")):
+                    ("files/report.txt/.", "invalid_argument"), ("/", "invalid_argument")):
                 with self.subTest(path=path):
                     self.assertEqual(self.reference(path).error.code, code)
             self.assertEqual(self.snapshot(), before)

@@ -89,12 +89,10 @@ references and other onbash-only capabilities are unchanged by this decision.
   average about 19: the first onbash viewer attach after `agents_create` took
   about 3.6 s against 0.6–0.9 s afterwards (agent creation itself 0.1–0.2 s). The
   wait is bounded by one shell preparation; a per-agent gate is not built here.
-- **Onbash-only capabilities.** Absolute host paths in file references
-  (`files/references.py`) and browser attachment (`browser/service.py`) still
-  require the reserved onbash identity; an ordinary local agent is refused
-  (`unsupported_capability` for browser attachment, `target_changed` for an
-  absolute file path, the latter formerly `unsupported_capability`) rather than
-  mapped. Opening them to local agents is a separate decision.
+- **File references and browser attachment.** Open to every prepared local host
+  agent by [D63](LOCAL-AGENT-CAPABILITIES.md) (evidence:
+  [local-agent-capabilities](evidence/local-agent-capabilities.md)); a legacy `vm`
+  row is still refused with `unsupported_capability` and has no guest-path mapping.
 - **Isolation.** Ordinary local agents share the owner's operating-system
   account, filesystem, network and desktop. A private `HOME` and workspace
   separate configuration and authored files; they do not confine a CLI's
