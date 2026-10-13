@@ -12,11 +12,11 @@ export const beta = '20000000-0000-4000-8000-000000000001';
 const now = '2026-10-08T12:00:00.000000Z';
 const keys = ['circle','square','triangle','diamond','star','compass','globe','leaf','feather','book','notebook','flask','microscope','telescope','code','terminal','wrench','gear','lightbulb','anchor'];
 const defaults = { cli: { provider: 'codex' as const, model: 'synthetic-model' }, resources: { cpu: 2, memory_mib: 2048, disk_gib: 20 } };
-export function makeAgent(id: string, name: string, kind: 'host' | 'vm' = 'vm'): Agent {
+export function makeAgent(id: string, name: string, kind: 'host' | 'vm' = 'host'): Agent {
   return {
-    id, actor_id: randomUUID(), conversation_id: randomUUID(), display_name: name, icon_key: kind === 'host' ? 'terminal' : 'compass',
+    id, actor_id: randomUUID(), conversation_id: randomUUID(), display_name: name, icon_key: 'compass',
     kind, workspace_path: `agents/${id}/workspace`, cli: { ...defaults.cli }, resources: { ...defaults.resources },
-    revision: 1, lifecycle_revision: 1, lifecycle: 'provisioning', start_requested: kind !== 'host',
+    revision: 1, lifecycle_revision: 1, lifecycle: 'provisioning', start_requested: false,
     created_by: owner, created_at: now, updated_at: now, workspace_initialized_at: null, projection_revision: 0,
     status: { text: 'Initializing.', revision: 1, updated_at: now, reviewed_at: now, actor_id: owner },
     activity: 'unknown', activity_observed_at: null, last_contact_at: null, current_run: null,
@@ -33,7 +33,7 @@ export class SyntheticAPI {
   epoch = randomUUID();
   version = 1;
   actor = owner;
-  agents = [makeAgent(alpha, 'Atlas'), makeAgent(beta, 'onbash', 'host')];
+  agents = [makeAgent(alpha, 'Atlas'), Object.assign(makeAgent(beta, 'onbash', 'host'), { icon_key: 'terminal' })];
   entries = new Map<string, Entry[]>([[alpha, []], [beta, []]]);
   calls: Call[] = [];
   events: { event_seq: number; event_id: string; kind: string; agent_id: string | null; actor_id: string; operation_id: string | null; occurred_at: string; recorded_at: string; origin_installation_id: string; origin_seq: number; payload_version: number; payload: object }[] = [];

@@ -84,7 +84,7 @@ function Creation({ close }: { close: () => void }) {
       <label>Display name<input value={name} onInput={e => setName(e.currentTarget.value)} autoFocus disabled={locked(pending)} aria-invalid={!!problem} aria-describedby={problem ? 'name-problem' : undefined} />
         {problem && <span className="field-error" id="name-problem" role="alert">{problem}</span>}</label>
       <IconPicker value={icon} onChange={setIcon} keys={store.config!.icon_keys} disabled={locked(pending)} />
-      <p className="quiet">Registration starts provisioning only. Creating an agent does not start a CLI; you start and configure it yourself in Terminal. Runtime availability is reported separately.</p>
+      <p className="quiet">Creates a local folder and terminal. Start and configure your CLI in Terminal.</p>
       <MutationNotice item={pending} requestKey="create" />
       <div className="form-actions"><button type="button" onClick={close}>Close</button><button className="primary" type="submit" disabled={locked(pending)}>Create agent</button></div>
     </form>
@@ -322,7 +322,7 @@ function Inspector({ agent, changeIcon }: { agent: Agent; changeIcon: () => void
           {(agent.activity !== 'unknown' || agent.needs_user_input) && <dl>{agent.activity !== 'unknown' && <><dt>Activity</dt><dd>{agent.activity}</dd></>}{agent.needs_user_input && <><dt>Attention</dt><dd>Needs your input</dd></>}</dl>}
         </section>
         <details className="more-details"><summary>More details</summary>
-          <dl><dt>Agent type</dt><dd>{agent.kind === 'host' ? 'Host agent' : 'VM agent'} · {agent.lifecycle}</dd><dt>Status reviewed</dt><dd>{time(agent.status.reviewed_at)}</dd><dt>Activity observed</dt><dd>{time(agent.activity_observed_at)}</dd><dt>Last contact</dt><dd>{time(agent.last_contact_at)}</dd></dl>
+          <dl><dt>Agent type</dt><dd>{agent.kind === 'host' ? 'Local agent' : 'Legacy VM agent'} · {agent.lifecycle}</dd><dt>Status reviewed</dt><dd>{time(agent.status.reviewed_at)}</dd><dt>Activity observed</dt><dd>{time(agent.activity_observed_at)}</dd><dt>Last contact</dt><dd>{time(agent.last_contact_at)}</dd></dl>
           <RuntimeSummary id={agent.id} />
           <section><h3>Transcript publication</h3>{publication ? <><p>{publication.state === 'current' ? 'Current' : publication.state === 'blocked' ? 'Blocked' : 'Pending'} · {publication.pending_entries} pending entries</p>{publication.error && <p className="error">{publication.error.code}: {publication.error.message}</p>}<p className="quiet">Last saved publication observation.</p></> : <p className="quiet">No publication observation available.</p>}</section>
           <details><summary>Identity & workspace</summary><dl className="identity-details"><dt>Agent ID</dt><dd>{agent.id}</dd><dt>Conversation ID</dt><dd>{agent.conversation_id}</dd><dt>Workspace</dt><dd>{agent.workspace_path}</dd><dt>Workspace initialized</dt><dd>{agent.workspace_initialized_at ? time(agent.workspace_initialized_at) : 'Not yet'}</dd><dt>Metadata revision</dt><dd>{agent.revision}</dd></dl></details>
@@ -336,9 +336,6 @@ function Inspector({ agent, changeIcon }: { agent: Agent; changeIcon: () => void
         {chat?.hasOlder && <button onClick={() => void store.refreshConversation('earlier')} disabled={chat.earlier}>{chat.earlier ? 'Loading earlier shared files…' : 'Load earlier shared files'}</button>}
       </div> : <>
         <ComputerBrowser agent={agent} />
-        <section className="surface-card" aria-label={agent.kind === 'host' ? 'Desktop' : 'Machine'}>
-          <div className="surface-preview" aria-hidden="true"><ViewIcon name="computer" /></div><h3>{agent.kind === 'host' ? 'Desktop' : 'Machine'}</h3><p className="quiet">Unavailable. No desktop surface is connected.</p>
-        </section>
         <section aria-label="Terminal status"><h3>Terminal</h3><TerminalSummary store={store} id={agent.id} /></section>
       </>}
     </div>

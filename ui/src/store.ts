@@ -597,7 +597,7 @@ export class Store {
         const agent = pending.operation === 'agents_create' ? (data as { agent: Agent }).agent : data as Agent;
         this.upsert(agent); this.pending.delete(key);
         if (pending.operation === 'agents_create') {
-          this.notice = `${agent.display_name} registered — ${agent.lifecycle}.`;
+          this.notice = `${agent.display_name} created.`;
           this.select(agent.id);
         }
       }

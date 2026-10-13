@@ -169,7 +169,7 @@ test('creation and fixed icons, direct rename blur/Enter/cancel/pending/conflict
   await expect(dialog.getByLabel('Provider')).toHaveCount(0);
   await expect(dialog.getByLabel('Model')).toHaveCount(0);
   await expect(dialog.getByLabel('Request start after provisioning')).toHaveCount(0);
-  await expect(dialog.getByText('does not start a CLI')).toBeVisible();
+  await expect(dialog.getByText('Creates a local folder and terminal. Start and configure your CLI in Terminal.', { exact: true })).toBeVisible();
   await dialog.getByLabel('Display name').fill('x'.repeat(121));
   await dialog.getByRole('button', { name: 'Create agent', exact: true }).click();
   await expect(dialog.getByRole('alert')).toHaveText('Name must be 1–120 characters.');
@@ -179,14 +179,18 @@ test('creation and fixed icons, direct rename blur/Enter/cancel/pending/conflict
   await dialog.getByRole('radio', { name: 'feather', exact: true }).check();
   await dialog.getByRole('button', { name: 'Create agent', exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByText('Atlas registered — provisioning.')).toBeVisible();
+  await expect(page.getByText('Atlas created.')).toBeVisible();
   const createArgs = calls(api, 'agents_create').at(-1)!.args;
   expect(createArgs).toMatchObject({ display_name: 'Atlas', icon_key: 'feather' });
   expect(Object.keys(createArgs).sort()).toEqual(['display_name', 'icon_key', 'idempotency_key']);
   expect(api.agents.filter(a => a.display_name === 'Atlas')).toHaveLength(2);
   const created = api.agents.find(a => a.id !== alpha && a.id !== beta)!;
+  Object.assign(created, { lifecycle: 'active' }); // synthetic status change; the neutral notice stays accurate
+  await expect(page.getByText('Atlas created.')).toBeVisible();
   const inspector = page.getByRole('complementary', { name: 'Agent details' });
   const name = inspector.locator('.identity-name');
+  await inspector.getByText('More details', { exact: true }).click();
+  await expect(inspector.getByText('Local agent · active')).toBeVisible();
   const rename = inspector.getByRole('textbox', { name: /^Rename / });
   await expect(inspector.getByText(/Provider|Model|Start requested|CLI configuration/)).toHaveCount(0);
   await expect(name).toHaveText('Atlas');
@@ -887,11 +891,10 @@ test('file-reference cards validate saved observations, copy exact paths and wra
   await page.getByRole('tab', { name: 'Library', exact: true }).press('ArrowRight');
   await expect(page.getByRole('tab', { name: 'Computer', exact: true })).toHaveAttribute('aria-selected', 'true');
   const computer = page.getByRole('tabpanel', { name: 'Computer', exact: true });
-  for (const surface of ['Browser', 'Machine']) {
-    const card = computer.getByRole('region', { name: surface, exact: true });
-    await expect(card.getByText(/Unavailable/)).toBeVisible();
-    await expect(card.getByRole('button')).toHaveCount(0);
-  }
+  const browserCard = computer.getByRole('region', { name: 'Browser', exact: true });
+  await expect(browserCard.getByText(/Unavailable/)).toBeVisible();
+  await expect(browserCard.getByRole('button')).toHaveCount(0);
+  await expect(computer.getByRole('region', { name: 'Machine', exact: true })).toHaveCount(0);
   await expect(computer.getByText('Terminal unavailable on this server.')).toBeVisible();
   await page.getByRole('tab', { name: 'Computer', exact: true }).press('Home');
   await expect(page.getByRole('tab', { name: 'Details', exact: true })).toBeFocused();
@@ -2224,7 +2227,7 @@ test('D57 validates browser targets, gates unavailable/old servers, pending cont
   await expect.poll(() => rfb.current.closed).toBe(true);
   await inspectorTab(page, 'Computer');
   await expect(page.getByText('Unavailable. No browser service is connected.')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Desktop', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Desktop', exact: true })).toHaveCount(0);
   expect(rfb.connections).toHaveLength(2);
   api.operations = api.operations.filter(n => !n.startsWith('input_requests_') && n !== 'browser_get');
   await page.reload(); await inspectorTab(page, 'Computer');
