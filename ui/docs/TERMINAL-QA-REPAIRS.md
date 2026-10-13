@@ -55,16 +55,39 @@ after a ^C write left a literal marker 0/20 times. The QA literal `^[[200~` was 
 reproduced, so no speculative change; the likely cause would be a stale xterm mode while
 bash had bracketed paste off, which this fixture did not show.
 
-## D. 20 rapid Chat/Terminal switches — no leak, no change
+## D. 20 rapid Chat/Terminal switches — frontend clean, server capacity race found
 
-Single browser, real server, no fault proxy. 20 alternating clicks (10 Terminal opens):
-11 websockets in total, 10 closed, 1 open at the end; the process-wide established
-connection count on the server port was 7 before and 6 after. The final Terminal owned control
-with no warning and ran `printf 'AFTER-SWITCH-%s\n' usable`; the output appeared. No page
-errors.
-Chrome logged some handshake 403s and "closed before the connection is established"
-warnings for superseded sockets during the burst; these were not on the final viewer.
-The 403 source is server-side (not changed here; reported to Manager).
+Single browser, real server, no fault proxy. Evidence: `d-switch-ui.json` (first run) and
+`d-trace/` (second run with private, non-production tracing wrappers around
+`Terminals.attach`, `TerminalStream.close`, `TerminalSockets.endpoint` and the log formatter).
+
+Frontend: every superseded socket was closed by the client and no late callback acted. In the
+traced run the server saw 41 attach attempts: 22 attached and were closed (22 `close_end`),
+19 were refused. After the browser closed the server held 0 attachments (trace
+`total: 0`) and 0 established connections on its port. Nothing is stranded.
+
+The handshake 403s are real, not a browser artefact. All 19 refusals are
+`CoreError("unavailable", "Terminal stream capacity unavailable")` raised at
+`core/src/qorqut_core/runtime/terminals.py:310-312` when `MAX_AGENT_STREAMS = 4` (line 32) is already
+used for this agent. The transport swallows it at `transports/server.py:282` and closes before accept,
+which the browser sees as HTTP 403. Each time the occupants were superseded viewers: 2-3 still
+inside `attach()` (0.13-1.35 s; their client was already gone, the attach still completes and is
+then closed) and 1-2 inside `TerminalStream.close()` (0.10-1.11 s). Capacity is therefore held by
+closing/abandoned viewers, not by stale observations.
+
+Consequence: in one of three 20-switch bursts the FINAL selected viewer was one of the refused
+attaches (per-agent count 4 at its attach). It stayed disconnected with the existing
+"Terminal connection lost ... Reconnect terminal" alert and no automatic retry. All other
+attachments were released within 0.6 s of it; the explicit Reconnect then attached
+and the Terminal was editable with no warning (`d-trace/browser-repeat.json`,
+`final-disconnected.png`).
+
+The "Core server diagnostic (details omitted)" lines are `Exception in ASGI application`
+(22/22 ordinary closes, `starlette.websockets.WebSocketDisconnect(1006)`): the final
+`await websocket.close(code=1008)` at `transports/server.py:298` raises it when the client has
+already gone, and the `except` at line 299 lists only `OSError, RuntimeError, TimeoutError`.
+It happens after cleanup (`stream.close`) completed, so no resource is affected; it only produces
+misleading error logs. No server change was made in this lane.
 
 ## Limits
 
