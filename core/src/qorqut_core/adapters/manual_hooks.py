@@ -20,6 +20,10 @@ from .preparation import EVENTS, PREFIX as ADAPTER_PREFIX, digest, json_bytes
 from .types import AdapterError, ManagedRoots, MCPBinding, Provider
 
 PREFIX = ".qorqut/manual-hooks"
+# Native hook timeouts in generated entries (seconds). Claude's covers the sink's finite
+# HTTP budget (runtime.hook_client) under ordinary local contention; Codex is unchanged.
+CLAUDE_HOOK_TIMEOUT = 10
+CODEX_HOOK_TIMEOUT = 3
 
 
 class NativeProgram(Model):
@@ -63,6 +67,10 @@ def binding_relative(provider: Provider) -> str:
     if provider not in {"claude", "codex"}:
         raise AdapterError("Unsupported hook provider")
     return f"{PREFIX}/{provider}.json"
+
+
+def hook_timeout(provider: Provider) -> int:
+    return CLAUDE_HOOK_TIMEOUT if provider == "claude" else CODEX_HOOK_TIMEOUT
 
 
 def read_hook_configuration(path: Path) -> HookConfiguration:
@@ -166,7 +174,7 @@ def prepare_manual_hooks(roots: ManagedRoots, binding: ManualBinding, core: MCPB
             files["workspace", relative] = (before, body)
             command = shlex.join((*hook_sink_argv, "--binding", str(path), "--provider", provider))
             events = (*EVENTS, "PostToolUseFailure") if provider == "claude" else (*EVENTS, "Interrupt")
-            desired = {event: {"hooks": [{"type": "command", "command": command, "timeout": 3}]}
+            desired = {event: {"hooks": [{"type": "command", "command": command, "timeout": hook_timeout(provider)}]}
                        for event in events}
             root, destination = (("workspace", ".claude/settings.local.json") if provider == "claude"
                                  else ("home", ".codex/hooks.json"))

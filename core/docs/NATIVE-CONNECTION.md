@@ -77,8 +77,9 @@ The sink is `python -m qorqut_core.runtime.hook_client --binding <absolute-file>
 It reads bounded JSON stdin, captures its own process fingerprint, and POSTs to
 `/api/v1/native/hook` using the explicitly configured core headers. Use a bounded
 timeout and fixed diagnostics. For conflict print the exact incumbent instruction
-to stderr and native hook additional context. Backend/network failure says
-could not connect, never another-session conflict. Success does not claim input
+to stderr and native hook additional context (Claude differs; see the 2026-10-14
+amendment). Backend/network failure says could not connect, never another-session
+conflict. Success does not claim input
 readiness or transcript completeness. No retry with a different identity.
 
 The HTTP route is internal, not an MCP/model operation. It uses existing bearer
@@ -237,3 +238,54 @@ exact known private binding files; an absent peer permits single-provider
 setup, while malformed or mismatched existing peer configuration is unavailable.
 See `evidence/native-hooks-r1.md`. Normal configuration installation, periodic
 collection and actual manually started native CLI acceptance remain pending.
+
+## Amendment 2026-10-14: Claude hook budget and non-continuing failure feedback
+
+Manager decision from the real two-agent QA. Stop `additionalContext` made Claude
+run another turn, so native replies repeated as separate turns; SessionEnd's
+`hookSpecificOutput` is unsupported and Claude printed schema validation errors;
+and an exact resume's SessionStart result arrived about 1.77 seconds after the
+hook process started, beyond the sink's former 1-second inactivity timeout. That
+is consistent with local contention but was not a measured HTTP duration.
+
+**Failure output, provider=claude.** A failed or conflicting result always keeps the
+fixed stderr diagnostic and exits 0. On stdout: SessionStart emits `systemMessage`
+and `hookSpecificOutput.additionalContext`, so the model keeps the explicit
+incumbent-conflict or could-not-connect wording. UserPromptSubmit, PreToolUse,
+PostToolUse, PostToolUseFailure, PermissionRequest and Stop emit only
+`systemMessage`, the user-facing warning; never `additionalContext`, a decision,
+`continue` or a permission decision. SessionEnd and unknown events emit nothing.
+Success is silent. A failure never keeps the model running, ends it, or accepts or
+rejects a tool. Codex output is unchanged.
+
+**Budget.** Constants are named in `adapters/manual_hooks.py` (native hook timeout,
+read through `hook_timeout(provider)`) and `runtime/hook_client.py` (HTTP):
+
+| Provider | Native hook timeout | Connect/write/pool | Read inactivity | Response elapsed |
+| --- | --- | --- | --- | --- |
+| Claude | 10 s | 1 s | 8 s | 8 s |
+| Codex | 3 s | 1 s | 1 s | 2 s |
+
+The elapsed budget runs in the existing bounded response-reading loop and is
+checked as each chunk arrives, with no timer, thread or service. Read inactivity and
+the elapsed check are therefore not a hard real-time scheduler guarantee: a blocked
+read can run up to one read timeout past the elapsed budget. The native hook
+timeout, enforced by the CLI, is the outer bound. There are still no retries,
+redirects, environment proxies or exception/payload exposure, and response size
+and status validation are unchanged.
+
+**Generated entries.** Hook generation and RuntimeInput's exact expected entries
+both take the timeout from `hook_timeout`. Normal owned-group replacement upgrades
+old timeout-3 Claude groups to 10 while keeping authored entries. Edited or deleted
+owned groups still refuse, and RuntimeInput still accepts only the exact entries,
+so a stale or hand-edited timeout makes input `hook_unavailable` until NativeSetup
+re-prepares, as it already does on core restart. A running Claude may keep its
+earlier hook snapshot, with the 3-second timeout, until the user resumes it;
+nothing restarts it. If an interruption leaves the settings file upgraded but the
+ownership manifest old, preparation reports the owned entry as changed, as it does
+for any generation change.
+
+**Limits.** A startup hook that times out stays unavailable. This adds no
+reconnect from later hooks, no invented startup event, no replay of an expired hook
+and no change to delivery barriers. The loopback checks show the budget behavior;
+they do not show the historical timeout cause or a real resume success.

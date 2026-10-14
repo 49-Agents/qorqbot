@@ -17,8 +17,29 @@ from ..runner.process import fingerprint
 from ..transports.configuration import json_object
 from .native_hooks import MAX_HOOK_BYTES, NativeHookRequest, NativeHookResult
 
-TIMEOUT = 1.0
+# Finite HTTP budget in seconds: connect/write/pool, read inactivity, and elapsed time for
+# the whole response. No retry. Claude's generated native hook timeout (10 s,
+# manual_hooks.CLAUDE_HOOK_TIMEOUT) is the real bound: the read-inactivity and elapsed checks
+# below run inside the sink and are not a hard real-time scheduler guarantee. Codex keeps its
+# 3-second native hook and 1-second HTTP settings.
+CONNECT_TIMEOUT = 1.0
+CLAUDE_READ_TIMEOUT = 8.0
+CLAUDE_RESPONSE_BUDGET = 8.0
+CODEX_READ_TIMEOUT = 1.0
+CODEX_RESPONSE_BUDGET = 2.0
 RESPONSE_LIMIT = 16 * 1024
+
+# Claude reads stdout JSON for these events; SessionEnd output is discarded or rejected.
+CLAUDE_WARNING_EVENTS = frozenset({"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
+    "PostToolUseFailure", "PermissionRequest", "Stop"})
+CODEX_CONTEXT_EVENTS = frozenset({"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
+    "PostToolUseFailure", "PermissionRequest", "Stop", "Interrupt", "SessionEnd"})
+
+
+def _budget(provider: str):
+    read, elapsed = ((CLAUDE_READ_TIMEOUT, CLAUDE_RESPONSE_BUDGET) if provider == "claude"
+                     else (CODEX_READ_TIMEOUT, CODEX_RESPONSE_BUDGET))
+    return httpx.Timeout(CONNECT_TIMEOUT, read=read), elapsed
 
 
 def submit(binding_path: Path, provider: str, raw: bytes) -> NativeHookResult:
@@ -39,8 +60,9 @@ def submit(binding_path: Path, provider: str, raw: bytes) -> NativeHookResult:
         headers = dict(config.core.headers)
         headers["Content-Type"] = "application/json"
         # No environment proxy/credentials, redirect, retry, or exception body.
-        deadline = time.monotonic() + 2 * TIMEOUT
-        with httpx.Client(timeout=TIMEOUT, trust_env=False, follow_redirects=False) as client:
+        timeout, elapsed = _budget(provider)
+        deadline = time.monotonic() + elapsed
+        with httpx.Client(timeout=timeout, trust_env=False, follow_redirects=False) as client:
             with client.stream("POST", url, headers=headers, content=body) as response:
                 output = bytearray()
                 for chunk in response.iter_raw():
@@ -54,6 +76,23 @@ def submit(binding_path: Path, provider: str, raw: bytes) -> NativeHookResult:
                 return result
     except Exception:
         return NativeHookResult.result("unavailable")
+
+
+def _failure_output(provider: str, event, message: str):
+    """Native stdout JSON for a failed/conflicting hook, or None for none.
+
+    Only Claude SessionStart gets model-visible additionalContext. Any other Claude event
+    gets just the user-facing systemMessage: additionalContext on Stop would start another
+    turn, and SessionEnd output is not accepted. Codex output is unchanged.
+    """
+    if not isinstance(event, str):
+        return None
+    context = {"hookSpecificOutput": {"hookEventName": event, "additionalContext": message}}
+    if provider == "codex":
+        return context if event in CODEX_CONTEXT_EVENTS else None
+    if event == "SessionStart":
+        return {"systemMessage": message, **context}
+    return {"systemMessage": message} if event in CLAUDE_WARNING_EVENTS else None
 
 
 def main(argv=None):
@@ -71,9 +110,9 @@ def main(argv=None):
         result = NativeHookResult.result("unavailable")
     if result.outcome in {"conflict", "unavailable"}:
         print(result.message, file=sys.stderr)
-        if event in {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
-                     "PermissionRequest", "Stop", "Interrupt", "SessionEnd"}:
-            print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": result.message}}))
+        output = _failure_output(args.provider, event, result.message)
+        if output is not None:
+            print(json.dumps(output))
     return 0  # Observation failure is not a native blocking/kill instruction.
 
 
