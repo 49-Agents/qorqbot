@@ -5,7 +5,8 @@ No authenticated native stores, native model turns, or live owner sessions.
 """
 
 import asyncio
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 import os
@@ -16,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID, uuid4
@@ -23,12 +25,14 @@ from uuid import UUID, uuid4
 import httpx
 
 from qorqut_core.adapters.capabilities import VERSIONS
-from qorqut_core.adapters.manual_hooks import (ManualBinding, NativeProgram, prepare_manual_hooks,
+from qorqut_core.adapters import manual_hooks
+from qorqut_core.adapters.manual_hooks import (ManualBinding, NativeProgram, hook_timeout, prepare_manual_hooks,
                                                read_hook_configuration)
 from qorqut_core.adapters.types import AdapterError, ManagedRoots, MCPBinding
 from qorqut_core.contracts import CoreError, Invocation
 from qorqut_core.runner.process import fingerprint
 from qorqut_core.runner.shell_models import ShellControl, ShellSpec, ShellView
+from qorqut_core.runtime import hook_client
 from qorqut_core.runtime.hook_client import main, submit
 from qorqut_core.runtime.native_hooks import (CONFLICT_MESSAGE, MAX_HOOK_BYTES, UNAVAILABLE_MESSAGE,
                                             NativeHookRequest, NativeHookResult)
@@ -105,6 +109,53 @@ class NativeHookCase(RuntimeCase):
             terminal_id=shell.terminal_id, recovery_epoch=shell.spec.recovery_epoch, environment_generation=1)
         return prepare_manual_hooks(self.roots, binding, self.core, self.programs if programs is None else programs,
                                     (sys.executable, "-I", "-m", "qorqut_core.runtime.hook_client"))
+
+
+class LoopbackHook:
+    """Real loopback receiver. Records requests, then answers after a delay, stalls or trickles."""
+
+    def __init__(self, mode="delay", delay=0.0):
+        self.requests, self.release, self.owner = [], threading.Event(), uuid4()
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_POST(self):
+                outer.requests.append((self.path, self.rfile.read(int(self.headers["Content-Length"]))))
+                try:
+                    if mode == "stall":
+                        outer.release.wait(30)
+                    elif mode == "trickle":
+                        self.send_response(200)
+                        self.send_header("Transfer-Encoding", "chunked")
+                        self.end_headers()
+                        end = time.monotonic() + 3  # A missing client budget fails the test, not hangs it.
+                        while time.monotonic() < end and not outer.release.wait(0.05):
+                            self.wfile.write(b"1\r\n \r\n")
+                            self.wfile.flush()
+                    else:
+                        outer.release.wait(delay)
+                        body = NativeHookResult.result("connected", outer.owner, 1).model_dump_json().encode()
+                        self.send_response(200)
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                except OSError:
+                    pass  # The client gave up, as the unavailable cases expect.
+                self.close_connection = True
+
+            def log_message(self, *args):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_port}/mcp"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.release.set()
+        self.server.shutdown()
+        self.server.server_close()
 
 
 class NativeHooks(NativeHookCase):
@@ -316,16 +367,6 @@ class NativeHooks(NativeHookCase):
             self.assertEqual((result.outcome, result.message), ("unavailable", UNAVAILABLE_MESSAGE))
         self.assertEqual(submit(path, "codex", b"{}").outcome, "unavailable")
         self.assertEqual(submit(path, "claude", b"x" * (MAX_HOOK_BYTES + 1)).outcome, "unavailable")
-        for outcome in ("conflict", "unavailable"):
-            stdout, stderr = io.StringIO(), io.StringIO()
-            with patch("qorqut_core.runtime.hook_client.submit", return_value=NativeHookResult.result(outcome)), \
-                    patch("sys.stdin", SimpleNamespace(buffer=io.BytesIO(json.dumps(request.payload).encode()))), \
-                    redirect_stdout(stdout), redirect_stderr(stderr):
-                self.assertEqual(main(["--binding", str(path), "--provider", "claude"]), 0)
-            message = CONFLICT_MESSAGE if outcome == "conflict" else UNAVAILABLE_MESSAGE
-            self.assertEqual(stderr.getvalue(), message + "\n")
-            self.assertEqual(json.loads(stdout.getvalue())["hookSpecificOutput"]["additionalContext"], message)
-
         terminals = self.app.terminals
         with self.assertRaises(CoreError):
             terminals.native_context(UUID(self.host["id"]), shell.terminal_id)
@@ -347,6 +388,168 @@ class NativeHooks(NativeHookCase):
         with patch.object(manager, "inspect", side_effect=lambda _: (self.recovery(), fresh)[1]):
             with self.assertRaises(CoreError):
                 terminals.native_context(shell.spec.agent_id, shell.terminal_id)
+
+    def sink_output(self, provider, event, outcome=None, *, path=None, transport=None):
+        """Run the sink entry point with a fixed result, or a real submit over a mock transport."""
+        stdout, stderr = io.StringIO(), io.StringIO()
+        payload = {"hook_event_name": event, "prompt": "PRIVATE-PROMPT-BODY"}
+        with ExitStack() as stack:
+            if outcome is not None:
+                accepted = (uuid4(), 1) if outcome in {"connected", "reconnected", "observed"} else ()
+                stack.enter_context(patch("qorqut_core.runtime.hook_client.submit",
+                                          return_value=NativeHookResult.result(outcome, *accepted)))
+            if transport is not None:
+                client_class = httpx.Client
+                stack.enter_context(patch("qorqut_core.runtime.hook_client.httpx.Client",
+                    side_effect=lambda **kw: client_class(transport=transport, **kw)))
+            stack.enter_context(patch("sys.stdin", SimpleNamespace(buffer=io.BytesIO(json.dumps(payload).encode()))))
+            stack.enter_context(redirect_stdout(stdout))
+            stack.enter_context(redirect_stderr(stderr))
+            code = main(["--binding", str(path or self.root / "unused.json"), "--provider", provider])
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_failure_feedback_cannot_continue_claude_or_emit_invalid_event_output(self):
+        continuing = ("UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "Stop")
+        silent = ("SessionEnd", "Interrupt", "PRIVATE-UNKNOWN", ["Stop"], None)
+        self.assertNotEqual(CONFLICT_MESSAGE, UNAVAILABLE_MESSAGE)
+        for outcome, message in (("conflict", CONFLICT_MESSAGE), ("unavailable", UNAVAILABLE_MESSAGE)):
+            for event in ("SessionStart", *continuing, *silent):
+                with self.subTest(provider="claude", outcome=outcome, event=event):
+                    code, out, err = self.sink_output("claude", event, outcome)
+                    self.assertEqual((code, err), (0, message + "\n"))
+                    self.assertNotIn("PRIVATE", out + err)
+                    if event == "SessionStart":  # The only event whose native context reaches the model.
+                        self.assertEqual(json.loads(out), {"systemMessage": message, "hookSpecificOutput": {
+                            "hookEventName": "SessionStart", "additionalContext": message}})
+                    elif event in continuing:  # User-visible warning only: no context, decision or continue.
+                        self.assertEqual(json.loads(out), {"systemMessage": message})
+                    else:
+                        self.assertEqual(out, "")
+            for event in ("SessionStart", *continuing, "SessionEnd", "Interrupt", "PRIVATE-UNKNOWN", ["Stop"], None):
+                with self.subTest(provider="codex", outcome=outcome, event=event):
+                    code, out, err = self.sink_output("codex", event, outcome)
+                    self.assertEqual((code, err), (0, message + "\n"))
+                    self.assertNotIn("PRIVATE", out + err)
+                    if isinstance(event, str) and not event.startswith("PRIVATE"):
+                        self.assertEqual(json.loads(out), {"hookSpecificOutput": {
+                            "hookEventName": event, "additionalContext": message}})
+                    else:
+                        self.assertEqual(out, "")
+        for provider in ("claude", "codex"):
+            for outcome in ("connected", "reconnected", "observed"):
+                for event in ("SessionStart", "Stop", "SessionEnd"):
+                    with self.subTest(provider=provider, outcome=outcome, event=event):
+                        self.assertEqual(self.sink_output(provider, event, outcome), (0, "", ""))
+        # A real submit that fails for any reason prints only the fixed unavailable diagnostic.
+        _, shell, _ = self.chain()
+        path = self.configured(shell).binding_paths[0]
+        for status, body in ((200, b"PRIVATE-BODY" * 2000), (409, b'{"message":"PRIVATE-BODY"}'), (500, b"PRIVATE-BODY")):
+            transport = httpx.MockTransport(lambda _: httpx.Response(status, stream=httpx.ByteStream(body)))
+            for event, expected in (("Stop", {"systemMessage": UNAVAILABLE_MESSAGE}), ("SessionEnd", None)):
+                code, out, err = self.sink_output("claude", event, path=path, transport=transport)
+                self.assertEqual((code, err), (0, UNAVAILABLE_MESSAGE + "\n"))
+                self.assertEqual(json.loads(out) if out else None, expected)
+                self.assertNotIn("PRIVATE", out + err)
+
+    def test_generation_upgrades_old_claude_timeout_and_still_refuses_edited_owned_entries(self):
+        self.assertEqual((hook_timeout("claude"), hook_timeout("codex")), (10, 3))
+        # Every sink HTTP check must fit under its native timeout.
+        self.assertLess(hook_client.CONNECT_TIMEOUT + hook_client.CLAUDE_READ_TIMEOUT, hook_timeout("claude"))
+        self.assertLess(hook_client.CLAUDE_RESPONSE_BUDGET, hook_timeout("claude"))
+        self.assertLess(hook_client.CODEX_RESPONSE_BUDGET, hook_timeout("codex"))
+        _, shell, _ = self.chain()
+        claude = self.roots.workspace / ".claude/settings.local.json"
+        codex = self.roots.home / ".codex/hooks.json"
+        authored = {"permissions": {"allow": ["Read"]},
+                    "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "echo authored"}]}],
+                              "Stop": [{"hooks": [{"type": "command", "command": "echo also authored", "timeout": 3}]}]}}
+        for path in (claude, codex):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(authored))
+
+        def timeouts(path):
+            groups = [g for event in json.loads(path.read_bytes())["hooks"].values() for g in event
+                      if "qorqut_core.runtime.hook_client" in g["hooks"][0]["command"]]
+            return len(groups), {g["hooks"][0]["timeout"] for g in groups}
+
+        with patch.object(manual_hooks, "CLAUDE_HOOK_TIMEOUT", 3):  # The previous generation.
+            self.configured(shell)
+        self.assertEqual((timeouts(claude), timeouts(codex)), ((8, {3}), (8, {3})))
+        old = claude.read_bytes()
+        # An edited or deleted old owned group still refuses before anything is written.
+        for edit in (lambda group: group["hooks"][0].update(timeout=4), lambda group: group.update(extra=True), None):
+            saved = json.loads(old)
+            groups = saved["hooks"]["PreToolUse"]
+            if edit is None:
+                groups.clear()
+            else:
+                edit(groups[0])
+            claude.write_text(json.dumps(saved))
+            with self.assertRaises(AdapterError):
+                self.configured(shell)
+            self.assertEqual(json.loads(claude.read_bytes()), saved)
+        claude.write_bytes(old)
+        setup = self.configured(shell)
+        self.assertEqual((timeouts(claude), timeouts(codex)), ((8, {10}), (8, {3})))
+        saved = json.loads(claude.read_bytes())
+        self.assertEqual(saved["permissions"], authored["permissions"])
+        self.assertEqual(saved["hooks"]["SessionStart"][0], authored["hooks"]["SessionStart"][0])
+        self.assertEqual(saved["hooks"]["Stop"][0], authored["hooks"]["Stop"][0])
+        self.assertTrue(all(len(groups) == (2 if event in {"SessionStart", "Stop"} else 1)
+                            for event, groups in saved["hooks"].items()))
+        manifest = json.loads((self.roots.workspace / ".qorqut/manual-hooks/preparation.json").read_bytes())
+        self.assertEqual({group["hooks"][0]["timeout"] for group in manifest["providers"]["claude"]["hooks"].values()}, {10})
+        self.assertEqual({group["hooks"][0]["timeout"] for group in manifest["providers"]["codex"]["hooks"].values()}, {3})
+        current = {p: p.read_bytes() for p in (*setup.configuration_paths, *setup.binding_paths)}
+        self.configured(shell)  # Idempotent after the upgrade.
+        self.assertEqual(current, {p: p.read_bytes() for p in current})
+        # Arbitrary later timeout edits are not accepted as the owned entry.
+        saved["hooks"]["Stop"][1]["hooks"][0]["timeout"] = 30
+        claude.write_text(json.dumps(saved))
+        with self.assertRaises(AdapterError):
+            self.configured(shell)
+
+    def test_claude_budget_accepts_delayed_startup_result_once_and_stall_finishes_bounded(self):
+        _, shell, request = self.chain()
+        raw = json.dumps(request.payload).encode()
+        servers = []
+
+        def prepared(server):
+            servers.append(server)
+            self.core = MCPBinding(url=server.url, headers=self.core.headers)
+            return self.configured(shell).binding_paths
+
+        def timed(path, provider):
+            started = time.monotonic()
+            return submit(path, provider, raw), time.monotonic() - started
+
+        try:
+            # A valid result at ~1.3s exceeds the previous 1-second read timeout.
+            server = LoopbackHook(delay=1.3)
+            claude, codex = prepared(server)
+            result, elapsed = timed(claude, "claude")
+            self.assertEqual((result.outcome, result.owner_id), ("connected", server.owner))
+            self.assertTrue(1.0 < elapsed < hook_client.CLAUDE_RESPONSE_BUDGET, elapsed)
+            self.assertEqual([path for path, _ in server.requests], ["/api/v1/native/hook"])
+            self.assertEqual(json.loads(server.requests[0][1])["hook_process"]["pid"], os.getpid())
+            # Codex keeps its 1-second HTTP settings: the same answer is unavailable, still without retry.
+            result, elapsed = timed(codex, "codex")
+            self.assertEqual((result.outcome, result.message), ("unavailable", UNAVAILABLE_MESSAGE))
+            self.assertTrue(0.9 < elapsed < 1.3, elapsed)
+            self.assertEqual(len(server.requests), 2)
+            # Scaled budgets: no response at all, and a response that never completes.
+            for mode, read in (("stall", 0.4), ("trickle", 1.0)):
+                server = LoopbackHook(mode)
+                claude, _ = prepared(server)
+                with patch.object(hook_client, "CLAUDE_READ_TIMEOUT", read), \
+                        patch.object(hook_client, "CLAUDE_RESPONSE_BUDGET", 0.4):
+                    result, elapsed = timed(claude, "claude")
+                self.assertEqual((result.outcome, result.message), ("unavailable", UNAVAILABLE_MESSAGE))
+                self.assertTrue(0.3 < elapsed < 1.2, (mode, elapsed))
+                self.assertEqual(len(server.requests), 1)
+        finally:
+            for server in servers:
+                server.close()
 
     def test_cancelled_http_waiter_keeps_effect_until_dispatcher_shutdown(self):
         entered, release, finished = threading.Event(), threading.Event(), threading.Event()

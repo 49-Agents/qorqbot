@@ -17,7 +17,7 @@ from pydantic import Field
 
 from ..adapters.input_layout import classify_input, matches_input
 from ..adapters.managed_io import ManagedTree
-from ..adapters.manual_hooks import ManualBinding, binding_relative, read_hook_configuration
+from ..adapters.manual_hooks import ManualBinding, binding_relative, hook_timeout, read_hook_configuration
 from ..adapters.preparation import EVENTS
 from ..contracts import CoreError, Counter, Model, Revision, canonical
 from ..messaging.notifications import notification_text
@@ -202,7 +202,8 @@ class RuntimeInput:
                     command = shlex.join((str(settings.python_executable), "-I", "-m",
                         "qorqut_core.runtime.hook_client", "--binding", str(path), "--provider", provider))
                     events = (*EVENTS, "PostToolUseFailure" if provider == "claude" else "Interrupt")
-                    hooks = {event: {"hooks": [{"type": "command", "command": command, "timeout": 3}]}
+                    hooks = {event: {"hooks": [{"type": "command", "command": command,
+                                                "timeout": hook_timeout(provider)}]}
                              for event in events}
                     raw = (workspace.read(".claude/settings.local.json") if provider == "claude"
                            else home.read(".codex/hooks.json"))

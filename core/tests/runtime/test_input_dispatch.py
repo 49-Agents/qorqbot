@@ -358,6 +358,13 @@ class InputProofs(InputFixture):
         contents = path.read_bytes()
         path.write_text('{"hooks": {}}')
         self.refuse("hook_unavailable")
+        # The generated Claude timeout is exact: neither the previous generation's nor an edited value is accepted.
+        self.assertEqual({g["hooks"][0]["timeout"] for groups in json.loads(contents)["hooks"].values() for g in groups}, {10})
+        for timeout in (3, 30):
+            changed = json.loads(contents)
+            changed["hooks"]["Stop"][0]["hooks"][0]["timeout"] = timeout
+            path.write_text(json.dumps(changed))
+            self.refuse("hook_unavailable")
         path.write_bytes(contents)
         self.app.settings = self.settings.model_copy(update={"listen_port": self.settings.listen_port + 1})
         self.refuse("hook_unavailable")
