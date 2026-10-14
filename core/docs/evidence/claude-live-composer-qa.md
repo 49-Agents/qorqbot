@@ -84,3 +84,58 @@ only in the observed printable-ASCII `Try "…"` shape; other hints, locales or 
 refuse until observed. Transient Stop-hook failures seen in snapshot B's history are
 separate and not addressed here. The full repository suite was not run. Private logs, venvs
 and wheel are under `/home/alp/qorqbot-launch/qa/2026-10-14/acla-browser-a147d77a/fix-claude-composer/`.
+
+## Follow-up: post-turn promotional hint
+
+2026-10-14; base `eb6476d847eed99a04496cff8ada12307abcbc9f`. After the repair above the original
+queued READY-A message reached real Claude and produced a real reply in Chat without a
+resend, but agent B's original message stayed deferred with zero attempts. The Manager
+captured B read-only (no input sent): 106×55, hidden cursor (2,50), rules at 49/51, the
+existing mode footer at 52, a right-aligned `control this session from your phone · /remote-control`
+row at 53 (exactly 50 leading spaces, visible text ending at column 104) and a blank row 54. The
+old classifier returned `unknown_footer_or_multiline_input`; removing only the hint row gave
+`empty`. A's current post-turn pane has no hint row and stays `empty`. Original snapshot SHA-256:
+B `2f43b36455cc8e132cd68a4c6e504cf0b90bb603892275802192a3d6a5ee1e8d`,
+A `8f8ca349f0b023aaa42b6510e6eca9a7d9a8378759e243e8cf71f5a55c274b28`.
+The new fixture entry `post-turn-remote-control-hint` keeps rows 47–54, geometry, cursor and
+flags verbatim; the 41 non-blank history rows above (0–45) are replaced with synthetic text.
+
+**Change** (pure `adapters/input_layout.py`): after the unchanged mode footer, at most one row equal to the
+exact hint text right-aligned to `columns - 2` is skipped; every other row must be blank.
+
+**Checks** (private venv from `requirements.lock`, Python 3.12.3; `core/`; existing group only,
+no full suite and no runtime suite — runtime is unchanged):
+
+```sh
+PYTHONPATH=src:tests PYTHONDONTWRITEBYTECODE=1 python -m unittest adapters.test_adapters.InputLayoutTests -v
+```
+
+Source tree and, from a fresh venv, the installed wheel (`PYTHONPATH=tests`): **18 tests passed** each (16 earlier;
+two new). The new tests cover the sanitized observed pane (empty, no paste authority, hint-removed
+counterfactual equal), the constructed exact 51-byte pointer with the hint (matches; extra text, ±1 cursor,
+visible cursor and a draft refuse) and, labeled constructed rather than observed, 80/106/160-column alignment with
+the hint, a hint as the last row and no hint. They refuse a hint with no/one-column-off margin, left alignment, trailing
+space, changed/extra/shortened text, case or separator, a wrapped hint, a displaced or duplicate hint, any visible row
+after it, unrelated status rows, and an unknown footer or a hint in place of the footer. Against the base
+source the new tests fail; each of six single-rule weakenings (margin 0 and 1, hint accepted on any row, whitespace
+trimming, no check after the hint, suffix-only hint match) also fails them. Existing busy/dialog, Codex and other
+Claude cases pass unchanged.
+
+Wheel built from a copy of `core/` (`pip wheel --no-deps --no-build-isolation`):
+`qorqut_core-0.1.0-py3-none-any.whl` SHA-256 `9c9ace4e4f14369810f12244ab20eb7929b8b1d78ec4b462554ae3ed3d41cce8`;
+source and installed `adapters/input_layout.py` SHA-256 `a9db8161eaf003fa6e8d573b2c5d417582acb69c3c76ceb15d2487ba2a0d20cd`.
+Read-only installed check (`python -I`, snapshots opened read-only): original B now classifies `empty` /
+`native_snapshot_empty_layout_live_unverified` (previously `unknown_footer_or_multiline_input`), `native_verified=false`,
+fingerprint unchanged; its hint-removed counterfactual has the Manager's recorded fingerprint; A remains `empty` with
+its recorded fingerprint; `matches_input` is false for the notification on both originals. A **constructed** pointer
+shape (prompt row rewritten to the exact 51-byte pointer plus the inverted-space cell, cursor x=53) matches for A and B
+while a one-cell wrong cursor and a draft do not; constructed displaced/duplicate/extra-row/changed-text/no-margin
+variants of B refuse; constructed 80/106/160-column hint rows classify `empty`, match the exact pointer, and refuse at the
+right edge. Private outputs: `/home/alp/qorqbot-launch/qa/2026-10-14/acla-browser-a147d77a/fix-claude-footer/evidence/`.
+
+**Limits.** No service, tmux pane, database, owner session or provider was touched; nothing was pasted or resent and
+no queue was drained. The constructed shapes are not live paste evidence, and 80/160-column alignment is constructed,
+not observed. Real delivery, Enter, native receipt and handling are not claimed; the live QA tester verifies them after
+the Manager installs the wheel. Only this one observed hint text is accepted: other hints, locales or CLI versions refuse
+until observed. The hint is not remote control being activated and this change never activates it. The runtime banner,
+delivery badge and Stop-hook reports are separate and not addressed here. The full repository suite was not run.

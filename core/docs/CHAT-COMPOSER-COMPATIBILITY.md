@@ -87,3 +87,35 @@ retry, UI or Codex change. Existing deferred messages dispatch through the norma
 once actual input proof succeeds; do not paste or resend them manually. Sanitized
 observed rows are in `tests/adapters/fixtures/claude-floating-composers.json`; see
 [the bounded evidence](evidence/claude-live-composer-qa.md).
+
+## 2026-10-14 amendment — post-turn promotional hint under the footer
+
+A later read-only capture of the same pinned Claude Code 2.1.287 pane after a turn
+(106×55, hidden cursor at (2,50), rules at 49/51, mode footer 52) showed one more
+visible row at 53 and a blank row at 54: the right-aligned promotional line
+`control this session from your phone · /remote-control`. The old
+"every row after the footer is blank" rule refused it as
+`unknown_footer_or_multiline_input`, so the original Chat message stayed deferred with
+no attempt. Removing only that row offline changed the verdict to `empty`. Another
+post-turn pane with no such row remains `empty`; a post-turn pane does not always carry it.
+
+Claude's box now permits at most one extra known row, immediately after the mode
+footer (`row+3`): its plain text must equal the exact 54-character text above
+right-aligned to `columns - 2` (50 leading spaces at 106 columns; the text ends two
+columns short of the right edge and tmux trims trailing spaces). Every following row
+must still be blank under the existing exact plain-row rule, and when the hint is absent
+every row after the footer must be blank as before. A different or modified text,
+different alignment or trailing space, a hint displaced from `row+3`, a duplicate, a
+wrapped hint or any other visible row still refuses. The same handling applies to the
+empty check and the exact post-paste check, which still require the exact printable ASCII text
+and the inverted-space cursor cell at `2 + length`; the SGR/OSC-8 and control checks
+are unchanged. The hint only describes an available command: it does not mean remote
+control was activated, and nothing here activates it.
+
+Codex, versions, the cursor-relative box, the busy/dialog window, placeholder and suggestion
+styling, `native_verified`/`permits_paste`, dispatch, hooks, ownership, retries and
+attempts are unchanged. Existing deferred messages dispatch through the normal path once
+actual input proof succeeds; do not paste or resend them manually. A sanitized copy of the
+observed pane is `post-turn-remote-control-hint` in
+`tests/adapters/fixtures/claude-floating-composers.json`; see
+[the bounded evidence](evidence/claude-live-composer-qa.md#follow-up-post-turn-promotional-hint).

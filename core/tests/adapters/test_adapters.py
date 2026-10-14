@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -1383,6 +1384,95 @@ class InputLayoutTests(unittest.TestCase):
                         self.replace_row(snap, snap.cursor_y + 3, tail)).state, "empty")
                     self.assertTrue(matches_input("claude", version,
                         self.replace_row(filled, filled.cursor_y + 3, tail), self.notification))
+
+    hint = "control this session from your phone · /remote-control"
+
+    def with_tail(self, columns, text, *tail):
+        """Constructed (not observed) 30-row box whose footer is followed by exactly these rows."""
+        snap = self.snapshot("claude", columns=columns, rows=30, text=text)
+        lines = snap.screen.removesuffix("\n").split("\n") + list(tail)
+        return snap.model_copy(update={"rows": len(lines), "screen": "\n".join(lines) + "\n"})
+
+    def test_claude_post_turn_remote_control_hint_is_the_one_known_row_below_the_footer(self):
+        version = self.versions["claude"]
+        observed = self.floating("post-turn-remote-control-hint")
+        before = observed.model_dump()
+        self.assertEqual((observed.columns, observed.rows, observed.cursor_x, observed.cursor_y, observed.cursor_visible),
+            (106, 55, 2, 50, False))
+        row = re.sub(r"\x1b\[[0-9;]*m", "", observed.screen.split("\n")[53])
+        self.assertEqual((row.strip(), len(row) - len(row.lstrip()), len(row)), (self.hint, 50, 104))
+        for name, snap in (("observed", observed), ("hint row removed", self.replace_row(observed, 53, ""))):
+            with self.subTest(name=name):
+                verdict = classify_input("claude", version, snap)
+                self.assertEqual((verdict.state, verdict.reason, verdict.evidence),
+                    ("empty", "native_snapshot_empty_layout_live_unverified", "native_snapshot"))
+                self.assertFalse(verdict.native_verified)
+                self.assertFalse(verdict.permits_paste)
+                self.assertFalse(matches_input("claude", version, snap, self.notification))
+        self.assertEqual(observed.model_dump(), before)
+        # Constructed from the observed pane: the exact pointer with the hint still proves exact input only.
+        filled = self.with_pointer(observed)
+        self.assertTrue(matches_input("claude", version, filled, self.notification))
+        self.assertFalse(matches_input("claude", version, filled, self.notification + "x"))
+        for refusal in (filled.model_copy(update={"cursor_x": filled.cursor_x - 1}),
+                        filled.model_copy(update={"cursor_x": filled.cursor_x + 1}),
+                        filled.model_copy(update={"cursor_visible": True}),
+                        self.with_pointer(observed, self.notification + "x"),
+                        self.with_pointer(observed, "Human fixture draft").model_copy(update={"cursor_x": 21})):
+            self.refused("claude", refusal)
+        # Constructed alignment at other widths (right-aligned with the two-column margin), not observed.
+        for columns in (80, 106, 160):
+            exact = self.hint.rjust(columns - 2)
+            for tail in ((exact, ""), (exact,), ("", ""), ()):
+                with self.subTest(columns=columns, tail=len(tail), hint=bool(tail and tail[0])):
+                    self.assertEqual(classify_input("claude", version, self.with_tail(columns, None, *tail)).state, "empty")
+                    self.assertTrue(matches_input("claude", version,
+                        self.with_tail(columns, self.notification, *tail), self.notification))
+
+    def test_claude_remote_control_hint_refuses_any_other_row_below_the_footer(self):
+        version = self.versions["claude"]
+        for columns in (80, 106, 160):
+            exact = self.hint.rjust(columns - 2)
+            first, second = self.hint.split(" from ")
+            refusals = {
+                "no right margin": (self.hint.rjust(columns), ""),
+                "one column left": (self.hint.rjust(columns - 3), ""),
+                "one column right": (self.hint.rjust(columns - 1), ""),
+                "left aligned": (self.hint, ""),
+                "trailing space": (exact + " ", ""),
+                "other text": ((self.hint[:-1]).rjust(columns - 2), ""),
+                "extra text": ((self.hint + "!").rjust(columns - 2), ""),
+                "changed words": (self.hint.replace("phone", "laptop").rjust(columns - 2), ""),
+                "changed case": (self.hint.upper().rjust(columns - 2), ""),
+                "changed separator": (self.hint.replace("·", "-").rjust(columns - 2), ""),
+                "wrapped": (first.rjust(columns - 2), second.rjust(columns - 2)),
+                "displaced": ("", exact),
+                "duplicate": (exact, exact),
+                "duplicate after blank": (exact, "", exact),
+                "visible row after": (exact, "extra status"),
+                "visible row after blank rows": (exact, "", "", "extra status"),
+                "other status without hint": ("  ? for shortcuts", ""),
+                "other status after blank": ("", "  ? for shortcuts"),
+            }
+            for name, tail in refusals.items():
+                with self.subTest(columns=columns, name=name):
+                    self.refused("claude", self.with_tail(columns, None, *tail), "unknown")
+                    self.assertFalse(matches_input("claude", version,
+                        self.with_tail(columns, self.notification, *tail), self.notification))
+            # The hint never replaces or follows an unknown mode footer.
+            snap = self.with_tail(columns, None, exact, "")
+            self.refused("claude", self.replace_row(snap, 29, "  unknown footer"), "unknown")
+            self.refused("claude", self.replace_row(snap, 29, exact), "unknown")
+        observed = self.floating("post-turn-remote-control-hint")
+        exact = self.hint.rjust(104)
+        for name, snap in {
+            "visible row after": self.replace_row(observed, 54, "extra status"),
+            "duplicate": self.replace_row(observed, 54, exact),
+            "displaced": self.replace_row(self.replace_row(observed, 53, ""), 54, exact),
+            "unknown footer": self.replace_row(observed, 52, "  unknown footer"),
+        }.items():
+            with self.subTest(name=name):
+                self.refused("claude", snap, "unknown")
 
     def test_claude_suggestion_refuses_other_styles_text_and_cursors(self):
         observed = self.observed_suggestion

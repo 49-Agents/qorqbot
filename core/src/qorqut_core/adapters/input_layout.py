@@ -23,6 +23,9 @@ OSC8 = re.compile(r"\x1b\]8;[^;\x00-\x1f\x7f-\x9f]*;[^\x00-\x1f\x7f-\x9f]*(?:\x0
 PROMPT = re.compile(r"^[❯›>][ \xa0]")
 CLAUDE_FOOTER = re.compile(
     r"  ⏵⏵ (?:auto mode on|bypass permissions on) \(shift\+tab to cycle\)(?: · ← for agents)?")
+# Observed after a turn: one promotional line under the mode footer, right-aligned
+# with a two-column margin. It is not remote control being active.
+CLAUDE_REMOTE_HINT = "control this session from your phone · /remote-control"
 # Observed first-turn suggestion: inverted T, dim "ry", then dim words split by
 # plain spaces. The words may vary; the SGR shape and the visible text may not.
 CLAUDE_HINT = re.compile(
@@ -77,6 +80,14 @@ def _claude_hint(tail, columns):
     return CLAUDE_HINT_TEXT.fullmatch(visible) is not None and 2 + len(visible) <= columns
 
 
+def _claude_rows_after_footer_clear(plain, start, columns):
+    """Rows below the mode footer are blank, except the one exact known hint right after it."""
+    rest = plain[start:]
+    if rest and rest[0] == CLAUDE_REMOTE_HINT.rjust(columns - 2):
+        rest = rest[1:]
+    return not any(rest)
+
+
 def _observe(provider, version, snapshot, expected):
     if VERSIONS.get(provider) != version or provider not in VERSIONS:
         return "unknown", "unsupported_version"
@@ -116,7 +127,8 @@ def _observe(provider, version, snapshot, expected):
         if (row < 1 or footer >= snapshot.rows or plain[row - 1] != "─" * snapshot.columns
                 or plain[row + 1] != "─" * snapshot.columns):
             return "unknown", "no_known_input_box"
-        if not CLAUDE_FOOTER.fullmatch(plain[footer]) or any(plain[footer + 1:]):
+        if (not CLAUDE_FOOTER.fullmatch(plain[footer])
+                or not _claude_rows_after_footer_clear(plain, footer + 1, snapshot.columns)):
             return "unknown", "unknown_footer_or_multiline_input"
         text = expected if expected is not None else ""
         # A suggestion proves an empty box, never that a pasted pointer is there.

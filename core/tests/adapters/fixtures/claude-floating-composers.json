@@ -1,5 +1,5 @@
 {
-  "provenance": "Derived from two read-only live pinned Claude Code 2.1.287 snapshots saved by the Manager during QA on 2026-10-14. Non-blank history rows above each snapshot's input box were replaced with synthetic text (listed in sanitized_rows); the notice/status rows near the box, rules, prompt, footer, blank rows, geometry, cursor and flags are verbatim. Offline observations only: no input was sent and no live paste was proven.",
+  "provenance": "Derived from three read-only live pinned Claude Code 2.1.287 snapshots saved by the Manager during QA on 2026-10-14. Non-blank history rows above each snapshot's input box were replaced with synthetic text (listed in sanitized_rows); the notice/status rows near the box, rules, prompt, footer, blank rows, geometry, cursor and flags are verbatim. Offline observations only: no input was sent and no live paste was proven.",
   "captures": [
     {
       "name": "first-turn-suggestion-floating",
@@ -57,6 +57,67 @@
         false
       ],
       "screen": "\nSynthetic history line 1\nSynthetic history line 2\n\nSynthetic history line 4\nSynthetic history line 5\nSynthetic history line 6\n\nSynthetic history line 8\nSynthetic history line 9\n\nSynthetic history line 11\nSynthetic history line 12\nSynthetic history line 13\n\n\u001b[38;5;246m✻\u001b[39m \u001b[38;5;246mCogitated for 13s · done 12:08 PM\u001b[39m\n\n\u001b[38;5;244m──────────────────────────────────────────────────────────────────────────────────────────────────────────\n\u001b[39m❯ \u001b[7m \u001b[0m\n\u001b[38;5;244m──────────────────────────────────────────────────────────────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;220m⏵⏵ auto mode on\u001b[38;5;246m (shift+tab to cycle) · ← for agents\u001b[39m\n\n\n\n"
+    },
+    {
+      "name": "post-turn-remote-control-hint",
+      "source": "manager-blocker-10-B-snapshot.json",
+      "provider": "claude",
+      "version": "2.1.287",
+      "expected": "empty",
+      "original_file_sha256": "2f43b36455cc8e132cd68a4c6e504cf0b90bb603892275802192a3d6a5ee1e8d",
+      "original_screen_sha256": "6994cacae4321657a27529abe16601c205e6bf62b8153b482611d58799804b22",
+      "derived_screen_sha256": "a0e6c262ba5eb756db1f848e8374e3c1f8af87f6adb6a06b9816295e185e0f8e",
+      "sanitized_rows": [
+        0,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        33,
+        34,
+        36,
+        37,
+        38,
+        40,
+        41,
+        43,
+        44,
+        45
+      ],
+      "columns": 106,
+      "rows": 55,
+      "cursor": [
+        2,
+        50,
+        false
+      ],
+      "screen": "Synthetic history line 0\n\nSynthetic history line 2\nSynthetic history line 3\nSynthetic history line 4\nSynthetic history line 5\nSynthetic history line 6\nSynthetic history line 7\nSynthetic history line 8\nSynthetic history line 9\nSynthetic history line 10\nSynthetic history line 11\nSynthetic history line 12\nSynthetic history line 13\nSynthetic history line 14\nSynthetic history line 15\nSynthetic history line 16\nSynthetic history line 17\nSynthetic history line 18\nSynthetic history line 19\nSynthetic history line 20\nSynthetic history line 21\nSynthetic history line 22\nSynthetic history line 23\nSynthetic history line 24\nSynthetic history line 25\nSynthetic history line 26\nSynthetic history line 27\nSynthetic history line 28\nSynthetic history line 29\nSynthetic history line 30\nSynthetic history line 31\n\nSynthetic history line 33\nSynthetic history line 34\n\nSynthetic history line 36\nSynthetic history line 37\nSynthetic history line 38\n\nSynthetic history line 40\nSynthetic history line 41\n\nSynthetic history line 43\nSynthetic history line 44\nSynthetic history line 45\n\n\u001b[38;5;246m✻\u001b[39m \u001b[38;5;246mCogitated\u001b[39m \u001b[38;5;246mfor\u001b[39m \u001b[38;5;246m13s\u001b[39m \u001b[38;5;246m·\u001b[39m \u001b[38;5;246mdone\u001b[39m \u001b[38;5;246m12:08\u001b[39m \u001b[38;5;246mPM\u001b[39m\n\n\u001b[38;5;244m──────────────────────────────────────────────────────────────────────────────────────────────────────────\n\u001b[39m❯ \u001b[7m \u001b[0m\n\u001b[38;5;244m──────────────────────────────────────────────────────────────────────────────────────────────────────────\n\u001b[39m  \u001b[38;5;220m⏵⏵\u001b[39m \u001b[38;5;220mauto\u001b[39m \u001b[38;5;220mmode\u001b[39m \u001b[38;5;220mon\u001b[38;5;246m (shift+tab\u001b[39m \u001b[38;5;246mto\u001b[39m \u001b[38;5;246mcycle)\u001b[39m \u001b[38;5;246m·\u001b[39m \u001b[38;5;246m←\u001b[39m \u001b[38;5;246mfor\u001b[39m \u001b[38;5;246magents\n\u001b[39m                                                  \u001b[38;5;246mcontrol\u001b[39m \u001b[38;5;246mthis\u001b[39m \u001b[38;5;246msession\u001b[39m \u001b[38;5;246mfrom\u001b[39m \u001b[38;5;246myour\u001b[39m \u001b[38;5;246mphone\u001b[39m \u001b[38;5;246m·\u001b[39m \u001b[38;5;153m/remote-control\u001b[39m\n\n"
     }
   ]
 }
