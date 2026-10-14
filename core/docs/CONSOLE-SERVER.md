@@ -22,6 +22,14 @@ and log only fixed codes/identifiers, never message/credential content. Keep
 the worker alive after a recoverable job error. Do not swallow a lost lifetime
 lock or a dead worker and continue advertising background readiness.
 
+Eligible jobs are ordered by when they entered the ready queue: creation for
+new work, the saved next-attempt time for a retry. A retry must not retain its
+original position ahead of newer work. In particular, transcript publication
+waits for a later `file_install` job; repeatedly preferring the publisher can
+prevent that dependency and subsequent agent creation from ever running. This
+2026-10-14 correction uses existing timestamps and changes no eligibility,
+recovery hold, lease or message-delivery ordering rules.
+
 Expire old claims normally. Before queued work, reconcile a bounded batch of
 eligible uncertain `file_install` and `conversation_publish` jobs from this
 recovery epoch, through their existing handler inspector. Exclude

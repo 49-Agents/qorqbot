@@ -109,10 +109,13 @@ class Jobs:
         with self.db.transaction() as tx:
             self._expire(tx)
             epoch = tx.connection.execute("SELECT recovery_epoch FROM installation").fetchone()[0]
+            # A retry rejoins at its due time; its original creation time must
+            # not keep it ahead of the newer file/provisioning work it needs.
             row = tx.connection.execute("""SELECT * FROM jobs WHERE recovery_epoch=? AND wait_reason IS NOT 'recovery_review' AND
                 (state='queued' OR (state='waiting' AND next_attempt_at<=? AND
                     (wait_reason='retry_delay' OR (kind='message_delivery' AND wait_reason='dependency_unavailable'))))
-                ORDER BY created_at,job_id LIMIT 1""", (epoch, self.db.clock())).fetchone()
+                ORDER BY COALESCE(next_attempt_at,created_at),created_at,job_id LIMIT 1""",
+                (epoch, self.db.clock())).fetchone()
             if row is None:
                 return None
             handler = self.handlers.get(row["kind"])

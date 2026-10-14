@@ -26,7 +26,7 @@ from qorqut_core.config import ICON_KEYS, InstallationSettings, NewAgentDefaults
 from qorqut_core.contracts import Actor, CoreError, Invocation, JobProgress, JobResolution, Model, Mutation, canonical
 from qorqut_core.storage.database import Database, HostLock, assert_external_io_allowed
 from qorqut_core.storage.events import EventInput, append_event
-from qorqut_core.storage.jobs import JobHandler, Jobs
+from qorqut_core.storage.jobs import JobHandler, Jobs, after
 from qorqut_core.storage.migrations import MIGRATIONS, Migration
 
 
@@ -364,6 +364,25 @@ else:
         next_claim = self.app.jobs.claim(worker_id=uuid4())
         self.app.jobs.finish(next_claim, JobResolution(state="cancelled", progress=JobProgress(phase="cancelled")))
         self.assertEqual(self.app.jobs.get(another)["state"], "cancelled")
+
+    def test_due_retry_does_not_starve_newer_work_or_get_starved_by_new_arrivals(self):
+        _, result, original = self.probe(external=False)
+        claim = self.app.jobs.claim(worker_id=uuid4())
+        self.app.jobs.finish(claim, JobResolution(state="waiting", progress=JobProgress(phase="pending"),
+            reason="retry_delay", next_attempt_at=after(self.clock(), 5)))
+        self.clock.advance(1)
+        with self.app.db.transaction() as tx:
+            dependency = self.app.jobs.enqueue(tx, "test_probe", ProbeArgs(value=2), operation_id=result.operation_id)
+        self.clock.advance(10)  # Slow work makes the old retry due before the next claim.
+        with self.app.db.transaction() as tx:
+            latest = self.app.jobs.enqueue(tx, "test_probe", ProbeArgs(value=3), operation_id=result.operation_id)
+        # Work queued before the retry became due goes first. The overdue retry
+        # then precedes later arrivals, so neither side can permanently displace it.
+        for expected in (dependency, original, latest):
+            claim = self.app.jobs.claim(worker_id=uuid4())
+            self.assertEqual(claim.job_id, expected)
+            self.app.jobs.finish(claim, JobResolution(state="completed", progress=JobProgress(phase="done")))
+        self.assertIsNone(self.app.jobs.claim(worker_id=uuid4()))
 
     def test_recovery_is_explicit_idempotent_and_holds_snapshot_work(self):
         operation, result, job_id = self.probe()

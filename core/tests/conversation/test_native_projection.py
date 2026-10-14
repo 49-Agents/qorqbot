@@ -187,7 +187,8 @@ class NativeProjection(ChatCase):
         finally:
             self.app.db.lock.close()
         self.app = Application.open(self.settings, clock=self.clock)
-        self.assertEqual(self.rows("conversation_entries"), [{**row, "file_reference_id": None} for row in old_rows])
+        self.assertEqual(self.rows("conversation_entries"),
+                         [{**row, "file_reference_id": None, "browser_request_id": None} for row in old_rows])
         self.assertEqual(self.rows("operations"), old_operations)
         self.assertEqual(self.path(self.onbash).read_bytes(), old_file)
         self.assertEqual((len(self.app.registry), len(self.app.jobs.handlers)), (24, 6))

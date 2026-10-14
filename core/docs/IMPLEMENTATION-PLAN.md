@@ -2,6 +2,11 @@ Current repository layout: [D61, one Qorqbot repository](../../docs/MONOREPO.md)
 The module boundaries remain; older references to separate repositories describe
 the pre-migration arrangement.
 
+2026-10-14 QA correction: the [sequential job worker](CONSOLE-SERVER.md)
+orders eligible retries by their saved due time. This prevents old transcript
+publishers from starving file installation and later agent creation. The fix
+uses the existing queue and timestamps; no migration or service is added.
+
 D63: [Local-agent file, browser and UI support](LOCAL-AGENT-CAPABILITIES.md)
 extends existing host file references and explicit browser attachments to ordinary
 local agents and aligns the desktop wording. Core and UI passed
