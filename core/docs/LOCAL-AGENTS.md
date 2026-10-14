@@ -77,12 +77,18 @@ references and other onbash-only capabilities are unchanged by this decision.
 - **Observation budget.** One pass visits each eligible agent once, sequentially,
   and a cached terminal view older than five seconds reads as
   `observation_stale` (attach is refused until the next pass). Each visit holds
-  the effect gate and fsyncs a few directories; on a development host at load
-  average 25 it measured 0.5–0.8 s per agent, so about six agents is the point
-  where views start to age out *on that loaded host*. A calm host is far
-  cheaper. The pass cadence is start-to-start one second (a long pass is not
-  followed by an idle second). A larger fleet needs the redundant steady-state
-  fsyncs skipped or the freshness window widened; neither is done here.
+  the effect gate. Every visit used to create and fsync the agent's directory
+  chain (19 directory fsyncs); on a development host at load average 25 it
+  measured 0.5–0.8 s per agent, so about six agents was the point where views
+  started to age out *on that loaded host*. Now only the first visit of a target
+  and saved terminal in a core process, and every retry after a failed
+  observation, creates and syncs those directories. Later visits of the same
+  binding still open and validate the same workspace, marker, private and native
+  directories and still ensure/inspect the shell, archive and refresh counters,
+  but sync nothing ([evidence](evidence/terminal-observer-qa.md)). The five-second
+  window and one-second cadence (start-to-start; a long pass is not followed by
+  an idle second) are unchanged, so a large enough fleet can still age out;
+  widening the window is not done here.
 - **Shared effect gate.** Preparing a new agent's shell holds the same effect gate
   as every other terminal effect, so an attach or input for another agent waits
   for it. Measured with a disposable core and real tmux on a host at load
