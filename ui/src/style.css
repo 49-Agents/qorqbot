@@ -97,6 +97,8 @@ legend{padding:0;margin-bottom:9px}
 .message-body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.6}
 .delivery{display:flex;flex-direction:column;color:#aaa;font-size:10px;margin-top:9px;gap:3px}
 .delivery:empty{display:none}
+.delivery-history summary{cursor:pointer}
+.delivery-history span{display:block;margin-top:3px}
 .unsupported{padding:12px;border:1px solid #2b2b2b;color:#bbb}
 .inbox-reference-entry>.message-bubble{padding:8px 12px;background:#171717}
 .inbox-reference{border:0;padding:0;color:#bbb}

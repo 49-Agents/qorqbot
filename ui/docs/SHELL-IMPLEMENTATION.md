@@ -166,3 +166,20 @@ example or styling work. This lane runs independently of the Terminal geometry
 lane, which owns the Terminal declarations and its two browser groups in the
 same isolated-worktree merge workflow. Direct UI checks remain synthetic;
 normal server collection and actual CLI acceptance are separate gates.
+
+## Delivery and handling presentation (2026-10-14)
+
+Presentation only; no wire, store or backend change. Delivery attempts and
+handling receipts remain distinct saved facts and are never rewritten.
+
+- With a handling receipt, `Handled · time` (attribution in its title) is the
+  primary status. Any delivery record is kept, with its exact state and reason,
+  inside a native collapsed `Delivery history` disclosure, so earlier
+  uncertainty is not discarded. No retry or resend action.
+- Without handling, every delivery state is shown: pending `Queued`; deferred
+  `Queued · <reason>`; dispatching `Sending to Terminal`; submitted
+  `Submitted · <reason>`; uncertain, failed and cancelled keep their explicit
+  labels and reasons. None claims processing or completion.
+- With neither record, no status is invented. Native rows (including D53 inbox
+  references) keep their sender labels. A failed browser send still uses the
+  mutation notice and its exact retry identity.

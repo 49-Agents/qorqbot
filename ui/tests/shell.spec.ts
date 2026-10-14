@@ -430,7 +430,7 @@ test('ambiguous send retains same-key retries across connection and application 
   expect(Buffer.byteLength(calls(api, 'messages_send').at(-1)!.args.body)).toBe(65536);
 });
 
-test('history paging anchors, equal text, quiet handling refresh and recovery', async ({ page, api }) => {
+test('history paging anchors, equal text, quiet handling refresh and recovery', async ({ page, api }, testInfo) => {
   for (let i = 1; i <= 65; i++) api.add(alpha, `Record ${i}\nA second line of saved content.`);
   const same1 = api.add(alpha, 'Equal text'); const same2 = api.add(alpha, 'Equal text');
   await openWorkspace(page, api);
@@ -474,6 +474,31 @@ test('history paging anchors, equal text, quiet handling refresh and recovery', 
   same1.delivery!.state = 'submitted'; same1.delivery!.reason = null;
   await expect(page.locator(`[data-entry-id="${same2.entry_id}"]`).getByText(/Handled ·/)).toBeAttached({ timeout: 12000 });
   await expect(page.locator(`[data-entry-id="${same1.entry_id}"]`).getByText('Submitted', { exact: true })).toBeAttached();
+  // Synthetic delivery-state group: presentation only, no real backend.
+  const state = (text: string, st: string, reason: string | null) => { const e = api.add(alpha, text); e.delivery!.state = st as never; e.delivery!.reason = reason; return e; };
+  const queued = state('Synthetic queued', 'pending', 'runtime_unavailable');
+  const deferred = state('Synthetic deferred', 'deferred', 'runtime_unavailable');
+  const sending = state('Synthetic sending', 'dispatching', null);
+  const unsure = state('Synthetic uncertain', 'uncertain', 'terminal_closed');
+  const later = state('Synthetic uncertain then handled', 'uncertain', 'terminal_closed');
+  const bare = api.add(alpha, 'Synthetic no receipts', { delivery: null });
+  const row = (e: { entry_id: string }) => page.locator(`[data-entry-id="${e.entry_id}"]`);
+  await expect(row(queued).locator('.delivery')).toHaveText('Queued', { timeout: 12000 });
+  await expect(row(deferred).locator('.delivery')).toHaveText('Queued · runtime unavailable');
+  await expect(row(sending).locator('.delivery')).toHaveText('Sending to Terminal');
+  await expect(row(unsure).locator('.delivery')).toHaveText('Delivery uncertain · terminal closed');
+  await expect(row(bare).locator('.delivery')).toBeEmpty();
+  await expect(row(later).locator('details')).toHaveCount(0);
+  if (later.source.type !== 'message') throw new Error('Handling fixture requires a message source');
+  later.handling = { message_id: later.source.message_id, handled_by: owner, handled_at: '2026-10-08T13:00:00.000000Z', note: null };
+  await expect(row(later).getByText(/^Handled ·/)).toBeAttached({ timeout: 12000 });
+  const history2 = row(later).locator('details.delivery-history');
+  await expect(history2).not.toHaveAttribute('open', '');
+  await expect(history2.getByText('Delivery uncertain · terminal closed')).toBeHidden();
+  await history2.locator('summary').focus(); await page.keyboard.press('Enter');
+  await expect(history2.getByText('Delivery uncertain · terminal closed')).toBeVisible();
+  await expect(row(later).getByText('Submitted · processing not confirmed')).toHaveCount(0);
+  await row(later).screenshot({ path: process.env.QORQUT_UI_EVIDENCE ? `${process.env.QORQUT_UI_EVIDENCE}/delivery-history-desktop.png` : testInfo.outputPath('delivery-history-desktop.png') });
   await message(page).fill('Keep across recovery');
   const oldEpoch = api.epoch; api.recover(); api.add(alpha, 'After recovery');
   await expect(page.getByText('After recovery', { exact: true })).toBeVisible();

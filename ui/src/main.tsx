@@ -160,6 +160,11 @@ function Navigation({ select, create, renameId, setRename }: { select: (id: stri
     </div>
   </nav>;
 }
+const deliveryNames: Record<string, string> = { pending: 'Queued', deferred: 'Queued', dispatching: 'Sending to Terminal', submitted: 'Submitted', uncertain: 'Delivery uncertain', failed: 'Delivery failed', cancelled: 'Delivery cancelled' };
+function deliveryLabel(delivery: NonNullable<Entry['delivery']>) {
+  const reason = delivery.reason && !['pending', 'dispatching'].includes(delivery.state) ? ` · ${delivery.reason.replaceAll('_', ' ')}` : '';
+  return `${deliveryNames[delivery.state] || `Delivery: ${delivery.state}`}${reason}`;
+}
 function EntryRow({ entry }: { entry: Entry }) {
   const [hoverTime, setHoverTime] = useState(Date.now);
   const [copyState, setCopyState] = useState('');
@@ -183,8 +188,8 @@ function EntryRow({ entry }: { entry: Entry }) {
       <p className="inbox-reference-id">Message ID: {entry.inbox_reference!.message_id}</p>
     </details> : reference ? <FileReferenceCard reference={reference} /> : message ? <p className="message-body">{entry.text}</p> : <p className="unsupported">Unsupported content: {entry.kind}</p>}
     <div className="delivery">
-      {entry.delivery && !['pending', 'deferred', 'dispatching'].includes(entry.delivery.state) && <span>{({ submitted: 'Submitted', uncertain: 'Delivery uncertain', failed: 'Delivery failed', cancelled: 'Delivery cancelled' } as Record<string, string>)[entry.delivery.state] || `Delivery: ${entry.delivery.state}`}{entry.delivery.reason ? ` · ${entry.delivery.reason.replaceAll('_', ' ')}` : ''}</span>}
       {entry.handling && <span title={`Handled by ${entry.handling.handled_by}`}>Handled · {time(entry.handling.handled_at)}</span>}
+      {entry.delivery && (entry.handling ? <details className="delivery-history"><summary>Delivery history</summary><span>{deliveryLabel(entry.delivery)}</span></details> : <span>{deliveryLabel(entry.delivery)}</span>)}
     </div>
     </div>
     {message && <div className="message-actions"><button type="button" className="copy-message" aria-label="Copy message" title={copyState || 'Copy message'} onClick={() => void copy()}><ViewIcon name={copyState === 'Copied' ? 'check' : 'copy'} /></button></div>}
