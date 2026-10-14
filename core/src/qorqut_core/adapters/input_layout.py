@@ -23,6 +23,11 @@ OSC8 = re.compile(r"\x1b\]8;[^;\x00-\x1f\x7f-\x9f]*;[^\x00-\x1f\x7f-\x9f]*(?:\x0
 PROMPT = re.compile(r"^[❯›>][ \xa0]")
 CLAUDE_FOOTER = re.compile(
     r"  ⏵⏵ (?:auto mode on|bypass permissions on) \(shift\+tab to cycle\)(?: · ← for agents)?")
+# Observed first-turn suggestion: inverted T, dim "ry", then dim words split by
+# plain spaces. The words may vary; the SGR shape and the visible text may not.
+CLAUDE_HINT = re.compile(
+    r"\x1b\[7mT\x1b\[0;2mry\x1b\[0m \x1b\[2m[!-~]+\x1b\[0m(?: \x1b\[2m[!-~]+\x1b\[0m)*")
+CLAUDE_HINT_TEXT = re.compile(r'Try "[^" ](?:[^"]*[^" ])?"')
 CODEX_WARNING = r"⚠ +[1-9][0-9]* +warnings? +· +f2 +to +view"
 CODEX_EMPTY_FOOTER = re.compile(rf"  \? for shortcuts(?: +{CODEX_WARNING} *)?")
 CODEX_INPUT_FOOTER = re.compile(rf"(?: +{CODEX_WARNING} *)?")
@@ -65,6 +70,13 @@ def _tail(provider, line):
     return line[match.end():] if match else None
 
 
+def _claude_hint(tail, columns):
+    if tail is None or CLAUDE_HINT.fullmatch(tail) is None:
+        return False
+    visible = SGR.sub("", tail)
+    return CLAUDE_HINT_TEXT.fullmatch(visible) is not None and 2 + len(visible) <= columns
+
+
 def _observe(provider, version, snapshot, expected):
     if VERSIONS.get(provider) != version or provider not in VERSIONS:
         return "unknown", "unsupported_version"
@@ -87,23 +99,28 @@ def _observe(provider, version, snapshot, expected):
     raw, plain = decoded
     if len(raw) != snapshot.rows:
         return "unknown", "captured_row_count_mismatch"
-    start = snapshot.rows - 8
+    # Claude draws its box where its cursor is (it floats under short output);
+    # Codex stays at the bottom. Both use the same local exclusion window.
+    row = snapshot.cursor_y if provider == "claude" else snapshot.rows - 4
+    start = max(0, row - 5) if provider == "claude" else snapshot.rows - 8
     region = "\n".join(plain[start:]).lower()
     if any(word in region for word in DIALOG):
         return "blocked", "dialog_or_setup"
     if any(word in region for word in BUSY):
         return "busy", "turn_running"
-    row = snapshot.rows - (3 if provider == "claude" else 4)
     if [i for i in range(start, snapshot.rows) if PROMPT.match(plain[i])] != [row]:
         return "unknown", "ambiguous_or_misplaced_composer"
     tail = _tail(provider, raw[row])
     if provider == "claude":
-        if plain[row - 1] != "─" * snapshot.columns or plain[row + 1] != "─" * snapshot.columns:
+        footer = row + 2
+        if (row < 1 or footer >= snapshot.rows or plain[row - 1] != "─" * snapshot.columns
+                or plain[row + 1] != "─" * snapshot.columns):
             return "unknown", "no_known_input_box"
-        if not CLAUDE_FOOTER.fullmatch(plain[-1]):
+        if not CLAUDE_FOOTER.fullmatch(plain[footer]) or any(plain[footer + 1:]):
             return "unknown", "unknown_footer_or_multiline_input"
         text = expected if expected is not None else ""
-        if tail != text + "\x1b[7m \x1b[0m":
+        # A suggestion proves an empty box, never that a pasted pointer is there.
+        if tail != text + "\x1b[7m \x1b[0m" and not (expected is None and _claude_hint(tail, snapshot.columns)):
             return "blocked", "composer_contains_text_or_unknown_cursor_cell"
         visible = False
     else:

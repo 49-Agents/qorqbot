@@ -34,3 +34,56 @@ provider flow for one narrow-terminal message, exact notification submission,
 native receipt and dated history. Never use the owner's session or credentials
 as a fixture. No broad suite or additional review; Manager merges and deploys
 under the owner's standing authorization, preserving the live native process.
+
+## 2026-10-14 amendment — Claude's floating input box
+
+Live QA with pinned Claude Code 2.1.287 on Sonnet 5.5 (106 columns) showed the
+real model replying to Terminal input while every Chat readiness message stayed
+deferred with no delivery attempt. The classifier rejected the actual box for two
+independent reasons, each confirmed offline on read-only snapshots (no input sent):
+
+- Claude draws its box where its cursor is. Under short output it floats high on
+  a 52-row pane; after a turn it sits above blank bottom margin rows (24 rows,
+  box at 17–19, footer 20, three blank rows). The old `rows - 3` row
+  rejected both. This amends the bottom-only Claude rule in
+  [INBOX-NOTIFICATIONS](INBOX-NOTIFICATIONS.md); Codex keeps its fixed
+  `rows - 4` position.
+- On the first turn the empty box shows a styled suggestion, not the empty
+  cursor cell: `Try "fix lint errors"`.
+
+Both changes stay in the pure pinned Claude 2.1.287 layout in `adapters/input_layout.py`.
+The profile still returns `native_verified=false` and `permits_paste=false`.
+
+**Box location.** The Claude composer row is the validated `snapshot.cursor_y`.
+Rows `row-1` and `row+1` must be the existing full-width rule cells and `row+2`
+the existing known footer (the `auto mode on` / `bypass permissions on` text, optional
+`← for agents`, no busy suffix). Every row after the footer must be blank once the
+supported SGR and OSC-8 delimiters are removed; any visible extra status, footer or
+input row refuses. A box without a row above or two rows below refuses.
+
+**Local window.** Busy/dialog phrases and prompt-looking rows are examined from
+`max(0, row - 5)` to the end of the screen (identical to the old last-eight rows when
+the box is at the bottom). The selected row must be the only prompt-looking row there;
+a busy or dialog phrase anywhere in the window refuses. Older output outside it, including a
+quoted prompt or a whole stale box, is history and never becomes the active composer.
+Row count, geometry, flags, escape handling, version, hidden cursor at `(2, row)`
+and the exact full rules are unchanged.
+
+**Suggestion.** Only for the empty check (`expected_text=None`) the tail may also be
+exactly the observed shape: inverted literal `T` (`SGR 7`), dim `ry` (`SGR 0;2`) and
+reset, one plain space, then one or more dim words (`SGR 2`, each ended by `SGR 0`)
+separated by single plain spaces. The visible text must be `Try "…"` with a
+nonempty body that neither begins nor ends with a space nor contains another quote,
+use printable ASCII words and fit one row (`2 + length <= columns`). The words may
+vary; unstyled, differently styled, concealed, extra, wrapped or non-ASCII text, a
+second cursor cell and any other cursor position still refuse. A suggestion proves an
+empty box only: `matches_input` still requires the exact printable ASCII text plus the
+inverted-space cursor cell at `2 + length`, now on the cursor-relative row, so a
+placeholder can never prove that a notification was pasted.
+
+Existing first-SessionStart awaiting-primary capture, the 51-byte inbox pointer and
+the whole-runtime dispatch gates are unchanged. No runtime, hook, ownership, queue,
+retry, UI or Codex change. Existing deferred messages dispatch through the normal path
+once actual input proof succeeds; do not paste or resend them manually. Sanitized
+observed rows are in `tests/adapters/fixtures/claude-floating-composers.json`; see
+[the bounded evidence](evidence/claude-live-composer-qa.md).

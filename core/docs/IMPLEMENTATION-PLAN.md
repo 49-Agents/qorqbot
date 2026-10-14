@@ -7,6 +7,14 @@ orders eligible retries by their saved due time. This prevents old transcript
 publishers from starving file installation and later agent creation. The fix
 uses the existing queue and timestamps; no migration or service is added.
 
+2026-10-14 QA correction: the pinned Claude 2.1.287 input layout locates its
+box from the validated cursor row, so a floating or bottom-margin composer and
+the first-turn `Try "…"` suggestion classify as empty. Paste authority, Codex,
+runtime and delivery guards are unchanged; see the
+[composer amendment](CHAT-COMPOSER-COMPATIBILITY.md) and
+[bounded evidence](evidence/claude-live-composer-qa.md). Live delivery is
+checked separately by the QA tester.
+
 D63: [Local-agent file, browser and UI support](LOCAL-AGENT-CAPABILITIES.md)
 extends existing host file references and explicit browser attachments to ordinary
 local agents and aligns the desktop wording. Core and UI passed

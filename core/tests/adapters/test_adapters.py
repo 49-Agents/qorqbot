@@ -1071,6 +1071,23 @@ class InputLayoutTests(unittest.TestCase):
         lines[row] = text
         return snapshot.model_copy(update={"screen": "\n".join(lines) + "\n"})
 
+    def floating(self, name):
+        """Sanitized live Claude snapshots whose box is not at the bottom of the pane."""
+        captures = json.loads((FIXTURES / "claude-floating-composers.json").read_text())["captures"]
+        capture = next(c for c in captures if c["name"] == name)
+        x, y, visible = capture["cursor"]
+        return TerminalSnapshot(columns=capture["columns"], rows=capture["rows"], cursor_x=x, cursor_y=y,
+            cursor_visible=visible, in_mode=False, input_off=False, synchronized=False, screen=capture["screen"])
+
+    def with_pointer(self, snapshot, tail=None, cell="\x1b[7m \x1b[0m"):
+        """Constructed (not live) paste: the exact pointer plus the empty cursor cell."""
+        text = self.notification if tail is None else tail
+        return self.replace_row(snapshot, snapshot.cursor_y, "\x1b[39m❯\xa0" + text + cell).model_copy(
+            update={"cursor_x": 2 + len(self.notification)})
+
+    def suggestion(self, *words):
+        return "\x1b[39m❯\xa0\x1b[7mT\x1b[0;2mry\x1b[0m " + " ".join(f"\x1b[2m{w}\x1b[0m" for w in words)
+
     def codex_warning_snapshot(self, text=None, columns=69, warning="2 warnings"):
         snap = self.snapshot("codex", columns=columns, rows=68, text=text)
         prompt = "\x1b[2mAsk Codex to do anything\x1b[0m" if text is None else text
@@ -1285,6 +1302,219 @@ class InputLayoutTests(unittest.TestCase):
                     for tail in ("Ask Codex to do anything", "\x1b[2mAsk Codex\x1b[0m", "[Pasted Content 1706 chars]",
                                  "\x1b[2m" + (text or "") + "\x1b[0m"):
                         self.refused(provider, self.replace_row(snap, -4, "› " + tail))
+
+    floating_names = ("first-turn-suggestion-floating", "empty-cursor-cell-bottom-margin")
+    observed_suggestion = '\x1b[7mT\x1b[0;2mry\x1b[0m \x1b[2m"fix\x1b[0m \x1b[2mlint\x1b[0m \x1b[2merrors"\x1b[0m'
+
+    def test_observed_floating_claude_boxes_are_empty_and_never_prove_a_paste(self):
+        version = self.versions["claude"]
+        for name, rows, row in zip(self.floating_names, (52, 24), (12, 18)):
+            with self.subTest(name=name):
+                snap = self.floating(name)
+                before = snap.model_dump()
+                self.assertEqual((snap.columns, snap.rows, snap.cursor_x, snap.cursor_y, snap.cursor_visible),
+                    (106, rows, 2, row, False))
+                self.assertEqual(len(snap.screen.removesuffix("\n").split("\n")), rows)
+                verdict = classify_input("claude", version, snap)
+                self.assertEqual((verdict.state, verdict.reason, verdict.evidence),
+                    ("empty", "native_snapshot_empty_layout_live_unverified", "native_snapshot"))
+                self.assertFalse(verdict.native_verified)
+                self.assertFalse(verdict.permits_paste)
+                self.assertFalse(matches_input("claude", version, snap, self.notification))
+                self.assertFalse(matches_input("claude", version, snap, 'Try "fix lint errors"'))
+                self.assertEqual(snap.model_dump(), before)
+
+    def test_claude_suggestion_varies_only_in_its_quoted_words(self):
+        version = self.versions["claude"]
+        first = self.floating(self.floating_names[0])
+        self.assertEqual(self.suggestion('"fix', "lint", 'errors"'), first.screen.split("\n")[12])
+        for words in (('"refactor"',), ('"how', "does", "src/app.py", 'work?"'), ('"a"',), ('"' + "a" * 98 + '"',)):
+            with self.subTest(words=words):
+                verdict = classify_input("claude", version, self.replace_row(first, 12, self.suggestion(*words)))
+                self.assertEqual(verdict.state, "empty")
+                self.assertFalse(verdict.permits_paste)
+        # 2 + len('Try ' + token) must fit the 106-column row: 98 body characters do, 99 would wrap.
+        self.refused("claude", self.replace_row(first, 12, self.suggestion('"' + "a" * 99 + '"')), "blocked")
+
+    def test_exact_notification_matches_at_floating_rows_and_nothing_else_does(self):
+        version = self.versions["claude"]
+        draft = "Human fixture draft"
+        for name in self.floating_names:
+            snap = self.floating(name)
+            filled = self.with_pointer(snap)
+            with self.subTest(name=name):
+                before = filled.model_dump()
+                self.assertTrue(matches_input("claude", version, filled, self.notification))
+                self.assertEqual(filled.model_dump(), before)
+                verdict = classify_input("claude", version, filled)
+                self.assertEqual(verdict.state, "blocked")
+                self.assertFalse(verdict.permits_paste)
+                for expected in (self.notification + "x", self.notification[:-1] + "x]", self.notification[:-1],
+                                 self.notification.lower()):
+                    self.assertFalse(matches_input("claude", version, filled, expected))
+                suggestion = self.suggestion('"fix', "lint", 'errors"').split("\xa0", 1)[1]
+                for refusal in (
+                    filled.model_copy(update={"cursor_x": filled.cursor_x - 1}),
+                    filled.model_copy(update={"cursor_x": filled.cursor_x + 1}),
+                    filled.model_copy(update={"cursor_visible": True}),
+                    self.with_pointer(snap, self.notification + " "),
+                    self.with_pointer(snap, self.notification + "x"),
+                    self.with_pointer(snap, "\x1b[2m" + self.notification + "\x1b[0m"),
+                    self.with_pointer(snap, "\x1b[7m" + self.notification + "\x1b[0m"),
+                    self.with_pointer(snap, self.notification, cell=""),
+                    self.with_pointer(snap, self.notification, cell="\x1b[7m \x1b[27m"),
+                    self.with_pointer(snap, self.notification, cell=" "),
+                    self.with_pointer(snap, draft).model_copy(update={"cursor_x": 2 + len(draft)}),
+                    self.with_pointer(snap, suggestion + self.notification),
+                    self.replace_row(snap, snap.cursor_y, self.suggestion('"fix', "lint", 'errors"')).model_copy(
+                        update={"cursor_x": filled.cursor_x}),
+                ):
+                    self.refused("claude", refusal)
+                # An empty box showing the suggestion is empty, but it is not a pasted pointer or typed text.
+                hinted = self.replace_row(snap, snap.cursor_y, self.suggestion('"fix', "lint", 'errors"'))
+                self.assertFalse(matches_input("claude", version, hinted, self.notification))
+                self.assertFalse(matches_input("claude", version,
+                    hinted.model_copy(update={"cursor_x": 2 + 21}), 'Try "fix lint errors"'))
+                self.assertEqual(classify_input("claude", version,
+                    self.with_pointer(snap, draft).model_copy(update={"cursor_x": 2 + len(draft)})).state, "blocked")
+                # Rows after the footer need only be visibly blank: SGR and OSC-8 delimiters hide nothing.
+                for tail in ("\x1b[39m", "\x1b]8;;https://invalid.example\x07\x1b]8;;\x07"):
+                    self.assertEqual(classify_input("claude", version,
+                        self.replace_row(snap, snap.cursor_y + 3, tail)).state, "empty")
+                    self.assertTrue(matches_input("claude", version,
+                        self.replace_row(filled, filled.cursor_y + 3, tail), self.notification))
+
+    def test_claude_suggestion_refuses_other_styles_text_and_cursors(self):
+        observed = self.observed_suggestion
+        words = "\x1b[0m \x1b[2mlint"
+        edits = {
+            "unstyled": 'Try "fix lint errors"',
+            "unstyled with cursor cell": 'Try "fix lint errors"\x1b[7m \x1b[0m',
+            "all dim": '\x1b[2mTry "fix lint errors"\x1b[0m',
+            "draft with cursor cell": "Human fixture draft\x1b[7m \x1b[0m",
+            "first letter not inverted": observed.replace("\x1b[7mT", "T"),
+            "first letter inverted and dim": observed.replace("\x1b[7mT", "\x1b[7;2mT"),
+            "ry without reset": observed.replace("\x1b[0;2mry", "\x1b[2mry"),
+            "ry italic": observed.replace("\x1b[0;2mry", "\x1b[0;3mry"),
+            "ry concealed": observed.replace("\x1b[0;2mry", "\x1b[0;8mry"),
+            "ry wrong reset": observed.replace("mry\x1b[0m", "mry\x1b[22m"),
+            "words with reset": observed.replace("\x1b[2m", "\x1b[0;2m"),
+            "words concealed": observed.replace("\x1b[2m", "\x1b[8m"),
+            "words dim and concealed": observed.replace("\x1b[2m", "\x1b[2;8m"),
+            "words normal intensity": observed.replace("\x1b[2m", "\x1b[22m"),
+            "words colored": observed.replace("\x1b[2m", "\x1b[38;5;246m"),
+            "last word without reset": observed.removesuffix("\x1b[0m"),
+            "last word wrong reset": observed.removesuffix("\x1b[0m") + "\x1b[39m",
+            "extra text": observed + " extra",
+            "extra character": observed + "?",
+            "leading space": " " + observed,
+            "second cursor cell": observed + "\x1b[7m \x1b[0m",
+            "wrong first letter": observed.replace("\x1b[7mT", "\x1b[7mS"),
+            "wrong second part": observed.replace("mry", "mrx"),
+            "double space": observed.replace(words, "\x1b[0m  \x1b[2mlint"),
+            "no-break space": observed.replace(words, "\x1b[0m\xa0\x1b[2mlint"),
+            "ideographic space": observed.replace(words, "\x1b[0m　\x1b[2mlint"),
+            "unstyled word": observed.replace(words, "\x1b[0m lint"),
+            "split word": observed.replace("lint\x1b[0m", "li\x1b[0m\x1b[2mnt\x1b[0m"),
+            "no opening quote": observed.replace('"fix', "fix"),
+            "no closing quote": observed.replace('errors"', "errors"),
+            "empty body": observed.replace('"fix\x1b[0m \x1b[2mlint\x1b[0m \x1b[2merrors"', '""'),
+            "body starting with space": observed.replace('"fix\x1b[0m', '"\x1b[0m \x1b[2mfix\x1b[0m'),
+            "inner quotes": observed.replace("lint", '"lint"'),
+            "non-ascii word": observed.replace("lint", "lïnt"),
+        }
+        for name in self.floating_names:
+            snap = self.floating(name)
+            for label, tail in edits.items():
+                with self.subTest(name=name, edit=label):
+                    self.refused("claude", self.replace_row(snap, snap.cursor_y, "\x1b[39m❯\xa0" + tail), "blocked")
+            valid = self.replace_row(snap, snap.cursor_y, "\x1b[39m❯\xa0" + observed)
+            self.assertEqual(classify_input("claude", self.versions["claude"], valid).state, "empty")
+            for change in ({"cursor_x": 1}, {"cursor_x": 3}, {"cursor_x": 23}, {"cursor_visible": True}):
+                with self.subTest(name=name, change=change):
+                    self.refused("claude", valid.model_copy(update=change), "unknown")
+
+    def test_floating_claude_box_refuses_extra_rows_ambiguity_and_local_busy_dialog(self):
+        version = self.versions["claude"]
+        for name in self.floating_names:
+            for filled in (False, True):
+                snap = self.floating(name)
+                if filled:
+                    snap = self.with_pointer(snap)
+                row, rows, columns = snap.cursor_y, snap.rows, snap.columns
+                rule = "\x1b[38;5;244m" + "─" * columns
+                footer = "\x1b[39m  \x1b[38;5;220m⏵⏵ auto mode on\x1b[38;5;246m (shift+tab to cycle)"
+
+                def at(offset, text, sample=snap):
+                    return self.replace_row(sample, row + offset, text)
+
+                cases = {
+                    "extra row after footer": (at(3, "extra status"), "unknown"),
+                    "extra last row": (at(rows - 1 - row, "extra status"), "unknown"),
+                    "second footer": (at(3, footer), "unknown"),
+                    "visible OSC-8 label": (at(4, "\x1b]8;;https://invalid.example\x07Label\x1b]8;;\x07"), "unknown"),
+                    "prompt after footer": (at(5, "❯ extra composer"), "unknown"),
+                    "unknown footer": (at(2, "  unknown footer"), "unknown"),
+                    "busy footer": (at(2, footer + " · esc to interrupt"), "busy"),
+                    "short rule above": (at(-1, rule[:-1]), "unknown"),
+                    "wide rule below": (at(1, rule + "─"), "unknown"),
+                    "indented rule above": (at(-1, " " + rule), "unknown"),
+                    "ascii rule below": (at(1, rule.replace("─", "-")), "unknown"),
+                    "prompt at window start": (at(-5, "> extra composer"), "unknown"),
+                    "prompt above box": (at(-3, "❯ extra composer"), "unknown"),
+                    "prompt beside rule": (at(-2, "›\xa0extra composer"), "unknown"),
+                    "dialog at window start": (at(-5, "Esc to cancel"), "blocked"),
+                    "busy above box": (at(-2, "Working (esc to interrupt)"), "busy"),
+                    "busy after footer": (at(3, "Working (esc to interrupt)"), "busy"),
+                    "dialog after footer": (at(4, "sign in"), "blocked"),
+                }
+                for change in ({"in_mode": True}, {"input_off": True}, {"synchronized": True},
+                               {"cursor_visible": not snap.cursor_visible}, {"cursor_x": snap.cursor_x - 1},
+                               {"cursor_x": snap.cursor_x + 1}, {"cursor_y": row - 1}, {"cursor_y": row + 1},
+                               {"cursor_y": 0}, {"cursor_y": rows - 2}, {"cursor_y": rows - 1},
+                               {"columns": columns - 1}, {"columns": columns + 1},
+                               {"screen": snap.screen + "\n"}, {"screen": snap.screen.split("\n", 1)[1]}):
+                    cases[f"change {change}"] = (snap.model_copy(update=change), "unknown")
+                stale = snap
+                for index, text in enumerate((rule, "\x1b[39m❯\xa0\x1b[7m \x1b[0m", rule, footer)):
+                    stale = self.replace_row(stale, index, text)
+                # The stale box is old output only while the cursor stays on the real box.
+                cases["cursor on stale box"] = (stale.model_copy(update={"cursor_y": 1}), "unknown")
+                if not filled:
+                    lower = [(row + 1, "  second line"), (row + 2, rule), (row + 3, footer)]
+                    multiline = self.replace_row(snap, row, "\x1b[39m❯\xa0first line")
+                    for index, text in lower:
+                        multiline = self.replace_row(multiline, index, text)
+                    cases["multiline cursor on first line"] = (multiline, "unknown")
+                    cases["multiline cursor on last line"] = (
+                        multiline.model_copy(update={"cursor_y": row + 1, "cursor_x": 13}), "unknown")
+                for label, (sample, state) in cases.items():
+                    with self.subTest(name=name, filled=filled, case=label):
+                        self.refused("claude", sample, None if filled else state)
+                # Output above the local window is history, even when it quotes prompts, rules or phrases.
+                outside = [at(-6, "❯ historical quote"), at(-6, "Working (esc to interrupt) · enter to confirm"), stale]
+                for index, sample in enumerate(outside):
+                    with self.subTest(name=name, filled=filled, outside=index):
+                        if filled:
+                            self.assertTrue(matches_input("claude", version, sample, self.notification))
+                        else:
+                            self.assertEqual(classify_input("claude", version, sample).state, "empty")
+                for unknown in ("2.1.286", "2.1.288"):
+                    self.assertEqual(classify_input("claude", unknown, snap).evidence, "unsupported")
+                    self.assertFalse(matches_input("claude", unknown, snap, self.notification))
+
+    def test_claude_box_without_room_for_its_rules_and_footer_is_refused(self):
+        rule = "\x1b[38;5;244m" + "─" * 100
+        footer = "\x1b[39m  \x1b[38;5;220m⏵⏵ auto mode on\x1b[38;5;246m (shift+tab to cycle)"
+        prompt = "\x1b[39m❯\xa0\x1b[7m \x1b[0m"
+        for first, lines, cursor_y in ((0, [prompt, rule, footer], 0), (21, [rule, prompt, rule], 22),
+                                       (22, [rule, prompt], 23), (23, [prompt], 23)):
+            with self.subTest(cursor_y=cursor_y):
+                screen = [""] * 24
+                screen[first:first + len(lines)] = lines
+                self.refused("claude", TerminalSnapshot(columns=100, rows=24, cursor_x=2, cursor_y=cursor_y,
+                    cursor_visible=False, in_mode=False, input_off=False, synchronized=False,
+                    screen="\n".join(screen) + "\n"), "unknown")
 
     def test_expected_notification_requires_exact_short_printable_ascii(self):
         for provider, version in self.versions.items():
