@@ -5,7 +5,13 @@ import re
 from typing import Literal
 
 from ..runner.models import TerminalSnapshot
-from .input_layout import SGR, _lines
+from .input_layout import SGR, _lines, classify_input
+
+
+# Claude Code 2.1.287's AskUserQuestion form: observed 256-colour (foreground, background, bold).
+GRAY, TAB, ASK, ARROW = (246, None, False), (16, 153, False), (231, None, True), (153, None, False)
+CLAUDE_ACTIONS = "Enter to select · ↑/↓ to navigate · Esc to cancel"
+CLAUDE_OPTION = re.compile(r"(?:❯| ) ([1-9])\. (\S.*)")
 
 
 @dataclass(frozen=True)
@@ -71,9 +77,91 @@ def _question(raw, plain, end):
     return _prompt(plain[start + 1:stop])
 
 
+def _sgr(style, sequence):
+    fg, bg, bold = style
+    params = sequence[2:-1].split(";")
+    while params:
+        param = params.pop(0)
+        if param in ("", "0"):
+            fg, bg, bold = None, None, False
+        elif param in ("1", "22"):
+            bold = param == "1"
+        elif param == "39":
+            fg = None
+        elif param == "49":
+            bg = None
+        elif (param in ("38", "48") and len(params) > 1 and params[0] == "5"
+                and params[1].isdecimal() and int(params[1]) < 256):
+            fg, bg = (int(params[1]), bg) if param == "38" else (fg, int(params[1]))
+            del params[:2]
+        else:
+            return None  # Only the sequences this form is observed to use are interpreted.
+    return fg, bg, bold
+
+
+def _paint(rows):
+    """(character, style) cells of rows starting from the default style; tmux carries SGR across rows."""
+    style, painted = (None, None, False), []
+    for row in rows:
+        cells = []
+        codes = SGR.findall(row)
+        for i, text in enumerate(SGR.split(row)):
+            if i:
+                style = _sgr(style, codes[i - 1])
+                if style is None:
+                    return None
+            cells += [(char, style) for char in text]
+        painted.append(cells)
+    return painted
+
+
+def _styled(cells, style, spaces=False):
+    shown = [cell for char, cell in cells if spaces or char != " "]
+    return bool(shown) and all(cell == style for cell in shown)
+
+
+def _claude_question(raw, plain, end, snapshot):
+    """The single-question form at the bottom of the pane; the hidden cursor sits inside it."""
+    rule, lower = "─" * snapshot.columns, end - 3
+    top = next((i for i in range(lower - 1, -1, -1) if plain[i] == rule), -1)
+    if (lower < 7 or top < 0 or plain[lower] != rule or plain[end] != CLAUDE_ACTIONS or plain[end - 1]
+            or snapshot.cursor_visible or not top <= snapshot.cursor_y <= end):
+        return None
+    cells = _paint(raw[top:end + 1])
+    if cells is None:
+        return None
+    painted = dict(zip(range(top, end + 1), cells))
+    if not (_styled(painted[top], GRAY) and _styled(painted[lower], GRAY) and _styled(painted[end], GRAY)
+            and re.fullmatch(r" ☐ \S(?:.*\S)? ", plain[top + 1]) and _styled(painted[top + 1], TAB, True)
+            and not plain[top + 2]):
+        return None
+    start = stop = top + 3
+    while _styled(painted[stop], ASK):
+        stop += 1
+    if stop == start or plain[stop]:
+        return None
+    labels, numbers, selected = {}, [], 0
+    for i in [*range(stop + 1, lower), end - 2]:
+        option = CLAUDE_OPTION.fullmatch(plain[i])
+        if option:
+            labels[i] = option[2]
+            numbers.append(int(option[1]))
+            if plain[i][0] == "❯":
+                if painted[i][0][1] != ARROW:
+                    return None
+                selected += 1
+        elif not (labels and plain[i].startswith("     ") and _styled(painted[i], GRAY)):
+            return None  # Only dim description rows may follow an option.
+    if (selected != 1 or len(numbers) < 4 or numbers != list(range(1, len(numbers) + 1))
+            or (labels.get(lower - 1), labels.get(end - 2)) != ("Type something.", "Chat about this")):
+        return None
+    # Selection changes only the arrow; history, tab, rule and action footer are not the prompt.
+    return _prompt([re.sub(r"^❯", " ", line) for line in plain[start:lower] + [plain[end - 2]]])
+
+
 def classify_attention(provider: str, version: str, snapshot: TerminalSnapshot) -> AttentionVerdict:
     unknown = AttentionVerdict("unknown")
-    if (provider, version) != ("codex", "0.160.0"):
+    if (provider, version) not in (("codex", "0.160.0"), ("claude", "2.1.287")):
         return unknown
     if (not 54 <= snapshot.columns <= 500 or not 24 <= snapshot.rows <= 250
             or not 0 <= snapshot.cursor_x < snapshot.columns or not 0 <= snapshot.cursor_y < snapshot.rows
@@ -88,6 +176,12 @@ def classify_attention(provider: str, version: str, snapshot: TerminalSnapshot) 
     end = next((i for i in range(len(plain) - 1, -1, -1) if plain[i].strip()), -1)
     if end < 0:
         return unknown
+    if provider == "claude":
+        question = _claude_question(raw, plain, end, snapshot)
+        if question is not None:
+            return AttentionVerdict("waiting", "question", *question)
+        # Only the known empty composer shows that the form is gone; other layouts stay unknown.
+        return AttentionVerdict("none") if classify_input(provider, version, snapshot).state == "empty" else unknown
     footer = plain[end]
     question = _question(raw, plain, end)
     if question is not None:

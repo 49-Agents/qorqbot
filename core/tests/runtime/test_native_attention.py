@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from runtime.support import RuntimeCase
 from runtime.test_input_dispatch import InputFixture, assert_external
 from qorqut_core.adapters.attention import classify_attention
+from qorqut_core.adapters.input_layout import SGR
 from qorqut_core.runner.models import TerminalSnapshot
 from qorqut_core.runner.shell import ShellManager
 from qorqut_core.runtime.input_dispatch import InputUnavailable
@@ -20,6 +21,34 @@ from qorqut_core.runtime.models import NativeAttentionView
 def capture(name="mcp_approval"):
     data = json.loads((Path(__file__).parents[1] / "adapters/fixtures/native-attention.json").read_text())
     return TerminalSnapshot.model_validate(data[name])
+
+
+FIXTURES = Path(__file__).parents[1] / "adapters/fixtures"
+ARROW = "\x1b[38;5;153m❯\x1b[39m "
+
+
+def claude(name="ask-user-question-single", fixture="claude-attention.json", **changes):
+    data = next(c for c in json.loads((FIXTURES / fixture).read_text())["captures"] if c["name"] == name)
+    x, y, visible = data["cursor"]
+    return TerminalSnapshot(columns=data["columns"], rows=data["rows"], cursor_x=x, cursor_y=y,
+        cursor_visible=visible, in_mode=False, input_off=False, synchronized=False,
+        screen=data["screen"]).model_copy(update=changes)
+
+
+def rewrite(snapshot, edits=None, **changes):
+    """Replace whole rows ({index: text, None deletes}) of a copy of a fixture."""
+    rows = snapshot.screen.removesuffix("\n").split("\n")
+    for index, text in (edits or {}).items():
+        rows[index] = text
+    rows = [row for row in rows if row is not None]
+    return snapshot.model_copy(update={"rows": len(rows), "screen": "\n".join(rows) + "\n", **changes})
+
+
+def select(snapshot, number):
+    """SYNTHETIC selection: the live capture only has option 1 selected, so its arrow is moved."""
+    row = {2: 47, 3: 49, 4: 51}[number]
+    line = snapshot.screen.split("\n")[row].removeprefix("\x1b[39m").removeprefix("  ")
+    return rewrite(snapshot, {45: "  \x1b[38;5;246m1.\x1b[39m Maple", row: ARROW + line}, cursor_y=row)
 
 
 class Classifier(unittest.TestCase):
@@ -69,6 +98,81 @@ class Classifier(unittest.TestCase):
         ):
             with self.subTest(provider=provider, version=version, screen=changed.screen[-40:]):
                 self.assertEqual(classify_attention(provider, version, changed).state, "unknown")
+
+    def test_actual_claude_question_and_selection_normalization(self):
+        snapshot = claude()
+        verdict = classify_attention("claude", "2.1.287", snapshot)
+        self.assertEqual((verdict.state, verdict.kind, verdict.truncated), ("waiting", "question", False))
+        self.assertEqual(verdict.prompt, "Which label should be used for the test: Maple or Cedar?\n\n"
+            "1. Maple\nUse Maple as the test label\n2. Cedar\nUse Cedar as the test label\n"
+            "3. Type something.\n4. Chat about this")
+        for number in (2, 3, 4):
+            with self.subTest(selected=number):
+                self.assertEqual(classify_attention("claude", "2.1.287", select(snapshot, number)), verdict)
+
+    def test_claude_composer_clears_and_other_layouts_stay_unknown(self):
+        captures = json.loads((FIXTURES / "claude-floating-composers.json").read_text())["captures"]
+        for name in (c["name"] for c in captures):
+            with self.subTest(composer=name):
+                composer = claude(name, "claude-floating-composers.json")
+                self.assertEqual(classify_attention("claude", "2.1.287", composer).state, "none")
+        # The answered form, replayed as scrollback above the empty composer, is history.
+        form = claude().screen.split("\n")[40:55]
+        composer = claude("post-turn-dim-suggestion", "claude-floating-composers.json")
+        history = rewrite(composer, dict(enumerate(form)))
+        self.assertEqual(classify_attention("claude", "2.1.287", history).state, "none")
+        typed = rewrite(composer, {50: "\x1b[39m❯\xa0typed text\x1b[7m \x1b[0m"}, cursor_x=13)
+        self.assertEqual(classify_attention("claude", "2.1.287", typed).state, "unknown")
+        # Codex screens are never read as Claude's.
+        for name in json.loads((FIXTURES / "native-attention.json").read_text()):
+            with self.subTest(codex_capture=name):
+                self.assertEqual(classify_attention("claude", "2.1.287", capture(name)).state, "unknown")
+
+    def test_claude_impostors_and_malformed_forms_are_not_waiting(self):
+        snapshot = claude()
+        rule = "─" * snapshot.columns
+        arrow2 = ARROW + "\x1b[38;5;246m2.\x1b[39m Cedar"
+        for label, changed in {
+            "plain text": snapshot.model_copy(update={"screen": SGR.sub("", snapshot.screen)}),
+            "plain upper rule": rewrite(snapshot, {40: rule}),
+            "plain lower rule": rewrite(snapshot, {50: rule}),
+            "plain tab": rewrite(snapshot, {41: " ☐ Test label "}),
+            "plain question": rewrite(snapshot, {43: "Which label should be used for the test: Maple or Cedar?"}),
+            "plain arrow": rewrite(snapshot, {45: "❯ \x1b[38;5;246m1.\x1b[39m \x1b[38;5;153mMaple\x1b[39m"}),
+            "plain footer": rewrite(snapshot, {53: "Enter to select · ↑/↓ to navigate · Esc to cancel"}),
+            "plain description": rewrite(snapshot, {46: "     Use Maple as the test label"}),
+            "no arrow": rewrite(snapshot, {45: "  \x1b[38;5;246m1.\x1b[39m Maple"}),
+            "two arrows": rewrite(snapshot, {47: arrow2}),
+            "number gap": rewrite(snapshot, {47: "  \x1b[38;5;246m3.\x1b[39m Cedar"}),
+            "missing Chat option": rewrite(snapshot, {51: ""}),
+            "missing Type option": rewrite(snapshot, {49: "  \x1b[38;5;246m3.\x1b[39m Other"}),
+            "one ordinary choice": rewrite(snapshot, {47: None, 48: None, 49: "  \x1b[38;5;246m2.\x1b[39m "
+                "\x1b[38;5;246mType\x1b[39m \x1b[38;5;246msomething.\x1b[39m", 51: "\x1b[39m  3. Chat about this"}),
+            "text below the form": rewrite(snapshot, {54: "● Maple"}),
+            "unsupported style": rewrite(snapshot, {43: snapshot.screen.split("\n")[43].replace("\x1b[1m", "\x1b[1;3m")}),
+            "unsupported escape": snapshot.model_copy(update={"screen": snapshot.screen + "\x1b[2J"}),
+            # SYNTHETIC unsupported variants; none was captured, so none may be recognized.
+            "multi-question tabs": rewrite(snapshot, {41: snapshot.screen.split("\n")[41] + "  ☐ Second  ✔ Submit →"}),
+            "free-text answer": rewrite(snapshot, {49: ARROW + "\x1b[38;5;246m3.\x1b[39m my own answer"}),
+            "visible cursor": snapshot.model_copy(update={"cursor_visible": True}),
+            "cursor outside the form": snapshot.model_copy(update={"cursor_y": 39}),
+            "pane in a mode": snapshot.model_copy(update={"in_mode": True}),
+        }.items():
+            with self.subTest(label):
+                self.assertEqual(classify_attention("claude", "2.1.287", changed).state, "unknown")
+        for provider, version in (("claude", "2.1.288"), ("claude", "future"), ("other", "2.1.287")):
+            with self.subTest(provider=provider, version=version):
+                self.assertEqual(classify_attention(provider, version, snapshot).state, "unknown")
+
+    def test_claude_prompt_is_explicitly_bounded(self):
+        snapshot = claude()
+        lines = snapshot.screen.removesuffix("\n").split("\n")
+        lines[46:46] = ["     \x1b[38;5;246m" + "x" * 60 + "\x1b[39m"] * 120
+        changed = snapshot.model_copy(update={"rows": len(lines), "screen": "\n".join(lines) + "\n"})
+        verdict = classify_attention("claude", "2.1.287", changed)
+        self.assertEqual(verdict.state, "waiting")
+        self.assertEqual(len(verdict.prompt), 6000)
+        self.assertTrue(verdict.truncated)
 
     def test_wire_invariants(self):
         for data in ({"state": "waiting"}, {"state": "none"}, {"state": "unknown", "prompt": "old"},

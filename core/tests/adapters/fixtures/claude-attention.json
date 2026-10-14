@@ -1,0 +1,19 @@
+{
+  "provenance": "Derived from one read-only live pinned Claude Code 2.1.287 AskUserQuestion snapshot saved by the Manager during QA on 2026-10-14. Rows 0-39 (conversation history above the form) were replaced with blank rows; rows 40-54 (the form), geometry, cursor and flags are verbatim, including every SGR sequence. Offline observation only: no input was sent and no answer, free-text, multi-question or approval layout was captured.",
+  "captures": [
+    {
+      "name": "ask-user-question-single",
+      "source": "claude-question-form-snapshot.json",
+      "provider": "claude",
+      "version": "2.1.287",
+      "original_file_sha256": "5c23fbf27832fe8f9fb8a1f7245c24af339c656c1d0da324349ad0a32031e6a9",
+      "original_screen_sha256": "709a13b9a08cdbd7f061579fe69df90872d03a832e363d9c324b64160dc23443",
+      "derived_screen_sha256": "784dbda19860843bdc5765fb2554e9f40a8befffcbf22ccc6befdf36dc8ecfa9",
+      "sanitized_rows": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39],
+      "columns": 106,
+      "rows": 55,
+      "cursor": [0, 45, false],
+      "screen": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\u001b[38;5;246m──────────────────────────────────────────────────────────────────────────────────────────────────────────\n\u001b[38;5;16m\u001b[48;5;153m ☐ Test label \u001b[39m\u001b[49m\n\n\u001b[1m\u001b[38;5;231mWhich label should be used for the test: Maple or Cedar?\u001b[0m\n\n\u001b[38;5;153m❯\u001b[39m \u001b[38;5;246m1.\u001b[39m \u001b[38;5;153mMaple\u001b[39m\n     \u001b[38;5;246mUse Maple as the test label\u001b[39m\n  \u001b[38;5;246m2.\u001b[39m Cedar\n     \u001b[38;5;246mUse\u001b[39m \u001b[38;5;246mCedar\u001b[39m \u001b[38;5;246mas\u001b[39m \u001b[38;5;246mthe\u001b[39m \u001b[38;5;246mtest\u001b[39m \u001b[38;5;246mlabel\u001b[39m\n  \u001b[38;5;246m3.\u001b[39m \u001b[38;5;246mType\u001b[39m \u001b[38;5;246msomething.\u001b[39m\n\u001b[38;5;246m──────────────────────────────────────────────────────────────────────────────────────────────────────────\n\u001b[39m  4. Chat about this\n\n\u001b[38;5;246mEnter\u001b[39m \u001b[38;5;246mto\u001b[39m \u001b[38;5;246mselect\u001b[39m \u001b[38;5;246m·\u001b[39m \u001b[38;5;246m↑/↓\u001b[39m \u001b[38;5;246mto\u001b[39m \u001b[38;5;246mnavigate\u001b[39m \u001b[38;5;246m·\u001b[39m \u001b[38;5;246mEsc\u001b[39m \u001b[38;5;246mto\u001b[39m \u001b[38;5;246mcancel\u001b[39m\n\n"
+    }
+  ]
+}

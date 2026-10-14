@@ -67,7 +67,8 @@ questions (single and multi-question/free-text as available) and shell/MCP
 approvals. Capture the actual profile before adding recognition; do not invent
 native screen fixtures. Unsupported native layouts/providers remain unknown,
 and evidence must name the exact tested coverage. No renewed provider-restricted
-Claude or browser probes are part of this work.
+Claude or browser probes are part of this work. The [amendment](#amendment--claude-code-question-form)
+adds one observed Claude layout to that classifier; everything else stays unknown.
 
 Fresh waiting observations contribute to agents_get/list needs_user_input,
 ORed with existing unresolved browser requests. Expose waiting_user and its
@@ -126,3 +127,69 @@ built-in Chrome control remains separate; those controls currently list no
 browser. Do not substitute custom browser tooling or call fixture tests a
 hands-on user-session test. A completed pair also needs read-only observation
 on the local test instance before claiming deployment success.
+
+## Amendment — Claude Code question form
+
+Manager decision, 2026-10-14. The owner's real Claude Code 2.1.287
+`AskUserQuestion` was visible in Terminal while Chat showed nothing, because
+the pure classifier recognized only Codex 0.160.0. Add the one observed Claude
+form to that classifier. `NativeAttention`, `runtime_get`, the agent projection
+and the UI are unchanged: no input request, conversation entry, public
+operation, schema, hook, owner-refresh, timeout or cache change, and no second
+question system. The notice never answers or selects; answers stay in Terminal.
+This amendment does not claim live integrated acceptance.
+
+**Scope.** Exactly provider `claude`, version `2.1.287`; no other provider or
+version becomes supported. The geometry, cursor-bounds, normal-pane-flag and
+supported-ANSI preconditions are the Codex ones, unchanged. Codex behavior is
+unchanged, and a Codex screen passed as Claude is `unknown`.
+
+**Supported form.** One question, drawn at the bottom of the pane, observed at
+106x55 with the cursor hidden on the selected row. Rows, top to bottom, with
+SGR colors as foreground/background (`gray` is 256-color 246):
+
+| Row | Plain text | Observed style |
+| --- | --- | --- |
+| upper rule | `─` across every column | gray |
+| tab | ` ☐ <header> ` (one tab) | foreground 16 on background 153, including both edge spaces |
+| blank | | |
+| question | one or more rows | bold, foreground 231 |
+| blank | | |
+| options 1..k, k >= 2 | `❯ N. label` selected, `  N. label` otherwise | exactly one arrow, foreground 153; optional description rows indented five spaces, gray |
+| option k+1 | `N. Type something.` | |
+| lower rule | as above | gray |
+| option k+2 | `N. Chat about this` | |
+| blank | | |
+| action footer | `Enter to select · ↑/↓ to navigate · Esc to cancel` | gray |
+
+Header, question, option and description text vary; numbering is consecutive
+from 1. Recognition requires the whole joint shape: the footer is the last
+non-blank row, the cursor is hidden and inside the form, and each styled row has
+exactly the style above. SGR state is tracked row to row, as tmux carries it;
+any sequence other than 0, 1, 22, 39, 49 and 38/48;5;n inside the form refuses
+it. Question marks, option numbers or the footer words in prose, scrollback,
+unstyled copies of the form or a form followed by other rows never match.
+
+**Prompt.** The visible question rows, then every numbered option with its
+description rows, including `Type something.` and `Chat about this`. The
+selector arrow, tab, rules, footer and all history are excluded, rows are
+stripped like Codex's, and the 6000-character bound with `truncated` is shared.
+Moving the selection does not change the prompt, hence causes no new
+`native.attention_changed` event.
+
+**Clearing.** Any other Claude screen is `unknown`, except that the existing
+`classify_input` verdict `empty` (the known ordinary composer) gives
+`state=none`. This clears a notice after the question is answered and the
+composer returns; it is not input readiness, and the composer classifier and
+its input rules are unchanged. While the turn continues after an answer the
+state is `unknown`, which also expires the notice, never "answered".
+
+**Not supported (stay `unknown`).** Multi-question tabs or a submit tab, the
+free-text editor or visible cursor, tool-permission and other approvals, more
+than nine options, wrapped option labels, unstyled or differently
+styled variants, and any form without both the Type-something and
+Chat-about-this affordances. Only the single captured layout exists as a
+sanitized fixture (`claude-attention.json`); the selection of options 2-4 and
+every negative variant in the regression group are labelled synthetic edits of
+it, not captures. The real open question is validated by the Manager after
+integration.
