@@ -3,8 +3,9 @@
 import asyncio
 import base64
 import ctypes
+import errno
 import hashlib
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, contextmanager
 import json
 import os
 from pathlib import Path
@@ -34,6 +35,7 @@ from qorqut_core.runner.process import fingerprint, verify_process
 from qorqut_core.runner.shell import ShellManager
 from qorqut_core.runner.shell_models import ShellDimensions
 from qorqut_core.runner.storage import input_lock
+from qorqut_core.runtime import terminals as terminal_service
 from qorqut_core.runtime.terminal_models import CLIENT_MESSAGE, TerminalView
 from qorqut_core.transports.boundary import Admission, Boundary
 from qorqut_core.transports.configuration import read_configuration
@@ -637,6 +639,233 @@ class TerminalTests(OwnedProcesses, unittest.TestCase):
             self.assertEqual(next(iter(app.terminals._cache.values()))[1].control, held)
             stream.close()
             release.assert_called_once_with(shell.terminal_id, stream.viewer_id, held.epoch)
+
+
+@contextmanager
+def fsynced(fail_on=None):
+    """Paths handed to os.fsync inside the block; the first fsync of `fail_on` raises EIO instead."""
+    real, paths, pending = os.fsync, [], [fail_on]
+
+    def record(fd):
+        path = os.readlink(f"/proc/self/fd/{fd}")
+        paths.append(path)
+        if path == pending[0]:
+            pending[0] = None
+            raise OSError(errno.EIO, "synthetic fsync failure")
+        return real(fd)
+
+    with patch("os.fsync", record):
+        yield paths
+
+
+def setup_paths(f, agent=None):
+    """Every directory whose entry the durable setup of one agent syncs."""
+    agent = agent or f.agent_id
+    runtime = f.local.runtime_root / UUID(agent).hex
+    local = f.workspace_of(agent).parent / "runtime"
+    xdg = {local / "home" / suffix for suffix in (".local/share", ".local", ".codex", ".claude", ".config", ".cache")}
+    chains = {path for tree in (f.local.runtime_root, runtime) for path in (tree, *tree.parents)}
+    return {os.path.realpath(path) for path in chains | xdg | {local, local / "home"}}
+
+
+def own_setup_paths(f, agent=None):
+    """The part of that setup no other fsync of an observation (e.g. archive objects) can share."""
+    data = os.path.realpath(f.settings.data_root)
+    return {path for path in setup_paths(f, agent) if not data.startswith(path.rstrip("/") + "/")}
+
+
+class TerminalPreparation(OwnedProcesses, unittest.TestCase):
+    """Durable directory setup runs once per binding and process; later visits only validate it."""
+
+    def installation(self):
+        f = TerminalInstallation()
+        self.addCleanup(f.close)
+        app = Application.open(f.settings)
+        self.addCleanup(app.close)
+        # Publish the workspace only, so the first real shell setup is the visit a test instruments.
+        with patch.object(app.workspaces, "terminals", None):
+            app.jobs.run_next(worker_id=uuid4())
+        return f, app
+
+    def available(self, terminals, agent):
+        return wait_for(lambda: (v if (v := terminals.observe(UUID(agent))).status == "available" else None), 30)
+
+    def observed(self, terminals, agent):
+        """One visit; its fsynced paths, how often it ensured the shell, and its view."""
+        with patch.object(ShellManager, "ensure", autospec=True, side_effect=ShellManager.ensure) as ensure, \
+                fsynced() as paths:
+            view = terminals.observe(UUID(agent))
+        return set(paths), ensure.call_count, view
+
+    def test_interrupted_setup_retries_every_sync_then_unchanged_visits_only_inspect(self):
+        f, app = self.installation()
+        terminals, key = app.terminals, UUID(f.agent_id)
+        self.assertFalse(f.local.runtime_root.exists())
+        # mkdir of the runtime root succeeded, but syncing its parent entry was interrupted.
+        with fsynced(fail_on=os.path.realpath(f.local.runtime_root.parent)):
+            view = terminals.observe()
+        self.assertEqual((view.status, view.reason), ("unavailable", "terminal_unavailable"))
+        self.assertTrue(f.local.runtime_root.is_dir())
+        self.assertNotIn(key, terminals._prepared)
+        # The retry finds every directory already created and still syncs each required entry.
+        synced, ensured, view = self.observed(terminals, f.agent_id)
+        self.assertTrue(setup_paths(f) <= synced, setup_paths(f) - synced)
+        self.assertEqual(ensured, 1)
+        self.assertEqual(terminals._prepared[key][1], view.terminal_id)
+        self.available(terminals, f.agent_id)
+        # Unchanged binding: the shell is still ensured/inspected and archived, no setup entry is synced again.
+        shell = f.shell()
+        steady, ensured, view = self.observed(terminals, f.agent_id)
+        self.assertEqual((view.status, view.reason, ensured), ("available", "verified", 1))
+        self.assertEqual(steady & own_setup_paths(f), set())
+        before = view.recording.local_captured_offset
+        stream = terminals.attach(key, f.owner.actor_id)
+        control = stream.control("take", 0)
+        marker = b"PREPARED_VISIT_7c1"
+        self.assertEqual(stream.input(b"printf '%s\\n' " + marker + b"\r", epoch=control.epoch, sequence=1).outcome, "submitted")
+        wait_for(lambda: marker in f.captured())
+        with patch.object(terminal_service, "transfer", wraps=terminal_service.transfer) as archived:
+            steady, ensured, view = self.observed(terminals, f.agent_id)
+        stream.close()
+        archived.assert_called_once()
+        self.assertEqual(steady & own_setup_paths(f), set())
+        self.assertGreaterEqual(view.recording.local_captured_offset, before + len(marker))
+        self.assertLessEqual(view.recording.local_captured_offset, terminal_service.saved_capture(f.database, shell).local_captured_offset)
+        self.assertLessEqual(view.recording.host_archived_offset, view.recording.local_captured_offset)
+        # A failing observation drops only the marker, so the retry repeats the whole durable path.
+        with patch.object(ShellManager, "ensure", side_effect=RunnerError("unavailable", "synthetic inspection failure")):
+            self.assertEqual(terminals.observe().status, "unavailable")
+        self.assertNotIn(key, terminals._prepared)
+        synced, _, view = self.observed(terminals, f.agent_id)
+        self.assertTrue(setup_paths(f) <= synced, setup_paths(f) - synced)
+        self.assertEqual((view.status, key in terminals._prepared), ("available", True))
+        # Liveness is never cached: a prepared visit reports the exited shell.
+        f.manager().shutdown(shell.terminal_id)
+        _, ensured, view = self.observed(terminals, f.agent_id)
+        self.assertEqual((view.status, view.reason, ensured), ("stopped", "shell_exited", 1))
+        # The marker is process-local: a reopened core repeats the durable setup before marking.
+        app.close()
+        reopened = Application.open(f.settings)
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.terminals._prepared, {})
+        synced, _, view = self.observed(reopened.terminals, f.agent_id)
+        self.assertTrue(setup_paths(f) <= synced, setup_paths(f) - synced)
+        self.assertEqual((view.terminal_id, key in reopened.terminals._prepared), (shell.terminal_id, True))
+
+    def test_prepared_visits_still_validate_owned_paths_and_repeat_setup_after_a_refusal(self):
+        f, app = self.installation()
+        terminals, key = app.terminals, UUID(f.agent_id)
+        terminals.observe()
+        self.available(terminals, f.agent_id)
+        local = f.workspace.parent / "runtime"
+        home = local / "home"
+        marker = f.workspace.parent / ".qorqut-owner.json"
+        original_marker = marker.read_bytes()
+        away = home.with_name("home.away")
+
+        def refused(reason, *, ensured):
+            synced, called, view = self.observed(terminals, f.agent_id)
+            self.assertEqual((view.status, view.reason, called), ("unavailable", reason, ensured))
+            self.assertEqual(synced & own_setup_paths(f), set(), "a refused prepared visit created or synced nothing")
+            self.assertNotIn(key, terminals._prepared)
+
+        def repaired():
+            synced, _, view = self.observed(terminals, f.agent_id)
+            self.assertEqual(view.status, "available")
+            self.assertTrue(own_setup_paths(f) <= synced, own_setup_paths(f) - synced)
+            self.assertIn(key, terminals._prepared)
+
+        # Owner marker substituted: refused before any shell effect, marker dropped.
+        changed = json.loads(original_marker)
+        changed["operation_id"] = str(uuid4())
+        marker.write_text(json.dumps(changed))
+        refused("terminal_unavailable", ensured=0)
+        marker.write_bytes(original_marker)
+        repaired()
+        # Private directory missing, replaced by a symlink, or no longer private: opened, never created.
+        os.rename(home, away)
+        refused("terminal_unavailable", ensured=0)
+        self.assertFalse(home.exists())
+        os.symlink(away, home)
+        refused("terminal_unavailable", ensured=0)
+        os.unlink(home)
+        os.rename(away, home)
+        repaired()
+        home.chmod(0o755)
+        refused("target_changed", ensured=0)
+        home.chmod(0o700)
+        repaired()
+        f.local.runtime_root.chmod(0o755)
+        refused("target_changed", ensured=0)
+        f.local.runtime_root.chmod(0o700)
+        repaired()
+        # A native directory the setup once synced must still exist; the shell is inspected before it is checked.
+        os.rename(home / ".codex", home / ".codex.away")
+        refused("terminal_unavailable", ensured=1)
+        os.rename(home / ".codex.away", home / ".codex")
+        repaired()
+
+    def test_binding_changes_miss_the_marker(self):
+        f, app = self.installation()
+        terminals, key = app.terminals, UUID(f.agent_id)
+        view = terminals.observe()
+        self.available(terminals, f.agent_id)
+        first = terminals._prepared[key]
+        # A verified shell settles its provisioning job: the visit under the new active lifecycle is a different
+        # target and syncs again.
+        with fsynced() as synced:
+            terminals.observe_all()
+        with app.db.read() as tx:
+            self.assertEqual(tx.connection.execute("SELECT lifecycle FROM agents WHERE id=?", (str(key),)).fetchone()[0], "active")
+        self.assertNotEqual(terminals._prepared[key][0], first[0])
+        self.assertTrue(own_setup_paths(f) <= set(synced), own_setup_paths(f) - set(synced))
+        # A different saved terminal is a different binding even for the same target.
+        terminals._prepared[key] = terminals._prepared[key][0], uuid4()
+        synced, _, view = self.observed(terminals, f.agent_id)
+        self.assertTrue(own_setup_paths(f) <= synced, own_setup_paths(f) - synced)
+        self.assertEqual(terminals._prepared[key][1], view.terminal_id)
+        # A recovery-epoch change refuses the held setup and drops the marker.
+        context = Invocation(actor_id=f.owner.actor_id)
+        self.assertTrue(app.activate_recovery(context, RecoveryActivation(expected_installation_id=f.settings.installation_id,
+            expected_recovery_epoch=view.recovery_epoch, idempotency_key="prepared-recovery")).ok)
+        _, _, view = self.observed(terminals, f.agent_id)
+        self.assertEqual((view.status, view.reason), ("unavailable", "target_changed"))
+        self.assertNotIn(key, terminals._prepared)
+
+    def test_one_agents_refusal_never_unprepares_or_resyncs_another(self):
+        f, app = self.installation()
+        terminals, first = app.terminals, f.agent_id
+        terminals.observe()
+        second = app.invoke("agents_create", Invocation(actor_id=f.owner.actor_id),
+                            {"display_name": "Second prepared agent", "idempotency_key": "prepared-second"}).data["agent"]["id"]
+        for _ in range(60):
+            app.jobs.run_next(worker_id=uuid4())
+            terminals.observe_all()
+            with app.db.read() as tx:
+                if {r[0] for r in tx.connection.execute("SELECT lifecycle FROM agents WHERE kind='host'")} == {"active"}:
+                    break
+            time.sleep(0.5)
+        else:
+            self.fail("Both local agents did not become active")
+        for agent in (first, second):
+            self.available(terminals, agent)
+        marked = dict(terminals._prepared)
+        self.assertEqual(set(marked), {UUID(first), UUID(second)})
+        home = f.workspace_of(first).parent / "runtime/home"
+        os.rename(home, home.with_name("home.away"))
+        synced, ensured, view = self.observed(terminals, first)
+        self.assertEqual((view.status, ensured), ("unavailable", 0))
+        self.assertEqual(set(terminals._prepared), {UUID(second)})
+        self.assertIs(terminals._prepared[UUID(second)], marked[UUID(second)])
+        steady, _, other = self.observed(terminals, second)
+        self.assertEqual((other.status, other.agent_id), ("available", UUID(second)))
+        self.assertEqual(steady & own_setup_paths(f, second), set())
+        os.rename(home.with_name("home.away"), home)
+        retried, _, view = self.observed(terminals, first)
+        self.assertEqual(view.status, "available")
+        self.assertTrue(own_setup_paths(f, first) <= retried)
+        self.assertEqual(retried & (own_setup_paths(f, second) - setup_paths(f, first)), set())
+        self.assertEqual(set(terminals._prepared), {UUID(first), UUID(second)})
 
 
 class Socket:

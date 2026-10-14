@@ -49,23 +49,27 @@ def _owned(fd, *, private=True):
         raise CoreError("target_changed", "Terminal directory ownership is unavailable")
 
 
-def _private_tree(path):
-    """Create only the explicit directory chain, rejecting symlink traversal.
+def _private_tree(path, *, durable=True):
+    """Open the explicit directory chain, rejecting symlink traversal.
 
-    Sync parent entries even on retry: an existing directory can be the result
-    of an earlier interrupted mkdir/fsync, not evidence of durable publication.
+    `durable` creates each missing directory and syncs parent entries, also on
+    retry: an existing directory can be the result of an earlier interrupted
+    mkdir/fsync, not evidence of durable publication. Without it the same chain
+    and ownership are only validated; nothing is created or synced.
     """
     with directory(Path("/")) as root:
         fd = os.dup(root)
         try:
             for part in path.parts[1:]:
-                with child_directory(fd, part, create=True) as child:
-                    os.fsync(fd)
+                with child_directory(fd, part, create=durable) as child:
+                    if durable:
+                        os.fsync(fd)
                     next_fd = os.dup(child)
                 os.close(fd)
                 fd = next_fd
             _owned(fd)
-            os.fsync(fd)
+            if durable:
+                os.fsync(fd)
         finally:
             os.close(fd)
 
@@ -77,6 +81,8 @@ class Terminals:
         self._lock = threading.Lock()
         self._cache = {}
         self._managers = {}
+        # agent -> (target, terminal_id) whose durable directory setup completed in this process.
+        self._prepared = {}
         self._streams = {}
         self._closing = False
         self._stop = threading.Event()
@@ -93,6 +99,10 @@ class Terminals:
     def _manager(self, agent_id):
         with self._lock:
             return self._managers.get(UUID(str(agent_id)))
+
+    def _unprepare(self, agent_id):
+        with self._lock:
+            self._prepared.pop(agent_id, None)
 
     def _target(self, tx, agent_id=None):
         row = dict(reserved(tx) if agent_id is None else get_row(tx, agent_id))
@@ -197,6 +207,11 @@ class Terminals:
 
         `create=False` only inspects an attempt that already exists: it creates no
         directory, shell or manager state and never launches a second shell.
+
+        The first visit of a binding in this process (and every retry after a
+        failure) creates and syncs the directory chain. Later visits of the same
+        binding and saved terminal validate that chain and its ownership but
+        skip the redundant creation and fsyncs; the shell is inspected every time.
         """
         assert_external_io_allowed()
         with self.db.lock.use(), self.db.lock.effects:
@@ -206,6 +221,7 @@ class Terminals:
                                             (row["provisioning_job_id"],)).fetchone()
             base = self._base(target, row, installation)
             if base.reason != "not_observed":
+                self._unprepare(target.agent_id)
                 return self._publish(target, base)
             try:
                 with self.app.workspaces.owned(row, installation) as (fd, guard):
@@ -236,12 +252,17 @@ class Terminals:
                                 raise CoreError("target_changed", "Terminal attempt is bound differently")
                         if job is None or job["recovery_epoch"] != installation["recovery_epoch"] or job["wait_reason"] == "recovery_review":
                             raise CoreError("target_changed", "Terminal setup is held for recovery")
-                        with child_directory(local, "home", create=True) as home:
+                        with self._lock:
+                            prepared = (prior is not None and target.agent_id in self._managers
+                                        and self._prepared.get(target.agent_id) == (target, UUID(prior["terminal_id"])))
+                        durable = not prepared
+                        with child_directory(local, "home", create=durable) as home:
                             _owned(home)
-                            os.fsync(home)
-                            os.fsync(local)
-                            _private_tree(self.settings.runtime_root)
-                            _private_tree(runtime)
+                            if durable:
+                                os.fsync(home)
+                                os.fsync(local)
+                            _private_tree(self.settings.runtime_root, durable=durable)
+                            _private_tree(runtime, durable=durable)
                             guard()
                             same_child(fd, "workspace", workspace)
                             same_child(fd, "runtime", local)
@@ -257,10 +278,16 @@ class Terminals:
                             # parent entries, also when recovering a prior attempt.
                             for suffix in (".local/share", ".local", ".codex", ".claude", ".config", ".cache"):
                                 with directory(spec.home / suffix) as child:
-                                    os.fsync(child)
-                            os.fsync(home)
-                            os.fsync(local)
+                                    if durable:
+                                        os.fsync(child)
+                            if durable:
+                                os.fsync(home)
+                                os.fsync(local)
                             guard()
+                            if durable:
+                                # Only a complete setup marks this binding. Archive failures below do not unmark it.
+                                with self._lock:
+                                    self._prepared[target.agent_id] = target, shell.terminal_id
                             try:
                                 transfer(configuration["database"], shell, self.app.archive,
                                          Invocation(actor_id=row["actor_id"]))
@@ -276,9 +303,14 @@ class Terminals:
                             shell = shell.model_copy(update={"saved_capture": captured})
                     return self._publish(target, self._presentation(target, shell))
             except (CoreError, RunnerError, OSError, ValueError, sqlite3.Error) as exc:
+                # Only this agent repeats its durable setup on retry.
+                self._unprepare(target.agent_id)
                 code = exc.error.code if isinstance(exc, CoreError) else exc.code if isinstance(exc, RunnerError) else "unavailable"
                 reason = "target_changed" if code in {"target_changed", "idempotency_conflict"} else "terminal_unavailable"
                 return self._publish(target, base.model_copy(update={"observed_at": self.db.clock(), "reason": reason}))
+            except BaseException:
+                self._unprepare(target.agent_id)
+                raise
 
     @property
     def ready(self):

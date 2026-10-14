@@ -68,6 +68,20 @@ than marking browser/environment setup complete because Bash exists.
 
 Repeated ensure uses the same durable shell attempt. A stopped, changed or
 uncertain binding is reported, never automatically replaced, killed or adopted.
+
+Initialization and repeated observation differ only in directory durability. The
+first visit of a target binding and saved terminal in a core process, and every
+visit after a failed observation, creates and syncs the directory chain (the
+parent entry also when a directory already exists). Once that whole sequence and
+its ownership guards succeed, the service remembers in process memory that this
+agent's binding is prepared; the memory is discarded on restart, on any change of
+target, lifecycle, recovery epoch or terminal, and on an observation failure of
+that agent only. A visit of a prepared binding still reopens and validates the
+same workspace, owner marker, private and native directories, and still ensures
+and inspects the shell, transfers archive bytes and refreshes saved counters; it
+creates and syncs nothing, and a missing or changed directory is unavailable. The
+memory certifies setup only, never liveness or capture health. The one-second
+observation, five-second expiry and stream contracts are unchanged.
 No host environment-rebuild operation or generation allocator is introduced.
 Changed recovery epoch/configuration cannot authorize another shell or rebind
 an old one. Normal application/server close stops its observation loop and
