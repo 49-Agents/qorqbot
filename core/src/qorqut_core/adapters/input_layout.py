@@ -123,7 +123,11 @@ def _observe(provider, version, snapshot, expected):
         return "blocked", "dialog_or_setup"
     if any(word in region for word in BUSY):
         return "busy", "turn_running"
-    if [i for i in range(start, snapshot.rows) if PROMPT.match(plain[i])] != [row]:
+    # Claude's own output above the upper rule is history, even prompt-looking rows (a resumed
+    # session replays its earlier `/exit`). Only the current box and what follows it compete;
+    # busy/dialog words above are still scanned from `start`. Codex keeps its whole window.
+    first = row if provider == "claude" else start
+    if [i for i in range(first, snapshot.rows) if PROMPT.match(plain[i])] != [row]:
         return "unknown", "ambiguous_or_misplaced_composer"
     tail = _tail(provider, raw[row])
     if provider == "claude":
@@ -135,10 +139,16 @@ def _observe(provider, version, snapshot, expected):
                 or not _claude_rows_after_footer_clear(plain, footer + 1, snapshot.columns)):
             return "unknown", "unknown_footer_or_multiline_input"
         text = expected if expected is not None else ""
-        # A suggestion proves an empty box, never that a pasted pointer is there.
-        if tail != text + "\x1b[7m \x1b[0m" and not (expected is None and _claude_hint(tail, snapshot.columns)):
+        # Each presentation is bound to its own cursor. Hidden: the text, then an inverted
+        # cell (or, for an empty check only, a suggestion that proves an empty box, never a
+        # pasted pointer). Visible, as in a resumed session: exactly the unstyled text, with
+        # the terminal cursor itself directly after it.
+        if tail == text + "\x1b[7m \x1b[0m" or (expected is None and _claude_hint(tail, snapshot.columns)):
+            visible = False
+        elif tail == text:
+            visible = True
+        else:
             return "blocked", "composer_contains_text_or_unknown_cursor_cell"
-        visible = False
     else:
         model, separator, path = plain[-2][2:].partition(" · ")
         footer = CODEX_EMPTY_FOOTER if expected is None else CODEX_INPUT_FOOTER

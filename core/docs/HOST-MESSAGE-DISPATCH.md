@@ -83,6 +83,14 @@ paste. Human control remains ShellManager-only. No separate machine surface or
 hold is implemented yet; explicitly supply no machine hold for this local-only
 boundary and document that a future machine takeover must join this gate.
 
+Amended 2026-10-14 (resumed Claude): for pinned Claude 2.1.287 the composer is
+the cursor-row box with both full-width rules and the known footer. Prompt-looking
+output above the upper rule (a resumed session replays its `/exit`) is history, not a
+competing composer; busy/dialog words in the local window still refuse. A visible
+cursor after an exactly empty or exactly pointer-equal unstyled tail is accepted
+beside the hidden-cursor cell forms, each bound to its own cursor. Still no paste
+permission; see [the evidence](evidence/claude-resumed-composer.md).
+
 An internal InputUnavailable(CoreError) may carry a fixed reason for prepare's
 known-no-input refusal: runtime_unavailable, unsupported_target,
 session_unavailable, hook_unavailable, native_busy, native_waiting_user,

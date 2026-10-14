@@ -1072,9 +1072,9 @@ class InputLayoutTests(unittest.TestCase):
         lines[row] = text
         return snapshot.model_copy(update={"screen": "\n".join(lines) + "\n"})
 
-    def floating(self, name):
+    def floating(self, name, fixture="claude-floating-composers.json"):
         """Sanitized live Claude snapshots whose box is not at the bottom of the pane."""
-        captures = json.loads((FIXTURES / "claude-floating-composers.json").read_text())["captures"]
+        captures = json.loads((FIXTURES / fixture).read_text())["captures"]
         capture = next(c for c in captures if c["name"] == name)
         x, y, visible = capture["cursor"]
         return TerminalSnapshot(columns=capture["columns"], rows=capture["rows"], cursor_x=x, cursor_y=y,
@@ -1085,6 +1085,13 @@ class InputLayoutTests(unittest.TestCase):
         text = self.notification if tail is None else tail
         return self.replace_row(snapshot, snapshot.cursor_y, "\x1b[39m❯\xa0" + text + cell).model_copy(
             update={"cursor_x": 2 + len(self.notification)})
+
+    def visible_cursor(self, snapshot):
+        """Constructed: the resumed presentation, unstyled text with the real cursor after it, not a cell."""
+        line = snapshot.screen.split("\n")[snapshot.cursor_y]
+        self.assertTrue(line.endswith("\x1b[7m \x1b[0m"))
+        return self.replace_row(snapshot, snapshot.cursor_y, line.removesuffix("\x1b[7m \x1b[0m")).model_copy(
+            update={"cursor_visible": True})
 
     def suggestion(self, *words):
         return "\x1b[39m❯\xa0\x1b[7mT\x1b[0;2mry\x1b[0m " + " ".join(f"\x1b[2m{w}\x1b[0m" for w in words)
@@ -1122,11 +1129,21 @@ class InputLayoutTests(unittest.TestCase):
                     self.assertFalse(verdict.native_verified)
                     self.assertFalse(verdict.permits_paste)
                     self.assertEqual(snap.model_dump(), before)
+                    if provider == "claude":
+                        resumed = self.visible_cursor(snap)
+                        self.assertEqual(classify_input(provider, version, resumed).state, "empty")
+                        self.assertNotEqual(classify_input(provider, version, snap).fingerprint,
+                            classify_input(provider, version, resumed).fingerprint)
                     for text in (self.notification, "a" * (columns - 3), "Human fixture draft", " A "):
                         filled = self.snapshot(provider, columns, rows, text)
                         self.assertTrue(matches_input(provider, version, filled, text))
                         self.assertNotEqual(classify_input(provider, version, filled).state, "empty")
                         self.assertFalse(matches_input(provider, version, filled, text + "x"))
+                        if provider == "claude":
+                            resumed = self.visible_cursor(filled)
+                            self.assertTrue(matches_input(provider, version, resumed, text))
+                            self.assertNotEqual(classify_input(provider, version, resumed).state, "empty")
+                            self.assertFalse(matches_input(provider, version, resumed, text + "x"))
                     if provider == "claude":
                         for mode in ("auto mode on", "bypass permissions on"):
                             changed = snap.model_copy(update={"screen": snap.screen.replace("auto mode on", mode)})
@@ -1283,6 +1300,14 @@ class InputLayoutTests(unittest.TestCase):
             for text in (None, self.notification):
                 snap = self.snapshot(provider, text=text)
                 for row, value in ((-8, "❯ extra composer"), (-5, "› extra composer"), (-1, "unexpected interactive row")):
+                    if provider == "claude" and row != -1:
+                        # Above Claude's upper rule is history, even a prompt-looking row in the local window.
+                        history = self.replace_row(snap, row, value)
+                        if text:
+                            self.assertTrue(matches_input(provider, self.versions[provider], history, text))
+                        else:
+                            self.assertEqual(classify_input(provider, self.versions[provider], history).state, "empty")
+                        continue
                     self.refused(provider, self.replace_row(snap, row, value))
                 row = -3 if provider == "claude" else -4
                 prompt = snap.screen.removesuffix("\n").split("\n")[row]
@@ -1641,11 +1666,14 @@ class InputLayoutTests(unittest.TestCase):
             ("busy footer", self.replace_row(valid, 52,
                 observed.screen.split("\n")[52] + " · esc to interrupt"), "busy"),
             ("dialog above", self.replace_row(valid, 47, "Esc to cancel"), "blocked"),
-            ("second prompt", self.replace_row(valid, 48, "❯ extra composer"), "unknown"),
+            ("second prompt after the footer", valid.model_copy(update={"rows": 56,
+                "screen": valid.screen + "❯ extra composer\n"}), "unknown"),
             ("input mode", valid.model_copy(update={"in_mode": True}), "unknown"),
         ):
             with self.subTest(layout=label):
                 self.refused("claude", sample, state)
+        # A prompt-looking row above the upper rule is output history, not a second composer.
+        self.assertEqual(classify_input("claude", version, self.replace_row(valid, 48, "❯ extra composer")).state, "empty")
         for unknown in ("2.1.286", "2.1.288"):
             self.assertEqual(classify_input("claude", unknown, valid).evidence, "unsupported")
         with self.subTest(provider="codex"):
@@ -1668,6 +1696,139 @@ class InputLayoutTests(unittest.TestCase):
         self.assertEqual(classify_input("claude", version, filled).state, "blocked")
         self.assertFalse(matches_input("claude", version, self.with_pointer(observed, self.dim(self.notification), ""),
             self.notification))
+
+    resumed = "claude-resumed-composers.json"
+    probe = "QORQBOT-CURSOR-PROBE"
+
+    def test_resumed_claude_box_has_a_visible_cursor_and_never_proves_a_paste_by_itself(self):
+        """Observed after resume: replayed `/exit` history above the box, the real cursor instead of a cell."""
+        version, hidden = self.versions["claude"], "\x1b[7m \x1b[0m"
+        for name, history in (("resumed-empty-a", 45), ("resumed-empty-b", 44)):
+            with self.subTest(name=name):
+                snap = self.floating(name, self.resumed)
+                before, rows = snap.model_dump(), snap.screen.removesuffix("\n").split("\n")
+                self.assertEqual((snap.columns, snap.rows, snap.cursor_x, snap.cursor_y, snap.cursor_visible),
+                    (106, 52, 2, 49, True))
+                self.assertEqual(rows[49], "\x1b[39m❯\xa0")
+                self.assertEqual(re.sub(r"\x1b\[[0-9;]*m", "", rows[history]), "❯ /exit")
+                verdict = classify_input("claude", version, snap)
+                self.assertEqual((verdict.state, verdict.reason, verdict.evidence),
+                    ("empty", "native_snapshot_empty_layout_live_unverified", "native_snapshot"))
+                self.assertFalse(verdict.native_verified)
+                self.assertFalse(verdict.permits_paste)
+                for expected in (self.notification, self.probe, " ", "x"):
+                    self.assertFalse(matches_input("claude", version, snap, expected))
+                self.assertEqual(snap.model_dump(), before)
+
+                def row(tail, **update):
+                    return self.replace_row(snap, 49, "\x1b[39m❯\xa0" + tail).model_copy(update=update)
+
+                # The cursor presentation and the tail belong together; neither form borrows the other's.
+                for label, sample, state in (
+                    ("hidden cursor, no cell", snap.model_copy(update={"cursor_visible": False}), "unknown"),
+                    ("cell with a visible cursor", row(hidden), "unknown"),
+                    ("known hidden form", row(hidden, cursor_visible=False), None),
+                    ("cursor one column off", snap.model_copy(update={"cursor_x": 3}), "unknown"),
+                    ("cursor in column 0", snap.model_copy(update={"cursor_x": 0}), "unknown"),
+                    ("cursor a row off", snap.model_copy(update={"cursor_y": 50}), "unknown"),
+                    ("cursor on the history prompt", snap.model_copy(update={"cursor_y": history}), "unknown"),
+                    ("space", row(" "), "blocked"),
+                    ("reset", row("\x1b[0m"), "blocked"),
+                    ("styled nothing", row("\x1b[2m\x1b[0m"), "blocked"),
+                    ("draft, cursor at its end", row("Human fixture draft", cursor_x=21), "blocked"),
+                    ("draft, cursor at its start", row("Human fixture draft"), "blocked"),
+                    ("draft with a cell and visible cursor", row("Human fixture draft" + hidden, cursor_x=21), "blocked"),
+                    ("first-turn suggestion, visible cursor", row(self.observed_suggestion), "unknown"),
+                    ("dim suggestion, visible cursor", row(self.dim("check whether")), "unknown"),
+                    ("second composer line", self.replace_row(snap, 50, "\x1b[39m  second line"), "unknown"),
+                    ("lower rule missing", self.replace_row(snap, 50, ""), "unknown"),
+                    ("upper rule narrowed", self.replace_row(snap, 48, snap.screen.split("\n")[48][:-1]), "unknown"),
+                    ("unknown footer", self.replace_row(snap, 51, "  unknown footer"), "unknown"),
+                    ("no rules or footer, only the prompts", snap.model_copy(update={"screen": "\n".join(
+                        rows[:48] + [""] + rows[49:50] + ["", ""]) + "\n"}), "unknown"),
+                    ("extra prompt after the footer", snap.model_copy(update={"rows": 53,
+                        "screen": snap.screen + "❯ extra composer\n"}), "unknown"),
+                    ("extra status after the footer", snap.model_copy(update={"rows": 53,
+                        "screen": snap.screen + "extra status\n"}), "unknown"),
+                    ("busy above the box", self.replace_row(snap, 47, "Working (esc to interrupt)"), "busy"),
+                    ("dialog above the box", self.replace_row(snap, 47, "Esc to cancel"), "blocked"),
+                    ("input mode", snap.model_copy(update={"in_mode": True}), "unknown"),
+                ):
+                    with self.subTest(name=name, case=label):
+                        if state is None:
+                            self.assertEqual(classify_input("claude", version, sample).state, "empty")
+                        else:
+                            self.refused("claude", sample, state)
+                # Prior output above the verified box may quote any prompt, including inside the local window.
+                for index in (47, 46, 44, 20, 5):
+                    for quote in ("❯ extra composer", "> user text", "›\xa0quoted prompt"):
+                        with self.subTest(name=name, history_row=index, quote=quote):
+                            sample = self.replace_row(snap, index, quote)
+                            self.assertEqual(classify_input("claude", version, sample).state, "empty")
+                # Constructed from the observed box: the exact pointer, with the cursor right after it.
+                exact = row(self.notification, cursor_x=2 + len(self.notification))
+                self.assertTrue(matches_input("claude", version, exact, self.notification))
+                self.assertEqual(classify_input("claude", version, exact).state, "blocked")
+                for expected in (self.notification + "x", self.notification[:-1], self.notification.lower(),
+                                 " " + self.notification, "", self.probe):
+                    self.assertFalse(matches_input("claude", version, exact, expected))
+                for label, sample in {
+                    "cursor before the end": exact.model_copy(update={"cursor_x": exact.cursor_x - 1}),
+                    "cursor after the end": exact.model_copy(update={"cursor_x": exact.cursor_x + 1}),
+                    "hidden cursor": exact.model_copy(update={"cursor_visible": False}),
+                    "pointer then cell": row(self.notification + hidden, cursor_x=exact.cursor_x),
+                    "empty box, cursor where the pointer would end": row("", cursor_x=exact.cursor_x),
+                    "trailing space": row(self.notification + " ", cursor_x=exact.cursor_x + 1),
+                    "trailing reset": row(self.notification + "\x1b[0m", cursor_x=exact.cursor_x),
+                    "dim pointer": row("\x1b[2m" + self.notification + "\x1b[0m", cursor_x=exact.cursor_x),
+                    "suggestion pointer": row(self.dim(self.notification), cursor_x=exact.cursor_x),
+                }.items():
+                    with self.subTest(name=name, case=label):
+                        self.refused("claude", sample)
+                # The known hidden form is unchanged in the same box, bound to its own cursor.
+                known = self.with_pointer(snap.model_copy(update={"cursor_visible": False}))
+                self.assertTrue(matches_input("claude", version, known, self.notification))
+                self.assertFalse(matches_input("claude", version, known.model_copy(update={"cursor_visible": True}),
+                    self.notification))
+
+        # Observed through the UI in the same pane: exactly the typed text, unstyled, cursor right after it.
+        typed = self.floating("resumed-typed-probe", self.resumed)
+        rows = typed.screen.removesuffix("\n").split("\n")
+        self.assertEqual((typed.columns, typed.rows, typed.cursor_x, typed.cursor_y, typed.cursor_visible),
+            (106, 55, 2 + len(self.probe), 52, True))
+        self.assertEqual((rows[52], re.sub(r"\x1b\[[0-9;]*m", "", rows[48])), ("\x1b[39m❯\xa0" + self.probe, "❯ /exit"))
+        self.assertTrue(matches_input("claude", version, typed, self.probe))
+        verdict = classify_input("claude", version, typed)
+        self.assertEqual((verdict.state, verdict.reason), ("blocked", "composer_contains_text_or_unknown_cursor_cell"))
+        self.assertFalse(verdict.native_verified)
+        self.assertFalse(verdict.permits_paste)
+        for expected in (self.probe + "x", self.probe[:-1], self.probe.lower(), " " + self.probe, self.notification, "QORQBOT"):
+            self.assertFalse(matches_input("claude", version, typed, expected))
+        # The cursor alone proves nothing: an emptied box with the cursor left at the old end is not the text.
+        emptied = self.replace_row(typed, 52, "\x1b[39m❯\xa0")
+        self.assertFalse(matches_input("claude", version, emptied, self.probe))
+        self.assertFalse(matches_input("claude", version, emptied.model_copy(update={"cursor_x": 2}), self.probe))
+        # A typed draft is never an empty composer, wherever the cursor stands or however it is drawn.
+        for label, sample in {
+            "cursor at the start": typed.model_copy(update={"cursor_x": 2}),
+            "cursor in the middle": typed.model_copy(update={"cursor_x": 10}),
+            "hidden cursor": typed.model_copy(update={"cursor_visible": False}),
+            "cursor one column off": typed.model_copy(update={"cursor_x": typed.cursor_x + 1}),
+            "cursor a row off": typed.model_copy(update={"cursor_y": 53}),
+            "trailing space": self.replace_row(typed, 52, rows[52] + " ").model_copy(update={"cursor_x": 23}),
+            "trailing text": self.replace_row(typed, 52, rows[52] + "x").model_copy(update={"cursor_x": 23}),
+            "styled text": self.replace_row(typed, 52, "\x1b[39m❯\xa0\x1b[1m" + self.probe + "\x1b[0m"),
+            "dim text": self.replace_row(typed, 52, "\x1b[39m❯\xa0\x1b[2m" + self.probe + "\x1b[0m"),
+            "text and cell, visible cursor": self.replace_row(typed, 52, rows[52] + "\x1b[7m \x1b[0m"),
+            "wrapped onto the lower rule": self.replace_row(typed, 53, "\x1b[39m  continued"),
+            "second composer line": self.replace_row(typed, 53, "\x1b[39m❯\xa0second line"),
+            "no history, no rules": typed.model_copy(update={"screen": "\n".join(
+                rows[:51] + [rows[52]] + [""] * 3) + "\n"}),
+        }.items():
+            with self.subTest(case=label):
+                self.refused("claude", sample)
+        # Not the same pane as Codex: the observed layout proves nothing for the other provider.
+        self.refused("codex", typed, "unknown")
 
     def test_floating_claude_box_refuses_extra_rows_ambiguity_and_local_busy_dialog(self):
         version = self.versions["claude"]
@@ -1695,9 +1856,6 @@ class InputLayoutTests(unittest.TestCase):
                     "wide rule below": (at(1, rule + "─"), "unknown"),
                     "indented rule above": (at(-1, " " + rule), "unknown"),
                     "ascii rule below": (at(1, rule.replace("─", "-")), "unknown"),
-                    "prompt at window start": (at(-5, "> extra composer"), "unknown"),
-                    "prompt above box": (at(-3, "❯ extra composer"), "unknown"),
-                    "prompt beside rule": (at(-2, "›\xa0extra composer"), "unknown"),
                     "dialog at window start": (at(-5, "Esc to cancel"), "blocked"),
                     "busy above box": (at(-2, "Working (esc to interrupt)"), "busy"),
                     "busy after footer": (at(3, "Working (esc to interrupt)"), "busy"),
@@ -1726,8 +1884,10 @@ class InputLayoutTests(unittest.TestCase):
                 for label, (sample, state) in cases.items():
                     with self.subTest(name=name, filled=filled, case=label):
                         self.refused("claude", sample, None if filled else state)
-                # Output above the local window is history, even when it quotes prompts, rules or phrases.
-                outside = [at(-6, "❯ historical quote"), at(-6, "Working (esc to interrupt) · enter to confirm"), stale]
+                # Output above the upper rule is history, even when it quotes prompts, rules or phrases; prompt-looking
+                # rows inside the busy/dialog window above the box do not compete with the current box either.
+                outside = [at(-6, "❯ historical quote"), at(-6, "Working (esc to interrupt) · enter to confirm"), stale,
+                           at(-5, "> extra composer"), at(-3, "❯ extra composer"), at(-2, "›\xa0extra composer")]
                 for index, sample in enumerate(outside):
                     with self.subTest(name=name, filled=filled, outside=index):
                         if filled:
