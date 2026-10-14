@@ -5,7 +5,7 @@ No native executable, model provider, personal HOME or existing session is used.
 """
 
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from dataclasses import FrozenInstanceError
 from datetime import timedelta
 import hashlib
@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
+import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID, uuid4
@@ -1001,6 +1002,105 @@ class NativeCollection(RuntimeCase):
             tx.connection.execute("UPDATE archive_epochs SET conflicted=1")
         self.tick()
         self.assertFalse(self.collector.input_observation(run_id).healthy)
+
+    def test_tick_waiting_for_an_input_attempt_keeps_its_expiring_observation_until_it_owns_the_gate(self):
+        candidate, owner = self.bind("claude")
+        run_id = str(owner.run_id)
+        self.source(candidate, self.record(candidate, "primary"))
+        lock = self.app.db.lock
+        real = lock.effects
+        reached = threading.Event()
+
+        class Gate:
+            """The real effect gate; announces that a thread is about to wait for it."""
+
+            def __enter__(self):
+                reached.set()
+                real.acquire()
+
+            def __exit__(self, *exc):
+                real.release()
+
+        def behind_attempt(during, patched=nullcontext()):
+            """Tick on the collector's thread while another thread owns the gate as an input attempt does."""
+            held, release, finished = threading.Event(), threading.Event(), threading.Event()
+            reached.clear()
+
+            def attempt():
+                with lock.use(), real:
+                    held.set()
+                    if not release.wait(30):
+                        raise AssertionError("attempt was never released")
+
+            def watch():
+                try:
+                    # The tick can only be waiting: the attempt keeps the real gate.
+                    if not reached.wait(30):
+                        raise AssertionError("tick never reached the effect gate")
+                    during(finished)
+                finally:
+                    release.set()
+
+            error = None
+            with ThreadPoolExecutor(2) as pool:
+                holder = pool.submit(attempt)
+                self.assertTrue(held.wait(30))
+                watcher = pool.submit(watch)
+                self.clock.advance(1)
+                try:
+                    with patched:
+                        self.collector.tick()
+                except Exception as exc:
+                    error = exc
+                finished.set()
+                watcher.result(30)
+                holder.result(30)
+            return error
+
+        with patch.object(lock, "effects", Gate()):
+            self.tick()
+            before = self.collector.input_observation(run_id)
+            self.assertTrue(before.healthy)
+            serviced = self.elapsed
+
+            def old_until_expiry(finished):
+                self.assertFalse(finished.is_set())
+                self.assertIs(self.collector.input_observation(run_id), before)
+                self.elapsed = serviced + 4.999
+                self.assertIs(self.collector.input_observation(run_id), before)
+                self.elapsed = serviced + 5.001
+                self.assertIsNone(self.collector.input_observation(run_id))
+                self.assertFalse(finished.is_set())
+
+            self.assertIsNone(behind_attempt(old_until_expiry))
+            replacement = self.collector.input_observation(run_id)
+            self.assertEqual(replacement, NativeInputObservation(before.binding, self.clock(), 1, True))
+            self.assertNotEqual(replacement, before)
+
+            def old_before_failure(finished):
+                self.assertFalse(finished.is_set())
+                self.assertIs(self.collector.input_observation(run_id), replacement)
+
+            self.assertTrue(self.collector._source_observed)
+            failure = sqlite3.OperationalError("synthetic storage failure")
+            self.assertIs(behind_attempt(old_before_failure,
+                patch.object(self.collector, "_snapshot", side_effect=failure)), failure)
+            self.assertIsNone(self.collector.input_observation(run_id))
+            self.assertEqual((self.collector._source_observed, self.collector._exited_sources,
+                              self.collector._primary_wait), ({}, {}, {}))
+            self.tick()
+            current = self.collector.input_observation(run_id)
+            self.assertTrue(current.healthy)
+
+            # A tick refused before it can own the gate still waits for it to clear memory.
+            def old_before_cleanup(finished):
+                self.assertFalse(finished.is_set())
+                self.assertIs(self.collector.input_observation(run_id), current)
+
+            refusal = CoreError("not_ready", "Installation is held for maintenance", retryable=True)
+            self.assertIs(behind_attempt(old_before_cleanup,
+                patch.object(lock, "use", side_effect=refusal)), refusal)
+            self.assertIsNone(self.collector.input_observation(run_id))
 
     def test_resumed_run_needs_its_exact_host_link_and_retired_failure_is_independent(self):
         candidate, owner = self.bind()

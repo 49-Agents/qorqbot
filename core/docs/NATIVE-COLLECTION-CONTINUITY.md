@@ -111,3 +111,27 @@ and healthy primary evidence despite parser/coverage warnings or another retired
 run's failure. Run the owning collector suite; do not duplicate runner, UI or
 native-provider workflows. Keep original audit evidence unchanged and distinguish
 synthetic correction checks from actual native coverage.
+
+## 2026-10-14 amendment — invalidate only under the effect gate
+
+The clause above cleared the cached input observations when `tick` began, before
+that tick owned the process-wide effect gate. `RuntimeInput.submit` owns the same
+gate through paste and Enter and rereads the observation several times, so a tick
+that was only waiting behind an attempt could erase still-fresh evidence in the
+middle of it and could not restore it until the attempt ended. This is a source
+finding; the QA delivery that was pasted and then became uncertain without Enter
+is consistent with it but is not conclusively attributed to it.
+
+`tick` keeps its owning-thread and closed checks, then takes `db.lock.use` and
+`db.lock.effects`, clears the cache and runs the whole collection under that one
+gate. There is no new lock, thread, lease, permit or cache lifetime, and no change
+to `RuntimeInput`, hooks, terminal transport, schema or public API. A tick that
+is merely waiting leaves the old immutable observation readable, still expiring
+five monotonic seconds after its oldest contributing service time; nothing renews,
+pins or lengthens it. The tick that owns the gate invalidates before any work and
+then publishes the replacement, or leaves the evidence empty on a failure or a
+disabled collector. An exception, or a refusal before admission, clears the
+collector-thread maps at once and the cache under the effect gate (memory only,
+no I/O or transaction) and re-raises the original error. The uncertainty receipt
+is untouched and an uncertain attempt is still never retried. See the
+[bounded evidence](evidence/native-input-cache-race-qa.md).

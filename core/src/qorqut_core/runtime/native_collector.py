@@ -608,48 +608,57 @@ class NativeCollector:
         with self._lock:
             self._input_cache = inputs
 
+    def _invalidate_inputs(self):
+        with self._lock:
+            self._input_cache = {}
+
     def tick(self):
         self._own_thread()
         if self._closed:
             raise RuntimeError("native_collector_closed")
-        with self._lock:
-            self._input_cache = {}
         try:
-            self._tick()
+            assert_external_io_allowed()
+            # An input attempt owns this gate through paste and Enter and rereads the
+            # observation. Waiting here leaves the old (still expiring) one readable;
+            # only the tick that owns the gate invalidates it, then publishes anew.
+            with self.db.lock.use(), self.db.lock.effects:
+                self._invalidate_inputs()
+                self._tick()
         except Exception:
             self._source_observed.clear()
             self._exited_sources.clear()
             self._primary_wait.clear()
+            # Memory only: a failure before admission still waits for the gate.
+            with self.db.lock.effects:
+                self._invalidate_inputs()
             raise
 
     def _tick(self):
-        assert_external_io_allowed()
-        with self.db.lock.use(), self.db.lock.effects:
-            agent, installation, owners = self._snapshot()
-            if not self._enabled:
-                self._publish(agent["id"], state="disabled", reason="not_configured")
+        agent, installation, owners = self._snapshot()
+        if not self._enabled:
+            self._publish(agent["id"], state="disabled", reason="not_configured")
+            return
+        failure = None
+        try:
+            if agent["workspace_initialized_at"] is None:
+                self._observation(agent, installation, owners)
                 return
-            failure = None
-            try:
-                if agent["workspace_initialized_at"] is None:
-                    self._observation(agent, installation, owners)
-                    return
-                if not owners and self._capture is None:
-                    self._observation(agent, installation, owners)
-                    return
-                with self._owned(agent, installation) as guard:
-                    guard()
-                    self._discover(owners, installation, guard)
-                    self._service(agent, installation, owners, guard)
-            except _OPERATIONAL as exc:
-                failure = _reason(exc)
-                self._source_observed.clear()
-                self._exited_sources.clear()
-                self._primary_wait.clear()
-            # Connections can change while file work is in progress. The final
-            # derived EOF view must also see owners not yet linked to a source.
-            _, _, owners = self._snapshot()
-            self._observation(agent, installation, owners, failure=failure)
+            if not owners and self._capture is None:
+                self._observation(agent, installation, owners)
+                return
+            with self._owned(agent, installation) as guard:
+                guard()
+                self._discover(owners, installation, guard)
+                self._service(agent, installation, owners, guard)
+        except _OPERATIONAL as exc:
+            failure = _reason(exc)
+            self._source_observed.clear()
+            self._exited_sources.clear()
+            self._primary_wait.clear()
+        # Connections can change while file work is in progress. The final
+        # derived EOF view must also see owners not yet linked to a source.
+        _, _, owners = self._snapshot()
+        self._observation(agent, installation, owners, failure=failure)
 
 
 class NativeCollectors:
