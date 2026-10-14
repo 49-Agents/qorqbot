@@ -31,6 +31,9 @@ CLAUDE_REMOTE_HINT = "control this session from your phone · /remote-control"
 CLAUDE_HINT = re.compile(
     r"\x1b\[7mT\x1b\[0;2mry\x1b\[0m \x1b\[2m[!-~]+\x1b\[0m(?: \x1b\[2m[!-~]+\x1b\[0m)*")
 CLAUDE_HINT_TEXT = re.compile(r'Try "[^" ](?:[^"]*[^" ])?"')
+# Observed post-turn suggestion: the first character inverted, the rest dim to the end
+# of the row. The words are the model's own; only the SGR shape and ASCII row are fixed.
+CLAUDE_SUGGESTION = re.compile(r"\x1b\[7m[!-~]\x1b\[0;2m[ -~]*[!-~]\x1b\[0m")
 CODEX_WARNING = r"⚠ +[1-9][0-9]* +warnings? +· +f2 +to +view"
 CODEX_EMPTY_FOOTER = re.compile(rf"  \? for shortcuts(?: +{CODEX_WARNING} *)?")
 CODEX_INPUT_FOOTER = re.compile(rf"(?: +{CODEX_WARNING} *)?")
@@ -74,10 +77,11 @@ def _tail(provider, line):
 
 
 def _claude_hint(tail, columns):
-    if tail is None or CLAUDE_HINT.fullmatch(tail) is None:
+    if tail is None:
         return False
     visible = SGR.sub("", tail)
-    return CLAUDE_HINT_TEXT.fullmatch(visible) is not None and 2 + len(visible) <= columns
+    first_turn = CLAUDE_HINT.fullmatch(tail) and CLAUDE_HINT_TEXT.fullmatch(visible)
+    return bool(first_turn or CLAUDE_SUGGESTION.fullmatch(tail)) and 2 + len(visible) <= columns
 
 
 def _claude_rows_after_footer_clear(plain, start, columns):

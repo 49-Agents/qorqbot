@@ -139,3 +139,55 @@ not observed. Real delivery, Enter, native receipt and handling are not claimed;
 the Manager installs the wheel. Only this one observed hint text is accepted: other hints, locales or CLI versions refuse
 until observed. The hint is not remote control being activated and this change never activates it. The runtime banner,
 delivery badge and Stop-hook reports are separate and not addressed here. The full repository suite was not run.
+
+## Follow-up: dim post-turn suggestion
+
+2026-10-14; base `f134066d22acfa1e6c11d2176f7ff81e43b1d1b0`. After the two repairs above, automatic Chat-to-A and A-to-B
+delivery completed on real Claude 2.1.287 agents, and B's real reply to A stayed deferred as `composer_blocked` with no
+input attempt. The Manager captured A read-only (no input sent): 106×55, hidden cursor (2,50), no mode/input-off/synchronization,
+full rules at 49/51, the known mode footer at 52 and blank rows 53/54. The active row is the normal `❯`+NBSP prompt, then an
+inverted `c` (`SGR 7`), the dim remainder `heck whether the relay replied` (`SGR 0;2`) and a reset: a ghost suggestion, unlike
+the first-turn `Try "…"`. The old verdict was `blocked` / `composer_contains_text_or_unknown_cursor_cell`; replacing only that
+row with the known empty cursor cell offline gave `empty`. Original snapshot file SHA-256
+`bfd83ca41f7b24480cd4e654049d20f12ffa43b4347ea089e698adb047c9166e`, screen `199bd79441b23e0490dfc8acc18ae2b1d654fe90b00f3378f5e2965153089ad6`.
+The new fixture entry `post-turn-dim-suggestion` keeps rows 46–54, geometry, cursor and flags verbatim; the 31 non-blank history
+rows above (0–45) are replaced with synthetic text (derived screen `e0943f4b4e941bf4b8b8020e02440354669be6005e39297a1fde200e173f69a9`).
+
+**Change** (pure `adapters/input_layout.py`): for the empty check only, the tail may also match, in full,
+`SGR 7`, one printable non-space ASCII character, `SGR 0;2`, a nonempty printable ASCII remainder ending in a non-space, `SGR 0`,
+within the row (`2 + length <= columns`). The wording is not checked and the first-turn shape is unchanged.
+
+**Checks** (private venv from `requirements.lock`, Python 3.12.3; `core/`; existing group only, no full suite and no runtime
+suite because runtime is unchanged):
+
+```sh
+PYTHONPATH=src:tests PYTHONDONTWRITEBYTECODE=1 python -m unittest adapters.test_adapters.InputLayoutTests -v
+```
+
+Source tree and, from a fresh venv, the installed wheel (`PYTHONPATH=tests`): **19 tests passed** each (18 earlier; one new
+grouped test). It covers the sanitized observed pane and its known-empty-cell counterfactual (equal verdicts, no paste authority);
+varying wording and the row-width boundary at 106 and 80 columns; ordinary typed text with the cursor at its start, middle and end,
+unstyled, dim-only, reverse-only and other styled or colored variants; extra SGR, cursor cell, prefix, suffix, trailing space,
+non-ASCII and control characters; wrapped, multiline and displaced rows; bad cursor visibility and position; layout, version, busy,
+dialog and Codex refusals; and that a suggestion never satisfies `matches_input`, even when its visible text is the exact pointer or
+its cursor is at the pointer's end, while the exact pointer plus the empty cursor cell still matches. Against the base source the new
+test fails, and so does each of 13 single-rule weakenings (width check, trailing space, inverted space, empty remainder, two inverted
+characters, loosened dim, reset or reverse sequences, SGR or non-ASCII inside the text, prefix-only match, tolerated suffix, a suggestion accepted for
+expected text). Existing first-turn, footer, busy/dialog and Codex cases pass unchanged.
+
+Wheel built from a copy of `core/` (`pip wheel --no-deps --no-build-isolation`): `qorqut_core-0.1.0-py3-none-any.whl` SHA-256
+`05a7a2b7806ae86bb800544021a54b9535e4acb33ce2eb11382e04e0ba34ed89`; source and installed `adapters/input_layout.py` SHA-256
+`ec92c310fc672bec70383b82c3e4e386f50c86fde2566ce056379e41c8497034`. Read-only installed check (`python -I`, snapshot opened
+read-only, hash and mtime unchanged): the unmodified snapshot now classifies `empty` / `native_snapshot_empty_layout_live_unverified`
+(previously `composer_contains_text_or_unknown_cursor_cell`), `native_verified=false`, fingerprint unchanged and equal to the
+recorded one; the known-empty-cell counterfactual has the Manager's recorded fingerprint; `matches_input` is false for the pointer
+and for the visible suggestion. A **constructed** exact 51-byte pointer plus the inverted-space cell (cursor x=53) matches while a
+one-cell wrong cursor, a visible cursor and a draft do not; a constructed dim suggestion whose visible text is the pointer classifies
+`empty` but never matches; constructed typed text at the cursor start, unstyled text, an extra suffix and a moved hidden cursor
+refuse. Private outputs: `/home/alp/qorqbot-launch/qa/2026-10-14/acla-browser-a147d77a/fix-claude-suggestion/evidence/`.
+
+**Limits.** No service, tmux pane, database, owner session or provider was touched; nothing was pasted, escaped or resent and no queue
+was drained. The constructed shapes are not live paste evidence. Real delivery, Enter, native receipt and handling are not claimed;
+the live QA tester verifies them after the Manager installs the wheel. Only this printable-ASCII, single-row shape is accepted:
+other suggestions, styling, locales or CLI versions refuse until observed. Providers' suggestion settings are not changed. The
+full repository suite was not run.

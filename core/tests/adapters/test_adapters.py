@@ -1524,6 +1524,151 @@ class InputLayoutTests(unittest.TestCase):
                 with self.subTest(name=name, change=change):
                     self.refused("claude", valid.model_copy(update=change), "unknown")
 
+    def dim(self, text):
+        """Constructed row tail in the observed post-turn shape: inverted first character, dim rest."""
+        return f"\x1b[7m{text[0]}\x1b[0;2m{text[1:]}\x1b[0m"
+
+    def test_claude_post_turn_dim_suggestion_is_an_empty_box_in_one_exact_shape(self):
+        version = self.versions["claude"]
+        observed = self.floating("post-turn-dim-suggestion")
+        before = observed.model_dump()
+        words = "check whether the relay replied"
+        self.assertEqual((observed.columns, observed.rows, observed.cursor_x, observed.cursor_y, observed.cursor_visible),
+            (106, 55, 2, 50, False))
+        self.assertEqual(observed.screen.split("\n")[50], "\x1b[39m❯\xa0" + self.dim(words))
+        for name, snap in (("observed", observed), ("known empty cursor cell",
+                self.replace_row(observed, 50, "\x1b[39m❯\xa0\x1b[7m \x1b[0m"))):
+            with self.subTest(name=name):
+                verdict = classify_input("claude", version, snap)
+                self.assertEqual((verdict.state, verdict.reason, verdict.evidence),
+                    ("empty", "native_snapshot_empty_layout_live_unverified", "native_snapshot"))
+                self.assertFalse(verdict.native_verified)
+                self.assertFalse(verdict.permits_paste)
+                self.assertFalse(matches_input("claude", version, snap, self.notification))
+                self.assertFalse(matches_input("claude", version, snap, words))
+        self.assertEqual(observed.model_dump(), before)
+
+        def row(tail, snap=observed):
+            return self.replace_row(snap, snap.cursor_y, "\x1b[39m❯\xa0" + tail)
+
+        # The wording is the model's own: any printable ASCII, internal spaces included.
+        for text in ("ab", "a b", "run the tests", 'say "hi" now', "how does src/app.py work?", "{x} [y] (z) *",
+                     "Try this", "-- flag", "x" * 104):
+            with self.subTest(text=text):
+                self.assertEqual(classify_input("claude", version, row(self.dim(text))).state, "empty")
+        # 2 + visible length must fit the row, at the pane's width and at the narrowest supported width.
+        self.refused("claude", row(self.dim("x" * 105)), "blocked")
+        narrow = self.snapshot("claude", columns=80)
+        for text, state in (("x" * 78, "empty"), ("x" * 79, "blocked")):
+            with self.subTest(columns=80, length=len(text)):
+                sample = self.replace_row(narrow, narrow.cursor_y, "\x1b[39m❯\xa0" + self.dim(text))
+                self.assertEqual(classify_input("claude", version, sample).state, state)
+
+        dim, rest = self.dim(words), "\x1b[0;2m"
+        wrapped = observed.screen.removesuffix("\n").split("\n")
+        wrapped[50:55] = ["\x1b[39m❯\xa0" + self.dim(words[:20]), "\x1b[2m" + words[20:] + "\x1b[0m",
+                          wrapped[51], wrapped[52], ""]
+        edits = {
+            "typed text, cursor at its start": "\x1b[7mc\x1b[0mheck whether the relay replied",
+            "typed text, cursor at its end": words + "\x1b[7m \x1b[0m",
+            "typed text, cursor on a middle character": "check wh\x1b[7me\x1b[0mther the relay replied",
+            "unstyled": words,
+            "dim only": f"\x1b[2m{words}\x1b[0m",
+            "dim only, reset first": f"\x1b[0;2m{words}\x1b[0m",
+            "reverse only": f"\x1b[7m{words}\x1b[0m",
+            "reverse and dim": f"\x1b[7;2m{words}\x1b[0m",
+            "reverse first character only": "\x1b[7mc\x1b[0m\x1b[2mheck whether the relay replied\x1b[0m",
+            "dim without reset": dim.replace("\x1b[0;2m", "\x1b[2m"),
+            "dim then reverse": dim.replace("\x1b[0;2m", "\x1b[2;7m"),
+            "italic": dim.replace(rest, "\x1b[0;3m"),
+            "concealed": dim.replace(rest, "\x1b[0;8m"),
+            "dim and concealed": dim.replace(rest, "\x1b[0;2;8m"),
+            "dim and colored": dim.replace(rest, "\x1b[0;2;38;5;246m"),
+            "colored": dim.replace(rest, "\x1b[38;5;246m"),
+            "wrong end reset": dim.removesuffix("\x1b[0m") + "\x1b[22m",
+            "color end reset": dim.removesuffix("\x1b[0m") + "\x1b[39m",
+            "no end reset": dim.removesuffix("\x1b[0m"),
+            "extra SGR inside": dim.replace("whether", "wh\x1b[22mether"),
+            "extra dim inside": dim.replace("whether", "wh\x1b[2mether"),
+            "extra reset inside": dim.replace(" the ", "\x1b[0m the "),
+            "extra SGR before": "\x1b[1m" + dim,
+            "extra SGR after the reset": dim + "\x1b[39m",
+            "second cursor cell": dim + "\x1b[7m \x1b[0m",
+            "cursor cell first": "\x1b[7m \x1b[0m" + dim,
+            "suffix text": dim + " more",
+            "suffix character": dim + "?",
+            "prefix text": "x" + dim,
+            "prefix space": " " + dim,
+            "second inverted character": f"\x1b[7mch\x1b[0;2m{words[2:]}\x1b[0m",
+            "inverted space": f"\x1b[7m \x1b[0;2m{words[1:]}\x1b[0m",
+            "inverted non-ASCII": dim.replace("\x1b[7mc", "\x1b[7mç"),
+            "no remainder": "\x1b[7mc\x1b[0;2m\x1b[0m",
+            "space-only remainder": "\x1b[7mc\x1b[0;2m \x1b[0m",
+            "trailing space in the dim text": dim.replace("replied", "replied "),
+            "trailing space after the reset": dim + " ",
+            "no-break space": dim.replace("whether the", "whether\xa0the"),
+            "ideographic space": dim.replace("whether the", "whether　the"),
+            "non-ASCII letter": dim.replace("relay", "reláy"),
+            "emoji": dim.replace("relay", "relay🙂"),
+        }
+        for label, tail in edits.items():
+            with self.subTest(edit=label):
+                self.refused("claude", row(tail), "blocked")
+        # Controls never hide in the text; a line break would also change the row count.
+        for label, control in {"tab": "\t", "carriage return": "\r", "delete": "\x7f", "NEL": "\x85",
+                               "zero-width space": "​", "bidi override": "‮",
+                               "line separator": " ", "line break": "\n"}.items():
+            with self.subTest(control=label):
+                self.refused("claude", row(dim.replace("whether", "wh" + control + "ether")), "unknown")
+        # Wrapping or a multiline draft moves the lower rule off the next row.
+        with self.subTest(layout="wrapped"):
+            self.refused("claude", observed.model_copy(update={"screen": "\n".join(wrapped) + "\n"}), "unknown")
+        with self.subTest(layout="second composer line"):
+            self.refused("claude", self.replace_row(row(dim), 51, "\x1b[39m  second line"), "unknown")
+        with self.subTest(layout="suggestion on the rule row"):
+            self.refused("claude", self.replace_row(row(dim), 51, dim), "unknown")
+        # The shape is accepted only with the hidden cursor at (2, row) on the one prompt row.
+        valid = row(dim)
+        for change in ({"cursor_visible": True}, {"cursor_x": 1}, {"cursor_x": 3}, {"cursor_x": 2 + len(words)},
+                       {"cursor_y": 49}, {"cursor_y": 51}, {"cursor_y": 0}):
+            with self.subTest(change=change):
+                self.refused("claude", valid.model_copy(update=change), "unknown")
+        # Layout, version, busy/dialog and local-window checks are the existing ones.
+        for label, sample, state in (
+            ("wrong rule", self.replace_row(valid, 49, "\x1b[38;5;244m" + "─" * 105), "unknown"),
+            ("unknown footer", self.replace_row(valid, 52, "  unknown footer"), "unknown"),
+            ("extra footer row", self.replace_row(valid, 53, "extra status"), "unknown"),
+            ("busy footer", self.replace_row(valid, 52,
+                observed.screen.split("\n")[52] + " · esc to interrupt"), "busy"),
+            ("dialog above", self.replace_row(valid, 47, "Esc to cancel"), "blocked"),
+            ("second prompt", self.replace_row(valid, 48, "❯ extra composer"), "unknown"),
+            ("input mode", valid.model_copy(update={"in_mode": True}), "unknown"),
+        ):
+            with self.subTest(layout=label):
+                self.refused("claude", sample, state)
+        for unknown in ("2.1.286", "2.1.288"):
+            self.assertEqual(classify_input("claude", unknown, valid).evidence, "unsupported")
+        with self.subTest(provider="codex"):
+            self.refused("codex", self.replace_row(self.snapshot("codex"), -4, "› " + self.dim(words)), "blocked")
+
+        # A suggestion proves an empty box, never a pasted pointer, even when its visible text is the pointer.
+        pointer = row(self.dim(self.notification))
+        self.assertEqual(classify_input("claude", version, pointer).state, "empty")
+        end = 2 + len(self.notification)
+        for sample in (pointer, pointer.model_copy(update={"cursor_x": end}),
+                       pointer.model_copy(update={"cursor_x": end, "cursor_visible": True}),
+                       row(self.dim(self.notification) + "\x1b[7m \x1b[0m").model_copy(update={"cursor_x": end})):
+            with self.subTest(cursor=(sample.cursor_x, sample.cursor_visible)):
+                self.assertFalse(matches_input("claude", version, sample, self.notification))
+        self.assertFalse(matches_input("claude", version, valid, words))
+        self.assertFalse(matches_input("claude", version, valid.model_copy(update={"cursor_x": 2 + len(words)}), words))
+        # The exact pointer plus the empty cursor cell is still the only pasted proof, at the same row and rules.
+        filled = self.with_pointer(observed)
+        self.assertTrue(matches_input("claude", version, filled, self.notification))
+        self.assertEqual(classify_input("claude", version, filled).state, "blocked")
+        self.assertFalse(matches_input("claude", version, self.with_pointer(observed, self.dim(self.notification), ""),
+            self.notification))
+
     def test_floating_claude_box_refuses_extra_rows_ambiguity_and_local_busy_dialog(self):
         version = self.versions["claude"]
         for name in self.floating_names:

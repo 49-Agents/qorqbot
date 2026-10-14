@@ -119,3 +119,32 @@ actual input proof succeeds; do not paste or resend them manually. A sanitized c
 observed pane is `post-turn-remote-control-hint` in
 `tests/adapters/fixtures/claude-floating-composers.json`; see
 [the bounded evidence](evidence/claude-live-composer-qa.md#follow-up-post-turn-promotional-hint).
+
+## 2026-10-14 amendment — dim post-turn suggestion
+
+Live QA then captured, read-only, the pinned Claude Code 2.1.287 pane of an agent that had finished a
+turn (106×55, hidden cursor at (2,50), no mode/input-off/synchronization, full rules at 49/51, the known
+mode footer at 52, blank rows 53/54). Its empty composer shows a ghost suggestion that is not the
+first-turn `Try "…"`: the normal prompt, then the first letter inverted (`SGR 7`), the rest dim
+(`SGR 0;2`) and a final reset. The old check refused it as `composer_contains_text_or_unknown_cursor_cell`,
+so a peer's reply stayed deferred with no input attempt. Replacing only that row with the known empty
+cursor cell offline changed the verdict to `empty`. No input was sent.
+
+For the empty check only (`expected_text=None`), the tail may also be exactly: `SGR 7`, one printable
+non-space ASCII character, `SGR 0;2`, a nonempty printable ASCII remainder, `SGR 0`. The whole tail must
+match: the visible text begins and ends with a non-space character (spaces inside are allowed), fits the
+one row (`2 + length <= columns`) and carries no other SGR, cursor cell, control, prefix, suffix or line
+break. The suggestion's wording is the model's own and is not checked. Ordinary typed text never has this
+shape (a cursor at its start inverts one character and resets to plain text, not dim), nor do unstyled,
+dim-only or reverse-only text, a wrapped or multiline draft, or non-ASCII text; all still refuse.
+
+The prefix, hidden cursor at `(2, row)`, geometry, version, rules, footer and its known hint, the
+busy/dialog window and the first-turn shape are unchanged. A suggestion proves an empty box only: it never
+satisfies `matches_input`, which still needs the exact printable ASCII pointer plus the inverted-space cell
+with the cursor at its end, even when the suggestion's visible text equals the pointer.
+`native_verified`/`permits_paste` stay false. Codex, dispatch, capture, ownership, human control, retries,
+hooks and services are unchanged; no provider setting turns suggestions off and no Escape is sent. Existing
+deferred messages dispatch through the normal path once actual input proof succeeds; do not paste or
+resend them manually. A sanitized copy of the observed pane is `post-turn-dim-suggestion` in
+`tests/adapters/fixtures/claude-floating-composers.json`; see
+[the bounded evidence](evidence/claude-live-composer-qa.md#follow-up-dim-post-turn-suggestion).
