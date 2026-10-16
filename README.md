@@ -69,9 +69,7 @@ switch to Chat. You choose the provider, model and effort in the CLI.
 The local app needs no account, password or token. Your CLI uses its own
 provider sign-in and subscription allowance.
 
-**Early development:** setup is currently manual. The Codex host-agent workflow
-has been tested end to end; complete Claude Code integration and per-agent VMs
-are still in progress.
+**Early development:** setup is currently manual.
 
 ---
 
@@ -113,10 +111,6 @@ its included allowance. Provider limits apply; API-key usage and extra credits
 may be billed separately. See the [Codex plan details](https://learn.chatgpt.com/docs/pricing)
 and [Claude Code plan details](https://support.claude.com/en/articles/11145838-use-claude-code-with-your-pro-or-max-plan).
 
-Codex Chat, inbox tools and dated history have been exercised together. Claude
-Code adapters and capture exist, but its complete native MCP message-handling
-flow still needs verification. Additional CLIs need integration adapters.
-
 The application runs locally. Model requests and relevant context still go to
 your selected provider.
 
@@ -139,11 +133,6 @@ your selected provider.
 One repository, three modules: [core/](core/), [browser/](browser/) and [ui/](ui/).
 Core runs headlessly; the browser has its own MCP server.
 
-The working execution path is **onbash**, the host agent. Registering another
-agent does not yet provision a VM. Per-agent VMs, broader native history
-coverage and a complete fresh-install and backup/restore flow remain unfinished.
-
-See the [implementation plan](core/docs/IMPLEMENTATION-PLAN.md) for existing
-checks and their limits, or the [documentation index](docs/INDEX.md).
+See the [documentation index](docs/INDEX.md) for more.
 
 </details>
