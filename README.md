@@ -14,6 +14,10 @@
   <a href="https://github.com/49-Agents/qorqbot">GitHub</a>
 </p>
 
+<p align="center">
+  <img src="assets/launch/product-hunt/01-cover.png" alt="Qorqbot chat with an agent asking you to open its browser" width="100%" />
+</p>
+
 <!-- HERO MOTION GRAPHIC — 25–30 seconds, using actual product footage.
 0–4s: “Grokbot, but provider-agnostic and local.”
 4–10s: Open an agent, switch from its running CLI to Chat, send a task.
@@ -41,6 +45,17 @@ agent workspaces and browser control. Use product captures, not mock UI.
 | Notes and research scattered across folders | A persistent workspace and persona for each agent |
 | Manually saving conversations | Supported conversation history saved automatically by date |
 | Switching away to help in the browser | Open the agent's browser directly from Chat |
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/launch/product-hunt/02-provider-choice.png" alt="Pick Codex or Claude Code for each agent" /></td>
+    <td width="50%"><img src="assets/launch/product-hunt/03-tmux-streaming-v4.png" alt="An agent's real terminal streamed into Chat" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Use your Codex or Claude Code subscription per agent</sub></td>
+    <td align="center"><sub>The real CLI terminal, streamed into Chat</sub></td>
+  </tr>
+</table>
 
 ---
 
