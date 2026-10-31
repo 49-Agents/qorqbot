@@ -2,9 +2,9 @@
 // Overview reads summaries for authorized businesses; agents use registered root workspaces.
 const GLOBAL_PAGES = {
   overview: { title: 'Overview', icon: 'globe' },
-  ideas: { title: 'Ideas', icon: 'ideas' },
   context: { title: 'Context', icon: 'learning' },
   agents: { title: 'Agents', icon: 'agents' },
+  ideas: { title: 'Ideas', icon: 'ideas' },
   notes: { title: 'Notes', icon: 'notes' },
   settings: { title: 'Settings', icon: 'settings' },
 };
