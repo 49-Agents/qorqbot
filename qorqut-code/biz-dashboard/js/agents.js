@@ -50,46 +50,31 @@ function paintUsage() {
 function bumpUsage(u) { addUsage(state.usage || (state.usage = blankUsage()), u); paintUsage(); }
 
 // ------------------------------------------------------------------- pane
+// The Agents tab: each agent IS a live terminal bound to its background PTY on the server.
+// Left = the agent list (glyphs, add-agent). Right = the mirrored terminal, filling to the
+// bottom of the page. No chat chrome — every control is done inside the shell itself.
 async function renderAgents(c) {
-  const [agents, live] = await Promise.all([api(`/biz/${state.biz}/agents`), api(`/biz/${state.biz}/live`)]);
-  state.agents = Array.isArray(agents) ? agents : []; state.liveNow = Array.isArray(live) ? live : [];
-  c.innerHTML = `<div class="split"><div class="listcol" id="agentlist"></div><div class="chat" id="chat"></div></div>`;
+  const [agents, terms] = await Promise.all([
+    api(`/biz/${state.biz}/agents`),
+    api(`/biz/${state.biz}/terminals`),
+  ]);
+  state.agents = Array.isArray(agents) ? agents : [];
+  state.terms = Array.isArray(terms) ? terms : [];
+  c.innerHTML = `<div class="split"><div class="listcol" id="agentlist"></div><div class="chat termmode" id="chat"></div></div>`;
   paintList();
-  const a = state.agents.find(x => x.name === state.agent); if (!a) return;
-  state.usage = blankUsage();
-  const ch = $("#chat");
-  ch.innerHTML = `<div class="top">
-      <button class="aglyph" id="aglyph" title="Change icon"></button><span class="name">${esc(a.name)}</span>
-      <button class="badge" id="deptbadge" title="Change department"></button>
-      <span class="sp"></span>
-      <span class="usage" id="usage"></span>
-      <label class="switch ${state.verbose ? "on" : ""}" id="verbose"><span class="k"></span>verbose</label></div>
-    <div class="msgs ${state.verbose ? "" : "quiet"}" id="msgs"></div>
-    <div class="compose">
-      <div class="slash" id="slash" hidden></div>
-      <textarea id="box" rows="1" placeholder="Tell ${esc(a.name)} what to do. Enter to send, Shift+Enter for a new line, / for commands."></textarea>
-      <button class="primary" id="send">Send</button></div>`;
-  paintHead(a); paintUsage();
-  $("#aglyph").onclick = () => lookModal(a);
-  $("#deptbadge").onclick = () => lookModal(a);
-  $("#verbose").onclick = () => { state.verbose = !state.verbose; ls("verbose", state.verbose ? "1" : "0");
-    $("#verbose").classList.toggle("on", state.verbose); $("#msgs").classList.toggle("quiet", !state.verbose); $("#msgs").scrollTop = $("#msgs").scrollHeight; };
-  const msgs = $("#msgs");
-  // history: last 5 sessions newer than the last /clear, oldest first
-  const cut = clearedAt(a.name);
-  const hist = a.sessions.filter(f => !cut || !(sessTime(f) < cut)).slice(0, 5).reverse();
-  for (const f of hist) {
-    const ev = await api(`/biz/${state.biz}/session/${a.name}/${f}`);
-    if (!Array.isArray(ev)) continue;
-    addDay(msgs, f.replace(".jsonl", "").replace(/-(\d{2})(\d{2})(\d{2})$/, " $1:$2 UTC"));
-    const acc = sessionUsage(ev);
-    ev.forEach(e => addEvent(msgs, e, acc));
-    bumpUsage(acc);
-  }
-  const running = state.liveNow.find(s => s.agent === a.name && !s.done);
-  if (running) attach(running.id, msgs);
-  msgs.scrollTop = msgs.scrollHeight;
-  wireCompose(a, msgs);
+  const a = state.agents.find(x => x.name === state.agent) || state.agents[0];
+  if (!a) { $("#chat").innerHTML = `<div class="empty" style="padding:24px">No agents yet — add one with +.</div>`; return; }
+  state.agent = a.name;
+  mountTerminal(a.name, $("#chat"), stat => markTermState(a.name, stat));
+}
+
+// reflect a terminal's live/ended state on its row in the agent list, without a refetch
+function markTermState(name, stat) {
+  const running = stat === "live";
+  const t = (state.terms || []).find(x => x.agent === name);
+  if (t) t.done = !running; else (state.terms = state.terms || []).push({ agent: name, done: !running });
+  const row = $(`#agentlist .agent[data-a="${(window.CSS && CSS.escape) ? CSS.escape(name) : name}"] [data-st]`);
+  if (row) { row.textContent = running ? "running" : (stat === "ended" ? "exited" : "idle"); row.classList.toggle("live", running); }
 }
 
 function wireCompose(a, msgs) {
@@ -178,11 +163,12 @@ async function runSlash(cmd, a, msgs, send) {
 // ------------------------------------------------------------------- list
 function paintList() {
   const al = $("#agentlist"); if (!al) return;
+  const live = new Set((state.terms || []).filter(t => !t.done).map(t => t.agent));
   const rows = state.agents.map(a => {
-    const running = state.liveNow.some(s => s.agent === a.name && !s.done), d = dept(a.department);
+    const running = live.has(a.name), d = dept(a.department);
     return `<div class="item agent ${a.name === state.agent ? "on" : ""}" data-a="${esc(a.name)}">
       <div class="nm">${agentGlyph(a, 10)}<span>${esc(a.name)}</span></div>
-      <div class="st">${glyph(d.icon, d.color, 8)}<span>${esc(d.label)}</span><span>·</span><span class="${running ? "live" : ""}">${running ? "working" : a.sessions.length + " session" + (a.sessions.length === 1 ? "" : "s")}</span></div></div>`;
+      <div class="st">${glyph(d.icon, d.color, 8)}<span>${esc(d.label)}</span><span>·</span><span class="${running ? "live" : ""}" data-st>${running ? "running" : "idle"}</span></div></div>`;
   }).join("") || `<div class="empty" style="padding:0 24px">No agents yet.</div>`;
   al.innerHTML = `<div class="lhead"><span class="h">Agents</span><button class="plus" id="addagent" title="New agent" aria-label="New agent">+</button></div>` + rows;
   $("#addagent").onclick = newAgentModal;
