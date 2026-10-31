@@ -1,0 +1,454 @@
+// Free-form Context Map. Upload outlines continue to use ctxmap.js's mindmap renderer.
+// The API tree supplies containment; only `also` and `people` supply cross-links.
+const CTX_GRAPH_HUES = ["#bd7054", "#b69861", "#849a75", "#699f99", "#7693b5", "#ad819c"];
+const ctxGraphHash = s => Array.from(String(s)).reduce((h, c) => ((h * 31) + c.codePointAt(0)) >>> 0, 0);
+const ctxGraphTitle = s => String(s || "").replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(/\.md$/, "").replace(/[-_]+/g, " ");
+const ctxGraphColor = path => CTX_GRAPH_HUES[ctxGraphHash(path.split("/")[0]) % CTX_GRAPH_HUES.length];
+
+function ctxGraphData(d, scope, isRoot, business = "Context") {
+  const nodes = new Map(), edges = new Map(), topics = new Map(), groups = new Map(), refs = [];
+  const people = new Map((d.people || []).map(p => [p.slug, p]));
+  const topicHues = new Map(((d.tree || {}).children || []).map((t, i) => [t.path, CTX_GRAPH_HUES[(i + 1) % CTX_GRAPH_HUES.length]]));
+  const colorFor = path => topicHues.get(path.split("/")[0]) || ctxGraphColor(path);
+  const rootId = isRoot ? "root" : `topic:${scope.path}`;
+  const index = t => { if (!t) return; topics.set(t.path || "", t); (t.children || []).forEach(index); };
+  index(d.tree);
+  const add = n => { if (!nodes.has(n.id)) nodes.set(n.id, n); return nodes.get(n.id); };
+  const edge = (source, target, kind) => {
+    if (source !== target && nodes.has(source) && nodes.has(target)) {
+      const id = JSON.stringify([source, target, kind]);
+      edges.set(id, { id, source, target, kind });
+    }
+  };
+  const topic = (t, group, external = false) => add({
+    id: `topic:${t.path}`, kind: "topic", label: t.title || t.slug || t.path,
+    path: t.path, tip: t.about || t.summary || "", color: colorFor(t.path), group, external,
+  });
+  const walk = (t, parent, group) => {
+    if (!groups.has(group)) groups.set(group, { id: group, color: colorFor(t.path) });
+    const n = topic(t, group);
+    if (parent) edge(parent, n.id, "contains");
+    notes(t, n.id, group);
+    (t.children || []).forEach(k => walk(k, n.id, group));
+  };
+  const notes = (t, parent, group) => (t.notes || []).forEach(file => {
+    const path = [t.path, file].filter(Boolean).join("/");
+    const n = add({ id: `note:${path}`, kind: "note", label: (t.titles || {})[file] || ctxGraphTitle(file),
+      path, tip: (t.summaries || {})[file] || (t.previews || {})[file] || "", color: colorFor(t.path || ""), group });
+    edge(parent, n.id, "contains");
+    ((t.also || {})[file] || []).forEach(p => refs.push({ source: n.id, target: `topic:${p}`, path: p, kind: "also" }));
+    ((t.people || {})[file] || []).forEach(p => refs.push({ source: n.id, target: `person:${p}`, slug: p, kind: "mentions" }));
+  });
+  const person = p => add({ id: `person:${p.slug}`, kind: "person", label: p.name || ctxGraphTitle(p.slug),
+    path: `_people/${p.slug}`, tip: p.summary || p.about || "", role: p.role || "", color: "#72a99f", group: null });
+
+  if (isRoot) {
+    add({ id: rootId, kind: "root", label: business, tip: "Business context", path: null, color: "#f5f0e8", group: null });
+    if ((d.pillars || []).length) {
+      groups.set("core", { id: "core", color: CTX_GRAPH_HUES[0] });
+      add({ id: "core", kind: "group", label: "Core", tip: "Owner-written business pillars", path: null, color: CTX_GRAPH_HUES[0], group: "core" });
+      edge(rootId, "core", "contains");
+      d.pillars.forEach(file => {
+        const label = ctxGraphTitle(file).replace(/\b\w/g, c => c.toUpperCase());
+        const n = add({ id: `pillar:${file}`, kind: "pillar", label, path: file, tip: "Owner-written business pillar", color: CTX_GRAPH_HUES[0], group: "core" });
+        edge("core", n.id, "contains");
+      });
+    }
+    (scope.children || []).forEach(t => walk(t, rootId, `topic:${t.path}`));
+    notes(scope, rootId, null);
+    // Unlinked people remain individual nodes. There is deliberately no People hub or fabricated edge.
+    (d.people || []).forEach(person);
+  } else {
+    walk(scope, null, rootId);
+  }
+  for (const ref of refs) {
+    if (!nodes.has(ref.target)) {
+      if (ref.kind === "mentions" && people.has(ref.slug)) person(people.get(ref.slug));
+      else if (ref.kind === "also" && topics.has(ref.path)) topic(topics.get(ref.path), null, true);
+    }
+    // Stale references to deleted files do not produce dangling edges or fictitious nodes.
+    edge(ref.source, ref.target, ref.kind);
+  }
+  return { rootId, nodes: [...nodes.values()], edges: [...edges.values()], groups: [...groups.values()] };
+}
+
+// Deterministic starting positions and a bounded spring/collision pass. Saved nodes stay fixed so
+// arriving notes do not rearrange a map the user has already explored. No continuously running force loop.
+function ctxGraphLayout(graph, saved = {}) {
+  const nodes = graph.nodes.map(n => ({ ...n })), byId = new Map(nodes.map(n => [n.id, n]));
+  const members = new Map(graph.groups.map(g => [g.id, nodes.filter(n => n.group === g.id)]));
+  const anchors = new Map(), groupCount = members.size;
+  let gi = 0;
+  for (const [id, arr] of members) {
+    const angle = -Math.PI * .82 + gi++ * Math.PI * 2 / Math.max(1, groupCount);
+    const radius = groupCount === 1 && id === graph.rootId ? 0 : 240 + Math.sqrt(arr.length) * 24 + groupCount * 12;
+    anchors.set(id, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
+    arr.forEach((n, i) => {
+      const a = i * 2.39996 + angle, r = i ? 78 * Math.sqrt(i) : 0;
+      n.x = anchors.get(id).x + Math.cos(a) * r; n.y = anchors.get(id).y + Math.sin(a) * r;
+    });
+  }
+  const adjacency = new Map(nodes.map(n => [n.id, []]));
+  graph.edges.forEach(e => { adjacency.get(e.source).push(byId.get(e.target)); adjacency.get(e.target).push(byId.get(e.source)); });
+  nodes.forEach((n, i) => {
+    if (n.id === graph.rootId) { n.x = 0; n.y = 0; }
+    if (n.x == null) {
+      const linked = adjacency.get(n.id).filter(k => k.x != null);
+      const a = (ctxGraphHash(n.id) % 360) * Math.PI / 180;
+      const r = linked.length ? 145 : 410 + 18 * Math.sqrt(i);
+      const center = linked.length ? { x: linked.reduce((s, k) => s + k.x, 0) / linked.length, y: linked.reduce((s, k) => s + k.y, 0) / linked.length } : { x: 0, y: 0 };
+      n.x = center.x + Math.cos(a) * r; n.y = center.y + Math.sin(a) * r;
+    }
+    const p = saved[n.id];
+    n.fixed = !!(p && Number.isFinite(p.x) && Number.isFinite(p.y) && Math.abs(p.x) < 1e7 && Math.abs(p.y) < 1e7);
+    if (n.fixed) { n.x = p.x; n.y = p.y; }
+  });
+  // A new node starts near saved neighbours, even if those have been dragged far from the default layout.
+  nodes.filter(n => !n.fixed).forEach(n => {
+    const linked = adjacency.get(n.id).filter(k => k.fixed);
+    if (!linked.length) return;
+    const a = (ctxGraphHash(n.id) % 360) * Math.PI / 180;
+    n.x = linked.reduce((s, k) => s + k.x, 0) / linked.length + 150 * Math.cos(a);
+    n.y = linked.reduce((s, k) => s + k.y, 0) / linked.length + 150 * Math.sin(a);
+  });
+  nodes.forEach(n => { n.ax = n.x; n.ay = n.y; });
+  const move = (n, x, y) => { if (!n.fixed && n.id !== graph.rootId) { n.x += x; n.y += y; } };
+  if (nodes.some(n => !n.fixed)) for (let iteration = 0; iteration < 100; iteration++) {
+    const cooling = 1 - iteration / 125;
+    for (const e of graph.edges) {
+      const a = byId.get(e.source), b = byId.get(e.target), dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy) || 1;
+      const length = a.id === graph.rootId && a.kind === "root" ? 285 : e.kind === "contains" ? 155 : 170;
+      const f = Math.max(-8, Math.min(8, (dist - length) * .022)) * cooling;
+      move(a, dx / dist * f, dy / dist * f); move(b, -dx / dist * f, -dy / dist * f);
+    }
+    // Local collision pairs only, rather than comparing every node with every other node.
+    const cells = new Map(), cellSize = 155;
+    nodes.forEach((n, i) => {
+      const cx = Math.floor(n.x / cellSize), cy = Math.floor(n.y / cellSize);
+      for (let x = cx - 1; x <= cx + 1; x++) for (let y = cy - 1; y <= cy + 1; y++) {
+        for (const j of cells.get(`${x},${y}`) || []) {
+          const b = nodes[j]; let dx = n.x - b.x, dy = n.y - b.y;
+          if (!dx && !dy) { dx = .1; dy = .1; }
+          const dist = Math.hypot(dx, dy), gap = n.group && n.group === b.group ? 122 : 146;
+          if (dist >= gap) continue;
+          const f = (gap - dist) * .24 * cooling;
+          move(n, dx / dist * f, dy / dist * f); move(b, -dx / dist * f, -dy / dist * f);
+        }
+      }
+      const key = `${cx},${cy}`; if (!cells.has(key)) cells.set(key, []); cells.get(key).push(i);
+    });
+    nodes.forEach(n => move(n, (n.ax - n.x) * .014 * cooling, (n.ay - n.y) * .014 * cooling));
+  }
+  return nodes;
+}
+
+function ctxGraphHull(points) {
+  if (points.length < 3) return [];
+  const sorted = points.slice().sort((a, b) => a.x - b.x || a.y - b.y);
+  const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const half = arr => { const out = []; for (const p of arr) { while (out.length > 1 && cross(out[out.length - 2], out[out.length - 1], p) <= 0) out.pop(); out.push(p); } return out; };
+  const lower = half(sorted), upper = half(sorted.slice().reverse());
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}
+
+function ctxGraphAnchor(n, to) {
+  const dx = to.sx - n.sx, dy = to.sy - n.sy, length = Math.hypot(dx, dy) || 1, ux = dx / length, uy = dy / length;
+  let distance = n.radius;
+  if (n.kind === "person") {
+    const vertices = [[0, -n.radius], [n.radius, n.radius], [-n.radius, n.radius]], hits = [];
+    vertices.forEach((a, i) => {
+      const b = vertices[(i + 1) % 3], vx = b[0] - a[0], vy = b[1] - a[1], den = ux * vy - uy * vx;
+      if (Math.abs(den) < .00001) return;
+      const t = (a[0] * vy - a[1] * vx) / den, u = (a[0] * uy - a[1] * ux) / den;
+      if (t >= 0 && u >= 0 && u <= 1) hits.push(t);
+    });
+    if (hits.length) distance = Math.min(...hits);
+  }
+  return { x: n.sx + ux * (distance + 1), y: n.sy + uy * (distance + 1) };
+}
+
+function ctxGraphMermaid(graph) {
+  const ids = new Map(graph.nodes.map((n, i) => [n.id, `n${i}`])), lines = ["graph LR"];
+  graph.nodes.forEach(n => lines.push(`  ${ids.get(n.id)}["${mmText(n.label).replace(/</g, "").replace(/>/g, "").replace(/&/g, "and")}"]`));
+  graph.edges.forEach(e => lines.push(`  ${ids.get(e.source)} ${e.kind === "contains" ? "-->" : `-. ${e.kind === "also" ? "also" : "mentions"} .->`} ${ids.get(e.target)}`));
+  return lines.join("\n") + "\n";
+}
+
+function contextGraph(el, graph, opts = {}) {
+  const abort = new AbortController(), listen = (el, name, fn, options = {}) => el.addEventListener(name, fn, { ...options, signal: abort.signal });
+  let saved = {};
+  try { saved = JSON.parse(ls(opts.storageKey) || "{}") || {}; } catch (_) { /* absent or invalid local view */ }
+  const nodes = ctxGraphLayout(graph, saved.positions || {}), byId = new Map(nodes.map(n => [n.id, n]));
+  const degrees = new Map(nodes.map(n => [n.id, 0]));
+  graph.edges.forEach(e => { degrees.set(e.source, degrees.get(e.source) + 1); degrees.set(e.target, degrees.get(e.target) + 1); });
+  let selected = byId.has(saved.selected) ? saved.selected : null, neighbors = new Set();
+  let width = 0, height = 0, frame = 0, saveTimer = 0, destroyed = false;
+  const camera = { k: 1, x: 0, y: 0 };
+  const minZoom = .03, maxZoom = 4;
+  el.innerHTML = `<div class="ctxgraph" aria-label="Context graph">
+    <div class="ctxgraph-bar"><span class="ctxgraph-caption">Context map</span>
+      <div class="ctxgraph-search"><input type="search" aria-label="Find a node in this map" placeholder="Find a node…" autocomplete="off"><div class="ctxgraph-results" hidden></div></div>
+      <label class="ctxgraph-links"><input type="checkbox" ${ls("ctxmaplinks") === "0" ? "" : "checked"}> links</label>
+      <button type="button" data-action="copy" title="Copy graph as Mermaid" aria-label="Copy graph as Mermaid">${SVG_MAPCOPY}</button>
+    </div>
+    <div class="ctxgraph-canvas" tabindex="0" role="group" aria-label="Context map. Drag nodes to arrange; drag the background to pan. Use plus, minus and arrow keys to navigate.">
+      <svg class="ctxgraph-network" aria-hidden="true"><g class="ctxgraph-hulls"></g><g class="ctxgraph-edges"></g></svg>
+      <div class="ctxgraph-nodes"></div>
+      <div class="ctxgraph-hint">drag nodes to arrange · scroll to zoom</div>
+      <div class="ctxgraph-zoom"><button type="button" data-action="out" aria-label="Zoom out">−</button><output aria-label="Zoom level">100%</output><button type="button" data-action="in" aria-label="Zoom in">+</button><button type="button" data-action="fit" title="Fit to view" aria-label="Fit to view">${SVG_MAPFIT}</button></div>
+    </div>
+    <div class="ctxgraph-footer"><div class="ctxgraph-legend"><span><i class="ctxgraph-topic-key"></i>Topic</span><span><i class="ctxgraph-note-key"></i>Note</span><span><i class="ctxgraph-person-key"></i>Person</span><span><i class="ctxgraph-edge-key"></i>Contains</span><span><i class="ctxgraph-link-key"></i>Related</span></div><span class="ctxgraph-count"></span></div>
+    <div class="ctxgraph-reader" hidden></div><div class="ctxgraph-sr" role="status" aria-live="polite"></div>
+  </div>`;
+  const root = el.querySelector(".ctxgraph"), canvas = root.querySelector(".ctxgraph-canvas"), svg = root.querySelector(".ctxgraph-network");
+  const layer = root.querySelector(".ctxgraph-nodes"), reader = root.querySelector(".ctxgraph-reader"), search = root.querySelector("input[type=search]");
+  const results = root.querySelector(".ctxgraph-results"), links = root.querySelector(".ctxgraph-links input"), status = root.querySelector("[role=status]");
+  root.querySelector(".ctxgraph-count").textContent = `${nodes.length} nodes · ${graph.edges.length} edges`;
+  const edges = graph.edges.map(e => {
+    const path = svgEl("path", { class: `ctxgraph-edge ${e.kind}`, "data-edge": e.id });
+    root.querySelector(".ctxgraph-edges").append(path); return { ...e, el: path };
+  });
+  const hulls = graph.groups.map(g => {
+    const path = svgEl("path", { fill: g.color, "fill-opacity": ".035", stroke: g.color, "stroke-opacity": ".14" });
+    root.querySelector(".ctxgraph-hulls").append(path);
+    return { ...g, members: nodes.filter(n => n.group === g.id), el: path };
+  });
+  const labelCanvas = document.createElement("canvas"), measure = labelCanvas.getContext("2d");
+  const measureLabels = () => nodes.forEach(n => {
+    measure.font = `${n.kind === "root" ? "600 13" : "500 11.5"}px Inter, sans-serif`;
+    n.labelW = Math.min(132, Math.max(...n.lines.map(line => measure.measureText(line).width))) + 2;
+    n.labelH = n.lines.length * 16;
+  });
+  nodes.forEach(n => {
+    n.radius = n.kind === "root" ? 22 : n.kind === "topic" || n.kind === "group" ? 13 : n.kind === "person" ? 9 : 6;
+    const button = document.createElement("button"); button.type = "button";
+    button.className = `ctxgraph-node ${n.kind}`; button.dataset.node = n.id;
+    button.style.setProperty("--node-color", n.color); button.style.setProperty("--node-size", `${n.radius * 2}px`);
+    button.setAttribute("aria-label", `${n.label}, ${n.kind === "group" ? "collection" : n.kind}`); button.title = n.label;
+    const dot = document.createElement("span"); dot.className = "ctxgraph-dot"; dot.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span"); label.className = "ctxgraph-label"; label.setAttribute("aria-hidden", "true");
+    n.lines = mapWrap(String(n.label).replace(/(\S{19})/g, "$1 "), 20, 2);
+    label.textContent = n.lines.join("\n"); button.append(dot, label); layer.append(button);
+    n.el = button; n.labelEl = label;
+  });
+  measureLabels();
+  function save() {
+    if (!opts.storageKey || !width || !height) return;
+    const positions = Object.fromEntries(nodes.map(n => [n.id, { x: n.x, y: n.y }]));
+    // Only coordinates and selection are stored in the browser, never context text.
+    try { ls(opts.storageKey, JSON.stringify({ positions, selected, camera: { k: camera.k, cx: (width / 2 - camera.x) / camera.k, cy: (height / 2 - camera.y) / camera.k } })); } catch (_) { /* quota/private mode: map still works */ }
+  }
+  function persist() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 250); }
+  function schedule() { if (!destroyed && !frame) frame = requestAnimationFrame(() => { frame = 0; if (!destroyed) draw(); }); }
+  const overlap = (a, b) => a.x < b.x + b.w + 3 && a.x + a.w + 3 > b.x && a.y < b.y + b.h + 3 && a.y + a.h + 3 > b.y;
+  function placeLabels() {
+    // A screen-space grid keeps label placement bounded even when most of a large graph is visible.
+    const cells = new Map(), size = 160;
+    const visit = (b, fn) => { for (let x = Math.floor(b.x / size); x <= Math.floor((b.x + b.w) / size); x++) for (let y = Math.floor(b.y / size); y <= Math.floor((b.y + b.h) / size); y++) fn(`${x},${y}`); };
+    const reserve = b => visit(b, key => { if (!cells.has(key)) cells.set(key, []); cells.get(key).push(b); });
+    const score = b => { let hits = 0; const seen = new Set(); visit(b, key => { for (const other of cells.get(key) || []) if (!seen.has(other)) { seen.add(other); if (overlap(b, other)) hits++; } }); return hits; };
+    const visible = nodes.filter(n => n.sx > -30 && n.sx < width + 30 && n.sy > -30 && n.sy < height + 30);
+    visible.forEach(n => reserve({ x: n.sx - n.radius - 3, y: n.sy - n.radius - 3, w: n.radius * 2 + 6, h: n.radius * 2 + 6 }));
+    const priority = n => n.id === selected ? 0 : neighbors.has(n.id) ? 1 : n.id === graph.rootId ? 2 : n.kind === "topic" || n.kind === "group" ? 3 : 4;
+    visible.sort((a, b) => priority(a) - priority(b) || degrees.get(b.id) - degrees.get(a.id));
+    visible.forEach(n => {
+      const w = n.labelW, h = n.labelH, gap = n.radius + 8;
+      const positions = [[gap, -h / 2], [-w - gap, -h / 2], [-w / 2, gap], [-w / 2, -gap - h], [gap, gap], [-gap - w, -gap - h], [gap, -gap - h], [-gap - w, gap]];
+      let best = null;
+      for (const [dx, dy] of positions) {
+        const b = { x: n.sx + dx, y: n.sy + dy, w, h };
+        const cost = score(b) + (b.x < 8 || b.y < 8 || b.x + w > width - 8 || b.y + h > height - 55 ? 8 : 0);
+        if (!best || cost < best.cost) best = { ...b, cost, dx, dy };
+        if (!cost) break;
+      }
+      n.labelEl.style.left = `${22 + best.dx}px`; n.labelEl.style.top = `${22 + best.dy}px`;
+      n.labelEl.style.width = `${w}px`; n.labelEl.style.visibility = best.cost && n.id !== selected ? "hidden" : "visible";
+      if (!best.cost || n.id === selected) reserve(best);
+    });
+  }
+  function draw() {
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    nodes.forEach(n => {
+      n.sx = n.x * camera.k + camera.x; n.sy = n.y * camera.k + camera.y;
+      n.el.style.left = `${n.sx}px`; n.el.style.top = `${n.sy}px`;
+      n.el.classList.toggle("selected", selected === n.id); n.el.classList.toggle("neighbor", neighbors.has(n.id));
+      n.el.classList.toggle("dim", !!selected && selected !== n.id && !neighbors.has(n.id));
+      n.el.setAttribute("aria-pressed", String(selected === n.id));
+    });
+    edges.forEach(e => {
+      const a = byId.get(e.source), b = byId.get(e.target), from = ctxGraphAnchor(a, b), to = ctxGraphAnchor(b, a);
+      e.el.setAttribute("d", `M${from.x} ${from.y} L${to.x} ${to.y}`);
+      const hot = e.source === selected || e.target === selected;
+      e.el.classList.toggle("hot", !!selected && hot); e.el.classList.toggle("faded", !!selected && !hot);
+      e.el.style.display = e.kind !== "contains" && !links.checked ? "none" : "";
+    });
+    hulls.forEach(g => {
+      const points = [];
+      for (const n of g.members) for (let i = 0; i < 8; i++) points.push({ x: n.sx + Math.cos(i * Math.PI / 4) * 38, y: n.sy + Math.sin(i * Math.PI / 4) * 38 });
+      const hull = ctxGraphHull(points);
+      if (hull.length < 3) return;
+      const mid = (a, b) => `${(a.x + b.x) / 2} ${(a.y + b.y) / 2}`;
+      let path = `M${mid(hull[hull.length - 1], hull[0])}`;
+      hull.forEach((p, i) => { path += ` Q${p.x} ${p.y} ${mid(p, hull[(i + 1) % hull.length])}`; });
+      g.el.setAttribute("d", path + "Z");
+    });
+    placeLabels();
+    root.querySelector(".ctxgraph-zoom output").textContent = `${Math.round(camera.k * 100)}%`;
+  }
+  function showReader() {
+    neighbors = new Set();
+    if (!selected) { reader.hidden = true; return; }
+    const n = byId.get(selected);
+    graph.edges.forEach(e => { if (e.source === selected) neighbors.add(e.target); else if (e.target === selected) neighbors.add(e.source); });
+    reader.hidden = false;
+    const kind = n.kind === "group" ? "Collection" : n.kind === "root" ? "Business" : n.kind[0].toUpperCase() + n.kind.slice(1);
+    reader.innerHTML = `<div class="ctxgraph-reader-head"><div><div class="ctxgraph-kind">${esc(kind)}${n.role ? ` · ${esc(n.role)}` : ""}${n.external ? " · related topic" : ""}</div><h3>${esc(n.label)}</h3></div><button type="button" data-action="clear" aria-label="Close selection">×</button></div>
+      ${n.tip ? `<p>${esc(n.tip)}</p>` : ""}<div class="ctxgraph-reader-actions">${n.path != null ? `<button type="button" class="ctxgraph-open" data-action="open">Open ${n.kind === "person" ? "person" : n.kind === "topic" ? "topic" : "note"} →</button>` : ""}<span>${neighbors.size} connection${neighbors.size === 1 ? "" : "s"}</span></div>`;
+    status.textContent = `${n.label}, ${neighbors.size} connections`;
+  }
+  function select(id, center = false) {
+    selected = byId.has(id) ? id : null; showReader();
+    results.hidden = true; search.value = "";
+    if (center && selected) {
+      const n = byId.get(selected); camera.x = width / 2 - n.x * camera.k; camera.y = height / 2 - n.y * camera.k;
+    }
+    if (!selected) status.textContent = "Selection cleared";
+    schedule(); persist();
+  }
+  function zoom(factor, x = width / 2, y = height / 2) {
+    const k = Math.max(minZoom, Math.min(maxZoom, camera.k * factor)), ratio = k / camera.k;
+    camera.x = x - (x - camera.x) * ratio; camera.y = y - (y - camera.y) * ratio; camera.k = k;
+    schedule(); persist();
+  }
+  function fit() {
+    if (!nodes.length) return;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    nodes.forEach(n => { x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x); y0 = Math.min(y0, n.y); y1 = Math.max(y1, n.y); });
+    camera.k = Math.max(minZoom, Math.min(1.25, Math.max(60, width - 160) / Math.max(1, x1 - x0), Math.max(60, height - 155) / Math.max(1, y1 - y0)));
+    camera.x = (width - (x0 + x1) * camera.k) / 2; camera.y = (height - 35 - (y0 + y1) * camera.k) / 2;
+    schedule(); persist();
+  }
+
+  // Pointer capture supports mouse, touch and pen without any global move/up listeners.
+  const pointers = new Map(); let drag = null, pinch = null, suppressClick = false;
+  const point = e => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  listen(canvas, "pointerdown", e => {
+    if (e.button !== 0 || e.target.closest(".ctxgraph-zoom")) return;
+    const p = point(e); pointers.set(e.pointerId, p); canvas.setPointerCapture(e.pointerId); suppressClick = false;
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      pinch = { distance: Math.hypot(a.x - b.x, a.y - b.y), k: camera.k, wx: ((a.x + b.x) / 2 - camera.x) / camera.k, wy: ((a.y + b.y) / 2 - camera.y) / camera.k };
+      drag = null; suppressClick = true; return;
+    }
+    const button = e.target.closest("[data-node]");
+    drag = { id: e.pointerId, start: p, last: p, node: button && byId.get(button.dataset.node), moved: false };
+    canvas.classList.add("dragging");
+  });
+  listen(canvas, "pointermove", e => {
+    if (!pointers.has(e.pointerId)) return;
+    const p = point(e); pointers.set(e.pointerId, p);
+    if (pinch && pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      camera.k = Math.max(minZoom, Math.min(maxZoom, pinch.k * Math.hypot(a.x - b.x, a.y - b.y) / Math.max(1, pinch.distance)));
+      camera.x = (a.x + b.x) / 2 - pinch.wx * camera.k; camera.y = (a.y + b.y) / 2 - pinch.wy * camera.k;
+      schedule(); persist(); return;
+    }
+    if (!drag || drag.id !== e.pointerId) return;
+    if (Math.hypot(p.x - drag.start.x, p.y - drag.start.y) > 4) drag.moved = true;
+    if (drag.moved) {
+      const dx = p.x - drag.last.x, dy = p.y - drag.last.y;
+      if (drag.node) { drag.node.x += dx / camera.k; drag.node.y += dy / camera.k; }
+      else { camera.x += dx; camera.y += dy; }
+      suppressClick = true; schedule(); persist();
+    }
+    drag.last = p;
+  });
+  const endPointer = e => {
+    if (!pointers.has(e.pointerId)) return;
+    if (e.type === "pointerup" && drag && !drag.moved) select(drag.node ? drag.node.id : null);
+    pointers.delete(e.pointerId); drag = null; pinch = null;
+    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    canvas.classList.remove("dragging");
+  };
+  listen(canvas, "pointerup", endPointer); listen(canvas, "pointercancel", endPointer); listen(canvas, "lostpointercapture", endPointer);
+  listen(canvas, "wheel", e => { e.preventDefault(); const p = point(e); zoom(Math.exp(-e.deltaY * (e.deltaMode === 1 ? .025 : .0015)), p.x, p.y); }, { passive: false });
+  listen(root, "click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.node) { if (e.detail === 0 && !suppressClick) select(b.dataset.node); suppressClick = false; return; }
+    if (b.dataset.select) { select(b.dataset.select, true); byId.get(b.dataset.select).el.focus({ preventScroll: true }); return; }
+    const action = b.dataset.action;
+    if (action === "in") zoom(1.22);
+    else if (action === "out") zoom(1 / 1.22);
+    else if (action === "fit") fit();
+    else if (action === "clear") { const n = byId.get(selected); select(null); (n ? n.el : canvas).focus({ preventScroll: true }); }
+    else if (action === "open" && selected && opts.onOpen) opts.onOpen(byId.get(selected));
+    else if (action === "copy") {
+      const text = ctxGraphMermaid(graph);
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => toast("Context graph copied"), () => {
+        if (!destroyed) modal({ title: "Context graph · Mermaid", body: `<pre>${esc(text)}</pre>`, width: 620 });
+      });
+    }
+  });
+  listen(canvas, "keydown", e => {
+    // Node buttons retain Enter/Space activation. Alt + arrows can move a focused node without a pointer.
+    const button = e.target.closest("[data-node]"), n = button && byId.get(button.dataset.node);
+    const delta = { ArrowLeft: [-30, 0], ArrowRight: [30, 0], ArrowUp: [0, -30], ArrowDown: [0, 30] }[e.key];
+    if (delta) {
+      e.preventDefault();
+      if (n && e.altKey) { n.x += delta[0] / camera.k; n.y += delta[1] / camera.k; }
+      else { camera.x -= delta[0]; camera.y -= delta[1]; }
+      schedule(); persist();
+    } else if (e.key === "+" || e.key === "=") { e.preventDefault(); zoom(1.22); }
+    else if (e.key === "-") { e.preventDefault(); zoom(1 / 1.22); }
+    else if (e.key === "Escape") { e.preventDefault(); select(null); }
+    else if (e.key === "0") { e.preventDefault(); fit(); }
+    suppressClick = false;
+  });
+  listen(layer, "focusin", e => {
+    const b = e.target.closest("[data-node]"), n = b && byId.get(b.dataset.node);
+    if (n && (n.sx < 30 || n.sx > width - 30 || n.sy < 30 || n.sy > height - 55)) {
+      camera.x = width / 2 - n.x * camera.k; camera.y = height / 2 - n.y * camera.k; schedule();
+    }
+  });
+  listen(links, "change", () => { ls("ctxmaplinks", links.checked ? "1" : "0"); schedule(); });
+  listen(search, "input", () => {
+    const q = search.value.trim().toLowerCase(); results.hidden = !q;
+    if (!q) return;
+    const matches = nodes.filter(n => `${n.label} ${n.path || ""} ${n.role || ""} ${n.tip}`.toLowerCase().includes(q));
+    results.innerHTML = `<div class="ctxgraph-result-count">${matches.length} matching nodes${matches.length > 12 ? " · first 12 shown" : ""}</div>` + matches.slice(0, 12).map(n => `<button type="button" data-select="${esc(n.id)}">${esc(n.label)}<span>${esc(n.kind)}</span></button>`).join("");
+    status.textContent = `${matches.length} matching nodes`;
+  });
+  listen(search, "keydown", e => {
+    if (e.key === "Escape") { search.value = ""; results.hidden = true; }
+    if (e.key === "Enter" && !results.hidden) { e.preventDefault(); const first = results.querySelector("button"); if (first) first.click(); }
+    if (e.key === "ArrowDown" && !results.hidden) { e.preventDefault(); const first = results.querySelector("button"); if (first) first.focus(); }
+  });
+  listen(root, "keydown", e => {
+    if (e.key === "Escape") results.hidden = true;
+    // The app uses Tab as a navigation chord. Within this interactive graph keep native focus traversal.
+    if (e.key === "Tab") e.stopPropagation();
+  });
+  const resize = () => {
+    if (destroyed) return;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h || (w === width && h === height)) return;
+    const first = !width; camera.x += (w - width) / 2; camera.y += (h - height) / 2; width = w; height = h;
+    if (first) {
+      const c = saved.camera;
+      if (c && Number.isFinite(c.cx) && Number.isFinite(c.cy) && c.k >= minZoom && c.k <= maxZoom) {
+        camera.k = c.k; camera.x = width / 2 - c.cx * c.k; camera.y = height / 2 - c.cy * c.k;
+      } else fit();
+    }
+    schedule();
+  };
+  const observer = new ResizeObserver(resize); observer.observe(canvas);
+  if (document.fonts) document.fonts.ready.then(() => { if (!destroyed) { measureLabels(); schedule(); } });
+  listen(window, "pagehide", save);
+  showReader(); resize();
+  return { fit, destroy() {
+    if (destroyed) return;
+    destroyed = true; clearTimeout(saveTimer); cancelAnimationFrame(frame); save(); observer.disconnect(); abort.abort();
+    for (const id of pointers.keys()) if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id);
+    pointers.clear();
+  } };
+}

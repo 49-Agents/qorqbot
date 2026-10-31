@@ -1,10 +1,9 @@
-// ---------------------------------------------------------------- context maps
+// ---------------------------------------------------------------- upload mind maps
 // Mind maps as plain SVG, no libraries. `mindmap(el, root, opts)` draws a {label, kind, children} tree as a
 // two-sided tidy tree: root in the middle, first-level branches split right and left, each branch its own
 // colour. Drag to pan, wheel to zoom, click a badge to fold or unfold a branch, click a label to go there
-// (opts.onOpen). Two adapters feed it: `ctxMapTree` (the context tree: topics, notes, people, with the
-// `also` / `people` cross-references as dashed links) and `ctxMapIdea` (an upload's model-drawn mind map,
-// context/_maps/<id>.md via `bizctx map show --json`). `mapMermaid` exports either as Mermaid mindmap text.
+// (opts.onOpen). `ctxMapIdea` adapts the shared service's registered upload-map response.
+// `mapMermaid` exports it as Mermaid mindmap text. Folder graphs use ctxgraph.js.
 
 const MAP_FONT = "12.5px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
 const MAP_HUES = ["#b5482b", "#c8912a", "#4d6b53", "#3f7f7a", "#3d5a80", "#7a4f7a"];   // COLORS, one per branch
@@ -210,31 +209,5 @@ function mapMermaid(root) {
   return out.join("\n") + "\n";
 }
 
-// ------------------------------------------------------------- adapters
-// the context tree as a map: topic -> subtopics -> notes; at the root also the Core pillars and every person.
-// `links` on a note point at "topic:<path>" (also) and "person:<slug>" (people), matched by node id.
-function ctxMapTree(d, node, isRoot) {
-  const mk = t => ({
-    label: t.title || t.slug, kind: "topic", id: `topic:${t.path}`, path: t.path, tip: t.about || "",
-    children: [
-      ...(t.children || []).map(mk),
-      ...(t.notes || []).map(n => ({
-        label: (t.titles || {})[n] || n.replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(/\.md$/, "").replace(/-/g, " "),
-        kind: "note", id: `note:${t.path}/${n}`, path: `${t.path}/${n}`, tip: (t.summaries || {})[n] || (t.previews || {})[n] || "",
-        links: [...((t.also || {})[n] || []).map(a => `topic:${a}`), ...((t.people || {})[n] || []).map(s => `person:${s}`)], children: [] })),
-    ],
-  });
-  if (!isRoot) return mk(node);
-  const biz = (state.bizs || []).find(b => b.slug === state.biz);
-  const root = { label: (biz && biz.name) || state.biz || "context", kind: "root", id: "root", children: (d.tree && d.tree.children || []).map(mk) };
-  const pillars = d.pillars || [];
-  if (pillars.length) root.children.unshift({ label: "Core", kind: "group", id: "core", children: pillars.map(n => ({
-    label: titleCase(n.replace(/\.md$/, "")), kind: "note", id: `pillar:${n}`, path: n, tip: "owner-written", children: [] })) });
-  const people = d.people || [];
-  if (people.length) root.children.push({ label: "People", kind: "group", id: "people", children: people.map(p => ({
-    label: p.name + (p.role ? ` · ${p.role}` : ""), kind: "person", id: `person:${p.slug}`, path: `_people/${p.slug}`, tip: p.about || p.summary || "", children: [] })) });
-  return root;
-}
-
-// an upload's model-drawn mind map ({text, children} from bizctx map show --json) as renderer input
+// an upload's model-drawn mind map ({text, children}) as renderer input
 const ctxMapIdea = (t, depth = 0) => ({ label: t.text, kind: depth ? "idea" : "root", children: (t.children || []).map(c => ctxMapIdea(c, depth + 1)) });

@@ -3,6 +3,8 @@
 // like folders, read and edit registered files. Saves go through the shared application. Summaries are rewritten by the
 // server's summariser after a filing or a save, deepest topic first, up to the root.
 let _ctxTimer = null, _ctxData = null;
+let _ctxGraph = null;
+function ctxClearGraph() { if (_ctxGraph) { _ctxGraph.destroy(); _ctxGraph = null; } }
 const SVG_FOLDER = `<svg class="fo" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M1.5 3.5h4l1.5 1.5h5.5v6h-11z"/></svg>`;
 const SVG_FILE = `<svg class="fi" width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3 1.5h5l3 3v8h-8z"/><path d="M8 1.5v3h3"/></svg>`;
 const SVG_PIN = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg>`;
@@ -60,6 +62,7 @@ const ctxSeenGet = () => { try { return JSON.parse(ls(ctxSeenKey()) || "{}"); } 
 const ctxSeenSave = m => ls(ctxSeenKey(), JSON.stringify(m));
 
 async function renderContext(c) {
+  ctxClearGraph();
   clearTimeout(_ctxTimer); _ctxTimer = null;
   const d = await api(`/biz/${state.biz}/context`);
   c.innerHTML = `<div class="ctxwrap">
@@ -111,6 +114,7 @@ async function ctxSearch(q) {
   const inp = $("#ctxsearch");
   if (!inp || inp.value.trim() !== q) return;   // a newer query is already in flight
   const hits = r.hits || [];
+  ctxClearGraph();
   const rows = hits.map(h => `<div class="card" data-p="${esc(h.path)}" data-k="${esc(h.kind)}" title="${esc(h.title)}"><div class="ct"><span class="kd">${esc(h.kind)}</span><span class="tt">${esc(cap(h.title))}</span></div>
     <div class="cb">${ctxMark(h.snippet, q)}</div><div class="cs">${esc(h.path)}</div></div>`).join("");
   v.innerHTML = `<div class="sec"><div class="sh">Search: ${esc(q)} <span class="stamp">${hits.length} hit${hits.length === 1 ? "" : "s"}</span></div>
@@ -136,7 +140,8 @@ function ctxBusy(d) {
 const ctxSig = (d, p) => p === "_learning" ? "_learning"      // learning.js owns that pane; nothing in the context tree changes it
   : p === "_people" ? JSON.stringify((d || {}).people || [])
   : p === "_uploads" ? JSON.stringify([(d || {}).inbox || [], (d || {}).dumps || []])
-  : JSON.stringify([ctxFind((d || {}).tree, p || ""), p ? null : (d || {}).people]);
+  : JSON.stringify([ls("ctxmapmode") === "1" ? (d || {}).tree : ctxFind((d || {}).tree, p || ""),
+    !p || ls("ctxmapmode") === "1" ? (d || {}).people : null, p ? null : (d || {}).pillars]);
 let _ctxLastSig = "";
 function ctxWatch(d) {
   clearTimeout(_ctxTimer); _ctxTimer = null;
@@ -202,6 +207,7 @@ function ctxTree(d) {
 function ctxGo(p) { state.ctx = p; if (_ctxData) ctxTree(_ctxData); ctxShow(p); }
 
 function ctxShow(p) {
+  ctxClearGraph();
   jClearTimers();
   if (p === "_learning") {                                   // learning.js loads after this file; it may not be there at all
     _ctxLastSig = ctxSig(_ctxData, p);                       // a constant, so the tree watcher leaves this pane alone
@@ -230,6 +236,7 @@ const mdLines = text => `<div class="sum">${text.split("\n").map(l => l.trim()).
 
 // a topic as a folder: description, generated summary, subtopics, notes
 function openTopic(p) {
+  ctxClearGraph();
   const v = $("#ctxview"), d = _ctxData || {}, root = !p;
   const node = root ? Object.assign({ title: "context", about: "", children: [], notes: [] }, d.tree || {}) : ctxFind(d.tree, p);
   if (!node) { v.innerHTML = `<div class="empty">no such topic</div>`; return; }
@@ -240,11 +247,11 @@ function openTopic(p) {
   }
   const s = d.summarizing || {}, busy = s.current && (s.current.topic === p || (s.current.topic || "").startsWith(p + "/"));
   const kids = node.children || [], notes = node.notes || [];
-  const mappable = kids.length || notes.length || (root && (d.people || []).length);
-  const mapMode = !!mappable && ls("ctxmapmode") === "1";        // the folder as a mind map instead of cards; remembered
+  const mappable = kids.length || notes.length || (root && ((d.people || []).length || (d.pillars || []).length));
+  const mapMode = !!mappable && ls("ctxmapmode") === "1";        // the folder as a graph instead of cards; remembered
   const head = `${ctxCrumbs(root ? "" : p.split("/").slice(0, -1).join("/"), root ? "" : node.slug)}
     <div class="th"><h2>${esc(root ? "All context" : node.title)}</h2>
-      <div class="pa">${mappable ? `<button class="ghost sm pab" id="tpmap" title="${mapMode ? "back to the cards" : "this folder as a mind map"}">${mapMode ? "Cards" : "Map"}</button>` : ""}${root ? "" : `<button class="ghost sm pab" id="tpedit" title="edit _topic.md">Edit description</button><button class="ghost sm pab" id="tpsum" ${busy ? "disabled" : ""}>${busy ? "summarising…" : "Refresh summary"}</button>`}</div></div>
+      <div class="pa">${mappable ? `<button class="ghost sm pab" id="tpmap" title="${mapMode ? "back to the cards" : "this folder as a graph"}">${mapMode ? "Cards" : "Map"}</button>` : ""}${root ? "" : `<button class="ghost sm pab" id="tpedit" title="edit _topic.md">Edit description</button><button class="ghost sm pab" id="tpsum" ${busy ? "disabled" : ""}>${busy ? "summarising…" : "Refresh summary"}</button>`}</div></div>
     ${node.about ? `<p class="about">${esc(node.about)}</p>` : ""}`;
   const sum = root ? "" : node.summary ? `<div class="sec"><div class="sh">Summary <span class="stamp">${esc((node.summarized || "").replace("T", " ").replace(/:\d\dZ/, "Z"))}</span></div>${mdLines(node.summary)}</div>`
     : `<div class="sec"><div class="sh">Summary</div><div class="empty">${busy ? "being written now" : notes.length || kids.length ? "not written yet; it comes after the next filing or save, or press Refresh summary" : "empty topic"}</div></div>`;
@@ -252,9 +259,10 @@ function openTopic(p) {
   const subs = kids.length ? `<div class="sec"><div class="sh">${root ? "Topics" : "Subtopics"}</div><div class="cards">${kids.map(k => { const kt = k.title || k.slug; return `<div class="card t" data-p="${esc(k.path)}" title="${esc(kt)}"><div class="ct">${SVG_FOLDER}<span class="tt">${esc(cap(kt))}</span><span class="cnt">${ctxCount(k)}</span></div><div class="cb">${esc(k.about || "")}</div><div class="cs">${esc(k.slug)}${k.summary ? "" : " · no summary yet"}</div></div>`; }).join("")}</div></div>` : "";
   const nts = notes.length ? `<div class="sec"><div class="sh">Files</div><div class="cards">${notes.map(n => { const m = ctxNoteMeta(n), ft = (node.titles || {})[n] || n, body = node.summaries?.[n] || node.previews?.[n] || ""; return `<div class="card n" data-p="${esc(p)}/${esc(n)}" title="${esc(ft)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(ft))}</span></div><div class="cb">${esc(body)}</div><div class="cs">${esc(m.date)}${m.rest ? ` · ${esc(m.rest)}` : ""}</div></div>`; }).join("")}</div></div>` : root ? "" : `<div class="sec"><div class="sh">Files</div><div class="empty">none here; ${kids.length ? "they sit in the subtopics" : "nothing filed yet"}</div></div>`;
   if (mapMode) {
-    const tree = ctxMapTree(d, node, root);
-    v.innerHTML = head + `<div class="sec"><div class="sh">Map <span class="stamp">${mapCount(tree) - 1} nodes</span></div><div id="topicmap"></div></div>`;
-    mindmap($("#topicmap"), tree, { links: true, onOpen: n => ctxGo(n.path) });
+    const business = (state.bizs || []).find(b => b.slug === state.biz);
+    const graph = ctxGraphData(d, node, root, business && business.name || state.biz || "Context");
+    v.innerHTML = head + `<div class="sec"><div id="topicmap"></div></div>`;
+    _ctxGraph = contextGraph($("#topicmap"), graph, { storageKey: `ctxgraph:v1:${state.biz}:${p || ""}`, onOpen: n => ctxGo(n.path) });
   } else {
     v.innerHTML = head + sum + pill + subs + nts;
   }

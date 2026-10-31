@@ -325,6 +325,7 @@ function moveInd() {
 }
 
 function renderTab() {
+  if (typeof ctxClearGraph === "function") ctxClearGraph();
   const c = $("#content"); c.innerHTML = "";
   if (!state.biz) return;
   (TABS[state.tab] || TABS.agents)(c);
