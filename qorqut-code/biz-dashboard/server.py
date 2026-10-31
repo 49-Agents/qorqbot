@@ -312,13 +312,14 @@ TOPIC_RE = re.compile(r"^[a-z][a-z0-9-]{1,63}(?:/[a-z][a-z0-9-]{1,63}){0,3}$")
 PERSON_RE = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 
 
-def ctx_file(biz, relpath):
-    """Absolute path of a file under context/, or None if the path is not allowed."""
+def ctx_file(biz, relpath, tree="context"):
+    """Absolute path of a file under context/ (or another tree in TREES, e.g. marketing-content/), or None
+    if the path is not allowed. Same allow-list for every tree."""
     rp = (relpath or "").replace("\\", "/").strip("/")
-    if not CTX_PATH_RE.match(rp) or ".." in rp.split("/"):
+    if tree not in TREES or not CTX_PATH_RE.match(rp) or ".." in rp.split("/"):
         return None
-    p = os.path.abspath(os.path.join(biz, "context", *rp.split("/")))
-    root = os.path.abspath(os.path.join(biz, "context"))
+    p = os.path.abspath(os.path.join(biz, tree, *rp.split("/")))
+    root = os.path.abspath(os.path.join(biz, tree))
     if os.path.commonpath([p, root]) != root:
         return None
     return p
@@ -885,8 +886,12 @@ class Filer:
         self.current = None      # {"biz", "id", "tree", "started"}
         self.history = []        # last runs, newest first
         self.last_sweep = None
+        self.last_kick = None    # the tree named by the last kick (a retry), None for a plain wake
 
-    def kick(self):
+    def kick(self, tree=None):
+        """Wake the sweep now. `tree` is informational (the sweep covers every tree in TREES); it is
+        remembered as `last_kick` so a retry on marketing-content/ is visible in the status."""
+        self.last_kick = tree
         self.wake.set()
 
     def status(self, biz=None, tree=None):
@@ -897,7 +902,8 @@ class Filer:
             else:
                 cur = None
             hist = [h for h in self.history if (biz is None or h["biz"] == biz) and (tree is None or h.get("tree") == tree)][:5]
-        return {"current": cur, "recent": hist, "every": FILER_EVERY, "last_sweep": self.last_sweep}
+        return {"current": cur, "recent": hist, "every": FILER_EVERY, "last_sweep": self.last_sweep,
+                "last_kick": self.last_kick}
 
     def loop(self):
         while True:
@@ -1942,10 +1948,13 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"error": f"bad dir: {tree}"}, 400)
                 return self.send_json(context_view(biz, tree))
             if what == "context" and len(parts) == 4 and parts[3] == "file":
-                p = ctx_file(biz, q.get("p", ""))
+                tree = q.get("dir") or "context"
+                if tree not in TREES:
+                    return self.send_json({"error": f"bad dir: {tree}"}, 400)
+                p = ctx_file(biz, q.get("p", ""), tree)
                 if not p or not os.path.isfile(p):
                     return self.send_json({"error": "no such file"}, 404)
-                return self.send_json({"path": q.get("p"), "text": read(p)})
+                return self.send_json({"path": q.get("p"), "dir": tree, "text": read(p)})
             if what == "context" and len(parts) == 4 and parts[3] == "search":
                 return self.send_json(context_search(biz, q.get("q", "")))
             if what == "context" and len(parts) == 5 and parts[3] == "person":
@@ -2270,14 +2279,18 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json({"ok": True, "id": did})
 
     def context_retry(self, biz, body):
+        """Clear a failed upload's attempts in `dir` (context/ default, or marketing-content/) and kick the filer."""
         did = str(body.get("id") or "")
+        tree = str(body.get("dir") or "context")
         if not UPLOAD_ID_RE.match(did):
             return self.send_json({"error": "bad upload id"}, 400)
-        r = run_json(biz, "bizctx", "retry", did)
+        if tree not in TREES:
+            return self.send_json({"error": f"bad dir: {tree}"}, 400)
+        r = run_json(biz, "bizctx", *tree_args(tree), "retry", did)
         if "error" in r:
             return self.send_json(r, 400)
-        FILER.kick()
-        return self.send_json({"ok": True, "id": did})
+        FILER.kick(tree)
+        return self.send_json({"ok": True, "id": did, "dir": tree})
 
     def task_add(self, biz, body):
         title = str(body.get("title", "")).strip()
