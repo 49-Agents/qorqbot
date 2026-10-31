@@ -9,7 +9,9 @@ from the four CLIs (--json) and the files themselves. Chat = spawn
 """
 
 import argparse
+import base64
 import glob
+import hmac
 import json
 import os
 import re
@@ -49,6 +51,14 @@ COMPACT_SESSIONS = 5
 COMPACT_CHARS = 30000
 SESSIONS = {}
 LOCK = threading.Lock()
+TOKEN = os.environ.get("BIZ_DASH_TOKEN", "")
+# What a fresh terminal launches (brain-agnostic: a shell you run anything inside).
+TERM_CMD_DEFAULT = shlex.split(os.environ.get("BIZ_TERM_CMD", "")) or [os.environ.get("SHELL") or "/bin/bash", "-i"]
+
+try:  # pty is Linux-only; the terminal feature is unavailable elsewhere (the host is Linux)
+    import pty_broker
+except Exception:  # noqa: BLE001
+    pty_broker = None
 
 
 # ------------------------------------------------------------------ utils
@@ -823,6 +833,86 @@ class Live:
         self.done = True
 
 
+def _term_key(biz, agent):
+    return f"{biz}\x00{agent}"
+
+
+def _valid_agent(biz, agent):
+    return bool(re.match(r"^[\w-]+$", agent)) and os.path.isdir(os.path.join(biz, "agents", agent))
+
+
+def agent_term_cmd(biz, agent):
+    """Per-agent terminal command from agent.yaml `terminal_cmd:` (e.g.
+    'claude --dangerously-skip-permissions'), falling back to the global default.
+    This is where 'this agent = Claude Code' is set — one line in the agent's agent.yaml."""
+    raw = yaml_scalars(read(os.path.join(biz, "agents", agent, "agent.yaml"))).get("terminal_cmd")
+    if raw:
+        try:
+            parts = shlex.split(str(raw))
+        except ValueError:
+            parts = []
+        if parts:
+            return parts
+    return TERM_CMD_DEFAULT
+
+
+def ensure_claude_settings(biz, agent):
+    """Scope a Claude Code agent to bazarlyk's write-scope via its own .claude/settings.json.
+    Written once per agent (never overwrites a customized one). Claude walks up to the repo
+    .git, so `/`-anchored paths resolve at the business-repo root. `dontAsk` = allow-listed
+    tools run with no prompt, everything else auto-denied (no bypass, no stalls). Shared state
+    is mutated only through the biz-utils (allowed Bash), never direct file edits."""
+    spath = os.path.join(biz, "agents", agent, ".claude", "settings.json")
+    if os.path.exists(spath):
+        return
+    settings = {"permissions": {
+        "defaultMode": "dontAsk",
+        "blockReadsOutsideWorkingDirectories": True,
+        "allow": [
+            "Read(/**)",
+            f"Edit(/agents/{agent}/**)", f"Write(/agents/{agent}/**)",
+            "Write(/requests/**)",
+            "Write(/assets/drafted/**)",
+            "Edit(/analytics/research/**)", "Write(/analytics/research/**)",
+            "Edit(/analytics/LEARNINGS.md)",
+            "Bash(biztask:*)", "Bash(bizlog:*)", "Bash(bizledger:*)", "Bash(bizmetrics:*)",
+            "Bash(git status)", "Bash(git log *)", "Bash(git diff *)", "Bash(git show *)", "Bash(git branch *)",
+            "Bash(ls *)", "Bash(cat *)", "Bash(grep *)", "Bash(rg *)", "Bash(find *)",
+            "Bash(head *)", "Bash(tail *)", "Bash(wc *)", "Bash(pwd)", "Bash(echo *)",
+        ],
+        "deny": [
+            "Edit(/context/**)", "Write(/context/**)",
+            "Edit(/business.yaml)", "Write(/business.yaml)",
+            "Edit(/CLAUDE.md)", "Write(/CLAUDE.md)",
+            "Edit(/tasks/**)", "Write(/tasks/**)",
+            "Edit(/finance/**)", "Write(/finance/**)",
+            "Edit(/log/**)", "Write(/log/**)",
+            "Read(**/.env)", "Read(**/.env.*)",
+            "Bash(git commit *)", "Bash(git push *)", "Bash(git reset *)",
+            "Bash(git rebase *)", "Bash(git checkout *)",
+        ],
+    }}
+    os.makedirs(os.path.dirname(spath), exist_ok=True)
+    with open(spath, "w", encoding="utf-8") as fh:
+        json.dump(settings, fh, indent=2)
+
+
+def _is_claude(cmd):
+    return bool(cmd) and os.path.basename(cmd[0]) == "claude"
+
+
+def term_list(biz):
+    if pty_broker is None:
+        return []
+    prefix = f"{biz}\x00"
+    out = []
+    for k in pty_broker.keys():
+        if k.startswith(prefix):
+            t = pty_broker.get(k)
+            out.append({"agent": k[len(prefix):], "done": bool(t and t.done)})
+    return out
+
+
 def live_list(biz=None):
     with LOCK:
         return [{"id": s.id, "biz": os.path.basename(s.biz), "agent": s.agent, "message": s.message,
@@ -873,6 +963,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(os.path.join(HERE, "css", parts[1]), "text/css; charset=utf-8")
         if len(parts) == 2 and parts[0] == "mockups" and re.fullmatch(r"[a-z0-9-]+\.html", parts[1]):
             return self.send_file(os.path.join(HERE, "mockups", parts[1]), "text/html; charset=utf-8")
+        if parts and parts[0] == "api" and not self._authed(q):
+            return self.send_json({"error": "unauthorized"}, 401)
         if parts == ["api", "marketplace"]:
             return self.send_json(marketplace())
         if parts[0] != "api":
@@ -942,11 +1034,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(run_json(biz, "bizctx", "person", "show", person))
             if what == "live":
                 return self.send_json(live_list(biz))
+            if what == "terminals" and len(parts) == 3:
+                return self.send_json(term_list(biz))
+            if what == "terminal" and len(parts) == 5 and parts[4] == "stream":
+                return self.stream_terminal(biz, parts[3], q)
         return self.send_json({"error": "not found"}, 404)
 
     def do_POST(self):
         u = urlparse(self.path)
+        q = {k: v[0] for k, v in parse_qs(u.query).items()}
         parts = [p for p in u.path.split("/") if p]
+        if not self._authed(q):
+            return self.send_json({"error": "unauthorized"}, 401)
         n = int(self.headers.get("Content-Length") or 0)
         try:
             body = json.loads(self.rfile.read(n) or b"{}")
@@ -1014,6 +1113,19 @@ class Handler(BaseHTTPRequestHandler):
                 rc, out = git_commit(biz, [f"agents/{name}/agent.yaml"], msg)
                 meta = agent_meta(biz, name)
                 return self.send_json(warned({"ok": True, **meta}, rc, out))
+            if parts[3] == "terminal" and len(parts) == 6:
+                agent = parts[4]
+                if not _valid_agent(biz, agent):
+                    return self.send_json({"error": "no such agent"}, 400)
+                action = parts[5]
+                if action == "input":
+                    return self.input_terminal(biz, agent, body)
+                if action == "start":
+                    return self.start_terminal(biz, agent, body)
+                if action == "resize":
+                    return self.resize_terminal(biz, agent, body)
+                if action == "stop":
+                    return self.stop_terminal(biz, agent)
         return self.send_json({"error": "not found"}, 404)
 
     # ------------------------------------------------------------- writes
@@ -1224,6 +1336,83 @@ class Handler(BaseHTTPRequestHandler):
         rc, out = git_commit(biz, [relpath], f"agent({agent}): chat compact")
         return self.send_json(warned({"summary": summary, "path": relpath}, rc, out))
 
+    def _authed(self, q):
+        if not TOKEN:
+            return True
+        tok = q.get("token") or ""
+        if not tok:
+            a = self.headers.get("Authorization", "")
+            if a.startswith("Bearer "):
+                tok = a[7:]
+        return bool(tok) and hmac.compare_digest(tok, TOKEN)
+
+    def start_terminal(self, biz, agent, body):
+        if pty_broker is None:
+            return self.send_json({"error": "terminals need Linux (pty)"}, 501)
+        cwd = os.path.join(biz, "agents", agent)
+        cmd = body.get("cmd")
+        if not (isinstance(cmd, list) and cmd and all(isinstance(x, str) for x in cmd)):
+            cmd = agent_term_cmd(biz, agent)
+        if _is_claude(cmd):
+            ensure_claude_settings(biz, agent)
+        t = pty_broker.get_or_start(_term_key(biz, agent), cmd, cwd,
+                                    cols=int(body.get("cols") or 120), rows=int(body.get("rows") or 32))
+        return self.send_json({"ok": True, "agent": agent, "cols": t.cols, "rows": t.rows, "done": t.done})
+
+    def input_terminal(self, biz, agent, body):
+        t = pty_broker.get(_term_key(biz, agent)) if pty_broker else None
+        if not t:
+            return self.send_json({"error": "no terminal"}, 404)
+        data = body.get("data")
+        if not isinstance(data, str):
+            return self.send_json({"error": "bad data"}, 400)
+        t.write(data.encode("utf-8", "replace"))
+        return self.send_json({"ok": True})
+
+    def resize_terminal(self, biz, agent, body):
+        t = pty_broker.get(_term_key(biz, agent)) if pty_broker else None
+        if not t:
+            return self.send_json({"error": "no terminal"}, 404)
+        t.resize(int(body.get("rows") or 32), int(body.get("cols") or 120))
+        return self.send_json({"ok": True})
+
+    def stop_terminal(self, biz, agent):
+        ok = pty_broker.stop(_term_key(biz, agent)) if pty_broker else False
+        return self.send_json({"ok": ok})
+
+    def stream_terminal(self, biz, agent, q):
+        if pty_broker is None:
+            return self.send_json({"error": "terminals need Linux (pty)"}, 501)
+        if not _valid_agent(biz, agent):
+            return self.send_json({"error": "no such agent"}, 400)
+        cwd = os.path.join(biz, "agents", agent)
+        cmd = agent_term_cmd(biz, agent)
+        if _is_claude(cmd):
+            ensure_claude_settings(biz, agent)
+        t = pty_broker.get_or_start(_term_key(biz, agent), cmd, cwd)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        try:
+            blob, cursor = t.snapshot()
+            if blob:
+                self.wfile.write(b"data: " + base64.b64encode(blob) + b"\n\n")
+                self.wfile.flush()
+            while True:
+                new, cursor = t.tail_from(cursor)
+                if new:
+                    self.wfile.write(b"data: " + base64.b64encode(new) + b"\n\n")
+                    self.wfile.flush()
+                if t.done:
+                    self.wfile.write(b"event: done\ndata: {}\n\n")
+                    self.wfile.flush()
+                    return
+                time.sleep(0.2)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return
+
     def stream_session(self, sid):
         with LOCK:
             s = SESSIONS.get(sid)
@@ -1251,15 +1440,20 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main(argv=None):
-    global ROOT
+    global ROOT, TOKEN
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--root", default=ROOT, help="folder of business repos")
     p.add_argument("--port", type=int, default=int(os.environ.get("BIZ_DASH_PORT", "1049")))
     p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--token", default=TOKEN, help="require ?token=/Bearer on /api (mandatory if host is not local)")
     args = p.parse_args(argv)
     ROOT = os.path.abspath(os.path.expanduser(args.root))
+    TOKEN = args.token
     if not os.path.isdir(ROOT):
         print(f"no such root: {ROOT}", file=sys.stderr)
+        return 2
+    if args.host not in ("127.0.0.1", "localhost", "::1") and not TOKEN:
+        print("refusing to bind a non-local host without --token (terminals expose a shell)", file=sys.stderr)
         return 2
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     srv.daemon_threads = True

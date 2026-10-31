@@ -20,13 +20,18 @@ const agentGlyph = (m, size) => { const d = dept((m || {}).department); return g
 
 // lazy: the render functions live in later script files
 const TABS = { agents: c => renderAgents(c), marketing: c => renderAnalytics(c), accounting: c => renderMoney(c), context: c => renderContext(c),
+  terminal: c => renderTerminals(c),
   datascience: c => soon(c, "Experiments and metric deep-dives."),
   progress: c => soon(c, "Tasks, milestones and what shipped."),
   code: c => soon(c, "Repos, commits and deploys.") };
 let verbose0 = ls("verbose") === "1", tab0 = ls("tab");
 const state = { biz: null, bizs: [], tab: TABS[tab0] ? tab0 : "agents", agent: null, agents: [], liveNow: [], ctx: null, live: null, verbose: verbose0 };
-const api = async (p, opt) => { const r = await fetch("/api" + p, opt); return r.json(); };
+const TOKEN = new URLSearchParams(location.search).get("token") || "";
+const authHead = TOKEN ? { Authorization: "Bearer " + TOKEN } : {};
+const api = async (p, opt = {}) => { const r = await fetch("/api" + p, { ...opt, headers: { ...(opt.headers || {}), ...authHead } }); return r.json(); };
 const post = (p, body) => api(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+// EventSource can't set headers, so carry the token as a query param.
+const evUrl = p => "/api" + p + (TOKEN ? (p.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(TOKEN) : "");
 let toastT; const toast = m => { const t = $("#toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2600); };
 const fmtMoney = n => (n == null ? "?" : (n < 0 ? "-" : "") + (Math.abs(n) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 const fmtV = c => c == null ? "?" : (Array.isArray(c) ? (c[0] == null ? "?" : (c[1] ? "~" : "") + Number(c[0]).toLocaleString()) : Number(c).toLocaleString());

@@ -330,7 +330,7 @@ function addEvent(msgs, e, acc) {
 }
 function attach(sid, msgs) {
   if (state.live) state.live.close();
-  const es = new EventSource(`/api/session/${sid}/events`); state.live = es;
+  const es = new EventSource(evUrl(`/session/${sid}/events`)); state.live = es;
   const w = pulse(msgs);
   const acc = blankUsage();
   const stop = () => { es.close(); state.live = null; w.remove(); const s = $("#send"); if (s) s.disabled = false; };
