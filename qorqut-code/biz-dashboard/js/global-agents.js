@@ -24,7 +24,7 @@ async function renderGlobalAgents(c) {
   c.innerHTML = `<div class="split global-agents agsplit">
     <div class="listcol"><div class="ctop"><div class="global-eyebrow">Global</div><h1>Agents</h1></div><div class="crows" id="global-agent-list"></div></div>
     <section class="global-agent-session" aria-label="Agent session"><div class="chat termmode" id="global-agent-terminal"></div></section>
-    <aside class="tasks agpad" id="agpad" aria-label="Agent inbox"></aside>
+    <aside class="tasks agpad" id="agpad" aria-label="Agent pane"></aside>
   </div>`;
   const list = $('#global-agent-list', c), pane = $('#global-agent-terminal', c);
   list.innerHTML = `<button class="item agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}">
@@ -55,7 +55,7 @@ async function renderGlobalAgents(c) {
     agpadMount(workspace ? '' : (agent.display_name || agent.name), $('#agpad', c), workspace ? {
       biz: null, open: false, isCurrent: () => false,
     } : {
-      biz: null, agentId: agent.agent_id, views: ['inbox'], open: ls('agpad:null') !== 'off',
+      biz: null, agentId: agent.agent_id, views: ['inbox', 'memory'], open: ls('agpad:null') !== 'off',
       isCurrent: () => current() && selected === agent.agent_id,
     });
   };
