@@ -17,6 +17,7 @@ async function refreshSide() {
   const reqs = (live && Array.isArray(live.requests)) ? live.requests : [];
   if (typeof mkLiveToasts === "function") mkLiveToasts(state.biz, reqs);
   if (typeof mkBadgePaint === "function" && state.tab !== "marketing") mkBadgePaint(reqs);
+  if (typeof rtFailureToasts === "function") rtFailureToasts(live && live.routine_failures);
   if (typeof lnLivePaint === "function") lnLivePaint(live);   // learnings_open → the Context rail badge
   const running = sessions.filter(s => !s.done);
   const f = $("#foot");

@@ -66,12 +66,13 @@ let tLastBiz = null, tSoonT = null, tInside = false, tSearchT = null;
 state.tasks = [];
 
 // ---------------------------------------------------------------- view (tabs)
-const T_VIEWS = ["tasks", "journal", "notes", "uploads", "activity"];
-const T_VIEW_LABEL = { tasks: "Tasks", activity: "Activity", journal: "Journal", notes: "Notes", uploads: "Uploads" };
+const T_VIEWS = ["tasks", "journal", "notes", "uploads", "routines", "activity"];
+const T_VIEW_LABEL = { tasks: "Tasks", activity: "Activity", journal: "Journal", notes: "Notes", uploads: "Uploads", routines: "Routines" };
 const T_VIEW_ICON = {
   tasks: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10.656V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.344"></path><path d="m9 11 3 3L22 4"></path></svg>`,
   journal: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.67 19a2 2 0 0 0 1.416-.588l6.154-6.172a6 6 0 0 0-8.49-8.49L5.586 9.914A2 2 0 0 0 5 11.328V18a1 1 0 0 0 1 1z"></path><path d="M16 8 2 22"></path><path d="M17.5 15H9"></path></svg>`,
   notes: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"></path><path d="M2 6h4"></path><path d="M2 10h4"></path><path d="M2 14h4"></path><path d="M2 18h4"></path><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"></path></svg>`,
+  routines: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
   uploads: ICO_UPLOAD,  // defined in core.js: the same glyph leads every upload button
   activity: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"></path></svg>`,
 };
@@ -352,6 +353,7 @@ function tSetView(v) {
   else if (v === "journal") { tPaintJournal(); }
   else if (v === "notes") { tPaintNotes(); }
   else if (v === "uploads") { tPaintUploads(); }
+  else if (v === "routines") { tPaintRoutines(); }
 }
 
 // ---------------------------------------------------------------- activity view
@@ -641,6 +643,7 @@ window.addEventListener("resize", () => { const p = $("#taskspanel"); if (p && p
       if (tView === "journal") { jrFlush(); jrSel = null; jrSearch = ""; jrMemos = []; tPaintJournal(); }
       // same idea for the notes tab (see js/notes.js's ntFlush)
       if (tView === "notes") { ntFlush(); ntSel = null; ntSearch = ""; ntNotes = []; tPaintNotes(); }
+      if (tView === "routines") tPaintRoutines();
       if (tView === "uploads") tPaintUploads();   // resets its form for the new business itself
     }
   }, 500);
@@ -648,5 +651,6 @@ window.addEventListener("resize", () => { const p = $("#taskspanel"); if (p && p
     if (!state.biz) return;
     refreshTasks();                                    // keeps #tcount live in every view
     if (tView === "activity") tActivityRefresh();
+    if (tView === "routines") rtRefresh();
   }, 12000);
 })();

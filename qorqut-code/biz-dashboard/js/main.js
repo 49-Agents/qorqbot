@@ -44,6 +44,7 @@ loadBiz();
     else if (k === "j") { e.preventDefault(); sawLetter = true; openTasks(true); tSetView("journal"); }
     else if (k === "n") { e.preventDefault(); sawLetter = true; openTasks(true); tSetView("notes"); }
     else if (k === "u") { e.preventDefault(); sawLetter = true; openTasks(true); tSetView("uploads"); }
+    else if (k === "r") { e.preventDefault(); sawLetter = true; openTasks(true); tSetView("routines"); }
     else if (k === "m") { e.preventDefault(); sawLetter = true; goTab("marketing"); }
     else if (k === "c") { e.preventDefault(); sawLetter = true; goTab("context"); }
     else if (k === "a") { e.preventDefault(); sawLetter = true; goTab("agents"); }
