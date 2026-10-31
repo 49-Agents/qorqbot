@@ -6,8 +6,13 @@ let conversationMountId = 0;
 const CONVERSATION_CHANNELS = [['private', 'Private with Ordubashy'], ['team', 'Agent discussion']];
 // Inline Focus conversations dismiss on outside clicks, while their contents stay interactive.
 document.addEventListener('click',event=>{
+  // composedPath() is frozen at dispatch time: a reactive re-render (the team
+  // tab's avatar stack can replace itself between dispatch and here) can leave
+  // event.target detached, which would make a plain .contains(event.target)
+  // check wrongly read as "outside" and collapse the panel the click opened.
+  const path=event.composedPath();
   for(const host of document.querySelectorAll('[data-inline-conversation]')) {
-    if(!(host.closest('.agfocus-card') || host).contains(event.target) && host._conversation?.isExpanded())host._conversation.collapse();
+    if(!path.includes(host.closest('.agfocus-card') || host) && host._conversation?.isExpanded())host._conversation.collapse();
   }
 });
 function conversationKey(source) { return `${source.type}:${source.biz || 'global'}:${source.id}`; }
@@ -38,6 +43,16 @@ function conversationGlyph(person,size) {
   return person.author_kind==='agent' && typeof agentGlyph==='function'
     ? agentGlyph({...person.presentation,...profile},size)
     : esc(conversationPersonName(person).slice(0,2));
+}
+// Same defensive fallback as conversationGlyph, for a harness that doesn't load core.js.
+function conversationOrdubashyGlyph(size) {
+  return typeof agentGlyph==='function' ? agentGlyph({role:{id:'ordubashy'}},size) : 'O';
+}
+// Up to 4 overlapping avatars for the team-channel toast; no overflow count,
+// unlike the Focus people row — if more than 4 have posted, just show 4.
+function conversationChannelAvatars(people) {
+  if(!people.length) return '<span class="conversation-channel-avatar conversation-channel-avatar-empty" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 20v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1"/><circle cx="9" cy="7" r="3"/><path d="M22 20v-1a3.99 3.99 0 0 0-3-3.85"/><path d="M16 3.13a3.99 3.99 0 0 1 0 7.75"/></svg></span>';
+  return people.slice(0,4).map(person=>`<span class="conversation-channel-avatar" aria-hidden="true">${conversationGlyph(person,16)}</span>`).join('');
 }
 function conversationPeople(s) {
   const people=new Map();
@@ -104,7 +119,9 @@ function conversationMount(host,source,adapter={}) {
   const mountId=++conversationMountId;
   const panelId=`conversation-panel-${mountId}`;
   const tabId=name=>`conversation-tab-${mountId}-${name}`;
-  const tabs=CONVERSATION_CHANNELS.map(([name,label])=>`<button type="button" role="tab" id="${tabId(name)}" class="quiet conversation-channel" data-channel="${name}" aria-selected="false" tabindex="-1" aria-controls="${panelId}">${esc(label)}</button>`).join('');
+  // Icon-only, matching the pane's .ttab icon tabs: the label stays as the
+  // accessible name (aria-label) instead of visible text.
+  const tabs=CONVERSATION_CHANNELS.map(([name,label])=>`<button type="button" role="tab" id="${tabId(name)}" class="quiet conversation-channel" data-channel="${name}" aria-selected="false" tabindex="-1" aria-controls="${panelId}" aria-label="${esc(label)}"><span class="conversation-channel-icon" data-channel-icon="${name}">${name==='private'?conversationOrdubashyGlyph(18):conversationChannelAvatars([])}</span></button>`).join('');
   host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span><span class="conversation-unread" data-conversation-unread aria-hidden="true" hidden></span></button><section id="${panelId}" class="conversation-panel" role="tabpanel" aria-labelledby="${tabId('private')}" hidden><div class="conversation-channels" role="tablist" aria-label="Conversation channel">${tabs}</div><p class="conversation-readonly" hidden>Agent discussion · read-only. Reply privately to Ordubashy.</p><div class="conversation-participants" aria-label="Conversation participants"></div><button type="button" class="quiet conversation-older" hidden>Older messages</button><div class="conversation-feed" role="log" aria-label="Conversation"></div><label class="conversation-compose">Message<textarea class="inp" rows="3" maxlength="20000"></textarea></label><button type="button" class="btn conversation-send">Send</button><p class="ferr" role="alert" hidden></p></section>`;
   const toggle=host.querySelector('.conversation-toggle'),panel=host.querySelector('.conversation-panel'),feed=host.querySelector('.conversation-feed'),input=host.querySelector('textarea'),send=host.querySelector('.conversation-send'),older=host.querySelector('.conversation-older'),error=host.querySelector('[role="alert"]');
   const unreadDot=host.querySelector('[data-conversation-unread]'),readOnlyNote=host.querySelector('.conversation-readonly');
@@ -145,6 +162,13 @@ function conversationMount(host,source,adapter={}) {
   }
   syncChannel();
   syncSending();
+  // The team tab's avatar stack reflects whoever has actually posted, which can
+  // arrive after mount (or already be cached from an earlier mount of the same source).
+  function paintTeamIcon() {
+    const icon=host.querySelector('[data-channel-icon="team"]');
+    if(icon)icon.innerHTML=conversationChannelAvatars(conversationPeople(channels.team));
+  }
+  paintTeamIcon();
   let painted='';
   function paint() {
     const s=st();
@@ -153,7 +177,11 @@ function conversationMount(host,source,adapter={}) {
     painted=signature;
     const top=feed.scrollTop;
     const people=conversationPeople(s);
-    host.querySelector('.conversation-participants').innerHTML=people.map(person=>{
+    // The team channel's avatar stack now lives on the "Agent discussion" toast
+    // itself; the named row here would just repeat it.
+    const participantsHost=host.querySelector('.conversation-participants');
+    participantsHost.hidden=channel==='team';
+    if(channel!=='team')participantsHost.innerHTML=people.map(person=>{
       const name=conversationPersonName(person);
       const glyph=conversationGlyph(person,20);
       return `<span class="conversation-participant" title="${esc(name)}"><span class="conversation-participant-avatar" aria-hidden="true">${glyph}</span><span>${esc(name)}</span></span>`;
@@ -252,7 +280,7 @@ function conversationMount(host,source,adapter={}) {
       s.rejectionRequiresMessage=data.rejection_requires_message;
       // Card-level people projections describe the team, not the private pair,
       // and stay current even while the private channel is the one on screen.
-      if(target==='team')adapter.onParticipants?.(conversationPeople(s));
+      if(target==='team'){adapter.onParticipants?.(conversationPeople(s));paintTeamIcon();}
       if(target==='private' && !more && options.acknowledge)await acknowledge(s);
     } catch(e){
       if(['forbidden','not_found'].includes(e.code)){
@@ -349,5 +377,13 @@ function conversationMount(host,source,adapter={}) {
     hasDraft:()=>!!(channels.private.text || channels.team.text),
     get state(){return st();},
     states:channels,_paint:paint};
+  // Collapsed by default at the component level: mounting is not itself an
+  // explicit open (Focus mounts every card up front, long before any of them
+  // are looked at). Consumers that only ever mount once a specific item is
+  // already the one the owner is looking at (a selected task/story/signoff,
+  // an opened email thread, the Focus card the owner just clicked, the inbox
+  // modal) call .expand() themselves right after mounting, once, so the chat
+  // still shows by default there without baking an eager private-channel
+  // read-acknowledgment into this shared default.
   expand(false,false);return host._conversation;
 }

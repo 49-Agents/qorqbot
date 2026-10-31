@@ -1,6 +1,9 @@
 // Tasks and Focus use the same canonical combined thread.
 function taskProgressMount(host,task,biz,beforeOpen) {
-  return conversationMount(host,{type:'task',id:task.id,biz,revision:task.revision});
+  // host is a freshly rendered task-detail element each time this is called.
+  const conversation=conversationMount(host,{type:'task',id:task.id,biz,revision:task.revision});
+  conversation.expand();
+  return conversation;
 }
 
 async function taskProgressOpenReference(biz, ref, beforeOpen) {

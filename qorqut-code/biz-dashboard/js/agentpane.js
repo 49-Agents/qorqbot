@@ -358,13 +358,14 @@ async function agpadOpenInboxSource({ inboxSource: id, sourceType: type, busines
     // The card's canonical binding owns the discussion, so this modal keys the
     // same state as Focus: one draft, cursor and submission per bound object.
     const binding=item.conversation || {type:'reference',id:item.id};
+    // The modal body is freshly created above, so this is always an explicit open.
     conversationMount(document.querySelector('#focus-inbox-conversation'),
       {type:binding.type,id:binding.id,biz:item.resolved_source?.business_slug || item.context_business_slug || null,revision:item.source_revision},{
       privateGlobal:true,
       privateSource:{type:binding.type,id:binding.id,...(binding.business_id?{business_id:binding.business_id}:{})},
       read:async pagination=>coreData(await post('/root/operations/focus_get',{scope:'global',item_id:id,conversation:true,...pagination})).item.thread,
       send:async request=>coreData(await post('/root/operations/focus_reply',{scope:'global',item_id:id,text:request.text,idempotency_key:request.idempotency_key}))
-    });
+    }).expand();
     return;
   }
   if (type === 'signoffs') return sgAttentionNavigate(biz || null, id);
