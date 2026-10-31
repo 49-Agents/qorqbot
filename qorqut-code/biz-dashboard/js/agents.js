@@ -161,25 +161,188 @@ async function runSlash(cmd, a, msgs, send) {
   msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight;
 }
 
+// ------------------------------------------------------------------- org (pins, custom categories, order)
+// Per-business client-side layout: { pinned: [name,...], cats: [{name, agents:[name,...]}], loose: [name,...] }
+// Departments still carry the glyph colour; they no longer group the nav — this replaces that grouping.
+const orgKey = () => "agorg:" + state.biz;
+function orgLoad() {
+  let o = null;
+  try { o = JSON.parse(ls(orgKey()) || "null"); } catch (e) { o = null; }
+  if (!o || typeof o !== "object") o = {};
+  if (!Array.isArray(o.pinned)) o.pinned = [];
+  if (!Array.isArray(o.cats)) o.cats = [];
+  o.cats = o.cats.filter(c => c && typeof c.name === "string").map(c => ({ name: c.name, agents: Array.isArray(c.agents) ? c.agents.slice() : [] }));
+  if (!Array.isArray(o.loose)) o.loose = [];
+  return o;
+}
+function orgSave(o) { ls(orgKey(), JSON.stringify(o)); }
+// drop names that no longer exist, append unknown/new names to loose (alphabetical for the initial migration)
+function orgReconcile(o) {
+  const names = new Set(state.agents.map(a => a.name));
+  const known = new Set();
+  o.pinned = o.pinned.filter(n => names.has(n) && !known.has(n) && (known.add(n), true));
+  o.cats.forEach(c => { c.agents = c.agents.filter(n => names.has(n) && !known.has(n) && (known.add(n), true)); });
+  o.loose = o.loose.filter(n => names.has(n) && !known.has(n) && (known.add(n), true));
+  const rest = [...names].filter(n => !known.has(n)).sort();
+  o.loose = o.loose.concat(rest);
+  return o;
+}
+function orgNameRemove(o, name) {
+  o.pinned = o.pinned.filter(n => n !== name);
+  o.cats.forEach(c => { c.agents = c.agents.filter(n => n !== name); });
+  o.loose = o.loose.filter(n => n !== name);
+}
+// the rendered order: pinned, then each category's agents, then loose
+function agentNavOrder() {
+  const o = orgReconcile(orgLoad());
+  return [].concat(o.pinned, ...o.cats.map(c => c.agents), o.loose);
+}
+
 // ------------------------------------------------------------------- list
+let _newCatOpen = false;
 function paintList() {
   const al = $("#agentlist"); if (!al) return;
   const rows = $("#agentrows"); if (!rows) return;
   const live = new Set((state.terms || []).filter(t => !t.done).map(t => t.agent));
-  const row = a => {
-    const running = live.has(a.name);
-    return `<div class="item agent ${a.name === state.agent ? "on" : ""}" data-a="${esc(a.name)}"><div class="nm">${agentGlyph(a, 10)}<span class="tt">${esc(a.name)}</span></div><span class="ldot ${running ? "live" : ""}" data-st title="${running ? "running" : "idle"}"></span></div>`;
-  };
+  const byName = {}; state.agents.forEach(a => byName[a.name] = a);
+  const SVG_PIN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
+  const SVG_X2 = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
+
   if (!state.agents.length) {
     rows.innerHTML = `<div class="empty pad">No agents yet. Add one above.</div>`;
-  } else {
-    const groups = {}; for (const k of Object.keys(DEPTS)) groups[k] = [];
-    state.agents.forEach(a => { const k = DEPTS[a.department] ? a.department : "general"; groups[k].push(a); });
-    rows.innerHTML = Object.keys(DEPTS).map(k => groups[k].length
-      ? `<div class="h">${esc(DEPTS[k].label)}</div>` + groups[k].map(row).join("")
-      : "").join("");
+    return;
   }
+
+  const o = orgReconcile(orgLoad()); orgSave(o);
+  const row = (name, secKind, secIdx) => {
+    const a = byName[name]; if (!a) return "";
+    const running = live.has(a.name);
+    const pinned = o.pinned.indexOf(name) >= 0;
+    return `<div class="item agent ${a.name === state.agent ? "on" : ""}" draggable="true" data-a="${esc(a.name)}" data-sec="${esc(secKind)}" data-idx="${secIdx}">
+      <div class="nm">${agentGlyph(a, 10)}<span class="tt">${esc(a.name)}</span></div>
+      <button type="button" class="pinbtn ${pinned ? "on" : ""}" data-pin="${esc(a.name)}" title="${pinned ? "Unpin" : "Pin"}">${SVG_PIN}</button>
+      <span class="ldot ${running ? "live" : ""}" data-st title="${running ? "running" : "idle"}"></span>
+    </div>`;
+  };
+
+  let html = "";
+  if (o.pinned.length) html += `<div class="h" data-drop-sec="pinned">Pinned</div>` + o.pinned.map((n, i) => row(n, "pinned", i)).join("");
+  o.cats.forEach((c, ci) => {
+    html += `<div class="h catH" data-drop-sec="cat" data-cat="${ci}"><span class="cn">${esc(c.name)}</span><button type="button" class="catx" data-catx="${ci}" title="Remove category">${SVG_X2}</button></div>`
+      + c.agents.map((n, i) => row(n, "cat" + ci, i)).join("");
+  });
+  html += `<div class="h" data-drop-sec="loose">Agents</div>` + o.loose.map((n, i) => row(n, "loose", i)).join("");
+  html += _newCatOpen
+    ? `<div class="newcatrow"><input id="newcatin" class="newcatin" placeholder="Category name…" autocomplete="off" spellcheck="false"></div>`
+    : `<button type="button" class="newcatbtn" id="newcatbtn">+ New category</button>`;
+  rows.innerHTML = html;
+
   rows.querySelectorAll(".agent").forEach(d => d.onclick = () => { state.agent = d.dataset.a; renderAgents($("#content")); });
+
+  rows.querySelectorAll(".pinbtn").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const name = b.dataset.pin;
+    const cur = orgReconcile(orgLoad());
+    if (cur.pinned.indexOf(name) >= 0) {
+      cur.pinned = cur.pinned.filter(n => n !== name);
+      cur.loose.push(name);
+    } else {
+      orgNameRemove(cur, name);
+      cur.pinned.push(name);
+    }
+    orgSave(cur); paintList();
+  });
+
+  rows.querySelectorAll(".catx").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const ci = Number(b.dataset.catx);
+    const cur = orgReconcile(orgLoad());
+    const c = cur.cats[ci]; if (!c) return;
+    cur.cats.splice(ci, 1);
+    cur.loose = cur.loose.concat(c.agents);
+    orgSave(cur); paintList();
+  });
+
+  const newBtn = $("#newcatbtn");
+  if (newBtn) newBtn.onclick = () => { _newCatOpen = true; paintList(); };
+  const newIn = $("#newcatin");
+  if (newIn) {
+    newIn.focus();
+    let settled = false;
+    const cancel = () => { if (settled) return; settled = true; _newCatOpen = false; paintList(); };
+    const commit = () => {
+      if (settled) return; settled = true;
+      const name = newIn.value.trim();
+      _newCatOpen = false;
+      if (name) { const cur = orgReconcile(orgLoad()); cur.cats.push({ name, agents: [] }); orgSave(cur); }
+      paintList();
+    };
+    newIn.onkeydown = e => {
+      if (e.key === "Enter") { e.preventDefault(); commit(); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); cancel(); }
+    };
+    newIn.onblur = cancel;
+  }
+
+  wireAgentDrag(rows);
+}
+
+// -------------------------------------------------------------- drag & drop reorder
+function wireAgentDrag(rows) {
+  let dragName = null;
+  rows.querySelectorAll(".item.agent[draggable]").forEach(el => {
+    el.addEventListener("dragstart", e => {
+      dragName = el.dataset.a;
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", dragName); } catch (err) {}
+    });
+    el.addEventListener("dragend", () => {
+      dragName = null;
+      rows.querySelectorAll(".dragover-top,.dragover-bot").forEach(x => x.classList.remove("dragover-top", "dragover-bot"));
+    });
+    el.addEventListener("dragover", e => {
+      e.preventDefault();
+      rows.querySelectorAll(".dragover-top,.dragover-bot").forEach(x => { if (x !== el) x.classList.remove("dragover-top", "dragover-bot"); });
+      const r = el.getBoundingClientRect(), before = (e.clientY - r.top) < r.height / 2;
+      el.classList.toggle("dragover-top", before);
+      el.classList.toggle("dragover-bot", !before);
+    });
+    el.addEventListener("dragleave", () => el.classList.remove("dragover-top", "dragover-bot"));
+    el.addEventListener("drop", e => {
+      e.preventDefault();
+      el.classList.remove("dragover-top", "dragover-bot");
+      const name = dragName || (e.dataTransfer && e.dataTransfer.getData("text/plain"));
+      if (!name || name === el.dataset.a) return;
+      const r = el.getBoundingClientRect(), before = (e.clientY - r.top) < r.height / 2;
+      const targetSec = el.dataset.sec, targetIdx = Number(el.dataset.idx);
+      const cur = orgReconcile(orgLoad());
+      orgNameRemove(cur, name);
+      const listFor = sec => sec === "pinned" ? cur.pinned : sec === "loose" ? cur.loose
+        : sec.indexOf("cat") === 0 ? (cur.cats[Number(sec.slice(3))] || { agents: [] }).agents : cur.loose;
+      const list = listFor(targetSec);
+      let insertAt = Math.min(targetIdx, list.length);
+      if (!before) insertAt = Math.min(insertAt + 1, list.length);
+      list.splice(insertAt, 0, name);
+      orgSave(cur); paintList();
+    });
+  });
+  rows.querySelectorAll(".h[data-drop-sec]").forEach(h => {
+    h.addEventListener("dragover", e => { e.preventDefault(); h.classList.add("dragover-sec"); });
+    h.addEventListener("dragleave", () => h.classList.remove("dragover-sec"));
+    h.addEventListener("drop", e => {
+      e.preventDefault();
+      h.classList.remove("dragover-sec");
+      const name = dragName || (e.dataTransfer && e.dataTransfer.getData("text/plain"));
+      if (!name) return;
+      const cur = orgReconcile(orgLoad());
+      orgNameRemove(cur, name);
+      const sec = h.dataset.dropSec;
+      if (sec === "pinned") cur.pinned.push(name);
+      else if (sec === "cat") { const c = cur.cats[Number(h.dataset.cat)]; if (c) c.agents.push(name); else cur.loose.push(name); }
+      else cur.loose.push(name);
+      orgSave(cur); paintList();
+    });
+  });
 }
 function paintHead(a) {
   const ch = $("#chat"); if (!ch) return;

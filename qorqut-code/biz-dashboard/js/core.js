@@ -274,11 +274,14 @@ $("#wsbtn").onclick = () => dropdown($("#wsbtn"), state.bizs.map(b => ({
   value: b.slug,
   html: `${esc(b.name)} <span class="muted small">${b.agents.length}</span>`,
 })), slug => selectBiz(slug), state.biz);
-document.querySelectorAll(".ritem").forEach(t => t.onclick = () => {
+function goTab(name) {
+  const t = [...document.querySelectorAll(".ritem")].find(x => x.dataset.tab === name);
+  if (!t || t.classList.contains("soon")) return;
   state.tab = t.dataset.tab; ls("tab", state.tab);
   document.querySelectorAll(".ritem").forEach(x => x.classList.toggle("on", x === t));
   renderTab(); moveInd();
-});
+}
+document.querySelectorAll(".ritem").forEach(t => t.onclick = () => goTab(t.dataset.tab));
 document.querySelectorAll(".ritem").forEach(t => t.classList.toggle("on", t.dataset.tab === state.tab));
 moveInd();
 window.addEventListener("resize", moveInd);
