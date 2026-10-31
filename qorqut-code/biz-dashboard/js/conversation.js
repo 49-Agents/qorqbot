@@ -32,17 +32,25 @@ function conversationGlyph(person,size) {
 // Presentation only: canonical bodies and transport payloads stay complete.
 function messagePreview(body, summary) {
   const words=String(summary || body || '').trim().split(/\s+/u).filter(Boolean);
-  return words.slice(0,15).join(' ') + (words.length>15?'…':'');
+  return words.slice(0,10).join(' ') + (words.length>10?'…':'');
 }
 function conversationMessage(note, open) {
   const body=`<div data-conversation-body="${esc(note.id)}">${esc(note.body || '')}</div>`;
   const preview=messagePreview(note.body,note.summary);
-  if(!note.summary && String(note.body || '').trim().split(/\s+/u).length<=15)return body;
+  if(!note.summary && String(note.body || '').trim().split(/\s+/u).length<=10)return body;
   return `<details data-message-id="${esc(note.id)}"${open?' open':''}><summary aria-label="${esc(preview)} — expand full message">${esc(preview)}</summary>${body}</details>`;
+}
+async function conversationRequest(promise) {
+  let timer;
+  try {
+    return await Promise.race([promise,new Promise((_,reject)=>{
+      timer=setTimeout(()=>reject(Object.assign(new Error('The request took too long. Try again.'),{code:'request_timeout'})),15000);
+    })]);
+  } finally {clearTimeout(timer);}
 }
 async function conversationCall(source,operation,args,options={}) {
   const path=source.biz?`/biz/${encodeURIComponent(source.biz)}`:'/root';
-  return coreData(await post(`${path}/operations/${operation}`,{...args,...(!source.biz?{scope:'global'}:{}),...options}));
+  return coreData(await conversationRequest(post(`${path}/operations/${operation}`,{...args,...(!source.biz?{scope:'global'}:{}),...options})));
 }
 function conversationMount(host,source,adapter={}) {
   if (!host) return;
@@ -122,10 +130,11 @@ function conversationMount(host,source,adapter={}) {
   function showError(e) { error.hidden=false;error.textContent=e.message || String(e); }
   async function load(more=false) {
     if(s.loading)return;s.loading=true;error.hidden=true;
+    s.refreshAfterSend=false;
     try {
       let data;
       const pagination=more?{...(s.cursor?{cursor:s.cursor}:{}),...(s.before?{before:s.before}:{})}:{};
-      if(adapter.read) data=await adapter.read(pagination);
+      if(adapter.read) data=await conversationRequest(adapter.read(pagination));
       else if(source.type==='story') {
         const result=await conversationCall(source,'stories_timeline',{story_id:source.id,notes_only:true,limit:20,...pagination});
         data={notes:result.events.slice().reverse().map(n=>({...n,created_by:n.actor_id,created_by_name:n.actor?.name,author_kind:n.actor?.kind})),next_cursor:result.next_cursor,participants:result.participants};
@@ -144,11 +153,17 @@ function conversationMount(host,source,adapter={}) {
         if(current())paint();
       }
       if(current())showError(e);
-    } finally{s.loading=false;}
+    } finally{
+      s.loading=false;
+      // A send may finish while an earlier read is still in flight. Fetch again
+      // afterwards so that response cannot leave the new message out of view.
+      if(s.refreshAfterSend)void load();
+    }
   }
   async function submit() {
     if(s.sending || !s.text.trim())return;
     s.sending=true;syncSending();error.hidden=true;
+    let saved=false;
     try {
       if(!s.submission) {
         let revision=host._source.revision;
@@ -158,12 +173,15 @@ function conversationMount(host,source,adapter={}) {
         s.submission={text:s.text,idempotency_key:newRequestId(),revision};
       }
       const request=s.submission;
-      if(adapter.send) await adapter.send(request);
+      if(adapter.send) await conversationRequest(adapter.send(request));
       else await conversationCall(source,{task:'tasks_comment',story:'stories_note_add',signoff:'signoffs_comment'}[source.type],
         {[source.type+'_id']:source.id,...(source.type==='story'?{body:request.text}:{text:request.text})},
         {idempotency_key:request.idempotency_key,...(request.revision?{expected_revision:request.revision}:{})});
-      s.text='';s.submission=null;if(current()){input.value='';send.textContent='Send';}syncDraft(input);adapter.onInput?.();await load();
-    } catch(e){if(current()){showError(e);if(['revision_conflict','stale_signoff','not_found','forbidden','policy_denied'].includes(e.code)){s.submission=null;send.textContent='Send';error.textContent+=' Review the current source before sending again.';}else send.textContent='Retry Send';}} finally{s.sending=false;syncSending();adapter.onInput?.();}
+      s.text='';s.submission=null;saved=true;if(current()){input.value='';send.textContent='Send';}syncDraft(input);
+    } catch(e){if(current()){showError(e);if(['revision_conflict','stale_signoff','not_found','forbidden','policy_denied'].includes(e.code)){s.submission=null;send.textContent='Send';error.textContent+=' Review the current source before sending again.';}else if(s.submission){send.textContent='Retry Send';if(e.code==='request_timeout')error.textContent='Could not confirm delivery. Retry Send to check the same message.';}}} finally{s.sending=false;syncSending();adapter.onInput?.();}
+    // A confirmed write is complete. Refresh history without holding the
+    // composer disabled, and preserve the same submission key on uncertain writes.
+    if(saved){s.refreshAfterSend=true;void load();}
   }
   input.onkeydown=event=>{
     if(event.key==='Enter' && event.ctrlKey && !event.isComposing && !send.disabled && !input.disabled){event.preventDefault();submit();}
