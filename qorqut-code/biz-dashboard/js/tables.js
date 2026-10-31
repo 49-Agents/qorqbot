@@ -1,12 +1,20 @@
 // Shared business tables and original data uploads use the same operations as MCP.
 let _data = {biz: null, mode: 'tables', selected: null, table: null, rows: [], cursor: null, query: '', order: '', descending: false, archived: false};
 let _dataGeneration = 0, _dataDetail = 0;
+// Keep drafts when navigating away; only Save writes them to the service.
+const _dataDrafts = new Map();
+const dataDraftKey = () => JSON.stringify([state.biz, _data.selected]);
+const dataDraft = () => _dataDrafts.get(dataDraftKey());
+window.addEventListener('beforeunload', event => {
+  if (_dataDrafts.size) { event.preventDefault(); event.returnValue = ''; }
+});
 const dataCall = async (biz, op, args = {}) => coreData(await post(`/biz/${encodeURIComponent(biz)}/operations/${op}`, args));
 const dataActive = (biz, node) => state.scope === 'business' && state.biz === biz && state.tab === 'tables' && node?.isConnected;
 const dataIconButton = (id, label, icon) => `<button class="data-icon" type="button" id="${id}" title="${esc(label)}" aria-label="${esc(label)}">${icon}</button>`;
 const dataValue = value => value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
 const dataCell = (row, key) => row && Object.hasOwn(row.cells, key) ? row.cells[key] : null;
 const dataDownload = (biz, id) => `/api/biz/${encodeURIComponent(biz)}/data-uploads/${encodeURIComponent(id)}/download`;
+const dataSettingsIcon = document.querySelector('.ritem[data-tab="settings"] svg').outerHTML;
 document.querySelector('#tablesnav').innerHTML = aicon('database', 'currentColor', 20);
 
 async function renderTables(container) {
@@ -62,21 +70,26 @@ async function dataOpenTable(id, append = false) {
   }
   dataSelect(id);
   try {
-    const result = await dataCall(biz, 'tables_get', {table_id: id});
-    const found = await dataCall(biz, 'tables_rows_list', {table_id: id, limit: 50, ...(_data.query ? {query: _data.query} : {}), ...(_data.order ? {order_by: _data.order, descending: _data.descending} : {}), ...(append && _data.cursor ? {cursor: _data.cursor} : {})});
+    const draft = dataDraft();
+    const result = draft ? {table: draft.table} : await dataCall(biz, 'tables_get', {table_id: id});
+    const found = draft ? {items: draft.rows, table_revision: draft.table.revision, next_cursor: draft.cursor} : await dataCall(biz, 'tables_rows_list', {table_id: id, limit: 50, ...(_data.query ? {query: _data.query} : {}), ...(_data.order ? {order_by: _data.order, descending: _data.descending} : {}), ...(append && _data.cursor ? {cursor: _data.cursor} : {})});
     if (!dataActive(biz, panel) || generation !== _dataDetail || _data.selected !== id) return;
     if (found.table_revision !== result.table.revision) throw new Error('Table changed while loading. Refresh to read the current version.');
     document.querySelector('#data-error').hidden = true;
-    _data.table = result.table; _data.rows = append ? [..._data.rows, ...found.items] : found.items; _data.cursor = found.next_cursor;
+    _data.table = result.table; _data.rows = append && !draft ? [..._data.rows, ...found.items] : found.items; _data.cursor = found.next_cursor;
     const keepSearchFocus = document.activeElement === panel.querySelector('#data-row-query');
     const table = result.table;
-    panel.innerHTML = `<header class="data-heading">${dataIconButton('data-back', 'Back to tables', aicon('arrow-left', 'currentColor', 18))}<h1>${esc(table.title)}</h1><span class="data-spacer"></span>${dataIconButton('data-edit-table', 'Edit table and columns', aicon('wrench', 'currentColor', 18))}<button class="btn" id="data-history">History</button></header>${table.description ? `<p class="data-description">${esc(table.description)}</p>` : ''}<div class="data-tags">${Object.entries(table.tags).filter(([,v]) => v.length).map(([key, values]) => `<span>${esc(key)}: ${esc(values.join(', '))}</span>`).join('')}</div><div id="data-stories"></div><div class="data-row-tools"><label>Search rows<input type="search" id="data-row-query" class="inp" value="${esc(_data.query)}"></label><span id="data-save-status">${table.versioning.state === 'saved' ? 'Saved to Git' : 'Git snapshot pending'}</span><span class="data-spacer"></span>${dataIconButton('data-row-delete', 'Remove selected rows', SVG_X)}${dataIconButton('data-row-new', 'Add row', SVG_TPLUS)}</div><div class="data-grid-wrap"><table class="data-grid"><thead><tr><th class="data-check"><input type="checkbox" id="data-select-all" aria-label="Select visible rows"></th>${table.columns.map(column => `<th><button type="button" data-sort="${column.id}" ${column.type === 'json' ? 'disabled' : ''}>${esc(column.name)}${_data.order === column.id ? (_data.descending ? ' ↓' : ' ↑') : ''}</button></th>`).join('')}</tr></thead><tbody>${_data.rows.map(row => `<tr data-row="${row.id}"><td class="data-check"><input type="checkbox" data-row-select="${row.id}" aria-label="Select row ${row.position + 1}"></td>${table.columns.map(column => `<td><button type="button" class="data-cell" data-edit-row="${row.id}" title="${esc(dataValue(dataCell(row, column.id)).slice(0, 1000))}">${esc(dataValue(dataCell(row, column.id)).slice(0, 300)) || '<span class="muted">-</span>'}</button></td>`).join('')}</tr>`).join('')}</tbody></table>${_data.rows.length ? '' : '<p class="data-empty muted">No rows</p>'}</div><footer class="data-footer"><span>${_data.rows.length} of ${table.row_count} rows</span><button class="btn" id="data-more" ${_data.cursor ? '' : 'hidden'}>Load more</button></footer>`;
+    panel.innerHTML = `<header class="data-heading">${dataIconButton('data-back', 'Back to tables', aicon('arrow-left', 'currentColor', 18))}<h1>${esc(table.title)}</h1><span class="data-spacer"></span>${dataIconButton('data-edit-table', 'Edit table and columns', dataSettingsIcon)}</header>${table.description ? `<p class="data-description">${esc(table.description)}</p>` : ''}<div id="data-stories"></div><div class="data-row-tools"><label>Search rows<input type="search" id="data-row-query" class="inp" value="${esc(_data.query)}"></label><span class="data-spacer"></span><div id="data-draft-actions" hidden><button type="button" class="btn" id="data-discard">Discard</button><button type="button" class="btn primary" id="data-save">Save</button></div>${dataIconButton('data-row-delete', 'Remove selected rows', SVG_X)}${dataIconButton('data-row-new', 'Add row', SVG_TPLUS)}</div><div class="data-grid-wrap"><table class="data-grid"><thead><tr><th class="data-check"><input type="checkbox" id="data-select-all" aria-label="Select visible rows"></th>${table.columns.map(column => `<th><button type="button" data-sort="${column.id}" ${column.type === 'json' ? 'disabled' : ''}>${esc(column.name)}${_data.order === column.id ? (_data.descending ? ' ↓' : ' ↑') : ''}</button></th>`).join('')}</tr></thead><tbody></tbody></table></div><footer class="data-footer"><span id="data-row-count"></span><button class="btn" id="data-more" ${_data.cursor ? '' : 'hidden'}>Load more</button></footer>`;
     panel.querySelector('#data-back').onclick = dataBack;
     panel.querySelector('#data-edit-table').onclick = () => dataTableEditor(table);
-    panel.querySelector('#data-history').onclick = () => dataHistory(table);
     panel.querySelector('#data-row-new').disabled = table.archived;
-    panel.querySelector('#data-row-new').onclick = () => dataRowEditor(table);
-    panel.querySelectorAll('[data-edit-row]').forEach(button => { button.disabled = table.archived; button.onclick = () => dataRowEditor(table, _data.rows.find(row => row.id === button.dataset.editRow)); });
+    panel.querySelector('#data-row-new').onclick = () => {
+      const draft = dataStartDraft(), row = {id: newRequestId(), cells: {}, position: table.row_count + draft.added.size};
+      draft.added.set(row.id, row); dataRenderRows();
+      panel.querySelector(`[data-row="${row.id}"] .data-cell`)?.click();
+    };
+    panel.querySelector('#data-save').onclick = dataSaveRows;
+    panel.querySelector('#data-discard').onclick = () => { _dataDrafts.delete(dataDraftKey()); panel.innerHTML = '<p class="data-empty muted">Loading...</p>'; dataOpenTable(id); };
     panel.querySelector('#data-more').onclick = () => dataOpenTable(id, true);
     if (keepSearchFocus) panel.querySelector('#data-row-query').focus();
     let timer;
@@ -87,27 +100,146 @@ async function dataOpenTable(id, append = false) {
       timer = setTimeout(() => { if (dataActive(biz, query) && _data.selected === id) dataOpenTable(id); }, 350);
     };
     panel.querySelectorAll('[data-sort]').forEach(button => button.onclick = () => { _data.descending = _data.order === button.dataset.sort && !_data.descending; _data.order = button.dataset.sort; dataOpenTable(id); });
-    const remove = panel.querySelector('#data-row-delete'), selected = () => [...panel.querySelectorAll('[data-row-select]:checked')].map(node => node.dataset.rowSelect);
-    const sync = () => { remove.disabled = table.archived || !selected().length; };
-    panel.querySelectorAll('[data-row-select]').forEach(node => node.onchange = sync);
-    panel.querySelector('#data-select-all').onchange = event => { panel.querySelectorAll('[data-row-select]').forEach(node => { node.checked = event.target.checked; }); sync(); };
-    sync();
-    remove.onclick = () => { const ids = selected(); dataForm('Remove rows', `<p>Remove ${ids.length} selected rows from ${esc(table.title)}?</p>`, async (_el, submit) => submit('tables_rows_write', {table_id: id, delete_ids: ids, expected_revision: table.revision}), () => dataOpenTable(id), 'Remove'); };
+    panel.querySelector('#data-row-delete').onclick = () => {
+      const ids = [...panel.querySelectorAll('[data-row-select]:checked')].map(node => node.dataset.rowSelect), draft = dataStartDraft();
+      for (const rowId of ids) { if (!draft.added.delete(rowId)) draft.deleted.add(rowId); draft.edits.delete(rowId); }
+      dataRenderRows();
+    };
+    dataRenderRows();
     storyRelatedChips(panel.querySelector('#data-stories'), biz, 'data_tables', id);
-    dataWatchHistory(biz, panel.querySelector('#data-save-status'), table, generation);
   } catch (error) { if (dataActive(biz, panel) && generation === _dataDetail) dataError(error); }
 }
 
-async function dataWatchHistory(biz, node, table, generation) {
-  for (let n = 0; n < 20 && table.versioning.state !== 'saved'; n++) {
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    if (!dataActive(biz, node) || generation !== _dataDetail) return;
-    try {
-      const current = (await dataCall(biz, 'tables_get', {table_id: table.id})).table;
-      if (!dataActive(biz, node) || generation !== _dataDetail) return;
-      if (current.revision !== table.revision) { node.textContent = 'Table changed. Refresh for updates.'; return; }
-      if (current.versioning.state === 'saved') { node.textContent = 'Saved to Git'; return; }
-    } catch (_) { return; }
+function dataStartDraft() {
+  let draft = dataDraft();
+  if (!draft) {
+    ++_dataDetail;
+    draft = {table: _data.table, rows: _data.rows, cursor: _data.cursor, edits: new Map(), added: new Map(), deleted: new Set(), saving: false};
+    _dataDrafts.set(dataDraftKey(), draft);
+  }
+  return draft;
+}
+
+function dataSyncDraft() {
+  const panel = document.querySelector('#data-detail'), draft = dataDraft();
+  const dirty = !!draft && !!(draft.edits.size || draft.added.size || draft.deleted.size);
+  if (draft && !dirty) _dataDrafts.delete(dataDraftKey());
+  panel.querySelector('#data-draft-actions').hidden = !dirty;
+  panel.querySelectorAll('#data-save, #data-discard, #data-row-new, .data-cell, .data-cell-input').forEach(node => { node.disabled = !!draft?.saving || _data.table.archived; });
+  panel.querySelectorAll('#data-row-query, #data-more, #data-edit-table').forEach(node => { node.disabled = dirty; });
+  panel.querySelectorAll('[data-sort]').forEach(node => { node.disabled = dirty || _data.table.columns.find(column => column.id === node.dataset.sort).type === 'json'; });
+  panel.querySelector('#data-row-delete').disabled = !!draft?.saving || _data.table.archived || !panel.querySelector('[data-row-select]:checked');
+  panel.querySelector('#data-save').textContent = draft?.saving ? 'Saving...' : 'Save';
+}
+
+function dataRenderRows() {
+  const panel = document.querySelector('#data-detail'), table = _data.table, draft = dataDraft();
+  const rows = [..._data.rows, ...(draft?.added.values() || [])].filter(row => !draft?.deleted.has(row.id));
+  const body = panel.querySelector('tbody');
+  body.innerHTML = rows.map(row => `<tr data-row="${row.id}"><td class="data-check"><input type="checkbox" data-row-select="${row.id}" aria-label="Select row ${row.position + 1}"></td>${table.columns.map(column => `<td data-column="${column.id}"></td>`).join('')}</tr>`).join('');
+  let empty = panel.querySelector('#data-empty-rows');
+  if (!empty) { empty = document.createElement('p'); empty.id = 'data-empty-rows'; empty.className = 'data-empty muted'; empty.textContent = 'No rows'; body.closest('table').after(empty); }
+  empty.hidden = rows.length > 0;
+  for (const row of rows) for (const column of table.columns) {
+    const cell = body.querySelector(`[data-row="${row.id}"] [data-column="${column.id}"]`);
+    dataRenderCell(cell, row, column);
+  }
+  panel.querySelector('#data-row-count').textContent = `${rows.length} of ${table.row_count + (draft?.added.size || 0) - (draft?.deleted.size || 0)} rows`;
+  body.querySelectorAll('[data-row-select]').forEach(node => { node.onchange = dataSyncDraft; });
+  const all = panel.querySelector('#data-select-all'); all.checked = false;
+  all.onchange = () => { body.querySelectorAll('[data-row-select]').forEach(node => { node.checked = all.checked; }); dataSyncDraft(); };
+  dataSyncDraft();
+}
+
+function dataRenderCell(cell, row, column, editing = false) {
+  if (editing) ++_dataDetail;
+  const edits = dataDraft()?.edits.get(row.id), changed = edits?.has(column.id);
+  const value = changed ? edits.get(column.id) : dataCell(row, column.id);
+  cell.classList.toggle('data-modified', !!changed);
+  if (column.type !== 'boolean' && (editing || changed)) {
+    const input = document.createElement(column.type === 'text' || column.type === 'json' ? 'textarea' : 'input');
+    input.className = 'data-cell-input'; input.dataset.cellInput = column.id;
+    input.setAttribute('aria-label', column.name);
+    if (input.tagName === 'INPUT') { input.type = column.type; if (column.type === 'number') input.step = 'any'; }
+    const original = column.type === 'json' && dataCell(row, column.id) != null ? JSON.stringify(dataCell(row, column.id)) : dataValue(dataCell(row, column.id));
+    input.value = changed ? dataValue(value) : original;
+    input.oninput = () => {
+      const draft = dataStartDraft();
+      const values = draft.edits.get(row.id) || new Map();
+      if (input.value === original && !input.validity.badInput) values.delete(column.id);
+      else values.set(column.id, input.validity.badInput ? `Invalid ${column.type}` : input.value);
+      if (values.size) draft.edits.set(row.id, values); else draft.edits.delete(row.id);
+      input.setCustomValidity('');
+      try { dataParseCell(input.value, column, input); } catch (error) { input.setCustomValidity(error.message); }
+      cell.classList.toggle('data-modified', values.has(column.id)); dataSyncDraft();
+    };
+    input.onblur = () => { if (!dataDraft()?.edits.get(row.id)?.has(column.id)) dataRenderCell(cell, row, column); };
+    input.onkeydown = event => {
+      if (event.key === 'Escape') {
+        const draft = dataDraft(), values = draft?.edits.get(row.id);
+        values?.delete(column.id); if (values && !values.size) draft.edits.delete(row.id);
+        dataRenderCell(cell, row, column); dataSyncDraft(); cell.querySelector('button').focus();
+      } else if (event.key === 'Enter' && input.tagName === 'INPUT') input.blur();
+    };
+    cell.replaceChildren(input);
+    if (editing) input.focus();
+    return;
+  }
+  const button = document.createElement('button'); button.type = 'button'; button.className = 'data-cell';
+  button.disabled = _data.table.archived || !!dataDraft()?.saving;
+  button.title = `${column.name}: ${dataValue(value).slice(0, 1000)}`;
+  if (column.type === 'boolean') {
+    button.setAttribute('role', 'checkbox'); button.setAttribute('aria-checked', value == null ? 'mixed' : String(value));
+    button.setAttribute('aria-label', column.name);
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.tabIndex = -1;
+    checkbox.setAttribute('aria-hidden', 'true'); checkbox.checked = value === true; checkbox.indeterminate = value == null;
+    button.appendChild(checkbox);
+    button.onclick = () => {
+      const draft = dataStartDraft(), values = draft.edits.get(row.id) || new Map(), next = value !== true;
+      if (next === dataCell(row, column.id)) values.delete(column.id); else values.set(column.id, next);
+      if (values.size) draft.edits.set(row.id, values); else draft.edits.delete(row.id);
+      dataRenderCell(cell, row, column); dataSyncDraft(); cell.querySelector('button').focus();
+    };
+  } else {
+    button.textContent = dataValue(value).slice(0, 300) || '-';
+    button.onclick = () => dataRenderCell(cell, row, column, true);
+  }
+  cell.replaceChildren(button);
+}
+
+function dataParseCell(value, column, input) {
+  if (input && !input.validity.valid) throw new Error(`Enter a valid ${column.type} for ${column.name}.`);
+  if (value === '' || value == null) return null;
+  if (column.type === 'number') {
+    if (!Number.isFinite(Number(value))) throw new Error(`Enter a valid number for ${column.name}.`);
+    return Number(value);
+  }
+  if (column.type === 'json') { try { return JSON.parse(value); } catch (_) { throw new Error(`Enter valid JSON for ${column.name}.`); } }
+  if (column.type === 'date' && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value)) throw new Error(`Enter a valid date for ${column.name}.`);
+  return value;
+}
+
+async function dataSaveRows() {
+  const biz = state.biz, id = _data.selected, key = dataDraftKey(), draft = dataDraft(), panel = document.querySelector('#data-detail');
+  const visible = () => dataActive(biz, document.querySelector('#data-detail')) && _data.mode === 'tables' && _data.selected === id;
+  if (!draft || draft.saving) return;
+  try {
+    document.querySelector('#data-error').hidden = true;
+    for (const input of panel.querySelectorAll('.data-cell-input')) if (!input.reportValidity()) return;
+    const ids = new Set([...draft.added.keys(), ...draft.edits.keys()]);
+    const rows = [...ids].map(rowId => ({...(draft.added.has(rowId) ? {} : {id: rowId}), cells: Object.fromEntries([...(draft.edits.get(rowId) || [])].map(([columnId, value]) => [columnId, dataParseCell(value, draft.table.columns.find(column => column.id === columnId))]))}));
+    const args = {table_id: id, expected_revision: draft.table.revision, rows, delete_ids: [...draft.deleted]};
+    const binding = JSON.stringify(args);
+    if (draft.attempt?.binding !== binding) draft.attempt = {binding, key: newRequestId()};
+    draft.saving = true; dataSyncDraft();
+    await dataCall(biz, 'tables_rows_write', {...args, idempotency_key: draft.attempt.key});
+    _dataDrafts.delete(key);
+    if (visible()) await dataOpenTable(id);
+  } catch (error) {
+    if (visible()) dataError(error);
+  } finally {
+    draft.saving = false;
+    if (visible() && document.querySelector('#data-save')) dataSyncDraft();
   }
 }
 
@@ -144,45 +276,6 @@ function dataTableEditor(table = null) {
   };
   columns.forEach(column => add(column, !!table));
   editor.el.querySelector('#data-column-add').onclick = () => { let n = 1; const ids = [...host.querySelectorAll('[data-field=id]')].map(node => node.value); while (ids.includes('column_' + n)) n++; add({id: 'column_' + n, name: 'Column ' + n, type: 'text'}); };
-}
-
-function dataRowEditor(table, row = null) {
-  const editor = dataForm(row ? 'Edit row' : 'Add row', table.columns.map(column => `<label>${esc(column.name)}${column.type === 'boolean' ? `<span class="data-binary"><input type="checkbox" data-cell-input="${column.id}"><button type="button" class="data-icon" data-clear="${column.id}" title="Clear value" aria-label="Clear ${esc(column.name)}">${SVG_X}</button></span>` : column.type === 'json' || column.type === 'text' ? `<textarea class="inp" data-cell-input="${column.id}"></textarea>` : `<input class="inp" data-cell-input="${column.id}" type="${column.type === 'date' ? 'date' : 'number'}" step="any">`}</label>`).join(''), async (el, submit) => {
-    const cells = Object.fromEntries(table.columns.map(column => {
-      const input = el.querySelector(`[data-cell-input="${column.id}"]`), value = input.value;
-      return [column.id, column.type === 'boolean' ? (input.indeterminate ? null : input.checked) : value === '' ? null : column.type === 'json' ? JSON.parse(value) : column.type === 'number' ? Number(value) : value];
-    }));
-    return submit('tables_rows_write', {table_id: table.id, expected_revision: table.revision, rows: [{...(row ? {id: row.id} : {}), cells}]});
-  }, () => state.tab === 'tables' && dataOpenTable(table.id));
-  for (const column of table.columns) {
-    const value = dataCell(row, column.id), input = editor.el.querySelector(`[data-cell-input="${column.id}"]`);
-    if (column.type === 'boolean') { input.indeterminate = value == null; input.checked = value === true; editor.el.querySelector(`[data-clear="${column.id}"]`).onclick = () => { input.indeterminate = true; }; }
-    else input.value = value == null ? '' : column.type === 'json' ? JSON.stringify(value, null, 2) : String(value);
-  }
-}
-
-async function dataHistory(table) {
-  const biz = state.biz;
-  const view = modal({title: 'Table history', body: '<div class="data-history"></div><button class="btn" id="data-history-more" hidden>Load more</button><p class="data-form-error"></p>'});
-  const more = view.el.querySelector('#data-history-more');
-  let cursor;
-  const load = async () => {
-    more.disabled = true;
-    try {
-      const history = await dataCall(biz, 'tables_history', {table_id: table.id, limit: 50, ...(cursor ? {cursor} : {})});
-      if (!view.el.isConnected || state.biz !== biz) return;
-      view.el.querySelector('.data-history').insertAdjacentHTML('beforeend', history.items.map(version => `<div><strong>Revision ${version.table_revision}</strong><span>${esc(new Date(version.created_at).toLocaleString())}</span><span>${version.git_commit ? 'Saved to Git' : 'Pending'}</span>${version.git_commit ? '' : `<button class="btn" data-retry-version="${version.id}">Retry</button>`}</div>`).join(''));
-      cursor = history.next_cursor; more.hidden = !cursor;
-      view.el.querySelectorAll('[data-retry-version]').forEach(button => button.onclick = async () => {
-        button.disabled = true;
-        try { await dataCall(biz, 'tables_history_retry', {version_id: button.dataset.retryVersion, idempotency_key: newRequestId()}); button.textContent = 'Queued'; }
-        catch (error) { view.el.querySelector('.data-form-error').textContent = error.message; button.disabled = false; }
-      });
-    } catch (error) { view.el.querySelector('.data-form-error').textContent = error.message; more.hidden = false; }
-    finally { more.disabled = false; }
-  };
-  more.onclick = load;
-  await load();
 }
 
 async function dataOpenUpload(id) {
