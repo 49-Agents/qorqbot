@@ -2,6 +2,7 @@
 // Overview reads summaries for authorized businesses; agents use registered root workspaces.
 const GLOBAL_PAGES = {
   overview: { title: 'Overview', icon: 'globe' },
+  ideas: { title: 'Ideas', icon: 'ideas' },
   agents: { title: 'Agents', icon: 'agents' },
   learning: { title: 'Learning', icon: 'learning' },
   notes: { title: 'Notes', icon: 'notes' },
@@ -10,6 +11,7 @@ const GLOBAL_PAGES = {
 };
 // Reuse the actual business navigation and drawer glyphs, including placeholder pages.
 const GLOBAL_ICONS = {
+  ideas: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4M8.5 14.5a6 6 0 1 1 7 0c-.9.7-1.5 1.5-1.5 3.5h-4c0-2-.6-2.8-1.5-3.5Z"/></svg>',
   learning: SVG_BRAIN,
   notes: T_VIEW_ICON.notes,
   globe: LN_SCOPE_BY_KEY.global.ico,
@@ -77,13 +79,15 @@ async function goGlobalTab(tab) {
   if(navigation!==workspaceNavigation)return;
   state.globalTab = Object.hasOwn(GLOBAL_PAGES, tab) ? tab : 'overview';
   ls('global-tab', state.globalTab);
-  location.hash = `/global/${state.globalTab}`;
+  if (!(state.globalTab === "ideas" && /^#\/global\/ideas\/[^/]+$/.test(location.hash)))
+    location.hash = `/global/${state.globalTab}`;
   renderTab(); syncWorkspaceNav();
   // Old page links now open the corresponding drawer tab.
   if (['routines', 'signoffs'].includes(tab)) { openTasks(true); tSetView(tab); }
 }
 let globalRender = 0;
 function renderGlobal(c) {
+  if (state.globalTab === "ideas") return renderIdeas(c);
   if(state.globalTab==='notes'){
     c.innerHTML='<section class="pane tasks global-notes" aria-label="Global Notes"><div id="global-notes-body" class="tbody"></div></section>';
     ntOpenView();return;
@@ -168,6 +172,7 @@ window.addEventListener('hashchange', () => {
   if (location.hash.startsWith('#/global')) {
     const tab = location.hash.split('/')[2] || 'overview';
     if (state.scope !== 'global' || state.globalTab !== tab) selectGlobal(tab);
+    else if (tab === 'ideas') renderTab();
   } else {
     const slug = location.hash.slice(1);
     if (slug !== state.biz && state.bizs.some(b => b.slug === slug)) selectBiz(slug);
