@@ -105,9 +105,9 @@ class Store:
                     created_at TEXT NOT NULL, PRIMARY KEY(client_id, intent_id));
                 CREATE INDEX IF NOT EXISTS integration_intents_request ON integration_intents(request_id);
                 CREATE TABLE IF NOT EXISTS integration_stops (
-                    workflow_owner TEXT NOT NULL, contact_key TEXT NOT NULL, business_id TEXT NOT NULL,
+                    contact_key TEXT NOT NULL, business_id TEXT NOT NULL, workflow_owner TEXT NOT NULL,
                     reason TEXT NOT NULL, source_kind TEXT NOT NULL, source_id TEXT, created_at TEXT NOT NULL,
-                    PRIMARY KEY(workflow_owner, contact_key, business_id));
+                    PRIMARY KEY(contact_key, business_id));
                 CREATE TABLE IF NOT EXISTS integration_handoffs (
                     thread_or_message_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, client_id TEXT NOT NULL,
                     workflow_owner TEXT NOT NULL, payload_digest TEXT NOT NULL, result TEXT NOT NULL,
@@ -126,6 +126,18 @@ class Store:
                 db.execute("ALTER TABLE sends ADD COLUMN transport TEXT NOT NULL DEFAULT 'fastmail' CHECK(transport IN ('fastmail','outlook_web'))")
             if "draft_internet_message_id" not in {row[1] for row in db.execute("PRAGMA table_info(sends)")}:
                 db.execute("ALTER TABLE sends ADD COLUMN draft_internet_message_id TEXT")
+            # Stops were once keyed by workflow_owner too; fold them onto the contact scope.
+            stops = [row[1] for row in db.execute("PRAGMA table_info(integration_stops)")]
+            if stops[:3] == ["workflow_owner", "contact_key", "business_id"]:
+                db.execute("ALTER TABLE integration_stops RENAME TO integration_stops_pre_scope")
+                db.execute("""CREATE TABLE integration_stops (
+                    contact_key TEXT NOT NULL, business_id TEXT NOT NULL, workflow_owner TEXT NOT NULL,
+                    reason TEXT NOT NULL, source_kind TEXT NOT NULL, source_id TEXT, created_at TEXT NOT NULL,
+                    PRIMARY KEY(contact_key, business_id))""")
+                db.execute("INSERT OR IGNORE INTO integration_stops(contact_key,business_id,workflow_owner,"
+                    "reason,source_kind,source_id,created_at) SELECT contact_key,business_id,workflow_owner,"
+                    "reason,source_kind,source_id,created_at FROM integration_stops_pre_scope ORDER BY rowid")
+                db.execute("DROP TABLE integration_stops_pre_scope")
         os.chmod(self.path, 0o600)
 
     def _history(self, db, request_id, kind):
@@ -572,18 +584,19 @@ class Store:
             return dict(row) if row else None
 
     def record_stop(self, workflow_owner, contact_key, business_id, *, reason, source_kind, source_id=None):
-        """Idempotent: a repeated stop for the same key never overwrites the first one."""
+        """Idempotent per contact/business: the first triggering owner is kept for attribution."""
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            db.execute("INSERT OR IGNORE INTO integration_stops VALUES(?,?,?,?,?,?,?)",
-                (workflow_owner, contact_key, business_id, reason, source_kind, source_id, now()))
-            return dict(db.execute("SELECT * FROM integration_stops WHERE workflow_owner=? AND contact_key=? "
-                "AND business_id=?", (workflow_owner, contact_key, business_id)).fetchone())
+            db.execute("INSERT OR IGNORE INTO integration_stops(contact_key,business_id,workflow_owner,"
+                "reason,source_kind,source_id,created_at) VALUES(?,?,?,?,?,?,?)",
+                (contact_key, business_id, workflow_owner, reason, source_kind, source_id, now()))
+            return dict(db.execute("SELECT * FROM integration_stops WHERE contact_key=? AND "
+                "business_id=?", (contact_key, business_id)).fetchone())
 
-    def stop_exists(self, workflow_owner, contact_key, business_id):
+    def stop_exists(self, contact_key, business_id):
         with self.connect() as db:
-            return db.execute("SELECT 1 FROM integration_stops WHERE workflow_owner=? AND contact_key=? "
-                "AND business_id=?", (workflow_owner, contact_key, business_id)).fetchone() is not None
+            return db.execute("SELECT 1 FROM integration_stops WHERE contact_key=? AND "
+                "business_id=?", (contact_key, business_id)).fetchone() is not None
 
     def begin_handoff(self, thread_or_message_id, idempotency_key, *, client_id, workflow_owner,
             payload_digest, result):
@@ -644,17 +657,20 @@ class Store:
                                 (send_row["request_id"],)).fetchone()
                             if intent is not None and intent["category"] == "cold_outreach":
                                 workflow_owner, intent_id = intent["workflow_owner"], intent["intent_id"]
-                                key = (workflow_owner, intent["stop_contact_key"], intent["stop_business_id"])
+                                contact, stop_business = intent["stop_contact_key"], intent["stop_business_id"]
                             else:
                                 label = legacy_cold_label(send_row)
                                 if intent is not None or label is None:
                                     continue
-                                workflow_owner, intent_id, key = label[0], None, label
+                                workflow_owner, intent_id = label[0], None
+                                contact, stop_business = label[1], label[2]
                             matched_request_id = send_row["request_id"]
                             correlation_payload = {"matched_internet_message_id": sent_identity,
                                 "sent_request_id": send_row["request_id"]}
-                            db.execute("INSERT OR IGNORE INTO integration_stops VALUES(?,?,?,?,?,?,?)",
-                                (*key, "reply_detected", "reply", message_id, now()))
+                            db.execute("INSERT OR IGNORE INTO integration_stops(contact_key,business_id,"
+                                "workflow_owner,reason,source_kind,source_id,created_at) VALUES(?,?,?,?,?,?,?)",
+                                (contact, stop_business, workflow_owner, "reply_detected", "reply",
+                                 message_id, now()))
                             break
                 db.execute("INSERT INTO message_correlations VALUES(?,?,?,?,?,?,?,?)",
                     (mailbox, message_id, int(is_sent_copy), workflow_owner, intent_id, matched_request_id,
