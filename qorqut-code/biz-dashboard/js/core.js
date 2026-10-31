@@ -52,13 +52,13 @@ const agentGlyph = (m, size) => { const d = dept((m || {}).department); return (
 
 // lazy: the render functions live in later script files
 const TABS = { agents: c => renderAgents(c), context: c => renderContext(c), stories: c => renderStories(c),
-  email: c => renderEmail(c),
   marketing: c => renderMarketing(c), accounting: c => soon(c, "The cash ledger and what recurs."),
   datascience: c => soon(c, "Experiments and metric deep-dives."),
   progress: c => soon(c, "Tasks, milestones and what shipped."),
   code: c => soon(c, "Repos, commits and deploys."),
   settings: c => renderSettings(c) };
 let verbose0 = ls("verbose") === "1", tab0 = ls("tab");
+if (tab0 === "email") tab0 = "marketing";
 const state = { scope: "business", globalTab: "overview", biz: null, bizs: [], tab: TABS[tab0] ? tab0 : "agents", agent: null, agents: [], liveNow: [], ctx: null, live: null, verbose: verbose0 };
 const api = async (p, opt = {}) => {
   const r = await fetch("/api" + p, opt);
