@@ -57,10 +57,8 @@ const TABS = { agents: c => renderAgents(c), context: c => renderContext(c),
   settings: c => renderSettings(c) };
 let verbose0 = ls("verbose") === "1", tab0 = ls("tab");
 const state = { biz: null, bizs: [], tab: TABS[tab0] ? tab0 : "agents", agent: null, agents: [], liveNow: [], ctx: null, live: null, verbose: verbose0 };
-const TOKEN = new URLSearchParams(location.search).get("token") || "";
-const authHead = TOKEN ? { Authorization: "Bearer " + TOKEN } : {};
 const api = async (p, opt = {}) => {
-  const r = await fetch("/api" + p, { ...opt, headers: { ...(opt.headers || {}), ...authHead } });
+  const r = await fetch("/api" + p, opt);
   const body = await r.json();
   // Legacy views consume error text; core adapters still need the structured failure.
   if (body && typeof body === "object") {
@@ -93,8 +91,7 @@ function coreData(result) {
   }
   return result.data;
 }
-// EventSource can't set headers, so carry the token as a query param.
-const evUrl = p => "/api" + p + (TOKEN ? (p.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(TOKEN) : "");
+const evUrl = p => "/api" + p;
 // ---------------------------------------------------------------- notifications
 // One queue for every toast: bottom-right, newest at the bottom, up to NOTE_MAX on screen, the rest wait in
 // FIFO order. A note rises in, stays NOTE_MS (hovering holds it, a click dismisses it), then sinks out and the
@@ -291,9 +288,16 @@ function tip(el, htmlOrFn) {
 
 // ---------------------------------------------------------------- businesses
 async function loadBiz() {
-  state.bizs = await api("/biz");
-  paintBiz();
-  if (!state.biz && state.bizs.length) selectBiz(location.hash.slice(1) || state.bizs[0].slug);
+  try {
+    const businesses = await api("/biz");
+    if (!Array.isArray(businesses)) throw new Error(businesses && businesses.error || "Could not load businesses.");
+    state.bizs = businesses;
+    paintBiz();
+    if (!state.biz && state.bizs.length) selectBiz(location.hash.slice(1) || state.bizs[0].slug);
+  } catch (error) {
+    $("#content").innerHTML = `<div class="empty"><h2>Could not load the dashboard</h2><p>${esc(error.message)}</p><button class="btn" id="business-retry">Try again</button></div>`;
+    $("#business-retry").onclick = loadBiz;
+  }
 }
 function paintBiz() {
   const b = state.bizs.find(x => x.slug === state.biz);
