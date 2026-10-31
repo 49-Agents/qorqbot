@@ -123,6 +123,18 @@ function upDoneHtml() {
   return `<div class="updone"><div class="upeyebrow">This session</div>${upDone.slice(0, 40).map(r => `<div class="updrow${r.ok ? "" : " bad"}"><span class="updk">${r.kind === "text" ? "context" : "asset"}</span><span class="updl">${esc(r.label)}</span><span class="updr">${r.ok ? esc(r.path || r.id) : esc(r.error)}</span></div>`).join("")}</div>`;
 }
 
+// The Marketing tab's Assets view calls this from its "Upload assets" button: open the panel on the Uploads
+// tab with the destination already set to the folder the owner was looking at, then pop the file picker. One
+// upload path for the whole dashboard — Marketing owns no uploader of its own.
+function upStartAssets(group, topic) {
+  openTasks(true);
+  tSetView("uploads");                                  // renders (and resets the form if the business changed)
+  if (group && UP_GROUPS.some(([k]) => k === group)) { upForm.group = group; ls("upgroup", group); }
+  if (topic) upForm.topic = topic;
+  upRender();
+  const pick = $("#uppick"); if (pick) pick.click();
+}
+
 // what changes while typing (hint, send label/enabled, clear visibility), patched without a rebuild
 function upPatch() {
   const f = upForm, mode = upMode(f);
