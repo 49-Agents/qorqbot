@@ -9,8 +9,8 @@ async function renderGlobalAgents(c) {
   c.innerHTML = '<section class="pane global-content"><div class="global-eyebrow">Global</div><h1>Agents</h1><p class="muted" role="status">Loading agents…</p></section>';
   let agents, terms;
   try {
-    const [roster, terminals] = await Promise.all([api('/root/agents'), api('/root/terminals')]);
-    agents = coreData(roster).agents;
+    const [roster, terminals] = await Promise.all([loadGlobalAgentProfiles(), api('/root/terminals')]);
+    agents = roster;
     if (!Array.isArray(agents)) throw new Error('The Global agent list is unavailable.');
     if (!Array.isArray(terminals)) throw new Error(terminals.error || 'Terminal status is unavailable.');
     terms = terminals;

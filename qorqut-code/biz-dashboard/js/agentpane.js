@@ -92,7 +92,7 @@ function agpadSetView(p, view) {
     const identity = p.agentId || state.agents.find(agent => agent.name === p.agent)?.agent_id;
     workingMemoryMount($('#agpad-body', p.el), identity, p.biz, {globalAgent: p.biz === null});
   }
-  if (view === 'globalTasks') globalTasksMount($('#agpad-body', p.el), {agentId: p.agentId});
+  if (view === 'globalTasks') globalTasksMount($('#agpad-body', p.el), {agentId: p.agentId, compact: true});
   agpadPaint(p);
   if (typeof sgAgentAttentionPaint === "function") sgAgentAttentionPaint();
   agpadTick();
