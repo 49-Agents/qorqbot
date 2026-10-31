@@ -1,6 +1,7 @@
 // ---------------------------------------------------------------- context
-// Upload originals, browse logical topic memberships, and inspect the shared relationship map.
-// Authored text and filer-maintained summaries remain separate.
+// Home, search and object pages read the context base (context_home / context_find / context_object /
+// context_expand, the same reads the agents get). Uploads keep their receipts. The Graph, People and
+// file pages below still browse the legacy hq/context registry until they move as well.
 let _ctxTimer = null, _ctxUnwatch = null, _ctxData = null, _ctxGeneration = 0;
 const ctxPageCache = new Map();
 let _ctxGraph = null, _ctxNavigation = 0;
@@ -9,12 +10,14 @@ const SVG_FILE = `<svg class="fi" width="13" height="13" viewBox="0 0 14 14" fil
 // bottom-of-sidebar / row icons, lucide 15px stroke 1.75
 const SVG_BRAIN = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.6 6.5a3 3 0 0 0 .4-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M3.477 10.896a4 4 0 0 1 .585-.396"/><path d="M19.938 10.5a4 4 0 0 1 .585.396"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></svg>`;
 const SVG_PEOPLE = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
+const SVG_HOME = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/></svg>`;
 const SVG_INBOX = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
 const titleCase = s => String(s || "").replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 const fmtAgo = t => { const s = Math.max(0, Math.round(Date.now() / 1000 - t)); return s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`; };
 const isTopic = p => p != null && !p.endsWith(".md");           // state.ctx is a topic path ("" = root) or a file path
 const ctxFind = (node, path) => { if (!node) return null; if ((node.path || "") === path) return node; for (const c of node.children || []) { const h = ctxFind(c, path); if (h) return h; } return null; };
 const PERSON_VIEW_RE = /^_people\/([a-z][a-z0-9-]{1,63})$/;     // "_people/<slug>" (no .md) is the person view, not a raw file
+const OBJ_PAGE_RE = /^_obj\/(<object>[^<>]{1,200}<\/object>)$/;    // "_obj/<object>…</object>" is a context-base object page
 const uploadId = p => {
   const data = _ctxData || {};
   const registered = [...(data.inbox || []), ...(data.dumps || [])].find(row => String(row.path || '').replace(/^context\//, '') === p);
@@ -57,7 +60,7 @@ async function renderContext(c) {
       <div class="cfoot" id="ctxq"></div>
     </div><div class="pane ctxview" id="ctxview"></div></div></div>`;
   wireCtxSearch();
-  if (state.ctx == null) state.ctx = ls(`ctxpage:${biz}`) ?? contextTab0 ?? "_learning";
+  if (state.ctx == null) state.ctx = ls(`ctxpage:${biz}`) ?? contextTab0 ?? "_home";
   _ctxData = ctxPageCache.get(biz) || null;
   ctxTree(_ctxData || {loading:true});
   const current = () => generation === _ctxGeneration && state.scope !== 'global' && state.biz === biz && state.tab === 'context' && c.isConnected;
@@ -106,34 +109,23 @@ async function ctxSearch(q) {
   const v = $("#ctxview");
   if (!v) return;
   const biz = state.biz, selected = state.ctx;
-  const r = await api(`/biz/${biz}/context/search?q=${encodeURIComponent(q)}`);
+  let hits;
+  try { hits = (coreData(await pageReadPost(`/biz/${encodeURIComponent(biz)}/operations/context_find`, {query: q})).items) || []; }
+  catch (error) { if (v.isConnected && state.biz === biz) v.innerHTML = `<div class="empty">${esc(error.message || 'Search failed.')}</div>`; return; }
   const inp = $("#ctxsearch");
   if (!v.isConnected || state.biz !== biz || state.ctx !== selected || !inp || inp.value.trim() !== q) return;
-  const hits = r.hits || [];
   storyDispose();
   v.classList.remove('ctxembedded-view');
   ctxClearGraph();
-  const rows = hits.map(h => `<div class="card" data-p="${esc(h.path)}" data-k="${esc(h.kind)}" title="${esc(h.title)}"><div class="ct"><span class="kd">${esc(h.kind)}</span><span class="tt">${esc(cap(h.title))}</span></div>
-    <div class="cb">${ctxMark(h.snippet, q)}</div><div class="cs">${esc(h.path)}</div></div>`).join("");
-  v.innerHTML = `<div class="sec ctx-search-results"><div class="sh">Search: ${esc(q)} <span class="stamp">${hits.length} hit${hits.length === 1 ? "" : "s"}</span></div>
-    <div class="cards">${rows || `<div class="empty">no matches</div>`}</div></div>`;
-  v.querySelectorAll(".card").forEach(el => el.onclick = () => {
-    const p = el.dataset.p;
-    if (el.dataset.k === "person") return ctxGo(p.replace(/\.md$/, ""));
-    if (el.dataset.k === "map") {                          // a map hit opens its upload
-      const id = p.replace(/^_maps\//, "").replace(/\.md$/, "");
-      return ctxGo(((_ctxData || {}).dumps || []).some(u => u.id === id) ? `_dumps/${id}.md` : `_inbox/${id}.md`);
-    }
-    if (p.endsWith("/_topic.md")) return ctxGo(p.split("/").slice(0, -1).join("/"));
-    ctxGo(p);
-  });
+  v.innerHTML = ctxSearchHtml(q, hits);
+  wireObjectLinks(v);
 }
 
 function ctxBusy(d) {
   const s = d.summarizing || {};
   return !!((d.filing && d.filing.current) || (d.inbox || []).some(i => ["queued", "running", "waiting_signoff", "cancelling"].includes(i.status)) || s.current || s.queued);
 }
-const ctxSig = (d, p) => (["_learning", "_tables"].includes(p) || p?.startsWith("_stories")) ? p // These views own their refreshes.
+const ctxSig = (d, p) => (["_learning", "_tables", "_home"].includes(p) || p?.startsWith("_stories") || p?.startsWith("_obj/")) ? p // These views own their refreshes.
   : p === "_people" ? JSON.stringify([d?.people,d?.graph?.nodes.filter(n=>n.type==='person'),d?.graph?.edges.filter(e=>e.source.type==='person' || e.target.type==='person')])
   : p === "_uploads" ? JSON.stringify([(d || {}).inbox || [], (d || {}).dumps || []])
   : JSON.stringify([(d || {}).tree,
@@ -201,6 +193,7 @@ function ctxPaint(d) {
 function ctxTree(d) {
   const t = $("#ctxrows"), rows = [];
   const isRoot = !state.ctx;                                  // "" is the Context root; "_learning" is a page of its own
+  rows.push(`<div class="item ov ${state.ctx === '_home' || (state.ctx != null && OBJ_PAGE_RE.test(state.ctx)) ? 'on' : ''}" data-p="_home"><div class="nm">${SVG_HOME}<span class="tt">Home</span></div></div>`);
   rows.push(`<div class="item ov ${state.ctx === '_learning' ? 'on' : ''}" data-p="_learning"><div class="nm">${SVG_BRAIN}<span class="tt">Learning</span></div></div>`);
   const graphNodes = d.graph?.nodes || [];
   rows.push(`<div class="ctx-counts">${[['story','Stories','_stories'],['table','Tables','_tables'],['person','People','_people']].map(([type,label,path]) => `<button type="button" data-count-page="${path}"><b>${d.loading ? "—" : d.counts?.[type] ?? graphNodes.filter(n=>n.type===type).length}</b><span>${label}</span></button>`).join('')}</div>`);
@@ -229,10 +222,10 @@ async function ctxGo(p) {
   return ctxShow(p);
 }
 
-const ctxIndependentPage = p => p === '_learning' || p === '_tables' || p?.startsWith('_stories');
+const ctxIndependentPage = p => p === '_learning' || p === '_tables' || p === '_home' || p?.startsWith('_stories') || p?.startsWith('_obj/');
 async function ctxShow(p) {
   if (p === "_tasks") { p = ""; state.ctx = ""; }
-  ls(`ctxpage:${state.biz}`, (["_tables", "_people", "_learning", "_uploads"].includes(p) || p?.startsWith("_stories")) ? p : "");
+  ls(`ctxpage:${state.biz}`, (["_tables", "_people", "_learning", "_uploads", "_home"].includes(p) || p?.startsWith("_stories")) ? p : "");
   storyDispose();
   const pane = $("#ctxview");
   pane?.classList.toggle('ctxembedded-view', (['_tables'].includes(p) || p?.startsWith('_stories')));
@@ -268,6 +261,9 @@ async function ctxShow(p) {
     if (p?.startsWith('_stories')) return renderStories(content);
     if (p === '_tables') return renderTables(content);
   }
+  if (p === "_home") { _ctxLastSig = ctxSig(_ctxData, p); return openHome(); }
+  const om = p != null && OBJ_PAGE_RE.exec(p);
+  if (om) { _ctxLastSig = ctxSig(_ctxData, p); return openObject(om[1]); }
   if (p === "_people") return openPeople();
   if (p === "_uploads") return openUploads();
   const m = p != null && PERSON_VIEW_RE.exec(p);
@@ -287,6 +283,84 @@ function wireCrumbs(v) { v.querySelectorAll(".crumbs a").forEach(a => a.onclick 
 
 const mdInline = text => esc(text).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 const mdLines = text => `<div class="sum">${text.split("\n").map(l => l.trim()).filter(Boolean).map(l => (/^#{1,6} /.test(l)) ? `<h3>${mdInline(l.replace(/^#{1,6} /, ""))}</h3>` : l.startsWith("- ") ? `<div class="li">${mdInline(l.slice(2))}</div>` : `<p>${mdInline(l)}</p>`).join("")}</div>`;
+
+// --- context base rendering (pure; tests/test_context_home_render.js slices this block) ---
+const refName = ref => String(ref || "").replace(/^<object>|<\/object>$/g, "").replace(/_/g, " ");
+const objChip = (ref, name) => ref ? `<span class="chip go" data-ref="${esc(ref)}">${esc(name || refName(ref))}</span>` : "";
+const day = t => esc(String(t || "").slice(0, 10));
+function ctxSearchHtml(q, hits) {
+  const rows = hits.map(h => `<div class="card n" data-ref="${esc(h.ref)}" title="${esc(h.name || "")}"><div class="ct"><span class="kd">${esc(h.kind || "")}</span><span class="tt">${esc(cap(h.name || refName(h.ref)))}</span></div>
+    <div class="cb">${ctxMark(h.definition || "", q)}</div>${h.home_ref ? `<div class="cs">${esc(refName(h.home_ref))}</div>` : ""}</div>`).join("");
+  return `<div class="sec ctx-search-results"><div class="sh">Search: ${esc(q)} <span class="stamp">${hits.length} hit${hits.length === 1 ? "" : "s"}</span></div>
+    <div class="cards">${rows || `<div class="empty">no matches in the context base</div>`}</div></div>`;
+}
+// the home pack, exactly what an agent's Context Home section carries: living brief, room by salience, recent impacts, open actions
+function ctxHomeHtml(pack) {
+  const home = pack.home || {}, room = pack.B_room || [], recent = pack.recent_impacts || [], actions = pack.open_actions || [];
+  const head = `<div class="crumbs"><span class="cur">context base</span></div><div class="th"><h2>${esc(home.name || "Home")}</h2><div class="pa">${objChip(home.ref, "open")}</div></div>`;
+  const brief = `<div class="sec"><div class="sh">Living brief</div>${(pack.A_brief || "").trim() ? mdLines(pack.A_brief) : `<div class="empty">No brief yet.</div>`}</div>`;
+  const roomRows = room.map(r => {
+    const others = (r.with || []).map(w => objChip(w.ref, w.name)).join("");
+    const last = r.last_impact ? `<div class="cs">${day(r.last_impact.created_at)} · ${esc(cap(r.last_impact.substance || r.last_impact.headline || "", 120))}</div>` : "";
+    return `<div class="card n" data-ref="${esc(r.relationship)}"><div class="ct"><span class="kd">${esc((r.tags || []).join(", ") || "related")}</span><span class="tt">${others || esc(refName(r.relationship))}</span></div>${last}</div>`;
+  }).join("");
+  const roomSec = `<div class="sec"><div class="sh">Room <span class="stamp">${room.length}${pack.room_total > room.length ? ` of ${pack.room_total}` : ""} by salience</span></div>${roomRows ? `<div class="cards">${roomRows}</div>` : `<div class="empty">Nothing in the room yet.</div>`}</div>`;
+  const recentRows = recent.map(i => `<div class="card n"${i.object_ref ? ` data-ref="${esc(i.object_ref)}"` : ""}><div class="ct"><span class="kd">${day(i.created_at)}</span><span class="tt">${esc(cap(i.headline || "", 90))}</span></div><div class="cb">${esc(i.substance || i.summary || "")}</div></div>`).join("");
+  const recentSec = `<div class="sec"><div class="sh">Recent impacts</div>${recentRows ? `<div class="cards">${recentRows}</div>` : `<div class="empty">Nothing filed yet.</div>`}</div>`;
+  const actionRows = actions.map(a => `<div class="card n"${a.object_ref ? ` data-ref="${esc(a.object_ref)}"` : ""}><div class="ct"><span class="kd">${esc(a.status || "open")}</span><span class="tt">${esc(cap(a.text || a.title || a.summary || a.id || "", 110))}</span></div>${a.due ? `<div class="cs">due ${day(a.due)}</div>` : ""}</div>`).join("");
+  const actionSec = actions.length ? `<div class="sec"><div class="sh">Open actions</div><div class="cards">${actionRows}</div></div>` : "";
+  return head + brief + roomSec + recentSec + actionSec;
+}
+// one object: card facts, relationships, its timeline of impacts, and the neighbourhood context_expand returns
+function ctxObjectHtml(surface, expand) {
+  const o = surface.object || {}, name = o.name || refName(o.ref);
+  const head = `<div class="crumbs"><a data-p="_home">context base</a><span class="sep">›</span><span class="cur">${esc(name)}</span></div>
+    <div class="th"><h2>${esc(name)}</h2><div class="pa">${o.home_ref && o.home_ref !== o.ref ? objChip(o.home_ref, `home: ${refName(o.home_ref)}`) : ""}</div></div>`;
+  const metaBits = [o.kind, o.created_at ? `since ${String(o.created_at).slice(0, 10)}` : "", o.created_by_upload ? `from upload ${String(o.created_by_upload).slice(0, 8)}` : ""].filter(Boolean);
+  const meta = metaBits.length ? `<div class="meta">${esc(metaBits.join(" · "))}</div>` : "";
+  const definition = (surface.definition || o.definition) ? `<p class="about">${esc(surface.definition || o.definition)}</p>` : "";
+  const attrs = Object.entries(surface.attributes || o.attributes || {}).filter(([k, v]) => v != null && v !== "" && k !== "aliases");
+  const aliases = ((surface.attributes || o.attributes || {}).aliases || []);
+  const chips = [...attrs.map(([k, v]) => `<span class="chip"><b>${esc(k)}</b>${esc(Array.isArray(v) ? v.join(", ") : typeof v === "object" ? JSON.stringify(v) : v)}</span>`),
+    ...aliases.map(a => `<span class="chip" title="also called"><b>aka</b>${esc(a)}</span>`), ...(o.tags || []).map(t => `<span class="chip">${esc(t)}</span>`)].join("");
+  const attrSec = chips ? `<div class="chips">${chips}</div>` : "";
+  const rels = (surface.relationships || []).map(r => `<div class="card n" data-ref="${esc(r.ref)}"><div class="ct"><span class="kd">${esc((r.tags || []).join(", ") || "related")}</span><span class="tt">${(r.others || []).map(x => objChip(x)).join("") || esc(r.name || refName(r.ref))}</span></div>${r.definition ? `<div class="cb">${esc(cap(r.definition, 160))}</div>` : ""}</div>`).join("");
+  const relSec = `<div class="sec"><div class="sh">Relationships <span class="stamp">${(surface.relationships || []).length}</span></div>${rels ? `<div class="cards">${rels}</div>` : `<div class="empty">none</div>`}</div>`;
+  const tl = (surface.timeline || []).map(i => `<div class="card n"><div class="ct"><span class="kd">${day(i.created_at)}</span><span class="tt">${esc(cap(i.headline || "", 90))}</span></div><div class="cb">${esc(i.substance || "")}</div>${i.upload_id ? `<div class="cs">${esc(String(i.upload_id).slice(0, 12))}</div>` : ""}</div>`).join("");
+  const tlSec = `<div class="sec"><div class="sh">Timeline <span class="stamp">${(surface.timeline || []).length}</span></div>${tl ? `<div class="cards">${tl}</div>` : `<div class="empty">no impacts yet</div>`}</div>`;
+  const near = ((expand && expand.nodes) || []).filter(n => n.ref !== o.ref).map(n => objChip(n.ref, n.name)).join("");
+  const nearSec = near ? `<div class="sec"><div class="sh">Neighbourhood</div><div class="chips">${near}</div></div>` : "";
+  const brief = (surface.brief || "").trim() ? `<div class="sec"><div class="sh">Living brief</div>${mdLines(surface.brief)}</div>` : "";
+  return head + meta + definition + attrSec + brief + relSec + tlSec + nearSec;
+}
+// --- end context base rendering ---
+
+function wireObjectLinks(v) {
+  v.querySelectorAll("[data-ref]").forEach(el => el.onclick = e => { e.stopPropagation(); ctxGo(`_obj/${el.dataset.ref}`); });
+}
+async function openHome() {
+  const v = $("#ctxview"), biz = state.biz;
+  v.innerHTML = `<p class="empty pad" role="status">Loading the context base…</p>`;
+  let pack;
+  try { pack = coreData(await pageReadPost(`/biz/${encodeURIComponent(biz)}/operations/context_home`, {})); }
+  catch (error) { if (state.biz === biz && state.ctx === "_home" && v.isConnected) v.innerHTML = `<div class="empty">${esc(error.message || "Could not load the context base.")}</div>`; return; }
+  if (state.biz !== biz || state.ctx !== "_home" || !v.isConnected) return;
+  v.innerHTML = ctxHomeHtml(pack || {});
+  wireObjectLinks(v);
+}
+async function openObject(ref) {
+  const v = $("#ctxview"), biz = state.biz, page = `_obj/${ref}`;
+  v.innerHTML = `<p class="empty pad" role="status">Loading…</p>`;
+  let surface, expand = null;
+  try {
+    surface = coreData(await pageReadPost(`/biz/${encodeURIComponent(biz)}/operations/context_object`, {ref}));
+    try { expand = coreData(await pageReadPost(`/biz/${encodeURIComponent(biz)}/operations/context_expand`, {ref})); } catch (_) { expand = null; }
+  } catch (error) { if (state.biz === biz && state.ctx === page && v.isConnected) v.innerHTML = `<div class="empty">${esc(error.message || "No such object.")}</div>`; return; }
+  if (state.biz !== biz || state.ctx !== page || !v.isConnected) return;
+  v.innerHTML = ctxObjectHtml(surface || {}, expand);
+  wireCrumbs(v);
+  wireObjectLinks(v);
+}
 
 // A topic opens its scoped relationship graph.
 function openTopic(p) {
