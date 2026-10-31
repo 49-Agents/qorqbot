@@ -1,6 +1,7 @@
 """Business-folder synchronization and the approved-send lifecycle."""
 
 import hashlib
+import json
 import threading
 
 from .fastmail import ProviderError
@@ -113,8 +114,10 @@ class EmailService:
         self.verify_draft(mailbox, message, self.provider.get_message(mailbox, identity))
         # No recovery path resubmits after this durable boundary.
         self.store.save_send(message.request_id, "sending")
-        self.provider.send_draft(mailbox, identity, message)
-        return self.reconcile(self.store.save_send(message.request_id, "accepted"))
+        submission = self.provider.send_draft(mailbox, identity, message)
+        # RFC 8621 permits immediate removal of submission objects after sending.
+        return self.reconcile(self.store.save_send(message.request_id, "accepted",
+            result={"submission": submission}))
 
     def record_error(self, request_id, exc):
         row = self.store.send(request_id)
@@ -144,7 +147,11 @@ class EmailService:
                     return self.prepare_and_send(mailbox, original, row["draft_id"])
                 except ProviderError as exc:
                     return self.record_error(row["request_id"], exc)
-            submission = self.provider.submission(mailbox, row["draft_id"], original)
+            submission = json.loads(row["result"]).get("submission")
+            if not submission or submission.get("undoStatus") not in {"final", "canceled"}:
+                submission = self.provider.submission(mailbox, row["draft_id"], original)
+                if submission:
+                    row = self.store.save_send(row["request_id"], row["state"], result={"submission": submission})
             if submission and submission.get("undoStatus") == "final":
                 message = self.provider.get_message(mailbox, row["draft_id"])
                 row = self.store.save_send(row["request_id"], "sent", result={
