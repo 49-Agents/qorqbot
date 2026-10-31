@@ -33,16 +33,21 @@
 .agent-pane-divider::before {
   content: "";
   position: absolute;
-  inset: 0 auto 0 5px;
+  inset: 0;
+  left: 50%;
   width: 1px;
   background: var(--line);
+  transform: translateX(-50%);
   transition: background .14s ease, width .14s ease;
 }
 .agent-pane-divider:hover::before,
-.agent-pane-divider:focus-visible::before,
-.agent-pane-divider.dragging::before {
+.agent-pane-divider:focus-visible::before {
   width: 2px;
-  background: var(--line-2);
+  background: rgba(255,255,255,.34);
+}
+.agent-pane-divider.dragging::before {
+  width: 3px;
+  background: rgba(255,255,255,.5);
 }
 .agent-pane-divider:focus-visible { outline: 0; }
 .agent-pane-divider[hidden] { display: none; }
