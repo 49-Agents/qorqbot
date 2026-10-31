@@ -102,6 +102,7 @@ const tMeta = o => (tBiz().agent_meta || {})[tShort(o)];
 function tEditingNow() { return !!document.querySelector(".menu"); }
 
 function openTasks(on) {
+  if (state.scope === "global") return;
   const w = $("#taskswrap"); if (!w) return;
   w.classList.toggle("open", !!on);
   ls("tasks", on ? "1" : "0");
@@ -359,6 +360,7 @@ function paintTasks() {
 // tabs themselves) and then paints #tbody for the view landed on. Only a tab switch does this — the
 // intervals below only ever touch the view that's currently active.
 function tSetView(v) {
+  if (state.scope === "global") return;
   if (T_VIEWS.indexOf(v) < 0) v = "tasks";
   if (tView === "journal" && v !== "journal" && jrEditState) { jrFlush().then(saved=>{if(saved)tSetView(v);}); return; }
   if (tView === "notes" && v !== "notes" && ntEditState) { ntFlush().then(saved=>{if(saved)tSetView(v);}); return; }

@@ -1,7 +1,16 @@
 // Routines use the journal/notes rail, learning scope icons, and shared dialogs/toasts.
 let rtData = null, rtRuns = null, rtBiz = null, rtGeneration = 0;
 let rtPage = 'active', rtShowPaused = false, rtDialog = null;
-let rtPreviewTimer = null, rtPreviewGeneration = 0;
+let rtPreviewTimer = null, rtPreviewGeneration = 0, rtError = null;
+const rtGlobal = () => state.scope === 'global';
+const rtContextBiz = () => state.biz;
+const rtContextKey = () => rtGlobal() ? 'global' : state.biz;
+const rtVisible = () => rtGlobal() ? state.globalTab === 'routines' && !!$('#global-routine-body') : tView === 'routines';
+function rtSuspend() {
+  rtGeneration++; rtPreviewGeneration++; clearTimeout(rtPreviewTimer);
+  if (rtDialog) { rtDialog.close(); rtDialog = null; }
+}
+
 const RT_ICONS = {
   active: lnSvg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
   logs: lnSvg('<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>'),
@@ -10,7 +19,6 @@ const RT_ICONS = {
 };
 const rtMoney = n => '$' + Number(n || 0).toFixed(4);
 const rtEndpoint = (global, biz = state.biz) => global ? '/root/routines' : `/biz/${encodeURIComponent(biz)}/routines`;
-const rtBusinessId = biz => { const row = state.bizs.find(b => b.slug === biz); return row && (row.business_id || row.id); };
 const rtResult = result => { const data = coreData(result); return data; };
 const rtKey = row => row.key || `${row.scope}/${row.location || ''}/${row.id}`;
 function rtScope(scope) {
@@ -24,23 +32,32 @@ function rtTime(value, zone) {
   catch (_) { return new Intl.DateTimeFormat('en-US', options).format(new Date(value)); }
 }
 function tPaintRoutines() {
-  if (rtBiz !== state.biz) {
+  if (rtBiz !== rtContextKey()) {
     if (rtDialog) rtDialog.close();
-    rtDialog = null; rtBiz = state.biz; rtData = null; rtRuns = null; rtGeneration++;
+    rtDialog = null; rtBiz = rtContextKey(); rtData = null; rtRuns = null; rtError = null; rtGeneration++;
   }
   rtRender(); rtRefresh();
 }
 async function rtRefresh() {
-  if (tView !== 'routines' || !state.biz) return;
-  const biz = state.biz, generation = ++rtGeneration;
+  if (!rtVisible() || !rtGlobal() && !rtContextBiz()) return;
+  const biz = rtContextBiz(), key = rtContextKey(), global = rtGlobal(), generation = ++rtGeneration;
+  const current = () => key === rtContextKey() && generation === rtGeneration && rtVisible();
+  const base = rtEndpoint(global, biz);
   try {
-    const [data, logs] = await Promise.all([api(rtEndpoint(false, biz)), api(rtEndpoint(false, biz) + '/runs?n=50')]);
-    if (biz !== state.biz || generation !== rtGeneration || tView !== 'routines') return;
-    if (data.error && !Array.isArray(data.routines)) throw new Error(data.error);
-    if (logs.error) throw new Error(logs.error);
-    rtData = data; rtRuns = logs;
+    const [data, logs] = await Promise.all([api(base), api(base + '/runs?n=50')]);
+    if (!current()) return;
+    if (!data || !Array.isArray(data.routines)) throw new Error(data && data.error || 'Could not load routines');
+    if (!Array.isArray(logs)) throw new Error(logs && logs.error || 'Could not load run history');
+    rtData = global ? {...data, routines:data.routines.filter(row => row.scope === 'global'),
+      current:data.current?.definition_ref_json?.scope === 'global' ? data.current : null,
+      queued:(data.queued || []).filter(row => row.definition_ref_json?.scope === 'global'),
+      invalid:(data.invalid || []).filter(row => row.namespace === 'global')} : data;
+    rtRuns = global ? logs.filter(row => row.scope === 'global') : logs;
+    rtError = null;
     rtRender();
-  } catch (error) { if (biz === state.biz) notify({text:error.message || 'Could not load routines', color:'var(--danger)'}); }
+  } catch (error) {
+    if (current()) { rtError = error.message || 'Could not load routines'; rtData = null; rtRuns = null; rtRender(); }
+  }
 }
 function rtRows() {
   const seen = new Set();
@@ -72,25 +89,25 @@ function rtRunState(run) {
   return run.running ? 'Running' : run.ok ? 'Succeeded' : run.state === 'cancelled' ? 'Cancelled' : 'Failed';
 }
 function rtRender() {
-  if (tView !== 'routines') return;
-  const body = $('#tbody'); if (!body) return;
+  if (!rtVisible()) return;
+  const body = $(rtGlobal() ? '#global-routine-body' : '#tbody'); if (!body) return;
   body.classList.add('rt');
-  if (!state.biz) { body.innerHTML = '<div class="jrfaint jrfaint-pad">Pick a business first.</div>'; return; }
+  if (!rtGlobal() && !rtContextBiz()) { body.innerHTML = '<div class="jrfaint jrfaint-pad">Pick a business first.</div>'; return; }
   const rows = rtRows(), active = rows.filter(r => r.status === 'active'), paused = rows.length - active.length;
   const logs = Array.isArray(rtRuns) ? rtRuns : [];
   const visible = rtShowPaused ? rows : active;
   const isLog = rtPage === 'logs';
   const current = rtData && rtData.current, queued = rtData && rtData.queued || [];
-  const status = !rtData ? 'Loading…' : !rtData.enabled ? 'Runner disabled' : current ? `${current.routine} running · ${current.seconds}s` : queued.length ? `${queued.length} queued` : 'Ready';
-  const problem = rtData && rtData.error || isLog && rtRuns && rtRuns.error;
+  const status = rtError ? 'Unavailable' : !rtData ? 'Loading…' : !rtData.enabled ? 'Runner disabled' : current ? `${current.routine} running · ${current.seconds}s` : queued.length ? `${queued.length} queued` : 'Ready';
+  const problem = rtError || rtData && rtData.error || isLog && rtRuns && rtRuns.error;
   body.innerHTML = `<div class="jred rtworkspace"><nav class="jrrail rtnav" aria-label="Routines navigation">
     <button class="jricon ${!isLog ? 'on' : ''}" data-page="active" aria-current="${!isLog ? 'page' : 'false'}" title="Active routines">${RT_ICONS.active}<span>Active</span></button>
     <button class="jricon ${isLog ? 'on' : ''}" data-page="logs" aria-current="${isLog ? 'page' : 'false'}" title="Recent runs">${RT_ICONS.logs}<span>Recent runs</span></button>
-    </nav><section class="rtcontent"><header class="jrhhead"><div><h1>${isLog ? 'Recent runs' : 'Routines'}</h1><div class="jrsub">${isLog ? `${logs.length} recent runs` : `${active.length} active${paused ? ' · ' + paused + ' paused' : ''}`}</div></div>
-    ${!isLog ? `<button class="btn" id="rtnew">${ICO_PLUS}New routine</button>` : ''}</header>
+    </nav><section class="rtcontent"><header class="jrhhead"><div><h1>${isLog ? 'Recent runs' : rtGlobal() ? 'Global routines' : 'Routines'}</h1><div class="jrsub">${isLog ? `${logs.length} recent runs` : `${active.length} active${paused ? ' · ' + paused + ' paused' : ''}`}</div></div>
+    ${!isLog ? `<button class="btn" id="rtnew" ${!rtData || rtGlobal() && !rtData.root ? 'disabled' : ''}>${ICO_PLUS}New routine</button>` : ''}</header>
     ${!isLog ? `<div class="rttoolbar"><span class="rtmuted" title="${esc(rtData && rtData.last_sweep || '')}">${esc(status)}</span>${current ? '<button class="btn quiet" id="rtkill">Stop run</button>' : ''}${paused ? `<label class="rtpaused"><input id="rtpaused" type="checkbox" ${rtShowPaused ? 'checked' : ''}>Show paused</label>` : ''}</div>` : ''}
-    ${problem ? `<p class="rtfail">${esc(problem)}</p>` : ''}
-    <div class="rtlist">${!rtData ? '<p class="jrfaint jrfaint-pad">Loading routines…</p>' : isLog ? (logs.length ? logs.map(rtRunRow).join('') : '<p class="jrfaint jrfaint-pad">No runs yet.</p>') : (visible.length ? visible.map(rtRoutineRow).join('') : '<p class="jrfaint jrfaint-pad">No active routines.</p>')}</div>
+    ${problem ? `<p class="rtfail" role="alert">${esc(problem)} <button class="btn quiet" id="rtretry">Retry</button></p>` : ''}
+    <div class="rtlist">${!rtData ? (rtError ? '' : '<p class="jrfaint jrfaint-pad">Loading routines…</p>') : isLog ? (logs.length ? logs.map(rtRunRow).join('') : '<p class="jrfaint jrfaint-pad">No runs yet.</p>') : (visible.length ? visible.map(rtRoutineRow).join('') : '<p class="jrfaint jrfaint-pad">No active routines.</p>')}</div>
     ${!isLog && rtData && (rtData.invalid || []).length ? `<details class="mkchain rtissues"><summary>${rtData.invalid.length} invalid definitions</summary>${rtData.invalid.map(x => `<p class="rtfail">${esc(x.routine_id || x.file)}: ${esc(x.error)}</p>`).join('')}</details>` : ''}
     </section></div>`;
   body.querySelectorAll('[data-page]').forEach(el => el.onclick = () => { rtPage = el.dataset.page; rtRender(); });
@@ -102,20 +119,21 @@ function rtRender() {
     rtAction(button.dataset.action, row);
   });
   body.querySelectorAll('.rtrunrow').forEach(el => el.onclick = () => rtRunDetail(logs[Number(el.dataset.run)]));
+  const retry = $('#rtretry'); if (retry) retry.onclick = rtRefresh;
   const add = $('#rtnew'), show = $('#rtpaused'), kill = $('#rtkill');
   if (add) add.onclick = () => rtOpenForm();
   if (show) show.onchange = () => { rtShowPaused = show.checked; rtRender(); };
   if (kill) kill.onclick = () => rtStop(current, kill);
 }
 async function rtStop(current, button) {
-  const biz = state.biz, definition = current.definition_ref_json || {};
+  const biz = rtContextBiz(), definition = current.definition_ref_json || {};
   if (!current.id || !definition.routine_id) return;
   button.disabled = true;
   try {
     rtResult(await post(rtEndpoint(definition.scope === 'global', biz), {op:'stop', id:definition.routine_id,
-      job_id:current.id, ...(current.business_id ? {target_business_id:current.business_id} : {}), review_business_id:rtBusinessId(biz)}));
+      job_id:current.id, ...(current.business_id ? {target_business_id:current.business_id} : {})}));
     notify({text:'Stop requested',sub:definition.routine_id});
-    if (state.biz === biz) rtRefresh();
+    if (rtContextBiz() === biz) rtRefresh();
   } catch (error) { notify({text:error.message,color:'var(--danger)'}); }
   finally { button.disabled = false; }
 }
@@ -123,10 +141,10 @@ function rtMenu(button, row) {
   dropdown(button, [{value:'edit',label:'Edit routine'}, {value:row.status === 'paused' ? 'resume' : 'pause',label:row.status === 'paused' ? 'Resume' : 'Pause'}, {value:'rm',label:'Delete routine'}], action => rtAction(action, row));
 }
 function rtNotify(text, row, error = false, biz = state.biz) {
-  notify({text, sub:row.scope === 'global' ? 'All businesses' : biz, ...(error ? {color:'var(--danger)'} : {})});
+  notify({text, sub:row.scope === 'global' ? 'Global' : biz, ...(error ? {color:'var(--danger)'} : {})});
 }
 async function rtAction(action, row) {
-  const biz = state.biz;
+  const biz = rtContextBiz();
   if (action === 'edit') return rtOpenForm(row);
   if (action === 'rm') {
     rtDialog = modal({title:'Delete routine?', body:`<p>${esc(row.name)}</p><p class="rtmuted">Past runs remain in the log.</p>`, actions:[
@@ -140,10 +158,10 @@ async function rtAction(action, row) {
 }
 async function rtWrite(op, row, biz) {
   try {
-    rtResult(await post(rtEndpoint(row.scope === 'global', biz), {op,id:row.id,expected_revision:row.revision,review_business_id:rtBusinessId(biz)}));
+    rtResult(await post(rtEndpoint(row.scope === 'global', biz), {op,id:row.id,expected_revision:row.revision}));
     rtNotify(op === 'run' ? `Queued ${row.name}` : op === 'rm' ? 'Routine deleted' : op === 'pause' ? 'Routine paused' : 'Routine resumed', row, false, biz);
   } catch (error) { rtNotify(error.message, row, true, biz); }
-  if (biz === state.biz) rtRefresh();
+  if (biz === rtContextBiz()) rtRefresh();
 }
 function rtDetail(row) {
   const fields = [
@@ -169,25 +187,24 @@ function rtRunDetail(run) {
 }
 function rtFormHTML(row = {}) {
   const input = (key,label,value,extra='') => `<label>${label}<input class="inp" name="${key}" value="${esc(String(value == null ? '' : value))}" ${extra}></label>`;
-  return `<form id="rtform" class="rtform"><div class="rtscopepick"><span class="rtmuted">Scope</span>${['biz','global'].map(scope=>`<button type="button" class="lnscope ${scope === (row.scope || 'biz') ? 'on' : ''}" data-scope="${scope}" title="${esc(LN_SCOPE_BY_KEY[scope].label)}" aria-label="${esc(LN_SCOPE_BY_KEY[scope].label)}" ${(row.id && scope !== row.scope) || (scope === 'global' && !rtData.root) ? 'disabled' : ''}>${LN_SCOPE_BY_KEY[scope].ico}</button>`).join('')}</div><div class="rtfields">
+  return `<form id="rtform" class="rtform"><div class="rtscopepick"><span class="rtmuted">Scope</span>${(rtGlobal() ? ['global'] : ['biz','global']).map(scope=>`<button type="button" class="lnscope ${scope === (row.scope || 'biz') ? 'on' : ''}" data-scope="${scope}" title="${esc(LN_SCOPE_BY_KEY[scope].label)}" aria-label="${esc(LN_SCOPE_BY_KEY[scope].label)}" ${(row.id && scope !== row.scope) || (scope === 'global' && !rtData.root) ? 'disabled' : ''}>${LN_SCOPE_BY_KEY[scope].ico}</button>`).join('')}</div><div class="rtfields">
     ${input('name','Name',row.name,'required maxlength="80"')}
     <label>Program<select class="inp" name="program" required></select></label>
     <div id="rtarguments" class="rtwide rtarguments"></div><p id="rtprogramerror" class="rtwide rtfail" role="status"></p>
     ${input('when','Schedule',row.when || '17 4 * * *','required')}${input('tz','Timezone',row.tz || 'UTC','required')}
     <div id="rtpreview" class="rtwide rtmuted" aria-live="polite">Checking next scheduled times…</div>
     <label id="rttarget" ${row.scope !== 'global' ? 'hidden' : ''}>Run in<select class="inp" name="target"><option value="each-business" ${row.target !== 'root' ? 'selected' : ''}>Each business</option><option value="root" ${row.target === 'root' ? 'selected' : ''}>Businesses root</option></select></label>
-    <label id="rtreview" ${row.scope !== 'global' ? 'hidden' : ''}>Review business<select class="inp" name="review_business_id">${state.bizs.map(b=>`<option value="${esc(b.business_id || b.id)}" ${b.slug === state.biz ? 'selected' : ''}>${esc(b.name || b.slug)}</option>`).join('')}</select></label>
     ${input('timeout','Timeout (seconds)',row.timeout || 900,'type="number" min="60" max="7200" required')}
     <fieldset class="rtwide"><legend>Departments</legend>${['marketing','accounting','data-science','code','general','onbashlyk'].map(d=>`<label class="rtcheck"><input type="checkbox" name="departments" value="${d}" ${(row.departments || ['onbashlyk']).includes(d) ? 'checked' : ''}>${d}</label>`).join('')}</fieldset>
     <label class="rtwide">Why<textarea class="inp" name="why" required>${esc(row.why || '')}</textarea></label></div><p id="rterror" class="rtfail" role="alert"></p></form>`;
 }
 function rtOpenForm(row = null) {
-  const draft = {scope:row && row.scope || 'biz',biz:state.biz};
+  const draft = {scope:row && row.scope || (rtGlobal() ? 'global' : 'biz'),biz:rtContextBiz(),key:rtContextKey()};
   const save = async (close, el) => {
     const form = el.querySelector('#rtform'); if (!form.reportValidity()) return;
     const data = new FormData(form), departments = data.getAll('departments');
     if (!departments.length) { form.querySelector('#rterror').textContent = 'Choose at least one department.'; return; }
-    if (state.biz !== draft.biz) { form.querySelector('#rterror').textContent = 'The selected business changed. Reopen this form.'; return; }
+    if (rtContextKey() !== draft.key) { form.querySelector('#rterror').textContent = 'The review context changed. Reopen this form.'; return; }
     let argumentsValue;
     try { argumentsValue = rtReadArguments(form); } catch (error) { form.querySelector('#rterror').textContent = error.message; return; }
     const program = (rtData.programs || []).find(p => p.id === data.get('program'));
@@ -195,29 +212,28 @@ function rtOpenForm(row = null) {
     const definition = {name:data.get('name'),program:program.id,arguments:argumentsValue,schedule:data.get('when'),timezone:data.get('tz'),
       timeout_seconds:Number(data.get('timeout')),departments,why:data.get('why'),status:row && row.status || 'active',
       target:draft.scope === 'global' ? data.get('target') : 'business'};
-    const payload = {op:row ? 'set' : 'add',definition,review_business_id:draft.scope === 'global' ? data.get('review_business_id') : rtBusinessId(draft.biz),
+    const payload = {op:row ? 'set' : 'add',definition,
       ...(row ? {id:row.id,expected_revision:row.revision} : {})};
     const button = el.querySelector('.mfoot .primary'); button.disabled = true;
     try {
       const result = await post(rtEndpoint(draft.scope === 'global',draft.biz),payload);
       rtResult(result);
       close(); rtNotify('Routine saved',{scope:draft.scope},false,draft.biz);
-      if (draft.biz === state.biz) rtRefresh();
+      if (draft.key === rtContextKey()) rtRefresh();
     } catch (error) {
       form.querySelector('#rterror').textContent = error.message || 'Could not save routine. Please try again.';
     } finally { button.disabled = false; }
   };
-  rtDialog = modal({title:row ? 'Edit routine' : 'New routine',width:640,body:rtFormHTML(row || {}),actions:[{label:'Cancel',onClick:close=>close()},{label:'Save routine',primary:true,onClick:save}],onOpen:el=>{
+  rtDialog = modal({title:row ? 'Edit routine' : 'New routine',width:640,body:rtFormHTML(row || {scope:draft.scope}),actions:[{label:'Cancel',onClick:close=>close()},{label:'Save routine',primary:true,onClick:save}],onOpen:el=>{
     const form = el.querySelector('#rtform');
     const preview = () => rtPreview(form,draft.scope === 'global',draft.biz);
     const programs = () => rtProgramChoices(form, draft.scope, row);
     programs();
     form.elements.program.onchange = () => rtArgumentFields(form, {});
     form.elements.target.onchange = programs;
-    form.elements.review_business_id.onchange = preview;
     for (const name of ['when','tz']) form.elements[name].oninput = () => { clearTimeout(rtPreviewTimer); rtPreviewTimer = setTimeout(preview,300); };
     form.querySelectorAll('[data-scope]').forEach(button=>button.onclick=()=>{
-      draft.scope=button.dataset.scope;form.querySelectorAll('[data-scope]').forEach(b=>b.classList.toggle('on',b===button));form.querySelector('#rttarget').hidden=draft.scope!=='global';form.querySelector('#rtreview').hidden=draft.scope!=='global';programs();preview();
+      draft.scope=button.dataset.scope;form.querySelectorAll('[data-scope]').forEach(b=>b.classList.toggle('on',b===button));form.querySelector('#rttarget').hidden=draft.scope!=='global';programs();preview();
     });
     form.onsubmit = e => { e.preventDefault(); el.querySelector('.mfoot .primary').click(); };
     preview();
@@ -226,10 +242,9 @@ function rtOpenForm(row = null) {
 async function rtPreview(form, global, biz) {
   const generation = ++rtPreviewGeneration;
   const q = new URLSearchParams({when:form.elements.when.value,tz:form.elements.tz.value});
-  if (global) q.set('review_business_id',form.elements.review_business_id.value);
   try {
     const result = await api(rtEndpoint(global,biz) + '/next?' + q);
-    if (generation !== rtPreviewGeneration || !form.isConnected || biz !== state.biz) return;
+    if (generation !== rtPreviewGeneration || !form.isConnected || biz !== rtContextBiz()) return;
     form.querySelector('#rtpreview').textContent = result.error || (result.next || []).map(x=>x.local).join(' · ');
   } catch (error) { if (form.isConnected) form.querySelector('#rtpreview').textContent = error.message; }
 }

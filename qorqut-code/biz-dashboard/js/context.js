@@ -64,7 +64,9 @@ const ctxSeenSave = m => ls(ctxSeenKey(), JSON.stringify(m));
 async function renderContext(c) {
   ctxClearGraph();
   clearTimeout(_ctxTimer); _ctxTimer = null;
-  const d = await api(`/biz/${state.biz}/context`);
+  const biz = state.biz;
+  const d = await api(`/biz/${biz}/context`);
+  if (state.scope === "global" || state.biz !== biz || state.tab !== "context" || !c.isConnected) return;
   c.innerHTML = `<div class="ctxwrap">
     <div class="split ctxsplit"><div class="listcol ctxtree" id="ctxtree">
       <div class="ctop"><button class="primary" id="ctxup">${ICO_UPLOAD}Upload context</button><input type="search" id="ctxsearch" placeholder="Search context" autocomplete="off"></div>

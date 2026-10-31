@@ -56,7 +56,7 @@ const TABS = { agents: c => renderAgents(c), context: c => renderContext(c),
   code: c => soon(c, "Repos, commits and deploys."),
   settings: c => renderSettings(c) };
 let verbose0 = ls("verbose") === "1", tab0 = ls("tab");
-const state = { biz: null, bizs: [], tab: TABS[tab0] ? tab0 : "agents", agent: null, agents: [], liveNow: [], ctx: null, live: null, verbose: verbose0 };
+const state = { scope: "business", globalTab: "overview", biz: null, bizs: [], tab: TABS[tab0] ? tab0 : "agents", agent: null, agents: [], liveNow: [], ctx: null, live: null, verbose: verbose0 };
 const api = async (p, opt = {}) => {
   const r = await fetch("/api" + p, opt);
   const body = await r.json();
@@ -287,13 +287,16 @@ function tip(el, htmlOrFn) {
 }
 
 // ---------------------------------------------------------------- businesses
+let workspaceNavigation = 0;
 async function loadBiz() {
   try {
     const businesses = await api("/biz");
     if (!Array.isArray(businesses)) throw new Error(businesses && businesses.error || "Could not load businesses.");
     state.bizs = businesses;
     paintBiz();
-    if (!state.biz && state.bizs.length) selectBiz(location.hash.slice(1) || state.bizs[0].slug);
+    if (location.hash.startsWith("#/global")) selectGlobal(location.hash.split("/")[2]);
+    else if (!state.biz && state.bizs.length) selectBiz(state.bizs.some(b => b.slug === location.hash.slice(1)) ? location.hash.slice(1) : state.bizs[0].slug);
+    else if (!state.biz) selectGlobal();
   } catch (error) {
     $("#content").innerHTML = `<div class="empty"><h2>Could not load the dashboard</h2><p>${esc(error.message)}</p><button class="btn" id="business-retry">Try again</button></div>`;
     $("#business-retry").onclick = loadBiz;
@@ -301,25 +304,38 @@ async function loadBiz() {
 }
 function paintBiz() {
   const b = state.bizs.find(x => x.slug === state.biz);
+  if (state.scope === "global") {
+    $("#wsletter").innerHTML = globalIcon("globe");
+    $("#wsbtn").title = "Global";
+    $("#wsbtn").setAttribute("aria-label", "Workspace: Global");
+    return;
+  }
+  $("#wsbtn").setAttribute("aria-label", b ? `Workspace: ${b.name}` : "Workspaces");
   $("#wsletter").textContent = b && b.name ? b.name.charAt(0).toUpperCase() : "·";
   $("#wsbtn").title = b ? b.name : "Businesses";
 }
 function selectBiz(slug) {
   const b = state.bizs.find(x => x.slug === slug); if (!b) return;
+  workspaceNavigation++;
   // the agent this business was last left on wins over its first agent (see agents.js's agKey/agSetSel)
   const lastAgent = ls(`ag:${slug}`);
+  state.scope = "business";
   state.biz = slug;
+  syncWorkspaceNav();
   if (typeof sgBusinessChanged === "function") sgBusinessChanged();
   state.agent = (lastAgent && b.agents.includes(lastAgent) ? lastAgent : b.agents[0]) || null;
   state.ctx = null; location.hash = slug;
   paintBiz();
   renderTab(); refreshSide();
 }
-$("#wsbtn").onclick = () => dropdown($("#wsbtn"), state.bizs.map(b => ({
+$("#wsbtn").onclick = () => dropdown($("#wsbtn"), [{
+  value: "/global", html: `<span class="workspace-global">${globalIcon("globe")}Global<span class="muted small">Pinned</span></span>`,
+}, ...state.bizs.map(b => ({
   value: b.slug,
   html: `${esc(b.name)} <span class="muted small">${b.agents.length}</span>`,
-})), slug => selectBiz(slug), state.biz);
+}))], slug => slug === "/global" ? selectGlobal() : selectBiz(slug), state.scope === "global" ? "/global" : state.biz);
 function goTab(name) {
+  if (state.scope === "global") return;
   const t = [...document.querySelectorAll(".ritem")].find(x => x.dataset.tab === name);
   if (!t || t.classList.contains("soon")) return;
   state.tab = t.dataset.tab; ls("tab", state.tab);
@@ -331,15 +347,18 @@ document.querySelectorAll(".ritem").forEach(t => t.classList.toggle("on", t.data
 moveInd();
 window.addEventListener("resize", moveInd);
 function moveInd() {
-  const on = document.querySelector(".ritem.on"), ind = $("#rind");
+  const on = document.querySelector(".ritem.on:not([hidden])"), ind = $("#rind");
   if (!on || !ind) return;
   ind.hidden = false;
   ind.style.transform = `translateY(${on.offsetTop - ind.offsetTop}px)`;
 }
 
 function renderTab() {
+  if (typeof rtSuspend === 'function') rtSuspend();
   if (typeof ctxClearGraph === "function") ctxClearGraph();
   const c = $("#content"); c.innerHTML = "";
+  if (typeof teardownTerm === "function") teardownTerm();
+  if (state.scope === "global") return renderGlobal(c);
   if (!state.biz) return;
   (TABS[state.tab] || TABS.agents)(c);
 }

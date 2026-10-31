@@ -1,5 +1,6 @@
 // ---------------------------------------------------------------- init
 setInterval(refreshSide, 12000);
+setInterval(() => { if (rtGlobal() && rtVisible()) rtRefresh(); }, 12000);
 loadBiz();
 
 // ---------------------------------------------------------- tab-chord shortcuts
@@ -19,6 +20,7 @@ loadBiz();
   };
 
   document.addEventListener("keydown", e => {
+    if (state.scope === "global") { tabHeld = false; lastTabAt = 0; sawLetter = false; return; }
     if (blocked()) { tabHeld = false; lastTabAt = 0; sawLetter = false; return; }
     if (e.key === "Tab" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
       e.preventDefault();

@@ -1,4 +1,4 @@
-// Selected-business review. The server owns preparation, decisions and application.
+// Scope-specific review. The server owns preparation, decisions and application.
 const sgViews = new Set();
 const sgShared = { drafts: new Map(), busy: new Map(), receipts: new Map(), refreshed: new Set() };
 function sgCreateView(options) {
@@ -11,15 +11,16 @@ function sgCreateView(options) {
     listRequest: 0, error: null, ...sgShared,
   };
   const active = options.active;
+  const workspace = options.workspace || (() => state.biz);
   const prefix = options.prefix || "";
   const capture = () => ({ slug: sg.slug, generation: sg.generation, mount: sg.mount });
-  const mounted = c => c.slug === state.biz && c.slug === sg.slug && c.generation === sg.generation && c.mount === sg.mount && c.mount && c.mount.isConnected;
+  const mounted = c => c.slug === workspace() && c.slug === sg.slug && c.generation === sg.generation && c.mount === sg.mount && c.mount && c.mount.isConnected;
   const current = c => active() && mounted(c);
-  const path = (slug, id = "") => `/biz/${encodeURIComponent(slug)}/signoffs${id ? "/" + encodeURIComponent(id) : ""}`;
+  const path = (slug, id = "") => `${options.global ? "/root" : "/biz/" + encodeURIComponent(slug)}/signoffs${id ? "/" + encodeURIComponent(id) : ""}`;
   const binding = s => `${s.id}:${s.proposal_revision}:${s.payload_hash}`;
   const busyKey = (slug, s) => `${slug}:${binding(s)}`;
   const owner = () => sg.session && sg.session.principal_kind === "human" && sg.session.is_owner === true && sg.session.principal_id;
-  const draftKey = s => owner() && sg.businessId ? `sgdraft:${owner()}:${sg.businessId}:${binding(s)}` : null;
+  const draftKey = s => owner() && (sg.businessId || options.global) ? `sgdraft:${owner()}:${options.global ? "scope:global" : sg.businessId}:${binding(s)}` : null;
   const isAuth = error => error && ([401, 403].includes(error.httpStatus) || /^(unauthorized|forbidden|authentication_required|owner_required)$/.test(error.code));
   const stamp = value => {
     const date = new Date(value);
@@ -30,7 +31,7 @@ function sgCreateView(options) {
     return !Number.isFinite(minutes) ? "" : minutes < 1 ? "Just now" : minutes < 60 ? `${minutes}m ago` : minutes < 1440 ? `${Math.floor(minutes / 60)}h ago` : `${Math.floor(minutes / 1440)}d ago`;
   };
   const bizName = id => ((state.bizs || []).find(b => b.id === id || b.business_id === id) || {}).name || id;
-  const scopeText = scope => scope && scope.kind === "global" ? `All businesses${scope.namespace ? " / " + scope.namespace : ""}` :
+  const scopeText = scope => scope && scope.kind === "global" ? `Global${scope.namespace ? " / " + scope.namespace : ""}` :
     (scope && (scope.business_ids || (scope.business_id ? [scope.business_id] : [])) || []).map(bizName).join(", ") || bizName(sg.businessId) || sg.slug || "";
   const resourceText = resource => typeof resource === "string" ? resource : resource && (resource.label || resource.resource_id) || "Resource";
   const errorHtml = (error, action) => `<div class="sg-error" role="alert"><span>${esc(error.message || error)}</span>${action ? `<button type="button" class="sg-command" data-sg="${action}">Retry</button>` : ""}</div>`;
@@ -77,7 +78,7 @@ function sgCreateView(options) {
     }
     const resources = [...new Set(resourcesById.values())];
     const effects = (preview.effects || []).map(effect => typeof effect === "string" ? effect : effect && effect.description).filter(Boolean);
-    return `${preview.rationale ? `<div class="sg-rationale"><h3>${s.proposer_agent_id ? "Agent's explanation" : "Proposer's explanation"}</h3><p>${esc(preview.rationale)}</p></div>` : ""}
+    return `${s.legacy_review_routing ? '<p class="sg-notice">Created under previous review routing.</p>' : ""}${preview.rationale ? `<div class="sg-rationale"><h3>${s.proposer_agent_id ? "Agent's explanation" : "Proposer's explanation"}</h3><p>${esc(preview.rationale)}</p></div>` : ""}
       <div class="sg-impact"><h3>Affected scope</h3><p>${esc(scopeText(preview.affected_scope || s.affected_scope))}</p>${resources.length ? `<ul>${resources.map(resource => `<li>${esc(resource)}</li>`).join("")}</ul>` : ""}</div>
       ${effects.length ? `<div class="sg-effects"><h3>Effects</h3><ul>${effects.map(effect => `<li>${esc(effect)}</li>`).join("")}</ul></div>` : ""}`;
   }
@@ -87,8 +88,9 @@ function sgCreateView(options) {
   }
   function appliedRefresh(s, slug) {
     const key = busyKey(slug, s);
-    if (s.state !== "applied" || sg.refreshed.has(key) || state.biz !== slug) return;
+    if (s.state !== "applied" || sg.refreshed.has(key) || workspace() !== slug) return;
     sg.refreshed.add(key);
+    if (options.global) { if (typeof rtRefresh === "function") rtRefresh(); return; }
     if (typeof refreshTasksSoon === "function") refreshTasksSoon();
     // Each affected view owns its normal refresh and editor protections.
     if (typeof acRefresh === "function") acRefresh();
@@ -131,7 +133,7 @@ function sgCreateView(options) {
     const selectedRow = [...sg.mount.querySelectorAll(".sg-row")].find(row => row.dataset.id === sg.selected);
     const anchorTop = selectedRow && selectedRow.getBoundingClientRect().top;
     const business = (state.bizs || []).find(b => b.slug === sg.slug) || {};
-    sg.mount.querySelector(".sg-business").textContent = business.name || sg.slug || "";
+    sg.mount.querySelector(".sg-business").textContent = options.global ? "Global" : business.name || sg.slug || "";
     sg.mount.querySelector(".sg-count").textContent = sg.counts ? `${sg.counts.pending || 0} pending` : "";
     sg.mount.querySelector(".sg").setAttribute("aria-busy", String(sg.loading));
     html(sg.mount.querySelector(".sg-listnotice"), !sg.slug ? `<p class="sg-empty">Pick a business first.</p>` : sg.error ? errorHtml(sg.error, "list") + (sg.items.size ? `<p class="sg-notice">Showing the last update. Review is disabled until refreshed.</p>` : "") : sg.loading && !sg.loaded ? `<p class="sg-empty">Loading signoffs...</p>` : "");
@@ -177,7 +179,7 @@ function sgCreateView(options) {
       const data = coreData(await api(path(c.slug, id)));
       if (!current(c) || request !== sg.detailRequest || sg.selected !== id) return;
       const s = data.signoff;
-      if (!s || s.id !== id || s.review_business_id !== sg.businessId) throw new Error("The proposal did not match this business.");
+      if (!s || s.id !== id || (options.global ? s.review_scope?.kind !== "global" || s.review_business_id !== null : s.review_business_id !== sg.businessId)) throw new Error("The proposal did not match this workspace.");
       if (merge(s)) {
         sg.verified.set(id, s.status_revision);
         const receipt = sg.busy.get(busyKey(c.slug, s));
@@ -205,7 +207,7 @@ function sgCreateView(options) {
       if (!current(c) || request !== sg.listRequest) return;
       if (responses[1]) sg.session = coreData(responses[1]);
       const data = coreData(responses[0]);
-      if (!Array.isArray(data.items) || !data.review_business_id || sg.businessId && data.review_business_id !== sg.businessId) throw new Error("The signoff list did not match this business.");
+      if (!Array.isArray(data.items) || (options.global ? data.review_scope?.kind !== "global" || data.review_business_id !== null : !data.review_business_id || sg.businessId && data.review_business_id !== sg.businessId)) throw new Error("The signoff list did not match this workspace.");
       sg.businessId = data.review_business_id;
       data.items.forEach(merge);
       if (!cursor || more) sg.nextCursor = data.next_cursor || null;
@@ -250,7 +252,7 @@ function sgCreateView(options) {
       if (!s || s.id !== receipt.id || binding(s) !== receipt.binding || s.review_business_id !== receipt.businessId) throw new Error("The saved decision could not be verified.");
       if (s.state !== "pending") {
         finishReceipt(receipt, s);
-        if (state.biz === receipt.slug && sg.slug === receipt.slug) {
+        if (workspace() === receipt.slug && sg.slug === receipt.slug) {
           merge(s); sg.verified.set(s.id, s.status_revision); sg.detailErrors.delete(s.id); appliedRefresh(s, receipt.slug);
         }
       } else {
@@ -258,7 +260,7 @@ function sgCreateView(options) {
         await submit(receipt, false);
       }
     } catch (error) {
-      if (state.biz === receipt.slug && sg.selected === receipt.id) sg.detailErrors.set(receipt.id, error);
+      if (workspace() === receipt.slug && sg.selected === receipt.id) sg.detailErrors.set(receipt.id, error);
     } finally { receipt.checking = false; render(); }
   }
   async function submit(receipt, autoReconcile = true) {
@@ -267,20 +269,20 @@ function sgCreateView(options) {
       const s = data.signoff;
       if (!s || s.id !== receipt.id || binding(s) !== receipt.binding || s.review_business_id !== receipt.businessId) throw new Error("The decision response could not be verified.");
       finishReceipt(receipt, s);
-      if (state.biz === receipt.slug && sg.slug === receipt.slug) {
+      if (workspace() === receipt.slug && sg.slug === receipt.slug) {
         merge(s); sg.verified.set(s.id, s.status_revision); sg.detailErrors.delete(s.id); appliedRefresh(s, receipt.slug);
       }
     } catch (error) {
       const s = error.details && error.details.signoff;
       if (s && s.id === receipt.id && s.state !== "pending") {
         finishReceipt(receipt, s);
-        if (state.biz === receipt.slug && sg.slug === receipt.slug) {
+        if (workspace() === receipt.slug && sg.slug === receipt.slug) {
           merge(s); sg.verified.delete(s.id); sg.detailErrors.set(s.id, error);
           if (active() && sg.selected === s.id) loadDetail(s.id, true);
         }
       } else if (error.code && error.code !== "invalid_response") {
         sg.busy.delete(receipt.key);
-        if (state.biz === receipt.slug && sg.slug === receipt.slug) {
+        if (workspace() === receipt.slug && sg.slug === receipt.slug) {
           sg.detailErrors.set(receipt.id, error); sg.verified.delete(receipt.id);
           if (isAuth(error)) sg.session = null;
         }
@@ -331,8 +333,8 @@ function sgCreateView(options) {
     render(); refresh();
   }
   function businessChanged() {
-    if (sg.slug === state.biz) return;
-    sg.slug = state.biz; sg.businessId = null; sg.generation++;
+    if (sg.slug === workspace()) return;
+    sg.slug = workspace(); sg.businessId = null; sg.generation++;
     sg.items.clear(); sg.order = []; sg.selected = null;
     sg.verified.clear(); sg.detailErrors.clear(); sg.detailRequest++;
     sg.counts = null; sg.nextCursor = null; sg.updatedCursor = null; sg.error = null; sg.loaded = false; sg.loading = false;
@@ -340,7 +342,7 @@ function sgCreateView(options) {
   };
   const view = {
     businessChanged,
-    paint() { if (sg.slug !== state.biz) businessChanged(); else mount(); },
+    paint() { if (sg.slug !== workspace()) businessChanged(); else mount(); },
     refresh: () => refresh(),
     syncDraft(key, value) {
       const selected = sg.items.get(sg.selected);
@@ -350,7 +352,7 @@ function sgCreateView(options) {
     },
     suspend() { sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
     livePaint(slug, live) {
-      if (slug !== state.biz || slug !== sg.slug || active() || !live || !Number.isInteger(live.signoffs_pending)) return;
+      if (slug !== workspace() || slug !== sg.slug || active() || !live || !Number.isInteger(live.signoffs_pending)) return;
       sg.counts = { ...(sg.counts || {}), pending: live.signoffs_pending };
     },
   };
