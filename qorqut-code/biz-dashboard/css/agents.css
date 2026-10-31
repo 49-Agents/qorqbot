@@ -21,13 +21,16 @@
 @media (max-width: 1280px) { .usage { gap: 10px; margin-right: 12px; } .usage .ul { letter-spacing: .08em; } }
 
 /* ---------------------------------------------------- agent list + plus */
-.listcol .lhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 16px 12px 24px; }
-.listcol .lhead .h { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-3); }
-.listcol .plus { width: 24px; height: 24px; padding: 0; border: 0; background: none; color: var(--fg-2); border-radius: var(--r-full);
-  font-size: 17px; font-weight: 400; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
-  transition: background 140ms ease, color 140ms ease, transform 140ms ease; }
-.listcol .plus:hover { background: var(--hover); color: var(--fg); transform: scale(1.06); }
-.listcol .plus:active { transform: scale(.94); }
+.listcol:has(.ctop) { display: flex; flex-direction: column; }
+.listcol .ctop { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 0 16px 12px; }
+.listcol .ctop .primary { width: 100%; }
+.listcol .crows { flex: 1; overflow-y: auto; min-height: 0; }
+.listcol .h { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-3); padding: 14px 24px 6px; }
+.listcol .item.agent { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.listcol .item.agent .nm { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.listcol .item.agent .nm .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.listcol .ldot { flex: none; width: 5px; height: 5px; border-radius: var(--r-full); background: var(--line-2); }
+.listcol .ldot.live { background: var(--ok); box-shadow: 0 0 6px rgba(90, 170, 120, .5); }
 
 /* -------------------------------------------------------------- compose */
 .compose { position: relative; }

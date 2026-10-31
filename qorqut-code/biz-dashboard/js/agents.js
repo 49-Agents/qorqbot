@@ -60,10 +60,11 @@ async function renderAgents(c) {
   ]);
   state.agents = Array.isArray(agents) ? agents : [];
   state.terms = Array.isArray(terms) ? terms : [];
-  c.innerHTML = `<div class="split"><div class="listcol" id="agentlist"></div><div class="chat termmode" id="chat"></div></div>`;
+  c.innerHTML = `<div class="split"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div></div>`;
+  $("#addagent").onclick = newAgentModal;
   paintList();
   const a = state.agents.find(x => x.name === state.agent) || state.agents[0];
-  if (!a) { $("#chat").innerHTML = `<div class="empty" style="padding:24px">No agents yet — add one with +.</div>`; return; }
+  if (!a) { $("#chat").innerHTML = `<div class="empty" style="padding:24px">No agents yet — add one with New agent.</div>`; return; }
   state.agent = a.name;
   mountTerminal(a.name, $("#chat"), stat => markTermState(a.name, stat));
 }
@@ -74,7 +75,7 @@ function markTermState(name, stat) {
   const t = (state.terms || []).find(x => x.agent === name);
   if (t) t.done = !running; else (state.terms = state.terms || []).push({ agent: name, done: !running });
   const row = $(`#agentlist .agent[data-a="${(window.CSS && CSS.escape) ? CSS.escape(name) : name}"] [data-st]`);
-  if (row) { row.textContent = running ? "running" : (stat === "ended" ? "exited" : "idle"); row.classList.toggle("live", running); }
+  if (row) { row.classList.toggle("live", running); row.title = running ? "running" : (stat === "ended" ? "exited" : "idle"); }
 }
 
 function wireCompose(a, msgs) {
@@ -163,16 +164,22 @@ async function runSlash(cmd, a, msgs, send) {
 // ------------------------------------------------------------------- list
 function paintList() {
   const al = $("#agentlist"); if (!al) return;
+  const rows = $("#agentrows"); if (!rows) return;
   const live = new Set((state.terms || []).filter(t => !t.done).map(t => t.agent));
-  const rows = state.agents.map(a => {
-    const running = live.has(a.name), d = dept(a.department);
-    return `<div class="item agent ${a.name === state.agent ? "on" : ""}" data-a="${esc(a.name)}">
-      <div class="nm">${agentGlyph(a, 10)}<span>${esc(a.name)}</span></div>
-      <div class="st">${glyph(d.icon, d.color, 8)}<span>${esc(d.label)}</span><span>·</span><span class="${running ? "live" : ""}" data-st>${running ? "running" : "idle"}</span></div></div>`;
-  }).join("") || `<div class="empty" style="padding:0 24px">No agents yet.</div>`;
-  al.innerHTML = `<div class="lhead"><span class="h">Agents</span><button class="plus" id="addagent" title="New agent" aria-label="New agent">+</button></div>` + rows;
-  $("#addagent").onclick = newAgentModal;
-  al.querySelectorAll(".agent").forEach(d => d.onclick = () => { state.agent = d.dataset.a; renderAgents($("#content")); });
+  const row = a => {
+    const running = live.has(a.name);
+    return `<div class="item agent ${a.name === state.agent ? "on" : ""}" data-a="${esc(a.name)}"><div class="nm">${agentGlyph(a, 10)}<span class="tt">${esc(a.name)}</span></div><span class="ldot ${running ? "live" : ""}" data-st title="${running ? "running" : "idle"}"></span></div>`;
+  };
+  if (!state.agents.length) {
+    rows.innerHTML = `<div class="empty pad">No agents yet. Add one above.</div>`;
+  } else {
+    const groups = {}; for (const k of Object.keys(DEPTS)) groups[k] = [];
+    state.agents.forEach(a => { const k = DEPTS[a.department] ? a.department : "general"; groups[k].push(a); });
+    rows.innerHTML = Object.keys(DEPTS).map(k => groups[k].length
+      ? `<div class="h">${esc(DEPTS[k].label)}</div>` + groups[k].map(row).join("")
+      : "").join("");
+  }
+  rows.querySelectorAll(".agent").forEach(d => d.onclick = () => { state.agent = d.dataset.a; renderAgents($("#content")); });
 }
 function paintHead(a) {
   const ch = $("#chat"); if (!ch) return;
