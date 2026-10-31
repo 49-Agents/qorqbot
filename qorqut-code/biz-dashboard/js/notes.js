@@ -266,7 +266,7 @@ function ntDetailHtml(n) {
     <div class="nteditor" id="nteditor">
       <div class="ntedinner">
         <div class="ntedhead">
-          <textarea id="nttitle" class="nttitlein" rows="1" placeholder="Untitled"></textarea>
+          <textarea id="nttitle" class="nttitlein" rows="1" placeholder="Untitled" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false"></textarea>
           <div class="ntedctrls" id="ntedctrls">
             <button id="ntdiscard" class="ntghost" type="button" disabled>Discard</button>
             <span class="ntsavewrap" id="ntsavewrap"></span>
@@ -393,7 +393,7 @@ function ntLineRowHtml(es, i) {
   if (meta.bold) cls.push("bold");
   if (closed) cls.push("done");
   const ball = isTask ? `<button type="button" class="ntball ntb-${esc(status)}" data-i="${i}" aria-label="Status: ${esc(NT_STATUS_LABEL[status] || status)}. Click to change." data-tip="${esc(NT_STATUS_LABEL[status] || status)} — click to change, right-click to block"></button>` : "";
-  return `<div class="${cls.join(" ")}" data-i="${i}">${ball}<textarea class="ntlinein" data-i="${i}" rows="1" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea></div>`;
+  return `<div class="${cls.join(" ")}" data-i="${i}">${ball}<textarea class="ntlinein" data-i="${i}" rows="1" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false"></textarea></div>`;
 }
 function ntRenderLines() {
   const wrap = $("#ntlines"); if (!wrap) return;
