@@ -144,7 +144,7 @@ function conversationMount(host,source,adapter={}) {
       else if(source.type==='story') {
         const result=await conversationCall(source,'stories_timeline',{story_id:source.id,notes_only:true,limit:20,...pagination});
         data={notes:result.events.slice().reverse().map(n=>({...n,created_by:n.actor_id,created_by_name:n.actor?.name,author_kind:n.actor?.kind})),next_cursor:result.next_cursor,participants:result.participants};
-      } else data=await conversationCall(source,source.type==='task'?'tasks_thread_get':'signoffs_notes_list',{[source.type+'_id']:source.id,limit:20,...pagination});
+      } else data=await conversationCall(source,source.type==='email'?'email_comments_list':source.type==='task'?'tasks_thread_get':'signoffs_notes_list',{[source.type==='email'?'conversation_id':source.type+'_id']:source.id,limit:20,...pagination});
       s.participants=data.participants || s.participants;
       const oldHeight=feed.scrollHeight;
       const merged=new Map((more?[...data.notes,...s.notes]:[...s.notes,...data.notes]).map(n=>[n.id,n]));
@@ -180,8 +180,8 @@ function conversationMount(host,source,adapter={}) {
       }
       const request=s.submission;
       if(adapter.send) await conversationRequest(adapter.send(request));
-      else await conversationCall(source,{task:'tasks_comment',story:'stories_note_add',signoff:'signoffs_comment'}[source.type],
-        {[source.type+'_id']:source.id,...(source.type==='story'?{body:request.text}:{text:request.text})},
+      else await conversationCall(source,{task:'tasks_comment',story:'stories_note_add',signoff:'signoffs_comment',email:'email_comment'}[source.type],
+        {[source.type==='email'?'conversation_id':source.type+'_id']:source.id,...(source.type==='story'?{body:request.text}:{text:request.text})},
         {idempotency_key:request.idempotency_key,...(request.revision?{expected_revision:request.revision}:{})});
       s.text='';s.submission=null;saved=true;if(current()){input.value='';send.textContent='Send';}syncDraft(input);
     } catch(e){if(current()){showError(e);if(['revision_conflict','stale_signoff','not_found','forbidden','policy_denied'].includes(e.code)){s.submission=null;send.textContent='Send';error.textContent+=' Review the current source before sending again.';}else if(s.submission){send.textContent='Retry Send';if(e.code==='request_timeout')error.textContent='Could not confirm delivery. Retry Send to check the same message.';}}} finally{s.sending=false;syncSending();adapter.onInput?.();}
