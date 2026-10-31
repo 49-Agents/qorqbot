@@ -55,3 +55,11 @@
 .agfocus-card .agfocus-meta{padding-right:34px;min-height:26px}
 .agfocus .agfocus-actions{position:absolute;top:8px;right:8px;margin:0}
 .agfocus .conversation-inline-compose .conversation-toggle{flex:none;margin:0}
+
+.agfocus-people{display:flex;align-items:center;margin:8px 0 10px;padding-left:0}
+.agfocus-people[hidden]{display:none}
+.agfocus-person{display:grid;place-items:center;flex:none;width:30px;height:30px;border:2px solid var(--bg);border-radius:50%;background:var(--surface);font-size:10px;overflow:hidden}
+.agfocus-person + .agfocus-person{margin-left:-8px}
+.agfocus-person-more{color:var(--fg-2);font-weight:600}
+.agfocus-handoff-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.agfocus-handoff-top .agfocus-meta{padding:0;min-height:0}

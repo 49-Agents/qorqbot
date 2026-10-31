@@ -1,12 +1,12 @@
 /* Agent overview: scope the third column to Agents; other .split views keep their layout. */
 .split.agsplit { grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.15fr); min-width: 0; }
 .split.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
-.split.agsplit.nav-off { grid-template-columns: 52px minmax(0, 1fr) minmax(0, 1.15fr); }
-.split.agsplit.nav-off.pad-off { grid-template-columns: 52px minmax(0, 1fr) 0; }
+.split.agsplit.nav-off { grid-template-columns: 0 minmax(0, 1fr) minmax(0, 1.15fr); }
+.split.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
 .split.global-agents.agsplit { grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.15fr); }
 .split.global-agents.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
-.split.global-agents.agsplit.nav-off { grid-template-columns: 52px minmax(0, 1fr) minmax(0, 1.15fr); }
-.split.global-agents.agsplit.nav-off.pad-off { grid-template-columns: 52px minmax(0, 1fr) 0; }
+.split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, 1fr) minmax(0, 1.15fr); }
+.split.global-agents.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
 .agsplit:not(.pad-off) > .chat.termmode { padding-left: 24px; padding-right: 24px; }
 
 .agent-nav-actions { display: inline-flex; align-items: center; gap: 6px; }
@@ -52,3 +52,8 @@
 .agpad-inbox-top .agpad-inbox-status > span:last-child { overflow:hidden; text-overflow:ellipsis; }
 
 .agsplit.nav-off > .listcol .agent-broadcast,.agsplit.nav-off > .listcol .global-eyebrow{display:none}
+
+/* Restore navigation without reserving a sidebar column. */
+.agsplit.nav-off{position:relative}
+.agsplit.nav-off > .listcol{visibility:hidden;overflow:visible;padding:0;border:0;pointer-events:none}
+.agsplit.nav-off > .listcol .agent-nav-toggle{visibility:visible;pointer-events:auto;position:absolute;top:12px;left:12px;z-index:6;margin:0;background:var(--bg);border:1px solid var(--line);box-shadow:0 2px 8px #0003}

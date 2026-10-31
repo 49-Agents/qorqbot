@@ -4,7 +4,7 @@ let conversationMountId = 0;
 // Inline Focus conversations dismiss on outside clicks, while their contents stay interactive.
 document.addEventListener('click',event=>{
   for(const host of document.querySelectorAll('[data-inline-conversation]')) {
-    if(!host.contains(event.target) && host._conversation?.isExpanded())host._conversation.collapse();
+    if(!(host.closest('.agfocus-card') || host).contains(event.target) && host._conversation?.isExpanded())host._conversation.collapse();
   }
 });
 function conversationKey(source) { return `${source.type}:${source.biz || 'global'}:${source.id}`; }
@@ -60,14 +60,14 @@ function conversationMount(host,source,adapter={}) {
   if (host.dataset.conversation===key) { host._source=source; return host._conversation; }
   host.dataset.conversation=key;host._source=source;
   const panelId=`conversation-panel-${++conversationMountId}`;
-  host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" title="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span></button><section id="${panelId}" class="conversation-panel" hidden><div class="conversation-participants" aria-label="Conversation participants"></div><button type="button" class="quiet conversation-older" hidden>Older messages</button><div class="conversation-feed" role="log" aria-label="Conversation"></div><label class="conversation-compose">Message<textarea class="inp" rows="3" maxlength="20000"></textarea></label><button type="button" class="btn conversation-send">Send</button><p class="ferr" role="alert" hidden></p></section>`;
+  host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span></button><section id="${panelId}" class="conversation-panel" hidden><div class="conversation-participants" aria-label="Conversation participants"></div><button type="button" class="quiet conversation-older" hidden>Older messages</button><div class="conversation-feed" role="log" aria-label="Conversation"></div><label class="conversation-compose">Message<textarea class="inp" rows="3" maxlength="20000"></textarea></label><button type="button" class="btn conversation-send">Send</button><p class="ferr" role="alert" hidden></p></section>`;
   const toggle=host.querySelector('.conversation-toggle'),panel=host.querySelector('.conversation-panel'),feed=host.querySelector('.conversation-feed'),input=host.querySelector('textarea'),send=host.querySelector('.conversation-send'),older=host.querySelector('.conversation-older'),error=host.querySelector('[role="alert"]');
   if(adapter.inlineComposer) {
     host.dataset.inlineConversation='true';
     const composer=document.createElement('div');composer.className='conversation-inline-compose';
     const label=host.querySelector('.conversation-compose');
     label.firstChild.textContent='';input.rows=1;input.placeholder='Leave a comment…';
-    input.setAttribute('aria-label','Leave a comment');input.title='Ctrl+Enter to send';
+    input.setAttribute('aria-label','Leave a comment');
     composer.append(label,send);host.append(composer,error);
   }
   s.mounts.add(host);
@@ -89,7 +89,11 @@ function conversationMount(host,source,adapter={}) {
     painted=signature;
     const top=feed.scrollTop;
     const people=new Map();
-    for (const n of [...(s.participants || []),...s.notes]) if(n.entry_kind!=='system') people.set(n.created_by,n);
+    for (const n of [...(s.participants || []),...s.notes]) if(n.entry_kind!=='system') {
+      const participantId=n.created_by || n.actor_id || n.author_id || conversationPersonName(n);
+      if(!people.has(participantId))people.set(participantId,n);
+    }
+    adapter.onParticipants?.([...people.values()]);
     host.querySelector('.conversation-participants').innerHTML=[...people.values()].map(person=>{
       const name=conversationPersonName(person);
       const glyph=conversationGlyph(person,20);
@@ -106,8 +110,8 @@ function conversationMount(host,source,adapter={}) {
       if(first.entry_kind==='system') return `<div class="conversation-system">${esc(first.body)}${time}</div>`;
       const owner=first.is_owner ?? (first.author_kind==='human');
       const name=conversationPersonName(first);
-      const avatar=conversationGlyph(first,24);
-      return `<div class="conversation-group ${owner?'conversation-owner':'conversation-agent'}">${!owner?`<span class="conversation-avatar" aria-hidden="true">${avatar}</span><small>${esc(name)}</small>`:''}<div>${group.map(note=>`<div class="conversation-bubble">${note.title && note.title!=='Message'?`<strong>${esc(note.title)}</strong>`:''}${note.parent_event_id && adapter.openParent?`<button type="button" class="quiet conversation-parent" data-note-parent="${esc(note.id)}">About an earlier entry</button>`:''}${conversationMessage(note,expandedMessages.has(note.id))}${(note.refs||[]).map((r,i)=>`<button type="button" class="quiet" data-note-ref="${esc(note.id)}:${i}" ${r.unavailable?'disabled':''}>${esc(r.label || r.type || 'Reference')}</button>`).join('')}</div>`).join('')}${time}</div></div>`;
+      const avatar=conversationGlyph(first,36);
+      return `<div class="conversation-group ${owner?'conversation-owner':'conversation-agent'}">${!owner?`<div class="conversation-agent-header"><span class="conversation-avatar" aria-hidden="true">${avatar}</span><small>${esc(name)}</small></div>`:''}<div>${group.map(note=>`<div class="conversation-bubble">${note.title && note.title!=='Message'?`<strong>${esc(note.title)}</strong>`:''}${note.parent_event_id && adapter.openParent?`<button type="button" class="quiet conversation-parent" data-note-parent="${esc(note.id)}">About an earlier entry</button>`:''}${conversationMessage(note,expandedMessages.has(note.id))}${(note.refs||[]).map((r,i)=>`<button type="button" class="quiet" data-note-ref="${esc(note.id)}:${i}" ${r.unavailable?'disabled':''}>${esc(r.label || r.type || 'Reference')}</button>`).join('')}</div>`).join('')}${time}</div></div>`;
     }).join('');
     feed.querySelectorAll('[data-message-id]').forEach(details=>details.addEventListener('toggle',()=>{if(!details.isConnected)return;if(details.open)expandedMessages.add(details.dataset.messageId);else expandedMessages.delete(details.dataset.messageId);}));
     if(typeof StoryNotePane==='function') for(const note of s.notes) {
@@ -188,6 +192,6 @@ function conversationMount(host,source,adapter={}) {
   };
   function expand(value,notify=true) {expanded=value;panel.hidden=!value;toggle.setAttribute('aria-expanded',String(value));if(notify)adapter.onToggle?.(value);if(value) {if(s.loaded)paint();load();scheduleAgeRefresh();}}
   toggle.onclick=()=>expand(!expanded);older.onclick=()=>load(true);send.onclick=submit;
-  host._conversation={refresh:()=>expanded?load():null,isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),state:s,_paint:paint};
+  host._conversation={refresh:()=>expanded || adapter.inlineComposer?load():null,preload:()=>load(),isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),state:s,_paint:paint};
   expand(false,false);return host._conversation;
 }
