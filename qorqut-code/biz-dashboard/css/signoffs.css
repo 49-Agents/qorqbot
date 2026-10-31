@@ -8,9 +8,9 @@
 .sg-row:focus-within { border-color: var(--line-2); }
 .sg .sg-rowhead { width: 100%; height: auto; border: 0; border-radius: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 18px; align-items: baseline; text-align: left; background: none; color: var(--fg); box-shadow: none; font-weight: 400; white-space: normal; }
 .sg .sg-rowhead:hover, .sg .sg-rowhead:active { background: none; transform: none; }
-.sg-rowtitle { font-size: 15px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
-.sg-state { font: 11px/1.5 var(--mono); color: var(--fg-2); }
-.sg-rowmeta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 5px 14px; font-size: 11px; line-height: 1.5; color: var(--fg-3); overflow-wrap: anywhere; }
+.sg-rowtitle { font-size: 15px; font-weight: 500; line-height: 1.45; overflow-wrap: anywhere; }
+.sg-state { display:flex; align-items:center; gap:5px; font: 11px/1.5 var(--mono); color: var(--fg-2); }
+.sg-rowmeta { grid-column: 1 / -1; display: flex; align-items:center; flex-wrap: wrap; gap: 5px 10px; font-size: 11px; line-height: 1.5; color: var(--fg-3); overflow-wrap: anywhere; }
 .sg-rowmeta time { flex: none; }
 .sg-scope { color: var(--fg-2); }
 .sg-global { color: #8cbcc9; }
