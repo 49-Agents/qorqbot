@@ -21,6 +21,7 @@ async function renderGlobalAgents(c) {
   c.innerHTML = `<div class="split global-agents agsplit">
     <div class="listcol"><div class="ctop"><div class="global-eyebrow">Global</div><div class="agent-nav-heading"><h1>Agents</h1><span class="agent-nav-actions">${broadcastButton()}${agentNavButton()}</span></div></div><div class="crows" id="global-agent-list"></div></div>
     <section class="global-agent-session" aria-label="Agent session"><div class="chat termmode" id="global-agent-terminal"></div></section>
+    <div class="agent-pane-divider" data-agent-pane-divider role="separator" aria-label="Terminal and agent pane divider" aria-orientation="vertical" tabindex="0"></div>
     <aside class="tasks agpad" id="agpad" aria-label="Agent pane"></aside>
   </div>`;
   wireBroadcastButton(c, {scope:'global'});

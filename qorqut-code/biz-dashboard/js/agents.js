@@ -69,7 +69,7 @@ function wireAgentNavToggle(c, scope) {
     button.title = hidden ? 'Show agent navigation' : 'Hide agent navigation';
   };
   set(ls(agentNavKey(scope)) === '1');
-  button.onclick = () => { const hidden = !root.classList.contains('nav-off'); set(hidden); ls(agentNavKey(scope), hidden ? '1' : '0'); };
+  button.onclick = () => { const hidden = !root.classList.contains('nav-off'); set(hidden); root._agentPaneDividerRefresh?.(); ls(agentNavKey(scope), hidden ? '1' : '0'); };
 }
 function agentOpenTab(identity,biz=null) {
   const url=new URL(location.href);url.searchParams.delete('focus_item');
@@ -85,7 +85,7 @@ let agRenderGen = 0;
 const agPageCache = new Map();
 async function renderAgents(c) {
   const gen = ++agRenderGen, biz = state.biz;
-  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><div class="agent-nav-heading"><h2>Agents</h2><span class="agent-nav-actions">${broadcastButton()}${agentNavButton()}</span></div><button class="primary" id="addagent">${ICO_PLUS}New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
+  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><div class="agent-nav-heading"><h2>Agents</h2><span class="agent-nav-actions">${broadcastButton()}${agentNavButton()}</span></div><button class="primary" id="addagent">${ICO_PLUS}New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><div class="agent-pane-divider" data-agent-pane-divider role="separator" aria-label="Terminal and agent pane divider" aria-orientation="vertical" tabindex="0"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
   wireBroadcastButton(c, {scope:'business',biz});
   wireAgentNavToggle(c, biz);
   $("#addagent").onclick = newAgentModal;

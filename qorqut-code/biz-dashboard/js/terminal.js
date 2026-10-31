@@ -192,6 +192,10 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
       toast('Remove control characters before sending.');
       return;
     }
+    // Keep an explicit focus handoff made while delivery is in flight. The
+    // owner may click the desktop iframe (or another editor) before the PTY
+    // acknowledges the input; completion must not pull focus back here.
+    const focusBeforeSend = document.activeElement;
     disableSend(true);
     input.readOnly = true;
     const sent = await sendInput(text + (pressEnter ? '\r' : ''));
@@ -201,16 +205,17 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     input.value = draft.text;
     disableSend(!sent);
     if (!sent) toast('Delivery unconfirmed. Check the terminal before reconnecting and retrying.');
-    if (!composer.hidden) input.focus();
+    if (!composer.hidden && document.activeElement === focusBeforeSend) input.focus();
   };
   controls.forEach(button => button.onclick = async () => {
     if (send.disabled || session.term !== term) return;
+    const focusBeforeSend = document.activeElement;
     disableSend(true);
     const sent = await sendInput(button.dataset.terminalKey === 'interrupt' ? '\x03' : '\x1b');
     if (session.term !== term) return;
     disableSend(!sent);
     if (!sent) toast('Delivery unconfirmed. Check the terminal before reconnecting and retrying.');
-    if (!composer.hidden) input.focus();
+    if (!composer.hidden && document.activeElement === focusBeforeSend) input.focus();
   });
   composer.onsubmit = event => { event.preventDefault(); submitComposer(false); };
   showComposer(!isolated);

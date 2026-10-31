@@ -1,7 +1,114 @@
 // Agent tasks use the drawer's shared task UI.
 // Task clicks open the existing drawer detail; business writes stay in tasks.js.
 const AGPAD_LOG_N = 200, AGPAD_POLL_MS = 12000;
+const AGENT_PANE_RATIO_KEY = "agent-pane-ratio";
+const AGENT_PANE_DEFAULT_RATIO = 1 / 2.15;
+const AGENT_PANE_MIN_TERMINAL = 260, AGENT_PANE_MIN_OVERVIEW = 240;
 let _agpad = null;
+
+function agentPaneDividerMount(root) {
+  const divider = root?.querySelector?.("[data-agent-pane-divider]");
+  const chat = root?.querySelector?.(".chat.termmode");
+  const terminal = root?.querySelector?.(".global-agent-session") || chat;
+  const pane = root?.querySelector?.(".agpad");
+  if (!root || !divider || !chat || !terminal || !pane || !root.style) return () => {};
+
+  let ratio = Number(ls(AGENT_PANE_RATIO_KEY));
+  if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1) ratio = AGENT_PANE_DEFAULT_RATIO;
+  let preferredRatio = ratio, shield = null, dragging = false;
+  const resize = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
+    if (!dragging) apply(preferredRatio);
+  }) : null;
+  const span = () => {
+    const c = terminal.getBoundingClientRect(), p = pane.getBoundingClientRect();
+    return { start: c.left, width: Math.max(0, c.width + p.width), divider: divider.getBoundingClientRect() };
+  };
+  const bounds = () => {
+    const width = span().width;
+    if (!width) return [0, 1];
+    const low = AGENT_PANE_MIN_TERMINAL / width;
+    const high = 1 - AGENT_PANE_MIN_OVERVIEW / width;
+    return low <= high ? [low, high] : [.5, .5];
+  };
+  const apply = (next, save = false) => {
+    const [low, high] = bounds();
+    ratio = Math.min(high, Math.max(low, Number(next) || AGENT_PANE_DEFAULT_RATIO));
+    root.style.setProperty("--ag-terminal-fr", `${ratio}fr`);
+    root.style.setProperty("--ag-pane-fr", `${1 - ratio}fr`);
+    divider.setAttribute("aria-valuemin", String(Math.round(low * 100)));
+    divider.setAttribute("aria-valuemax", String(Math.round(high * 100)));
+    divider.setAttribute("aria-valuenow", String(Math.round(ratio * 100)));
+    if (save) { preferredRatio = ratio; ls(AGENT_PANE_RATIO_KEY, String(ratio)); }
+    return ratio;
+  };
+  apply(ratio);
+
+  const finish = () => {
+    if (!dragging) return;
+    dragging = false;
+    divider.classList.remove("dragging");
+    root.classList.remove("agent-pane-dragging");
+    shield?.remove(); shield = null;
+    preferredRatio = ratio;
+    ls(AGENT_PANE_RATIO_KEY, String(ratio));
+  };
+  const move = event => {
+    if (!dragging) return;
+    const { start, width, divider: d } = span();
+    if (width) apply((event.clientX - start - d.width / 2) / width);
+  };
+  const begin = event => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    dragging = true;
+    divider.classList.add("dragging");
+    root.classList.add("agent-pane-dragging");
+    shield = document.createElement("div");
+    shield.className = "agent-pane-drag-shield";
+    shield.addEventListener("pointermove", move);
+    shield.addEventListener("pointerup", finish, { once: true });
+    shield.addEventListener("pointercancel", finish, { once: true });
+    document.body.appendChild(shield);
+    divider.setPointerCapture?.(event.pointerId);
+    window.addEventListener("blur", finish);
+  };
+  const key = event => {
+    const step = .03;
+    let next;
+    if (event.key === "ArrowLeft") next = ratio - step;
+    else if (event.key === "ArrowRight") next = ratio + step;
+    else if (event.key === "Home") next = bounds()[0];
+    else if (event.key === "End") next = bounds()[1];
+    else return;
+    event.preventDefault();
+    apply(next, true);
+  };
+  divider.addEventListener("pointerdown", begin);
+  divider.addEventListener("pointermove", move);
+  divider.addEventListener("pointerup", finish);
+  divider.addEventListener("pointercancel", finish);
+  divider.addEventListener("keydown", key);
+  root._agentPaneDividerRefresh = () => apply(preferredRatio);
+  resize?.observe(root);
+  return () => {
+    finish();
+    resize?.disconnect();
+    window.removeEventListener("blur", finish);
+    divider.removeEventListener("pointerdown", begin);
+    divider.removeEventListener("pointermove", move);
+    divider.removeEventListener("pointerup", finish);
+    divider.removeEventListener("pointercancel", finish);
+    divider.removeEventListener("keydown", key);
+    if (root._agentPaneDividerRefresh) delete root._agentPaneDividerRefresh;
+  };
+}
+
+function agpadDispose() {
+  _agpad?.focusDetail?.dispose?.();
+  _agpad?.dividerDispose?.();
+  _agpad = null;
+}
+
 function agpadTerminalButton(tools, old) {
   if (old) { tools.appendChild(old); return; }
   const button = document.createElement("button");
@@ -36,6 +143,7 @@ function agpadActive(p) {
 
 function agpadMount(name, el, options = {}) {
   _agpad?.focusDetail?.dispose?.();
+  _agpad?.dividerDispose?.();
   if (_agpad) _agpad.focusDetail = null;
   const p = _agpad = {
     biz: state.biz, agent: name, el, open: !!name && ls(`agpad:${state.biz}`) !== "off",
@@ -44,6 +152,7 @@ function agpadMount(name, el, options = {}) {
     tasks: null, source: state.tasks, tasksStarted: false, taskError: false, bodyHtml: null,
     views: ["tasks", "inbox"], ...options,
   };
+  p.dividerDispose = agentPaneDividerMount(el.closest?.(".agsplit"));
   p.views = [...new Set([...p.views, "status"])];
   const button = $("#agpad-toggle");
   if (button) {
@@ -88,6 +197,7 @@ function agpadSetView(p, view) {
 function agpadVisibility(p) {
   p.el.closest(".agsplit").classList.toggle("pad-off", !p.open);
   p.el.hidden = !p.open;
+  p.el.closest(".agsplit")._agentPaneDividerRefresh?.();
   const button = $("#agpad-toggle");
   if (button) {
     button.setAttribute("aria-expanded", String(p.open));

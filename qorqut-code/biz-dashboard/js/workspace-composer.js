@@ -78,6 +78,10 @@ async function workspaceComposerRefresh() {
     event.preventDefault();if(!selected || !draft || draft.sending || !draft.text.trim())return;
     const target=selected,saved=draft,text=saved.text;
     if(/[\x00-\x1f\x7f]/.test(text)){status.textContent='Remove control characters before sending.';return;}
+    // Preserve an explicit focus handoff made while delivery is in flight. If
+    // the owner clicks the desktop iframe or another editor, completion must
+    // not pull focus back to this floating composer.
+    const focusBeforeSend=document.activeElement;
     saved.sending=true;send.disabled=true;picker.disabled=true;input.readOnly=true;status.textContent='Sending…';
     try {
       const base=target.business_slug?`/biz/${encodeURIComponent(target.business_slug)}/terminal/${encodeURIComponent(target.name)}`:`/root/terminal/${encodeURIComponent(target.agent_id)}`;
@@ -92,7 +96,7 @@ async function workspaceComposerRefresh() {
       await write('input',{data:'\r'});
       saved.text='';if(current()){input.value='';status.textContent='Sent';}
     } catch(error){if(current())status.textContent='Delivery unconfirmed. Show terminal before retrying. '+(error.message || '');}
-    finally{saved.sending=false;w.sync?.();if(current())input.focus();}
+    finally{saved.sending=false;w.sync?.();if(current() && document.activeElement===focusBeforeSend)input.focus();}
   };
   try {
     const [global,local]=await Promise.all([

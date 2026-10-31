@@ -1,13 +1,69 @@
 /* Agent overview: scope the third column to Agents; other .split views keep their layout. */
-.split.agsplit { grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.15fr); min-width: 0; }
+.split.agsplit {
+  --ag-terminal-fr: 1fr;
+  --ag-pane-fr: 1.15fr;
+  --ag-divider-width: 12px;
+  grid-template-columns: 240px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr));
+  min-width: 0;
+}
 .split.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
-.split.agsplit.nav-off { grid-template-columns: 0 minmax(0, 1fr) minmax(0, 1.15fr); }
+.split.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
 .split.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
-.split.global-agents.agsplit { grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.15fr); }
+.split.global-agents.agsplit { grid-template-columns: 240px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
 .split.global-agents.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
-.split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, 1fr) minmax(0, 1.15fr); }
+.split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
 .split.global-agents.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
 .agsplit:not(.pad-off) > .chat.termmode { padding-left: 24px; padding-right: 24px; }
+.agsplit.pad-off > .agent-pane-divider { display: none; }
+
+/* The hit area is wider than the quiet one-pixel rule. It is a real grid track so
+   resizing keeps the terminal and overview widths complementary. */
+.agent-pane-divider {
+  position: relative;
+  z-index: 4;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.agent-pane-divider::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 5px;
+  width: 1px;
+  background: var(--line);
+  transition: background .14s ease, width .14s ease;
+}
+.agent-pane-divider:hover::before,
+.agent-pane-divider:focus-visible::before,
+.agent-pane-divider.dragging::before {
+  width: 2px;
+  background: var(--line-2);
+}
+.agent-pane-divider:focus-visible { outline: 0; }
+.agent-pane-divider[hidden] { display: none; }
+.agent-pane-dragging, .agent-pane-dragging * { user-select: none !important; cursor: col-resize !important; }
+.agent-pane-drag-shield { position: fixed; inset: 0; z-index: 250; cursor: col-resize; }
+
+/* The global session already stacks at this breakpoint. Keep the divider out of
+   that flow; the business pane retains its existing compact three-column layout. */
+@media (max-width: 800px) {
+  .agent-pane-divider { display: none; }
+  /* The divider disappears from the grid at mobile widths, retaining the
+     pre-divider three-column behavior for both agent layouts. */
+  .split.agsplit,
+  .split.global-agents.agsplit { grid-template-columns: 240px minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
+  .split.agsplit.nav-off,
+  .split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
+  .split.agsplit.pad-off,
+  .split.global-agents.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
+  .split.agsplit.nav-off.pad-off,
+  .split.global-agents.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
+}
 
 .agent-nav-actions { display: inline-flex; align-items: center; gap: 6px; }
 .agent-nav-toggle { width: 30px; height: 30px; padding: 5px; display: inline-flex; align-items: center; justify-content: center; }
