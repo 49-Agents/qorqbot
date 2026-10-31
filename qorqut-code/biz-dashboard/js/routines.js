@@ -65,13 +65,27 @@ function rtRows() {
     const key = rtKey(row); if (seen.has(key)) return false; seen.add(key); return true;
   }).sort((a,b) => (a.status === 'paused') - (b.status === 'paused') || String(a.next || '').localeCompare(String(b.next || '')) || a.name.localeCompare(b.name));
 }
+function rtNext(value,now=Date.now()) {
+  const hours=(Date.parse(value)-now)/3600000;
+  if(!Number.isFinite(hours))return 'Not scheduled';
+  if(hours<=0)return 'Due now';
+  if(hours<1)return 'In less than 1 hour';
+  return hours<48?`In ${Math.ceil(hours)} hours`:`In ${Math.ceil(hours/24)} days`;
+}
+function rtChart(row){
+  if(!rtData?.hourly)return '<span class="rtchart-empty">History unavailable</span>';
+  const slots=rtData.hourly.routines[rtKey(row)] || Array.from({length:48},(_,i)=>({hour:new Date(Date.parse(rtData.hourly.start)+i*3600000).toISOString(),succeeded:0,failed:0}));
+  const max=Math.max(1,...slots.map(x=>x.succeeded));
+  const points=slots.map((x,i)=>({x:22+i*218/47,y:64-x.succeeded/max*60}));
+  return `<svg class="global-spark rtchart" viewBox="0 0 244 70" role="img" aria-label="Successful runs per hour over the last 48 hours; red dots show failures"><path class="global-spark-grid" d="M22 64H240"/><polyline class="global-spark-line" points="${points.map(p=>p.x+','+p.y).join(' ')}"/>${slots.map((slot,i)=>`<circle class="${slot.failed?'rt-failure':'global-spark-point'}" cx="${points[i].x}" cy="${points[i].y}" r="${slot.failed?3:2}"><title>${esc(slot.hour)}: ${slot.succeeded} succeeded, ${slot.failed} failed</title></circle>`).join('')}</svg>`;
+}
 function rtRoutineRow(row) {
-  const next = row.status === 'paused' ? 'Paused' : row.scheduling_available === false ? row.scheduling_unavailable_reason || 'Scheduling unavailable' : 'Next ' + rtTime(row.next, row.zone);
+  const next = row.status === 'paused' ? 'Paused' : row.scheduling_available === false ? row.scheduling_unavailable_reason || 'Scheduling unavailable' : rtNext(row.next);
   const current = rtData.current && rtData.current.key === row.key;
   return `<article class="rtrow" data-key="${esc(rtKey(row))}">
     ${rtScope(row.scope)}<button class="rttitle" data-action="detail" title="${esc(row.name)}">${esc(row.name)}</button>
     <div class="rtmeta" title="${esc(next)}">${current ? '<span class="rtok">Running</span><span class="sep">·</span>' : ''}${esc(next)}</div>
-    <div class="rtrowactions"><button class="jricon" data-action="run" aria-label="Run ${esc(row.name)} now" title="${esc(row.unavailable_reason || 'Run now')}" ${!rtData.enabled || row.available === false ? 'disabled' : ''}>${RT_ICONS.play}</button>
+    <div class="rtchart-wrap">${rtChart(row)}</div><div class="rtrowactions"><button class="jricon" data-action="run" aria-label="Run ${esc(row.name)} now" title="${esc(row.unavailable_reason || 'Run now')}" ${!rtData.enabled || row.available === false ? 'disabled' : ''}>${RT_ICONS.play}</button>
     <button class="jricon" data-action="more" aria-label="Actions for ${esc(row.name)}" title="Routine actions">${RT_ICONS.more}</button></div></article>`;
 }
 function rtRunRow(run, index) {
@@ -100,11 +114,10 @@ function rtRender() {
   const current = rtData && rtData.current, queued = rtData && rtData.queued || [];
   const status = rtError ? 'Unavailable' : !rtData ? 'Loading…' : !rtData.enabled ? 'Runner disabled' : current ? `${current.routine} running · ${current.seconds}s` : queued.length ? `${queued.length} queued` : '';
   const problem = rtError || rtData && rtData.error || isLog && rtRuns && rtRuns.error;
-  body.innerHTML = `<div class="jred rtworkspace"><nav class="jrrail rtnav" aria-label="Routines navigation">
-    <button class="jricon ${!isLog ? 'on' : ''}" data-page="active" aria-current="${!isLog ? 'page' : 'false'}" title="Active routines">${RT_ICONS.active}<span>Active</span></button>
-    <button class="jricon ${isLog ? 'on' : ''}" data-page="logs" aria-current="${isLog ? 'page' : 'false'}" title="Recent runs">${RT_ICONS.logs}<span>Recent runs</span></button>
-    </nav><section class="rtcontent"><header class="jrhhead">
-    ${!isLog ? `<button class="btn" id="rtnew" ${!rtData || rtGlobal() && !rtData.root ? 'disabled' : ''}>${ICO_PLUS}New routine</button>` : ''}</header>
+  body.innerHTML = `<div class="rtworkspace"><section class="rtcontent"><header class="jrhhead"><div class="rttoggle" role="group" aria-label="Routines view">
+    <button class="jricon ${!isLog?'on':''}" data-page="active" aria-label="Routines" aria-pressed="${!isLog}">${RT_ICONS.active}</button>
+    <button class="jricon ${isLog?'on':''}" data-page="logs" aria-label="Recent runs" aria-pressed="${isLog}">${RT_ICONS.logs}</button></div>
+    ${`<button class="btn" id="rtnew" ${!rtData || rtGlobal() && !rtData.root ? 'disabled' : ''}>${ICO_PLUS}New routine</button>`}</header>
     ${!isLog ? `<div class="rttoolbar"><span class="rtmuted" title="${esc(rtData && rtData.last_sweep || '')}">${esc(status)}</span>${current ? '<button class="btn quiet" id="rtkill">Stop run</button>' : ''}${paused ? `<label class="rtpaused"><input id="rtpaused" type="checkbox" ${rtShowPaused ? 'checked' : ''}>Show paused</label>` : ''}</div>` : ''}
     ${problem ? `<p class="rtfail" role="alert">${esc(problem)} <button class="btn quiet" id="rtretry">Retry</button></p>` : ''}
     <div class="rtlist">${!rtData ? (rtError ? '' : '<p class="jrfaint jrfaint-pad">Loading routines…</p>') : isLog ? (logs.length ? logs.map(rtRunRow).join('') : '<p class="jrfaint jrfaint-pad">No runs yet.</p>') : (visible.length ? visible.map(rtRoutineRow).join('') : '<p class="jrfaint jrfaint-pad">No active routines.</p>')}</div>

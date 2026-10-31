@@ -17,37 +17,36 @@ function ctxRelationshipGraph(data, topicId) {
   }
   const colors={topic:'#849a75',material:'#b3b7bd',person:'#72a99f',task:'#d88a85',story:'#d4b463',table:'#83b5cf',agent:'#b997c2'};
   const nodes=items.map(item=>({id:key(item),item,kind:item.type,label:item.label,tip:item.summary || '',
-    path:item.path || null,color:colors[item.type] || '#aaaaaa',group:item.type}));
-  return {rootId,nodes,edges,groups:[...new Set(nodes.map(node=>node.group))].map(id=>({id,color:colors[id] || '#aaaaaa'}))};
+    path:item.path || null,color:colors[item.type] || '#aaaaaa'}));
+  return {rootId,nodes,edges};
 }
 
 // Deterministic starting positions and a bounded spring/collision pass. Saved nodes stay fixed so
 // arriving notes do not rearrange a map the user has already explored. No continuously running force loop.
 function ctxGraphLayout(graph, saved = {}) {
   const nodes = graph.nodes.map(n => ({ ...n })), byId = new Map(nodes.map(n => [n.id, n]));
-  const members = new Map(graph.groups.map(g => [g.id, nodes.filter(n => n.group === g.id)]));
-  const anchors = new Map(), groupCount = members.size;
-  let gi = 0;
-  for (const [id, arr] of members) {
-    const angle = -Math.PI * .82 + gi++ * Math.PI * 2 / Math.max(1, groupCount);
-    const radius = 650 + Math.sqrt(nodes.length) * 35;
-    anchors.set(id, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
-    arr.forEach((n, i) => {
-      const a = i * 2.39996 + angle, r = i ? 110 * Math.sqrt(i) : 0;
-      n.x = anchors.get(id).x + Math.cos(a) * r; n.y = anchors.get(id).y + Math.sin(a) * r;
-    });
-  }
   const adjacency = new Map(nodes.map(n => [n.id, []]));
-  graph.edges.forEach(e => { adjacency.get(e.source).push(byId.get(e.target)); adjacency.get(e.target).push(byId.get(e.source)); });
-  nodes.forEach((n, i) => {
+  graph.edges.forEach(e => { if(e.source!==e.target){adjacency.get(e.source).push(byId.get(e.target));adjacency.get(e.target).push(byId.get(e.source));} });
+  const visited=new Set(),components=[];
+  for(const seed of [...nodes].sort((a,b)=>adjacency.get(b.id).length-adjacency.get(a.id).length || a.id.localeCompare(b.id))){
+    if(visited.has(seed.id))continue;
+    const members=[seed];visited.add(seed.id);
+    for(let i=0;i<members.length;i++)for(const neighbor of adjacency.get(members[i].id))if(!visited.has(neighbor.id)){visited.add(neighbor.id);members.push(neighbor);}
+    components.push(members);
+  }
+  // Pack disconnected components in two dimensions; only real edges attract nodes.
+  const sizes=components.map(m=>Math.max(180,Math.sqrt(m.length)*190));
+  const shelfWidth=Math.max(0,...sizes,Math.sqrt(sizes.reduce((sum,size)=>sum+(size+120)**2,0)));
+  let x=0,y=0,rowHeight=0;
+  components.forEach((members,index)=>{
+    const size=sizes[index];
+    if(x && x+size>shelfWidth){x=0;y+=rowHeight+120;rowHeight=0;}
+    const cx=x+size/2,cy=y+size/2;
+    members.forEach((n,i)=>{const angle=i*2.39996,r=65*Math.sqrt(i);n.x=cx+Math.cos(angle)*r;n.y=cy+Math.sin(angle)*r;n.cx=cx;n.cy=cy;});
+    x+=size+120;rowHeight=Math.max(rowHeight,size);
+  });
+  nodes.forEach(n => {
     if (n.id === graph.rootId) { n.x = 0; n.y = 0; }
-    if (n.x == null) {
-      const linked = adjacency.get(n.id).filter(k => k.x != null);
-      const a = (ctxGraphHash(n.id) % 360) * Math.PI / 180;
-      const r = linked.length ? 145 : 410 + 18 * Math.sqrt(i);
-      const center = linked.length ? { x: linked.reduce((s, k) => s + k.x, 0) / linked.length, y: linked.reduce((s, k) => s + k.y, 0) / linked.length } : { x: 0, y: 0 };
-      n.x = center.x + Math.cos(a) * r; n.y = center.y + Math.sin(a) * r;
-    }
     const p = saved[n.id];
     n.fixed = !!(p && Number.isFinite(p.x) && Number.isFinite(p.y) && Math.abs(p.x) < 1e7 && Math.abs(p.y) < 1e7);
     if (n.fixed) { n.x = p.x; n.y = p.y; }
@@ -60,14 +59,13 @@ function ctxGraphLayout(graph, saved = {}) {
     n.x = linked.reduce((s, k) => s + k.x, 0) / linked.length + 150 * Math.cos(a);
     n.y = linked.reduce((s, k) => s + k.y, 0) / linked.length + 150 * Math.sin(a);
   });
-  nodes.forEach(n => { n.ax = n.x; n.ay = n.y; });
   const move = (n, x, y) => { if (!n.fixed && n.id !== graph.rootId) { n.x += x; n.y += y; } };
-  if (nodes.some(n => !n.fixed)) for (let iteration = 0; iteration < 100; iteration++) {
-    const cooling = 1 - iteration / 125;
+  if (nodes.some(n => !n.fixed)) for (let iteration = 0; iteration < 240; iteration++) {
+    const cooling = 1 - iteration / 300;
     for (const e of graph.edges) {
       const a = byId.get(e.source), b = byId.get(e.target), dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy) || 1;
       const length = a.id === graph.rootId && a.kind === "root" ? 285 : e.kind === "contains" ? 155 : 170;
-      const f = Math.max(-8, Math.min(8, (dist - length) * (a.group === b.group ? .012 : .001))) * cooling;
+      const f = Math.max(-20, Math.min(20, (dist - length) * .06)) * cooling;
       move(a, dx / dist * f, dy / dist * f); move(b, -dx / dist * f, -dy / dist * f);
     }
     // Local collision pairs only, rather than comparing every node with every other node.
@@ -78,7 +76,7 @@ function ctxGraphLayout(graph, saved = {}) {
         for (const j of cells.get(`${x},${y}`) || []) {
           const b = nodes[j]; let dx = n.x - b.x, dy = n.y - b.y;
           if (!dx && !dy) { dx = .1; dy = .1; }
-          const dist = Math.hypot(dx, dy), gap = n.group && n.group === b.group ? 122 : 146;
+          const dist = Math.hypot(dx, dy), gap = 115;
           if (dist >= gap) continue;
           const f = (gap - dist) * .24 * cooling;
           move(n, dx / dist * f, dy / dist * f); move(b, -dx / dist * f, -dy / dist * f);
@@ -86,7 +84,7 @@ function ctxGraphLayout(graph, saved = {}) {
       }
       const key = `${cx},${cy}`; if (!cells.has(key)) cells.set(key, []); cells.get(key).push(i);
     });
-    nodes.forEach(n => move(n, (n.ax - n.x) * .065 * cooling, (n.ay - n.y) * .065 * cooling));
+    nodes.forEach(n => move(n, (n.cx - n.x) * .001 * cooling, (n.cy - n.y) * .001 * cooling));
   }
   return nodes;
 }
@@ -125,15 +123,15 @@ function contextGraph(el, graph, opts = {}) {
   let width = 0, height = 0, frame = 0, saveTimer = 0, destroyed = false;
   const camera = { k: 1, x: 0, y: 0 };
   const typeNames = {story:'Stories',task:'Tasks',person:'People',table:'Tables',agent:'Agents',topic:'Topics',material:'Materials'};
-  let storedTypes;try{storedTypes=JSON.parse(ls('ctxgraph-types') || 'null');}catch(_){}
-  const shownTypes = new Set(Array.isArray(storedTypes)?storedTypes:['story','task','person','table','agent']);
+  let storedTypes;try{storedTypes=JSON.parse(ls('ctxgraph-types-v2') || 'null');}catch(_){}
+  const shownTypes = new Set(Array.isArray(storedTypes)?storedTypes:Object.keys(typeNames));
   const isVisible = n => shownTypes.has(n.kind) || n.id === selected || neighbors.has(n.id) || n.id === graph.rootId;
   const minZoom = .03, maxZoom = 4;
   const arrowId='context-arrow-'+newRequestId();
   el.innerHTML = `<div class="ctxgraph" aria-label="Context graph">
     <div class="ctxgraph-bar"><span class="ctxgraph-caption">Graph</span>
       <div class="ctxgraph-search"><input type="search" aria-label="Find a node in this map" placeholder="Find a node…" autocomplete="off"><div class="ctxgraph-results" hidden></div></div>
-      <label class="ctxgraph-links"><input type="checkbox" ${ls("ctxmaplinks") === "1" ? "checked" : ""}> All links</label>
+      <label class="ctxgraph-links"><input type="checkbox" ${ls("ctxgraph-links") !== "0" ? "checked" : ""}> All links</label>
       <button type="button" data-action="copy" title="Copy graph as Mermaid" aria-label="Copy graph as Mermaid">${SVG_MAPCOPY}</button>
     </div>
     <div class="ctxgraph-types">${Object.entries(typeNames).filter(([kind])=>nodes.some(n=>n.kind===kind)).map(([kind,label])=>`<label><input type="checkbox" data-kind="${kind}" ${shownTypes.has(kind)?'checked':''}>${label}</label>`).join('')}</div>
@@ -281,7 +279,7 @@ function contextGraph(el, graph, opts = {}) {
 
   root.querySelectorAll('[data-kind]').forEach(input=>listen(input,'change',()=>{
     if(input.checked)shownTypes.add(input.dataset.kind);else shownTypes.delete(input.dataset.kind);
-    ls('ctxgraph-types',JSON.stringify([...shownTypes]));fit();schedule();
+    ls('ctxgraph-types-v2',JSON.stringify([...shownTypes]));fit();schedule();
   }));
 
   // Pointer capture supports mouse, touch and pen without any global move/up listeners.
@@ -365,7 +363,7 @@ function contextGraph(el, graph, opts = {}) {
       camera.x = width / 2 - n.x * camera.k; camera.y = height / 2 - n.y * camera.k; schedule();
     }
   });
-  listen(links, "change", () => { ls("ctxmaplinks", links.checked ? "1" : "0"); schedule(); });
+  listen(links, "change", () => { ls("ctxgraph-links", links.checked ? "1" : "0"); schedule(); });
   listen(search, "input", () => {
     const q = search.value.trim().toLowerCase(); results.hidden = !q;
     if (!q) return;

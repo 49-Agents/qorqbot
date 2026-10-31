@@ -301,3 +301,7 @@
 .task-chips{display:flex;align-items:center;gap:4px;max-width:45%;overflow-x:auto;scrollbar-width:none;flex:none;padding:3px 0}
 .task-chip{display:inline-flex;align-items:center;flex:none;font-size:10px;line-height:1.2;padding:4px 6px;min-height:20px;height:auto;border:1px solid var(--line);border-radius:6px;background:var(--wash);color:var(--fg-2);font-weight:400;white-space:nowrap}
 @media(max-width:640px){.tasks .personal-task{flex-wrap:wrap}.personal-task .task-chips{margin-left:33px;order:5;max-width:calc(100% - 40px)}}
+
+.task-toolbar{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:16px}.task-toolbar .tsearch{width:33.333%;min-width:140px}.task-toolbar #task-new{flex:none}.task-chip{border-radius:8px!important;padding:4px 8px!important;background:var(--wash)!important;color:var(--fg-2)!important}.task-chips{gap:6px}
+
+#task-new[hidden]{display:none}

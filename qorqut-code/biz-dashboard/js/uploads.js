@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------- uploads (right panel tab)
 // The "Uploads" tab of the tasks panel (see js/tasks.js T_VIEWS/tSetView): one paste box that takes either
-// text or media, never both. Text goes the normal context route (POST /biz/<b>/context/upload -> bizctx dump
+// text, media or data files, never mixed. Text goes the normal context route (POST /biz/<b>/context/upload -> bizctx dump
 // -> context/_inbox -> the filer). Media goes to assets/<polished|drafted>/[<topic>/] through
 // POST /biz/<b>/assets/upload, one multipart call per file, every file of one submit sharing the same
-// notes, topic and batch id (the server stamps them into assets/uploads.jsonl). tasks.js calls in:
+// notes, topic and batch id. Data files use the shared data_uploads_upload operation. tasks.js calls in:
 // tPaintUploads() on tab entry and business change; nothing here autosaves, so there is no flush.
 //
 // Pure helpers up top (tests/test_uploads.js drives them headless); DOM below.
@@ -11,6 +11,7 @@
 const UP_GROUPS = [["polished", "Polished", "approved brand material; agents read it"], ["drafted", "Drafted", "raw material for agents to work from"]];
 const UP_VIDEO_EXT = /\.(mp4|mov|webm|m4v|mkv|avi)$/i;
 const UP_IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|avif|bmp)$/i;
+const UP_DATA_EXT = /\.(csv|tsv|xlsx|xls|ods|json|jsonl|txt)$/i;
 const UP_B32 = "0123456789abcdefghjkmnpqrstvwxyz";
 
 // what the form holds: "empty" | "text" | "media"
@@ -21,8 +22,8 @@ function upMode(f) {
 // why a paste of `kind` ("text" | "media") may not go into the form right now, "" when it may
 function upRefuse(f, kind) {
   const m = upMode(f);
-  if (kind === "media" && m === "text") return "clear the text first; one upload is text or media";
-  if (kind === "text" && m === "media") return "remove the media first; one upload is text or media";
+  if (kind === "media" && m === "text") return "Clear the text before attaching files.";
+  if (kind === "text" && m === "media") return "Remove the attached files before adding text.";
   return "";
 }
 // the one-segment slug the server takes as a subfolder (a nested context path keeps its leaf)
@@ -41,17 +42,9 @@ function upKind(file) {
   if (type.startsWith("video/") || (!type && UP_VIDEO_EXT.test(name))) return "video";
   return "file";
 }
-// the hint under the box and the send button's label: shared by the full render and the in-place patch
-// that runs while typing (a rebuild there would replace the textarea and drop focus)
-function upHint(f) {
-  const m = upMode(f);
-  if (m === "empty") return "";
-  if (m === "text") return `${f.text.trim().length.toLocaleString()} chars → context; the filer splits it by topic`;
-  return `${f.files.length} file${f.files.length === 1 ? "" : "s"} → assets/${f.group}${f.topic ? "/" + upTopicSlug(f.topic) : ""}`;
-}
 function upSendLabel(f, busy) {
   if (busy) return "Uploading…";
-  return upMode(f) === "media" ? `Upload ${f.files.length} to assets` : "Upload to context";
+  return "Upload";
 }
 // one id per submit, same shape as the server's upload ids (UTC minute + 4 base32 chars)
 function upBatchId() {
@@ -71,7 +64,7 @@ let upBiz = "";
 // called by tasks.js's tSetView(v) on tab-entry ("uploads") and by its 500ms business-change interval
 function tPaintUploads() { upOpenView(); }
 function upOpenView() {
-  if (upBiz !== state.biz) { upBiz = state.biz; upForm = { ...upForm, text: "", files: [], notes: "", topic: "" }; upDone = []; }
+  if (upBiz !== state.biz) { upForm.files.forEach(x=>x.url && URL.revokeObjectURL(x.url)); upBiz = state.biz; upForm = { ...upForm, text: "", files: [], notes: "", topic: "" }; upDone = []; }
   upRender();
 }
 
@@ -86,11 +79,12 @@ function upRender() {
 
 function upFormHtml() {
   const f = upForm, mode = upMode(f), media = mode === "media";
-  return `<div class="uphead"><button class="btn" type="button" id="up-data-upload">${ICO_UPLOAD}Data upload</button></div>
+  return `<div class="upfields upcontext"><div class="upf"><label class="upl" for="uptext">Context</label></div></div>
   <div class="upbox${media ? " media" : ""}" id="upbox" tabindex="0">
-    <textarea class="uptext" id="uptext" aria-label="Upload content" spellcheck="false"${media ? " readonly" : ""}>${esc(f.text)}</textarea>
+    <button type="button" class="btn upattach${mode === 'text' ? ' concealed' : ''}" id="upattach">${aicon('paperclip','currentColor',16)}Attach files</button><input type="file" id="uppick" multiple accept="image/*,video/*,.csv,.tsv,.xlsx,.xls,.ods,.json,.jsonl,.txt" hidden>
+    <textarea class="uptext" id="uptext" aria-label="Context" spellcheck="false"${media ? " readonly" : ""}>${esc(f.text)}</textarea>
     ${media ? `<div class="upstrip" id="upstrip">${f.files.map((x, i) => upThumbHtml(x, i)).join("")}</div>` : ""}
-    <div class="upfoot"><span class="uphint" id="uphint">${esc(upHint(f))}</span><label class="upbtn uppick">pick files<input type="file" id="uppick" multiple accept="image/*,video/*" hidden></label><button class="upbtn" id="upclear" type="button"${mode === "empty" ? " hidden" : ""}>clear</button></div>
+    <button class="upbtn" id="upclear" type="button"${mode === "empty" ? " hidden" : ""}>Clear</button>
   </div>
   <div class="upfields">
     <div class="upf"><label class="upl" for="upnotes">Notes <span class="opt">optional</span></label><textarea class="upinp" id="upnotes" rows="3">${esc(f.notes)}</textarea></div>
@@ -104,7 +98,7 @@ function upThumbHtml(x, i) {
 }
 function upDoneHtml() {
   if (!upDone.length) return "";
-  return `<div class="updone"><div class="upeyebrow">This session</div>${upDone.slice(0, 40).map(r => `<div class="updrow${r.ok ? "" : " bad"}"><span class="updk">${r.kind === "text" ? "context" : "asset"}</span><span class="updl">${esc(r.label)}</span><span class="updr">${r.ok ? esc(r.path || r.id) : esc(r.error)}</span></div>${r.ok&&r.resourceId?`<div class="up-stories" data-upload-resource="${esc(r.resourceId)}" aria-label="Related stories"></div>`:''}`).join("")}</div>`;
+  return `<div class="updone"><div class="upeyebrow">This session</div>${upDone.slice(0, 40).map(r => `<div class="updrow${r.ok ? "" : " bad"}"><span class="updk">${r.kind === "text" ? "context" : r.kind === "data" ? "data" : "asset"}</span><span class="updl">${esc(r.label)}</span><span class="updr">${r.ok ? esc(r.path || r.id) : esc(r.error)}</span></div>${r.ok&&r.resourceId?`<div class="up-stories" data-upload-resource="${esc(r.resourceId)}" aria-label="Related stories"></div>`:''}`).join("")}</div>`;
 }
 
 // The Marketing tab's Assets view calls this from its "Upload assets" button: open the panel on the Uploads
@@ -122,7 +116,7 @@ function upStartAssets(group, topic) {
 // what changes while typing (hint, send label/enabled, clear visibility), patched without a rebuild
 function upPatch() {
   const f = upForm, mode = upMode(f);
-  const h = $("#uphint"); if (h) h.textContent = upHint(f);
+  const attach=$("#upattach");if(attach){attach.classList.toggle("concealed",mode==="text");attach.disabled=mode==="text" || upBusy;}
   const s = $("#upsend"), sl = $("#upsendlbl");
   if (sl) sl.textContent = upSendLabel(f, upBusy);
   if (s) s.disabled = mode === "empty" || upBusy;
@@ -131,15 +125,16 @@ function upPatch() {
 
 // ---------------------------------------------------------------- wiring
 function upWire(root) {
-  const dataUpload = root.querySelector('#up-data-upload'); if (dataUpload) dataUpload.onclick = () => dataUploadDialog();
   const ta = root.querySelector("#uptext"), box = root.querySelector("#upbox"), err = root.querySelector("#uperr");
   const fail = t => { if (!err) return; err.hidden = !t; err.textContent = t || ""; };
   const addFiles = list => {
-    const files = Array.from(list || []).filter(x => x && x.size >= 0 && (x.type.startsWith("image/") || x.type.startsWith("video/") || UP_IMAGE_EXT.test(x.name) || UP_VIDEO_EXT.test(x.name)));
+    const files = Array.from(list || []).filter(x => x && x.size >= 0 && (x.type.startsWith("image/") || x.type.startsWith("video/") || UP_IMAGE_EXT.test(x.name) || UP_VIDEO_EXT.test(x.name) || UP_DATA_EXT.test(x.name)));
     if (!files.length) return false;
+    const combined=[...upForm.files.map(x=>x.file),...files];
+    if(combined.some(file=>upKind(file)==='file') && combined.some(file=>upKind(file)!=='file')){toast('Attach data files or media in separate uploads.');return true;}
     const why = upRefuse(upForm, "media");
     if (why) { toast(why); return true; }
-    upForm.files = upForm.files.concat(files.map(file => ({ file, url: URL.createObjectURL(file) })));
+    upForm.files = upForm.files.concat(files.map(file => ({ file, url: upKind(file)==='file'?'':URL.createObjectURL(file) })));
     upRender();
     return true;
   };
@@ -161,11 +156,12 @@ function upWire(root) {
   if (box) {
     box.ondragover = e => { e.preventDefault(); box.classList.add("drag"); };
     box.ondragleave = () => box.classList.remove("drag");
-    box.ondrop = e => { e.preventDefault(); box.classList.remove("drag"); if (!addFiles(e.dataTransfer && e.dataTransfer.files)) toast("only images and videos"); };
+    box.ondrop = e => { e.preventDefault(); box.classList.remove("drag"); if (!addFiles(e.dataTransfer && e.dataTransfer.files)) toast("Choose media, CSV, spreadsheet, JSON or text files."); };
     box.onpaste = e => { if (e.target === ta) return; const files = Array.from((e.clipboardData && e.clipboardData.files) || []); if (files.length) { e.preventDefault(); addFiles(files); } };
   }
   const pick = root.querySelector("#uppick");
-  if (pick) pick.onchange = () => { if (!addFiles(pick.files)) toast("only images and videos"); pick.value = ""; };
+  root.querySelector("#upattach").onclick=()=>pick.click();
+  if (pick) pick.onchange = () => { if (!addFiles(pick.files)) toast("Choose media, CSV, spreadsheet, JSON or text files."); pick.value = ""; };
   const clear = root.querySelector("#upclear");
   if (clear) clear.onclick = () => { upForm.files.forEach(x => x.url && URL.revokeObjectURL(x.url)); upForm.files = []; upForm.text = ""; upRender(); };
   root.querySelectorAll(".uprm").forEach(b => b.onclick = () => {
@@ -202,9 +198,9 @@ async function upSubmit(fail) {
         const r = await upSendFile(biz, x.file, { group: f.group, topic, notes: f.notes, batch });
         const ok = !!(r && !r.error);
         if (ok) okN++;
-        upDone.unshift({ ok, kind: "media", label: x.file.name, id: ok ? r.id : "", resourceId:ok?r.id:'', path: ok ? r.path : "", error: ok ? "" : (r && r.error) || "upload failed" });
+        upDone.unshift({ ok, kind: upKind(x.file)==="file"?"data":"media", label: x.file.name, id: ok ? r.id : "", resourceId:ok?r.id:'', path: ok ? r.path : "", error: ok ? "" : (r && r.error) || "upload failed" });
       }
-      toast(okN === n ? `${n} file${n === 1 ? "" : "s"} → assets/${f.group}${topic ? "/" + topic : ""}` : `${okN}/${n} uploaded; see the list`);
+      toast(okN === n ? `${n} file${n === 1 ? "" : "s"} uploaded` : `${okN}/${n} uploaded; see the list`);
       if (okN === n) { f.files.forEach(x => x.url && URL.revokeObjectURL(x.url)); upForm = { ...upForm, files: [], notes: "", topic: "" }; }
       else { upForm.files = f.files.filter((x, i) => !upDone.slice(0, n).reverse()[i].ok); }
       if (typeof mkAssetsInvalidate === "function") mkAssetsInvalidate();
@@ -214,7 +210,15 @@ async function upSubmit(fail) {
     if (typeof refreshSide === "function") refreshSide();
   }
 }
-function upSendFile(biz, file, fields) {
+async function upSendFile(biz, file, fields) {
+  if(upKind(file)==='file'){
+    if(!file.size || file.size>20*1024*1024)return {error:'Choose a data file between 1 byte and 20 MiB.'};
+    try {
+      const content=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result.split(',')[1]);r.onerror=()=>reject(new Error('Could not read file'));r.readAsDataURL(file);});
+      const result=await storyCall(biz,'data_uploads_upload',{filename:file.name,content_b64:content,notes:fields.notes});
+      return result.upload;
+    }catch(error){return {error:error.message};}
+  }
   const fd = new FormData();
   Object.entries(fields).forEach(([k, v]) => fd.append(k, v || ""));
   fd.append("file", file, file.name);

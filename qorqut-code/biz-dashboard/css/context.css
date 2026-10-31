@@ -146,9 +146,9 @@
   .ctx-all-tasks { padding: 12px; }
 }
 
-.ctx-counts{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:12px 16px;padding:14px 4px;border:1px solid var(--line);border-radius:14px}
+.ctx-counts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:12px 16px;padding:14px 4px;border:1px solid var(--line);border-radius:14px}
 .ctx-counts button{display:flex;flex-direction:column;gap:7px;background:transparent;border:0;height:auto;padding:4px;font-weight:400;color:var(--fg)}
-.ctx-counts b{font-size:18px}.ctx-counts span{font-size:11px;color:var(--fg-3)}
+.ctx-counts b{font-size:18px}.ctx-counts span{font-size:10px;color:var(--fg-3)}
 #ctxrows{display:flex;flex-direction:column}#ctxrows>.item{flex:none}#ctxrows>[data-p="_uploads"]{margin-top:auto}
 .ctxview>.jrhome{padding:0;max-width:none}
 #topicmap{height:100%;min-height:400px}.ctxgraph-types{display:flex;flex-wrap:wrap;gap:14px;padding:8px 12px;color:var(--fg-2);font-size:12px}.ctxgraph-types label{display:flex;align-items:center;gap:5px}

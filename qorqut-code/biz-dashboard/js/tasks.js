@@ -258,7 +258,7 @@ function tRelatedItems(task) {
 const tChipLabel = label => {const chars=Array.from(String(label));return chars.length>20?chars.slice(0,19).join('')+'…':chars.join('');};
 function tChips(task) {
   const chip=(label,title,extra='')=>`<button type="button" class="task-chip" title="${esc(title)}" ${extra}>${esc(tChipLabel(label))}</button>`;
-  return `<span class="task-chips">${(task.assigners || []).map(actor=>chip(actor.name,'Assigned by '+actor.name,'data-task-assignees')).join('')}${(task.tags || []).map(tag=>`<span class="task-chip" title="${esc(tag)}">${esc(tChipLabel(tag))}</span>`).join('')}${tRelatedItems(task).map((item,i)=>chip(item.label,contextItemType(item)+': '+item.label,`data-task-related="${i}"`)).join('')}</span>`;
+  return `<span class="task-chips">${tAssignees(task).map(actor=>chip(tShort(actor),'Assigned to '+tShort(actor),'data-task-assignees')).join('')}${(task.tags || []).filter(tag=>tag!=='needs-owner').map(tag=>`<span class="task-chip" title="${esc(tag)}">${esc(tChipLabel(tag))}</span>`).join('')}${tRelatedItems(task).map((item,i)=>chip(item.label,contextItemType(item)+': '+item.label,`data-task-related="${i}"`)).join('')}</span>`;
 }
 
 function tRow(t, detailsOnly = false) {
@@ -305,7 +305,7 @@ function tHead({ view = tView, views = T_VIEWS, bodyId = "tbody", title = "", ta
   return `<div class="thead nott">
     ${tTabs(state.scope === "global" && bodyId === "tbody" ? ["tasks", "signoffs", "routines"] : views, view, bodyId)}
     ${title ? `<div class="ttop"><h1>${esc(title)}</h1></div>` : ""}
-    ${tools ? `<label class="tsearch">${SVG_TSEARCH}<input id="tsearch" type="search" aria-label="Search tasks" autocomplete="off" spellcheck="false"></label>` : ""}
+    ${tools ? `<div class="task-toolbar"><label class="tsearch">${SVG_TSEARCH}<input id="tsearch" type="search" aria-label="Search tasks" autocomplete="off" spellcheck="false"></label><button class="btn" id="task-new" type="button"${state.biz ? "" : " hidden"}>${SVG_TPLUS}New task</button></div>` : ""}
   </div><div class="tbody" id="${esc(bodyId)}" role="tabpanel" aria-labelledby="${esc(tTabId(view, bodyId))}"></div>`;
 }
 
@@ -322,6 +322,7 @@ function paintTasks() {
   // the tasks rows own #tbody only while the Tasks tab is active: another view (Activity, Journal) is
   // painted by its own function, and this repaint must not stomp it — #tcount above still gets refreshed
   if (tView !== "tasks") return;
+  const newTask=p.querySelector("#task-new");if(newTask)newTask.hidden=!state.biz;
   if (tEditingNow()) return;
 
   const prev = $("#taddin");
@@ -334,7 +335,7 @@ function paintTasks() {
   if (!tPersonalLoaded && !tPersonalError) html += tEmptyHtml('Loading your tasks…');
   else {
     html += open.length ? `<div class="personal-task-list">${open.map(t => tRow(t)).join('')}</div>` : tEmptyHtml(tSearch ? 'No matching tasks.' : 'Nothing waiting on you.');
-    if (state.biz) html += tAdding ? tAddRow(tAdding) : `<button class="taddbtn" id="taddbottom" type="button">${SVG_TPLUS}Add task in ${esc(tBiz().name || state.biz)}</button>`;
+    if (state.biz && tAdding) html += tAddRow(tAdding);
   }
   const body = $("#tbody"); if (!body) return;
   // Chrome fires blur on the focused add input before detaching it (isConnected is still true then)
@@ -621,6 +622,7 @@ function tChooseAssignees(task,onSave) {
 
 // ---------------------------------------------------------------- wiring
 function tWireHead(p, from, onTab = tSetView) {
+  const add=p.querySelector("#task-new");if(add)add.onclick=()=>tOpenAdd(state.biz);
   const s = p.querySelector("#tsearch");
   if (s) {
     s.oninput = () => { clearTimeout(tSearchT); tSearchT = setTimeout(() => { tSearch = s.value; paintTasks(); }, 80); };
@@ -678,7 +680,7 @@ window.addEventListener("resize", () => { const p = $("#taskspanel"); if (p && p
     if (plus) { const sec = plus.closest(".tsec"); return void tOpenAdd(sec ? sec.dataset.b : "general"); }
     const head = e.target.closest(".tshbtn");
     if (head) { const sec = head.closest(".tsec"); return void tOpenAdd(sec ? sec.dataset.b : "general"); }
-    if (e.target.closest("#taddbottom") || e.target.closest(".tempty .create")) return void tOpenAdd("general");
+    if (e.target.closest(".tempty .create")) return void tOpenAdd("general");
     if (e.target.closest(".tadd")) return;
     const row = e.target.closest(".trow"); if (!row) return;
     const t = taskById(row.dataset.key || row.dataset.id); if (!t || tPersonalError) return;

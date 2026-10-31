@@ -58,3 +58,5 @@
 .dot.ok { background: var(--ok); }
 
 .side .empty { padding: 8px 12px; color: var(--fg-3); font-size: 12.5px; }
+
+.le{display:grid;grid-template-columns:42px minmax(0,1fr) minmax(0,auto);align-items:center;gap:14px;padding:10px 0;min-height:44px}.le::before{left:54px}.le .ltime{font:10px var(--mono);color:var(--fg-3)}.le .ls{font-size:13px;padding-left:12px}.log-tags{display:flex;align-items:center;justify-content:flex-end;gap:5px;max-width:260px;overflow:hidden}.log-tag{display:block;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 7px;height:auto;font:11px var(--sans);border:1px solid var(--line);border-radius:7px;background:var(--wash);color:var(--fg-2)}@media(max-width:640px){.le{grid-template-columns:36px minmax(0,1fr);gap:10px}.le::before{left:43px}.log-tags{grid-column:2;justify-content:flex-start;max-width:100%;padding-left:12px}.le.has-task{padding-right:30px}}

@@ -40,11 +40,10 @@ async function renderContext(c) {
   if (generation !== _ctxGeneration || state.scope === "global" || state.biz !== biz || state.tab !== "context" || !c.isConnected) return;
   c.innerHTML = `<div class="ctxwrap">
     <div class="split ctxsplit"><div class="listcol ctxtree" id="ctxtree">
-      <div class="ctop"><button class="primary" id="ctxup">${ICO_UPLOAD}Upload context</button><input type="search" id="ctxsearch" placeholder="Search context" autocomplete="off"></div>
+      <div class="ctop"><input type="search" id="ctxsearch" placeholder="Search context" autocomplete="off"></div>
       <div class="crows" id="ctxrows"></div>
       <div class="cfoot" id="ctxq"></div>
     </div><div class="pane ctxview" id="ctxview"></div></div></div>`;
-  $("#ctxup").onclick = () => uploadModal();
   wireCtxSearch();
   if (state.ctx == null) state.ctx = ls(`ctxpage:${biz}`) ?? contextTab0 ?? "_learning";
   ctxPaint(d);
@@ -164,7 +163,7 @@ function ctxTree(d) {
   const isRoot = !state.ctx;                                  // "" is the Context root; "_learning" is a page of its own
   rows.push(`<div class="item ov ${state.ctx === '_learning' ? 'on' : ''}" data-p="_learning"><div class="nm">${SVG_BRAIN}<span class="tt">Learning</span></div></div>`);
   const graphNodes = d.graph?.nodes || [];
-  rows.push(`<div class="ctx-counts">${[['table','Tables','_tables'],['person','People','_people'],['task','Tasks','_tasks']].map(([type,label,path]) => `<button type="button" data-count-page="${path}"><b>${graphNodes.filter(n=>n.type===type).length}</b><span>${label}</span></button>`).join('')}</div>`);
+  rows.push(`<div class="ctx-counts">${[['story','Stories','_stories'],['table','Tables','_tables'],['person','People','_people'],['task','Tasks','_tasks']].map(([type,label,path]) => `<button type="button" data-count-page="${path}"><b>${graphNodes.filter(n=>n.type===type).length}</b><span>${label}</span></button>`).join('')}</div>`);
   rows.push(`<div class="item ov ${isRoot ? 'on' : ''}" data-p=""><div class="nm">${aicon('share-2','currentColor',15)}<span class="tt">Graph</span></div></div>`);
   for (const [key, label, icon] of [['_stories', 'Stories', `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M12 5h8M12 11h6M12 19h8"/></svg>`], ['_tasks', 'Tasks', SVG_TINBOX], ['_tables', 'Tables', aicon('database', 'currentColor', 15)]]) {
     rows.push(`<button type="button" class="item bt ${(state.ctx === key || key === '_stories' && state.ctx?.startsWith('_stories/')) ? 'on' : ''}" data-p="${key}"><div class="nm">${icon}<span class="tt">${label}</span></div></button>`);
@@ -240,7 +239,7 @@ function openTopic(p) {
   const graph = ctxGraphData(d, node, root);
   v.innerHTML = `${root ? '' : ctxCrumbs(p)}<div id="topicmap"></div>`;
   const biz = state.biz;
-  _ctxGraph = contextGraph($("#topicmap"), graph, { storageKey: `ctxgraph:v3:${biz}:${p || ''}`,
+  _ctxGraph = contextGraph($("#topicmap"), graph, { storageKey: `ctxgraph:v4:${biz}:${p || ''}`,
     onOpen:n=>contextOpenItem(biz,n.item),
     onSelect:(n,host)=>contextReviewPanel(host,biz,{type:n.item.type,id:n.item.id}) });
   wireCrumbs(v);
@@ -502,50 +501,6 @@ function wireUpload(v, uid, um) {
     if (state.ctx && uploadId(state.ctx) === uid) openCtx(state.ctx);
   };
 }
-
-// The upload box: text (required), notes (attribution), topic (a hint) → POST context/upload, then the new
-// upload opens in the Context tab; the filer can choose Context or marketing reference topics.
-function uploadModal({stories=[],onUploaded}={}) {
-  const biz=state.biz;let selectedStories=[...stories],request;
-  const msg = "the filer splits it by topic and files it; the raw text is kept";
-  const body = `<div class="fl">Context</div><textarea class="inp ta" id="uptext" placeholder="paste anything: notes from a call, a doc, a thread, a decision" spellcheck="false"></textarea>
-    <div class="fmsg" id="upmsg">${esc(msg)}</div>
-    <div class="fl">Notes <span class="opt">optional</span></div><input class="inp" id="upnotes" placeholder="where it came from: call with Sarah, PH hunter" autocomplete="off">
-    <div class="fl">Topic <span class="opt">optional</span></div><input class="inp" id="uptopic" placeholder="hint: producthunt launch, pricing, brand voice" autocomplete="off">
-    <div class="fl">Stories <span class="opt">optional</span></div><button class="quiet" type="button" id="ctxuploadstories">${selectedStories.length?selectedStories.map(story=>esc(story.title)).join(', '):'Choose stories'}</button>
-    <div class="ferr" id="uperr" hidden></div>`;
-  modal({
-    title: "Upload context", body, width: 560,
-    onOpen: el => {
-      const ta = el.querySelector("#uptext"), m = el.querySelector("#upmsg");
-      el.querySelector('#ctxuploadstories').onclick=()=>storyChooseIds(biz,selectedStories,stories=>{selectedStories=stories;el.querySelector('#ctxuploadstories').textContent=stories.length?stories.map(story=>story.title).join(', '):'Choose stories';});
-      ta.oninput = () => { const n = ta.value.trim().length; m.textContent = n ? `${n.toLocaleString()} chars` : msg; };
-      ta.onkeydown = e => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") el.querySelector(".mfoot .primary").click(); };
-    },
-    actions: [
-      { label: "Cancel", onClick: close => close() },
-      { label: "Upload", icon: ICO_UPLOAD, primary: true, onClick: async (close, el) => {
-        const err = el.querySelector("#uperr"), text = el.querySelector("#uptext").value.trim();
-        const fail = t => { err.hidden = false; err.textContent = t; };
-        if(state.biz!==biz)return fail('The selected business changed. Reopen the upload form.');
-        if (!text) return fail("nothing to upload");
-        err.hidden = true;
-        const b = el.querySelector(".mfoot .primary"); b.disabled = true;
-        const payload = { text, notes: el.querySelector("#upnotes").value, topic: el.querySelector("#uptopic").value, story_ids:selectedStories.map(story=>story.id) };
-        const signature=JSON.stringify(payload);
-        if(request?.signature!==signature)request={signature,key:newRequestId()};
-        let r; try { r = await post(`/biz/${biz}/context/upload`, {...payload,idempotency_key:request.key}); }
-        catch (e) { r = { error: "could not reach the server" }; }
-        if (!r || r.error) { b.disabled = false; return fail((r && r.error) || "upload failed"); }
-        close(); toast(r.warn ? `uploaded ${r.id}, but: ${r.warn}` : `uploaded ${r.id}; filing queued`);
-        if(onUploaded)await onUploaded(r);
-        else {state.ctx = `_inbox/${r.id}.md`;renderContext($("#content"));}
-        if (typeof refreshSide === "function") refreshSide();
-      } },
-    ],
-  });
-}
-
 
 async function editPersonDetails(biz, id, after) {
   const {item} = await storyCall(biz, 'context_items_get', {item:{type:'person', id}});

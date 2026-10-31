@@ -27,7 +27,7 @@ async function renderTables(container, filters = null) {
   _data.view = state.tab;
   container.innerHTML = `<section class="data-workspace"><header class="data-top"><div class="ttabs"><button class="ttab ${_data.mode === 'tables' ? 'on' : ''}" data-data-mode="tables">Tables</button><button class="ttab ${_data.mode === 'uploads' ? 'on' : ''}" data-data-mode="uploads">Data uploads</button></div><span class="data-spacer"></span>${dataIconButton('data-new', _data.mode === 'tables' ? 'New table' : 'Upload data', _data.mode === 'tables' ? SVG_TPLUS : ICO_UPLOAD)}${dataIconButton('data-refresh', 'Refresh', aicon('refresh-cw', 'currentColor', 18))}</header><p class="data-error" id="data-error" role="status" hidden></p><div class="data-layout"><aside class="data-list"><label class="data-filter">Search<input class="inp" id="data-search" type="search"></label>${_data.mode === 'tables' ? `<label class="data-archived"><input type="checkbox" id="data-archived" ${_data.archived ? 'checked' : ''}>Archived</label>` : ''}<div id="data-items"></div><button class="btn" id="data-list-more" hidden>Load more</button></aside><section class="data-detail" id="data-detail"><p class="muted data-empty">${_data.mode === 'tables' ? 'No table selected' : 'No upload selected'}</p></section></div></section>`;
   container.querySelectorAll('[data-data-mode]').forEach(button => button.onclick = () => { _data.mode = button.dataset.dataMode; _data.selected = null; _data.table = null; renderTables(container); });
-  container.querySelector('#data-new').onclick = () => _data.mode === 'tables' ? dataTableEditor() : dataUploadDialog();
+  container.querySelector('#data-new').onclick = () => _data.mode === 'tables' ? dataTableEditor() : dataOpenUploads();
   container.querySelector('#data-refresh').onclick = () => renderTables(container);
   const search = container.querySelector('#data-search');
   if (_data.mode === 'tables') {
@@ -346,18 +346,7 @@ async function dataOpenUpload(id) {
   } catch (error) { if (dataActive(biz, panel) && generation === _dataDetail) dataError(error); }
 }
 
-function dataUploadDialog() {
-  let file;
-  const view = dataForm('Upload data', `<label class="data-upload-drop" id="data-upload-drop"><span id="data-file-name">Choose or drop a data file</span><input type="file" id="data-file" accept=".csv,.tsv,.xlsx,.xls,.ods,.json,.jsonl,.txt"></label><label>Notes<textarea class="inp" id="data-upload-notes"></textarea></label>`, async (el, submit) => {
-    if (!file) throw new Error('Choose a file.');
-    if (file.size > 20 * 1024 * 1024 || !file.size) throw new Error('Choose a file between 1 byte and 20 MiB.');
-    const content = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result.slice(reader.result.indexOf(',') + 1)); reader.onerror = () => reject(new Error('Could not read the file.')); reader.readAsDataURL(file); });
-    return submit('data_uploads_upload', {filename: file.name, content_b64: content, notes: el.querySelector('#data-upload-notes').value});
-  }, async result => { if (dataView()) { _data.mode = 'uploads'; _data.selected = result.upload.id; await renderTables(dataContainer()); } else toast('Data uploaded.'); }, 'Upload');
-  const choose = value => { file = value; view.el.querySelector('#data-file-name').textContent = file ? file.name : 'Choose or drop a data file'; };
-  view.el.querySelector('#data-file').onchange = event => choose(event.target.files[0]);
-  const drop = view.el.querySelector('#data-upload-drop'); drop.ondragover = event => event.preventDefault(); drop.ondrop = event => { event.preventDefault(); choose(event.dataTransfer.files[0]); };
-}
+function dataOpenUploads() { openTasks(true);tSetView('uploads'); }
 
 async function tablesOpen(biz, id, mode = 'tables', filters = {}) {
   if (state.biz !== biz) return;

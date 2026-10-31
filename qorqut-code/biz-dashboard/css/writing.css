@@ -85,3 +85,5 @@
 }
 .jrcfoot .jrup { display: inline-flex; align-items: center; gap: 3px; color: var(--fg-3); }
 .jrcfoot .jrup svg { width: 10px; height: 10px; }
+
+.tasks .jrhome .jrcard{min-height:102px;padding-left:24px;padding-right:24px;justify-content:space-between}
