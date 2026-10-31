@@ -14,7 +14,7 @@ const WORKSPACE_SEED = [
   { key: "focus", display_name: "Focus", supported_roles: ["ordubashy"], renderer: "focus_board",
     presentation_actions: ["focus_show", "focus_clear", "focus_browser_input", "focus_present", "focus_edit",
       "focus_move", "focus_set_archived", "focus_reply"] },
-  { key: "campaign_review", display_name: "Campaign review", supported_roles: ["marketing"], renderer: "campaign_review",
+  { key: "campaign_review", display_name: "Campaign review", supported_roles: ["marketing", "outreach-specialist"], renderer: "campaign_review",
     presentation_actions: ["workspace_present", "workspace_select", "workspace_attention"] },
 ];
 // Focus is the coordinator's board and keeps its existing first-tab position;

@@ -61,6 +61,7 @@ async function renderGlobalAgents(c) {
       biz: null, open: false, isCurrent: () => false,
     } : {
       biz: null, agentId: agent.agent_id, workspaceScope: 'global', workspaceRole: agent.role?.id || null,
+      businessGrants: agent.scope?.allowed_business_ids || [],
       initialView: requestedView, open: linkedFocus || ls('agpad:null') !== 'off',
       isCurrent: () => current() && selected === agent.agent_id,
     });
