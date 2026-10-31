@@ -62,9 +62,8 @@ let agRenderGen = 0;
 const agPageCache = new Map();
 async function renderAgents(c) {
   const gen = ++agRenderGen, biz = state.biz;
-  if (state.agentSubtab === 'broadcast') return renderBroadcast(c, {scope: 'business', biz, generation: gen});
-  c.innerHTML = `<div class="agent-subnav" role="tablist" aria-label="Agents"><button type="button" role="tab" aria-selected="true" data-agent-subtab="agents">Agents</button><button type="button" role="tab" aria-selected="false" data-agent-subtab="broadcast">Broadcast</button></div><div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">${ICO_PLUS}New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
-  wireBroadcastSubnav(c, 'business');
+  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><div class="agent-nav-heading"><h2>Agents</h2>${broadcastButton()}</div><button class="primary" id="addagent">${ICO_PLUS}New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
+  wireBroadcastButton(c, {scope:'business',biz});
   $("#addagent").onclick = newAgentModal;
   $("#agentrows", c).innerHTML = `<p class="empty pad" role="status">Loading agents…</p>`;
   const cached = agPageCache.get(biz);
@@ -195,47 +194,9 @@ function runSlash(cmd, a, msgs) {
   if (cmd === "clear") clearView(a, msgs);
 }
 
-// ------------------------------------------------------------------- org (pins, custom categories, order)
-// Per-business client-side layout: { pinned: [name,...], cats: [{name, agents:[name,...]}], loose: [name,...] }
-// Department grouping is the default; custom organization remains available.
-const orgKey = () => "agorg:" + state.biz;
-function orgLoad() {
-  let o = null;
-  try { o = JSON.parse(ls(orgKey()) || "null"); } catch (e) { o = null; }
-  if (!o || typeof o !== "object") o = {};
-  if (!Array.isArray(o.pinned)) o.pinned = [];
-  if (!Array.isArray(o.cats)) o.cats = [];
-  o.cats = o.cats.filter(c => c && typeof c.name === "string").map(c => ({ name: c.name, agents: Array.isArray(c.agents) ? c.agents.slice() : [] }));
-  if (!Array.isArray(o.loose)) o.loose = [];
-  return o;
-}
-function orgSave(o) { ls(orgKey(), JSON.stringify(o)); }
-// drop names that no longer exist, append unknown/new names to loose (alphabetical for the initial migration)
-function orgReconcile(o) {
-  const names = new Set(state.agents.map(a => a.name));
-  const known = new Set();
-  o.pinned = o.pinned.filter(n => names.has(n) && !known.has(n) && (known.add(n), true));
-  o.cats.forEach(c => { c.agents = c.agents.filter(n => names.has(n) && !known.has(n) && (known.add(n), true)); });
-  o.loose = o.loose.filter(n => names.has(n) && !known.has(n) && (known.add(n), true));
-  const rest = [...names].filter(n => !known.has(n)).sort();
-  o.loose = o.loose.concat(rest);
-  return o;
-}
-function orgNameRemove(o, name) {
-  o.pinned = o.pinned.filter(n => n !== name);
-  o.cats.forEach(c => { c.agents = c.agents.filter(n => n !== name); });
-  o.loose = o.loose.filter(n => n !== name);
-}
-// the rendered order: pinned, then each category's agents, then loose
-const agentDepartmentGroups = () => {
-  const keys = [...Object.keys(DEPTS), ...new Set(state.agents.map(a=>departmentId(a.department || 'general')).filter(k=>!DEPTS[k]))];
-  return keys.map(id=>({id,name:dept(id).label,agents:state.agents.filter(a=>departmentId(a.department || 'general')===id).map(a=>a.name).sort()})).filter(group=>group.agents.length);
-};
-const agentGrouped = () => ls('aggroup:'+state.biz) !== 'custom';
+// Stable flat navigation: business lead first, then the rest alphabetically.
 function agentNavOrder() {
-  if (agentGrouped()) return agentDepartmentGroups().flatMap(group=>group.agents);
-  const o = orgReconcile(orgLoad());
-  return [].concat(o.pinned, ...o.cats.map(c => c.agents), o.loose);
+  return [...state.agents].sort((a,b) => (a.role?.id==='onbashy'||a.name.toLowerCase()==='onbashy'?-1:0)-(b.role?.id==='onbashy'||b.name.toLowerCase()==='onbashy'?-1:0) || a.name.localeCompare(b.name)).map(a=>a.name);
 }
 
 // ------------------------------------------------------------------ context menu
@@ -280,176 +241,14 @@ const ICO_PENCIL = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const ICO_TRASH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
 const ICO_PLUS = `<svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>`;
 
-function togglePin(name) {
-  const cur = orgReconcile(orgLoad());
-  if (cur.pinned.indexOf(name) >= 0) {
-    cur.pinned = cur.pinned.filter(n => n !== name);
-    cur.loose.push(name);
-  } else {
-    orgNameRemove(cur, name);
-    cur.pinned.push(name);
-  }
-  orgSave(cur); paintList();
-}
-function removeCat(ci) {
-  const cur = orgReconcile(orgLoad());
-  const c = cur.cats[ci]; if (!c) return;
-  cur.cats.splice(ci, 1);
-  cur.loose = cur.loose.concat(c.agents);
-  orgSave(cur); paintList();
-}
-
-// ------------------------------------------------------------------- list
-let _newCatOpen = false;
 function paintList() {
-  const al = $("#agentlist"); if (!al) return;
-  const rows = $("#agentrows"); if (!rows) return;
-  const live = new Set((state.terms || []).filter(t => !t.done).map(t => t.agent));
-  const byName = {}; state.agents.forEach(a => byName[a.name] = a);
-
-  if (!state.agents.length) {
-    rows.innerHTML = `<div class="empty pad">No agents yet. Add one above.</div>`;
-    return;
-  }
-
-  const grouped = agentGrouped();
-  const o = grouped ? {pinned:[],cats:agentDepartmentGroups(),loose:[]} : orgReconcile(orgLoad());
-  if (!grouped) orgSave(o);
-  const row = (name, secKind, secIdx) => {
-    const a = byName[name]; if (!a) return "";
-    const running = live.has(a.name);
-    const pinned = o.pinned.indexOf(name) >= 0;
-    return `<div class="item agent ${a.name === state.agent ? "on" : ""}" draggable="${!grouped}" data-a="${esc(a.name)}" data-sec="${esc(secKind)}" data-idx="${secIdx}" data-pinned="${pinned ? 1 : 0}">
-      <div class="nm">${identityAvatar("agent", a.name, a)}<span class="tt">${esc(a.name)}</span></div>
-      <span class="ldot ${running ? "live" : ""}" data-st title="${running ? "running" : "idle"}"></span>
-    </div>`;
-  };
-
-  let html = `<label class="agent-group-control">Group by<select id="agent-group-mode"><option value="department" ${grouped?'selected':''}>Department</option><option value="custom" ${!grouped?'selected':''}>Custom</option></select></label>`;
-  if (o.pinned.length) html += `<div class="h" data-drop-sec="pinned">Pinned</div>` + o.pinned.map((n, i) => row(n, "pinned", i)).join("");
-  o.cats.forEach((c, ci) => {
-    html += `<div class="h ${grouped?'':'catH'}" data-drop-sec="cat" data-cat="${ci}"><span class="cn">${esc(c.name)}</span></div>`
-      + c.agents.map((n, i) => row(n, "cat" + ci, i)).join("");
-  });
-  if (!grouped) html += `<div class="h" data-drop-sec="loose">Agents</div>` + o.loose.map((n, i) => row(n, "loose", i)).join("");
-  html += _newCatOpen
-    ? `<div class="newcatrow"><input id="newcatin" class="newcatin" placeholder="Category name…" autocomplete="off" spellcheck="false"></div>`
-    : "";
-  rows.innerHTML = html;
-
-  rows.querySelectorAll(".agent").forEach(d => d.onclick = () => selectAgent(d.dataset.a));
-
-  $('#agent-group-mode').onchange = event => { ls('aggroup:'+state.biz,event.target.value); paintList(); };
-  if (grouped) {
-    rows.oncontextmenu = null;
-    rows.querySelectorAll('.agent').forEach(d=>d.oncontextmenu=event=>{event.preventDefault();lookModal(byName[d.dataset.a]);});
-    return;
-  }
-
-  rows.querySelectorAll(".item.agent").forEach(d => d.oncontextmenu = e => {
-    e.preventDefault();
-    const name = d.dataset.a, a = byName[name]; if (!a) return;
-    const pinned = d.dataset.pinned === "1";
-    ctxMenu(e.clientX, e.clientY, [
-      { label: pinned ? "Unpin" : "Pin", icon: ICO_PIN, onClick: () => togglePin(name) },
-      { label: "Edit…", icon: ICO_PENCIL, onClick: () => lookModal(a) },
-    ]);
-  });
-
-  rows.querySelectorAll(".h.catH").forEach(h => h.oncontextmenu = e => {
-    e.preventDefault();
-    const ci = Number(h.dataset.cat);
-    ctxMenu(e.clientX, e.clientY, [
-      { label: "Remove category", icon: ICO_TRASH, danger: true, onClick: () => removeCat(ci) },
-    ]);
-  });
-
-  rows.oncontextmenu = e => {
-    if (e.target.closest(".item.agent") || e.target.closest(".h.catH")) return;
-    e.preventDefault();
-    ctxMenu(e.clientX, e.clientY, [
-      { label: "New category", icon: ICO_PLUS, onClick: () => { _newCatOpen = true; paintList(); } },
-    ]);
-  };
-
-  const newIn = $("#newcatin");
-  if (newIn) {
-    newIn.focus();
-    let settled = false;
-    const cancel = () => { if (settled) return; settled = true; _newCatOpen = false; paintList(); };
-    const commit = () => {
-      if (settled) return; settled = true;
-      const name = newIn.value.trim();
-      _newCatOpen = false;
-      if (name) { const cur = orgReconcile(orgLoad()); cur.cats.push({ name, agents: [] }); orgSave(cur); }
-      paintList();
-    };
-    newIn.onkeydown = e => {
-      if (e.key === "Enter") { e.preventDefault(); commit(); }
-      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); cancel(); }
-    };
-    newIn.onblur = cancel;
-  }
-
-  wireAgentDrag(rows);
-}
-
-// -------------------------------------------------------------- drag & drop reorder
-function wireAgentDrag(rows) {
-  let dragName = null;
-  rows.querySelectorAll(".item.agent[draggable]").forEach(el => {
-    el.addEventListener("dragstart", e => {
-      dragName = el.dataset.a;
-      e.dataTransfer.effectAllowed = "move";
-      try { e.dataTransfer.setData("text/plain", dragName); } catch (err) {}
-    });
-    el.addEventListener("dragend", () => {
-      dragName = null;
-      rows.querySelectorAll(".dragover-top,.dragover-bot").forEach(x => x.classList.remove("dragover-top", "dragover-bot"));
-    });
-    el.addEventListener("dragover", e => {
-      e.preventDefault();
-      rows.querySelectorAll(".dragover-top,.dragover-bot").forEach(x => { if (x !== el) x.classList.remove("dragover-top", "dragover-bot"); });
-      const r = el.getBoundingClientRect(), before = (e.clientY - r.top) < r.height / 2;
-      el.classList.toggle("dragover-top", before);
-      el.classList.toggle("dragover-bot", !before);
-    });
-    el.addEventListener("dragleave", () => el.classList.remove("dragover-top", "dragover-bot"));
-    el.addEventListener("drop", e => {
-      e.preventDefault();
-      el.classList.remove("dragover-top", "dragover-bot");
-      const name = dragName || (e.dataTransfer && e.dataTransfer.getData("text/plain"));
-      if (!name || name === el.dataset.a) return;
-      const r = el.getBoundingClientRect(), before = (e.clientY - r.top) < r.height / 2;
-      const targetSec = el.dataset.sec, targetIdx = Number(el.dataset.idx);
-      const cur = orgReconcile(orgLoad());
-      orgNameRemove(cur, name);
-      const listFor = sec => sec === "pinned" ? cur.pinned : sec === "loose" ? cur.loose
-        : sec.indexOf("cat") === 0 ? (cur.cats[Number(sec.slice(3))] || { agents: [] }).agents : cur.loose;
-      const list = listFor(targetSec);
-      let insertAt = Math.min(targetIdx, list.length);
-      if (!before) insertAt = Math.min(insertAt + 1, list.length);
-      list.splice(insertAt, 0, name);
-      orgSave(cur); paintList();
-    });
-  });
-  rows.querySelectorAll(".h[data-drop-sec]").forEach(h => {
-    h.addEventListener("dragover", e => { e.preventDefault(); h.classList.add("dragover-sec"); });
-    h.addEventListener("dragleave", () => h.classList.remove("dragover-sec"));
-    h.addEventListener("drop", e => {
-      e.preventDefault();
-      h.classList.remove("dragover-sec");
-      const name = dragName || (e.dataTransfer && e.dataTransfer.getData("text/plain"));
-      if (!name) return;
-      const cur = orgReconcile(orgLoad());
-      orgNameRemove(cur, name);
-      const sec = h.dataset.dropSec;
-      if (sec === "pinned") cur.pinned.push(name);
-      else if (sec === "cat") { const c = cur.cats[Number(h.dataset.cat)]; if (c) c.agents.push(name); else cur.loose.push(name); }
-      else cur.loose.push(name);
-      orgSave(cur); paintList();
-    });
-  });
+  const rows=$('#agentrows'); if(!rows)return;
+  const live=new Set((state.terms||[]).filter(t=>!t.done).map(t=>t.agent));
+  rows.innerHTML=agentNavOrder().map(name=>{
+    const a=state.agents.find(a=>a.name===name);
+    return `<button type="button" class="item agent ${name===state.agent?'on':''}" data-a="${esc(name)}"><span class="nm">${identityAvatar('agent',name,a)}<span class="tt">${esc(name)}</span></span><span class="ldot ${live.has(name)?'live':''}" data-st></span></button>`;
+  }).join('') || '<p class="empty pad">No agents yet.</p>';
+  rows.querySelectorAll('[data-a]').forEach(b=>{b.onclick=()=>selectAgent(b.dataset.a);b.oncontextmenu=e=>{e.preventDefault();lookModal(state.agents.find(a=>a.name===b.dataset.a));};});
 }
 function paintHead(a) {
   const ch = $("#chat"); if (!ch) return;

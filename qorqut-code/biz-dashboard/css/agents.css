@@ -33,26 +33,6 @@
 .listcol .ldot { flex: none; width: 5px; height: 5px; border-radius: var(--r-full); background: var(--line-2); }
 .listcol .ldot.live { background: var(--ok); box-shadow: 0 0 6px rgba(90, 170, 120, .5); }
 
-/* drag reorder: a 2px accent insertion line at the row edge being dropped onto */
-.listcol .item.agent[draggable] { cursor: grab; }
-.listcol .item.agent.dragover-top::before, .listcol .item.agent.dragover-bot::after {
-  content: ""; position: absolute; left: 12px; right: 12px; height: 2px; background: var(--accent); border-radius: 1px; }
-.listcol .item.agent.dragover-top::before { top: 0; }
-.listcol .item.agent.dragover-bot::after { bottom: 0; }
-.listcol .h.dragover-sec { color: var(--fg); }
-.listcol .h.dragover-sec::after { content: ""; position: absolute; left: 24px; right: 24px; bottom: 2px; height: 2px; background: var(--accent); border-radius: 1px; }
-
-/* category eyebrow */
-.listcol .h.catH .cn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* + new category input (reached via context menu) */
-.listcol .newcatrow { padding: 8px 16px 16px; }
-.listcol .newcatin { display: block; width: 100%; box-sizing: border-box; height: 30px; padding: 0 10px; color: var(--fg);
-  background: var(--wash); border: 1px solid var(--line-2); border-radius: var(--r-sm); outline: none;
-  font: 12.5px/28px var(--sans); transition: border-color 140ms ease, box-shadow 140ms ease; }
-.listcol .newcatin:focus { border-color: rgba(255, 255, 255, .3); box-shadow: 0 0 0 4px rgba(255, 255, 255, .025); }
-.listcol .newcatin::placeholder { color: var(--fg-3); }
-
 /* ------------------------------------------------------------ context menu */
 .cmenu { position: fixed; z-index: 80; min-width: 170px; overflow: hidden; border-radius: 14px;
   border: 1px solid rgba(255,255,255,.09); background: var(--elevated); padding: 4px; box-shadow: var(--shadow-float); }
@@ -136,8 +116,6 @@
 .termtools { position: absolute; top: 8px; right: 8px; z-index: 5; display: flex; align-items: center; gap: 6px; }
 .tref.warn { color: #ff7a7a; }
 
-.agent-group-control { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 16px; font-size:11px; color:var(--fg-2); }
-.agent-group-control select { max-width:130px; background:var(--wash); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:5px; }
 #agentrows .cn { display:flex; align-items:center; gap:7px; }
 
 /* Local editing takes its own space so it never covers the remote prompt. */
@@ -152,3 +130,7 @@
 .termcomposer [data-terminal-key] { padding: 7px 8px; background: transparent; color: var(--fg-2); border: 1px solid var(--line); font-size: 11px; }
 .termcomposer [data-terminal-key]:hover { background: var(--hover); color: var(--fg); }
 @media (max-width: 600px) { .termcomposer input { flex-basis: 100%; width: 100%; } }
+
+.listcol button.item.agent {width:calc(100% - 20px);height:auto;min-height:44px;border:0;background:transparent;color:var(--fg-2);text-align:left;font-weight:400;transform:none;}
+.listcol button.item.agent:hover {background:var(--wash);color:var(--fg);}
+.listcol button.item.agent.on {background:var(--wash);color:var(--fg);}

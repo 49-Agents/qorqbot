@@ -1,3 +1,13 @@
+let businessProgressView='progress', businessProgressBiz=null;
+function renderProgressWorkspace(c) {
+ if(businessProgressBiz!==state.biz){businessProgressBiz=state.biz;businessProgressView="progress";}
+ c.innerHTML=`<div class="split business-progress-workspace"><nav class="listcol ctxtree" aria-label="Progress"><div class="crows">${[['progress','Progress','chart-column'],['milestones','Milestones','flag'],['research','Research','search']].map(([key,label,icon])=>`<button type="button" class="item ${businessProgressView===key?'on':''}" data-progress-view="${key}"><span class="nm">${aicon(icon,'currentColor',18)}<span class="tt">${label}</span></span></button>`).join('')}</div></nav><div class="pane" id="business-progress-body"></div></div>`;
+ c.querySelectorAll('[data-progress-view]').forEach(b=>b.onclick=()=>{businessProgressView=b.dataset.progressView;renderProgressWorkspace(c);});
+ const body=c.querySelector('#business-progress-body');
+ if(businessProgressView==='progress')return renderBusinessProgress(body);
+ if(businessProgressView==='milestones')return renderMilestones(body);
+ body.innerHTML='<p class="muted">No research yet.</p>';
+}
 // Read-only business milestones and evidence-based progress; no background polling.
 const PROGRESS_METRICS = [['emails_sent','Emails sent'],['tasks_done','Tasks done'],['actions','Actions'],['signoffs_approved','Signoffs approved']];
 function milestoneTime(value) {
@@ -7,7 +17,7 @@ function milestoneTime(value) {
 async function renderMilestones(container) {
   const biz = state.biz, token = {};
   container._businessPage = token;
-  const active = () => container.isConnected && container._businessPage === token && state.biz === biz && state.tab === 'milestones' && state.scope !== 'global';
+  const active = () => container.isConnected && container._businessPage === token && state.biz === biz && state.tab === 'progress' && businessProgressView === 'milestones' && state.scope !== 'global';
   container.innerHTML = '<section class="business-progress-page"><header><h1>Milestones</h1></header><p role="status">Loading milestones…</p></section>';
   try {
     const data = coreData(await post(`/biz/${encodeURIComponent(biz)}/operations/milestones_list`, {}));

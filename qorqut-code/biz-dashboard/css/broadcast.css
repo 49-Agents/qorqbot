@@ -1,31 +1,6 @@
-.agent-subnav {
-  display: flex;
-  gap: 4px;
-  padding: 14px 24px 0;
-  border-bottom: 1px solid var(--line);
-}
-.agent-subnav button {
-  border: 0;
-  background: none;
-  color: var(--fg-2);
-  padding: 8px 12px;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  font: 500 12px var(--sans);
-}
-.agent-subnav button[aria-selected="true"] {
-  color: var(--fg);
-  border-color: var(--accent, #7dd3fc);
-}
 .broadcast {
   overflow: auto;
   padding-bottom: 48px;
-}
-.broadcast-head {
-  padding: 28px 32px 14px;
-}
-.broadcast-head h1 {
-  margin: 4px 0;
 }
 .broadcast-tabs {
   display: flex;
@@ -260,9 +235,6 @@
   color: var(--fg-2);
 }
 @media (max-width: 650px) {
-  .broadcast-head {
-    padding: 22px 16px 14px;
-  }
   .broadcast-tabs,
   #broadcast-body {
     padding-left: 16px;
@@ -293,3 +265,22 @@
   border-color: var(--accent, #7dd3fc);
   color: #101416;
 }
+
+.agent-nav-heading {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;}
+.agent-nav-heading h1,.agent-nav-heading h2 {font-size:18px;margin:0;}
+.agent-broadcast {display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:5px;border:1px solid var(--line);border-radius:8px;background:none;color:var(--fg-2);}
+.broadcast-modal .broadcast {padding:0;overflow:visible;}
+.broadcast-modal .broadcast-tabs {padding:0 0 16px;}
+.broadcast-modal #broadcast-body {padding:0;max-width:none;}
+.broadcast-modal .broadcast form {gap:16px;}
+.broadcast-modal .broadcast-tabs .on,.broadcast-modal .broadcast-delivery .on {background:var(--wash);color:var(--fg);border-color:var(--fg-3);}
+.broadcast-modal .broadcast-recipient.selected,.broadcast-modal .broadcast-business-tile.selected {border-color:var(--fg-3);background:var(--wash);}
+.broadcast-modal button {height:auto;min-height:30px;}
+.broadcast-modal .broadcast-recipient strong,.broadcast-modal .broadcast-business-tile strong {font-size:12px;font-weight:500;}
+.broadcast-modal .broadcast-message-label textarea {min-height:130px;}
+
+.broadcast-actions {justify-content:flex-end;padding-top:8px;}
+.broadcast-actions [data-recipient-count] {margin-right:auto;font-size:12px;}
+.modal:has(.broadcast-modal) .mbody {max-height:calc(100dvh - 190px);}
+.broadcast-actions {position:sticky;bottom:-18px;background:var(--elevated);padding:12px 0;z-index:1;border-top:1px solid var(--line);}
+.broadcast fieldset input {accent-color:var(--fg);}
