@@ -533,7 +533,15 @@ function uploadSections(uid, um) {
   const chip = (path, label, extra = "") => `<span class="chip${path.startsWith("marketing-content/") ? "" : " go"}" data-p="${esc(path)}" ${extra}>${esc(label)}</span>`;
   const topics = (t.topics || []).length || (t.also || []).length ? `<div class="row"><span class="lbl">topics</span>${(t.topics || []).map(x => chip(x, x)).join("")}${(t.also || []).map(x => chip(x, `${x} (also)`, 'title="cross-referenced, not filed into"')).join("")}</div>` : "";
   const people = (t.people || []).length ? `<div class="row"><span class="lbl">people</span>${t.people.map(pp => chip(`_people/${pp.slug}`, pp.name)).join("")}</div>` : "";
-  return `<div class="sec"><div class="sh">Mind map ${stamp}<span class="ml">${btn}</span></div>${mapBody}</div>
+  // a call or meeting: who the owner said was there and when. A picked Person links to their page; a typed name is plain.
+  const up = [...((_ctxData || {}).inbox || []), ...((_ctxData || {}).dumps || [])].find(u => u.id === uid) || {};
+  const who = (up.participants || []).map(x => {
+    const person = x.person_id && ((_ctxData || {}).people || []).find(pp => pp.document_id === x.person_id);
+    return person ? chip(`_people/${person.slug}`, x.name) : `<span class="chip">${esc(x.name)}</span>`;
+  });
+  const encounter = ["call", "meeting"].includes(up.origin)
+    ? `<div class="sec trace"><div class="row"><span class="lbl">${esc(up.origin)}</span>${who.length ? `<span class="small muted">with</span>${who.join("")}` : ""}${up.occurred_on ? `<span class="small muted">on ${esc(up.occurred_on)}</span>` : ""}</div></div>` : "";
+  return `${encounter}<div class="sec"><div class="sh">Mind map ${stamp}<span class="ml">${btn}</span></div>${mapBody}</div>
     <div class="sec trace"><div class="sh">Where it went</div>${cards}${topics}${people}</div>`;
 }
 function wireUpload(v, uid, um) {

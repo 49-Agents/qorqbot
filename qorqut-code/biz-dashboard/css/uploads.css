@@ -72,3 +72,21 @@
 #upnotes{height:108px;min-height:108px;resize:vertical;padding:12px;line-height:1.5}
 
 .up .upbox{position:relative;padding-top:52px}.up .upattach{position:absolute;top:12px;right:12px;display:flex;gap:7px;align-items:center;cursor:pointer;transition:opacity .16s,transform .16s}.up .upattach.concealed{opacity:0;transform:translateY(-4px);pointer-events:none}.up .upcontext{padding-bottom:8px}.up #upclear{align-self:flex-end;margin:8px 14px}.up .upbox:has(.concealed){padding-top:0}
+
+/* -- call or meeting: the Context | Call | Meeting switch, the who chips and the when date. The chip is the
+   pill from context.css (.ctxview .chip) with a remove button; the typeahead rows reuse app.css's .menu/.mi. */
+.up .upseg { display: inline-flex; align-self: flex-start; gap: 2px; padding: 2px; border: 1px solid var(--line-2); border-radius: var(--r-full); }
+.up .upsegb { height: 26px; padding: 0 14px; border-radius: var(--r-full); background: none; color: var(--fg-2); font: 600 12px/26px var(--sans); }
+.up .upsegb:hover { background: none; color: var(--fg); transform: none; }
+.up .upsegb.on { background: var(--line-2); color: var(--fg); }
+.up .upwhochips { display: flex; flex-wrap: wrap; gap: 6px; }
+.up .upwhochips:empty { display: none; }
+.up .upchip {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 4px 3px 9px;
+  font-size: 11.5px; border-radius: var(--r-full); background: var(--wash); border: 1px solid var(--line); color: var(--fg-2);
+}
+.up .upchip .upperson { flex: none; width: 12px; height: 12px; margin-right: -1px; color: var(--fg-3); }
+.up .upchip .x { flex: none; width: 18px; height: 18px; padding: 0; background: none; color: var(--fg-3); font: 600 14px/18px var(--sans); }
+.up .upchip .x:hover { background: var(--line-2); color: var(--fg); transform: none; }
+.up input[type=date].upinp { color-scheme: dark; align-self: flex-start; min-width: 168px; }
+.up .updl .upwith { color: var(--fg-3); }
