@@ -211,13 +211,14 @@ function modal({ title = "", body = "", actions = [], width = 520, onOpen, stack
 
 // ---------------------------------------------------------------- dropdown
 let _menu = null;
-function dropdown(anchorEl, items, onPick, current) {
+function dropdown(anchorEl, items, onPick, current, options = {}) {
   if (_menu) _menu.close();
   const list = (items || []).map(it => (typeof it === "string" ? { value: it, label: it } : it));
   const m = document.createElement("div");
-  m.className = "menu";
+  m.className = "menu" + (options.className ? " " + options.className : "");
+  if (options.width) m.style.width = options.width + "px";
   m.innerHTML = list.map((it, i) => `<div class="mi ${it.value === current ? "on" : ""}" data-i="${i}">
-    <span class="ck">${SVG_CHECK}</span><span class="lb">${it.html != null ? it.html : esc(it.label != null ? it.label : it.value)}</span></div>`).join("")
+    ${options.noCheck ? "" : `<span class="ck">${SVG_CHECK}</span>`}<span class="lb">${it.html != null ? it.html : esc(it.label != null ? it.label : it.value)}</span></div>`).join("")
     || `<div class="mi" style="opacity:.5;cursor:default">nothing</div>`;
   document.body.appendChild(m);
   if (anchorEl && anchorEl.classList) anchorEl.classList.add("open");
@@ -337,12 +338,64 @@ async function selectBiz(slug) {
   paintBiz();
   renderTab(); refreshSide();
 }
-$("#wsbtn").onclick = () => dropdown($("#wsbtn"), [{
-  value: "/global", html: `<span class="workspace-choice workspace-global">${globalIcon("globe")}<span class="workspace-name">Global</span><span class="muted small">Pinned</span></span>`,
-}, ...state.bizs.map(b => ({
-  value: b.slug,
-  html: `<span class="workspace-choice"><span class="workspace-business-icon">${esc((b.name || b.slug).charAt(0).toUpperCase())}</span><span class="workspace-name">${esc(b.name)}</span><span class="muted small">${b.agents.length}</span></span>`,
-}))], slug => slug === "/global" ? selectGlobal() : selectBiz(slug), state.scope === "global" ? "/global" : state.biz);
+const WORKSPACE_ORDER_KEY = 'workspace-business-order:v1';
+const workspaceBusinessId = b => b.id || b.business_id || b.slug;
+function workspaceBusinesses() {
+  let order;
+  try { order = JSON.parse(localStorage.getItem(WORKSPACE_ORDER_KEY) || '[]'); } catch (_) { order = []; }
+  if (!Array.isArray(order)) order = [];
+  const rank = new Map(order.map((id, i) => [id, i]));
+  return [...state.bizs].sort((a, b) => (rank.get(workspaceBusinessId(a)) ?? Infinity) - (rank.get(workspaceBusinessId(b)) ?? Infinity));
+}
+function moveWorkspaceBusiness(source, target, after) {
+  if (source === target) return;
+  const businesses = workspaceBusinesses(), item = businesses.find(b => workspaceBusinessId(b) === source);
+  const rest = businesses.filter(b => workspaceBusinessId(b) !== source);
+  const index = rest.findIndex(b => workspaceBusinessId(b) === target);
+  if (!item || index < 0) return;
+  rest.splice(index + Number(after), 0, item);
+  try { localStorage.setItem(WORKSPACE_ORDER_KEY, JSON.stringify(rest.map(workspaceBusinessId))); }
+  catch (_) { toast('Could not save workspace order. Browser storage is unavailable.'); return; }
+  openWorkspaceMenu();
+}
+function openWorkspaceMenu() {
+  const businesses = workspaceBusinesses();
+  const grip = '<svg viewBox="0 0 16 20" width="14" height="18" fill="currentColor" aria-hidden="true">' + [5,10,15].map(y => `<circle cx="5" cy="${y}" r="1.2"/><circle cx="11" cy="${y}" r="1.2"/>`).join('') + '</svg>';
+  const menu = dropdown($('#wsbtn'), [{
+    value: '/global', html: `<span class="workspace-choice workspace-global">${globalIcon('globe')}<span class="workspace-name">Global</span></span>`,
+  }, ...businesses.map(b => ({
+    value: b.slug,
+    html: `<span class="workspace-choice"><span class="workspace-business-icon">${esc((b.name || b.slug).charAt(0).toUpperCase())}</span><span class="workspace-name">${esc(b.name)}</span><span class="workspace-drag" title="Drag to reorder">${grip}</span></span>`,
+  }))], slug => slug === '/global' ? selectGlobal() : selectBiz(slug), state.scope === 'global' ? '/global' : state.biz,
+    {className: 'workspace-menu', noCheck: true, width: 181});
+  let dragged = null;
+  const rows = [...menu.el.querySelectorAll('.mi')].slice(1);
+  const clear = () => rows.forEach(row => { row.classList.remove('drop-before', 'drop-after', 'dragging'); });
+  rows.forEach((row, i) => {
+    const id = workspaceBusinessId(businesses[i]);
+    row.dataset.businessId = id;
+    row.draggable = true;
+    row.ondragstart = event => {
+      dragged = id; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', id);
+      row.classList.add('dragging');
+    };
+    row.ondragover = event => {
+      if (!dragged || dragged === id) return;
+      event.preventDefault(); event.dataTransfer.dropEffect = 'move';
+      const after = event.clientY > row.getBoundingClientRect().top + row.offsetHeight / 2;
+      rows.forEach(r => r.classList.remove('drop-before', 'drop-after'));
+      row.classList.add(after ? 'drop-after' : 'drop-before');
+    };
+    row.ondrop = event => {
+      if (!dragged) return;
+      event.preventDefault(); event.stopPropagation();
+      const after = event.clientY > row.getBoundingClientRect().top + row.offsetHeight / 2;
+      moveWorkspaceBusiness(dragged, id, after); dragged = null; clear();
+    };
+    row.ondragend = () => { dragged = null; clear(); };
+  });
+}
+$('#wsbtn').onclick = openWorkspaceMenu;
 async function goTab(name) {
   if (state.scope === "global") return;
   const t = [...document.querySelectorAll(".ritem")].find(x => x.dataset.tab === name);

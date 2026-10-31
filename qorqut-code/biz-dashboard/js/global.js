@@ -2,18 +2,26 @@
 // Overview reads summaries for authorized businesses; other global workflows remain a shell.
 const GLOBAL_PAGES = {
   overview: { title: 'Overview', icon: 'globe' },
-  agents: { title: 'Agents', icon: 'bot', heading: 'Ordubashy agents', description: 'Coordinate work across your businesses with ecosystem-level agents.', detail: 'Ordubashy agents and their workspaces will live here.' },
-  signoffs: { title: 'Signoffs', icon: 'check' },
-  requests: { title: 'Requests', icon: 'inbox', heading: 'Global requests', description: 'A shared place for requests that belong to the wider ecosystem.', detail: 'Global requests and their review workflow will live here.' },
-  evolution: { title: 'Learning & evolution', icon: 'sparkles', heading: 'Learning & evolution', description: 'Turn shared learnings into improvements across the ecosystem.', detail: 'Learning application and evolution workflows will live here.' },
-  analytics: { title: 'Analytics', icon: 'chart-column', soon: true },
-  brief: { title: 'Brief', icon: 'pen-tool', soon: true },
-  routines: { title: 'Routines', icon: 'clock', heading: 'Global routines', description: 'Scheduled work that belongs to the whole ecosystem.', detail: 'Global routine management and run history will live here.' },
+  agents: { title: 'Agents', icon: 'agents', heading: 'Ordubashy agents', description: 'Coordinate work across your businesses with ecosystem-level agents.', detail: 'Ordubashy agents and their workspaces will live here.' },
+  signoffs: { title: 'Signoffs', icon: 'signoffs' },
+  requests: { title: 'Requests', icon: 'requests', heading: 'Global requests', description: 'A shared place for requests that belong to the wider ecosystem.', detail: 'Global requests and their review workflow will live here.' },
+  evolution: { title: 'Learning & evolution', icon: 'learning', heading: 'Learning & evolution', description: 'Turn shared learnings into improvements across the ecosystem.', detail: 'Learning application and evolution workflows will live here.' },
+  analytics: { title: 'Analytics', icon: 'analytics', soon: true },
+  brief: { title: 'Brief', icon: 'brief', soon: true },
+  routines: { title: 'Routines', icon: 'routines', heading: 'Global routines', description: 'Scheduled work that belongs to the whole ecosystem.', detail: 'Global routine management and run history will live here.' },
 };
-function globalIcon(name) {
-  const extra = { check: '<path d="m5 12 4 4L19 6"/>', inbox: '<path d="M4 4h16l2 10v6H2v-6L4 4Z"/><path d="M2 14h6l2 3h4l2-3h6"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' };
-  return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${extra[name] || AICONS[name]}</svg>`;
-}
+// Reuse the actual business navigation and drawer glyphs, including placeholder pages.
+const GLOBAL_ICONS = {
+  globe: LN_SCOPE_BY_KEY.global.ico,
+  agents: document.querySelector('.ritem[data-tab="agents"] svg').outerHTML,
+  signoffs: T_VIEW_ICON.signoffs,
+  requests: MK_ICO.queue,
+  learning: SVG_BRAIN,
+  analytics: document.querySelector('.ritem[data-tab="progress"] svg').outerHTML,
+  brief: T_VIEW_ICON.notes,
+  routines: T_VIEW_ICON.routines,
+};
+function globalIcon(name) { return GLOBAL_ICONS[name]; }
 for (const [id, page] of Object.entries(GLOBAL_PAGES)) {
   const button = document.createElement('button');
   button.className = 'ritem global-rail'; button.type = 'button'; button.hidden = true;
@@ -83,7 +91,7 @@ function renderGlobal(c) {
     <div class="global-eyebrow">Global</div>
     ${state.globalTab === 'overview' ? `<header class="global-heading"><h1>Your businesses</h1><p>What needs your attention, in one place.</p></header>
       <div class="global-grid">${state.bizs.map(b => `<article class="global-business" data-business="${esc(b.slug)}">
-        <button class="global-business-head" data-open-business="${esc(b.slug)}"><span class="global-business-letter">${esc((b.name || b.slug).charAt(0).toUpperCase())}</span><span><h2>${esc(b.name || b.slug)}</h2></span><span class="global-arrow" aria-hidden="true">↗</span></button>
+        <button class="global-business-head" data-open-business="${esc(b.slug)}"><span class="global-business-letter">${esc((b.name || b.slug).charAt(0).toUpperCase())}</span><span class="global-business-name"><h2>${esc(b.name || b.slug)}</h2></span><span class="global-action-count" aria-label="Actions loading">${T_VIEW_ICON.activity}<strong>—</strong></span></button>
         <div class="global-summary" aria-live="polite"><p class="global-summary-note">Loading summary…</p></div>
       </article>`).join('') || '<p class="muted">No businesses yet.</p>'}</div>` : `<header class="global-heading"><h1>${page.heading}</h1><p>${page.description}</p></header><div class="global-placeholder"><span class="global-placeholder-icon">${globalIcon(page.icon)}</span><h2>A home for ${state.globalTab === 'agents' ? 'Ordubashy' : page.title.toLowerCase()}</h2><p>${page.detail}</p><span class="global-status">Coming soon</span></div>`}
     </section>`;
@@ -118,21 +126,14 @@ async function loadGlobalSummaries(c, generation) {
     const requests = live && !live.requests_error && Array.isArray(live.requests) ? live.requests.filter(r => r.state === 'submitted').length : null;
     const card = [...c.querySelectorAll('[data-business]')].find(el => el.dataset.business === b.slug);
     if (!card) return;
-    const metric = (label, count, view, hint = '') => `<button class="global-metric" data-summary-view="${view}" ${view === 'questions' ? 'aria-disabled="true"' : ''} aria-label="${esc(label)}: ${count == null ? 'unavailable' : count}" title="${esc(hint || (count == null ? 'Summary unavailable' : label))}"><strong class="${count === 0 ? 'zero' : ''}">${count == null ? '—' : count}</strong><span class="global-metric-icon">${view === 'requests' ? globalIcon('inbox') : T_VIEW_ICON[view]}</span></button>`;
+    const metric = (label, count, view, hint = '') => `<button class="global-metric" data-summary-view="${view}" ${view === 'questions' ? 'aria-disabled="true"' : ''} aria-label="${esc(label)}: ${count == null ? 'unavailable' : count}" title="${esc(hint || (count == null ? 'Summary unavailable' : label))}"><strong class="${count === 0 ? 'zero' : ''}">${count == null ? '—' : count}</strong><span class="global-metric-icon">${view === 'requests' ? globalIcon('requests') : T_VIEW_ICON[view]}</span></button>`;
     const logs = logResult.status === 'fulfilled' && Array.isArray(logResult.value) ? logResult.value : null;
     $('.global-summary', card).innerHTML = `<div class="global-metrics">${metric('Tasks', mine?.length, 'tasks', 'Open tasks assigned to you')}${metric('Signoffs', pending, 'signoffs')}${metric('Requests', requests, 'requests')}</div>
-      ${globalActivityChart(logs)}
-      <details class="global-details"><summary aria-label="Details for ${esc(b.name)}" title="Details">···</summary><div class="global-detail-panel">
-        ${b.one_liner ? `<p class="global-business-description">${esc(b.one_liner)}</p>` : ''}
-        <p class="global-detail-label">Tasks for you</p>
-        ${mine?.length ? `<ul class="global-task-preview">${mine.slice(0, 3).map(t => `<li>${esc(t.title)}</li>`).join('')}</ul>${mine.length > 3 ? `<p class="global-summary-note">+${mine.length - 3} more</p>` : ''}` : `<p class="global-summary-note">${mine ? 'No open tasks assigned to you.' : 'Task summary unavailable.'}</p>`}
-        <p class="global-summary-note">Questions for you · Coming soon</p>
-        ${mine == null || pending == null || requests == null ? '<p class="global-summary-note">Some summaries are unavailable.</p>' : ''}
-      </div></details>`;
-    const details = $('.global-details', card);
-    card.onpointerenter = event => { if (event.pointerType === 'mouse') details.open = true; };
-    card.onpointerleave = () => { if (!details.contains(document.activeElement)) details.open = false; };
-    details.addEventListener('focusout', event => { if (!card.matches(':hover') && !details.contains(event.relatedTarget)) details.open = false; });
+      ${globalActivityChart(logs)}`;
+    const total = logs ? globalActivityDays(logs).reduce((sum, day) => sum + day.count, 0) : null;
+    const actionCount = $('.global-action-count', card);
+    actionCount.querySelector('strong').textContent = total == null ? '—' : total;
+    actionCount.setAttribute('aria-label', total == null ? 'Actions unavailable' : `${total} actions in the last 14 days`);
     card.querySelectorAll('[data-summary-view]').forEach(el => el.onclick = async () => {
       const view = el.dataset.summaryView;
       if (view === 'questions') return;
@@ -159,13 +160,13 @@ function globalActivityDays(rows, now = new Date()) {
 }
 function globalActivityChart(rows) {
   if (!rows) return '<div class="global-activity"><span>Activity unavailable</span></div>';
-  const days = globalActivityDays(rows), total = days.reduce((sum, d) => sum + d.count, 0), max = Math.max(20, Math.ceil(Math.max(...days.map(d => d.count)) / 10) * 10);
-  const points = days.map((d, i) => ({x: 22 + i * 218 / (days.length - 1), y: 30 - d.count / max * 26}));
+  const days = globalActivityDays(rows), max = Math.max(20, Math.ceil(Math.max(...days.map(d => d.count)) / 10) * 10);
+  const points = days.map((d, i) => ({x: 22 + i * 218 / (days.length - 1), y: 64 - d.count / max * 60}));
   const label = `Daily actions, last 14 days (UTC), scale 0–${max}: ${days.map(d => `${d.date}: ${d.count}`).join(', ')}`;
-  return `<div class="global-activity"><span><strong>${total}</strong> actions</span>
-    <svg class="global-spark" viewBox="0 0 244 36" role="img" aria-label="${esc(label)}" data-y-max="${max}">
-      <text x="16" y="8" text-anchor="end">${max}</text><text x="16" y="32" text-anchor="end">0</text>
-      <path class="global-spark-grid" d="M22 4H240M22 30H240"/>
+  return `<div class="global-activity">
+    <svg class="global-spark" viewBox="0 0 244 70" preserveAspectRatio="none" role="img" aria-label="${esc(label)}" data-y-max="${max}">
+      <text x="16" y="8" text-anchor="end">${max}</text><text x="16" y="66" text-anchor="end">0</text>
+      <path class="global-spark-grid" d="M22 4H240M22 64H240"/>
       <polyline class="global-spark-line" points="${points.map(p => `${p.x},${p.y}`).join(' ')}"/>
       ${days.map((d, i) => `<circle class="global-spark-point" cx="${points[i].x}" cy="${points[i].y}" r="2"><title>${d.date} · ${d.count} action${d.count === 1 ? '' : 's'} (UTC)</title></circle>`).join('')}
     </svg></div>`;
@@ -177,11 +178,5 @@ window.addEventListener('hashchange', () => {
   } else {
     const slug = location.hash.slice(1);
     if (slug !== state.biz && state.bizs.some(b => b.slug === slug)) selectBiz(slug);
-  }
-});
-
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && state.scope === 'global') {
-    document.querySelectorAll('.global-details[open]').forEach(details => { details.open = false; });
   }
 });
