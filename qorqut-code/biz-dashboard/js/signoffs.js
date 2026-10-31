@@ -190,9 +190,9 @@ function sgCreateView(options) {
       const pending = sg.executions.get(`${sg.slug}:${s.id}:execution`);
       const disabledExecution = !verified || !owner() || !!sg.error || !!error || !!pending;
       const command = (action, label) => `<button type="button" class="sg-command" data-sg="${action}"${disabledExecution ? " disabled" : ""}>${label}</button>`;
-      if (s.state === "applied" && ["queued", "dispatched", "awaiting_human_fulfillment"].includes(s.execution_state) && !execution.cancellation)
+      if (!execution.historical && s.state === "applied" && ["queued", "dispatched", "awaiting_human_fulfillment"].includes(s.execution_state) && !execution.cancellation)
         controls += command("cancel-execution", route === "human_api" ? "Stop batch" : "Cancel execution");
-      if (s.state === "applied" && (execution.cancellation?.state === "failed" || execution.error && !["external_failed", "manual_failed"].includes(execution.error.code) && ["failed", "reconciliation_required"].includes(s.execution_state)))
+      if (!execution.historical && s.state === "applied" && (execution.cancellation?.state === "failed" || execution.error && !["external_failed", "manual_failed"].includes(execution.error.code) && ["failed", "reconciliation_required"].includes(s.execution_state)))
         controls += command("retry-execution", "Retry interrupted work");
       if (route === "human" && s.state === "applied" && s.execution_state === "awaiting_human_fulfillment" && owner()) {
         manualForm.hidden = false;
@@ -203,6 +203,7 @@ function sgCreateView(options) {
       }
       if (execution.result?.body && s.platform?.submission?.tool === "reddit.read") controls += `<h3>Recorded read result</h3><pre class="sg-message">${esc(execution.result.body)}</pre>`;
       if (execution.error?.message) controls += `<p class="sg-notice">${esc(execution.error.message)}</p>`;
+      if (execution.historical) controls += '<p class="sg-notice">Imported history. Execution is disabled.</p>';
       if (execution.cancellation) controls += `<p class="sg-notice">Cancellation: ${esc(execution.cancellation.outcome || execution.cancellation.state || "requested")}</p>`;
       if (execution.result?.url && /^https?:\/\//.test(execution.result.url)) controls += `<p><a href="${esc(execution.result.url)}" target="_blank" rel="noopener">View result</a></p>`;
       if (pending) controls += `<p class="sg-notice">${pending.unknown ? "Response lost. Check the saved execution request." : "Saving execution request…"}</p>${pending.unknown ? '<button type="button" class="sg-command" data-sg="check-execution">Check execution</button>' : ""}`;
