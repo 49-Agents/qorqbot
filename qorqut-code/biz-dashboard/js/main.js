@@ -1,8 +1,16 @@
 // ---------------------------------------------------------------- init
-setInterval(refreshSide, 12000);
-setInterval(() => { if (rtGlobal() && rtVisible()) rtRefresh(); }, 12000);
+// Stage 2 PR6: push replaces the 12s poll for both -- refreshSide's own
+// `!state.biz`/`document.hidden` guard (js/side.js) and rtRefresh's own
+// `rtGlobal()`/`rtVisible()` check make a global (every-business) subscription
+// safe to over-fire; each still keeps a 60s safety poll (section 2.3: a
+// missed event delays a view by at most 60s, never breaks correctness).
+onChange(['action_logs', 'signoffs', 'jobs_routines'], null, refreshSide);
+setInterval(refreshSide, 60000);
+onChange(['jobs_routines'], null, () => { if (rtGlobal() && rtVisible()) rtRefresh(); });
+setInterval(() => { if (rtGlobal() && rtVisible()) rtRefresh(); }, 60000);
 loadBiz();
 processTray.start();
+connectEvents();
 
 // ---------------------------------------------------------- tab-chord shortcuts
 // Hold Tab as a modifier: Tab+letter jumps around the app; a double-tap of Tab (no letter

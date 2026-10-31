@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------- context
 // Upload originals, browse logical topic memberships, and inspect the shared relationship map.
 // Authored text and filer-maintained summaries remain separate.
-let _ctxTimer = null, _ctxData = null, _ctxGeneration = 0;
+let _ctxTimer = null, _ctxUnwatch = null, _ctxData = null, _ctxGeneration = 0;
 const ctxPageCache = new Map();
 let _ctxGraph = null, _ctxNavigation = 0;
 function ctxClearGraph() { if (_ctxGraph) { _ctxGraph.destroy(); _ctxGraph = null; } }
@@ -48,6 +48,7 @@ async function ctxLoadData(biz, full = !ctxIndependentPage(state.ctx)) {
 async function renderContext(c) {
   ctxClearGraph();
   clearTimeout(_ctxTimer); _ctxTimer = null;
+  if (typeof _ctxUnwatch === 'function') { _ctxUnwatch(); _ctxUnwatch = null; }
   const biz = state.biz, generation = ++_ctxGeneration;
   c.innerHTML = `<div class="ctxwrap">
     <div class="split ctxsplit"><div class="listcol ctxtree" id="ctxtree">
@@ -65,7 +66,7 @@ async function renderContext(c) {
     const changed = !_ctxData || ctxSig(d, state.ctx) !== ctxSig(_ctxData, state.ctx);
     ctxPaint(d);
     if (changed && !ctxIndependentPage(state.ctx)) await ctxShow(state.ctx);
-    if (current()) ctxWatch(d);
+    if (current()) ctxWatch();
   }).catch(error => {
     if (current()) $('#ctxq', c).innerHTML = `<span class="bad" role="alert">${esc(error.message || 'Could not load context.')}</span>`;
   });
@@ -132,8 +133,6 @@ function ctxBusy(d) {
   const s = d.summarizing || {};
   return !!((d.filing && d.filing.current) || (d.inbox || []).some(i => ["queued", "running", "waiting_signoff", "cancelling"].includes(i.status)) || s.current || s.queued);
 }
-// Poll the tree while the tab is open: every 8 s while the queues are busy, every 20 s when idle (work
-// arrives from the filer sweep and from other clients too). Re-render only what changed.
 const ctxSig = (d, p) => (["_learning", "_tables"].includes(p) || p?.startsWith("_stories")) ? p // These views own their refreshes.
   : p === "_people" ? JSON.stringify([d?.people,d?.graph?.nodes.filter(n=>n.type==='person'),d?.graph?.edges.filter(e=>e.source.type==='person' || e.target.type==='person')])
   : p === "_uploads" ? JSON.stringify([(d || {}).inbox || [], (d || {}).dumps || []])
@@ -141,18 +140,30 @@ const ctxSig = (d, p) => (["_learning", "_tables"].includes(p) || p?.startsWith(
     (d || {}).people, p ? null : (d || {}).pillars,
     (d || {}).graph]);
 let _ctxLastSig = "";
-function ctxWatch(d) {
+// Stage 2 PR6: push replaces the 8s/20s self-reschedule. `documents`/`jobs_routines`
+// events trigger an immediate check; a 60s safety poll bounds staleness the same way
+// as every other Stage 2 site (section 2.3: a missed event delays a view by at most
+// 60s). Root Graph (`?view=graph`) and the independent pages (_learning/_tables/
+// _stories*, the nav-only operation) already fetch a light shape via ctxLoadData's
+// own view selection; every other page (topic/person/_people/_uploads) needs the
+// full shape ctxPaint/ctxPageCache expect, so `tick` still calls the same
+// ctxLoadData(biz) the old poll used -- just far less often. Scoped to this mount's
+// own business, like stories.js: a fresh subscription replaces the old one (see the
+// clear above and at renderContext's top) on every load, so there is no reason to
+// accept another business's over-match here.
+function ctxWatch() {
+  if (typeof _ctxUnwatch === 'function') _ctxUnwatch();
   clearTimeout(_ctxTimer); _ctxTimer = null;
   const biz = state.biz, tree = $("#ctxtree");
   const tick = async () => {
-    if (state.tab !== "context" || !$("#ctxtree")) { _ctxTimer = null; return; }
+    if (state.tab !== "context" || state.biz !== biz || !tree.isConnected) return;
     let d2;
     try { d2 = await ctxLoadData(biz); } catch (_) {
-      if (state.tab === "context" && state.biz === biz && tree.isConnected) _ctxTimer = setTimeout(tick, 20000);
+      if (state.tab === "context" && state.biz === biz && tree.isConnected) _ctxTimer = setTimeout(tick, 60000);
       return;
     }
     if (state.tab !== "context" || state.biz !== biz || !tree.isConnected) return;
-    if (!ctxDataFits(d2, state.ctx)) { _ctxTimer = setTimeout(tick, 100); return; }
+    if (!ctxDataFits(d2, state.ctx)) { _ctxTimer = setTimeout(tick, 100); return; }   // raced a navigation mid-fetch: retry once the shape matches
     ctxPaint(d2);
     const uid = uploadId(state.ctx);
     if (state.ctx && state.ctx.startsWith("_inbox/") && !(d2.inbox || []).some(i => `_inbox/${i.id}.md` === state.ctx)) {
@@ -160,9 +171,10 @@ function ctxWatch(d) {
     }
     else if (isTopic(state.ctx)) { if (ctxSig(d2, state.ctx) !== _ctxLastSig) ctxShow(state.ctx); }   // summaries, notes, people landed
     else if (uid && (ctxMapStamp(d2, uid) !== _ctxMapAt || (_ctxMapping && !ctxBusy(d2)))) openCtx(state.ctx);   // its map landed (or failed)
-    _ctxTimer = setTimeout(tick, ctxBusy(d2) ? 8000 : 20000);
+    _ctxTimer = setTimeout(tick, 60000);
   };
-  _ctxTimer = setTimeout(tick, ctxBusy(d) ? 8000 : 20000);
+  _ctxUnwatch = typeof onChange === 'function' ? onChange(['documents', 'jobs_routines'], biz, tick) : null;
+  _ctxTimer = setTimeout(tick, 60000);
 }
 
 function ctxPaint(d) {
@@ -232,7 +244,7 @@ async function ctxShow(p) {
     try {
       const data = await ctxLoadData(biz, true);
       if (state.biz !== biz || state.ctx !== p || !pane.isConnected) return;
-      ctxPaint(data); ctxWatch(data);
+      ctxPaint(data); ctxWatch();
     } catch (error) {
       if (state.biz === biz && state.ctx === p && pane.isConnected) pane.innerHTML = '<p class="empty pad">Could not load context. Select the page to retry.</p>';
       return;
@@ -337,7 +349,7 @@ async function openPerson(slug) {
     rs.disabled = true;
     const rr = await post(`/biz/${state.biz}/context/summarize`, { person: slug });
     toast(rr.error || `summarising ${person.name}`);
-    const d2 = await api(`/biz/${state.biz}/context`); ctxPaint(d2); openPerson(slug); ctxWatch(d2);
+    const d2 = await api(`/biz/${state.biz}/context`); ctxPaint(d2); openPerson(slug); ctxWatch();
   };
 }
 
@@ -561,7 +573,7 @@ function wireUpload(v, uid, um) {
     b.disabled = true;
     const r = await post(`/biz/${state.biz}/context/map`, { id: uid });
     toast(r.error || `drawing the mind map of ${uid}`);
-    const d = await api(`/biz/${state.biz}/context`); ctxPaint(d); ctxWatch(d);
+    const d = await api(`/biz/${state.biz}/context`); ctxPaint(d); ctxWatch();
     if (state.ctx && uploadId(state.ctx) === uid) openCtx(state.ctx);
   };
 }
