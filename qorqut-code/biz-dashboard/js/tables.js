@@ -1,5 +1,5 @@
 // Shared business tables and original data uploads use the same operations as MCP.
-let _data = {biz: null, mode: 'tables', selected: null, table: null, rows: [], cursor: null, query: '', order: '', descending: false, archived: false};
+let _data = {biz: null, mode: 'tables', selected: null, table: null, rows: [], cursor: null, query: '', order: '', descending: false, archived: false, department: '', purpose: '', purposes: []};
 let _dataGeneration = 0, _dataDetail = 0;
 // Keep drafts when navigating away; only Save writes them to the service.
 const _dataDrafts = new Map();
@@ -20,18 +20,29 @@ document.querySelector('#tablesnav').innerHTML = aicon('database', 'currentColor
 async function renderTables(container) {
   const biz = state.biz, generation = ++_dataGeneration;
   ++_dataDetail;
-  if (_data.biz !== biz) _data = {biz, mode: 'tables', selected: null, table: null, rows: [], cursor: null, query: '', order: '', descending: false, archived: false};
+  if (_data.biz !== biz) _data = {biz, mode: 'tables', selected: null, table: null, rows: [], cursor: null, query: '', order: '', descending: false, archived: false, department: '', purpose: '', purposes: []};
   container.innerHTML = `<section class="data-workspace"><header class="data-top"><div class="ttabs"><button class="ttab ${_data.mode === 'tables' ? 'on' : ''}" data-data-mode="tables">Tables</button><button class="ttab ${_data.mode === 'uploads' ? 'on' : ''}" data-data-mode="uploads">Data uploads</button></div><span class="data-spacer"></span>${dataIconButton('data-new', _data.mode === 'tables' ? 'New table' : 'Upload data', _data.mode === 'tables' ? SVG_TPLUS : ICO_UPLOAD)}${dataIconButton('data-refresh', 'Refresh', aicon('refresh-cw', 'currentColor', 18))}</header><p class="data-error" id="data-error" role="status" hidden></p><div class="data-layout"><aside class="data-list"><label class="data-filter">Search<input class="inp" id="data-search" type="search"></label>${_data.mode === 'tables' ? `<label class="data-archived"><input type="checkbox" id="data-archived" ${_data.archived ? 'checked' : ''}>Archived</label>` : ''}<div id="data-items"></div><button class="btn" id="data-list-more" hidden>Load more</button></aside><section class="data-detail" id="data-detail"><p class="muted data-empty">${_data.mode === 'tables' ? 'No table selected' : 'No upload selected'}</p></section></div></section>`;
   container.querySelectorAll('[data-data-mode]').forEach(button => button.onclick = () => { _data.mode = button.dataset.dataMode; _data.selected = null; _data.table = null; renderTables(container); });
   container.querySelector('#data-new').onclick = () => _data.mode === 'tables' ? dataTableEditor() : dataUploadDialog();
   container.querySelector('#data-refresh').onclick = () => renderTables(container);
   const search = container.querySelector('#data-search');
+  if (_data.mode === 'tables') {
+    search.closest('label').insertAdjacentHTML('afterend', `<label class="data-filter">Type<select class="inp" id="data-purpose-filter"><option value="">All types</option></select></label><label class="data-filter">Department<input class="inp" id="data-department" value="${esc(_data.department)}"></label>`);
+    container.querySelector('#data-new').disabled = true;
+  }
   let timer, listCursor = null, listGeneration = 0;
   const load = async (append = false) => {
     const sequence = ++listGeneration, mode = _data.mode;
     try {
-      const result = await dataCall(biz, mode === 'tables' ? 'tables_list' : 'data_uploads_list', {limit: 50, ...(search.value.trim() ? {query: search.value.trim()} : {}), ...(mode === 'tables' ? {include_archived: _data.archived} : {}), ...(append && listCursor ? {cursor: listCursor} : {})});
+      const result = await dataCall(biz, mode === 'tables' ? 'tables_list' : 'data_uploads_list', {limit: 50, ...(search.value.trim() ? {query: search.value.trim()} : {}), ...(mode === 'tables' ? {include_archived: _data.archived, ...(_data.department ? {department: _data.department} : {}), ...(_data.purpose ? {purpose: _data.purpose} : {})} : {}), ...(append && listCursor ? {cursor: listCursor} : {})});
       if (!dataActive(biz, container) || generation !== _dataGeneration || sequence !== listGeneration) return;
+      if (mode === 'tables') {
+        _data.purposes = result.purposes;
+        const filter = container.querySelector('#data-purpose-filter');
+        filter.innerHTML = '<option value="">All types</option>' + _data.purposes.map(item => `<option value="${esc(item.id)}">${esc(item.label)}</option>`).join('');
+        filter.value = _data.purpose;
+        container.querySelector('#data-new').disabled = false;
+      }
       const list = container.querySelector('#data-items');
       if (!append) list.innerHTML = '';
       for (const item of result.items) {
@@ -47,6 +58,10 @@ async function renderTables(container) {
   };
   search.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { if (dataActive(biz, search)) load(); }, 200); };
   const archived = container.querySelector('#data-archived'); if (archived) archived.onchange = () => { _data.archived = archived.checked; load(); };
+  const purpose = container.querySelector('#data-purpose-filter');
+  if (purpose) purpose.onchange = () => { _data.purpose = purpose.value; _data.selected = null; renderTables(container); };
+  const department = container.querySelector('#data-department');
+  if (department) department.onchange = () => { _data.department = department.value.trim(); _data.selected = null; renderTables(container); };
   container.querySelector('#data-list-more').onclick = () => load(true);
   await load();
 }
@@ -79,6 +94,11 @@ async function dataOpenTable(id, append = false) {
     _data.table = result.table; _data.rows = append && !draft ? [..._data.rows, ...found.items] : found.items; _data.cursor = found.next_cursor;
     const keepSearchFocus = document.activeElement === panel.querySelector('#data-row-query');
     const table = result.table;
+    const listed = document.querySelector(`.data-item[data-id="${id}"]`);
+    if (listed) {
+      listed.querySelector('strong').textContent = table.title;
+      listed.querySelector('span').textContent = `${table.row_count} rows${table.archived ? ' · Archived' : ''}`;
+    }
     panel.innerHTML = `<header class="data-heading">${dataIconButton('data-back', 'Back to tables', aicon('arrow-left', 'currentColor', 18))}<h1>${esc(table.title)}</h1><span class="data-spacer"></span>${dataIconButton('data-edit-table', 'Edit table and columns', dataSettingsIcon)}</header>${table.description ? `<p class="data-description">${esc(table.description)}</p>` : ''}<div id="data-stories"></div><div class="data-row-tools"><label>Search rows<input type="search" id="data-row-query" class="inp" value="${esc(_data.query)}"></label><span class="data-spacer"></span><div id="data-draft-actions" hidden><button type="button" class="btn" id="data-discard">Discard</button><button type="button" class="btn primary" id="data-save">Save</button></div>${dataIconButton('data-row-delete', 'Remove selected rows', SVG_X)}${dataIconButton('data-row-new', 'Add row', SVG_TPLUS)}</div><div class="data-grid-wrap"><table class="data-grid"><thead><tr><th class="data-check"><input type="checkbox" id="data-select-all" aria-label="Select visible rows"></th>${table.columns.map(column => `<th><button type="button" data-sort="${column.id}" ${column.type === 'json' ? 'disabled' : ''}>${esc(column.name)}${_data.order === column.id ? (_data.descending ? ' ↓' : ' ↑') : ''}</button></th>`).join('')}</tr></thead><tbody></tbody></table></div><footer class="data-footer"><span id="data-row-count"></span><button class="btn" id="data-more" ${_data.cursor ? '' : 'hidden'}>Load more</button></footer>`;
     panel.querySelector('#data-back').onclick = dataBack;
     panel.querySelector('#data-edit-table').onclick = () => dataTableEditor(table);
@@ -266,15 +286,32 @@ function dataTableEditor(table = null) {
       columns: [...el.querySelectorAll('.data-column')].map(row => ({id: row.querySelector('[data-field=id]').value, name: row.querySelector('[data-field=name]').value, type: row.querySelector('select').value})),
       tags: Object.fromEntries([...el.querySelectorAll('[data-tags]')].map(node => [node.dataset.tags, [...new Set(node.value.split(',').map(value => value.trim()).filter(Boolean))]])),
       ...(table ? {archived: el.querySelector('#data-table-archived').checked} : {})};
-    return submit(table ? 'tables_update' : 'tables_create', table ? {table_id: table.id, expected_revision: table.revision, changes} : changes);
+    return submit(table ? 'tables_update' : 'tables_create', table ? {table_id: table.id, expected_revision: table.revision, changes} : {...changes, purpose: el.querySelector('#data-purpose').value});
   }, async result => { if (state.tab === 'tables') { _data.selected = result.table.id; _data.mode = 'tables'; await renderTables(document.querySelector('#content')); } });
   const host = editor.el.querySelector('#data-columns');
-  const add = (column, existing = false) => {
+  const add = (column, existing = false, required = false) => {
     const row = document.createElement('div'); row.className = 'data-column';
     row.innerHTML = `<input class="inp" data-field="id" aria-label="Column ID" value="${esc(column.id)}" ${existing ? 'readonly' : ''}><input class="inp" data-field="name" aria-label="Column name" value="${esc(column.name)}"><select class="inp" aria-label="Column type">${['text','number','boolean','date','json'].map(kind => `<option ${kind === column.type ? 'selected' : ''}>${kind}</option>`).join('')}</select><button type="button" class="data-icon" title="Remove column" aria-label="Remove column">${SVG_X}</button>`;
     row.querySelector('button').onclick = () => row.remove(); host.appendChild(row);
+    if (required) {
+      row.querySelector('[data-field=id]').readOnly = true;
+      row.querySelector('select').disabled = true;
+      row.querySelector('button').disabled = true;
+    }
   };
-  columns.forEach(column => add(column, !!table));
+  columns.forEach(column => add(column, !!table, table?.required_columns.includes(column.id)));
+  if (!table) {
+    editor.el.querySelector('#data-title').closest('label').insertAdjacentHTML('beforebegin', `<label>Type<select class="inp" id="data-purpose">${_data.purposes.map(item => `<option value="${esc(item.id)}">${esc(item.label)}</option>`).join('')}</select></label>`);
+    const purpose = editor.el.querySelector('#data-purpose');
+    purpose.onchange = () => {
+      const template = _data.purposes.find(item => item.id === purpose.value);
+      host.replaceChildren();
+      (template.columns || columns).forEach(column => add(column, false, !!template.columns));
+      editor.el.querySelector('[data-tags=departments]').value = _data.department || (template.tags?.departments || []).join(', ');
+    };
+    purpose.value = _data.purpose || 'general';
+    purpose.onchange();
+  }
   editor.el.querySelector('#data-column-add').onclick = () => { let n = 1; const ids = [...host.querySelectorAll('[data-field=id]')].map(node => node.value); while (ids.includes('column_' + n)) n++; add({id: 'column_' + n, name: 'Column ' + n, type: 'text'}); };
 }
 
@@ -306,10 +343,10 @@ function dataUploadDialog() {
   const drop = view.el.querySelector('#data-upload-drop'); drop.ondragover = event => event.preventDefault(); drop.ondrop = event => { event.preventDefault(); choose(event.dataTransfer.files[0]); };
 }
 
-async function tablesOpen(biz, id, mode = 'tables') {
+async function tablesOpen(biz, id, mode = 'tables', filters = {}) {
   if (state.biz !== biz) return;
   await goTab('tables');
   if (state.biz !== biz || state.tab !== 'tables') return;
-  _data.mode = mode; _data.selected = id;
+  _data.mode = mode; _data.selected = id; _data.department = filters.department || ''; _data.purpose = filters.purpose || '';
   await renderTables(document.querySelector('#content'));
 }
