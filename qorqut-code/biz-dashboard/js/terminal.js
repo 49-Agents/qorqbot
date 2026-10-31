@@ -31,10 +31,22 @@ function teardownTerm() {
 
 // Mount a live terminal for `agent` into `pane` (an element). `onStat(t)` gets
 // "live" / "ended" / "disconnected" so a caller (e.g. the agent list) can reflect it.
-// One terminal is active in the page at a time; the PTY on the server keeps running.
-function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComponent(state.biz)}/terminal/${encodeURIComponent(agent)}`) {
+// The main view uses the shared session; compact viewers pass an independent session.
+// Closing a viewer leaves the server PTY running.
+function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComponent(state.biz)}/terminal/${encodeURIComponent(agent)}`, session = null) {
   const paneToggle = pane.querySelector("#agpad-toggle");
-  teardownTerm();
+  const isolated=!!session;
+  session ||= {
+    get term(){return _term;},set term(value){_term=value;},
+    get es(){return _termES;},set es(value){_termES=value;},
+    get ro(){return _termRO;},set ro(value){_termRO=value;}
+  };
+  const dispose=()=>{
+    session.ro?.disconnect();session.ro=null;
+    session.es?.close();session.es=null;
+    const old=session.term;session.term=null;old?.dispose();
+  };
+  dispose();
   pane.innerHTML = `<div class="termpane">
     <div class="termhost" id="termhost"></div>
     <form class="termcomposer" hidden>
@@ -65,7 +77,7 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     theme: { background: "#0b0e14", foreground: "#c8d3e0", cursor: "#7dd3fc" },
   });
   term.open(host);
-  _term = term;
+  session.term = term;
 
   // Size the PTY to fill the pane exactly. Use xterm's MEASURED cell size (falling back to a
   // rough estimate before the first render) — an estimate that runs large would ask for more
@@ -77,7 +89,7 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     return { w: (c && c.width) || CELL_W, h: (c && c.height) || CELL_H };
   };
   const fit = () => {
-    if (_term !== term || !host.isConnected) return; // a queued fit can outlive a tab/agent switch
+    if (session.term !== term || !host.isConnected) return; // a queued fit can outlive a tab/agent switch
     const { w, h } = cell();
     // `.termhost` includes its own padding in clientWidth/clientHeight. Measure its
     // content box, including the native xterm scrollbar gutter, so the PTY never
@@ -100,11 +112,11 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
   };
   requestAnimationFrame(fit); // let the font metrics settle, then fit to real cell size
   let rt;
-  _termRO = new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(fit, 100); });
-  _termRO.observe(host);
+  session.ro = new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(fit, 100); });
+  session.ro.observe(host);
 
   const setStat = t => {
-    if (_term !== term) return;
+    if (session.term !== term) return;
     if (btn) btn.classList.toggle("warn", t === "disconnected" || t === "ended");
     if (onStat) { try { onStat(t); } catch (e) {} }
   };
@@ -112,15 +124,15 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
   // output: base64 SSE frames -> xterm. On a real drop, close (no auto-retry, which would
   // replay the whole scrollback and duplicate it) and flag the button so the user can reconnect.
   const es = new EventSource(evUrl(`${terminalBase}/stream`));
-  _termES = es;
+  session.es = es;
   // The first layout pass can precede server-side preparation; size again once attached.
-  es.onopen = () => { if (_term === term) post(`${terminalBase}/resize`, { cols: term.cols, rows: term.rows }); };
+  es.onopen = () => { if (session.term === term) post(`${terminalBase}/resize`, { cols: term.cols, rows: term.rows }); };
   let nextReplay = false, replaying = false, outputQueue = Promise.resolve();
   es.addEventListener('replay', () => { nextReplay = true; });
   es.onmessage = ev => {
     const replay = nextReplay; nextReplay = false;
     outputQueue = outputQueue.then(() => new Promise(resolve => {
-      if (_term !== term) return resolve();
+      if (session.term !== term) return resolve();
       replaying = replay;
       try { term.write(b64ToBytes(ev.data), () => { replaying = false; resolve(); }); }
       catch (_) { replaying = false; resolve(); }
@@ -128,13 +140,13 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     setStat("live");
   };
   es.addEventListener("done", () => setStat("ended"));
-  es.onerror = () => { es.close(); if (_termES === es) _termES = null; setStat("disconnected"); };
+  es.onerror = () => { es.close(); if (session.es === es) session.es = null; setStat("disconnected"); };
 
   // input: keystrokes -> POST (the PTY echoes back over the stream)
   let inputQueue = Promise.resolve(), inputFailed = false;
   const sendInput = d => {
     const pending = inputQueue.then(async () => {
-      if (_term !== term || inputFailed) return false;
+      if (session.term !== term || inputFailed) return false;
       const result = await post(`${terminalBase}/input`, { data: d });
       if (result.error) throw new Error('Terminal input failed');
       return true;
@@ -172,7 +184,7 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     if (event.key === 'Escape') { event.preventDefault(); showComposer(false); }
   });
   const submitComposer = async pressEnter => {
-    if (send.disabled || (!input.value && !pressEnter) || _term !== term) return;
+    if (send.disabled || (!input.value && !pressEnter) || session.term !== term) return;
     // Single-line local editing. Control characters from pasted text must not
     // become hidden terminal commands. This appends to the current remote prompt.
     const text = input.value;
@@ -184,7 +196,7 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     input.readOnly = true;
     const sent = await sendInput(text + (pressEnter ? '\r' : ''));
     if (sent && draft.text === text) draft.text = '';
-    if (_term !== term) return;
+    if (session.term !== term) return;
     input.readOnly = false;
     input.value = draft.text;
     disableSend(!sent);
@@ -192,20 +204,22 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     if (!composer.hidden) input.focus();
   };
   controls.forEach(button => button.onclick = async () => {
-    if (send.disabled || _term !== term) return;
+    if (send.disabled || session.term !== term) return;
     disableSend(true);
     const sent = await sendInput(button.dataset.terminalKey === 'interrupt' ? '\x03' : '\x1b');
-    if (_term !== term) return;
+    if (session.term !== term) return;
     disableSend(!sent);
     if (!sent) toast('Delivery unconfirmed. Check the terminal before reconnecting and retrying.');
     if (!composer.hidden) input.focus();
   });
   composer.onsubmit = event => { event.preventDefault(); submitComposer(false); };
-  showComposer(true);
+  showComposer(!isolated);
+  if(isolated){composer.hidden=true;composeToggle.hidden=true;btn?.removeAttribute('title');}
 
   // reconnect: re-open the stream. The PTY persists, so this replays scrollback; if the shell
   // had exited, the server spawns a fresh one. It is NOT a kill/restart.
-  if (btn) btn.onclick = () => mountTerminal(agent, pane, onStat, terminalBase);
+  if (btn) btn.onclick = () => mountTerminal(agent, pane, onStat, terminalBase, isolated ? session : null);
+  return dispose;
 }
 
 // Terminal tab (legacy — the Agents tab now mounts terminals directly). Kept so the tab keeps
