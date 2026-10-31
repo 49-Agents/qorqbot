@@ -13,13 +13,13 @@ let ntSearch = "";                  // detail sidebar search (in-memory filter)
 // remember what was open (a note id, or "" for the homepage) per business
 const ntScope = () => state.scope === 'global' ? '/root' : state.biz;
 const ntEndpoint = (scope = ntScope()) => scope === '/root' ? '/root/notes' : `/biz/${encodeURIComponent(scope)}/notes`;
-const ntGlobalPage = () => state.scope === 'global' && state.globalTab === 'notes';
-const ntActive = () => ntGlobalPage() || state.scope !== 'global' && tView === 'notes';
+const ntActive = () => tView === 'notes';
 const ntKey = () => `nt:${ntScope()}`;
 function ntSetSel(id) {
   ntSel = id;
   if (ntScope()) ls(ntKey(), id || "");
 }
+let ntLoadedScope = null;
 let ntRestoredBiz = null;           // biz slug whose saved selection we've already applied this session
 let ntListOff = ls("ntlistoff") === "1";   // sidebar collapsed, persisted
 let ntEditState = null;             // { id, biz, title0, lines0[], statuses0(json), lines[], statuses{}, dirty, saving, countdown }
@@ -54,7 +54,7 @@ async function ntFetch() {
   if (!ntScope()) { ntNotes = []; return; }
   const biz = ntScope(), r = await api(ntEndpoint(biz));
   if (ntScope() !== biz) return;
-  if (Array.isArray(r)) ntNotes = r; else if (r && r.error) toast(r.error);
+  if (Array.isArray(r)) { ntNotes = r; ntLoadedScope = biz; } else if (r && r.error) toast(r.error);
 }
 const ntById = id => ntNotes.find(n => n.id === id);
 async function ntCreate(fields) {
@@ -87,9 +87,9 @@ async function ntDeleteReq(id, version = ntById(id) || {}) {
 // called by tasks.js's tSetView(v) on tab-entry ("notes") and by its 500ms business-change interval
 function tPaintNotes() { ntOpenView(); }
 function ntOpenView() {
-  if(ntGlobalPage() && innerWidth<=760)ntListOff=true;
+  if (innerWidth <= 760) ntListOff = true;
   let justRestored = false;
-  if(ntRestoredBiz!==ntScope()){ntNotes=[];ntSel=null;ntSearch="";}
+  if(ntRestoredBiz!==ntScope()){ntNotes=[];ntSel=null;ntSearch="";ntLoadedScope=null;const body=$("#tbody");if(body)body.innerHTML='<p class="muted">Loading notes…</p>';}
   if (ntScope() && ntRestoredBiz !== ntScope()) {
     ntRestoredBiz = ntScope();
     const saved = ls(ntKey());
@@ -97,10 +97,10 @@ function ntOpenView() {
     // right back to null; skip the synchronous render this once and let the fetch below paint it
     if (saved) { ntSel = saved; justRestored = true; }
   }
-  if (!justRestored) ntRender();
+  if (!justRestored && ntLoadedScope === ntScope()) ntRender();
   if (!ntScope()) return;
   const biz = ntScope();
-  ntFetch().then(() => { if (ntActive() && ntScope() === biz) ntRender(); });
+  ntFetch().then(() => { if (ntActive() && ntScope() === biz && !ntEditState?.dirty && !ntEditState?.saving) ntRender(); });
 }
 // force-save whatever's dirty in the open editor, reading the DOM/model before it's torn down by a
 // repaint; used when the tab is left or the business/selection changes (tasks.js's tSetView/interval)
@@ -115,7 +115,7 @@ async function ntFlush() {
 
 // ---- render dispatch
 function ntRender() {
-  const body = $(ntGlobalPage() ? "#global-notes-body" : "#tbody"); if (!body) return;
+  const body = $("#tbody"); if (!body) return;
   if (!ntScope()) { body.className = "tbody"; body.innerHTML = `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">Pick a business first.</p></div>`; return; }
   if (ntSel == null) {
     body.className = "tbody nt nt-home";
