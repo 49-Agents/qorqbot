@@ -34,6 +34,7 @@ async function renderGlobalAgents(c) {
     <span class="agent-presence" data-agent-presence="${esc(agent.agent_id)}" role="img"></span>
   </button>`).join('');
   agentNavPaint(); agentNavRefresh();
+  const linkedFocus=new URLSearchParams(location.search).has('focus_item');
   let selected;
   const select = agent => {
     if (!current()) return;
@@ -56,7 +57,7 @@ async function renderGlobalAgents(c) {
     agpadMount(workspace ? '' : (agent.display_name || agent.name), $('#agpad', c), workspace ? {
       biz: null, open: false, isCurrent: () => false,
     } : {
-      biz: null, agentId: agent.agent_id, views: agent.role?.id === 'ordubashy' ? ['focus', 'inbox', 'globalTasks'] : ['inbox', 'globalTasks'], open: ls('agpad:null') !== 'off',
+      biz: null, agentId: agent.agent_id, views: agent.role?.id === 'ordubashy' ? ['focus', 'inbox', 'globalTasks'] : ['inbox', 'globalTasks'], open: linkedFocus || ls('agpad:null') !== 'off',
       isCurrent: () => current() && selected === agent.agent_id,
     });
   };
@@ -64,7 +65,7 @@ async function renderGlobalAgents(c) {
     button.onclick = () => select(button.dataset.globalAgent === GLOBAL_WORKSPACE_TERMINAL
       ? GLOBAL_WORKSPACE_TERMINAL : agents.find(a => a.agent_id === button.dataset.globalAgent));
   });
-  const remembered = ls('ag:scope:global');
+  const remembered = linkedFocus ? agents.find(a=>a.role?.id==='ordubashy')?.agent_id : ls('ag:scope:global');
   select(remembered === GLOBAL_WORKSPACE_TERMINAL ? GLOBAL_WORKSPACE_TERMINAL
     : agents.find(a => a.agent_id === remembered) || agents.find(a => a.role?.id === 'ordubashy') || agents[0] || GLOBAL_WORKSPACE_TERMINAL);
 }
