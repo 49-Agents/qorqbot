@@ -65,5 +65,5 @@ async function renderGlobalAgents(c) {
   });
   const remembered = ls('ag:scope:global');
   select(remembered === GLOBAL_WORKSPACE_TERMINAL ? GLOBAL_WORKSPACE_TERMINAL
-    : agents.find(a => a.agent_id === remembered) || agents[0] || GLOBAL_WORKSPACE_TERMINAL);
+    : agents.find(a => a.agent_id === remembered) || agents.find(a => a.role?.id === 'ordubashy') || agents[0] || GLOBAL_WORKSPACE_TERMINAL);
 }
