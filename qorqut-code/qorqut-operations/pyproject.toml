@@ -7,7 +7,7 @@ name = "bazarlyk-core"
 version = "0.1.0"
 description = "Shared Qorqut application operations and operational storage"
 requires-python = ">=3.12"
-dependencies = ["jsonschema>=4.26,<5", "PyYAML>=6,<7", "pydantic>=2.13,<3", "markdown-it-py>=3,<5"]
+dependencies = ["jsonschema>=4.26,<5", "PyYAML>=6,<7", "pydantic>=2.13,<3", "markdown-it-py>=3,<5", "tomli-w>=1.2,<2"]
 
 [project.optional-dependencies]
 service = ["mcp>=1.29,<2", "starlette>=1.0,<2", "uvicorn>=0.52,<1"]
