@@ -1,0 +1,13 @@
+/* Shared floating surfaces, including legacy title bubbles and native-select replacements. */
+.menu, .cmenu, .tip, .jrtip {
+  border:1px solid var(--line-2); border-radius:14px;
+  background:var(--elevated); color:var(--fg); box-shadow:var(--shadow-float);
+  backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px);
+  max-width:calc(100vw - 24px); box-sizing:border-box;
+}
+.menu .mi, .cmenu .ci { border-radius:9px; }
+.menu .mi[aria-disabled="true"] { opacity:.4; cursor:default; }
+.menu .mi[aria-disabled="true"]:hover { background:transparent; }
+.tip, .jrtip { max-width:min(360px,calc(100vw - 24px)); padding:8px 12px; font:500 12px/1.45 var(--sans); overflow-wrap:anywhere; }
+select:not([multiple]) { border-radius:10px; }
+.select-menu { max-height:min(360px,calc(100vh - 24px)); }

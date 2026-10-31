@@ -57,7 +57,6 @@ const TABS = { agents: c => renderAgents(c), context: c => renderContext(c),
   marketing: c => renderMarketing(c), accounting: c => renderTables(c, {department: 'accounting'}),
   datascience: c => soon(c, "Experiments and metric deep-dives."),
   progress: c => soon(c, "Tasks, milestones and what shipped."),
-  code: c => soon(c, "Repos, commits and deploys."),
   settings: c => renderSettings(c) };
 let verbose0 = ls("verbose") === "1", tab0 = ls("tab");
 if (tab0 === "email") tab0 = "marketing";
@@ -214,21 +213,23 @@ function modal({ title = "", body = "", actions = [], width = 520, onOpen, stack
 }
 
 // ---------------------------------------------------------------- dropdown
-let _menu = null;
+let _menu = null, _menuSequence = 0;
 function dropdown(anchorEl, items, onPick, current, options = {}) {
   if (_menu) _menu.close();
   const list = (items || []).map(it => (typeof it === "string" ? { value: it, label: it } : it));
   const m = document.createElement("div");
+  m.id = `app-menu-${++_menuSequence}`;
+  m.setAttribute("role", "listbox");
   m.className = "menu" + (options.className ? " " + options.className : "");
   if (options.width) m.style.width = options.width + "px";
-  m.innerHTML = list.map((it, i) => `<div class="mi ${it.value === current ? "on" : ""}" data-i="${i}">
+  m.innerHTML = list.map((it, i) => `<div class="mi ${it.value === current ? "on" : ""}" data-i="${i}" id="${m.id}-${i}" role="option" aria-selected="${it.value === current}" aria-disabled="${!!it.disabled}">
     ${options.noCheck ? "" : `<span class="ck">${SVG_CHECK}</span>`}<span class="lb">${it.html != null ? it.html : esc(it.label != null ? it.label : it.value)}</span></div>`).join("")
     || `<div class="mi" style="opacity:.5;cursor:default">nothing</div>`;
   document.body.appendChild(m);
   if (anchorEl && anchorEl.classList) anchorEl.classList.add("open");
 
   const r = anchorEl ? anchorEl.getBoundingClientRect() : { left: 20, right: 200, top: 20, bottom: 20, width: 180 };
-  m.style.minWidth = Math.max(r.width, 160) + "px";
+  m.style.minWidth = Math.min(Math.max(r.width, 160), window.innerWidth - 24) + "px";
   const h = m.offsetHeight, w = m.offsetWidth;
   let top = r.bottom + 6;
   if (top + h > window.innerHeight - 12) top = Math.max(12, r.top - h - 6);
@@ -238,7 +239,11 @@ function dropdown(anchorEl, items, onPick, current, options = {}) {
 
   let hi = Math.max(0, list.findIndex(it => it.value === current));
   const rows = [...m.querySelectorAll(".mi[data-i]")];
-  const paint = () => rows.forEach((el, i) => el.classList.toggle("hi", i === hi));
+  if (anchorEl) anchorEl.setAttribute('aria-controls',m.id);
+  const paint = () => {
+    rows.forEach((el, i) => el.classList.toggle("hi", i === hi));
+    if (anchorEl && rows[hi]) anchorEl.setAttribute('aria-activedescendant',rows[hi].id);
+  };
   paint();
 
   let closed = false;
@@ -246,22 +251,39 @@ function dropdown(anchorEl, items, onPick, current, options = {}) {
     if (closed) return; closed = true;
     document.removeEventListener("keydown", onKey, true);
     document.removeEventListener("mousedown", onDown, true);
-    window.removeEventListener("resize", close); window.removeEventListener("scroll", close, true);
+    window.removeEventListener("resize", close); window.removeEventListener("scroll", onScroll, true);
     if (anchorEl && anchorEl.classList) anchorEl.classList.remove("open");
     m.remove(); if (_menu && _menu.el === m) _menu = null;
+    if (anchorEl) { anchorEl.removeAttribute('aria-controls'); anchorEl.removeAttribute('aria-activedescendant'); }
+    if (options.onClose) options.onClose();
   };
-  const pick = i => { const it = list[i]; close(); if (it && onPick) onPick(it.value, it); };
+  const pick = i => { const it = list[i]; if (!it || it.disabled) return; close(); if (it && onPick) onPick(it.value, it); };
+  const nextEnabled = (index, direction) => {
+    for (let n=0;n<rows.length;n++) { index=(index+direction+rows.length)%rows.length; if (!list[index].disabled) return index; }
+    return Math.max(0,index);
+  };
+  let typed = '', typedAt = 0;
   const onKey = e => {
+    if (options.allowTyping && e.key.length === 1) return;
+    if (!rows.length) { if (['Escape','Tab'].includes(e.key)) close(); return; }
+    if (e.key === "Tab") { close(); return; }
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
-    else if (e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); hi = (hi + 1) % rows.length; paint(); rows[hi].scrollIntoView({ block: "nearest" }); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); e.stopPropagation(); hi = (hi - 1 + rows.length) % rows.length; paint(); rows[hi].scrollIntoView({ block: "nearest" }); }
-    else if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); pick(hi); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); hi = nextEnabled(hi, 1); paint(); rows[hi].scrollIntoView({ block: "nearest" }); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); e.stopPropagation(); hi = nextEnabled(hi, -1); paint(); rows[hi].scrollIntoView({ block: "nearest" }); }
+    else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); pick(hi); }
+    else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault(); e.stopPropagation();
+      typed = (Date.now()-typedAt<700 ? typed : '') + e.key.toLowerCase(); typedAt=Date.now();
+      const match=list.findIndex(it=>!it.disabled && String(it.label ?? it.value).toLowerCase().startsWith(typed));
+      if(match>=0){hi=match;paint();rows[hi].scrollIntoView({block:'nearest'});}
+    }
   };
+  const onScroll = e => { if (!m.contains(e.target)) close(); };
   const onDown = e => { if (!m.contains(e.target) && e.target !== anchorEl && !(anchorEl && anchorEl.contains(e.target))) close(); };
-  rows.forEach((el, i) => { el.onclick = () => pick(i); el.onmouseenter = () => { hi = i; paint(); }; });
+  rows.forEach((el, i) => { el.onclick = () => pick(i); el.onmouseenter = () => { if (!list[i].disabled) { hi = i; paint(); } }; });
   document.addEventListener("keydown", onKey, true);
-  setTimeout(() => document.addEventListener("mousedown", onDown, true), 0);
-  window.addEventListener("resize", close); window.addEventListener("scroll", close, true);
+  setTimeout(() => { if (!closed) document.addEventListener("mousedown", onDown, true); }, 0);
+  window.addEventListener("resize", close); window.addEventListener("scroll", onScroll, true);
   _menu = { el: m, close };
   return { el: m, close };
 }
@@ -274,15 +296,16 @@ function tip(el, htmlOrFn) {
   el._tipHtml = htmlOrFn;
   if (el._tipBound) return el;
   el._tipBound = true;
-  el.addEventListener("mouseenter", () => {
+  const show = () => {
     clearTimeout(_tipT);
     _tipT = setTimeout(() => {
+      if (!el.isConnected) return;
       const src = el._tipHtml;
       let html; try { html = typeof src === "function" ? src(el) : src; } catch (e) { html = ""; }
       if (html == null || html === "") return;
       _tipHide();
       const t = document.createElement("div");
-      t.className = "tip"; t.innerHTML = html;
+      t.className = "tip"; t.setAttribute("role", "tooltip"); t.innerHTML = html;
       document.body.appendChild(t); _tipEl = t;
       const r = el.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight, gap = 8;
       let left, top;
@@ -293,7 +316,11 @@ function tip(el, htmlOrFn) {
       top = Math.min(Math.max(8, top), window.innerHeight - h - 8);
       t.style.left = left + "px"; t.style.top = top + "px";
     }, 120);
-  });
+  };
+  el._tipShow = show;
+  el.addEventListener("mouseenter", show);
+  el.addEventListener("focusin", show);
+  el.addEventListener("focusout", _tipHide);
   el.addEventListener("mouseleave", _tipHide);
   el.addEventListener("mousedown", _tipHide);
   return el;
