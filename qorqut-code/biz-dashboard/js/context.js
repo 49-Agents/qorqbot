@@ -523,14 +523,14 @@ function wireUpload(v, uid, um) {
 
 // The upload box: text (required), notes (attribution), topic (a hint) → POST context/upload, then the new
 // upload opens in the Context tab; the filer can choose Context or marketing reference topics.
-function uploadModal() {
-  const biz=state.biz;let selectedStories=[];
+function uploadModal({stories=[],onUploaded}={}) {
+  const biz=state.biz;let selectedStories=[...stories],request;
   const msg = "the filer splits it by topic and files it; the raw text is kept";
   const body = `<div class="fl">Context</div><textarea class="inp ta" id="uptext" placeholder="paste anything: notes from a call, a doc, a thread, a decision" spellcheck="false"></textarea>
     <div class="fmsg" id="upmsg">${esc(msg)}</div>
     <div class="fl">Notes <span class="opt">optional</span></div><input class="inp" id="upnotes" placeholder="where it came from: call with Sarah, PH hunter" autocomplete="off">
     <div class="fl">Topic <span class="opt">optional</span></div><input class="inp" id="uptopic" placeholder="hint: producthunt launch, pricing, brand voice" autocomplete="off">
-    <div class="fl">Stories <span class="opt">optional</span></div><button class="quiet" type="button" id="ctxuploadstories">Choose stories</button>
+    <div class="fl">Stories <span class="opt">optional</span></div><button class="quiet" type="button" id="ctxuploadstories">${selectedStories.length?selectedStories.map(story=>esc(story.title)).join(', '):'Choose stories'}</button>
     <div class="ferr" id="uperr" hidden></div>`;
   modal({
     title: "Upload context", body, width: 560,
@@ -550,12 +550,15 @@ function uploadModal() {
         err.hidden = true;
         const b = el.querySelector(".mfoot .primary"); b.disabled = true;
         const payload = { text, notes: el.querySelector("#upnotes").value, topic: el.querySelector("#uptopic").value, story_ids:selectedStories.map(story=>story.id) };
-        let r; try { r = await post(`/biz/${biz}/context/upload`, payload); }
+        const signature=JSON.stringify(payload);
+        if(request?.signature!==signature)request={signature,key:newRequestId()};
+        let r; try { r = await post(`/biz/${biz}/context/upload`, {...payload,idempotency_key:request.key}); }
         catch (e) { r = { error: "could not reach the server" }; }
         if (!r || r.error) { b.disabled = false; return fail((r && r.error) || "upload failed"); }
         close(); toast(r.warn ? `uploaded ${r.id}, but: ${r.warn}` : `uploaded ${r.id}; filing queued`);
-        state.ctx = `_inbox/${r.id}.md`;
-        renderContext($("#content")); if (typeof refreshSide === "function") refreshSide();
+        if(onUploaded)await onUploaded(r);
+        else {state.ctx = `_inbox/${r.id}.md`;renderContext($("#content"));}
+        if (typeof refreshSide === "function") refreshSide();
       } },
     ],
   });
