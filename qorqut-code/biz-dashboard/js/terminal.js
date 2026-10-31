@@ -48,7 +48,7 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
   const composer = $(".termcomposer", pane), composeToggle = $("#termcompose-toggle", pane);
   composer.id = "termcomposer";
   const input = $("input", composer), send = $("button", composer), status = $(".termcomposer-status", composer);
-  const draft = terminalDrafts.get(terminalBase) || { open: false, text: '' };
+  const draft = terminalDrafts.get(terminalBase) || { text: '' };
   terminalDrafts.set(terminalBase, draft);
   input.value = draft.text;
   input.oninput = () => { draft.text = input.value; };
@@ -146,23 +146,30 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     sendInput(d);
   });
 
+  let composerOpen = true;
   const showComposer = open => {
-    draft.open = open;
+    composerOpen = open;
     composer.hidden = !open;
     composeToggle.setAttribute('aria-expanded', String(open));
     composeToggle.classList.toggle('on', open);
     requestAnimationFrame(fit);
     if (open) input.focus(); else term.focus();
   };
-  composeToggle.onclick = () => showComposer(!draft.open);
+  composeToggle.onclick = () => showComposer(!composerOpen);
   input.addEventListener('keydown', event => {
     // IME Enter finishes composition, not the terminal command.
-    if (event.key === 'Enter' && (event.isComposing || event.keyCode === 229)) event.preventDefault();
+    if (event.isComposing || event.keyCode === 229) {
+      if (event.key === 'Enter') event.preventDefault();
+      return;
+    }
+    if (event.key === 'Enter' && event.ctrlKey) {
+      event.preventDefault();
+      submitComposer(true);
+    }
     if (event.key === 'Escape') { event.preventDefault(); showComposer(false); }
   });
-  composer.onsubmit = async event => {
-    event.preventDefault();
-    if (send.disabled || !input.value || _term !== term) return;
+  const submitComposer = async pressEnter => {
+    if (send.disabled || (!input.value && !pressEnter) || _term !== term) return;
     // Single-line local editing. Control characters from pasted text must not
     // become hidden terminal commands. This appends to the current remote prompt.
     const text = input.value;
@@ -173,7 +180,7 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     send.disabled = true;
     input.readOnly = true;
     status.textContent = 'Sending…';
-    const sent = await sendInput(text + '\r');
+    const sent = await sendInput(text + (pressEnter ? '\r' : ''));
     if (sent && draft.text === text) draft.text = '';
     if (_term !== term) return;
     input.readOnly = false;
@@ -182,7 +189,8 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     status.textContent = sent ? '' : 'Delivery unconfirmed. Check the terminal before reconnecting and retrying.';
     if (!composer.hidden) input.focus();
   };
-  showComposer(draft.open);
+  composer.onsubmit = event => { event.preventDefault(); submitComposer(false); };
+  showComposer(true);
 
   // reconnect: re-open the stream. The PTY persists, so this replays scrollback; if the shell
   // had exited, the server spawns a fresh one. It is NOT a kill/restart.
