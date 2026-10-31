@@ -42,7 +42,7 @@
 .tstats i { font-style: normal; color: var(--fg-3); }
 
 .tsearch {
-  position: relative; display: flex; align-items: center; flex: 0 1 280px; height: 36px; margin-bottom: 2px;
+  position: relative; display: flex; align-items: center; flex: 0 1 420px; min-width: 160px; height: 36px; margin-bottom: 2px;
   background: var(--wash); border: 1px solid var(--line); border-radius: 14px; color: var(--fg-3);
   transition: border-color .15s ease, background .15s ease, box-shadow .15s ease, color .15s ease;
 }
@@ -62,32 +62,39 @@
 
 /* The panel's own controls are quiet glyphs, not app.css's cream pill `button`: each opts out here
    (the old centred bold section header was that pill rule leaking into a heading button). */
-.tplus, .trow .ball, .trow .who, .trow .tmore, .taddbtn {
+.tplus, .tshbtn, .trow .ball, .trow .who, .trow .tmore, .taddbtn {
   height: auto; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
   color: var(--fg-2); font: inherit; font-weight: 400; letter-spacing: normal;
   display: inline-flex; align-items: center; justify-content: flex-start; gap: 0;
   user-select: none; -webkit-user-select: none;
 }
-.tplus:hover, .trow .ball:hover, .trow .who:hover, .trow .tmore:hover, .taddbtn:hover,
-.tplus:active, .trow .ball:active, .trow .who:active, .trow .tmore:active, .taddbtn:active {
+.tplus:hover, .tshbtn:hover, .trow .ball:hover, .trow .who:hover, .trow .tmore:hover, .taddbtn:hover,
+.tplus:active, .tshbtn:active, .trow .ball:active, .trow .who:active, .trow .tmore:active, .taddbtn:active {
   background: none; color: var(--fg); transform: none;
 }
 
 /* ---------------------------------------------------------------- sections: one per department */
-.tsec { margin-bottom: 26px; }
+.tsec { margin-bottom: 56px; }
 .tsec:last-of-type { margin-bottom: 8px; }
+/* the whole row is the hover target for the +, and spans the full panel width so the + at its right
+   end (pushed there by margin-left: auto) is exactly where the mouse arrives after hovering the heading */
 .tsh {
   display: flex; align-items: center; justify-content: flex-start; gap: 8px; height: 26px; padding: 0 12px; margin-bottom: 2px;
-  text-align: left;
+  text-align: left; width: 100%; position: relative;
 }
 .tsh h2 {
   flex: none; margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
-  color: var(--fg-2); opacity: .6; text-align: left; line-height: 1;
+  color: var(--fg-2); opacity: .6; text-align: left; line-height: 1; transition: color .15s ease, opacity .15s ease;
 }
-.tsh .c { font: 500 11px/1 var(--mono); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.tsh .c { font: 500 11px/1 var(--mono); color: var(--fg-3); font-variant-numeric: tabular-nums; transition: color .15s ease; }
+/* a second, always-there way to add: the heading text/count itself opens the add row (the + is easy to miss) */
+.tshbtn { gap: 8px; cursor: pointer; }
+.tshbtn:hover h2 { color: var(--fg); opacity: 1; }
+.tshbtn:hover .c { color: var(--fg-2); }
 .tplus {
   margin-left: auto; width: 24px; height: 24px; justify-content: center; border-radius: var(--r-full);
   color: var(--fg-2); opacity: 0; cursor: pointer; transition: opacity .15s ease, background .15s ease, color .15s ease;
+  pointer-events: auto;
 }
 .tsh:hover .tplus, .tplus:focus-visible { opacity: .7; }
 .tplus:hover { opacity: 1; background: var(--hover); color: var(--fg); }
@@ -96,12 +103,12 @@
 
 /* ---------------------------------------------------------------- rows: deadline · assignee · status · title · ⋯ */
 .trow {
-  display: flex; align-items: center; height: 48px; padding: 0 12px; border-radius: 14px;  
+  display: flex; align-items: center; height: 44px; padding: 0 12px; border-radius: 14px;  
   cursor: pointer; transition: background .15s ease;
 }
 .trow:hover { background: rgba(255,255,255,.03); }
 .trow .ttl {
-  flex: 1; min-width: 0; margin: 0 0 0 4px; font-size: 14.7px; font-weight: 500; letter-spacing: -.025em; color: var(--fg);
+  flex: 1; min-width: 0; margin: 0 0 0 4px; font-size: 14.7px; font-weight: 300; letter-spacing: -.025em; color: var(--fg);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color .15s ease;
 }
 /* done and dropped rows sink to the bottom of their section, struck and dimmed */
@@ -118,46 +125,38 @@
 .tdl.soon { color: #FF9F0A; }
 .tdl.over { color: #FF453A; }
 
- 
+
+
 .trow .ball, .trow .who, .tadd .ball, .tadd .who {
   position: relative; flex: none; width: 30px; height: 30px; border-radius: var(--r-full);
   display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .ball .core, .who .wd {
-  display: block; width: 6px; height: 6px; border-radius: var(--r-full); opacity: .9;
-  transition: width .15s ease, height .15s ease, background .15s ease, border-color .15s ease;
+  display: block; width: 14px; height: 14px; border-radius: var(--r-full); opacity: .9;
+  transition: transform .15s ease, background .15s ease, border-color .15s ease;
 }
-.trow .ball:hover .core, .trow .who:hover .wd { width: 9px; height: 9px; }
+.trow .ball:hover .core, .trow .who:hover .wd { transform: scale(1.1); }
 
-/* status: open and dropped hollow; doing white, waiting blue, done green (+ check), blocked red */
+/* status: open and dropped hollow; doing white, waiting blue, done a plain solid green, blocked red.
+   No check glyph and no animation on any state — the colour alone carries the state. */
 .ball .core { border: 1.5px solid var(--fg-3); background: transparent; }
 .ball.doing .core { border: 0; background: #F5F5F0; }
 .ball.waiting .core { border: 0; background: #0A84FF; }
 .ball.blocked .core { border: 0; background: #FF453A; }
-.ball.done .core { border: 0; background: rgba(48,209,88,.45); }
-.ball .burst {
-  position: absolute; left: 50%; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px;
-  border-radius: var(--r-full); border: 1.5px solid #30D158; opacity: 0; pointer-events: none;
-}
-.ball .chk { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: #30D158; font-size: 9px; pointer-events: none; }
-.ball.done .chk { display: flex; }
-/* the ball pops on every status change, harder when it lands on done; done also bursts a ring and settles the check */
-.ball.anim .core { animation: tpop .32s cubic-bezier(.34,1.56,.64,1) both; }
-.ball.anim.done .core { animation: tpop .42s cubic-bezier(.3,1.9,.5,1) both; }
-.ball.anim.done .burst { animation: tburst .45s ease-out both; }
-.ball.anim.done .chk { animation: tcheck .32s cubic-bezier(.34,1.56,.64,1) .05s both; }
-@keyframes tpop { from { transform: scale(.6); } to { transform: none; } }
-@keyframes tburst { from { transform: scale(.6); opacity: .7; } to { transform: scale(2.2); opacity: 0; } }
-@keyframes tcheck { from { transform: scale(0); opacity: 0; } to { transform: none; opacity: 1; } }
+.ball.done .core { border: 0; background: #30D158; }
 
-/* assignee: dashed ring unassigned, department-coloured dot for an agent, cream dot for the owner, small gray dot otherwise */
+/* assignee: dashed ring unassigned, department-coloured dot for an agent, cream dot (+ initial) for the
+   owner, plain gray dot for anyone else */
 .who .wd.none { border: 1.5px dashed var(--fg-3); background: transparent; }
 .who:hover .wd.none { border-color: var(--fg-2); }
-.who .wd.agent, .who .wd.human { background: var(--wc); }
-.who .wd.other { background: var(--wc, var(--fg-3)); width: 5px; height: 5px; }
-.trow .who:hover .wd.other { width: 7px; height: 7px; }
+.who .wd.agent { background: var(--wc); }
+.who .wd.human {
+  background: var(--wc); display: inline-flex; align-items: center; justify-content: center;
+  font: 700 9px/1 var(--sans); color: var(--accent-fg);
+}
+.who .wd.other { background: var(--wc, var(--fg-3)); }
 /* the same dot inline, in the detail's assignee field and the pickers */
-.who.inl { width: 14px; height: 14px; cursor: default; }
+.who.inl { width: 14px; height: 14px; cursor: default; display: inline-flex; align-items: center; vertical-align: middle; }
 .who.inl .wd { opacity: 1; }
 
 /* the ⋯ at the right end, shown while the row is hovered; opens the detail */
@@ -171,7 +170,7 @@
 
 /* ---------------------------------------------------------------- adding */
 /* the inline add row: the balls-to-be, then the input */
-.tadd { display: flex; align-items: center; height: 48px; padding: 0 12px; }
+.tadd { display: flex; align-items: center; height: 44px; padding: 0 12px; }
 .tadd .who, .tadd .ball { cursor: default; }
 .tadd .who .wd { border: 1.5px dashed var(--fg-3); background: transparent; }
 .tadd .ball .core { border: 1.5px solid var(--fg-3); background: transparent; }

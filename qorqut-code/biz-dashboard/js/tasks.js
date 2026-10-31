@@ -19,6 +19,9 @@
 
 
 
+
+
+
 const T_ORDER = ["open", "doing", "waiting", "done"];          // the left-click cycle
 const T_CLOSED = ["done", "dropped"];
 const T_STATES = ["open", "doing", "waiting", "blocked", "done", "dropped"];   // the detail's status picker
@@ -29,10 +32,8 @@ const T_DEPTS = ["marketing", "accounting", "data-science", "code", "general"];
 const T_DEPT_TAG = {};
 Object.keys(TAG_DEPT).forEach(tag => { if (!T_DEPT_TAG[TAG_DEPT[tag]]) T_DEPT_TAG[TAG_DEPT[tag]] = tag; });
 const T_DONE_HOLD = 550;
-const T_POP = 260;           // ms the ball pop runs before a repaint may replace it
 const T_DAY = 86400000;
 
-const SVG_TCHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
 const SVG_TPLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>`;
 const SVG_TMORE = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>`;
 const SVG_TTAG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>`;
@@ -56,8 +57,8 @@ function tDept(t) {
 let tSearch = "";
 let tAdding = null;                 // department key with an open inline add row
 let tPainting = false;              // rows are being replaced: a blur fired by that detachment is not a commit
-let tAnim = null;                   // task id whose ball animates on the next paint
-let tHold = 0, tHoldT = null;       // no repaint before this time (an animation is running)
+let tPaintSig = null;               // signature of what's currently on screen; a background refresh that still
+                                     // matches it skips the rebuild entirely (no flicker, no lost hover/tooltip)
 const tCompleting = new Set();      // ids shown done but still in place
 const tDoneT = new Map();           // id -> the timer that sends the done write once the hold is over
 let tGen = 0;                       // bumped when a write starts; a refresh that began before it is stale when it lands
@@ -97,6 +98,9 @@ async function refreshTasks() {
     // a row mid-completion keeps its local done look until the write lands
     r.forEach(t => { if (tCompleting.has(t.id)) t.status = "done"; });
   } else if (r && r.error) toast(r.error);
+  // the click that caused this refresh already patched its row in place: if the server agrees with
+  // what's already on screen, tearing the whole list down and rebuilding it would only flicker for nothing
+  if (tVisSig() === tPaintSig) return;
   paintTasks();
 }
 
@@ -147,6 +151,14 @@ function tMatch(t) {
 const tTagColor = x => x === "needs-owner" ? "var(--accent)" : dept(TAG_DEPT[x]).color;
 const tDotHtml = s => `<span class="sdot ${esc(s)}"></span>`;
 
+// a cheap fingerprint of every visible row's rendered fields (order matters: it doubles as a position
+// check, since a sunk task lands in a different spot than an open one). `state.biz` is part of it too:
+// two empty task lists (no business picked vs. a business with nothing in it) render different copy.
+function tVisSig() {
+  return JSON.stringify([state.biz, (state.tasks || []).filter(tMatch).map(t =>
+    [t.id, t.status, t.owner || "", t.title, t.due || "", (t.tags || []).join(","), tSunk(t)])]);
+}
+
 // ---------------------------------------------------------------- assignee
 // none | agent (one of the business's agents) | human (the owner) | other (any other actor)
 function tWhoKind(o) {
@@ -163,11 +175,13 @@ function tWhoLeft(o) {
 }
 const tWhoRight = o => (o === tHuman() ? "" : tHuman());
 
-// the dot: dashed ring unassigned, the agent's department colour, cream for the owner, gray for anyone else
+// the dot: dashed ring unassigned, the agent's department colour (plain), cream for the owner (may carry
+// their initial), gray for anyone else
 function tWhoDot(o) {
   const k = tWhoKind(o);
   const c = k === "agent" ? dept((tMeta(o) || {}).department).color : k === "human" ? "var(--accent)" : "var(--fg-3)";
-  return `<span class="wd ${k}" style="--wc:${c}"></span>`;
+  const initial = k === "human" ? esc(tShort(o).slice(0, 1).toUpperCase()) : "";
+  return `<span class="wd ${k}" style="--wc:${c}">${initial}</span>`;
 }
 const tWhoInner = o => `<span class="who inl ${tWhoKind(o)}">${tWhoDot(o)}</span>`;
 function tWho(t) {
@@ -199,15 +213,15 @@ function tDue(t) {
   return `<span class="tdl ${tone}" title="Due ${esc(t.due)}">${text}</span>`;
 }
 
-function tBall(t, anim) {
+function tBall(t) {
   const s = t.status, label = T_LABEL[s] || s;
-  return `<button class="ball ${esc(s)}${anim ? " anim" : ""}" type="button" title="${esc(label)} — click to change, right-click to block"
-    aria-label="Status: ${esc(label)}. Click to change."><span class="core"></span><span class="burst"></span><span class="chk">${SVG_TCHECK}</span></button>`;
+  return `<button class="ball ${esc(s)}" type="button" title="${esc(label)} — click to change, right-click to block"
+    aria-label="Status: ${esc(label)}. Click to change."><span class="core"></span></button>`;
 }
 
 // `col` = this section reserves the deadline column (some row has a due date), so the balls line up
 function tRow(t, col) {
-  return `<div class="trow ${esc(t.status)}${tClosed(t) ? " off" : ""}" data-id="${esc(t.id)}">${col ? (tDue(t) || `<span class="tdl"></span>`) : ""}${tWho(t)}${tBall(t, tAnim === t.id)}<p class="ttl">${esc(t.title)}</p><button class="tmore" type="button" title="Details" aria-label="Task details">${SVG_TMORE}</button></div>`;
+  return `<div class="trow ${esc(t.status)}${tClosed(t) ? " off" : ""}" data-id="${esc(t.id)}">${col ? (tDue(t) || `<span class="tdl"></span>`) : ""}${tWho(t)}${tBall(t)}<p class="ttl">${esc(t.title)}</p><button class="tmore" type="button" title="Details" aria-label="Task details">${SVG_TMORE}</button></div>`;
 }
 
 const tAddRow = (key, col) => `<div class="tadd" data-b="${esc(key)}">${col ? `<span class="tdl"></span>` : ""}<span class="who ph"><span class="wd none"></span></span><span class="ball ph"><span class="core"></span></span><input id="taddin" placeholder="Task name…" autocomplete="off" spellcheck="false"></div>`;
@@ -215,8 +229,12 @@ const tAddRow = (key, col) => `<div class="tadd" data-b="${esc(key)}">${col ? `<
 function tSection(key, rows) {
   const d = dept(key), col = rows.some(t => !!t.due);
   const open = rows.filter(t => !tSunk(t)), sunk = rows.filter(tSunk);
+  // two ways to add to this section: the heading text/count itself, or the + — both call tOpenAdd(key)
   return `<section class="tsec" data-b="${esc(key)}">
-    <div class="tsh"><h2>${esc(d.label)}</h2><span class="c">${open.length}</span><button class="tplus" type="button" title="Add task to ${esc(d.label)}" aria-label="Add task to ${esc(d.label)}">${SVG_TPLUS}</button></div>
+    <div class="tsh">
+      <button class="tshbtn" type="button" title="Add task to ${esc(d.label)}" aria-label="Add task to ${esc(d.label)}"><h2>${esc(d.label)}</h2><span class="c">${open.length}</span></button>
+      <button class="tplus" type="button" title="Add task to ${esc(d.label)}" aria-label="Add task to ${esc(d.label)}">${SVG_TPLUS}</button>
+    </div>
     <div class="tsi">${open.concat(sunk).map(t => tRow(t, col)).join("")}${tAdding === key ? tAddRow(key, col) : ""}</div>
   </section>`;
 }
@@ -244,7 +262,6 @@ function paintTasks() {
   if (!p.querySelector(".thead")) { p.innerHTML = tHead(); tWireHead(p); }
   const st = $("#tstats"); if (st) st.innerHTML = tStats();
   if (tEditingNow()) return;
-  if (Date.now() < tHold) { clearTimeout(tHoldT); tHoldT = setTimeout(paintTasks, tHold - Date.now() + 20); return; }
 
   const prev = $("#taddin");
   const keep = prev ? prev.value : "";
@@ -269,7 +286,7 @@ function paintTasks() {
   // Chrome fires blur on the focused add input before detaching it (isConnected is still true then)
   tPainting = true;
   try { body.innerHTML = html; } finally { tPainting = false; }
-  tAnim = null;
+  tPaintSig = tVisSig();   // record what's now on screen so a later background refresh can skip a no-op rebuild
 
   body.querySelectorAll(".trow").forEach(row => {
     const t = taskById(row.dataset.id); if (!t) return;
@@ -301,8 +318,7 @@ function tWireAdd(inp) {
     if (!title) return paintTasks();
     inp.disabled = true;
     const tag = T_DEPT_TAG[key];
-    const r = await tadd({ title, owner: "", tags: tag ? [tag] : [] });
-    if (r && r.id) tAnim = r.id;
+    await tadd({ title, owner: "", tags: tag ? [tag] : [] });
     paintTasks();
   };
   inp.onkeydown = e => {
@@ -314,29 +330,62 @@ function tWireAdd(inp) {
 }
 
 // ---------------------------------------------------------------- row actions
-// optimistic: the ball changes at once (and pops), the write follows; a failed write refreshes
+// A ball or assignee click must change only its own row: no innerHTML rebuild of the list, so no lost
+// hover/tooltip state on the row under the mouse and no flicker on the rows around it. `tPaintSig` is kept
+// in sync with the patch so the write's own refresh (which lands ~0.3-0.6s later) sees nothing changed
+// and skips its own repaint (see refreshTasks()).
+function tPatchRow(t) {
+  const row = [...document.querySelectorAll(".trow")].find(r => r.dataset.id === t.id);
+  if (!row) { paintTasks(); return; }
+  const closed = tClosed(t);
+  row.className = `trow ${t.status}${closed ? " off" : ""}`;
+  const ball = row.querySelector(".ball");
+  if (ball) {
+    const label = T_LABEL[t.status] || t.status;
+    ball.className = `ball ${t.status}`;
+    ball.title = `${label} — click to change, right-click to block`;
+    ball.setAttribute("aria-label", `Status: ${label}. Click to change.`);
+  }
+  const who = row.querySelector(".who");
+  if (who) {
+    const o = t.owner || "";
+    who.className = `who ${tWhoKind(o)}`;
+    who.setAttribute("aria-label", `Assignee: ${esc(o || "unassigned")}`);
+    who.innerHTML = tWhoDot(o);
+    if (typeof tip === "function") tip(who, () => tWhoTip(t));   // same node: rebinding is cheap, no flicker
+  }
+  const dl = row.querySelector(".tdl");
+  if (dl) dl.outerHTML = tDue(t) || `<span class="tdl"></span>`;
+  tPaintSig = tVisSig();
+}
+
+// optimistic: the ball changes at once, in place, the write follows; a failed write refreshes
 function tSetStatus(t, next) {
   if (!next || next === t.status) return;
   const id = t.id, biz = state.biz;
   // another change during the completion hold cancels the pending done write
   if (tDoneT.has(id)) { clearTimeout(tDoneT.get(id)); tDoneT.delete(id); tCompleting.delete(id); }
-  t.status = next; tAnim = id;
+  t.status = next;
   if (next === "done") {
     tCompleting.add(id);
-    paintTasks(); tHold = Date.now() + T_DONE_HOLD + 120;
-    tDoneT.set(id, setTimeout(async () => {
+    tPatchRow(t);
+    // the hold is the row staying in tCompleting (tSunk() keeps it in place), not a blocked repaint: once
+    // it elapses we repaint to sink it, then fire the real write (whose own refresh will find nothing changed)
+    tDoneT.set(id, setTimeout(() => {
       tDoneT.delete(id); tCompleting.delete(id);
-      if (state.biz === biz) await tdone(id);
+      paintTasks();
+      if (state.biz === biz) tdone(id);
     }, T_DONE_HOLD));
   } else {
-    paintTasks(); tHold = Date.now() + T_POP;
+    tPatchRow(t);
     twrite(id, { set: { status: next } });
   }
 }
 
 function tSetOwner(t, o) {
   if (o == null || o === (t.owner || "")) return;
-  t.owner = o; paintTasks();
+  t.owner = o;
+  tPatchRow(t);
   twrite(t.id, { set: { owner: o } });
 }
 
@@ -438,6 +487,8 @@ function tWireHead(p) {
   panel.addEventListener("click", e => {
     const plus = e.target.closest(".tplus");
     if (plus) { const sec = plus.closest(".tsec"); return void tOpenAdd(sec ? sec.dataset.b : "general"); }
+    const head = e.target.closest(".tshbtn");
+    if (head) { const sec = head.closest(".tsec"); return void tOpenAdd(sec ? sec.dataset.b : "general"); }
     if (e.target.closest("#taddbottom") || e.target.closest(".tempty .create")) return void tOpenAdd("general");
     if (e.target.closest(".tadd")) return;
     const row = e.target.closest(".trow"); if (!row) return;
