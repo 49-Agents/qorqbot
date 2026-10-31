@@ -216,7 +216,8 @@ class Fastmail:
 
     @staticmethod
     def mime(message, parent=None):
-        mail = EmailMessage(policy=SMTP)
+        # Keep long ASCII message-id tokens intact instead of RFC 2047 encoding.
+        mail = EmailMessage(policy=SMTP.clone(max_line_length=998))
         mail["From"] = formataddr((message.from_name, message.from_address))
         for key, values in (("To", message.to), ("Cc", message.cc), ("Bcc", message.bcc)):
             if values:
