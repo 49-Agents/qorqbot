@@ -104,7 +104,7 @@ async function loadGlobalSummaries(c, generation) {
     const live = liveResult.status === 'fulfilled' && liveResult.value && !liveResult.value.error ? liveResult.value : null;
     const mine = tasks && ownerId ? tasks.filter(t => (t.assignee_ids || []).includes(ownerId) && !t.archived && !t.closed) : null;
     const pending = live && Number.isInteger(live.signoffs_pending) ? live.signoffs_pending : null;
-    const requests = live && !live.requests_error && Array.isArray(live.requests) ? live.requests.filter(r => r.state === 'submitted').length : null;
+    const requests = live && Array.isArray(live.platform_signoffs) ? live.platform_signoffs.filter(r => r.state === 'pending').length : null;
     const card = [...c.querySelectorAll('[data-business]')].find(el => el.dataset.business === b.slug);
     if (!card) return;
     const metric = (label, count, view, hint = '') => `<button class="global-metric" data-summary-view="${view}" ${view === 'questions' ? 'aria-disabled="true"' : ''} aria-label="${esc(label)}: ${count == null ? 'unavailable' : count}" title="${esc(hint || (count == null ? 'Summary unavailable' : label))}"><strong class="${count === 0 ? 'zero' : ''}">${count == null ? '—' : count}</strong><span class="global-metric-icon">${view === 'requests' ? globalIcon('requests') : T_VIEW_ICON[view]}</span></button>`;

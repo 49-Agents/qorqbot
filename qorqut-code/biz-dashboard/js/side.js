@@ -14,9 +14,9 @@ async function refreshSide() {
   const logEl = $("#log");                                   // no log on screen right now; the rows are parked in logHtml()
   if (logEl) { logEl.innerHTML = rows.length ? logHtml(rows) : `<div class="empty">Nothing logged yet.</div>`; logTips(logEl, rows); }
   logToasts(biz, rows);
-  // /live is {sessions, requests, requests_error}; the requests feed the Marketing toasts and badge (no second poll loop)
+  // The shared platform Signoff feed supplies Marketing badges and outcome notifications.
   const sessions = Array.isArray(live) ? live : (live && Array.isArray(live.sessions) ? live.sessions : []);
-  const reqs = (live && Array.isArray(live.requests)) ? live.requests : [];
+  const reqs = (live && Array.isArray(live.platform_signoffs)) ? live.platform_signoffs.map(mkPlatformRow) : [];
   if (typeof mkLiveToasts === "function") mkLiveToasts(biz, reqs);
   if (typeof mkBadgePaint === "function" && state.tab !== "marketing") mkBadgePaint(reqs);
   if (typeof rtFailureToasts === "function") rtFailureToasts(live && live.routine_failures);

@@ -81,3 +81,10 @@
 .sg-toast .sg-toast-snooze { border:1px solid var(--line-2); border-radius:12px; padding:3px 10px; margin-top:8px; }
 .sg-toast .sg-toast-error { color:#ef7777; }
 .sg-toast button:focus-visible { outline:2px solid var(--fg); outline-offset:3px; }
+
+.sg-platform { min-width: 0; }
+.sg-platform-field { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; margin: 6px 0; font-size: 13px; overflow-wrap: anywhere; }
+.sg-platform-field strong { color: var(--fg-2); font-weight: 500; }
+.sg-message { white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.6 var(--sans); margin: 10px 0; }
+.sg-recipient { padding: 12px 0; border-top: 1px solid var(--line-2); }
+.sg-platform h3 { font-size: 14px; margin: 12px 0 6px; }
