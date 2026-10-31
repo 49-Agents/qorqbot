@@ -25,15 +25,16 @@ function agpadTerminalButton(tools, old) {
 
 function agpadGroups(tasks, name) {
   const actor = `agent:${name}`;
+  const created = t => t.created_by ? t.created_by_kind === 'agent' && String(t.created_by_name || '').toLowerCase() === name.toLowerCase() : t.notes?.[0]?.by === actor;
   const unfinished = tasks.filter(t => !tClosed(t));
   const open = unfinished.filter(t => !taskSnoozed(t));
   const owned = open.filter(t => tAssignees(t).includes(actor));
   return {
     open: owned,
-    // `by` is last editor, not creator. The first note is only a proxy: it can
-    // have been added after creation, by someone other than the task's creator.
-    waiting: open.filter(t => !tAssignees(t).includes(actor) && t.notes && t.notes[0] && t.notes[0].by === actor),
-    snoozed: unfinished.filter(t => taskSnoozed(t) && (tAssignees(t).includes(actor) || t.notes?.[0]?.by === actor)),
+    // Lists carry creator attribution without downloading the entire note history.
+    // Retain the first-note proxy only for older payloads without a creator ID.
+    waiting: open.filter(t => !tAssignees(t).includes(actor) && created(t)),
+    snoozed: unfinished.filter(t => taskSnoozed(t) && (tAssignees(t).includes(actor) || created(t))),
   };
 }
 
@@ -81,6 +82,7 @@ function agpadSetView(p, view) {
   p.view = view;
   p.bodyHtml = null;
   p.el.innerHTML = tHead({ view, views: p.views, bodyId: "agpad-body", taskTools: false });
+  if (typeof agentCurrentWorkMount === 'function') agentCurrentWorkMount(p);
   tWireHead(p.el, from, next => agpadSetView(p, next));
   if (view === "activity") p.nextLog = 0;
   if (view === "inbox") p.nextInbox = 0;
@@ -155,6 +157,7 @@ async function agpadRefreshLog(p) {
 function agpadTick() {
   const p = _agpad;
   if (!agpadActive(p)) return;
+  if (typeof agentCurrentWorkRefresh === 'function' && Date.now() >= (p.nextActivity || 0)) agentCurrentWorkRefresh(p);
   if (p.views.includes('focus')) agfocusTick(p);
   if (p.view === 'focus') return;
   if (p.view === 'globalTasks') return;

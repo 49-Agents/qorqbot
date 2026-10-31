@@ -29,10 +29,10 @@ async function renderGlobalAgents(c) {
   const list = $('#global-agent-list', c), pane = $('#global-agent-terminal', c);
   list.innerHTML = `<button class="item agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}">
     <span class="nm">${GLOBAL_TERMINAL_ICON}<span class="tt">Terminal</span></span>
-    <span class="ldot" data-global-agent-status title="Idle"></span>
+    <span class="ldot" data-global-agent-status title="Terminal not connected"></span>
   </button>` + agents.map(agent => `<button class="item agent" type="button" data-global-agent="${esc(agent.agent_id)}">
     <span class="nm">${identityAvatar("agent", agent.display_name || agent.name, {...agent, ...agent.presentation})}<span class="tt">${esc(agent.display_name || agent.name)}</span></span>
-    <span class="ldot ${terms.some(t => t.agent_id === agent.agent_id && !t.done) ? 'live' : ''}" data-global-agent-status title="${terms.some(t => t.agent_id === agent.agent_id && !t.done) ? 'Running' : 'Idle'}"></span>
+    <span class="ldot ${terms.some(t => t.agent_id === agent.agent_id && !t.done) ? 'live' : ''}" data-global-agent-status title="${terms.some(t => t.agent_id === agent.agent_id && !t.done) ? 'Terminal open' : 'Terminal not connected'}"></span>
   </button>`).join('');
   let selected;
   const select = agent => {
@@ -50,7 +50,7 @@ async function renderGlobalAgents(c) {
       const button = [...list.querySelectorAll('[data-global-agent]')].find(b => b.dataset.globalAgent === selected);
       const dot = $('[data-global-agent-status]', button);
       dot.classList.toggle('live', status === 'live');
-      dot.title = status === 'live' ? 'Running' : status === 'ended' ? 'Exited' : 'Disconnected';
+      dot.title = status === 'live' ? 'Terminal connected' : status === 'ended' ? 'Terminal exited' : 'Terminal disconnected';
     }, workspace ? '/root/workspace-terminal' : `/root/terminal/${encodeURIComponent(agent.agent_id)}`);
     agpadMount(workspace ? '' : (agent.display_name || agent.name), $('#agpad', c), workspace ? {
       biz: null, open: false, isCurrent: () => false,
