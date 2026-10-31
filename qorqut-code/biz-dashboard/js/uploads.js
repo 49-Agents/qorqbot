@@ -102,7 +102,7 @@ function upThumbHtml(x, i) {
 }
 function upDoneHtml() {
   if (!upDone.length) return "";
-  return `<div class="updone"><div class="upeyebrow">This session</div>${upDone.slice(0, 40).map(r => `<div class="updrow${r.ok ? "" : " bad"}"><span class="updk">${r.kind === "text" ? "context" : r.kind === "data" ? "data" : "asset"}</span><span class="updl">${esc(r.label)}</span><span class="updr">${r.ok ? esc(r.path || r.id) : esc(r.error)}</span></div>${r.ok&&r.resourceId?`<div class="up-stories" data-upload-resource="${esc(r.resourceId)}" aria-label="Related stories"></div>`:''}`).join("")}</div>`;
+  return `<div class="updone"><div class="upeyebrow">This session</div>${upDone.slice(0, 40).map(r => `<div class="updrow${r.ok ? "" : " bad"}"><span class="updk">${r.kind === "text" ? "context" : r.kind === "data" ? "data" : "asset"}</span><span class="updl">${esc(r.label)}</span><span class="updr">${r.ok ? esc(r.path || "Uploaded successfully") : esc(r.error)}</span></div>${r.ok&&r.resourceId?`<div class="up-stories" data-upload-resource="${esc(r.resourceId)}" aria-label="Related stories"></div>`:''}`).join("")}</div>`;
 }
 
 // The Marketing tab's Assets view calls this from its "Upload assets" button: open the panel on the Uploads

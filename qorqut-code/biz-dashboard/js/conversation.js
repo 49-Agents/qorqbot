@@ -14,7 +14,8 @@ function conversationAge(at) {
   return `${n} ${unit}${n===1?'':'s'} ago`;
 }
 function conversationPersonName(person) {
-  return person.created_by_name || person.author_name || person.display_name || person.name || person.created_by || person.actor_id || 'Unknown';
+  const profile=typeof globalAgentProfile==='function'?globalAgentProfile(person.created_by || person.actor_id):null;
+  return person.created_by_name || person.author_name || person.display_name || person.name || profile?.display_name || profile?.name || 'Unknown participant';
 }
 function conversationGlyph(person,size) {
   const profile=typeof globalAgentProfile==='function'?globalAgentProfile(person.created_by):null;

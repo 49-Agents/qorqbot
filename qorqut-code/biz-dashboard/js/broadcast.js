@@ -395,7 +395,7 @@ async function renderBroadcast(c, context) {
         (data.deliveries || [])
           .map(
             (d) =>
-              `<div><strong>${esc(names[d.recipient_id] || d.recipient_id)}</strong><span>${esc(d.state || "queued")}${d.detail ? ` · ${esc(d.detail)}` : ""}</span></div>`,
+              `<div><strong>${esc(names[d.recipient_id] || "Unknown recipient")}</strong><span>${esc(d.state || "queued")}${d.detail ? ` · ${esc(d.detail)}` : ""}</span></div>`,
           )
           .join("") || "No delivery attempts yet.";
     } catch (error) {

@@ -44,3 +44,9 @@
 
 .agfocus-detail-body [data-task-back],.agfocus-detail-body .global-task-editor-heading [data-back]{display:none}
 .agfocus-detail-body .task-inline-actions{display:flex;justify-content:flex-end;margin-bottom:12px}
+
+.agfocus-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}
+.agfocus-toolbar .agfocus-controls{margin:0;gap:5px}
+.agfocus .agfocus-actions .conversation-toggle{width:34px;height:34px;min-height:34px;padding:7px}
+.agfocus .agfocus-actions .conversation-toggle svg{width:20px;height:20px}
+.agfocus .agfocus-heading{align-items:center}
