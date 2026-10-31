@@ -79,41 +79,47 @@
 .ntrowdel:hover { color: #FF6B5E; background: var(--hover); transform: none; }
 .ntfoot { flex: none; padding: 16px 24px; font-size: 11px; color: var(--fg-2); opacity: .6; }
 
-.nteditor { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; border-left: 1px solid var(--line); }
-.ntedinner { max-width: 760px; margin: 0 auto; padding: 80px 40px 128px; }
+/* -- editor: one rule set for Notes AND Journal (journal.css only points here), so a new page and a new
+   memo put their headline, controls and meta line on exactly the same spot. Layout is the journal's
+   (900px column, 64px top), look is Notes'. */
+.nteditor, .jreditor { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; border-left: 1px solid var(--line); }
+.ntedinner, .jredinner { max-width: 900px; margin: 0 auto; padding: 64px 40px 128px; }
 
-.ntedhead { display: flex; align-items: flex-start; gap: 12px; }
-.nttitlein {
+.ntedhead, .jredhead { display: flex; align-items: flex-start; gap: 12px; }
+.nttitlein, .jrtitlein {
   flex: 1; min-width: 0; resize: none; overflow: hidden; border: 0; background: none; outline: none; box-shadow: none;
   font: 600 26px/1.5 var(--sans); letter-spacing: -.02em; color: var(--fg); padding: 4px 0;
 }
-.nttitlein::placeholder { color: var(--fg-3); }
-.nttitlein:focus { border: 0; box-shadow: none; background: none; }
-.ntedctrls { flex: none; display: flex; align-items: center; gap: 8px; padding-top: 5px; }
-.nt .ntghost {
+.nttitlein::placeholder, .jrtitlein::placeholder { color: var(--fg-3); }
+/* chromeless: the global textarea:focus ring (app.css) would otherwise put a border/box-shadow on focus */
+.nttitlein:focus, .jrtitlein:focus { border: 0; box-shadow: none; background: none; }
+.ntedctrls, .jredctrls { flex: none; display: flex; align-items: center; gap: 8px; padding-top: 5px; }
+/* the quiet ghost pill (Discard, and Journal's Upload/Re-upload) — same language as context view's
+   Save/Discard (css/context.css .jbtn) */
+.nt .ntghost, .jr .jbtn {
   flex: none; height: 26px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: var(--r-full);
   background: none; color: var(--fg-2); font: 600 12px var(--sans); cursor: pointer;
   transition: color .15s ease, border-color .15s ease;
 }
-.nt .ntghost:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-3); transform: none; }
-.nt .ntghost:disabled { opacity: .4; cursor: default; }
-.ntsavewrap { display: inline-flex; align-items: center; }
-.ntsavepill {
+.nt .ntghost:hover:not(:disabled), .jr .jbtn:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-3); transform: none; }
+.nt .ntghost:disabled, .jr .jbtn:disabled { opacity: .4; cursor: default; }
+.ntsavewrap, .jrsavewrap { display: inline-flex; align-items: center; }
+.ntsavepill, .jrsavepill {
   height: 32px; padding: 0 14px; border: 0; border-radius: var(--r-full); background: var(--fg); color: var(--bg);
   font: 600 12px var(--sans); cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
   transition: opacity .15s ease;
 }
-.ntsavepill:hover { opacity: .88; transform: none; }
-.ntsavepill.busy { cursor: default; opacity: .7; }
-.ntring { flex: none; }
-.ntsaved { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 4px; font: 500 12px var(--sans); color: var(--fg-3); }
-.ntsaved svg { width: 13px; height: 13px; }
-.ntmeta { margin-top: 8px; padding-left: 4px; }
+.ntsavepill:hover, .jrsavepill:hover { opacity: .88; transform: none; }
+.ntsavepill.busy, .jrsavepill.busy { cursor: default; opacity: .7; }
+.ntring, .jrring { flex: none; }
+.ntsaved, .jrsaved { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 4px; font: 500 12px var(--sans); color: var(--fg-3); }
+.ntsaved svg, .jrsaved svg { width: 13px; height: 13px; }
+.ntmeta, .jrmeta { margin-top: 16px; padding-left: 4px; letter-spacing: -0.025em; font-size: 12.5px; color: var(--fg-2); }
 .ntmeta .sep { margin: 0 6px; color: var(--fg-3); opacity: .55; }
-.ntmeta-date { font-size: 12px; color: var(--fg-2); }
+.ntmeta-date { font-size: 12.5px; color: var(--fg-2); }
 .ntmeta-words { font-size: 11px; color: rgba(138,138,138,.4); opacity: 0; transition: opacity .15s ease; }
 .ntedinner:hover .ntmeta-words { opacity: 1; }
-.nthr { height: 1px; background: var(--line); margin: 0 0 48px; }
+.nthr, .jrhr { height: 1px; background: var(--line); margin: 0 0 48px; }
 
 
 

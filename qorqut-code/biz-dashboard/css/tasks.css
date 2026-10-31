@@ -44,7 +44,7 @@
   color: var(--fg-2); cursor: pointer; transition: color .14s ease, background .14s ease;
 }
 /* explicit size: `.tasks svg { width: 1em }` above otherwise shrinks these to ~15px whatever the SVG attrs say */
-.ttab svg { display: block; width: 24px; height: 24px; }
+.ttab svg { display: block; width: 19px; height: 19px; }
 .ttab:hover { color: var(--fg); background: var(--hover); transform: none; }
 .ttab.on { color: var(--fg); background: none; }
 .tind {
