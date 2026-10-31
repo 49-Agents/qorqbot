@@ -31,7 +31,7 @@ async function renderGlobalAgents(c) {
   }
   const list = $('#global-agent-list', c), pane = $('#global-agent-terminal', c);
   list.innerHTML = agents.map(agent => `<button class="item agent" type="button" data-global-agent="${esc(agent.agent_id)}">
-    <span class="nm">${globalIcon('agents')}<span class="tt">${esc(agent.display_name || agent.name)}</span></span>
+    <span class="nm">${identityAvatar("agent", agent.display_name || agent.name, {...agent, ...agent.presentation})}<span class="tt">${esc(agent.display_name || agent.name)}</span></span>
     <span class="ldot ${terms.some(t => t.agent_id === agent.agent_id && !t.done) ? 'live' : ''}" data-global-agent-status title="${terms.some(t => t.agent_id === agent.agent_id && !t.done) ? 'Running' : 'Idle'}"></span>
   </button>`).join('');
   let selected;

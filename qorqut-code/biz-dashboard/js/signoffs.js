@@ -1,3 +1,7 @@
+function sgAttentionTags(item) {
+  return ['urgent', 'blocking'].filter(key => item.state === 'pending' && item.attention?.[key])
+    .map(key => `<span class="sg-priority-tag">${key === 'urgent' ? 'Urgent' : 'Blocking'}</span>`).join('');
+}
 // Exact approved platform content is shared by the drawer and Marketing review.
 function sgPlatformComplete(s) {
   const submission = s.platform?.submission;
@@ -245,7 +249,7 @@ function sgCreateView(options) {
         html(row.querySelector('.sg-campaign'),s.platform?.campaign_id?storyCampaignBadge(s.platform.campaign_id,s.platform.campaign_title):'');
         const proposer = s.proposer_display_name || s.proposer_principal_id || "Unknown proposer";
         const initiator = s.initiated_by_principal_id ? ` / initiated by ${s.initiated_by_display_name || s.initiated_by_principal_id}` : "";
-        html(row.querySelector(".sg-rowmeta"), `<span>${esc(proposer + initiator)}</span>${s.proposer_department ? departmentTag(s.proposer_department) : ''}<time datetime="${esc(s.created_at)}" title="${esc(stamp(s.created_at))}">${esc(age(s.created_at))}</time><span class="sg-scope${s.affected_scope && s.affected_scope.kind === "global" ? " sg-global" : ""}">${esc(scopeText(s.affected_scope))}</span>`);
+        html(row.querySelector(".sg-rowmeta"), `${sgAttentionTags(s)}<span>${esc(proposer + initiator)}</span>${s.proposer_department ? departmentTag(s.proposer_department) : ''}<time datetime="${esc(s.created_at)}" title="${esc(stamp(s.created_at))}">${esc(age(s.created_at))}</time><span class="sg-scope${s.affected_scope && s.affected_scope.kind === "global" ? " sg-global" : ""}">${esc(scopeText(s.affected_scope))}</span>`);
         detailPaint(row, s);
       });
       [...content.children].forEach(row => { if (!groups[name].some(s => s.id === row.dataset.id)) row.remove(); });
@@ -253,7 +257,7 @@ function sgCreateView(options) {
     const foreign = options.item ? [] : attention.urgent.filter(item=>item.review_business_id !== sg.businessId);
     const urgentSection = sg.mount.querySelector('.sg-urgent');
     urgentSection.hidden = sg.responded || (!groups.urgent.length && !foreign.length);
-    html(urgentSection.querySelector('.sg-foreign'), foreign.map(item=>`<button type="button" class="sg-urgent-link" data-attention-id="${esc(item.id)}"><small>${esc(item.business_name)}</small><span>${esc(item.title)}</span></button>`).join(''));
+    html(urgentSection.querySelector('.sg-foreign'), foreign.map(item=>`<button type="button" class="sg-urgent-link" data-attention-id="${esc(item.id)}"><small>${esc(item.business_name)}</small><span>${esc(item.title)}</span>${sgAttentionTags(item)}</button>`).join(''));
     const more = sg.mount.querySelector(".sg-more");
     more.hidden = !sg.nextCursor; more.disabled = sg.loading;
     if (focused && !focused.isConnected && oldRow) {

@@ -84,6 +84,7 @@ function agpadSetView(p, view) {
   if (view === "inbox") p.nextInbox = 0;
   if (view === "signoffs") { agpadSignoffs().paint(); p.nextSignoffs = Date.now() + AGPAD_POLL_MS; }
   agpadPaint(p);
+  if (typeof sgAgentAttentionPaint === "function") sgAgentAttentionPaint();
   agpadTick();
 }
 

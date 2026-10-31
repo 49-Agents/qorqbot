@@ -22,3 +22,10 @@
 
 .agpad-message summary { cursor: pointer; }
 .agpad-message-body { white-space: pre-wrap; margin-top: 10px; cursor: text; user-select: text; }
+
+/* Match the task section headings throughout the agent pane. */
+.agpad .agpad-inbox-heading, .agpad .sg h2, .agpad .sg h3, .agpad .sg h4 {
+  font-size:11px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--fg-2); opacity:.6; line-height:1;
+}
+.agpad-toggle { position:relative; overflow:visible; }

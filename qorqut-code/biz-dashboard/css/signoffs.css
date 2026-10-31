@@ -89,3 +89,5 @@
 .sg .sg-rows { display:flex; flex-direction:column; gap:16px; }
 .sg-urgent:not([hidden]) + .sg-waiting { margin-top:16px; }
 .sg-rows:not(:empty) + .sg-foreign:not(:empty) { margin-top:16px; }
+
+.sg-priority-tag { display:inline-flex; align-items:center; padding:3px 7px; border:1px solid rgba(255,69,58,.3); border-radius:999px; background:rgba(255,69,58,.08); color:#FF453A; font-size:10px; font-weight:600; line-height:1.2; }

@@ -313,3 +313,8 @@
 .task-assignee-column .task-chip,.task-department-column .task-chip { flex:0 1 auto; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
 .personal-task .task-chips { flex:0 0 200px; max-width:200px; }
 @media(max-width:800px){.tasks .personal-task{flex-wrap:wrap}.personal-task .ttl{flex-basis:calc(100% - 90px)}.personal-task .task-chips{max-width:100%;margin-left:0;flex:1 1 160px}.task-assignee-column,.task-department-column{flex-basis:110px}}
+
+.task-assigner-column { display:inline-flex; align-items:center; gap:3px; flex:0 0 26px; min-width:26px; }
+.task-assigner-column:has(.identity-avatar:nth-child(2)) { flex-basis:auto; }
+.task-assignee-column .task-chip { display:inline-flex; align-items:center; gap:5px; }
+.task-assignee-column .identity-avatar { width:20px; height:20px; }

@@ -287,7 +287,7 @@ function paintList() {
     const running = live.has(a.name);
     const pinned = o.pinned.indexOf(name) >= 0;
     return `<div class="item agent ${a.name === state.agent ? "on" : ""}" draggable="${!grouped}" data-a="${esc(a.name)}" data-sec="${esc(secKind)}" data-idx="${secIdx}" data-pinned="${pinned ? 1 : 0}">
-      <div class="nm">${agentGlyph(a, 10)}<span class="tt">${esc(a.name)}</span></div>
+      <div class="nm">${identityAvatar("agent", a.name, a)}<span class="tt">${esc(a.name)}</span></div>
       <span class="ldot ${running ? "live" : ""}" data-st title="${running ? "running" : "idle"}"></span>
     </div>`;
   };
@@ -420,7 +420,7 @@ function wireAgentDrag(rows) {
 }
 function paintHead(a) {
   const ch = $("#chat"); if (!ch) return;
-  const g = $("#aglyph"); if (g) { g.innerHTML = agentGlyph(a, 18); g.title = "Change look"; g.onclick = () => lookModal(a); }
+  const g = $("#aglyph"); if (g) { g.innerHTML = identityAvatar("agent", a.name, a); g.title = "Change look"; g.onclick = () => lookModal(a); }
   const b = $("#deptbadge"); const d = dept(a.department);
   if (b) b.innerHTML = `${departmentIcon(a.department, 14)}<span>${esc(d.label)}</span>`;
 }

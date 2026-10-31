@@ -1,3 +1,16 @@
+function sgAgentAttentionPaint() {
+  const pane = typeof _agpad !== 'undefined' ? _agpad : null;
+  const items = pane?.agent ? sgAttention.urgent.filter(item => item.business_slug === pane.biz) : [];
+  const blocking = items.filter(item => item.attention?.blocking);
+  const business = pane && sgAttention.businesses.find(item => item.slug === pane.biz);
+  const count = business?.signoffs || items.length;
+  for (const [selector, amount, red] of [['#agpad .ttab[data-v="signoffs"]', count, items.length > 0], ['#agpad-toggle', blocking.length, true]]) {
+    const target = document.querySelector(selector);
+    if (!target) continue;
+    target.querySelector('.sg-signoff-count')?.remove();
+    if (amount) target.insertAdjacentHTML('beforeend', `<span class="sg-signoff-count${red ? ' urgent' : ''}" aria-label="${amount} ${selector === '#agpad-toggle' ? 'blocking' : 'waiting'} signoffs">${amount}</span>`);
+  }
+}
 // One owner attention projection, shared by all workspaces. No automatic navigation.
 const sgAttention = { businesses: [], urgent: [], deliveries: [], loading: false, error: null };
 const SG_BELL = '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/></svg>';
@@ -36,6 +49,7 @@ function sgAttentionPaint() {
     const count = b?.signoffs || sgAttention.urgent.length;
     if (count) tab.insertAdjacentHTML('beforeend', `<span class="sg-signoff-count${urgent ? ' urgent' : ''}" aria-label="${count} waiting signoffs${urgent ? ', urgent or blocking signoffs' : ''}">${count}</span>`);
   }
+  sgAgentAttentionPaint();
   let host = document.querySelector('#sg-toast-host');
   if (!host) {
     host = document.createElement('div'); host.id='sg-toast-host'; host.setAttribute('aria-live','polite');
