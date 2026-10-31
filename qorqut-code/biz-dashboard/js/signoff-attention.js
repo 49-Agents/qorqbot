@@ -3,7 +3,7 @@ function sgAgentAttentionPaint() {
   const items = pane?.agent ? sgAttention.urgent.filter(item => item.business_slug === pane.biz) : [];
   const blocking = items.filter(item => item.attention?.blocking);
   const business = pane && sgAttention.businesses.find(item => item.slug === pane.biz);
-  const count = business?.signoffs || items.length;
+  const count = business?.signoffs ?? items.length;
   for (const [selector, amount, red] of [['#agpad .ttab[data-v="signoffs"]', count, items.length > 0], ['#agpad-toggle', blocking.length, true]]) {
     const target = document.querySelector(selector);
     if (!target) continue;
@@ -42,8 +42,9 @@ function sgAttentionPaint() {
   if (tab) {
     tab.querySelector('.sg-signoff-count')?.remove();
     const b = sgAttention.businesses.find(b => b.slug === (state.scope === 'global' ? null : state.biz));
-    const count = b?.signoffs || sgAttention.urgent.length;
-    if (count) tab.insertAdjacentHTML('beforeend', `<span class="sg-signoff-count${urgent ? ' urgent' : ''}" aria-label="${count} waiting signoffs${urgent ? ', urgent or blocking signoffs' : ''}">${count}</span>`);
+    const count = state.scope === 'global' ? sgAttention.businesses.reduce((sum, row) => sum + (row.signoffs || 0), 0) : b?.signoffs ?? 0;
+    const scopeUrgent = state.scope === 'global' ? urgent : !!b?.urgent;
+    if (count) tab.insertAdjacentHTML('beforeend', `<span class="sg-signoff-count${scopeUrgent ? ' urgent' : ''}" aria-label="${count} waiting signoffs${scopeUrgent ? ', urgent or blocking signoffs' : ''}">${count}</span>`);
   }
   sgAgentAttentionPaint();
   let host = document.querySelector('#sg-toast-host');

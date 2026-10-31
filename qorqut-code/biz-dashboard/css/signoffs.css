@@ -36,6 +36,7 @@
 .sg .sg-command { display: inline-flex; align-items: center; min-height: 32px; height: auto; padding: 5px 8px; background: none; border: 1px solid var(--line-2); border-radius: 6px; color: var(--fg-2); font: 12px/1.5 var(--sans); white-space: normal; }
 .sg-command:hover { background: var(--hover); color: var(--fg); transform: none; }
 .sg-more { margin-top: 18px; }
+.sg .sg-command[hidden] { display:none; }
 .sg-error { color: #e9a09c; font-size: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 0; overflow-wrap: anywhere; }
 .sg-notice, .sg-meta { font-size: 12px; color: var(--fg-2); margin: 8px 0; }
 .sg-empty { min-height: 54px; padding: 16px 0; color: var(--fg-3); font-size: 13px; margin: 0; }

@@ -316,9 +316,9 @@
 
 .task-assigner-column { display:inline-flex; align-items:center; gap:3px; flex:0 0 26px; min-width:26px; }
 .task-assigner-column:has(.identity-avatar:nth-child(2)) { flex-basis:auto; }
-.task-assignee-column { flex-wrap:wrap; align-items:center; gap:6px; overflow:visible; }
-.task-assignee-column .task-chip { display:block; flex:0 0 auto; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.task-assignee-column .identity-avatar { width:20px; height:20px; margin-right:5px; vertical-align:middle; }
+.task-assignee-column { align-items:center; gap:4px; }
+.task-assignee-avatar { display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; padding:0; border:0; background:none; }
+.task-assignee-more { font-size:11px; color:var(--fg-2); }
 
 /* Reserve the same story column on every row so other columns stay aligned. */
 .task-chips .task-chip { flex:none; max-width:128px; padding:2px 6px!important; border-radius:999px!important; font-size:10px; line-height:1.4; min-height:20px; height:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

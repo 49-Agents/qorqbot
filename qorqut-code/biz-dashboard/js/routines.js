@@ -2,6 +2,8 @@
 let rtData = null, rtRuns = null, rtBiz = null, rtGeneration = 0;
 let rtPage = 'active', rtShowPaused = false, rtDialog = null;
 let rtPreviewTimer = null, rtPreviewGeneration = 0, rtError = null;
+const rtCache = new Map();
+let rtPending = null;
 const rtGlobal = () => state.scope === 'global';
 const rtContextBiz = () => state.biz;
 const rtContextKey = () => rtGlobal() ? 'global' : state.biz;
@@ -34,29 +36,41 @@ function rtTime(value, zone) {
 function tPaintRoutines() {
   if (rtBiz !== rtContextKey()) {
     if (rtDialog) rtDialog.close();
-    rtDialog = null; rtBiz = rtContextKey(); rtData = null; rtRuns = null; rtError = null; rtGeneration++;
+    rtDialog = null; rtBiz = rtContextKey();
+    const cached = rtCache.get(rtBiz);
+    rtData = cached?.data || null; rtRuns = cached?.runs || null; rtError = null; rtGeneration++;
   }
   rtRender(); rtRefresh();
 }
-async function rtRefresh() {
+function rtRefresh() {
+  const key = JSON.stringify([rtContextKey(), rtGeneration, rtPage]);
+  if (rtPending?.key === key) return rtPending.promise;
+  const pending = {};
+  pending.promise = rtLoad().finally(() => { if (rtPending === pending) rtPending = null; });
+  pending.key = JSON.stringify([rtContextKey(), rtGeneration, rtPage]);
+  rtPending = pending;
+  return pending.promise;
+}
+async function rtLoad() {
   if (!rtVisible() || !rtGlobal() && !rtContextBiz()) return;
   const biz = rtContextBiz(), key = rtContextKey(), global = rtGlobal(), generation = ++rtGeneration;
   const current = () => key === rtContextKey() && generation === rtGeneration && rtVisible();
   const base = rtEndpoint(global, biz);
   try {
-    const [data, logs] = await Promise.all([api(base), api(base + '/runs?n=50')]);
+    const [data, logs] = await Promise.all([api(base), rtPage === 'logs' ? api(base + '/runs?n=50') : Promise.resolve(null)]);
     if (!current()) return;
     if (!data || !Array.isArray(data.routines)) throw new Error(data && data.error || 'Could not load routines');
-    if (!Array.isArray(logs)) throw new Error(logs && logs.error || 'Could not load run history');
+    if (logs !== null && !Array.isArray(logs)) throw new Error(logs && logs.error || 'Could not load run history');
     rtData = global ? {...data, routines:data.routines.filter(row => row.scope === 'global'),
       current:data.current?.definition_ref_json?.scope === 'global' ? data.current : null,
       queued:(data.queued || []).filter(row => row.definition_ref_json?.scope === 'global'),
       invalid:(data.invalid || []).filter(row => row.namespace === 'global')} : data;
-    rtRuns = global ? logs.filter(row => row.scope === 'global') : logs;
+    if (logs !== null) rtRuns = global ? logs.filter(row => row.scope === 'global') : logs;
+    rtCache.set(key, {data:rtData, runs:rtRuns});
     rtError = null;
     rtRender();
   } catch (error) {
-    if (current()) { rtError = error.message || 'Could not load routines'; rtData = null; rtRuns = null; rtRender(); }
+    if (current()) { rtError = error.message || 'Could not load routines'; rtRender(); }
   }
 }
 function rtRows() {
@@ -123,7 +137,7 @@ function rtRender() {
     <div class="rtlist">${!rtData ? (rtError ? '' : '<p class="jrfaint jrfaint-pad">Loading routines…</p>') : isLog ? (logs.length ? logs.map(rtRunRow).join('') : '<p class="jrfaint jrfaint-pad">No runs yet.</p>') : (visible.length ? visible.map(rtRoutineRow).join('') : '<p class="jrfaint jrfaint-pad">No active routines.</p>')}</div>
     ${!isLog && rtData && (rtData.invalid || []).length ? `<details class="mkchain rtissues"><summary>${rtData.invalid.length} invalid definitions</summary>${rtData.invalid.map(x => `<p class="rtfail">${esc(x.routine_id || x.file)}: ${esc(x.error)}</p>`).join('')}</details>` : ''}
     </section></div>`;
-  body.querySelectorAll('[data-page]').forEach(el => el.onclick = () => { rtPage = el.dataset.page; rtRender(); });
+  body.querySelectorAll('[data-page]').forEach(el => el.onclick = () => { rtPage = el.dataset.page; rtRender(); rtRefresh(); });
   body.querySelectorAll('.rtrow[data-key]').forEach(el => el.onclick = e => {
     const button = e.target.closest('[data-action]'); if (!button) return;
     const row = rows.find(r => rtKey(r) === el.dataset.key); if (!row) return;
@@ -146,7 +160,7 @@ async function rtStop(current, button) {
     rtResult(await post(rtEndpoint(definition.scope === 'global', biz), {op:'stop', id:definition.routine_id,
       job_id:current.id, ...(current.business_id ? {target_business_id:current.business_id} : {})}));
     notify({text:'Stop requested',sub:definition.routine_id});
-    if (rtContextBiz() === biz) rtRefresh();
+    if (rtContextBiz() === biz) { rtGeneration++; rtRefresh(); }
   } catch (error) { notify({text:error.message,color:'var(--danger)'}); }
   finally { button.disabled = false; }
 }
@@ -174,7 +188,7 @@ async function rtWrite(op, row, biz) {
     rtResult(await post(rtEndpoint(row.scope === 'global', biz), {op,id:row.id,expected_revision:row.revision}));
     rtNotify(op === 'run' ? `Queued ${row.name}` : op === 'rm' ? 'Routine deleted' : op === 'pause' ? 'Routine paused' : 'Routine resumed', row, false, biz);
   } catch (error) { rtNotify(error.message, row, true, biz); }
-  if (biz === rtContextBiz()) rtRefresh();
+  if (biz === rtContextBiz()) { rtGeneration++; rtRefresh(); }
 }
 function rtDetail(row) {
   const fields = [
@@ -232,7 +246,7 @@ function rtOpenForm(row = null) {
       const result = await post(rtEndpoint(draft.scope === 'global',draft.biz),payload);
       rtResult(result);
       close(); rtNotify('Routine saved',{scope:draft.scope},false,draft.biz);
-      if (draft.key === rtContextKey()) rtRefresh();
+      if (draft.key === rtContextKey()) { rtGeneration++; rtRefresh(); }
     } catch (error) {
       form.querySelector('#rterror').textContent = error.message || 'Could not save routine. Please try again.';
     } finally { button.disabled = false; }
