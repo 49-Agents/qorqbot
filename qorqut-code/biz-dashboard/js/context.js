@@ -2,13 +2,14 @@
 // The Context tab: upload text (goes to context/_inbox, filed by the queue), browse the topic tree
 // like folders, read and edit any file. Every save is one commit. Summaries are rewritten by the
 // server's summariser after a filing or a save, deepest topic first, up to the root.
-let _ctxTimer = null, _ctxOpen = null, _ctxData = null;
-const ctxOpen = () => { if (!_ctxOpen) { try { _ctxOpen = new Set(JSON.parse(ls("ctxopen") || "[]")); } catch (e) { _ctxOpen = new Set(); } } return _ctxOpen; };
-const ctxSaveOpen = () => ls("ctxopen", JSON.stringify([...ctxOpen()]));
-const SVG_CARET = `<svg class="car" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 2l3 3-3 3"/></svg>`;
+let _ctxTimer = null, _ctxData = null;
 const SVG_FOLDER = `<svg class="fo" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M1.5 3.5h4l1.5 1.5h5.5v6h-11z"/></svg>`;
 const SVG_FILE = `<svg class="fi" width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3 1.5h5l3 3v8h-8z"/><path d="M8 1.5v3h3"/></svg>`;
 const SVG_PIN = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg>`;
+// bottom-of-sidebar / row icons, lucide 15px stroke 1.75
+const SVG_LIB = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>`;
+const SVG_PEOPLE = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
+const SVG_INBOX = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
 const titleCase = s => String(s || "").replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 const fmtAgo = t => { const s = Math.max(0, Math.round(Date.now() / 1000 - t)); return s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`; };
 const isTopic = p => p != null && !p.endsWith(".md");           // state.ctx is a topic path ("" = root) or a file path
@@ -28,12 +29,38 @@ const cap = (s, n = 70) => {
   return s.slice(0, cut).trimEnd() + "…";
 };
 
+// one dot color per top-level topic: its department if it has one, a couple of hand-picked extras, else a
+// stable hash pick so the same topic always lands on the same color
+function topicColor(slug) {
+  if (DEPTS[slug]) return DEPTS[slug].color;
+  if (slug === "product") return COLORS.blue;
+  if (slug === "misc") return COLORS.ink;
+  const keys = Object.keys(COLORS);
+  let sum = 0;
+  for (let i = 0; i < slug.length; i++) sum += slug.charCodeAt(i);
+  return COLORS[keys[sum % keys.length]];
+}
+// newest note date (its filename's YYYY-MM-DD prefix) anywhere under a topic, notes and subtopics alike
+function newestNoteDate(node) {
+  let best = "";
+  (node.notes || []).forEach(n => { const m = /^(\d{4}-\d{2}-\d{2})-/.exec(n); if (m && m[1] > best) best = m[1]; });
+  (node.children || []).forEach(c => { const d = newestNoteDate(c); if (d > best) best = d; });
+  return best;
+}
+// last time each top-level topic was opened, so the sidebar can show a "something new" dot; per business
+const ctxSeenKey = () => `ctxseen:${state.biz}`;
+const ctxSeenGet = () => { try { return JSON.parse(ls(ctxSeenKey()) || "{}"); } catch (e) { return {}; } };
+const ctxSeenSave = m => ls(ctxSeenKey(), JSON.stringify(m));
+
 async function renderContext(c) {
   clearTimeout(_ctxTimer); _ctxTimer = null;
   const d = await api(`/biz/${state.biz}/context`);
   c.innerHTML = `<div class="ctxwrap">
-    <div class="ctxbar"><button class="primary" id="ctxup">Upload context</button><input type="search" id="ctxsearch" placeholder="Search context" autocomplete="off"><div class="ctxq" id="ctxq"></div></div>
-    <div class="split ctxsplit"><div class="listcol ctxtree" id="ctxtree"></div><div class="pane ctxview" id="ctxview"></div></div></div>`;
+    <div class="split ctxsplit"><div class="listcol ctxtree" id="ctxtree">
+      <div class="ctop"><button class="primary" id="ctxup">Upload context</button><input type="search" id="ctxsearch" placeholder="Search context" autocomplete="off"></div>
+      <div class="crows" id="ctxrows"></div>
+      <div class="cfoot" id="ctxq"></div>
+    </div><div class="pane ctxview" id="ctxview"></div></div></div>`;
   $("#ctxup").onclick = uploadModal;
   wireCtxSearch();
   if (state.ctx == null) state.ctx = "";
@@ -86,11 +113,7 @@ async function ctxSearch(q) {
       const id = p.replace(/^_maps\//, "").replace(/\.md$/, "");
       return ctxGo(((_ctxData || {}).dumps || []).some(u => u.id === id) ? `_dumps/${id}.md` : `_inbox/${id}.md`);
     }
-    if (p.endsWith("/_topic.md")) {
-      const dir = p.split("/").slice(0, -1).join("/");
-      ctxOpen().add(dir); ctxSaveOpen();
-      return ctxGo(dir);
-    }
+    if (p.endsWith("/_topic.md")) return ctxGo(p.split("/").slice(0, -1).join("/"));
     ctxGo(p);
   });
 }
@@ -101,7 +124,9 @@ function ctxBusy(d) {
 }
 // Poll the tree while the tab is open: every 8 s while the queues are busy, every 20 s when idle (work
 // arrives from the filer sweep and from other clients too). Re-render only what changed.
-const ctxSig = (d, p) => JSON.stringify([ctxFind((d || {}).tree, p || ""), p ? null : (d || {}).people]);
+const ctxSig = (d, p) => p === "_people" ? JSON.stringify((d || {}).people || [])
+  : p === "_uploads" ? JSON.stringify([(d || {}).inbox || [], (d || {}).dumps || []])
+  : JSON.stringify([ctxFind((d || {}).tree, p || ""), p ? null : (d || {}).people]);
 let _ctxLastSig = "";
 function ctxWatch(d) {
   clearTimeout(_ctxTimer); _ctxTimer = null;
@@ -140,62 +165,45 @@ function ctxPaint(d) {
   ctxTree(d);
 }
 
+// the sidebar: Overview row, CORE pillars, a flat list of top-level topics (dot + title, no nesting —
+// drilling into subtopics happens via the cards in the right pane), then People/Uploads at the bottom
 function ctxTree(d) {
-  const t = $("#ctxtree"), open = ctxOpen(), rows = [];
-  const row = (cls, p, ind, html, sub) => rows.push(`<div class="item ${cls} ${p === state.ctx ? "on" : ""}" data-p="${esc(p)}" style="--ind:${ind * 14}px"><div class="nm">${html}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`);
-  row("r", "", 0, `${SVG_FOLDER}<span class="tt">context</span><span class="cnt">${ctxCount(d.tree || {})}</span>`);
-  rows.push(`<div class="h">Pillars</div>`);
-  (d.pillars || []).forEach(n => row("f", n, 0, esc(n)));
-  rows.push(`<div class="h">Topics</div>`);
-  const walk = (node, depth) => {
-    const notes = node.notes || [], kids = node.children || [], isOpen = open.has(node.path);
-    row(`t ${isOpen ? "open" : ""}`, node.path, depth, `${SVG_CARET}<span class="tt">${esc(node.title || node.slug)}</span><span class="cnt">${ctxCount(node)}</span>`);
-    if (!isOpen) return;
-    notes.forEach(n => row("n", `${node.path}/${n}`, depth + 1, esc(cap((node.titles || {})[n] || n.replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(/\.md$/, "").replace(/-/g, " ")))));
-    kids.forEach(k => walk(k, depth + 1));
-  };
+  const t = $("#ctxrows"), rows = [];
+  const isRoot = !state.ctx;
+  rows.push(`<div class="item ov ${isRoot ? "on" : ""}" data-p=""><div class="nm">${SVG_LIB}<span class="tt">Overview</span></div></div>`);
+  rows.push(`<div class="h">Core</div>`);
+  (d.pillars || []).forEach(n => rows.push(`<div class="item pl ${n === state.ctx ? "on" : ""}" data-p="${esc(n)}"><div class="nm"><span class="tt">${esc(titleCase(n.replace(/\.md$/, "")))}</span></div></div>`));
   const kids = (d.tree && d.tree.children) || [];
   if (!kids.length) rows.push(`<div class="empty pad">No topics yet. Upload something; the filer makes them.</div>`);
-  kids.forEach(k => walk(k, 0));
-  const people = d.people || [];
-  if (people.length) {
-    rows.push(`<div class="h">People</div>`);
-    people.forEach(p => row("p", `_people/${p.slug}`, 0, `<span class="tt">${esc(p.name)}</span><span class="cnt">${personNoteCount(p)}</span>`, esc([p.role, p.org].filter(Boolean).join(" · "))));
-  }
-  const dumps = d.dumps || [];
-  if (dumps.length) {
-    rows.push(`<div class="h">Uploads</div>`);
-    dumps.slice(0, 40).forEach(u => row("u d", `_dumps/${u.id}.md`, 0,
-      `<span class="tt">${esc(u.notes || u.topic || u.preview || u.id)}</span>${u.map ? `<span class="cnt" title="has a mind map">map</span>` : ""}`,
-      `${esc(u.id)} · ${u.chars} chars`));
-    if (dumps.length > 40) rows.push(`<div class="empty pad">${dumps.length - 40} older uploads; search finds them</div>`);
-  }
-  const inbox = d.inbox || [];
-  if (inbox.length) {
-    rows.push(`<div class="h">Inbox</div>`);
-    inbox.forEach(i => {
-      const cur = d.filing && d.filing.current && d.filing.current.id === i.id;
-      const st = cur ? `<span class="run">filing</span>` : i.failed ? `<span class="bad">failed</span>` : i.attempts ? `retry ${i.attempts}` : "waiting";
-      row(`u ${i.failed ? "failed" : ""}`, `_inbox/${i.id}.md`, 0, `<span class="tt">${esc(i.notes || i.topic || i.preview || i.id)}</span>${i.failed ? `<button class="retry" data-id="${esc(i.id)}" title="queue it again">retry</button>` : ""}`,
-          `${esc(i.id)} · ${i.chars} chars · ${st}${i.error ? ` · ${esc(String(i.error).slice(0, 80))}` : ""}`);
+  else {
+    const seen = ctxSeenGet();
+    let seenChanged = false;
+    kids.forEach(k => {
+      const path = k.path, newest = newestNoteDate(k);
+      let fresh = false;
+      if (seen[path] === undefined) { seen[path] = newest; seenChanged = true; }
+      else if (newest && newest > seen[path]) fresh = true;
+      const on = state.ctx === path || (state.ctx || "").startsWith(path + "/");
+      rows.push(`<div class="item tp ${on ? "on" : ""}" data-p="${esc(path)}"><div class="nm">${glyph("circle", topicColor(k.slug), 8)}<span class="tt">${esc(cap(k.title || k.slug))}</span></div>${fresh ? `<span class="fresh"></span>` : ""}</div>`);
     });
+    if (seenChanged) ctxSeenSave(seen);
   }
+  rows.push(`<div class="cdiv"></div>`);
+  const inbox = d.inbox || [], failed = inbox.filter(i => i.failed).length, waiting = inbox.length - failed;
+  const badge = failed ? `<span class="bdot bad"></span>` : waiting ? `<span class="bdot acc"></span>` : "";
+  const peopleOn = state.ctx === "_people" || (state.ctx != null && PERSON_VIEW_RE.test(state.ctx));
+  rows.push(`<div class="item bt ${peopleOn ? "on" : ""}" data-p="_people"><div class="nm">${SVG_PEOPLE}<span class="tt">People</span></div></div>`);
+  rows.push(`<div class="item bt ${state.ctx === "_uploads" ? "on" : ""}" data-p="_uploads"><div class="nm">${SVG_INBOX}<span class="tt">Uploads</span>${badge}</div></div>`);
   t.innerHTML = rows.join("");
-  t.querySelectorAll(".item").forEach(el => el.onclick = e => {
-    const p = el.dataset.p;
-    if (e.target.closest(".retry")) return ctxRetry(e.target.closest(".retry").dataset.id);
-    if (el.classList.contains("t")) {
-      if (e.target.closest(".car") || p === state.ctx) { open.has(p) ? open.delete(p) : open.add(p); ctxSaveOpen(); }
-      else open.add(p), ctxSaveOpen();
-    }
-    ctxGo(p);
-  });
+  t.querySelectorAll(".item").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
 }
 
 function ctxGo(p) { state.ctx = p; if (_ctxData) ctxTree(_ctxData); ctxShow(p); }
 
 function ctxShow(p) {
   jClearTimers();
+  if (p === "_people") return openPeople();
+  if (p === "_uploads") return openUploads();
   const m = p != null && PERSON_VIEW_RE.exec(p);
   if (m) return openPerson(m[1]);
   return isTopic(p) ? openTopic(p) : openCtx(p);
@@ -209,7 +217,7 @@ function ctxCrumbs(p, fileName) {
   if (fileName) out.push(`<span class="sep">›</span><span class="cur">${esc(fileName)}</span>`);
   return `<div class="crumbs">${out.join("")}</div>`;
 }
-function wireCrumbs(v) { v.querySelectorAll(".crumbs a").forEach(a => a.onclick = () => { if (a.dataset.p) { ctxOpen().add(a.dataset.p); ctxSaveOpen(); } ctxGo(a.dataset.p); }); }
+function wireCrumbs(v) { v.querySelectorAll(".crumbs a").forEach(a => a.onclick = () => ctxGo(a.dataset.p)); }
 
 const mdLines = text => `<div class="sum">${text.split("\n").map(l => l.trim()).filter(Boolean).map(l => l.startsWith("- ") ? `<div class="li">${esc(l.slice(2))}</div>` : `<p>${esc(l)}</p>`).join("")}</div>`;
 
@@ -219,6 +227,10 @@ function openTopic(p) {
   const node = root ? Object.assign({ title: "context", about: "", children: [], notes: [] }, d.tree || {}) : ctxFind(d.tree, p);
   if (!node) { v.innerHTML = `<div class="empty">no such topic</div>`; return; }
   _ctxLastSig = ctxSig(d, p);
+  if (!root) {                          // mark the top-level topic (and its descendants) as seen today, for the sidebar's freshness dot
+    const top = p.split("/")[0], seen = ctxSeenGet(), today = new Date().toISOString().slice(0, 10);
+    if (seen[top] !== today) { seen[top] = today; ctxSeenSave(seen); if (_ctxData) ctxTree(_ctxData); }
+  }
   const s = d.summarizing || {}, busy = s.current && (s.current.topic === p || (s.current.topic || "").startsWith(p + "/"));
   const kids = node.children || [], notes = node.notes || [];
   const mappable = kids.length || notes.length || (root && (d.people || []).length);
@@ -231,19 +243,16 @@ function openTopic(p) {
     : `<div class="sec"><div class="sh">Summary</div><div class="empty">${busy ? "being written now" : notes.length || kids.length ? "not written yet; it comes after the next filing or save, or press Refresh summary" : "empty topic"}</div></div>`;
   const pill = root ? `<div class="sec"><div class="sh">${SVG_PIN}Pinned</div><div class="cards">${(d.pillars || []).map(n => `<div class="card f" data-p="${esc(n)}"><span class="pin">${SVG_PIN}</span><div class="ct"><span class="tt">${esc(titleCase(n.replace(/\.md$/, "")))}</span></div><div class="cb">owner-written</div></div>`).join("")}</div></div>` : "";
   const subs = kids.length ? `<div class="sec"><div class="sh">${root ? "Topics" : "Subtopics"}</div><div class="cards">${kids.map(k => { const kt = k.title || k.slug; return `<div class="card t" data-p="${esc(k.path)}" title="${esc(kt)}"><div class="ct">${SVG_FOLDER}<span class="tt">${esc(cap(kt))}</span><span class="cnt">${ctxCount(k)}</span></div><div class="cb">${esc(k.about || "")}</div><div class="cs">${esc(k.slug)}${k.summary ? "" : " · no summary yet"}</div></div>`; }).join("")}</div></div>` : "";
-  const people = root ? (d.people || []) : [];
-  const ppl = people.length ? `<div class="sec"><div class="sh">People</div><div class="cards">${people.map(pn => { const n = personNoteCount(pn), path = "_people/" + pn.slug; return `<div class="card p" data-p="${esc(path)}"><div class="ct"><span class="tt">${esc(pn.name)}</span></div><div class="cb">${esc([pn.role, pn.org].filter(Boolean).join(" · "))}</div><div class="cs">${n} note${n === 1 ? "" : "s"}</div></div>`; }).join("")}</div></div>` : "";
   const nts = notes.length ? `<div class="sec"><div class="sh">Files</div><div class="cards">${notes.map(n => { const m = ctxNoteMeta(n), ft = (node.titles || {})[n] || n, body = node.summaries?.[n] || node.previews?.[n] || ""; return `<div class="card n" data-p="${esc(p)}/${esc(n)}" title="${esc(ft)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(ft))}</span></div><div class="cb">${esc(body)}</div><div class="cs">${esc(m.date)}${m.rest ? ` · ${esc(m.rest)}` : ""}</div></div>`; }).join("")}</div></div>` : root ? "" : `<div class="sec"><div class="sh">Files</div><div class="empty">none here; ${kids.length ? "they sit in the subtopics" : "nothing filed yet"}</div></div>`;
   if (mapMode) {
     const tree = ctxMapTree(d, node, root);
     v.innerHTML = head + `<div class="sec"><div class="sh">Map <span class="stamp">${mapCount(tree) - 1} nodes</span></div><div id="topicmap"></div></div>`;
-    mindmap($("#topicmap"), tree, { links: true, legend: MAP_LEGEND,
-      onOpen: n => { if (n.kind === "topic") { ctxOpen().add(n.path); ctxSaveOpen(); } ctxGo(n.path); } });
+    mindmap($("#topicmap"), tree, { links: true, legend: MAP_LEGEND, onOpen: n => ctxGo(n.path) });
   } else {
-    v.innerHTML = head + sum + pill + subs + ppl + nts;
+    v.innerHTML = head + sum + pill + subs + nts;
   }
   wireCrumbs(v);
-  v.querySelectorAll(".card").forEach(el => el.onclick = () => { if (el.classList.contains("t")) { ctxOpen().add(el.dataset.p); ctxSaveOpen(); } ctxGo(el.dataset.p); });
+  v.querySelectorAll(".card").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
   const mp = $("#tpmap"); if (mp) mp.onclick = () => { ls("ctxmapmode", mapMode ? "0" : "1"); openTopic(p); };
   const ed = $("#tpedit"); if (ed) ed.onclick = () => ctxGo(`${p}/_topic.md`);
   const rs = $("#tpsum"); if (rs) rs.onclick = async () => { rs.disabled = true; const r = await post(`/biz/${state.biz}/context/summarize`, { topic: p }); toast(r.error || `summarising ${p}`); const d2 = await api(`/biz/${state.biz}/context`); ctxPaint(d2); openTopic(p); ctxWatch(d2); };
@@ -259,7 +268,7 @@ async function openPerson(slug) {
   const r = await api(`/biz/${state.biz}/context/person/${slug}`);
   if (state.ctx !== `_people/${slug}`) return;    // navigated away while the notes were loading
   const notesText = (r && r.notes_text) || "";
-  const head = `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><a data-p="">People</a><span class="sep">›</span><span class="cur">${esc(person.name)}</span></div>
+  const head = `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><a data-p="_people">People</a><span class="sep">›</span><span class="cur">${esc(person.name)}</span></div>
     <div class="th"><h2>${esc(person.name)}</h2>
       <div class="pa"><button class="ghost sm" id="ctxpedit">Edit</button><button class="ghost sm" id="ctxpsum" ${busy ? "disabled" : ""}>${busy ? "summarising…" : "Refresh summary"}</button></div></div>`;
   const metaLine = [person.role, person.org, person.email].filter(Boolean).join(" · ");
@@ -302,6 +311,36 @@ function renderPersonNotes(text) {
   });
   flush();
   return out.join("");
+}
+
+// everyone: the People cards that used to sit on the root view, now behind the sidebar's People row
+function openPeople() {
+  const v = $("#ctxview"), d = _ctxData || {}, people = d.people || [];
+  _ctxLastSig = ctxSig(d, "_people");
+  const head = `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><span class="cur">People</span></div><div class="th"><h2>People</h2></div>`;
+  const body = people.length ? `<div class="sec"><div class="sh">People</div><div class="cards">${people.map(pn => { const n = personNoteCount(pn), path = "_people/" + pn.slug; return `<div class="card p" data-p="${esc(path)}"><div class="ct"><span class="tt">${esc(pn.name)}</span></div><div class="cb">${esc([pn.role, pn.org].filter(Boolean).join(" · "))}</div><div class="cs">${n} note${n === 1 ? "" : "s"}</div></div>`; }).join("")}</div></div>`
+    : `<div class="empty">no people yet</div>`;
+  v.innerHTML = head + body;
+  wireCrumbs(v);
+  v.querySelectorAll(".card").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
+}
+
+// uploads: what's still filing (or failed) up top, then every filed dump — the tree's old Inbox/Uploads sections
+function openUploads() {
+  const v = $("#ctxview"), d = _ctxData || {}, inbox = d.inbox || [], dumps = d.dumps || [];
+  _ctxLastSig = ctxSig(d, "_uploads");
+  const head = `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><span class="cur">Uploads</span></div><div class="th"><h2>Uploads</h2></div>`;
+  const filing = inbox.length ? `<div class="sec"><div class="sh">Filing</div><div class="cards">${inbox.map(i => {
+    const cur = d.filing && d.filing.current && d.filing.current.id === i.id;
+    const st = cur ? `<span class="run">filing</span>` : i.failed ? `<span class="bad">failed</span>` : i.attempts ? `retry ${i.attempts}` : "waiting";
+    return `<div class="card u ${i.failed ? "failed" : ""}" data-p="_inbox/${esc(i.id)}.md"><div class="ct"><span class="tt">${esc(i.notes || i.topic || i.preview || i.id)}</span>${i.failed ? `<button class="retry" data-id="${esc(i.id)}" title="queue it again">retry</button>` : ""}</div><div class="cb">${st}</div><div class="cs">${esc(i.id)} · ${i.chars} chars${i.error ? ` · ${esc(String(i.error).slice(0, 80))}` : ""}</div></div>`;
+  }).join("")}</div></div>` : "";
+  const up = dumps.length ? `<div class="sec"><div class="sh">Uploads</div><div class="cards">${dumps.slice(0, 60).map(u => `<div class="card u d" data-p="_dumps/${esc(u.id)}.md"><div class="ct"><span class="tt">${esc(u.notes || u.topic || u.preview || u.id)}</span>${u.map ? `<span class="cnt" title="has a mind map">map</span>` : ""}</div><div class="cb">${esc(u.id)}</div><div class="cs">${u.chars} chars</div></div>`).join("")}</div></div>${dumps.length > 60 ? `<div class="empty pad">${dumps.length - 60} older uploads; search finds them</div>` : ""}`
+    : `<div class="empty">nothing uploaded yet</div>`;
+  v.innerHTML = head + filing + up;
+  wireCrumbs(v);
+  v.querySelectorAll(".card").forEach(el => el.onclick = e => { if (e.target.closest(".retry")) return; ctxGo(el.dataset.p); });
+  v.querySelectorAll(".retry").forEach(el => el.onclick = e => { e.stopPropagation(); ctxRetry(el.dataset.id); });
 }
 
 async function ctxRetry(id) {
@@ -424,11 +463,7 @@ function uploadSections(uid, um) {
 }
 function wireUpload(v, uid, um) {
   if (um.map && um.map.tree) mindmap($("#dumpmap"), ctxMapIdea(um.map.tree), { legend: `<span>${esc(cap(um.map.root || "", 60))}</span>` });
-  v.querySelectorAll(".trace .card, .trace .chip.go").forEach(el => el.onclick = () => {
-    const p = el.dataset.p;
-    if (isTopic(p) && !p.startsWith("_people/")) { ctxOpen().add(p); ctxSaveOpen(); }
-    ctxGo(p);
-  });
+  v.querySelectorAll(".trace .card, .trace .chip.go").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
   const b = $("#dumpdraw");
   if (b) b.onclick = async () => {
     b.disabled = true;

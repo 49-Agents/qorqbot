@@ -1,27 +1,31 @@
-/* Context tab: upload bar, topic tree, reader/editor */
+/* Context tab: upload+search top, flat topic list, reader/editor */
 .ctxwrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.ctxbar { display: flex; align-items: center; gap: 16px; padding: 12px 24px; border-bottom: 1px solid var(--line); }
-.ctxq { font-size: 12px; color: var(--fg-3); display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.ctxq, .cfoot { font-size: 11px; color: var(--fg-3); display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .ctxq .dot { color: var(--fg-3); opacity: .5; }
 .ctxq .bad, .ctxtree .bad, .chip.bad { color: var(--danger); }
 .ctxq .run, .ctxtree .run { color: var(--ok); }
 .ctxsplit { grid-template-columns: 290px 1fr; }
 
+/* sidebar: sticky upload+search on top, a flat scrolling row list, a tiny status line at the bottom */
+.ctxtree { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.ctop { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
+.ctop .primary { width: 100%; }
+.crows { flex: 1; overflow-y: auto; min-height: 0; padding: 10px 0; }
+.cfoot { flex: none; padding: 8px 16px; border-top: 1px solid var(--line); }
+
 .ctxtree .h { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; color: var(--fg-3); padding: 6px 24px 6px; }
 .ctxtree .h:not(:first-child) { margin-top: 16px; }
-.ctxtree .item { padding: 6px 12px 6px calc(14px + var(--ind, 0px)); }
 .ctxtree .item .nm { font-size: 13px; gap: 6px; }
-.ctxtree .item .sub { font: 11px/1.4 var(--mono); color: var(--fg-3); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ctxtree .item.t .car { flex: none; color: var(--fg-3); transition: transform .15s ease; }
-.ctxtree .item.t.open .car { transform: rotate(90deg); }
-.ctxtree .item.t .tt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ctxtree .item.t .cnt { font: 11px var(--mono); color: var(--fg-3); }
-.ctxtree .item.n .nm { color: var(--fg-2); }
-.ctxtree .item.n.on .nm { color: var(--fg); }
-.ctxtree .item.u .tt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-2); }
-.ctxtree .item.u.failed .tt { color: var(--fg-3); }
-.ctxtree .item .retry { height: 20px; padding: 0 8px; font-size: 11px; font-weight: 800; border-radius: var(--r-full); }
+.ctxtree .item.tp .nm .tt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctxtree .item.tp .fresh { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.ctxtree .item.bt .bdot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 4px; background: var(--accent); }
+.ctxtree .item.bt .bdot.bad { background: var(--danger); }
+.cdiv { height: 1px; background: var(--line); margin: 10px 16px; }
 .ctxtree .empty.pad { padding: 4px 24px 8px; font-size: 12.5px; }
+
+/* Filing/upload cards inside the Uploads pane view (moved out of the tree) */
+.ctxview .retry { height: 20px; padding: 0 8px; font-size: 11px; font-weight: 800; border-radius: var(--r-full); }
+.ctxview .card.u .ct { justify-content: space-between; }
 
 .ctxview .ph { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .ctxview .pp { font: 12px var(--mono); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -48,8 +52,6 @@
 .mbody .fl .opt { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--fg-3); margin-left: 6px; }
 
 /* folder view */
-.ctxtree .item.r .fo { color: var(--fg-3); }
-.ctxtree .item.r .nm { font-weight: 600; }
 .ctxview .crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; font: 12px var(--mono); color: var(--fg-3); margin-bottom: 10px; }
 .ctxview .crumbs a { cursor: pointer; color: var(--fg-2); }
 .ctxview .crumbs a:hover { color: var(--fg); text-decoration: underline; }
@@ -94,13 +96,12 @@
 .ctxview .card .pin { position: absolute; top: 12px; right: 12px; color: var(--fg-3); }
 
 /* search */
-.ctxbar #ctxsearch { width: 260px; height: 32px; padding: 0 12px; border-radius: var(--r-full); }
-.ctxbar input[type=search] {
-  border: 0; background: rgba(247,247,247,.04); border-radius: 12px; height: 36px;
-  padding: 0 14px; box-shadow: inset 0 0 0 1px transparent;
+.ctop input[type=search] {
+  width: 100%; height: 32px; padding: 0 12px; border-radius: var(--r-full);
+  border: 0; background: rgba(247,247,247,.04); box-shadow: inset 0 0 0 1px transparent;
   transition: background .14s ease, box-shadow .14s ease;
 }
-.ctxbar input[type=search]:focus {
+.ctop input[type=search]:focus {
   background: rgba(247,247,247,.06); box-shadow: inset 0 0 0 1px var(--line-2); border-color: transparent;
 }
 .ctxview .kd { font: 10px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--fg-3); }
