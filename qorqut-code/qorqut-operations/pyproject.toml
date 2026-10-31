@@ -19,6 +19,7 @@ include = ["bazarlyk*"]
 
 [tool.setuptools.package-data]
 "bazarlyk.bootstrap" = ["browser_init.cjs"]
+"bazarlyk.sandbox" = ["browser-seccomp-moby-29.1.3.json"]
 "bazarlyk.storage" = ["migrations/*.sql"]
 
 [tool.pytest.ini_options]
