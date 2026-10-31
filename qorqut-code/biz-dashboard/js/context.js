@@ -2,20 +2,16 @@
 // Upload originals, browse logical topic memberships, and inspect the shared relationship map.
 // Authored text and filer-maintained summaries remain separate.
 let _ctxTimer = null, _ctxData = null, _ctxGeneration = 0;
-let _ctxGraph = null;
+let _ctxGraph = null, _ctxNavigation = 0;
 function ctxClearGraph() { if (_ctxGraph) { _ctxGraph.destroy(); _ctxGraph = null; } }
-const SVG_FOLDER = `<svg class="fo" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M1.5 3.5h4l1.5 1.5h5.5v6h-11z"/></svg>`;
 const SVG_FILE = `<svg class="fi" width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3 1.5h5l3 3v8h-8z"/><path d="M8 1.5v3h3"/></svg>`;
-const SVG_PIN = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg>`;
 // bottom-of-sidebar / row icons, lucide 15px stroke 1.75
-const SVG_LIB = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>`;
 const SVG_BRAIN = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.6 6.5a3 3 0 0 0 .4-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M3.477 10.896a4 4 0 0 1 .585-.396"/><path d="M19.938 10.5a4 4 0 0 1 .585.396"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></svg>`;
 const SVG_PEOPLE = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
 const SVG_INBOX = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
 const titleCase = s => String(s || "").replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 const fmtAgo = t => { const s = Math.max(0, Math.round(Date.now() / 1000 - t)); return s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`; };
 const isTopic = p => p != null && !p.endsWith(".md");           // state.ctx is a topic path ("" = root) or a file path
-const ctxCount = n => (n.notes || []).length + (n.children || []).reduce((s, k) => s + ctxCount(k), 0);
 const ctxFind = (node, path) => { if (!node) return null; if ((node.path || "") === path) return node; for (const c of node.children || []) { const h = ctxFind(c, path); if (h) return h; } return null; };
 const PERSON_VIEW_RE = /^_people\/([a-z][a-z0-9-]{1,63})$/;     // "_people/<slug>" (no .md) is the person view, not a raw file
 const uploadId = p => {
@@ -27,7 +23,6 @@ const uploadId = p => {
 };
 const ctxMapStamp = (d, id) => { const m = ((d || {}).maps || []).find(x => x.id === id); return m ? `${m.at}|${m.nodes}` : ""; };
 let _ctxMapAt = "", _ctxMapping = false;                        // the upload view's mind map state, so the watcher knows when to redraw
-const personNoteCount = p => Array.isArray(p.notes) ? p.notes.length : (p.notes || 0);
 const findPerson = slug => ((_ctxData || {}).people || []).find(p => p.slug === slug);
 const cap = (s, n = 70) => {
   s = String(s || "");
@@ -36,22 +31,6 @@ const cap = (s, n = 70) => {
   const cut = sp > n * 0.6 ? sp : n - 1;
   return s.slice(0, cut).trimEnd() + "…";
 };
-
-// one dot color per top-level topic: its department if it has one, a couple of hand-picked extras, else a
-// stable hash pick so the same topic always lands on the same color
-function topicColor(slug) {
-  if (DEPTS[slug]) return DEPTS[slug].color;
-  if (slug === "product") return COLORS.blue;
-  if (slug === "misc") return COLORS.ink;
-  const keys = Object.keys(COLORS);
-  let sum = 0;
-  for (let i = 0; i < slug.length; i++) sum += slug.charCodeAt(i);
-  return COLORS[keys[sum % keys.length]];
-}
-// last time each top-level topic was opened, so the sidebar can show a "something new" dot; per business
-const ctxSeenKey = () => `ctxseen:${state.biz}`;
-const ctxSeenGet = () => { try { return JSON.parse(ls(ctxSeenKey()) || "{}"); } catch (e) { return {}; } };
-const ctxSeenSave = m => ls(ctxSeenKey(), JSON.stringify(m));
 
 async function renderContext(c) {
   ctxClearGraph();
@@ -62,15 +41,14 @@ async function renderContext(c) {
   c.innerHTML = `<div class="ctxwrap">
     <div class="split ctxsplit"><div class="listcol ctxtree" id="ctxtree">
       <div class="ctop"><button class="primary" id="ctxup">${ICO_UPLOAD}Upload context</button><input type="search" id="ctxsearch" placeholder="Search context" autocomplete="off"></div>
-      <div class="lnstatus" id="lnstatus"></div>
       <div class="crows" id="ctxrows"></div>
       <div class="cfoot" id="ctxq"></div>
     </div><div class="pane ctxview" id="ctxview"></div></div></div>`;
   $("#ctxup").onclick = () => uploadModal();
   wireCtxSearch();
-  if (state.ctx == null) state.ctx = ls(`ctxpage:${biz}`) || contextTab0 || "";
+  if (state.ctx == null) state.ctx = ls(`ctxpage:${biz}`) ?? contextTab0 ?? "_learning";
   ctxPaint(d);
-  if (typeof lnFetch === "function") lnFetch();   // fills the status pane and the rail badge; learning.js repaints itself after that
+  if (typeof lnFetch === "function") lnFetch();   // refresh the rail badge; Learning owns its page refresh.
   await ctxShow(state.ctx);
   if (state.biz === biz && state.tab === "context" && c.isConnected) ctxWatch(d);
 }
@@ -135,12 +113,12 @@ function ctxBusy(d) {
 }
 // Poll the tree while the tab is open: every 8 s while the queues are busy, every 20 s when idle (work
 // arrives from the filer sweep and from other clients too). Re-render only what changed.
-const ctxSig = (d, p) => ["_learning", "_stories", "_tables", "_tasks"].includes(p) ? p // These views own their refreshes.
-  : p === "_people" ? JSON.stringify((d || {}).people || [])
+const ctxSig = (d, p) => (["_learning", "_tables", "_tasks"].includes(p) || p?.startsWith("_stories")) ? p // These views own their refreshes.
+  : p === "_people" ? JSON.stringify([d?.people,d?.graph?.nodes.filter(n=>n.type==='person'),d?.graph?.edges.filter(e=>e.source.type==='person' || e.target.type==='person')])
   : p === "_uploads" ? JSON.stringify([(d || {}).inbox || [], (d || {}).dumps || []])
-  : JSON.stringify([ls("ctxmapmode") === "1" ? (d || {}).tree : ctxFind((d || {}).tree, p || ""),
-    !p || ls("ctxmapmode") === "1" ? (d || {}).people : null, p ? null : (d || {}).pillars,
-    ls("ctxmapmode") === "1" ? (d || {}).graph : null]);
+  : JSON.stringify([(d || {}).tree,
+    (d || {}).people, p ? null : (d || {}).pillars,
+    (d || {}).graph]);
 let _ctxLastSig = "";
 function ctxWatch(d) {
   clearTimeout(_ctxTimer); _ctxTimer = null;
@@ -184,24 +162,27 @@ function ctxPaint(d) {
 function ctxTree(d) {
   const t = $("#ctxrows"), rows = [];
   const isRoot = !state.ctx;                                  // "" is the Context root; "_learning" is a page of its own
-  rows.push(`<div class="item ov ${isRoot ? "on" : ""}" data-p=""><div class="nm">${SVG_LIB}<span class="tt">Context</span></div></div>`);
-  for (const [key, label, icon] of [['_stories', 'Stories', `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M12 5h8M12 11h6M12 19h8"/></svg>`], ['_tasks', 'All tasks', SVG_TINBOX], ['_tables', 'Tables', aicon('database', 'currentColor', 15)]]) {
-    rows.push(`<button type="button" class="item bt ${state.ctx === key ? 'on' : ''}" data-p="${key}"><div class="nm">${icon}<span class="tt">${label}</span></div></button>`);
+  rows.push(`<div class="item ov ${state.ctx === '_learning' ? 'on' : ''}" data-p="_learning"><div class="nm">${SVG_BRAIN}<span class="tt">Learning</span></div></div>`);
+  const graphNodes = d.graph?.nodes || [];
+  rows.push(`<div class="ctx-counts">${[['table','Tables','_tables'],['person','People','_people'],['task','Tasks','_tasks']].map(([type,label,path]) => `<button type="button" data-count-page="${path}"><b>${graphNodes.filter(n=>n.type===type).length}</b><span>${label}</span></button>`).join('')}</div>`);
+  rows.push(`<div class="item ov ${isRoot ? 'on' : ''}" data-p=""><div class="nm">${aicon('share-2','currentColor',15)}<span class="tt">Graph</span></div></div>`);
+  for (const [key, label, icon] of [['_stories', 'Stories', `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M12 5h8M12 11h6M12 19h8"/></svg>`], ['_tasks', 'Tasks', SVG_TINBOX], ['_tables', 'Tables', aicon('database', 'currentColor', 15)]]) {
+    rows.push(`<button type="button" class="item bt ${(state.ctx === key || key === '_stories' && state.ctx?.startsWith('_stories/')) ? 'on' : ''}" data-p="${key}"><div class="nm">${icon}<span class="tt">${label}</span></div></button>`);
   }
   const inbox0 = d.inbox || [], failed0 = inbox0.filter(i => i.failed).length, waiting0 = inbox0.filter(i => ["queued", "running", "waiting_signoff", "cancelling"].includes(i.status)).length;
   const badge0 = failed0 ? `<span class="bdot bad"></span>` : waiting0 ? `<span class="bdot acc"></span>` : "";
   const peopleOn0 = state.ctx === "_people" || (state.ctx != null && PERSON_VIEW_RE.test(state.ctx));
   rows.push(`<div class="item bt ${peopleOn0 ? "on" : ""}" data-p="_people"><div class="nm">${SVG_PEOPLE}<span class="tt">People</span></div></div>`);
-  rows.push(`<div class="item ov ${state.ctx === "_learning" ? "on" : ""}" data-p="_learning"><div class="nm">${SVG_BRAIN}<span class="tt">Learning</span></div></div>`);
   rows.push(`<div class="item bt ${state.ctx === "_uploads" ? "on" : ""}" data-p="_uploads"><div class="nm">${SVG_INBOX}<span class="tt">Uploads</span>${badge0}</div></div>`);
   t.innerHTML = rows.join("");
+  t.querySelectorAll("[data-count-page]").forEach(el => el.onclick = () => ctxGo(el.dataset.countPage));
   t.querySelectorAll(".item").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
 }
 
 async function ctxGo(p) {
-  const pane = $("#ctxview"), biz = state.biz;
+  const pane = $("#ctxview"), biz = state.biz, navigation = ++_ctxNavigation;
   if (typeof storyView !== 'undefined' && storyView && !await storyCanLeave()) return;
-  if (!pane?.isConnected || state.biz !== biz || state.tab !== 'context') return;
+  if (navigation !== _ctxNavigation || !pane?.isConnected || state.biz !== biz || state.tab !== 'context') return;
   clearTimeout(_ctxSearchTimer);
   const search = $("#ctxsearch"); if (search) search.value = '';
   state.ctx = p;
@@ -210,10 +191,10 @@ async function ctxGo(p) {
 }
 
 function ctxShow(p) {
-  ls(`ctxpage:${state.biz}`, ["_stories", "_tables", "_tasks", "_people", "_learning", "_uploads"].includes(p) ? p : "");
+  ls(`ctxpage:${state.biz}`, (["_tables", "_tasks", "_people", "_learning", "_uploads"].includes(p) || p?.startsWith("_stories")) ? p : "");
   storyDispose();
   const pane = $("#ctxview");
-  pane?.classList.toggle('ctxembedded-view', ['_stories', '_tables', '_tasks'].includes(p));
+  pane?.classList.toggle('ctxembedded-view', (['_tables', '_tasks'].includes(p) || p?.startsWith('_stories')));
   ctxClearGraph();
   jClearTimers();
   if (p === "_learning") {                                   // learning.js loads after this file; it may not be there at all
@@ -222,11 +203,11 @@ function ctxShow(p) {
     const v = $("#ctxview"); if (v) v.innerHTML = `<div class="empty">learning.js not loaded</div>`;
     return;
   }
-  if (['_stories', '_tables', '_tasks'].includes(p)) {
+  if ((['_tables', '_tasks'].includes(p) || p?.startsWith('_stories'))) {
     _ctxLastSig = ctxSig(_ctxData, p);
     pane.innerHTML = '<div id="ctxembedded"></div>';
     const content = pane.firstElementChild;
-    if (p === '_stories') return renderStories(content);
+    if (p?.startsWith('_stories')) return renderStories(content);
     if (p === '_tables') return renderTables(content);
     return renderAllTasks(content);
   }
@@ -249,51 +230,22 @@ function wireCrumbs(v) { v.querySelectorAll(".crumbs a").forEach(a => a.onclick 
 
 const mdLines = text => `<div class="sum">${text.split("\n").map(l => l.trim()).filter(Boolean).map(l => l.startsWith("- ") ? `<div class="li">${esc(l.slice(2))}</div>` : `<p>${esc(l)}</p>`).join("")}</div>`;
 
-// a topic as a folder: description, generated summary, subtopics, notes
+// A topic opens its scoped relationship graph.
 function openTopic(p) {
   ctxClearGraph();
   const v = $("#ctxview"), d = _ctxData || {}, root = !p;
   const node = root ? Object.assign({ title: "context", about: "", children: [], notes: [] }, d.tree || {}) : ctxFind(d.tree, p);
   if (!node) { v.innerHTML = `<div class="empty">no such topic</div>`; return; }
   _ctxLastSig = ctxSig(d, p);
-  if (!root) {                          // mark the top-level topic (and its descendants) as seen today, for the sidebar's freshness dot
-    const top = p.split("/")[0], seen = ctxSeenGet(), today = new Date().toISOString().slice(0, 10);
-    if (seen[top] !== today) { seen[top] = today; ctxSeenSave(seen); if (_ctxData) ctxTree(_ctxData); }
-  }
-  const s = d.summarizing || {}, busy = s.current && (s.current.topic === p || (s.current.topic || "").startsWith(p + "/"));
-  const kids = node.related_topics || node.children || [], notes = node.notes || [];
-  const mappable = d.graph ? d.graph.nodes.length : kids.length || notes.length || (root && ((d.people || []).length || (d.pillars || []).length));
-  const mapMode = !!mappable && ls("ctxmapmode") === "1";        // the folder as a graph instead of cards; remembered
-  const head = `${ctxCrumbs(root ? "" : p.split("/").slice(0, -1).join("/"), root ? "" : node.slug)}
-    <div class="th"><h2>${esc(root ? "All context" : node.title)}</h2>
-      <div class="pa">${mappable ? `<button class="ghost sm pab" id="tpmap" title="${mapMode ? "back to the cards" : "this folder as a graph"}">${mapMode ? "Cards" : "Map"}</button>` : ""}${root ? "" : `<button class="ghost sm pab" id="tpedit" title="edit _topic.md">Edit description</button><button class="ghost sm pab" id="tpsum" ${busy ? "disabled" : ""}>${busy ? "summarising…" : "Refresh summary"}</button>`}</div></div>
-    ${node.about ? `<p class="about">${esc(node.about)}</p>` : ""}`;
-  const sum = root ? "" : node.summary ? `<div class="sec"><div class="sh">Summary <span class="stamp">${esc((node.summarized || "").replace("T", " ").replace(/:\d\dZ/, "Z"))}</span></div>${mdLines(node.summary)}</div>`
-    : `<div class="sec"><div class="sh">Summary</div><div class="empty">${busy ? "being written now" : notes.length || kids.length ? "not written yet; it comes after the next filing or save, or press Refresh summary" : "empty topic"}</div></div>`;
-  const pill = root ? `<div class="sec"><div class="sh">${SVG_PIN}Pinned</div><div class="cards">${(d.pillars || []).map(n => `<div class="card f" data-p="${esc(n)}"><span class="pin">${SVG_PIN}</span><div class="ct"><span class="tt">${esc(titleCase(n.replace(/\.md$/, "")))}</span></div><div class="cb">owner-written</div></div>`).join("")}</div></div>` : "";
-  const subs = kids.length ? `<div class="sec"><div class="sh">${root ? "Topics" : "Subtopics"}</div><div class="cards">${kids.map(k => { const kt = k.title || k.slug; return `<div class="card t" data-p="${esc(k.path)}" title="${esc(kt)}"><div class="ct">${SVG_FOLDER}<span class="tt">${esc(cap(kt))}</span><span class="cnt">${ctxCount(k)}</span></div><div class="cb">${esc(k.about || "")}</div><div class="cs">${esc(k.slug)}${k.summary ? "" : " · no summary yet"}</div></div>`; }).join("")}</div></div>` : "";
-  const nts = notes.length ? `<div class="sec"><div class="sh">Files</div><div class="cards">${notes.map(n => { const path = node.paths?.[n] || `${p}/${n}`, m = ctxNoteMeta(path.split('/').pop()), ft = (node.titles || {})[n] || n, body = node.summaries?.[n] || node.previews?.[n] || ""; return `<div class="card n" data-p="${esc(path)}" title="${esc(ft)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(ft))}</span></div><div class="cb">${esc(body)}</div><div class="cs">${esc(m.date)}${m.rest ? ` · ${esc(m.rest)}` : ""}</div></div>`; }).join("")}</div></div>` : root ? "" : `<div class="sec"><div class="sh">Files</div><div class="empty">No related materials.</div></div>`;
-  if (mapMode) {
-    const business = (state.bizs || []).find(b => b.slug === state.biz);
-    const graph = ctxGraphData(d, node, root, business && business.name || state.biz || "Context");
-    v.innerHTML = head + `<div class="sec"><div id="topicmap"></div></div>`;
-    _ctxGraph = contextGraph($("#topicmap"), graph, { storageKey: `ctxgraph:v2:${state.biz}:${p || ""}`,
-      onOpen:n=>contextOpenItem(state.biz,n.item),
-      onSelect:(n,host)=>contextReviewPanel(host,state.biz,{type:n.item.type,id:n.item.id}) });
-  } else {
-    v.innerHTML = head + sum + pill + subs + nts;
-    if(!root){
-      const related=document.createElement('div');related.className='story-associations';v.appendChild(related);
-      contextRelatedChips(related,state.biz,{type:'topic',id:node.document_id}).catch(e=>toast(e.message));
-    }
-  }
+  const graph = ctxGraphData(d, node, root);
+  v.innerHTML = `${root ? '' : ctxCrumbs(p)}<div id="topicmap"></div>`;
+  const biz = state.biz;
+  _ctxGraph = contextGraph($("#topicmap"), graph, { storageKey: `ctxgraph:v3:${biz}:${p || ''}`,
+    onOpen:n=>contextOpenItem(biz,n.item),
+    onSelect:(n,host)=>contextReviewPanel(host,biz,{type:n.item.type,id:n.item.id}) });
   wireCrumbs(v);
-  v.querySelectorAll(".card").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
-  const mp = $("#tpmap"); if (mp) mp.onclick = () => { ls("ctxmapmode", mapMode ? "0" : "1"); openTopic(p); };
-  const ed = $("#tpedit"); if (ed) ed.onclick = () => ctxGo(`${p}/_topic.md`);
-  const rs = $("#tpsum"); if (rs) rs.onclick = async () => { rs.disabled = true; const r = await post(`/biz/${state.biz}/context/summarize`, { topic: p }); toast(r.error || `summarising ${p}`); const d2 = await api(`/biz/${state.biz}/context`); ctxPaint(d2); openTopic(p); ctxWatch(d2); };
 }
-const ctxNoteMeta = n => ({ date: n.slice(0, 10), rest: "" });
+
 
 // a person: bio, generated summary, the notes filed under them, where they're mentioned
 async function openPerson(slug) {
@@ -357,16 +309,18 @@ function renderPersonNotes(text) {
   return out.join("");
 }
 
-// everyone: the People cards that used to sit on the root view, now behind the sidebar's People row
+// Shared compact cards, newest person or relationship activity first.
 function openPeople() {
-  const v = $("#ctxview"), d = _ctxData || {}, people = d.people || [];
+  const v = $("#ctxview"), d = _ctxData || {}, biz=state.biz;
+  const nodes=d.graph?.nodes.filter(n=>n.type==='person') || [];
+  const people=writingRecent((nodes.length?nodes:(d.people || []).map(p=>({type:'person',id:p.document_id || p.slug,label:p.name,path:p.path,...p}))).map(node=>{
+    const person=(d.people || []).find(p=>p.document_id===node.id) || {};
+    const times=[person.at,node.updated_at,...(d.graph?.edges || []).filter(e=>(e.source.type==='person' && e.source.id===node.id) || (e.target.type==='person' && e.target.id===node.id)).map(e=>e.updated_at)].filter(Boolean).sort();
+    return {...person,...node,title:node.label || person.name,updated_at:times.at(-1)};
+  }));
   _ctxLastSig = ctxSig(d, "_people");
-  const head = `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><span class="cur">People</span></div><div class="th"><h2>People</h2></div>`;
-  const body = people.length ? `<div class="sec"><div class="sh">People</div><div class="cards">${people.map(pn => { const n = personNoteCount(pn), path = "_people/" + pn.slug; return `<div class="card p" data-p="${esc(path)}"><div class="ct"><span class="tt">${esc(pn.name)}</span></div><div class="cb">${esc([pn.role, pn.org].filter(Boolean).join(" · "))}</div><div class="cs">${n} note${n === 1 ? "" : "s"}</div></div>`; }).join("")}</div></div>`
-    : `<div class="empty">no people yet</div>`;
-  v.innerHTML = head + body;
-  wireCrumbs(v);
-  v.querySelectorAll(".card").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
+  v.innerHTML = `<div class="jrhome"><div class="jrhhead"><h2>People</h2></div><div class="jrgrid">${people.map(person => writingCard({id:person.id,title:person.title,updated:person.updated_at,detail:[person.role,person.org].filter(Boolean).join(' · ')})).join('')}</div>${people.length ? '' : '<p class="jrfaint">No people yet.</p>'}</div>`;
+  v.querySelectorAll('.jrcard').forEach(el=>el.onclick=()=>contextOpenItem(biz,people.find(p=>p.id===el.dataset.id)));
 }
 
 // uploads: what's still filing (or failed) up top, then every filed dump — the tree's old Inbox/Uploads sections
@@ -630,7 +584,7 @@ async function editPersonDetails(biz, id, after) {
 // All business tasks, independent of the personal drawer's assignment filter.
 async function renderAllTasks(container) {
   const biz = state.biz;
-  container.innerHTML = `<section class="ctx-all-tasks"><header class="data-heading"><h1>All tasks</h1><button class="btn" id="all-tasks-refresh">Refresh</button></header>
+  container.innerHTML = `<section class="ctx-all-tasks"><header class="data-heading"><h1>Tasks</h1><button class="btn" id="all-tasks-refresh">Refresh</button></header>
     <div class="data-row-tools"><label>Search tasks<input class="inp" type="search" id="all-tasks-search"></label>
     <label>Status<select class="inp" id="all-tasks-status"><option value="">All statuses</option>${T_STATES.map(s => `<option value="${s}">${T_LABEL[s]}</option>`).join('')}</select></label></div>
     <p id="all-tasks-message" role="status">Loading tasks…</p><div class="data-grid-wrap"><table class="data-grid"><thead><tr><th>Task</th><th>Status</th><th>Assignees</th><th>Due</th><th>Tags</th></tr></thead><tbody></tbody></table></div></section>`;

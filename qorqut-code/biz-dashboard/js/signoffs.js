@@ -227,7 +227,6 @@ function sgCreateView(options) {
     if (options.execution) sg.mount.querySelector(".sg-execution").hidden = sg.responded;
     const groups = { urgent: sg.responded ? [] : sg.order.map(id=>sg.items.get(id)).filter(s=>s && urgentLocal(s)), waiting: sg.order.map(id => sg.items.get(id)).filter(s => s && (sg.responded ? !!s.decision : s.state === "pending" && !urgentLocal(s))) };
     html(sg.mount.querySelector('.sg-filter'), `<button type="button" data-sg="pending" aria-pressed="${!sg.responded}">Waiting</button><button type="button" data-sg="responded" aria-pressed="${sg.responded}">Responded</button>`);
-    sg.mount.querySelector('.sg-waiting h2').textContent = sg.responded ? 'Responded' : 'Waiting on you';
     if (options.execution && !sg.responded) groups.execution = sg.order.map(id => sg.items.get(id)).filter(s => s && s.state !== "pending");
     for (const name of Object.keys(groups)) {
       const container = sg.mount.querySelector(`.sg-${name}`);
@@ -465,7 +464,7 @@ function sgCreateView(options) {
     sg.mount = active() ? body : null;
     if (!sg.mount) return;
     body.classList.add("sg-body");
-    body.innerHTML = `<div class="sg"><header class="sg-head"><div><h1>Signoffs</h1><p class="sg-business"></p></div><span class="sg-count"></span></header><div class="sg-filter"></div><div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All businesses</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><h2>Waiting on you</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
+    body.innerHTML = `<div class="sg"><header class="sg-head"><div><p class="sg-business"></p></div><span class="sg-count"></span></header><div class="sg-filter"></div><div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All businesses</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
     body.onclick = event => {
       const urgent = event.target.closest('[data-attention-id]');
       if (urgent) { const item=sgAttention.urgent.find(i=>i.id===urgent.dataset.attentionId); if(item) sgAttentionNavigate(item.business_slug,item.id); return; }

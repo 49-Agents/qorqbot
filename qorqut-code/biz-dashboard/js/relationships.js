@@ -17,7 +17,7 @@ async function contextOpenItem(biz, item, beforeOpen) {
   if (item.type === 'person') { await editPersonDetails(biz, item.id); return; }
   if (item.type === 'story') {
     if (state.biz !== biz) await selectBiz(biz);
-    ls(`story:${biz}`, item.id); openTasks(false); await goTab('stories'); return;
+    storyPending={biz,id:item.id}; openTasks(false); await goTab('stories'); return;
   }
   await storyOpenLink({biz, error:e=>toast(e.message)}, {resource_type:item.resource_type === 'context_entities' ? 'entity' : item.resource_type,
     resource_id:item.id, current:{...item, kind:item.kind || item.subtype}, snapshot_json:item});

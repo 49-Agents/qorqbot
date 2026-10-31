@@ -19,6 +19,7 @@ const glyph = (shape, colorHex, sizePx) => `<span class="g ${SHAPES.includes(sha
 // 24 lucide-style icons an agent can pick, keyed by kebab-case lucide name; each value is the
 // inner markup for a 24x24 stroke viewBox (paths/shapes only, no outer <svg>)
 const AICONS = {
+  "share-2": '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.5 6.8-4M8.6 13.5l6.8 4"/>',
   "refresh-cw": '<path d="M3 12a9 9 0 0 1 15.36-6.36L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.36 6.36L3 16"/><path d="M8 16H3v5"/>',
   "arrow-left": '<path d="m12 19-7-7 7-7"/><path d="M5 12h14"/>',
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',

@@ -97,14 +97,14 @@ function lnMatch(item, q, people, draft) {
 async function lnFetch() {
   if (!state.biz) return null;
   const d = await api(`/biz/${state.biz}/learnings`);
-  if (!d || d.error || !Array.isArray(d.items)) { lnStatusPaint([]); lnBadgePaint(0); return d; }
+  if (!d || d.error || !Array.isArray(d.items)) { lnItemsBadge([]); lnBadgePaint(0); return d; }
   _ln.biz = state.biz; _ln.items = d.items; _ln.counts = d.counts || null;
   // a reverted decision hands its note back as the draft, unless the owner already typed a new one
   for (const it of d.items) if (lnOpenItem(it) && _ln.notes[it.id] === undefined) {
     const note = (it.reopened && it.reopened.note) || lnNote(it);
     if (note) _ln.notes[it.id] = note;
   }
-  lnStatusPaint(d.items);
+  lnItemsBadge(d.items);
   return d;
 }
 // the Context rail badge, same span and class as the marketing one
@@ -119,16 +119,8 @@ function lnLivePaint(live) {
   if (state.tab === "context" && state.ctx === "_learning") return;
   lnBadgePaint((live && live.learnings_open) || 0);
 }
-const lnStatusHtml = counts => `<div class="lnstat-t">Waiting</div>${LN_TAGS.map(([k, label, hex]) => {
-  const n = (counts || {})[k] || 0;
-  return `<div class="lnstat-l ${n ? "" : "zero"}"><span class="lndot" style="--lc:${esc(hex)}"></span><span class="lnstat-n">${n}</span><span class="lnstat-x">${esc(label.toLowerCase())}</span></div>`;
-}).join("")}`;
-function lnStatusPaint(items) {
-  const el = $("#lnstatus"); if (!el) return;
-  const counts = lnCountsByTag(items);
-  el.innerHTML = lnStatusHtml(counts);
-  lnBadgePaint(Object.values(counts).reduce((a, b) => a + b, 0));
-  el.querySelectorAll(".lnstat-l").forEach(r => r.onclick = () => (typeof ctxGo === "function" ? ctxGo("_learning") : null));
+function lnItemsBadge(items) {
+  lnBadgePaint(Object.values(lnCountsByTag(items)).reduce((a,b)=>a+b,0));
 }
 
 // ---------------------------------------------------------------- the page
@@ -263,14 +255,14 @@ function lnDecide(it, st, note) {
   it.decision = { state: st, note: note || "", actor: "human:owner", created: new Date().toISOString() };
   delete it.reopened;
   delete _ln.notes[it.id]; delete _ln.noteOpen[it.id]; lnDraftsSave();
-  lnPaintCols(); lnStatusPaint(_ln.items);
+  lnPaintCols(); lnItemsBadge(_ln.items);
 }
 function lnUndecide(it) {
   const note = lnNote(it);
   it.reopened = { state: "open", note, created: new Date().toISOString() };
   delete it.state; delete it.decision;
   if (note && !_ln.notes[it.id]) { _ln.notes[it.id] = note; lnDraftsSave(); }
-  lnPaintCols(); lnStatusPaint(_ln.items);
+  lnPaintCols(); lnItemsBadge(_ln.items);
 }
 async function lnRefetch() { const d = await lnFetch(); if (d && !d.error && state.ctx === "_learning") lnPaintCols(); }
 async function lnSend(it, st, note, apply, label) {
@@ -282,7 +274,7 @@ async function lnSend(it, st, note, apply, label) {
   if (state.biz !== biz || _ln !== model) return;
   if (!r || r.error) { notify({ text: `${label} failed`, sub: lnErr(r), color: "var(--danger)" }); return lnRefetch(); }
   apply();
-  if (r.item) { Object.assign(it, r.item); lnPaintCols(); lnStatusPaint(_ln.items); }
+  if (r.item) { Object.assign(it, r.item); lnPaintCols(); lnItemsBadge(_ln.items); }
   if (r.item && r.item.filing && r.item.filing.upload_id) await lnRefetch();
   toast(label.toLowerCase());
 }

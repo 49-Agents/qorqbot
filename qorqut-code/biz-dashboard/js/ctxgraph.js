@@ -30,10 +30,10 @@ function ctxGraphLayout(graph, saved = {}) {
   let gi = 0;
   for (const [id, arr] of members) {
     const angle = -Math.PI * .82 + gi++ * Math.PI * 2 / Math.max(1, groupCount);
-    const radius = groupCount === 1 && id === graph.rootId ? 0 : 240 + Math.sqrt(arr.length) * 24 + groupCount * 12;
+    const radius = 650 + Math.sqrt(nodes.length) * 35;
     anchors.set(id, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
     arr.forEach((n, i) => {
-      const a = i * 2.39996 + angle, r = i ? 78 * Math.sqrt(i) : 0;
+      const a = i * 2.39996 + angle, r = i ? 110 * Math.sqrt(i) : 0;
       n.x = anchors.get(id).x + Math.cos(a) * r; n.y = anchors.get(id).y + Math.sin(a) * r;
     });
   }
@@ -67,7 +67,7 @@ function ctxGraphLayout(graph, saved = {}) {
     for (const e of graph.edges) {
       const a = byId.get(e.source), b = byId.get(e.target), dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy) || 1;
       const length = a.id === graph.rootId && a.kind === "root" ? 285 : e.kind === "contains" ? 155 : 170;
-      const f = Math.max(-8, Math.min(8, (dist - length) * .022)) * cooling;
+      const f = Math.max(-8, Math.min(8, (dist - length) * (a.group === b.group ? .012 : .001))) * cooling;
       move(a, dx / dist * f, dy / dist * f); move(b, -dx / dist * f, -dy / dist * f);
     }
     // Local collision pairs only, rather than comparing every node with every other node.
@@ -86,18 +86,9 @@ function ctxGraphLayout(graph, saved = {}) {
       }
       const key = `${cx},${cy}`; if (!cells.has(key)) cells.set(key, []); cells.get(key).push(i);
     });
-    nodes.forEach(n => move(n, (n.ax - n.x) * .014 * cooling, (n.ay - n.y) * .014 * cooling));
+    nodes.forEach(n => move(n, (n.ax - n.x) * .065 * cooling, (n.ay - n.y) * .065 * cooling));
   }
   return nodes;
-}
-
-function ctxGraphHull(points) {
-  if (points.length < 3) return [];
-  const sorted = points.slice().sort((a, b) => a.x - b.x || a.y - b.y);
-  const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-  const half = arr => { const out = []; for (const p of arr) { while (out.length > 1 && cross(out[out.length - 2], out[out.length - 1], p) <= 0) out.pop(); out.push(p); } return out; };
-  const lower = half(sorted), upper = half(sorted.slice().reverse());
-  return lower.slice(0, -1).concat(upper.slice(0, -1));
 }
 
 function ctxGraphAnchor(n, to) {
@@ -133,16 +124,21 @@ function contextGraph(el, graph, opts = {}) {
   let selected = byId.has(saved.selected) ? saved.selected : null, neighbors = new Set();
   let width = 0, height = 0, frame = 0, saveTimer = 0, destroyed = false;
   const camera = { k: 1, x: 0, y: 0 };
+  const typeNames = {story:'Stories',task:'Tasks',person:'People',table:'Tables',agent:'Agents',topic:'Topics',material:'Materials'};
+  let storedTypes;try{storedTypes=JSON.parse(ls('ctxgraph-types') || 'null');}catch(_){}
+  const shownTypes = new Set(Array.isArray(storedTypes)?storedTypes:['story','task','person','table','agent']);
+  const isVisible = n => shownTypes.has(n.kind) || n.id === selected || neighbors.has(n.id) || n.id === graph.rootId;
   const minZoom = .03, maxZoom = 4;
   const arrowId='context-arrow-'+newRequestId();
   el.innerHTML = `<div class="ctxgraph" aria-label="Context graph">
-    <div class="ctxgraph-bar"><span class="ctxgraph-caption">Context map</span>
+    <div class="ctxgraph-bar"><span class="ctxgraph-caption">Graph</span>
       <div class="ctxgraph-search"><input type="search" aria-label="Find a node in this map" placeholder="Find a node…" autocomplete="off"><div class="ctxgraph-results" hidden></div></div>
-      <label class="ctxgraph-links"><input type="checkbox" ${ls("ctxmaplinks") === "0" ? "" : "checked"}> links</label>
+      <label class="ctxgraph-links"><input type="checkbox" ${ls("ctxmaplinks") === "1" ? "checked" : ""}> All links</label>
       <button type="button" data-action="copy" title="Copy graph as Mermaid" aria-label="Copy graph as Mermaid">${SVG_MAPCOPY}</button>
     </div>
+    <div class="ctxgraph-types">${Object.entries(typeNames).filter(([kind])=>nodes.some(n=>n.kind===kind)).map(([kind,label])=>`<label><input type="checkbox" data-kind="${kind}" ${shownTypes.has(kind)?'checked':''}>${label}</label>`).join('')}</div>
     <div class="ctxgraph-canvas" tabindex="0" role="group" aria-label="Context map. Drag nodes to arrange; drag the background to pan. Use plus, minus and arrow keys to navigate.">
-      <svg class="ctxgraph-network" aria-hidden="true"><defs><marker id="${arrowId}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 Z" fill="#a6aaa6"></path></marker></defs><g class="ctxgraph-hulls"></g><g class="ctxgraph-edges"></g></svg>
+      <svg class="ctxgraph-network" aria-hidden="true"><defs><marker id="${arrowId}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 Z" fill="#a6aaa6"></path></marker></defs><g class="ctxgraph-edges"></g></svg>
       <div class="ctxgraph-nodes"></div>
       <div class="ctxgraph-hint">drag nodes to arrange · scroll to zoom</div>
       <div class="ctxgraph-zoom"><button type="button" data-action="out" aria-label="Zoom out">−</button><output aria-label="Zoom level">100%</output><button type="button" data-action="in" aria-label="Zoom in">+</button><button type="button" data-action="fit" title="Fit to view" aria-label="Fit to view">${SVG_MAPFIT}</button></div>
@@ -160,11 +156,6 @@ function contextGraph(el, graph, opts = {}) {
     const siblings=pairs.get([e.source,e.target].sort().join('|'));
     const path = svgEl("path", { class: `ctxgraph-edge ${e.kind}`, "data-edge": e.id, 'marker-end':`url(#${arrowId})` });
     root.querySelector(".ctxgraph-edges").append(path); return { ...e, el: path, index:siblings.indexOf(e.id), count:siblings.length };
-  });
-  const hulls = graph.groups.map(g => {
-    const path = svgEl("path", { fill: g.color, "fill-opacity": ".035", stroke: g.color, "stroke-opacity": ".14" });
-    root.querySelector(".ctxgraph-hulls").append(path);
-    return { ...g, members: nodes.filter(n => n.group === g.id), el: path };
   });
   const labelCanvas = document.createElement("canvas"), measure = labelCanvas.getContext("2d");
   const measureLabels = () => nodes.forEach(n => {
@@ -200,7 +191,7 @@ function contextGraph(el, graph, opts = {}) {
     const visit = (b, fn) => { for (let x = Math.floor(b.x / size); x <= Math.floor((b.x + b.w) / size); x++) for (let y = Math.floor(b.y / size); y <= Math.floor((b.y + b.h) / size); y++) fn(`${x},${y}`); };
     const reserve = b => visit(b, key => { if (!cells.has(key)) cells.set(key, []); cells.get(key).push(b); });
     const score = b => { let hits = 0; const seen = new Set(); visit(b, key => { for (const other of cells.get(key) || []) if (!seen.has(other)) { seen.add(other); if (overlap(b, other)) hits++; } }); return hits; };
-    const visible = nodes.filter(n => n.sx > -30 && n.sx < width + 30 && n.sy > -30 && n.sy < height + 30);
+    const visible = nodes.filter(n => isVisible(n) && n.sx > -30 && n.sx < width + 30 && n.sy > -30 && n.sy < height + 30);
     visible.forEach(n => reserve({ x: n.sx - n.radius - 3, y: n.sy - n.radius - 3, w: n.radius * 2 + 6, h: n.radius * 2 + 6 }));
     const priority = n => n.id === selected ? 0 : neighbors.has(n.id) ? 1 : n.id === graph.rootId ? 2 : n.kind === "topic" || n.kind === "group" ? 3 : 4;
     visible.sort((a, b) => priority(a) - priority(b) || degrees.get(b.id) - degrees.get(a.id));
@@ -222,6 +213,7 @@ function contextGraph(el, graph, opts = {}) {
   function draw() {
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     nodes.forEach(n => {
+      n.el.hidden = !isVisible(n);
       n.sx = n.x * camera.k + camera.x; n.sy = n.y * camera.k + camera.y;
       n.el.style.left = `${n.sx}px`; n.el.style.top = `${n.sy}px`;
       n.el.classList.toggle("selected", selected === n.id); n.el.classList.toggle("neighbor", neighbors.has(n.id));
@@ -242,17 +234,7 @@ function contextGraph(el, graph, opts = {}) {
       }
       const hot = e.source === selected || e.target === selected;
       e.el.classList.toggle("hot", !!selected && hot); e.el.classList.toggle("faded", !!selected && !hot);
-      e.el.style.display = e.kind !== "contains" && !links.checked ? "none" : "";
-    });
-    hulls.forEach(g => {
-      const points = [];
-      for (const n of g.members) for (let i = 0; i < 8; i++) points.push({ x: n.sx + Math.cos(i * Math.PI / 4) * 38, y: n.sy + Math.sin(i * Math.PI / 4) * 38 });
-      const hull = ctxGraphHull(points);
-      if (hull.length < 3) return;
-      const mid = (a, b) => `${(a.x + b.x) / 2} ${(a.y + b.y) / 2}`;
-      let path = `M${mid(hull[hull.length - 1], hull[0])}`;
-      hull.forEach((p, i) => { path += ` Q${p.x} ${p.y} ${mid(p, hull[(i + 1) % hull.length])}`; });
-      g.el.setAttribute("d", path + "Z");
+      e.el.style.display = isVisible(a) && isVisible(b) && (hot || links.checked) ? "" : "none";
     });
     placeLabels();
     root.querySelector(".ctxgraph-zoom output").textContent = `${Math.round(camera.k * 100)}%`;
@@ -288,13 +270,19 @@ function contextGraph(el, graph, opts = {}) {
     schedule(); persist();
   }
   function fit() {
-    if (!nodes.length) return;
+    const visible = nodes.filter(isVisible);
+    if (!visible.length) return;
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-    nodes.forEach(n => { x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x); y0 = Math.min(y0, n.y); y1 = Math.max(y1, n.y); });
+    visible.forEach(n => { x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x); y0 = Math.min(y0, n.y); y1 = Math.max(y1, n.y); });
     camera.k = Math.max(minZoom, Math.min(1.25, Math.max(60, width - 160) / Math.max(1, x1 - x0), Math.max(60, height - 155) / Math.max(1, y1 - y0)));
     camera.x = (width - (x0 + x1) * camera.k) / 2; camera.y = (height - 35 - (y0 + y1) * camera.k) / 2;
     schedule(); persist();
   }
+
+  root.querySelectorAll('[data-kind]').forEach(input=>listen(input,'change',()=>{
+    if(input.checked)shownTypes.add(input.dataset.kind);else shownTypes.delete(input.dataset.kind);
+    ls('ctxgraph-types',JSON.stringify([...shownTypes]));fit();schedule();
+  }));
 
   // Pointer capture supports mouse, touch and pen without any global move/up listeners.
   const pointers = new Map(); let drag = null, pinch = null, suppressClick = false;

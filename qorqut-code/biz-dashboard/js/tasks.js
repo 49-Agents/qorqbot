@@ -119,6 +119,7 @@ async function refreshTasks() {
     state.tasks.forEach(t => { if (tCompleting.has(tKey(t))) t.status = 'done'; });
   }
   if (tVisSig() !== tPaintSig) paintTasks();
+  if (tPanelOpen() && tView === "tasks") tRefreshContext();
 }
 async function tFetchTask(biz, id) {
   const result = await api(`/biz/${encodeURIComponent(biz)}/task/${encodeURIComponent(id)}`);
@@ -174,7 +175,7 @@ const tDotHtml = s => `<span class="sdot ${esc(s)}"></span>`;
 // two empty task lists (no business picked vs. a business with nothing in it) render different copy.
 function tVisSig() {
   return JSON.stringify([state.scope, state.biz, tPersonalLoaded, tPersonalError, tPersonalRows().filter(tMatch).map(t =>
-    [tKey(t), t.status, tAssignees(t).join(','), t.title, t.due || "", (t.tags || []).join(","), tSunk(t)])]);
+    [tKey(t), t.status, tAssignees(t).join(','), t.title, t.due || "", (t.tags || []).join(","), t.assigners, tSunk(t)])]);
 }
 
 // ---------------------------------------------------------------- assignee
@@ -228,15 +229,52 @@ function tBall(t, detailsOnly = false) {
 
 // the deadline slot is reserved on every row in every section, whether or not any task anywhere has a
 // due date, so assignee/status balls line up identically across sections
+const tContextGraphs = new Map();
+async function tRefreshContext() {
+  const businesses = [...new Set(tPersonalRows().filter(t=>!tClosed(t)).map(tSlug))];
+  await Promise.allSettled(businesses.map(async biz=>{
+    const cached=tContextGraphs.get(biz);
+    if(cached?.pending || Date.now()-(cached?.at || 0)<10000)return;
+    tContextGraphs.set(biz,{...cached,pending:true});
+    try {
+      const graph=await storyCall(biz,'context_graph_get');
+      tContextGraphs.set(biz,{graph,at:Date.now(),pending:false});
+      tPaintSig=null; if(tView==='tasks')paintTasks();
+    } catch (_) { tContextGraphs.set(biz,{...cached,at:Date.now(),pending:false}); }
+  }));
+}
+function tRelatedItems(task) {
+  const graph=tContextGraphs.get(tSlug(task))?.graph;
+  if(!graph)return [];
+  const keys=new Set();
+  for(const edge of graph.edges){
+    if(edge.role==='assigned_to')continue;
+    const endpoint=edge.source.type==='task' && edge.source.id===task.id ? edge.target : edge.target.type==='task' && edge.target.id===task.id ? edge.source : null;
+    if(endpoint)keys.add(JSON.stringify([endpoint.type,endpoint.id]));
+  }
+  const rank={story:0,person:1};
+  return graph.nodes.filter(n=>keys.has(JSON.stringify([n.type,n.id]))).sort((a,b)=>(rank[a.type]??2)-(rank[b.type]??2)||a.label.localeCompare(b.label));
+}
+const tChipLabel = label => {const chars=Array.from(String(label));return chars.length>20?chars.slice(0,19).join('')+'…':chars.join('');};
+function tChips(task) {
+  const chip=(label,title,extra='')=>`<button type="button" class="task-chip" title="${esc(title)}" ${extra}>${esc(tChipLabel(label))}</button>`;
+  return `<span class="task-chips">${(task.assigners || []).map(actor=>chip(actor.name,'Assigned by '+actor.name,'data-task-assignees')).join('')}${(task.tags || []).map(tag=>`<span class="task-chip" title="${esc(tag)}">${esc(tChipLabel(tag))}</span>`).join('')}${tRelatedItems(task).map((item,i)=>chip(item.label,contextItemType(item)+': '+item.label,`data-task-related="${i}"`)).join('')}</span>`;
+}
+
 function tRow(t, detailsOnly = false) {
   const business = tBusiness(t);
   const icon = `<span class="task-business" title="${esc(business.name || business.slug || '')}" aria-label="Business: ${esc(business.name || business.slug || '')}">${esc((business.name || business.slug || '·').charAt(0).toUpperCase())}</span>`;
-  return `<div class="trow ${esc(t.status)}${tClosed(t) ? ' off' : ''}${detailsOnly ? '' : ' personal-task'}" data-id="${esc(t.id)}" data-key="${esc(tKey(t))}" data-business="${esc(business.slug || '')}">${detailsOnly ? (tDue(t) || '<span class="tdl"></span>') + tWho(t) : icon}${tBall(t, detailsOnly)}<p class="ttl">${esc(t.title)}</p>${detailsOnly ? '' : tDue(t)}<button class="tmore" type="button" title="Details" aria-label="Task details">${SVG_TMORE}</button></div>`;
+  return `<div class="trow ${esc(t.status)}${tClosed(t) ? ' off' : ''}${detailsOnly ? '' : ' personal-task'}" data-id="${esc(t.id)}" data-key="${esc(tKey(t))}" data-business="${esc(business.slug || '')}">${detailsOnly ? (tDue(t) || '<span class="tdl"></span>') + tWho(t) : icon}${tBall(t, detailsOnly)}<p class="ttl">${esc(t.title)}</p>${detailsOnly ? '' : tDue(t) + tChips(t)}<button class="tmore" type="button" title="Details" aria-label="Task details">${SVG_TMORE}</button></div>`;
 }
 
 function tWireRows(body, detailsOnly = false) {
   body.querySelectorAll(".trow").forEach(row => {
     const t = taskById(row.dataset.key || row.dataset.id); if (!t) return;
+    row.querySelectorAll('[data-task-related]').forEach(button=>button.onclick=event=>{
+      event.stopPropagation();const item=tRelatedItems(t)[Number(button.dataset.taskRelated)];
+      if(item)contextOpenItem(tSlug(t),item).catch(e=>toast(e.message));
+    });
+    row.querySelectorAll('[data-task-assignees]').forEach(button=>button.onclick=event=>{event.stopPropagation();tDetail(t);});
     const who = row.querySelector(".who");
     if (who && typeof tip === "function") tip(who, () => tWhoTip(t, detailsOnly));
   });
@@ -262,17 +300,12 @@ function tTabs(views = T_VIEWS, active = tView, bodyId = "tbody") {
   return `<div class="ttabs" role="tablist" aria-label="${bodyId === "tbody" ? "Business panel" : "Agent pane"}"><div class="tind" hidden></div>${views.map(v => `<button class="ttab${v === active ? " on" : ""}" id="${esc(tTabId(v, bodyId))}" role="tab" aria-selected="${v === active}" aria-controls="${esc(bodyId)}" type="button" data-v="${v}" title="${T_VIEW_LABEL[v]}" aria-label="${T_VIEW_LABEL[v]}">${T_VIEW_ICON[v]}</button>`).join("")}</div>`;
 }
 
-function tHead({ view = tView, views = T_VIEWS, bodyId = "tbody", title = view === "tasks" && bodyId === "tbody" ? "My tasks" : T_VIEW_LABEL[view], taskTools = true } = {}) {
-  // the journal/notes tabs supply their own header (homepage title/subtitle/Create, or the detail's
-  // own sidebar controls) in #tbody, so the generic ttop (title + tasks-only stats/search) sits out
-  const ownHead = view === "notes" || view === "signoffs" || view === "uploads" || view === "routines";
+function tHead({ view = tView, views = T_VIEWS, bodyId = "tbody", title = "", taskTools = true } = {}) {
   const tools = view === "tasks" && taskTools;
-  return `<div class="thead${ownHead ? " nott" : ""}">
+  return `<div class="thead nott">
     ${tTabs(state.scope === "global" && bodyId === "tbody" ? ["tasks", "signoffs", "routines"] : views, view, bodyId)}
-    ${ownHead ? "" : `<div class="ttop">
-      <div><h1>${esc(title)}</h1>${tools ? `<div class="tstats" id="tstats"></div>` : ""}</div>
-      ${tools ? `<label class="tsearch">${SVG_TSEARCH}<input id="tsearch" type="text" placeholder="Search by title, tag or content..." autocomplete="off" spellcheck="false"></label>` : ""}
-    </div>`}
+    ${title ? `<div class="ttop"><h1>${esc(title)}</h1></div>` : ""}
+    ${tools ? `<label class="tsearch">${SVG_TSEARCH}<input id="tsearch" type="search" aria-label="Search tasks" autocomplete="off" spellcheck="false"></label>` : ""}
   </div><div class="tbody" id="${esc(bodyId)}" role="tabpanel" aria-labelledby="${esc(tTabId(view, bodyId))}"></div>`;
 }
 
@@ -282,14 +315,6 @@ function tEmptyHtml(title, { sub = "", create = false } = {}) {
     (create ? `<button class="pill create" type="button">Create task</button>` : "") + `</div>`;
 }
 
-function tStats() {
-  const all = tPersonalRows(), today = tToday();
-  const doing = all.filter(t => t.status === "doing").length;
-  const over = all.filter(t => t.due && !tClosed(t) && tDay(t.due) < today).length;
-  return `<span><b>${all.length}</b> ${all.length === 1 ? "task" : "tasks"}</span><i>·</i><span><b class="blue">${doing}</b> in progress</span>`
-    + (over ? `<i>·</i><span><b class="over">${over}</b> overdue</span>` : "");
-}
-
 function paintTasks() {
   const p = $("#taskspanel"); if (!p) return;
   const c = $("#tcount"); if (c) { const n = tCount(); c.textContent = n ? String(n) : ""; }
@@ -297,7 +322,6 @@ function paintTasks() {
   // the tasks rows own #tbody only while the Tasks tab is active: another view (Activity, Journal) is
   // painted by its own function, and this repaint must not stomp it — #tcount above still gets refreshed
   if (tView !== "tasks") return;
-  const st = $("#tstats"); if (st) st.innerHTML = tStats();
   if (tEditingNow()) return;
 
   const prev = $("#taddin");
@@ -305,12 +329,11 @@ function paintTasks() {
   const hadFocus = prev && document.activeElement === prev;
 
   const rows = tPersonalRows().filter(tMatch).sort((a,b) => Number(tSunk(a))-Number(tSunk(b)) || String(a.due || '9999').localeCompare(b.due || '9999') || a.title.localeCompare(b.title) || tKey(a).localeCompare(tKey(b)));
-  const open = rows.filter(t => !tSunk(t)), closed = rows.filter(tSunk);
+  const open = rows.filter(t => !tSunk(t));
   let html = tPersonalError ? `<p class="personal-task-error" role="alert">${esc(tPersonalError)} <button class="ghost" id="tasks-retry">Retry</button></p>` : '';
   if (!tPersonalLoaded && !tPersonalError) html += tEmptyHtml('Loading your tasks…');
   else {
     html += open.length ? `<div class="personal-task-list">${open.map(t => tRow(t)).join('')}</div>` : tEmptyHtml(tSearch ? 'No matching tasks.' : 'Nothing waiting on you.');
-    if (closed.length) html += `<details class="personal-completed"><summary>Completed · ${closed.length}</summary>${closed.map(t => tRow(t)).join('')}</details>`;
     if (state.biz) html += tAdding ? tAddRow(tAdding) : `<button class="taddbtn" id="taddbottom" type="button">${SVG_TPLUS}Add task in ${esc(tBiz().name || state.biz)}</button>`;
   }
   const body = $("#tbody"); if (!body) return;
@@ -331,7 +354,7 @@ function paintTasks() {
 }
 
 // ---------------------------------------------------------------- view switch (tabs)
-// A tab click owns the whole panel repaint: it rebuilds .thead (h1 label, stats/search visibility, the
+// A tab click owns the whole panel repaint: it rebuilds .thead (tabs and search, the
 // tabs themselves) and then paints #tbody for the view landed on. Only a tab switch does this — the
 // intervals below only ever touch the view that's currently active.
 function tSetView(v) {

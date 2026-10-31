@@ -98,12 +98,12 @@ function rtRender() {
   const visible = rtShowPaused ? rows : active;
   const isLog = rtPage === 'logs';
   const current = rtData && rtData.current, queued = rtData && rtData.queued || [];
-  const status = rtError ? 'Unavailable' : !rtData ? 'Loading…' : !rtData.enabled ? 'Runner disabled' : current ? `${current.routine} running · ${current.seconds}s` : queued.length ? `${queued.length} queued` : 'Ready';
+  const status = rtError ? 'Unavailable' : !rtData ? 'Loading…' : !rtData.enabled ? 'Runner disabled' : current ? `${current.routine} running · ${current.seconds}s` : queued.length ? `${queued.length} queued` : '';
   const problem = rtError || rtData && rtData.error || isLog && rtRuns && rtRuns.error;
   body.innerHTML = `<div class="jred rtworkspace"><nav class="jrrail rtnav" aria-label="Routines navigation">
     <button class="jricon ${!isLog ? 'on' : ''}" data-page="active" aria-current="${!isLog ? 'page' : 'false'}" title="Active routines">${RT_ICONS.active}<span>Active</span></button>
     <button class="jricon ${isLog ? 'on' : ''}" data-page="logs" aria-current="${isLog ? 'page' : 'false'}" title="Recent runs">${RT_ICONS.logs}<span>Recent runs</span></button>
-    </nav><section class="rtcontent"><header class="jrhhead"><div><h1>${isLog ? 'Recent runs' : rtGlobal() ? 'Global routines' : 'Routines'}</h1><div class="jrsub">${isLog ? `${logs.length} recent runs` : `${active.length} active${paused ? ' · ' + paused + ' paused' : ''}`}</div></div>
+    </nav><section class="rtcontent"><header class="jrhhead">
     ${!isLog ? `<button class="btn" id="rtnew" ${!rtData || rtGlobal() && !rtData.root ? 'disabled' : ''}>${ICO_PLUS}New routine</button>` : ''}</header>
     ${!isLog ? `<div class="rttoolbar"><span class="rtmuted" title="${esc(rtData && rtData.last_sweep || '')}">${esc(status)}</span>${current ? '<button class="btn quiet" id="rtkill">Stop run</button>' : ''}${paused ? `<label class="rtpaused"><input id="rtpaused" type="checkbox" ${rtShowPaused ? 'checked' : ''}>Show paused</label>` : ''}</div>` : ''}
     ${problem ? `<p class="rtfail" role="alert">${esc(problem)} <button class="btn quiet" id="rtretry">Retry</button></p>` : ''}

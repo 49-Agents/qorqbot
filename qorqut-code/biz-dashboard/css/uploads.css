@@ -5,8 +5,6 @@
 
 .tasks .tbody.up { padding: 0; overflow-y: auto; }
 .up .uphead { padding: 18px 32px 20px 28px; }
-/* h1 size/weight/spacing: shared with every other tab's headline, see css/tasks.css */
-.up .upsub { margin: 6px 0 0; font-size: 14px; color: var(--fg-2); }
 
 /* -- the paste box: one bordered card; the textarea fills it, the media strip appears under the text
    when files are in (the textarea then reads as a readonly caption area) */
@@ -58,14 +56,6 @@
 }
 .up .upinp:focus { border-color: var(--fg-3); }
 .up .upinp::placeholder { color: var(--fg-3); }
-.up .upgroups { display: flex; gap: 8px; }
-.up .upg {
-  height: 30px; padding: 0 14px; border: 1px solid var(--line-2); border-radius: var(--r-full); display: inline-flex; align-items: center;
-  font: 600 12px var(--sans); color: var(--fg-2); cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease;
-}
-.up .upg:hover { color: var(--fg); border-color: var(--fg-3); }
-.up .upg.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
-
 /* -- send row */
 .up .upact { display: flex; align-items: center; gap: 14px; padding: 20px 32px 8px; }
 /* the send button is app.css's pill (see the `button` rule there); only its width differs */
@@ -81,3 +71,5 @@
 .up .updl { color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .up .updr { font: 11.5px var(--mono); color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .up .updrow.bad .updr { color: var(--danger); }
+
+#upnotes{height:108px;min-height:108px;resize:vertical;padding:12px;line-height:1.5}

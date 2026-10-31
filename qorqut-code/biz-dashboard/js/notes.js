@@ -134,12 +134,8 @@ function ntRenderCurrent() {
 // ---- homepage
 // Shared card and activity-board presentation.
 function ntCardHtml(n) {
-  const title = esc(n.title && n.title.trim() ? n.title : "Untitled");
   const words = ntWords(n.content);
-  return `<button class="jrcard" type="button" data-id="${esc(n.id)}">
-    <div class="jrcrow1"><span class="jrctitle">${title}</span>${n.pinned ? NT_ICO_PIN_TINY : ""}</div>
-    <div class="jrcfoot"><span>${esc(relativeTime(n.updatedAt))}</span><span>${words} word${words === 1 ? "" : "s"}</span></div>
-  </button>`;
+  return writingCard({id:n.id, title:n.title, updated:n.updatedAt, detail:`${words} ${words === 1 ? 'word' : 'words'}`, icon:n.pinned ? NT_ICO_PIN_TINY : ''});
 }
 function ntHomeHtml() {
   const n = ntNotes.length;
@@ -153,7 +149,7 @@ function ntHomeHtml() {
   const heatEntries = ntNotes.map(x => ({ date: String(x.date || x.createdAt || "").slice(0, 10) }));
   return `<div class="jrhome">
     <div class="jrhhead">
-      <div><h1>Notes</h1><div class="jrsub">${n} ${n === 1 ? "page" : "pages"}</div></div>
+      <div><div class="jrsub">${n} ${n === 1 ? "page" : "pages"}</div></div>
       <button id="ntnew" class="btn" type="button">${ICO_PLUS}Create new</button>
     </div>
     ${writingHeatmapHtml(heatEntries)}
