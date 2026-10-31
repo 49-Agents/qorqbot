@@ -13,6 +13,7 @@ import base64
 import glob
 import hmac
 import json
+import mimetypes
 import os
 import re
 import shlex
@@ -22,13 +23,33 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 import uuid
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.expanduser(os.environ.get("BIZ_ROOT", "~/projects/example-businesses"))
-CLI_ENV = {"bizlog": "BIZLOG_CMD", "biztask": "BIZTASK_CMD", "bizctx": "BIZCTX_CMD", "bizrun": "BIZRUN_CMD"}
+CLI_ENV = {"bizlog": "BIZLOG_CMD", "biztask": "BIZTASK_CMD", "bizctx": "BIZCTX_CMD", "bizrun": "BIZRUN_CMD",
+           "bizreq": "BIZREQ_CMD"}
+# the bridge (spec 04 §2): both vars set = enabled; either missing = disabled, every request is manual
+BRIDGE_URL = os.environ.get("BIZ_SERVICE_URL", "")
+BRIDGE_TOKEN = os.environ.get("BIZ_SERVICE_TOKEN", "")
+BRIDGE_INTERVAL = int(os.environ.get("BIZ_BRIDGE_INTERVAL", "60"))
+BRIDGE_ACTOR = "system:gateway"
+MEDIA_MAX_FILES = 10                       # BRIDGE-API §3, checked before POST /jobs
+MEDIA_MAX_BYTES = 25 * 1024 * 1024
+BACKOFF_MINUTES = (1, 2, 4, 8, 16, 32, 60)   # BRIDGE-API §6, per business per operation, in memory
+JOB_TERMINAL = ("done", "failed", "needs_info")
+CONTENT_TREE = "marketing-content"
+CONTENT_KINDS = ("post", "comment", "reply", "dm", "email", "ad", "video", "image", "launch", "decision")
+# channel key -> platform (mirrors js/marketing.js CHANNEL_PLATFORM, spec 06); unknown keys fall back to their first segment
+CHANNEL_PLATFORM = {"reddit-organic": "reddit", "reddit-paid": "reddit", "x-organic": "x", "x-reply": "x",
+                    "linkedin-organic": "linkedin", "linkedin-outbound": "linkedin", "cold-email": "email",
+                    "email-newsletter": "email", "ugc": "ugc", "microinfluencers": "microinfluencers",
+                    "open-source": "open-source"}
 FILER_EVERY = int(os.environ.get("BIZ_FILER_EVERY", "300"))   # seconds between inbox sweeps
 FILER_ATTEMPTS = 3                                            # then the upload stays in the inbox as failed
 FILER_TIMEOUT = 900
@@ -81,11 +102,23 @@ def owner_actor(biz):
     return os.environ.get("BIZ_ACTOR") or f"human:{owner}"
 
 
-def run_json(biz, name, *args, stdin=None):
+GIT_LOCKS = {}
+
+
+def git_lock(biz):
+    """One re-entrant lock per business repo: the CLIs, `git_commit` and the bridge's pull/write/push all
+    commit into the same index, and two commits at once lose on `.git/index.lock`."""
+    with LOCK:
+        return GIT_LOCKS.setdefault(os.path.abspath(biz), threading.RLock())
+
+
+def run_json(biz, name, *args, stdin=None, actor=None):
+    """`<cli> --json <args>` in the biz repo as the owner (or `actor`, e.g. system:gateway for the bridge)."""
     try:
-        r = subprocess.run(cli(name) + ["--json"] + list(args), cwd=biz, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=60, input=stdin,
-                           env=dict(os.environ, BIZ_ACTOR=owner_actor(biz)))
+        with git_lock(biz):
+            r = subprocess.run(cli(name) + ["--json"] + list(args), cwd=biz, capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", timeout=60, input=stdin,
+                               env=dict(os.environ, BIZ_ACTOR=actor or owner_actor(biz)))
     except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
         return {"error": str(exc)}
     if r.returncode not in (0, 1) or not r.stdout.strip():
@@ -99,11 +132,12 @@ def run_json(biz, name, *args, stdin=None):
 def git_commit(biz, paths, message):
     """`git add -- <paths>` then `git commit -q -m <message>`. Never raises; returns (rc, tail)."""
     try:
-        r = subprocess.run(["git", "add", "--"] + [str(p) for p in paths], cwd=biz, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=20)
-        if r.returncode == 0:
-            r = subprocess.run(["git", "commit", "-q", "-m", message], cwd=biz, capture_output=True, text=True,
+        with git_lock(biz):
+            r = subprocess.run(["git", "add", "--"] + [str(p) for p in paths], cwd=biz, capture_output=True, text=True,
                                encoding="utf-8", errors="replace", timeout=20)
+            if r.returncode == 0:
+                r = subprocess.run(["git", "commit", "-q", "-m", message], cwd=biz, capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace", timeout=20)
         return r.returncode, (r.stderr or r.stdout).strip()[-500:]
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, str(exc)
@@ -245,23 +279,6 @@ def git_recent(biz, n=15):
     return rows
 
 
-def requests_list(biz):
-    executed = set()
-    log = run_json(biz, "bizlog", "log", "-n", "0")
-    if isinstance(log, list):
-        for e in log:
-            r = (e.get("refs") or {}).get("request")
-            if r and str(e.get("actor", "")).startswith("system:"):
-                executed.add(r)
-    out = []
-    for p in sorted(glob.glob(os.path.join(biz, "requests", "*", "*.yaml")), reverse=True):
-        y = yaml_scalars(read(p))
-        rid = y.get("id") or os.path.splitext(os.path.basename(p))[0]
-        out.append({"id": rid, "tool": y.get("tool"), "agent": y.get("agent"), "not_before": y.get("not_before"),
-                    "executed": rid in executed, "path": os.path.relpath(p, biz).replace("\\", "/")})
-    return out
-
-
 def agent_info(biz, name):
     adir = os.path.join(biz, "agents", name)
     sessions = sorted(glob.glob(os.path.join(adir, "sessions", "*.jsonl")), reverse=True)
@@ -381,14 +398,25 @@ def context_search(biz, q):
     return {"q": q, "hits": hits[:50]}
 
 
-def context_view(biz):
-    t = run_json(biz, "bizctx", "tree")
+TREES = ("context", CONTENT_TREE)
+
+
+def tree_args(tree):
+    """`bizctx` global flags selecting a tree: nothing for context/, `--dir <tree>` otherwise."""
+    return [] if tree == "context" else ["--dir", tree]
+
+
+def context_view(biz, tree="context"):
+    """`bizctx tree --json` plus the queues' state; `tree` selects context/ (default) or marketing-content/
+    (the Marketing tab's Record view reads only `.inbox` from the second)."""
+    t = run_json(biz, "bizctx", *tree_args(tree), "tree")
     if "error" in t:
-        return {"error": t["error"], "pillars": [], "tree": {"path": "", "children": []}, "inbox": []}
+        return {"error": t["error"], "pillars": [], "tree": {"path": "", "children": []}, "inbox": [], "dir": tree}
     for i in t.get("inbox", []):
         i["attempts"] = int(i.get("attempts") or 0)
         i["failed"] = bool(i.get("error")) and i["attempts"] >= FILER_ATTEMPTS
-    t["filing"] = FILER.status(biz)
+    t["dir"] = tree
+    t["filing"] = FILER.status(biz, tree)
     t["summarizing"] = SUMMARIZER.status(biz)
     t["has_filer"] = os.path.isfile(os.path.join(biz, "agents", "_filer", "agent.yaml"))
     t.setdefault("people", [])
@@ -849,21 +877,26 @@ SUMMARIZER = Summarizer()
 
 class Filer:
     """One thread: every FILER_EVERY seconds (or when kicked) sweep every business's context/_inbox and
-    run one `bizrun run --agent _filer` per upload, oldest first, strictly one at a time."""
+    marketing-content/_inbox (spec 06, "The Filer: passing the tree") and run one `bizrun run --agent
+    _filer` per upload, oldest first, strictly one at a time per business across both trees."""
 
     def __init__(self):
         self.wake = threading.Event()
-        self.current = None      # {"biz", "id", "started"}
+        self.current = None      # {"biz", "id", "tree", "started"}
         self.history = []        # last runs, newest first
         self.last_sweep = None
 
     def kick(self):
         self.wake.set()
 
-    def status(self, biz=None):
+    def status(self, biz=None, tree=None):
         with LOCK:
-            cur = dict(self.current) if self.current and (biz is None or self.current["biz"] == biz) else None
-            hist = [h for h in self.history if biz is None or h["biz"] == biz][:5]
+            cur = self.current
+            if cur and (biz is None or cur["biz"] == biz) and (tree is None or cur.get("tree") == tree):
+                cur = dict(cur)
+            else:
+                cur = None
+            hist = [h for h in self.history if (biz is None or h["biz"] == biz) and (tree is None or h.get("tree") == tree)][:5]
         return {"current": cur, "recent": hist, "every": FILER_EVERY, "last_sweep": self.last_sweep}
 
     def loop(self):
@@ -875,8 +908,10 @@ class Filer:
             except Exception as exc:  # noqa: BLE001 - the queue must survive anything
                 print(f"filer: sweep failed: {exc}", file=sys.stderr)
 
-    def pending(self, biz):
-        items = run_json(biz, "bizctx", "inbox")
+    def pending(self, biz, tree="context"):
+        if tree != "context" and not os.path.isdir(os.path.join(biz, tree)):
+            return []
+        items = run_json(biz, "bizctx", *tree_args(tree), "inbox")
         if not isinstance(items, list):
             return []
         return [i for i in items if int(i.get("attempts") or 0) < FILER_ATTEMPTS]
@@ -887,55 +922,72 @@ class Filer:
             biz = b["path"]
             if not os.path.isfile(os.path.join(biz, "agents", "_filer", "agent.yaml")):
                 continue
-            tried = set()   # one attempt per upload per sweep; a failure waits for the next sweep
-            for _ in range(50):
-                if any(s.biz == biz and not s.done for s in SESSIONS.values()):
-                    break   # an agent is committing in this repo right now; come back next sweep
-                items = [i for i in self.pending(biz) if i["id"] not in tried]
-                if not items:
-                    break
-                tried.add(items[0]["id"])
-                self.run(biz, items[0]["id"])
+            for tree in TREES:
+                tried = set()   # one attempt per upload per sweep; a failure waits for the next sweep
+                for _ in range(50):
+                    if any(s.biz == biz and not s.done for s in SESSIONS.values()):
+                        break   # an agent is committing in this repo right now; come back next sweep
+                    items = [i for i in self.pending(biz, tree) if i["id"] not in tried]
+                    if not items:
+                        break
+                    tried.add(items[0]["id"])
+                    self.run(biz, items[0]["id"], tree)
             # every filed upload has a mind map: draw the ones filed before maps existed (or lost), a few per sweep
             missing = [f"map:{d}" for d in dumps_without_map(biz)]
             if missing:
                 SUMMARIZER.enqueue(biz, missing[:10])
 
-    def run(self, biz, dump_id):
+    def run(self, biz, dump_id, tree="context"):
+        """One `bizrun run --agent _filer` for one upload. For the marketing-content tree the subprocess gets
+        `BIZCTX_DIR=<tree>` and the message spells `--dir <tree>` on every bizctx call (spec 06: the env var
+        covers any bare bizctx the filer improvises, the message keeps the agent oriented)."""
         with LOCK:
-            self.current = {"biz": biz, "id": dump_id, "started": time.time()}
-        msg = (f"File the context upload {dump_id}: `bizctx show {dump_id}`, split it by topic, file every piece "
-               f"with bizctx (create topics if needed), add tasks for explicit action items and a `needs-owner` "
-               f"task per pillar contradiction (see your skill), then `bizctx file {dump_id} --result \"...\"`, "
-               f"one bizlog line, and call done.")
+            self.current = {"biz": biz, "id": dump_id, "tree": tree, "started": time.time()}
+        d = "" if tree == "context" else f" --dir {tree}"
+        if tree == "context":
+            msg = (f"File the context upload {dump_id}: `bizctx show {dump_id}`, split it by topic, file every piece "
+                   f"with bizctx (create topics if needed), add tasks for explicit action items and a `needs-owner` "
+                   f"task per pillar contradiction (see your skill), then `bizctx file {dump_id} --result \"...\"`, "
+                   f"one bizlog line, and call done.")
+        else:
+            msg = (f"File the {tree} upload {dump_id} in actions mode (it is a marketing-content upload, tree "
+                   f"`{tree}/`, not `context/`): `bizctx{d} show {dump_id}`, split it into discrete actions, one "
+                   f"bizlog line (-t marketing, -r kind= channel= target=) per action and one `bizctx{d} note add` "
+                   f"per action with verbatim text (predict the path with `bizctx{d} note path` first, never a "
+                   f"note for a decision), then `bizctx{d} file {dump_id} --result \"...\"`, one operations bizlog "
+                   f"line, and call done. Every bizctx call takes `--dir {tree}`.")
         cmd = cli("bizrun") + ["run", "--agent", "_filer", "--no-learn", "--max-turns", str(FILER_TURNS), "-m", msg]
+        env = dict(os.environ, PYTHONIOENCODING="utf-8")
+        if tree != "context":
+            env["BIZCTX_DIR"] = tree
         head = git_head(biz)
         t0 = time.time()
         err, rc = "", 0
         try:
             r = subprocess.run(cmd, cwd=biz, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                               timeout=FILER_TIMEOUT, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+                               timeout=FILER_TIMEOUT, env=env)
             rc, err = r.returncode, (r.stderr or "").strip()[-400:]
             tail = (r.stdout or "").strip().splitlines()[-1:] or [""]
         except subprocess.TimeoutExpired:
             rc, err, tail = 124, f"timed out after {FILER_TIMEOUT}s", [""]
         except (OSError, RuntimeError) as exc:
             rc, err, tail = 127, str(exc), [""]
-        still = any(i["id"] == dump_id for i in (run_json(biz, "bizctx", "inbox") or []) if isinstance(i, dict))
+        inbox = run_json(biz, "bizctx", *tree_args(tree), "inbox")
+        still = any(i["id"] == dump_id for i in (inbox if isinstance(inbox, list) else []) if isinstance(i, dict))
         ok = not still
         if still:
             reason = err or (f"bizrun exit {rc}" if rc else "agent ended without filing the upload")
-            run_json(biz, "bizctx", "fail", dump_id, "--reason", reason)
+            run_json(biz, "bizctx", *tree_args(tree), "fail", dump_id, "--reason", reason)
         changed = git_changed(biz, head)
         topics = topics_of_paths(changed)
         notes = {f"note:{rp}" for t in topics for rp in notes_without_summary(biz, t)}
         touched = notes | topics | people_of_paths(changed)
-        if ok:
+        if ok and tree == "context":
             touched.add(f"map:{dump_id}")     # the upload's own mind map, drawn from its raw text
         if touched:
             SUMMARIZER.enqueue(biz, touched)
         with LOCK:
-            self.history.insert(0, {"biz": biz, "id": dump_id, "ok": ok, "seconds": round(time.time() - t0),
+            self.history.insert(0, {"biz": biz, "id": dump_id, "tree": tree, "ok": ok, "seconds": round(time.time() - t0),
                                     "summary": tail[0][:200], "error": None if ok else (err or f"exit {rc}")[:300],
                                     "at": time.time()})
             del self.history[20:]
@@ -943,6 +995,717 @@ class Filer:
 
 
 FILER = Filer()
+
+
+# ---------------------------------------------------------------- requests
+
+REQ_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9]+(-[a-z0-9]+)+$")
+LOG_ID_RE = re.compile(r"^[0-9A-Za-z]{4,16}$")
+LABEL_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+ASSET_PATH_RE = re.compile(r"^assets/(polished|drafted)/[^.].*$")
+IN_FLIGHT = ("submitted", "approved", "sent", "failed")
+
+
+def _bizreq():
+    """The installed bizreq module (biz-utils-requests): the shared write-back, yaml reader, state fold."""
+    import bizreq
+    return bizreq
+
+
+def load_yaml_file(path):
+    try:
+        return _bizreq().load_yaml(path)
+    except Exception:  # noqa: BLE001 - unreadable or not our yaml subset
+        return None
+
+
+def manual_handles(biz):
+    """{(platform, handle)} for every business.yaml `accounts.<platform>` entry with `manual: true` (spec 04 §2)."""
+    y = load_yaml_file(os.path.join(biz, "business.yaml"))
+    acc = y.get("accounts") if isinstance(y, dict) else None
+    out = set()
+    if isinstance(acc, dict):
+        for platform, entries in acc.items():
+            for e in entries if isinstance(entries, list) else [entries]:
+                if isinstance(e, dict) and e.get("handle") and e.get("manual") is True:
+                    out.add((str(platform), str(e["handle"])))
+    return out
+
+
+def manual_account(row, manual):
+    platform = str(row.get("tool") or "").split(".")[0]
+    return row.get("account") is not None and (platform, str(row["account"])) in manual
+
+
+def requests_rows(biz):
+    """`bizreq queue --all --json` rows plus `manual` (spec 04 §5: bridge disabled, manual account, or failed).
+    Raises RuntimeError when bizreq fails."""
+    rows = run_json(biz, "bizreq", "queue", "--all", "-n", "0")
+    if isinstance(rows, dict):
+        raise RuntimeError(rows.get("error") or "bizreq queue failed")
+    manual = manual_handles(biz)
+    for r in rows:
+        r["manual"] = (not BRIDGE.configured) or r.get("state") == "failed" or manual_account(r, manual)
+    return rows
+
+
+def requests_list(biz):
+    """GET /requests: the fold + each request file (+ `warnings` from `bizreq show`, `mtime` for "drafted X ago")."""
+    rows = requests_rows(biz)
+    for r in rows:
+        path = os.path.join(biz, *(r.get("file") or "").split("/"))
+        try:
+            r["mtime"] = os.path.getmtime(path)
+        except OSError:
+            r["mtime"] = None
+        r["request"], r["warnings"] = None, []
+        if r.get("state") in IN_FLIGHT:     # the Queue cards; terminal rows need no warning line
+            s = run_json(biz, "bizreq", "show", r["id"])
+            if isinstance(s, dict) and "error" not in s:
+                r["request"], r["warnings"] = s.get("request"), s.get("warnings") or []
+                continue
+        r["request"] = load_yaml_file(path)
+    return rows
+
+
+def request_detail(biz, rid):
+    """GET /requests/<id>: `bizreq show` (file + fold + history) + manual + live job status when a job exists."""
+    s = run_json(biz, "bizreq", "show", rid)
+    if not isinstance(s, dict) or "error" in s:
+        return None
+    s["manual"] = (not BRIDGE.configured) or s.get("state") == "failed" or manual_account(s, manual_handles(biz))
+    s["warnings"] = s.get("warnings") or []
+    s["job_status"] = None
+    if s.get("job") and BRIDGE.configured:
+        try:
+            s["job_status"] = BRIDGE.client.get_job(s["job"])
+        except Exception as exc:  # noqa: BLE001 - a passthrough; the service being down is not our 500
+            s["job_status"] = {"error": str(exc)[:300]}
+    return s
+
+
+def new_request_id(biz, old_id):
+    """`<today>-<ownername>-<what segment of the old id>` with `-2`, `-3` … on collision (spec 06)."""
+    owner = re.sub(r"[^a-z0-9]", "", owner_actor(biz).split(":", 1)[-1].lower()) or "owner"
+    rest = old_id[11:]
+    what = rest.split("-", 1)[1] if "-" in rest else rest
+    base = f"{time.strftime('%Y-%m-%d')}-{owner}-{what}"
+    rid, n = base, 1
+    while os.path.exists(os.path.join(biz, "requests", rid[:7], rid + ".yaml")):
+        n += 1
+        rid = f"{base}-{n}"
+    return rid
+
+
+def platform_of_channel(channel):
+    ch = str(channel or "")
+    return CHANNEL_PLATFORM.get(ch) or (ch.split("-")[0] if ch else "")
+
+
+def fold_labels(biz):
+    """{full log id: [labels]} folded from log/labels.jsonl: by ts, stable, add then remove per line (spec 03)."""
+    lines = []
+    for i, raw in enumerate(read(os.path.join(biz, "log", "labels.jsonl")).splitlines()):
+        try:
+            d = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(d, dict) and d.get("id"):
+            lines.append((str(d.get("ts") or ""), i, d))
+    lines.sort(key=lambda x: (x[0], x[1]))
+    out = {}
+    for _, _, d in lines:
+        s = out.setdefault(str(d["id"]), [])
+        for a in d.get("add") or []:
+            if a not in s:
+                s.append(a)
+        for r in d.get("remove") or []:
+            if r in s:
+                s.remove(r)
+    return out
+
+
+def content_notes(biz):
+    """[(topic path, file name, extras meta, title)] for every note in marketing-content/ via `bizctx tree`."""
+    t = run_json(biz, "bizctx", "--dir", CONTENT_TREE, "tree")
+    if "error" in t:
+        raise RuntimeError(t["error"])
+    out = []
+
+    def walk(n):
+        for f in n.get("notes") or []:
+            out.append((n.get("path") or "", f, (n.get("meta") or {}).get(f) or {}, (n.get("titles") or {}).get(f)))
+        for c in n.get("children") or []:
+            walk(c)
+    walk(t.get("tree") or {})
+    return out
+
+
+def _csv(v):
+    return [x.strip() for x in str(v or "").split(",") if x.strip()]
+
+
+def content_view(biz, q):
+    """GET /content (spec 06): notes under marketing-content/ ∪ marketing log entries, merged by `refs.file`,
+    labels folded from log/labels.jsonl, filtered by platform/channel/kind/campaign/label/q, newest first."""
+    root = os.path.join(biz, CONTENT_TREE)
+    empty = {"items": [], "campaigns": [], "labels": [], "kinds": list(CONTENT_KINDS)}
+    if not os.path.isdir(root):
+        return empty
+    log = run_json(biz, "bizlog", "log", "-t", "marketing", "-n", "0")
+    if isinstance(log, dict) and log.get("error"):
+        raise RuntimeError(log["error"])
+    labels = fold_labels(biz)
+
+    def labels_of(e):
+        return e["labels"] if isinstance(e.get("labels"), list) else labels.get(str(e.get("id")), [])
+    items, by_file = [], {}
+    for topic, fname, meta, title in content_notes(biz):       # rule 1: every note is an item
+        rel = f"{topic}/{fname}"
+        fm, body = parse_note(read(os.path.join(root, *rel.split("/"))))
+        body = body.strip()
+        item = {"kind": "note", "id": rel, "date": fname[:10], "ts": fname[:10], "platform": topic.split("/")[0],
+                "channel": fm.get("channel") or meta.get("channel") or "", "target": fm.get("target") or meta.get("target") or "",
+                "title": fm.get("title") or title or fname, "kindTag": fm.get("kind") or meta.get("kind") or "",
+                "url": fm.get("url") or "", "request": fm.get("request") or "", "campaign": fm.get("campaign") or "",
+                "by": fm.get("by") or "", "actor": fm.get("filed_by") or fm.get("by") or "", "log": fm.get("log") or "",
+                "logId": "", "logSummary": "", "logDetail": "", "labels": [], "preview": " ".join(body.split())[:160],
+                "_body": body}
+        items.append(item)
+        by_file[f"{CONTENT_TREE}/{rel}"] = item
+    for e in log if isinstance(log, list) else []:
+        refs = e.get("refs") or {}
+        item = by_file.get(str(refs.get("file") or ""))
+        if item is not None and not item["logId"]:                 # rule 2: attach to the note it names
+            item.update(log=str(e["id"])[-7:], logId=e["id"], logSummary=e.get("summary") or "",
+                        logDetail=e.get("detail") or "", labels=labels_of(e), actor=e.get("actor") or item["actor"],
+                        ts=e.get("ts") or item["ts"])
+            continue
+        items.append({"kind": "log", "id": e["id"], "date": str(e.get("ts") or "")[:10], "ts": e.get("ts") or "",  # rule 3
+                      "platform": platform_of_channel(refs.get("channel")), "channel": refs.get("channel") or "",
+                      "target": refs.get("target") or "", "title": e.get("summary") or "", "kindTag": refs.get("kind") or "",
+                      "url": refs.get("url") or "", "request": refs.get("request") or "", "campaign": refs.get("campaign") or "",
+                      "by": e.get("actor") or "", "actor": e.get("actor") or "", "log": str(e["id"])[-7:], "logId": e["id"],
+                      "logSummary": e.get("summary") or "", "logDetail": e.get("detail") or "", "labels": labels_of(e),
+                      "preview": "", "_body": ""})
+    campaigns = sorted({i["campaign"] for i in items if i["campaign"]})
+    all_labels = sorted({lb for i in items for lb in i["labels"]})
+    platforms, channels, kinds, camps, labs = (set(_csv(q.get(k))) for k in ("platform", "channel", "kind", "campaign", "label"))
+    needle = (q.get("q") or "").strip().lower()
+    out = []
+    for i in items:
+        if platforms and i["platform"] not in platforms:
+            continue
+        if channels and i["channel"] not in channels:
+            continue
+        if kinds and i["kindTag"] not in kinds:
+            continue
+        if camps and i["campaign"] not in camps:
+            continue
+        if labs and not labs & set(i["labels"]):
+            continue
+        if needle and needle not in f"{i['title']}\n{i['target']}\n{i['_body']}".lower():
+            continue
+        del i["_body"]
+        out.append(i)
+    out.sort(key=lambda i: (i["date"], i["ts"]), reverse=True)     # rule 4
+    return {"items": out, "campaigns": campaigns, "labels": all_labels, "kinds": list(CONTENT_KINDS)}
+
+
+def assets_view(biz):
+    """GET /assets: every file under assets/polished and assets/drafted with size and the notes that list it."""
+    used = {}
+    if os.path.isdir(os.path.join(biz, CONTENT_TREE)):
+        for topic, fname, meta, title in content_notes(biz):
+            a = meta.get("assets")
+            for p in (a if isinstance(a, list) else _csv(a)):
+                used.setdefault(str(p), []).append({"path": f"{topic}/{fname}", "title": title or fname})
+    out = {}
+
+    def bad(exc):
+        raise exc
+    for group in ("polished", "drafted"):
+        rows = []
+        d = os.path.join(biz, "assets", group)
+        if os.path.isdir(d):
+            for dirpath, dirnames, filenames in os.walk(d, onerror=bad):
+                dirnames.sort()
+                for fn in sorted(filenames):
+                    if fn.startswith("."):
+                        continue
+                    fp = os.path.join(dirpath, fn)
+                    rel = os.path.relpath(fp, biz).replace("\\", "/")
+                    rows.append({"path": rel, "size": os.path.getsize(fp), "used_by": used.get(rel, [])})
+        out[group] = rows
+    return out
+
+
+def asset_file(biz, relpath):
+    """Absolute path of a file under assets/polished|drafted, or None when the path is not allowed."""
+    rp = unquote(relpath or "").replace("\\", "/").strip("/")
+    if not ASSET_PATH_RE.match(rp) or ".." in rp.split("/"):
+        return None
+    p = os.path.abspath(os.path.join(biz, *rp.split("/")))
+    root = os.path.abspath(os.path.join(biz, "assets"))
+    if os.path.commonpath([p, root]) != root:
+        return None
+    return p
+
+
+# ------------------------------------------------------------------ bridge
+
+def git_run(biz, *args, timeout=120):
+    try:
+        r = subprocess.run(["git", *args], cwd=biz, capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=timeout)
+        return r.returncode, ((r.stderr or "") + (r.stdout or "")).strip()[-800:]
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 1, str(exc)
+
+
+def git_upstream(biz):
+    return git_run(biz, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")[0] == 0
+
+
+def git_rebasing(biz):
+    rc, p = git_run(biz, "rev-parse", "--git-path", "rebase-merge")
+    rc2, p2 = git_run(biz, "rev-parse", "--git-path", "rebase-apply")
+    return (rc == 0 and os.path.isdir(os.path.join(biz, p))) or (rc2 == 0 and os.path.isdir(os.path.join(biz, p2)))
+
+
+def git_clean(biz):
+    rc, out = git_run(biz, "status", "--porcelain")
+    return rc == 0 and not out.strip() and not git_rebasing(biz)
+
+
+def git_pull_rebase(biz):
+    """(ok, error, conflict). No upstream = nothing to sync = ok. A conflict is aborted (`git rebase --abort`)."""
+    if not git_upstream(biz):
+        return True, "", False
+    rc, out = git_run(biz, "pull", "--rebase", "--autostash", "-q")
+    if rc == 0:
+        return True, "", False
+    if git_rebasing(biz) or "CONFLICT" in out:
+        git_run(biz, "rebase", "--abort")
+        return False, f"rebase conflict: {out}"[:500], True
+    return False, out[:500], False
+
+
+def git_push_retry(biz):
+    """`git push`; on rejection `git pull --rebase` once more and push once more (spec 04 §7 step 6)."""
+    if not git_upstream(biz):
+        return True, "", False
+    rc, out = git_run(biz, "push", "-q")
+    if rc == 0:
+        return True, "", False
+    ok, err, conflict = git_pull_rebase(biz)
+    if not ok:
+        return False, err, conflict
+    rc, out = git_run(biz, "push", "-q")
+    return rc == 0, "" if rc == 0 else out[:500], False
+
+
+def absorb_index(biz, sha):
+    """`bizreq.writeback` regenerates marketing-content/INDEX.md (the `--no-commit` note add) but its commit
+    adds only the three write-back paths; fold the leftover into that commit so the tree is clean to pull/push."""
+    rel = f"{CONTENT_TREE}/INDEX.md"
+    rc, out = git_run(biz, "status", "--porcelain", "--", rel)
+    if rc == 0 and out.strip() and sha and git_head(biz).startswith(str(sha)):
+        git_run(biz, "add", "--", rel)
+        git_run(biz, "commit", "-q", "--amend", "--no-edit")
+
+
+def now_iso(t=None):
+    return datetime.fromtimestamp(time.time() if t is None else t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class ServiceError(Exception):
+    """A non-2xx reply the bridge acts on (4xx): .status and .body (the parsed JSON or the raw text)."""
+
+    def __init__(self, status, body):
+        super().__init__(f"HTTP {status}")
+        self.status, self.body = status, body
+
+    def message(self):
+        m = self.body.get("error") if isinstance(self.body, dict) else self.body
+        return str(m or f"HTTP {self.status}")[:500]
+
+
+class ServiceAuth(ServiceError):
+    """401/403: the bridge stops entirely (BRIDGE-API §6)."""
+
+
+class ServiceDown(Exception):
+    """Network failure or 5xx: retry with backoff, state unchanged."""
+
+
+class ServiceClient:
+    """The HTTP client for BRIDGE-API.md. Every call carries the bearer token; JSON in, JSON out."""
+
+    def __init__(self, url, token, timeout=30):
+        self.url, self.token, self.timeout = url.rstrip("/"), token, timeout
+
+    @staticmethod
+    def _parse(raw):
+        text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw or "")
+        try:
+            return json.loads(text) if text.strip() else {}
+        except json.JSONDecodeError:
+            return text[:500]
+
+    def _call(self, method, path, body=None, data=None, ctype=None):
+        req = urllib.request.Request(self.url + path, method=method)
+        req.add_header("Authorization", f"Bearer {self.token}")
+        payload = None
+        if body is not None:
+            payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+            req.add_header("Content-Type", "application/json")
+        elif data is not None:
+            payload = data
+            req.add_header("Content-Type", ctype or "application/octet-stream")
+        try:
+            with urllib.request.urlopen(req, payload, timeout=self.timeout) as resp:
+                return resp.status, self._parse(resp.read())
+        except urllib.error.HTTPError as exc:
+            parsed = self._parse(exc.read())
+            if exc.code in (401, 403):
+                raise ServiceAuth(exc.code, parsed)
+            if exc.code >= 500:
+                raise ServiceDown(f"HTTP {exc.code}: {str(parsed)[:200]}")
+            raise ServiceError(exc.code, parsed)
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            raise ServiceDown(str(getattr(exc, "reason", exc))[:300])
+
+    def create_job(self, job):
+        return self._call("POST", "/jobs", body=job)
+
+    def get_job(self, jid):
+        return self._call("GET", f"/jobs/{quote(jid, safe='')}")[1]
+
+    def list_jobs(self, slug, since):
+        return self._call("GET", "/jobs?" + urlencode({"biz": slug, "since": since}))[1]
+
+    def cancel(self, jid):
+        return self._call("POST", f"/jobs/{quote(jid, safe='')}/cancel", data=b"", ctype="application/json")
+
+    def upload_media(self, jid, relpath, abspath):
+        """multipart, one file per call: `path` (repo-relative, from the manifest) and `file` (the bytes)."""
+        with open(abspath, "rb") as fh:
+            blob = fh.read()
+        name = os.path.basename(relpath)
+        ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        b = uuid.uuid4().hex
+        parts = [f"--{b}\r\nContent-Disposition: form-data; name=\"path\"\r\n\r\n{relpath}\r\n".encode("utf-8"),
+                 (f"--{b}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\n"
+                  f"Content-Type: {ctype}\r\n\r\n").encode("utf-8") + blob + b"\r\n",
+                 f"--{b}--\r\n".encode("utf-8")]
+        return self._call("POST", f"/jobs/{quote(jid, safe='')}/media", data=b"".join(parts),
+                          ctype=f"multipart/form-data; boundary={b}")
+
+
+class BridgeStopped(Exception):
+    """The bridge for this business is stopped (git conflict); nothing was written."""
+
+
+# Everything a write-back / fail may touch (spec 04 §7-§9), for the commit-recovery path in Bridge.synced.
+WRITEBACK_PATHS = ("requests/_state.jsonl", "log", CONTENT_TREE, "agents", "tasks")
+
+
+class Bridge:
+    """Spec 04: one thread, every BIZ_BRIDGE_INTERVAL seconds a `tick()` over every business - submit `approved`
+    requests as jobs (skipping `manual` accounts and rows that already carry a job), poll `sent` ones in bulk,
+    write back terminal results through `bizreq.writeback` / `bizreq.fail`, cancel superseded jobs. Backoff
+    is per business per operation, in memory. On dashboard restart the first tick checks every `sent` request
+    against `GET /jobs/<id>` before submitting anything. `write_back()` is also the manual-mode path (§6)."""
+
+    def __init__(self, url=None, token=None, interval=None):
+        self.url = BRIDGE_URL if url is None else url
+        self.token = BRIDGE_TOKEN if token is None else token
+        self.interval = BRIDGE_INTERVAL if interval is None else interval
+        self.configured = bool(self.url and self.token)
+        self.client = ServiceClient(self.url, self.token) if self.configured else None
+        self.wake = threading.Event()
+        self.auth_failed = False
+        self.auth_error = None
+        self.biz = {}                # slug -> per-business status
+        self.cancelled = set()       # (slug, request id) already cancelled on the service since start
+        self.last_tick = None
+        self.clock = time.time       # tests move time
+        self.backoff_unit = 60.0     # seconds per BACKOFF_MINUTES unit; tests shrink it
+        self.writeback_fn = None     # test hook around bizreq.writeback
+
+    def kick(self):
+        self.wake.set()
+
+    def _st(self, slug):
+        with LOCK:
+            return self.biz.setdefault(slug, {"last_poll": None, "last_error": None, "stopped": False, "stopped_reason": None,
+                                              "primed": False, "since": None, "backoff": {}})
+
+    def status(self):
+        with LOCK:
+            bizs = {slug: {"last_poll": st["last_poll"], "last_error": st["last_error"], "stopped": st["stopped"],
+                           "stopped_reason": st["stopped_reason"], "primed": st["primed"],
+                           "backoff": {op: {"attempts": a, "next": nxt} for op, (a, nxt) in st["backoff"].items()}}
+                    for slug, st in self.biz.items()}
+        return {"configured": self.configured, "url": self.url or None, "interval": self.interval,
+                "auth_failed": self.auth_failed, "error": self.auth_error, "last_tick": self.last_tick, "businesses": bizs}
+
+    def resume(self, slug):
+        """Clear a stopped business (the owner resolved the conflict by hand); refuses a dirty tree."""
+        st = self._st(slug)
+        biz = biz_path(slug)
+        if not biz:
+            return "no such business"
+        if not git_clean(biz):
+            return "working tree is not clean (or a rebase is in progress); resolve it in git first"
+        st.update(stopped=False, stopped_reason=None, last_error=None)
+        self.kick()
+        return None
+
+    def loop(self):
+        while True:
+            self.wake.wait(self.interval)
+            self.wake.clear()
+            try:
+                self.tick()
+            except Exception as exc:  # noqa: BLE001 - the loop must survive anything
+                print(f"bridge: tick failed: {exc}", file=sys.stderr)
+
+    # -- backoff (BRIDGE-API §6)
+
+    def ready(self, st, op):
+        b = st["backoff"].get(op)
+        return not b or b[1] <= self.clock()
+
+    def defer(self, st, op, err):
+        n = (st["backoff"].get(op) or (0, 0))[0] + 1
+        delay = BACKOFF_MINUTES[min(n, len(BACKOFF_MINUTES)) - 1] * self.backoff_unit
+        st["backoff"][op] = (n, self.clock() + delay)
+        st["last_error"] = f"{op}: {err}"[:500]
+
+    def clear(self, st, op):
+        st["backoff"].pop(op, None)
+
+    # -- the tick
+
+    def tick(self):
+        if not self.configured or self.auth_failed:
+            return
+        self.last_tick = self.clock()
+        for b in businesses():
+            biz, slug = b["path"], b["slug"]
+            st = self._st(slug)
+            if st["stopped"]:
+                continue
+            try:
+                self.tick_biz(biz, slug, st)
+            except ServiceAuth as exc:
+                self.auth_failed = True
+                self.auth_error = f"service auth failed (HTTP {exc.status})"
+                st["last_error"] = self.auth_error
+                return
+            except Exception as exc:  # noqa: BLE001 - one business's trouble never blocks the others
+                st["last_error"] = f"{type(exc).__name__}: {exc}"[:500]
+            st["last_poll"] = self.clock()
+
+    @staticmethod
+    def rows(biz):
+        rows = run_json(biz, "bizreq", "queue", "--all", "-n", "0")
+        if isinstance(rows, dict):
+            raise RuntimeError(f"bizreq queue: {rows.get('error')}")
+        return rows
+
+    def tick_biz(self, biz, slug, st):
+        rows = self.rows(biz)
+        if not st["primed"]:                      # §10 restart guard: every `sent` job first, before any submit
+            if not self.ready(st, "restart"):
+                return
+            try:
+                for r in rows:
+                    if r.get("state") == "sent":
+                        self.check_job(biz, slug, st, r)
+            except ServiceDown as exc:
+                self.defer(st, "restart", exc)
+                return
+            self.clear(st, "restart")
+            st["primed"] = True
+            rows = self.rows(biz)
+        manual = manual_handles(biz)
+        for r in rows:                            # §4 step 2: submit on approve, unconditionally
+            if r.get("state") != "approved" or r.get("job") or manual_account(r, manual):
+                continue
+            op = f"submit:{r['id']}"
+            if not self.ready(st, op):
+                continue
+            try:
+                self.submit(biz, slug, st, r)
+                self.clear(st, op)
+            except ServiceDown as exc:
+                self.defer(st, op, exc)
+        sent = {r["id"]: r for r in rows if r.get("state") == "sent"}
+        if sent and self.ready(st, "poll"):       # §4 step 3: one bulk poll
+            t0 = self.clock()
+            try:
+                jobs = self.client.list_jobs(slug, st["since"] or "1970-01-01T00:00:00Z")
+                for job in jobs if isinstance(jobs, list) else []:
+                    if isinstance(job, dict) and job.get("id") in sent:
+                        self.handle_job(biz, slug, st, sent[job["id"]], job)
+                st["since"] = now_iso(t0 - 60)   # a minute of overlap; write-back is idempotent (§10)
+                self.clear(st, "poll")
+            except ServiceDown as exc:
+                self.defer(st, "poll", exc)
+        for r in rows:                            # §4 step 4: cancel superseded jobs (the only cancel)
+            if r.get("state") != "superseded" or (slug, r["id"]) in self.cancelled:
+                continue
+            if not self.had_job(biz, r["id"]):
+                self.cancelled.add((slug, r["id"]))
+                continue
+            op = f"cancel:{r['id']}"
+            if not self.ready(st, op):
+                continue
+            try:
+                self.client.cancel(r["id"])
+                self.cancelled.add((slug, r["id"]))
+                self.clear(st, op)
+            except ServiceAuth:
+                raise
+            except ServiceError as exc:
+                if exc.status == 404:
+                    self.cancelled.add((slug, r["id"]))
+                else:
+                    st["last_error"] = f"{op}: {exc.message()}"
+            except ServiceDown as exc:
+                self.defer(st, op, exc)
+
+    @staticmethod
+    def had_job(biz, rid):
+        """A superseded request whose history shows a job that never reached posted/failed (a live job)."""
+        hist = _bizreq().history(os.path.join(biz, "requests", "_state.jsonl"), rid)
+        return any(ln.get("job") for ln in hist) and not any(ln.get("state") in ("posted", "failed") for ln in hist)
+
+    def submit(self, biz, slug, st, row):
+        rid = row["id"]
+        req = load_yaml_file(os.path.join(biz, *(row.get("file") or "").split("/"))) or {}
+        payload = req.get("payload") if isinstance(req.get("payload"), dict) else {}
+        media = [str(m) for m in payload.get("media") if m] if isinstance(payload.get("media"), list) else []
+        if len(media) > MEDIA_MAX_FILES:
+            return self.fail(biz, slug, st, rid, f"too many media files (max {MEDIA_MAX_FILES})")
+        for m in media:
+            p = os.path.join(biz, *m.split("/"))
+            if not os.path.isfile(p):
+                return self.fail(biz, slug, st, rid, f"{m} not found")
+            if os.path.getsize(p) > MEDIA_MAX_BYTES:
+                return self.fail(biz, slug, st, rid, f"{m} exceeds 25MB")
+        job = {"id": rid, "biz": slug, "tool": row.get("tool"), "account": row.get("account"),
+               "not_before": row.get("not_before"), "window_end": row.get("window_end"), "target": row.get("target"),
+               "payload": payload, "media": [{"path": m, "name": os.path.basename(m)} for m in media]}
+        try:
+            status, body = self.client.create_job(job)
+        except ServiceAuth:
+            raise
+        except ServiceError as exc:
+            reason = "job exists with different content" if exc.status == 409 else exc.message()
+            return self.fail(biz, slug, st, rid, reason)
+        received = set(body.get("media_received") or []) if isinstance(body, dict) else set()
+        for m in media:
+            if m not in received:
+                self.client.upload_media(rid, m, os.path.join(biz, *m.split("/")))
+        r = run_json(biz, "bizreq", "state", rid, "sent", "--job", rid, actor=BRIDGE_ACTOR)
+        if isinstance(r, dict) and r.get("error"):
+            raise RuntimeError(f"bizreq state {rid} sent: {r['error']}")
+        return r
+
+    def check_job(self, biz, slug, st, row):
+        """Restart guard for one `sent` request: GET /jobs/<id>, act on a terminal, resume pending uploads."""
+        try:
+            job = self.client.get_job(row["id"])
+        except ServiceAuth:
+            raise
+        except ServiceError as exc:
+            if exc.status == 404:
+                st["last_error"] = f"job {row['id']} is sent but missing on the service"
+                return
+            raise
+        if not isinstance(job, dict):
+            return
+        if job.get("status") not in JOB_TERMINAL and job.get("media_received") is not None:
+            req = load_yaml_file(os.path.join(biz, *(row.get("file") or "").split("/"))) or {}
+            payload = req.get("payload") if isinstance(req.get("payload"), dict) else {}
+            media = payload.get("media") if isinstance(payload.get("media"), list) else []
+            for m in media:
+                p = os.path.join(biz, *str(m).split("/"))
+                if str(m) not in set(job.get("media_received") or []) and os.path.isfile(p):
+                    self.client.upload_media(row["id"], str(m), p)
+        self.handle_job(biz, slug, st, row, job)
+
+    def handle_job(self, biz, slug, st, row, job):
+        """Terminal mapping (BRIDGE-API §4): done -> write-back, failed/needs_info -> failed + owner task."""
+        status, rid = job.get("status"), row["id"]
+        if status not in JOB_TERMINAL:
+            return None
+        result = job.get("result") if isinstance(job.get("result"), dict) else {}
+        if status == "done":
+            try:
+                return self.write_back(biz, rid, result, BRIDGE_ACTOR)
+            except BridgeStopped:
+                return None
+            except Exception as exc:  # noqa: BLE001 - bizreq refused (bad file, plugin missing): record it, do not loop
+                return self.fail(biz, slug, st, rid, f"write-back failed: {type(exc).__name__}: {exc}"[:500])
+        if status == "failed":
+            return self.fail(biz, slug, st, rid, str(result.get("reason") or job.get("error") or "failed")[:500])
+        return self.fail(biz, slug, st, rid, ("needs_info: " + str(result.get("question") or ""))[:500])
+
+    def fail(self, biz, slug, st, rid, reason):
+        try:
+            return self.synced(biz, st, lambda: _bizreq().fail(os.path.realpath(biz), rid, reason, actor=BRIDGE_ACTOR))
+        except BridgeStopped:
+            return None
+
+    def write_back(self, biz, rid, result, actor=BRIDGE_ACTOR):
+        """The one write-back (spec 04 §6/§7): pull --rebase, `bizreq.writeback`, push with one retry. The
+        service path passes system:gateway, the manual `/posted` endpoint passes human:<owner>. Returns
+        bizreq's dict (`skipped` when guarded) plus `pushed`; raises BridgeStopped on a rebase conflict."""
+        st = self._st(os.path.basename(biz))
+        fn = self.writeback_fn or _bizreq().writeback
+        return self.synced(biz, st, lambda: fn(os.path.realpath(biz), rid, result, actor=actor))
+
+    def synced(self, biz, st, fn):
+        with git_lock(biz):
+            ok, err, conflict = git_pull_rebase(biz)
+            if conflict:
+                self.stop(st, err)
+                raise BridgeStopped(err)
+            if not ok:
+                st["last_error"] = f"git pull: {err}"
+            try:
+                r = fn()
+            except Exception as exc:  # noqa: BLE001 - bizreq raises UsageError when its own `git commit` fails
+                if "index.lock" not in str(exc):
+                    raise
+                # An agent subprocess (bizrun) was committing at the same instant; bizreq has already written
+                # the files and the state line, only the commit is missing. Commit what it wrote ourselves.
+                time.sleep(1.5)
+                paths = [p for p in WRITEBACK_PATHS if os.path.exists(os.path.join(biz, p))]
+                rc, tail = git_commit(biz, paths, "gateway: write-back")
+                if rc != 0:
+                    raise RuntimeError(f"{exc}; retry: {tail}") from exc
+                r = {"commit": git_head(biz), "recovered": str(exc)[:200]}
+            if isinstance(r, dict) and r.get("commit"):
+                absorb_index(biz, r["commit"])
+                ok, err, conflict = git_push_retry(biz)
+                if conflict:
+                    self.stop(st, err)
+                elif not ok:
+                    st["last_error"] = f"git push: {err}"
+                r["pushed"] = ok
+            return r
+
+    def stop(self, st, err):
+        st["stopped"], st["stopped_reason"], st["last_error"] = True, str(err)[:500], str(err)[:500]
+
+
+BRIDGE = Bridge()
 
 
 # --------------------------------------------------------------- sessions
@@ -1137,6 +1900,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.stream_session(parts[1])
         if parts == ["filer"]:
             return self.send_json(FILER.status())
+        if parts == ["bridge", "status"]:
+            return self.send_json(BRIDGE.status())
         if parts[:1] == ["biz"] and len(parts) >= 3:
             biz = biz_path(parts[1])
             if not biz:
@@ -1153,12 +1918,29 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json([agent_info(biz, n) for n in names])
             if what == "session" and len(parts) == 5:
                 return self.send_json(session_events(biz, parts[3], parts[4]))
-            if what == "requests":
+            if what == "requests" and len(parts) == 3:
                 return self.send_json(requests_list(biz))
+            if what == "requests" and len(parts) == 4:
+                if not REQ_ID_RE.match(parts[3]):
+                    return self.send_json({"error": "bad request id"}, 400)
+                d = request_detail(biz, parts[3])
+                return self.send_json(d if d else {"error": "no such request"}, 200 if d else 404)
+            if what == "content" and len(parts) == 3:
+                return self.send_json(content_view(biz, q))
+            if what == "assets" and len(parts) == 3:
+                return self.send_json(assets_view(biz))
+            if what == "asset" and len(parts) >= 4:
+                p = asset_file(biz, "/".join(parts[3:]))
+                if not p or not os.path.isfile(p):
+                    return self.send_json({"error": "not found"}, 404)
+                return self.send_file(p, mimetypes.guess_type(p)[0] or "application/octet-stream")
             if what == "git":
                 return self.send_json(git_recent(biz))
             if what == "context" and len(parts) == 3:
-                return self.send_json(context_view(biz))
+                tree = q.get("dir") or "context"
+                if tree not in TREES:
+                    return self.send_json({"error": f"bad dir: {tree}"}, 400)
+                return self.send_json(context_view(biz, tree))
             if what == "context" and len(parts) == 4 and parts[3] == "file":
                 p = ctx_file(biz, q.get("p", ""))
                 if not p or not os.path.isfile(p):
@@ -1177,7 +1959,11 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"error": "bad upload id"}, 400)
                 return self.send_json(context_map_view(biz, did))
             if what == "live":
-                return self.send_json(live_list(biz))
+                try:
+                    reqs, rerr = requests_rows(biz), None
+                except RuntimeError as exc:
+                    reqs, rerr = [], str(exc)
+                return self.send_json({"sessions": live_list(biz), "requests": reqs, "requests_error": rerr})
             if what == "terminals" and len(parts) == 3:
                 return self.send_json(term_list(biz))
             if what == "terminal" and len(parts) == 5 and parts[4] == "stream":
@@ -1195,6 +1981,12 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b"{}")
         except json.JSONDecodeError:
             return self.send_json({"error": "bad json"}, 400)
+        if not isinstance(body, dict):
+            return self.send_json({"error": "body must be an object"}, 400)
+        if parts == ["api", "bridge", "resume"]:
+            slug = str(body.get("biz") or "")
+            err = BRIDGE.resume(slug) if biz_path(slug) else "no such business"
+            return self.send_json({"error": err} if err else {"ok": True, "biz": slug}, 400 if err else 200)
         if parts[:1] == ["api"] and len(parts) >= 4 and parts[1] == "biz":
             biz = biz_path(parts[2])
             if not biz:
@@ -1212,13 +2004,19 @@ class Handler(BaseHTTPRequestHandler):
                 with LOCK:
                     SESSIONS[s.id] = s
                 return self.send_json({"session": s.id})
-            if parts[3] == "gateway":
-                try:
-                    r = subprocess.run(cli("bizrun") + ["mock-gateway"], cwd=biz, capture_output=True, text=True,
-                                       encoding="utf-8", errors="replace", timeout=120)
-                    return self.send_json({"out": (r.stdout + r.stderr).strip(), "rc": r.returncode})
-                except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-                    return self.send_json({"error": str(exc)}, 500)
+            if parts[3] == "requests" and len(parts) == 4:
+                return self.request_edit(biz, body)
+            if parts[3] == "requests" and len(parts) == 6 and parts[5] in ("state", "posted"):
+                rid = parts[4]
+                if not REQ_ID_RE.match(rid):
+                    return self.send_json({"error": "bad request id"}, 400)
+                if parts[5] == "state":
+                    return self.request_state(biz, rid, body)
+                return self.request_posted(biz, rid, body)
+            if parts[3] == "marketing" and len(parts) == 5 and parts[4] == "upload":
+                return self.marketing_upload(biz, body)
+            if parts[3] == "log" and len(parts) == 6 and parts[5] == "labels":
+                return self.log_labels(biz, parts[4], body)
             if parts[3] == "task" and len(parts) == 4:
                 return self.task_add(biz, body)
             if parts[3] == "task" and len(parts) in (5, 6):
@@ -1275,6 +2073,129 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json({"error": "not found"}, 404)
 
     # ------------------------------------------------------------- writes
+
+    def request_state(self, biz, rid, body):
+        """Owner approve/reject via `bizreq state --actor human:<owner>` (commits itself: `request: <id> <state>`)."""
+        state = str(body.get("state") or "")
+        note = str(body.get("note") or "").strip()
+        if state not in ("approved", "rejected"):
+            return self.send_json({"error": "state must be approved or rejected"}, 400)
+        if state == "rejected" and not note:
+            return self.send_json({"error": "rejected needs a note (the agent reads it next session)"}, 400)
+        args = ["state", rid, state, "--actor", owner_actor(biz)] + (["--note", note] if note else [])
+        r = run_json(biz, "bizreq", *args)
+        if not isinstance(r, dict) or r.get("error"):
+            err = (r or {}).get("error") or "bizreq state failed"
+            return self.send_json({"error": err}, 404 if "no request" in err else 400)
+        if state == "approved":
+            BRIDGE.kick()      # submit on the next tick; kicking just makes "next" now
+        return self.send_json({"ok": True, "id": rid, "state": state, "line": r})
+
+    def request_posted(self, biz, rid, body):
+        """Manual mode (spec 04 §6): the owner posted it by hand; same write-back, actor human:<owner>."""
+        url = str(body.get("url") or "").strip()
+        note = str(body.get("note") or "").strip()
+        if not re.match(r"^https?://\S+$", url):
+            return self.send_json({"error": "url must be http(s)"}, 400)
+        result = {"url": url, "at": now_iso()}
+        if note:
+            result["note"] = note[:500]
+        try:
+            r = BRIDGE.write_back(biz, rid, result, owner_actor(biz))
+        except BridgeStopped as exc:
+            return self.send_json({"error": f"bridge stopped for this business: {exc}"}, 409)
+        except Exception as exc:  # noqa: BLE001 - bizreq refused (no such request, plugin missing, ...)
+            msg = str(exc)
+            return self.send_json({"error": msg}, 404 if msg.startswith("no request") else 500)
+        if r.get("skipped"):
+            return self.send_json({"error": r["skipped"], **r}, 409)
+        return self.send_json({"ok": True, **r})
+
+    def request_edit(self, biz, body):
+        """Edit / resubmit (spec 06): a superseding request authored by the owner, auto-approved."""
+        old_id = str(body.get("supersedes") or "").strip()
+        payload = body.get("payload")
+        if not old_id or not isinstance(payload, dict):
+            return self.send_json({"error": "supersedes and payload (an object) are required"}, 400)
+        if not REQ_ID_RE.match(old_id):
+            return self.send_json({"error": "supersedes is malformed"}, 400)
+        old = run_json(biz, "bizreq", "show", old_id)
+        if not isinstance(old, dict) or old.get("error"):
+            return self.send_json({"error": "supersedes does not resolve to a request"}, 404)
+        oreq = old.get("request") if isinstance(old.get("request"), dict) else {}
+        merged = dict(oreq.get("payload") if isinstance(oreq.get("payload"), dict) else {})
+        merged.update(payload)
+        if body.get("instructions") is not None:
+            merged["instructions"] = body["instructions"]
+        actor = owner_actor(biz)
+        rid = new_request_id(biz, old_id)
+
+        def pick(key):
+            v = body.get(key)
+            return oreq.get(key) if v is None else v
+        args = ["add", rid, "--tool", str(pick("tool") or ""), "--channel", str(pick("channel") or ""),
+                "--supersedes", old_id, "--actor", actor, "--payload", "-", "--no-commit"]
+        for flag, key in (("--why", "why"), ("--campaign", "campaign"), ("--task", "task"), ("--account", "account"),
+                          ("--not-before", "not_before"), ("--window-end", "window_end")):
+            v = pick(key)
+            if v not in (None, ""):
+                args += [flag, str(v)]
+        r = run_json(biz, "bizreq", *args, stdin=json.dumps(merged))
+        if not isinstance(r, dict) or r.get("error"):
+            return self.send_json({"error": (r or {}).get("error") or "bizreq add failed",
+                                   "errors": (r or {}).get("errors") or []}, 500)
+        warn = "; ".join(str(w) for w in r.get("warnings") or [])
+        rc, out = git_commit(biz, [r["file"], "requests/_state.jsonl"], f"requests: edit {old_id} -> {rid}")
+        s = run_json(biz, "bizreq", "state", rid, "approved", "--note", "edited by owner", "--actor", actor, "--no-commit")
+        if not isinstance(s, dict) or s.get("error"):
+            return self.send_json({"error": f"created {rid} but could not approve it: {(s or {}).get('error')}",
+                                   "id": rid, "warn": warn or None}, 500)
+        rc2, out2 = git_commit(biz, ["requests/_state.jsonl"], f"requests({rid}): approved (owner edit)")
+        BRIDGE.kick()
+        resp = {"id": rid, "request": run_json(biz, "bizreq", "show", rid), "state": "approved", "supersedes": old_id}
+        if warn:
+            resp["warn"] = warn
+        return self.send_json(warned(warned(resp, rc, out), rc2, out2))
+
+    def marketing_upload(self, biz, body):
+        """Same code path as context_upload, two literals changed: `--dir marketing-content`, `--mode actions`."""
+        text = str(body.get("text") or "").strip()
+        if not text:
+            return self.send_json({"error": "empty upload"}, 400)
+        if len(text) > 200000:
+            return self.send_json({"error": "upload over 200k chars; split it"}, 400)
+        args = ["--dir", CONTENT_TREE, "dump", "--mode", "actions"]
+        notes = str(body.get("notes") or "").strip()
+        if notes:
+            args += ["--notes", notes[:300]]
+        r = run_json(biz, "bizctx", *args, stdin=text)
+        if "error" in r:
+            return self.send_json(r, 500)
+        FILER.kick()
+        return self.send_json({"ok": True, "id": r["id"], "chars": r.get("chars")})
+
+    def log_labels(self, biz, lid, body):
+        """`bizlog label <id> +a -b`; bizlog commits log/labels.jsonl itself, so no git_commit here."""
+        if not LOG_ID_RE.match(lid):
+            return self.send_json({"error": "bad log id"}, 400)
+        tokens = []
+        for sign, key in (("+", "add"), ("-", "remove")):
+            vals = body.get(key) or []
+            if not isinstance(vals, list):
+                return self.send_json({"error": f"{key} must be a list"}, 400)
+            for v in vals:
+                slug = str(v).strip().lower()
+                if not slug:
+                    continue
+                if not LABEL_RE.match(slug):
+                    return self.send_json({"error": f"bad label: {v!r} (lowercase slug, no whitespace or /)"}, 400)
+                tokens.append(sign + slug)
+        if not tokens:
+            return self.send_json({"error": "add or remove must name at least one label"}, 400)
+        r = run_json(biz, "bizlog", "label", lid, *tokens)
+        if not isinstance(r, dict) or r.get("error"):
+            return self.send_json({"error": (r or {}).get("error") or "bizlog label failed"}, 500)
+        return self.send_json({"ok": True, "id": lid, "labels": r})
 
     def context_upload(self, biz, body):
         text = str(body.get("text") or "").strip()
@@ -1631,7 +2552,10 @@ def main(argv=None):
     srv.daemon_threads = True
     threading.Thread(target=FILER.loop, daemon=True, name="filer").start()
     threading.Thread(target=SUMMARIZER.loop, daemon=True, name="summarizer").start()
-    print(f"biz-dashboard on http://{args.host}:{args.port}  root {ROOT}  ({len(businesses())} businesses)")
+    if BRIDGE.configured:
+        threading.Thread(target=BRIDGE.loop, daemon=True, name="bridge").start()
+    bridge = f"bridge -> {BRIDGE.url} every {BRIDGE.interval}s" if BRIDGE.configured else "no service configured (manual mode)"
+    print(f"biz-dashboard on http://{args.host}:{args.port}  root {ROOT}  ({len(businesses())} businesses)  {bridge}")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
