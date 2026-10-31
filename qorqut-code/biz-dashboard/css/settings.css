@@ -35,7 +35,7 @@
 .outreach-settings-form label { display: grid; gap: 8px; min-width: 0; font:11px/1.5 var(--sans); color:var(--fg-2); }
 .outreach-settings-form input, .outreach-settings-form select, .outreach-settings-form textarea { width: 100%; min-width: 0; padding: 8px 12px; font:13px/1.5 var(--sans); color: var(--fg); background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
 .outreach-settings-form textarea { resize: vertical; }
-.outreach-settings-form > p, .outreach-instructions, .outreach-actions, .outreach-conflict { grid-column: 1 / -1; }
+.outreach-settings-form > p, .outreach-instructions, .outreach-global-instructions, .outreach-actions, .outreach-conflict { grid-column: 1 / -1; }
 .outreach-actions { display: flex; justify-content:flex-end; flex-wrap: wrap; gap: 8px; }
 .outreach-actions button[type="submit"] { order:1; }
 .outreach-settings button { min-height:32px; height:auto; padding:6px 12px; font:500 12px/1.5 var(--sans); border-radius:var(--r-sm); }
@@ -43,7 +43,7 @@
 .outreach-settings button.quiet { background:var(--surface); color:var(--fg-2); border:1px solid var(--line-2); }
 .outreach-settings button.quiet:hover { background:var(--hover); color:var(--fg); }
 .outreach-settings .set-note:empty { display:none; }
-.outreach-conflict h3 { font-size:14px; font-weight:500; margin:12px 0 8px; }
+.outreach-conflict h3, .outreach-global-instructions h3 { font-size:14px; font-weight:500; margin:12px 0 8px; }
 .outreach-conflict { padding: 12px; border: 1px solid var(--line-2); border-radius: var(--r-sm); }
-.outreach-conflict pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.outreach-conflict pre, .outreach-global-instructions pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 @media(max-width: 600px) { .outreach-settings-form { grid-template-columns: 1fr; } }
