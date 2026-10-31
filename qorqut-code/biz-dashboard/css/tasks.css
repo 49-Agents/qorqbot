@@ -88,14 +88,14 @@
 
 /* The panel's own controls are quiet glyphs, not app.css's cream pill `button`: each opts out here
    (the old centred bold section header was that pill rule leaking into a heading button). */
-.tplus, .tshbtn, .trow .ball, .trow .who, .trow .tmore, .taddbtn {
+.tplus, .tshbtn, .trow .ball, .trow .who, .taddbtn {
   height: auto; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
   color: var(--fg-2); font: inherit; font-weight: 400; letter-spacing: normal;
   display: inline-flex; align-items: center; justify-content: flex-start; gap: 0;
   user-select: none; -webkit-user-select: none;
 }
-.tplus:hover, .tshbtn:hover, .trow .ball:hover, .trow .who:hover, .trow .tmore:hover, .taddbtn:hover,
-.tplus:active, .tshbtn:active, .trow .ball:active, .trow .who:active, .trow .tmore:active, .taddbtn:active {
+.tplus:hover, .tshbtn:hover, .trow .ball:hover, .trow .who:hover, .taddbtn:hover,
+.tplus:active, .tshbtn:active, .trow .ball:active, .trow .who:active, .taddbtn:active {
   background: none; color: var(--fg); transform: none;
 }
 
@@ -127,7 +127,7 @@
 .tplus svg { font-size: 14px; }
 .tsi { display: flex; flex-direction: column; gap: 1px; }
 
-/* ---------------------------------------------------------------- rows: deadline · assignee · status · title · ⋯ */
+/* Task rows share aligned status, title and metadata columns. */
 .trow {
   display: flex; align-items: center; height: auto; min-height: 48px; padding: 2px 12px; border-radius: 14px;  
   cursor: pointer; transition: background .15s ease;
@@ -158,7 +158,7 @@
   display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .ball .core, .who .wd {
-  display: block; width: 14px; height: 14px; border-radius: var(--r-full); opacity: .9;
+  display: block; width: 18px; height: 18px; border-radius: var(--r-full); opacity: .9;
   transition: transform .15s ease, background .15s ease, border-color .15s ease;
 }
 .trow .ball:hover .core, .trow .who:hover .wd { transform: scale(1.1); }
@@ -184,15 +184,6 @@
 /* the same dot inline, in the detail's assignee field and the pickers */
 .who.inl { width: 14px; height: 14px; cursor: default; display: inline-flex; align-items: center; vertical-align: middle; }
 .who.inl .wd { opacity: 1; }
-
-/* the ⋯ at the right end, shown while the row is hovered; opens the detail */
-.trow .tmore {
-  flex: none; width: 28px; height: 28px; margin-left: 6px; justify-content: center; border-radius: var(--r-sm);
-  color: var(--fg-2); opacity: 0; cursor: pointer; transition: opacity .15s ease, background .15s ease, color .15s ease;
-}
-.trow:hover .tmore, .trow .tmore:focus-visible { opacity: .7; }
-.trow .tmore:hover { opacity: 1; background: var(--hover); color: var(--fg); }
-.trow .tmore svg { font-size: 16px; }
 
 /* ---------------------------------------------------------------- adding */
 /* the inline add row: the balls-to-be, then the input */
@@ -299,9 +290,26 @@
 .personal-task-error { color:var(--danger); font-size:12px; }
 
 .task-chips{display:flex;align-items:center;gap:4px;max-width:45%;overflow-x:auto;scrollbar-width:none;flex:none;padding:3px 0}
-.task-chip{display:inline-flex;align-items:center;flex:none;font-size:10px;line-height:1.2;padding:4px 6px;min-height:20px;height:auto;border:1px solid var(--line);border-radius:6px;background:var(--wash);color:var(--fg-2);font-weight:400;white-space:nowrap}
+.task-chip{display:inline-flex;align-items:center;flex:none;font-size:12px;line-height:1.2;padding:5px 8px;min-height:26px;height:auto;border:1px solid var(--line);border-radius:6px;background:var(--wash);color:var(--fg-2);font-weight:400;white-space:nowrap}
 @media(max-width:640px){.tasks .personal-task{flex-wrap:wrap}.personal-task .task-chips{margin-left:33px;order:5;max-width:calc(100% - 40px)}}
 
+.human-recipient { border-top: 1px solid var(--line); padding: 12px 0; }
+.human-recipient summary { cursor: pointer; padding-bottom: 8px; }
+.human-copy { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.human-recipient label { display: grid; gap: 5px; margin: 10px 0; }
+.human-recipient select, .human-recipient textarea { width: 100%; max-width: 100%; }
+.human-route { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; margin-top: 16px; }
+.human-route label { display: grid; gap: 6px; }
+.human-route label:has(textarea), .human-route p { grid-column: 1 / -1; }
+.human-route input, .human-route select, .human-route textarea { width: 100%; min-width: 0; padding: 8px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); }
+@media(max-width:640px) { .human-route { grid-template-columns: 1fr; } }
+.human-settings { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--line); }
+.human-copy-choice { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
 .task-toolbar{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:16px}.task-toolbar .tsearch{width:33.333%;min-width:140px}.task-toolbar #task-new{flex:none}.task-chip{border-radius:8px!important;padding:4px 8px!important;background:var(--wash)!important;color:var(--fg-2)!important}.task-chips{gap:6px}
 
 #task-new[hidden]{display:none}
+
+.task-assignee-column,.task-department-column { display:flex; flex:0 0 120px; min-width:0; gap:4px; overflow:hidden; }
+.task-assignee-column .task-chip,.task-department-column .task-chip { flex:0 1 auto; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+.personal-task .task-chips { flex:0 0 200px; max-width:200px; }
+@media(max-width:800px){.tasks .personal-task{flex-wrap:wrap}.personal-task .ttl{flex-basis:calc(100% - 90px)}.personal-task .task-chips{max-width:100%;margin-left:0;flex:1 1 160px}.task-assignee-column,.task-department-column{flex-basis:110px}}

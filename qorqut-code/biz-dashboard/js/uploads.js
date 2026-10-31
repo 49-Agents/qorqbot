@@ -56,6 +56,8 @@ function upBatchId() {
 
 // ---------------------------------------------------------------- state
 let upForm = { text: "", files: [], notes: "", topic: "", group: ls("upgroup") || "polished" };
+let upTextRequest = null;
+let upError = "";
 let upBusy = false;           // a submit is running
 let upDone = [];              // this session's results, newest first: {ok, kind, label, id, path, error}
 let upBiz = "";
@@ -64,7 +66,7 @@ let upBiz = "";
 // called by tasks.js's tSetView(v) on tab-entry ("uploads") and by its 500ms business-change interval
 function tPaintUploads() { upOpenView(); }
 function upOpenView() {
-  if (upBiz !== state.biz) { upForm.files.forEach(x=>x.url && URL.revokeObjectURL(x.url)); upBiz = state.biz; upForm = { ...upForm, text: "", files: [], notes: "", topic: "" }; upDone = []; }
+  if (upBiz !== state.biz) { upForm.files.forEach(x=>x.url && URL.revokeObjectURL(x.url)); upBiz = state.biz; upTextRequest = null; upError=""; upForm = { ...upForm, text: "", files: [], notes: "", topic: "", stories: [] }; upDone = []; }
   upRender();
 }
 
@@ -74,6 +76,7 @@ function upRender() {
   body.className = "tbody up";
   body.innerHTML = upFormHtml() + upDoneHtml();
   upWire(body);
+  const storyButton=body.querySelector('#ctxuploadstories'); if(storyButton)storyButton.onclick=()=>storyChooseIds(state.biz,upForm.stories || [],stories=>{upForm.stories=stories;upRender();});
   body.querySelectorAll('[data-upload-resource]').forEach(host=>storyRelatedChips(host,state.biz,'uploads',host.dataset.uploadResource));
 }
 
@@ -89,7 +92,8 @@ function upFormHtml() {
   <div class="upfields">
     <div class="upf"><label class="upl" for="upnotes">Notes <span class="opt">optional</span></label><textarea class="upinp" id="upnotes" rows="3">${esc(f.notes)}</textarea></div>
   </div>
-  <div class="upact"><button class="upsend" id="upsend" type="button"${mode === "empty" || upBusy ? " disabled" : ""}>${ICO_UPLOAD}<span id="upsendlbl">${esc(upSendLabel(f, upBusy))}</span></button><span class="uperr" id="uperr" hidden></span></div>`;
+  ${(f.stories || []).length ? `<button type="button" class="quiet" id="ctxuploadstories">${f.stories.map(story=>esc(story.title)).join(', ')}</button>` : ""}
+  <div class="upact"><button class="upsend" id="upsend" type="button"${mode === "empty" || upBusy ? " disabled" : ""}>${ICO_UPLOAD}<span id="upsendlbl">${esc(upSendLabel(f, upBusy))}</span></button><span class="uperr" id="uperr" ${upError ? "" : "hidden"}>${esc(upError)}</span></div>`;
 }
 function upThumbHtml(x, i) {
   const k = upKind(x.file), url = x.url || "";
@@ -126,7 +130,7 @@ function upPatch() {
 // ---------------------------------------------------------------- wiring
 function upWire(root) {
   const ta = root.querySelector("#uptext"), box = root.querySelector("#upbox"), err = root.querySelector("#uperr");
-  const fail = t => { if (!err) return; err.hidden = !t; err.textContent = t || ""; };
+  const fail = t => { upError=t || ""; if (!err) return; err.hidden = !t; err.textContent = t || ""; };
   const addFiles = list => {
     const files = Array.from(list || []).filter(x => x && x.size >= 0 && (x.type.startsWith("image/") || x.type.startsWith("video/") || UP_IMAGE_EXT.test(x.name) || UP_VIDEO_EXT.test(x.name) || UP_DATA_EXT.test(x.name)));
     if (!files.length) return false;
@@ -184,24 +188,27 @@ async function upSubmit(fail) {
   upBusy = true; upRender();
   try {
     if (mode === "text") {
-      let r; try { r = await post(`/biz/${biz}/context/upload`, { text: f.text.trim(), notes: f.notes, topic: f.topic }); }
+      const payload={text:f.text.trim(),notes:f.notes,topic:f.topic,story_ids:(f.stories || []).map(story=>story.id)};
+      const signature=JSON.stringify([biz,payload]);
+      if(upTextRequest?.signature!==signature)upTextRequest={signature,key:newRequestId()};
+      let r; try { r = await post(`/biz/${biz}/context/upload`, {...payload,idempotency_key:upTextRequest.key}); }
       catch (e) { r = { error: "could not reach the server" }; }
       const ok = !!(r && !r.error);
       upDone.unshift({ ok, kind: "text", label: f.notes || f.topic || f.text.trim().slice(0, 60), id: ok ? r.id : "", resourceId:ok?r.document_id || r.id:'', error: ok ? "" : (r && r.error) || "upload failed" });
-      if (ok) { toast(r.warn ? `uploaded ${r.id}, but: ${r.warn}` : `uploaded ${r.id}; filing starts now`); upForm = { ...upForm, text: "", notes: "", topic: "" }; }
+      if (ok) { upTextRequest=null; if(typeof storyView!=="undefined" && storyView && state.biz===biz)await storyRefresh(storyView,true).catch(error=>toast(error.message)); toast(r.warn ? `uploaded ${r.id}, but: ${r.warn}` : `uploaded ${r.id}; filing starts now`); upForm = { ...upForm, text: "", notes: "", topic: "", stories: [] }; }
       else fail(upDone[0].error);
     } else {
       const batch = upBatchId(), topic = upTopicSlug(f.topic), n = f.files.length;
       let okN = 0;
       for (let i = 0; i < n; i++) {
         const x = f.files[i], b = $("#upsendlbl"); if (b) b.textContent = `Uploading ${i + 1}/${n}…`;
-        const r = await upSendFile(biz, x.file, { group: f.group, topic, notes: f.notes, batch });
+        const r = await upSendFile(biz, x.file, { group: f.group, topic, notes: f.notes, batch, story_ids:(f.stories || []).map(story=>story.id) });
         const ok = !!(r && !r.error);
         if (ok) okN++;
         upDone.unshift({ ok, kind: upKind(x.file)==="file"?"data":"media", label: x.file.name, id: ok ? r.id : "", resourceId:ok?r.id:'', path: ok ? r.path : "", error: ok ? "" : (r && r.error) || "upload failed" });
       }
       toast(okN === n ? `${n} file${n === 1 ? "" : "s"} uploaded` : `${okN}/${n} uploaded; see the list`);
-      if (okN === n) { f.files.forEach(x => x.url && URL.revokeObjectURL(x.url)); upForm = { ...upForm, files: [], notes: "", topic: "" }; }
+      if (okN === n) { f.files.forEach(x => x.url && URL.revokeObjectURL(x.url)); upForm = { ...upForm, files: [], notes: "", topic: "", stories: [] }; }
       else { upForm.files = f.files.filter((x, i) => !upDone.slice(0, n).reverse()[i].ok); }
       if (typeof mkAssetsInvalidate === "function") mkAssetsInvalidate();
     }
@@ -215,12 +222,12 @@ async function upSendFile(biz, file, fields) {
     if(!file.size || file.size>20*1024*1024)return {error:'Choose a data file between 1 byte and 20 MiB.'};
     try {
       const content=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result.split(',')[1]);r.onerror=()=>reject(new Error('Could not read file'));r.readAsDataURL(file);});
-      const result=await storyCall(biz,'data_uploads_upload',{filename:file.name,content_b64:content,notes:fields.notes});
+      const result=await storyCall(biz,'data_uploads_upload',{filename:file.name,content_b64:content,notes:fields.notes,story_ids:fields.story_ids || []});
       return result.upload;
     }catch(error){return {error:error.message};}
   }
   const fd = new FormData();
-  Object.entries(fields).forEach(([k, v]) => fd.append(k, v || ""));
+  Object.entries(fields).forEach(([k, v]) => fd.append(k, k === "story_ids" ? JSON.stringify(v || []) : v || ""));
   fd.append("file", file, file.name);
   return api(`/biz/${biz}/assets/upload`, { method: "POST", body: fd }).catch(() => ({ error: "could not reach the server" }));
 }

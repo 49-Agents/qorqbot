@@ -20,6 +20,10 @@ async function renderSettings(c) {
     <div class="set-note muted small" id="envnote" role="status"></div>
     <p class="muted small">Changes apply to new agent sessions and subsequent jobs. Already-running agent sessions keep their current environment.</p>`;
   c.appendChild(pane);
+  if (!global && typeof humanRouteMount === "function") {
+    const route = document.createElement("section"); route.className = "human-settings";
+    pane.appendChild(route); humanRouteMount(route, scope);
+  }
   pane.querySelector("#envsave").onclick = () => saveEnv(p);
   pane.querySelector("#envadd").onclick = () => {
     p.rows.push({ key: "", value: "" }); envDirty(p); paintEnv(p);

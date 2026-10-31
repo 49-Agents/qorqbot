@@ -24,7 +24,15 @@ async function contextOpenItem(biz, item, beforeOpen) {
 }
 
 async function contextRelatedChips(host, biz, item, beforeOpen) {
-  const data = await storyCall(biz, 'context_reviews_list', {item, include_reviewed:true, limit:50});
+  let data;
+  try { data = await storyCall(biz, 'context_reviews_list', {item, include_reviewed:true, limit:50}); }
+  catch (error) {
+    if (!host.isConnected) return;
+    const message=document.createElement('span');message.className='muted';message.textContent=error.message;
+    const retry=document.createElement('button');retry.className='quiet';retry.textContent='Retry related context';
+    retry.onclick=()=>contextRelatedChips(host,biz,item,beforeOpen);
+    host.replaceChildren(message,retry);return;
+  }
   if (!host.isConnected) return;
   host.replaceChildren();
   const pending = data.items.filter(row=>row.pending).length;

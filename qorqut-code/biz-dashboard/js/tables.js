@@ -25,13 +25,13 @@ async function renderTables(container, filters = null) {
   if (_data.biz !== biz) _data = {biz, mode: 'tables', selected: null, table: null, rows: [], cursor: null, query: '', order: '', descending: false, archived: false, department: '', purpose: '', purposes: []};
   if (entering) { _data.department = filters?.department || ''; _data.purpose = ''; _data.selected = null; _data.mode = 'tables'; }
   _data.view = state.tab;
-  container.innerHTML = `<section class="data-workspace"><header class="data-top"><div class="ttabs"><button class="ttab ${_data.mode === 'tables' ? 'on' : ''}" data-data-mode="tables">Tables</button><button class="ttab ${_data.mode === 'uploads' ? 'on' : ''}" data-data-mode="uploads">Data uploads</button></div><span class="data-spacer"></span>${dataIconButton('data-new', _data.mode === 'tables' ? 'New table' : 'Upload data', _data.mode === 'tables' ? SVG_TPLUS : ICO_UPLOAD)}${dataIconButton('data-refresh', 'Refresh', aicon('refresh-cw', 'currentColor', 18))}</header><p class="data-error" id="data-error" role="status" hidden></p><div class="data-layout"><aside class="data-list"><label class="data-filter">Search<input class="inp" id="data-search" type="search"></label>${_data.mode === 'tables' ? `<label class="data-archived"><input type="checkbox" id="data-archived" ${_data.archived ? 'checked' : ''}>Archived</label>` : ''}<div id="data-items"></div><button class="btn" id="data-list-more" hidden>Load more</button></aside><section class="data-detail" id="data-detail"><p class="muted data-empty">${_data.mode === 'tables' ? 'No table selected' : 'No upload selected'}</p></section></div></section>`;
+  container.innerHTML = `<section class="data-workspace"><header class="data-top"><div class="data-modes">${['tables','uploads'].map(mode=>`<button class="data-icon" type="button" data-data-mode="${mode}" aria-label="${mode==='tables'?'Tables':'Data uploads'}" title="${mode==='tables'?'Tables':'Data uploads'}" aria-pressed="${_data.mode===mode}">${aicon(mode==='tables'?'database':'archive','currentColor',18)}</button>`).join('')}</div>${dataIconButton('data-new', _data.mode === 'tables' ? 'New table' : 'Upload data', _data.mode === 'tables' ? SVG_TPLUS : ICO_UPLOAD)}${dataIconButton('data-refresh', 'Refresh', aicon('refresh-cw', 'currentColor', 18))}<span class="data-spacer"></span><label class="data-search"><input class="inp" id="data-search" type="search" aria-label="Search tables and data uploads" placeholder="Search"></label></header><p class="data-error" id="data-error" role="status" hidden></p><div class="data-layout"><aside class="data-list">${_data.mode === 'tables' ? `<label class="data-archived"><input type="checkbox" id="data-archived" ${_data.archived ? 'checked' : ''}>Archived</label>` : ''}<div id="data-items"></div><button class="btn" id="data-list-more" hidden>Load more</button></aside><section class="data-detail" id="data-detail"><p class="muted data-empty">${_data.mode === 'tables' ? 'No table selected' : 'No upload selected'}</p></section></div></section>`;
   container.querySelectorAll('[data-data-mode]').forEach(button => button.onclick = () => { _data.mode = button.dataset.dataMode; _data.selected = null; _data.table = null; renderTables(container); });
   container.querySelector('#data-new').onclick = () => _data.mode === 'tables' ? dataTableEditor() : dataOpenUploads();
   container.querySelector('#data-refresh').onclick = () => renderTables(container);
   const search = container.querySelector('#data-search');
   if (_data.mode === 'tables') {
-    search.closest('label').insertAdjacentHTML('afterend', `<label class="data-filter">Type<select class="inp" id="data-purpose-filter"><option value="">All types</option></select></label><label class="data-filter">Department<input class="inp" id="data-department" value="${esc(_data.department)}"></label>`);
+    container.querySelector('.data-list').insertAdjacentHTML('afterbegin', `<label class="data-filter">Type<select class="inp" id="data-purpose-filter"><option value="">All types</option></select></label><label class="data-filter">Department<input class="inp" id="data-department" value="${esc(_data.department)}"></label>`);
     container.querySelector('#data-new').disabled = true;
   }
   let timer, listCursor = null, listGeneration = 0;
@@ -84,13 +84,17 @@ async function dataOpenTable(id, append = false) {
   const biz = state.biz, panel = document.querySelector('#data-detail'), generation = ++_dataDetail;
   if (!panel) return;
   if (_data.selected !== id) {
-    _data.query = ''; _data.order = ''; _data.descending = false;
+    _data.query = ''; _data.order = ''; _data.descending = false; _data.metricsRows = false;
     panel.innerHTML = '<p class="data-empty muted">Loading...</p>';
   }
   dataSelect(id);
   try {
     const draft = dataDraft();
     const result = draft ? {table: draft.table} : await dataCall(biz, 'tables_get', {table_id: id});
+    if (result.table.purpose === 'metrics' && !draft && !_data.metricsRows) {
+      await dataOpenMetrics(biz, panel, result.table, generation, append);
+      return;
+    }
     const found = draft ? {items: draft.rows, table_revision: draft.table.revision, next_cursor: draft.cursor} : await dataCall(biz, 'tables_rows_list', {table_id: id, limit: 50, ...(_data.query ? {query: _data.query} : {}), ...(_data.order ? {order_by: _data.order, descending: _data.descending} : {}), ...(append && _data.cursor ? {cursor: _data.cursor} : {})});
     if (!dataActive(biz, panel) || generation !== _dataDetail || _data.selected !== id) return;
     if (found.table_revision !== result.table.revision) throw new Error('Table changed while loading. Refresh to read the current version.');
@@ -104,6 +108,11 @@ async function dataOpenTable(id, append = false) {
       listed.querySelector('span').textContent = `${table.row_count} rows${table.archived ? ' · Archived' : ''}`;
     }
     panel.innerHTML = `<header class="data-heading">${dataIconButton('data-back', 'Back to tables', aicon('arrow-left', 'currentColor', 18))}<h1>${esc(table.title)}</h1><span class="data-spacer"></span>${dataIconButton('data-edit-table', 'Edit table and columns', dataSettingsIcon)}</header>${table.description ? `<p class="data-description">${esc(table.description)}</p>` : ''}<div id="data-stories"></div><div class="data-row-tools"><label>Search rows<input type="search" id="data-row-query" class="inp" value="${esc(_data.query)}"></label><span class="data-spacer"></span><div id="data-draft-actions" hidden><button type="button" class="btn" id="data-discard">Discard</button><button type="button" class="btn primary" id="data-save">Save</button></div>${dataIconButton('data-row-delete', 'Remove selected rows', SVG_X)}${dataIconButton('data-row-new', 'Add row', SVG_TPLUS)}</div><div class="data-grid-wrap"><table class="data-grid"><thead><tr><th class="data-check"><input type="checkbox" id="data-select-all" aria-label="Select visible rows"></th>${table.columns.map(column => `<th><button type="button" data-sort="${column.id}" ${column.type === 'json' ? 'disabled' : ''}>${esc(column.name)}${_data.order === column.id ? (_data.descending ? ' ↓' : ' ↑') : ''}</button></th>`).join('')}</tr></thead><tbody></tbody></table></div><footer class="data-footer"><span id="data-row-count"></span><button class="btn" id="data-more" ${_data.cursor ? '' : 'hidden'}>Load more</button></footer>`;
+    if (table.purpose === 'metrics') {
+      const toggle = document.createElement('button'); toggle.id = 'metrics-columns'; toggle.className = 'btn'; toggle.textContent = 'Metric columns';
+      toggle.onclick = () => { _data.metricsRows = false; _data.order = ''; dataOpenTable(id); };
+      panel.querySelector('.data-heading').appendChild(toggle);
+    }
     panel.querySelector('#data-back').onclick = dataBack;
     panel.querySelector('#data-edit-table').onclick = () => dataTableEditor(table);
     panel.querySelector('#data-row-new').disabled = table.archived;
@@ -151,7 +160,7 @@ function dataSyncDraft() {
   panel.querySelector('#data-draft-actions').hidden = !dirty;
   panel.querySelectorAll('#data-save, #data-discard, #data-row-new, .data-cell, .data-cell-input').forEach(node => { node.disabled = !!draft?.saving || _data.table.archived || node.dataset.readonly === 'true'; });
   panel.querySelectorAll('[data-reverse]').forEach(node => { node.disabled = dirty || node.dataset.readonly === 'true'; });
-  panel.querySelectorAll('#data-row-query, #data-more, #data-edit-table').forEach(node => { node.disabled = dirty; });
+  panel.querySelectorAll('#data-row-query, #data-more, #data-edit-table, #metrics-columns').forEach(node => { node.disabled = dirty; });
   panel.querySelectorAll('[data-sort]').forEach(node => { node.disabled = dirty || _data.table.columns.find(column => column.id === node.dataset.sort).type === 'json'; });
   panel.querySelector('#data-row-delete').disabled = !!draft?.saving || _data.table.archived || !panel.querySelector('[data-row-select]:checked');
   panel.querySelector('#data-save').textContent = draft?.saving ? 'Saving...' : 'Save';

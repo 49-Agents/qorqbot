@@ -16,7 +16,6 @@ const T_DONE_HOLD = 550;
 const T_DAY = 86400000;
 
 const SVG_TPLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>`;
-const SVG_TMORE = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>`;
 const SVG_TTAG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>`;
 const SVG_TSEARCH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`;
 const SVG_TINBOX = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
@@ -259,13 +258,13 @@ function tRelatedItems(task) {
 const tChipLabel = label => {const chars=Array.from(String(label));return chars.length>20?chars.slice(0,19).join('')+'…':chars.join('');};
 function tChips(task) {
   const chip=(label,title,extra='')=>`<button type="button" class="task-chip" title="${esc(title)}" ${extra}>${esc(tChipLabel(label))}</button>`;
-  return `<span class="task-chips">${tAssignees(task).map(actor=>chip(tShort(actor),'Assigned to '+tShort(actor),'data-task-assignees')).join('')}${(task.tags || []).filter(tag=>tag!=='needs-owner').map(tag=>`<span class="task-chip" title="${esc(tag)}">${esc(tChipLabel(tag))}</span>`).join('')}${tRelatedItems(task).map((item,i)=>chip(item.label,contextItemType(item)+': '+item.label,`data-task-related="${i}"`)).join('')}</span>`;
+  return `<span class="task-chips">${(task.tags || []).filter(tag=>tag!=='needs-owner' && !TAG_DEPT[tag]).map(tag=>`<span class="task-chip" title="${esc(tag)}">${esc(tChipLabel(tag))}</span>`).join('')}${tRelatedItems(task).map((item,i)=>chip(item.label,contextItemType(item)+': '+item.label,`data-task-related="${i}"`)).join('')}</span>`;
 }
 
 function tRow(t, detailsOnly = false) {
   const business = tBusiness(t);
   const icon = `<span class="task-business" title="${esc(business.name || business.slug || '')}" aria-label="Business: ${esc(business.name || business.slug || '')}">${esc((business.name || business.slug || '·').charAt(0).toUpperCase())}</span>`;
-  return `<div class="trow ${esc(t.status)}${tClosed(t) ? ' off' : ''}${detailsOnly ? '' : ' personal-task'}" data-id="${esc(t.id)}" data-key="${esc(tKey(t))}" data-business="${esc(business.slug || '')}">${detailsOnly ? (tDue(t) || '<span class="tdl"></span>') + tWho(t) : icon}${tBall(t, detailsOnly)}<p class="ttl">${esc(t.title)}</p>${detailsOnly ? '' : tDue(t) + tChips(t)}<button class="tmore" type="button" title="Details" aria-label="Task details">${SVG_TMORE}</button></div>`;
+  return `<div class="trow ${esc(t.status)}${tClosed(t) ? ' off' : ''}${detailsOnly ? '' : ' personal-task'}" data-id="${esc(t.id)}" data-key="${esc(tKey(t))}" data-business="${esc(business.slug || '')}">${detailsOnly ? (tDue(t) || '<span class="tdl"></span>') + tWho(t) : icon}${tBall(t, detailsOnly)}<p class="ttl">${esc(t.title)}</p>${detailsOnly ? '' : (tDue(t) || '<span class="tdl"></span>') + `<span class="task-assignee-column" title="${tWhoTip(t)}">${tAssignees(t).map(actor=>`<button type="button" class="task-chip" data-task-assignees title="Assigned to ${esc(tShort(actor))}">${esc(tChipLabel(tShort(actor)))}</button>`).join('')}</span><span class="task-department-column"><span class="task-chip" title="${esc(dept(tDept(t)).label)}">${esc(dept(tDept(t)).label)}</span></span>` + tChips(t)}</div>`;
 }
 
 function tWireRows(body, detailsOnly = false) {
@@ -346,7 +345,7 @@ function paintTasks() {
 
   tWireRows(body);
   body.querySelector("#tasks-retry")?.addEventListener("click", refreshTasks);
-  if (tPersonalError) body.querySelectorAll(".ball, .tmore").forEach(b => b.disabled = true);
+  if (tPersonalError) body.querySelectorAll(".ball").forEach(b => b.disabled = true);
   const add = $("#taddin");
   if (add) {
     if (keep && prev && prev.closest(".tadd") && prev.closest(".tadd").dataset.b === tAdding) add.value = keep;
@@ -361,7 +360,7 @@ function paintTasks() {
 // intervals below only ever touch the view that's currently active.
 function tSetView(v) {
   if (T_VIEWS.indexOf(v) < 0 || state.scope === "global" && !["tasks", "signoffs", "routines"].includes(v)) v = "tasks";
-  if (tView === "notes" && v !== "notes" && ntEditState) { ntFlush().then(saved=>{if(saved)tSetView(v);}); return; }
+  if (state.scope !== "global" && tView === "notes" && v !== "notes" && ntEditState) { ntFlush().then(saved=>{if(saved)tSetView(v);}); return; }
   const from = tView;
   const tabFocused = document.activeElement && document.activeElement.closest(".ttabs");
   tView = v; ls("tview", v);
@@ -553,6 +552,7 @@ function tDetail(t) {
       ${fld("Updated", stamp(t.updated), true)}
       ${extra}
     </div>
+    <section id="td-human-api"></section>
     <h4>Related context</h4><div id="td-stories" class="small muted">Loading…</div>
     <h4>Notes${(t.notes || []).length ? " · " + (t.notes || []).length : ""}</h4>
     ${notes || `<div class="tnote"><div class="tx"><span class="none">No notes yet.</span></div></div>`}
@@ -582,6 +582,7 @@ function tDetail(t) {
       { label: closed ? "Reopen" : "Mark done", primary: true, onClick: () => again(t.id, {set:{status:closed ? 'open' : 'done'}}) },
     ],
     onOpen(el) {
+      if (typeof humanTaskMount === 'function') humanTaskMount(el.querySelector('#td-human-api'), biz, t);
       if (typeof storyRelatedChips === 'function') storyRelatedChips(el.querySelector('#td-stories'), biz, 'tasks', t.id, () => m.close());
       else el.querySelector('#td-stories').textContent = 'No related context.';
       el.querySelector('#td-reload').onclick = async()=>{try {const fresh=await tFetchTask(biz,t.id);if(!m.el.isConnected)return;m.close();tDetail(fresh);}catch(error){toast(error.message);}};

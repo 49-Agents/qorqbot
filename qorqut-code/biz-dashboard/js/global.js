@@ -4,12 +4,14 @@ const GLOBAL_PAGES = {
   overview: { title: 'Overview', icon: 'globe' },
   agents: { title: 'Agents', icon: 'agents' },
   learning: { title: 'Learning', icon: 'learning' },
+  notes: { title: 'Notes', icon: 'notes' },
   settings: { title: 'Settings', icon: 'settings' },
   analytics: { title: 'Analytics', icon: 'analytics', soon: true },
 };
 // Reuse the actual business navigation and drawer glyphs, including placeholder pages.
 const GLOBAL_ICONS = {
   learning: SVG_BRAIN,
+  notes: T_VIEW_ICON.notes,
   globe: LN_SCOPE_BY_KEY.global.ico,
   agents: document.querySelector('.ritem[data-tab="agents"] svg').outerHTML,
   signoffs: T_VIEW_ICON.signoffs,
@@ -67,9 +69,12 @@ async function selectGlobal(tab = ls('global-tab') || 'overview') {
   }
   goGlobalTab(GLOBAL_PAGES[tab]?.soon ? 'overview' : tab);
 }
-function goGlobalTab(tab) {
+async function goGlobalTab(tab) {
   if (state.scope !== 'global') return;
   if (GLOBAL_PAGES[tab]?.soon) return;
+  const navigation=++workspaceNavigation;
+  if(ntGlobalPage() && !await ntFlush())return;
+  if(navigation!==workspaceNavigation)return;
   state.globalTab = Object.hasOwn(GLOBAL_PAGES, tab) ? tab : 'overview';
   ls('global-tab', state.globalTab);
   location.hash = `/global/${state.globalTab}`;
@@ -79,6 +84,10 @@ function goGlobalTab(tab) {
 }
 let globalRender = 0;
 function renderGlobal(c) {
+  if(state.globalTab==='notes'){
+    c.innerHTML='<section class="pane tasks global-notes" aria-label="Global Notes"><div id="global-notes-body" class="tbody"></div></section>';
+    ntOpenView();return;
+  }
   if (state.globalTab === 'learning') { c.innerHTML = '<section class="pane"><div id="ctxview"></div></section>'; return openLearning(); }
   if (state.globalTab === 'settings') return renderSettings(c);
   if (state.globalTab === 'agents') return renderGlobalAgents(c);

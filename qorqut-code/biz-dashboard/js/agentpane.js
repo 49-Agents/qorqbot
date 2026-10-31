@@ -8,6 +8,7 @@ function agpadSignoffs() {
     active: () => agpadActive(_agpad) && _agpad.view === "signoffs",
     body: () => _agpad && $("#agpad-body", _agpad.el),
     prefix: "agpad-",
+    waitingOnly: true,
   });
 }
 

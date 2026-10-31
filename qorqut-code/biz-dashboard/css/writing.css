@@ -87,3 +87,9 @@
 .jrcfoot .jrup svg { width: 10px; height: 10px; }
 
 .tasks .jrhome .jrcard{min-height:102px;padding-left:24px;padding-right:24px;justify-content:space-between}
+
+.notes-home .jrcard { padding-top:13px; padding-bottom:13px; }
+.person-card { min-height:132px; min-width:0; }
+.person-card .jrctitle,.person-role,.person-org { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.person-role,.person-org { font-size:12px; color:var(--fg-2); min-height:17px; }
+.person-card .jrcfoot { white-space:nowrap; }

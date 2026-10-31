@@ -10,7 +10,7 @@ function sgPlatformComplete(s) {
 }
 function sgPlatformStatus(s) {
   const labels = { awaiting_approval: "Awaiting approval", queued: "Queued", not_started: "Preparing execution",
-    awaiting_human_fulfillment: "Awaiting human execution", dispatched: "Awaiting delivery result", completed: "Completed",
+    awaiting_human_fulfillment: "Awaiting human execution", partially_fulfilled: "Partially completed", dispatched: "Awaiting delivery result", completed: "Completed",
     canceled: "Canceled", failed: "Failed", reconciliation_required: "Needs reconciliation" };
   return `${s.decision_state === "approved" ? "Approved" : s.decision_state === "rejected" ? "Rejected" : "Pending"} · ${labels[s.execution_state] || "Not started"}`;
 }
@@ -42,7 +42,7 @@ function sgCreateView(options) {
   const labels = { pending: "Pending", approved: "Approved, applying", applied: "Applied", rejected: "Rejected", conflicted: "Conflicted", failed: "Failed", answered: "Answered", cancelled: "Withdrawn" };
   const sg = {
     slug: null, businessId: null, generation: 0, mount: null, session: null,
-    responded: false, items: new Map(), order: [], selected: null, selections: new Map(),
+    responded: false, campaignId: '', campaignLabel: '', items: new Map(), order: [], selected: null, selections: new Map(),
     verified: new Map(), detailErrors: new Map(), detailRequest: 0, detailLoading: null,
     counts: null, nextCursor: null, updatedCursor: null, loading: false, loaded: false,
     listRequest: 0, error: null, ...sgShared,
@@ -218,32 +218,34 @@ function sgCreateView(options) {
     const selectedRow = [...sg.mount.querySelectorAll(".sg-row")].find(row => row.dataset.id === sg.selected);
     const anchorTop = selectedRow && selectedRow.getBoundingClientRect().top;
     const business = (state.bizs || []).find(b => b.slug === sg.slug) || {};
-    sg.mount.querySelector(".sg-business").textContent = options.global ? "Global" : business.name || sg.slug || "";
-    sg.mount.querySelector(".sg-count").textContent = sg.counts ? `${sg.counts.pending || 0} pending` : "";
+    if (!options.hideHeading) sg.mount.querySelector(".sg-business").textContent = options.global ? "Global" : business.name || sg.slug || "";
+    if (!options.hideHeading) sg.mount.querySelector(".sg-count").textContent = sg.counts ? `${sg.counts.pending || 0} pending` : "";
     sg.mount.querySelector(".sg").setAttribute("aria-busy", String(sg.loading));
     html(sg.mount.querySelector(".sg-listnotice"), !sg.slug ? `<p class="sg-empty">Pick a business first.</p>` : sg.error ? errorHtml(sg.error, "list") + (sg.items.size ? `<p class="sg-notice">Showing the last update. Review is disabled until refreshed.</p>` : "") : sg.loading && !sg.loaded ? `<p class="sg-empty">Loading signoffs...</p>` : "");
     const attention = typeof sgAttention !== 'undefined' ? sgAttention : {urgent:[]};
-    if (!sg.responded && (options.global || sg.businessId)) attention.urgent.filter(item => item.review_business_id === sg.businessId && (!options.category || item.category === options.category)).forEach(merge);
+    if (!options.item && !sg.responded && (options.global || sg.businessId)) attention.urgent.filter(item => item.review_business_id === sg.businessId && (!options.category || item.category === options.category) && (!sg.campaignId || item.platform?.campaign_id===sg.campaignId)).forEach(merge);
     const urgentLocal = s => s.state === 'pending' && (s.attention?.urgent || s.attention?.blocking);
     if (options.execution) sg.mount.querySelector(".sg-execution").hidden = sg.responded;
     const groups = { urgent: sg.responded ? [] : sg.order.map(id=>sg.items.get(id)).filter(s=>s && urgentLocal(s)), waiting: sg.order.map(id => sg.items.get(id)).filter(s => s && (sg.responded ? !!s.decision : s.state === "pending" && !urgentLocal(s))) };
-    html(sg.mount.querySelector('.sg-filter'), `<button type="button" data-sg="pending" aria-pressed="${!sg.responded}">Waiting</button><button type="button" data-sg="responded" aria-pressed="${sg.responded}">Responded</button>`);
+    if (!options.waitingOnly || options.campaigns) html(sg.mount.querySelector('.sg-filter'), `${options.waitingOnly ? '' : `<button type="button" data-sg="pending" aria-pressed="${!sg.responded}">Waiting</button><button type="button" data-sg="responded" aria-pressed="${sg.responded}">Responded</button>`}${options.campaigns?`<button type="button" data-sg="campaign-filter" aria-label="Filter signoffs by campaign">${esc(sg.campaignLabel || 'All campaigns')}</button>`:''}`);
     if (options.execution && !sg.responded) groups.execution = sg.order.map(id => sg.items.get(id)).filter(s => s && s.state !== "pending");
+    if(sg.campaignId)for(const name of Object.keys(groups))groups[name]=groups[name].filter(s=>s.platform?.campaign_id===sg.campaignId);
     for (const name of Object.keys(groups)) {
       const container = sg.mount.querySelector(`.sg-${name}`);
       const content = container.querySelector(".sg-rows");
       container.hidden = !sg.slug || (!sg.loaded && !sg.items.size);
-      html(container.querySelector(".sg-sectionempty"), name === "waiting" && !groups[name].length ? `<p class="sg-empty">${sg.responded ? "No submitted responses." : attention.urgent.length ? "No other signoffs waiting." : "No signoffs waiting."}</p>` : "");
+      html(container.querySelector(".sg-sectionempty"), !options.item && name === "waiting" && !groups[name].length ? `<p class="sg-empty">${sg.responded ? "No submitted responses." : attention.urgent.length ? "No other signoffs waiting." : "No signoffs waiting."}</p>` : "");
       groups[name].forEach((s, index) => {
         let row = [...sg.mount.querySelectorAll(".sg-row")].find(node => node.dataset.id === s.id);
         if (!row) {
           row = document.createElement("article"); row.className = "sg-row mkcard"; row.dataset.id = s.id;
-          row.innerHTML = `<button type="button" class="sg-rowhead" aria-expanded="false" aria-controls="sg-detail-${prefix}${esc(s.id)}"><span class="sg-rowtitle"></span><span class="sg-state"></span><span class="sg-rowmeta"></span></button><div class="sg-detail" id="sg-detail-${prefix}${esc(s.id)}" hidden></div>`;
+          row.innerHTML = `<button type="button" class="sg-rowhead" aria-expanded="false" aria-controls="sg-detail-${prefix}${esc(s.id)}"><span class="sg-rowtitle"></span><span class="sg-state"></span><span class="sg-rowmeta"></span></button><div class="sg-campaign"></div><div class="sg-detail" id="sg-detail-${prefix}${esc(s.id)}" hidden></div>`;
         }
         if (content.children[index] !== row) content.insertBefore(row, content.children[index] || null);
         row.dataset.state = s.state;
         row.querySelector(".sg-rowtitle").textContent = s.title || s.preview && s.preview.title || s.operation_name;
         row.querySelector(".sg-state").textContent = s.category === "platform_action" ? sgPlatformStatus(s) : labels[s.state];
+        html(row.querySelector('.sg-campaign'),s.platform?.campaign_id?storyCampaignBadge(s.platform.campaign_id,s.platform.campaign_title):'');
         const proposer = s.proposer_display_name || s.proposer_principal_id || "Unknown proposer";
         const initiator = s.initiated_by_principal_id ? ` / initiated by ${s.initiated_by_display_name || s.initiated_by_principal_id}` : "";
         html(row.querySelector(".sg-rowmeta"), `<span>${esc(proposer + initiator)}</span><time datetime="${esc(s.created_at)}" title="${esc(stamp(s.created_at))}">${esc(age(s.created_at))}</time><span class="sg-scope${s.affected_scope && s.affected_scope.kind === "global" ? " sg-global" : ""}">${esc(scopeText(s.affected_scope))}</span>`);
@@ -251,7 +253,7 @@ function sgCreateView(options) {
       });
       [...content.children].forEach(row => { if (!groups[name].some(s => s.id === row.dataset.id)) row.remove(); });
     }
-    const foreign = attention.urgent.filter(item=>item.review_business_id !== sg.businessId);
+    const foreign = options.item ? [] : attention.urgent.filter(item=>item.review_business_id !== sg.businessId);
     const urgentSection = sg.mount.querySelector('.sg-urgent');
     urgentSection.hidden = sg.responded || (!groups.urgent.length && !foreign.length);
     html(urgentSection.querySelector('.sg-foreign'), foreign.map(item=>`<button type="button" class="sg-urgent-link" data-attention-id="${esc(item.id)}"><small>${esc(item.business_name)}</small><span>${esc(item.title)}</span></button>`).join(''));
@@ -299,19 +301,41 @@ function sgCreateView(options) {
   async function refresh(more = false) {
     if (!active() || !sg.slug || sg.loading) return;
     const c = capture(), request = ++sg.listRequest;
-    const cursor = more ? sg.nextCursor : sg.updatedCursor;
+    const cursor = more ? sg.nextCursor : sg.campaignId ? null : sg.updatedCursor;
     const query = new URLSearchParams({ limit: "50" });
     if (sg.responded) query.set("responded", "true");
     if (options.category) query.set("category", options.category);
+    if (sg.campaignId) query.set('campaign_id',sg.campaignId);
     if (cursor) query.set(more ? "cursor" : "updated_after", cursor);
     sg.loading = true; render();
     try {
+      if (options.item) {
+        const target = options.item();
+        const responses = await Promise.all([api(path(c.slug, target.id)), sg.session ? Promise.resolve(null) : api("/session")]);
+        if (!current(c) || request !== sg.listRequest) return;
+        if (responses[1]) sg.session = coreData(responses[1]);
+        const item = coreData(responses[0]).signoff;
+        if (!item || item.id !== target.id || item.review_business_id !== target.businessId || item.category !== options.category) throw new Error("The proposal did not match this workspace.");
+        sg.businessId = target.businessId;
+        sg.items.clear(); sg.order = []; sg.verified.clear();
+        merge(item); sg.selected = item.id; sg.verified.set(item.id, item.status_revision);
+        sg.nextCursor = null; sg.error = null; sg.loaded = true;
+        appliedRefresh(item, c.slug);
+        return;
+      }
       const responses = await Promise.all([api(path(c.slug) + "?" + query), sg.session ? Promise.resolve(null) : api("/session")]);
       if (!current(c) || request !== sg.listRequest) return;
       if (responses[1]) sg.session = coreData(responses[1]);
       const data = coreData(responses[0]);
       if (!Array.isArray(data.items) || (options.global ? data.review_scope?.kind !== "global" || data.review_business_id !== null : !data.review_business_id || sg.businessId && data.review_business_id !== sg.businessId)) throw new Error("The signoff list did not match this workspace.");
       sg.businessId = data.review_business_id;
+      // Attribution can move to another Story. A filtered refresh replaces its
+      // membership rather than retaining rows absent from an incremental result.
+      if(sg.campaignId && !more){
+        const ids=new Set(data.items.map(item=>item.id));
+        for(const id of sg.items.keys())if(!ids.has(id))sg.items.delete(id);
+        sg.order=sg.order.filter(id=>ids.has(id));
+      }
       data.items.forEach(merge);
       if (!cursor || more) sg.nextCursor = data.next_cursor || null;
       if (!more) sg.updatedCursor = data.updated_cursor || sg.updatedCursor;
@@ -464,9 +488,16 @@ function sgCreateView(options) {
     sg.generation++; sg.loading = false; sg.detailLoading = null;
     sg.mount = active() ? body : null;
     if (!sg.mount) return;
+    if (options.item) {
+      sg.items.clear(); sg.order = []; sg.selected = null; sg.verified.clear();
+      sg.detailErrors.clear(); sg.error = null; sg.loaded = false;
+    }
+    if(options.campaigns)sg.updatedCursor=null;
     body.classList.add("sg-body");
-    body.innerHTML = `<div class="sg"><header class="sg-head"><div><p class="sg-business"></p></div><span class="sg-count"></span></header><div class="sg-filter"></div><div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All businesses</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
+    body.innerHTML = `<div class="sg">${options.hideHeading ? "" : '<header class="sg-head"><div><p class="sg-business"></p></div><span class="sg-count"></span></header>'}${options.waitingOnly && !options.campaigns ? "" : '<div class="sg-filter"></div>'}<div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All businesses</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
     body.onclick = event => {
+      const campaign=event.target.closest('[data-campaign-id]');
+      if(campaign){contextOpenItem(sg.slug,{type:'story',id:campaign.dataset.campaignId}).catch(error=>toast(error.message));return;}
       const urgent = event.target.closest('[data-attention-id]');
       if (urgent) { const item=sgAttention.urgent.find(i=>i.id===urgent.dataset.attentionId); if(item) sgAttentionNavigate(item.business_slug,item.id); return; }
       const choice = event.target.closest('[data-choice]');
@@ -481,7 +512,19 @@ function sgCreateView(options) {
       const command = event.target.closest("[data-sg]");
       if (command && !command.disabled) {
         const action = command.dataset.sg;
-        if (action === "pending" || action === "responded") {
+        if(action==='campaign-filter') {
+          const c=capture();
+          storyCampaignOptions(c.slug).then(choices=>{
+            if(!current(c) || !command.isConnected)return;
+            dropdown(command,[{value:'',label:'All campaigns'},...choices],id=>{
+              if(!current(c))return;
+              sg.campaignId=id;sg.campaignLabel=choices.find(choice=>choice.value===id)?.label || '';
+              sg.items.clear();sg.order=[];sg.verified.clear();sg.detailErrors.clear();sg.selected=null;
+              sg.nextCursor=null;sg.updatedCursor=null;sg.listRequest++;sg.detailRequest++;sg.loading=false;sg.loaded=false;refresh();
+            },sg.campaignId);
+          }).catch(error=>{if(current(c))toast(error.message);});
+        }
+        else if (!options.waitingOnly && (action === "pending" || action === "responded")) {
           sg.responded = action === "responded"; sg.items.clear(); sg.verified.clear(); sg.detailErrors.clear(); sg.order=[]; sg.selected=null;
           sg.selections.delete(sg.slug); sg.nextCursor=null; sg.updatedCursor=null;
           sg.listRequest++; sg.detailRequest++; sg.loading=false; sg.loaded=false; refresh();
@@ -511,6 +554,7 @@ function sgCreateView(options) {
   function businessChanged() {
     if (sg.slug === workspace()) return;
     sg.slug = workspace(); sg.businessId = null; sg.generation++;
+    sg.campaignId='';sg.campaignLabel='';
     sg.items.clear(); sg.order = []; sg.selected = null; sg.reveal=null;
     sg.verified.clear(); sg.detailErrors.clear(); sg.detailRequest++;
     sg.counts = null; sg.nextCursor = null; sg.updatedCursor = null; sg.error = null; sg.loaded = false; sg.loading = false;
@@ -535,7 +579,7 @@ function sgCreateView(options) {
     },
   };
   document.addEventListener('click', event => {
-    if (!active() || !sg.selected || !sg.mount) return;
+    if (options.item || !active() || !sg.selected || !sg.mount) return;
     if (event.composedPath().some(node => node.dataset?.action === 'open' || node.dataset?.attentionId)) return;
     const row = event.composedPath().find(node => node.classList?.contains('sg-row'));
     if (row && sg.mount.contains(row)) return;
@@ -545,11 +589,13 @@ function sgCreateView(options) {
   return view;
 }
 const sgDrawer = sgCreateView({
+  waitingOnly: true,
   active: () => state.scope !== "global" && typeof tView !== "undefined" && tView === "signoffs" && tPanelOpen(),
   body: () => $("#tbody"),
 });
 window.sgBusinessChanged = () => sgDrawer.businessChanged();
 const sgGlobal = sgCreateView({
+  waitingOnly: true,
   global: true,
   workspace: () => state.scope === "global" ? "scope:global" : null,
   active: () => state.scope === "global" && typeof tView !== "undefined" && tView === "signoffs" && tPanelOpen(),

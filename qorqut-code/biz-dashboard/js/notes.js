@@ -11,10 +11,14 @@ let ntNotes = [];                   // cache of the last /notes fetch
 let ntSearch = "";                  // detail sidebar search (in-memory filter)
 
 // remember what was open (a note id, or "" for the homepage) per business
-const ntKey = () => `nt:${state.biz}`;
+const ntScope = () => state.scope === 'global' ? '/root' : state.biz;
+const ntEndpoint = (scope = ntScope()) => scope === '/root' ? '/root/notes' : `/biz/${encodeURIComponent(scope)}/notes`;
+const ntGlobalPage = () => state.scope === 'global' && state.globalTab === 'notes';
+const ntActive = () => ntGlobalPage() || state.scope !== 'global' && tView === 'notes';
+const ntKey = () => `nt:${ntScope()}`;
 function ntSetSel(id) {
   ntSel = id;
-  if (state.biz) ls(ntKey(), id || "");
+  if (ntScope()) ls(ntKey(), id || "");
 }
 let ntRestoredBiz = null;           // biz slug whose saved selection we've already applied this session
 let ntListOff = ls("ntlistoff") === "1";   // sidebar collapsed, persisted
@@ -47,21 +51,21 @@ function ntPreview(content) {
 
 // ---- data
 async function ntFetch() {
-  if (!state.biz) { ntNotes = []; return; }
-  const biz = state.biz, r = await api(`/biz/${biz}/notes`);
-  if (state.biz !== biz) return;
+  if (!ntScope()) { ntNotes = []; return; }
+  const biz = ntScope(), r = await api(ntEndpoint(biz));
+  if (ntScope() !== biz) return;
   if (Array.isArray(r)) ntNotes = r; else if (r && r.error) toast(r.error);
 }
 const ntById = id => ntNotes.find(n => n.id === id);
 async function ntCreate(fields) {
-  const r = await post(`/biz/${state.biz}/notes`, fields || {});
+  const r = await post(ntEndpoint(), fields || {});
   if (r && r.error) { toast(r.error); return null; }
   return r;
 }
 async function ntPatch(biz, id, fields) {
   const before = ntById(id) || {}, editing = ntEditState;
   let r;
-  try { r = await post(`/biz/${biz}/notes/${encodeURIComponent(id)}`, {expected_revision:before.revision,expected_content_hash:before.content_hash,...fields}); }
+  try { r = await post(`${ntEndpoint(biz)}/${encodeURIComponent(id)}`, {expected_revision:before.revision,expected_content_hash:before.content_hash,...fields}); }
   catch(error) { r={error:error.message || 'Could not save this page.'}; }
   if (r && r.error) {
     toast(r.error);
@@ -70,11 +74,11 @@ async function ntPatch(biz, id, fields) {
   }
   const baseRevision=fields.expected_revision ?? before.revision;
   if (editing && ntEditState===editing && editing.revision===baseRevision) {editing.revision=r.revision;editing.content_hash=r.content_hash;}
-  if (state.biz===biz && before.id===id) Object.assign(before,r);
+  if (ntScope()===biz && before.id===id) Object.assign(before,r);
   return r;
 }
 async function ntDeleteReq(id, version = ntById(id) || {}) {
-  const r = await post(`/biz/${state.biz}/notes/${encodeURIComponent(id)}/delete`, {expected_revision:version.revision,expected_content_hash:version.content_hash});
+  const r = await post(`${ntEndpoint()}/${encodeURIComponent(id)}/delete`, {expected_revision:version.revision,expected_content_hash:version.content_hash});
   if (r && r.error) { toast(r.error); return null; }
   return r;
 }
@@ -83,18 +87,20 @@ async function ntDeleteReq(id, version = ntById(id) || {}) {
 // called by tasks.js's tSetView(v) on tab-entry ("notes") and by its 500ms business-change interval
 function tPaintNotes() { ntOpenView(); }
 function ntOpenView() {
+  if(ntGlobalPage() && innerWidth<=760)ntListOff=true;
   let justRestored = false;
-  if (state.biz && ntRestoredBiz !== state.biz) {
-    ntRestoredBiz = state.biz;
+  if(ntRestoredBiz!==ntScope()){ntNotes=[];ntSel=null;ntSearch="";}
+  if (ntScope() && ntRestoredBiz !== ntScope()) {
+    ntRestoredBiz = ntScope();
     const saved = ls(ntKey());
     // ntNotes isn't loaded yet here, so ntRender's not-found fallback would wipe an unverified id
     // right back to null; skip the synchronous render this once and let the fetch below paint it
     if (saved) { ntSel = saved; justRestored = true; }
   }
   if (!justRestored) ntRender();
-  if (!state.biz) return;
-  const biz = state.biz;
-  ntFetch().then(() => { if (tView === "notes" && state.biz === biz) ntRender(); });
+  if (!ntScope()) return;
+  const biz = ntScope();
+  ntFetch().then(() => { if (ntActive() && ntScope() === biz) ntRender(); });
 }
 // force-save whatever's dirty in the open editor, reading the DOM/model before it's torn down by a
 // repaint; used when the tab is left or the business/selection changes (tasks.js's tSetView/interval)
@@ -109,8 +115,8 @@ async function ntFlush() {
 
 // ---- render dispatch
 function ntRender() {
-  const body = $("#tbody"); if (!body) return;
-  if (!state.biz) { body.className = "tbody"; body.innerHTML = `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">Pick a business first.</p></div>`; return; }
+  const body = $(ntGlobalPage() ? "#global-notes-body" : "#tbody"); if (!body) return;
+  if (!ntScope()) { body.className = "tbody"; body.innerHTML = `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">Pick a business first.</p></div>`; return; }
   if (ntSel == null) {
     body.className = "tbody nt nt-home";
     body.innerHTML = ntHomeHtml();
@@ -126,7 +132,7 @@ function ntRender() {
 // non-typing refreshes (pin, rename): patch sidebar/meta in place, never rebuild the homepage or the
 // open lines editor from a background write
 function ntRenderCurrent() {
-  if (tView !== "notes") return;
+  if (!ntActive()) return;
   if (ntSel == null) { ntRender(); return; }
   ntPatchSidebar(); ntPatchMeta();
 }
@@ -147,7 +153,7 @@ function ntHomeHtml() {
   const sec = (label, icon, rows) => rows.length ? `<div class="jrsec"><div class="jreyebrow">${icon || ""}${esc(label)}</div><div class="jrgrid">${rows.map(ntCardHtml).join("")}</div></div>` : "";
   // Assigned dates keep daily entries stable when edited later.
   const heatEntries = ntNotes.map(x => ({ date: String(x.date || x.createdAt || "").slice(0, 10) }));
-  return `<div class="jrhome">
+  return `<div class="jrhome notes-home">
     <div class="jrhhead">
       <div><div class="jrsub">${n} ${n === 1 ? "page" : "pages"}</div></div>
       <button id="ntnew" class="btn" type="button">${ICO_PLUS}Create new</button>
@@ -185,7 +191,7 @@ function ntRowHtml(n) {
     ${n.id === ntSel ? `<span class="ntind"></span>` : ""}
     <div class="ntr1"><span class="ntrttl">${n.pinned ? NT_ICO_PIN_TINY : ""}${esc(n.title && n.title.trim() ? n.title : "Untitled")}</span><span class="ntrtime">${esc(relativeTime(n.updatedAt))}</span></div>
     <div class="ntr2">${esc(ntPreview(n.content) || "Empty note")}</div>
-    <button class="ntrowdel" type="button" data-id="${esc(n.id)}" data-tip="Archive page">${aicon('archive','currentColor',16)}</button>
+    <button class="ntrowdel" type="button" data-id="${esc(n.id)}" aria-label="Archive page" data-tip="Archive page">${aicon('archive','currentColor',16)}</button>
   </div>`;
 }
 function ntListHtml() {
@@ -240,7 +246,7 @@ function ntPaintSaveState() {
   if (error) {
     error.hidden = !ntEditState || !ntEditState.error;
     error.querySelector('span').textContent = ntEditState && ntEditState.error || '';
-    error.querySelector('button').onclick = async()=>{await ntFetch();if(tView==='notes')ntRender();};
+    error.querySelector('button').onclick = async()=>{await ntFetch();if(ntActive())ntRender();};
   }
 }
 function ntPatchMeta() {
@@ -273,11 +279,11 @@ function ntDetailHtml(n) {
             <button id="ntdiscard" class="btn quiet" type="button" hidden>Discard</button>
             <span class="ntsavewrap" id="ntsavewrap"></span>
             <span id="ntuploadwrap">${ntUploadButton(n)}</span>
-            <button id="ntdel" class="nticon" type="button" data-tip="Archive page">${aicon('archive','currentColor',16)}</button>
+            <button id="ntdel" class="nticon" type="button" aria-label="Archive page" data-tip="Archive page">${aicon('archive','currentColor',16)}</button>
           </div>
         </div>
         <div class="ntmeta" id="ntmeta">${ntMetaHtml(n)}</div>
-        <div id="nt-stories" class="small" aria-label="Related context"></div>
+        ${ntScope() === "/root" ? "" : `<div id="nt-stories" class="small" aria-label="Related context"></div>`}
         <div id="nterror" class="ferr" role="alert" hidden><span></span><button class="ghost" type="button">Reload page</button></div>
         <div class="nthr"></div>
         <div class="nteditorhint">Enter: new block · Shift+Enter: continue this block</div>
@@ -293,11 +299,11 @@ function ntDetailHtml(n) {
   </div>`;
 }
 function ntWireDetail(root, n) {
-  storyRelatedChips(root.querySelector('#nt-stories'),state.biz,'notes',n.id,()=>ntFlush());
+  if(ntScope()!=='/root')storyRelatedChips(root.querySelector('#nt-stories'),ntScope(),'notes',n.id,()=>ntFlush());
   const lines = (n.content || "").split("\n");
   const statuses = Object.assign({}, n.statuses || {});
   ntEditState = {
-    id: n.id, biz: state.biz, revision:n.revision, content_hash:n.content_hash, title0: n.title || "", lines0: lines.slice(), statuses0: JSON.stringify(statuses),
+    id: n.id, biz: ntScope(), revision:n.revision, content_hash:n.content_hash, title0: n.title || "", lines0: lines.slice(), statuses0: JSON.stringify(statuses),
     lines: lines.slice(), statuses, dirty: false, saving: false, countdown: null,
   };
   const titleEl = $("#nttitle");
@@ -690,14 +696,14 @@ function ntTogglePin(n) {
   const next = !n.pinned;
   n.pinned = next;
   ntRenderCurrent();
-  ntPatch(state.biz, n.id, { pinned: next }).then(async r => {
+  return ntPatch(ntScope(), n.id, { pinned: next }).then(async r => {
     if (!r) { n.pinned = !next; ntRenderCurrent(); return; }
     await ntFetch();
     ntRenderCurrent();
   });
 }
 function ntRenameFlow(n) {
-  const version = {expected_revision:n.revision,expected_content_hash:n.content_hash}, biz=state.biz;
+  const version = {expected_revision:n.revision,expected_content_hash:n.content_hash}, biz=ntScope();
   const body = `<input id="ntrenamein" class="inp" type="text" value="${esc(n.title || "")}" autocomplete="off" spellcheck="false">`;
   const commit = async (close, el) => {
     const inp = el.querySelector("#ntrenamein");
@@ -764,12 +770,13 @@ function ntCtxMenu(x, y, id) {
 async function ntPickDay(date) {
   const existing = ntNotes.find(n => String(n.date || n.createdAt || "").slice(0, 10) === date);
   if (existing) return ntSelect(existing.id);
-  const biz = state.biz, n = await ntCreate({date});
-  if (!n || state.biz !== biz) return;
+  const biz = ntScope(), n = await ntCreate({date});
+  if (!n || ntScope() !== biz) return;
   await ntFetch();
-  if (state.biz === biz && tView === "notes") ntSelect(n.id);
+  if (ntScope() === biz && ntActive()) ntSelect(n.id);
 }
 function ntUploadButton(n) {
+  if(ntScope()==='/root')return "";
   const dirty = ntEditState?.id === n.id && ntEditState.dirty;
   const busy = ntUploadingIds.has(n.id);
   const disabled = busy || (!dirty && (!n.content.trim() || (n.uploadId && !n.changedSinceUpload)));
@@ -777,6 +784,7 @@ function ntUploadButton(n) {
   return `<button class="btn" id="ntupload" type="button"${disabled ? " disabled" : ""}>${ICO_UPLOAD}${label}</button>`;
 }
 function ntFilingHtml(n) {
+  if(ntScope()==='/root')return "";
   if (!n.uploadId) return "";
   const f = n.filing;
   const label = !f ? "Previous submission unavailable" : ({processed: "Filed", failed: "Filing failed", queued: "Queued for filing", running: "Filing…", waiting_signoff: "Awaiting approval", cancelled: "Filing cancelled", cancelling: "Cancelling filing…"}[f.state] || "Filing status unavailable");
@@ -789,36 +797,37 @@ function ntWireUpload() {
   const n = ntById(ntSel); if (!n) return;
   const button = $("#ntupload"); if (button) button.onclick = () => ntDoUpload(n.id);
   const view = $("#ntviewcontext"); if (view) view.onclick = async () => {
-    const biz = state.biz;
-    if (!await ntFlush() || state.biz !== biz) return;
+    const biz = ntScope();
+    if (!await ntFlush() || ntScope() !== biz) return;
     state.ctx = "_dumps/" + n.uploadId + ".md";
     openTasks(false); goTab("context");
   };
   const retry = $("#ntretry"); if (retry) retry.onclick = async () => {
     retry.disabled = true;
-    const biz = state.biz;
+    const biz = ntScope();
     try {
       const r = await post(`/biz/${biz}/context/retry`, {id:n.uploadId, expected_revision:n.filing.revision});
       if (r?.error) toast(r.error);
-      else if (state.biz === biz) {await ntFetch(); ntPaintUpload(); ntWatchFiling();}
+      else if (ntScope() === biz) {await ntFetch(); ntPaintUpload(); ntWatchFiling();}
     } catch (error) {toast(error.message);} finally {retry.disabled = false;}
   };
 }
 function ntPaintUpload() {
-  if (tView !== "notes") return;
+  if (!ntActive()) return;
   const n = ntById(ntSel); if (!n) return;
   const wrap = $("#ntuploadwrap"); if (wrap) wrap.innerHTML = ntUploadButton(n);
   const status = $("#ntfiling"); if (status) status.innerHTML = ntFilingHtml(n);
   ntWireUpload();
 }
 async function ntDoUpload(id) {
+  if(ntScope()==='/root')return;
   if (ntUploadingIds.has(id)) return;
-  const biz = state.biz;
+  const biz = ntScope();
   let locked = [];
   ntUploadingIds.add(id); ntPaintUpload();
   try {
     if (ntEditState && !await ntSaveNow()) return;
-    if (state.biz !== biz || ntEditState?.dirty) return;
+    if (ntScope() !== biz || ntEditState?.dirty) return;
     const n = ntById(id); if (!n) return;
     locked = [...document.querySelectorAll('#nttitle, .ntlinein')];
     locked.forEach(el => el.readOnly = true);
@@ -826,7 +835,7 @@ async function ntDoUpload(id) {
       expected_revision:n.revision, expected_content_hash:n.content_hash});
     if (r?.error) {toast(r.error); return;}
     if (r?.status === "signoff_required") {toast("Context submission is awaiting approval."); return;}
-    if (state.biz !== biz) return;
+    if (ntScope() !== biz) return;
     await ntFetch();
     const fresh = ntById(id), es = ntEditState;
     if (fresh && es?.id === id && es.biz === biz && es.revision === n.revision) {
@@ -839,10 +848,11 @@ async function ntDoUpload(id) {
 }
 function ntWatchFiling() {
   clearTimeout(ntFilingPoll);
-  const biz = state.biz;
-  if (tView !== "notes" || !ntNotes.some(n => ["queued", "running", "waiting_signoff", "cancelling"].includes(n.filing?.state))) return;
+  if(ntScope()==='/root')return;
+  const biz = ntScope();
+  if (!ntActive() || !ntNotes.some(n => ["queued", "running", "waiting_signoff", "cancelling"].includes(n.filing?.state))) return;
   ntFilingPoll = setTimeout(async () => {
-    if (state.biz !== biz || tView !== "notes") return;
+    if (ntScope() !== biz || !ntActive()) return;
     try {await ntFetch(); ntPaintUpload();} catch (_) { /* retry on the next poll */ }
     ntWatchFiling();
   }, 3000);

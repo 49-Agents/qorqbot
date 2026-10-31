@@ -27,7 +27,7 @@ function sgAttentionPaint() {
   document.querySelectorAll('.workspace-menu .mi[data-business-id]').forEach(row => {
     const business = sgAttention.businesses.find(b => b.id === row.dataset.businessId);
     row.querySelector('.sg-attention-badge')?.remove();
-    if (business) row.querySelector('.workspace-choice')?.insertAdjacentHTML('beforeend', sgAttentionBadge(business.slug));
+    if (business) row.querySelector('.workspace-name')?.insertAdjacentHTML('afterend', sgAttentionBadge(business.slug));
   });
   const tab = document.querySelector('#taskspanel .ttab[data-v="signoffs"]');
   if (tab) {

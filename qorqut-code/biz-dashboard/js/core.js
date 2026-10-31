@@ -19,6 +19,7 @@ const glyph = (shape, colorHex, sizePx) => `<span class="g ${SHAPES.includes(sha
 // 24 lucide-style icons an agent can pick, keyed by kebab-case lucide name; each value is the
 // inner markup for a 24x24 stroke viewBox (paths/shapes only, no outer <svg>)
 const AICONS = {
+  archive: '<rect x="3" y="3" width="18" height="4" rx="1"/><path d="M5 7v13h14V7M10 11h4"/>',
   paperclip: '<path d="m21 11-9 9a6 6 0 0 1-8-8L14 2a4 4 0 0 1 6 6L10 18a2 2 0 0 1-3-3l9-9"/>',
   "share-2": '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.5 6.8-4M8.6 13.5l6.8 4"/>',
   "refresh-cw": '<path d="M3 12a9 9 0 0 1 15.36-6.36L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.36 6.36L3 16"/><path d="M8 16H3v5"/>',
@@ -328,6 +329,7 @@ function paintBiz() {
   $("#wsbtn").title = b ? b.name : "Businesses";
 }
 async function selectBiz(slug) {
+  if(!await ntFlush())return;
   const b = state.bizs.find(x => x.slug === slug); if (!b) return;
   if (typeof storyView !== 'undefined' && storyView && !await storyCanLeave()) return;
   workspaceNavigation++;

@@ -138,7 +138,7 @@ function writingHeatmapHtml(entries) {
 }
 
 // One compact card layout for Notes, Stories and People.
-function writingCard({id, title, updated, detail = '', icon = ''}) {
-  return `<button class="jrcard" type="button" data-id="${esc(id)}"><div class="jrcrow1"><span class="jrctitle">${esc(title || 'Untitled')}</span>${icon}</div><div class="jrcfoot"><span>${updated ? esc(relativeTime(updated)) : ''}</span><span>${esc(detail)}</span></div></button>`;
+function writingCard({id, title, updated, detail = '', icon = '', role, org}) {
+  return `<button class="jrcard${role !== undefined || org !== undefined ? ' person-card' : ''}" type="button" data-id="${esc(id)}"><div class="jrcrow1"><span class="jrctitle">${esc(title || 'Untitled')}</span>${icon}</div>${role !== undefined || org !== undefined ? `<div class="person-role" title="${esc(role || '')}">${esc(role || '')}</div><div class="person-org" title="${esc(org || '')}">${esc(org || '')}</div>` : ''}<div class="jrcfoot"><span>${updated ? esc(relativeTime(updated)) : ''}</span><span>${esc(detail)}</span></div></button>`;
 }
 const writingRecent = rows => [...rows].sort((a,b) => (Date.parse(b.updated_at || b.updatedAt || b.at) || 0) - (Date.parse(a.updated_at || a.updatedAt || a.at) || 0) || String(a.name || a.title || '').localeCompare(String(b.name || b.title || '')));

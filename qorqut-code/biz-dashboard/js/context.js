@@ -318,7 +318,7 @@ function openPeople() {
     return {...person,...node,title:node.label || person.name,updated_at:times.at(-1)};
   }));
   _ctxLastSig = ctxSig(d, "_people");
-  v.innerHTML = `<div class="jrhome"><div class="jrhhead"><h2>People</h2></div><div class="jrgrid">${people.map(person => writingCard({id:person.id,title:person.title,updated:person.updated_at,detail:[person.role,person.org].filter(Boolean).join(' · ')})).join('')}</div>${people.length ? '' : '<p class="jrfaint">No people yet.</p>'}</div>`;
+  v.innerHTML = `<div class="jrhome"><div class="jrhhead"><h2>People</h2></div><div class="jrgrid">${people.map(person => writingCard({id:person.id,title:person.title,updated:person.updated_at,role:person.role || '',org:person.org || ''})).join('')}</div>${people.length ? '' : '<p class="jrfaint">No people yet.</p>'}</div>`;
   v.querySelectorAll('.jrcard').forEach(el=>el.onclick=()=>contextOpenItem(biz,people.find(p=>p.id===el.dataset.id)));
 }
 

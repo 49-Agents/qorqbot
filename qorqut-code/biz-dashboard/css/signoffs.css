@@ -47,7 +47,8 @@
   .sg .sg-rowhead { grid-template-columns: minmax(0, 1fr); gap: 6px; }
 }
 
-.sg-filter { display:flex; gap:8px; margin-bottom:16px; }
+.sg-filter { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+.sg-campaign:empty{display:none}.sg-campaign:not(:empty){margin-top:9px}
 .sg-filter button { background:none; color:var(--fg-2); padding:6px 12px; border:1px solid var(--line); border-radius:20px; }
 .sg-filter button[aria-pressed="true"] { background:var(--wash); color:var(--fg); border-color:var(--fg-2); }
 .sg .sg-choice { display:grid; grid-template-columns:22px minmax(70px,110px) 10px minmax(0,1fr); align-items:center; gap:8px; width:100%; height:60px; padding:8px; border:1px solid transparent; border-radius:6px; background:none; color:var(--fg); text-align:left; font-size:14px; white-space:normal; }

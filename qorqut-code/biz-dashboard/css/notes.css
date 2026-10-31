@@ -161,3 +161,13 @@
 .ntedhead { flex-wrap: wrap; }
 .nttitlein { min-width: 140px; }
 .ntedctrls { flex-wrap: wrap; }
+
+.global-notes.pane{padding:0;overflow:hidden}.global-notes{height:100%;min-width:0;border-left:0}.global-notes>.tbody{min-height:0;flex:1}
+
+.global-notes .jrgrid{grid-template-columns:repeat(auto-fill,minmax(min(240px,100%),1fr))}
+@media(max-width:760px){
+  .global-notes .jrhome{padding:24px 16px 80px}.global-notes .jrhhead{gap:12px}.global-notes .jrsub,.global-notes #ntnew{white-space:nowrap}
+  .global-notes .nted{position:relative;flex-direction:column}.global-notes .ntrail{flex-direction:row;padding:16px;border-right:0;border-bottom:1px solid var(--line)}
+  .global-notes .ntside{position:absolute;top:65px;bottom:0;left:0;width:100%;z-index:2;background:var(--surface)}.global-notes .ntside.off{width:0}
+  .global-notes .ntedinner{padding:24px 16px 80px}.global-notes .ntedhead{flex-wrap:wrap}.global-notes .nttitlein{flex-basis:100%;min-width:0}
+}
