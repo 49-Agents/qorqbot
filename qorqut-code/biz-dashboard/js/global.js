@@ -2,10 +2,10 @@
 // Overview reads summaries for authorized businesses; agents use registered root workspaces.
 const GLOBAL_PAGES = {
   overview: { title: 'Overview', icon: 'globe' },
-  context: { title: 'Context', icon: 'learning' },
   agents: { title: 'Agents', icon: 'agents' },
   ideas: { title: 'Ideas', icon: 'ideas' },
   notes: { title: 'Notes', icon: 'notes' },
+  context: { title: 'Context', icon: 'learning' },
   settings: { title: 'Settings', icon: 'settings' },
 };
 // Reuse the actual business navigation and drawer glyphs, including placeholder pages.
