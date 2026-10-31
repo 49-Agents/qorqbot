@@ -126,6 +126,7 @@ function conversationMount(host,source,adapter={}) {
       const note=s.notes.find(n=>n.id===button.dataset.noteParent);
       if(note)Promise.resolve().then(()=>adapter.openParent(note)).catch(e=>showError(e));
     });
+    if(adapter.inlineComposer)host.querySelectorAll('[title]').forEach(el=>el.removeAttribute('title'));
     older.hidden=!s.cursor && !s.before;feed.scrollTop=top;
   }
   function scheduleAgeRefresh() {
