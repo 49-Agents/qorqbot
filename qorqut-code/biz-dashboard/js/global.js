@@ -102,7 +102,7 @@ async function loadGlobalSummaries(c, generation) {
     if (!current()) return;
     const tasks = tasksResult.status === 'fulfilled' && Array.isArray(tasksResult.value) ? tasksResult.value : null;
     const live = liveResult.status === 'fulfilled' && liveResult.value && !liveResult.value.error ? liveResult.value : null;
-    const mine = tasks && ownerId ? tasks.filter(t => t.assignee_id === ownerId && !['done', 'dropped'].includes(t.status)) : null;
+    const mine = tasks && ownerId ? tasks.filter(t => (t.assignee_ids || []).includes(ownerId) && !t.archived && !t.closed) : null;
     const pending = live && Number.isInteger(live.signoffs_pending) ? live.signoffs_pending : null;
     const requests = live && !live.requests_error && Array.isArray(live.requests) ? live.requests.filter(r => r.state === 'submitted').length : null;
     const card = [...c.querySelectorAll('[data-business]')].find(el => el.dataset.business === b.slug);

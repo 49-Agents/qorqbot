@@ -189,7 +189,7 @@ function ntRowHtml(n) {
     ${n.id === ntSel ? `<span class="ntind"></span>` : ""}
     <div class="ntr1"><span class="ntrttl">${n.pinned ? NT_ICO_PIN_TINY : ""}${esc(n.title && n.title.trim() ? n.title : "Untitled")}</span><span class="ntrtime">${esc(relativeTime(n.updatedAt))}</span></div>
     <div class="ntr2">${esc(ntPreview(n.content) || "Empty note")}</div>
-    <button class="ntrowdel" type="button" data-id="${esc(n.id)}" data-tip="Delete page">${ICO_TRASH}</button>
+    <button class="ntrowdel" type="button" data-id="${esc(n.id)}" data-tip="Archive page">${aicon('archive','currentColor',16)}</button>
   </div>`;
 }
 function ntListHtml() {
@@ -277,11 +277,11 @@ function ntDetailHtml(n) {
             <button id="ntdiscard" class="btn quiet" type="button" hidden>Discard</button>
             <span class="ntsavewrap" id="ntsavewrap"></span>
             <span id="ntuploadwrap">${ntUploadButton(n)}</span>
-            <button id="ntdel" class="nticon danger" type="button" data-tip="Delete page">${ICO_TRASH}</button>
+            <button id="ntdel" class="nticon" type="button" data-tip="Archive page">${aicon('archive','currentColor',16)}</button>
           </div>
         </div>
         <div class="ntmeta" id="ntmeta">${ntMetaHtml(n)}</div>
-        <div id="nt-stories" class="small" aria-label="Related stories"></div>
+        <div id="nt-stories" class="small" aria-label="Related context"></div>
         <div id="nterror" class="ferr" role="alert" hidden><span></span><button class="ghost" type="button">Reload page</button></div>
         <div class="nthr"></div>
         <div class="nteditorhint">Enter: new block · Shift+Enter: continue this block</div>
@@ -733,11 +733,11 @@ function ntDeleteFlow(id) {
   const version = {revision:n.revision,content_hash:n.content_hash};
   const title = n.title && n.title.trim() ? n.title : "Untitled";
   modal({
-    title: "Delete page?",
-    body: `<p>"${esc(title)}" will be deleted. This can’t be undone.</p>`,
+    title: "Archive page?",
+    body: `<p>Archive "${esc(title)}"?</p>`,
     actions: [
       { label: "Cancel", onClick: close => close() },
-      { label: "Delete", primary: true, onClick: async close => {
+      { label: "Archive", primary: true, onClick: async close => {
         close();
         const r = await ntDeleteReq(id,version); if (!r) return;
         let nextId = null;
@@ -760,7 +760,7 @@ function ntCtxMenu(x, y, id) {
     { label: "Rename", icon: ICO_PENCIL, onClick: () => ntRenameFlow(n) },
     { label: n.pinned ? "Unpin" : "Pin", icon: n.pinned ? NT_ICO_PINOFF : ICO_PIN, onClick: () => ntTogglePin(n) },
     { label: "Add to Context", icon: ICO_UPLOAD, onClick: () => ntDoUpload(n.id) },
-    { label: "Delete", icon: ICO_TRASH, danger: true, onClick: () => ntDeleteFlow(n.id) },
+    { label: "Archive", icon: aicon('archive','currentColor',16), onClick: () => ntDeleteFlow(n.id) },
   ]);
 }
 

@@ -1,7 +1,6 @@
 // ---------------------------------------------------------------- context
-// The Context tab: upload text (goes to context/_inbox, filed by the queue), browse the topic tree
-// like folders, read and edit registered files. Saves go through the shared application. Summaries are rewritten by the
-// server's summariser after a filing or a save, deepest topic first, up to the root.
+// Upload originals, browse logical topic memberships, and inspect the shared relationship map.
+// Authored text and filer-maintained summaries remain separate.
 let _ctxTimer = null, _ctxData = null;
 let _ctxGraph = null;
 function ctxClearGraph() { if (_ctxGraph) { _ctxGraph.destroy(); _ctxGraph = null; } }
@@ -143,7 +142,8 @@ const ctxSig = (d, p) => p === "_learning" ? "_learning"      // learning.js own
   : p === "_people" ? JSON.stringify((d || {}).people || [])
   : p === "_uploads" ? JSON.stringify([(d || {}).inbox || [], (d || {}).dumps || []])
   : JSON.stringify([ls("ctxmapmode") === "1" ? (d || {}).tree : ctxFind((d || {}).tree, p || ""),
-    !p || ls("ctxmapmode") === "1" ? (d || {}).people : null, p ? null : (d || {}).pillars]);
+    !p || ls("ctxmapmode") === "1" ? (d || {}).people : null, p ? null : (d || {}).pillars,
+    ls("ctxmapmode") === "1" ? (d || {}).graph : null]);
 let _ctxLastSig = "";
 function ctxWatch(d) {
   clearTimeout(_ctxTimer); _ctxTimer = null;
@@ -248,8 +248,8 @@ function openTopic(p) {
     if (seen[top] !== today) { seen[top] = today; ctxSeenSave(seen); if (_ctxData) ctxTree(_ctxData); }
   }
   const s = d.summarizing || {}, busy = s.current && (s.current.topic === p || (s.current.topic || "").startsWith(p + "/"));
-  const kids = node.children || [], notes = node.notes || [];
-  const mappable = kids.length || notes.length || (root && ((d.people || []).length || (d.pillars || []).length));
+  const kids = node.related_topics || node.children || [], notes = node.notes || [];
+  const mappable = d.graph ? d.graph.nodes.length : kids.length || notes.length || (root && ((d.people || []).length || (d.pillars || []).length));
   const mapMode = !!mappable && ls("ctxmapmode") === "1";        // the folder as a graph instead of cards; remembered
   const head = `${ctxCrumbs(root ? "" : p.split("/").slice(0, -1).join("/"), root ? "" : node.slug)}
     <div class="th"><h2>${esc(root ? "All context" : node.title)}</h2>
@@ -259,14 +259,20 @@ function openTopic(p) {
     : `<div class="sec"><div class="sh">Summary</div><div class="empty">${busy ? "being written now" : notes.length || kids.length ? "not written yet; it comes after the next filing or save, or press Refresh summary" : "empty topic"}</div></div>`;
   const pill = root ? `<div class="sec"><div class="sh">${SVG_PIN}Pinned</div><div class="cards">${(d.pillars || []).map(n => `<div class="card f" data-p="${esc(n)}"><span class="pin">${SVG_PIN}</span><div class="ct"><span class="tt">${esc(titleCase(n.replace(/\.md$/, "")))}</span></div><div class="cb">owner-written</div></div>`).join("")}</div></div>` : "";
   const subs = kids.length ? `<div class="sec"><div class="sh">${root ? "Topics" : "Subtopics"}</div><div class="cards">${kids.map(k => { const kt = k.title || k.slug; return `<div class="card t" data-p="${esc(k.path)}" title="${esc(kt)}"><div class="ct">${SVG_FOLDER}<span class="tt">${esc(cap(kt))}</span><span class="cnt">${ctxCount(k)}</span></div><div class="cb">${esc(k.about || "")}</div><div class="cs">${esc(k.slug)}${k.summary ? "" : " · no summary yet"}</div></div>`; }).join("")}</div></div>` : "";
-  const nts = notes.length ? `<div class="sec"><div class="sh">Files</div><div class="cards">${notes.map(n => { const m = ctxNoteMeta(n), ft = (node.titles || {})[n] || n, body = node.summaries?.[n] || node.previews?.[n] || ""; return `<div class="card n" data-p="${esc(p)}/${esc(n)}" title="${esc(ft)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(ft))}</span></div><div class="cb">${esc(body)}</div><div class="cs">${esc(m.date)}${m.rest ? ` · ${esc(m.rest)}` : ""}</div></div>`; }).join("")}</div></div>` : root ? "" : `<div class="sec"><div class="sh">Files</div><div class="empty">none here; ${kids.length ? "they sit in the subtopics" : "nothing filed yet"}</div></div>`;
+  const nts = notes.length ? `<div class="sec"><div class="sh">Files</div><div class="cards">${notes.map(n => { const path = node.paths?.[n] || `${p}/${n}`, m = ctxNoteMeta(path.split('/').pop()), ft = (node.titles || {})[n] || n, body = node.summaries?.[n] || node.previews?.[n] || ""; return `<div class="card n" data-p="${esc(path)}" title="${esc(ft)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(ft))}</span></div><div class="cb">${esc(body)}</div><div class="cs">${esc(m.date)}${m.rest ? ` · ${esc(m.rest)}` : ""}</div></div>`; }).join("")}</div></div>` : root ? "" : `<div class="sec"><div class="sh">Files</div><div class="empty">No related materials.</div></div>`;
   if (mapMode) {
     const business = (state.bizs || []).find(b => b.slug === state.biz);
     const graph = ctxGraphData(d, node, root, business && business.name || state.biz || "Context");
     v.innerHTML = head + `<div class="sec"><div id="topicmap"></div></div>`;
-    _ctxGraph = contextGraph($("#topicmap"), graph, { storageKey: `ctxgraph:v1:${state.biz}:${p || ""}`, onOpen: n => ctxGo(n.path) });
+    _ctxGraph = contextGraph($("#topicmap"), graph, { storageKey: `ctxgraph:v2:${state.biz}:${p || ""}`,
+      onOpen:n=>contextOpenItem(state.biz,n.item),
+      onSelect:(n,host)=>contextReviewPanel(host,state.biz,{type:n.item.type,id:n.item.id}) });
   } else {
     v.innerHTML = head + sum + pill + subs + nts;
+    if(!root){
+      const related=document.createElement('div');related.className='story-associations';v.appendChild(related);
+      contextRelatedChips(related,state.biz,{type:'topic',id:node.document_id}).catch(e=>toast(e.message));
+    }
   }
   wireCrumbs(v);
   v.querySelectorAll(".card").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
@@ -305,6 +311,10 @@ async function openPerson(slug) {
     return `<div class="card n" data-p="${esc(m)}" title="${esc(title)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(title))}</span></div><div class="cb">${esc(body)}</div><div class="cs">${esc(m)}</div></div>`;
   }).join("")}</div></div>` : "";
   v.innerHTML = head + meta + aka + about + sum + notesSec + ment;
+  if(d.graph){
+    const related=document.createElement('div');related.className='story-associations';v.appendChild(related);
+    contextRelatedChips(related,state.biz,{type:'person',id:person.document_id}).catch(e=>toast(e.message));
+  }
   wireCrumbs(v);
   v.querySelectorAll(".card").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
   const ed = $("#ctxpedit"); if (ed) ed.onclick = () => ctxGo(`_people/${slug}.md`);

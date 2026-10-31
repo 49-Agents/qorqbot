@@ -25,12 +25,12 @@ function agpadTerminalButton(tools, old) {
 function agpadGroups(tasks, name) {
   const actor = `agent:${name}`;
   const open = tasks.filter(t => !tClosed(t));
-  const owned = open.filter(t => t.owner === actor);
+  const owned = open.filter(t => tAssignees(t).includes(actor));
   return {
     open: owned,
     // `by` is last editor, not creator. The first note is only a proxy: it can
     // have been added after creation, by someone other than the task's creator.
-    waiting: open.filter(t => t.owner !== actor && t.notes && t.notes[0] && t.notes[0].by === actor),
+    waiting: open.filter(t => !tAssignees(t).includes(actor) && t.notes && t.notes[0] && t.notes[0].by === actor),
   };
 }
 

@@ -22,6 +22,7 @@ const SVG_TSEARCH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const SVG_TINBOX = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
 
 const tShort = o => String(o || "").replace(/^(agent|human|system):/, "") || "unassigned";
+const tAssignees = t => t.owners || [];
 
 const tDay = s => { const [y, m, d] = String(s).slice(0, 10).split("-").map(Number); return new Date(y, (m || 1) - 1, d || 1).getTime(); };
 const tToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
@@ -173,7 +174,7 @@ const tDotHtml = s => `<span class="sdot ${esc(s)}"></span>`;
 // two empty task lists (no business picked vs. a business with nothing in it) render different copy.
 function tVisSig() {
   return JSON.stringify([state.scope, state.biz, tPersonalLoaded, tPersonalError, tPersonalRows().filter(tMatch).map(t =>
-    [tKey(t), t.status, t.owner || "", t.title, t.due || "", (t.tags || []).join(","), tSunk(t)])]);
+    [tKey(t), t.status, tAssignees(t).join(','), t.title, t.due || "", (t.tags || []).join(","), tSunk(t)])]);
 }
 
 // ---------------------------------------------------------------- assignee
@@ -184,13 +185,6 @@ function tWhoKind(o) {
   if (tAgents().indexOf(o) >= 0) return "agent";
   return "other";
 }
-function tWhoLeft(o) {
-  const ag = tAgents(); if (!ag.length) return null;
-  const i = ag.indexOf(o);
-  if (i < 0) return ag[0];
-  return i + 1 < ag.length ? ag[i + 1] : "";
-}
-const tWhoRight = o => (o === tHuman() ? "" : tHuman());
 
 // the dot: dashed ring unassigned, the agent's department colour (plain), cream for the owner (may carry
 // their initial), gray for anyone else
@@ -202,17 +196,11 @@ function tWhoDot(o) {
 }
 const tWhoInner = o => `<span class="who inl ${tWhoKind(o)}">${tWhoDot(o)}</span>`;
 function tWho(t) {
-  const o = t.owner || "";
-  return `<button class="who ${tWhoKind(o)}" type="button" aria-label="Assignee: ${esc(o || "unassigned")}">${tWhoDot(o)}</button>`;
+  const owners=tAssignees(t),o=owners[0] || '';
+  return `<button class="who ${tWhoKind(o)}" type="button" aria-label="Assignees: ${esc(owners.join(', ') || 'unassigned')}">${owners.length>1?`<span class="task-assignee-count">${owners.length}</span>`:tWhoDot(o)}</button>`;
 }
 function tWhoTip(t, detailsOnly = false) {
-  const o = t.owner || "", k = tWhoKind(o);
-  const who = k === "none" ? "Unassigned" : `${esc(tShort(o))} <span class="k">${k === "human" ? "owner" : k === "agent" ? "agent" : o.split(":")[0]}</span>`;
-  if (detailsOnly) return `${who}<br><span class="k">Open in Tasks</span>`;
-  const left = tWhoLeft(o);
-  const hints = [left == null ? "no agents" : `click: ${left ? tShort(left) : "unassign"}`,
-    `right-click: ${k === "human" ? "unassign" : tShort(tHuman())}`];
-  return `${who}<br><span class="k">${hints.join(" · ")}</span>`;
+  return esc(tAssignees(t).map(tShort).join(', ') || 'Unassigned');
 }
 function tWhoItems(biz = state.biz) {
   const items = [{ value: "", label: "Unassigned", html: `<span class="towner">${tWhoInner("")}<span class="tn">Unassigned</span></span>` }];
@@ -444,10 +432,10 @@ function tPatchRow(t) {
   }
   const who = row.querySelector(".who");
   if (who) {
-    const o = t.owner || "";
+    const owners=tAssignees(t),o=owners[0] || '';
     who.className = `who ${tWhoKind(o)}`;
-    who.setAttribute("aria-label", `Assignee: ${esc(o || "unassigned")}`);
-    who.innerHTML = tWhoDot(o);
+    who.setAttribute("aria-label", `Assignees: ${owners.join(', ') || 'unassigned'}`);
+    who.innerHTML = owners.length>1?`<span class="task-assignee-count">${owners.length}</span>`:tWhoDot(o);
     if (typeof tip === "function") tip(who, () => tWhoTip(t));   // same node: rebinding is cheap, no flicker
   }
   const dl = row.querySelector(".tdl");
@@ -531,7 +519,7 @@ function tDetail(t) {
     <div class="did">${esc(t.id)}</div>
     <div class="flds">
       ${fld("Status", `<button class="selbtn" id="td-status" type="button"><span class="v">${tDotHtml(t.status)}${esc(T_LABEL[t.status] || t.status)}</span></button>`)}
-      ${fld("Assignee", `<button class="selbtn" id="td-who" type="button"><span class="v">${o ? `${tWhoInner(o)} ${esc(tShort(o))}` : "Unassigned"}</span></button>`)}
+      ${fld("Assignees", `<button class="selbtn" id="td-who" type="button"><span class="v">${esc(tAssignees(t).map(tShort).join(', ') || 'Unassigned')}</span></button>`)}
       ${fld("Due", `<input id="td-due" type="date" value="${esc(t.due || "")}">`)}
       ${fld("Tags", `<div class="tags">${tags}</div>`)}
       ${fld("Blocked by", (t.blocked_by || []).length ? esc((t.blocked_by || []).join(", ")) : none("nothing"), true)}
@@ -539,7 +527,7 @@ function tDetail(t) {
       ${fld("Updated", stamp(t.updated), true)}
       ${extra}
     </div>
-    <h4>Stories</h4><div id="td-stories" class="small muted">Loading related stories…</div>
+    <h4>Related context</h4><div id="td-stories" class="small muted">Loading…</div>
     <h4>Notes${(t.notes || []).length ? " · " + (t.notes || []).length : ""}</h4>
     ${notes || `<div class="tnote"><div class="tx"><span class="none">No notes yet.</span></div></div>`}
     <textarea id="tnotetx" placeholder="Add a note…"></textarea>
@@ -569,7 +557,7 @@ function tDetail(t) {
     ],
     onOpen(el) {
       if (typeof storyRelatedChips === 'function') storyRelatedChips(el.querySelector('#td-stories'), biz, 'tasks', t.id, () => m.close());
-      else el.querySelector('#td-stories').textContent = 'No linked stories.';
+      else el.querySelector('#td-stories').textContent = 'No related context.';
       el.querySelector('#td-reload').onclick = async()=>{try {const fresh=await tFetchTask(biz,t.id);if(!m.el.isConnected)return;m.close();tDetail(fresh);}catch(error){toast(error.message);}};
       const title = el.querySelector(".dtitle");
       title.onclick = () => {
@@ -584,7 +572,7 @@ function tDetail(t) {
       sb.onclick = () => dropdown(sb, T_STATES.map(s => ({ value: s, label: T_LABEL[s], html: `<span class="towner">${tDotHtml(s)}<span class="tn">${T_LABEL[s]}</span></span>` })),
         v => { if (v !== t.status) again(t.id, { set: { status: v } }); }, t.status);
       const wb = el.querySelector("#td-who");
-      wb.onclick = () => dropdown(wb, tWhoItems(biz), v => { if (v !== o) again(t.id, { set: { owner: v } }); }, o);
+      wb.onclick = () => tChooseAssignees(t,owners=>again(t.id,{set:{owners}}));
       el.querySelector("#td-due").onchange = e => again(t.id, { set: { due: e.target.value || "" } });
       el.querySelectorAll(".chip").forEach(ch => ch.onclick = () => dropdown(ch, tTagItems(t), v => {
         const have = t.tags || [];
@@ -596,6 +584,15 @@ function tDetail(t) {
     },
   });
   return m;
+}
+
+function tChooseAssignees(task,onSave) {
+  const selected=new Set(tAssignees(task));
+  const choices=tWhoItems(tSlug(task)).filter(choice=>choice.value);
+  for(const value of selected)if(!choices.some(choice=>choice.value===value))choices.push({value,label:tShort(value)});
+  modal({stack:true,title:'Assignees',body:`<div class="task-assignee-choices">${choices.map(choice=>`<label><input type="checkbox" value="${esc(choice.value)}" ${selected.has(choice.value)?'checked':''}><span>${esc(tShort(choice.value))}</span></label>`).join('')}</div>`,
+    onOpen:el=>el.querySelectorAll('input').forEach(input=>input.onchange=()=>input.checked?selected.add(input.value):selected.delete(input.value)),
+    actions:[{label:'Discard',onClick:close=>close()},{label:'Save',primary:true,onClick:close=>{close();onSave([...selected]);}}]});
 }
 
 // ---------------------------------------------------------------- wiring
@@ -663,7 +660,7 @@ window.addEventListener("resize", () => { const p = $("#taskspanel"); if (p && p
     const t = taskById(row.dataset.key || row.dataset.id); if (!t || tPersonalError) return;
     if (e.target.closest(".ball")) return void tSetStatus(t, tNext(t.status));
     const who = e.target.closest(".who");
-    if (who) { const nx = tWhoLeft(t.owner || ""); if (nx == null) return toast("no agents in this business"); return void tSetOwner(t, nx); }
+    if (who) return void tDetail(t);
     tDetail(t);
   });
 
@@ -672,7 +669,7 @@ window.addEventListener("resize", () => { const p = $("#taskspanel"); if (p && p
     const row = e.target.closest(".trow"); if (!row) return;
     const t = taskById(row.dataset.key || row.dataset.id); if (!t || tPersonalError) return;
     if (e.target.closest(".ball")) { e.preventDefault(); return void tSetStatus(t, t.status === "blocked" ? "open" : "blocked"); }
-    if (e.target.closest(".who")) { e.preventDefault(); return void tSetOwner(t, tWhoRight(t.owner || "")); }
+    if (e.target.closest(".who")) { e.preventDefault(); return void tDetail(t); }
   });
 
   // click outside closes; capture phase records origin before rows are re-rendered

@@ -1,10 +1,21 @@
 /* Context tab: upload+search top, flat topic list, reader/editor */
-.ctxwrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.ctxwrap { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; width: 100%; }
 .ctxq, .cfoot { font-size: 11px; color: var(--fg-3); display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .ctxq .dot { color: var(--fg-3); opacity: .5; }
 .ctxq .bad, .ctxtree .bad, .chip.bad { color: var(--danger); }
 .ctxq .run, .ctxtree .run { color: var(--ok); }
-.ctxsplit { grid-template-columns: 290px 1fr; }
+.ctxsplit { grid-template-columns: 290px minmax(0, 1fr); min-width: 0; }
+
+@media (max-width: 760px) {
+  .split.ctxsplit { grid-template-columns: minmax(0, 1fr); grid-template-rows: 180px minmax(0, 1fr); }
+  .ctxsplit .ctxtree { border-bottom: 1px solid var(--line); }
+  .ctxsplit .ctxtree > .lnstatus { display: none; }
+  .ctxsplit .ctop { padding: 10px; }
+  .ctxsplit .ctxview { padding: 16px 10px; }
+  .ctxsplit .ctxview .th { flex-wrap: wrap; }
+  .ctxsplit .ctxview .pa { flex-wrap: wrap; }
+  .ctxsplit .ctxview .cards { grid-template-columns: minmax(0, 1fr); }
+}
 
 /* sidebar: sticky upload+search on top, a flat scrolling row list, a tiny status line at the bottom */
 .ctxtree { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
