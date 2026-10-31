@@ -4,6 +4,7 @@ const GLOBAL_WORKSPACE_TERMINAL = '__qorqut_workspace_terminal__';
 const GLOBAL_TERMINAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>';
 async function renderGlobalAgents(c) {
   const generation = ++globalAgentsGeneration;
+  if (state.agentSubtab === 'broadcast') return renderBroadcast(c, {scope: 'global', generation});
   const current = () => generation === globalAgentsGeneration && c.isConnected
     && state.scope === 'global' && state.globalTab === 'agents';
   c.innerHTML = '<section class="pane global-content"><div class="global-eyebrow">Global</div><h1>Agents</h1><p class="muted" role="status">Loading agents…</p></section>';
@@ -21,11 +22,12 @@ async function renderGlobalAgents(c) {
     return;
   }
   if (!current()) return;
-  c.innerHTML = `<div class="split global-agents agsplit">
+  c.innerHTML = `<div class="agent-subnav" role="tablist" aria-label="Global agents"><button type="button" role="tab" aria-selected="true" data-agent-subtab="agents">Agents</button><button type="button" role="tab" aria-selected="false" data-agent-subtab="broadcast">Broadcast</button></div><div class="split global-agents agsplit">
     <div class="listcol"><div class="ctop"><div class="global-eyebrow">Global</div><h1>Agents</h1></div><div class="crows" id="global-agent-list"></div></div>
     <section class="global-agent-session" aria-label="Agent session"><div class="chat termmode" id="global-agent-terminal"></div></section>
     <aside class="tasks agpad" id="agpad" aria-label="Agent pane"></aside>
   </div>`;
+  wireBroadcastSubnav(c, 'global');
   const list = $('#global-agent-list', c), pane = $('#global-agent-terminal', c);
   list.innerHTML = `<button class="item agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}">
     <span class="nm">${GLOBAL_TERMINAL_ICON}<span class="tt">Terminal</span></span>

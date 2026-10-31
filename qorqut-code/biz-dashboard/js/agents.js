@@ -62,7 +62,9 @@ let agRenderGen = 0;
 const agPageCache = new Map();
 async function renderAgents(c) {
   const gen = ++agRenderGen, biz = state.biz;
-  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">${ICO_PLUS}New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
+  if (state.agentSubtab === 'broadcast') return renderBroadcast(c, {scope: 'business', biz, generation: gen});
+  c.innerHTML = `<div class="agent-subnav" role="tablist" aria-label="Agents"><button type="button" role="tab" aria-selected="true" data-agent-subtab="agents">Agents</button><button type="button" role="tab" aria-selected="false" data-agent-subtab="broadcast">Broadcast</button></div><div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">${ICO_PLUS}New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
+  wireBroadcastSubnav(c, 'business');
   $("#addagent").onclick = newAgentModal;
   $("#agentrows", c).innerHTML = `<p class="empty pad" role="status">Loading agents…</p>`;
   const cached = agPageCache.get(biz);
