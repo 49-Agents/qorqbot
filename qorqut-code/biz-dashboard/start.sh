@@ -8,7 +8,7 @@
 #
 # Config: .env.dashboard next to this script (gitignored; copy .env.dashboard.example). Plain
 # KEY=VALUE lines. HOST and PORT become --host/--port; everything else is passed as environment
-# (BIZ_ROOT, BIZ_SERVICE_ORIGINS, DEEPSEEK_API_KEY, BIZ_DASH_TOKEN, ...).
+# (BIZ_ROOT, QORQUT_TERMINAL_WORKSPACE, BIZ_SERVICE_ORIGINS, DEEPSEEK_API_KEY, ...).
 # The registered database and authority marker must already exist. This script never migrates data.
 #
 # `stop` ends the dashboard only. Agent shells live in tmux (`tmux -L bazarlyk`) and keep running;
