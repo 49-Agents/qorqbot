@@ -383,6 +383,9 @@ async function tActivityRefresh() {
 
 
 
+
+
+
 const JR_ICO_PANELLEFT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>`;
 const JR_ICO_PANELLEFTCLOSE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></svg>`;
 
@@ -498,6 +501,94 @@ function jrRenderCurrent() {
   jrPatchSidebar(); jrPatchMeta();
 }
 
+
+
+
+
+
+
+const JR_HEAT_MAX_MONTHS = 6;
+const JR_HEAT_MIN_WEEKS = 4;
+const JR_HEAT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const JR_HEAT_ROWS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const jrHeatKey = d => { const p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+const jrHeatFromKey = key => { const [y, m, d] = key.split("-").map(Number); return new Date(y, m - 1, d); };
+const jrHeatLevel = n => n <= 0 ? 0 : n === 1 ? 1 : n === 2 ? 2 : n === 3 ? 3 : 4;  // memo-heatmap.tsx:15-21
+function jrHeatmapData() {
+  const counts = new Map();
+  jrMemos.forEach(m => { const k = String(m.date || "").slice(0, 10); if (k) counts.set(k, (counts.get(k) || 0) + 1); });
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const todayKey = jrHeatKey(today);
+  let earliest = todayKey;
+  for (const k of counts.keys()) if (k < earliest) earliest = k;
+  const cap = new Date(today); cap.setMonth(cap.getMonth() - JR_HEAT_MAX_MONTHS);
+  const capKey = jrHeatKey(cap);
+  let startKey = earliest > capKey ? earliest : capKey;
+  const minStart = new Date(today); minStart.setDate(minStart.getDate() - JR_HEAT_MIN_WEEKS * 7);
+  const minStartKey = jrHeatKey(minStart);
+  if (startKey > minStartKey) startKey = minStartKey;
+  // snap to the start week's Sunday; end on this week's Saturday
+  const cursor = jrHeatFromKey(startKey); cursor.setDate(cursor.getDate() - cursor.getDay());
+  const end = jrHeatFromKey(todayKey); end.setDate(end.getDate() + (6 - end.getDay()));
+  const weeks = Math.max(1, Math.round((end.getTime() - cursor.getTime()) / T_DAY + 1) / 7);
+  const columns = [];
+  for (let w = 0; w < weeks; w++) {
+    const col = [];
+    for (let d = 0; d < 7; d++) {
+      const key = jrHeatKey(cursor);
+      col.push({ key, count: counts.get(key) || 0, future: key > todayKey || key < startKey, month: cursor.getMonth() });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    columns.push(col);
+  }
+  // month label on the first column of each new month; a span under 3 columns gets evicted by the
+  // next label so a partial first month doesn't glue its label to its neighbour's (memo-heatmap.tsx:86-100)
+  const monthLabels = columns.map(() => "");
+  let lastMonth = -1, lastAt = -10;
+  columns.forEach((col, i) => {
+    const mo = col[0].month;
+    if (mo === lastMonth) return;
+    lastMonth = mo;
+    if (lastAt >= 0 && i - lastAt < 3) monthLabels[lastAt] = "";
+    monthLabels[i] = JR_HEAT_MONTHS[mo];
+    lastAt = i;
+  });
+  return { columns, monthLabels };
+}
+function jrHeatmapHtml() {
+  const { columns, monthLabels } = jrHeatmapData();
+  const monthRow = monthLabels.map(l => `<div class="jrhmonth">${l ? `<span>${esc(l)}</span>` : ""}</div>`).join("");
+  const rowLabels = JR_HEAT_ROWS.map(l => `<div class="jrhrow-lbl">${l}</div>`).join("");
+  const cols = columns.map(col => `<div class="jrhcol">${col.map(cell => {
+    if (cell.future) return `<div class="jrhcell jrhcell-blank"></div>`;
+    const d = jrHeatFromKey(cell.key);
+    const label = `${JR_HEAT_MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+    const title = `${cell.count} ${cell.count === 1 ? "entry" : "entries"} · ${label}`;
+    return `<button type="button" class="jrhcell jrhl${jrHeatLevel(cell.count)}" data-key="${esc(cell.key)}" title="${esc(title)}"></button>`;
+  }).join("")}</div>`).join("");
+  return `<div class="jrheat">
+    <div class="jreyebrow">Activity</div>
+    <div class="jrhwrap">
+      <div class="jrhmonths">${monthRow}</div>
+      <div class="jrhbody">
+        <div class="jrhrows">${rowLabels}</div>
+        <div class="jrhcols">${cols}</div>
+      </div>
+    </div>
+  </div>`;
+}
+// heatmap click: open that day's memo, or create one dated that day (memo-heatmap.tsx onPick, wired
+// at memos-page.tsx:257 to pickDay — mirrors jrCreateNew but for an arbitrary date)
+async function jrHeatPick(key) {
+  const existing = jrMemos.find(m => String(m.date || "").slice(0, 10) === key);
+  if (existing) { jrSel = existing.id; jrRender(); return; }
+  const r = await jrCreate({ date: key });
+  if (!r) return;
+  await jrFetch();
+  jrSel = r.id;
+  jrRender();
+}
+
 // ---- homepage
 function jrCardHtml(m) {
   const title = esc(m.title && m.title.trim() ? m.title : "Untitled");
@@ -523,6 +614,7 @@ function jrHomeHtml() {
       <div><h1>Journal</h1><div class="jrsub">${n} ${n === 1 ? "memo" : "memos"}</div></div>
       <button id="jrnew" class="jrcreate" type="button">Create new</button>
     </div>
+    ${jrHeatmapHtml()}
     ${sec("Pinned", JR_ICO_PIN_SM, pinned)}
     ${sec("Edited today", "", editedToday)}
     ${sec("Edited last week", "", editedWeek)}
@@ -536,6 +628,7 @@ function jrWireHome(root) {
     c.oncontextmenu = e => { e.preventDefault(); jrCtxMenu(e.clientX, e.clientY, c.dataset.id); };
   });
   const nb = root.querySelector("#jrnew"); if (nb) nb.onclick = () => jrCreateNew();
+  root.querySelectorAll(".jrhcell[data-key]").forEach(c => c.onclick = () => jrHeatPick(c.dataset.key));
 }
 
 // ---- detail: sidebar list
@@ -617,6 +710,10 @@ function jrPatchMeta() {
 // ---- detail: full build (selection change / tab open / create-new only)
 function jrDetailHtml(m) {
   return `<div class="jred">
+    <div class="jrrail">
+      <button id="jrtoggle" class="jricon" type="button" aria-label="${jrListOff ? "Show memo list" : "Hide memo list"}" title="${jrListOff ? "Show memo list" : "Hide memo list"}">${jrListOff ? JR_ICO_PANELLEFT : JR_ICO_PANELLEFTCLOSE}</button>
+      <button id="jrhomebtn" class="jricon" type="button" aria-label="Journal home" title="Journal home">${JR_ICO_HOME}</button>
+    </div>
     <div class="jrside ${jrListOff ? "off" : ""}" id="jrside">
       <div class="jrsidectrl">
         <button id="jrnew2" class="jrcreate jrflex" type="button">Create new</button>
@@ -628,10 +725,6 @@ function jrDetailHtml(m) {
     </div>
     <div class="jreditor" id="jreditor">
       <div class="jredinner">
-        <div class="jrtopbar">
-          <button id="jrtoggle" class="jricon" type="button" aria-label="${jrListOff ? "Show memo list" : "Hide memo list"}" title="${jrListOff ? "Show memo list" : "Hide memo list"}">${jrListOff ? JR_ICO_PANELLEFT : JR_ICO_PANELLEFTCLOSE}</button>
-          <button id="jrhomebtn" class="jricon" type="button" aria-label="Journal home" title="Journal home">${JR_ICO_HOME}</button>
-        </div>
         <div class="jredhead">
           <textarea id="jrtitle" class="jrtitlein" rows="1" placeholder="Untitled"></textarea>
           <div class="jredctrls" id="jredctrls">
