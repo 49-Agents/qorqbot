@@ -1,7 +1,26 @@
-// Agent tasks and activity, using the drawer's shared renderers and task cache.
+// Agent tasks, activity and signoffs use the drawer's shared UI and review controller.
 // Task clicks open the existing drawer detail; business writes stay in tasks.js.
 const AGPAD_LOG_N = 200, AGPAD_POLL_MS = 12000;
 let _agpad = null;
+let _agpadSignoffs = null;
+function agpadSignoffs() {
+  return _agpadSignoffs ||= sgCreateView({
+    active: () => agpadActive(_agpad) && _agpad.view === "signoffs",
+    body: () => _agpad && $("#agpad-body", _agpad.el),
+    prefix: "agpad-",
+  });
+}
+
+function agpadTerminalButton(tools, old) {
+  if (old) { tools.appendChild(old); return; }
+  const button = document.createElement("button");
+  button.className = "ttab agpad-toggle"; button.id = "agpad-toggle";
+  button.setAttribute("aria-label", "Agent pane");
+  button.setAttribute("aria-controls", "agpad");
+  button.setAttribute("aria-expanded", "true");
+  button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>';
+  tools.appendChild(button);
+}
 
 function agpadGroups(tasks, name) {
   const actor = `agent:${name}`;
@@ -22,6 +41,7 @@ function agpadActive(p) {
 }
 
 function agpadMount(name, el) {
+  if (_agpadSignoffs) _agpadSignoffs.suspend();
   const p = _agpad = {
     biz: state.biz, agent: name, el, open: !!name && ls(`agpad:${state.biz}`) !== "off",
     view: "tasks",
@@ -29,15 +49,18 @@ function agpadMount(name, el) {
     tasks: null, source: state.tasks, tasksStarted: false, taskError: false, bodyHtml: null,
   };
   const button = $("#agpad-toggle");
-  button.disabled = !name;
-  button.onclick = () => {
-    if (_agpad !== p || !p.agent) return;
-    p.open = !p.open;
-    ls(`agpad:${p.biz}`, p.open ? "on" : "off");
-    p.nextLog = 0;
-    agpadVisibility(p);
-    agpadTick();
-  };
+  if (button) {
+    button.disabled = !name;
+    button.onclick = () => {
+      if (_agpad !== p || !p.agent) return;
+      p.open = !p.open;
+      ls(`agpad:${p.biz}`, p.open ? "on" : "off");
+      p.nextLog = 0;
+      agpadVisibility(p);
+      if (p.view === "signoffs") agpadSignoffs().paint();
+      agpadTick();
+    };
+  }
   agpadVisibility(p);
   if (!name) { el.innerHTML = ""; return; }
   el.onclick = e => {
@@ -48,13 +71,15 @@ function agpadMount(name, el) {
 }
 
 function agpadSetView(p, view) {
-  if (_agpad !== p || !["tasks", "activity"].includes(view)) return;
+  if (_agpad !== p || !["tasks", "activity", "signoffs"].includes(view)) return;
+  if (_agpadSignoffs) _agpadSignoffs.suspend();
   const from = p.view;
   p.view = view;
   p.bodyHtml = null;
-  p.el.innerHTML = tHead({ view, views: ["tasks", "activity"], title: p.agent, bodyId: "agpad-body", taskTools: false });
+  p.el.innerHTML = tHead({ view, views: ["tasks", "activity", "signoffs"], title: p.agent, bodyId: "agpad-body", taskTools: false });
   tWireHead(p.el, from, next => agpadSetView(p, next));
   if (view === "activity") p.nextLog = 0;
+  if (view === "signoffs") { agpadSignoffs().paint(); p.nextSignoffs = Date.now() + AGPAD_POLL_MS; }
   agpadPaint(p);
   agpadTick();
 }
@@ -63,12 +88,15 @@ function agpadVisibility(p) {
   p.el.closest(".agsplit").classList.toggle("pad-off", !p.open);
   p.el.hidden = !p.open;
   const button = $("#agpad-toggle");
-  button.setAttribute("aria-expanded", String(p.open));
-  button.title = p.open ? "Hide agent pane" : "Show agent pane";
+  if (button) {
+    button.setAttribute("aria-expanded", String(p.open));
+    button.title = p.open ? "Hide agent pane" : "Show agent pane";
+  }
   if (p.open) moveTInd(p.el, p.view);
 }
 
 function agpadPaint(p) {
+  if (p.view === "signoffs") return;
   let html;
   if (p.view === "activity") {
     html = p.logs ? tActivityHtml(p.logs, `No actions in the latest ${AGPAD_LOG_N} business log entries.`) : tEmptyHtml("Loading activity…");
@@ -110,6 +138,13 @@ async function agpadRefreshLog(p) {
 function agpadTick() {
   const p = _agpad;
   if (!agpadActive(p)) return;
+  if (p.view === "signoffs") {
+    if (Date.now() >= (p.nextSignoffs || 0)) {
+      p.nextSignoffs = Date.now() + AGPAD_POLL_MS;
+      agpadSignoffs().refresh();
+    }
+    return;
+  }
   // A newly mounted pane must not read the previous business's task array.
   // Ask the existing shared refresh once, then follow its cache (including
   // optimistic task edits). All subsequent task requests belong to tasks.js.
@@ -129,5 +164,5 @@ function agpadTick() {
 }
 
 // A cheap local reconciliation keeps edits in the shared task cache visible.
-// The only pane-specific network poll is the 12-second log request, while Activity is visible.
+// Activity and Signoffs refresh every 12 seconds only while their pane view is visible.
 setInterval(agpadTick, 1000);

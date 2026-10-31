@@ -68,7 +68,7 @@ async function renderAgents(c) {
   if (gen !== agRenderGen || biz !== state.biz || state.tab !== "agents" || !c.isConnected) return;
   state.agents = Array.isArray(agents) ? agents : [];
   state.terms = Array.isArray(terms) ? terms : [];
-  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">${ICO_PLUS}New agent</button><div class="agtools"><button class="agpad-toggle" id="agpad-toggle" aria-controls="agpad" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>Agent pane</button></div></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
+  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">${ICO_PLUS}New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
   $("#addagent").onclick = newAgentModal;
   paintList();
   const want = state.agent || ls(agKey());

@@ -1,8 +1,8 @@
 // Terminal mirror: one live xterm bound to an agent's background PTY on the server.
 // Output = base64 SSE frames -> xterm; keystrokes -> POST input. The PTY lives on the
 // server and persists (survives tab switches / reconnects); reconnecting replays scrollback.
-// No chrome: the mirror fills the pane and re-fits on resize. One floating button reconnects
-// a broken stream (which also respawns the shell if it exited); all other control is in the shell.
+// The mirror fills the pane and re-fits on resize. Floating controls reconnect a broken
+// stream and toggle the agent overview; all agent execution control stays in the shell.
 // The PTY is a plain shell in agents/<name>/: the owner types `claude` to start the agent. The shell
 // itself lives in a tmux session on the server and outlives the dashboard; "ended" means the
 // session is gone (Stop, or the shell exited), not that the mirror dropped.
@@ -28,12 +28,14 @@ function teardownTerm() {
 // "live" / "ended" / "disconnected" so a caller (e.g. the agent list) can reflect it.
 // One terminal is active in the page at a time; the PTY on the server keeps running.
 function mountTerminal(agent, pane, onStat) {
+  const paneToggle = pane.querySelector("#agpad-toggle");
   teardownTerm();
   pane.innerHTML = `<div class="termpane">
     <div class="termhost" id="termhost"></div>
-    <button class="tref" id="tref" title="Reconnect the stream">⟳</button>
+    <div class="termtools"><button class="ttab tref" id="tref" title="Reconnect the stream" aria-label="Reconnect the stream"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 12l-3-4"/></svg></button></div>
   </div>`;
   const host = $("#termhost", pane), btn = $("#tref", pane);
+  if (pane.closest(".agsplit")) agpadTerminalButton($(".termtools", pane), paneToggle);
 
   const term = new Terminal({
     fontFamily: "var(--mono, ui-monospace, monospace)",

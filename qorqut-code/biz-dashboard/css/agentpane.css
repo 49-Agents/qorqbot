@@ -3,15 +3,8 @@
 .split.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
 .agsplit:not(.pad-off) > .chat.termmode { padding-left: 24px; padding-right: 24px; }
 
-.agpad-toggle {
-  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
-  padding: 8px 12px; border: 0; border-radius: var(--r-sm); background: none;
-  color: var(--fg-3); font-size: 12px; cursor: pointer;
-}
-.agpad-toggle:hover, .agpad-toggle[aria-expanded="true"] { color: var(--fg); background: var(--wash); }
-.agpad-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.agpad-toggle[aria-expanded="true"] { color: var(--fg); background: var(--wash); }
 .agpad-toggle:disabled { opacity: .4; cursor: default; }
-.agpad-toggle svg { width: 15px; height: 15px; flex: none; }
 
 /* Content uses the shared .tasks surface, header, tabs, rows, and scrolling body. */
 .agpad { min-width: 0; }

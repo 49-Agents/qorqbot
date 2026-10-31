@@ -1,16 +1,20 @@
 // Selected-business review. The server owns preparation, decisions and application.
-(function () {
+const sgViews = new Set();
+const sgShared = { drafts: new Map(), busy: new Map(), receipts: new Map(), refreshed: new Set() };
+function sgCreateView(options) {
   const labels = { pending: "Pending", approved: "Approved, applying", applied: "Applied", rejected: "Rejected", conflicted: "Conflicted", failed: "Failed" };
   const sg = {
     slug: null, businessId: null, generation: 0, mount: null, session: null,
     items: new Map(), order: [], selected: null, selections: new Map(),
     verified: new Map(), detailErrors: new Map(), detailRequest: 0, detailLoading: null,
     counts: null, nextCursor: null, updatedCursor: null, loading: false, loaded: false,
-    listRequest: 0, error: null, drafts: new Map(), busy: new Map(), receipts: new Map(), refreshed: new Set(),
+    listRequest: 0, error: null, ...sgShared,
   };
-  const active = () => typeof tView !== "undefined" && tView === "signoffs" && tPanelOpen();
+  const active = options.active;
+  const prefix = options.prefix || "";
   const capture = () => ({ slug: sg.slug, generation: sg.generation, mount: sg.mount });
-  const current = c => active() && c.slug === state.biz && c.slug === sg.slug && c.generation === sg.generation && c.mount === sg.mount && c.mount && c.mount.isConnected;
+  const mounted = c => c.slug === state.biz && c.slug === sg.slug && c.generation === sg.generation && c.mount === sg.mount && c.mount && c.mount.isConnected;
+  const current = c => active() && mounted(c);
   const path = (slug, id = "") => `/biz/${encodeURIComponent(slug)}/signoffs${id ? "/" + encodeURIComponent(id) : ""}`;
   const binding = s => `${s.id}:${s.proposal_revision}:${s.payload_hash}`;
   const busyKey = (slug, s) => `${slug}:${binding(s)}`;
@@ -42,6 +46,7 @@
   function saveDraft(key, value) {
     if (!key) return;
     sg.drafts.set(key, value);
+    sgViews.forEach(view => view.syncDraft(key, value));
     if (value) ls(key, value);
     else { try { localStorage.removeItem(key); } catch (_) {} }
   }
@@ -106,7 +111,7 @@
     const feedback = detail.querySelector(".sg-feedbackwrap");
     if (s.state === "pending" && completePreview(s) && owner() && !s.superseded_by_id) {
       if (!feedback.querySelector("textarea")) {
-        feedback.innerHTML = `<label class="sg-label" for="sg-feedback-${esc(s.id)}">Feedback for proposer (optional)</label><textarea id="sg-feedback-${esc(s.id)}" class="sg-feedback" rows="3" spellcheck="true"></textarea>`;
+        feedback.innerHTML = `<label class="sg-label" for="sg-feedback-${prefix}${esc(s.id)}">Feedback for proposer (optional)</label><textarea id="sg-feedback-${prefix}${esc(s.id)}" class="sg-feedback" rows="3" spellcheck="true"></textarea>`;
         feedback.querySelector("textarea").value = draft(s);
       }
       feedback.querySelector("textarea").disabled = !!busy || !canReview;
@@ -140,7 +145,7 @@
         let row = [...sg.mount.querySelectorAll(".sg-row")].find(node => node.dataset.id === s.id);
         if (!row) {
           row = document.createElement("article"); row.className = "sg-row mkcard"; row.dataset.id = s.id;
-          row.innerHTML = `<button type="button" class="sg-rowhead" aria-expanded="false" aria-controls="sg-detail-${esc(s.id)}"><span class="sg-rowtitle"></span><span class="sg-state"></span><span class="sg-rowmeta"></span></button><div class="sg-detail" id="sg-detail-${esc(s.id)}" hidden></div>`;
+          row.innerHTML = `<button type="button" class="sg-rowhead" aria-expanded="false" aria-controls="sg-detail-${prefix}${esc(s.id)}"><span class="sg-rowtitle"></span><span class="sg-state"></span><span class="sg-rowmeta"></span></button><div class="sg-detail" id="sg-detail-${prefix}${esc(s.id)}" hidden></div>`;
         }
         if (content.children[index] !== row) content.insertBefore(row, content.children[index] || null);
         row.dataset.state = s.state;
@@ -185,7 +190,7 @@
         if (isAuth(error)) sg.session = null;
       }
     } finally {
-      if (current(c) && request === sg.detailRequest) { sg.detailLoading = null; render(); }
+      if (mounted(c) && request === sg.detailRequest) { sg.detailLoading = null; render(); }
     }
   }
   async function refresh(more = false) {
@@ -216,7 +221,7 @@
     } catch (error) {
       if (current(c) && request === sg.listRequest) { sg.error = error; if (isAuth(error)) sg.session = null; }
     } finally {
-      if (current(c) && request === sg.listRequest) { sg.loading = false; render(); }
+      if (mounted(c) && request === sg.listRequest) { sg.loading = false; render(); }
     }
   }
   function select(id) {
@@ -233,6 +238,7 @@
   function finishReceipt(receipt, s) {
     sg.busy.delete(receipt.key);
     sg.receipts.set(receipt.key, s);
+    sgViews.forEach(peer => { if (peer !== view) peer.refresh(); });
     if (receipt.action === "approve" || s.state === "rejected") saveDraft(receipt.draftKey, "");
   }
   async function reconcile(receipt) {
@@ -296,12 +302,11 @@
     sg.busy.set(key, receipt);
     if (action === "approve") {
       saveDraft(receipt.draftKey, "");
-      const textarea = sg.mount.querySelector(".sg-feedback"); if (textarea) textarea.value = "";
     }
     render(); submit(receipt);
   }
   function mount() {
-    const body = $("#tbody");
+    const body = options.body();
     sg.generation++; sg.loading = false; sg.detailLoading = null;
     sg.mount = active() ? body : null;
     if (!sg.mount) return;
@@ -325,21 +330,38 @@
     body.oninput = event => { if (event.target.matches(".sg-feedback")) { const s = sg.items.get(sg.selected); if (s) saveDraft(draftKey(s), event.target.value); } };
     render(); refresh();
   }
-  window.sgBusinessChanged = function () {
+  function businessChanged() {
     if (sg.slug === state.biz) return;
     sg.slug = state.biz; sg.businessId = null; sg.generation++;
     sg.items.clear(); sg.order = []; sg.selected = null;
     sg.verified.clear(); sg.detailErrors.clear(); sg.detailRequest++;
     sg.counts = null; sg.nextCursor = null; sg.updatedCursor = null; sg.error = null; sg.loaded = false; sg.loading = false;
-    if (typeof tView !== "undefined" && tView === "signoffs") mount();
+    mount();
   };
-  window.tPaintSignoffs = function () {
-    if (sg.slug !== state.biz) sgBusinessChanged();
-    else mount();
+  const view = {
+    businessChanged,
+    paint() { if (sg.slug !== state.biz) businessChanged(); else mount(); },
+    refresh: () => refresh(),
+    syncDraft(key, value) {
+      const selected = sg.items.get(sg.selected);
+      const row = sg.mount && [...sg.mount.querySelectorAll(".sg-row")].find(row => row.dataset.id === sg.selected);
+      const textarea = row && row.querySelector(".sg-feedback");
+      if (selected && draftKey(selected) === key && textarea && textarea.value !== value) textarea.value = value;
+    },
+    suspend() { sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
+    livePaint(slug, live) {
+      if (slug !== state.biz || slug !== sg.slug || active() || !live || !Number.isInteger(live.signoffs_pending)) return;
+      sg.counts = { ...(sg.counts || {}), pending: live.signoffs_pending };
+    },
   };
-  window.sgRefresh = () => refresh();
-  window.sgLivePaint = function (slug, live) {
-    if (slug !== state.biz || slug !== sg.slug || active() || !live || !Number.isInteger(live.signoffs_pending)) return;
-    sg.counts = { ...(sg.counts || {}), pending: live.signoffs_pending };
-  };
-})();
+  sgViews.add(view);
+  return view;
+}
+const sgDrawer = sgCreateView({
+  active: () => typeof tView !== "undefined" && tView === "signoffs" && tPanelOpen(),
+  body: () => $("#tbody"),
+});
+window.sgBusinessChanged = () => sgDrawer.businessChanged();
+window.tPaintSignoffs = () => sgDrawer.paint();
+window.sgRefresh = () => Promise.all([...sgViews].map(view => view.refresh()));
+window.sgLivePaint = (slug, live) => sgViews.forEach(view => view.livePaint(slug, live));
