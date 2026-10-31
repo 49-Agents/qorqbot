@@ -309,6 +309,24 @@ function ntWireDetail(root, n) {
   const titleEl = $("#nttitle");
   titleEl.value = n.title || ""; ntGrow(titleEl);
   ntRenderLines();
+  ntEditState.history = [ntHistorySnapshot()];
+  ntEditState.historyIndex = 0;
+  root.onkeydown = e => {
+    if (!e.target.closest('#nttitle, #ntlines')) return;
+    const mod = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
+    if (mod && !e.altKey && (key === 'z' || key === 'y')) {
+      if (e.isComposing) return;
+      e.preventDefault(); e.stopPropagation();
+      ntUndoRedo(key === 'y' || e.shiftKey);
+    }
+  };
+  root.onpointerdown = () => ntRememberSelection();
+  root.onbeforeinput = e => {
+    if (!e.target.closest('#nttitle, #ntlines')) return;
+    if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') {
+      e.preventDefault(); ntUndoRedo(e.inputType === 'historyRedo');
+    } else ntRememberSelection();
+  };
 
   titleEl.oninput = () => { ntGrow(titleEl); ntEditState.dirty = true; ntSchedule(); };
   titleEl.onkeydown = e => {
@@ -518,6 +536,7 @@ function ntHandleInput(i, value, selStart) {
 }
 
 function ntHandleKeydown(i, e) {
+  ntRememberSelection();
   if (e.currentTarget.readOnly) return;
   const es = ntEditState; if (!es) return;
   const el = e.currentTarget;
@@ -646,11 +665,59 @@ function ntPatchBall(i) {
   const row = btn.closest(".ntline"); if (row) row.classList.toggle("done", closed);
 }
 
+// History belongs to the open note, not the textareas replaced by structural edits.
+function ntHistorySnapshot() {
+  const es = ntEditState, el = document.activeElement;
+  const focus = el?.matches('#nttitle, .ntlinein') ? {
+    title: el.id === 'nttitle', index: Number(el.dataset.i || 0),
+    start: el.selectionStart, end: el.selectionEnd,
+    multiline: !!el.closest('.ntmultiline'),
+  } : null;
+  return {title: $('#nttitle').value, lines: es.lines.slice(), statuses: {...es.statuses}, focus};
+}
+function ntRememberSelection() {
+  const es = ntEditState;
+  if (es?.history) es.history[es.historyIndex].focus = ntHistorySnapshot().focus;
+}
+function ntRecordHistory() {
+  const es = ntEditState;
+  if (!es?.history || es.restoringHistory) return;
+  const next = ntHistorySnapshot(), last = es.history[es.historyIndex];
+  if (JSON.stringify([next.title,next.lines,next.statuses]) === JSON.stringify([last.title,last.lines,last.statuses])) return;
+  es.history.splice(es.historyIndex + 1);
+  es.history.push(next);
+  if (es.history.length > 200) es.history.shift();
+  es.historyIndex = es.history.length - 1;
+}
+function ntUndoRedo(redo) {
+  const es = ntEditState;
+  if (!es?.history || ntUploadingIds.has(ntSel)) return;
+  const index = es.historyIndex + (redo ? 1 : -1);
+  if (index < 0 || index >= es.history.length) return;
+  const snapshot = es.history[index];
+  es.historyIndex = index; es.restoringHistory = true;
+  es.lines = snapshot.lines.slice(); es.statuses = {...snapshot.statuses}; es.dirty = true;
+  const title = $('#nttitle'); title.value = snapshot.title; ntGrow(title);
+  ntRenderLines();
+  let f = snapshot.focus;
+  if (f?.multiline && !ntCanUseMultilineSurface(es)) {
+    let offset = f.start, index = 0;
+    while (index < es.lines.length - 1 && offset > es.lines[index].length) offset -= es.lines[index++].length + 1;
+    const marker = ntParseRaw(es.lines[index]).marker.length;
+    f = {...f, index, start: Math.max(0, offset - marker), end: Math.max(0, offset - marker)};
+  }
+  let el = f?.title ? title : document.querySelector(`.ntlinein[data-i="${f?.index || 0}"]`);
+  if (!el) el = document.querySelector('.ntlinein');
+  if (el) { el.focus(); el.setSelectionRange(Math.min(f?.start || 0,el.value.length),Math.min(f?.end || 0,el.value.length)); }
+  ntSchedule(); es.restoringHistory = false;
+}
+
 // ---- autosave (idle 4s → 8s visible countdown → save; Ctrl/Cmd+S, Ctrl/Cmd+Enter, title blur save now)
 function ntClearTimers() { clearTimeout(ntIdleT); clearTimeout(ntTickT); ntIdleT = ntTickT = null; }
 function ntGrow(ta) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; }
 function ntGrowLine(ta) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; }
 function ntSchedule() {
+  ntRecordHistory();
   ntClearTimers();
   if (ntEditState) ntEditState.countdown = null;
   ntPaintSaveState(); ntPaintUpload();
@@ -699,6 +766,7 @@ function ntDiscard() {
   const titleEl = $("#nttitle");
   if (titleEl) { titleEl.value = s.title0; ntGrow(titleEl); }
   ntRenderLines();
+  ntRecordHistory();
   ntPaintSaveState(); ntPaintUpload();
 }
 
