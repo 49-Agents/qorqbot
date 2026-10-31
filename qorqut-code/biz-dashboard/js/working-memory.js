@@ -33,8 +33,9 @@ async function workingMemoryMount(host, agentId, business, {globalAgent = false}
   const stale = Boolean(draft.head && latest && (draft.head.revision !== latest.revision || draft.head.content_hash !== latest.content_hash));
   host.innerHTML = `<section class="wm-editor" aria-label="Working memory editor">
     <h3>Working memory</h3><p>Agent-authored interpretation, not verified business truth. Private to this agent and the owner; no inbox acknowledgement.</p>
-    ${globalAgent ? `<label>Scope<select class="wm-scope"><option value="">Global</option>${(state.bizs || []).map(b => `<option value="${esc(b.slug)}">${esc(b.name || b.slug)}</option>`).join('')}</select></label>` : `<p>Business: ${esc(business)}</p>`}
+    <div class="wm-toolbar">${globalAgent ? `<label>Scope<select class="wm-scope"><option value="">Global</option>${(state.bizs || []).map(b => `<option value="${esc(b.slug)}">${esc(b.name || b.slug)}</option>`).join('')}</select></label>` : `<p>Business: ${esc(business)}</p>`}
     <p class="wm-revision">${latest ? `Revision ${esc(latest.revision)} · ${esc(latest.updated_at || 'retained metadata')}` : 'No handoff saved in this scope. The agent can establish one after reviewing its legacy plan.'}</p>
+    </div>
     ${data.unavailable ? `<p role="alert">Body unavailable: ${esc(data.unavailable)}. Inspect history or use the checked owner-repair workflow.</p>` : ''}
     ${stale ? '<p role="alert">A newer version exists. Your draft is preserved; copy useful edits before discarding and reloading.</p>' : ''}
     ${latest ? `<label>Handoff<textarea class="wm-body" rows="15" maxlength="4000">${esc(draft.body)}</textarea></label>
