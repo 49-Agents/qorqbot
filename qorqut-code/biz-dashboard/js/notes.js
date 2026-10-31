@@ -389,10 +389,10 @@ function ntLineRowHtml(es, i) {
   const status = isTask ? ntLineStatus(es, i) : null;
   const closed = status === "done" || status === "cancelled";
   const cls = ["ntline"];
-  if (isTask) cls.push("task");
+  if (isTask) cls.push("nttask");
   if (meta.bold) cls.push("bold");
   if (closed) cls.push("done");
-  const ball = isTask ? `<button type="button" class="ntball ntb-${esc(status)}" data-i="${i}" aria-label="Status: ${esc(NT_STATUS_LABEL[status] || status)}. Click to change." data-tip="${esc(NT_STATUS_LABEL[status] || status)} — click to change, right-click to block"></button>` : "";
+  const ball = isTask ? `<button type="button" class="ntball ntb-${esc(status)}" data-i="${i}" aria-label="Status: ${esc(NT_STATUS_LABEL[status] || status)}. Click to change."></button>` : "";
   return `<div class="${cls.join(" ")}" data-i="${i}">${ball}<textarea class="ntlinein" data-i="${i}" rows="1" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea></div>`;
 }
 function ntRenderLines() {
@@ -580,8 +580,7 @@ function ntPatchBall(i) {
   const closed = status === "done" || status === "cancelled";
   const btn = document.querySelector(`.ntball[data-i="${i}"]`); if (!btn) return;
   btn.className = `ntball ntb-${status}`;
-  const label = `${NT_STATUS_LABEL[status] || status} — click to change, right-click to block`;
-  btn.setAttribute("data-tip", label); btn.setAttribute("aria-label", `Status: ${NT_STATUS_LABEL[status] || status}. Click to change.`);
+  btn.setAttribute("aria-label", `Status: ${NT_STATUS_LABEL[status] || status}. Click to change.`);
   const row = btn.closest(".ntline"); if (row) row.classList.toggle("done", closed);
 }
 

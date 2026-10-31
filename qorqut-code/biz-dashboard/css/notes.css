@@ -122,7 +122,7 @@
   padding: 0 0 0 calc(1.5rem + 1.5rem); text-indent: -1.5rem;
 }
 .ntlinein:focus { border: 0; box-shadow: none; background: none; }
-.ntline.task .ntlinein { padding-left: calc(1.5rem + 1.5rem + 10px); }
+.ntline.nttask .ntlinein { padding-left: calc(1.5rem + 1.5rem + 10px); }
 .ntline.bold .ntlinein { font-weight: 600; }
 .ntline.done .ntlinein { text-decoration: line-through; opacity: .55; }
 .ntball {
@@ -130,6 +130,8 @@
   width: 30px; height: 30px; padding: 0; border: 0; background: none; z-index: 2;
   cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
 }
+/* app.css button:hover (white pill, scale) outranks .ntball on hover — pin it flat */
+.ntball:hover, .ntball:active { background: none; transform: none; color: inherit; }
 .ntball::before {
   content: ""; display: block; width: 6px; height: 6px; border-radius: 50%;
   background: transparent; border: 1.5px solid #8a8680; opacity: .9;
