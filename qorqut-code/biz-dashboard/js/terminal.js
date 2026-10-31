@@ -21,7 +21,10 @@ let _termES = null, _term = null, _termRO = null;
 function teardownTerm() {
   if (_termRO) { _termRO.disconnect(); _termRO = null; }
   if (_termES) { _termES.close(); _termES = null; }
-  if (_term) { _term.dispose(); _term = null; }
+  // Mark it inactive before dispose synchronously fires render/resize cleanup.
+  // Queued fit callbacks must not inspect a renderer while it is being torn down.
+  const term = _term; _term = null;
+  if (term) term.dispose();
 }
 
 // Mount a live terminal for `agent` into `pane` (an element). `onStat(t)` gets
@@ -35,7 +38,7 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     <div class="termtools"><button class="ttab tref" id="tref" title="Reconnect the stream" aria-label="Reconnect the stream"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 12l-3-4"/></svg></button></div>
   </div>`;
   const host = $("#termhost", pane), btn = $("#tref", pane);
-  if (pane.closest(".agsplit")) agpadTerminalButton($(".termtools", pane), paneToggle);
+  if (pane.closest(".agsplit") && pane.dataset.agentPane !== "off") agpadTerminalButton($(".termtools", pane), paneToggle);
 
   const term = new Terminal({
     fontFamily: "var(--mono, ui-monospace, monospace)",

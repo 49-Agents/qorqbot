@@ -3,6 +3,7 @@
 const GLOBAL_PAGES = {
   overview: { title: 'Overview', icon: 'globe' },
   agents: { title: 'Agents', icon: 'agents' },
+  subscriptions: { title: 'Subscriptions', icon: 'subscriptions' },
   ideas: { title: 'Ideas', icon: 'ideas' },
   notes: { title: 'Notes', icon: 'notes' },
   context: { title: 'Context', icon: 'learning' },
@@ -16,6 +17,7 @@ const GLOBAL_ICONS = {
   notes: T_VIEW_ICON.notes,
   globe: LN_SCOPE_BY_KEY.global.ico,
   agents: document.querySelector('.ritem[data-tab="agents"] svg').outerHTML,
+  subscriptions: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${AICONS.calculator}</svg>`,
   signoffs: T_VIEW_ICON.signoffs,
   requests: MK_ICO.queue,
   analytics: document.querySelector('.ritem[data-tab="progress"] svg').outerHTML,
@@ -111,6 +113,7 @@ function renderGlobal(c) {
   }
   if (state.globalTab === 'settings') return renderSettings(c);
   if (state.globalTab === 'agents') return renderGlobalAgents(c);
+  if (state.globalTab === 'subscriptions') return renderGlobalSubscriptions(c);
   const generation = ++globalRender, page = GLOBAL_PAGES[state.globalTab];
   c.innerHTML = `<section class="pane global-content" aria-label="${esc(page.title)}">
     <div class="global-eyebrow">Global</div>
