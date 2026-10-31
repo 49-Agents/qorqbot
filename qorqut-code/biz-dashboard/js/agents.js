@@ -190,9 +190,14 @@ function runSlash(cmd, a, msgs) {
   if (cmd === "clear") clearView(a, msgs);
 }
 
-// Stable flat navigation: business lead first, then the rest alphabetically.
-function agentNavOrder() {
-  return [...state.agents].sort((a,b) => (a.role?.id==='onbashy'||a.name.toLowerCase()==='onbashy'?-1:0)-(b.role?.id==='onbashy'||b.name.toLowerCase()==='onbashy'?-1:0) || a.name.localeCompare(b.name)).map(a=>a.name);
+// Fixed department sections follow the business navigation; no layout selector.
+function agentDepartmentGroups() {
+  const ids = [...new Set(['operations', 'marketing', 'accounting', 'data-science',
+    ...Object.keys(DEPTS), ...state.agents.map(a => departmentId(a.department || 'general'))])];
+  return ids.map(id => ({id, label:dept(id).label,
+    agents:state.agents.filter(a => departmentId(a.department || 'general') === id)
+      .sort((a,b) => (a.role?.id === 'onbashy' ? -1 : 0) - (b.role?.id === 'onbashy' ? -1 : 0) || a.name.localeCompare(b.name))
+  })).filter(group => group.agents.length);
 }
 
 // ------------------------------------------------------------------ context menu
@@ -239,10 +244,10 @@ const ICO_PLUS = `<svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="
 
 function paintList() {
   const rows=$('#agentrows'); if(!rows)return;
-  rows.innerHTML=agentNavOrder().map(name=>{
-    const a=state.agents.find(a=>a.name===name);
-    return `<button type="button" class="item agent ${name===state.agent?'on':''}" data-a="${esc(name)}"><span class="nm">${identityAvatar('agent',name,a)}<span class="tt">${esc(name)}</span></span><span class="agent-presence" data-agent-presence="${esc(a.agent_id || '')}" role="img"></span></button>`;
-  }).join('') || '<p class="empty pad">No agents yet.</p>';
+  rows.innerHTML=agentDepartmentGroups().map(group =>
+    `<section class="agent-department" aria-label="${esc(group.label)}"><h3>${esc(group.label)}</h3>` +
+    group.agents.map(a => `<button type="button" class="item agent ${a.name===state.agent?'on':''}" data-a="${esc(a.name)}"><span class="nm">${identityAvatar('agent',a.name,a)}<span class="tt">${esc(a.name)}</span></span><span class="agent-presence" data-agent-presence="${esc(a.agent_id || '')}" role="img"></span></button>`).join('') + '</section>'
+  ).join('') || '<p class="empty pad">No agents yet.</p>';
   agentNavPaint(); agentNavRefresh();
   rows.querySelectorAll('[data-a]').forEach(b=>{b.onclick=()=>selectAgent(b.dataset.a);b.oncontextmenu=e=>{e.preventDefault();lookModal(state.agents.find(a=>a.name===b.dataset.a));};});
 }
