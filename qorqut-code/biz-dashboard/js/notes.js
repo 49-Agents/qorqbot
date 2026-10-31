@@ -95,6 +95,7 @@ async function ntFlush() {
   if (s.dirty) {
     const titleEl = $("#nttitle");
     const title = titleEl ? titleEl.value : s.title0;
+    ntPruneStatuses(s);
     const content = s.lines.join("\n");
     const statusesJson = JSON.stringify(s.statuses);
     if (title !== s.title0 || content !== s.lines0.join("\n") || statusesJson !== s.statuses0) {
@@ -191,7 +192,7 @@ function ntRowHtml(n) {
     ${n.id === ntSel ? `<span class="ntind"></span>` : ""}
     <div class="ntr1"><span class="ntrttl">${n.pinned ? NT_ICO_PIN_TINY : ""}${esc(n.title && n.title.trim() ? n.title : "Untitled")}</span><span class="ntrtime">${esc(relativeTime(n.updatedAt))}</span></div>
     <div class="ntr2">${esc(ntPreview(n.content) || "Empty note")}</div>
-    <button class="ntrowdel" type="button" data-id="${esc(n.id)}" title="Delete page">${ICO_TRASH}</button>
+    <button class="ntrowdel" type="button" data-id="${esc(n.id)}" data-tip="Delete page">${ICO_TRASH}</button>
   </div>`;
 }
 function ntListHtml() {
@@ -250,8 +251,8 @@ function ntPatchMeta() {
 function ntDetailHtml(n) {
   return `<div class="nted">
     <div class="ntrail">
-      <button id="nttoggle" class="nticon" type="button" aria-label="${ntListOff ? "Show page list" : "Hide page list"}" title="${ntListOff ? "Show page list" : "Hide page list"}">${ntListOff ? NT_ICO_PANELLEFT : NT_ICO_PANELLEFTCLOSE}</button>
-      <button id="nthomebtn" class="nticon" type="button" aria-label="Notes home" title="Notes home">${NT_ICO_HOME}</button>
+      <button id="nttoggle" class="nticon" type="button" aria-label="${ntListOff ? "Show page list" : "Hide page list"}" data-tip="${ntListOff ? "Show page list" : "Hide page list"}">${ntListOff ? NT_ICO_PANELLEFT : NT_ICO_PANELLEFTCLOSE}</button>
+      <button id="nthomebtn" class="nticon" type="button" aria-label="Notes home" data-tip="Notes home">${NT_ICO_HOME}</button>
     </div>
     <div class="ntside ${ntListOff ? "off" : ""}" id="ntside">
       <div class="ntsidectrl">
@@ -269,7 +270,7 @@ function ntDetailHtml(n) {
           <div class="ntedctrls" id="ntedctrls">
             <button id="ntdiscard" class="ntghost" type="button" disabled>Discard</button>
             <span class="ntsavewrap" id="ntsavewrap"></span>
-            <button id="ntdel" class="nticon danger" type="button" title="Delete page">${ICO_TRASH}</button>
+            <button id="ntdel" class="nticon danger" type="button" data-tip="Delete page">${ICO_TRASH}</button>
           </div>
         </div>
         <div class="ntmeta" id="ntmeta">${ntMetaHtml(n)}</div>
@@ -308,7 +309,7 @@ function ntWireDetail(root, n) {
     ntListOff = !ntListOff; ls("ntlistoff", ntListOff ? "1" : "0");
     const side = root.querySelector("#ntside"); if (side) side.classList.toggle("off", ntListOff);
     const label = ntListOff ? "Show page list" : "Hide page list";
-    toggleBtn.title = label; toggleBtn.setAttribute("aria-label", label);
+    toggleBtn.setAttribute("data-tip", label); toggleBtn.setAttribute("aria-label", label);
     toggleBtn.innerHTML = ntListOff ? NT_ICO_PANELLEFT : NT_ICO_PANELLEFTCLOSE;
   };
   root.querySelector("#nthomebtn").onclick = () => ntGoHome();
@@ -361,14 +362,23 @@ function ntToRaw(es, v, i) {
 }
 const ntDisp = (es, i) => ntParseRaw(es.lines[i]).display;
 const ntIsRuleAt = (es, i) => (es.lines[i] || "").trim() === NT_DIVIDER;
-// Status is keyed by the line's own stripped display text — renaming a line loses its status.
+
+
+
+
+const ntStatusKey = (es, i) => ntDisp(es, i).trim();
 function ntLineStatus(es, i) {
-  const key = ntDisp(es, i);
-  return es.statuses[key] || es.statuses[key.trim()] || "todo";
+  return es.statuses[ntStatusKey(es, i)] || "todo";
 }
 function ntSetStatus(es, i, status) {
-  const key = ntDisp(es, i);
+  const key = ntStatusKey(es, i);
   if (status === "todo") delete es.statuses[key]; else es.statuses[key] = status;
+}
+// Drop status entries whose key no longer matches any current line's trimmed display text — called
+// right before a save so a renamed/deleted task line's stale status doesn't accumulate in the map forever.
+function ntPruneStatuses(es) {
+  const live = new Set(es.lines.map((_, i) => ntStatusKey(es, i)));
+  Object.keys(es.statuses).forEach(k => { if (!live.has(k)) delete es.statuses[k]; });
 }
 
 function ntLineRowHtml(es, i) {
@@ -382,7 +392,7 @@ function ntLineRowHtml(es, i) {
   if (isTask) cls.push("task");
   if (meta.bold) cls.push("bold");
   if (closed) cls.push("done");
-  const ball = isTask ? `<button type="button" class="ntball ntb-${esc(status)}" data-i="${i}" aria-label="Status: ${esc(NT_STATUS_LABEL[status] || status)}. Click to change." title="${esc(NT_STATUS_LABEL[status] || status)} — click to change, right-click to block"></button>` : "";
+  const ball = isTask ? `<button type="button" class="ntball ntb-${esc(status)}" data-i="${i}" aria-label="Status: ${esc(NT_STATUS_LABEL[status] || status)}. Click to change." data-tip="${esc(NT_STATUS_LABEL[status] || status)} — click to change, right-click to block"></button>` : "";
   return `<div class="${cls.join(" ")}" data-i="${i}">${ball}<textarea class="ntlinein" data-i="${i}" rows="1" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea></div>`;
 }
 function ntRenderLines() {
@@ -393,7 +403,7 @@ function ntRenderLines() {
     const i = Number(ta.dataset.i);
     ta.value = ntDisp(es, i);          // values are set via .value, never interpolated into the HTML
     ntGrowLine(ta);
-    ta.oninput = () => ntHandleInput(i, ta.value);
+    ta.oninput = () => ntHandleInput(i, ta.value, ta.selectionStart);
     ta.onkeydown = e => ntHandleKeydown(i, e);
     ta.onfocus = () => ntPaintOverlay();
     ta.onblur = () => setTimeout(ntPaintOverlay, 0);   // let the next element take focus first
@@ -430,7 +440,7 @@ function ntCommit(newLines, focus) {
   ntSchedule();
 }
 
-function ntHandleInput(i, value) {
+function ntHandleInput(i, value, selStart) {
   const es = ntEditState; if (!es) return;
   if (value.includes("\n")) {   // guard only — Enter is intercepted below, so this shouldn't fire
     const parts = value.split("\n");
@@ -444,9 +454,10 @@ function ntHandleInput(i, value) {
   newLines[i] = ntToRaw(es, value, i);
   es.lines = newLines; es.dirty = true;
   if (converted) {
-    // structural: the row gains a gutter ball, and the auto-convert swallows the "-" just typed
-    const ta = document.querySelector(`.ntlinein[data-i="${i}"]`);
-    const caret = Math.max(0, (ta ? ta.selectionStart : 1) - 1);
+    // structural: the row gains a gutter ball, and the auto-convert swallows the "-" just typed.
+    // selStart was captured by the oninput handler (ta.selectionStart) BEFORE this rebuild tears the
+    // textarea down, so the caret restores to exactly where it was, minus the swallowed "-".
+    const caret = Math.max(0, (selStart != null ? selStart : value.length) - 1);
     ntRenderLines();
     ntFocusLine(i, caret);
   } else {
@@ -488,6 +499,14 @@ function ntHandleKeydown(i, e) {
     ntCommit([...es.lines.slice(0, i), head, tail, ...es.lines.slice(i + 1)], { index: i + 1, pos: 0 });
     return;
   }
+
+
+
+
+
+
+
+
   if (e.key === "Backspace" && atStart) {
     if (ntIsTaskLine(es.lines[i])) {
       e.preventDefault();
@@ -562,7 +581,7 @@ function ntPatchBall(i) {
   const btn = document.querySelector(`.ntball[data-i="${i}"]`); if (!btn) return;
   btn.className = `ntball ntb-${status}`;
   const label = `${NT_STATUS_LABEL[status] || status} — click to change, right-click to block`;
-  btn.title = label; btn.setAttribute("aria-label", `Status: ${NT_STATUS_LABEL[status] || status}. Click to change.`);
+  btn.setAttribute("data-tip", label); btn.setAttribute("aria-label", `Status: ${NT_STATUS_LABEL[status] || status}. Click to change.`);
   const row = btn.closest(".ntline"); if (row) row.classList.toggle("done", closed);
 }
 
@@ -586,6 +605,7 @@ async function ntSaveNow() {
   const s = ntEditState; if (!s || s.saving) return;
   ntClearTimers();
   const titleEl = $("#nttitle"); if (!titleEl) return;
+  ntPruneStatuses(s);
   const title = titleEl.value, content = s.lines.join("\n");
   const statusesJson = JSON.stringify(s.statuses);
   if (title === s.title0 && content === s.lines0.join("\n") && statusesJson === s.statuses0) { s.dirty = false; s.countdown = null; ntPaintSaveState(); return; }
