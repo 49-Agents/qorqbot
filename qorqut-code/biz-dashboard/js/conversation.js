@@ -105,12 +105,13 @@ function conversationMount(host,source,adapter={}) {
       if(note.entry_kind!=='system' && last && last[0].entry_kind!=='system' && last[0].created_by===note.created_by) last.push(note);
       else groups.push([note]);
     }
+    const latestSystem=s.notes.findLast(note=>note.entry_kind==='system');
     feed.innerHTML=groups.map(group=>{
       const first=group[0],last=group.at(-1),time=`<time datetime="${esc(last.created_at)}" title="${esc(last.created_at)}">${esc(conversationAge(last.created_at))}</time>`;
-      if(first.entry_kind==='system') return `<div class="conversation-system">${esc(first.body)}${time}</div>`;
+      if(first.entry_kind==='system') return `<div class="conversation-system">${esc(first.body)}${first===latestSystem?time:''}</div>`;
       const owner=first.is_owner ?? (first.author_kind==='human');
       const name=conversationPersonName(first);
-      const avatar=conversationGlyph(first,36);
+      const avatar=conversationGlyph(first,31);
       return `<div class="conversation-group ${owner?'conversation-owner':'conversation-agent'}">${!owner?`<div class="conversation-agent-header"><span class="conversation-avatar" aria-hidden="true">${avatar}</span><small>${esc(name)}</small></div>`:''}<div>${group.map(note=>`<div class="conversation-bubble">${note.title && note.title!=='Message'?`<strong>${esc(note.title)}</strong>`:''}${note.parent_event_id && adapter.openParent?`<button type="button" class="quiet conversation-parent" data-note-parent="${esc(note.id)}">About an earlier entry</button>`:''}${conversationMessage(note,expandedMessages.has(note.id))}${(note.refs||[]).map((r,i)=>`<button type="button" class="quiet" data-note-ref="${esc(note.id)}:${i}" ${r.unavailable?'disabled':''}>${esc(r.label || r.type || 'Reference')}</button>`).join('')}</div>`).join('')}${time}</div></div>`;
     }).join('');
     feed.querySelectorAll('[data-message-id]').forEach(details=>details.addEventListener('toggle',()=>{if(!details.isConnected)return;if(details.open)expandedMessages.add(details.dataset.messageId);else expandedMessages.delete(details.dataset.messageId);}));
