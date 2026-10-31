@@ -82,6 +82,7 @@ function agpadSetView(p, view) {
   tWireHead(p.el, from, next => agpadSetView(p, next));
   if (view === "activity") p.nextLog = 0;
   if (view === "inbox") p.nextInbox = 0;
+  if (view === 'focus') { p.nextFocus = 0; agfocusMount(p); }
   if (view === "signoffs") { agpadSignoffs().paint(); p.nextSignoffs = Date.now() + AGPAD_POLL_MS; }
   if (view === 'memory') {
     const identity = p.agentId || state.agents.find(agent => agent.name === p.agent)?.agent_id;
@@ -104,6 +105,7 @@ function agpadVisibility(p) {
 }
 
 function agpadPaint(p) {
+  if (p.view === 'focus') return;
   if (p.view === 'memory') return;
   if (p.view === "signoffs") return;
   if (p.view === "inbox") { agpadPaintInbox(p); return; }
@@ -148,6 +150,8 @@ async function agpadRefreshLog(p) {
 function agpadTick() {
   const p = _agpad;
   if (!agpadActive(p)) return;
+  if (p.views.includes('focus')) agfocusTick(p);
+  if (p.view === 'focus') return;
   if (p.view === 'memory') return;
   if (p.view === "inbox") {
     if (Date.now() >= (p.nextInbox || 0)) agpadRefreshInbox(p);
