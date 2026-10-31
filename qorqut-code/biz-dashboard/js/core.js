@@ -52,7 +52,8 @@ const TABS = { agents: c => renderAgents(c), context: c => renderContext(c),
   marketing: c => renderMarketing(c), accounting: c => soon(c, "The cash ledger and what recurs."),
   datascience: c => soon(c, "Experiments and metric deep-dives."),
   progress: c => soon(c, "Tasks, milestones and what shipped."),
-  code: c => soon(c, "Repos, commits and deploys.") };
+  code: c => soon(c, "Repos, commits and deploys."),
+  settings: c => renderSettings(c) };
 let verbose0 = ls("verbose") === "1", tab0 = ls("tab");
 const state = { biz: null, bizs: [], tab: TABS[tab0] ? tab0 : "agents", agent: null, agents: [], liveNow: [], ctx: null, live: null, verbose: verbose0 };
 const TOKEN = new URLSearchParams(location.search).get("token") || "";

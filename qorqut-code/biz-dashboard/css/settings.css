@@ -1,0 +1,22 @@
+/* ============================================================ settings tab */
+.settingspane { max-width: 720px; }
+.set-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.set-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+.set-head .small { max-width: 480px; }
+.settingspane .mono { font-family: var(--mono); }
+.envrows { display: flex; flex-direction: column; gap: 8px; }
+.envrow { display: grid; grid-template-columns: minmax(140px, 1fr) 2fr auto; gap: 8px; align-items: center; }
+.envrow input { font-family: var(--mono); font-size: 13px; }
+.envrow .ek.bad { border-color: var(--danger); }
+.envdel {
+  border: 1px solid transparent; background: none; color: var(--fg-3); cursor: pointer;
+  padding: 4px 8px; border-radius: var(--r-sm); font-size: 15px; line-height: 1;
+}
+.envdel:hover { border-color: var(--line-2); background: var(--hover); color: var(--danger); }
+.envadd {
+  margin-top: 12px; border: 1px dashed var(--line-2); background: none; color: var(--fg-2);
+  padding: 7px 14px; border-radius: var(--r-sm); cursor: pointer; font-size: 13px;
+}
+.envadd:hover { border-color: rgba(255,255,255,.2); background: var(--hover); color: var(--fg); }
+.set-note { margin-top: 10px; min-height: 1.2em; }
+.set-note:not(:empty) { color: var(--danger); }

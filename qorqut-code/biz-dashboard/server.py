@@ -114,13 +114,44 @@ def git_lock(biz):
         return GIT_LOCKS.setdefault(os.path.abspath(biz), threading.RLock())
 
 
+ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def biz_env_pairs(biz):
+    """<biz>/.env -> ordered [{key, value}]. KEY=VALUE lines only; comments, blanks and lines without
+    `=` are skipped (and lost on save — the dashboard editor owns the whole file). `export ` prefixes
+    and quotes around the value are stripped, same rules as bizrun's load_biz_env."""
+    path = os.path.join(biz, ".env")
+    if not os.path.isfile(path):
+        return []
+    pairs = []
+    for line in read(path).splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            v = v[1:-1]
+        if ENV_KEY_RE.match(k):
+            pairs.append({"key": k, "value": v})
+    return pairs
+
+
+def biz_env(biz):
+    """<biz>/.env as a dict, for merging into subprocess environments (biz values win)."""
+    return {p["key"]: p["value"] for p in biz_env_pairs(biz)}
+
+
 def run_json(biz, name, *args, stdin=None, actor=None):
     """`<cli> --json <args>` in the biz repo as the owner (or `actor`, e.g. system:gateway for the bridge)."""
     try:
+        env = {**os.environ, **biz_env(biz), "BIZ_ACTOR": actor or owner_actor(biz)}
         with git_lock(biz):
             r = subprocess.run(cli(name) + ["--json"] + list(args), cwd=biz, capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", timeout=60, input=stdin,
-                               env=dict(os.environ, BIZ_ACTOR=actor or owner_actor(biz)))
+                               encoding="utf-8", errors="replace", timeout=60, input=stdin, env=env)
     except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
         return {"error": str(exc)}
     if r.returncode not in (0, 1) or not r.stdout.strip():
@@ -1952,6 +1983,8 @@ class Handler(BaseHTTPRequestHandler):
                 except RuntimeError as exc:
                     reqs, rerr = [], str(exc)
                 return self.send_json({"sessions": live_list(biz), "requests": reqs, "requests_error": rerr})
+            if what == "env" and len(parts) == 3:
+                return self.send_json({"pairs": biz_env_pairs(biz)})
             if what == "terminals" and len(parts) == 3:
                 return self.send_json(term_list(biz))
             if what == "terminal" and len(parts) == 5 and parts[4] == "stream":
@@ -2013,6 +2046,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.task_set(biz, tid, body)
                 if parts[5] == "done":
                     return self.task_done(biz, tid, body)
+            if parts[3] == "env" and len(parts) == 4:
+                return self.env_save(biz, body)
             if parts[3] == "agent" and len(parts) == 4:
                 return self.agent_create(biz, body)
             if parts[3] == "compact" and len(parts) == 4:
@@ -2072,6 +2107,35 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json({"error": "not found"}, 404)
 
     # ------------------------------------------------------------- writes
+
+    def env_save(self, biz, body):
+        """Replace <biz>/.env with the posted pairs. The file is gitignored — no commit. Values with
+        newlines are refused (one line per pair is the whole format); duplicate keys keep the last."""
+        pairs = body.get("pairs")
+        if not isinstance(pairs, list):
+            return self.send_json({"error": "pairs must be a list of {key, value}"}, 400)
+        seen, rows = {}, []
+        for p in pairs:
+            if not isinstance(p, dict):
+                return self.send_json({"error": "each pair must be {key, value}"}, 400)
+            k, v = str(p.get("key") or "").strip(), str(p.get("value") or "")
+            if not k:
+                continue
+            if not ENV_KEY_RE.match(k):
+                return self.send_json({"error": f"bad key: {k} (letters, digits, _; not starting with a digit)"}, 400)
+            if "\n" in v or "\r" in v:
+                return self.send_json({"error": f"{k}: value cannot contain newlines"}, 400)
+            if k in seen:
+                rows[seen[k]] = f"{k}={v}"
+            else:
+                seen[k] = len(rows)
+                rows.append(f"{k}={v}")
+        path = os.path.join(biz, ".env")
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(rows) + ("\n" if rows else ""))
+        os.replace(tmp, path)
+        return self.send_json({"ok": True, "pairs": biz_env_pairs(biz)})
 
     def request_state(self, biz, rid, body):
         """Owner approve/reject via `bizreq state --actor human:<owner>` (commits itself: `request: <id> <state>`)."""
