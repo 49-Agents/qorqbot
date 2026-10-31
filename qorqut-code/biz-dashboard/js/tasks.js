@@ -675,7 +675,7 @@ window.addEventListener("resize", () => { const p = $("#taskspanel"); if (p && p
   // click outside closes; capture phase records origin before rows are re-rendered
   document.addEventListener("click", e => {
     const el = e.target && e.target.closest ? e.target : null;
-    tInside = !!(el && (el.closest("#taskswrap") || el.closest(".overlay") || el.closest(".modal") || el.closest(".menu") || el.closest(".tip")));
+    tInside = !!(el && (el.closest("#taskswrap") || el.closest(".sg-toast") || el.closest(".overlay") || el.closest(".modal") || el.closest(".menu") || el.closest(".tip")));
   }, true);
   document.addEventListener("click", () => { if (tPanelOpen() && !tInside) openTasks(false); });
 

@@ -1,11 +1,11 @@
 // Scope-specific review. The server owns preparation, decisions and application.
 const sgViews = new Set();
-const sgShared = { drafts: new Map(), busy: new Map(), receipts: new Map(), refreshed: new Set() };
+const sgShared = { drafts: new Map(), choices: new Map(), busy: new Map(), receipts: new Map(), refreshed: new Set() };
 function sgCreateView(options) {
-  const labels = { pending: "Pending", approved: "Approved, applying", applied: "Applied", rejected: "Rejected", conflicted: "Conflicted", failed: "Failed" };
+  const labels = { pending: "Pending", approved: "Approved, applying", applied: "Applied", rejected: "Rejected", conflicted: "Conflicted", failed: "Failed", answered: "Answered", cancelled: "Withdrawn" };
   const sg = {
     slug: null, businessId: null, generation: 0, mount: null, session: null,
-    items: new Map(), order: [], selected: null, selections: new Map(),
+    responded: false, items: new Map(), order: [], selected: null, selections: new Map(),
     verified: new Map(), detailErrors: new Map(), detailRequest: 0, detailLoading: null,
     counts: null, nextCursor: null, updatedCursor: null, loading: false, loaded: false,
     listRequest: 0, error: null, ...sgShared,
@@ -41,15 +41,14 @@ function sgCreateView(options) {
   function draft(s) {
     const key = draftKey(s);
     if (!key) return "";
-    if (!sg.drafts.has(key)) sg.drafts.set(key, ls(key) || "");
+    if (!sg.drafts.has(key)) sg.drafts.set(key, "");
     return sg.drafts.get(key);
   }
   function saveDraft(key, value) {
     if (!key) return;
     sg.drafts.set(key, value);
     sgViews.forEach(view => view.syncDraft(key, value));
-    if (value) ls(key, value);
-    else { try { localStorage.removeItem(key); } catch (_) {} }
+
   }
   function merge(item) {
     if (!item || !item.id || !labels[item.state]) return false;
@@ -70,6 +69,7 @@ function sgCreateView(options) {
   }
   function previewHtml(s) {
     const preview = s.preview;
+    if (s.input) return `<div class="sg-rationale"><p>${esc(s.input.explanation)}</p></div>`;
     if (!preview || !Array.isArray(preview.changes)) return "";
     const resourcesById = new Map();
     for (const resource of [...(preview.resources || []), ...preview.changes.map(change => change && change.resource)].filter(Boolean)) {
@@ -83,6 +83,7 @@ function sgCreateView(options) {
       ${effects.length ? `<div class="sg-effects"><h3>Effects</h3><ul>${effects.map(effect => `<li>${esc(effect)}</li>`).join("")}</ul></div>` : ""}`;
   }
   function completePreview(s) {
+    if (s.input) return !!s.preview && Array.isArray(s.input.choices);
     return s.preview && Array.isArray(s.preview.changes) && s.preview.changes.length > 0 && s.preview.changes.every(change =>
       change && (change.kind === "structured" ? Array.isArray(change.fields) : change.kind === "text" && typeof change.diff === "string" && "before" in change && "after" in change));
   }
@@ -106,24 +107,36 @@ function sgCreateView(options) {
     const verified = sg.verified.get(s.id) === s.status_revision;
     const canReview = verified && completePreview(s) && owner() && !sg.error && !error && !s.superseded_by_id;
     if (!detail.querySelector(".sg-preview")) {
-      detail.innerHTML = `<div class="sg-detailnotice"></div><div class="sg-preview"></div><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div><div class="sg-stories" aria-label="Related stories"></div>`;
+      detail.innerHTML = `<div class="sg-detailnotice"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div><div class="sg-stories" aria-label="Related stories"></div>`;
       if (!options.global) storyRelatedChips(detail.querySelector('.sg-stories'),sg.slug,'signoffs',s.id);
     }
     detail.setAttribute("aria-busy", String(!!busy || sg.detailLoading === s.id));
     const notice = error ? errorHtml(error, "detail") : !verified ? `<p class="sg-notice">${sg.detailLoading === s.id ? "Loading prepared change..." : "This detail is out of date."}</p>` : !completePreview(s) ? errorHtml("The proposal could not be loaded completely. Reload it before approving.", "detail") : "";
     html(detail.querySelector(".sg-detailnotice"), notice);
     html(detail.querySelector(".sg-preview"), previewHtml(s));
+    const chosen = sg.choices.get(draftKey(s)) || [];
+    const submitted = s.decision?.selected_choices || [];
+    const choiceMode = s.input?.selection_mode;
+    html(detail.querySelector(".sg-choices"), s.input && choiceMode !== "none" ?
+      `<div role="${choiceMode === "single" ? "radiogroup" : "group"}" aria-label="Answer choices">${s.input.choices.map((choice,index) => {
+        const checked = (s.state === "pending" ? chosen : submitted).includes(choice.id);
+        return `<button type="button" class="sg-choice" role="${choiceMode === "single" ? "radio" : "checkbox"}" aria-checked="${checked}" data-choice="${esc(choice.id)}" ${!canReview || busy || s.state !== "pending" ? "disabled" : ""}>
+          <span class="sg-choice-marker ${choiceMode === "single" ? "sg-choice-letter" : "sg-choice-ball"}" aria-hidden="true">${choiceMode === "single" ? String.fromCharCode(65+index) : ""}</span>
+          <span class="sg-choice-name">${esc(choice.label)}</span><span aria-hidden="true">—</span>
+          <span class="sg-choice-explanation" title="${esc(choice.explanation)}">${esc(choice.explanation)}</span></button>`;
+      }).join("")}</div>` : "");
+    html(detail.querySelector(".sg-savedresponse"), s.decision ? `<p class="sg-response-notes">${esc(s.decision.notes ?? s.decision.feedback ?? "")}</p><p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>` : "");
     const feedback = detail.querySelector(".sg-feedbackwrap");
     if (s.state === "pending" && completePreview(s) && owner() && !s.superseded_by_id) {
       if (!feedback.querySelector("textarea")) {
-        feedback.innerHTML = `<label class="sg-label" for="sg-feedback-${prefix}${esc(s.id)}">Feedback for proposer (optional)</label><textarea id="sg-feedback-${prefix}${esc(s.id)}" class="sg-feedback" rows="3" spellcheck="true"></textarea>`;
+        feedback.innerHTML = `<label class="sg-label" for="sg-feedback-${prefix}${esc(s.id)}">Notes ${s.input?.notes_required ? "(required)" : "(optional)"}</label><textarea id="sg-feedback-${prefix}${esc(s.id)}" class="sg-feedback" rows="3" spellcheck="true"></textarea>`;
         feedback.querySelector("textarea").value = draft(s);
       }
       feedback.querySelector("textarea").disabled = !!busy || !canReview;
     } else feedback.innerHTML = "";
     const disabled = !canReview || !!busy ? " disabled" : "";
     let controls = "";
-    if (s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id) controls = `<div class="sg-actions"><button type="button" class="sg-reject" data-sg="reject"${disabled}>${SVG_X}Reject</button><button type="button" class="sg-approve" data-sg="approve"${disabled}>${SVG_CHECK}Approve</button></div>`;
+    if (s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id) controls = s.input ? `<div class="sg-actions"><button type="button" class="sg-approve" data-sg="respond"${disabled}>Submit</button></div>` : `<div class="sg-actions"><button type="button" class="sg-reject" data-sg="reject"${disabled}>${SVG_X}Reject</button><button type="button" class="sg-approve" data-sg="approve"${disabled}>${SVG_CHECK}Approve</button></div>`;
     if (busy) controls += `<p class="sg-notice" role="status">${busy.unknown ? "The response was lost. Checking the saved decision..." : "Saving decision..."}</p>${busy.unknown ? `<button type="button" class="sg-command" data-sg="reconcile"${busy.checking ? " disabled" : ""}>Check decision</button>` : ""}`;
     if (verified && !owner()) controls += `<p class="sg-notice">Signoff review requires an owner session.</p>`;
     html(detail.querySelector(".sg-actionarea"), controls);
@@ -140,12 +153,17 @@ function sgCreateView(options) {
     sg.mount.querySelector(".sg-count").textContent = sg.counts ? `${sg.counts.pending || 0} pending` : "";
     sg.mount.querySelector(".sg").setAttribute("aria-busy", String(sg.loading));
     html(sg.mount.querySelector(".sg-listnotice"), !sg.slug ? `<p class="sg-empty">Pick a business first.</p>` : sg.error ? errorHtml(sg.error, "list") + (sg.items.size ? `<p class="sg-notice">Showing the last update. Review is disabled until refreshed.</p>` : "") : sg.loading && !sg.loaded ? `<p class="sg-empty">Loading signoffs...</p>` : "");
-    const groups = { waiting: sg.order.map(id => sg.items.get(id)).filter(s => s && s.state === "pending") };
-    for (const name of ["waiting"]) {
+    const attention = typeof sgAttention !== 'undefined' ? sgAttention : {urgent:[]};
+    if (!sg.responded && (options.global || sg.businessId)) attention.urgent.filter(item => item.review_business_id === sg.businessId).forEach(merge);
+    const urgentLocal = s => s.state === 'pending' && (s.attention?.urgent || s.attention?.blocking);
+    const groups = { urgent: sg.responded ? [] : sg.order.map(id=>sg.items.get(id)).filter(s=>s && urgentLocal(s)), waiting: sg.order.map(id => sg.items.get(id)).filter(s => s && (sg.responded ? !!s.decision : s.state === "pending" && !urgentLocal(s))) };
+    html(sg.mount.querySelector('.sg-filter'), `<button type="button" data-sg="pending" aria-pressed="${!sg.responded}">Waiting</button><button type="button" data-sg="responded" aria-pressed="${sg.responded}">Responded</button>`);
+    sg.mount.querySelector('.sg-waiting h2').textContent = sg.responded ? 'Responded' : 'Waiting on you';
+    for (const name of ["urgent", "waiting"]) {
       const container = sg.mount.querySelector(`.sg-${name}`);
       const content = container.querySelector(".sg-rows");
       container.hidden = !sg.slug || (!sg.loaded && !sg.items.size);
-      html(container.querySelector(".sg-sectionempty"), name === "waiting" && !groups[name].length ? `<p class="sg-empty">No signoffs waiting.</p>` : "");
+      html(container.querySelector(".sg-sectionempty"), name === "waiting" && !groups[name].length ? `<p class="sg-empty">${sg.responded ? "No submitted responses." : "No signoffs waiting."}</p>` : "");
       groups[name].forEach((s, index) => {
         let row = [...sg.mount.querySelectorAll(".sg-row")].find(node => node.dataset.id === s.id);
         if (!row) {
@@ -163,6 +181,10 @@ function sgCreateView(options) {
       });
       [...content.children].forEach(row => { if (!groups[name].some(s => s.id === row.dataset.id)) row.remove(); });
     }
+    const foreign = attention.urgent.filter(item=>item.review_business_id !== sg.businessId);
+    const urgentSection = sg.mount.querySelector('.sg-urgent');
+    urgentSection.hidden = sg.responded || (!groups.urgent.length && !foreign.length);
+    html(urgentSection.querySelector('.sg-foreign'), foreign.map(item=>`<button type="button" class="sg-urgent-link" data-attention-id="${esc(item.id)}"><small>${esc(item.business_name)}</small><span>${esc(item.title)}</span></button>`).join(''));
     const more = sg.mount.querySelector(".sg-more");
     more.hidden = !sg.nextCursor; more.disabled = sg.loading;
     if (focused && !focused.isConnected && oldRow) {
@@ -176,7 +198,7 @@ function sgCreateView(options) {
     if (!active() || !sg.slug) return;
     const c = capture(), request = ++sg.detailRequest;
     const old = sg.items.get(id);
-    if (!force && old && sg.verified.get(id) === old.status_revision) { render(); return; }
+    if (!force && old && completePreview(old) && sg.verified.get(id) === old.status_revision) { render(); return; }
     sg.detailLoading = id; sg.detailErrors.delete(id); render();
     try {
       const data = coreData(await api(path(c.slug, id)));
@@ -203,6 +225,7 @@ function sgCreateView(options) {
     const c = capture(), request = ++sg.listRequest;
     const cursor = more ? sg.nextCursor : sg.updatedCursor;
     const query = new URLSearchParams({ limit: "50" });
+    if (sg.responded) query.set("responded", "true");
     if (cursor) query.set(more ? "cursor" : "updated_after", cursor);
     sg.loading = true; render();
     try {
@@ -244,7 +267,9 @@ function sgCreateView(options) {
     sg.busy.delete(receipt.key);
     sg.receipts.set(receipt.key, s);
     sgViews.forEach(peer => { if (peer !== view) peer.refresh(); });
-    if (receipt.action === "approve" || s.state === "rejected") saveDraft(receipt.draftKey, "");
+    saveDraft(receipt.draftKey, "");
+    sg.choices.delete(receipt.draftKey);
+    if (window.sgAttentionRefresh) sgAttentionRefresh();
   }
   async function reconcile(receipt) {
     if (receipt.checking) return;
@@ -298,16 +323,21 @@ function sgCreateView(options) {
   function decide(action) {
     const s = sg.items.get(sg.selected);
     if (!active() || !s || !owner() || !completePreview(s) || sg.error || sg.detailErrors.has(s.id) || sg.verified.get(s.id) !== s.status_revision || s.superseded_by_id) return;
-    if (!["approve", "reject"].includes(action) || s.state !== "pending") return;
+    if (!["approve", "reject", "respond"].includes(action) || s.state !== "pending") return;
     const key = busyKey(sg.slug, s);
     if (sg.busy.has(key)) return;
     const body = { proposal_revision: s.proposal_revision, payload_hash: s.payload_hash, expected_status_revision: s.status_revision, idempotency_key: newRequestId() };
-    if (action === "reject") body.feedback = draft(s) || null;
+    if (action === "respond") {
+      body.notes = draft(s);
+      body.selected_choices = sg.choices.get(draftKey(s)) || [];
+      if (s.input.selection_required && !body.selected_choices.length || s.input.notes_required && !body.notes.trim()) {
+        const notice = sg.mount.querySelector('.sg-detail:not([hidden]) .sg-detailnotice');
+        html(notice, errorHtml('Complete the required answer before submitting.')); return;
+      }
+    } else body.feedback = draft(s) || null;
     const receipt = { key, slug: sg.slug, businessId: sg.businessId, id: s.id, binding: binding(s), draftKey: draftKey(s), action, body, unknown: false };
     sg.busy.set(key, receipt);
-    if (action === "approve") {
-      saveDraft(receipt.draftKey, "");
-    }
+
     render(); submit(receipt);
   }
   function mount() {
@@ -316,22 +346,45 @@ function sgCreateView(options) {
     sg.mount = active() ? body : null;
     if (!sg.mount) return;
     body.classList.add("sg-body");
-    body.innerHTML = `<div class="sg"><header class="sg-head"><div><h1>Signoffs</h1><p class="sg-business"></p></div><span class="sg-count"></span></header><div class="sg-listnotice"></div><section class="sg-waiting"><h2>Waiting on you</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section><button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
+    body.innerHTML = `<div class="sg"><header class="sg-head"><div><h1>Signoffs</h1><p class="sg-business"></p></div><span class="sg-count"></span></header><div class="sg-filter"></div><div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All businesses</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><h2>Waiting on you</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section><button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
     body.onclick = event => {
+      const urgent = event.target.closest('[data-attention-id]');
+      if (urgent) { const item=sgAttention.urgent.find(i=>i.id===urgent.dataset.attentionId); if(item) sgAttentionNavigate(item.business_slug,item.id); return; }
+      const choice = event.target.closest('[data-choice]');
+      if (choice && !choice.disabled) {
+        const s = sg.items.get(sg.selected), key = draftKey(s), id = choice.dataset.choice;
+        const selected = sg.choices.get(key) || [];
+        sg.choices.set(key, s.input.selection_mode === 'single' ? [id] : selected.includes(id) ? selected.filter(x => x !== id) : [...selected,id]);
+        render();
+        [...body.querySelectorAll('[data-choice]')].find(x => x.dataset.choice === id)?.focus();
+        return;
+      }
       const command = event.target.closest("[data-sg]");
       if (command && !command.disabled) {
         const action = command.dataset.sg;
-        if (action === "list") { sg.updatedCursor = null; refresh(); }
+        if (action === "pending" || action === "responded") {
+          sg.responded = action === "responded"; sg.items.clear(); sg.verified.clear(); sg.detailErrors.clear(); sg.order=[]; sg.selected=null;
+          sg.selections.delete(sg.slug); sg.nextCursor=null; sg.updatedCursor=null;
+          sg.listRequest++; sg.detailRequest++; sg.loading=false; sg.loaded=false; refresh();
+        }
+        else if (action === "list") { sg.updatedCursor = null; refresh(); }
         else if (action === "more") refresh(true);
         else if (action === "detail") loadDetail(sg.selected, true);
         else if (action === "reconcile") { const s = sg.items.get(sg.selected); const receipt = s && sg.busy.get(busyKey(sg.slug, s)); if (receipt) reconcile(receipt); }
         else decide(action);
         return;
       }
-      const head = event.target.closest(".sg-rowhead"); if (head) select(head.closest(".sg-row").dataset.id);
+      const row = event.target.closest(".sg-row"); if (row) select(row.dataset.id);
     };
-    body.removeEventListener("focusin", focusRow);
-    body.addEventListener("focusin", focusRow);
+    body.onkeydown = event => {
+      const choice = event.target.closest('[role="radio"]');
+      if (choice && ['ArrowDown','ArrowRight','ArrowUp','ArrowLeft'].includes(event.key)) {
+        event.preventDefault();
+        const choices = [...choice.parentElement.querySelectorAll('[role="radio"]:not(:disabled)')];
+        const delta = ['ArrowDown','ArrowRight'].includes(event.key) ? 1 : -1;
+        choices[(choices.indexOf(choice)+delta+choices.length)%choices.length]?.click();
+      }
+    };
     body.oninput = event => { if (event.target.matches(".sg-feedback")) { const s = sg.items.get(sg.selected); if (s) saveDraft(draftKey(s), event.target.value); } };
     render(); refresh();
   }
@@ -344,7 +397,9 @@ function sgCreateView(options) {
     mount();
   };
   const view = {
+    open(id) { sg.responded=false; sg.selected=id; sg.selections.set(workspace(),id); if (active()) { refresh(); loadDetail(id,true); } },
     businessChanged,
+    render,
     paint() { if (sg.slug !== workspace()) businessChanged(); else mount(); },
     refresh: () => refresh(),
     syncDraft(key, value) {
@@ -359,6 +414,13 @@ function sgCreateView(options) {
       sg.counts = { ...(sg.counts || {}), pending: live.signoffs_pending };
     },
   };
+  document.addEventListener('click', event => {
+    if (!active() || !sg.selected || !sg.mount) return;
+    if (event.composedPath().some(node => node.classList?.contains('sg-toast') || node.dataset?.attentionId)) return;
+    const row = event.composedPath().find(node => node.classList?.contains('sg-row'));
+    if (row && sg.mount.contains(row)) return;
+    sg.selected=null; sg.selections.delete(sg.slug); sg.detailRequest++; render();
+  });
   sgViews.add(view);
   return view;
 }
@@ -381,3 +443,7 @@ window.tPaintSignoffs = () => {
 };
 window.sgRefresh = () => Promise.all([...sgViews].map(view => view.refresh()));
 window.sgLivePaint = (slug, live) => sgViews.forEach(view => view.livePaint(slug, live));
+
+window.sgOpenItem = id => (state.scope === 'global' ? sgGlobal : sgDrawer).open(id);
+
+window.sgAttentionViewsPaint = () => sgViews.forEach(view => view.render());

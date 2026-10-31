@@ -367,7 +367,7 @@ function openWorkspaceMenu() {
     value: '/global', html: `<span class="workspace-choice workspace-global">${globalIcon('globe')}<span class="workspace-name">Global</span></span>`,
   }, ...businesses.map(b => ({
     value: b.slug,
-    html: `<span class="workspace-choice"><span class="workspace-business-icon">${esc((b.name || b.slug).charAt(0).toUpperCase())}</span><span class="workspace-name">${esc(b.name)}</span><span class="workspace-drag" title="Drag to reorder">${grip}</span></span>`,
+    html: `<span class="workspace-choice"><span class="workspace-business-icon">${esc((b.name || b.slug).charAt(0).toUpperCase())}</span><span class="workspace-name">${esc(b.name)}</span>${window.sgAttentionBadge ? sgAttentionBadge(b.slug) : ""}<span class="workspace-drag" title="Drag to reorder">${grip}</span></span>`,
   }))], slug => slug === '/global' ? selectGlobal() : selectBiz(slug), state.scope === 'global' ? '/global' : state.biz,
     {className: 'workspace-menu', noCheck: true, width: 181});
   let dragged = null;
