@@ -40,7 +40,7 @@ const lnCanRevert = it => ["accepted", "rejected"].includes(it && it.state) && !
 let _ln = { biz: null, items: [], counts: null, notes: {}, noteOpen: {}, busy: {}, q: "" };
 const lnWorkspace = () => state.scope === 'global' ? 'global' : state.biz;
 const lnBase = () => state.scope === 'global' ? '/root/learnings' : `/biz/${state.biz}/learnings`;
-const lnActive = () => state.scope === 'global' ? state.globalTab === 'context' && location.hash.split('/')[3] !== 'personal' : state.ctx === '_learning';
+const lnActive = () => state.scope === 'global' ? state.globalTab === 'context' && !['personal', 'library'].includes(location.hash.split('/')[3]) : state.ctx === '_learning';
 const lnDraftKey = () => `lnnotes:${lnWorkspace()}`;
 function lnDraftsLoad() { try { return JSON.parse(ls(lnDraftKey()) || "{}") || {}; } catch (e) { return {}; } }
 function lnDraftsSave() { ls(lnDraftKey(), JSON.stringify(_ln.notes)); }
@@ -231,8 +231,10 @@ function lnCardHtml(item, people) {
   const it = item || {}, t = lnTag(it.tag), obs = it.observed || {}, ev = it.evidence || {};
   const locked = lnScopeLocked(it);
   const pick = LN_SCOPES.map(([k, label, ico]) => {
-    const off = (locked && k !== (it.origin_scope === "global" ? "global" : "biz")) || (it.origin_scope === "global" && k !== "global") || !!it.intake_pending;
-    return `<button class="lnscope ${it.scope === k ? "on" : ""}" type="button" data-scope="${esc(k)}" ${off ? `disabled title="Context stays in its originating workspace"` : `title="${esc(label)}"`}>${ico}</button>`;
+    const off = (locked && k !== (it.origin_scope === "global" ? "global" : "biz")) ||
+      (it.origin_scope === "global" && (k === "biz" || (["agent", "agent_kind"].includes(k) && !it.observed?.agent))) || !!it.intake_pending;
+    const reason = locked ? 'Context stays in its originating workspace' : k === 'biz' ? 'Global sources cannot select a business' : 'No observed transcript agent';
+    return `<button class="lnscope ${it.scope === k ? "on" : ""}" type="button" data-scope="${esc(k)}" ${off ? `disabled title="${esc(reason)}"` : `title="${esc(label)}"`}>${ico}</button>`;
   }).join("");
   const votes = it.votes != null && it.passes ? `<span class="chip" title="passes that agreed">${esc(it.votes)}/${esc(it.passes)}</span>` : "";
   const touches = lnTouches(it, people).map(x => `<span class="chip ${esc(x.kind)}" ${x.title ? `title="${esc(x.title)}"` : ""}>${esc(x.label)}</span>`).join("");
@@ -388,6 +390,8 @@ async function lnSetScope(it, scope) {
   delete model.busy[it.id];
   if (_ln !== model || workspace !== lnWorkspace()) return;
   if (!r || r.error) { it.scope = was; notify({ text: "Scope change failed", sub: lnErr(r), color: "var(--danger)" }); return lnRefetch(); }
+  if (r.item) Object.assign(it, r.item);
+  else await lnRefetch();
   toast(`scope → ${scope}`);
 }
 

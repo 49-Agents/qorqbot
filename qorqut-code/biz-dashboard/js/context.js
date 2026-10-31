@@ -244,7 +244,8 @@ function ctxCrumbs(p, fileName) {
 }
 function wireCrumbs(v) { v.querySelectorAll(".crumbs a").forEach(a => a.onclick = () => ctxGo(a.dataset.p)); }
 
-const mdLines = text => `<div class="sum">${text.split("\n").map(l => l.trim()).filter(Boolean).map(l => l.startsWith("- ") ? `<div class="li">${esc(l.slice(2))}</div>` : `<p>${esc(l)}</p>`).join("")}</div>`;
+const mdInline = text => esc(text).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+const mdLines = text => `<div class="sum">${text.split("\n").map(l => l.trim()).filter(Boolean).map(l => (/^#{1,6} /.test(l)) ? `<h3>${mdInline(l.replace(/^#{1,6} /, ""))}</h3>` : l.startsWith("- ") ? `<div class="li">${mdInline(l.slice(2))}</div>` : `<p>${mdInline(l)}</p>`).join("")}</div>`;
 
 // A topic opens its scoped relationship graph.
 function openTopic(p) {
