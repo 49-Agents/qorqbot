@@ -20,15 +20,11 @@ window.sgAttentionBadge = slug => {
 };
 window.sgAttentionNavigate = async (slug, id) => {
   await Promise.resolve(); // Finish the originating click before mounting a new pane.
-  if (slug) {
-    if (state.scope === 'global' || state.biz !== slug) await selectBiz(slug);
-    if (state.scope === 'global' || state.biz !== slug) return;
-  } else {
-    if (state.scope !== 'global') await selectGlobal();
-    if (state.scope !== 'global') return;
-  }
+  // Keep the current workspace. Attention links must never switch businesses
+  // or leave the page the owner is working in.
+  const matchesCurrentScope = slug ? state.scope !== 'global' && state.biz === slug : state.scope === 'global';
   openTasks(true); tSetView('signoffs');
-  if (id) sgOpenItem(id);
+  if (id && matchesCurrentScope) sgOpenItem(id);
 };
 function sgAttentionPaint() {
   const urgent = sgAttention.urgent.length > 0;

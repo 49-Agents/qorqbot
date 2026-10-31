@@ -26,6 +26,9 @@
 .sg .sg-feedback:focus { outline: 2px solid var(--fg-2); outline-offset: 2px; box-shadow: none; }
 .sg-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 .sg-actions button { min-width: 88px; height: 28px; padding: 0 12px; border-radius: var(--r-full); display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-size: 12px; }
+.sg-row-actions { margin-top: 10px; }
+.sg-row-actions .sg-actions { margin-top: 0; }
+.sg-row:has(.sg-detail:not([hidden])) .sg-row-actions { display: none; }
 .sg .sg-reject { border: 1px solid var(--line-2); background: transparent; color: var(--fg-2); }
 .sg .sg-approve { background: var(--accent); color: var(--accent-fg); border: 1px solid var(--accent); font-weight: 700; }
 .sg button:disabled { cursor: default; opacity: .45; }
