@@ -61,7 +61,6 @@ function ntPreview(content) {
 }
 
 
-const ntTodayLabel = () => new Date().toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
 
 // ---- data
 async function ntFetch() {
@@ -240,7 +239,8 @@ function ntPatchSidebar() {
 // ---- detail: editor chrome (meta line, save pill) — patchable without touching the lines editor
 function ntMetaHtml(n) {
   const words = ntWords(ntEditState ? ntEditState.lines.join("\n") : n.content);
-  return `<span class="ntmeta-date">${esc(ntTodayLabel())}</span><span class="sep">·</span><span class="ntmeta-words">${words} word${words === 1 ? "" : "s"}</span>`;
+  // no date here (same line as the journal's): just the word count
+  return `<span class="ntmeta-words">${words} word${words === 1 ? "" : "s"}</span>`;
 }
 function ntRingSvg(nn) {
   const total = 8, frac = Math.max(0, Math.min(1, nn / total)), r = 6, c = 2 * Math.PI * r, off = c * (1 - frac);
@@ -256,7 +256,8 @@ function ntPaintSaveState() {
   const el = $("#ntsavewrap"); if (!el) return;
   el.innerHTML = ntSaveHtml();
   const btn = el.querySelector(".ntsavepill"); if (btn) btn.onclick = () => ntSaveNow();
-  const disc = $("#ntdiscard"); if (disc) disc.disabled = !ntEditState || !ntEditState.dirty || ntEditState.saving;
+  // Discard only exists while there are unsaved changes: hidden otherwise, not just disabled
+  const disc = $("#ntdiscard"); if (disc) disc.hidden = !ntEditState || !ntEditState.dirty || ntEditState.saving;
 }
 function ntPatchMeta() {
   const n = ntById(ntSel); if (!n) return;
@@ -284,7 +285,7 @@ function ntDetailHtml(n) {
         <div class="ntedhead">
           <textarea id="nttitle" class="nttitlein" rows="1" placeholder="Untitled"></textarea>
           <div class="ntedctrls" id="ntedctrls">
-            <button id="ntdiscard" class="ntghost" type="button" disabled>Discard</button>
+            <button id="ntdiscard" class="ntghost" type="button" hidden>Discard</button>
             <span class="ntsavewrap" id="ntsavewrap"></span>
             <button id="ntdel" class="nticon danger" type="button" data-tip="Delete page">${ICO_TRASH}</button>
           </div>

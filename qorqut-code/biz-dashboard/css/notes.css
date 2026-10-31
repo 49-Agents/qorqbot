@@ -111,14 +111,14 @@
 }
 .ntsavepill:hover, .jrsavepill:hover { opacity: .88; transform: none; }
 .ntsavepill.busy, .jrsavepill.busy { cursor: default; opacity: .7; }
+.jrupbtn:disabled { opacity: .35; cursor: default; }
+.jrupbtn:disabled:hover { opacity: .35; }
 .ntring, .jrring { flex: none; }
 .ntsaved, .jrsaved { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 4px; font: 500 12px var(--sans); color: var(--fg-3); }
 .ntsaved svg, .jrsaved svg { width: 13px; height: 13px; }
-.ntmeta, .jrmeta { margin-top: 16px; padding-left: 4px; letter-spacing: -0.025em; font-size: 12.5px; color: var(--fg-2); }
+/* the line under the title: same family, weight and tracking as the title input, just smaller */
+.ntmeta, .jrmeta { margin-top: 16px; padding-left: 4px; font: 600 12.5px/1.5 var(--sans); letter-spacing: -.02em; color: var(--fg-2); }
 .ntmeta .sep { margin: 0 6px; color: var(--fg-3); opacity: .55; }
-.ntmeta-date { font-size: 12.5px; color: var(--fg-2); }
-.ntmeta-words { font-size: 11px; color: rgba(138,138,138,.4); opacity: 0; transition: opacity .15s ease; }
-.ntedinner:hover .ntmeta-words { opacity: 1; }
 .nthr, .jrhr { height: 1px; background: var(--line); margin: 0 0 48px; }
 
 
