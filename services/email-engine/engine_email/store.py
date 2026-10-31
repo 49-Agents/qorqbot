@@ -13,6 +13,14 @@ from .fastmail import internet_message_id
 SHARED_ROLLING_LIMIT = 150
 
 
+class HandoffTargetNotFound(ValueError):
+    """No correlation exists yet for a handoff's target message."""
+
+
+class HandoffTargetForbidden(ValueError):
+    """The handoff target's correlation is owned by a different client."""
+
+
 def now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -110,8 +118,12 @@ class Store:
                     PRIMARY KEY(contact_key, business_id));
                 CREATE TABLE IF NOT EXISTS integration_handoffs (
                     thread_or_message_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, client_id TEXT NOT NULL,
-                    workflow_owner TEXT NOT NULL, payload_digest TEXT NOT NULL, result TEXT NOT NULL,
-                    created_at TEXT NOT NULL, PRIMARY KEY(thread_or_message_id, idempotency_key));
+                    source_owner TEXT NOT NULL, destination_owner TEXT NOT NULL, payload_digest TEXT NOT NULL,
+                    result TEXT NOT NULL, created_at TEXT NOT NULL,
+                    PRIMARY KEY(thread_or_message_id, idempotency_key));
+                CREATE TABLE IF NOT EXISTS integration_cancellations (
+                    client_id TEXT NOT NULL, intent_id TEXT NOT NULL, created_at TEXT NOT NULL,
+                    PRIMARY KEY(client_id, intent_id));
                 CREATE TABLE IF NOT EXISTS message_correlations (
                     mailbox TEXT NOT NULL, message_id TEXT NOT NULL, is_sent_copy INTEGER NOT NULL,
                     workflow_owner TEXT, intent_id TEXT, request_id TEXT, correlation TEXT,
@@ -138,6 +150,21 @@ class Store:
                     "reason,source_kind,source_id,created_at) SELECT contact_key,business_id,workflow_owner,"
                     "reason,source_kind,source_id,created_at FROM integration_stops_pre_scope ORDER BY rowid")
                 db.execute("DROP TABLE integration_stops_pre_scope")
+            # Handoffs once stored a single workflow_owner; split into source/destination.
+            handoffs = [row[1] for row in db.execute("PRAGMA table_info(integration_handoffs)")]
+            if "workflow_owner" in handoffs and "destination_owner" not in handoffs:
+                db.execute("ALTER TABLE integration_handoffs RENAME TO integration_handoffs_pre_destinations")
+                db.execute("""CREATE TABLE integration_handoffs (
+                    thread_or_message_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, client_id TEXT NOT NULL,
+                    source_owner TEXT NOT NULL, destination_owner TEXT NOT NULL, payload_digest TEXT NOT NULL,
+                    result TEXT NOT NULL, created_at TEXT NOT NULL,
+                    PRIMARY KEY(thread_or_message_id, idempotency_key))""")
+                # Pre-fix rows could only ever record destination == source (see F1).
+                db.execute("INSERT OR IGNORE INTO integration_handoffs(thread_or_message_id,idempotency_key,"
+                    "client_id,source_owner,destination_owner,payload_digest,result,created_at) SELECT "
+                    "thread_or_message_id,idempotency_key,client_id,workflow_owner,workflow_owner,payload_digest,"
+                    "result,created_at FROM integration_handoffs_pre_destinations ORDER BY rowid")
+                db.execute("DROP TABLE integration_handoffs_pre_destinations")
         os.chmod(self.path, 0o600)
 
     def _history(self, db, request_id, kind):
@@ -583,6 +610,21 @@ class Store:
             row = db.execute("SELECT * FROM integration_intents WHERE request_id=?", (request_id,)).fetchone()
             return dict(row) if row else None
 
+    def record_cancellation_tombstone(self, client_id, intent_id):
+        """Idempotent per (client_id, intent_id); a repeat cancel keeps the first timestamp."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("INSERT OR IGNORE INTO integration_cancellations(client_id,intent_id,created_at) "
+                "VALUES(?,?,?)", (client_id, intent_id, now()))
+            return dict(db.execute("SELECT * FROM integration_cancellations WHERE client_id=? AND "
+                "intent_id=?", (client_id, intent_id)).fetchone())
+
+    def cancellation_tombstone(self, client_id, intent_id):
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM integration_cancellations WHERE client_id=? AND "
+                "intent_id=?", (client_id, intent_id)).fetchone()
+            return dict(row) if row else None
+
     def record_stop(self, workflow_owner, contact_key, business_id, *, reason, source_kind, source_id=None):
         """Idempotent per contact/business: the first triggering owner is kept for attribution."""
         with self.connect() as db:
@@ -598,20 +640,73 @@ class Store:
             return db.execute("SELECT 1 FROM integration_stops WHERE contact_key=? AND "
                 "business_id=?", (contact_key, business_id)).fetchone() is not None
 
-    def begin_handoff(self, thread_or_message_id, idempotency_key, *, client_id, workflow_owner,
-            payload_digest, result):
-        """Idempotent on ``(thread_or_message_id, idempotency_key)``."""
+    def begin_handoff(self, thread_or_message_id, idempotency_key, *, client_id, source_owner,
+            destination_owner, payload_digest, result, mailboxes=(), business_ids=()):
+        """Idempotent on ``(thread_or_message_id, idempotency_key)``; a first-time
+        call must own the source, or reuse its own prior transfer (``_verify_handoff_source``)."""
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM integration_handoffs WHERE thread_or_message_id=? AND "
                 "idempotency_key=?", (thread_or_message_id, idempotency_key)).fetchone()
             if row:
                 return dict(row), False
-            db.execute("INSERT INTO integration_handoffs VALUES(?,?,?,?,?,?,?)",
-                (thread_or_message_id, idempotency_key, client_id, workflow_owner, payload_digest,
-                 json.dumps(result, sort_keys=True), now()))
+            reused = self._verify_handoff_source(db, thread_or_message_id, client_id, source_owner,
+                destination_owner, mailboxes, business_ids)
+            if reused is not None:
+                result = {**json.loads(reused["result"]), "already_transferred": True}
+            db.execute("INSERT INTO integration_handoffs VALUES(?,?,?,?,?,?,?,?)",
+                (thread_or_message_id, idempotency_key, client_id, source_owner, destination_owner,
+                 payload_digest, json.dumps(result, sort_keys=True), now()))
+            if reused is None and destination_owner != source_owner and mailboxes:
+                self._retarget_ownership(db, thread_or_message_id, destination_owner, mailboxes)
             return dict(db.execute("SELECT * FROM integration_handoffs WHERE thread_or_message_id=? AND "
                 "idempotency_key=?", (thread_or_message_id, idempotency_key)).fetchone()), True
+
+    def _verify_handoff_source(self, db, message_id, client_id, source_owner, destination_owner,
+            mailboxes, business_ids):
+        """Require every correlation row to already be owned by this client (directly and,
+        when resolvable, via its intent), or return this client's prior transfer row to the same destination."""
+        if not mailboxes:
+            raise HandoffTargetNotFound("Thread is not yet correlated to a cold-outreach reply")
+        placeholders = ",".join("?" for _ in mailboxes)
+        rows = db.execute(f"SELECT * FROM message_correlations WHERE message_id=? AND mailbox IN "
+            f"({placeholders}) AND workflow_owner IS NOT NULL", (message_id, *mailboxes)).fetchall()
+        if not rows:
+            raise HandoffTargetNotFound("Thread is not yet correlated to a cold-outreach reply")
+        if all(row["workflow_owner"] == source_owner for row in rows):
+            for row in rows:
+                self._verify_handoff_intent_owner(db, row, client_id, mailboxes, business_ids)
+            return None
+        if destination_owner != source_owner and all(row["workflow_owner"] == destination_owner for row in rows):
+            prior = db.execute("SELECT * FROM integration_handoffs WHERE thread_or_message_id=? AND "
+                "client_id=? AND destination_owner=? ORDER BY created_at LIMIT 1",
+                (message_id, client_id, destination_owner)).fetchone()
+            if prior is not None:
+                return prior
+        raise HandoffTargetForbidden("Thread is owned by a different workflow owner")
+
+    @staticmethod
+    def _verify_handoff_intent_owner(db, row, client_id, mailboxes, business_ids):
+        if not row["request_id"]:
+            return
+        intent = db.execute("SELECT client_id, mailbox, business_id FROM integration_intents "
+            "WHERE request_id=?", (row["request_id"],)).fetchone()
+        if intent is None:
+            return
+        if intent["client_id"] != client_id or intent["mailbox"] not in mailboxes:
+            raise HandoffTargetForbidden("Thread's originating intent belongs to a different client")
+        if business_ids and intent["business_id"] not in business_ids:
+            raise HandoffTargetForbidden("Thread's originating intent is outside this client's businesses")
+
+    def _retarget_ownership(self, db, message_id, destination_owner, mailboxes):
+        """Re-point an existing reply correlation's c_owner; bump revision so it re-syncs."""
+        placeholders = ",".join("?" for _ in mailboxes)
+        updated = db.execute(f"UPDATE message_correlations SET workflow_owner=? WHERE message_id=? AND "
+            f"workflow_owner IS NOT NULL AND mailbox IN ({placeholders}) RETURNING mailbox",
+            (destination_owner, message_id, *mailboxes)).fetchall()
+        for (mailbox,) in updated:
+            db.execute("UPDATE messages SET revision=? WHERE mailbox=? AND id=?",
+                (self.revision(db), mailbox, message_id))
 
     def correlate_replies(self, mailbox, business_id):
         """Annotate replies to a cold_outreach intent and record its stop, one transaction.
@@ -672,6 +767,10 @@ class Store:
                                 (contact, stop_business, workflow_owner, "reply_detected", "reply",
                                  message_id, now()))
                             break
+                if correlation_payload is not None:
+                    # Bump so a poller already past this row's old revision sees the reply again.
+                    db.execute("UPDATE messages SET revision=? WHERE mailbox=? AND id=?",
+                        (self.revision(db), mailbox, message_id))
                 db.execute("INSERT INTO message_correlations VALUES(?,?,?,?,?,?,?,?)",
                     (mailbox, message_id, int(is_sent_copy), workflow_owner, intent_id, matched_request_id,
                      json.dumps(correlation_payload) if correlation_payload else None, now()))

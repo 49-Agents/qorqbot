@@ -16,8 +16,8 @@ from .fastmail import ProviderError
 from .account import AccountAction, AccountMailService
 from .business import ATTACHMENT_PAGE_BYTES, BusinessMailService, parse_owned_ids
 from .models import MAX_HTTP_BYTES, HandoffRequest, HistoryEvent, IntentSubmission, Outgoing
-from .service import IntentConflict
-from .store import Store
+from .service import IntentCancelled, IntentConflict
+from .store import HandoffTargetForbidden, HandoffTargetNotFound, Store
 from .mailbox_settings import MailboxUpdate, configure, revisions as mailbox_revisions
 
 
@@ -284,6 +284,8 @@ def create_app(service, *, background=True):
             receipt = await anyio.to_thread.run_sync(lambda: service.submit_intent(client, submission))
             return JSONResponse(receipt, status_code=200 if receipt["state"] in
                 {"confirmed", "failed", "cancelled", "uncertain"} else 202)
+        except IntentCancelled:
+            return JSONResponse({"error": "intent_cancelled", "intent_id": submission.intent_id}, status_code=409)
         except IntentConflict:
             return JSONResponse({"error": "intent_conflict"}, status_code=409)
         except ValidationError as exc:
@@ -329,6 +331,10 @@ def create_app(service, *, background=True):
             return JSONResponse(result)
         except IntentConflict:
             return JSONResponse({"error": "handoff_conflict"}, status_code=409)
+        except HandoffTargetNotFound as exc:
+            return JSONResponse({"error": "handoff_target_not_found", "message": str(exc)}, status_code=404)
+        except HandoffTargetForbidden as exc:
+            return JSONResponse({"error": "handoff_target_forbidden", "message": str(exc)}, status_code=403)
         except ValueError as exc:
             return JSONResponse({"error": "invalid_handoff_request", "message": str(exc)}, status_code=400)
 

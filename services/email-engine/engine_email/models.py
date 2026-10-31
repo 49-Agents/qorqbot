@@ -222,6 +222,7 @@ class IntegrationClient(BaseModel):
     workflow_owner: str = Field(pattern=r"^[A-Za-z0-9_-]{1,60}$")
     allowed_mailboxes: list[str] = Field(min_length=1, max_length=100)
     business_ids: list[str] = Field(default_factory=list, max_length=200)
+    handoff_destinations: list[str] = Field(default_factory=list, max_length=100)
 
     @field_validator("secret")
     @classmethod
@@ -242,6 +243,13 @@ class IntegrationClient(BaseModel):
     def business_id_values(cls, values):
         if any(not re.fullmatch(r"[A-Za-z0-9_-]{1,120}", value) for value in values):
             raise ValueError("Invalid business ID")
+        return list(dict.fromkeys(values))
+
+    @field_validator("handoff_destinations")
+    @classmethod
+    def handoff_destination_values(cls, values):
+        if any(not re.fullmatch(r"[A-Za-z0-9_-]{1,60}", value) for value in values):
+            raise ValueError("Invalid handoff destination owner")
         return list(dict.fromkeys(values))
 
 
