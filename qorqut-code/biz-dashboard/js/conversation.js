@@ -182,7 +182,7 @@ function conversationMount(host,source,adapter={}) {
       else groups.push([note]);
     }
     const latestSystem=s.notes.findLast(note=>note.entry_kind==='system');
-    feed.innerHTML=groups.map(group=>{
+    feed.innerHTML=!groups.length?'<div class="conversation-system">No messages yet</div>':groups.map(group=>{
       const first=group[0],last=group.at(-1),time=`<time datetime="${esc(last.created_at)}" title="${esc(last.created_at)}">${esc(conversationAge(last.created_at))}</time>`;
       if(first.entry_kind==='system') return `<div class="conversation-system">${esc(first.body)}${first===latestSystem?time:''}</div>`;
       const owner=first.is_owner ?? (first.author_kind==='human');
