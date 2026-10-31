@@ -221,12 +221,19 @@ def yaml_set(path, updates):
         fh.write("\n".join(lines) + "\n")
 
 
+AGENT_ICON_RE = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
+
+
 def agent_meta(biz, name):
-    """department (and the icon/color it fixes) for one agent; unknown departments become general."""
+    """department (and the color it fixes) for one agent; unknown departments become general.
+    The icon is the agent's own pick from agent.yaml when it has one, the department's default otherwise."""
     y = yaml_scalars(read(os.path.join(biz, "agents", name, "agent.yaml")))
     dept = y.get("department")
     dept = dept if dept in DEPARTMENTS else "general"
     icon, color = DEPT_LOOK[dept]
+    custom = str(y.get("icon") or "")
+    if AGENT_ICON_RE.match(custom):
+        icon = custom
     return {"icon": icon, "color": color, "department": dept, "kind": y.get("kind") or ""}
 
 
@@ -2023,12 +2030,23 @@ class Handler(BaseHTTPRequestHandler):
                         or not os.path.isdir(os.path.join(biz, "agents", name))):
                     return self.send_json({"error": "no such agent"}, 400)
                 dept = str(body.get("department") or "")
-                if dept not in DEPARTMENTS:
-                    return self.send_json({"error": f"bad department: {dept}"}, 400)
-                icon, color = DEPT_LOOK[dept]
-                yaml_set(os.path.join(biz, "agents", name, "agent.yaml"),
-                         {"department": dept, "icon": icon, "color": color})
-                msg = f"agent({name}): set department={dept}"
+                icon = str(body.get("icon") or "")
+                if not dept and not icon:
+                    return self.send_json({"error": "nothing to set"}, 400)
+                sets, what = {}, []
+                if dept:
+                    if dept not in DEPARTMENTS:
+                        return self.send_json({"error": f"bad department: {dept}"}, 400)
+                    sets["department"] = dept
+                    sets["color"] = DEPT_LOOK[dept][1]
+                    what.append(f"department={dept}")
+                if icon:
+                    if not AGENT_ICON_RE.match(icon):
+                        return self.send_json({"error": f"bad icon: {icon}"}, 400)
+                    sets["icon"] = icon
+                    what.append(f"icon={icon}")
+                yaml_set(os.path.join(biz, "agents", name, "agent.yaml"), sets)
+                msg = f"agent({name}): set {' '.join(what)}"
                 rc, out = git_commit(biz, [f"agents/{name}/agent.yaml"], msg)
                 meta = agent_meta(biz, name)
                 return self.send_json(warned({"ok": True, **meta}, rc, out))
