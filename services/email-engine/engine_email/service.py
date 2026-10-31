@@ -52,8 +52,9 @@ class EmailService:
     def shared_sender_metadata(self):
         status = self.outlook_provider.status() if self.outlook_provider is not None else {"available": False}
         metadata = []
+        shared_quota = self.store.shared_quota()
         for sender in self.settings.shared_senders:
-            item = {**sender.model_dump(), "send_available": sender.enabled and (
+            item = {**sender.model_dump(), "shared_quota": shared_quota, "send_available": sender.enabled and (
                 sender.transport == "fastmail" or status.get("available") is True)}
             if sender.transport == "outlook_web":
                 collector = status.get("collector", {})
@@ -151,9 +152,9 @@ class EmailService:
         if self.expired(message):
             return Store.receipt(self.store.save_send(message.request_id, "failed",
                 result={"error": "approval_expired", "not_sent": True}))
-        if sender and row["transport"] == "outlook_web":
+        if sender and self.outlook_provider is not None:
             try:
-                refresh = getattr(self.outbound_provider(row), "refresh_quota", None)
+                refresh = getattr(self.outlook_provider, "refresh_quota", None)
                 if refresh is not None:
                     refresh()
             except Exception as exc:

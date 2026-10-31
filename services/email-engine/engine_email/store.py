@@ -8,6 +8,9 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 
+SHARED_ROLLING_LIMIT = 150
+
+
 def now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -243,8 +246,64 @@ class Store:
             self._history(db, message.request_id, "send.prepared")
             return dict(db.execute("SELECT * FROM sends WHERE request_id=?", (message.request_id,)).fetchone()), True
 
+    @staticmethod
+    def quota_usage(db, cutoff, account_ref=None):
+        # Keep removed/disabled accounts in the aggregate until their usage expires.
+        used = db.execute("SELECT * FROM sender_reservations WHERE "
+            "(state='reserved' OR (state='sent' AND used_at>?))" +
+            (" AND account_ref=?" if account_ref is not None else ""),
+            (cutoff, account_ref) if account_ref is not None else (cutoff,)).fetchall()
+        native_ids, internet_ids = set(), set()
+        for item in used:
+            saved = db.execute("SELECT * FROM sends WHERE request_id=? AND transport='outlook_web'",
+                (item["request_id"],)).fetchone()
+            if saved:
+                result = json.loads(saved["result"])
+                account = item["account_ref"]
+                native_ids.update((account, value) for value in
+                    (saved["draft_id"], result.get("outlook_message_id")) if value)
+                for value in (saved["draft_internet_message_id"], result.get("internet_message_id"), result.get("native_internet_message_id")):
+                    if value:
+                        internet_ids.add((account, value.strip("<> ")))
+        observed = []
+        for item in db.execute("SELECT * FROM external_sender_sends WHERE sent_at>?" +
+                (" AND account_ref=?" if account_ref is not None else "") + " ORDER BY sent_at DESC",
+                (cutoff, account_ref) if account_ref is not None else (cutoff,)):
+            native = (item["account_ref"], item["provider_id"])
+            internet = (item["account_ref"], item["internet_message_id"])
+            if native in native_ids or item["internet_message_id"] and internet in internet_ids:
+                continue
+            observed.append(item)
+            if item["internet_message_id"]:
+                internet_ids.add(internet)
+        return used, observed
+
+    @staticmethod
+    def quota_retry(used, observed, limit):
+        releases = sorted([
+            *(datetime.fromisoformat(item["used_at"]) + timedelta(hours=24)
+                for item in used if item["state"] == "sent"),
+            *(datetime.fromisoformat(item["sent_at"]) + timedelta(hours=24) for item in observed)])
+        needed = len(used) + len(observed) - limit + 1
+        return releases[needed - 1].isoformat() if len(releases) >= needed else None
+
+    def shared_quota(self):
+        instant = now()
+        cutoff = (datetime.fromisoformat(instant) - timedelta(hours=24)).isoformat()
+        with self.connect() as db:
+            db.execute("BEGIN")
+            used, observed = self.quota_usage(db, cutoff)
+            queued = db.execute("SELECT COUNT(*) FROM sends WHERE state='queued' AND "
+                "json_extract(payload,'$.sender_ref') IS NOT NULL").fetchone()[0]
+        count = len(used) + len(observed)
+        return {"limit": SHARED_ROLLING_LIMIT, "window_hours": 24,
+            "scope": "all_shared_senders", "used": count,
+            "reserved": sum(item["state"] == "reserved" for item in used),
+            "observed_external": len(observed), "remaining": max(0, SHARED_ROLLING_LIMIT - count),
+            "queued": queued, "as_of": instant, "external_usage": "last_observed"}
+
     def reserve(self, request_id, sender):
-        """Atomically claim one account slot; unresolved reservations never age out."""
+        """Atomically claim both account and installation capacity, once per send."""
         instant = now()
         cutoff = (datetime.fromisoformat(instant) - timedelta(hours=24)).isoformat()
         with self.connect() as db:
@@ -256,37 +315,18 @@ class Store:
             if existing:
                 if existing["account_ref"] != sender.account_ref or existing["state"] != "reserved":
                     raise ValueError("Invalid sender reservation")
+            # One write transaction protects the aggregate across service/store instances.
+            for account, limit, reason in ((None, SHARED_ROLLING_LIMIT, "shared_sender_quota"),
+                    (sender.account_ref, sender.rolling_limit, "sender_quota")):
+                used, observed = self.quota_usage(db, cutoff, account)
+                admission_limit = limit + (1 if existing else 0)
+                if len(used) + len(observed) >= admission_limit:
+                    result = {"reason": reason, "retry_at": self.quota_retry(used, observed, admission_limit)}
+                    db.execute("UPDATE sends SET result=?,updated_at=? WHERE request_id=?",
+                        (json.dumps(result), instant, request_id))
+                    return False, dict(db.execute("SELECT * FROM sends WHERE request_id=?", (request_id,)).fetchone())
+            if existing:
                 return True, dict(row)
-            used = db.execute("SELECT * FROM sender_reservations WHERE account_ref=? AND (state='reserved' OR (state='sent' AND used_at>?))",
-                (sender.account_ref, cutoff)).fetchall()
-            native_ids, internet_ids = set(), set()
-            for item in used:
-                saved = db.execute("SELECT * FROM sends WHERE request_id=? AND transport='outlook_web'",
-                    (item["request_id"],)).fetchone()
-                if saved:
-                    result = json.loads(saved["result"])
-                    native_ids.update(value for value in (saved["draft_id"], result.get("outlook_message_id")) if value)
-                    for value in (saved["draft_internet_message_id"], result.get("internet_message_id"), result.get("native_internet_message_id")):
-                        if value:
-                            internet_ids.add(value.strip("<> "))
-            observed = []
-            for item in db.execute("SELECT * FROM external_sender_sends WHERE account_ref=? AND sent_at>? ORDER BY sent_at DESC",
-                    (sender.account_ref, cutoff)):
-                if item["provider_id"] in native_ids or item["internet_message_id"] and item["internet_message_id"] in internet_ids:
-                    continue
-                observed.append(item)
-                if item["internet_message_id"]:
-                    internet_ids.add(item["internet_message_id"])
-            if len(used) + len(observed) >= sender.rolling_limit:
-                releases = sorted([
-                    *(datetime.fromisoformat(item["used_at"]) + timedelta(hours=24)
-                        for item in used if item["state"] == "sent"),
-                    *(datetime.fromisoformat(item["sent_at"]) + timedelta(hours=24) for item in observed)])
-                needed = len(used) + len(observed) - sender.rolling_limit + 1
-                retry = releases[needed - 1].isoformat() if len(releases) >= needed else None
-                db.execute("UPDATE sends SET result=?,updated_at=? WHERE request_id=?",
-                    (json.dumps({"reason": "sender_quota", "retry_at": retry}), instant, request_id))
-                return False, dict(db.execute("SELECT * FROM sends WHERE request_id=?", (request_id,)).fetchone())
             db.execute("INSERT INTO sender_reservations VALUES(?,?,'reserved',?)", (request_id, sender.account_ref, instant))
             db.execute("UPDATE sends SET state=CASE WHEN state='queued' THEN 'creating' ELSE state END,result='{}',updated_at=? WHERE request_id=?",
                 (instant, request_id))
