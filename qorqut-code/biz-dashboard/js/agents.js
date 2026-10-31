@@ -85,6 +85,18 @@ async function renderAgents(c) {
   agpadMount(a.name, $("#agpad"));
 }
 
+function selectAgent(name) {
+  if (state.tab !== 'agents' || name === state.agent) return;
+  const agent = state.agents.find(item => item.name === name);
+  const chat = $('#chat'), pane = $('#agpad');
+  if (!agent || !chat || !pane) return;
+  agRenderGen++;
+  agSetSel(name);
+  document.querySelectorAll('#agentrows .agent').forEach(row => row.classList.toggle('on', row.dataset.a === name));
+  mountTerminal(name, chat, status => markTermState(name, status));
+  agpadMount(name, pane);
+}
+
 // reflect a terminal's live/ended state on its row in the agent list, without a refetch
 function markTermState(name, stat) {
   const running = stat === "live";
@@ -309,7 +321,7 @@ function paintList() {
     : "";
   rows.innerHTML = html;
 
-  rows.querySelectorAll(".agent").forEach(d => d.onclick = () => { agSetSel(d.dataset.a); renderAgents($("#content")); });
+  rows.querySelectorAll(".agent").forEach(d => d.onclick = () => selectAgent(d.dataset.a));
 
   $('#agent-group-mode').onchange = event => { ls('aggroup:'+state.biz,event.target.value); paintList(); };
   if (grouped) {

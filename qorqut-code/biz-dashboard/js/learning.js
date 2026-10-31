@@ -242,13 +242,14 @@ function lnCardHtml(item, people) {
   const source = ev.source;
   const stamp = source ? [String(source.kind).replaceAll('_', ' '), source.actor_name, lnSourceAge(source.at)].filter(Boolean).join(' · ') : [(ev.turns || []).join(" "), lnWho(obs.agent), String(ev.session || "").slice(0, 8)].filter(Boolean).join(" · ");
   const conflict = it.contradicts?.length ? `<p class="lnpending">Possible conflict with ${it.contradicts.length} related learning${it.contradicts.length === 1 ? '' : 's'}.</p>` : '';
-  const sourceButton = `${lnReconciliationHtml(it)}${conflict}<button type="button" class="mka" data-act="source">View source${it.contradicts?.length ? ' and conflicting lessons' : ''}</button>`;
+  const sourceInfo = `${lnReconciliationHtml(it)}${conflict}`;
+  const sourceButton = `<button type="button" class="mka" data-act="source">Source${it.contradicts?.length ? ' & conflicts' : ''}</button>`;
   const quote = ev.owner_quote ? `<div class="lnquote">“${esc(ev.owner_quote)}”<span class="src">${esc(stamp)}</span></div>` : "";
   const more = Array.isArray(it.evidence_more) ? it.evidence_more.filter(e => e && e.owner_quote) : [];
-  const moreEv = more.length ? `<details class="mkchain"><summary>seen ${more.length} more time${more.length === 1 ? "" : "s"}</summary>${more.map(e =>
+  const moreEv = more.length ? `<details class="mkchain"><summary title="Seen ${more.length} more time${more.length === 1 ? '' : 's'}">+${more.length} repeat${more.length === 1 ? "" : "s"}</summary>${more.map(e =>
     `<div class="lnquote">“${esc(e.owner_quote)}”<span class="src">${esc([(e.turns || []).join(" "), String(e.session || "").slice(0, 8)].filter(Boolean).join(" · "))}</span></div>`).join("")}</details>` : "";
   const vs = Array.isArray(it.variants) ? it.variants : [];
-  const variants = vs.length ? `<details class="mkchain"><summary>${esc(it.passes || vs.length)} passes, ${vs.length} wording${vs.length === 1 ? "" : "s"}</summary>${vs.map(vr =>
+  const variants = vs.length ? `<details class="mkchain"><summary>${esc(it.passes || vs.length)} passes · ${vs.length} wording${vs.length === 1 ? "" : "s"}</summary>${vs.map(vr =>
     `<div class="lnvar"><div class="vt">${esc(vr.text || "")}</div><div class="vm">${esc(vr.scope || "")} · ${esc(vr.confidence != null ? vr.confidence : "?")}</div></div>`).join("")}</details>` : "";
   if (!lnOpenItem(it)) {
     const st = String(it.state), note = lnNote(it);
@@ -258,7 +259,7 @@ function lnCardHtml(item, people) {
       <div class="mkhead"><span class="lnball" title="${esc(st)}"></span>${pill ? `<span class="lnstate">${esc(pill)}</span>` : ""}<span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span>${scopeIco}${bucketIco}${touches}<span class="sp"></span><span class="ago">${esc(lnRel((it.decision || {}).created || it.created))}</span></div>
       <div class="mkt">${esc(it.text || "")}</div>
       ${note ? `<div class="lnwhy"><span class="lnnotelabel">Owner note</span>${esc(note)}</div>` : ""}
-      ${quote}${sourceButton}${it.agent_note ? `<div class="lnagentnote"><span class="lnnotelabel">Agent note</span>${esc(it.agent_note)}</div>` : ""}
+      ${quote}${sourceInfo}<div class="ln-evidence-tools">${sourceButton}</div>${it.agent_note ? `<div class="lnagentnote"><span class="lnnotelabel">Agent note</span>${esc(it.agent_note)}</div>` : ""}
       ${!it.intake_pending ? `<details class="lnowneredit"><summary>Edit owner note</summary><textarea class="lnnote" spellcheck="false">${esc(_ln.notes[it.id] ?? note)}</textarea><button class="mka" type="button" data-act="save-note">Save owner note</button></details>` : ""}
       <div class="mkfoot"><span class="lnpending">${esc(pending)}</span><div class="mkacts">
         ${it.intake_pending ? `<button class="mka" type="button" data-act="resume-intake">Resume handoff</button>` : ""}
@@ -271,7 +272,7 @@ function lnCardHtml(item, people) {
     <div class="mkhead"><span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span><span class="lnpick">${pick}</span>${bucketIco}${touches}
       <span class="who">${esc(lnWho(obs.agent))}</span><span class="sp"></span>${votes}<span class="ago">${esc(lnRel(it.created))}</span></div>
     <div class="mkt">${esc(it.text || "")}</div>
-    ${quote}${sourceButton}${moreEv}${variants}${noteBox}
+    ${quote}${sourceInfo}<div class="ln-evidence-tools">${sourceButton}${moreEv}${variants}</div>${noteBox}
     ${it.agent_note ? `<div class="lnagentnote"><span class="lnnotelabel">Agent note</span>${esc(it.agent_note)}</div>` : ""}
     <div class="mkfoot"><div class="mklinks"></div><div class="mkacts">
       ${it.intake_pending ? `<span class="lnpending">Context handoff interrupted</span><button class="mka" type="button" data-act="resume-intake">Resume handoff</button>` : `<button class="mka reject" type="button" data-act="reject">Reject</button>
