@@ -164,7 +164,7 @@ class SharedSender(BaseModel):
     writing_instructions: str = Field(default="", max_length=10_000)
     required_footer: str = Field(default="", max_length=2000)
     enabled: bool = False
-    rolling_limit: int = Field(default=30, ge=1, le=10000)
+    rolling_limit: int = Field(default=250, ge=1, le=10000)
 
     _address = field_validator("address")(address)
     _name = field_validator("from_name")(header)
