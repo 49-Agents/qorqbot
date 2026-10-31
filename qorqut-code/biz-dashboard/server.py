@@ -28,6 +28,8 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import journal
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1942,6 +1944,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not UPLOAD_ID_RE.match(did):
                     return self.send_json({"error": "bad upload id"}, 400)
                 return self.send_json(context_map_view(biz, did))
+            if what == "journal" and len(parts) == 3:
+                return self.send_json(journal.list_memos(biz))
             if what == "live":
                 try:
                     reqs, rerr = requests_rows(biz), None
@@ -2013,6 +2017,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.agent_create(biz, body)
             if parts[3] == "compact" and len(parts) == 4:
                 return self.compact(biz, body)
+            if parts[3] == "journal" and len(parts) in (4, 5, 6):
+                return self.journal_post(biz, parts[4:], body)
             if parts[3] == "context" and len(parts) == 5:
                 if parts[4] == "upload":
                     return self.context_upload(biz, body)
@@ -2172,6 +2178,53 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(r, dict) or r.get("error"):
             return self.send_json({"error": (r or {}).get("error") or "bizlog label failed"}, 500)
         return self.send_json({"ok": True, "id": lid, "labels": r})
+
+    def journal_post(self, biz, sub, body):
+        """POST /biz/<b>/journal[/<id>[/delete|upload]] — create, update, delete, or push a memo
+        through the context pipeline. Uploading is always manual (the button), never a side effect
+        of saving; it records uploaded/upload_id on the memo so the journal can show what went in."""
+        if not sub:
+            row, p = journal.create(biz, body)
+            if not row:
+                return self.send_json({"error": "could not allocate a memo id"}, 500)
+            rc, out = git_commit(biz, [p], f"journal({row['id']}): create")
+            return self.send_json(warned(row, rc, out))
+        mid = sub[0]
+        if not journal.JR_ID_RE.match(mid):
+            return self.send_json({"error": "bad memo id"}, 400)
+        if len(sub) == 1:
+            row, p = journal.update(biz, mid, body)
+            if row is None:
+                return self.send_json({"error": "no such memo"}, 404)
+            if "error" in row:
+                return self.send_json(row, 400)
+            rc, out = git_commit(biz, [p], f"journal({mid}): update")
+            return self.send_json(warned(row, rc, out))
+        if sub[1] == "delete":
+            p = journal.delete(biz, mid)
+            if not p:
+                return self.send_json({"error": "no such memo"}, 404)
+            rc, out = git_commit(biz, [p], f"journal({mid}): delete")
+            return self.send_json(warned({"ok": True}, rc, out))
+        if sub[1] == "upload":
+            row = journal.get(biz, mid)
+            if not row:
+                return self.send_json({"error": "no such memo"}, 404)
+            text = (row["content"] or "").strip()
+            if not text:
+                return self.send_json({"error": "empty memo; nothing to upload"}, 400)
+            args = ["dump", "--notes", f"journal {mid}"[:300]]
+            title = (row["title"] or "").strip()
+            if title:
+                args += ["--topic", title[:120]]
+            r = run_json(biz, "bizctx", *args, stdin=text)
+            if "error" in r:
+                return self.send_json(r, 500)
+            FILER.kick()
+            row2, p = journal.mark_uploaded(biz, mid, r["id"])
+            rc, out = git_commit(biz, [p], f"journal({mid}): uploaded to context as {r['id']}")
+            return self.send_json(warned(row2, rc, out))
+        return self.send_json({"error": "not found"}, 404)
 
     def context_upload(self, biz, body):
         text = str(body.get("text") or "").strip()
