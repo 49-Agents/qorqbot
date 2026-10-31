@@ -175,11 +175,18 @@ function agpadTick() {
 // Activity and Signoffs refresh every 12 seconds only while their pane view is visible.
 setInterval(agpadTick, 1000);
 
-function agpadWatcherAge(at) {
+function agpadInboxAge(at, unavailable = 'Time unavailable') {
   const checked = Date.parse(at);
-  if (!Number.isFinite(checked)) return 'Last check unavailable';
+  if (!Number.isFinite(checked)) return unavailable;
   const minutes = Math.max(0, Math.floor((Date.now() - checked) / 60000));
-  return `Last check: ${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  const [amount, unit] = minutes >= 1440 ? [Math.floor(minutes / 1440), 'day']
+    : minutes >= 60 ? [Math.floor(minutes / 60), 'hour'] : [minutes, 'minute'];
+  return `${amount} ${unit}${amount === 1 ? '' : 's'} ago`;
+}
+
+function agpadWatcherAge(at) {
+  const age = agpadInboxAge(at, '');
+  return age ? `Last check: ${age}` : 'Last check unavailable';
 }
 
 function agpadPaintInbox(p) {
@@ -188,11 +195,11 @@ function agpadPaintInbox(p) {
   const error = p.inboxError ? '<p class="agpad-inbox-status" role="alert">Inbox unavailable. Retrying…</p>' : '';
   const agentId = p.agentId || state.agents.find(agent => agent.name === p.agent)?.agent_id;
   const card = (item, subscription = false) => item.message ? `<details class="agpad-inbox-item agpad-message">
-    <summary><strong>Message from ${esc(item.message.sender_name)}</strong><span>${esc(new Date(item.created_at).toLocaleString())}${item.message.reply_to ? ' · Reply' : ''}</span></summary>
+    <summary><strong>Message from ${esc(item.message.sender_name)}</strong><span>${esc(agpadInboxAge(item.created_at))}${item.message.reply_to ? ' · Reply' : ''}</span></summary>
     <div class="agpad-message-body">${esc(item.message.body)}</div>
     <span>To ${esc(item.message.recipient_name)}</span></details>` : `<button type="button" class="agpad-inbox-item" data-agent-id="${esc(agentId || '')}" data-inbox-source="${esc(item.source_id)}" data-source-type="${esc(item.source_type)}" data-business="${esc(item.business_slug || '')}">
     <strong>${esc(item.summary || 'Source item')}</strong><span>${esc(({stories:'Story',tasks:'Task',signoffs:'Signoff',documents:'Document',email_conversations:'Email',data_tables:'Table',action_logs:'Action',requests:'Request',agent_profiles:'Agent',principals:'Person',context_entities:'Reference'})[item.source_type] || 'Update')}${subscription ? (item.include_related ? ' · Includes linked items' : ' · Item only') : ' · ' + esc(item.event_type.split(',').map(type => ({relationship_changed:'Links changed',assignment_changed:'Assignment changed',response_submitted:'Response submitted',action_outcome:'Action result',note_added:'Note added',note:'Note added',message_changed:'Message received'})[type] || type.replaceAll('_', ' ')).join(', '))}</span>
-    ${subscription ? '' : `<span>${esc(item.actor_name)} · ${esc(new Date(item.created_at).toLocaleString())}</span>`}</button>`;
+    ${subscription ? '' : `<span>${esc(item.actor_name)} · ${esc(agpadInboxAge(item.created_at))}</span>`}</button>`;
   const html = error + (!data ? tEmptyHtml(p.inboxError ? 'No inbox data available.' : 'Loading inbox…') :
     `<div class="agpad-inbox-status"><span class="agpad-watcher-dot${data.watcher_active ? ' connected' : ''}" role="img" aria-label="${data.watcher_active ? 'Watcher connected' : data.watcher ? 'Watcher disconnected' : 'Watcher not started'}" title="${data.watcher_active ? 'Watcher connected' : data.watcher ? 'Watcher disconnected' : 'Watcher not started'}"></span><span>${data.watcher ? esc(agpadWatcherAge(data.watcher.last_check_at)) : 'Claude must start its inbox watcher.'}</span></div>
     <h3 class="agpad-inbox-heading">Pending updates</h3>${data.items.length ? data.items.map(item => card(item)).join('') : tEmptyHtml('No accessible pending updates.')}
