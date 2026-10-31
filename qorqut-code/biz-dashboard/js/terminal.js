@@ -62,12 +62,17 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
   const fit = () => {
     if (_term !== term || !host.isConnected) return; // a queued fit can outlive a tab/agent switch
     const { w, h } = cell();
-    // `.termhost` includes its own padding in clientWidth/clientHeight, while the
-    // xterm surface occupies the content box inside it. Measure that surface so the
-    // PTY never gets more columns or rows than the visible terminal can render.
-    const viewport = host.querySelector(".xterm");
-    const width = viewport ? viewport.clientWidth : host.clientWidth;
-    const height = viewport ? viewport.clientHeight : host.clientHeight;
+    // `.termhost` includes its own padding in clientWidth/clientHeight. Measure its
+    // content box, including the native xterm scrollbar gutter, so the PTY never
+    // gets more columns or rows than the visible terminal can render.
+    const style = typeof getComputedStyle === "function"
+      ? getComputedStyle(host)
+      : { paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0 };
+    const viewport = host.querySelector(".xterm-viewport");
+    const px = value => Number.parseFloat(value) || 0;
+    const gutter = viewport ? Math.max(0, viewport.offsetWidth - viewport.clientWidth) : 0;
+    const width = Math.max(0, host.clientWidth - px(style.paddingLeft) - px(style.paddingRight) - gutter);
+    const height = Math.max(0, host.clientHeight - px(style.paddingTop) - px(style.paddingBottom));
     const cols = Math.max(20, Math.floor(width / w));
     const rows = Math.max(6, Math.floor(height / h));
     if (cols !== term.cols || rows !== term.rows) {
