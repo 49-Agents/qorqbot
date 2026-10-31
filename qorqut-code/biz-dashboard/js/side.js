@@ -13,7 +13,9 @@ async function refreshSide() {
   if (logEl) { logEl.innerHTML = rows.length ? logHtml(rows) : `<div class="empty">Nothing logged yet.</div>`; logTips(logEl, rows); }
   logToasts(state.biz, rows);
   const running = (Array.isArray(live) ? live : []).filter(s => !s.done);
-  $("#foot").innerHTML = running.length ? `<span class="dot on"></span>${running.length} session${running.length === 1 ? "" : "s"} running` : "quiet";
+  const f = $("#foot");
+  f.innerHTML = running.length ? `<span class="dot on"></span>` : `<span class="dot"></span>`;
+  f.title = running.length ? `${running.length} session${running.length === 1 ? "" : "s"} running` : "quiet";
 }
 
 // The log rows (stroke look): a department-coloured stroke, the summary in one line, time + actor under it,

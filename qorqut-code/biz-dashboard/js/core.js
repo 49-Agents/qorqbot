@@ -231,26 +231,34 @@ async function loadBiz() {
   if (!state.biz && state.bizs.length) selectBiz(location.hash.slice(1) || state.bizs[0].slug);
 }
 function paintBiz() {
-  const el = $("#bizlist");
-  el.innerHTML = state.bizs.map(b => {
-    const m = b.agent_meta || {};
-    return `<a class="biz ${b.slug === state.biz ? "on" : ""}" href="#${b.slug}" data-slug="${esc(b.slug)}">
-      <div class="name">${esc(b.name)}</div><div class="meta">${esc(b.stage || "")} · ${b.agents.length} agent${b.agents.length === 1 ? "" : "s"}</div>
-      ${b.agents.length ? `<div class="gr">${b.agents.map(n => agentGlyph(m[n], 8)).join("")}</div>` : ""}</a>`;
-  }).join("") || `<div class="empty" style="padding:0 22px">No business repos under the root.</div>`;
-  el.querySelectorAll(".biz").forEach(a => a.onclick = e => { e.preventDefault(); selectBiz(a.dataset.slug); });
+  const b = state.bizs.find(x => x.slug === state.biz);
+  $("#wsletter").textContent = b && b.name ? b.name.charAt(0).toUpperCase() : "·";
+  $("#wsbtn").title = b ? b.name : "Businesses";
 }
 function selectBiz(slug) {
   const b = state.bizs.find(x => x.slug === slug); if (!b) return;
   state.biz = slug; state.agent = b.agents[0] || null; state.ctx = null; location.hash = slug;
-  document.querySelectorAll(".biz").forEach(a => a.classList.toggle("on", a.dataset.slug === slug));
+  paintBiz();
   renderTab(); refreshSide();
 }
-document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+$("#wsbtn").onclick = () => dropdown($("#wsbtn"), state.bizs.map(b => ({
+  value: b.slug,
+  html: `${esc(b.name)} <span class="muted small">${b.agents.length}</span>`,
+})), slug => selectBiz(slug), state.biz);
+document.querySelectorAll(".ritem").forEach(t => t.onclick = () => {
   state.tab = t.dataset.tab; ls("tab", state.tab);
-  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t)); renderTab();
+  document.querySelectorAll(".ritem").forEach(x => x.classList.toggle("on", x === t));
+  renderTab(); moveInd();
 });
-document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === state.tab));
+document.querySelectorAll(".ritem").forEach(t => t.classList.toggle("on", t.dataset.tab === state.tab));
+moveInd();
+window.addEventListener("resize", moveInd);
+function moveInd() {
+  const on = document.querySelector(".ritem.on"), ind = $("#rind");
+  if (!on || !ind) return;
+  ind.hidden = false;
+  ind.style.transform = `translateY(${on.offsetTop - ind.offsetTop}px)`;
+}
 
 function renderTab() {
   const c = $("#content"); c.innerHTML = "";
