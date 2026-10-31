@@ -68,12 +68,8 @@
 
 /* -- send row */
 .up .upact { display: flex; align-items: center; gap: 14px; padding: 20px 32px 8px; }
-.up .upsend {
-  height: 36px; padding: 0 18px; border: 0; border-radius: var(--r-full); background: var(--accent); color: var(--bg);
-  font: 600 13px var(--sans); cursor: pointer; transition: opacity .15s ease, transform .1s ease;
-}
-.up .upsend:hover { opacity: .92; }
-.up .upsend:disabled { opacity: .35; cursor: default; transform: none; }
+/* the send button is app.css's pill (see the `button` rule there); only its width differs */
+.up .upsend { padding: 0 18px; }
 .up .uperr { font-size: 12.5px; color: var(--danger); }
 
 /* -- this session's results */

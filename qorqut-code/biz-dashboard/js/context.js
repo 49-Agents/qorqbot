@@ -57,7 +57,7 @@ async function renderContext(c) {
   const d = await api(`/biz/${state.biz}/context`);
   c.innerHTML = `<div class="ctxwrap">
     <div class="split ctxsplit"><div class="listcol ctxtree" id="ctxtree">
-      <div class="ctop"><button class="primary" id="ctxup">Upload context</button><input type="search" id="ctxsearch" placeholder="Search context" autocomplete="off"></div>
+      <div class="ctop"><button class="primary" id="ctxup">${ICO_UPLOAD}Upload context</button><input type="search" id="ctxsearch" placeholder="Search context" autocomplete="off"></div>
       <div class="crows" id="ctxrows"></div>
       <div class="cfoot" id="ctxq"></div>
     </div><div class="pane ctxview" id="ctxview"></div></div></div>`;
@@ -500,7 +500,7 @@ function uploadModal() {
     },
     actions: [
       { label: "Cancel", onClick: close => close() },
-      { label: "Upload", primary: true, onClick: async (close, el) => {
+      { label: "Upload", icon: ICO_UPLOAD, primary: true, onClick: async (close, el) => {
         const err = el.querySelector("#uperr"), text = el.querySelector("#uptext").value.trim();
         const fail = t => { err.hidden = false; err.textContent = t; };
         if (!text) return fail("nothing to upload");

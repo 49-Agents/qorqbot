@@ -111,7 +111,7 @@ function upFormHtml() {
     <div class="upf"><label class="upl" for="uptopic">Topic <span class="opt">optional</span></label><input class="upinp" id="uptopic" list="uptopics" placeholder="existing topic, or a new one" autocomplete="off" value="${esc(f.topic)}"><datalist id="uptopics">${upTopics.map(t => `<option value="${esc(t)}">`).join("")}</datalist></div>
     <div class="upf${media ? "" : " off"}" id="upgroupf"><span class="upl">Destination</span><div class="upgroups">${UP_GROUPS.map(([k, l, d]) => `<label class="upg${f.group === k ? " on" : ""}" title="${esc(d)}"><input type="radio" name="upgroup" value="${k}"${f.group === k ? " checked" : ""} hidden>${l}</label>`).join("")}</div></div>
   </div>
-  <div class="upact"><button class="upsend" id="upsend" type="button"${mode === "empty" || upBusy ? " disabled" : ""}>${esc(upSendLabel(f, upBusy))}</button><span class="uperr" id="uperr" hidden></span></div>`;
+  <div class="upact"><button class="upsend" id="upsend" type="button"${mode === "empty" || upBusy ? " disabled" : ""}>${ICO_UPLOAD}<span id="upsendlbl">${esc(upSendLabel(f, upBusy))}</span></button><span class="uperr" id="uperr" hidden></span></div>`;
 }
 function upThumbHtml(x, i) {
   const k = upKind(x.file), url = x.url || "";
@@ -127,7 +127,9 @@ function upDoneHtml() {
 function upPatch() {
   const f = upForm, mode = upMode(f);
   const h = $("#uphint"); if (h) h.textContent = upHint(f);
-  const s = $("#upsend"); if (s) { s.textContent = upSendLabel(f, upBusy); s.disabled = mode === "empty" || upBusy; }
+  const s = $("#upsend"), sl = $("#upsendlbl");
+  if (sl) sl.textContent = upSendLabel(f, upBusy);
+  if (s) s.disabled = mode === "empty" || upBusy;
   const c = $("#upclear"); if (c) c.hidden = mode === "empty";
 }
 
@@ -205,7 +207,7 @@ async function upSubmit(fail) {
       const batch = upBatchId(), topic = upTopicSlug(f.topic), n = f.files.length;
       let okN = 0;
       for (let i = 0; i < n; i++) {
-        const x = f.files[i], b = $("#upsend"); if (b) b.textContent = `Uploading ${i + 1}/${n}…`;
+        const x = f.files[i], b = $("#upsendlbl"); if (b) b.textContent = `Uploading ${i + 1}/${n}…`;
         const r = await upSendFile(biz, x.file, { group: f.group, topic, notes: f.notes, batch });
         const ok = !!(r && !r.error);
         if (ok) okN++;
