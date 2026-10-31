@@ -95,7 +95,9 @@
 /* No chrome: the mirror fills the pane to the bottom. One floating button reconnects a
    broken stream (top-right, turns red on drop); all other control is done in the shell. */
 .chat.termmode { padding: 0; }
-.termpane { position: relative; flex: 1; min-height: 0; display: flex; background: #0b0e14; }
+/* right inset so the text doesn't run to the very edge; padding on the wrapper shrinks the
+   host, so the measured-cell fit math stays exact (cols follow the reduced width). */
+.termpane { position: relative; flex: 1; min-height: 0; display: flex; background: #0b0e14; padding-right: 18px; }
 .termhost { flex: 1; min-height: 0; width: 100%; box-sizing: border-box; padding: 0; overflow: hidden; }
 .tref { position: absolute; top: 8px; right: 14px; z-index: 5; width: 26px; height: 26px; padding: 0; line-height: 1;
   display: inline-flex; align-items: center; justify-content: center; font-size: 14px;
