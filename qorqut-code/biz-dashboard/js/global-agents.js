@@ -19,11 +19,12 @@ async function renderGlobalAgents(c) {
   }
   if (!current()) return;
   c.innerHTML = `<div class="split global-agents agsplit">
-    <div class="listcol"><div class="ctop"><div class="global-eyebrow">Global</div><div class="agent-nav-heading"><h1>Agents</h1>${broadcastButton()}</div></div><div class="crows" id="global-agent-list"></div></div>
+    <div class="listcol"><div class="ctop"><div class="global-eyebrow">Global</div><div class="agent-nav-heading"><h1>Agents</h1><span class="agent-nav-actions">${broadcastButton()}${agentNavButton()}</span></div></div><div class="crows" id="global-agent-list"></div></div>
     <section class="global-agent-session" aria-label="Agent session"><div class="chat termmode" id="global-agent-terminal"></div></section>
     <aside class="tasks agpad" id="agpad" aria-label="Agent pane"></aside>
   </div>`;
   wireBroadcastButton(c, {scope:'global'});
+  wireAgentNavToggle(c, 'global');
   const list = $('#global-agent-list', c), pane = $('#global-agent-terminal', c);
   list.innerHTML = `<button class="item agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}">
     <span class="nm">${GLOBAL_TERMINAL_ICON}<span class="tt">Terminal</span></span>

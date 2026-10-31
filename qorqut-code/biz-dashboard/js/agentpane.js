@@ -35,6 +35,8 @@ function agpadActive(p) {
 }
 
 function agpadMount(name, el, options = {}) {
+  _agpad?.focusDetail?.dispose?.();
+  if (_agpad) _agpad.focusDetail = null;
   const p = _agpad = {
     biz: state.biz, agent: name, el, open: !!name && ls(`agpad:${state.biz}`) !== "off",
     view: "tasks",
@@ -66,6 +68,8 @@ function agpadMount(name, el, options = {}) {
 
 function agpadSetView(p, view) {
   if (_agpad !== p || !p.views.includes(view)) return;
+  p.focusDetail?.dispose?.();
+  p.focusDetail = null;
   const from = p.view;
   p.view = view;
   p.bodyHtml = null;

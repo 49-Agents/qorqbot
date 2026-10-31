@@ -1,25 +1,46 @@
-/* Focus uses the existing pane, surfaces and type scale. */
-.agfocus-controls{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:14px 0}
-.agfocus-controls label{display:inline-flex;align-items:center;gap:6px;color:var(--fg-2);font-size:12px}
-.agfocus-card{padding:14px;margin:10px 0}
-.agfocus-card h3{font-size:15px;font-weight:600;line-height:1.4;margin:7px 0}
-.agfocus-card .agfocus-reason{color:var(--fg-2);font-size:13px;line-height:1.55}
-.agfocus-framing{display:grid;gap:10px;margin:12px 0}
-.agfocus-framing section{border-left:2px solid var(--line-2);padding-left:10px}
+/* Compact Focus cards and in-pane source navigation. */
+.agfocus .agfocus-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.agfocus .agfocus-heading .global-eyebrow{margin:0}
+.agfocus .agfocus-icon{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;min-height:28px;padding:5px;border:0;background:transparent}
+.agfocus-icon svg{width:15px;height:15px}
+.agfocus-controls{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:10px 0}
+.agfocus .agfocus-controls button{border-radius:999px;padding:3px 9px;min-height:25px;font-size:11px;background:transparent;color:var(--fg-2)}
+.agfocus .agfocus-controls button[aria-pressed=true]{background:var(--hover);border-color:var(--fg-3);color:var(--fg)}
+.agpad .agfocus h2{font-size:12px;margin:8px 0;font-weight:500}
+.agfocus-card{padding:10px 12px;margin:8px 0}
+.agfocus-items .agfocus-card{cursor:pointer}
+.agfocus-items .agfocus-card:hover{border-color:var(--line-2);background:var(--wash)}
+.agfocus-items .agfocus-card:focus-visible{outline:2px solid var(--fg-2);outline-offset:2px}
+.agfocus-card h3{font-size:12px;font-weight:600;line-height:1.4;margin:5px 0}
+.agfocus-card .agfocus-reason{color:var(--fg-2);font-size:11px;line-height:1.5}
+.agfocus-framing{display:grid;gap:8px;margin:9px 0}
+.agfocus-framing section{border-left:2px solid var(--line-2);padding-left:8px}
 .agfocus-framing section[data-framing=requested_response]{border-left-color:var(--warn)}
-.agfocus-framing h4{margin:0 0 3px;color:var(--fg-2);font-size:11px;font-weight:600}
-.agfocus-framing p{font-size:13px;margin:0}
-.agfocus-framing:has(section:not([hidden])){margin:12px 0}
+.agfocus-framing h4{margin:0 0 2px;color:var(--fg-2);font-size:10px;font-weight:600}
+.agfocus-framing p{font-size:11px;margin:0}
 .agfocus-framing:not(:has(section:not([hidden]))){display:none}
-.agfocus .agfocus-actions{display:flex;align-items:center;gap:8px;margin-top:12px}
-.agfocus .agfocus-actions button{display:inline-flex;margin:0;min-height:30px;font-size:12px}
-.agfocus .agfocus-actions [data-open]{color:var(--fg)}
-.agfocus .agfocus-actions [data-manage]{margin-left:auto;letter-spacing:2px}
-.agfocus-related{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.agfocus .agfocus-actions{display:flex;align-items:center;justify-content:flex-end;gap:3px;margin-top:6px}
+.agfocus .agfocus-actions button{display:inline-flex;align-items:center;justify-content:center;margin:0;width:27px;height:26px;min-height:26px;padding:5px;border:0;background:transparent;font-size:11px}
+.agfocus .agfocus-actions [data-manage]{letter-spacing:1px}
+.agfocus-related{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .agfocus .agfocus-related button{display:inline-flex;margin:0;max-width:100%;white-space:normal;text-align:left}
-.agfocus .agfocus-context{margin-top:10px;font-size:11px}
-.agfocus .conversation-toggle{display:inline-flex;margin:10px 0 0}
+.agfocus .agfocus-context{margin-top:8px;font-size:10px}
+.agfocus-conversation{cursor:default}
 .agfocus .conversation-panel button{display:inline-flex;margin:6px 0 0}
-.agfocus .agfocus-pages{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;font-size:12px}
+.agfocus .agfocus-pages{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;font-size:11px}
 .agfocus-retained{border-style:dashed}
-@media(max-width:600px){.agfocus-card{padding:12px}.agfocus-controls{gap:10px}}
+.agfocus-detail{padding:14px;min-width:0}
+.agfocus-detail-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.agfocus-detail-header button{flex:none;height:28px;font-size:11px;padding:4px 9px}
+.agfocus-detail-header span{font-size:12px;font-weight:500;overflow-wrap:anywhere}
+.agfocus-detail-body{min-width:0;font-size:12px}
+.agfocus-detail-body .tdetail{padding:0}
+.agfocus-detail-body .tdetail .flds{grid-template-columns:85px minmax(0,1fr)}
+.agfocus-detail-body .tdetail .v{min-width:0;overflow-wrap:anywhere}
+.agfocus-reference-frame{width:100%;height:calc(100vh - 210px);min-height:350px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--surface)}
+.agfocus-reference-help{font-size:11px}.agfocus-reference-help a{text-decoration:underline}
+.agfocus-detail-body .story-back{display:none}
+@media(max-width:600px){.agfocus-card{padding:9px 10px}.agfocus-detail{padding:10px}}
+
+.agfocus-detail-body [data-task-back],.agfocus-detail-body .global-task-editor-heading [data-back]{display:none}
+.agfocus-detail-body .task-inline-actions{display:flex;justify-content:flex-end;margin-bottom:12px}

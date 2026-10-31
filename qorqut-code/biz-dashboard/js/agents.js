@@ -53,6 +53,24 @@ function bumpUsage(u) { addUsage(state.usage || (state.usage = blankUsage()), u)
 // Left = the agent list, middle = the mirrored terminal, right = the agent tasks and activity pane.
 // remember which agent was focused, per business — same shape as notes.js's ntKey/ntSetSel
 const agKey = () => `ag:${state.biz}`;
+const agentNavKey = scope => `agent-nav:${scope || state.biz || 'global'}`;
+function agentNavButton() {
+  return '<button type="button" class="quiet agent-nav-toggle" data-agent-nav-toggle aria-expanded="true" aria-label="Hide agent navigation" title="Hide agent navigation">' +
+    '<svg class="agent-nav-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 9l-3 3 3 3"/></svg>' +
+    '<svg class="agent-nav-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M12 9l3 3-3 3"/></svg></button>';
+}
+function wireAgentNavToggle(c, scope) {
+  const root = c.querySelector('.agsplit'), button = c.querySelector('[data-agent-nav-toggle]');
+  if (!root || !button) return;
+  const set = hidden => {
+    root.classList.toggle('nav-off', hidden);
+    button.setAttribute('aria-expanded', String(!hidden));
+    button.setAttribute('aria-label', hidden ? 'Show agent navigation' : 'Hide agent navigation');
+    button.title = hidden ? 'Show agent navigation' : 'Hide agent navigation';
+  };
+  set(ls(agentNavKey(scope)) === '1');
+  button.onclick = () => { const hidden = !root.classList.contains('nav-off'); set(hidden); ls(agentNavKey(scope), hidden ? '1' : '0'); };
+}
 function agSetSel(name) {
   state.agent = name;
   if (state.biz) ls(agKey(), name || "");
@@ -62,8 +80,9 @@ let agRenderGen = 0;
 const agPageCache = new Map();
 async function renderAgents(c) {
   const gen = ++agRenderGen, biz = state.biz;
-  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><div class="agent-nav-heading"><h2>Agents</h2>${broadcastButton()}</div><button class="primary" id="addagent">${ICO_PLUS}New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
+  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><div class="agent-nav-heading"><h2>Agents</h2><span class="agent-nav-actions">${broadcastButton()}${agentNavButton()}</span></div><button class="primary" id="addagent">${ICO_PLUS}New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
   wireBroadcastButton(c, {scope:'business',biz});
+  wireAgentNavToggle(c, biz);
   $("#addagent").onclick = newAgentModal;
   $("#agentrows", c).innerHTML = `<p class="empty pad" role="status">Loading agents…</p>`;
   const cached = agPageCache.get(biz);

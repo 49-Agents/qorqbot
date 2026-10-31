@@ -1,9 +1,25 @@
 /* Agent overview: scope the third column to Agents; other .split views keep their layout. */
-.split.agsplit { grid-template-columns: 240px minmax(0, 1fr) minmax(0, .7fr); min-width: 0; }
+.split.agsplit { grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.15fr); min-width: 0; }
 .split.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
-.split.global-agents.agsplit { grid-template-columns: 240px minmax(0, 1fr) minmax(0, .7fr); }
+.split.agsplit.nav-off { grid-template-columns: 52px minmax(0, 1fr) minmax(0, 1.15fr); }
+.split.agsplit.nav-off.pad-off { grid-template-columns: 52px minmax(0, 1fr) 0; }
+.split.global-agents.agsplit { grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.15fr); }
 .split.global-agents.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
+.split.global-agents.agsplit.nav-off { grid-template-columns: 52px minmax(0, 1fr) minmax(0, 1.15fr); }
+.split.global-agents.agsplit.nav-off.pad-off { grid-template-columns: 52px minmax(0, 1fr) 0; }
 .agsplit:not(.pad-off) > .chat.termmode { padding-left: 24px; padding-right: 24px; }
+
+.agent-nav-actions { display: inline-flex; align-items: center; gap: 6px; }
+.agent-nav-toggle { width: 30px; height: 30px; padding: 5px; display: inline-flex; align-items: center; justify-content: center; }
+.agent-nav-toggle svg { width: 17px; height: 17px; }
+.agent-nav-toggle .agent-nav-show { display: none; }
+.agsplit.nav-off .agent-nav-toggle .agent-nav-hide { display: none; }
+.agsplit.nav-off .agent-nav-toggle .agent-nav-show { display: block; }
+.agsplit.nav-off > .listcol .crows, .agsplit.nav-off > .listcol #addagent { display: none; }
+.agsplit.nav-off > .listcol .ctop { padding-left: 11px; padding-right: 11px; }
+.agsplit.nav-off > .listcol .agent-nav-heading { justify-content: center; }
+.agsplit.nav-off > .listcol .agent-nav-heading h1, .agsplit.nav-off > .listcol .agent-nav-heading h2 { display: none; }
+
 
 .agpad-toggle[aria-expanded="true"] { color: var(--fg); background: var(--wash); }
 .agpad-toggle:disabled { opacity: .4; cursor: default; }
@@ -34,3 +50,5 @@
 .agpad-inbox-top .agpad-inbox-heading { margin:0; flex:none; }
 .agpad-inbox-top .agpad-inbox-status { margin-left:auto; padding:0; min-width:0; font-size:11px; white-space:nowrap; }
 .agpad-inbox-top .agpad-inbox-status > span:last-child { overflow:hidden; text-overflow:ellipsis; }
+
+.agsplit.nav-off > .listcol .agent-broadcast,.agsplit.nav-off > .listcol .global-eyebrow{display:none}
