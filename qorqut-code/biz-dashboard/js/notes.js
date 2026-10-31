@@ -1,31 +1,16 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// Notes: free-text blocks and dash items, autosave, activity board and Context snapshots.
+// LF separates blocks. U+2028 stores an explicit soft break inside a block, displayed as LF.
+// Enter starts a block; Shift+Enter continues it. Pasted physical lines remain separate blocks.
+const NT_SOFT_BREAK = "\u2028";
+const ntUploadingIds = new Set();
+let ntFilingPoll = null;
 
 // notes view state
 let ntSel = null;                   // selected note id, or null for the homepage
 let ntNotes = [];                   // cache of the last /notes fetch
 let ntSearch = "";                  // detail sidebar search (in-memory filter)
 
-// remember what was open (a note id, or "" for the homepage) per business — see journal.js's jrKey/jrSetSel
+// remember what was open (a note id, or "" for the homepage) per business
 const ntKey = () => `nt:${state.biz}`;
 function ntSetSel(id) {
   ntSel = id;
@@ -147,18 +132,12 @@ function ntRenderCurrent() {
 }
 
 // ---- homepage
-// Reuses journal's homepage markup/classes 1:1 (.jrhome/.jrhhead/.jrsub/.jreyebrow/.jrcard/
-// .jrctitle/.jrcprev/.jrcfoot, and jrHeatmapHtml(entries) bare, no extra wrapper) so the two homepages
-// render identically apart from the h1/count/section-label text, the notes-sourced card data, and the
-// nt* click/context handlers. Nothing nt-specific is introduced here — see css/notes.css's header
-// comment: this file owns no homepage CSS of its own, only journal.css's .jr* rules apply.
+// Shared card and activity-board presentation.
 function ntCardHtml(n) {
   const title = esc(n.title && n.title.trim() ? n.title : "Untitled");
-  const prev = ntPreview(n.content);
   const words = ntWords(n.content);
   return `<button class="jrcard" type="button" data-id="${esc(n.id)}">
     <div class="jrcrow1"><span class="jrctitle">${title}</span>${n.pinned ? NT_ICO_PIN_TINY : ""}</div>
-    <div class="jrcprev">${prev ? esc(prev) : `<span class="jrfaint">Empty note</span>`}</div>
     <div class="jrcfoot"><span>${esc(relativeTime(n.updatedAt))}</span><span>${words} word${words === 1 ? "" : "s"}</span></div>
   </button>`;
 }
@@ -170,16 +149,15 @@ function ntHomeHtml() {
   const editedToday = byUpdated.filter(x => Date.parse(x.updatedAt || 0) >= today);
   const editedWeek = byUpdated.filter(x => { const t = Date.parse(x.updatedAt || 0); return t < today && t >= weekAgo; });
   const sec = (label, icon, rows) => rows.length ? `<div class="jrsec"><div class="jreyebrow">${icon || ""}${esc(label)}</div><div class="jrgrid">${rows.map(ntCardHtml).join("")}</div></div>` : "";
-  // notes' Activity metric is notes-per-day keyed on updatedAt (the journal's own heatmap keys on
-  // its memos' `date` field instead) — pass entries explicitly rather than duplicating the heatmap.
-  const heatEntries = ntNotes.map(x => ({ date: String(x.updatedAt || "").slice(0, 10) }));
+  // Assigned dates keep daily entries stable when edited later.
+  const heatEntries = ntNotes.map(x => ({ date: String(x.date || x.createdAt || "").slice(0, 10) }));
   return `<div class="jrhome">
     <div class="jrhhead">
       <div><h1>Notes</h1><div class="jrsub">${n} ${n === 1 ? "page" : "pages"}</div></div>
       <button id="ntnew" class="btn" type="button">${ICO_PLUS}Create new</button>
     </div>
-    ${jrHeatmapHtml(heatEntries)}
-    ${sec("Pinned", JR_ICO_PIN_SM, pinned)}
+    ${writingHeatmapHtml(heatEntries)}
+    ${sec("Pinned", NT_ICO_PIN_TINY, pinned)}
     ${sec("Edited today", "", editedToday)}
     ${sec("Edited last week", "", editedWeek)}
     ${sec("All notes", "", byUpdated)}
@@ -192,13 +170,16 @@ function ntWireHome(root) {
     c.oncontextmenu = e => { e.preventDefault(); ntCtxMenu(e.clientX, e.clientY, c.dataset.id); };
   });
   const nb = root.querySelector("#ntnew"); if (nb) nb.onclick = () => ntCreateNew();
+  root.querySelectorAll(".jrhcell[data-key]").forEach(cell => {
+    cell.setAttribute("aria-label", cell.getAttribute("data-tip") + ". Open or create a note.");
+    cell.onclick = () => ntPickDay(cell.dataset.key);
+  });
 }
 
-
-
-
+// ---- detail: sidebar list
+// Search every note, including entries retained from Journal.
 function ntFilterNotes() {
-  const capped = ntNotes.slice(0, 20);
+  const capped = ntNotes;
   const q = ntSearch.trim().toLowerCase();
   if (!q) return capped;
   return capped.filter(n => (n.title || "").toLowerCase().includes(q) || (n.content || "").toLowerCase().includes(q));
@@ -241,7 +222,7 @@ function ntPatchSidebar() {
 function ntMetaHtml(n) {
   const words = ntWords(ntEditState ? ntEditState.lines.join("\n") : n.content);
   // no date here (same line as the journal's): just the word count
-  return `<span class="ntmeta-words">${words} word${words === 1 ? "" : "s"}</span>`;
+  return `<span class="ntmeta-words">${words} word${words === 1 ? "" : "s"}</span> <span id="ntfiling">${ntFilingHtml(n)}</span>`;
 }
 function ntRingSvg(nn) {
   const total = 8, frac = Math.max(0, Math.min(1, nn / total)), r = 6, c = 2 * Math.PI * r, off = c * (1 - frac);
@@ -269,6 +250,7 @@ function ntPaintSaveState() {
 function ntPatchMeta() {
   const n = ntById(ntSel); if (!n) return;
   const meta = $("#ntmeta"); if (meta) meta.innerHTML = ntMetaHtml(n);
+  ntPaintUpload();
 }
 
 // ---- detail: full build (selection change / tab open / create-new only)
@@ -294,12 +276,15 @@ function ntDetailHtml(n) {
           <div class="ntedctrls" id="ntedctrls">
             <button id="ntdiscard" class="btn quiet" type="button" hidden>Discard</button>
             <span class="ntsavewrap" id="ntsavewrap"></span>
+            <span id="ntuploadwrap">${ntUploadButton(n)}</span>
             <button id="ntdel" class="nticon danger" type="button" data-tip="Delete page">${ICO_TRASH}</button>
           </div>
         </div>
         <div class="ntmeta" id="ntmeta">${ntMetaHtml(n)}</div>
+        <div id="nt-stories" class="small" aria-label="Related stories"></div>
         <div id="nterror" class="ferr" role="alert" hidden><span></span><button class="ghost" type="button">Reload page</button></div>
         <div class="nthr"></div>
+        <div class="nteditorhint">Enter: new block · Shift+Enter: continue this block</div>
         <div class="ntlinewrap" id="ntlinewrap">
           <div class="ntlines" id="ntlines"></div>
           <div class="ntoverlay" id="ntoverlay" hidden>
@@ -312,6 +297,7 @@ function ntDetailHtml(n) {
   </div>`;
 }
 function ntWireDetail(root, n) {
+  storyRelatedChips(root.querySelector('#nt-stories'),state.biz,'notes',n.id,()=>ntFlush());
   const lines = (n.content || "").split("\n");
   const statuses = Object.assign({}, n.statuses || {});
   ntEditState = {
@@ -356,6 +342,7 @@ function ntWireDetail(root, n) {
     ntFocusLine(j, ntDisp(es, j).length);
   };
 
+  ntWireUpload(); ntWatchFiling();
   ntPaintSaveState();   // the wrapper's innerHTML was built before ntEditState existed — patch it now
 }
 
@@ -365,21 +352,22 @@ const NT_STATUS_ORDER = ["todo", "white", "in_progress", "done"];   // the left-
 const NT_STATUS_LABEL = { todo: "Open", white: "White", in_progress: "In progress", done: "Done", blocked: "Blocked", cancelled: "Cancelled" };
 const ntNextStatus = cur => { const i = NT_STATUS_ORDER.indexOf(cur); return i === -1 ? "todo" : NT_STATUS_ORDER[(i + 1) % NT_STATUS_ORDER.length]; };
 
-const ntIsTaskLine = raw => /^\s*-/.test(raw || "");
+const ntIsTaskLine = raw => /^[ \t]*-/.test(raw || "");
 // Split a raw line into its task marker / invisible bold token / display text (lines-editor.tsx parseRaw).
 function ntParseRaw(raw) {
   raw = raw || "";
   let rest = raw, marker = "", lead = "";
-  const mk = raw.match(/^(\s*)-\s?/);
+  const mk = raw.match(/^([ \t]*)-[ \t]?/);
   if (mk) { marker = mk[0]; lead = mk[1] || ""; rest = raw.slice(mk[0].length); }
   const meta = { bold: false };
   const mm = rest.match(/^⁣([^⁣]*)⁣ ?/);
   if (mm) { rest = rest.slice(mm[0].length); mm[1].split(",").forEach(f => { if (f === "b") meta.bold = true; }); }
-  return { marker, meta, display: lead + rest };
+  return { marker, meta, display: (lead + rest).replaceAll(NT_SOFT_BREAK, "\n") };
 }
 const ntBuildMetaToken = meta => meta.bold ? "⁣b⁣ " : "";
 // Map a display-space edit back to the raw line; typing "-" at the start auto-converts to a task.
 function ntToRaw(es, v, i) {
+  v = v.replaceAll("\n", NT_SOFT_BREAK);
   const meta = ntBuildMetaToken(ntParseRaw(es.lines[i]).meta);
   if (ntIsTaskLine(es.lines[i])) return v === "" ? "" : `- ${meta}${v}`;
   if (v.startsWith("-")) return `- ${meta}${v.slice(1).replace(/^\s/, "")}`;
@@ -430,6 +418,19 @@ function ntRenderLines() {
     ntGrowLine(ta);
     ta.oninput = () => ntHandleInput(i, ta.value, ta.selectionStart);
     ta.onkeydown = e => ntHandleKeydown(i, e);
+    ta.onpaste = e => {
+      if (ta.readOnly) {e.preventDefault(); return;}
+      const pasted = e.clipboardData?.getData("text/plain").replace(/\r\n?/g, "\n");
+      if (!pasted?.includes("\n")) return;
+      e.preventDefault();
+      const parts = pasted.split("\n"), display = ntDisp(es, i);
+      const first = ntToRaw(es, display.slice(0, ta.selectionStart) + parts[0], i);
+      const tail = display.slice(ta.selectionEnd).replaceAll("\n", NT_SOFT_BREAK);
+      const last = parts[parts.length - 1] + tail;
+      ntCommit([...es.lines.slice(0, i), first, ...parts.slice(1, -1), last, ...es.lines.slice(i + 1)],
+        {index:i + parts.length - 1, pos:parts[parts.length - 1].length});
+    };
+    ta.setAttribute("aria-label", ntIsTaskLine(es.lines[i]) ? "Dash item" : "Free text");
     ta.onfocus = () => ntPaintOverlay();
     ta.onblur = () => setTimeout(ntPaintOverlay, 0);   // let the next element take focus first
   });
@@ -467,12 +468,6 @@ function ntCommit(newLines, focus) {
 
 function ntHandleInput(i, value, selStart) {
   const es = ntEditState; if (!es) return;
-  if (value.includes("\n")) {   // guard only — Enter is intercepted below, so this shouldn't fire
-    const parts = value.split("\n");
-    const rawParts = parts.map((p, pi) => pi === 0 ? ntToRaw(es, p, i) : p);
-    ntCommit([...es.lines.slice(0, i), ...rawParts, ...es.lines.slice(i + 1)], { index: i + parts.length - 1, pos: parts[parts.length - 1].length });
-    return;
-  }
   const wasTask = ntIsTaskLine(es.lines[i]);
   const converted = !wasTask && value.startsWith("-");
   const newLines = es.lines.slice();
@@ -493,6 +488,7 @@ function ntHandleInput(i, value, selStart) {
 }
 
 function ntHandleKeydown(i, e) {
+  if (e.currentTarget.readOnly) return;
   const es = ntEditState; if (!es) return;
   const el = e.currentTarget;
   const start = el.selectionStart, end = el.selectionEnd;
@@ -516,11 +512,20 @@ function ntHandleKeydown(i, e) {
     }
     return;
   }
+  if (e.key === "Enter" && e.shiftKey && !mod) {
+    e.preventDefault();
+    const next = es.lines.slice(), status = ntLineStatus(es, i);
+    next[i] = ntToRaw(es, dtext.slice(0, start) + "\n" + dtext.slice(end), i);
+    es.lines = next;
+    if (ntIsTaskLine(next[i])) ntSetStatus(es, i, status);
+    ntCommit(next, {index:i, pos:start + 1});
+    return;
+  }
   if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
     e.preventDefault();
     const off = es.lines[i].length - dtext.length;
     const head = es.lines[i].slice(0, start + off);
-    const tail = dtext.slice(end);
+    const tail = dtext.slice(end).replaceAll("\n", NT_SOFT_BREAK);
     ntCommit([...es.lines.slice(0, i), head, tail, ...es.lines.slice(i + 1)], { index: i + 1, pos: 0 });
     return;
   }
@@ -535,7 +540,7 @@ function ntHandleKeydown(i, e) {
   if (e.key === "Backspace" && atStart) {
     if (ntIsTaskLine(es.lines[i])) {
       e.preventDefault();
-      const newLines = es.lines.slice(); newLines[i] = dtext;
+      const newLines = es.lines.slice(); newLines[i] = dtext.replaceAll("\n", NT_SOFT_BREAK);
       ntCommit(newLines, { index: i, pos: 0 });
       return;
     }
@@ -543,14 +548,14 @@ function ntHandleKeydown(i, e) {
       e.preventDefault();
       if (ntIsRuleAt(es, i - 1)) { ntCommit([...es.lines.slice(0, i - 1), ...es.lines.slice(i)], { index: i - 1, pos: 0 }); return; }
       const prevD = ntDisp(es, i - 1);
-      ntCommit([...es.lines.slice(0, i - 1), es.lines[i - 1] + dtext, ...es.lines.slice(i + 1)], { index: i - 1, pos: prevD.length });
+      ntCommit([...es.lines.slice(0, i - 1), es.lines[i - 1] + dtext.replaceAll("\n", NT_SOFT_BREAK), ...es.lines.slice(i + 1)], { index: i - 1, pos: prevD.length });
       return;
     }
   }
   if (e.key === "Delete" && atEnd && i < es.lines.length - 1) {
     e.preventDefault();
     if (ntIsRuleAt(es, i + 1)) { ntCommit([...es.lines.slice(0, i + 1), ...es.lines.slice(i + 2)], { index: i, pos: dtext.length }); return; }
-    ntCommit([...es.lines.slice(0, i), es.lines[i] + ntDisp(es, i + 1), ...es.lines.slice(i + 2)], { index: i, pos: dtext.length });
+    ntCommit([...es.lines.slice(0, i), es.lines[i] + ntDisp(es, i + 1).replaceAll("\n", NT_SOFT_BREAK), ...es.lines.slice(i + 2)], { index: i, pos: dtext.length });
     return;
   }
   if (e.key === "ArrowUp" && atStart && i > 0) {
@@ -575,7 +580,7 @@ function ntToggleBold(i) {
   const token = ntBuildMetaToken(meta);
   const marker = ntIsTaskLine(es.lines[i]) ? "- " : "";
   const newLines = es.lines.slice();
-  newLines[i] = cur.display === "" && !token ? "" : `${marker}${token}${cur.display}`;
+  newLines[i] = cur.display === "" && !token ? "" : `${marker}${token}${cur.display.replaceAll("\n", NT_SOFT_BREAK)}`;
   es.lines = newLines; es.dirty = true;
   const ta = document.querySelector(`.ntlinein[data-i="${i}"]`);
   const row = ta ? ta.closest(".ntline") : null;
@@ -585,6 +590,7 @@ function ntToggleBold(i) {
 // Left-click cycle / right-click blocked-toggle on a task line's gutter ball — patches just that ball
 // (and its row's struck-through state) rather than a full rebuild.
 function ntCycleBall(i) {
+  if (ntUploadingIds.has(ntSel)) return;
   const es = ntEditState; if (!es) return;
   ntSetStatus(es, i, ntNextStatus(ntLineStatus(es, i)));
   es.dirty = true;
@@ -592,6 +598,7 @@ function ntCycleBall(i) {
   ntSchedule();
 }
 function ntToggleBlocked(i) {
+  if (ntUploadingIds.has(ntSel)) return;
   const es = ntEditState; if (!es) return;
   const cur = ntLineStatus(es, i);
   ntSetStatus(es, i, cur === "blocked" ? "todo" : "blocked");
@@ -616,7 +623,7 @@ function ntGrowLine(ta) { ta.style.height = "auto"; ta.style.height = ta.scrollH
 function ntSchedule() {
   ntClearTimers();
   if (ntEditState) ntEditState.countdown = null;
-  ntPaintSaveState();
+  ntPaintSaveState(); ntPaintUpload();
   ntIdleT = setTimeout(() => ntCountdown(8), 4000);
 }
 function ntCountdown(n) {
@@ -626,7 +633,12 @@ function ntCountdown(n) {
   ntTickT = setTimeout(() => ntCountdown(n - 1), 1000);
 }
 async function ntSaveNow() {
-  const s = ntEditState; if (!s) return true; if (s.saving) return s.savePromise;
+  const s = ntEditState; if (!s) return true;
+  if (s.saving) {
+    await s.savePromise;
+    if (ntEditState !== s || s.error) return false;
+    return ntSaveNow();
+  }
   ntClearTimers();
   const titleEl = $("#nttitle"); if (!titleEl) return;
   ntPruneStatuses(s);
@@ -657,7 +669,7 @@ function ntDiscard() {
   const titleEl = $("#nttitle");
   if (titleEl) { titleEl.value = s.title0; ntGrow(titleEl); }
   ntRenderLines();
-  ntPaintSaveState();
+  ntPaintSaveState(); ntPaintUpload();
 }
 
 // ---- selection / navigation / create
@@ -747,6 +759,95 @@ function ntCtxMenu(x, y, id) {
   ctxMenu(x, y, [
     { label: "Rename", icon: ICO_PENCIL, onClick: () => ntRenameFlow(n) },
     { label: n.pinned ? "Unpin" : "Pin", icon: n.pinned ? NT_ICO_PINOFF : ICO_PIN, onClick: () => ntTogglePin(n) },
+    { label: "Add to Context", icon: ICO_UPLOAD, onClick: () => ntDoUpload(n.id) },
     { label: "Delete", icon: ICO_TRASH, danger: true, onClick: () => ntDeleteFlow(n.id) },
   ]);
+}
+
+
+async function ntPickDay(date) {
+  const existing = ntNotes.find(n => String(n.date || n.createdAt || "").slice(0, 10) === date);
+  if (existing) return ntSelect(existing.id);
+  const biz = state.biz, n = await ntCreate({date});
+  if (!n || state.biz !== biz) return;
+  await ntFetch();
+  if (state.biz === biz && tView === "notes") ntSelect(n.id);
+}
+function ntUploadButton(n) {
+  const dirty = ntEditState?.id === n.id && ntEditState.dirty;
+  const busy = ntUploadingIds.has(n.id);
+  const disabled = busy || (!dirty && (!n.content.trim() || (n.uploadId && !n.changedSinceUpload)));
+  const label = busy ? "Submitting…" : n.uploadId ? "Send updated version" : "Add to Context";
+  return `<button class="btn" id="ntupload" type="button"${disabled ? " disabled" : ""}>${ICO_UPLOAD}${label}</button>`;
+}
+function ntFilingHtml(n) {
+  if (!n.uploadId) return "";
+  const f = n.filing;
+  const label = !f ? "Previous submission unavailable" : ({processed: "Filed", failed: "Filing failed", queued: "Queued for filing", running: "Filing…", waiting_signoff: "Awaiting approval", cancelled: "Filing cancelled", cancelling: "Cancelling filing…"}[f.state] || "Filing status unavailable");
+  const changed = n.changedSinceUpload || (ntEditState?.id === n.id && ntEditState.dirty);
+  return `<span class="ntfilingstatus">${esc(label)}${f?.error ? ` · ${esc(f.error)}` : ""}${changed ? " · Changed since submission" : ""}</span>
+    ${f ? '<button class="ntmetalink" id="ntviewcontext" type="button">View in Context</button>' : ""}
+    ${f?.retryable ? '<button class="ntmetalink" id="ntretry" type="button">Retry</button>' : ""}`;
+}
+function ntWireUpload() {
+  const n = ntById(ntSel); if (!n) return;
+  const button = $("#ntupload"); if (button) button.onclick = () => ntDoUpload(n.id);
+  const view = $("#ntviewcontext"); if (view) view.onclick = async () => {
+    const biz = state.biz;
+    if (!await ntFlush() || state.biz !== biz) return;
+    state.ctx = "_dumps/" + n.uploadId + ".md";
+    openTasks(false); goTab("context");
+  };
+  const retry = $("#ntretry"); if (retry) retry.onclick = async () => {
+    retry.disabled = true;
+    const biz = state.biz;
+    try {
+      const r = await post(`/biz/${biz}/context/retry`, {id:n.uploadId, expected_revision:n.filing.revision});
+      if (r?.error) toast(r.error);
+      else if (state.biz === biz) {await ntFetch(); ntPaintUpload(); ntWatchFiling();}
+    } catch (error) {toast(error.message);} finally {retry.disabled = false;}
+  };
+}
+function ntPaintUpload() {
+  if (tView !== "notes") return;
+  const n = ntById(ntSel); if (!n) return;
+  const wrap = $("#ntuploadwrap"); if (wrap) wrap.innerHTML = ntUploadButton(n);
+  const status = $("#ntfiling"); if (status) status.innerHTML = ntFilingHtml(n);
+  ntWireUpload();
+}
+async function ntDoUpload(id) {
+  if (ntUploadingIds.has(id)) return;
+  const biz = state.biz;
+  let locked = [];
+  ntUploadingIds.add(id); ntPaintUpload();
+  try {
+    if (ntEditState && !await ntSaveNow()) return;
+    if (state.biz !== biz || ntEditState?.dirty) return;
+    const n = ntById(id); if (!n) return;
+    locked = [...document.querySelectorAll('#nttitle, .ntlinein')];
+    locked.forEach(el => el.readOnly = true);
+    const r = await post(`/biz/${biz}/notes/${encodeURIComponent(id)}/upload`, {
+      expected_revision:n.revision, expected_content_hash:n.content_hash});
+    if (r?.error) {toast(r.error); return;}
+    if (r?.status === "signoff_required") {toast("Context submission is awaiting approval."); return;}
+    if (state.biz !== biz) return;
+    await ntFetch();
+    const fresh = ntById(id), es = ntEditState;
+    if (fresh && es?.id === id && es.biz === biz && es.revision === n.revision) {
+      es.revision = fresh.revision; es.content_hash = fresh.content_hash;
+    }
+    toast("Submitted to Context — filing queued.");
+    ntWatchFiling();
+  } catch (error) {toast(error.message || "Could not add note to Context.");}
+  finally {locked.forEach(el => el.readOnly = false); ntUploadingIds.delete(id); ntPaintUpload();}
+}
+function ntWatchFiling() {
+  clearTimeout(ntFilingPoll);
+  const biz = state.biz;
+  if (tView !== "notes" || !ntNotes.some(n => ["queued", "running", "waiting_signoff", "cancelling"].includes(n.filing?.state))) return;
+  ntFilingPoll = setTimeout(async () => {
+    if (state.biz !== biz || tView !== "notes") return;
+    try {await ntFetch(); ntPaintUpload();} catch (_) { /* retry on the next poll */ }
+    ntWatchFiling();
+  }, 3000);
 }

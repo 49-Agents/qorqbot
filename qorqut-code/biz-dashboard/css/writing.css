@@ -1,0 +1,87 @@
+/* Shared writing-view tooltips, cards and activity heatmap. */
+.jrtip {
+  position: fixed; z-index: 60; max-width: 240px; width: max-content; text-align: center;
+  pointer-events: none;
+  border-radius: 14px; border: 1px solid var(--line-2);
+  background: rgba(15,15,15,.65);
+  backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: var(--shadow-float);
+  padding: 6px 10px; font: 500 11px/1.375 var(--sans); color: var(--fg);
+  opacity: 0; transform: translateY(4px) scale(.95);
+  transition: opacity .15s ease-out, transform .15s ease-out;
+}
+.jrtip.on { opacity: 1; transform: translateY(0) scale(1); }
+
+
+.jreyebrow {
+  display: flex; align-items: center; gap: 6px; font: 600 11px/1 var(--sans); letter-spacing: .12em;
+  text-transform: uppercase; color: var(--fg-2); opacity: .6; margin-bottom: 12px;
+}
+.jreyebrow svg { width: 11px; height: 11px; }
+.jrsechr { height: 1px; margin-top: 8px; margin-bottom: 12px; background: rgba(255,255,255,.06); }
+.jrfaint { color: var(--fg-3); }
+.jrfaint-lg { padding: 4px 8px; text-align: left; font-size: 13px; color: var(--fg-2); }
+.jrfaint-pad { padding: 16px 12px; font-size: 12.5px; }
+.sep { margin: 0 6px; color: var(--fg-3); opacity: .55; }
+
+/* -- homepage -- */
+/* left-aligned (not `margin: 0 auto`): the panel is 70vw, so centering a 1080px box pushed the Notes
+   headline right of the Tasks/Activity/Uploads headlines by (panel - 1080) / 2 on any wide screen */
+.jrhome { max-width: 1080px; margin: 0; padding: 18px 40px 128px 28px; }
+.jrhhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 32px; }
+/* h1 size/weight/spacing: shared with every other tab's headline, see css/tasks.css */
+.jrsub { margin-top: 6px; font-size: 14px; color: var(--fg-2); }
+
+
+
+
+
+
+.jrheat { margin-bottom: 32px; border: 1px solid var(--line); border-radius: 20px; background: rgba(14,14,14,.4); padding: 24px; }
+.jrheat .jreyebrow { margin-bottom: 16px; }
+.jrhwrap { display: flex; flex-direction: column; gap: 6px; }
+.jrhmonths { display: flex; gap: 2px; padding-left: 28px; }
+.jrhmonth { position: relative; height: 12px; min-width: 0; max-width: 14px; flex: 1; }
+.jrhmonth span { position: absolute; left: 0; top: 0; white-space: nowrap; font: 10px/12px var(--sans); color: var(--fg-3); }
+.jrhbody { display: flex; gap: 2px; }
+.jrhrows { flex: none; width: 26px; margin-right: 2px; display: flex; flex-direction: column; gap: 2px; }
+.jrhrow-lbl { flex: 1; display: flex; align-items: center; font: 10px/1 var(--sans); color: var(--fg-3); }
+.jrhcols { flex: 1; display: flex; gap: 2px; }
+.jrhcol { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 14px; flex: 1; }
+/* cells are 14px squares (aspect-ratio 1/1, width 100% of their ~14px column); app.css's global
+   `button { height: 36px }` otherwise stretches these buttons to 36px tall, overriding aspect-ratio.
+   .jrhrows/.jrhrow-lbl (flex:1 rows) still track each .jrhcol's flex:1 cells 1-for-1 once cells are
+   auto-height, since both columns are the same 7-row flex stack with the same 2px gap. */
+.jrhcell { aspect-ratio: 1 / 1; width: 100%; height: auto; padding: 0; border: 0; border-radius: 2px; cursor: pointer; transition: box-shadow .1s ease; }
+.jrhcell:hover { box-shadow: 0 0 0 1px rgba(247,247,247,.4); }
+.jrhcell-blank { background: none; cursor: default; }
+.jrhcell-blank:hover { box-shadow: none; }
+.jrhl0 { background: var(--line); }
+.jrhl1 { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+.jrhl2 { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.jrhl3 { background: color-mix(in srgb, var(--accent) 70%, transparent); }
+.jrhl4 { background: var(--accent); }
+.jrsec { margin-bottom: 32px; }
+.jrgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+
+.jrcard {
+  display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
+  gap: 8px; width: 100%; height: auto; padding: 12px; text-align: left; font-weight: 400;
+  border: 1px solid var(--line); border-radius: 20px; background: rgba(14,14,14,.3); cursor: pointer;
+  transition: transform .15s ease, border-color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+.jrcard:hover {
+  transform: translateY(-1px); border-color: var(--line-2); background: rgba(14,14,14,.6);
+  box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px -8px rgba(0,0,0,.12); color: var(--fg);
+}
+.jrcrow1 { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.jrctitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; text-align: left; font: 600 14px/1.4 var(--sans); letter-spacing: -.01em; color: var(--fg); }
+.jrcrow1 svg { flex: none; width: 12px; height: 12px; color: var(--fg-2); }
+.jrcfoot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: auto; text-align: left;
+  font: 11px var(--sans); color: var(--fg-2); opacity: .55;
+  font-variant-numeric: tabular-nums;
+}
+.jrcfoot .jrup { display: inline-flex; align-items: center; gap: 3px; color: var(--fg-3); }
+.jrcfoot .jrup svg { width: 10px; height: 10px; }

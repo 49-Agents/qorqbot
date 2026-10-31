@@ -1,8 +1,7 @@
 // ---------------------------------------------------------------- learning
 // The Learning page of the Context tab: the owner triages the candidates `bizlearn` pulled out of the
-// agents' transcripts. Three processes, not one: extraction (the CLI, done), review (this file), application
-// (not built — the right column says so). Left column is what still waits on you, right column is what you
-// already decided and nobody has applied yet. Cards borrow the marketing Queue's markup so the two review
+// agents' transcripts. Left is owner review; right shows decisions and guided delta work.
+// Accepted context moves to Context after its durable filer handoff. Cards borrow the marketing Queue's markup so the two review
 // surfaces read the same; nothing here touches `_mk`. Depends on core.js and marketing.js's `mkRel`.
 
 // ---------------------------------------------------------------- palette & icons
@@ -32,7 +31,8 @@ const LN_BUCKETS = {
   delta: { label: "delta: a change to how agents work; lands in CLAUDE.md, an agent's rules or a plugin's SKILL.md", ico: lnSvg(AICONS.code) },
 };
 // the decided card's ball wears the same two colours as the notes gutter balls (done / blocked)
-const LN_STATE_HEX = { accepted: "#30D158", rejected: "#FF453A" };
+const LN_STATE_HEX = { accepted: "#30D158", "in-progress": "#30D158", rejected: "#FF453A", "rejected-in-work": "#FF453A" };
+const lnCanRevert = it => ["accepted", "rejected"].includes(it && it.state) && !it.intake_pending && !(it.filing && it.filing.upload_id);
 
 // notes: draft notes per item, kept in localStorage per business until the decision goes through, so a
 // repaint, a reload or a revert never loses them; noteOpen: cards whose notes box is open; busy: ids with a
@@ -44,7 +44,7 @@ function lnDraftsSave() { ls(lnDraftKey(), JSON.stringify(_ln.notes)); }
 function lnFresh() { return { biz: state.biz, items: [], counts: null, notes: lnDraftsLoad(), noteOpen: {}, busy: {}, q: "" }; }
 
 // ---------------------------------------------------------------- pure helpers
-const lnOpenItem = it => !!it && !it.state;
+const lnOpenItem = it => !!it && (!it.state || it.state === "open");
 const lnCreated = it => Date.parse((it && it.created) || "") || 0;
 const lnDecided = it => Date.parse((it && it.decision && it.decision.created) || (it && it.created) || "") || 0;
 const lnNote = it => (it && it.decision && it.decision.note) || "";
@@ -56,7 +56,7 @@ const lnScopeLocked = it => !!it && it.bucket === "context";
 
 // open newest first, decided newest decision first
 function lnSplit(items) {
-  const all = Array.isArray(items) ? items : [];
+  const all = (Array.isArray(items) ? items : []).filter(it => it.state !== "implemented" && !(it.filing && it.filing.upload_id));
   return {
     open: all.filter(lnOpenItem).slice().sort((a, b) => lnCreated(b) - lnCreated(a)),
     decided: all.filter(it => !lnOpenItem(it)).slice().sort((a, b) => lnDecided(b) - lnDecided(a)),
@@ -88,7 +88,7 @@ function lnMatch(item, q, people, draft) {
   const words = String(q || "").toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
   const it = item || {}, obs = it.observed || {};
-  const hay = [it.text, it.tag, it.scope, it.bucket, obs.agent, obs.agent_kind, lnNote(it), draft, it.id, (it.evidence || {}).owner_quote]
+  const hay = [it.text, it.tag, it.scope, it.bucket, it.state, it.agent_note, obs.agent, obs.agent_kind, lnNote(it), draft, it.id, (it.evidence || {}).owner_quote]
     .concat(lnTouches(it, people).map(x => x.label)).filter(Boolean).join(" ").toLowerCase();
   return words.every(w => hay.includes(w));
 }
@@ -100,7 +100,10 @@ async function lnFetch() {
   if (!d || d.error || !Array.isArray(d.items)) { lnStatusPaint([]); lnBadgePaint(0); return d; }
   _ln.biz = state.biz; _ln.items = d.items; _ln.counts = d.counts || null;
   // a reverted decision hands its note back as the draft, unless the owner already typed a new one
-  for (const it of d.items) if (it.reopened && it.reopened.note && _ln.notes[it.id] === undefined) _ln.notes[it.id] = it.reopened.note;
+  for (const it of d.items) if (lnOpenItem(it) && _ln.notes[it.id] === undefined) {
+    const note = (it.reopened && it.reopened.note) || lnNote(it);
+    if (note) _ln.notes[it.id] = note;
+  }
   lnStatusPaint(d.items);
   return d;
 }
@@ -144,8 +147,7 @@ function lnPaint(loading) {
       <input class="inp lnsearch" id="lnsearch" type="search" placeholder="search both sides" spellcheck="false" value="${esc(_ln.q)}"></div>
     <div class="lnsplit">
       <div class="lnq"><div class="sh">Waiting on you <span class="cnt"></span></div><div class="lnbody"></div></div>
-      <div class="lndone"><div class="sh">Decided <span class="cnt"></span></div><div class="lnbody"></div>
-        <div class="lnfootnote">Applying a decision is a separate job and is not built yet.</div></div>
+      <div class="lndone"><div class="sh">Decided <span class="cnt"></span></div><div class="lnbody"></div></div>
     </div>`;
   if (typeof wireCrumbs === "function") wireCrumbs(v);
   const q = v.querySelector("#lnsearch");
@@ -181,7 +183,7 @@ function lnCardHtml(item, people) {
   const it = item || {}, t = lnTag(it.tag), obs = it.observed || {}, ev = it.evidence || {};
   const locked = lnScopeLocked(it);
   const pick = LN_SCOPES.map(([k, label, ico]) => {
-    const off = locked && k !== "biz";
+    const off = (locked && k !== "biz") || !!it.intake_pending;
     return `<button class="lnscope ${it.scope === k ? "on" : ""}" type="button" data-scope="${esc(k)}" ${off ? `disabled title="context items are always scope biz"` : `title="${esc(label)}"`}>${ico}</button>`;
   }).join("");
   const votes = it.votes != null && it.passes ? `<span class="chip" title="passes that agreed">${esc(it.votes)}/${esc(it.passes)}</span>` : "";
@@ -199,12 +201,17 @@ function lnCardHtml(item, people) {
     `<div class="lnvar"><div class="vt">${esc(vr.text || "")}</div><div class="vm">${esc(vr.scope || "")} · ${esc(vr.confidence != null ? vr.confidence : "?")}</div></div>`).join("")}</details>` : "";
   if (!lnOpenItem(it)) {
     const st = String(it.state), note = lnNote(it);
+    const pill = {"in-progress": "In progress", "rejected-in-work": "Rejected in work"}[st];
+    const pending = it.intake_pending ? "Context handoff interrupted" : ({accepted: "awaiting selection", rejected: "rejected", "in-progress": "work in progress", "rejected-in-work": "work stopped"}[st] || st);
     return `<div class="mkcard lncard done" data-id="${esc(it.id)}" data-state="${esc(st)}" style="--sc:${esc(LN_STATE_HEX[st] || "var(--fg-3)")}">
-      <div class="mkhead"><span class="lnball" title="${esc(st)}"></span><span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span>${scopeIco}${bucketIco}${touches}<span class="sp"></span><span class="ago">${esc(lnRel((it.decision || {}).created || it.created))}</span></div>
+      <div class="mkhead"><span class="lnball" title="${esc(st)}"></span>${pill ? `<span class="lnstate">${esc(pill)}</span>` : ""}<span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span>${scopeIco}${bucketIco}${touches}<span class="sp"></span><span class="ago">${esc(lnRel((it.decision || {}).created || it.created))}</span></div>
       <div class="mkt">${esc(it.text || "")}</div>
-      ${note ? `<div class="lnwhy">${esc(note)}</div>` : ""}
-      <div class="mkfoot"><span class="lnpending">not yet applied</span><div class="mkacts">
-        <button class="mka revert" type="button" data-act="reopen" title="back to the left, as if never decided">Revert</button>
+      ${note ? `<div class="lnwhy"><span class="lnnotelabel">Owner note</span>${esc(note)}</div>` : ""}
+      ${it.agent_note ? `<div class="lnagentnote"><span class="lnnotelabel">Agent note</span>${esc(it.agent_note)}</div>` : ""}
+      ${!it.intake_pending ? `<details class="lnowneredit"><summary>Edit owner note</summary><textarea class="lnnote" spellcheck="false">${esc(_ln.notes[it.id] ?? note)}</textarea><button class="mka" type="button" data-act="save-note">Save owner note</button></details>` : ""}
+      <div class="mkfoot"><span class="lnpending">${esc(pending)}</span><div class="mkacts">
+        ${it.intake_pending ? `<button class="mka" type="button" data-act="resume-intake">Resume handoff</button>` : ""}
+        ${lnCanRevert(it) ? `<button class="mka revert" type="button" data-act="reopen" title="Return to owner review; keep notes and work history">Revert</button>` : ""}
       </div></div></div>`;
   }
   const notes = _ln.notes[it.id] || "";
@@ -214,9 +221,10 @@ function lnCardHtml(item, people) {
       <span class="who">${esc(lnWho(obs.agent))}</span><span class="sp"></span>${votes}<span class="ago">${esc(lnRel(it.created))}</span></div>
     <div class="mkt">${esc(it.text || "")}</div>
     ${quote}${moreEv}${variants}${noteBox}
+    ${it.agent_note ? `<div class="lnagentnote"><span class="lnnotelabel">Agent note</span>${esc(it.agent_note)}</div>` : ""}
     <div class="mkfoot"><div class="mklinks"></div><div class="mkacts">
-      <button class="mka reject" type="button" data-act="reject">Reject</button>
-      <button class="mka approve" type="button" data-act="approve">Approve</button>
+      ${it.intake_pending ? `<span class="lnpending">Context handoff interrupted</span><button class="mka" type="button" data-act="resume-intake">Resume handoff</button>` : `<button class="mka reject" type="button" data-act="reject">Reject</button>
+      <button class="mka approve" type="button" data-act="approve">Approve</button>`}
     </div></div></div>`;
 }
 
@@ -246,11 +254,10 @@ function lnWire(root) {
     e.stopPropagation();
     const card = b.closest(".lncard"), it = card && lnFind(card.dataset.id);
     if (!it) return;
-    ({ approve: lnApprove, reject: lnReject, reopen: lnReopen }[b.dataset.act] || (() => {}))(it);
+    ({ approve: lnApprove, reject: lnReject, reopen: lnReopen, "save-note": lnSaveOwnerNote, "resume-intake": lnResumeIntake }[b.dataset.act] || (() => {}))(it);
   });
 }
-// every write is optimistic: the card moves at once, a failed write toasts and refetches the truth.
-// The draft note is dropped once the decision is in; a revert hands the decision's note back as the draft.
+// Keep drafts and the current card until the service confirms the durable change.
 function lnDecide(it, st, note) {
   it.state = st;
   it.decision = { state: st, note: note || "", actor: "human:owner", created: new Date().toISOString() };
@@ -267,13 +274,16 @@ function lnUndecide(it) {
 }
 async function lnRefetch() { const d = await lnFetch(); if (d && !d.error && state.ctx === "_learning") lnPaintCols(); }
 async function lnSend(it, st, note, apply, label) {
-  const id = it.id;
+  const id = it.id, biz = state.biz, model = _ln;
   if (_ln.busy[id]) return;
   _ln.busy[id] = 1;
-  apply();
-  let r; try { r = await post(`/biz/${state.biz}/learnings/${id}/state`, { state: st, note }); } catch (e) { r = null; }
-  delete _ln.busy[id];
+  let r; try { r = await post(`/biz/${biz}/learnings/${id}/state`, { state: st, ...(note !== undefined ? {note} : {}), ...(it.revision ? {expected_revision: it.revision} : {}) }); } catch (e) { r = null; }
+  delete model.busy[id];
+  if (state.biz !== biz || _ln !== model) return;
   if (!r || r.error) { notify({ text: `${label} failed`, sub: lnErr(r), color: "var(--danger)" }); return lnRefetch(); }
+  apply();
+  if (r.item) { Object.assign(it, r.item); lnPaintCols(); lnStatusPaint(_ln.items); }
+  if (r.item && r.item.filing && r.item.filing.upload_id) await lnRefetch();
   toast(label.toLowerCase());
 }
 function lnApprove(it) {
@@ -295,8 +305,25 @@ function lnReject(it) {
 }
 // Revert: back to the left as if it never went right; the old note becomes the draft
 function lnReopen(it) {
-  if (lnOpenItem(it)) return;
-  return lnSend(it, "open", "", () => lnUndecide(it), "Reverted");
+  if (!lnCanRevert(it)) return;
+  return lnSend(it, "open", undefined, () => lnUndecide(it), "Reverted");
+}
+function lnSaveOwnerNote(it) {
+  const note = _ln.notes[it.id] ?? lnNote(it);
+  return lnSend(it, (it.decision || {}).state || it.state, note, () => {
+    it.decision = {...it.decision, note}; delete _ln.notes[it.id]; lnDraftsSave();
+  }, "Owner note saved");
+}
+async function lnResumeIntake(it) {
+  const biz = state.biz, model = _ln;
+  if (_ln.busy[it.id]) return;
+  _ln.busy[it.id] = 1;
+  let r; try { r = await post(`/biz/${biz}/learnings/${it.id}/intake/retry`, {}); } catch (e) { r = null; }
+  delete model.busy[it.id];
+  if (state.biz !== biz || _ln !== model) return;
+  if (!r || r.error) notify({text: "Context handoff failed", sub: lnErr(r), color: "var(--danger)"});
+  else { delete _ln.notes[it.id]; lnDraftsSave(); toast("context sent to filer"); }
+  return lnRefetch();
 }
 // the scope picker saves on the click; there is no Save button anywhere on this page
 async function lnSetScope(it, scope) {

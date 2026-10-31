@@ -66,18 +66,18 @@ let tLastBiz = null, tSoonT = null, tInside = false, tSearchT = null;
 state.tasks = [];
 
 // ---------------------------------------------------------------- view (tabs)
-const T_VIEWS = ["tasks", "journal", "notes", "signoffs", "uploads", "routines", "activity"];
-const T_VIEW_LABEL = { tasks: "Tasks", activity: "Activity", journal: "Journal", notes: "Notes", signoffs: "Signoffs", uploads: "Uploads", routines: "Routines" };
+const T_VIEWS = ["tasks", "notes", "signoffs", "uploads", "routines", "activity"];
+const T_VIEW_LABEL = { tasks: "Tasks", activity: "Activity", notes: "Notes", signoffs: "Signoffs", uploads: "Uploads", routines: "Routines" };
 const T_VIEW_ICON = {
   signoffs: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="m9 14 2 2 4-4"/></svg>`,
   tasks: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10.656V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.344"></path><path d="m9 11 3 3L22 4"></path></svg>`,
-  journal: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.67 19a2 2 0 0 0 1.416-.588l6.154-6.172a6 6 0 0 0-8.49-8.49L5.586 9.914A2 2 0 0 0 5 11.328V18a1 1 0 0 0 1 1z"></path><path d="M16 8 2 22"></path><path d="M17.5 15H9"></path></svg>`,
-  notes: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"></path><path d="M2 6h4"></path><path d="M2 10h4"></path><path d="M2 14h4"></path><path d="M2 18h4"></path><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"></path></svg>`,
+  notes: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.67 19a2 2 0 0 0 1.416-.588l6.154-6.172a6 6 0 0 0-8.49-8.49L5.586 9.914A2 2 0 0 0 5 11.328V18a1 1 0 0 0 1 1z"></path><path d="M16 8 2 22"></path><path d="M17.5 15H9"></path></svg>`,
   routines: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
   uploads: ICO_UPLOAD,  // defined in core.js: the same glyph leads every upload button
   activity: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"></path></svg>`,
 };
 let tView = ls("tview") || "tasks";
+if (tView === "journal") tView = "notes";
 if (T_VIEWS.indexOf(tView) < 0) tView = "tasks";
 
 // activity (log) view state
@@ -85,8 +85,6 @@ let tLog = [];
 let tLogSig = null;                 // signature of what's on screen for the log list; skips a no-op rebuild
 let tLogLoaded = false;             // has this business's log been fetched at least once since the view opened
 
-// journal view state (jrSel/jrMemos/jrSearch/...) lives in js/journal.js, which owns the whole
-// journal tab; this file only calls into it at tab-switch/business-change points (see tSetView, tInit).
 // notes view state (ntSel/ntNotes/ntSearch/...) lives in js/notes.js the same way.
 // uploads view state (upForm/upDone/...) lives in js/uploads.js; it has no editor, so nothing to flush.
 
@@ -286,7 +284,7 @@ function tTabs(views = T_VIEWS, active = tView, bodyId = "tbody") {
 function tHead({ view = tView, views = T_VIEWS, title = T_VIEW_LABEL[view], bodyId = "tbody", taskTools = true } = {}) {
   // the journal/notes tabs supply their own header (homepage title/subtitle/Create, or the detail's
   // own sidebar controls) in #tbody, so the generic ttop (title + tasks-only stats/search) sits out
-  const ownHead = view === "journal" || view === "notes" || view === "signoffs" || view === "uploads" || view === "routines";
+  const ownHead = view === "notes" || view === "signoffs" || view === "uploads" || view === "routines";
   const tools = view === "tasks" && taskTools;
   return `<div class="thead${ownHead ? " nott" : ""}">
     ${tTabs(views, view, bodyId)}
@@ -362,7 +360,6 @@ function paintTasks() {
 function tSetView(v) {
   if (state.scope === "global") return;
   if (T_VIEWS.indexOf(v) < 0) v = "tasks";
-  if (tView === "journal" && v !== "journal" && jrEditState) { jrFlush().then(saved=>{if(saved)tSetView(v);}); return; }
   if (tView === "notes" && v !== "notes" && ntEditState) { ntFlush().then(saved=>{if(saved)tSetView(v);}); return; }
   const from = tView;
   const tabFocused = document.activeElement && document.activeElement.closest(".ttabs");
@@ -372,7 +369,6 @@ function tSetView(v) {
   if (from === "signoffs" && v !== "signoffs" && typeof tPaintSignoffs === "function") tPaintSignoffs();
   if (v === "tasks") { tPaintSig = null; paintTasks(); }
   else if (v === "activity") { tLogSig = null; tPaintActivity(); tActivityRefresh(); }
-  else if (v === "journal") { tPaintJournal(); }
   else if (v === "notes") { tPaintNotes(); }
   else if (v === "signoffs") { tPaintSignoffs(); }
   else if (v === "uploads") { tPaintUploads(); }
@@ -557,6 +553,7 @@ function tDetail(t) {
       ${fld("Updated", stamp(t.updated), true)}
       ${extra}
     </div>
+    <h4>Stories</h4><div id="td-stories" class="small muted">Loading related stories…</div>
     <h4>Notes${(t.notes || []).length ? " · " + (t.notes || []).length : ""}</h4>
     ${notes || `<div class="tnote"><div class="tx"><span class="none">No notes yet.</span></div></div>`}
     <textarea id="tnotetx" placeholder="Add a note…"></textarea>
@@ -584,6 +581,8 @@ function tDetail(t) {
       { label: closed ? "Reopen" : "Mark done", primary: true, onClick: () => again(t.id, {set:{status:closed ? 'open' : 'done'}}) },
     ],
     onOpen(el) {
+      if (typeof storyRelatedChips === 'function') storyRelatedChips(el.querySelector('#td-stories'), biz, 'tasks', t.id, () => m.close());
+      else el.querySelector('#td-stories').textContent = 'No linked stories.';
       el.querySelector('#td-reload').onclick = async()=>{await refreshTasks();if(state.biz!==biz||!m.el.isConnected)return;const fresh=taskById(t.id);m.close();if(fresh)tDetail(fresh);};
       const title = el.querySelector(".dtitle");
       title.onclick = () => {
@@ -712,11 +711,7 @@ window.addEventListener("resize", () => { const p = $("#taskspanel"); if (p && p
       tDoneT.forEach(clearTimeout); tDoneT.clear(); tCompleting.clear();   // holds belong to the business they started in
       refreshTasks();
       if (tView === "activity") { tLog = []; tLogSig = null; tActivityRefresh(); }
-      // the business changed under the journal tab: flush whatever was dirty to the OLD business
-      // (jrFlush snapshots its biz at edit-open time, so this is safe even though state.biz just moved
-      // on), then start clean on the new one
-      if (tView === "journal") { jrFlush(); jrSel = null; jrSearch = ""; jrMemos = []; tPaintJournal(); }
-      // same idea for the notes tab (see js/notes.js's ntFlush)
+      // Flush the old business draft before opening the next Notes view.
       if (tView === "notes") { ntFlush(); ntSel = null; ntSearch = ""; ntNotes = []; tPaintNotes(); }
       if (tView === "signoffs") sgBusinessChanged();
       if (tView === "routines") tPaintRoutines();

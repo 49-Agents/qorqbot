@@ -135,7 +135,7 @@ async function ctxSearch(q) {
 
 function ctxBusy(d) {
   const s = d.summarizing || {};
-  return !!((d.filing && d.filing.current) || (d.inbox || []).some(i => !i.failed) || s.current || s.queued);
+  return !!((d.filing && d.filing.current) || (d.inbox || []).some(i => ["queued", "running", "waiting_signoff", "cancelling"].includes(i.status)) || s.current || s.queued);
 }
 // Poll the tree while the tab is open: every 8 s while the queues are busy, every 20 s when idle (work
 // arrives from the filer sweep and from other clients too). Re-render only what changed.
@@ -166,7 +166,7 @@ function ctxWatch(d) {
 function ctxPaint(d) {
   _ctxData = d;
   const q = $("#ctxq"), inbox = d.inbox || [], f = d.filing || {}, s = d.summarizing || {}, cur = f.current;
-  const failed = inbox.filter(i => i.failed).length, waiting = inbox.length - failed;
+  const failed = inbox.filter(i => i.failed).length, waiting = inbox.filter(i => ["queued", "running", "waiting_signoff", "cancelling"].includes(i.status)).length;
   const bits = [];
   if (d.error) bits.push(`<span class="bad">${esc(d.error)}</span>`);
   if (d.has_filer === false) bits.push(`<span class="bad">no agents/_filer in this business; copy it from biz-template</span>`);
@@ -195,7 +195,7 @@ function ctxTree(d) {
   const recent = kids.map(k => [k, newestNoteDate(k)]).filter(([, dt]) => dt).sort((a, b) => a[1] < b[1] ? 1 : a[1] > b[1] ? -1 : 0).slice(0, 4);
   rows.push(`<div class="ctxpend" id="ctxpend">${recent.map(([k]) =>
     `<div class="ctxpi" data-p="${esc(k.path)}" title="${esc(k.title || k.slug)}">${glyph("circle", topicColor(k.slug), 8)}<span class="tt">${esc(cap(k.title || k.slug, 24))}</span></div>`).join("")}</div>`);
-  const inbox0 = d.inbox || [], failed0 = inbox0.filter(i => i.failed).length, waiting0 = inbox0.length - failed0;
+  const inbox0 = d.inbox || [], failed0 = inbox0.filter(i => i.failed).length, waiting0 = inbox0.filter(i => ["queued", "running", "waiting_signoff", "cancelling"].includes(i.status)).length;
   const badge0 = failed0 ? `<span class="bdot bad"></span>` : waiting0 ? `<span class="bdot acc"></span>` : "";
   const peopleOn0 = state.ctx === "_people" || (state.ctx != null && PERSON_VIEW_RE.test(state.ctx));
   rows.push(`<div class="item bt ${peopleOn0 ? "on" : ""}" data-p="_people"><div class="nm">${SVG_PEOPLE}<span class="tt">People</span></div></div>`);
@@ -349,8 +349,8 @@ function openUploads() {
   const head = `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><span class="cur">Uploads</span></div><div class="th"><h2>Uploads</h2></div>`;
   const filing = inbox.length ? `<div class="sec"><div class="sh">Filing</div><div class="cards">${inbox.map(i => {
     const cur = d.filing && d.filing.current && d.filing.current.id === i.id;
-    const st = cur ? `<span class="run">filing</span>` : i.failed ? `<span class="bad">failed</span>` : i.attempts ? `retry ${i.attempts}` : "waiting";
-    return `<div class="card u ${i.failed ? "failed" : ""}" data-p="_inbox/${esc(i.id)}.md"><div class="ct"><span class="tt">${esc(i.notes || i.topic || i.preview || i.id)}</span>${i.failed ? `<button class="retry" data-id="${esc(i.id)}" title="queue it again">retry</button>` : ""}</div><div class="cb">${st}</div><div class="cs">${esc(i.id)} · ${i.chars} chars${i.error ? ` · ${esc(String(i.error).slice(0, 80))}` : ""}</div></div>`;
+    const st = cur ? `<span class="run">filing</span>` : i.failed ? `<span class="bad">failed</span>` : esc(({queued: "queued", running: "filing", waiting_signoff: "awaiting approval", cancelled: "cancelled", cancelling: "cancelling"})[i.status] || "status unavailable");
+    return `<div class="card u ${i.failed ? "failed" : ""}" data-p="_inbox/${esc(i.id)}.md"><div class="ct"><span class="tt">${esc(i.notes || i.topic || i.preview || i.id)}</span>${i.retryable ? `<button class="retry" data-id="${esc(i.id)}" title="queue it again">retry</button>` : ""}</div><div class="cb">${st}</div><div class="cs">${esc(i.id)} · ${i.chars} chars${i.error ? ` · ${esc(String(i.error).slice(0, 80))}` : ""}</div></div>`;
   }).join("")}</div></div>` : "";
   const up = dumps.length ? `<div class="sec"><div class="sh">Uploads</div><div class="cards">${dumps.slice(0, 60).map(u => `<div class="card u d" data-p="_dumps/${esc(u.id)}.md"><div class="ct"><span class="tt">${esc(u.notes || u.topic || u.preview || u.id)}</span>${u.map ? `<span class="cnt" title="has a mind map">map</span>` : ""}</div><div class="cb">${esc(u.id)}</div><div class="cs">${u.chars} chars</div></div>`).join("")}</div></div>${dumps.length > 60 ? `<div class="empty pad">${dumps.length - 60} older uploads; search finds them</div>` : ""}`
     : `<div class="empty">nothing uploaded yet</div>`;
@@ -450,9 +450,14 @@ async function openCtx(p) {
   v.innerHTML = `${ctxCrumbs(dir, p.split("/").pop())}
     <div class="jcol"><div class="jhead"><h2 class="jt">${esc(title)}</h2>${ro ? `<span class="ro">${p === "INDEX.md" ? "generated" : "filed upload, immutable"}</span>` : `<span class="jsave" id="jsave"></span><button class="jbtn" id="jsavebtn" type="button">Save</button><button class="jbtn" id="jdiscard" type="button">Discard</button>`}</div>
     ${chips ? `<div class="chips">${chips}</div>` : ""}<hr class="jhr">
+    <div id="ctx-stories" class="small" aria-label="Related stories"></div>
     ${uid ? uploadSections(uid, um || {}) : ""}
     ${ro ? `<div class="jbody">${esc(body)}</div>` : `<textarea class="jta" id="jta" spellcheck="false" placeholder="Start writing…"></textarea>`}</div>`;
   wireCrumbs(v);
+  if(r.document_id)storyRelatedChips(v.querySelector('#ctx-stories'),biz,uid?'uploads':'documents',r.document_id,async()=>{
+    if(_jState?.dirty){await jSave();if(_jState?.dirty)return false;}
+    return true;
+  });
   if (uid) wireUpload(v, uid, um || {});
   if (ro) return;
   const ta = $("#jta");
@@ -483,10 +488,10 @@ function uploadSections(uid, um) {
   const stamp = m ? `<span class="stamp">${m.nodes} nodes · ${esc(String(m.at || "").slice(0, 10))}${m.model ? ` · ${esc(m.model)}` : ""}</span>` : "";
   const btn = um.mapping ? `<button class="ghost sm" disabled>drawing…</button>` : `<button class="ghost sm" id="dumpdraw">${m ? "Redraw" : "Draw mind map"}</button>`;
   const mapBody = m ? `<div id="dumpmap"></div>` : `<div class="empty">${um.mapping ? "being drawn now from the text below" : um.error ? esc(um.error) : "not drawn yet; it is drawn after filing, or press Draw mind map"}</div>`;
-  const cards = notes.length ? `<div class="cards">${notes.map(n => `<div class="card n" data-p="${esc(n.path)}" title="${esc(n.title)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(n.title || n.path))}</span></div>
+  const cards = notes.length ? `<div class="cards">${notes.map(n => `<div class="card n" data-p="${esc(n.path)}" data-tree="${esc(n.tree || "context")}" title="${esc(n.title)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(n.title || n.path))}</span></div>
       <div class="cb">${esc(n.summary || "")}</div><div class="cs">${esc(n.topic)}${(n.people || []).length ? ` · ${esc(n.people.join(", "))}` : ""}</div></div>`).join("")}</div>`
     : `<div class="empty">${filed ? `no notes were cut from it${t.result ? `: ${esc(t.result)}` : ""}` : "not filed yet; the filer splits it into notes when the queue runs"}</div>`;
-  const chip = (path, label, extra = "") => `<span class="chip go" data-p="${esc(path)}" ${extra}>${esc(label)}</span>`;
+  const chip = (path, label, extra = "") => `<span class="chip${path.startsWith("marketing-content/") ? "" : " go"}" data-p="${esc(path)}" ${extra}>${esc(label)}</span>`;
   const topics = (t.topics || []).length || (t.also || []).length ? `<div class="row"><span class="lbl">topics</span>${(t.topics || []).map(x => chip(x, x)).join("")}${(t.also || []).map(x => chip(x, `${x} (also)`, 'title="cross-referenced, not filed into"')).join("")}</div>` : "";
   const people = (t.people || []).length ? `<div class="row"><span class="lbl">people</span>${t.people.map(pp => chip(`_people/${pp.slug}`, pp.name)).join("")}</div>` : "";
   return `<div class="sec"><div class="sh">Mind map ${stamp}<span class="ml">${btn}</span></div>${mapBody}</div>
@@ -494,7 +499,7 @@ function uploadSections(uid, um) {
 }
 function wireUpload(v, uid, um) {
   if (um.map && um.map.tree) mindmap($("#dumpmap"), ctxMapIdea(um.map.tree));
-  v.querySelectorAll(".trace .card, .trace .chip.go").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
+  v.querySelectorAll(".trace .card, .trace .chip.go").forEach(el => el.onclick = () => el.dataset.tree === "marketing-content" ? mkOpenNote(el.dataset.p) : ctxGo(el.dataset.p));
   const b = $("#dumpdraw");
   if (b) b.onclick = async () => {
     b.disabled = true;
@@ -506,18 +511,21 @@ function wireUpload(v, uid, um) {
 }
 
 // The upload box: text (required), notes (attribution), topic (a hint) → POST context/upload, then the new
-// upload opens in the Context tab. The only upload into a business tree: marketing-content/ is write-back only.
+// upload opens in the Context tab; the filer can choose Context or marketing reference topics.
 function uploadModal() {
+  const biz=state.biz;let selectedStories=[];
   const msg = "the filer splits it by topic and files it; the raw text is kept";
   const body = `<div class="fl">Context</div><textarea class="inp ta" id="uptext" placeholder="paste anything: notes from a call, a doc, a thread, a decision" spellcheck="false"></textarea>
     <div class="fmsg" id="upmsg">${esc(msg)}</div>
     <div class="fl">Notes <span class="opt">optional</span></div><input class="inp" id="upnotes" placeholder="where it came from: call with Sarah, PH hunter" autocomplete="off">
     <div class="fl">Topic <span class="opt">optional</span></div><input class="inp" id="uptopic" placeholder="hint: producthunt launch, pricing, brand voice" autocomplete="off">
+    <div class="fl">Stories <span class="opt">optional</span></div><button class="quiet" type="button" id="ctxuploadstories">Choose stories</button>
     <div class="ferr" id="uperr" hidden></div>`;
   modal({
     title: "Upload context", body, width: 560,
     onOpen: el => {
       const ta = el.querySelector("#uptext"), m = el.querySelector("#upmsg");
+      el.querySelector('#ctxuploadstories').onclick=()=>storyChooseIds(biz,selectedStories,stories=>{selectedStories=stories;el.querySelector('#ctxuploadstories').textContent=stories.length?stories.map(story=>story.title).join(', '):'Choose stories';});
       ta.oninput = () => { const n = ta.value.trim().length; m.textContent = n ? `${n.toLocaleString()} chars` : msg; };
       ta.onkeydown = e => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") el.querySelector(".mfoot .primary").click(); };
     },
@@ -526,11 +534,12 @@ function uploadModal() {
       { label: "Upload", icon: ICO_UPLOAD, primary: true, onClick: async (close, el) => {
         const err = el.querySelector("#uperr"), text = el.querySelector("#uptext").value.trim();
         const fail = t => { err.hidden = false; err.textContent = t; };
+        if(state.biz!==biz)return fail('The selected business changed. Reopen the upload form.');
         if (!text) return fail("nothing to upload");
         err.hidden = true;
         const b = el.querySelector(".mfoot .primary"); b.disabled = true;
-        const payload = { text, notes: el.querySelector("#upnotes").value, topic: el.querySelector("#uptopic").value };
-        let r; try { r = await post(`/biz/${state.biz}/context/upload`, payload); }
+        const payload = { text, notes: el.querySelector("#upnotes").value, topic: el.querySelector("#uptopic").value, story_ids:selectedStories.map(story=>story.id) };
+        let r; try { r = await post(`/biz/${biz}/context/upload`, payload); }
         catch (e) { r = { error: "could not reach the server" }; }
         if (!r || r.error) { b.disabled = false; return fail((r && r.error) || "upload failed"); }
         close(); toast(r.warn ? `uploaded ${r.id}, but: ${r.warn}` : `uploaded ${r.id}; filing queued`);

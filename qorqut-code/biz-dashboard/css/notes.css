@@ -72,7 +72,7 @@
 .ntrowdel:hover { color: #FF6B5E; background: var(--hover); transform: none; }
 .ntfoot { flex: none; padding: 16px 24px; font-size: 11px; color: var(--fg-2); opacity: .6; }
 
-/* -- editor: one rule set for Notes AND Journal (journal.css only points here), so a new page and a new
+/* -- editor: one rule set for Notes AND Journal (writing.css only points here), so a new page and a new
    memo put their headline, controls and meta line on exactly the same spot. Layout is the journal's
    (900px column, 64px top), look is Notes'. */
 .nteditor, .jreditor { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; border-left: 1px solid var(--line); }
@@ -112,6 +112,7 @@
   padding: 0 0 0 calc(1.5rem + 1.5rem); text-indent: -1.5rem;
 }
 .ntlinein:focus { border: 0; box-shadow: none; background: none; }
+.ntline:not(.nttask) .ntlinein { padding-left: 0; text-indent: 0; }
 .ntline.nttask .ntlinein { padding-left: calc(1.5rem + 1.5rem + 10px); }
 .ntline.bold .ntlinein { font-weight: 600; }
 .ntline.done .ntlinein { text-decoration: line-through; opacity: .55; }
@@ -140,3 +141,23 @@
 #nterror { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; overflow-wrap: anywhere; }
 #nterror[hidden] { display: none; }
 #nterror span { flex: 1 1 180px; }
+
+.nteditorhint { margin: -32px 0 24px; color: var(--fg-3); font-size: 11px; }
+#ntmeta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+#ntfiling { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-weight: 400; }
+#ntfiling:empty { display: none; }
+#ntfiling::before { content: "·"; color: var(--fg-3); }
+#ntfiling .ntmetalink {
+  display: inline; width: auto; height: auto; min-height: 0; padding: 0;
+  border: 0; border-radius: 0; background: none; box-shadow: none;
+  font: inherit; color: var(--fg-2); text-decoration: underline;
+  text-decoration-color: var(--fg-3); text-underline-offset: 3px;
+  transform: none; cursor: pointer;
+}
+#ntfiling .ntmetalink:hover, #ntfiling .ntmetalink:active {
+  background: none; color: var(--fg); text-decoration-color: currentColor; transform: none;
+}
+#ntfiling .ntmetalink:focus-visible { outline: 2px solid var(--fg-3); outline-offset: 4px; }
+.ntedhead { flex-wrap: wrap; }
+.nttitlein { min-width: 140px; }
+.ntedctrls { flex-wrap: wrap; }

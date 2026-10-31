@@ -44,7 +44,8 @@ async function selectGlobal(tab = ls('global-tab') || 'overview') {
   const navigation = ++workspaceNavigation;
   // Preserve edits before removing the business's editor and its autosave timers.
   if (state.scope !== 'global') {
-    if (!await jrFlush() || !await ntFlush()) return;
+    if (typeof storyView !== 'undefined' && storyView && !await storyCanLeave()) return;
+    if (!await ntFlush()) return;
     if (_jState && (_jState.dirty || _jState.saving)) {
       await jSave();
       if (_jState.dirty || _jState.saving) return;
@@ -130,10 +131,11 @@ async function loadGlobalSummaries(c, generation) {
     card.onpointerenter = event => { if (event.pointerType === 'mouse') details.open = true; };
     card.onpointerleave = () => { if (!details.contains(document.activeElement)) details.open = false; };
     details.addEventListener('focusout', event => { if (!card.matches(':hover') && !details.contains(event.relatedTarget)) details.open = false; });
-    card.querySelectorAll('[data-summary-view]').forEach(el => el.onclick = () => {
+    card.querySelectorAll('[data-summary-view]').forEach(el => el.onclick = async () => {
       const view = el.dataset.summaryView;
       if (view === 'questions') return;
-      selectBiz(b.slug);
+      await selectBiz(b.slug);
+      if (state.biz !== b.slug || state.scope !== 'business') return;
       if (view === 'requests') goTab('marketing');
       else { openTasks(true); tSetView(view); }
     });

@@ -8,14 +8,16 @@
 <link rel="stylesheet" href="/css/agents.css">
 <link rel="stylesheet" href="/css/agentpane.css">
 <link rel="stylesheet" href="/css/tasks.css">
-<link rel="stylesheet" href="/css/journal.css">
+<link rel="stylesheet" href="/css/writing.css">
 <link rel="stylesheet" href="/css/notes.css">
+<link rel="stylesheet" href="/css/stories.css">
 <link rel="stylesheet" href="/css/signoffs.css">
 <link rel="stylesheet" href="/css/agentconfig.css">
 <link rel="stylesheet" href="/css/uploads.css">
 <link rel="stylesheet" href="/css/side.css">
 <link rel="stylesheet" href="/css/context.css">
 <link rel="stylesheet" href="/css/marketing.css">
+<link rel="stylesheet" href="/css/email.css">
 <link rel="stylesheet" href="/css/learning.css">
 <link rel="stylesheet" href="/css/ctxmap.css">
 <link rel="stylesheet" href="/css/settings.css">
@@ -29,7 +31,9 @@
   <div class="rdiv"></div>
   <div class="ritems" id="ritems">
     <div class="rind" id="rind" hidden></div>
+    <button class="ritem" data-tab="stories" title="Stories" aria-label="Stories" type="button"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M12 5h8M12 11h6M12 19h8"/></svg></button>
     <div class="ritem on" data-tab="agents" title="Agents"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg></div>
+    <button class="ritem email-nav" data-tab="email" id="emailnav" type="button" title="Email" aria-label="Email"></button>
     <div class="ritem" data-tab="marketing" title="Marketing"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg><span class="badge" id="mkbadge" hidden></span></div>
     <div class="ritem soon" data-tab="accounting" title="Accounting — soon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg></div>
     <div class="ritem soon" data-tab="datascience" title="Data science — soon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="18.5" cy="5.5" r=".5" fill="currentColor"/><circle cx="11.5" cy="11.5" r=".5" fill="currentColor"/><circle cx="7.5" cy="16.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="14.5" r=".5" fill="currentColor"/><path d="M3 3v16a2 2 0 0 0 2 2h16"/></svg></div>
@@ -60,9 +64,12 @@
 <script src="/js/context.js"></script>
 <script src="/js/side.js"></script>
 <script src="/js/marketing.js"></script>
+<script src="/js/email.js"></script>
 <script src="/js/learning.js"></script>
-<script src="/js/journal.js"></script>
+<script src="/js/writing.js"></script>
 <script src="/js/notes.js"></script>
+<script src="/js/story-pane.js"></script>
+<script src="/js/stories.js"></script>
 <script src="/js/uploads.js"></script>
 <script src="/js/routines.js"></script>
 <script src="/js/signoffs.js"></script>

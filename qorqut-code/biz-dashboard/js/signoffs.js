@@ -105,7 +105,10 @@ function sgCreateView(options) {
     const error = sg.detailErrors.get(s.id), busy = sg.busy.get(busyKey(sg.slug, s));
     const verified = sg.verified.get(s.id) === s.status_revision;
     const canReview = verified && completePreview(s) && owner() && !sg.error && !error && !s.superseded_by_id;
-    if (!detail.querySelector(".sg-preview")) detail.innerHTML = `<div class="sg-detailnotice"></div><div class="sg-preview"></div><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div>`;
+    if (!detail.querySelector(".sg-preview")) {
+      detail.innerHTML = `<div class="sg-detailnotice"></div><div class="sg-preview"></div><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div><div class="sg-stories" aria-label="Related stories"></div>`;
+      if (!options.global) storyRelatedChips(detail.querySelector('.sg-stories'),sg.slug,'signoffs',s.id);
+    }
     detail.setAttribute("aria-busy", String(!!busy || sg.detailLoading === s.id));
     const notice = error ? errorHtml(error, "detail") : !verified ? `<p class="sg-notice">${sg.detailLoading === s.id ? "Loading prepared change..." : "This detail is out of date."}</p>` : !completePreview(s) ? errorHtml("The proposal could not be loaded completely. Reload it before approving.", "detail") : "";
     html(detail.querySelector(".sg-detailnotice"), notice);

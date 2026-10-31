@@ -19,6 +19,8 @@ const glyph = (shape, colorHex, sizePx) => `<span class="g ${SHAPES.includes(sha
 // 24 lucide-style icons an agent can pick, keyed by kebab-case lucide name; each value is the
 // inner markup for a 24x24 stroke viewBox (paths/shapes only, no outer <svg>)
 const AICONS = {
+  "refresh-cw": '<path d="M3 12a9 9 0 0 1 15.36-6.36L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.36 6.36L3 16"/><path d="M8 16H3v5"/>',
+  "arrow-left": '<path d="m12 19-7-7 7-7"/><path d="M5 12h14"/>',
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
   brain: '<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M3.477 10.896a4 4 0 0 1 .585-.396"/><path d="M19.938 10.5a4 4 0 0 1 .585.396"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/>',
   sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
@@ -49,7 +51,8 @@ const aicon = (name, colorHex, sizePx) => `<svg class="ai" width="${sizePx}" hei
 const agentGlyph = (m, size) => { const d = dept((m || {}).department); return (m && m.icon && AICONS[m.icon]) ? aicon(m.icon, d.color, size) : glyph(d.icon, d.color, size); };
 
 // lazy: the render functions live in later script files
-const TABS = { agents: c => renderAgents(c), context: c => renderContext(c),
+const TABS = { agents: c => renderAgents(c), context: c => renderContext(c), stories: c => renderStories(c),
+  email: c => renderEmail(c),
   marketing: c => renderMarketing(c), accounting: c => soon(c, "The cash ledger and what recurs."),
   datascience: c => soon(c, "Experiments and metric deep-dives."),
   progress: c => soon(c, "Tasks, milestones and what shipped."),
@@ -163,8 +166,11 @@ const SVG_X = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" strok
 const SVG_CHECK = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2 4.8 8.5 9.5 3.5"/></svg>`;
 
 let _modal = null;
-function modal({ title = "", body = "", actions = [], width = 520, onOpen } = {}) {
-  if (_modal) _modal.close();
+function modal({ title = "", body = "", actions = [], width = 520, onOpen, stack = false } = {}) {
+  const parent = stack ? _modal : null;
+  if (!stack) while (_modal) _modal.close();
+  const parentOverlay = parent?.el.closest('.overlay');
+  if (parentOverlay) {parentOverlay.inert = true;parent.el.setAttribute('aria-hidden','true');}
   const ov = document.createElement("div");
   ov.className = "overlay";
   ov.innerHTML = `<div class="modal" style="width:${Number(width) || 520}px" role="dialog" aria-modal="true">
@@ -177,10 +183,12 @@ function modal({ title = "", body = "", actions = [], width = 520, onOpen } = {}
   const close = () => {
     if (closed) return; closed = true;
     document.removeEventListener("keydown", onKey, true);
-    ov.remove(); if (_modal && _modal.el === el) _modal = null;
+    ov.remove();
+    if (_modal && _modal.el === el) _modal = parent?.el.isConnected ? parent : null;
+    if (parentOverlay) {parentOverlay.inert = false;parent.el.removeAttribute('aria-hidden');}
   };
   // an open dropdown owns Escape (both listeners sit on document capture, so stopPropagation alone does not help)
-  const onKey = e => { if (e.key === "Escape" && !_menu) { e.stopPropagation(); close(); } };
+  const onKey = e => { if (e.key === "Escape" && !_menu && _modal?.el === el) { e.stopPropagation(); close(); } };
   const foot = el.querySelector(".mfoot");
   actions.forEach(a => {
     const b = document.createElement("button");
@@ -314,8 +322,9 @@ function paintBiz() {
   $("#wsletter").textContent = b && b.name ? b.name.charAt(0).toUpperCase() : "·";
   $("#wsbtn").title = b ? b.name : "Businesses";
 }
-function selectBiz(slug) {
+async function selectBiz(slug) {
   const b = state.bizs.find(x => x.slug === slug); if (!b) return;
+  if (typeof storyView !== 'undefined' && storyView && !await storyCanLeave()) return;
   workspaceNavigation++;
   // the agent this business was last left on wins over its first agent (see agents.js's agKey/agSetSel)
   const lastAgent = ls(`ag:${slug}`);
@@ -334,10 +343,11 @@ $("#wsbtn").onclick = () => dropdown($("#wsbtn"), [{
   value: b.slug,
   html: `${esc(b.name)} <span class="muted small">${b.agents.length}</span>`,
 }))], slug => slug === "/global" ? selectGlobal() : selectBiz(slug), state.scope === "global" ? "/global" : state.biz);
-function goTab(name) {
+async function goTab(name) {
   if (state.scope === "global") return;
   const t = [...document.querySelectorAll(".ritem")].find(x => x.dataset.tab === name);
   if (!t || t.classList.contains("soon")) return;
+  if (typeof storyView !== 'undefined' && storyView && !await storyCanLeave()) return;
   state.tab = t.dataset.tab; ls("tab", state.tab);
   document.querySelectorAll(".ritem").forEach(x => x.classList.toggle("on", x === t));
   renderTab(); moveInd();
@@ -356,6 +366,7 @@ function moveInd() {
 function renderTab() {
   if (typeof rtSuspend === 'function') rtSuspend();
   if (typeof ctxClearGraph === "function") ctxClearGraph();
+  if (typeof storyDispose === 'function') storyDispose();
   const c = $("#content"); c.innerHTML = "";
   if (typeof teardownTerm === "function") teardownTerm();
   if (state.scope === "global") return renderGlobal(c);

@@ -51,7 +51,7 @@ function bumpUsage(u) { addUsage(state.usage || (state.usage = blankUsage()), u)
 // ------------------------------------------------------------------- pane
 // The Agents tab: each agent IS a live terminal bound to its background PTY on the server.
 // Left = the agent list, middle = the mirrored terminal, right = the agent tasks and activity pane.
-// remember which agent was focused, per business — same shape as journal.js's jrKey/jrSetSel
+// remember which agent was focused, per business — same shape as notes.js's ntKey/ntSetSel
 const agKey = () => `ag:${state.biz}`;
 function agSetSel(name) {
   state.agent = name;
