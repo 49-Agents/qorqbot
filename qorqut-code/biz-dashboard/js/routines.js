@@ -36,7 +36,7 @@ async function rtRefresh() {
   try {
     const [data, logs] = await Promise.all([api(rtEndpoint(false, biz)), api(rtEndpoint(false, biz) + '/runs?n=50')]);
     if (biz !== state.biz || generation !== rtGeneration || tView !== 'routines') return;
-    if (data.error) throw new Error(data.error);
+    if (data.error && !Array.isArray(data.routines)) throw new Error(data.error);
     if (logs.error) throw new Error(logs.error);
     rtData = data; rtRuns = logs;
     rtRender();
@@ -61,11 +61,15 @@ function rtRunRow(run, index) {
   const costTitle = (run.scope === 'global' ? 'Total for this global run' : 'Cost of this business run') + (rtCostNote(run) ? ' · ' + rtCostNote(run) : '');
   return `<article class="rtrow rtrunrow" data-run="${index}">
     ${rtScope(run.scope)}<button class="rttitle" data-action="run-detail" title="${esc(run.name || run.routine)}">${esc(run.name || run.routine)}</button>
-    <div class="rtmeta" title="${esc(rtTime(run.start, run.zone))}"><span class="${run.ok ? 'rtok' : 'rtfail'}">${run.running ? 'Running' : run.ok ? 'Succeeded' : 'Failed'}</span><span class="sep">·</span><time>${esc(rtTime(run.start, run.zone))}</time><span class="sep">·</span>${esc(run.seconds)}s</div>
+    <div class="rtmeta" title="${esc(rtTime(run.start, run.zone))}"><span class="${run.ok ? 'rtok' : 'rtfail'}">${rtRunState(run)}</span><span class="sep">·</span><time>${esc(rtTime(run.start, run.zone))}</time><span class="sep">·</span>${esc(run.seconds)}s</div>
     <span class="rtprice" title="${esc(costTitle)}">${rtMoney(run.usd)}</span></article>`;
 }
 function rtCostNote(run) {
+  if (typeof run.usage_complete === 'boolean') return run.usage_complete ? '' : 'Some usage was not reported; the recorded cost may be incomplete.';
   return (run.runs || []).some(x => !x.model) ? 'Some usage was not reported; the recorded cost may be incomplete.' : '';
+}
+function rtRunState(run) {
+  return run.running ? 'Running' : run.ok ? 'Succeeded' : run.state === 'cancelled' ? 'Cancelled' : 'Failed';
 }
 function rtRender() {
   if (tView !== 'routines') return;
@@ -87,7 +91,7 @@ function rtRender() {
     ${!isLog ? `<div class="rttoolbar"><span class="rtmuted" title="${esc(rtData && rtData.last_sweep || '')}">${esc(status)}</span>${current ? '<button class="btn quiet" id="rtkill">Stop run</button>' : ''}${paused ? `<label class="rtpaused"><input id="rtpaused" type="checkbox" ${rtShowPaused ? 'checked' : ''}>Show paused</label>` : ''}</div>` : ''}
     ${problem ? `<p class="rtfail">${esc(problem)}</p>` : ''}
     <div class="rtlist">${!rtData ? '<p class="jrfaint jrfaint-pad">Loading routines…</p>' : isLog ? (logs.length ? logs.map(rtRunRow).join('') : '<p class="jrfaint jrfaint-pad">No runs yet.</p>') : (visible.length ? visible.map(rtRoutineRow).join('') : '<p class="jrfaint jrfaint-pad">No active routines.</p>')}</div>
-    ${!isLog && rtData && (rtData.invalid || []).length ? `<details class="mkchain rtissues"><summary>${rtData.invalid.length} invalid definitions</summary>${rtData.invalid.map(x => `<p class="rtfail">${esc(x.file)}: ${esc(x.error)}</p>`).join('')}</details>` : ''}
+    ${!isLog && rtData && (rtData.invalid || []).length ? `<details class="mkchain rtissues"><summary>${rtData.invalid.length} invalid definitions</summary>${rtData.invalid.map(x => `<p class="rtfail">${esc(x.routine_id || x.file)}: ${esc(x.error)}</p>`).join('')}</details>` : ''}
     </section></div>`;
   body.querySelectorAll('[data-page]').forEach(el => el.onclick = () => { rtPage = el.dataset.page; rtRender(); });
   body.querySelectorAll('.rtrow[data-key]').forEach(el => el.onclick = e => {
@@ -156,12 +160,12 @@ function rtDetail(row) {
 }
 function rtRunDetail(run) {
   if (!run) return;
-  const result = run.running ? 'Running' : run.ok ? 'Succeeded' : 'Failed';
+  const result = rtRunState(run);
   const models = [...new Set((run.runs || []).map(x => x.model).filter(Boolean))].join(', ');
   rtDialog = modal({title:esc(run.name || run.routine),width:680,body:`<div class="tdetail rtdetail"><div class="rtscope">${rtScope(run.scope)}<span class="${run.ok ? 'rtok' : 'rtfail'}">${result}</span><span class="rtprice">${rtMoney(run.usd)}</span></div>
     <div class="flds"><span class="k">Started</span><span class="v">${esc(rtTime(run.start,run.zone))}</span><span class="k">Duration</span><span class="v">${esc(run.seconds)} seconds</span>${models ? `<span class="k">Model</span><span class="v">${esc(models)}</span>` : ''}</div>
     ${rtCostNote(run) ? `<p class="rtmuted">${rtCostNote(run)}</p>` : ''}
-    ${(run.runs || []).map(x=>`<details class="mkchain rtoutput" ${(run.runs || []).length === 1 ? 'open' : ''}><summary>${esc(x.slug === 'root' ? 'Businesses root' : x.slug)} · ${x.ok ? 'succeeded' : 'failed'} · rc ${esc(x.rc)}</summary><pre>${esc(x.stdout_tail || '(no stdout)')}\n--- stderr ---\n${esc(x.stderr_tail || '(none)')}${x.git_error ? '\nCommit error: ' + esc(x.git_error) : ''}</pre></details>`).join('')}</div>`,actions:[{label:'Close',onClick:close=>close()}]});
+    ${(run.runs || []).map(x=>`<details class="mkchain rtoutput" ${(run.runs || []).length === 1 ? 'open' : ''}><summary>${esc(x.slug === 'root' ? 'Businesses root' : x.slug)} · ${rtRunState({...x,running:['queued','running','applying','waiting_signoff','cancel_requested'].includes(x.state)})}${x.rc != null ? ' · rc ' + esc(x.rc) : ''}</summary><pre>${esc(x.stdout_tail || 'No additional output.')}${x.stderr_tail ? '\n\nError: ' + esc(x.stderr_tail) : ''}${x.git_error ? '\nCommit error: ' + esc(x.git_error) : ''}</pre></details>`).join('')}</div>`,actions:[{label:'Close',onClick:close=>close()}]});
 }
 function rtFormHTML(row = {}) {
   const input = (key,label,value,extra='') => `<label>${label}<input class="inp" name="${key}" value="${esc(String(value == null ? '' : value))}" ${extra}></label>`;
@@ -175,7 +179,6 @@ function rtFormHTML(row = {}) {
     <label id="rtreview" ${row.scope !== 'global' ? 'hidden' : ''}>Review business<select class="inp" name="review_business_id">${state.bizs.map(b=>`<option value="${esc(b.business_id || b.id)}" ${b.slug === state.biz ? 'selected' : ''}>${esc(b.name || b.slug)}</option>`).join('')}</select></label>
     ${input('timeout','Timeout (seconds)',row.timeout || 900,'type="number" min="60" max="7200" required')}
     <fieldset class="rtwide"><legend>Departments</legend>${['marketing','accounting','data-science','code','general','onbashlyk'].map(d=>`<label class="rtcheck"><input type="checkbox" name="departments" value="${d}" ${(row.departments || ['onbashlyk']).includes(d) ? 'checked' : ''}>${d}</label>`).join('')}</fieldset>
-    <label class="rtcheck"><input type="checkbox" name="skip_if_live" ${row.skip_if_live !== false ? 'checked' : ''}>Skip while an agent is active</label>
     <label class="rtwide">Why<textarea class="inp" name="why" required>${esc(row.why || '')}</textarea></label></div><p id="rterror" class="rtfail" role="alert"></p></form>`;
 }
 function rtOpenForm(row = null) {
@@ -191,7 +194,7 @@ function rtOpenForm(row = null) {
     if (!program || program.unavailable_reason) { form.querySelector('#rterror').textContent = program && program.unavailable_reason || 'Select an available program.'; return; }
     const definition = {name:data.get('name'),program:program.id,arguments:argumentsValue,schedule:data.get('when'),timezone:data.get('tz'),
       timeout_seconds:Number(data.get('timeout')),departments,why:data.get('why'),status:row && row.status || 'active',
-      skip_if_live:data.has('skip_if_live'),target:draft.scope === 'global' ? data.get('target') : 'business'};
+      target:draft.scope === 'global' ? data.get('target') : 'business'};
     const payload = {op:row ? 'set' : 'add',definition,review_business_id:draft.scope === 'global' ? data.get('review_business_id') : rtBusinessId(draft.biz),
       ...(row ? {id:row.id,expected_revision:row.revision} : {})};
     const button = el.querySelector('.mfoot .primary'); button.disabled = true;
@@ -268,10 +271,13 @@ function rtReadArguments(form) {
 function rtFailureToasts(rows) {
   let prior;
   try { prior=JSON.parse(localStorage.getItem('routine-failures-seen') || '[]'); } catch (_) { prior=[]; }
-  const seen=new Set(Array.isArray(prior) ? prior : []);
+  const seen=new Set((Array.isArray(prior) ? prior : []).filter(x=>typeof x === 'string' && x));
   (rows || []).slice().reverse().forEach(row=>{
-    if (seen.has(row.run)) return;
-    seen.add(row.run);notify({text:`Routine failed: ${row.routine}`,sub:`rc ${row.rc} · ${row.end}`,color:'var(--danger)'});
+    const id = row.id || row.run;
+    if (!id || seen.has(id)) return;
+    const detail = row.error && row.error.message || (row.runs || []).map(x=>x.stderr_tail).find(Boolean);
+    const scope = row.scope === 'global' ? 'All businesses' : state.biz;
+    seen.add(id);notify({text:`Routine failed: ${row.name || row.routine}`,sub:[scope,detail || (row.rc != null ? `rc ${row.rc}` : ''),row.end].filter(Boolean).join(' · '),color:'var(--danger)'});
   });
   localStorage.setItem('routine-failures-seen',JSON.stringify([...seen].slice(-500)));
 }
