@@ -37,10 +37,7 @@ class EmailService:
             self.store.flush_history()
             return self.provider.collect_history(self.history)
         except ProviderError as exc:
-            cursor = self.history.cursor()
-            identity = hashlib.sha256((cursor + ":" + exc.code + ":" + str(exc.status)).encode()).hexdigest()
-            self.history.append("collection-gap:" + identity, "provider.collection_gap",
-                {"cursor": cursor, "error": exc.code, "provider_status": exc.status})
+            self.history.collection_gap(exc.code, exc.status)
             # Never reset an expired history cursor into a silent fresh baseline.
             raise
         finally:

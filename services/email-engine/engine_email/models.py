@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.headerregistry import Address
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -154,12 +155,27 @@ class SharedSender(BaseModel):
     address: str
     from_name: str = Field(default="", max_length=160)
     account_ref: str = Field(pattern=r"^[A-Za-z0-9_-]{1,100}$")
-    allowed_business_ids: list[str] = Field(min_length=1, max_length=100)
+    business_scope: Literal["selected", "all"] = "selected"
+    allowed_business_ids: list[str] = Field(default_factory=list, max_length=100)
+    default_for_outreach: bool = False
+    writing_instructions: str = Field(default="", max_length=10_000)
     enabled: bool = False
     rolling_limit: int = Field(default=30, ge=1, le=10000)
 
     _address = field_validator("address")(address)
     _name = field_validator("from_name")(header)
+
+    @model_validator(mode="after")
+    def valid_scope(self):
+        if self.business_scope == "selected" and not self.allowed_business_ids:
+            raise ValueError("Selected shared senders require allowed business IDs")
+        if self.default_for_outreach and self.business_scope != "all":
+            raise ValueError("The outreach default must have all-business scope")
+        return self
+
+    def permits_business(self, business_id):
+        """Scope grant only; sending also requires enablement and a registered mailbox."""
+        return self.business_scope == "all" or business_id in self.allowed_business_ids
 
 
 class HistoryConfig(BaseModel):
@@ -167,6 +183,7 @@ class HistoryConfig(BaseModel):
     database: str = Field(min_length=1)
     public_key_file: str = Field(min_length=1)
     start_cursor: str = Field(min_length=1, max_length=2000)
+    capture_scope: Literal["scoped", "account"] = "scoped"
     private_folder_ids: list[str] = Field(default_factory=list, max_length=100)
 
 
@@ -196,13 +213,15 @@ class Settings:
         for sender in self.shared_senders:
             if sender.ref in refs or sender.address in addresses:
                 raise ValueError("Shared sender refs and addresses must be unique")
-            if not set(sender.allowed_business_ids) <= businesses:
+            if sender.business_scope == "selected" and not set(sender.allowed_business_ids) <= businesses:
                 raise ValueError("Shared sender business must have a registered mailbox")
             if sender.account_ref in limits and limits[sender.account_ref] != sender.rolling_limit:
                 raise ValueError("Shared account aliases must use the same rolling limit")
             refs.add(sender.ref)
             addresses.add(sender.address)
             limits[sender.account_ref] = sender.rolling_limit
+        if sum(sender.default_for_outreach for sender in self.shared_senders) > 1:
+            raise ValueError("At most one shared sender can be the outreach default")
         if any(sender.enabled for sender in self.shared_senders) and self.history is None:
             raise ValueError("Enabled shared senders require private email history")
         if self.history and set(self.history.private_folder_ids) & {box.folder_id for box in self.mailboxes}:
@@ -258,7 +277,7 @@ class Settings:
         elif not mailbox.accepts_sender(message.from_address):
             raise ValueError("Sender is outside the registered mailbox")
         if configured:
-            if not configured.enabled or mailbox.business_id not in configured.allowed_business_ids:
+            if not configured.enabled or not configured.permits_business(mailbox.business_id):
                 raise ValueError("Shared sender is unavailable for this business")
             if not message.expires_at:
                 raise ValueError("Shared sending requires an approval execution deadline")

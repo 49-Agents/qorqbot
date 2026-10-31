@@ -3,6 +3,7 @@
 import json
 import re
 import base64
+import hashlib
 from email.message import EmailMessage
 from email.policy import SMTP
 from email.utils import formataddr, formatdate
@@ -20,6 +21,12 @@ REQUEST_HEADER = "header:X-Qorqut-Request:asText"
 FIELDS = ["id", "threadId", "mailboxIds", "keywords", "messageId", "inReplyTo", "references",
     "from", "to", "cc", "bcc", "replyTo", "subject", "sentAt", "receivedAt", "hasAttachment",
     "textBody", "htmlBody", "bodyValues", "attachments", REQUEST_HEADER]
+HISTORY_FIELDS = ["id", "blobId", "threadId", "mailboxIds", "keywords", "size", "receivedAt",
+    "headers", "messageId", "inReplyTo", "references", "sender", "from", "to", "cc", "bcc",
+    "replyTo", "subject", "sentAt", "hasAttachment", "preview", "bodyStructure", "textBody",
+    "htmlBody", "bodyValues", "attachments"]
+HISTORY_BODY_FIELDS = ["partId", "blobId", "size", "name", "type", "charset", "disposition",
+    "cid", "language", "location", "headers"]
 
 
 class ProviderError(Exception):
@@ -133,6 +140,10 @@ class Fastmail:
     def folders(self):
         result = self.call("Mailbox/get", {"properties": ["id", "name", "role", "myRights"]})
         found = {item["id"]: item for item in result["list"]}
+        self.validate_folders(found)
+        return found
+
+    def validate_folders(self, found):
         for box in self.settings.mailboxes:
             folder = found.get(box.folder_id)
             if not folder or folder.get("role") or not folder.get("myRights", {}).get("mayReadItems"):
@@ -141,7 +152,6 @@ class Fastmail:
             folder = found.get(identity)
             if not folder or folder.get("role") or not folder.get("myRights", {}).get("mayReadItems"):
                 raise ProviderError("private_history_folder_missing_or_not_dedicated")
-        return found
 
     def owner(self, raw):
         if self.settings.history and any(raw.get("mailboxIds", {}).get(folder)
@@ -224,39 +234,81 @@ class Fastmail:
 
     def collect_history(self, archive):
         """Only changes after the explicitly pinned start state; never initial import."""
-        self.folders()
-        delta = self.call("Email/changes", {"sinceState": archive.cursor(), "maxChanges": 20})
+        account_wide = archive.config.capture_scope == "account"
+        cursor = archive.cursor()
+        archive.metadata_observation("provider.capture_configuration", {
+            "capture_scope": archive.config.capture_scope,
+            "business_folder_ids": sorted(box.folder_id for box in self.settings.mailboxes),
+            "private_folder_ids": sorted(archive.config.private_folder_ids)}, provenance={"cursor": cursor})
+        catalog = self.call("Mailbox/get", {"ids": None})
+        if (not isinstance(catalog.get("list"), list) or catalog.get("notFound")
+                or any(not isinstance(item, dict) or not isinstance(item.get("id"), str) for item in catalog["list"])):
+            raise ProviderError("history_mailbox_catalog_invalid")
+        archive.metadata_observation("provider.mailbox_catalog", {
+            "catalog": {**catalog, "list": sorted(catalog["list"], key=lambda item: item["id"])}},
+            provenance={"cursor": cursor, "capture_scope": archive.config.capture_scope})
+        if not account_wide:
+            self.validate_folders({item["id"]: item for item in catalog["list"]})
+        delta = self.call("Email/changes", {"sinceState": cursor, "maxChanges": 20})
+        if (not isinstance(delta.get("newState"), str) or not delta["newState"]
+                or not isinstance(delta.get("hasMoreChanges"), bool)
+                or any(not isinstance(delta.get(key), list) or any(not isinstance(identity, str) for identity in delta[key])
+                    for key in ("created", "updated", "destroyed"))):
+            raise ProviderError("history_changes_invalid")
+        provenance = {"capture_scope": archive.config.capture_scope, "since_state": cursor,
+            "new_state": delta["newState"], "mailbox_state": catalog.get("state")}
         identities = list(dict.fromkeys([*delta["created"], *delta["updated"]]))
         for identity in identities:
-            metadata = self.get_raw([identity], metadata=True).get("list", [])
+            message_provenance = {**provenance, "change": "created" if identity in delta["created"] else "updated"}
+            metadata_response = self.get_raw([identity], metadata=True)
+            metadata = metadata_response.get("list", [])
+            if not isinstance(metadata, list):
+                raise ProviderError("history_message_metadata_invalid")
             if not metadata:
-                if archive.observed(identity):
-                    archive.observation(identity, {"id": identity, "removed": True})
+                if account_wide:
+                    if identity not in metadata_response.get("notFound", []):
+                        raise ProviderError("history_message_metadata_invalid")
+                    archive.observation(identity, {"id": identity, "unavailable": True,
+                        "reason": "not_found_after_change"}, provenance=message_provenance)
+                    archive.collection_gap("history_message_unavailable", message_id=identity)
+                elif archive.observed(identity):
+                    archive.observation(identity, {"id": identity, "removed": True}, provenance=message_provenance)
                 continue
+            if len(metadata) != 1 or not isinstance(metadata[0], dict) or metadata[0].get("id") != identity:
+                raise ProviderError("history_message_metadata_invalid")
             raw = metadata[0]
             private = any(raw.get("mailboxIds", {}).get(folder) for folder in archive.config.private_folder_ids)
-            if not self.owner(raw) and not private:
+            if not account_wide and not self.owner(raw) and not private:
                 if archive.observed(identity):
-                    archive.observation(identity, {"id": identity, "outside_capture_folders": True})
+                    archive.observation(identity, {"id": identity, "outside_capture_folders": True}, provenance=message_provenance)
                 continue
-            values = self.call("Email/get", {"ids": [identity], "properties": [
-                "id", "blobId", "threadId", "mailboxIds", "keywords", "receivedAt", "sentAt"]}).get("list", [])
+            response = self.call("Email/get", {"ids": [identity], "properties": HISTORY_FIELDS,
+                "bodyProperties": HISTORY_BODY_FIELDS, "fetchAllBodyValues": True,
+                "maxBodyValueBytes": MAX_MESSAGE_BYTES})
+            values = response.get("list", [])
+            if not isinstance(values, list):
+                raise ProviderError("history_message_metadata_invalid")
             if not values:
                 raise ProviderError("history_message_disappeared")
+            if len(values) != 1 or not isinstance(values[0], dict) or values[0].get("id") != identity:
+                raise ProviderError("history_message_metadata_invalid")
             snapshot = values[0]
-            # Recheck ownership after the fetch to avoid an unrelated private move.
+            # Scoped capture rechecks ownership after a possible folder move.
             private = any(snapshot.get("mailboxIds", {}).get(folder) for folder in archive.config.private_folder_ids)
-            if not self.owner(snapshot) and not private:
+            if not account_wide and not self.owner(snapshot) and not private:
                 if archive.observed(identity):
-                    archive.observation(identity, {"id": identity, "outside_capture_folders": True})
+                    archive.observation(identity, {"id": identity, "outside_capture_folders": True}, provenance=message_provenance)
                 continue
             if not snapshot.get("blobId"):
                 raise ProviderError("history_mime_blob_missing")
-            snapshot = {**snapshot, "mime_base64": base64.b64encode(self.download_blob(snapshot["blobId"])).decode()}
-            archive.observation(identity, snapshot)
+            mime = self.download_blob(snapshot["blobId"])
+            snapshot = {**snapshot, "mime_base64": base64.b64encode(mime).decode(),
+                "mime_sha256": hashlib.sha256(mime).hexdigest(), "mime_size": len(mime)}
+            archive.observation(identity, snapshot, provenance={**message_provenance, "email_state": response.get("state")})
         for identity in delta["destroyed"]:
-            if archive.observed(identity):
-                archive.observation(identity, {"id": identity, "removed": True})
+            if account_wide or archive.observed(identity):
+                archive.observation(identity, {"id": identity, "removed": True},
+                    provenance={**provenance, "change": "destroyed"})
         # Advance only after every observed message has a durable encrypted record.
         archive.advance(delta["newState"])
         return {"state": "partial" if delta["hasMoreChanges"] else "synced"}

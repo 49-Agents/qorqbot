@@ -19,6 +19,7 @@ from .store import now
 class PrivateHistory:
     def __init__(self, config, account_id, operational_database):
         self.config = config
+        self.account_id = account_id
         self.path = Path(config.database).expanduser()
         if not self.path.is_absolute() or self.path.resolve() == operational_database.resolve():
             raise ValueError("Use a separate absolute private history database")
@@ -43,6 +44,8 @@ class PrivateHistory:
                 CREATE TABLE IF NOT EXISTS collection (
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1), cursor TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS observed_messages (
+                    id TEXT PRIMARY KEY, digest TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS observed_metadata (
                     id TEXT PRIMARY KEY, digest TEXT NOT NULL);
             """)
             values = (account_id, config.start_cursor, self.key_id)
@@ -100,18 +103,48 @@ class PrivateHistory:
         with self.connect() as db:
             return db.execute("SELECT 1 FROM observed_messages WHERE id=?", (identity,)).fetchone() is not None
 
-    def observation(self, identity, snapshot):
-        digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    def provenance(self):
+        return {"schema_version": 1, "provider": "fastmail-jmap", "account_id": self.account_id,
+            "observed_at": now()}
+
+    def observation(self, identity, snapshot, *, provenance=None):
+        self._observation("observed_messages", identity, "provider.message", {"message": snapshot}, provenance)
+
+    def metadata_observation(self, kind, snapshot, *, provenance=None):
+        self._observation("observed_metadata", kind, kind, snapshot, provenance)
+
+    def _observation(self, table, identity, kind, content, provenance):
+        # These fixed internal tables share the same id/digest shape. Timestamps
+        # and collection cursors do not turn an unchanged replay into a new version.
+        assert table in {"observed_messages", "observed_metadata"}
+        data = content["message"] if table == "observed_messages" else content
+        digest = hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            prior = db.execute("SELECT digest FROM observed_messages WHERE id=?", (identity,)).fetchone()
+            prior = db.execute(f"SELECT digest FROM {table} WHERE id=?", (identity,)).fetchone()
             if prior and prior[0] == digest:
                 return
             # The observation marker and event commit together. A distinct event
             # also preserves A->B->A changes observed while replaying one cursor.
             event_id = "provider:" + str(uuid.uuid4())
-            self._append(db, self.seal(event_id, "provider.message", {"observed_at": now(), "message": snapshot}))
-            db.execute("INSERT INTO observed_messages VALUES(?,?) ON CONFLICT(id) DO UPDATE SET digest=excluded.digest", (identity, digest))
+            self._append(db, self.seal(event_id, kind, {**self.provenance(), **content,
+                "provenance": provenance or {}}))
+            db.execute(f"INSERT INTO {table} VALUES(?,?) ON CONFLICT(id) DO UPDATE SET digest=excluded.digest", (identity, digest))
+
+    def collection_gap(self, error, status=None, *, message_id=None):
+        cursor = self.cursor()
+        content = {"cursor": cursor, "error": error, "provider_status": status}
+        identity = cursor + ":" + error + ":" + str(status)
+        if message_id is not None:
+            content["message_id"] = message_id
+            identity += ":" + message_id
+        event_id = "collection-gap:" + hashlib.sha256(identity.encode()).hexdigest()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM events WHERE event_id=?", (event_id,)).fetchone():
+                return
+            self._append(db, self.seal(event_id, "provider.collection_gap", {
+                **self.provenance(), **content, "capture_scope": self.config.capture_scope}))
 
     def advance(self, cursor):
         with self.connect() as db:
