@@ -6,6 +6,126 @@ const AGENT_PANE_DEFAULT_RATIO = 1 / 2.15;
 const AGENT_PANE_MIN_TERMINAL = 260, AGENT_PANE_MIN_OVERVIEW = 240;
 let _agpad = null;
 
+// ------------------------------------------------------------ workspace registry
+// The pane's views are declared by core's workspace_types read; the built-in
+// declaration keeps Focus available when that read is unavailable.
+const WORKSPACE_BASE_VIEWS = new Set(["tasks", "inbox", "activity", "status", "globalTasks"]);
+const WORKSPACE_SEED = [
+  { key: "focus", display_name: "Focus", supported_roles: ["ordubashy"], renderer: "focus_board",
+    presentation_actions: ["focus_show", "focus_clear", "focus_browser_input", "focus_present", "focus_edit",
+      "focus_move", "focus_set_archived", "focus_reply"] },
+  { key: "campaign_review", display_name: "Campaign review", supported_roles: ["marketing"], renderer: "campaign_review",
+    presentation_actions: ["workspace_present", "workspace_select", "workspace_attention"] },
+];
+// Focus is the coordinator's board and keeps its existing first-tab position;
+// other workspace types list after the pane's base views.
+const WORKSPACE_PANE_FIRST = new Set(["focus_board"]);
+// Mount resets each renderer's own poll gate, exactly as this pane did before.
+const WORKSPACE_MOUNTS = {
+  focus_board: p => { p.nextFocus = 0; agfocusMount(p); },
+  campaign_review: p => cmpreviewMount(p),
+};
+const WORKSPACE_TICKS = { focus_board: p => agfocusTick(p), campaign_review: p => cmpTick(p) };
+let workspaceDeclaration = null, workspaceDeclarationAsked = false, workspaceDeclarationPending = null;
+
+function normalizeWorkspaceType(value) {
+  if (!value || typeof value !== "object" || typeof value.key !== "string" || !value.key) return null;
+  const strings = list => Array.isArray(list) ? list.filter(item => typeof item === "string") : [];
+  return { key: value.key, display_name: typeof value.display_name === "string" ? value.display_name : value.key,
+    supported_roles: strings(value.supported_roles), renderer: typeof value.renderer === "string" ? value.renderer : "",
+    presentation_actions: strings(value.presentation_actions) };
+}
+function workspaceTypes() { return workspaceDeclaration || WORKSPACE_SEED; }
+function workspaceType(key) { return workspaceTypes().find(type => type.key === key) || null; }
+function workspaceRenderer(type) { return type && WORKSPACE_MOUNTS[type.renderer] || null; }
+function workspaceViewsFor(roleId) { return roleId ? workspaceTypes().filter(type => type.supported_roles.includes(roleId)) : []; }
+// Anything the pane's base views do not own is a workspace view, mountable only
+// through the registry (or shown as an honest unsupported placeholder).
+function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
+
+function agentPaneViews(scope, roleId, base = []) {
+  const leading = [], trailing = [];
+  for (const type of workspaceViewsFor(roleId)) (WORKSPACE_PANE_FIRST.has(type.renderer) ? leading : trailing).push(type.key);
+  return [...new Set([...leading, ...base, ...trailing, "status"])];
+}
+
+function workspaceTypesLoad() {
+  if (workspaceDeclarationAsked) return workspaceDeclarationPending;
+  workspaceDeclarationAsked = true;
+  // One best-effort read per page load; the built-in declaration is the fallback.
+  workspaceDeclarationPending = post("/root/operations/workspace_types", {}).then(result => {
+    const types = coreData(result)?.types;
+    if (Array.isArray(types)) workspaceDeclaration = types.map(normalizeWorkspaceType).filter(Boolean);
+    return workspaceDeclaration;
+  }).catch(() => workspaceDeclaration).finally(() => {
+    workspaceDeclarationPending = null;
+    if (_agpad) agpadWorkspaceViewsSync(_agpad);
+  });
+  return workspaceDeclarationPending;
+}
+
+function agpadWorkspaceViewsSync(p) {
+  if (!p.workspaceRole) return;
+  const views = agentPaneViews(p.workspaceScope, p.workspaceRole, p.workspaceBase);
+  if (views.join("\u0000") === p.views.join("\u0000")) return;
+  p.views = views;
+  agpadSetView(p, views.includes(p.view) ? p.view : views[0]);
+}
+
+function agpadWorkspaceMount(p, view) {
+  const type = workspaceType(view);
+  if (type && p.workspaceRole && !type.supported_roles.includes(p.workspaceRole)) { workspaceUnsupportedMount(p, type); return; }
+  const mount = workspaceRenderer(type);
+  if (mount) { mount(p); return; }
+  workspaceUnsupportedMount(p, type);
+}
+
+function workspaceUnsupportedMount(p, type) {
+  const body = $("#agpad-body", p.el);
+  if (!body) return;
+  const key = type ? type.key : p.view;
+  const reason = !type ? `No workspace type named “${key}” is installed.`
+    : p.workspaceRole && !type.supported_roles.includes(p.workspaceRole) ? `${type.display_name} is not available to this agent's role.`
+    : !workspaceRenderer(type) ? `This dashboard has no renderer for ${type.display_name}${type.renderer ? ` (${type.renderer})` : ""}.`
+    : `${type.display_name} cannot be shown here.`;
+  body.innerHTML = `<section class="agpad-unsupported" role="status"><div class="global-eyebrow">Workspace</div>
+    <h2>Unsupported workspace</h2><p>${esc(reason)}</p><p class="muted">Nothing is shown for “${esc(key)}” instead of an empty pane.</p>
+    <button type="button" class="quiet" data-workspace-back>Back to ${esc(workspaceBaseLabel(p))}</button></section>`;
+  const back = $("[data-workspace-back]", body);
+  const first = p.views.find(view => WORKSPACE_BASE_VIEWS.has(view) && view !== "status") || "status";
+  if (back) back.onclick = () => agpadSetView(p, first);
+}
+
+function workspaceBaseLabel(p) {
+  return T_VIEW_LABEL[p.views.find(view => WORKSPACE_BASE_VIEWS.has(view) && view !== "status") || "status"] || "the pane";
+}
+
+// ?workspace=<key> opens that view once, the way ?focus_item opens a card today.
+function agTakeLinkedWorkspace(hash) {
+  if (hash && location.hash && location.hash !== hash) return null;
+  const requested = new URLSearchParams(location.search || "").get("workspace");
+  if (!requested) return null;
+  const url = new URL(location.href);
+  url.searchParams.delete("workspace");
+  history.replaceState(null, "", url);
+  return requested;
+}
+
+function agpadRequestView(p, view) {
+  if (typeof view !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(view)) return false;
+  if (!p.views.includes(view)) p.views.push(view);
+  agpadSetView(p, view);
+  return true;
+}
+
+function agpadWorkspaceTick(p) {
+  for (const view of p.views) {
+    const type = workspaceType(view);
+    const tick = type && WORKSPACE_TICKS[type.renderer];
+    if (typeof tick === "function") tick(p);
+  }
+}
+
 function agentPaneDividerMount(root) {
   const divider = root?.querySelector?.("[data-agent-pane-divider]");
   const chat = root?.querySelector?.(".chat.termmode");
@@ -105,6 +225,7 @@ function agentPaneDividerMount(root) {
 
 function agpadDispose() {
   _agpad?.focusDetail?.dispose?.();
+  if (typeof cmpDispose === "function") cmpDispose(_agpad);
   _agpad?.dividerDispose?.();
   _agpad = null;
 }
@@ -145,15 +266,19 @@ function agpadMount(name, el, options = {}) {
   _agpad?.focusDetail?.dispose?.();
   _agpad?.dividerDispose?.();
   if (_agpad) _agpad.focusDetail = null;
+  const workspaceScope = options.workspaceScope || (state.scope === "global" ? "global" : "business");
+  const workspaceBase = options.views || (workspaceScope === "global" ? ["inbox", "globalTasks"] : ["tasks", "inbox"]);
   const p = _agpad = {
     biz: state.biz, agent: name, el, open: !!name && ls(`agpad:${state.biz}`) !== "off",
     view: "tasks",
     logs: null, logError: false, nextLog: 0, pending: false,
     tasks: null, source: state.tasks, tasksStarted: false, taskError: false, bodyHtml: null,
     views: ["tasks", "inbox"], ...options,
+    workspaceScope, workspaceBase, workspaceRole: options.workspaceRole || null,
   };
+  p.views = agentPaneViews(workspaceScope, p.workspaceRole, workspaceBase);
+  if (p.workspaceRole) workspaceTypesLoad();
   p.dividerDispose = agentPaneDividerMount(el.closest?.(".agsplit"));
-  p.views = [...new Set([...p.views, "status"])];
   const button = $("#agpad-toggle");
   if (button) {
     button.disabled = !name;
@@ -172,7 +297,9 @@ function agpadMount(name, el, options = {}) {
     const row = e.target.closest(".trow");
     if (row && agpadActive(p)) tOpenTask(row.dataset.id);
   };
-  agpadSetView(p, p.views[0]);
+  // A linked view is honored only when it is a usable key; anything else leaves
+  // the pane on its normal first view instead of an empty pane.
+  if (!options.initialView || !agpadRequestView(p, options.initialView)) agpadSetView(p, p.views[0]);
 }
 
 function agpadSetView(p, view) {
@@ -188,7 +315,9 @@ function agpadSetView(p, view) {
   if(typeof agentPaneIndicators==='function')agentPaneIndicators(p);
   if (view === "activity") p.nextLog = 0;
   if (view === "inbox") p.nextInbox = 0;
-  if (view === 'focus') { p.nextFocus = 0; agfocusMount(p); }
+  // Workspace views (Focus, Campaign Review, any discovered type) are mounted by
+  // their own renderer; an undeclared view gets the honest placeholder.
+  if (agpadWorkspaceView(view)) agpadWorkspaceMount(p, view);
   if (view === 'globalTasks') globalTasksMount($('#agpad-body', p.el), {agentId: p.agentId, compact: true});
   agpadPaint(p);
   agpadTick();
@@ -207,7 +336,7 @@ function agpadVisibility(p) {
 }
 
 function agpadPaint(p) {
-  if (p.view === 'status' || p.view === 'focus') return;
+  if (p.view === 'status' || agpadWorkspaceView(p.view)) return;
   if (p.view === 'globalTasks') return;
   if (p.view === "inbox") { agpadPaintInbox(p); return; }
   let html;
@@ -254,8 +383,8 @@ function agpadTick() {
   if (!agpadActive(p)) return;
   if(typeof agentPaneIndicators==='function')agentPaneIndicators(p);
   if (p.view === 'status' && Date.now() >= (p.nextActivity || 0)) agentCurrentWorkRefresh(p);
-  if (p.views.includes('focus')) agfocusTick(p);
-  if (p.view === 'status' || p.view === 'focus') return;
+  agpadWorkspaceTick(p);
+  if (p.view === 'status' || agpadWorkspaceView(p.view)) return;
   if (p.view === 'globalTasks') return;
   if (p.view === "inbox") {
     if (Date.now() >= (p.nextInbox || 0)) agpadRefreshInbox(p);
