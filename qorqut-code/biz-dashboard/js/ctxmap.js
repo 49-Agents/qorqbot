@@ -11,6 +11,11 @@ const MAP_HUES = ["#b5482b", "#c8912a", "#4d6b53", "#3f7f7a", "#3d5a80", "#7a4f7
 const MAP_LINE = 17, MAP_PADX = 10, MAP_PADY = 5, MAP_GAPX = 46, MAP_GAPY = 8, MAP_WRAP = 32, MAP_MAXLINES = 3;
 const MAP_FOLD_ABOVE = 70;      // more visible nodes than this: start with depth >= 2 folded
 let _mapMeasure = null;
+const MAP_ICONA = `width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"`;
+const SVG_MAPFOLD = `<svg ${MAP_ICONA}><path d="M12 22v-6"/><path d="M12 8V2"/><path d="M4 12H2"/><path d="M10 12H8"/><path d="M16 12h-2"/><path d="M22 12h-2"/><path d="m15 19-3-3-3 3"/><path d="m15 5-3 3-3-3"/></svg>`;
+const SVG_MAPUNFOLD = `<svg ${MAP_ICONA}><path d="M12 22v-6"/><path d="M12 8V2"/><path d="M4 12H2"/><path d="M10 12H8"/><path d="M16 12h-2"/><path d="M22 12h-2"/><path d="m15 19-3 3-3-3"/><path d="m15 5-3-3-3 3"/></svg>`;
+const SVG_MAPFIT = `<svg ${MAP_ICONA}><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>`;
+const SVG_MAPCOPY = `<svg ${MAP_ICONA}><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
 
 function mapWidth(s) {
   if (!_mapMeasure) { _mapMeasure = document.createElement("canvas").getContext("2d"); _mapMeasure.font = MAP_FONT; }
@@ -100,12 +105,12 @@ function mindmap(el, root, opts = {}) {
   const openDepth = opts.openDepth != null ? opts.openDepth : (total > MAP_FOLD_ABOVE ? 2 : 99);
   (function seed(n, d, key) { const k = n.id || key; if (d >= openDepth && (n.children || []).length) folded.add(k); (n.children || []).forEach((c, i) => seed(c, d + 1, `${k}/${i}`)); })(root, 0, "root");
   el.innerHTML = `<div class="mapwrap"><div class="mapbar">
-      <span class="lg">${opts.legend || ""}</span><span class="sp"></span>
+      <span class="sp"></span>
       ${opts.links ? `<label><input type="checkbox" id="mlinks" ${ls("ctxmaplinks") === "0" ? "" : "checked"}> links</label>` : ""}
-      <button class="ghost sm" data-a="less" title="fold everything below the first level">Fold</button>
-      <button class="ghost sm" data-a="more" title="unfold every branch">Unfold</button>
-      <button class="ghost sm" data-a="fit">Fit</button>
-      <button class="ghost sm" data-a="mermaid" title="copy the map as Mermaid mindmap text">Copy Mermaid</button>
+      <button data-a="less" title="Fold all">${SVG_MAPFOLD}</button>
+      <button data-a="more" title="Unfold all">${SVG_MAPUNFOLD}</button>
+      <button data-a="fit" title="Fit to view">${SVG_MAPFIT}</button>
+      <button data-a="mermaid" title="Copy as Mermaid">${SVG_MAPCOPY}</button>
     </div><div class="mapbox"><svg><g class="vp"></g></svg><div class="hint">drag to pan · wheel to zoom</div></div></div>`;
   const box = el.querySelector(".mapbox"), svg = el.querySelector("svg"), vp = el.querySelector(".vp");
   const view = { k: 1, tx: 0, ty: 0 };

@@ -2,12 +2,9 @@
 .mapwrap { border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); overflow: hidden; }
 .mapbar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 11.5px; color: var(--fg-3); flex-wrap: wrap; }
 .mapbar .sp { flex: 1; }
-.mapbar .lg { display: inline-flex; align-items: center; gap: 12px; font: 11px var(--mono); color: var(--fg-3); }
-.mapbar .lg i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--fg-3); vertical-align: middle; margin-right: 4px; }
-.mapbar .lg i.t { border-radius: 2px; }
-.mapbar .lg i.p { background: none; border: 1px dashed var(--fg-3); }
-.mapbar button.sm { height: 24px; padding: 0 10px; font-size: 11px; }
-.mapbar label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; color: var(--fg-2); }
+.mapbar button { width: 28px; height: 28px; padding: 0; border-radius: var(--r-sm); background: none; border: 0; color: var(--fg-2); }
+.mapbar button:hover { background: var(--hover); color: var(--fg); transform: none; }
+.mapbar label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; color: var(--fg-3); font-size: 11px; }
 .mapbar label input { margin: 0; accent-color: var(--accent); }
 .mapbox { position: relative; height: min(68vh, 860px); min-height: 340px; cursor: grab; background: var(--bg); }
 .mapbox.drag { cursor: grabbing; }

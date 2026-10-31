@@ -8,6 +8,8 @@ const ctxSaveOpen = () => ls("ctxopen", JSON.stringify([...ctxOpen()]));
 const SVG_CARET = `<svg class="car" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 2l3 3-3 3"/></svg>`;
 const SVG_FOLDER = `<svg class="fo" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M1.5 3.5h4l1.5 1.5h5.5v6h-11z"/></svg>`;
 const SVG_FILE = `<svg class="fi" width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3 1.5h5l3 3v8h-8z"/><path d="M8 1.5v3h3"/></svg>`;
+const SVG_PIN = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg>`;
+const titleCase = s => String(s || "").replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 const fmtAgo = t => { const s = Math.max(0, Math.round(Date.now() / 1000 - t)); return s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`; };
 const isTopic = p => p != null && !p.endsWith(".md");           // state.ctx is a topic path ("" = root) or a file path
 const ctxCount = n => (n.notes || []).length + (n.children || []).reduce((s, k) => s + ctxCount(k), 0);
@@ -148,9 +150,9 @@ function ctxTree(d) {
   rows.push(`<div class="h">Topics</div>`);
   const walk = (node, depth) => {
     const notes = node.notes || [], kids = node.children || [], isOpen = open.has(node.path);
-    row(`t ${isOpen ? "open" : ""}`, node.path, depth, `${SVG_CARET}<span class="tt">${esc(node.title || node.slug)}</span><span class="cnt">${ctxCount(node)}</span>`, esc(node.slug));
+    row(`t ${isOpen ? "open" : ""}`, node.path, depth, `${SVG_CARET}<span class="tt">${esc(node.title || node.slug)}</span><span class="cnt">${ctxCount(node)}</span>`);
     if (!isOpen) return;
-    notes.forEach(n => row("n", `${node.path}/${n}`, depth + 1, esc(cap((node.titles || {})[n] || n.replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(/\.md$/, "").replace(/-/g, " "))), esc(n.slice(0, 10))));
+    notes.forEach(n => row("n", `${node.path}/${n}`, depth + 1, esc(cap((node.titles || {})[n] || n.replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(/\.md$/, "").replace(/-/g, " ")))));
     kids.forEach(k => walk(k, depth + 1));
   };
   const kids = (d.tree && d.tree.children) || [];
@@ -194,6 +196,7 @@ function ctxTree(d) {
 function ctxGo(p) { state.ctx = p; if (_ctxData) ctxTree(_ctxData); ctxShow(p); }
 
 function ctxShow(p) {
+  jClearTimers();
   const m = p != null && PERSON_VIEW_RE.exec(p);
   if (m) return openPerson(m[1]);
   return isTopic(p) ? openTopic(p) : openCtx(p);
@@ -223,11 +226,11 @@ function openTopic(p) {
   const mapMode = !!mappable && ls("ctxmapmode") === "1";        // the folder as a mind map instead of cards; remembered
   const head = `${ctxCrumbs(root ? "" : p.split("/").slice(0, -1).join("/"), root ? "" : node.slug)}
     <div class="th"><h2>${esc(root ? "All context" : node.title)}</h2>
-      <div class="pa">${mappable ? `<button class="ghost sm" id="tpmap" title="${mapMode ? "back to the cards" : "this folder as a mind map"}">${mapMode ? "Cards" : "Map"}</button>` : ""}${root ? "" : `<button class="ghost sm" id="tpedit" title="edit _topic.md">Edit description</button><button class="ghost sm" id="tpsum" ${busy ? "disabled" : ""}>${busy ? "summarising…" : "Refresh summary"}</button>`}</div></div>
+      <div class="pa">${mappable ? `<button class="ghost sm pab" id="tpmap" title="${mapMode ? "back to the cards" : "this folder as a mind map"}">${mapMode ? "Cards" : "Map"}</button>` : ""}${root ? "" : `<button class="ghost sm pab" id="tpedit" title="edit _topic.md">Edit description</button><button class="ghost sm pab" id="tpsum" ${busy ? "disabled" : ""}>${busy ? "summarising…" : "Refresh summary"}</button>`}</div></div>
     ${node.about ? `<p class="about">${esc(node.about)}</p>` : ""}`;
   const sum = root ? "" : node.summary ? `<div class="sec"><div class="sh">Summary <span class="stamp">${esc((node.summarized || "").replace("T", " ").replace(/:\d\dZ/, "Z"))}</span></div>${mdLines(node.summary)}</div>`
     : `<div class="sec"><div class="sh">Summary</div><div class="empty">${busy ? "being written now" : notes.length || kids.length ? "not written yet; it comes after the next filing or save, or press Refresh summary" : "empty topic"}</div></div>`;
-  const pill = root ? `<div class="sec"><div class="sh">Pillars</div><div class="cards">${(d.pillars || []).map(n => `<div class="card f" data-p="${esc(n)}"><div class="ct"><span class="tt">${esc(n.replace(/\.md$/, ""))}</span></div><div class="cb">owner-written</div></div>`).join("")}</div></div>` : "";
+  const pill = root ? `<div class="sec"><div class="sh">${SVG_PIN}Pinned</div><div class="cards">${(d.pillars || []).map(n => `<div class="card f" data-p="${esc(n)}"><span class="pin">${SVG_PIN}</span><div class="ct"><span class="tt">${esc(titleCase(n.replace(/\.md$/, "")))}</span></div><div class="cb">owner-written</div></div>`).join("")}</div></div>` : "";
   const subs = kids.length ? `<div class="sec"><div class="sh">${root ? "Topics" : "Subtopics"}</div><div class="cards">${kids.map(k => { const kt = k.title || k.slug; return `<div class="card t" data-p="${esc(k.path)}" title="${esc(kt)}"><div class="ct">${SVG_FOLDER}<span class="tt">${esc(cap(kt))}</span><span class="cnt">${ctxCount(k)}</span></div><div class="cb">${esc(k.about || "")}</div><div class="cs">${esc(k.slug)}${k.summary ? "" : " · no summary yet"}</div></div>`; }).join("")}</div></div>` : "";
   const people = root ? (d.people || []) : [];
   const ppl = people.length ? `<div class="sec"><div class="sh">People</div><div class="cards">${people.map(pn => { const n = personNoteCount(pn), path = "_people/" + pn.slug; return `<div class="card p" data-p="${esc(path)}"><div class="ct"><span class="tt">${esc(pn.name)}</span></div><div class="cb">${esc([pn.role, pn.org].filter(Boolean).join(" · "))}</div><div class="cs">${n} note${n === 1 ? "" : "s"}</div></div>`; }).join("")}</div></div>` : "";
@@ -318,43 +321,90 @@ function ctxSplit(text) {
   return { meta, body: text.slice(end + 5) };
 }
 
-// a file: pillar, note, _topic.md, INDEX.md, upload
+// lossless frontmatter split for the journal editor: fm kept verbatim (incl. its trailing "\n---\n"), sep is
+// the run of newlines right after it (often a blank line), body is the untouched remainder. `fm + sep + taValue`
+// reassembles byte-identical when the user changes nothing.
+function jSplitFm(text) {
+  if (text.startsWith("---\n")) {
+    const end = text.indexOf("\n---\n", 4);
+    if (end >= 0) {
+      const rest = text.slice(end + 5);
+      const m = /^\n*/.exec(rest);
+      return { fm: text.slice(0, end + 5), sep: m[0], body: rest.slice(m[0].length) };
+    }
+  }
+  return { fm: "", sep: "", body: text };
+}
+
+// autosave state for the open journal textarea: idle 4s then a visible 8s countdown, or Ctrl/Cmd+S, or blur
+let _jState = null, _jIdleT = null, _jTickT = null;
+function jClearTimers() { clearTimeout(_jIdleT); clearTimeout(_jTickT); _jIdleT = _jTickT = null; }
+const jGrow = ta => { ta.style.height = "auto"; ta.style.height = `${ta.scrollHeight}px`; };
+function jSchedule() {
+  jClearTimers();
+  _jIdleT = setTimeout(() => jCountdown(8), 4000);
+}
+function jCountdown(n) {
+  const el = $("#jsave");
+  if (n <= 0) return jSave();
+  if (el) el.textContent = `saving in ${n}s…`;
+  _jTickT = setTimeout(() => jCountdown(n - 1), 1000);
+}
+async function jSave() {
+  const s = _jState, ta = $("#jta"), el = $("#jsave");
+  if (!s || !ta || s.saving) return;
+  jClearTimers();
+  s.saving = true;
+  if (el) el.textContent = "saving…";
+  try {
+    const r = await post(`/biz/${state.biz}/context/save`, { path: s.path, text: s.fm + s.sep + ta.value });
+    if (_jState !== s) return;           // navigated away while saving
+    if (r.error) { toast(r.error); if (el) el.textContent = "save failed"; return; }
+    if (r.warn) toast(r.warn);
+    s.dirty = false;
+    if (el) { el.textContent = "saved"; setTimeout(() => { if ($("#jsave") === el && el.textContent === "saved") el.textContent = ""; }, 2000); }
+  } catch (e) {
+    toast(`save failed: ${(e && e.message) || e}`);
+    if (_jState === s) { const el2 = $("#jsave"); if (el2) el2.textContent = "save failed"; }
+    // keep dirty true so the next trigger (input, blur, Ctrl+S) retries
+  } finally {
+    s.saving = false;
+  }
+}
+
+
 async function openCtx(p) {
   const v = $("#ctxview");
   const r = await api(`/biz/${state.biz}/context/file?p=${encodeURIComponent(p)}`);
   if (r.error) { v.innerHTML = `<div class="empty">${esc(r.error)}</div>`; return; }
   const ro = p === "INDEX.md" || p.startsWith("_dumps/");
-  const { meta, body } = ctxSplit(r.text);
+  const { meta } = ctxSplit(r.text);                 // for the chip row
+  const { fm, sep, body } = jSplitFm(r.text);          // lossless, for editing/saving
   const dir = p.includes("/") && !p.startsWith("_") ? p.split("/").slice(0, -1).join("/") : "";
   const chips = CTX_META.filter(k => meta[k]).map(k => `<span class="chip ${k === "error" ? "bad" : ""}"><b>${esc(k)}</b>${esc(meta[k])}</span>`).join("");
   const uid = uploadId(p);
   const um = uid ? await api(`/biz/${state.biz}/context/map?id=${uid}`) : null;   // its mind map and where it went
   if (state.ctx !== p) return;                                                     // navigated away meanwhile
   const title = meta.title || (uid ? (meta.notes || meta.topic || `Upload ${uid}`) : p.endsWith("/_topic.md") ? "description" : p.split("/").pop());
-  const text = uid ? `<div class="sec"><div class="sh">Text <span class="stamp">${body.trim().length.toLocaleString()} chars</span></div><pre class="ctxbody">${esc(body)}</pre></div>` : `<pre class="ctxbody">${esc(body)}</pre>`;
-  v.innerHTML = `${ctxCrumbs(dir, p.split("/").pop())}<div class="ph"><h2>${esc(title)}</h2><div class="pa">${ro ? `<span class="ro">${p === "INDEX.md" ? "generated" : "filed upload, immutable"}</span>` : `<button class="ghost sm" id="ctxedit">Edit</button>`}</div></div>
-    ${chips ? `<div class="chips">${chips}</div>` : ""}${uid ? uploadSections(uid, um || {}) : ""}${text}`;
+  v.innerHTML = `${ctxCrumbs(dir, p.split("/").pop())}
+    <div class="jcol"><div class="jhead"><h2 class="jt">${esc(title)}</h2>${ro ? `<span class="ro">${p === "INDEX.md" ? "generated" : "filed upload, immutable"}</span>` : `<span class="jsave" id="jsave"></span>`}</div>
+    ${chips ? `<div class="chips">${chips}</div>` : ""}<hr class="jhr">
+    ${uid ? uploadSections(uid, um || {}) : ""}
+    ${ro ? `<div class="jbody">${esc(body)}</div>` : `<textarea class="jta" id="jta" spellcheck="false" placeholder="Start writing…"></textarea>`}</div>`;
   wireCrumbs(v);
   if (uid) wireUpload(v, uid, um || {});
   if (ro) return;
-  $("#ctxedit").onclick = () => {
-    v.innerHTML = `${ctxCrumbs(dir, p.split("/").pop())}<div class="ph"><h2>${esc(title)}</h2><div class="pa"><span class="ro">editing</span></div></div>
-      <div class="ctxedit"><textarea id="ctxta" spellcheck="false"></textarea>
-      <div class="row"><span class="hint">one commit per save; the topic's summary is rewritten after</span><button class="ghost" id="ctxcancel">Cancel</button><button class="primary" id="ctxsave">Save</button></div></div>`;
-    wireCrumbs(v);
-    const ta = $("#ctxta"); ta.value = r.text; ta.focus();
-    $("#ctxcancel").onclick = () => openCtx(p);
-    $("#ctxsave").onclick = async () => {
-      if (ta.value === r.text) return openCtx(p);
-      $("#ctxsave").disabled = true;
-      const s = await post(`/biz/${state.biz}/context/save`, { path: p, text: ta.value });
-      if (s.error) { toast(s.error); $("#ctxsave").disabled = false; return; }
-      toast(s.warn ? `saved, but: ${s.warn}` : `saved ${p}`);
-      const d = await api(`/biz/${state.biz}/context`); ctxPaint(d); ctxWatch(d);
-      openCtx(p);
-    };
-    ta.onkeydown = e => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") $("#ctxsave").click(); };
+  const ta = $("#jta");
+  ta.value = body;
+  jGrow(ta);
+  _jState = { path: p, fm, sep, dirty: false, saving: false };
+  ta.oninput = () => { _jState.dirty = true; jGrow(ta); jSchedule(); };
+  ta.onkeydown = e => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) { e.preventDefault(); jSave(); }
+    else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") jSave();
   };
+  ta.onblur = () => { if (_jState && _jState.dirty) jSave(); };
+  $("#jsave").onclick = () => { if (_jState && _jState.dirty) jSave(); };
 }
 
 // an upload's two maps: the model-drawn mind map of its text, and where it went (notes, topics, people)
