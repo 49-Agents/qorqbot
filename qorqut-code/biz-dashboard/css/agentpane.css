@@ -29,3 +29,8 @@
   color:var(--fg-2); opacity:.6; line-height:1;
 }
 .agpad-toggle { position:relative; overflow:visible; }
+
+.agpad-inbox-top { display:flex; align-items:center; gap:16px; margin:20px 16px 8px; }
+.agpad-inbox-top .agpad-inbox-heading { margin:0; flex:none; }
+.agpad-inbox-top .agpad-inbox-status { margin-left:auto; padding:0; min-width:0; font-size:11px; white-space:nowrap; }
+.agpad-inbox-top .agpad-inbox-status > span:last-child { overflow:hidden; text-overflow:ellipsis; }

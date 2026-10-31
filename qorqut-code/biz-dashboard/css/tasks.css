@@ -311,7 +311,7 @@
 
 .task-assignee-column,.task-department-column { display:flex; flex:0 0 120px; min-width:0; gap:4px; overflow:hidden; }
 .task-assignee-column .task-chip,.task-department-column .task-chip { flex:0 1 auto; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
-.personal-task .task-chips { flex:0 0 200px; max-width:200px; }
+.personal-task .task-chips { flex:0 0 220px; width:220px; max-width:220px; gap:3px; padding:0; }
 @media(max-width:800px){.tasks .personal-task{flex-wrap:wrap}.personal-task .task-headline{flex-basis:calc(100% - 90px)}.personal-task .task-chips{max-width:100%;margin-left:0;flex:1 1 160px}.task-assignee-column,.task-department-column{flex-basis:110px}}
 
 .task-assigner-column { display:inline-flex; align-items:center; gap:3px; flex:0 0 26px; min-width:26px; }
@@ -319,8 +319,7 @@
 .task-assignee-column .task-chip { display:inline-flex; align-items:center; gap:5px; }
 .task-assignee-column .identity-avatar { width:20px; height:20px; }
 
-/* Related context sits directly after the department, without reserving an empty column. */
-.personal-task .task-chips { flex:0 1 auto; max-width:220px; gap:3px; padding:0; }
+/* Reserve the same story column on every row so other columns stay aligned. */
 .task-chips .task-chip { flex:none; max-width:128px; padding:2px 6px!important; border-radius:999px!important; font-size:10px; line-height:1.4; min-height:20px; height:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 .task-headline { display:flex; align-items:center; flex:1; min-width:0; }
