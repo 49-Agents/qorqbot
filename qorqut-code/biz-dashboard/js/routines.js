@@ -5,7 +5,7 @@ let rtPreviewTimer = null, rtPreviewGeneration = 0, rtError = null;
 const rtGlobal = () => state.scope === 'global';
 const rtContextBiz = () => state.biz;
 const rtContextKey = () => rtGlobal() ? 'global' : state.biz;
-const rtVisible = () => rtGlobal() ? state.globalTab === 'routines' && !!$('#global-routine-body') : tView === 'routines';
+const rtVisible = () => tView === 'routines';
 function rtSuspend() {
   rtGeneration++; rtPreviewGeneration++; clearTimeout(rtPreviewTimer);
   if (rtDialog) { rtDialog.close(); rtDialog = null; }
@@ -90,7 +90,7 @@ function rtRunState(run) {
 }
 function rtRender() {
   if (!rtVisible()) return;
-  const body = $(rtGlobal() ? '#global-routine-body' : '#tbody'); if (!body) return;
+  const body = $('#tbody'); if (!body) return;
   body.classList.add('rt');
   if (!rtGlobal() && !rtContextBiz()) { body.innerHTML = '<div class="jrfaint jrfaint-pad">Pick a business first.</div>'; return; }
   const rows = rtRows(), active = rows.filter(r => r.status === 'active'), paused = rows.length - active.length;

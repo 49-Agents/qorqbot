@@ -3,10 +3,7 @@
 const GLOBAL_PAGES = {
   overview: { title: 'Overview', icon: 'globe' },
   agents: { title: 'Agents', icon: 'agents' },
-  signoffs: { title: 'Signoffs', icon: 'signoffs' },
   analytics: { title: 'Analytics', icon: 'analytics', soon: true },
-  brief: { title: 'Brief', icon: 'brief', soon: true },
-  routines: { title: 'Routines', icon: 'routines', heading: 'Global routines', description: 'Scheduled work that belongs to the whole ecosystem.', detail: 'Global routine management and run history will live here.' },
 };
 // Reuse the actual business navigation and drawer glyphs, including placeholder pages.
 const GLOBAL_ICONS = {
@@ -15,7 +12,6 @@ const GLOBAL_ICONS = {
   signoffs: T_VIEW_ICON.signoffs,
   requests: MK_ICO.queue,
   analytics: document.querySelector('.ritem[data-tab="progress"] svg').outerHTML,
-  brief: T_VIEW_ICON.notes,
   routines: T_VIEW_ICON.routines,
 };
 function globalIcon(name) { return GLOBAL_ICONS[name]; }
@@ -39,7 +35,7 @@ function syncWorkspaceNav() {
     if (selected) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
   });
   $('#taskswrap').hidden = false;
-  if (global || tView === 'tasks') tSetView('tasks');
+  tSetView(tView);
   tPaintSig = null; paintTasks();
   $('#toasts').hidden = false;
   if (global) {
@@ -73,17 +69,13 @@ function goGlobalTab(tab) {
   state.globalTab = Object.hasOwn(GLOBAL_PAGES, tab) ? tab : 'overview';
   ls('global-tab', state.globalTab);
   location.hash = `/global/${state.globalTab}`;
-  syncWorkspaceNav(); renderTab();
+  renderTab(); syncWorkspaceNav();
+  // Old page links now open the corresponding drawer tab.
+  if (['routines', 'signoffs'].includes(tab)) { openTasks(true); tSetView(tab); }
 }
 let globalRender = 0;
 function renderGlobal(c) {
-  sgGlobal.suspend();
   if (state.globalTab === 'agents') return renderGlobalAgents(c);
-  if (state.globalTab === 'signoffs') {
-    c.innerHTML = '<section class="pane global-signoffs"><div id="global-signoff-body"></div></section>';
-    sgGlobal.paint(); return;
-  }
-  if (state.globalTab === 'routines') return renderGlobalRoutines(c);
   const generation = ++globalRender, page = GLOBAL_PAGES[state.globalTab];
   c.innerHTML = `<section class="pane global-content" aria-label="${esc(page.title)}">
     <div class="global-eyebrow">Global</div>
@@ -96,18 +88,6 @@ function renderGlobal(c) {
   c.querySelectorAll('[data-open-business]').forEach(el => el.onclick = () => selectBiz(el.dataset.openBusiness));
   if (state.globalTab === 'overview') loadGlobalSummaries(c, generation);
 }
-function renderGlobalRoutines(c) {
-  c.innerHTML = '<section class="pane global-routines"><div class="global-eyebrow">Global</div><div id="global-routine-body"></div></section>';
-  tPaintRoutines();
-}
-const sgGlobal = sgCreateView({
-  global: true,
-  workspace: () => state.scope === 'global' ? 'scope:global' : null,
-  active: () => state.scope === 'global' && state.globalTab === 'signoffs',
-  body: () => $('#global-signoff-body'),
-  prefix: 'global-',
-});
-setInterval(() => { if (state.scope === 'global' && state.globalTab === 'signoffs') sgGlobal.refresh(); }, 12000);
 async function loadGlobalSummaries(c, generation) {
   const current = () => state.scope === 'global' && state.globalTab === 'overview' && generation === globalRender;
   let ownerId;

@@ -51,8 +51,6 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-spark-line { fill: none; stroke: var(--fg-2); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
 .global-spark-point { fill: var(--fg-2); }
 
-.global-signoffs { max-width: 1080px; margin: 0 auto; }
-.global-signoffs .sg-body { min-height: 300px; }
 /* Registered global agents share the business terminal's type, spacing and controls. */
 .global-agents { grid-template-columns: 240px minmax(0, 1fr); min-width: 0; }
 .global-agents h1 { margin: 0; font-size: 20px; }

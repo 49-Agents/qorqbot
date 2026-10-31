@@ -363,10 +363,21 @@ function sgCreateView(options) {
   return view;
 }
 const sgDrawer = sgCreateView({
-  active: () => typeof tView !== "undefined" && tView === "signoffs" && tPanelOpen(),
+  active: () => state.scope !== "global" && typeof tView !== "undefined" && tView === "signoffs" && tPanelOpen(),
   body: () => $("#tbody"),
 });
 window.sgBusinessChanged = () => sgDrawer.businessChanged();
-window.tPaintSignoffs = () => sgDrawer.paint();
+const sgGlobal = sgCreateView({
+  global: true,
+  workspace: () => state.scope === "global" ? "scope:global" : null,
+  active: () => state.scope === "global" && typeof tView !== "undefined" && tView === "signoffs" && tPanelOpen(),
+  body: () => $("#tbody"),
+  prefix: "global-",
+});
+window.tPaintSignoffs = () => {
+  const global = state.scope === "global";
+  (global ? sgDrawer : sgGlobal).suspend();
+  (global ? sgGlobal : sgDrawer).paint();
+};
 window.sgRefresh = () => Promise.all([...sgViews].map(view => view.refresh()));
 window.sgLivePaint = (slug, live) => sgViews.forEach(view => view.livePaint(slug, live));

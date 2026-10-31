@@ -280,7 +280,7 @@ function tHead({ view = tView, views = T_VIEWS, bodyId = "tbody", title = view =
   const ownHead = view === "notes" || view === "signoffs" || view === "uploads" || view === "routines";
   const tools = view === "tasks" && taskTools;
   return `<div class="thead${ownHead ? " nott" : ""}">
-    ${tTabs(state.scope === "global" && bodyId === "tbody" ? ["tasks"] : views, view, bodyId)}
+    ${tTabs(state.scope === "global" && bodyId === "tbody" ? ["tasks", "signoffs", "routines"] : views, view, bodyId)}
     ${ownHead ? "" : `<div class="ttop">
       <div><h1>${esc(title)}</h1>${tools ? `<div class="tstats" id="tstats"></div>` : ""}</div>
       ${tools ? `<label class="tsearch">${SVG_TSEARCH}<input id="tsearch" type="text" placeholder="Search by title, tag or content..." autocomplete="off" spellcheck="false"></label>` : ""}
@@ -347,7 +347,7 @@ function paintTasks() {
 // tabs themselves) and then paints #tbody for the view landed on. Only a tab switch does this — the
 // intervals below only ever touch the view that's currently active.
 function tSetView(v) {
-  if (T_VIEWS.indexOf(v) < 0 || state.scope === "global" && v !== "tasks") v = "tasks";
+  if (T_VIEWS.indexOf(v) < 0 || state.scope === "global" && !["tasks", "signoffs", "routines"].includes(v)) v = "tasks";
   if (tView === "notes" && v !== "notes" && ntEditState) { ntFlush().then(saved=>{if(saved)tSetView(v);}); return; }
   const from = tView;
   const tabFocused = document.activeElement && document.activeElement.closest(".ttabs");
@@ -709,7 +709,7 @@ window.addEventListener("resize", () => { const p = $("#taskspanel"); if (p && p
   }, 500);
   setInterval(() => {
     refreshTasks();
-    if (!state.biz) return;                                    // keeps #tcount live in every view
+    if (!state.biz && state.scope !== "global") return;
     if (tView === "activity") tActivityRefresh();
     if (tView === "routines") rtRefresh();
     if (tView === "signoffs" && tPanelOpen()) sgRefresh();

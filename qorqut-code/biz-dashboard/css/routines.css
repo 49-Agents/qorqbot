@@ -50,15 +50,6 @@
 @media (max-width: 900px) { .rtworkspace .rtnav { width: 68px; padding: 20px 12px; } .rtnav .jricon { justify-content: center; padding: 0; } .rtnav .jricon span { display: none; } .rtcontent { padding-right: 18px; padding-left: 18px; } }
 @media (max-width: 600px) { .rtfields, .rtarguments { grid-template-columns: 1fr; } .rtcontent { padding: 18px 10px; } .rtrow { column-gap: 6px; } }
 
-/* Global uses the same controls, with a horizontal view switch instead of a second sidebar. */
-.global-routines { padding: 36px 40px; overflow-y: auto; }
 .global-review { display: flex; align-items: center; gap: 8px; margin: 18px 0 24px; color: var(--fg-2); font-size: 12px; }
 .global-review select { max-width: 220px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 10px; }
-.global-routines .rtworkspace { display: flex; flex-direction: column; max-width: 866px; height: auto; }
-.global-routines .rtworkspace .rtnav { display: flex; flex-direction: row; width: auto; padding: 0; gap: 6px; border: 0; margin-bottom: 24px; }
-.global-routines .rtnav .jricon { width: auto; padding: 0 12px; }
-.global-routines .rtnav .jricon span { display: inline; }
-.global-routines .rtcontent { overflow: visible; padding: 0; }
-@media (max-width: 600px) { .global-routines { padding: 24px 16px; } .global-review select { max-width: 170px; } }
-
-.global-routines #rtnew { white-space: nowrap; flex: none; }
+@media (max-width: 600px) { .global-review select { max-width: 170px; } }
