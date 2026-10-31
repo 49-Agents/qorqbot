@@ -27,7 +27,7 @@ const T_CLOSED = ["done", "dropped"];
 const T_STATES = ["open", "doing", "waiting", "blocked", "done", "dropped"];   // the detail's status picker
 const T_LABEL = { open: "Open", doing: "Doing", waiting: "Waiting", done: "Done", blocked: "Blocked", dropped: "Dropped" };
 const T_TAGS = ["operations", "coding", "research", "marketing", "needs-owner"];
-const T_DEPTS = ["marketing", "accounting", "data-science", "code", "general"];
+const T_DEPTS = ["marketing", "accounting", "data-science", "code", "general", "onbashlyk"];
 // department -> the tag that files a task there (the reverse of core's TAG_DEPT); general has none
 const T_DEPT_TAG = {};
 Object.keys(TAG_DEPT).forEach(tag => { if (!T_DEPT_TAG[TAG_DEPT[tag]]) T_DEPT_TAG[TAG_DEPT[tag]] = tag; });

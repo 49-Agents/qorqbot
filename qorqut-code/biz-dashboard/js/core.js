@@ -8,10 +8,11 @@ const DEPTS = {
   "data-science": { label: "Data science", icon: "triangle", color: "#3d5a80" },
   code: { label: "Code", icon: "square", color: "#7a4f7a" },
   general: { label: "General", icon: "circle", color: "#8a8a8a" },
+  onbashlyk: { label: "Onbashlyk", icon: "triangle", color: "#c8912a" },
 };
 const COLORS = { red: "#b5482b", amber: "#c8912a", green: "#4d6b53", teal: "#3f7f7a", blue: "#3d5a80", plum: "#7a4f7a", ink: "#f5f0e8" };
 const SHAPES = ["circle", "square", "triangle"];
-const TAG_DEPT = { marketing: "marketing", operations: "accounting", research: "data-science", coding: "code" };
+const TAG_DEPT = { marketing: "marketing", operations: "accounting", research: "data-science", coding: "code", onbashlyk: "onbashlyk" };
 const dept = k => DEPTS[k] || DEPTS.general;
 const hex = c => COLORS[c] || COLORS.ink;
 const glyph = (shape, colorHex, sizePx) => `<span class="g ${SHAPES.includes(shape) ? shape : "circle"}" style="--gs:${sizePx}px;--gc:${colorHex}"></span>`;
