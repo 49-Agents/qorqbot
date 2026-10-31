@@ -326,7 +326,7 @@ function paintList() {
   let html = `<label class="agent-group-control">Group by<select id="agent-group-mode"><option value="department" ${grouped?'selected':''}>Department</option><option value="custom" ${!grouped?'selected':''}>Custom</option></select></label>`;
   if (o.pinned.length) html += `<div class="h" data-drop-sec="pinned">Pinned</div>` + o.pinned.map((n, i) => row(n, "pinned", i)).join("");
   o.cats.forEach((c, ci) => {
-    html += `<div class="h ${grouped?'':'catH'}" data-drop-sec="cat" data-cat="${ci}"><span class="cn">${grouped?departmentIcon(c.id):''}${esc(c.name)}</span></div>`
+    html += `<div class="h ${grouped?'':'catH'}" data-drop-sec="cat" data-cat="${ci}"><span class="cn">${esc(c.name)}</span></div>`
       + c.agents.map((n, i) => row(n, "cat" + ci, i)).join("");
   });
   if (!grouped) html += `<div class="h" data-drop-sec="loose">Agents</div>` + o.loose.map((n, i) => row(n, "loose", i)).join("");
@@ -500,7 +500,7 @@ function lookModal(a) {
       const ibtns = [...el.querySelectorAll(".ibtn")];
       const repaint = () => {
         const d = dept(pick.department);
-        prev.innerHTML = agentGlyph({ department: pick.department, icon: pick.icon }, 34);
+        prev.innerHTML = agentGlyph({ ...a, department: pick.department, icon: pick.icon }, 34);
         db.innerHTML = deptBtn(pick.department);
         ibtns.forEach(b => {
           const k = b.dataset.icon;
@@ -541,7 +541,7 @@ function newAgentModal() {
     title: "New agent", body, width: 460,
     onOpen: async el => {
       const prev = el.querySelector("#naprev"), kb = el.querySelector("#narole"), db = el.querySelector("#nadept"), kmsg = el.querySelector("#nakmsg");
-      const repaint = () => { const d = dept(pick.department); prev.innerHTML = departmentIcon(pick.department, 34); db.innerHTML = deptBtn(pick.department); };
+      const repaint = () => { const d = dept(pick.department); prev.innerHTML = agentGlyph({ department: pick.department }, 34); db.innerHTML = deptBtn(pick.department); };
       db.onclick = () => dropdown(db, deptItems(), v => { pick.department = v; repaint(); }, pick.department);
       const mk = await marketplace();
       if (!el.isConnected || state.biz !== biz) return;
