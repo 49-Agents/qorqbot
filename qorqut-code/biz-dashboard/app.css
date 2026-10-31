@@ -122,7 +122,7 @@ label.field { display: block; font-size: 10px; font-weight: 700; letter-spacing:
 .selbtn .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ============================================================ layout */
-.app { display: grid; grid-template-columns: 1fr 300px; height: 100vh; overflow: hidden; background: var(--bg); }
+.app { display: grid; grid-template-columns: 1fr 150px; height: 100vh; overflow: hidden; background: var(--bg); }
 .side { overflow-y: auto; border-left: 1px solid var(--line); background: var(--surface); }
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .content { flex: 1; overflow: hidden; display: flex; min-height: 0; }
@@ -397,4 +397,4 @@ details[open] summary { color: var(--fg); }
 .tip .num { font-variant-numeric: tabular-nums; font-family: var(--mono); }
 
 /* ============================================================ misc */
-@media (max-width: 1100px) { .app { grid-template-columns: 1fr 260px; } }
+@media (max-width: 1100px) { .app { grid-template-columns: 1fr 130px; } }

@@ -763,15 +763,9 @@ class Handler(BaseHTTPRequestHandler):
         r = run_json(biz, "bizctx", *args, stdin=text)
         if "error" in r:
             return self.send_json(r, 500)
-        what = notes or topic or text.splitlines()[0]
-        summary = f"Uploaded context: {what[:150]}" + (f" ({len(text)} chars)" if len(text) > 400 else "")
-        log = run_json(biz, "bizlog", "add", "-t", "operations", "-m", summary,
-                       "-r", f"file=context/_inbox/{r['id']}.md", "--commit")
         FILER.kick()
-        resp = {"ok": True, "id": r["id"], "chars": r.get("chars")}
-        if "error" in log:
-            resp["warn"] = f"upload saved, log line failed: {log['error']}"
-        return self.send_json(resp)
+        # the upload itself is not a business action; the filer logs one line when it has filed it
+        return self.send_json({"ok": True, "id": r["id"], "chars": r.get("chars")})
 
     def context_save(self, biz, body):
         rp = str(body.get("path") or "")
