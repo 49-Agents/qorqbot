@@ -447,9 +447,9 @@ async function marketplace() {
 }
 const kindItems = kinds => kinds.map(k => ({
   value: k.id, label: k.label,
-  html: `${glyph(k.icon, hex(k.color), 14)}<span class="kd"><span class="kl">${esc(k.label)}${k.available ? "" : ` <em>soon</em>`}</span><span class="kb">${esc(k.blurb || "")}</span></span>`,
+  html: `${departmentIcon(k.department || "general", 14)}<span class="kd"><span class="kl">${esc(k.label)}${k.available ? "" : ` <em>soon</em>`}</span><span class="kb">${esc(k.blurb || "")}</span></span>`,
 }));
-const kindBtn = k => k ? `<span class="v">${glyph(k.icon, hex(k.color), 14)}<span>${esc(k.label)}</span>${k.available ? "" : `<em class="soon">soon</em>`}</span>` : `<span class="v muted">pick a kind</span>`;
+const kindBtn = k => k ? `<span class="v">${departmentIcon(k.department || "general", 14)}<span>${esc(k.label)}</span>${k.available ? "" : `<em class="soon">soon</em>`}</span>` : `<span class="v muted">pick a kind</span>`;
 
 function lookModal(a) {
   const startDept = departmentId(a.department || "general");
