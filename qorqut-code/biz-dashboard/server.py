@@ -27,6 +27,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.expanduser(os.environ.get("BIZ_ROOT", "~/projects/example-businesses"))
 CLI_ENV = {"bizlog": "BIZLOG_CMD", "biztask": "BIZTASK_CMD", "bizledger": "BIZLEDGER_CMD",
            "bizmetrics": "BIZMETRICS_CMD", "bizrun": "BIZRUN_CMD"}
+ICONS = ("circle", "square", "triangle")
+COLORS = ("red", "amber", "green", "teal", "blue", "plum", "ink")
+DEPARTMENTS = ("marketing", "accounting", "data-science", "code", "general")
 SESSIONS = {}
 LOCK = threading.Lock()
 
@@ -83,6 +86,15 @@ def yaml_scalars(text):
     return out
 
 
+def agent_meta(biz, name):
+    """icon/color/department for one agent, defaults applied and invalid values replaced."""
+    y = yaml_scalars(read(os.path.join(biz, "agents", name, "agent.yaml")))
+    icon, color, dept = y.get("icon"), y.get("color"), y.get("department")
+    return {"icon": icon if icon in ICONS else "circle",
+            "color": color if color in COLORS else "ink",
+            "department": dept if dept in DEPARTMENTS else "general"}
+
+
 def businesses():
     out = []
     for p in sorted(glob.glob(os.path.join(ROOT, "*", "business.yaml"))):
@@ -92,7 +104,8 @@ def businesses():
         agents = sorted(d for d in os.listdir(os.path.join(biz, "agents"))
                         if os.path.isdir(os.path.join(biz, "agents", d)) and not d.startswith("_"))
         out.append({"slug": slug, "path": biz, "name": y.get("name") or slug, "one_liner": y.get("one_liner"),
-                    "stage": y.get("stage"), "website": y.get("website"), "id": y.get("id"), "agents": agents})
+                    "stage": y.get("stage"), "website": y.get("website"), "id": y.get("id"), "agents": agents,
+                    "agent_meta": {a: agent_meta(biz, a) for a in agents}})
     return out
 
 
@@ -138,10 +151,12 @@ def agent_info(biz, name):
     adir = os.path.join(biz, "agents", name)
     sessions = sorted(glob.glob(os.path.join(adir, "sessions", "*.jsonl")), reverse=True)
     notes = sorted(glob.glob(os.path.join(adir, "notes", "*.md")), reverse=True)
+    meta = agent_meta(biz, name)
     return {"name": name, "agent_yaml": read(os.path.join(adir, "agent.yaml")), "plan": read(os.path.join(adir, "PLAN.md")),
             "sessions": [os.path.basename(s) for s in sessions[:30]],
             "notes": [os.path.basename(n) for n in notes[:30]],
-            "learnings": read(notes[0]) if notes and "session-learnings" in notes[0] else ""}
+            "learnings": read(notes[0]) if notes and "session-learnings" in notes[0] else "",
+            "icon": meta["icon"], "color": meta["color"], "department": meta["department"]}
 
 
 def session_events(biz, agent, fname):
@@ -335,6 +350,49 @@ class Handler(BaseHTTPRequestHandler):
                 for t in body.get("tags") or []:
                     args += ["-t", str(t)]
                 return self.send_json(run_json(biz, "biztask", *args))
+            if parts[3] == "agent" and len(parts) == 6 and parts[5] == "meta":
+                name = parts[4]
+                if (not re.match(r"^[\w-]+$", name) or name.startswith("_")
+                        or not os.path.isdir(os.path.join(biz, "agents", name))):
+                    return self.send_json({"error": "no such agent"}, 400)
+                fields = (("icon", ICONS), ("color", COLORS), ("department", DEPARTMENTS))
+                updates = {}
+                for key, allowed in fields:
+                    if key in body:
+                        val = str(body[key])
+                        if val not in allowed:
+                            return self.send_json({"error": f"bad {key}: {val}"}, 400)
+                        updates[key] = val
+                if not updates:
+                    return self.send_json({"error": "no fields given"}, 400)
+                ypath = os.path.join(biz, "agents", name, "agent.yaml")
+                lines = read(ypath).splitlines()
+                for key, val in updates.items():
+                    pat = re.compile(rf"^{key}:.*$")
+                    for i, line in enumerate(lines):
+                        if pat.match(line):
+                            lines[i] = f"{key}: {val}"
+                            break
+                    else:
+                        lines.append(f"{key}: {val}")
+                with open(ypath, "w", encoding="utf-8") as fh:
+                    fh.write("\n".join(lines) + "\n")
+                warn = None
+                try:
+                    subprocess.run(["git", "add", os.path.join("agents", name, "agent.yaml")], cwd=biz,
+                                   capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
+                    msg = "agent(%s): set %s" % (name, ", ".join(f"{k}={v}" for k, v in updates.items()))
+                    r = subprocess.run(["git", "commit", "-q", "-m", msg], cwd=biz, capture_output=True, text=True,
+                                       encoding="utf-8", errors="replace", timeout=15)
+                    if r.returncode != 0:
+                        warn = (r.stderr or r.stdout).strip()[-500:]
+                except (OSError, subprocess.TimeoutExpired) as exc:
+                    warn = str(exc)
+                meta = agent_meta(biz, name)
+                resp = {"ok": True, "icon": meta["icon"], "color": meta["color"], "department": meta["department"]}
+                if warn:
+                    resp["warn"] = warn
+                return self.send_json(resp)
         return self.send_json({"error": "not found"}, 404)
 
     def stream_session(self, sid):
