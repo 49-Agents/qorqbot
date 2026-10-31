@@ -183,6 +183,7 @@ h2:first-child { margin-top: 0; }
 .ritem.on { color: var(--fg); background: none; }
 .ritem.soon { color: var(--fg-3); }
 .ritem.soon:hover { color: var(--fg-2); }
+.ritem.rbottom { margin-top: auto; }
 .rind {
   position: absolute; left: 10px; right: 10px; top: 12px; height: 44px; border-radius: 12px;
   background: rgba(255,255,255,.05); pointer-events: none;
