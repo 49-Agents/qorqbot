@@ -60,17 +60,25 @@
 .ctxview .sum .li { position: relative; padding-left: 16px; margin: 4px 0; }
 .ctxview .sum .li::before { content: ""; position: absolute; left: 2px; top: .68em; width: 5px; height: 5px; border-radius: 50%; background: var(--fg-3); }
 .ctxview .sum p { margin: 6px 0; }
-.ctxview .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
-.ctxview .card { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); cursor: pointer; transition: background .14s ease, border-color .14s ease; min-width: 0; }
+.ctxview .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); grid-auto-rows: 1fr; gap: 10px; }
+.ctxview .card { display: flex; flex-direction: column; min-height: 132px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); cursor: pointer; transition: background .14s ease, border-color .14s ease; min-width: 0; }
 .ctxview .card:hover { background: var(--hover); border-color: var(--line-2); }
 .ctxview .card .ct { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; }
 .ctxview .card .ct .fo { color: var(--fg-3); flex: none; }
+.ctxview .card .ct .tt { flex: 1; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; }
 .ctxview .card .ct .cnt { margin-left: auto; font: 11px var(--mono); color: var(--fg-3); }
 .ctxview .card .cb { margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--fg-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.ctxview .card .cs { margin-top: 8px; font: 11px var(--mono); color: var(--fg-3); }
+.ctxview .card .cs { margin-top: auto; padding-top: 8px; font: 11px var(--mono); color: var(--fg-3); }
 .ctxview .card.n .ct .fi { color: var(--fg-3); flex: none; }
 
 /* search */
 .ctxbar #ctxsearch { width: 260px; height: 32px; padding: 0 12px; border-radius: var(--r-full); }
 .ctxview .kd { font: 10px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--fg-3); }
 .ctxview mark { background: rgba(245,240,232,.18); color: var(--fg); border-radius: 2px; padding: 0 1px; }
+
+/* people */
+.ctxview .meta { margin: 0 0 10px; font-size: 13px; color: var(--fg-3); }
+.ctxview .aka { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.ctxview .nh { margin: 14px 0 4px; font: 11px var(--mono); color: var(--fg-3); }
+.ctxview .nh:first-child { margin-top: 0; }
+.ctxview .card.p .ct { font-weight: 600; }

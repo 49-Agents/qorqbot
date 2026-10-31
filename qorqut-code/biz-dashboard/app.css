@@ -70,6 +70,7 @@ button {
   font-weight: 800; font-size: 13px; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   transition: transform .14s ease, opacity .14s ease, background .14s ease;
+  user-select: none; -webkit-user-select: none;
 }
 button:hover { background: #fff; color: var(--accent-fg); transform: scale(1.02); }
 button:active { transform: scale(.98); }

@@ -12,6 +12,16 @@ const fmtAgo = t => { const s = Math.max(0, Math.round(Date.now() / 1000 - t)); 
 const isTopic = p => p != null && !p.endsWith(".md");           // state.ctx is a topic path ("" = root) or a file path
 const ctxCount = n => (n.notes || []).length + (n.children || []).reduce((s, k) => s + ctxCount(k), 0);
 const ctxFind = (node, path) => { if (!node) return null; if ((node.path || "") === path) return node; for (const c of node.children || []) { const h = ctxFind(c, path); if (h) return h; } return null; };
+const PERSON_VIEW_RE = /^_people\/([a-z][a-z0-9-]{1,63})$/;     // "_people/<slug>" (no .md) is the person view, not a raw file
+const personNoteCount = p => Array.isArray(p.notes) ? p.notes.length : (p.notes || 0);
+const findPerson = slug => ((_ctxData || {}).people || []).find(p => p.slug === slug);
+const cap = (s, n = 70) => {
+  s = String(s || "");
+  if (s.length <= n) return s;
+  const sp = s.lastIndexOf(" ", n - 1);
+  const cut = sp > n * 0.6 ? sp : n - 1;
+  return s.slice(0, cut).trimEnd() + "…";
+};
 
 async function renderContext(c) {
   clearInterval(_ctxTimer); _ctxTimer = null;
@@ -60,12 +70,13 @@ async function ctxSearch(q) {
   const inp = $("#ctxsearch");
   if (!inp || inp.value.trim() !== q) return;   // a newer query is already in flight
   const hits = r.hits || [];
-  const rows = hits.map(h => `<div class="card" data-p="${esc(h.path)}"><div class="ct"><span class="kd">${esc(h.kind)}</span>${esc(h.title)}</div>
+  const rows = hits.map(h => `<div class="card" data-p="${esc(h.path)}" data-k="${esc(h.kind)}" title="${esc(h.title)}"><div class="ct"><span class="kd">${esc(h.kind)}</span><span class="tt">${esc(cap(h.title))}</span></div>
     <div class="cb">${ctxMark(h.snippet, q)}</div><div class="cs">${esc(h.path)}</div></div>`).join("");
   v.innerHTML = `<div class="sec"><div class="sh">Search: ${esc(q)} <span class="stamp">${hits.length} hit${hits.length === 1 ? "" : "s"}</span></div>
     <div class="cards">${rows || `<div class="empty">no matches</div>`}</div></div>`;
   v.querySelectorAll(".card").forEach(el => el.onclick = () => {
     const p = el.dataset.p;
+    if (el.dataset.k === "person") return ctxGo(p.replace(/\.md$/, ""));
     if (p.endsWith("/_topic.md")) {
       const dir = p.split("/").slice(0, -1).join("/");
       ctxOpen().add(dir); ctxSaveOpen();
@@ -120,12 +131,17 @@ function ctxTree(d) {
     const notes = node.notes || [], kids = node.children || [], isOpen = open.has(node.path);
     row(`t ${isOpen ? "open" : ""}`, node.path, depth, `${SVG_CARET}<span class="tt">${esc(node.title || node.slug)}</span><span class="cnt">${ctxCount(node)}</span>`, esc(node.slug));
     if (!isOpen) return;
-    notes.forEach(n => row("n", `${node.path}/${n}`, depth + 1, esc((node.titles || {})[n] || n.replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(/\.md$/, "").replace(/-/g, " ")), esc(n.slice(0, 10))));
+    notes.forEach(n => row("n", `${node.path}/${n}`, depth + 1, esc(cap((node.titles || {})[n] || n.replace(/^\d{4}-\d{2}-\d{2}-/, "").replace(/\.md$/, "").replace(/-/g, " "))), esc(n.slice(0, 10))));
     kids.forEach(k => walk(k, depth + 1));
   };
   const kids = (d.tree && d.tree.children) || [];
   if (!kids.length) rows.push(`<div class="empty pad">No topics yet. Upload something; the filer makes them.</div>`);
   kids.forEach(k => walk(k, 0));
+  const people = d.people || [];
+  if (people.length) {
+    rows.push(`<div class="h">People</div>`);
+    people.forEach(p => row("p", `_people/${p.slug}`, 0, `<span class="tt">${esc(p.name)}</span><span class="cnt">${personNoteCount(p)}</span>`, esc([p.role, p.org].filter(Boolean).join(" · "))));
+  }
   const inbox = d.inbox || [];
   if (inbox.length) {
     rows.push(`<div class="h">Inbox</div>`);
@@ -150,7 +166,11 @@ function ctxTree(d) {
 
 function ctxGo(p) { state.ctx = p; if (_ctxData) ctxTree(_ctxData); ctxShow(p); }
 
-function ctxShow(p) { return isTopic(p) ? openTopic(p) : openCtx(p); }
+function ctxShow(p) {
+  const m = p != null && PERSON_VIEW_RE.exec(p);
+  if (m) return openPerson(m[1]);
+  return isTopic(p) ? openTopic(p) : openCtx(p);
+}
 
 function ctxCrumbs(p, fileName) {
   const parts = p ? p.split("/") : [];
@@ -177,16 +197,72 @@ function openTopic(p) {
     ${node.about ? `<p class="about">${esc(node.about)}</p>` : ""}`;
   const sum = root ? "" : node.summary ? `<div class="sec"><div class="sh">Summary <span class="stamp">${esc((node.summarized || "").replace("T", " ").replace(/:\d\dZ/, "Z"))}</span></div>${mdLines(node.summary)}</div>`
     : `<div class="sec"><div class="sh">Summary</div><div class="empty">${busy ? "being written now" : notes.length || kids.length ? "not written yet; it comes after the next filing or save, or press Refresh summary" : "empty topic"}</div></div>`;
-  const pill = root ? `<div class="sec"><div class="sh">Pillars</div><div class="cards">${(d.pillars || []).map(n => `<div class="card f" data-p="${esc(n)}"><div class="ct">${esc(n.replace(/\.md$/, ""))}</div><div class="cb">owner-written</div></div>`).join("")}</div></div>` : "";
-  const subs = kids.length ? `<div class="sec"><div class="sh">${root ? "Topics" : "Subtopics"}</div><div class="cards">${kids.map(k => `<div class="card t" data-p="${esc(k.path)}"><div class="ct">${SVG_FOLDER}${esc(k.title || k.slug)}<span class="cnt">${ctxCount(k)}</span></div><div class="cb">${esc(k.about || "")}</div><div class="cs">${esc(k.slug)}${k.summary ? "" : " · no summary yet"}</div></div>`).join("")}</div></div>` : "";
-  const nts = notes.length ? `<div class="sec"><div class="sh">Files</div><div class="cards">${notes.map(n => { const m = ctxNoteMeta(n); return `<div class="card n" data-p="${esc(p)}/${esc(n)}"><div class="ct">${SVG_FILE}${esc((node.titles || {})[n] || n)}</div><div class="cb">${esc((node.previews || {})[n] || "")}</div><div class="cs">${esc(m.date)}${m.rest ? ` · ${esc(m.rest)}` : ""}</div></div>`; }).join("")}</div></div>` : root ? "" : `<div class="sec"><div class="sh">Files</div><div class="empty">none here; ${kids.length ? "they sit in the subtopics" : "nothing filed yet"}</div></div>`;
-  v.innerHTML = head + sum + pill + subs + nts;
+  const pill = root ? `<div class="sec"><div class="sh">Pillars</div><div class="cards">${(d.pillars || []).map(n => `<div class="card f" data-p="${esc(n)}"><div class="ct"><span class="tt">${esc(n.replace(/\.md$/, ""))}</span></div><div class="cb">owner-written</div></div>`).join("")}</div></div>` : "";
+  const subs = kids.length ? `<div class="sec"><div class="sh">${root ? "Topics" : "Subtopics"}</div><div class="cards">${kids.map(k => { const kt = k.title || k.slug; return `<div class="card t" data-p="${esc(k.path)}" title="${esc(kt)}"><div class="ct">${SVG_FOLDER}<span class="tt">${esc(cap(kt))}</span><span class="cnt">${ctxCount(k)}</span></div><div class="cb">${esc(k.about || "")}</div><div class="cs">${esc(k.slug)}${k.summary ? "" : " · no summary yet"}</div></div>`; }).join("")}</div></div>` : "";
+  const people = root ? (d.people || []) : [];
+  const ppl = people.length ? `<div class="sec"><div class="sh">People</div><div class="cards">${people.map(pn => { const n = personNoteCount(pn), path = "_people/" + pn.slug; return `<div class="card p" data-p="${esc(path)}"><div class="ct"><span class="tt">${esc(pn.name)}</span></div><div class="cb">${esc([pn.role, pn.org].filter(Boolean).join(" · "))}</div><div class="cs">${n} note${n === 1 ? "" : "s"}</div></div>`; }).join("")}</div></div>` : "";
+  const nts = notes.length ? `<div class="sec"><div class="sh">Files</div><div class="cards">${notes.map(n => { const m = ctxNoteMeta(n), ft = (node.titles || {})[n] || n, body = node.summaries?.[n] || node.previews?.[n] || ""; return `<div class="card n" data-p="${esc(p)}/${esc(n)}" title="${esc(ft)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(ft))}</span></div><div class="cb">${esc(body)}</div><div class="cs">${esc(m.date)}${m.rest ? ` · ${esc(m.rest)}` : ""}</div></div>`; }).join("")}</div></div>` : root ? "" : `<div class="sec"><div class="sh">Files</div><div class="empty">none here; ${kids.length ? "they sit in the subtopics" : "nothing filed yet"}</div></div>`;
+  v.innerHTML = head + sum + pill + subs + ppl + nts;
   wireCrumbs(v);
   v.querySelectorAll(".card").forEach(el => el.onclick = () => { if (el.classList.contains("t")) { ctxOpen().add(el.dataset.p); ctxSaveOpen(); } ctxGo(el.dataset.p); });
   const ed = $("#tpedit"); if (ed) ed.onclick = () => ctxGo(`${p}/_topic.md`);
   const rs = $("#tpsum"); if (rs) rs.onclick = async () => { rs.disabled = true; const r = await post(`/biz/${state.biz}/context/summarize`, { topic: p }); toast(r.error || `summarising ${p}`); const d2 = await api(`/biz/${state.biz}/context`); ctxPaint(d2); openTopic(p); ctxWatch(d2); };
 }
 const ctxNoteMeta = n => ({ date: n.slice(0, 10), rest: "" });
+
+// a person: bio, generated summary, the notes filed under them, where they're mentioned
+async function openPerson(slug) {
+  const v = $("#ctxview"), d = _ctxData || {};
+  const person = findPerson(slug);
+  if (!person) { v.innerHTML = `<div class="empty">no such person</div>`; return; }
+  const s = d.summarizing || {}, busy = s.current && s.current.topic === `person:${slug}`;
+  const r = await api(`/biz/${state.biz}/context/person/${slug}`);
+  if (state.ctx !== `_people/${slug}`) return;    // navigated away while the notes were loading
+  const notesText = (r && r.notes_text) || "";
+  const head = `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><a data-p="">People</a><span class="sep">›</span><span class="cur">${esc(person.name)}</span></div>
+    <div class="th"><h2>${esc(person.name)}</h2>
+      <div class="pa"><button class="ghost sm" id="ctxpedit">Edit</button><button class="ghost sm" id="ctxpsum" ${busy ? "disabled" : ""}>${busy ? "summarising…" : "Refresh summary"}</button></div></div>`;
+  const metaLine = [person.role, person.org, person.email].filter(Boolean).join(" · ");
+  const meta = metaLine ? `<div class="meta">${esc(metaLine)}</div>` : "";
+  const akaList = person.aka || [];
+  const aka = akaList.length ? `<div class="aka">${akaList.map(a => `<span class="chip">${esc(a)}</span>`).join("")}</div>` : "";
+  const about = person.about ? `<p class="about">${esc(person.about)}</p>` : "";
+  const sum = person.summary ? `<div class="sec"><div class="sh">Summary <span class="stamp">${esc((person.summarized || "").replace("T", " ").replace(/:\d\dZ/, "Z"))}</span></div>${mdLines(person.summary)}</div>`
+    : `<div class="sec"><div class="sh">Summary</div><div class="empty">${busy ? "being written now" : "not written yet; it comes after the next note or save, or press Refresh summary"}</div></div>`;
+  const notesSec = `<div class="sec"><div class="sh">Notes</div>${renderPersonNotes(notesText)}</div>`;
+  const mentions = person.mentions || [];
+  const ment = mentions.length ? `<div class="sec"><div class="sh">Mentioned in</div><div class="cards">${mentions.map(m => {
+    const i = m.lastIndexOf("/"), topicPath = i < 0 ? "" : m.slice(0, i), file = i < 0 ? m : m.slice(i + 1);
+    const node = topicPath ? ctxFind(d.tree, topicPath) : null;
+    const title = (node && node.titles && node.titles[file]) || file;
+    const body = node?.summaries?.[file] || node?.previews?.[file] || "";
+    return `<div class="card n" data-p="${esc(m)}" title="${esc(title)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(title))}</span></div><div class="cb">${esc(body)}</div><div class="cs">${esc(m)}</div></div>`;
+  }).join("")}</div></div>` : "";
+  v.innerHTML = head + meta + aka + about + sum + notesSec + ment;
+  wireCrumbs(v);
+  v.querySelectorAll(".card").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
+  const ed = $("#ctxpedit"); if (ed) ed.onclick = () => ctxGo(`_people/${slug}.md`);
+  const rs = $("#ctxpsum"); if (rs) rs.onclick = async () => {
+    rs.disabled = true;
+    const rr = await post(`/biz/${state.biz}/context/summarize`, { person: slug });
+    toast(rr.error || `summarising ${person.name}`);
+    const d2 = await api(`/biz/${state.biz}/context`); ctxPaint(d2); openPerson(slug); ctxWatch(d2);
+  };
+}
+
+// the person file's "## Notes" block: "### <date> · from <id> · <topic>/<note>.md" headings, prose/bullets between
+function renderPersonNotes(text) {
+  if (!text || !text.trim()) return `<div class="empty">no notes yet</div>`;
+  const out = [];
+  let buf = [];
+  const flush = () => { if (buf.length) { out.push(mdLines(buf.join("\n"))); buf = []; } };
+  text.split("\n").forEach(l => {
+    if (/^###\s+/.test(l)) { flush(); out.push(`<div class="nh">${esc(l.replace(/^###\s+/, ""))}</div>`); }
+    else buf.push(l);
+  });
+  flush();
+  return out.join("");
+}
 
 async function ctxRetry(id) {
   const r = await post(`/biz/${state.biz}/context/retry`, { id });
