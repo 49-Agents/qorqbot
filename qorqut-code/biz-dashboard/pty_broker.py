@@ -1,13 +1,15 @@
 """Terminal mirroring for biz-dashboard.
 
-A PTY per agent, keyed by an opaque id. The PTY runs whatever command the agent's
-config says (a shell, `claude`, the engine — brain-agnostic). Output is captured by a
-reader thread into a scrollback ring buffer and mirrored to any number of viewers (SSE);
-input is written back to the PTY master. Linux only (stdlib `pty`) — the target host is
-Linux; on Windows this module raises on import, which is fine (the dashboard runs on the
-host, not the command-center machine).
+Two layers. The agent's shell lives in a **tmux session** on a dedicated tmux server (socket
+`-L bazarlyk`), one session per agent, so it outlives the dashboard: a restart kills only the
+mirror, never the agent. The dashboard mirrors it through a **PTY** whose child is
+`tmux attach-session`; output is captured by a reader thread into a scrollback ring buffer and
+streamed to any number of viewers (SSE), input is written back to the PTY master. When `tmux`
+is not installed the PTY child is the shell itself (the old behaviour, no persistence).
 
-No third-party dependencies.
+The owner can attach to the same session from any shell: `tmux -L bazarlyk attach -t NAME`.
+
+Linux only (stdlib `pty`); the target host is Linux. No third-party Python dependencies.
 """
 
 from __future__ import annotations
@@ -15,7 +17,9 @@ from __future__ import annotations
 import fcntl
 import os
 import pty
+import re
 import select
+import shutil
 import signal
 import struct
 import subprocess
@@ -190,3 +194,115 @@ def stop(key: str) -> bool:
 def keys() -> list[str]:
     with _LOCK:
         return list(_TERMINALS.keys())
+
+
+# ------------------------------------------------------------------ tmux sessions
+#
+# The tmux server is started (by the first `new-session`) under the dashboard's cleaned
+# environment only. A business's `.env` reaches its session through `new-session -e K=V` (session
+# scope): the server's global environment never holds a business secret, so nothing leaks between
+# businesses. `-e` puts the values in the argv of `new-session -d`, a process that exits within
+# milliseconds; the long-lived `attach-session` client carries no secrets. An already-running
+# session keeps the env it was created with: a changed `.env` needs `kill-session` + a fresh open.
+#
+# Server options come from a config file passed with `-f` (read when the server starts): no status
+# bar and no prefix key (the terminal is transparent, Ctrl-B reaches the shell), tmux-256color
+# inside, deep history. Window size is `manual` per window (set right after creation) so the
+# browser is the authority (resize_session); a global `window-size manual` crashes tmux 3.4 when a
+# second detached session is created, so it is never set globally.
+#
+# Targets: `=NAME` is an exact session match; window commands take `=NAME:`.
+
+TMUX = shutil.which("tmux")
+TMUX_SOCK = "bazarlyk"
+TMUX_CONF = """\
+set -g status off
+set -g prefix None
+set -g history-limit 50000
+set -sg escape-time 0
+set -g default-terminal tmux-256color
+"""
+_NAME_BAD = re.compile(r"[^A-Za-z0-9-]")
+
+
+def tmux_available() -> bool:
+    return TMUX is not None
+
+
+def session_name(slug: str, agent: str) -> str:
+    """`<slug>__<agent>`. tmux forbids `.` and `:` in names and gives `@ % $` meaning in targets, so
+    the slug is reduced to letters, digits and dashes; it then cannot contain `__`, which makes the
+    split unambiguous (an agent name may contain underscores)."""
+    return f"{_NAME_BAD.sub('-', slug)}__{agent}"
+
+
+def session_prefix(slug: str) -> str:
+    return f"{_NAME_BAD.sub('-', slug)}__"
+
+
+def _conf_path() -> str:
+    d = os.path.join(os.path.expanduser("~"), ".cache", "biz-dashboard")
+    p = os.path.join(d, f"tmux-{TMUX_SOCK}.conf")
+    try:
+        if not os.path.exists(p) or open(p, encoding="utf-8").read() != TMUX_CONF:
+            os.makedirs(d, exist_ok=True)
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write(TMUX_CONF)
+    except OSError:
+        pass
+    return p
+
+
+def tmux(*args: str, env: dict | None = None) -> tuple[int, str]:
+    """Run one tmux command against the bazarlyk server. (rc, combined output)."""
+    if TMUX is None:
+        return 127, "tmux not installed"
+    try:
+        r = subprocess.run([TMUX, "-L", TMUX_SOCK, "-f", _conf_path(), *args], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=20,
+                           env=clean_env() if env is None else env)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 1, str(exc)
+    return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+def session_alive(name: str) -> bool:
+    return tmux("has-session", "-t", f"={name}")[0] == 0
+
+
+def ensure_session(name: str, cmd: list[str], cwd: str, env: dict | None = None,
+                   cols: int = 120, rows: int = 32) -> bool:
+    """Create the session running `cmd` in `cwd` unless it exists. `env` is session-scoped.
+    Returns True when it was created. Two concurrent creators: the loser's `new-session` fails
+    with "duplicate session", which is the same outcome, so it is not an error."""
+    if session_alive(name):
+        return False
+    args = ["new-session", "-d", "-s", name, "-c", cwd, "-x", str(cols), "-y", str(rows)]
+    for k, v in (env or {}).items():
+        args += ["-e", f"{k}={v}"]
+    rc, out = tmux(*args, "--", *cmd)
+    if rc and "duplicate session" not in out:
+        raise RuntimeError(f"tmux new-session failed: {out.strip()}")
+    if rc == 0:
+        tmux("set-option", "-w", "-t", f"={name}:", "window-size", "manual")
+    return rc == 0
+
+
+def attach_cmd(name: str) -> list[str]:
+    return [TMUX, "-L", TMUX_SOCK, "-f", _conf_path(), "attach-session", "-t", f"={name}"]
+
+
+def resize_session(name: str, rows: int, cols: int) -> None:
+    tmux("resize-window", "-t", f"={name}:", "-x", str(cols), "-y", str(rows))
+
+
+def kill_session(name: str) -> bool:
+    """True when a session was there to kill."""
+    return tmux("kill-session", "-t", f"={name}")[0] == 0
+
+
+def list_sessions(prefix: str = "") -> list[str]:
+    rc, out = tmux("list-sessions", "-F", "#{session_name}")
+    if rc:
+        return []
+    return [n for n in out.split() if n.startswith(prefix)]
