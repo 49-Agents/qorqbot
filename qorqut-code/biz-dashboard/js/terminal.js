@@ -62,8 +62,14 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
   const fit = () => {
     if (_term !== term || !host.isConnected) return; // a queued fit can outlive a tab/agent switch
     const { w, h } = cell();
-    const cols = Math.max(20, Math.floor(host.clientWidth / w));
-    const rows = Math.max(6, Math.floor(host.clientHeight / h));
+    // `.termhost` includes its own padding in clientWidth/clientHeight, while the
+    // xterm surface occupies the content box inside it. Measure that surface so the
+    // PTY never gets more columns or rows than the visible terminal can render.
+    const viewport = host.querySelector(".xterm");
+    const width = viewport ? viewport.clientWidth : host.clientWidth;
+    const height = viewport ? viewport.clientHeight : host.clientHeight;
+    const cols = Math.max(20, Math.floor(width / w));
+    const rows = Math.max(6, Math.floor(height / h));
     if (cols !== term.cols || rows !== term.rows) {
       term.resize(cols, rows);
       post(`${terminalBase}/resize`, { cols, rows });
