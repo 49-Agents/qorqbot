@@ -369,6 +369,15 @@ function openPeople() {
   v.querySelectorAll('.jrcard').forEach(el=>el.onclick=()=>contextOpenItem(biz,people.find(p=>p.id===el.dataset.id)));
 }
 
+// context base receipt (metadata.context_base, written by the context.base_file job): one small chip per upload
+function ctxBaseChip(item) {
+  const b = item && item.context_base;
+  if (!b || !b.status) return "";
+  const s = b.summary || {};
+  const counts = b.status === "filed" ? [s.developments != null ? `${s.developments} dev` : "", s.impacts != null ? `${s.impacts} imp` : "", s.actions != null ? `${s.actions} act` : ""].filter(Boolean).join(" · ") : "";
+  const title = b.status === "filed" ? `context base: filed${s.commit ? ` · ${String(s.commit).slice(0, 8)}` : ""}${counts ? ` · ${counts}` : ""}` : `context base: failed · ${String(b.error || "").slice(0, 120)}`;
+  return `<span class="cnt ${b.status === "failed" ? "bad" : ""}" title="${esc(title)}">base ${b.status === "filed" ? "✓" : "✗"}</span>`;
+}
 // uploads: what's still filing (or failed) up top, then every filed dump — the tree's old Inbox/Uploads sections
 function openUploads() {
   const v = $("#ctxview"), d = _ctxData || {}, inbox = d.inbox || [], dumps = d.dumps || [];
@@ -377,9 +386,9 @@ function openUploads() {
   const filing = inbox.length ? `<div class="sec"><div class="sh">Filing</div><div class="cards">${inbox.map(i => {
     const cur = d.filing && d.filing.current && d.filing.current.id === i.id;
     const st = cur ? `<span class="run">filing</span>` : i.failed ? `<span class="bad">failed</span>` : esc(({queued: "queued", running: "filing", waiting_signoff: "awaiting approval", cancelled: "cancelled", cancelling: "cancelling"})[i.status] || "status unavailable");
-    return `<div class="card u ${i.failed ? "failed" : ""}" data-p="_inbox/${esc(i.id)}.md"><div class="ct"><span class="tt">${esc(i.notes || i.topic || i.preview || i.id)}</span>${i.retryable ? `<button class="retry" data-id="${esc(i.id)}" title="queue it again">retry</button>` : ""}</div><div class="cb">${st}</div><div class="cs">${esc(i.id)} · ${i.chars} chars${i.error ? ` · ${esc(String(i.error).slice(0, 80))}` : ""}</div></div>`;
+    return `<div class="card u ${i.failed ? "failed" : ""}" data-p="_inbox/${esc(i.id)}.md"><div class="ct"><span class="tt">${esc(i.notes || i.topic || i.preview || i.id)}</span>${i.retryable ? `<button class="retry" data-id="${esc(i.id)}" title="queue it again">retry</button>` : ""}</div><div class="cb">${st}${ctxBaseChip(i)}</div><div class="cs">${esc(i.id)} · ${i.chars} chars${i.error ? ` · ${esc(String(i.error).slice(0, 80))}` : ""}</div></div>`;
   }).join("")}</div></div>` : "";
-  const up = dumps.length ? `<div class="sec"><div class="sh">Uploads</div><div class="cards">${dumps.slice(0, 60).map(u => `<div class="card u d" data-p="_dumps/${esc(u.id)}.md"><div class="ct"><span class="tt">${esc(u.notes || u.topic || u.preview || u.id)}</span>${u.map ? `<span class="cnt" title="has a mind map">map</span>` : ""}</div><div class="cb">${esc(u.id)}</div><div class="cs">${u.chars} chars</div></div>`).join("")}</div></div>${dumps.length > 60 ? `<div class="empty pad">${dumps.length - 60} older uploads; search finds them</div>` : ""}`
+  const up = dumps.length ? `<div class="sec"><div class="sh">Uploads</div><div class="cards">${dumps.slice(0, 60).map(u => `<div class="card u d" data-p="_dumps/${esc(u.id)}.md"><div class="ct"><span class="tt">${esc(u.notes || u.topic || u.preview || u.id)}</span>${u.map ? `<span class="cnt" title="has a mind map">map</span>` : ""}${ctxBaseChip(u)}</div><div class="cb">${esc(u.id)}</div><div class="cs">${u.chars} chars</div></div>`).join("")}</div></div>${dumps.length > 60 ? `<div class="empty pad">${dumps.length - 60} older uploads; search finds them</div>` : ""}`
     : `<div class="empty">nothing uploaded yet</div>`;
   v.innerHTML = head + filing + up;
   wireCrumbs(v);
