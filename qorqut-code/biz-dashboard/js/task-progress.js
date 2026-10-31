@@ -1,0 +1,19 @@
+// Tasks and Focus use the same canonical combined thread.
+function taskProgressMount(host,task,biz,beforeOpen) {
+  return conversationMount(host,{type:'task',id:task.id,biz,revision:task.revision});
+}
+
+async function taskProgressOpenReference(biz, ref, beforeOpen) {
+  if (ref.unavailable) return;
+  if (ref.type === 'task') {
+    if (!biz) return modal({title:'Global task', width:700, stack:true, body:'<div class="progress-task-detail"></div>',
+      onOpen:el => globalTasksMount($('.progress-task-detail',el), {initialTaskId:ref.id})});
+    const task = await tFetchTask(biz,ref.id);
+    if (await beforeOpen?.() === false) return;
+    return tDetail(task);
+  }
+  if (await beforeOpen?.() === false) return;
+  if (ref.type === 'signoff') return sgAttentionNavigate(biz || null, ref.id);
+  if (ref.type === 'dev_ticket') { location.hash = '/global/overview/incidents'; return; }
+  if (ref.type === 'story' && biz) return contextOpenItem(biz,{type:'story',id:ref.id});
+}

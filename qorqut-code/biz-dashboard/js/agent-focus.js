@@ -1,5 +1,5 @@
 // A small owner-facing projection; all object mutations remain in their own views.
-const AGFOCUS_POLL_MS = 3000;
+const AGFOCUS_POLL_MS = 60000;
 function agfocusPath(p) { return `/me/agents/${encodeURIComponent(p.agentId)}/focus`; }
 function agfocusText(el, value) { if (el && el.textContent !== value) el.textContent = value; }
 
@@ -7,8 +7,11 @@ function agfocusMount(p) {
   const body = $('#agpad-body', p.el);
   body.innerHTML = `<div class="agfocus"><p class="agfocus-error" role="alert" hidden></p>
     <header><div class="global-eyebrow">Focus</div><h2 class="agfocus-status">Loading Focus…</h2><p class="agfocus-updated muted"></p></header>
-    <p class="agfocus-activity muted" hidden></p><div class="agfocus-browser"></div><div class="agfocus-items"></div></div>`;
+    <p class="agfocus-activity muted" hidden></p><div class="agfocus-browser"></div><div class="agfocus-controls"><button class="quiet" data-focus-refresh>Refresh</button><label><input type="checkbox" data-focus-archived> Archived</label><label><input type="checkbox" data-focus-deferred> Postponed</label></div><div class="agfocus-items"></div><button class="quiet" data-focus-more hidden>More items</button></div>`;
   p.focusDrafts ||= new Map();
+  $('[data-focus-refresh]',p.el).onclick=()=>agfocusRefresh(p);
+  for(const kind of ['archived','deferred']) $('[data-focus-'+kind+']',p.el).onchange=e=>{p['focusInclude'+kind]=e.target.checked;p.focusOffset=0;agfocusRefresh(p);};
+  $('[data-focus-more]',p.el).onclick=()=>{p.focusOffset=p.focus.next_offset;agfocusRefresh(p);};
   agfocusPaint(p);
 }
 
@@ -21,10 +24,11 @@ async function agfocusRefresh(p) {
   if (p.focusPending || !agpadActive(p)) return;
   p.focusPending = true;
   try {
-    const data = coreData(await api(agfocusPath(p)));
+    const data = coreData(await post("/root/operations/focus_get",{scope:"global",include_archived:!!p.focusIncludearchived,include_deferred:!!p.focusIncludedeferred,offset:p.focusOffset||0}));
     if (!agpadActive(p)) return;
     if (!Array.isArray(data.items) || !Number.isInteger(data.revision)) throw new Error('Invalid Focus response');
     p.focus = data; p.focusError = '';
+    p.focusRefreshThreads=true;
   } catch (error) {
     if (agpadActive(p)) p.focusError = 'Could not refresh Focus. ' + error.message;
   } finally {
@@ -45,9 +49,9 @@ function agfocusPaint(p) {
   const error = $('.agfocus-error', host);
   agfocusText(error, p.focusError || ''); error.hidden = !p.focusError;
   if (!data) return;
-  agfocusText($('.agfocus-status', host), data.status || 'Nothing on Focus yet');
+  agfocusText($('.agfocus-status', host), data.status || (data.items.length?'Owner attention':'Nothing on Focus yet'));
   agfocusText($('.agfocus-updated', host), data.updated_at
-    ? `${data.stale ? 'Earlier session · ' : ''}Updated ${agpadInboxAge(data.updated_at)}` : 'Nothing on Focus yet.');
+    ? `${data.stale ? 'Earlier session · ' : ''}Updated ${agpadInboxAge(data.updated_at)}` : `${data.items.length} item${data.items.length===1?'':'s'} on this page`);
   const activity = $('.agfocus-activity', host), a = data.activity;
   activity.hidden = !a;
   if (a) {
@@ -56,20 +60,56 @@ function agfocusPaint(p) {
       `Browser · ${a.command} ${a.phase === 'running' ? 'outcome unknown' : a.phase} · ${agpadInboxAge(a.at)}`);
   }
   const list = $('.agfocus-items', host);
-  const signature = JSON.stringify(data.items);
-  if (list.dataset.signature !== signature) {
-    list.dataset.signature = signature;
-    const ordered = data.items.map((item, i) => ({item, i})).sort((a,b) => Number(!!b.item.needs_input)-Number(!!a.item.needs_input));
-    list.innerHTML = ordered.map(({item, i}) => item.unavailable
-      ? '<article class="agfocus-card muted">This item is no longer available.</article>'
-      : `<article class="agfocus-card"><div class="agfocus-card-top"><div class="agfocus-meta">${esc(item.business_name)} · ${esc(item.type)}${item.state ? ' · ' + esc(item.state) : ''}</div>${item.needs_input ? '<span class="agfocus-input-tag">Your input</span>' : ''}</div>
-          <h3>${esc(item.label)}</h3>
-          <p>${esc(item.reason)}</p><button class="quiet" data-focus-item="${i}">${item.needs_input ? (item.type === 'signoff' ? 'Review request' : 'View and respond') : 'Open '+esc(item.type)}</button></article>`).join('');
-    list.querySelectorAll('[data-focus-item]').forEach(button => {
-      const item = data.items[Number(button.dataset.focusItem)];
-      button.onclick = () => agfocusOpenItem(p, item).catch(error => toast(error.message));
+  const focused=document.activeElement,selection=focused?.selectionStart!=null?[focused.selectionStart,focused.selectionEnd]:null;
+  const ids=new Set(data.items.map(item=>item.id));
+  for(const node of [...list.children]) if(!ids.has(node.dataset.cardId)) {
+    const conversation=node.querySelector('.agfocus-conversation')?._conversation;
+    if(conversation?.state.text || conversation?.isExpanded()) {
+      node.querySelector('.agfocus-meta').textContent='This card left the current board. Your conversation draft is retained.';
+    } else node.remove();
+  }
+  for(const item of data.items) {
+    let node=[...list.children].find(n=>n.dataset.cardId===item.id);
+    if(!node) {
+      node=document.createElement('article');node.className='agfocus-card';node.dataset.cardId=item.id;
+      node.innerHTML='<div class="agfocus-meta"></div><h3></h3><p class="agfocus-reason"></p><p class="agfocus-recommendation"></p><p class="agfocus-request"></p><p class="agfocus-context muted"></p><div class="agfocus-actions"></div><div class="agfocus-related"></div><div class="agfocus-conversation"></div>';
+      list.appendChild(node);
+    }
+    list.appendChild(node);
+    if(item.unavailable) {
+      node.querySelector('h3').textContent='This item is no longer available.';
+      for(const el of node.querySelectorAll('p,.agfocus-related,.agfocus-conversation,.agfocus-actions')) {el.replaceChildren();delete el.dataset.conversation;delete el._conversation;}
+      continue;
+    }
+    node.querySelector('h3').textContent=item.label;
+    node.querySelector('.agfocus-meta').textContent=[item.resolved_source?.business_name,item.source?.type || 'Reference',item.state,item.archived?'Archived':''].filter(Boolean).join(' · ');
+    node.querySelector('.agfocus-reason').textContent=item.reason;
+    node.querySelector('.agfocus-recommendation').textContent=item.recommendation;
+    node.querySelector('.agfocus-request').textContent=item.requested_response;
+    node.querySelector('.agfocus-context').textContent=item.context_label?'Conversation: '+item.context_label:'';
+    const actions=node.querySelector('.agfocus-actions');actions.innerHTML='<button class="quiet" data-open>Open</button><button class="quiet" data-up>Move to top</button><button class="quiet" data-archive></button>';
+    actions.querySelector('[data-open]').onclick=()=>{
+      if(item.opening_target?.url){const url=agfocusURL(item.opening_target.url);if(url)window.open(url,'_blank','noopener,noreferrer');}
+      else agfocusOpenItem(p,item.resolved_source || item.opening_target).catch(e=>toast(e.message));
+    };
+    const mutate=async(op,args)=>{try{coreData(await post('/root/operations/'+op,{scope:'global',item_id:item.id,expected_card_revision:item.revision,idempotency_key:newRequestId(),...args}));await agfocusRefresh(p);}catch(e){toast(e.message);}};
+    actions.querySelector('[data-up]').onclick=()=>mutate('focus_move',{position:'top'});
+    actions.querySelector('[data-archive]').textContent=item.archived?'Restore':'Archive';
+    actions.querySelector('[data-archive]').onclick=()=>mutate('focus_set_archived',{archived:!item.archived});
+    const related=node.querySelector('.agfocus-related');related.replaceChildren();
+    for(const ref of item.references||[]) {
+      const button=document.createElement('button');button.className='quiet';button.textContent=ref.unavailable?'Related item unavailable':ref.label;button.disabled=!!ref.unavailable;
+      button.onclick=()=>agfocusOpenItem(p,ref).catch(e=>toast(e.message));related.appendChild(button);
+    }
+    const binding=item.conversation;
+    conversationMount(node.querySelector('.agfocus-conversation'),{type:binding.type,id:binding.id,biz:item.resolved_source?.business_slug || item.context_business_slug || null,revision:item.source_revision},{
+      read:async pagination=>coreData(await post('/root/operations/focus_get',{scope:'global',item_id:item.id,conversation:true,...pagination})).item.thread,
+      send:async request=>coreData(await post('/root/operations/focus_reply',{scope:'global',item_id:item.id,text:request.text,idempotency_key:request.idempotency_key,...(request.revision?{expected_source_revision:request.revision}:{})}))
     });
   }
+  if(focused?.isConnected && list.contains(focused)){focused.focus({preventScroll:true});if(selection)focused.setSelectionRange(...selection);}
+  if(p.focusRefreshThreads){p.focusRefreshThreads=false;for(const node of list.querySelectorAll('.agfocus-conversation'))node._conversation?.refresh();}
+  $('[data-focus-more]',host).hidden=data.next_offset==null;
   agfocusBrowser(p, $('.agfocus-browser', host));
 }
 
@@ -150,6 +190,7 @@ async function agfocusDesktop(p, requestId) {
 
 async function agfocusOpenItem(p, item) {
   if (item.type === 'task') {
+    if(!item.business_id)return taskProgressOpenReference(null,{type:'task',id:item.id});
     const task = await tFetchTask(item.business_slug, item.id);
     if (agpadActive(p)) tDetail(task);
     return;
