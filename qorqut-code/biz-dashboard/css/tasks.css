@@ -308,6 +308,14 @@
 .task-toolbar{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:16px}.task-toolbar .tsearch{width:33.333%;min-width:140px}.task-toolbar #task-new{flex:none}.task-chip{border-radius:8px!important;padding:4px 8px!important;background:var(--wash)!important;color:var(--fg-2)!important}.task-chips{gap:6px}
 
 #task-new[hidden]{display:none}
+.task-snooze-label {display:block; font-size:11px; color:var(--fg-2); white-space:normal; line-height:1.4; margin-top:3px;}
+.task-snooze-picker {display:grid; gap:8px; min-width:0;}
+.task-snooze-picker label {display:grid; gap:4px;}
+.task-snooze-picker [hidden] {display:none;}
+.task-snooze-picker input,.task-snooze-picker select {max-width:100%; box-sizing:border-box;}
+.task-snooze-picker input {width:100%; min-width:0; height:32px; padding:0 10px; border:1px solid var(--line); border-radius:var(--r-sm); background:var(--surface); color:var(--fg); font:12px var(--mono); color-scheme:dark;}
+.task-snooze-help {display:block; margin-top:6px; color:var(--fg-2); font-size:11px; line-height:1.4;}
+@media(max-width:600px) { .task-toolbar {flex-wrap:wrap; gap:10px;} .task-toolbar .tsearch {flex:1;} }
 
 .task-assignee-column,.task-department-column { display:flex; flex:0 0 120px; min-width:0; gap:4px; overflow:hidden; }
 .task-assignee-column .task-chip,.task-department-column .task-chip { flex:0 1 auto; overflow:hidden; text-overflow:ellipsis; max-width:100%; }

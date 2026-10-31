@@ -1,0 +1,13 @@
+.global-task-space {padding: 12px; min-width: 0;}
+.global-task-space form, .global-task-space label {display: grid; gap: 6px;}
+.global-task-space form {gap: 12px; margin: 14px 0;}
+.global-task-space label:has(input[type=checkbox]) {display: flex; align-items: center;}
+.global-task-space input:not([type=checkbox]), .global-task-space select, .global-task-space textarea {width: 100%; min-width: 0; box-sizing: border-box;}
+.global-task-space fieldset {display: grid; gap: 6px; border: 1px solid var(--line, #444);}
+.global-task-space textarea {min-height: 90px; resize: vertical;}
+.global-task-tools {display: flex; justify-content: space-between; gap: 8px;}
+.global-task-row {display: grid; width: 100%; text-align: left; gap: 5px; padding: 12px 4px; border-bottom: 1px solid var(--line, #444); overflow-wrap: anywhere;}
+.global-task-row small, .global-task-space article small {opacity: .65;}
+.global-task-note {white-space: pre-wrap; overflow-wrap: anywhere;}
+.global-task-space [role=status] {overflow-wrap: anywhere;}
+.global-task-space [hidden] {display:none;}

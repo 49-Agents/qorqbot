@@ -25,13 +25,15 @@ function agpadTerminalButton(tools, old) {
 
 function agpadGroups(tasks, name) {
   const actor = `agent:${name}`;
-  const open = tasks.filter(t => !tClosed(t));
+  const unfinished = tasks.filter(t => !tClosed(t));
+  const open = unfinished.filter(t => !taskSnoozed(t));
   const owned = open.filter(t => tAssignees(t).includes(actor));
   return {
     open: owned,
     // `by` is last editor, not creator. The first note is only a proxy: it can
     // have been added after creation, by someone other than the task's creator.
     waiting: open.filter(t => !tAssignees(t).includes(actor) && t.notes && t.notes[0] && t.notes[0].by === actor),
+    snoozed: unfinished.filter(t => taskSnoozed(t) && (tAssignees(t).includes(actor) || t.notes?.[0]?.by === actor)),
   };
 }
 
@@ -88,6 +90,7 @@ function agpadSetView(p, view) {
     const identity = p.agentId || state.agents.find(agent => agent.name === p.agent)?.agent_id;
     workingMemoryMount($('#agpad-body', p.el), identity, p.biz, {globalAgent: p.biz === null});
   }
+  if (view === 'globalTasks') globalTasksMount($('#agpad-body', p.el), {agentId: p.agentId});
   agpadPaint(p);
   if (typeof sgAgentAttentionPaint === "function") sgAgentAttentionPaint();
   agpadTick();
@@ -106,6 +109,7 @@ function agpadVisibility(p) {
 
 function agpadPaint(p) {
   if (p.view === 'focus') return;
+  if (p.view === 'globalTasks') return;
   if (p.view === 'memory') return;
   if (p.view === "signoffs") return;
   if (p.view === "inbox") { agpadPaintInbox(p); return; }
@@ -118,7 +122,8 @@ function agpadPaint(p) {
   } else {
     const groups = agpadGroups(p.tasks, p.agent);
     html = tSection("open", groups.open, { label: "Open tasks", canAdd: false, detailsOnly: true }) +
-      tSection("waiting", groups.waiting, { label: "Waiting on", canAdd: false, detailsOnly: true });
+      tSection("waiting", groups.waiting, { label: "Waiting on", canAdd: false, detailsOnly: true }) +
+      (groups.snoozed.length ? tSection("snoozed", groups.snoozed, { label: "Snoozed", canAdd: false, detailsOnly: true }) : '');
   }
   if (p.bodyHtml === html) return;
   p.bodyHtml = html;
@@ -152,6 +157,7 @@ function agpadTick() {
   if (!agpadActive(p)) return;
   if (p.views.includes('focus')) agfocusTick(p);
   if (p.view === 'focus') return;
+  if (p.view === 'globalTasks') return;
   if (p.view === 'memory') return;
   if (p.view === "inbox") {
     if (Date.now() >= (p.nextInbox || 0)) agpadRefreshInbox(p);

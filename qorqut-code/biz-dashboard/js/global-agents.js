@@ -55,7 +55,7 @@ async function renderGlobalAgents(c) {
     agpadMount(workspace ? '' : (agent.display_name || agent.name), $('#agpad', c), workspace ? {
       biz: null, open: false, isCurrent: () => false,
     } : {
-      biz: null, agentId: agent.agent_id, views: agent.role?.id === 'ordubashy' ? ['inbox', 'focus', 'memory'] : ['inbox', 'memory'], open: ls('agpad:null') !== 'off',
+      biz: null, agentId: agent.agent_id, views: agent.role?.id === 'ordubashy' ? ['inbox', 'focus', 'globalTasks', 'memory'] : ['inbox', 'globalTasks', 'memory'], open: ls('agpad:null') !== 'off',
       isCurrent: () => current() && selected === agent.agent_id,
     });
   };
