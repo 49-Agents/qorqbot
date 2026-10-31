@@ -46,6 +46,8 @@
 .agfocus-detail-body .task-inline-actions{display:flex;justify-content:flex-end;margin-bottom:12px}
 
 .agfocus-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}
+.agfocus .agfocus-desktop[data-attention="true"],.agfocus .agfocus-desktop.agfocus-desktop-pending{background:#fff;color:#111;border-radius:7px}
+.agfocus-desktop:disabled.agfocus-desktop-pending{opacity:1}
 .agfocus-toolbar .agfocus-controls{margin:0;gap:5px}
 .agfocus .agfocus-actions .conversation-toggle{width:34px;height:34px;min-height:34px;padding:7px}
 .agfocus .agfocus-actions .conversation-toggle svg{width:20px;height:20px}
@@ -64,8 +66,6 @@
 .agfocus-person{display:grid;place-items:center;flex:none;width:30px;height:30px;border:2px solid var(--bg);border-radius:50%;background:var(--surface);font-size:10px;overflow:hidden}
 .agfocus-person + .agfocus-person{margin-left:-8px}
 .agfocus-person-more{color:var(--fg-2);font-weight:600}
-.agfocus-handoff-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
-.agfocus-handoff-top .agfocus-meta{padding:0;min-height:0}
 
 .agfocus-card .agfocus-meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
 .agfocus-scope-chip{display:inline-flex;align-items:center;min-height:23px;padding:2px 8px;border:1px solid var(--line-2);border-radius:999px;color:var(--fg-2);font-size:10px;line-height:16px}
@@ -96,3 +96,9 @@
 .agfocus-card.agfocus-collapsed > .agfocus-actions{opacity:.7;filter:saturate(.65)}
 
 .agfocus-card .conversation-inline-compose textarea{background:transparent}
+.agfocus-desktop-help{margin-bottom:10px;font-size:12px;line-height:1.5}
+.agfocus-desktop-help p{margin:4px 0;color:var(--fg-2);font-size:11px}
+.agfocus-desktop-completion{display:grid;gap:8px;margin-top:10px}
+.agfocus-desktop-completion label{display:grid;gap:4px;font-size:11px}
+.agfocus-desktop-completion .agfocus-done{justify-self:start}
+.agfocus-desktop-success{margin:8px 0;font-size:12px}
