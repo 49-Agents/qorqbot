@@ -50,3 +50,8 @@
 .agfocus .agfocus-actions .conversation-toggle{width:34px;height:34px;min-height:34px;padding:7px}
 .agfocus .agfocus-actions .conversation-toggle svg{width:20px;height:20px}
 .agfocus .agfocus-heading{align-items:center}
+
+.agfocus-items .agfocus-card{position:relative}
+.agfocus-card .agfocus-meta{padding-right:34px;min-height:26px}
+.agfocus .agfocus-actions{position:absolute;top:8px;right:8px;margin:0}
+.agfocus .conversation-inline-compose .conversation-toggle{flex:none;margin:0}

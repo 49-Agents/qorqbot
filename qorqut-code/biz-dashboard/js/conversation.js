@@ -1,6 +1,12 @@
 // One source-owned conversation, with local drafts and no viewing telemetry.
 const conversationStates = new Map();
 let conversationMountId = 0;
+// Inline Focus conversations dismiss on outside clicks, while their contents stay interactive.
+document.addEventListener('click',event=>{
+  for(const host of document.querySelectorAll('[data-inline-conversation]')) {
+    if(!host.contains(event.target) && host._conversation?.isExpanded())host._conversation.collapse();
+  }
+});
 function conversationKey(source) { return `${source.type}:${source.biz || 'global'}:${source.id}`; }
 function conversationState(source) {
   const key=conversationKey(source);
@@ -49,6 +55,7 @@ function conversationMount(host,source,adapter={}) {
   host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" title="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span></button><section id="${panelId}" class="conversation-panel" hidden><div class="conversation-participants" aria-label="Conversation participants"></div><button type="button" class="quiet conversation-older" hidden>Older messages</button><div class="conversation-feed" role="log" aria-label="Conversation"></div><label class="conversation-compose">Message<textarea class="inp" rows="3" maxlength="20000"></textarea></label><button type="button" class="btn conversation-send">Send</button><p class="ferr" role="alert" hidden></p></section>`;
   const toggle=host.querySelector('.conversation-toggle'),panel=host.querySelector('.conversation-panel'),feed=host.querySelector('.conversation-feed'),input=host.querySelector('textarea'),send=host.querySelector('.conversation-send'),older=host.querySelector('.conversation-older'),error=host.querySelector('[role="alert"]');
   if(adapter.inlineComposer) {
+    host.dataset.inlineConversation='true';
     const composer=document.createElement('div');composer.className='conversation-inline-compose';
     const label=host.querySelector('.conversation-compose');
     label.firstChild.textContent='';input.rows=1;input.placeholder='Leave a comment…';
@@ -163,6 +170,6 @@ function conversationMount(host,source,adapter={}) {
   };
   function expand(value,notify=true) {expanded=value;panel.hidden=!value;toggle.setAttribute('aria-expanded',String(value));if(notify)adapter.onToggle?.(value);if(value) {if(s.loaded)paint();load();scheduleAgeRefresh();}}
   toggle.onclick=()=>expand(!expanded);older.onclick=()=>load(true);send.onclick=submit;
-  host._conversation={refresh:()=>expanded?load():null,isExpanded:()=>expanded,expand:()=>expand(true),state:s,_paint:paint};
+  host._conversation={refresh:()=>expanded?load():null,isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),state:s,_paint:paint};
   expand(false,false);return host._conversation;
 }

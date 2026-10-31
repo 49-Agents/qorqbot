@@ -120,9 +120,10 @@ function agfocusPaint(p) {
     node.onkeydown=event=>{if(event.target===node && (event.key==='Enter' || event.key===' ')){event.preventDefault();open();}};
     const mutate=async(op,args)=>{try{coreData(await post('/root/operations/'+op,{scope:'global',item_id:item.id,expected_card_revision:item.revision,idempotency_key:newRequestId(),...args}));await agfocusRefresh(p);}catch(e){toast(e.message);}};
     actions.querySelector('[data-manage]').onclick=event=>dropdown(event.currentTarget,[
+      {value:'details',label:'Show details'},
       {value:'top',label:'Move to top'},{value:'bottom',label:'Move to bottom'},
       {value:'archive',label:item.archived?'Restore to Focus':'Archive from Focus'}
-    ],value=>value==='archive'?mutate('focus_set_archived',{archived:!item.archived}):mutate('focus_move',{position:value}));
+    ],value=>value==='details'?open():value==='archive'?mutate('focus_set_archived',{archived:!item.archived}):mutate('focus_move',{position:value}));
     const related=node.querySelector('.agfocus-related');related.replaceChildren();
     for(const ref of item.references||[]) {
       const button=document.createElement('button');button.className='quiet';button.textContent=ref.unavailable?'Related item unavailable':ref.label;button.disabled=!!ref.unavailable;
@@ -135,7 +136,7 @@ function agfocusPaint(p) {
       send:async request=>coreData(await post('/root/operations/focus_reply',{scope:'global',item_id:item.id,text:request.text,idempotency_key:request.idempotency_key,...(request.revision?{expected_source_revision:request.revision}:{})}))
     });
     const comment=node.querySelector('.agfocus-conversation .conversation-toggle');
-    if(comment)actions.appendChild(comment);
+    if(comment)node.querySelector('.conversation-inline-compose').appendChild(comment);
   }
   if(focused?.isConnected && list.contains(focused)){focused.focus({preventScroll:true});if(selection)focused.setSelectionRange(...selection);}
   if(p.focusRefreshThreads){p.focusRefreshThreads=false;for(const node of list.querySelectorAll('.agfocus-conversation'))node._conversation?.refresh();}
