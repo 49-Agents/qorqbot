@@ -4,27 +4,30 @@
 .side h2 { padding: 0 12px; margin: 18px 0 4px; }
 .side h2:first-child { margin-top: 20px; }
 
-/* ------------------------------------------------------------ log rows */
-/* ~7 rows visible, the rest scroll; thin scrollbar */
-.log { padding: 0 6px; max-height: calc(7 * 26px + 4px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; scrollbar-gutter: stable; }
-.log::-webkit-scrollbar { width: 5px; }
+/* ------------------------------------------------------------ log rows (stroke) — parked: no #log on screen right now */
+/* one row per action: a 2px department stroke down the left, the summary in one line, time + actor in mono
+   under it; days are a gap with a small label, not a rule. ~7 rows visible, the rest scroll; thin scrollbar */
+.side h2 .cnt { margin-left: 8px; font: 10.5px var(--mono); color: var(--fg-3); letter-spacing: 0; text-transform: none; font-weight: 400; }
+.log { padding: 0 14px 12px 22px; max-height: calc(7 * 36px + 24px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; scrollbar-gutter: stable; }
+.log::-webkit-scrollbar { width: 4px; }
 .log::-webkit-scrollbar-track { background: transparent; }
 .log::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: var(--r-full); }
 .log::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.18); }
-.le {
-  display: flex; align-items: center; gap: 6px;
-  height: 26px; padding: 0 6px;
-  border-top: 1px solid var(--line);
-  cursor: default; font-variant-numeric: tabular-nums;
+.le { position: relative; padding: 5px 0 5px 12px; cursor: default; min-width: 0; }
+.le::before {
+  content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px; border-radius: 2px;
+  background: var(--c, var(--fg-3)); opacity: .8; transition: opacity .15s, top .15s, bottom .15s;
 }
-.le:first-child { border-top: none; }
-.le:hover { background: var(--hover); border-radius: var(--r-sm); }
-.le .g { flex: none; }
-.le .ld { font: 11px/1 var(--mono); color: var(--fg-3); flex: none; }
-.le .lh { font: 600 12.5px/1 var(--mono); color: var(--fg); flex: none; }
-.le .la {
-  margin-left: auto; font-size: 11px; color: var(--fg-2);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px;
+.le:hover::before { opacity: 1; top: 4px; bottom: 4px; }
+.le .ls { font-size: 12px; line-height: 1.35; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.le:hover .ls { color: var(--fg); }
+.le .lm { margin-top: 2px; display: flex; gap: 7px; font: 10px/1.2 var(--mono); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.le .lm .la { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lday { position: relative; height: 10px; margin-top: 6px; }
+.lday:first-child { margin-top: 0; }
+.lday::after {
+  content: attr(data-day); position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  font-size: 9px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--fg-3);
 }
 
 /* tooltip content for a log row (base .tip box is owned by core) */

@@ -19,7 +19,8 @@ const glyph = (shape, colorHex, sizePx) => `<span class="g ${SHAPES.includes(sha
 const agentGlyph = (m, size) => { const d = dept((m || {}).department); return glyph(d.icon, d.color, size); };
 
 // lazy: the render functions live in later script files
-const TABS = { agents: c => renderAgents(c), marketing: c => renderAnalytics(c), accounting: c => renderMoney(c), context: c => renderContext(c),
+const TABS = { agents: c => renderAgents(c), context: c => renderContext(c),
+  marketing: c => soon(c, "Channels, posts and weekly metrics."), accounting: c => soon(c, "The cash ledger and what recurs."),
   terminal: c => renderTerminals(c),
   datascience: c => soon(c, "Experiments and metric deep-dives."),
   progress: c => soon(c, "Tasks, milestones and what shipped."),
@@ -32,9 +33,44 @@ const api = async (p, opt = {}) => { const r = await fetch("/api" + p, { ...opt,
 const post = (p, body) => api(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 // EventSource can't set headers, so carry the token as a query param.
 const evUrl = p => "/api" + p + (TOKEN ? (p.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(TOKEN) : "");
-let toastT; const toast = m => { const t = $("#toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2600); };
-const fmtMoney = n => (n == null ? "?" : (n < 0 ? "-" : "") + (Math.abs(n) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-const fmtV = c => c == null ? "?" : (Array.isArray(c) ? (c[0] == null ? "?" : (c[1] ? "~" : "") + Number(c[0]).toLocaleString()) : Number(c).toLocaleString());
+// ---------------------------------------------------------------- notifications
+// One queue for every toast: bottom-right, newest at the bottom, up to NOTE_MAX on screen, the rest wait in
+// FIFO order. A note rises in, stays NOTE_MS (hovering holds it, a click dismisses it), then sinks out and the
+// next one takes its slot. A backlog longer than NOTE_QUEUE_MAX folds its tail into one "N more" note so a
+// burst never floods the corner. `notify({text, sub?, color?, ms?})`; `toast(text)` is the short form.
+const NOTE_MAX = 3, NOTE_MS = 4200, NOTE_QUEUE_MAX = 6;
+const _notes = { queue: [], live: 0 };
+function notify(n) {
+  if (typeof n === "string") n = { text: n };
+  if (!n || !n.text) return;
+  _notes.queue.push(n);
+  if (_notes.queue.length > NOTE_QUEUE_MAX) {
+    const keep = _notes.queue.slice(0, NOTE_QUEUE_MAX - 1), rest = _notes.queue.slice(NOTE_QUEUE_MAX - 1);
+    const folded = rest.reduce((k, x) => k + (x.n || 1), 0);
+    _notes.queue = keep.concat([{ text: `${folded} more`, sub: "in the log", n: folded, fold: true }]);
+  }
+  notePump();
+}
+function notePump() {
+  const box = $("#toasts"); if (!box) return;
+  while (_notes.live < NOTE_MAX && _notes.queue.length) {
+    const n = _notes.queue.shift(); _notes.live++;
+    const el = document.createElement("div");
+    el.className = "toast in" + (n.fold ? " fold" : "");
+    if (n.color) el.style.setProperty("--c", n.color);
+    el.innerHTML = `<div class="tx">${esc(n.text)}</div>${n.sub ? `<div class="tsub">${esc(n.sub)}</div>` : ""}`;
+    box.appendChild(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove("in")));
+    let t, gone = false;
+    const go = () => { if (gone) return; gone = true; clearTimeout(t); el.classList.add("out"); setTimeout(() => { el.remove(); _notes.live--; notePump(); }, 260); };
+    const arm = () => { clearTimeout(t); t = setTimeout(go, n.ms || NOTE_MS); };
+    el.addEventListener("mouseenter", () => clearTimeout(t));
+    el.addEventListener("mouseleave", arm);
+    el.addEventListener("click", go);
+    arm();
+  }
+}
+const toast = m => notify(m);
 
 // ---------------------------------------------------------------- tokens & money
 // USD per 1M tokens at peak; fallback only, used when an event carries no `cost`.

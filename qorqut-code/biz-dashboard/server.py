@@ -28,8 +28,7 @@ from urllib.parse import parse_qs, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.expanduser(os.environ.get("BIZ_ROOT", "~/projects/example-businesses"))
-CLI_ENV = {"bizlog": "BIZLOG_CMD", "biztask": "BIZTASK_CMD", "bizledger": "BIZLEDGER_CMD",
-           "bizmetrics": "BIZMETRICS_CMD", "bizctx": "BIZCTX_CMD", "bizrun": "BIZRUN_CMD"}
+CLI_ENV = {"bizlog": "BIZLOG_CMD", "biztask": "BIZTASK_CMD", "bizctx": "BIZCTX_CMD", "bizrun": "BIZRUN_CMD"}
 FILER_EVERY = int(os.environ.get("BIZ_FILER_EVERY", "300"))   # seconds between inbox sweeps
 FILER_ATTEMPTS = 3                                            # then the upload stays in the inbox as failed
 FILER_TIMEOUT = 900
@@ -999,21 +998,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json([agent_info(biz, n) for n in names])
             if what == "session" and len(parts) == 5:
                 return self.send_json(session_events(biz, parts[3], parts[4]))
-            if what == "analytics":
-                weeks = q.get("weeks", "8")
-                return self.send_json({
-                    "report": run_json(biz, "bizmetrics", "report", "--weeks", weeks),
-                    "channels": run_json(biz, "bizmetrics", "channels", "--weeks", "4"),
-                    "posts": run_json(biz, "bizmetrics", "posts", "--weeks", "4"),
-                    "research": run_json(biz, "bizmetrics", "research", "ls"),
-                    "learnings": read(os.path.join(biz, "analytics", "LEARNINGS.md")),
-                    "research_files": {os.path.basename(p): read(p) for p in
-                                       sorted(glob.glob(os.path.join(biz, "analytics", "research", "*.md")), reverse=True)[:10]},
-                })
-            if what == "finance":
-                return self.send_json({"report": run_json(biz, "bizledger", "report"),
-                                       "recent": run_json(biz, "bizledger", "ls", "-n", "25"),
-                                       "recurring": run_json(biz, "bizledger", "recurring", "ls")})
             if what == "requests":
                 return self.send_json(requests_list(biz))
             if what == "git":
