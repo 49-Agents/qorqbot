@@ -357,13 +357,24 @@ function openUploads() {
   v.innerHTML = head + filing + up;
   wireCrumbs(v);
   v.querySelectorAll(".card").forEach(el => el.onclick = e => { if (e.target.closest(".retry")) return; ctxGo(el.dataset.p); });
-  v.querySelectorAll(".retry").forEach(el => el.onclick = e => { e.stopPropagation(); ctxRetry(el.dataset.id); });
+  v.querySelectorAll(".retry").forEach(el => el.onclick = e => { e.stopPropagation(); ctxRetry(el.dataset.id, el); });
 }
 
-async function ctxRetry(id) {
-  const r = await post(`/biz/${state.biz}/context/retry`, { id });
-  toast(r.error ? r.error : `${id} queued again`);
-  renderContext($("#content"));
+const ctxRetryPending = new Set();
+async function ctxRetry(id, button) {
+  if (ctxRetryPending.has(id)) return;
+  ctxRetryPending.add(id);
+  if (button) button.disabled = true;
+  try {
+    const r = await post(`/biz/${state.biz}/context/retry`, { id });
+    toast(r.error ? r.error : `${id} filing queued`);
+    renderContext($("#content"));
+  } catch (error) {
+    toast(error.message || "Could not queue filing");
+  } finally {
+    ctxRetryPending.delete(id);
+    if (button) button.disabled = false;
+  }
 }
 
 const CTX_META = ["title", "by", "notes", "from", "at", "part", "also", "filed_by", "topic", "processed", "result", "attempts", "error", "last_attempt"];
