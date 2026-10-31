@@ -147,6 +147,7 @@ async function loadGlobalSummaries(c, generation) {
     const actionCount = $('.global-action-count', card);
     actionCount.querySelector('strong').textContent = total == null ? '—' : total;
     actionCount.setAttribute('aria-label', total == null ? 'Actions unavailable' : `${total} actions in the last 14 days`);
+    if (typeof measurementGlobal === 'function') await measurementGlobal(card, b.slug, current);
     card.querySelectorAll('[data-summary-view]').forEach(el => el.onclick = async () => {
       const view = el.dataset.summaryView;
       if (view === 'questions') return;
