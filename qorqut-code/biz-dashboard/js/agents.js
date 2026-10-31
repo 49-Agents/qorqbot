@@ -53,6 +53,13 @@ function bumpUsage(u) { addUsage(state.usage || (state.usage = blankUsage()), u)
 // The Agents tab: each agent IS a live terminal bound to its background PTY on the server.
 // Left = the agent list (glyphs, add-agent). Right = the mirrored terminal, filling to the
 // bottom of the page. No chat chrome — every control is done inside the shell itself.
+// remember which agent was focused, per business — same shape as journal.js's jrKey/jrSetSel
+const agKey = () => `ag:${state.biz}`;
+function agSetSel(name) {
+  state.agent = name;
+  if (state.biz) ls(agKey(), name || "");
+}
+
 async function renderAgents(c) {
   const [agents, terms] = await Promise.all([
     api(`/biz/${state.biz}/agents`),
@@ -60,12 +67,14 @@ async function renderAgents(c) {
   ]);
   state.agents = Array.isArray(agents) ? agents : [];
   state.terms = Array.isArray(terms) ? terms : [];
-  c.innerHTML = `<div class="split"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div></div>`;
+  c.innerHTML = `<div class="split"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">${ICO_PLUS}New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div></div>`;
   $("#addagent").onclick = newAgentModal;
   paintList();
-  const a = state.agents.find(x => x.name === state.agent) || state.agents[0];
+  const want = state.agent || ls(agKey());
+  const a = state.agents.find(x => x.name === want) || state.agents[0];
   if (!a) { $("#chat").innerHTML = `<div class="empty" style="padding:24px">No agents yet — add one with New agent.</div>`; return; }
-  state.agent = a.name;
+  agSetSel(a.name);
+  paintList();
   mountTerminal(a.name, $("#chat"), stat => markTermState(a.name, stat));
 }
 
@@ -295,7 +304,7 @@ function paintList() {
     : "";
   rows.innerHTML = html;
 
-  rows.querySelectorAll(".agent").forEach(d => d.onclick = () => { state.agent = d.dataset.a; renderAgents($("#content")); });
+  rows.querySelectorAll(".agent").forEach(d => d.onclick = () => { agSetSel(d.dataset.a); renderAgents($("#content")); });
 
   rows.querySelectorAll(".item.agent").forEach(d => d.oncontextmenu = e => {
     e.preventDefault();
@@ -531,7 +540,7 @@ function newAgentModal() {
         catch (e) { r = { error: "could not reach the server" }; }
         if (!r || r.error) return fail((r && r.error) || "could not create the agent");
         if (!Array.isArray(r.sessions)) r.sessions = [];
-        state.agents.push(r); state.agent = r.name;
+        state.agents.push(r); agSetSel(r.name);
         close(); toast(`${r.name} created`);
         renderAgents($("#content")); loadBiz();
       } },

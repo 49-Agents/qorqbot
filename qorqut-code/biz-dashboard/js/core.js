@@ -268,7 +268,11 @@ function paintBiz() {
 }
 function selectBiz(slug) {
   const b = state.bizs.find(x => x.slug === slug); if (!b) return;
-  state.biz = slug; state.agent = b.agents[0] || null; state.ctx = null; location.hash = slug;
+  // the agent this business was last left on wins over its first agent (see agents.js's agKey/agSetSel)
+  const lastAgent = ls(`ag:${slug}`);
+  state.biz = slug;
+  state.agent = (lastAgent && b.agents.includes(lastAgent) ? lastAgent : b.agents[0]) || null;
+  state.ctx = null; location.hash = slug;
   paintBiz();
   renderTab(); refreshSide();
 }

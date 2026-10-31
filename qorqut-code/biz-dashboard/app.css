@@ -70,7 +70,7 @@ button, input, textarea, select { font: inherit; color: inherit; letter-spacing:
 button {
   height: 36px; padding: 0 16px; border: 0; border-radius: var(--r-full);
   background: var(--accent); color: var(--accent-fg);
-  font-weight: 800; font-size: 13px; cursor: pointer;
+  font-weight: 700; font-size: 13px; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   transition: transform .14s ease, opacity .14s ease, background .14s ease;
   user-select: none; -webkit-user-select: none;
@@ -82,7 +82,7 @@ button:disabled { opacity: .4; cursor: default; transform: none; }
 button.primary, .btn {
   height: 36px; padding: 0 16px; border: 0; border-radius: var(--r-full);
   background: var(--accent); color: var(--accent-fg);
-  font-weight: 800; font-size: 13px; cursor: pointer;
+  font-weight: 700; font-size: 13px; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   transition: transform .14s ease, opacity .14s ease, background .14s ease;
 }
@@ -90,9 +90,15 @@ button.primary:hover, .btn:hover { background: #fff; color: var(--accent-fg); tr
 button.primary:active, .btn:active { transform: scale(.98); }
 button.primary:disabled, .btn:disabled { opacity: .4; cursor: default; transform: none; }
 
+/* secondary action: the same pill, minus the fill — plain white label on the page background */
+button.quiet, .btn.quiet {
+  background: none; color: var(--fg); border: 1px solid var(--line-2);
+}
+button.quiet:hover, .btn.quiet:hover { background: var(--hover); color: var(--fg); border-color: var(--fg-3); }
+
 button.ghost, .ghost {
   height: 36px; padding: 0 14px; border: 0; border-radius: var(--r-full);
-  background: var(--accent); color: var(--accent-fg); font-weight: 800; font-size: 13px; cursor: pointer;
+  background: var(--accent); color: var(--accent-fg); font-weight: 700; font-size: 13px; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   transition: transform .14s ease, opacity .14s ease, background .14s ease;
 }

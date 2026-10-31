@@ -284,7 +284,7 @@ function ntDetailHtml(n) {
         <div class="ntedhead">
           <textarea id="nttitle" class="nttitlein" rows="1" placeholder="Untitled"></textarea>
           <div class="ntedctrls" id="ntedctrls">
-            <button id="ntdiscard" class="btn" type="button" hidden>Discard</button>
+            <button id="ntdiscard" class="btn quiet" type="button" hidden>Discard</button>
             <span class="ntsavewrap" id="ntsavewrap"></span>
             <button id="ntdel" class="nticon danger" type="button" data-tip="Delete page">${ICO_TRASH}</button>
           </div>
