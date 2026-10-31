@@ -2,20 +2,25 @@
 const AGFOCUS_POLL_MS = 60000;
 function agfocusPath(p) { return `/me/agents/${encodeURIComponent(p.agentId)}/focus`; }
 function agfocusText(el, value) { if (el && el.textContent !== value) el.textContent = value; }
+function agfocusPageKey(p) { return JSON.stringify([p.focusOffset||0,!!p.focusIncludearchived,!!p.focusIncludedeferred]); }
 
 function agfocusMount(p) {
   const body = $('#agpad-body', p.el);
   body.innerHTML = `<div class="agfocus"><p class="agfocus-error" role="alert" hidden></p>
     <header><div class="global-eyebrow">Focus</div><h2 class="agfocus-status">Loading Focus…</h2><p class="agfocus-updated muted"></p></header>
-    <p class="agfocus-activity muted" hidden></p><div class="agfocus-browser"></div><div class="agfocus-controls"><button class="quiet" data-focus-refresh>Refresh</button><label><input type="checkbox" data-focus-archived> Archived</label><label><input type="checkbox" data-focus-deferred> Postponed</label></div><div class="agfocus-items"></div><button class="quiet" data-focus-more hidden>More items</button></div>`;
+    <p class="agfocus-activity muted" hidden></p><div class="agfocus-browser"></div><div class="agfocus-controls"><button class="quiet" data-focus-refresh>Refresh</button><label><input type="checkbox" data-focus-archived> Archived</label><label><input type="checkbox" data-focus-deferred> Postponed</label></div><div class="agfocus-items"></div><nav class="agfocus-pages" aria-label="Focus pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
   p.focusDrafts ||= new Map();
+  p.focusPages ||= [];
+  for(const kind of ['archived','deferred']) $('[data-focus-'+kind+']',p.el).checked=!!p['focusInclude'+kind];
   $('[data-focus-refresh]',p.el).onclick=()=>agfocusRefresh(p);
-  for(const kind of ['archived','deferred']) $('[data-focus-'+kind+']',p.el).onchange=e=>{p['focusInclude'+kind]=e.target.checked;p.focusOffset=0;agfocusRefresh(p);};
-  $('[data-focus-more]',p.el).onclick=()=>{p.focusOffset=p.focus.next_offset;agfocusRefresh(p);};
+  for(const kind of ['archived','deferred']) $('[data-focus-'+kind+']',p.el).onchange=e=>{p['focusInclude'+kind]=e.target.checked;p.focusPages=[];p.focusOffset=0;agfocusRefresh(p);};
+  $('[data-focus-more]',p.el).onclick=()=>{if(p.focusPending)return;p.focusPages.push(p.focusOffset||0);p.focusOffset=p.focus.next_offset;agfocusRefresh(p);};
+  $('[data-focus-previous]',p.el).onclick=()=>{if(p.focusPending)return;p.focusOffset=p.focusPages.pop()||0;agfocusRefresh(p);};
   agfocusPaint(p);
 }
 
 function agfocusTick(p) {
+  if (p.view !== 'focus') return;
   if (Date.now() >= (p.nextFocus || 0)) agfocusRefresh(p);
   if (p.view === 'focus') agfocusPaint(p);
 }
@@ -23,16 +28,19 @@ function agfocusTick(p) {
 async function agfocusRefresh(p) {
   if (p.focusPending || !agpadActive(p)) return;
   p.focusPending = true;
+  const pageKey=agfocusPageKey(p);
   try {
     const data = coreData(await post("/root/operations/focus_get",{scope:"global",include_archived:!!p.focusIncludearchived,include_deferred:!!p.focusIncludedeferred,offset:p.focusOffset||0}));
-    if (!agpadActive(p)) return;
+    if (!agpadActive(p) || pageKey!==agfocusPageKey(p)) return;
     if (!Array.isArray(data.items) || !Number.isInteger(data.revision)) throw new Error('Invalid Focus response');
+    if(p.focusPageKey!==pageKey) { const list=$('.agfocus-items',p.el);if(list)list.replaceChildren(); }
+    p.focusPageKey=pageKey;
     p.focus = data; p.focusError = '';
     p.focusRefreshThreads=true;
   } catch (error) {
     if (agpadActive(p)) p.focusError = 'Could not refresh Focus. ' + error.message;
   } finally {
-    p.focusPending = false; p.nextFocus = Date.now() + AGFOCUS_POLL_MS;
+    p.focusPending = false; p.nextFocus = pageKey===agfocusPageKey(p)?Date.now() + AGFOCUS_POLL_MS:0;
     if (agpadActive(p)) agfocusPaint(p);
   }
 }
@@ -60,24 +68,37 @@ function agfocusPaint(p) {
       `Browser · ${a.command} ${a.phase === 'running' ? 'outcome unknown' : a.phase} · ${agpadInboxAge(a.at)}`);
   }
   const list = $('.agfocus-items', host);
+  const signature=JSON.stringify([data.items,p.focusPageKey,data.next_offset]);
+  if(list.dataset.signature===signature) {
+    if(p.focusRefreshThreads){p.focusRefreshThreads=false;for(const node of list.querySelectorAll('.agfocus-conversation'))node._conversation?.refresh();}
+    agfocusBrowser(p, $('.agfocus-browser', host));return;
+  }
+  list.dataset.signature=signature;
   const focused=document.activeElement,selection=focused?.selectionStart!=null?[focused.selectionStart,focused.selectionEnd]:null;
   const ids=new Set(data.items.map(item=>item.id));
   for(const node of [...list.children]) if(!ids.has(node.dataset.cardId)) {
     const conversation=node.querySelector('.agfocus-conversation')?._conversation;
     if(conversation?.state.text || conversation?.isExpanded()) {
-      node.querySelector('.agfocus-meta').textContent='This card left the current board. Your conversation draft is retained.';
+      node.querySelector('.agfocus-meta').textContent='No longer on this page · conversation retained';
+      node.classList.add('agfocus-retained');
     } else node.remove();
   }
+  let position=0;
   for(const item of data.items) {
     let node=[...list.children].find(n=>n.dataset.cardId===item.id);
+    if(node?.dataset.unavailable && !item.unavailable){node.remove();node=null;}
     if(!node) {
       node=document.createElement('article');node.className='agfocus-card';node.dataset.cardId=item.id;
-      node.innerHTML='<div class="agfocus-meta"></div><h3></h3><p class="agfocus-reason"></p><p class="agfocus-recommendation"></p><p class="agfocus-request"></p><p class="agfocus-context muted"></p><div class="agfocus-actions"></div><div class="agfocus-related"></div><div class="agfocus-conversation"></div>';
+      node.innerHTML='<div class="agfocus-meta"></div><h3></h3><p class="agfocus-reason"></p><div class="agfocus-framing"><section data-framing="recommendation"><h4>Recommendation</h4><p class="agfocus-recommendation"></p></section><section data-framing="requested_response"><h4>From you</h4><p class="agfocus-request"></p></section></div><p class="agfocus-context muted"></p><div class="agfocus-actions"><button class="quiet" data-open></button><button class="quiet" data-manage aria-label="Manage Focus card">•••</button></div><div class="agfocus-related"></div><div class="agfocus-conversation"></div>';
       list.appendChild(node);
     }
-    list.appendChild(node);
+    if(list.children[position]!==node)list.insertBefore(node,list.children[position]||null);
+    position++;node.classList.remove('agfocus-retained');
     if(item.unavailable) {
+      node.dataset.unavailable='true';
       node.querySelector('h3').textContent='This item is no longer available.';
+      node.querySelector('.agfocus-meta').textContent='Unavailable';
+      node.querySelector('.agfocus-framing').hidden=true;
       for(const el of node.querySelectorAll('p,.agfocus-related,.agfocus-conversation,.agfocus-actions')) {el.replaceChildren();delete el.dataset.conversation;delete el._conversation;}
       continue;
     }
@@ -86,16 +107,22 @@ function agfocusPaint(p) {
     node.querySelector('.agfocus-reason').textContent=item.reason;
     node.querySelector('.agfocus-recommendation').textContent=item.recommendation;
     node.querySelector('.agfocus-request').textContent=item.requested_response;
+    for(const field of ['recommendation','requested_response'])node.querySelector('[data-framing="'+field+'"]').hidden=!item[field];
     node.querySelector('.agfocus-context').textContent=item.context_label?'Conversation: '+item.context_label:'';
-    const actions=node.querySelector('.agfocus-actions');actions.innerHTML='<button class="quiet" data-open>Open</button><button class="quiet" data-up>Move to top</button><button class="quiet" data-archive></button>';
+    const actions=node.querySelector('.agfocus-actions');
+    const type=item.resolved_source?.type || item.opening_target?.type;
+    const opener=actions.querySelector('[data-open]');
+    opener.textContent=({task:'Open task',story:'Open Story',signoff:'Review proposal',desktop:'Open desktop'})[type] || (item.opening_target?.url?'Open reference':'Open item');
+    opener.disabled=!!item.opening_target?.unavailable;
     actions.querySelector('[data-open]').onclick=()=>{
       if(item.opening_target?.url){const url=agfocusURL(item.opening_target.url);if(url)window.open(url,'_blank','noopener,noreferrer');}
       else agfocusOpenItem(p,item.resolved_source || item.opening_target).catch(e=>toast(e.message));
     };
     const mutate=async(op,args)=>{try{coreData(await post('/root/operations/'+op,{scope:'global',item_id:item.id,expected_card_revision:item.revision,idempotency_key:newRequestId(),...args}));await agfocusRefresh(p);}catch(e){toast(e.message);}};
-    actions.querySelector('[data-up]').onclick=()=>mutate('focus_move',{position:'top'});
-    actions.querySelector('[data-archive]').textContent=item.archived?'Restore':'Archive';
-    actions.querySelector('[data-archive]').onclick=()=>mutate('focus_set_archived',{archived:!item.archived});
+    actions.querySelector('[data-manage]').onclick=event=>dropdown(event.currentTarget,[
+      {value:'top',label:'Move to top'},{value:'bottom',label:'Move to bottom'},
+      {value:'archive',label:item.archived?'Restore to Focus':'Archive from Focus'}
+    ],value=>value==='archive'?mutate('focus_set_archived',{archived:!item.archived}):mutate('focus_move',{position:value}));
     const related=node.querySelector('.agfocus-related');related.replaceChildren();
     for(const ref of item.references||[]) {
       const button=document.createElement('button');button.className='quiet';button.textContent=ref.unavailable?'Related item unavailable':ref.label;button.disabled=!!ref.unavailable;
@@ -110,6 +137,8 @@ function agfocusPaint(p) {
   if(focused?.isConnected && list.contains(focused)){focused.focus({preventScroll:true});if(selection)focused.setSelectionRange(...selection);}
   if(p.focusRefreshThreads){p.focusRefreshThreads=false;for(const node of list.querySelectorAll('.agfocus-conversation'))node._conversation?.refresh();}
   $('[data-focus-more]',host).hidden=data.next_offset==null;
+  $('[data-focus-previous]',host).hidden=!p.focusPages?.length;
+  $('[data-focus-page]',host).textContent=(p.focusPages?.length || data.next_offset!=null)?'Page '+((p.focusPages?.length||0)+1):'';
   agfocusBrowser(p, $('.agfocus-browser', host));
 }
 

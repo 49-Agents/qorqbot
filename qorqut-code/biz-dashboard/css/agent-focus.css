@@ -1,0 +1,25 @@
+/* Focus uses the existing pane, surfaces and type scale. */
+.agfocus-controls{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:14px 0}
+.agfocus-controls label{display:inline-flex;align-items:center;gap:6px;color:var(--fg-2);font-size:12px}
+.agfocus-card{padding:14px;margin:10px 0}
+.agfocus-card h3{font-size:15px;font-weight:600;line-height:1.4;margin:7px 0}
+.agfocus-card .agfocus-reason{color:var(--fg-2);font-size:13px;line-height:1.55}
+.agfocus-framing{display:grid;gap:10px;margin:12px 0}
+.agfocus-framing section{border-left:2px solid var(--line-2);padding-left:10px}
+.agfocus-framing section[data-framing=requested_response]{border-left-color:var(--warn)}
+.agfocus-framing h4{margin:0 0 3px;color:var(--fg-2);font-size:11px;font-weight:600}
+.agfocus-framing p{font-size:13px;margin:0}
+.agfocus-framing:has(section:not([hidden])){margin:12px 0}
+.agfocus-framing:not(:has(section:not([hidden]))){display:none}
+.agfocus .agfocus-actions{display:flex;align-items:center;gap:8px;margin-top:12px}
+.agfocus .agfocus-actions button{display:inline-flex;margin:0;min-height:30px;font-size:12px}
+.agfocus .agfocus-actions [data-open]{color:var(--fg)}
+.agfocus .agfocus-actions [data-manage]{margin-left:auto;letter-spacing:2px}
+.agfocus-related{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.agfocus .agfocus-related button{display:inline-flex;margin:0;max-width:100%;white-space:normal;text-align:left}
+.agfocus .agfocus-context{margin-top:10px;font-size:11px}
+.agfocus .conversation-toggle{display:inline-flex;margin:10px 0 0}
+.agfocus .conversation-panel button{display:inline-flex;margin:6px 0 0}
+.agfocus .agfocus-pages{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;font-size:12px}
+.agfocus-retained{border-style:dashed}
+@media(max-width:600px){.agfocus-card{padding:12px}.agfocus-controls{gap:10px}}

@@ -1,9 +1,10 @@
 // One source-owned conversation, with local drafts and no viewing telemetry.
 const conversationStates = new Map();
+let conversationMountId = 0;
 function conversationKey(source) { return `${source.type}:${source.biz || 'global'}:${source.id}`; }
 function conversationState(source) {
   const key=conversationKey(source);
-  if (!conversationStates.has(key)) conversationStates.set(key,{text:'',notes:[],participants:[],loaded:false,cursor:null,before:null});
+  if (!conversationStates.has(key)) conversationStates.set(key,{text:'',notes:[],participants:[],loaded:false,cursor:null,before:null,mounts:new Set(),ageTimer:null});
   return conversationStates.get(key);
 }
 function conversationAge(at) {
@@ -11,6 +12,15 @@ function conversationAge(at) {
   const seconds=Math.max(0,Math.floor((Date.now()-Date.parse(at))/1000));
   const [n,unit]=seconds<60?[seconds,'second']:seconds<3600?[Math.floor(seconds/60),'minute']:seconds<86400?[Math.floor(seconds/3600),'hour']:[Math.floor(seconds/86400),'day'];
   return `${n} ${unit}${n===1?'':'s'} ago`;
+}
+function conversationPersonName(person) {
+  return person.created_by_name || person.author_name || person.display_name || person.name || person.created_by || person.actor_id || 'Unknown';
+}
+function conversationGlyph(person,size) {
+  const profile=typeof globalAgentProfile==='function'?globalAgentProfile(person.created_by):null;
+  return person.author_kind==='agent' && typeof agentGlyph==='function'
+    ? agentGlyph({...person.presentation,...profile},size)
+    : esc(conversationPersonName(person).slice(0,2));
 }
 async function conversationCall(source,operation,args,options={}) {
   const path=source.biz?`/biz/${encodeURIComponent(source.biz)}`:'/root';
@@ -22,18 +32,33 @@ function conversationMount(host,source,adapter={}) {
   let expanded=false;
   if (host.dataset.conversation===key) { host._source=source; return host._conversation; }
   host.dataset.conversation=key;host._source=source;
-  host.innerHTML='<button type="button" class="quiet conversation-toggle" aria-expanded="false">Comment</button><section class="conversation-panel" hidden><div class="conversation-participants" aria-label="Conversation participants"></div><button type="button" class="quiet conversation-older" hidden>Older messages</button><div class="conversation-feed" role="log" aria-label="Conversation"></div><label class="conversation-compose">Message<textarea class="inp" rows="3" maxlength="20000"></textarea></label><button type="button" class="btn conversation-send">Send</button><p class="ferr" role="alert" hidden></p></section>';
+  const panelId=`conversation-panel-${++conversationMountId}`;
+  host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span><span>Comment</span></button><section id="${panelId}" class="conversation-panel" hidden><div class="conversation-participants" aria-label="Conversation participants"></div><button type="button" class="quiet conversation-older" hidden>Older messages</button><div class="conversation-feed" role="log" aria-label="Conversation"></div><label class="conversation-compose">Message<textarea class="inp" rows="3" maxlength="20000"></textarea></label><button type="button" class="btn conversation-send">Send</button><p class="ferr" role="alert" hidden></p></section>`;
   const toggle=host.querySelector('.conversation-toggle'),panel=host.querySelector('.conversation-panel'),feed=host.querySelector('.conversation-feed'),input=host.querySelector('textarea'),send=host.querySelector('.conversation-send'),older=host.querySelector('.conversation-older'),error=host.querySelector('[role="alert"]');
-  input.value=s.text;input.oninput=()=>{s.text=input.value;adapter.onInput?.();};
+  s.mounts.add(host);
+  const syncDraft=sourceInput=>{for(const mount of [...s.mounts]){if(!mount.isConnected || mount.dataset.conversation!==key){s.mounts.delete(mount);continue;}const other=mount.querySelector('textarea');if(other && other!==sourceInput && other.value!==s.text)other.value=s.text;}};
+  input.value=s.text;input.oninput=()=>{s.text=input.value;syncDraft(input);adapter.onInput?.();};
   const current=()=>host.isConnected && host.dataset.conversation===key;
+  function syncSending() {
+    for(const mount of s.mounts)if(mount.isConnected && mount.dataset.conversation===key){
+      const tx=mount.querySelector('textarea'),button=mount.querySelector('.conversation-send');
+      if(tx)tx.disabled=!!s.sending || !!s.submission;
+      if(button){button.disabled=!!s.sending;button.textContent=s.submission?'Retry Send':'Send';}
+    }
+  }
+  syncSending();
+  let painted='';
   function paint() {
+    const signature=JSON.stringify([s.notes,s.participants,s.cursor,s.before]);
+    if(painted===signature)return;
+    painted=signature;
     const top=feed.scrollTop;
     const people=new Map();
     for (const n of [...(s.participants || []),...s.notes]) if(n.entry_kind!=='system') people.set(n.created_by,n);
     host.querySelector('.conversation-participants').innerHTML=[...people.values()].map(person=>{
-      const name=person.created_by_name || person.created_by || 'Unknown';
-      const glyph=typeof agentGlyph==='function' && person.presentation?agentGlyph(person.presentation,20):esc(name.slice(0,2));
-      return `<span title="${esc(name)}" aria-label="${esc(name)}">${glyph}</span>`;
+      const name=conversationPersonName(person);
+      const glyph=conversationGlyph(person,20);
+      return `<span class="conversation-participant" title="${esc(name)}"><span class="conversation-participant-avatar" aria-hidden="true">${glyph}</span><span>${esc(name)}</span></span>`;
     }).join(' ') || 'No messages yet';
     const groups=[];
     for (const note of s.notes) {
@@ -45,9 +70,9 @@ function conversationMount(host,source,adapter={}) {
       const first=group[0],last=group.at(-1),time=`<time datetime="${esc(last.created_at)}" title="${esc(last.created_at)}">${esc(conversationAge(last.created_at))}</time>`;
       if(first.entry_kind==='system') return `<div class="conversation-system">${esc(first.body)}${time}</div>`;
       const owner=first.is_owner ?? (first.author_kind==='human');
-      const name=first.created_by_name || first.created_by || 'Unknown';
-      const avatar=typeof agentGlyph==='function' && first.presentation?agentGlyph(first.presentation,24):esc(name.slice(0,2));
-      return `<div class="conversation-group ${owner?'conversation-owner':'conversation-agent'}">${!owner?`<span class="conversation-avatar" aria-hidden="true">${avatar}</span><small>${esc(name)}</small>`:''}<div>${group.map(note=>`<div class="conversation-bubble">${note.title && note.title!=='Message'?`<strong>${esc(note.title)}</strong>`:''}<div data-conversation-body="${esc(note.id)}">${esc(note.body || '')}</div>${(note.refs||[]).map((r,i)=>`<button type="button" class="quiet" data-note-ref="${esc(note.id)}:${i}" ${r.unavailable?'disabled':''}>${esc(r.label || r.type || 'Reference')}</button>`).join('')}</div>`).join('')}${time}</div></div>`;
+      const name=conversationPersonName(first);
+      const avatar=conversationGlyph(first,24);
+      return `<div class="conversation-group ${owner?'conversation-owner':'conversation-agent'}">${!owner?`<span class="conversation-avatar" aria-hidden="true">${avatar}</span><small>${esc(name)}</small>`:''}<div>${group.map(note=>`<div class="conversation-bubble">${note.title && note.title!=='Message'?`<strong>${esc(note.title)}</strong>`:''}${note.parent_event_id && adapter.openParent?`<button type="button" class="quiet conversation-parent" data-note-parent="${esc(note.id)}">About an earlier entry</button>`:''}<div data-conversation-body="${esc(note.id)}">${esc(note.body || '')}</div>${(note.refs||[]).map((r,i)=>`<button type="button" class="quiet" data-note-ref="${esc(note.id)}:${i}" ${r.unavailable?'disabled':''}>${esc(r.label || r.type || 'Reference')}</button>`).join('')}</div>`).join('')}${time}</div></div>`;
     }).join('');
     if(typeof StoryNotePane==='function') for(const note of s.notes) {
       if(note.statuses_json) {const body=[...feed.querySelectorAll('[data-conversation-body]')].find(el=>el.dataset.conversationBody===note.id);if(body)new StoryNotePane(body,{body:note.body,statuses:note.statuses_json},{readonly:true});}
@@ -56,7 +81,15 @@ function conversationMount(host,source,adapter={}) {
       const [id,index]=button.dataset.noteRef.split(':');const note=s.notes.find(n=>n.id===id);
       if(note)taskProgressOpenReference(source.biz,note.refs[Number(index)]).catch(e=>showError(e));
     });
+    feed.querySelectorAll('[data-note-parent]').forEach(button=>button.onclick=()=>{
+      const note=s.notes.find(n=>n.id===button.dataset.noteParent);
+      if(note)Promise.resolve().then(()=>adapter.openParent(note)).catch(e=>showError(e));
+    });
     older.hidden=!s.cursor && !s.before;feed.scrollTop=top;
+  }
+  function scheduleAgeRefresh() {
+    if(s.ageTimer || !s.mounts.size)return;
+    s.ageTimer=setTimeout(()=>{s.ageTimer=null;for(const mount of [...s.mounts]){if(!mount.isConnected)s.mounts.delete(mount);else if(mount._conversation?.isExpanded())for(const time of mount.querySelectorAll('time[datetime]'))time.textContent=conversationAge(time.dateTime);}if(s.mounts.size)scheduleAgeRefresh();},60000);
   }
   function showError(e) { error.hidden=false;error.textContent=e.message || String(e); }
   async function load(more=false) {
@@ -70,16 +103,24 @@ function conversationMount(host,source,adapter={}) {
         data={notes:result.events.slice().reverse().map(n=>({...n,created_by:n.actor_id,created_by_name:n.actor?.name,author_kind:n.actor?.kind})),next_cursor:result.next_cursor,participants:result.participants};
       } else data=await conversationCall(source,source.type==='task'?'tasks_thread_get':'signoffs_notes_list',{[source.type+'_id']:source.id,limit:20,...pagination});
       s.participants=data.participants || s.participants;
+      const oldHeight=feed.scrollHeight;
       const merged=new Map((more?[...data.notes,...s.notes]:[...s.notes,...data.notes]).map(n=>[n.id,n]));
       s.notes=[...merged.values()].sort((a,b)=>a.sequence!=null && b.sequence!=null?a.sequence-b.sequence:(a.created_at||'').localeCompare(b.created_at||'') || a.id.localeCompare(b.id));
       if(more || !s.loaded){s.cursor=data.next_cursor;s.before=data.next_before;}
-      s.loaded=true;if(current())paint();
+      s.loaded=true;if(current()){paint();if(more)feed.scrollTop=Math.max(0,feed.scrollHeight-oldHeight+feed.scrollTop);}
+      for(const mount of s.mounts)if(mount!==host && mount.isConnected && mount.dataset.conversation===key && mount._conversation?.isExpanded())mount._conversation._paint?.();
       s.rejectionRequiresMessage=data.rejection_requires_message;
-    } catch(e){if(current())showError(e);} finally{s.loading=false;}
+    } catch(e){
+      if(['forbidden','not_found'].includes(e.code)){
+        s.notes=[];s.participants=[];s.loaded=false;s.cursor=null;s.before=null;
+        if(current())paint();
+      }
+      if(current())showError(e);
+    } finally{s.loading=false;}
   }
   async function submit() {
     if(s.sending || !s.text.trim())return;
-    s.sending=true;send.disabled=true;input.disabled=true;error.hidden=true;
+    s.sending=true;syncSending();error.hidden=true;
     try {
       if(!s.submission) {
         let revision=host._source.revision;
@@ -93,11 +134,11 @@ function conversationMount(host,source,adapter={}) {
       else await conversationCall(source,{task:'tasks_comment',story:'stories_note_add',signoff:'signoffs_comment'}[source.type],
         {[source.type+'_id']:source.id,...(source.type==='story'?{body:request.text}:{text:request.text})},
         {idempotency_key:request.idempotency_key,...(request.revision?{expected_revision:request.revision}:{})});
-      s.text='';s.submission=null;if(current()){input.value='';send.textContent='Send';}await load();
-    } catch(e){if(current()){showError(e);if(['revision_conflict','stale_signoff','not_found','forbidden','policy_denied'].includes(e.code)){s.submission=null;send.textContent='Send';error.textContent+=' Review the current source before sending again.';}else send.textContent='Retry Send';}} finally{s.sending=false;if(current()){send.disabled=false;input.disabled=!!s.submission;}}
+      s.text='';s.submission=null;if(current()){input.value='';send.textContent='Send';}syncDraft(input);adapter.onInput?.();await load();
+    } catch(e){if(current()){showError(e);if(['revision_conflict','stale_signoff','not_found','forbidden','policy_denied'].includes(e.code)){s.submission=null;send.textContent='Send';error.textContent+=' Review the current source before sending again.';}else send.textContent='Retry Send';}} finally{s.sending=false;syncSending();adapter.onInput?.();}
   }
-  function expand(value) {expanded=value;panel.hidden=!value;toggle.setAttribute('aria-expanded',String(value));if(value) {if(s.loaded)paint();load();}}
+  function expand(value,notify=true) {expanded=value;panel.hidden=!value;toggle.setAttribute('aria-expanded',String(value));if(notify)adapter.onToggle?.(value);if(value) {if(s.loaded)paint();load();scheduleAgeRefresh();}}
   toggle.onclick=()=>expand(!expanded);older.onclick=()=>load(true);send.onclick=submit;
-  host._conversation={refresh:()=>expanded?load():null,isExpanded:()=>expanded,expand:()=>expand(true),state:s};
-  expand(false);return host._conversation;
+  host._conversation={refresh:()=>expanded?load():null,isExpanded:()=>expanded,expand:()=>expand(true),state:s,_paint:paint};
+  expand(false,false);return host._conversation;
 }
