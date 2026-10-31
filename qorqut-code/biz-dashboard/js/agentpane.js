@@ -76,6 +76,7 @@ function agpadSetView(p, view) {
   p.el.innerHTML = tHead({ view, views: p.views, bodyId: "agpad-body", taskTools: false });
   if (view === 'status') agentCurrentWorkMount(p);
   tWireHead(p.el, from, next => agpadSetView(p, next));
+  if(typeof agentPaneIndicators==='function')agentPaneIndicators(p);
   if (view === "activity") p.nextLog = 0;
   if (view === "inbox") p.nextInbox = 0;
   if (view === 'focus') { p.nextFocus = 0; agfocusMount(p); }
@@ -141,6 +142,7 @@ async function agpadRefreshLog(p) {
 function agpadTick() {
   const p = _agpad;
   if (!agpadActive(p)) return;
+  if(typeof agentPaneIndicators==='function')agentPaneIndicators(p);
   if (p.view === 'status' && Date.now() >= (p.nextActivity || 0)) agentCurrentWorkRefresh(p);
   if (p.views.includes('focus')) agfocusTick(p);
   if (p.view === 'status' || p.view === 'focus') return;

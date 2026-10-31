@@ -57,3 +57,9 @@
 .agsplit.nav-off{position:relative}
 .agsplit.nav-off > .listcol{visibility:hidden;overflow:visible;padding:0;border:0;pointer-events:none}
 .agsplit.nav-off > .listcol .agent-nav-toggle{visibility:visible;pointer-events:auto;position:absolute;top:12px;left:12px;z-index:6;margin:0;background:var(--bg);border:1px solid var(--line);box-shadow:0 2px 8px #0003}
+
+.agpad .ttab{position:relative}
+.agpad-tab-dot{position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;background:var(--fg-3);pointer-events:none}
+.agpad-tab-dot[data-state="running"]{background:#30D158}
+.agpad-tab-dot[data-state="idle"]{background:#c8912a}
+.agpad-tab-dot[hidden]{display:none}

@@ -71,6 +71,11 @@ function wireAgentNavToggle(c, scope) {
   set(ls(agentNavKey(scope)) === '1');
   button.onclick = () => { const hidden = !root.classList.contains('nav-off'); set(hidden); ls(agentNavKey(scope), hidden ? '1' : '0'); };
 }
+function agentOpenTab(identity,biz=null) {
+  const url=new URL(location.href);url.searchParams.delete('focus_item');
+  url.searchParams.set('agent',identity);url.hash=biz || '/global/agents';
+  window.open(url.href,'_blank','noopener');
+}
 function agSetSel(name) {
   state.agent = name;
   if (state.biz) ls(agKey(), name || "");
@@ -268,7 +273,7 @@ function paintList() {
     group.agents.map(a => `<button type="button" class="item agent ${a.name===state.agent?'on':''}" data-a="${esc(a.name)}"><span class="nm">${identityAvatar('agent',a.name,a)}<span class="tt">${esc(a.name)}</span></span><span class="agent-presence" data-agent-presence="${esc(a.agent_id || '')}" role="img"></span></button>`).join('') + '</section>'
   ).join('') || '<p class="empty pad">No agents yet.</p>';
   agentNavPaint(); agentNavRefresh();
-  rows.querySelectorAll('[data-a]').forEach(b=>{b.onclick=()=>selectAgent(b.dataset.a);b.oncontextmenu=e=>{e.preventDefault();lookModal(state.agents.find(a=>a.name===b.dataset.a));};});
+  rows.querySelectorAll('[data-a]').forEach(b=>{b.onclick=event=>{if(event.ctrlKey || event.metaKey){event.preventDefault();agentOpenTab(b.dataset.a,state.biz);}else selectAgent(b.dataset.a);};b.oncontextmenu=e=>{e.preventDefault();lookModal(state.agents.find(a=>a.name===b.dataset.a));};});
 }
 function paintHead(a) {
   const ch = $("#chat"); if (!ch) return;

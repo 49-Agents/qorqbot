@@ -62,10 +62,15 @@ async function renderGlobalAgents(c) {
     });
   };
   list.querySelectorAll('[data-global-agent]').forEach(button => {
-    button.onclick = () => select(button.dataset.globalAgent === GLOBAL_WORKSPACE_TERMINAL
-      ? GLOBAL_WORKSPACE_TERMINAL : agents.find(a => a.agent_id === button.dataset.globalAgent));
+    button.onclick = event => {
+      if(event.ctrlKey || event.metaKey){event.preventDefault();agentOpenTab(button.dataset.globalAgent);return;}
+      select(button.dataset.globalAgent === GLOBAL_WORKSPACE_TERMINAL
+        ? GLOBAL_WORKSPACE_TERMINAL : agents.find(a => a.agent_id === button.dataset.globalAgent));
+    };
   });
-  const remembered = linkedFocus ? agents.find(a=>a.role?.id==='ordubashy')?.agent_id : ls('ag:scope:global');
+  const linkedAgent=new URLSearchParams(location.search).get('agent');
+  if(linkedAgent){const url=new URL(location.href);url.searchParams.delete('agent');history.replaceState(null,'',url);}
+  const remembered = linkedAgent || (linkedFocus ? agents.find(a=>a.role?.id==='ordubashy')?.agent_id : ls('ag:scope:global'));
   select(remembered === GLOBAL_WORKSPACE_TERMINAL ? GLOBAL_WORKSPACE_TERMINAL
     : agents.find(a => a.agent_id === remembered) || agents.find(a => a.role?.id === 'ordubashy') || agents[0] || GLOBAL_WORKSPACE_TERMINAL);
 }

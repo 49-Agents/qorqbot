@@ -94,3 +94,5 @@
 
 .agfocus-card.agfocus-collapsed > .agfocus-meta,
 .agfocus-card.agfocus-collapsed > .agfocus-actions{opacity:.7;filter:saturate(.65)}
+
+.agfocus-card .conversation-inline-compose textarea{background:transparent}
