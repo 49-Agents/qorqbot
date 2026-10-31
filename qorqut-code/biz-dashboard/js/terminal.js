@@ -35,7 +35,6 @@ function mountTerminal(agent, pane, onStat) {
   const term = new Terminal({
     fontFamily: "var(--mono, ui-monospace, monospace)",
     fontSize: 14,
-    lineHeight: 1.15,
     cursorBlink: true,
     scrollback: 8000,
     theme: { background: "#0b0e14", foreground: "#c8d3e0", cursor: "#7dd3fc" },
@@ -43,16 +42,26 @@ function mountTerminal(agent, pane, onStat) {
   term.open(host);
   _term = term;
 
-  // size the PTY to fill the pane, and re-fit when the pane changes (window resize, etc.)
+  // Size the PTY to fill the pane exactly. Use xterm's MEASURED cell size (falling back to a
+  // rough estimate before the first render) — an estimate that runs large would ask for more
+  // rows than fit, pushing the shell's bottom line (its input) below the clip. Floor so the
+  // grid never exceeds the visible area, then pin the view to the bottom.
+  const cell = () => {
+    const d = term._core && term._core._renderService && term._core._renderService.dimensions;
+    const c = d && d.css && d.css.cell;
+    return { w: (c && c.width) || CELL_W, h: (c && c.height) || CELL_H };
+  };
   const fit = () => {
-    const cols = Math.max(20, Math.floor(host.clientWidth / CELL_W));
-    const rows = Math.max(6, Math.floor(host.clientHeight / CELL_H));
+    const { w, h } = cell();
+    const cols = Math.max(20, Math.floor(host.clientWidth / w));
+    const rows = Math.max(6, Math.floor(host.clientHeight / h));
     if (cols !== term.cols || rows !== term.rows) {
       term.resize(cols, rows);
       post(`/biz/${state.biz}/terminal/${agent}/resize`, { cols, rows });
     }
+    term.scrollToBottom();
   };
-  fit();
+  requestAnimationFrame(fit); // let the font metrics settle, then fit to real cell size
   let rt;
   _termRO = new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(fit, 100); });
   _termRO.observe(host);
