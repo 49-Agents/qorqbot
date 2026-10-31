@@ -250,6 +250,12 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in u.path.split("/") if p]
         if not parts:
             return self.send_file(os.path.join(HERE, "index.html"), "text/html; charset=utf-8")
+        if parts == ["app.css"]:
+            return self.send_file(os.path.join(HERE, "app.css"), "text/css; charset=utf-8")
+        if len(parts) == 2 and parts[0] == "js" and re.fullmatch(r"[a-z]+\.js", parts[1]):
+            return self.send_file(os.path.join(HERE, "js", parts[1]), "text/javascript; charset=utf-8")
+        if len(parts) == 2 and parts[0] == "css" and re.fullmatch(r"[a-z]+\.css", parts[1]):
+            return self.send_file(os.path.join(HERE, "css", parts[1]), "text/css; charset=utf-8")
         if parts[0] != "api":
             return self.send_json({"error": "not found"}, 404)
         try:
