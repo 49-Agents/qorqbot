@@ -15,7 +15,7 @@
 .agpad-inbox-status { padding: 12px 16px; color: var(--fg-2); font-size: 12px; }
 .agpad-inbox-status b, .agpad-inbox-status span { display: block; margin-bottom: 6px; }
 .agpad-inbox-heading { margin: 20px 16px 8px; color: var(--fg-2); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
-.agpad-inbox-item { display: block; width: 100%; border: 0; border-bottom: 1px solid var(--line); padding: 12px 16px; background: transparent; color: var(--fg); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.agpad-inbox-item { display: block; width: 100%; height: auto; min-height: 76px; white-space: normal; line-height: 1.5; border: 0; border-radius: 0; border-bottom: 1px solid var(--line); padding: 12px 16px; background: transparent; color: var(--fg); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .agpad-inbox-item:hover, .agpad-inbox-item:focus-visible { background: var(--wash); }
 .agpad-inbox-item strong, .agpad-inbox-item span { display: block; }
 .agpad-inbox-item span { margin-top: 5px; font-size: 12px; color: var(--fg-2); }
