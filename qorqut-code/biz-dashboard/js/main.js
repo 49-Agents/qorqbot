@@ -2,6 +2,7 @@
 setInterval(refreshSide, 12000);
 setInterval(() => { if (rtGlobal() && rtVisible()) rtRefresh(); }, 12000);
 loadBiz();
+processTray.start();
 
 // ---------------------------------------------------------- tab-chord shortcuts
 // Hold Tab as a modifier: Tab+letter jumps around the app; a double-tap of Tab (no letter
