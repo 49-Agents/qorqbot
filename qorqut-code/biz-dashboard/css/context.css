@@ -1,0 +1,41 @@
+/* Context tab: upload bar, topic tree, reader/editor */
+.ctxwrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.ctxbar { display: flex; align-items: center; gap: 16px; padding: 12px 24px; border-bottom: 1px solid var(--line); }
+.ctxq { font-size: 12px; color: var(--fg-3); display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.ctxq .dot { color: var(--fg-3); opacity: .5; }
+.ctxq .bad, .ctxtree .bad, .chip.bad { color: var(--danger); }
+.ctxq .run, .ctxtree .run { color: var(--ok); }
+.ctxsplit { grid-template-columns: 290px 1fr; }
+
+.ctxtree .h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--fg-3); padding: 6px 24px 6px; }
+.ctxtree .h:not(:first-child) { margin-top: 14px; }
+.ctxtree .item { padding: 6px 16px 6px calc(24px + var(--ind, 0px)); }
+.ctxtree .item .nm { font-size: 13px; gap: 6px; }
+.ctxtree .item .sub { font: 11px/1.4 var(--mono); color: var(--fg-3); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctxtree .item.f .nm em { font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--fg-3); margin-left: 4px; }
+.ctxtree .item.t .car { flex: none; color: var(--fg-3); transition: transform .15s ease; }
+.ctxtree .item.t.open .car { transform: rotate(90deg); }
+.ctxtree .item.t .tt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctxtree .item.t .cnt { font: 11px var(--mono); color: var(--fg-3); }
+.ctxtree .item.n .nm { color: var(--fg-2); }
+.ctxtree .item.n.on .nm { color: var(--fg); }
+.ctxtree .item.u .tt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-2); }
+.ctxtree .item.u.failed .tt { color: var(--fg-3); }
+.ctxtree .item .retry { height: 20px; padding: 0 8px; font-size: 11px; border-radius: var(--r-full); }
+.ctxtree .empty.pad { padding: 4px 24px 8px; font-size: 12.5px; }
+
+.ctxview .ph { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.ctxview .pp { font: 12px var(--mono); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctxview .ro { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--fg-3); }
+.ctxview .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.ctxview .chip { font-size: 11.5px; padding: 3px 9px; border-radius: var(--r-full); background: var(--wash); border: 1px solid var(--line); color: var(--fg-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctxview .chip b { font-weight: 600; color: var(--fg-3); margin-right: 5px; }
+.ctxview .ctxbody { font: 13px/1.6 var(--mono); color: var(--fg); }
+.ctxedit textarea { display: block; width: 100%; box-sizing: border-box; min-height: 62vh; padding: 14px; resize: vertical; color: var(--fg);
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r); font: 13px/1.6 var(--mono); outline: none; }
+.ctxedit textarea:focus { border-color: rgba(255, 255, 255, .3); box-shadow: 0 0 0 4px rgba(255, 255, 255, .025); }
+.ctxedit .row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.ctxedit .hint { flex: 1; font-size: 11.5px; color: var(--fg-3); }
+
+.mbody textarea.inp.ta { height: 220px; padding: 10px 12px; resize: vertical; font: 13px/1.55 var(--mono); }
+.mbody .fl .opt { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--fg-3); margin-left: 6px; }

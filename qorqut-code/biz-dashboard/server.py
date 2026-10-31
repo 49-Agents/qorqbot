@@ -26,7 +26,11 @@ from urllib.parse import parse_qs, urlparse
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.expanduser(os.environ.get("BIZ_ROOT", "~/projects/example-businesses"))
 CLI_ENV = {"bizlog": "BIZLOG_CMD", "biztask": "BIZTASK_CMD", "bizledger": "BIZLEDGER_CMD",
-           "bizmetrics": "BIZMETRICS_CMD", "bizrun": "BIZRUN_CMD"}
+           "bizmetrics": "BIZMETRICS_CMD", "bizctx": "BIZCTX_CMD", "bizrun": "BIZRUN_CMD"}
+FILER_EVERY = int(os.environ.get("BIZ_FILER_EVERY", "300"))   # seconds between inbox sweeps
+FILER_ATTEMPTS = 3                                            # then the upload stays in the inbox as failed
+FILER_TIMEOUT = 900
+FILER_TURNS = 30
 ICONS = ("circle", "square", "triangle")
 COLORS = ("red", "amber", "green", "teal", "blue", "plum", "ink")
 DEPARTMENTS = ("marketing", "accounting", "data-science", "code", "general")
@@ -60,10 +64,10 @@ def owner_actor(biz):
     return os.environ.get("BIZ_ACTOR") or f"human:{owner}"
 
 
-def run_json(biz, name, *args):
+def run_json(biz, name, *args, stdin=None):
     try:
         r = subprocess.run(cli(name) + ["--json"] + list(args), cwd=biz, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=60,
+                           encoding="utf-8", errors="replace", timeout=60, input=stdin,
                            env=dict(os.environ, BIZ_ACTOR=owner_actor(biz)))
     except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
         return {"error": str(exc)}
@@ -228,6 +232,119 @@ def session_events(biz, agent, fname):
     return out
 
 
+# ---------------------------------------------------------------- context
+
+CTX_PATH_RE = re.compile(r"^(?:[a-z][a-z0-9-]{1,63}/)*(?:_inbox/|_dumps/)?[A-Za-z0-9][\w.-]*\.md$")
+
+
+def ctx_file(biz, relpath):
+    """Absolute path of a file under context/, or None if the path is not allowed."""
+    rp = (relpath or "").replace("\\", "/").strip("/")
+    if not CTX_PATH_RE.match(rp) or ".." in rp.split("/"):
+        return None
+    p = os.path.abspath(os.path.join(biz, "context", *rp.split("/")))
+    root = os.path.abspath(os.path.join(biz, "context"))
+    if os.path.commonpath([p, root]) != root:
+        return None
+    return p
+
+
+def context_view(biz):
+    t = run_json(biz, "bizctx", "tree")
+    if "error" in t:
+        return {"error": t["error"], "pillars": [], "tree": {"path": "", "children": []}, "inbox": []}
+    for i in t.get("inbox", []):
+        i["attempts"] = int(i.get("attempts") or 0)
+        i["failed"] = bool(i.get("error")) and i["attempts"] >= FILER_ATTEMPTS
+    t["filing"] = FILER.status(biz)
+    t["has_filer"] = os.path.isfile(os.path.join(biz, "agents", "_filer", "agent.yaml"))
+    return t
+
+
+class Filer:
+    """One thread: every FILER_EVERY seconds (or when kicked) sweep every business's context/_inbox and
+    run one `bizrun run --agent _filer` per upload, oldest first, strictly one at a time."""
+
+    def __init__(self):
+        self.wake = threading.Event()
+        self.current = None      # {"biz", "id", "started"}
+        self.history = []        # last runs, newest first
+        self.last_sweep = None
+
+    def kick(self):
+        self.wake.set()
+
+    def status(self, biz=None):
+        with LOCK:
+            cur = dict(self.current) if self.current and (biz is None or self.current["biz"] == biz) else None
+            hist = [h for h in self.history if biz is None or h["biz"] == biz][:5]
+        return {"current": cur, "recent": hist, "every": FILER_EVERY, "last_sweep": self.last_sweep}
+
+    def loop(self):
+        while True:
+            self.wake.wait(FILER_EVERY)
+            self.wake.clear()
+            try:
+                self.sweep()
+            except Exception as exc:  # noqa: BLE001 - the queue must survive anything
+                print(f"filer: sweep failed: {exc}", file=sys.stderr)
+
+    def pending(self, biz):
+        items = run_json(biz, "bizctx", "inbox")
+        if not isinstance(items, list):
+            return []
+        return [i for i in items if int(i.get("attempts") or 0) < FILER_ATTEMPTS]
+
+    def sweep(self):
+        self.last_sweep = time.time()
+        for b in businesses():
+            biz = b["path"]
+            if not os.path.isfile(os.path.join(biz, "agents", "_filer", "agent.yaml")):
+                continue
+            tried = set()   # one attempt per upload per sweep; a failure waits for the next sweep
+            for _ in range(50):
+                if any(s.biz == biz and not s.done for s in SESSIONS.values()):
+                    break   # an agent is committing in this repo right now; come back next sweep
+                items = [i for i in self.pending(biz) if i["id"] not in tried]
+                if not items:
+                    break
+                tried.add(items[0]["id"])
+                self.run(biz, items[0]["id"])
+
+    def run(self, biz, dump_id):
+        with LOCK:
+            self.current = {"biz": biz, "id": dump_id, "started": time.time()}
+        msg = (f"File the context upload {dump_id}: `bizctx show {dump_id}`, split it by topic, file every piece "
+               f"with bizctx (create topics if needed), then `bizctx file {dump_id} --result \"...\"`, one bizlog "
+               f"line, and call done.")
+        cmd = cli("bizrun") + ["run", "--agent", "_filer", "--no-learn", "--max-turns", str(FILER_TURNS), "-m", msg]
+        t0 = time.time()
+        err, rc = "", 0
+        try:
+            r = subprocess.run(cmd, cwd=biz, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                               timeout=FILER_TIMEOUT, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+            rc, err = r.returncode, (r.stderr or "").strip()[-400:]
+            tail = (r.stdout or "").strip().splitlines()[-1:] or [""]
+        except subprocess.TimeoutExpired:
+            rc, err, tail = 124, f"timed out after {FILER_TIMEOUT}s", [""]
+        except (OSError, RuntimeError) as exc:
+            rc, err, tail = 127, str(exc), [""]
+        still = any(i["id"] == dump_id for i in (run_json(biz, "bizctx", "inbox") or []) if isinstance(i, dict))
+        ok = not still
+        if still:
+            reason = err or (f"bizrun exit {rc}" if rc else "agent ended without filing the upload")
+            run_json(biz, "bizctx", "fail", dump_id, "--reason", reason)
+        with LOCK:
+            self.history.insert(0, {"biz": biz, "id": dump_id, "ok": ok, "seconds": round(time.time() - t0),
+                                    "summary": tail[0][:200], "error": None if ok else (err or f"exit {rc}")[:300],
+                                    "at": time.time()})
+            del self.history[20:]
+            self.current = None
+
+
+FILER = Filer()
+
+
 # --------------------------------------------------------------- sessions
 
 class Live:
@@ -330,6 +447,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(live_list())
         if parts[:1] == ["session"] and len(parts) == 3 and parts[2] == "events":
             return self.stream_session(parts[1])
+        if parts == ["filer"]:
+            return self.send_json(FILER.status())
         if parts[:1] == ["biz"] and len(parts) >= 3:
             biz = biz_path(parts[1])
             if not biz:
@@ -365,10 +484,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(requests_list(biz))
             if what == "git":
                 return self.send_json(git_recent(biz))
-            if what == "context":
-                files = {os.path.basename(p): read(p) for p in sorted(glob.glob(os.path.join(biz, "context", "*.md")))}
-                files["business.yaml"] = read(os.path.join(biz, "business.yaml"))
-                return self.send_json(files)
+            if what == "context" and len(parts) == 3:
+                return self.send_json(context_view(biz))
+            if what == "context" and len(parts) == 4 and parts[3] == "file":
+                p = ctx_file(biz, q.get("p", ""))
+                if not p or not os.path.isfile(p):
+                    return self.send_json({"error": "no such file"}, 404)
+                return self.send_json({"path": q.get("p"), "text": read(p)})
             if what == "live":
                 return self.send_json(live_list(biz))
         return self.send_json({"error": "not found"}, 404)
@@ -419,6 +541,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.agent_create(biz, body)
             if parts[3] == "compact" and len(parts) == 4:
                 return self.compact(biz, body)
+            if parts[3] == "context" and len(parts) == 5:
+                if parts[4] == "upload":
+                    return self.context_upload(biz, body)
+                if parts[4] == "save":
+                    return self.context_save(biz, body)
+                if parts[4] == "retry":
+                    return self.context_retry(biz, body)
             if parts[3] == "agent" and len(parts) == 6 and parts[5] == "meta":
                 name = parts[4]
                 if (not re.match(r"^[\w-]+$", name) or name.startswith("_")
@@ -437,6 +566,57 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json({"error": "not found"}, 404)
 
     # ------------------------------------------------------------- writes
+
+    def context_upload(self, biz, body):
+        text = str(body.get("text") or "").strip()
+        if not text:
+            return self.send_json({"error": "empty upload"}, 400)
+        if len(text) > 200000:
+            return self.send_json({"error": "upload over 200k chars; split it"}, 400)
+        args = ["dump"]
+        notes, topic = str(body.get("notes") or "").strip(), str(body.get("topic") or "").strip()
+        if notes:
+            args += ["--notes", notes[:300]]
+        if topic:
+            args += ["--topic", topic[:120]]
+        r = run_json(biz, "bizctx", *args, stdin=text)
+        if "error" in r:
+            return self.send_json(r, 500)
+        what = notes or topic or text.splitlines()[0]
+        summary = f"Uploaded context: {what[:150]}" + (f" ({len(text)} chars)" if len(text) > 400 else "")
+        log = run_json(biz, "bizlog", "add", "-t", "operations", "-m", summary,
+                       "-r", f"file=context/_inbox/{r['id']}.md", "--commit")
+        FILER.kick()
+        resp = {"ok": True, "id": r["id"], "chars": r.get("chars")}
+        if "error" in log:
+            resp["warn"] = f"upload saved, log line failed: {log['error']}"
+        return self.send_json(resp)
+
+    def context_save(self, biz, body):
+        rp = str(body.get("path") or "")
+        p = ctx_file(biz, rp)
+        if not p or not os.path.isfile(p):
+            return self.send_json({"error": "no such file"}, 404)
+        if rp == "INDEX.md" or rp.startswith("_dumps/"):
+            return self.send_json({"error": "generated or immutable; not editable"}, 400)
+        text = str(body.get("text") or "")
+        if not text.strip():
+            return self.send_json({"error": "empty file; delete it in git if that is what you mean"}, 400)
+        with open(p, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text.rstrip("\n") + "\n")
+        run_json(biz, "bizctx", "--no-commit", "index")
+        rc, out = git_commit(biz, [f"context/{rp}", "context/INDEX.md"], f"context: edit {rp}")
+        return self.send_json(warned({"ok": True, "path": rp}, rc, out))
+
+    def context_retry(self, biz, body):
+        did = str(body.get("id") or "")
+        if not re.match(r"^\d{4}-\d{2}-\d{2}-\d{4}-[0-9a-z]{4}$", did):
+            return self.send_json({"error": "bad upload id"}, 400)
+        r = run_json(biz, "bizctx", "retry", did)
+        if "error" in r:
+            return self.send_json(r, 400)
+        FILER.kick()
+        return self.send_json({"ok": True, "id": did})
 
     def task_add(self, biz, body):
         title = str(body.get("title", "")).strip()
@@ -613,6 +793,7 @@ def main(argv=None):
         return 2
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     srv.daemon_threads = True
+    threading.Thread(target=FILER.loop, daemon=True, name="filer").start()
     print(f"biz-dashboard on http://{args.host}:{args.port}  root {ROOT}  ({len(businesses())} businesses)")
     try:
         srv.serve_forever()
