@@ -214,9 +214,11 @@ h2:first-child { margin-top: 0; }
 .ritems { flex: 1; padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; position: relative; min-height: 0; }
 .ritem {
   position: relative; z-index: 1; height: 44px; border-radius: 12px; flex: none;
+  background: none; border: 0; padding: 0; transform: none;
   display: flex; align-items: center; justify-content: center;
   color: var(--fg-2); cursor: pointer; transition: color .14s ease, background .14s ease;
 }
+.ritem > svg { width: 20px; height: 20px; }
 .ritem:hover { color: var(--fg); background: var(--hover); }
 .ritem.on { color: var(--fg); background: none; }
 .ritem.soon { color: var(--fg-3); }

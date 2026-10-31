@@ -46,7 +46,7 @@ function logHtml(rows) {
     const task = logTaskId(e);
     if (k !== day) { day = k; html += `<div class="lday" data-day="${esc(dayLabel(k))}"></div>`; }
     html += `<div class="le${task ? " has-task" : ""}" style="--c:${d.color}"><div class="ls">${esc(e.summary || "")}</div>` +
-      `<div class="lm"><span>${esc(time)}</span><span class="la">${esc(who)}</span></div>` +
+      `<div class="lm"><span>${esc(time)}</span><span class="la">${esc(who)}</span>${e.id ? '<button class="quiet log-stories" type="button" title="View action and related stories">Stories</button>' : ""}</div>` +
       (task ? `<button class="ltask" type="button" title="Open related task" aria-label="Open related task">${T_VIEW_ICON.tasks}</button>` : "") + `</div>`;
   }
   return html;
@@ -55,6 +55,8 @@ function logTips(el, rows) {
   const biz = state.biz;
   el.querySelectorAll(".le").forEach((row, i) => {
     const e = rows[i];
+    const stories = row.querySelector('.log-stories');
+    if(stories)stories.onclick=event=>{event.stopPropagation();if(state.biz===biz)storyOpenLink({biz,error:error=>toast(error.message)},{resource_type:'action_logs',resource_id:e.id,current:{label:e.summary || 'Action'}});};
     const button = row.querySelector(".ltask"), task = logTaskId(e);
     if (button && task) button.onclick = async () => {
       if (state.biz !== biz || !button.isConnected || button.disabled) return;
