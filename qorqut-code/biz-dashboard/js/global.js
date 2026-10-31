@@ -3,11 +3,13 @@
 const GLOBAL_PAGES = {
   overview: { title: 'Overview', icon: 'globe' },
   agents: { title: 'Agents', icon: 'agents' },
+  learning: { title: 'Learning', icon: 'learning' },
   settings: { title: 'Settings', icon: 'settings' },
   analytics: { title: 'Analytics', icon: 'analytics', soon: true },
 };
 // Reuse the actual business navigation and drawer glyphs, including placeholder pages.
 const GLOBAL_ICONS = {
+  learning: SVG_BRAIN,
   globe: LN_SCOPE_BY_KEY.global.ico,
   agents: document.querySelector('.ritem[data-tab="agents"] svg').outerHTML,
   signoffs: T_VIEW_ICON.signoffs,
@@ -77,6 +79,7 @@ function goGlobalTab(tab) {
 }
 let globalRender = 0;
 function renderGlobal(c) {
+  if (state.globalTab === 'learning') { c.innerHTML = '<section class="pane"><div id="ctxview"></div></section>'; return openLearning(); }
   if (state.globalTab === 'settings') return renderSettings(c);
   if (state.globalTab === 'agents') return renderGlobalAgents(c);
   const generation = ++globalRender, page = GLOBAL_PAGES[state.globalTab];

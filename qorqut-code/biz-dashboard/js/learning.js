@@ -38,10 +38,13 @@ const lnCanRevert = it => ["accepted", "rejected"].includes(it && it.state) && !
 // repaint, a reload or a revert never loses them; noteOpen: cards whose notes box is open; busy: ids with a
 // write in flight; q: the search box
 let _ln = { biz: null, items: [], counts: null, notes: {}, noteOpen: {}, busy: {}, q: "" };
-const lnDraftKey = () => `lnnotes:${state.biz}`;
+const lnWorkspace = () => state.scope === 'global' ? 'global' : state.biz;
+const lnBase = () => state.scope === 'global' ? '/root/learnings' : `/biz/${state.biz}/learnings`;
+const lnActive = () => state.scope === 'global' ? state.globalTab === 'learning' : state.ctx === '_learning';
+const lnDraftKey = () => `lnnotes:${lnWorkspace()}`;
 function lnDraftsLoad() { try { return JSON.parse(ls(lnDraftKey()) || "{}") || {}; } catch (e) { return {}; } }
 function lnDraftsSave() { ls(lnDraftKey(), JSON.stringify(_ln.notes)); }
-function lnFresh() { return { biz: state.biz, items: [], counts: null, notes: lnDraftsLoad(), noteOpen: {}, busy: {}, q: "" }; }
+function lnFresh() { return { biz: lnWorkspace(), items: [], counts: null, notes: lnDraftsLoad(), noteOpen: {}, busy: {}, q: "" }; }
 
 // ---------------------------------------------------------------- pure helpers
 const lnOpenItem = it => !!it && (!it.state || it.state === "open");
@@ -95,10 +98,12 @@ function lnMatch(item, q, people, draft) {
 
 // ---------------------------------------------------------------- fetch, badge, status pane
 async function lnFetch() {
-  if (!state.biz) return null;
-  const d = await api(`/biz/${state.biz}/learnings`);
+  const workspace = lnWorkspace();
+  if (!workspace) return null;
+  const d = await api(lnBase());
+  if (workspace !== lnWorkspace()) return null;
   if (!d || d.error || !Array.isArray(d.items)) { lnItemsBadge([]); lnBadgePaint(0); return d; }
-  _ln.biz = state.biz; _ln.items = d.items; _ln.counts = d.counts || null;
+  _ln.biz = lnWorkspace(); _ln.items = d.items; _ln.counts = d.counts || null;
   // a reverted decision hands its note back as the draft, unless the owner already typed a new one
   for (const it of d.items) if (lnOpenItem(it) && _ln.notes[it.id] === undefined) {
     const note = (it.reopened && it.reopened.note) || lnNote(it);
@@ -125,16 +130,16 @@ function lnItemsBadge(items) {
 
 // ---------------------------------------------------------------- the page
 async function openLearning() {
-  if (_ln.biz !== state.biz) _ln = lnFresh();                   // another business's cards never flash
+  if (_ln.biz !== lnWorkspace()) _ln = lnFresh();                   // another business's cards never flash
   lnPaint(!_ln.items.length);
   const d = await lnFetch();
-  if (state.ctx !== "_learning") return;                      // navigated away while the CLI ran
+  if (!lnActive()) return;                      // navigated away while the CLI ran
   if (d && d.error) { const v = $("#ctxview"); if (v) v.innerHTML = `<div class="empty bad">${esc(lnErr(d))}</div>`; return; }
   lnPaint();
 }
 function lnPaint(loading) {
   const v = $("#ctxview"); if (!v) return;
-  v.innerHTML = `${typeof ctxCrumbs === "function" ? ctxCrumbs("", "Learning") : ""}
+  v.innerHTML = `${state.scope !== "global" && typeof ctxCrumbs === "function" ? ctxCrumbs("", "Learning") : ""}
     <div class="th"><h2>Learning</h2><span class="sp"></span>
       <input class="inp lnsearch" id="lnsearch" type="search" placeholder="search both sides" spellcheck="false" value="${esc(_ln.q)}"></div>
     <div class="lnsplit">
@@ -149,7 +154,7 @@ function lnPaint(loading) {
 // the two columns alone, so typing in the search box never repaints the box itself
 function lnPaintCols(loading) {
   const v = $("#ctxview"); if (!v) return;
-  const people = (typeof _ctxData !== "undefined" && _ctxData && _ctxData.people) || [];
+  const people = state.scope === "global" ? [] : (typeof _ctxData !== "undefined" && _ctxData && _ctxData.people) || [];
   const all = lnSplit(_ln.items), q = _ln.q.trim();
   const open = all.open.filter(it => lnMatch(it, q, people, _ln.notes[it.id]));
   const decided = all.decided.filter(it => lnMatch(it, q, people));
@@ -175,15 +180,18 @@ function lnCardHtml(item, people) {
   const it = item || {}, t = lnTag(it.tag), obs = it.observed || {}, ev = it.evidence || {};
   const locked = lnScopeLocked(it);
   const pick = LN_SCOPES.map(([k, label, ico]) => {
-    const off = (locked && k !== "biz") || !!it.intake_pending;
-    return `<button class="lnscope ${it.scope === k ? "on" : ""}" type="button" data-scope="${esc(k)}" ${off ? `disabled title="context items are always scope biz"` : `title="${esc(label)}"`}>${ico}</button>`;
+    const off = (locked && k !== (it.origin_scope === "global" ? "global" : "biz")) || (it.origin_scope === "global" && k !== "global") || !!it.intake_pending;
+    return `<button class="lnscope ${it.scope === k ? "on" : ""}" type="button" data-scope="${esc(k)}" ${off ? `disabled title="Context stays in its originating workspace"` : `title="${esc(label)}"`}>${ico}</button>`;
   }).join("");
   const votes = it.votes != null && it.passes ? `<span class="chip" title="passes that agreed">${esc(it.votes)}/${esc(it.passes)}</span>` : "";
   const touches = lnTouches(it, people).map(x => `<span class="chip ${esc(x.kind)}" ${x.title ? `title="${esc(x.title)}"` : ""}>${esc(x.label)}</span>`).join("");
   const scopeIco = `<span class="lnscopeico" title="${esc((LN_SCOPE_BY_KEY[it.scope] || {}).label || it.scope || "")}">${(LN_SCOPE_BY_KEY[it.scope] || {}).ico || ""}</span>`;
   const bk = LN_BUCKETS[it.bucket];
   const bucketIco = bk ? `<span class="lnbucket" data-bucket="${esc(it.bucket)}" title="${esc(bk.label)}">${bk.ico}</span>` : "";
-  const stamp = [(ev.turns || []).join(" "), lnWho(obs.agent), String(ev.session || "").slice(0, 8)].filter(Boolean).join(" · ");
+  const source = ev.source;
+  const stamp = source ? [String(source.kind).replaceAll('_', ' '), source.actor_name, source.at].filter(Boolean).join(' · ') : [(ev.turns || []).join(" "), lnWho(obs.agent), String(ev.session || "").slice(0, 8)].filter(Boolean).join(" · ");
+  const conflict = it.contradicts?.length ? `<p class="lnpending">Possible conflict with ${it.contradicts.length} earlier learning${it.contradicts.length === 1 ? '' : 's'}.</p>` : '';
+  const sourceButton = `${conflict}<button type="button" class="mka" data-act="source">View source${it.contradicts?.length ? ' and conflicting lessons' : ''}</button>`;
   const quote = ev.owner_quote ? `<div class="lnquote">“${esc(ev.owner_quote)}”<span class="src">${esc(stamp)}</span></div>` : "";
   const more = Array.isArray(it.evidence_more) ? it.evidence_more.filter(e => e && e.owner_quote) : [];
   const moreEv = more.length ? `<details class="mkchain"><summary>seen ${more.length} more time${more.length === 1 ? "" : "s"}</summary>${more.map(e =>
@@ -194,12 +202,12 @@ function lnCardHtml(item, people) {
   if (!lnOpenItem(it)) {
     const st = String(it.state), note = lnNote(it);
     const pill = {"in-progress": "In progress", "rejected-in-work": "Rejected in work"}[st];
-    const pending = it.intake_pending ? "Context handoff interrupted" : ({accepted: "awaiting selection", rejected: "rejected", "in-progress": "work in progress", "rejected-in-work": "work stopped"}[st] || st);
+    const pending = it.origin_scope === "global" && it.bucket === "context" && st === "accepted" ? "Accepted Global context" : it.intake_pending ? "Context handoff interrupted" : ({accepted: "awaiting selection", rejected: "rejected", "in-progress": "work in progress", "rejected-in-work": "work stopped"}[st] || st);
     return `<div class="mkcard lncard done" data-id="${esc(it.id)}" data-state="${esc(st)}" style="--sc:${esc(LN_STATE_HEX[st] || "var(--fg-3)")}">
       <div class="mkhead"><span class="lnball" title="${esc(st)}"></span>${pill ? `<span class="lnstate">${esc(pill)}</span>` : ""}<span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span>${scopeIco}${bucketIco}${touches}<span class="sp"></span><span class="ago">${esc(lnRel((it.decision || {}).created || it.created))}</span></div>
       <div class="mkt">${esc(it.text || "")}</div>
       ${note ? `<div class="lnwhy"><span class="lnnotelabel">Owner note</span>${esc(note)}</div>` : ""}
-      ${it.agent_note ? `<div class="lnagentnote"><span class="lnnotelabel">Agent note</span>${esc(it.agent_note)}</div>` : ""}
+      ${quote}${sourceButton}${it.agent_note ? `<div class="lnagentnote"><span class="lnnotelabel">Agent note</span>${esc(it.agent_note)}</div>` : ""}
       ${!it.intake_pending ? `<details class="lnowneredit"><summary>Edit owner note</summary><textarea class="lnnote" spellcheck="false">${esc(_ln.notes[it.id] ?? note)}</textarea><button class="mka" type="button" data-act="save-note">Save owner note</button></details>` : ""}
       <div class="mkfoot"><span class="lnpending">${esc(pending)}</span><div class="mkacts">
         ${it.intake_pending ? `<button class="mka" type="button" data-act="resume-intake">Resume handoff</button>` : ""}
@@ -212,7 +220,7 @@ function lnCardHtml(item, people) {
     <div class="mkhead"><span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span><span class="lnpick">${pick}</span>${bucketIco}${touches}
       <span class="who">${esc(lnWho(obs.agent))}</span><span class="sp"></span>${votes}<span class="ago">${esc(lnRel(it.created))}</span></div>
     <div class="mkt">${esc(it.text || "")}</div>
-    ${quote}${moreEv}${variants}${noteBox}
+    ${quote}${sourceButton}${moreEv}${variants}${noteBox}
     ${it.agent_note ? `<div class="lnagentnote"><span class="lnnotelabel">Agent note</span>${esc(it.agent_note)}</div>` : ""}
     <div class="mkfoot"><div class="mklinks"></div><div class="mkacts">
       ${it.intake_pending ? `<span class="lnpending">Context handoff interrupted</span><button class="mka" type="button" data-act="resume-intake">Resume handoff</button>` : `<button class="mka reject" type="button" data-act="reject">Reject</button>
@@ -246,7 +254,7 @@ function lnWire(root) {
     e.stopPropagation();
     const card = b.closest(".lncard"), it = card && lnFind(card.dataset.id);
     if (!it) return;
-    ({ approve: lnApprove, reject: lnReject, reopen: lnReopen, "save-note": lnSaveOwnerNote, "resume-intake": lnResumeIntake }[b.dataset.act] || (() => {}))(it);
+    ({ source: lnShowSource, approve: lnApprove, reject: lnReject, reopen: lnReopen, "save-note": lnSaveOwnerNote, "resume-intake": lnResumeIntake }[b.dataset.act] || (() => {}))(it);
   });
 }
 // Keep drafts and the current card until the service confirms the durable change.
@@ -264,14 +272,14 @@ function lnUndecide(it) {
   if (note && !_ln.notes[it.id]) { _ln.notes[it.id] = note; lnDraftsSave(); }
   lnPaintCols(); lnItemsBadge(_ln.items);
 }
-async function lnRefetch() { const d = await lnFetch(); if (d && !d.error && state.ctx === "_learning") lnPaintCols(); }
+async function lnRefetch() { const d = await lnFetch(); if (d && !d.error && lnActive()) lnPaintCols(); }
 async function lnSend(it, st, note, apply, label) {
-  const id = it.id, biz = state.biz, model = _ln;
+  const id = it.id, biz = lnWorkspace(), base = lnBase(), model = _ln;
   if (_ln.busy[id]) return;
   _ln.busy[id] = 1;
-  let r; try { r = await post(`/biz/${biz}/learnings/${id}/state`, { state: st, ...(note !== undefined ? {note} : {}), ...(it.revision ? {expected_revision: it.revision} : {}) }); } catch (e) { r = null; }
+  let r; try { r = await post(`${base}/${id}/state`, { state: st, ...(note !== undefined ? {note} : {}), ...(it.revision ? {expected_revision: it.revision} : {}) }); } catch (e) { r = null; }
   delete model.busy[id];
-  if (state.biz !== biz || _ln !== model) return;
+  if (lnWorkspace() !== biz || _ln !== model) return;
   if (!r || r.error) { notify({ text: `${label} failed`, sub: lnErr(r), color: "var(--danger)" }); return lnRefetch(); }
   apply();
   if (r.item) { Object.assign(it, r.item); lnPaintCols(); lnItemsBadge(_ln.items); }
@@ -307,12 +315,12 @@ function lnSaveOwnerNote(it) {
   }, "Owner note saved");
 }
 async function lnResumeIntake(it) {
-  const biz = state.biz, model = _ln;
+  const biz = lnWorkspace(), base = lnBase(), model = _ln;
   if (_ln.busy[it.id]) return;
   _ln.busy[it.id] = 1;
-  let r; try { r = await post(`/biz/${biz}/learnings/${it.id}/intake/retry`, {}); } catch (e) { r = null; }
+  let r; try { r = await post(`${base}/${it.id}/intake/retry`, {}); } catch (e) { r = null; }
   delete model.busy[it.id];
-  if (state.biz !== biz || _ln !== model) return;
+  if (lnWorkspace() !== biz || _ln !== model) return;
   if (!r || r.error) notify({text: "Context handoff failed", sub: lnErr(r), color: "var(--danger)"});
   else { delete _ln.notes[it.id]; lnDraftsSave(); toast("context sent to filer"); }
   return lnRefetch();
@@ -320,11 +328,41 @@ async function lnResumeIntake(it) {
 // the scope picker saves on the click; there is no Save button anywhere on this page
 async function lnSetScope(it, scope) {
   if (!scope || it.scope === scope || _ln.busy[it.id]) return;
+  const model = _ln, workspace = lnWorkspace(), base = lnBase();
   const was = it.scope;
   _ln.busy[it.id] = 1;
   it.scope = scope; lnPaintCols();
-  let r; try { r = await post(`/biz/${state.biz}/learnings/${it.id}/edit`, { scope }); } catch (e) { r = null; }
-  delete _ln.busy[it.id];
+  let r; try { r = await post(`${base}/${it.id}/edit`, { scope }); } catch (e) { r = null; }
+  delete model.busy[it.id];
+  if (_ln !== model || workspace !== lnWorkspace()) return;
   if (!r || r.error) { it.scope = was; notify({ text: "Scope change failed", sub: lnErr(r), color: "var(--danger)" }); return lnRefetch(); }
   toast(`scope → ${scope}`);
+}
+
+async function lnShowSource(it) {
+  const workspace = lnWorkspace();
+  let result;
+  try { result = await api(`${lnBase()}/${encodeURIComponent(it.id)}`); }
+  catch (error) { if (workspace === lnWorkspace()) notify({text: 'Source unavailable', sub: error.message, color: 'var(--danger)'}); return; }
+  if (workspace !== lnWorkspace()) return;
+  const data = result?.data || result;
+  if (!data?.cores) { notify({text: 'Source unavailable', color: 'var(--danger)'}); return; }
+  const dialog = document.createElement('dialog');
+  dialog.style.cssText = 'max-width:850px;width:85vw;max-height:80vh;overflow:auto';
+  const title = document.createElement('h2'); title.textContent = 'Learning source';
+  const close = document.createElement('button'); close.textContent = 'Close'; close.onclick = () => dialog.close();
+  dialog.append(title, close);
+  for (const core of Object.values(data.cores)) {
+    const pre = document.createElement('pre'); pre.style.whiteSpace = 'pre-wrap'; pre.textContent = core.markdown || '';
+    dialog.append(pre);
+  }
+  if (!Object.keys(data.cores).length) { const p=document.createElement('p'); p.textContent='Historical source snapshot is unavailable. The saved quotation remains on the learning.'; dialog.append(p); }
+  for (const id of (data.item?.contradicts || []).slice(0, 10)) {
+    const section = document.createElement('p'); section.textContent = 'Loading conflicting learning…'; dialog.append(section);
+    api(`${lnBase()}/${encodeURIComponent(id)}`).then(result => {
+      const item = result?.data?.item || result?.item;
+      section.textContent = item ? `Possible conflict (${item.state}): ${item.text}` : 'Related learning unavailable.';
+    }).catch(() => { section.textContent = 'Related learning unavailable.'; });
+  }
+  dialog.addEventListener('close', () => dialog.remove()); document.body.append(dialog); dialog.showModal();
 }
