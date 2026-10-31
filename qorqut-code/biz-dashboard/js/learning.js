@@ -27,8 +27,14 @@ const LN_SCOPES = [
 const LN_SCOPE_BY_KEY = Object.fromEntries(LN_SCOPES.map(([k, label, ico]) => [k, { key: k, label, ico }]));
 const LN_STATE_HEX = { accepted: "var(--mk-green)", rejected: "var(--danger)" };
 
-// notes: the typed text lives outside the item so a repaint never loses it; busy: ids with a write in flight
-let _ln = { biz: null, items: [], counts: null, notes: {}, noteOpen: {}, busy: {} };
+// notes: draft notes per item, kept in localStorage per business until the decision goes through, so a
+// repaint, a reload or a revert never loses them; noteOpen: cards whose notes box is open; busy: ids with a
+// write in flight; q: the search box
+let _ln = { biz: null, items: [], counts: null, notes: {}, noteOpen: {}, busy: {}, q: "" };
+const lnDraftKey = () => `lnnotes:${state.biz}`;
+function lnDraftsLoad() { try { return JSON.parse(ls(lnDraftKey()) || "{}") || {}; } catch (e) { return {}; } }
+function lnDraftsSave() { ls(lnDraftKey(), JSON.stringify(_ln.notes)); }
+function lnFresh() { return { biz: state.biz, items: [], counts: null, notes: lnDraftsLoad(), noteOpen: {}, busy: {}, q: "" }; }
 
 // ---------------------------------------------------------------- pure helpers
 const lnOpenItem = it => !!it && !it.state;
@@ -74,12 +80,25 @@ function lnTouches(item, people) {
   return out;
 }
 
+// The search box: every whitespace-separated word must appear somewhere on the card — text, type, scope,
+// agent, the decision's or the draft's note, the touch chips, the id.
+function lnMatch(item, q, people, draft) {
+  const words = String(q || "").toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const it = item || {}, obs = it.observed || {};
+  const hay = [it.text, it.tag, it.scope, obs.agent, obs.agent_kind, lnNote(it), draft, it.id, (it.evidence || {}).owner_quote]
+    .concat(lnTouches(it, people).map(x => x.label)).filter(Boolean).join(" ").toLowerCase();
+  return words.every(w => hay.includes(w));
+}
+
 // ---------------------------------------------------------------- fetch, badge, status pane
 async function lnFetch() {
   if (!state.biz) return null;
   const d = await api(`/biz/${state.biz}/learnings`);
   if (!d || d.error || !Array.isArray(d.items)) { lnStatusPaint([]); lnBadgePaint(0); return d; }
   _ln.biz = state.biz; _ln.items = d.items; _ln.counts = d.counts || null;
+  // a reverted decision hands its note back as the draft, unless the owner already typed a new one
+  for (const it of d.items) if (it.reopened && it.reopened.note && _ln.notes[it.id] === undefined) _ln.notes[it.id] = it.reopened.note;
   lnStatusPaint(d.items);
   return d;
 }
@@ -109,7 +128,7 @@ function lnStatusPaint(items) {
 
 // ---------------------------------------------------------------- the page
 async function openLearning() {
-  if (_ln.biz !== state.biz) _ln = { biz: state.biz, items: [], counts: null, notes: {}, noteOpen: {}, busy: {} };  // another business's cards never flash
+  if (_ln.biz !== state.biz) _ln = lnFresh();                   // another business's cards never flash
   lnPaint(!_ln.items.length);
   const d = await lnFetch();
   if (state.ctx !== "_learning") return;                      // navigated away while the CLI ran
@@ -118,26 +137,43 @@ async function openLearning() {
 }
 function lnPaint(loading) {
   const v = $("#ctxview"); if (!v) return;
-  const { open, decided } = lnSplit(_ln.items);
-  const people = (typeof _ctxData !== "undefined" && _ctxData && _ctxData.people) || [];
-  const left = loading ? `<div class="empty">loading…</div>`
-    : open.length ? `<div class="mkcards">${open.map(it => lnCardHtml(it, people)).join("")}</div>`
-    : `<div class="empty">Nothing waiting on you.</div>`;
-  const right = decided.length ? `<div class="mkcards">${decided.map(it => lnCardHtml(it, people)).join("")}</div>`
-    : `<div class="empty">Nothing decided yet.</div>`;
   v.innerHTML = `${typeof ctxCrumbs === "function" ? ctxCrumbs("", "Learning") : ""}
-    <div class="th"><h2>Learning</h2></div>
+    <div class="th"><h2>Learning</h2><span class="sp"></span>
+      <input class="inp lnsearch" id="lnsearch" type="search" placeholder="search both sides" spellcheck="false" value="${esc(_ln.q)}"></div>
     <div class="lnsplit">
-      <div class="lnq"><div class="sh">Waiting on you <span class="cnt">${open.length}</span></div>${left}</div>
-      <div class="lndone"><div class="sh">Decided <span class="cnt">${decided.length}</span></div>${right}
+      <div class="lnq"><div class="sh">Waiting on you <span class="cnt"></span></div><div class="lnbody"></div></div>
+      <div class="lndone"><div class="sh">Decided <span class="cnt"></span></div><div class="lnbody"></div>
         <div class="lnfootnote">Applying a decision is a separate job and is not built yet.</div></div>
     </div>`;
   if (typeof wireCrumbs === "function") wireCrumbs(v);
+  const q = v.querySelector("#lnsearch");
+  if (q) q.oninput = () => { _ln.q = q.value; lnPaintCols(loading); };
+  lnPaintCols(loading);
+}
+// the two columns alone, so typing in the search box never repaints the box itself
+function lnPaintCols(loading) {
+  const v = $("#ctxview"); if (!v) return;
+  const people = (typeof _ctxData !== "undefined" && _ctxData && _ctxData.people) || [];
+  const all = lnSplit(_ln.items), q = _ln.q.trim();
+  const open = all.open.filter(it => lnMatch(it, q, people, _ln.notes[it.id]));
+  const decided = all.decided.filter(it => lnMatch(it, q, people));
+  const cards = list => `<div class="mkcards">${list.map(it => lnCardHtml(it, people)).join("")}</div>`;
+  const left = loading ? `<div class="empty">loading…</div>`
+    : open.length ? cards(open)
+    : q ? `<div class="empty">No open card matches.</div>` : `<div class="empty">Nothing waiting on you.</div>`;
+  const right = decided.length ? cards(decided)
+    : q ? `<div class="empty">No decided card matches.</div>` : `<div class="empty">Nothing decided yet.</div>`;
+  const cnt = (col, n, total) => { const c = v.querySelector(`${col} .cnt`); if (c) c.textContent = q && n !== total ? `${n}/${total}` : String(total); };
+  cnt(".lnq", open.length, all.open.length); cnt(".lndone", decided.length, all.decided.length);
+  const lb = v.querySelector(".lnq .lnbody"), rb = v.querySelector(".lndone .lnbody");
+  if (lb) lb.innerHTML = left;
+  if (rb) rb.innerHTML = right;
   lnWire(v);
 }
 
 // one card, open or decided: head (scope picker, type, who, votes, age), the text, what it touches, the
-// evidence, the passes, then the notes box and the three buttons — decided cards carry their note instead
+// evidence, the passes, then the notes box (closed until the card takes focus) and Reject / Approve —
+// decided cards carry their note instead, and a Revert that puts them back on the left
 function lnCardHtml(item, people) {
   const it = item || {}, t = lnTag(it.tag), obs = it.observed || {}, ev = it.evidence || {};
   const locked = lnScopeLocked(it);
@@ -162,10 +198,12 @@ function lnCardHtml(item, people) {
       <div class="mkt">${esc(it.text || "")}</div>
       ${touches ? `<div class="lntouch">${touches}</div>` : ""}
       ${note ? `<div class="lnwhy">${esc(note)}</div>` : ""}
-      <div class="mkfoot"><span class="lnpending">not yet applied</span></div></div>`;
+      <div class="mkfoot"><span class="lnpending">not yet applied</span><div class="mkacts">
+        <button class="mka revert" type="button" data-act="reopen" title="back to the left, as if never decided">Revert</button>
+      </div></div></div>`;
   }
   const notes = _ln.notes[it.id] || "";
-  const noteBox = `<textarea class="lnnote" placeholder="a note for the record — it rides with your decision" spellcheck="false" ${_ln.noteOpen[it.id] || notes ? "" : "hidden"}>${esc(notes)}</textarea>`;
+  const noteBox = `<textarea class="lnnote" placeholder="a note for the record — it rides with your decision, and Reject needs one" spellcheck="false" ${_ln.noteOpen[it.id] || notes ? "" : "hidden"}>${esc(notes)}</textarea>`;
   return `<div class="mkcard lncard" tabindex="0" data-id="${esc(it.id)}" data-tag="${esc(it.tag || "")}">
     <div class="mkhead"><span class="lnpick">${pick}</span><span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span>
       <span class="who">${esc(lnWho(obs.agent))}</span><span class="sp"></span>${votes}<span class="ago">${esc(lnRel(it.created))}</span></div>
@@ -174,16 +212,26 @@ function lnCardHtml(item, people) {
     ${quote}${moreEv}${variants}${noteBox}
     <div class="mkfoot"><div class="mklinks"></div><div class="mkacts">
       <button class="mka reject" type="button" data-act="reject">Reject</button>
-      <button class="mka notes" type="button" data-act="notes">Add notes</button>
       <button class="mka approve" type="button" data-act="approve">Approve</button>
     </div></div></div>`;
 }
 
 // ---------------------------------------------------------------- wiring
 const lnFind = id => _ln.items.find(x => x.id === id);
+// focusing a card opens its notes box and puts the caret there; nothing is re-rendered, so focus holds
+function lnOpenNote(card) {
+  const ta = card.querySelector(".lnnote"); if (!ta) return;
+  _ln.noteOpen[card.dataset.id] = 1;
+  ta.hidden = false;
+  if (document.activeElement !== ta) ta.focus();
+}
 function lnWire(root) {
+  root.querySelectorAll(".lncard:not(.done)").forEach(card => {
+    card.onfocus = () => lnOpenNote(card);
+    card.onclick = e => { if (!e.target.closest || !e.target.closest("button, a, summary, details")) lnOpenNote(card); };
+  });
   root.querySelectorAll(".lncard .lnnote").forEach(ta => {
-    ta.oninput = () => { const c = ta.closest(".lncard"); if (c) _ln.notes[c.dataset.id] = ta.value; };
+    ta.oninput = () => { const c = ta.closest(".lncard"); if (c) { _ln.notes[c.dataset.id] = ta.value; lnDraftsSave(); } };
   });
   root.querySelectorAll(".lnscope").forEach(b => b.onclick = e => {
     e.stopPropagation();
@@ -194,71 +242,64 @@ function lnWire(root) {
     e.stopPropagation();
     const card = b.closest(".lncard"), it = card && lnFind(card.dataset.id);
     if (!it) return;
-    if (b.dataset.act === "notes") { _ln.noteOpen[it.id] = !_ln.noteOpen[it.id]; lnPaint(); return; }
-    (b.dataset.act === "approve" ? lnApprove : lnReject)(it);
+    ({ approve: lnApprove, reject: lnReject, reopen: lnReopen }[b.dataset.act] || (() => {}))(it);
   });
-  root.onkeydown = lnKeys;
 }
-// `a` approves, `r` opens Reject — only with a card itself focused, never from the notes box
-function lnKeys(e) {
-  if (e.altKey || e.ctrlKey || e.metaKey) return;
-  const ae = document.activeElement, card = ae && ae.closest && ae.closest(".lncard");
-  if (!card || /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
-  const it = lnFind(card.dataset.id);
-  if (!it || !lnOpenItem(it)) return;
-  if (e.key === "a") { e.preventDefault(); lnApprove(it); }
-  else if (e.key === "r") { e.preventDefault(); lnReject(it); }
-}
-// every write is optimistic: the card moves at once, a failed write toasts and refetches the truth
+// every write is optimistic: the card moves at once, a failed write toasts and refetches the truth.
+// The draft note is dropped once the decision is in; a revert hands the decision's note back as the draft.
 function lnDecide(it, st, note) {
   it.state = st;
   it.decision = { state: st, note: note || "", actor: "human:owner", created: new Date().toISOString() };
-  delete _ln.notes[it.id]; delete _ln.noteOpen[it.id];
-  lnPaint(); lnStatusPaint(_ln.items);
+  delete it.reopened;
+  delete _ln.notes[it.id]; delete _ln.noteOpen[it.id]; lnDraftsSave();
+  lnPaintCols(); lnStatusPaint(_ln.items);
 }
-async function lnRefetch() { const d = await lnFetch(); if (d && !d.error && state.ctx === "_learning") lnPaint(); }
-async function lnApprove(it) {
-  if (!lnOpenItem(it) || _ln.busy[it.id]) return;
-  const id = it.id, note = _ln.notes[id] || "";
+function lnUndecide(it) {
+  const note = lnNote(it);
+  it.reopened = { state: "open", note, created: new Date().toISOString() };
+  delete it.state; delete it.decision;
+  if (note && !_ln.notes[it.id]) { _ln.notes[it.id] = note; lnDraftsSave(); }
+  lnPaintCols(); lnStatusPaint(_ln.items);
+}
+async function lnRefetch() { const d = await lnFetch(); if (d && !d.error && state.ctx === "_learning") lnPaintCols(); }
+async function lnSend(it, st, note, apply, label) {
+  const id = it.id;
+  if (_ln.busy[id]) return;
   _ln.busy[id] = 1;
-  lnDecide(it, "accepted", note);
-  let r; try { r = await post(`/biz/${state.biz}/learnings/${id}/state`, { state: "accepted", note }); } catch (e) { r = null; }
+  apply();
+  let r; try { r = await post(`/biz/${state.biz}/learnings/${id}/state`, { state: st, note }); } catch (e) { r = null; }
   delete _ln.busy[id];
-  if (!r || r.error) { notify({ text: "Approve failed", sub: lnErr(r), color: "var(--danger)" }); return lnRefetch(); }
-  toast("accepted");
+  if (!r || r.error) { notify({ text: `${label} failed`, sub: lnErr(r), color: "var(--danger)" }); return lnRefetch(); }
+  toast(label.toLowerCase());
 }
-// Reject: a required reason — the record's value is why you said no
+function lnApprove(it) {
+  if (!lnOpenItem(it)) return;
+  const note = (_ln.notes[it.id] || "").trim();
+  return lnSend(it, "accepted", note, () => lnDecide(it, "accepted", note), "Accepted");
+}
+// Reject takes its reason from the notes box; without one it opens the box instead of a dialog
 function lnReject(it) {
   if (!lnOpenItem(it)) return;
-  modal({
-    title: "Reject a learning", width: 520,
-    body: `<div class="fl">Reason</div><textarea class="inp ta mkta" id="lnreason" placeholder="why — this is what the record keeps" spellcheck="false">${esc(_ln.notes[it.id] || "")}</textarea><div class="ferr" hidden></div>`,
-    onOpen: el => {
-      const ta = el.querySelector("#lnreason"), b = el.querySelector(".mfoot .primary");
-      b.disabled = !ta.value.trim();
-      ta.oninput = () => { b.disabled = !ta.value.trim(); };
-      ta.onkeydown = e => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !b.disabled) b.click(); };
-    },
-    actions: [
-      { label: "Cancel", onClick: close => close() },
-      { label: "Reject", primary: true, onClick: async (close, el) => {
-        const note = el.querySelector("#lnreason").value.trim();
-        if (!note) return;
-        const b = el.querySelector(".mfoot .primary"); b.disabled = true;
-        let r; try { r = await post(`/biz/${state.biz}/learnings/${it.id}/state`, { state: "rejected", note }); } catch (e) { r = null; }
-        if (!r || r.error) { b.disabled = false; const fe = el.querySelector(".ferr"); if (fe) { fe.hidden = false; fe.textContent = lnErr(r); } return; }
-        close(); toast("rejected");
-        lnDecide(it, "rejected", note);
-      } },
-    ],
-  });
+  const note = (_ln.notes[it.id] || "").trim();
+  if (!note) {
+    const card = document.querySelector(`.lncard[data-id="${it.id}"]`);
+    if (card) lnOpenNote(card);
+    notify({ text: "Reject needs a note", sub: "write why in the notes box; that reason is what the record keeps", color: "var(--danger)" });
+    return;
+  }
+  return lnSend(it, "rejected", note, () => lnDecide(it, "rejected", note), "Rejected");
+}
+// Revert: back to the left as if it never went right; the old note becomes the draft
+function lnReopen(it) {
+  if (lnOpenItem(it)) return;
+  return lnSend(it, "open", "", () => lnUndecide(it), "Reverted");
 }
 // the scope picker saves on the click; there is no Save button anywhere on this page
 async function lnSetScope(it, scope) {
   if (!scope || it.scope === scope || _ln.busy[it.id]) return;
   const was = it.scope;
   _ln.busy[it.id] = 1;
-  it.scope = scope; lnPaint();
+  it.scope = scope; lnPaintCols();
   let r; try { r = await post(`/biz/${state.biz}/learnings/${it.id}/edit`, { scope }); } catch (e) { r = null; }
   delete _ln.busy[it.id];
   if (!r || r.error) { it.scope = was; notify({ text: "Scope change failed", sub: lnErr(r), color: "var(--danger)" }); return lnRefetch(); }

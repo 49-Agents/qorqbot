@@ -187,23 +187,8 @@ function ctxTree(d) {
   const peopleOn0 = state.ctx === "_people" || (state.ctx != null && PERSON_VIEW_RE.test(state.ctx));
   rows.push(`<div class="item bt ${peopleOn0 ? "on" : ""}" data-p="_people"><div class="nm">${SVG_PEOPLE}<span class="tt">People</span></div></div>`);
   rows.push(`<div class="item bt ${state.ctx === "_uploads" ? "on" : ""}" data-p="_uploads"><div class="nm">${SVG_INBOX}<span class="tt">Uploads</span>${badge0}</div></div>`);
-  rows.push(`<div class="h">Core</div>`);
-  (d.pillars || []).forEach(n => rows.push(`<div class="item pl ${n === state.ctx ? "on" : ""}" data-p="${esc(n)}"><div class="nm"><span class="tt">${esc(titleCase(n.replace(/\.md$/, "")))}</span></div></div>`));
-  rows.push(`<div class="h">Topics</div>`);
-  if (!kids.length) rows.push(`<div class="empty pad">No topics yet. Upload something; the filer makes them.</div>`);
-  else {
-    const seen = ctxSeenGet();
-    let seenChanged = false;
-    kids.forEach(k => {
-      const path = k.path, newest = newestNoteDate(k);
-      let fresh = false;
-      if (seen[path] === undefined) { seen[path] = newest; seenChanged = true; }
-      else if (newest && newest > seen[path]) fresh = true;
-      const on = state.ctx === path || (state.ctx || "").startsWith(path + "/");
-      rows.push(`<div class="item tp ${on ? "on" : ""}" data-p="${esc(path)}"><div class="nm">${glyph("circle", topicColor(k.slug), 8)}<span class="tt">${esc(cap(k.title || k.slug))}</span></div>${fresh ? `<span class="fresh"></span>` : ""}</div>`);
-    });
-    if (seenChanged) ctxSeenSave(seen);
-  }
+  // no Core or Topics list here: the pillars are reached from the overview, topics from the overview and
+  // the four latest under Context above
   t.innerHTML = rows.join("");
   t.querySelectorAll(".item, .ctxpi").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
 }
