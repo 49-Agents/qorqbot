@@ -180,7 +180,10 @@ function agpadPaintInbox(p) {
   if (!body) return;
   const error = p.inboxError ? '<p class="agpad-inbox-status" role="alert">Inbox unavailable. Retrying…</p>' : '';
   const agentId = p.agentId || state.agents.find(agent => agent.name === p.agent)?.agent_id;
-  const card = (item, subscription = false) => `<button type="button" class="agpad-inbox-item" data-agent-id="${esc(agentId || '')}" data-inbox-source="${esc(item.source_id)}" data-source-type="${esc(item.source_type)}" data-business="${esc(item.business_slug || '')}">
+  const card = (item, subscription = false) => item.message ? `<details class="agpad-inbox-item agpad-message">
+    <summary><strong>Message from ${esc(item.message.sender_name)}</strong><span>${esc(new Date(item.created_at).toLocaleString())}${item.message.reply_to ? ' · Reply' : ''}</span></summary>
+    <div class="agpad-message-body">${esc(item.message.body)}</div>
+    <span>To ${esc(item.message.recipient_name)}</span></details>` : `<button type="button" class="agpad-inbox-item" data-agent-id="${esc(agentId || '')}" data-inbox-source="${esc(item.source_id)}" data-source-type="${esc(item.source_type)}" data-business="${esc(item.business_slug || '')}">
     <strong>${esc(item.summary || 'Source item')}</strong><span>${esc(({stories:'Story',tasks:'Task',signoffs:'Signoff',documents:'Document',email_conversations:'Email',data_tables:'Table',action_logs:'Action',requests:'Request',agent_profiles:'Agent',principals:'Person',context_entities:'Reference'})[item.source_type] || 'Update')}${subscription ? (item.include_related ? ' · Includes linked items' : ' · Item only') : ' · ' + esc(item.event_type.split(',').map(type => ({relationship_changed:'Links changed',assignment_changed:'Assignment changed',response_submitted:'Response submitted',action_outcome:'Action result',note_added:'Note added',note:'Note added',message_changed:'Message received'})[type] || type.replaceAll('_', ' ')).join(', '))}</span>
     ${subscription ? '' : `<span>${esc(item.actor_name)} · ${esc(new Date(item.created_at).toLocaleString())}</span>`}</button>`;
   const html = error + (!data ? tEmptyHtml(p.inboxError ? 'No inbox data available.' : 'Loading inbox…') :
