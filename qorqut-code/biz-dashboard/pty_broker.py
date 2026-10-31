@@ -25,6 +25,7 @@ import struct
 import subprocess
 import termios
 import threading
+from uuid import uuid4
 
 RING_CAP = 256 * 1024  # bytes of scrollback kept for late joiners
 
@@ -296,6 +297,27 @@ def tmux(*args: str, env: dict | None = None) -> tuple[int, str]:
 
 def session_alive(name: str) -> bool:
     return tmux("has-session", "-t", f"={name}")[0] == 0
+
+
+def submit_input(session: str, text: str) -> None:
+    """Paste a broadcast and literal CSI-u Ctrl+Enter into an existing pane.
+
+    Bypass the attach client's extended-key negotiation, which can discard
+    Ctrl+Enter. Keep message content on stdin rather than in process arguments.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", session):
+        raise ValueError("Invalid terminal session")
+    buffer = 'broadcast-' + uuid4().hex
+    try:
+        subprocess.run([TMUX, '-L', TMUX_SOCK, '-f', _conf_path(),
+                        'load-buffer', '-b', buffer, '-', ';',
+                        'paste-buffer', '-d', '-r', '-p', '-b', buffer, '-t', '=' + session + ':', ';',
+                        'send-keys', '-l', '-t', '=' + session + ':', '\x1b[13;5u'],
+                       input=text, text=True, encoding='utf-8', capture_output=True,
+                       timeout=20, check=True, env=clean_env())
+    except Exception:
+        tmux('delete-buffer', '-b', buffer)
+        raise
 
 
 def ensure_session(name: str, cmd: list[str], cwd: str, env: dict | None = None,
