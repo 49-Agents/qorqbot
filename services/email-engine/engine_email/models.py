@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from email.headerregistry import Address
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -75,6 +76,7 @@ class Outgoing(BaseModel):
     from_address: str
     from_name: str = Field(default="", max_length=160)
     sender_ref: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,100}$")
+    transport: Literal["fastmail", "outlook_web"] | None = Field(default=None, exclude_if=lambda value: value is None)
     reply_to: str | None = None
     expires_at: str | None = None
     to: list[str] = Field(min_length=1, max_length=50)
@@ -122,9 +124,9 @@ class Outgoing(BaseModel):
     def digest(self):
         # Preserve pre-extension request digests, including recovery of saved drafts.
         data = self.model_dump()
-        for field in ("sender_ref", "reply_to", "expires_at"):
-            if data[field] is None:
-                del data[field]
+        for field in ("sender_ref", "transport", "reply_to", "expires_at"):
+            if data.get(field) is None:
+                data.pop(field, None)
         raw = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(raw).hexdigest()
 
@@ -155,15 +157,18 @@ class SharedSender(BaseModel):
     address: str
     from_name: str = Field(default="", max_length=160)
     account_ref: str = Field(pattern=r"^[A-Za-z0-9_-]{1,100}$")
+    transport: Literal["fastmail", "outlook_web"] = "fastmail"
     business_scope: Literal["selected", "all"] = "selected"
     allowed_business_ids: list[str] = Field(default_factory=list, max_length=100)
     default_for_outreach: bool = False
     writing_instructions: str = Field(default="", max_length=10_000)
+    required_footer: str = Field(default="", max_length=2000)
     enabled: bool = False
     rolling_limit: int = Field(default=30, ge=1, le=10000)
 
     _address = field_validator("address")(address)
     _name = field_validator("from_name")(header)
+    _footer = field_validator("required_footer")(header)
 
     @model_validator(mode="after")
     def valid_scope(self):
@@ -187,6 +192,44 @@ class HistoryConfig(BaseModel):
     private_folder_ids: list[str] = Field(default_factory=list, max_length=100)
 
 
+class OutlookWebConfig(BaseModel):
+    """Owner-selected local browser; never exposed in business metadata."""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    cdp_url: str = Field(min_length=1, max_length=2000)
+    address: str
+    account_ref: str = Field(pattern=r"^[A-Za-z0-9_-]{1,100}$")
+    start_at: str
+    timeout_seconds: int = Field(default=60, ge=1, le=120)
+
+    _address = field_validator("address")(address)
+
+    @field_validator("cdp_url")
+    @classmethod
+    def local_browser(cls, value):
+        import ipaddress
+        parsed = urlsplit(value)
+        local = parsed.hostname == "localhost"
+        if not local:
+            try:
+                local = ipaddress.ip_address(parsed.hostname or "").is_loopback
+            except ValueError:
+                pass
+        if (parsed.scheme not in {"http", "ws"} or not local or parsed.username
+                or parsed.password or parsed.query or parsed.fragment):
+            raise ValueError("Outlook browser endpoint must be local HTTP or WebSocket")
+        # Evaluate the port now so malformed values cannot reach the bridge.
+        parsed.port
+        return value
+
+    @field_validator("start_at")
+    @classmethod
+    def explicit_cutover(cls, value):
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise ValueError("Outlook collection cutover requires a timezone")
+        return parsed.astimezone(timezone.utc).isoformat()
+
+
 class HistoryEvent(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     event_id: str = Field(pattern=r"^[A-Za-z0-9_.:/-]{1,200}$")
@@ -206,6 +249,7 @@ class Settings:
     timeout: int = 30
     shared_senders: tuple[SharedSender, ...] = ()
     history: HistoryConfig | None = None
+    outlook_web: OutlookWebConfig | None = None
 
     def __post_init__(self):
         refs, addresses, limits = set(), set(), {}
@@ -220,10 +264,16 @@ class Settings:
             refs.add(sender.ref)
             addresses.add(sender.address)
             limits[sender.account_ref] = sender.rolling_limit
+            if sender.enabled and sender.transport == "outlook_web" and (
+                    self.outlook_web is None or self.outlook_web.address != sender.address
+                    or self.outlook_web.account_ref != sender.account_ref):
+                raise ValueError("Enabled Outlook sender requires matching browser configuration")
         if sum(sender.default_for_outreach for sender in self.shared_senders) > 1:
             raise ValueError("At most one shared sender can be the outreach default")
         if any(sender.enabled for sender in self.shared_senders) and self.history is None:
             raise ValueError("Enabled shared senders require private email history")
+        if self.outlook_web and self.history is None:
+            raise ValueError("Outlook browser collection requires private email history")
         if self.history and set(self.history.private_folder_ids) & {box.folder_id for box in self.mailboxes}:
             raise ValueError("Private history folders cannot be business mailboxes")
 
@@ -257,7 +307,9 @@ class Settings:
                 json.loads(Path(os.environ["EMAIL_SHARED_SENDERS_FILE"]).read_text()))
                 if os.environ.get("EMAIL_SHARED_SENDERS_FILE") else (),
             history=HistoryConfig.model_validate_json(Path(os.environ["EMAIL_HISTORY_FILE"]).read_text())
-                if os.environ.get("EMAIL_HISTORY_FILE") else None)
+                if os.environ.get("EMAIL_HISTORY_FILE") else None,
+            outlook_web=OutlookWebConfig.model_validate_json(Path(os.environ["EMAIL_OUTLOOK_WEB_FILE"]).read_text())
+                if os.environ.get("EMAIL_OUTLOOK_WEB_FILE") else None)
 
     def mailbox(self, ref):
         found = next((box for box in self.mailboxes if box.ref == ref), None)
@@ -281,4 +333,12 @@ class Settings:
                 raise ValueError("Shared sender is unavailable for this business")
             if not message.expires_at:
                 raise ValueError("Shared sending requires an approval execution deadline")
+            if (message.transport or "fastmail") != configured.transport:
+                raise ValueError("Approved transport no longer matches the shared sender")
+            if configured.required_footer:
+                lines = [line for line in message.body.splitlines() if line.strip()]
+                if not lines or lines[-1] != configured.required_footer:
+                    raise ValueError("Approved message must end with the exact required footer")
+        elif (message.transport or "fastmail") != "fastmail":
+            raise ValueError("Business mailbox sending requires Fastmail")
         return configured

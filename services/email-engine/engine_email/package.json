@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Pinned browser client for the owner-authorized Outlook web transport",
+  "dependencies": {"playwright-core": "1.63.0"},
+  "scripts": {"test": "node --test ../tests/test_outlook*.mjs"}
+}

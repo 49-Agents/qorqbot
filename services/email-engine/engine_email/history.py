@@ -149,3 +149,54 @@ class PrivateHistory:
     def advance(self, cursor):
         with self.connect() as db:
             db.execute("UPDATE collection SET cursor=? WHERE singleton=1", (cursor,))
+
+    def external_binding(self, provider, account_address, start_at=None):
+        """Independent source binding; the existing Fastmail cursor is untouched."""
+        if provider != "outlook-web":
+            raise ValueError("Unsupported external history provider")
+        with self.connect() as db:
+            db.executescript("""
+                CREATE TABLE IF NOT EXISTS external_history_bindings (
+                    provider TEXT NOT NULL, account_address TEXT NOT NULL, start_at TEXT NOT NULL,
+                    PRIMARY KEY(provider,account_address));
+                CREATE TABLE IF NOT EXISTS external_history_observations (
+                    identity TEXT PRIMARY KEY, digest TEXT NOT NULL);
+            """)
+            prior = db.execute("SELECT start_at FROM external_history_bindings WHERE provider=? AND account_address=?",
+                (provider, account_address)).fetchone()
+            if start_at is not None:
+                if prior and prior[0] != start_at:
+                    raise ValueError("External history account cutover cannot be reassigned")
+                db.execute("INSERT OR IGNORE INTO external_history_bindings VALUES(?,?,?)", (provider, account_address, start_at))
+            return prior[0] if prior else None
+
+    def external_observation(self, provider, account_address, identity, snapshot, *, kind="provider.message", provenance=None):
+        if self.external_binding(provider, account_address) is None:
+            raise ValueError("External history requires an explicit bound cutover")
+        namespace = json.dumps([provider, account_address, kind, identity], separators=(",", ":"))
+        digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            prior = db.execute("SELECT digest FROM external_history_observations WHERE identity=?", (namespace,)).fetchone()
+            if prior and prior[0] == digest:
+                return
+            content = {"schema_version": 1, "provider": provider, "account_address": account_address,
+                "observed_at": now(), "capture_scope": "account", "provenance": provenance or {},
+                **({"message": snapshot} if kind == "provider.message" else {"snapshot": snapshot})}
+            self._append(db, self.seal("external-provider:" + str(uuid.uuid4()), kind, content))
+            db.execute("INSERT INTO external_history_observations VALUES(?,?) ON CONFLICT(identity) DO UPDATE SET digest=excluded.digest",
+                (namespace, digest))
+
+    def external_gap(self, provider, account_address, cursor, error, *, status=None, message_id=None):
+        if self.external_binding(provider, account_address) is None:
+            raise ValueError("External history requires an explicit bound cutover")
+        identity = json.dumps([provider, account_address, cursor, error, status, message_id], separators=(",", ":"))
+        event_id = "external-gap:" + hashlib.sha256(identity.encode()).hexdigest()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM events WHERE event_id=?", (event_id,)).fetchone():
+                return
+            self._append(db, self.seal(event_id, "provider.collection_gap", {
+                "schema_version": 1, "provider": provider, "account_address": account_address,
+                "observed_at": now(), "capture_scope": "account", "cursor": cursor,
+                "error": error, "provider_status": status, "message_id": message_id}))

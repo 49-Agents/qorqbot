@@ -34,6 +34,8 @@ class Store:
                     business_id TEXT NOT NULL, address TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS provider_binding (
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1), account_id TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS outlook_provider_binding (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton=1), account_ref TEXT NOT NULL, address TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS address_bindings (
                     address TEXT PRIMARY KEY, mailbox TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS messages (
@@ -59,9 +61,20 @@ class Store:
                     request_id TEXT PRIMARY KEY REFERENCES sends(request_id), account_ref TEXT NOT NULL,
                     state TEXT NOT NULL, used_at TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS sender_quota ON sender_reservations(account_ref,state,used_at);
+                CREATE TABLE IF NOT EXISTS external_sender_sends (
+                    account_ref TEXT NOT NULL, provider_id TEXT NOT NULL,
+                    internet_message_id TEXT NOT NULL, sent_at TEXT NOT NULL,
+                    PRIMARY KEY(account_ref,provider_id));
                 CREATE TABLE IF NOT EXISTS history_outbox (
                     event_id TEXT PRIMARY KEY, digest TEXT NOT NULL, envelope TEXT NOT NULL);
             """)
+            # Never reinterpret a saved approval when an owner changes transport.
+            # This additive column preserves every legacy payload and wire digest.
+            db.execute("BEGIN IMMEDIATE")
+            if "transport" not in {row[1] for row in db.execute("PRAGMA table_info(sends)")}:
+                db.execute("ALTER TABLE sends ADD COLUMN transport TEXT NOT NULL DEFAULT 'fastmail' CHECK(transport IN ('fastmail','outlook_web'))")
+            if "draft_internet_message_id" not in {row[1] for row in db.execute("PRAGMA table_info(sends)")}:
+                db.execute("ALTER TABLE sends ADD COLUMN draft_internet_message_id TEXT")
         os.chmod(self.path, 0o600)
 
     def _history(self, db, request_id, kind):
@@ -110,6 +123,15 @@ class Store:
             if old and old[0] != account_id:
                 raise ValueError("Fastmail account identity cannot be reassigned")
             db.execute("INSERT OR IGNORE INTO provider_binding VALUES(1,?)", (account_id,))
+
+    def bind_outlook_provider(self, config):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            old = db.execute("SELECT account_ref,address FROM outlook_provider_binding WHERE singleton=1").fetchone()
+            values = (config.account_ref, config.address)
+            if old and tuple(old) != values:
+                raise ValueError("Outlook account identity cannot be reassigned")
+            db.execute("INSERT OR IGNORE INTO outlook_provider_binding VALUES(1,?,?)", values)
 
     def bind_mailboxes(self, mailboxes):
         changed = False
@@ -215,9 +237,9 @@ class Store:
                 if row["digest"] != message.digest():
                     raise ValueError("Request ID already belongs to different content")
                 return dict(row), False
-            db.execute("INSERT INTO sends(request_id,business_id,mailbox,digest,payload,state,updated_at) VALUES(?,?,?,?,?,?,?)",
+            db.execute("INSERT INTO sends(request_id,business_id,mailbox,digest,payload,state,updated_at,transport) VALUES(?,?,?,?,?,?,?,?)",
                 (message.request_id, message.business_id, message.mailbox, message.digest(), message.model_dump_json(),
-                 "queued" if queued else "creating", now()))
+                 "queued" if queued else "creating", now(), message.transport or "fastmail"))
             self._history(db, message.request_id, "send.prepared")
             return dict(db.execute("SELECT * FROM sends WHERE request_id=?", (message.request_id,)).fetchone()), True
 
@@ -237,10 +259,30 @@ class Store:
                 return True, dict(row)
             used = db.execute("SELECT * FROM sender_reservations WHERE account_ref=? AND (state='reserved' OR (state='sent' AND used_at>?))",
                 (sender.account_ref, cutoff)).fetchall()
-            if len(used) >= sender.rolling_limit:
-                releases = sorted(datetime.fromisoformat(item["used_at"]) + timedelta(hours=24)
-                    for item in used if item["state"] == "sent")
-                needed = len(used) - sender.rolling_limit + 1
+            native_ids, internet_ids = set(), set()
+            for item in used:
+                saved = db.execute("SELECT * FROM sends WHERE request_id=? AND transport='outlook_web'",
+                    (item["request_id"],)).fetchone()
+                if saved:
+                    result = json.loads(saved["result"])
+                    native_ids.update(value for value in (saved["draft_id"], result.get("outlook_message_id")) if value)
+                    for value in (saved["draft_internet_message_id"], result.get("internet_message_id"), result.get("native_internet_message_id")):
+                        if value:
+                            internet_ids.add(value.strip("<> "))
+            observed = []
+            for item in db.execute("SELECT * FROM external_sender_sends WHERE account_ref=? AND sent_at>? ORDER BY sent_at DESC",
+                    (sender.account_ref, cutoff)):
+                if item["provider_id"] in native_ids or item["internet_message_id"] and item["internet_message_id"] in internet_ids:
+                    continue
+                observed.append(item)
+                if item["internet_message_id"]:
+                    internet_ids.add(item["internet_message_id"])
+            if len(used) + len(observed) >= sender.rolling_limit:
+                releases = sorted([
+                    *(datetime.fromisoformat(item["used_at"]) + timedelta(hours=24)
+                        for item in used if item["state"] == "sent"),
+                    *(datetime.fromisoformat(item["sent_at"]) + timedelta(hours=24) for item in observed)])
+                needed = len(used) + len(observed) - sender.rolling_limit + 1
                 retry = releases[needed - 1].isoformat() if len(releases) >= needed else None
                 db.execute("UPDATE sends SET result=?,updated_at=? WHERE request_id=?",
                     (json.dumps({"reason": "sender_quota", "retry_at": retry}), instant, request_id))
@@ -250,6 +292,22 @@ class Store:
                 (instant, request_id))
             self._history(db, request_id, "send.reserved")
             return True, dict(db.execute("SELECT * FROM sends WHERE request_id=?", (request_id,)).fetchone())
+
+    def observe_external_send(self, account_ref, provider_id, internet_message_id, sent_at):
+        """Count observed Outlook sends, including manual sends, without replaying any."""
+        instant = datetime.fromisoformat(sent_at.replace("Z", "+00:00"))
+        if instant.tzinfo is None or not account_ref or not provider_id:
+            raise ValueError("Observed send requires account, provider ID and timezone")
+        message_id = (internet_message_id or "").strip("<> ")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            prior = db.execute("SELECT * FROM external_sender_sends WHERE account_ref=? AND provider_id=?",
+                (account_ref, provider_id)).fetchone()
+            if prior and prior["internet_message_id"] and message_id and prior["internet_message_id"] != message_id:
+                raise ValueError("Observed provider message identity cannot be reassigned")
+            db.execute("INSERT INTO external_sender_sends VALUES(?,?,?,?) ON CONFLICT(account_ref,provider_id) "
+                "DO UPDATE SET internet_message_id=CASE WHEN excluded.internet_message_id='' THEN internet_message_id ELSE excluded.internet_message_id END",
+                (account_ref, provider_id, message_id, instant.astimezone(timezone.utc).isoformat()))
 
     def cancel_queued(self, request_id, mailbox):
         with self.connect() as db:
@@ -264,11 +322,11 @@ class Store:
                 self._history(db, request_id, "send.canceled")
             return dict(db.execute("SELECT * FROM sends WHERE request_id=?", (request_id,)).fetchone())
 
-    def save_send(self, request_id, state, *, draft_id=None, result=None):
+    def save_send(self, request_id, state, *, draft_id=None, draft_internet_message_id=None, result=None):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            db.execute("UPDATE sends SET state=?,draft_id=COALESCE(?,draft_id),result=?,updated_at=? WHERE request_id=?",
-                (state, draft_id, json.dumps(result or {}), now(), request_id))
+            db.execute("UPDATE sends SET state=?,draft_id=COALESCE(?,draft_id),draft_internet_message_id=COALESCE(draft_internet_message_id,?),result=?,updated_at=? WHERE request_id=?",
+                (state, draft_id, draft_internet_message_id, json.dumps(result or {}), now(), request_id))
             if state in {"failed", "canceled"}:
                 db.execute("UPDATE sender_reservations SET state='released' WHERE request_id=?", (request_id,))
             elif state == "sent":
@@ -290,5 +348,6 @@ class Store:
     def receipt(row):
         return {"request_id": row["request_id"], "business_id": row["business_id"], "mailbox": row["mailbox"],
             "sender_ref": json.loads(row["payload"]).get("sender_ref"),
+            "transport": row["transport"],
             "state": row["state"], "draft_id": row["draft_id"], "updated_at": row["updated_at"],
             "result": json.loads(row["result"])}

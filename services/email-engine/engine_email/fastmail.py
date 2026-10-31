@@ -5,8 +5,9 @@ import re
 import base64
 import hashlib
 from email.message import EmailMessage
-from email.policy import SMTP
-from email.utils import formataddr, formatdate
+from email.policy import SMTP, default
+from email.parser import BytesParser
+from email.utils import formataddr, formatdate, getaddresses
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -27,6 +28,38 @@ HISTORY_FIELDS = ["id", "blobId", "threadId", "mailboxIds", "keywords", "size", 
     "htmlBody", "bodyValues", "attachments"]
 HISTORY_BODY_FIELDS = ["partId", "blobId", "size", "name", "type", "charset", "disposition",
     "cid", "language", "location", "headers"]
+
+
+def internet_message_id(value):
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if value.startswith("<") and value.endswith(">"):
+        value = value[1:-1]
+    return "<" + value + ">" if re.fullmatch(r"[^<>\s@]+@[^<>\s@]+", value) else None
+
+
+def mime_content_digest(content):
+    """Delivery headers/BCC may change; approved addresses, body and attachments may not."""
+    mail = BytesParser(policy=default).parsebytes(content)
+    headers = {key: [str(value) for value in mail.get_all(key, [])]
+        for key in ("subject", "message-id", "in-reply-to", "references")}
+    # Exchange's Sent copy may unfold the same Message-ID with a tab while
+    # SMTP delivery uses a space. Field-edge folding whitespace is not identity.
+    for key in ("message-id", "in-reply-to", "references"):
+        headers[key] = [value.strip() for value in headers[key]]
+    for key in ("from", "to", "cc", "reply-to"):
+        headers[key] = sorted((name, addr.lower()) for name, addr in getaddresses(mail.get_all(key, [])))
+    parts = []
+    for part in mail.walk():
+        if part.is_multipart():
+            continue
+        body = part.get_payload(decode=True) or b""
+        if part.get_content_maintype() == "text":
+            body = body.replace(b"\r\n", b"\n")
+        parts.append([part.get_content_type(), part.get_filename(), part.get_content_disposition(),
+            str(part.get("content-id", "")), hashlib.sha256(body).hexdigest()])
+    return hashlib.sha256(json.dumps([headers, parts], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 class ProviderError(Exception):
@@ -161,20 +194,30 @@ class Fastmail:
         # Never expose a message filed into multiple business routes.
         return matches[0] if len(matches) == 1 else None
 
-    def get_raw(self, ids, *, metadata=False):
-        args = {"ids": ids, "properties": ["id", "mailboxIds"] if metadata else FIELDS}
+    def get_raw(self, ids, *, metadata=False, include_mime=False):
+        args = {"ids": ids, "properties": ["id", "mailboxIds"] if metadata else [*FIELDS, *(["blobId"] if include_mime else [])]}
         if not metadata:
             args.update(fetchAllBodyValues=True, maxBodyValueBytes=MAX_MESSAGE_BYTES)
         return self.call("Email/get", args)
 
-    def get_message(self, mailbox, identity):
+    def _scoped_raw(self, mailbox, identity, *, include_mime=False):
         metadata = self.get_raw([identity], metadata=True).get("list", [])
         if len(metadata) != 1 or self.owner(metadata[0]) != mailbox:
             raise ProviderError("message_outside_business", status=404)
-        items = self.get_raw([identity]).get("list", [])
+        items = self.get_raw([identity], **({"include_mime": True} if include_mime else {})).get("list", [])
         if len(items) != 1 or self.owner(items[0]) != mailbox:
             raise ProviderError("message_outside_business", status=404)
-        return self.normalize(items[0])
+        return items[0]
+
+    def get_message(self, mailbox, identity):
+        return self.normalize(self._scoped_raw(mailbox, identity))
+
+    def get_message_mime(self, mailbox, identity):
+        """Read one scoped immutable original and its MIME, never a foreign body."""
+        raw = self._scoped_raw(mailbox, identity, include_mime=True)
+        if not raw.get("blobId"):
+            raise ProviderError("provider_message_mime_missing")
+        return self.normalize(raw), self.download_blob(raw["blobId"])
 
     @staticmethod
     def normalize(raw):
@@ -367,6 +410,60 @@ class Fastmail:
         draft = self.created(self.call("Email/import", {"emails": {"prepared": {"blobId": blob["blobId"],
             "mailboxIds": {mailbox.folder_id: True}, "keywords": {"$draft": True}}}}, write=True))
         return self.get_message(mailbox, draft["id"])
+
+    def find_observed_mime(self, mailbox, message_id, content):
+        """Reconcile an exact routed Outlook copy without reading a foreign body."""
+        identity = internet_message_id(message_id)
+        if identity is None:
+            raise ProviderError("outlook_import_message_id_missing")
+        result = self.call("Email/query", {"filter": {"header": ["Message-ID", identity]},
+            "limit": 10, "calculateTotal": True})
+        if (not isinstance(result.get("ids"), list) or type(result.get("total")) is not int
+                or result["total"] != len(result["ids"]) or result["total"] > 10):
+            raise ProviderError("outlook_import_lookup_ambiguous")
+        if not result["ids"]:
+            return None
+        values = self.call("Email/get", {"ids": result["ids"], "properties": ["id", "blobId", "mailboxIds", "messageId"]})
+        if values.get("notFound") or len(values.get("list", [])) != len(result["ids"]):
+            raise ProviderError("outlook_import_lookup_incomplete")
+        matches = [item for item in values["list"]
+            if identity in {internet_message_id(value) for value in item.get("messageId", [])}]
+        if not matches:
+            return None
+        if len(matches) != 1 or self.owner(matches[0]) != mailbox:
+            raise ProviderError("outlook_import_conflicting_owner")
+        existing = self.download_blob(matches[0]["blobId"])
+        if mime_content_digest(existing) != mime_content_digest(content):
+            raise ProviderError("outlook_import_content_conflict")
+        return self.get_message(mailbox, matches[0]["id"])
+
+    def import_observed_mime(self, mailbox, content, *, message_id, received_at=None, is_read=False):
+        """Copy complete provider MIME into its proven business folder; never submit mail."""
+        if mailbox not in self.settings.mailboxes or not isinstance(content, bytes) or len(content) > MAX_MESSAGE_BYTES:
+            raise ProviderError("outlook_import_invalid_content")
+        mail = BytesParser(policy=default).parsebytes(content)
+        identity = internet_message_id(message_id)
+        if identity is None or len(mail.get_all("Message-ID", [])) != 1 or internet_message_id(str(mail["Message-ID"])) != identity:
+            raise ProviderError("outlook_import_message_id_changed")
+        self.folders()
+        upload = self.session()["uploadUrl"].replace("{accountId}", quote(self.account_id, safe=""))
+        try:
+            blob = self.request("POST", upload, content=content, content_type="message/rfc822", write=True)
+        except ProviderError as exc:
+            # Uploading a blob alone cannot create a message; a retry is safe.
+            raise ProviderError(exc.code, status=exc.status, retry_after=exc.retry_after) from exc
+        if blob.get("accountId") != self.account_id or not blob.get("blobId"):
+            raise ProviderError("invalid_fastmail_upload", uncertain=True)
+        values = {"blobId": blob["blobId"], "mailboxIds": {mailbox.folder_id: True},
+            "keywords": {"$seen": True} if is_read else {}}
+        if received_at is not None:
+            values["receivedAt"] = received_at
+        imported = self.created(self.call("Email/import", {"emails": {"prepared": values}}, write=True))
+        try:
+            return self.get_message(mailbox, imported["id"])
+        except ProviderError as exc:
+            # Import already succeeded, even if the readback is unavailable.
+            raise ProviderError(exc.code, status=exc.status, uncertain=True) from exc
 
     def find_draft(self, mailbox, request_id):
         result = self.call("Email/query", {"filter": {"operator": "AND", "conditions": [

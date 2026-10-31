@@ -20,13 +20,12 @@ def create_app(service, *, background=True):
 
     async def poll():
         while True:
-            try:
-                await anyio.to_thread.run_sync(service.sync)
-                await anyio.to_thread.run_sync(service.reconcile_pending)
-                await anyio.to_thread.run_sync(service.collect_history)
-            except Exception:
-                import logging
-                logging.getLogger(__name__).error("Email background pass failed; mailbox state is not current")
+            for operation in (service.sync, service.collect_history, service.collect_outlook, service.reconcile_pending):
+                try:
+                    await anyio.to_thread.run_sync(operation)
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).error("Email background pass failed; mailbox state is not current")
             await asyncio.sleep(settings.sync_seconds)
 
     @asynccontextmanager
@@ -41,7 +40,7 @@ def create_app(service, *, background=True):
                     await task
                 except asyncio.CancelledError:
                     pass
-            service.provider.close()
+            service.close()
 
     def authenticate(request, *, send=False):
         supplied = request.headers.get("Authorization", "")
@@ -60,7 +59,7 @@ def create_app(service, *, background=True):
         try:
             if kind == "mailboxes":
                 return JSONResponse({"mailboxes": [box.model_dump() for box in settings.mailboxes],
-                    "shared_senders": [sender.model_dump() for sender in settings.shared_senders],
+                    "shared_senders": service.shared_sender_metadata(),
                     "sync": await anyio.to_thread.run_sync(service.store.sync_status)})
             mailbox = settings.mailbox(request.path_params["mailbox"])
             if kind == "send":
