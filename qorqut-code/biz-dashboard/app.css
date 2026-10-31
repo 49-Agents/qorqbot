@@ -122,6 +122,28 @@ input::placeholder, textarea::placeholder { color: var(--fg-3); }
 input:focus, textarea:focus, select:focus {
   border-color: rgba(255,255,255,.3); box-shadow: 0 0 0 4px rgba(255,255,255,.025);
 }
+/* Native checkbox semantics, with the same warm fill and quiet border as the app's controls. */
+input[type=checkbox] {
+  appearance: none; -webkit-appearance: none; display: inline-grid; place-content: center; flex: none;
+  width: 14px; height: 14px; margin: 0; padding: 0; vertical-align: middle;
+  border: 1px solid var(--fg-3); border-radius: 4px; background: var(--wash); color: var(--accent-fg);
+  cursor: pointer; transition: background .14s ease, border-color .14s ease, box-shadow .14s ease;
+}
+input[type=checkbox]::before {
+  content: ""; width: 4px; height: 7px; border: solid currentColor; border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-1px) rotate(45deg); opacity: 0;
+}
+input[type=checkbox]:hover:not(:disabled) { border-color: var(--accent); }
+input[type=checkbox]:checked, input[type=checkbox]:indeterminate { background: var(--accent); border-color: var(--accent); }
+input[type=checkbox]:checked::before, input[type=checkbox]:indeterminate::before { opacity: 1; }
+input[type=checkbox]:indeterminate::before { width: 6px; height: 0; border-width: 0 0 1.5px; transform: none; }
+input[type=checkbox]:focus { box-shadow: none; }
+input[type=checkbox]:focus-visible { outline: 2px solid var(--fg-2); outline-offset: 3px; }
+input[type=checkbox]:disabled { opacity: .4; cursor: default; }
+@media (forced-colors: active) {
+  input[type=checkbox] { appearance: auto; -webkit-appearance: auto; }
+  input[type=checkbox]::before { display: none; }
+}
 select { appearance: none; -webkit-appearance: none; padding-right: 28px; cursor: pointer;
   background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%238a8a8a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 9px center; }

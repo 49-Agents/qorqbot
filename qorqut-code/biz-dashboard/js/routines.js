@@ -161,7 +161,7 @@ function rtFormHTML(row = {}) {
     <label id="rttarget" ${row.scope !== 'global' ? 'hidden' : ''}>Run in<select class="inp" name="target"><option value="each-business" ${row.target !== 'root' ? 'selected' : ''}>Each business</option><option value="root" ${row.target === 'root' ? 'selected' : ''}>Businesses root</option></select></label>
     ${input('timeout','Timeout (seconds)',row.timeout || 900,'type="number" min="60" max="7200" required')}
     <fieldset class="rtwide"><legend>Departments</legend>${['marketing','accounting','data-science','code','general','onbashlyk'].map(d=>`<label class="rtcheck"><input type="checkbox" name="departments" value="${d}" ${(row.departments || ['onbashlyk']).includes(d) ? 'checked' : ''}>${d}</label>`).join('')}</fieldset>
-    <label class="rtcheck rtwide"><input type="checkbox" name="skip_if_live" ${row.skip_if_live ? 'checked' : ''}>Wait while agents are active</label>
+    <label class="rtcheck rtwide" title="Delays scheduled runs while an agent was active in the last 10 minutes. Retries for up to 6 hours."><input type="checkbox" name="skip_if_live" ${row.skip_if_live ? 'checked' : ''}>Wait until agents are idle</label>
     ${input('commit','Output paths (comma-separated)',(row.commit || []).join(', '))}
     <label class="rtwide">Why<textarea class="inp" name="why" required>${esc(row.why || '')}</textarea></label></div><p id="rterror" class="rtfail" role="alert"></p></form>`;
 }
