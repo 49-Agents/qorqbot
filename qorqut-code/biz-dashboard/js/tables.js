@@ -9,7 +9,8 @@ window.addEventListener('beforeunload', event => {
   if (_dataDrafts.size) { event.preventDefault(); event.returnValue = ''; }
 });
 const dataCall = async (biz, op, args = {}) => coreData(await post(`/biz/${encodeURIComponent(biz)}/operations/${op}`, args));
-const dataActive = (biz, node) => state.scope === 'business' && state.biz === biz && state.tab === 'tables' && node?.isConnected;
+const dataView = () => ['tables', 'accounting'].includes(state.tab);
+const dataActive = (biz, node) => state.scope === 'business' && state.biz === biz && dataView() && node?.isConnected;
 const dataIconButton = (id, label, icon) => `<button class="data-icon" type="button" id="${id}" title="${esc(label)}" aria-label="${esc(label)}">${icon}</button>`;
 const dataValue = value => value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
 const dataCell = (row, key) => row && Object.hasOwn(row.cells, key) ? row.cells[key] : null;
@@ -17,10 +18,13 @@ const dataDownload = (biz, id) => `/api/biz/${encodeURIComponent(biz)}/data-uplo
 const dataSettingsIcon = document.querySelector('.ritem[data-tab="settings"] svg').outerHTML;
 document.querySelector('#tablesnav').innerHTML = aicon('database', 'currentColor', 20);
 
-async function renderTables(container) {
+async function renderTables(container, filters = null) {
   const biz = state.biz, generation = ++_dataGeneration;
+  const entering = _data.biz !== biz || _data.view !== state.tab;
   ++_dataDetail;
   if (_data.biz !== biz) _data = {biz, mode: 'tables', selected: null, table: null, rows: [], cursor: null, query: '', order: '', descending: false, archived: false, department: '', purpose: '', purposes: []};
+  if (entering) { _data.department = filters?.department || ''; _data.purpose = ''; _data.selected = null; _data.mode = 'tables'; }
+  _data.view = state.tab;
   container.innerHTML = `<section class="data-workspace"><header class="data-top"><div class="ttabs"><button class="ttab ${_data.mode === 'tables' ? 'on' : ''}" data-data-mode="tables">Tables</button><button class="ttab ${_data.mode === 'uploads' ? 'on' : ''}" data-data-mode="uploads">Data uploads</button></div><span class="data-spacer"></span>${dataIconButton('data-new', _data.mode === 'tables' ? 'New table' : 'Upload data', _data.mode === 'tables' ? SVG_TPLUS : ICO_UPLOAD)}${dataIconButton('data-refresh', 'Refresh', aicon('refresh-cw', 'currentColor', 18))}</header><p class="data-error" id="data-error" role="status" hidden></p><div class="data-layout"><aside class="data-list"><label class="data-filter">Search<input class="inp" id="data-search" type="search"></label>${_data.mode === 'tables' ? `<label class="data-archived"><input type="checkbox" id="data-archived" ${_data.archived ? 'checked' : ''}>Archived</label>` : ''}<div id="data-items"></div><button class="btn" id="data-list-more" hidden>Load more</button></aside><section class="data-detail" id="data-detail"><p class="muted data-empty">${_data.mode === 'tables' ? 'No table selected' : 'No upload selected'}</p></section></div></section>`;
   container.querySelectorAll('[data-data-mode]').forEach(button => button.onclick = () => { _data.mode = button.dataset.dataMode; _data.selected = null; _data.table = null; renderTables(container); });
   container.querySelector('#data-new').onclick = () => _data.mode === 'tables' ? dataTableEditor() : dataUploadDialog();
@@ -145,7 +149,8 @@ function dataSyncDraft() {
   const dirty = !!draft && !!(draft.edits.size || draft.added.size || draft.deleted.size);
   if (draft && !dirty) _dataDrafts.delete(dataDraftKey());
   panel.querySelector('#data-draft-actions').hidden = !dirty;
-  panel.querySelectorAll('#data-save, #data-discard, #data-row-new, .data-cell, .data-cell-input').forEach(node => { node.disabled = !!draft?.saving || _data.table.archived; });
+  panel.querySelectorAll('#data-save, #data-discard, #data-row-new, .data-cell, .data-cell-input').forEach(node => { node.disabled = !!draft?.saving || _data.table.archived || node.dataset.readonly === 'true'; });
+  panel.querySelectorAll('[data-reverse]').forEach(node => { node.disabled = dirty || node.dataset.readonly === 'true'; });
   panel.querySelectorAll('#data-row-query, #data-more, #data-edit-table').forEach(node => { node.disabled = dirty; });
   panel.querySelectorAll('[data-sort]').forEach(node => { node.disabled = dirty || _data.table.columns.find(column => column.id === node.dataset.sort).type === 'json'; });
   panel.querySelector('#data-row-delete').disabled = !!draft?.saving || _data.table.archived || !panel.querySelector('[data-row-select]:checked');
@@ -156,7 +161,15 @@ function dataRenderRows() {
   const panel = document.querySelector('#data-detail'), table = _data.table, draft = dataDraft();
   const rows = [..._data.rows, ...(draft?.added.values() || [])].filter(row => !draft?.deleted.has(row.id));
   const body = panel.querySelector('tbody');
-  body.innerHTML = rows.map(row => `<tr data-row="${row.id}"><td class="data-check"><input type="checkbox" data-row-select="${row.id}" aria-label="Select row ${row.position + 1}"></td>${table.columns.map(column => `<td data-column="${column.id}"></td>`).join('')}</tr>`).join('');
+  body.innerHTML = rows.map(row => `<tr data-row="${row.id}"><td class="data-check"><input type="checkbox" data-row-select="${row.id}" aria-label="Select row ${row.position + 1}" ${table.append_only && !draft?.added.has(row.id) ? 'disabled' : ''}></td>${table.columns.map(column => `<td data-column="${column.id}"></td>`).join('')}</tr>`).join('');
+  if (table.append_only) for (const row of rows) {
+    if (draft?.added.has(row.id)) continue;
+    const cell = body.querySelector(`[data-row="${row.id}"] .data-check`);
+    cell.innerHTML = `<button type="button" class="data-icon" data-reverse="${row.id}" data-readonly="${!!row.cells.reversal_of || table.archived}" title="Reverse entry" aria-label="Reverse entry">${aicon('arrow-left', 'currentColor', 16)}</button>`;
+    cell.querySelector('button').onclick = () => dataForm('Reverse entry', '<label>Summary<input class="inp" id="data-reversal-summary" maxlength="200"></label>',
+      (el, submit) => submit('ledger_reverse', {entry_id: row.cells.entry_id, summary: el.querySelector('#data-reversal-summary').value.trim()}),
+      () => dataOpenTable(table.id), 'Reverse');
+  }
   let empty = panel.querySelector('#data-empty-rows');
   if (!empty) { empty = document.createElement('p'); empty.id = 'data-empty-rows'; empty.className = 'data-empty muted'; empty.textContent = 'No rows'; body.closest('table').after(empty); }
   empty.hidden = rows.length > 0;
@@ -167,7 +180,8 @@ function dataRenderRows() {
   panel.querySelector('#data-row-count').textContent = `${rows.length} of ${table.row_count + (draft?.added.size || 0) - (draft?.deleted.size || 0)} rows`;
   body.querySelectorAll('[data-row-select]').forEach(node => { node.onchange = dataSyncDraft; });
   const all = panel.querySelector('#data-select-all'); all.checked = false;
-  all.onchange = () => { body.querySelectorAll('[data-row-select]').forEach(node => { node.checked = all.checked; }); dataSyncDraft(); };
+  all.disabled = table.append_only && !draft?.added.size;
+  all.onchange = () => { body.querySelectorAll('[data-row-select]:not(:disabled)').forEach(node => { node.checked = all.checked; }); dataSyncDraft(); };
   dataSyncDraft();
 }
 
@@ -206,7 +220,9 @@ function dataRenderCell(cell, row, column, editing = false) {
     return;
   }
   const button = document.createElement('button'); button.type = 'button'; button.className = 'data-cell';
-  button.disabled = _data.table.archived || !!dataDraft()?.saving;
+  button.dataset.readonly = String(!!(_data.table.append_only && !dataDraft()?.added.has(row.id)) || (_data.table.readonly_columns || []).includes(column.id)
+    || (!dataDraft()?.added.has(row.id) && (_data.table.identity_columns || []).includes(column.id)));
+  button.disabled = _data.table.archived || !!dataDraft()?.saving || button.dataset.readonly === 'true';
   button.title = `${column.name}: ${dataValue(value).slice(0, 1000)}`;
   if (column.type === 'boolean') {
     button.setAttribute('role', 'checkbox'); button.setAttribute('aria-checked', value == null ? 'mixed' : String(value));
@@ -287,7 +303,7 @@ function dataTableEditor(table = null) {
       tags: Object.fromEntries([...el.querySelectorAll('[data-tags]')].map(node => [node.dataset.tags, [...new Set(node.value.split(',').map(value => value.trim()).filter(Boolean))]])),
       ...(table ? {archived: el.querySelector('#data-table-archived').checked} : {})};
     return submit(table ? 'tables_update' : 'tables_create', table ? {table_id: table.id, expected_revision: table.revision, changes} : {...changes, purpose: el.querySelector('#data-purpose').value});
-  }, async result => { if (state.tab === 'tables') { _data.selected = result.table.id; _data.mode = 'tables'; await renderTables(document.querySelector('#content')); } });
+  }, async result => { if (dataView()) { _data.selected = result.table.id; _data.mode = 'tables'; await renderTables(document.querySelector('#content')); } });
   const host = editor.el.querySelector('#data-columns');
   const add = (column, existing = false, required = false) => {
     const row = document.createElement('div'); row.className = 'data-column';
@@ -337,7 +353,7 @@ function dataUploadDialog() {
     if (file.size > 20 * 1024 * 1024 || !file.size) throw new Error('Choose a file between 1 byte and 20 MiB.');
     const content = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result.slice(reader.result.indexOf(',') + 1)); reader.onerror = () => reject(new Error('Could not read the file.')); reader.readAsDataURL(file); });
     return submit('data_uploads_upload', {filename: file.name, content_b64: content, notes: el.querySelector('#data-upload-notes').value});
-  }, async result => { if (state.tab === 'tables') { _data.mode = 'uploads'; _data.selected = result.upload.id; await renderTables(document.querySelector('#content')); } else toast('Data uploaded.'); }, 'Upload');
+  }, async result => { if (dataView()) { _data.mode = 'uploads'; _data.selected = result.upload.id; await renderTables(document.querySelector('#content')); } else toast('Data uploaded.'); }, 'Upload');
   const choose = value => { file = value; view.el.querySelector('#data-file-name').textContent = file ? file.name : 'Choose or drop a data file'; };
   view.el.querySelector('#data-file').onchange = event => choose(event.target.files[0]);
   const drop = view.el.querySelector('#data-upload-drop'); drop.ondragover = event => event.preventDefault(); drop.ondrop = event => { event.preventDefault(); choose(event.dataTransfer.files[0]); };

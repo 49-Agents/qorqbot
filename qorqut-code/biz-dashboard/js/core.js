@@ -52,7 +52,7 @@ const agentGlyph = (m, size) => { const d = dept((m || {}).department); return (
 
 // lazy: the render functions live in later script files
 const TABS = { agents: c => renderAgents(c), context: c => renderContext(c), stories: c => renderStories(c), tables: c => renderTables(c),
-  marketing: c => renderMarketing(c), accounting: c => soon(c, "The cash ledger and what recurs."),
+  marketing: c => renderMarketing(c), accounting: c => renderTables(c, {department: 'accounting'}),
   datascience: c => soon(c, "Experiments and metric deep-dives."),
   progress: c => soon(c, "Tasks, milestones and what shipped."),
   code: c => soon(c, "Repos, commits and deploys."),
