@@ -25,7 +25,8 @@ const LN_SCOPES = [
   ["global", "All businesses", lnSvg(AICONS.globe)],
 ];
 const LN_SCOPE_BY_KEY = Object.fromEntries(LN_SCOPES.map(([k, label, ico]) => [k, { key: k, label, ico }]));
-const LN_STATE_HEX = { accepted: "var(--mk-green)", rejected: "var(--danger)" };
+// the decided card's ball wears the same two colours as the notes gutter balls (done / blocked)
+const LN_STATE_HEX = { accepted: "#30D158", rejected: "#FF453A" };
 
 // notes: draft notes per item, kept in localStorage per business until the decision goes through, so a
 // repaint, a reload or a revert never loses them; noteOpen: cards whose notes box is open; busy: ids with a
@@ -61,15 +62,11 @@ function lnCountsByTag(items) {
   for (const it of (items || []).filter(lnOpenItem)) if (it.tag in c) c[it.tag]++;
   return c;
 }
-// Which context elements a decision would touch: the tree it lands in, the scope it applies to, and every
+// Which context elements a decision would touch: the tree it lands in (context/ for world facts) and every
 // person the text names. Pure so the test can check it without a DOM.
 function lnTouches(item, people) {
   const it = item || {}, obs = it.observed || {}, out = [];
-  if (it.bucket === "context") out.push({ label: "context/", kind: "bucket" });
-  if (it.scope === "biz") out.push({ label: "business rules", kind: "scope" });
-  else if (it.scope === "agent") out.push({ label: `agents/${obs.agent || "?"}`, kind: "scope" });
-  else if (it.scope === "agent_kind") out.push({ label: `${obs.agent_kind || "?"} plugin`, kind: "scope" });
-  else if (it.scope === "global") out.push({ label: "all businesses", kind: "scope" });
+  if (it.bucket === "context") out.push({ label: "context/", kind: "bucket", title: "a fact about the world (product, market, people), not a change to how agents work; lands in the context/ tree, so scope is always this business" });
   const text = String(it.text || "");
   for (const p of people || []) {
     const names = [p.name].concat(p.aka || []).filter(Boolean);
@@ -171,7 +168,8 @@ function lnPaintCols(loading) {
   lnWire(v);
 }
 
-// one card, open or decided: head (scope picker, type, who, votes, age), the text, what it touches, the
+// one card, open or decided: one head line (state ball on decided, type, scope icon(s), context/ and people
+// chips, who, votes, age), the text, the
 // evidence, the passes, then the notes box (closed until the card takes focus) and Reject / Approve —
 // decided cards carry their note instead, and a Revert that puts them back on the left
 function lnCardHtml(item, people) {
@@ -182,7 +180,8 @@ function lnCardHtml(item, people) {
     return `<button class="lnscope ${it.scope === k ? "on" : ""}" type="button" data-scope="${esc(k)}" ${off ? `disabled title="context items are always scope biz"` : `title="${esc(label)}"`}>${ico}</button>`;
   }).join("");
   const votes = it.votes != null && it.passes ? `<span class="chip" title="passes that agreed">${esc(it.votes)}/${esc(it.passes)}</span>` : "";
-  const touches = lnTouches(it, people).map(x => `<span class="chip ${esc(x.kind)}">${esc(x.label)}</span>`).join("");
+  const touches = lnTouches(it, people).map(x => `<span class="chip ${esc(x.kind)}" ${x.title ? `title="${esc(x.title)}"` : ""}>${esc(x.label)}</span>`).join("");
+  const scopeIco = `<span class="lnscopeico" title="${esc((LN_SCOPE_BY_KEY[it.scope] || {}).label || it.scope || "")}">${(LN_SCOPE_BY_KEY[it.scope] || {}).ico || ""}</span>`;
   const stamp = [(ev.turns || []).join(" "), lnWho(obs.agent), String(ev.session || "").slice(0, 8)].filter(Boolean).join(" · ");
   const quote = ev.owner_quote ? `<div class="lnquote">“${esc(ev.owner_quote)}”<span class="src">${esc(stamp)}</span></div>` : "";
   const more = Array.isArray(it.evidence_more) ? it.evidence_more.filter(e => e && e.owner_quote) : [];
@@ -194,9 +193,8 @@ function lnCardHtml(item, people) {
   if (!lnOpenItem(it)) {
     const st = String(it.state), note = lnNote(it);
     return `<div class="mkcard lncard done" data-id="${esc(it.id)}" data-state="${esc(st)}" style="--sc:${esc(LN_STATE_HEX[st] || "var(--fg-3)")}">
-      <div class="mkhead"><span class="lnstate">${esc(st)}</span><span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span><span class="sp"></span><span class="ago">${esc(lnRel((it.decision || {}).created || it.created))}</span></div>
+      <div class="mkhead"><span class="lnball" title="${esc(st)}"></span><span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span>${scopeIco}${touches}<span class="sp"></span><span class="ago">${esc(lnRel((it.decision || {}).created || it.created))}</span></div>
       <div class="mkt">${esc(it.text || "")}</div>
-      ${touches ? `<div class="lntouch">${touches}</div>` : ""}
       ${note ? `<div class="lnwhy">${esc(note)}</div>` : ""}
       <div class="mkfoot"><span class="lnpending">not yet applied</span><div class="mkacts">
         <button class="mka revert" type="button" data-act="reopen" title="back to the left, as if never decided">Revert</button>
@@ -205,10 +203,9 @@ function lnCardHtml(item, people) {
   const notes = _ln.notes[it.id] || "";
   const noteBox = `<textarea class="lnnote" placeholder="a note for the record — it rides with your decision, and Reject needs one" spellcheck="false" ${_ln.noteOpen[it.id] || notes ? "" : "hidden"}>${esc(notes)}</textarea>`;
   return `<div class="mkcard lncard" tabindex="0" data-id="${esc(it.id)}" data-tag="${esc(it.tag || "")}">
-    <div class="mkhead"><span class="lnpick">${pick}</span><span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span>
+    <div class="mkhead"><span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span><span class="lnpick">${pick}</span>${touches}
       <span class="who">${esc(lnWho(obs.agent))}</span><span class="sp"></span>${votes}<span class="ago">${esc(lnRel(it.created))}</span></div>
     <div class="mkt">${esc(it.text || "")}</div>
-    ${touches ? `<div class="lntouch">${touches}</div>` : ""}
     ${quote}${moreEv}${variants}${noteBox}
     <div class="mkfoot"><div class="mklinks"></div><div class="mkacts">
       <button class="mka reject" type="button" data-act="reject">Reject</button>
