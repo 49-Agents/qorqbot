@@ -21,3 +21,6 @@
 .global-task-note {white-space: pre-wrap; overflow-wrap: anywhere;}
 .global-task-space [role=status] {overflow-wrap: anywhere;}
 .global-task-space [hidden] {display:none;}
+
+.business-task-section { padding-top: 20px; margin-top: 12px; border-top: 1px solid var(--line); }
+[data-global-tasks] .global-task-space { padding: 0; }

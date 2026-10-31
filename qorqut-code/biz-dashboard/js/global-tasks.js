@@ -1,20 +1,26 @@
-// Global-only task UI. The personal taskbox remains a separate business aggregate.
+// Global task UI, also embedded above the business aggregate in the Tasks pane.
 // This uses the same typed task operations and revision checks as business tasks.
-function globalTasksMount(host, {agentId = null} = {}) {
+function globalTasksMount(host, {agentId = null, heading = null, compact = false} = {}) {
   if (!host) return;
   const token = {};
   host._globalTasks = token;
   const current = () => host.isConnected && host._globalTasks === token;
   let config, assignees, rows = [], cursor = null, selected = null;
   let search = '', snoozeFilter = 'active', includeClosed = false, busy = false, attempt = null;
-  let ownerFilter = 'all';
+  let ownerFilter = 'all', filtersPending = false;
+  host.setTaskFilters = (query, visibility) => {
+    if (search === query && snoozeFilter === visibility) return;
+    search = query; snoozeFilter = visibility;
+    if (!config || busy || host.querySelector('[data-editor]')) { filtersPending = true; return; }
+    load();
+  };
   const invoke = async (name, args = {}) => coreData(await post(`/root/operations/${name}`, {scope: 'global', ...args}));
   const label = id => assignees.find(a => a.id === id)?.display_name || id;
   const message = text => { if (current()) host.querySelector('[role="status"]').textContent = text; };
 
   function shell(content) {
     host.innerHTML = `<section class="global-task-space" aria-label="Global tasks">
-      <p class="global-task-heading">${agentId ? 'Assigned tasks' : 'Global tasks'}</p>
+      <p class="global-task-heading">${esc(heading || (agentId ? 'Assigned tasks' : 'Global tasks'))}</p>
       <div class="global-task-content">${content}</div><p role="status" aria-live="polite"></p></section>`;
   }
 
@@ -22,9 +28,9 @@ function globalTasksMount(host, {agentId = null} = {}) {
     if (!current()) return;
     selected = null;
     shell(`<div class="global-task-tools">${agentId ? '' : `<div class="global-task-filters" role="group" aria-label="Assigned to">${[['mine','Mine'],['agents','Agents'],['all','All']].map(([v,label])=>`<button type="button" data-owner-filter="${v}" aria-pressed="${ownerFilter===v}">${label}</button>`).join('')}</div>`}<button type="button" data-new>New task</button><button type="button" data-refresh aria-label="Refresh tasks">Refresh</button></div>
-      <form data-search><label>Search Global tasks<input name="search" type="search" maxlength="500" value="${esc(search)}"></label>
+      ${compact ? '' : `<form data-search><label>Search Global tasks<input name="search" type="search" maxlength="500" value="${esc(search)}"></label>
       <label>Task visibility<select name="snooze_filter">${['active','snoozed','all'].map(v=>`<option value="${v}" ${snoozeFilter===v?'selected':''}>${v[0].toUpperCase()+v.slice(1)}</option>`).join('')}</select></label>
-      <label><input type="checkbox" name="closed" ${includeClosed ? 'checked' : ''}>Include closed and archived</label><button>Search</button></form>
+      <label><input type="checkbox" name="closed" ${includeClosed ? 'checked' : ''}>Include closed and archived</label><button>Search</button></form>`}
       <div class="global-task-list">${rows.length ? rows.map(t => `<button class="global-task-row" data-task="${esc(t.id)}" type="button">
         <span>${esc(t.title)}</span><small>${esc(t.status)}${t.archived ? ' · archived' : ''}${t.due ? ' · due '+esc(t.due) : ''}</small>
         ${taskSnoozed(t) ? `<small>${esc(taskSnoozeLabel(t))}</small>` : ''}
@@ -33,18 +39,18 @@ function globalTasksMount(host, {agentId = null} = {}) {
     host.querySelector('[data-new]').onclick = () => edit(null);
     host.querySelectorAll('[data-owner-filter]').forEach(button => button.onclick = () => { ownerFilter = button.dataset.ownerFilter; load(); });
     host.querySelector('[data-refresh]').onclick = () => load();
-    host.querySelector('[data-search]').onsubmit = e => {
+    host.querySelector('[data-search]')?.addEventListener('submit', e => {
       e.preventDefault(); const form = e.currentTarget;
       search = form.elements.search.value.trim(); includeClosed = form.elements.closed.checked; load();
-    };
-    host.querySelector('[name="snooze_filter"]').onchange = e => { snoozeFilter = e.target.value; load(); };
+    });
+    host.querySelector('[name="snooze_filter"]')?.addEventListener('change', e => { snoozeFilter = e.target.value; load(); });
     host.querySelectorAll('[data-task]').forEach(button => button.onclick = () => open(button.dataset.task));
     host.querySelector('[data-more]')?.addEventListener('click', () => load(true));
   }
 
   async function load(more = false) {
     if (busy) return;
-    busy = true; message('Loading…');
+    busy = true; filtersPending = false; message('Loading…');
     host.querySelectorAll('input,select,button').forEach(b => b.disabled = true);
     try {
       const assignee = agentId || (ownerFilter === 'mine' ? assignees.find(a => a.is_owner)?.id : null);
@@ -61,7 +67,7 @@ function globalTasksMount(host, {agentId = null} = {}) {
       if (!current()) return;
       rows = more ? [...rows, ...data.tasks] : data.tasks; cursor = data.next_cursor; list();
     } catch (error) { message(error.message || 'Tasks unavailable. Use Refresh to retry.'); }
-    finally { busy = false; if (current()) host.querySelectorAll('input,select,button').forEach(b => b.disabled = false); }
+    finally { busy = false; if (current()) { host.querySelectorAll('input,select,button').forEach(b => b.disabled = false); if (filtersPending) load(); } }
   }
 
   async function open(id) {
@@ -144,7 +150,7 @@ function globalTasksMount(host, {agentId = null} = {}) {
   }).catch(error => {
     if (!current()) return;
     message(error.message || 'Global tasks unavailable.');
-    const retry = document.createElement('button'); retry.textContent = 'Retry'; retry.onclick = () => globalTasksMount(host, {agentId});
+    const retry = document.createElement('button'); retry.textContent = 'Retry'; retry.onclick = () => globalTasksMount(host, {agentId, heading, compact});
     host.querySelector('.global-task-content').appendChild(retry);
   });
 }
