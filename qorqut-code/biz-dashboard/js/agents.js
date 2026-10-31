@@ -198,6 +198,67 @@ function agentNavOrder() {
   return [].concat(o.pinned, ...o.cats.map(c => c.agents), o.loose);
 }
 
+// ------------------------------------------------------------------ context menu
+// A hand-rolled right-click menu, one at a time: fixed div in document.body, clamped to the
+// viewport after mount, dismissed on outside mousedown / another contextmenu / scroll / resize / Escape.
+let _cmenuEl = null;
+function closeCmenu() {
+  if (!_cmenuEl) return;
+  const el = _cmenuEl; _cmenuEl = null;
+  document.removeEventListener("mousedown", el._onDoc, true);
+  document.removeEventListener("contextmenu", el._onDoc, true);
+  document.removeEventListener("keydown", el._onKey, true);
+  window.removeEventListener("scroll", el._onAway, true);
+  window.removeEventListener("resize", el._onAway, true);
+  el.remove();
+}
+function ctxMenu(x, y, items) {
+  closeCmenu();
+  const el = document.createElement("div");
+  el.className = "cmenu";
+  el.innerHTML = items.map((it, i) => `<button type="button" class="ci ${it.danger ? "danger" : ""}" data-i="${i}">${it.icon}<span>${esc(it.label)}</span></button>`).join("");
+  document.body.appendChild(el);
+  _cmenuEl = el;
+  el.querySelectorAll(".ci").forEach((b, i) => b.onclick = e => { e.stopPropagation(); closeCmenu(); items[i].onClick(); });
+  const r = el.getBoundingClientRect();
+  const cx = Math.min(x, window.innerWidth - r.width - 6);
+  const cy = Math.min(y, window.innerHeight - r.height - 6);
+  el.style.left = Math.max(6, cx) + "px";
+  el.style.top = Math.max(6, cy) + "px";
+  el._onDoc = e => { if (!el.contains(e.target)) closeCmenu(); };
+  el._onKey = e => { if (e.key === "Escape") closeCmenu(); };
+  el._onAway = () => closeCmenu();
+  document.addEventListener("mousedown", el._onDoc, true);
+  document.addEventListener("contextmenu", el._onDoc, true);
+  document.addEventListener("keydown", el._onKey, true);
+  window.addEventListener("scroll", el._onAway, true);
+  window.addEventListener("resize", el._onAway, true);
+  return el;
+}
+const ICO_PIN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
+const ICO_PENCIL = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
+const ICO_TRASH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
+const ICO_PLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>`;
+
+function togglePin(name) {
+  const cur = orgReconcile(orgLoad());
+  if (cur.pinned.indexOf(name) >= 0) {
+    cur.pinned = cur.pinned.filter(n => n !== name);
+    cur.loose.push(name);
+  } else {
+    orgNameRemove(cur, name);
+    cur.pinned.push(name);
+  }
+  orgSave(cur); paintList();
+}
+function removeCat(ci) {
+  const cur = orgReconcile(orgLoad());
+  const c = cur.cats[ci]; if (!c) return;
+  cur.cats.splice(ci, 1);
+  cur.loose = cur.loose.concat(c.agents);
+  orgSave(cur); paintList();
+}
+
 // ------------------------------------------------------------------- list
 let _newCatOpen = false;
 function paintList() {
@@ -205,8 +266,6 @@ function paintList() {
   const rows = $("#agentrows"); if (!rows) return;
   const live = new Set((state.terms || []).filter(t => !t.done).map(t => t.agent));
   const byName = {}; state.agents.forEach(a => byName[a.name] = a);
-  const SVG_PIN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
-  const SVG_X2 = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
 
   if (!state.agents.length) {
     rows.innerHTML = `<div class="empty pad">No agents yet. Add one above.</div>`;
@@ -218,9 +277,8 @@ function paintList() {
     const a = byName[name]; if (!a) return "";
     const running = live.has(a.name);
     const pinned = o.pinned.indexOf(name) >= 0;
-    return `<div class="item agent ${a.name === state.agent ? "on" : ""}" draggable="true" data-a="${esc(a.name)}" data-sec="${esc(secKind)}" data-idx="${secIdx}">
+    return `<div class="item agent ${a.name === state.agent ? "on" : ""}" draggable="true" data-a="${esc(a.name)}" data-sec="${esc(secKind)}" data-idx="${secIdx}" data-pinned="${pinned ? 1 : 0}">
       <div class="nm">${agentGlyph(a, 10)}<span class="tt">${esc(a.name)}</span></div>
-      <button type="button" class="pinbtn ${pinned ? "on" : ""}" data-pin="${esc(a.name)}" title="${pinned ? "Unpin" : "Pin"}">${SVG_PIN}</button>
       <span class="ldot ${running ? "live" : ""}" data-st title="${running ? "running" : "idle"}"></span>
     </div>`;
   };
@@ -228,43 +286,43 @@ function paintList() {
   let html = "";
   if (o.pinned.length) html += `<div class="h" data-drop-sec="pinned">Pinned</div>` + o.pinned.map((n, i) => row(n, "pinned", i)).join("");
   o.cats.forEach((c, ci) => {
-    html += `<div class="h catH" data-drop-sec="cat" data-cat="${ci}"><span class="cn">${esc(c.name)}</span><button type="button" class="catx" data-catx="${ci}" title="Remove category">${SVG_X2}</button></div>`
+    html += `<div class="h catH" data-drop-sec="cat" data-cat="${ci}"><span class="cn">${esc(c.name)}</span></div>`
       + c.agents.map((n, i) => row(n, "cat" + ci, i)).join("");
   });
   html += `<div class="h" data-drop-sec="loose">Agents</div>` + o.loose.map((n, i) => row(n, "loose", i)).join("");
   html += _newCatOpen
     ? `<div class="newcatrow"><input id="newcatin" class="newcatin" placeholder="Category name…" autocomplete="off" spellcheck="false"></div>`
-    : `<button type="button" class="newcatbtn" id="newcatbtn">+ New category</button>`;
+    : "";
   rows.innerHTML = html;
 
   rows.querySelectorAll(".agent").forEach(d => d.onclick = () => { state.agent = d.dataset.a; renderAgents($("#content")); });
 
-  rows.querySelectorAll(".pinbtn").forEach(b => b.onclick = e => {
-    e.stopPropagation();
-    const name = b.dataset.pin;
-    const cur = orgReconcile(orgLoad());
-    if (cur.pinned.indexOf(name) >= 0) {
-      cur.pinned = cur.pinned.filter(n => n !== name);
-      cur.loose.push(name);
-    } else {
-      orgNameRemove(cur, name);
-      cur.pinned.push(name);
-    }
-    orgSave(cur); paintList();
+  rows.querySelectorAll(".item.agent").forEach(d => d.oncontextmenu = e => {
+    e.preventDefault();
+    const name = d.dataset.a, a = byName[name]; if (!a) return;
+    const pinned = d.dataset.pinned === "1";
+    ctxMenu(e.clientX, e.clientY, [
+      { label: pinned ? "Unpin" : "Pin", icon: ICO_PIN, onClick: () => togglePin(name) },
+      { label: "Edit…", icon: ICO_PENCIL, onClick: () => lookModal(a) },
+    ]);
   });
 
-  rows.querySelectorAll(".catx").forEach(b => b.onclick = e => {
-    e.stopPropagation();
-    const ci = Number(b.dataset.catx);
-    const cur = orgReconcile(orgLoad());
-    const c = cur.cats[ci]; if (!c) return;
-    cur.cats.splice(ci, 1);
-    cur.loose = cur.loose.concat(c.agents);
-    orgSave(cur); paintList();
+  rows.querySelectorAll(".h.catH").forEach(h => h.oncontextmenu = e => {
+    e.preventDefault();
+    const ci = Number(h.dataset.cat);
+    ctxMenu(e.clientX, e.clientY, [
+      { label: "Remove category", icon: ICO_TRASH, danger: true, onClick: () => removeCat(ci) },
+    ]);
   });
 
-  const newBtn = $("#newcatbtn");
-  if (newBtn) newBtn.onclick = () => { _newCatOpen = true; paintList(); };
+  rows.oncontextmenu = e => {
+    if (e.target.closest(".item.agent") || e.target.closest(".h.catH")) return;
+    e.preventDefault();
+    ctxMenu(e.clientX, e.clientY, [
+      { label: "New category", icon: ICO_PLUS, onClick: () => { _newCatOpen = true; paintList(); } },
+    ]);
+  };
+
   const newIn = $("#newcatin");
   if (newIn) {
     newIn.focus();

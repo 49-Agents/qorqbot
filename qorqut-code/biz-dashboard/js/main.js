@@ -13,6 +13,7 @@ loadBiz();
     if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return true;
     if (a && a.isContentEditable) return true;
     if (document.querySelector(".overlay") || document.querySelector(".menu")) return true;
+    if (document.querySelector(".cmenu")) return true;
     return false;
   };
 
