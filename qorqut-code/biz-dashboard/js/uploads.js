@@ -48,6 +48,18 @@ function upKind(file) {
   if (type.startsWith("video/") || (!type && UP_VIDEO_EXT.test(name))) return "video";
   return "file";
 }
+// the hint under the box and the send button's label: shared by the full render and the in-place patch
+// that runs while typing (a rebuild there would replace the textarea and drop focus)
+function upHint(f) {
+  const m = upMode(f);
+  if (m === "empty") return "paste text, images or videos here — or drop files, or pick them";
+  if (m === "text") return `${f.text.trim().length.toLocaleString()} chars → context; the filer splits it by topic`;
+  return `${f.files.length} file${f.files.length === 1 ? "" : "s"} → assets/${f.group}${f.topic ? "/" + upTopicSlug(f.topic) : ""}`;
+}
+function upSendLabel(f, busy) {
+  if (busy) return "Uploading…";
+  return upMode(f) === "media" ? `Upload ${f.files.length} to assets` : "Upload to context";
+}
 // one id per submit, same shape as the server's upload ids (UTC minute + 4 base32 chars)
 function upBatchId() {
   const d = new Date(), p = n => String(n).padStart(2, "0");
@@ -88,21 +100,18 @@ function upRender() {
 
 function upFormHtml() {
   const f = upForm, mode = upMode(f), media = mode === "media";
-  const hint = mode === "empty" ? "paste text, images or videos here — or drop files, or pick them"
-    : mode === "text" ? `${f.text.trim().length.toLocaleString()} chars → context; the filer splits it by topic`
-    : `${f.files.length} file${f.files.length === 1 ? "" : "s"} → assets/${f.group}${f.topic ? "/" + esc(upTopicSlug(f.topic)) : ""}`;
   return `<div class="uphead"><h1>Uploads</h1><p class="upsub">Text goes into context. Images and videos go into assets. One or the other per upload.</p></div>
   <div class="upbox${media ? " media" : ""}" id="upbox" tabindex="0">
     <textarea class="uptext" id="uptext" placeholder="paste anything: notes from a call, a doc, a thread, a decision — or images and videos" spellcheck="false"${media ? " readonly" : ""}>${esc(f.text)}</textarea>
     ${media ? `<div class="upstrip" id="upstrip">${f.files.map((x, i) => upThumbHtml(x, i)).join("")}</div>` : ""}
-    <div class="upfoot"><span class="uphint" id="uphint">${hint}</span><label class="upbtn uppick">pick files<input type="file" id="uppick" multiple accept="image/*,video/*" hidden></label>${mode !== "empty" ? `<button class="upbtn" id="upclear" type="button">clear</button>` : ""}</div>
+    <div class="upfoot"><span class="uphint" id="uphint">${esc(upHint(f))}</span><label class="upbtn uppick">pick files<input type="file" id="uppick" multiple accept="image/*,video/*" hidden></label><button class="upbtn" id="upclear" type="button"${mode === "empty" ? " hidden" : ""}>clear</button></div>
   </div>
   <div class="upfields">
     <div class="upf"><label class="upl" for="upnotes">Notes <span class="opt">optional</span></label><input class="upinp" id="upnotes" placeholder="where it came from: call with Sarah, PH launch page" autocomplete="off" value="${esc(f.notes)}"></div>
     <div class="upf"><label class="upl" for="uptopic">Topic <span class="opt">optional</span></label><input class="upinp" id="uptopic" list="uptopics" placeholder="existing topic, or a new one" autocomplete="off" value="${esc(f.topic)}"><datalist id="uptopics">${upTopics.map(t => `<option value="${esc(t)}">`).join("")}</datalist></div>
     <div class="upf${media ? "" : " off"}" id="upgroupf"><span class="upl">Destination</span><div class="upgroups">${UP_GROUPS.map(([k, l, d]) => `<label class="upg${f.group === k ? " on" : ""}" title="${esc(d)}"><input type="radio" name="upgroup" value="${k}"${f.group === k ? " checked" : ""} hidden>${l}</label>`).join("")}</div></div>
   </div>
-  <div class="upact"><button class="upsend" id="upsend" type="button"${mode === "empty" || upBusy ? " disabled" : ""}>${upBusy ? "Uploading…" : mode === "media" ? `Upload ${f.files.length} to assets` : "Upload to context"}</button><span class="uperr" id="uperr" hidden></span></div>`;
+  <div class="upact"><button class="upsend" id="upsend" type="button"${mode === "empty" || upBusy ? " disabled" : ""}>${esc(upSendLabel(f, upBusy))}</button><span class="uperr" id="uperr" hidden></span></div>`;
 }
 function upThumbHtml(x, i) {
   const k = upKind(x.file), url = x.url || "";
@@ -112,6 +121,14 @@ function upThumbHtml(x, i) {
 function upDoneHtml() {
   if (!upDone.length) return "";
   return `<div class="updone"><div class="upeyebrow">This session</div>${upDone.slice(0, 40).map(r => `<div class="updrow${r.ok ? "" : " bad"}"><span class="updk">${r.kind === "text" ? "context" : "asset"}</span><span class="updl">${esc(r.label)}</span><span class="updr">${r.ok ? esc(r.path || r.id) : esc(r.error)}</span></div>`).join("")}</div>`;
+}
+
+// what changes while typing (hint, send label/enabled, clear visibility), patched without a rebuild
+function upPatch() {
+  const f = upForm, mode = upMode(f);
+  const h = $("#uphint"); if (h) h.textContent = upHint(f);
+  const s = $("#upsend"); if (s) { s.textContent = upSendLabel(f, upBusy); s.disabled = mode === "empty" || upBusy; }
+  const c = $("#upclear"); if (c) c.hidden = mode === "empty";
 }
 
 // ---------------------------------------------------------------- wiring
@@ -130,9 +147,8 @@ function upWire(root) {
   if (ta) {
     ta.oninput = () => {
       if (upMode(upForm) === "media") { ta.value = ""; return; }
-      const had = upMode(upForm), now = ta.value.trim() ? "text" : "empty";
       upForm.text = ta.value;
-      if (had !== now) upRender(); else { const h = $("#uphint"); if (h) h.textContent = now === "text" ? `${ta.value.trim().length.toLocaleString()} chars → context; the filer splits it by topic` : ""; }
+      upPatch();
     };
     ta.onpaste = e => {
       const dt = e.clipboardData; if (!dt) return;
@@ -160,7 +176,7 @@ function upWire(root) {
   });
   const notes = root.querySelector("#upnotes"), topic = root.querySelector("#uptopic");
   if (notes) notes.oninput = () => { upForm.notes = notes.value; };
-  if (topic) topic.oninput = () => { upForm.topic = topic.value; const h = $("#uphint"); if (h && upMode(upForm) === "media") h.textContent = `${upForm.files.length} file${upForm.files.length === 1 ? "" : "s"} → assets/${upForm.group}${upForm.topic ? "/" + upTopicSlug(upForm.topic) : ""}`; };
+  if (topic) topic.oninput = () => { upForm.topic = topic.value; upPatch(); };
   root.querySelectorAll('input[name="upgroup"]').forEach(r => r.onchange = () => {
     upForm.group = r.value; ls("upgroup", r.value);
     root.querySelectorAll(".upg").forEach(l => l.classList.toggle("on", l.querySelector("input").value === r.value));
