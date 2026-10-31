@@ -1,6 +1,9 @@
-// One source-owned conversation, with local drafts and no viewing telemetry.
+// One source-owned conversation with two separate channels: the owner's private
+// channel with Ordubashy and the team's agent discussion. Local drafts only, and
+// no viewing telemetry beyond the explicit private read acknowledgment.
 const conversationStates = new Map();
 let conversationMountId = 0;
+const CONVERSATION_CHANNELS = [['private', 'Private with Ordubashy'], ['team', 'Agent discussion']];
 // Inline Focus conversations dismiss on outside clicks, while their contents stay interactive.
 document.addEventListener('click',event=>{
   for(const host of document.querySelectorAll('[data-inline-conversation]')) {
@@ -8,10 +11,17 @@ document.addEventListener('click',event=>{
   }
 });
 function conversationKey(source) { return `${source.type}:${source.biz || 'global'}:${source.id}`; }
-function conversationState(source) {
-  const key=conversationKey(source);
-  if (!conversationStates.has(key)) conversationStates.set(key,{text:'',notes:[],participants:[],loaded:false,cursor:null,before:null,mounts:new Set(),ageTimer:null});
+function conversationStateKey(source,channel) { return `${conversationKey(source)}:${channel}`; }
+function conversationState(source,channel='private') {
+  const key=conversationStateKey(source,channel);
+  if (!conversationStates.has(key)) conversationStates.set(key,{channel,text:'',notes:[],participants:[],loaded:false,cursor:null,before:null,mounts:new Set(),ageTimer:null,conversation:null,readState:null});
   return conversationStates.get(key);
+}
+// The dashboard is the owner interface. A session that explicitly reports another
+// human keeps the old team composer and never sees the owner's private channel.
+function conversationViewerIsOwner() {
+  const session=typeof state==='object' && state?state.session:null;
+  return !session || session.is_owner!==false;
 }
 function conversationAge(at) {
   if (typeof agpadInboxAge === 'function') return agpadInboxAge(at);
@@ -28,6 +38,14 @@ function conversationGlyph(person,size) {
   return person.author_kind==='agent' && typeof agentGlyph==='function'
     ? agentGlyph({...person.presentation,...profile},size)
     : esc(conversationPersonName(person).slice(0,2));
+}
+function conversationPeople(s) {
+  const people=new Map();
+  for (const n of [...(s.participants || []),...s.notes]) if(n.entry_kind!=='system') {
+    const participantId=n.created_by || n.actor_id || n.author_id || conversationPersonName(n);
+    if(!people.has(participantId))people.set(participantId,n);
+  }
+  return [...people.values()];
 }
 // Presentation only: canonical bodies and transport payloads stay complete.
 function messagePreview(body, summary) {
@@ -52,49 +70,90 @@ async function conversationCall(source,operation,args,options={}) {
   const path=source.biz?`/biz/${encodeURIComponent(source.biz)}`:'/root';
   return coreData(await conversationRequest(post(`${path}/operations/${operation}`,{...args,...(!source.biz?{scope:'global'}:{}),...options})));
 }
+// A private call is Global whenever the mount has no business slug of its own
+// (Focus cards), and then names the owning business inside the canonical source.
+function conversationPrivateGlobal(source,adapter) {
+  return adapter.privateGlobal!==undefined?!!adapter.privateGlobal:!source.biz;
+}
+function conversationPrivateSource(source,adapter) {
+  if(adapter.privateSource)return adapter.privateSource;
+  const value={type:source.type,id:source.id};
+  if(conversationPrivateGlobal(source,adapter) && source.business_id)value.business_id=source.business_id;
+  return value;
+}
+async function conversationPrivateCall(source,adapter,operation,args,options={}) {
+  const global=conversationPrivateGlobal(source,adapter);
+  const path=global?'/root':`/biz/${encodeURIComponent(source.biz)}`;
+  return coreData(await conversationRequest(post(`${path}/operations/${operation}`,
+    {scope:global?'global':'business',source:conversationPrivateSource(source,adapter),...args,...options})));
+}
 function conversationMount(host,source,adapter={}) {
   if (!host) return;
-  const key=conversationKey(source),s=conversationState(source);
+  const key=conversationKey(source);
   let expanded=false;
   const expandedMessages=new Set();
   if (host.dataset.conversation===key) { host._source=source; return host._conversation; }
   host.dataset.conversation=key;host._source=source;
-  const panelId=`conversation-panel-${++conversationMountId}`;
-  host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span></button><section id="${panelId}" class="conversation-panel" hidden><div class="conversation-participants" aria-label="Conversation participants"></div><button type="button" class="quiet conversation-older" hidden>Older messages</button><div class="conversation-feed" role="log" aria-label="Conversation"></div><label class="conversation-compose">Message<textarea class="inp" rows="3" maxlength="20000"></textarea></label><button type="button" class="btn conversation-send">Send</button><p class="ferr" role="alert" hidden></p></section>`;
+  // The session can arrive after a mount, so the owner test is read on demand
+  // rather than frozen: a late non-owner session restores the team composer.
+  const viewerIsOwner=()=>conversationViewerIsOwner();
+  const channels={private:conversationState(source,'private'),team:conversationState(source,'team')};
+  let channel=adapter.channel || (viewerIsOwner()?'private':'team');
+  const st=()=>channels[channel];
+  const readOnly=()=>channel==='team' && viewerIsOwner();
+  const mountId=++conversationMountId;
+  const panelId=`conversation-panel-${mountId}`;
+  const tabId=name=>`conversation-tab-${mountId}-${name}`;
+  const tabs=CONVERSATION_CHANNELS.map(([name,label])=>`<button type="button" role="tab" id="${tabId(name)}" class="quiet conversation-channel" data-channel="${name}" aria-selected="false" tabindex="-1" aria-controls="${panelId}">${esc(label)}</button>`).join('');
+  host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span><span class="conversation-unread" data-conversation-unread aria-hidden="true" hidden></span></button><section id="${panelId}" class="conversation-panel" role="tabpanel" aria-labelledby="${tabId('private')}" hidden><div class="conversation-channels" role="tablist" aria-label="Conversation channel">${tabs}</div><p class="conversation-readonly" hidden>Agent discussion · read-only. Reply privately to Ordubashy.</p><div class="conversation-participants" aria-label="Conversation participants"></div><button type="button" class="quiet conversation-older" hidden>Older messages</button><div class="conversation-feed" role="log" aria-label="Conversation"></div><label class="conversation-compose">Message<textarea class="inp" rows="3" maxlength="20000"></textarea></label><button type="button" class="btn conversation-send">Send</button><p class="ferr" role="alert" hidden></p></section>`;
   const toggle=host.querySelector('.conversation-toggle'),panel=host.querySelector('.conversation-panel'),feed=host.querySelector('.conversation-feed'),input=host.querySelector('textarea'),send=host.querySelector('.conversation-send'),older=host.querySelector('.conversation-older'),error=host.querySelector('[role="alert"]');
+  const unreadDot=host.querySelector('[data-conversation-unread]'),readOnlyNote=host.querySelector('.conversation-readonly');
+  const composeLabel=host.querySelector('.conversation-compose');
   if(adapter.inlineComposer) {
     host.dataset.inlineConversation='true';
     const composer=document.createElement('div');composer.className='conversation-inline-compose';
-    const label=host.querySelector('.conversation-compose');
-    label.firstChild.textContent='';input.rows=1;input.placeholder='Leave a comment…';
+    composeLabel.firstChild.textContent='';input.rows=1;input.placeholder='Leave a comment…';
     input.setAttribute('aria-label','Leave a comment');
-    composer.append(label,send);host.append(composer,error);
+    composer.append(composeLabel,send);host.append(composer,error);
   }
-  s.mounts.add(host);
-  const syncDraft=sourceInput=>{for(const mount of [...s.mounts]){if(!mount.isConnected || mount.dataset.conversation!==key){s.mounts.delete(mount);continue;}const other=mount.querySelector('textarea');if(other && other!==sourceInput && other.value!==s.text)other.value=s.text;}};
-  input.value=s.text;input.oninput=()=>{s.text=input.value;syncDraft(input);adapter.onInput?.();};
+  st().mounts.add(host);
+  host.dataset.conversationChannel=channel;
+  const syncDraft=sourceInput=>{const s=st();for(const mount of [...s.mounts]){if(!mount.isConnected || mount.dataset.conversation!==key || mount.dataset.conversationChannel!==s.channel){s.mounts.delete(mount);continue;}const other=mount.querySelector('textarea');if(other && other!==sourceInput && other.value!==s.text)other.value=s.text;}};
+  input.value=st().text;input.oninput=()=>{st().text=input.value;syncDraft(input);adapter.onInput?.();};
   const current=()=>host.isConnected && host.dataset.conversation===key;
   function syncSending() {
-    for(const mount of s.mounts)if(mount.isConnected && mount.dataset.conversation===key){
+    const s=st();
+    for(const mount of s.mounts)if(mount.isConnected && mount.dataset.conversation===key && mount.dataset.conversationChannel===s.channel){
       const tx=mount.querySelector('textarea'),button=mount.querySelector('.conversation-send');
       if(tx)tx.disabled=!!s.sending || !!s.submission;
       if(button){button.disabled=!!s.sending;button.textContent=s.submission?'Retry Send':'Send';}
     }
   }
+  function syncChannel() {
+    for(const tab of host.querySelectorAll('.conversation-channel')) {
+      const selected=tab.dataset.channel===channel;
+      tab.setAttribute('aria-selected',String(selected));
+      tab.tabIndex=selected?0:-1;
+    }
+    panel.setAttribute('aria-labelledby',tabId(channel));
+    const hidden=readOnly();
+    // Only the composer goes away: the inline wrapper still carries the Focus
+    // message icon, which must stay reachable in the read-only team view.
+    composeLabel.hidden=hidden;send.hidden=hidden;
+    readOnlyNote.hidden=!hidden;
+    if(adapter.inlineComposer)input.placeholder=adapter.placeholder ?? (channel==='private'?'Private message to Ordubashy…':'Leave a comment…');
+  }
+  syncChannel();
   syncSending();
   let painted='';
   function paint() {
-    const signature=JSON.stringify([s.notes,s.participants,s.cursor,s.before]);
+    const s=st();
+    const signature=JSON.stringify([channel,s.notes,s.participants,s.cursor,s.before]);
     if(painted===signature)return;
     painted=signature;
     const top=feed.scrollTop;
-    const people=new Map();
-    for (const n of [...(s.participants || []),...s.notes]) if(n.entry_kind!=='system') {
-      const participantId=n.created_by || n.actor_id || n.author_id || conversationPersonName(n);
-      if(!people.has(participantId))people.set(participantId,n);
-    }
-    adapter.onParticipants?.([...people.values()]);
-    host.querySelector('.conversation-participants').innerHTML=[...people.values()].map(person=>{
+    const people=conversationPeople(s);
+    host.querySelector('.conversation-participants').innerHTML=people.map(person=>{
       const name=conversationPersonName(person);
       const glyph=conversationGlyph(person,20);
       return `<span class="conversation-participant" title="${esc(name)}"><span class="conversation-participant-avatar" aria-hidden="true">${glyph}</span><span>${esc(name)}</span></span>`;
@@ -130,17 +189,54 @@ function conversationMount(host,source,adapter={}) {
     older.hidden=!s.cursor && !s.before;feed.scrollTop=top;
   }
   function scheduleAgeRefresh() {
+    const s=st();
     if(s.ageTimer || !s.mounts.size)return;
     s.ageTimer=setTimeout(()=>{s.ageTimer=null;for(const mount of [...s.mounts]){if(!mount.isConnected)s.mounts.delete(mount);else if(mount._conversation?.isExpanded())for(const time of mount.querySelectorAll('time[datetime]'))time.textContent=conversationAge(time.dateTime);}if(s.mounts.size)scheduleAgeRefresh();},60000);
   }
   function showError(e) { error.hidden=false;error.textContent=e.message || String(e); }
-  async function load(more=false) {
-    if(s.loading)return;s.loading=true;error.hidden=true;
+  // Acknowledge only what the server has already returned to this owner, and only
+  // after an interactive private load that included the newest page.
+  async function acknowledge(s) {
+    const stillPrivateVisible=()=>viewerIsOwner() && expanded && channel==='private' && current();
+    if(!stillPrivateVisible() || s.marking)return;
+    const latest=s.conversation?.latest_sequence || 0;
+    if(!latest || latest<=(s.readState?.last_read_sequence || 0))return;
+    s.marking=true;
+    try {
+      // Do not acknowledge a load that the owner has already closed or switched
+      // away from while the private history request was in flight.
+      if(!stillPrivateVisible())return;
+      const data=await conversationPrivateCall(source,adapter,'owner_conversation_mark_read',{sequence:latest},{idempotency_key:newRequestId()});
+      const readState=data?.read_state;
+      s.readState=readState || {last_read_sequence:latest,unread:false};
+      // A coordinator reply can arrive between GET and mark-read. The server's
+      // unread result is authoritative: keep or restore the dot and projection.
+      if(!stillPrivateVisible())return;
+      if(readState?.unread===true || Number(readState?.last_read_sequence ?? latest)<latest) {
+        setUnread(true);
+        adapter.onUnread?.(latest);
+        return;
+      }
+      setUnread(false);
+      adapter.onRead?.(latest);
+    } catch(_) {
+      // A failed acknowledgment leaves the unread indicator exactly as it was.
+    } finally {s.marking=false;}
+  }
+  async function load(more=false,options={}) {
+    const target=options.channel || channel,s=channels[target];
+    if(s.loading)return;
+    s.loading=true;if(target===channel)error.hidden=true;
     s.refreshAfterSend=false;
     try {
       let data;
       const pagination=more?{...(s.cursor?{cursor:s.cursor}:{}),...(s.before?{before:s.before}:{})}:{};
-      if(adapter.read) data=await conversationRequest(adapter.read(pagination));
+      if(target==='private') {
+        const result=await conversationPrivateCall(source,adapter,'owner_conversation_get',{limit:20,...(more && s.before?{before:s.before}:{})});
+        s.conversation=result.conversation || null;s.readState=result.read_state || null;
+        data={notes:result.messages || [],next_before:result.next_before,participants:result.participants};
+      }
+      else if(adapter.read) data=await conversationRequest(adapter.read(pagination));
       else if(source.type==='story') {
         const result=await conversationCall(source,'stories_timeline',{story_id:source.id,notes_only:true,limit:20,...pagination});
         data={notes:result.events.slice().reverse().map(n=>({...n,created_by:n.actor_id,created_by_name:n.actor?.name,author_kind:n.actor?.kind})),next_cursor:result.next_cursor,participants:result.participants};
@@ -150,50 +246,108 @@ function conversationMount(host,source,adapter={}) {
       const merged=new Map((more?[...data.notes,...s.notes]:[...s.notes,...data.notes]).map(n=>[n.id,n]));
       s.notes=[...merged.values()].sort((a,b)=>a.sequence!=null && b.sequence!=null?a.sequence-b.sequence:(a.created_at||'').localeCompare(b.created_at||'') || a.id.localeCompare(b.id));
       if(more || !s.loaded){s.cursor=data.next_cursor;s.before=data.next_before;}
-      s.loaded=true;if(current()){paint();if(more)feed.scrollTop=Math.max(0,feed.scrollHeight-oldHeight+feed.scrollTop);}
-      for(const mount of s.mounts)if(mount!==host && mount.isConnected && mount.dataset.conversation===key && mount._conversation?.isExpanded())mount._conversation._paint?.();
+      s.loaded=true;
+      if(target===channel && current()){paint();if(more)feed.scrollTop=Math.max(0,feed.scrollHeight-oldHeight+feed.scrollTop);}
+      for(const mount of s.mounts)if(mount!==host && mount.isConnected && mount.dataset.conversation===key && mount.dataset.conversationChannel===target && mount._conversation?.isExpanded())mount._conversation._paint?.();
       s.rejectionRequiresMessage=data.rejection_requires_message;
+      // Card-level people projections describe the team, not the private pair,
+      // and stay current even while the private channel is the one on screen.
+      if(target==='team')adapter.onParticipants?.(conversationPeople(s));
+      if(target==='private' && !more && options.acknowledge)await acknowledge(s);
     } catch(e){
       if(['forbidden','not_found'].includes(e.code)){
         s.notes=[];s.participants=[];s.loaded=false;s.cursor=null;s.before=null;
-        if(current())paint();
+        if(target===channel && current())paint();
       }
-      if(current())showError(e);
+      if(target===channel && current())showError(e);
     } finally{
       s.loading=false;
       // A send may finish while an earlier read is still in flight. Fetch again
       // afterwards so that response cannot leave the new message out of view.
-      if(s.refreshAfterSend)void load();
+      if(s.refreshAfterSend)void load(false,{channel:target});
     }
   }
   async function submit() {
-    if(s.sending || !s.text.trim())return;
+    // A tab switch mid-send must not redirect the message: the channel and its
+    // state are fixed for the whole submission.
+    const sending=channel,s=channels[sending];
+    if(s.sending || !s.text.trim() || readOnly())return;
     s.sending=true;syncSending();error.hidden=true;
     let saved=false;
     try {
       if(!s.submission) {
         let revision=host._source.revision;
-        if(source.type==='task' || source.type==='story') {
+        if(sending==='team' && (source.type==='task' || source.type==='story')) {
           const data=await conversationCall(source,source.type==='task'?'tasks_get':'stories_get',{[source.type+'_id']:source.id});revision=data[source.type].revision;
         }
-        s.submission={text:s.text,idempotency_key:newRequestId(),revision};
+        s.submission={text:s.text,idempotency_key:newRequestId(),...(sending==='team'?{revision}:{})};
       }
       const request=s.submission;
-      if(adapter.send) await conversationRequest(adapter.send(request));
+      if(sending==='private') await conversationPrivateCall(source,adapter,'owner_conversation_send',{text:request.text},{idempotency_key:request.idempotency_key});
+      else if(adapter.send) await conversationRequest(adapter.send(request));
       else await conversationCall(source,{task:'tasks_comment',story:'stories_note_add',signoff:'signoffs_comment',email:'email_comment'}[source.type],
         {[source.type==='email'?'conversation_id':source.type+'_id']:source.id,...(source.type==='story'?{body:request.text}:{text:request.text})},
         {idempotency_key:request.idempotency_key,...(request.revision?{expected_revision:request.revision}:{})});
-      s.text='';s.submission=null;saved=true;if(current()){input.value='';send.textContent='Send';}syncDraft(input);
-    } catch(e){if(current()){showError(e);if(['revision_conflict','stale_signoff','not_found','forbidden','policy_denied'].includes(e.code)){s.submission=null;send.textContent='Send';error.textContent+=' Review the current source before sending again.';}else if(s.submission){send.textContent='Retry Send';if(e.code==='request_timeout')error.textContent='Could not confirm delivery. Retry Send to check the same message.';}}} finally{s.sending=false;syncSending();adapter.onInput?.();}
+      s.text='';s.submission=null;saved=true;if(current() && channel===sending){input.value='';send.textContent='Send';}syncDraft(input);
+    } catch(e){
+      // The server owns the channel rule: move the draft to the private channel
+      // rather than losing it or retrying a write the owner may not make.
+      if(e.code==='channel_required'){
+        const draft=s.text;s.submission=null;s.text='';
+        channels.private.text=draft;
+        selectChannel('private',{acknowledge:false});
+        if(current()){input.value=draft;showError(e);}
+      }
+      else if(current() && channel===sending){showError(e);if(['revision_conflict','stale_signoff','not_found','forbidden','policy_denied'].includes(e.code)){s.submission=null;send.textContent='Send';error.textContent+=' Review the current source before sending again.';}else if(s.submission){send.textContent='Retry Send';if(e.code==='request_timeout')error.textContent='Could not confirm delivery. Retry Send to check the same message.';}}
+    } finally{s.sending=false;syncSending();adapter.onInput?.();}
     // A confirmed write is complete. Refresh history without holding the
     // composer disabled, and preserve the same submission key on uncertain writes.
-    if(saved){s.refreshAfterSend=true;void load();}
+    if(saved){s.refreshAfterSend=true;void load(false,{channel:s.channel});}
+  }
+  function selectChannel(next,options={}) {
+    if(!channels[next] || next===channel)return;
+    channels[channel].mounts.delete(host);
+    channel=next;host.dataset.conversationChannel=next;
+    channels[next].mounts.add(host);
+    syncChannel();
+    input.value=st().text;
+    syncSending();painted='';paint();
+    if(expanded)void load(false,{acknowledge:options.acknowledge!==false && next==='private'});
+  }
+  function setUnread(value) {
+    unreadDot.hidden=!value;
+    host.dataset.conversationUnread=value?'true':'false';
+    // A button's aria-label replaces its subtree, so the state belongs in the name.
+    toggle.setAttribute('aria-label',value?'Comment, unread private reply':'Comment');
   }
   input.onkeydown=event=>{
     if(event.key==='Enter' && event.ctrlKey && !event.isComposing && !send.disabled && !input.disabled){event.preventDefault();submit();}
   };
-  function expand(value,notify=true) {expanded=value;panel.hidden=!value;toggle.setAttribute('aria-expanded',String(value));if(notify)adapter.onToggle?.(value);if(value) {if(s.loaded)paint();load();scheduleAgeRefresh();}}
+  function expand(value,notify=true) {expanded=value;panel.hidden=!value;toggle.setAttribute('aria-expanded',String(value));if(notify)adapter.onToggle?.(value);if(value) {if(st().loaded)paint();void load(false,{acknowledge:channel==='private'});scheduleAgeRefresh();}}
   toggle.onclick=()=>expand(!expanded);older.onclick=()=>load(true);send.onclick=submit;
-  host._conversation={refresh:()=>expanded || adapter.inlineComposer?load():null,preload:()=>load(),isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),state:s,_paint:paint};
+  const channelTabs=[...host.querySelectorAll('.conversation-channel')];
+  for(const tab of channelTabs) {
+    tab.onclick=()=>selectChannel(tab.dataset.channel);
+    tab.onkeydown=event=>{
+      const moves={ArrowRight:1,ArrowLeft:-1};
+      const index=channelTabs.indexOf(tab);
+      const next=event.key in moves?channelTabs[(index+moves[event.key]+channelTabs.length)%channelTabs.length]
+        :event.key==='Home'?channelTabs[0]:event.key==='End'?channelTabs.at(-1):null;
+      if(!next)return;
+      event.preventDefault();
+      selectChannel(next.dataset.channel);
+      next.focus();
+    };
+  }
+  host._conversation={
+    refresh:()=>expanded || adapter.inlineComposer?load(false,{channel:expanded?channel:'team'}):null,
+    // Preloading is a background read of the team discussion only: it never
+    // acknowledges private messages and never reads the private channel.
+    preload:()=>load(false,{channel:'team'}),
+    isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),
+    channel:()=>channel,selectChannel,setUnread,
+    hasDraft:()=>!!(channels.private.text || channels.team.text),
+    get state(){return st();},
+    states:channels,_paint:paint};
   expand(false,false);return host._conversation;
 }

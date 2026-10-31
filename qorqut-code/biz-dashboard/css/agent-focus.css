@@ -27,6 +27,7 @@
 .agfocus .agfocus-context{margin-top:8px;font-size:10px}
 .agfocus-conversation{cursor:default}
 .agfocus .conversation-panel button{display:inline-flex;margin:6px 0 0}
+.agfocus .conversation-panel .conversation-channels button{margin:0}
 .agfocus .agfocus-pages{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;font-size:11px}
 .agfocus-retained{border-style:dashed}
 .agfocus-detail{padding:14px;min-width:0}
@@ -95,6 +96,9 @@
 
 .agfocus-card.agfocus-collapsed > .agfocus-meta,
 .agfocus-card.agfocus-collapsed > .agfocus-actions{opacity:.7;filter:saturate(.65)}
+/* An unread private reply stays fully legible on a dimmed collapsed card. */
+.agfocus-card.agfocus-collapsed > .agfocus-actions:has(.conversation-unread:not([hidden])){opacity:1;filter:none}
+.agfocus-card.agfocus-collapsed .agfocus-actions .conversation-unread{top:1px;right:1px}
 
 .agfocus-card .conversation-inline-compose textarea{background:transparent}
 .agfocus-desktop-help{margin-bottom:10px;font-size:12px;line-height:1.5}

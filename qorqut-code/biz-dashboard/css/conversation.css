@@ -9,3 +9,14 @@
 
 .conversation-feed > * + *{margin-top:8px}
 .conversation-feed > .conversation-group + .conversation-group{margin-top:19px}
+
+/* Two channels per object: the owner's private thread with Ordubashy first, the
+   read-only agent discussion second. */
+.conversation-channels{display:inline-flex;gap:0;margin:0 0 12px;border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
+.conversation-channel{margin:0;border:0;border-radius:0;padding:5px 11px;font-size:12px;min-height:28px;background:transparent;color:var(--fg-2)}
+.conversation-channel+.conversation-channel{border-left:1px solid var(--line-2)}
+.conversation-channel[aria-selected="true"]{background:var(--hover);color:var(--fg)}
+.conversation-readonly{margin:0 0 10px;font-size:11px;color:var(--fg-2)}
+.conversation-toggle{position:relative}
+.conversation-unread{position:absolute;top:3px;right:3px;width:8px;height:8px;border-radius:50%;background:#fff;border:1px solid var(--line-2);box-shadow:0 0 0 1px rgba(0,0,0,.35)}
+.conversation-unread[hidden]{display:none}
