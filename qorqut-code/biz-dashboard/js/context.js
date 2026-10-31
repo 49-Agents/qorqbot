@@ -7,6 +7,7 @@ const ctxOpen = () => { if (!_ctxOpen) { try { _ctxOpen = new Set(JSON.parse(ls(
 const ctxSaveOpen = () => ls("ctxopen", JSON.stringify([...ctxOpen()]));
 const SVG_CARET = `<svg class="car" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 2l3 3-3 3"/></svg>`;
 const SVG_FOLDER = `<svg class="fo" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M1.5 3.5h4l1.5 1.5h5.5v6h-11z"/></svg>`;
+const SVG_FILE = `<svg class="fi" width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3 1.5h5l3 3v8h-8z"/><path d="M8 1.5v3h3"/></svg>`;
 const fmtAgo = t => { const s = Math.max(0, Math.round(Date.now() / 1000 - t)); return s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`; };
 const isTopic = p => p != null && !p.endsWith(".md");           // state.ctx is a topic path ("" = root) or a file path
 const ctxCount = n => (n.notes || []).length + (n.children || []).reduce((s, k) => s + ctxCount(k), 0);
@@ -16,13 +17,62 @@ async function renderContext(c) {
   clearInterval(_ctxTimer); _ctxTimer = null;
   const d = await api(`/biz/${state.biz}/context`);
   c.innerHTML = `<div class="ctxwrap">
-    <div class="ctxbar"><button class="primary" id="ctxup">Upload context</button><div class="ctxq" id="ctxq"></div></div>
+    <div class="ctxbar"><button class="primary" id="ctxup">Upload context</button><input type="search" id="ctxsearch" placeholder="Search context" autocomplete="off"><div class="ctxq" id="ctxq"></div></div>
     <div class="split ctxsplit"><div class="listcol ctxtree" id="ctxtree"></div><div class="pane ctxview" id="ctxview"></div></div></div>`;
   $("#ctxup").onclick = uploadModal;
+  wireCtxSearch();
   if (state.ctx == null) state.ctx = "";
   ctxPaint(d);
   ctxShow(state.ctx);
   ctxWatch(d);
+}
+
+// ------------------------------------------------------------- search
+let _ctxSearchTimer = null;
+function wireCtxSearch() {
+  const inp = $("#ctxsearch");
+  if (!inp) return;
+  inp.oninput = () => {
+    clearTimeout(_ctxSearchTimer);
+    const q = inp.value.trim();
+    if (q.length < 2) { ctxShow(state.ctx); return; }
+    _ctxSearchTimer = setTimeout(() => ctxSearch(q), 250);
+  };
+  inp.onkeydown = e => {
+    if (e.key !== "Escape") return;
+    clearTimeout(_ctxSearchTimer);
+    inp.value = "";
+    ctxShow(state.ctx);
+  };
+}
+
+function ctxMark(snippet, q) {
+  const s = snippet || "";
+  const i = s.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0) return esc(s);
+  return `${esc(s.slice(0, i))}<mark>${esc(s.slice(i, i + q.length))}</mark>${esc(s.slice(i + q.length))}`;
+}
+
+async function ctxSearch(q) {
+  const v = $("#ctxview");
+  if (!v) return;
+  const r = await api(`/biz/${state.biz}/context/search?q=${encodeURIComponent(q)}`);
+  const inp = $("#ctxsearch");
+  if (!inp || inp.value.trim() !== q) return;   // a newer query is already in flight
+  const hits = r.hits || [];
+  const rows = hits.map(h => `<div class="card" data-p="${esc(h.path)}"><div class="ct"><span class="kd">${esc(h.kind)}</span>${esc(h.title)}</div>
+    <div class="cb">${ctxMark(h.snippet, q)}</div><div class="cs">${esc(h.path)}</div></div>`).join("");
+  v.innerHTML = `<div class="sec"><div class="sh">Search: ${esc(q)} <span class="stamp">${hits.length} hit${hits.length === 1 ? "" : "s"}</span></div>
+    <div class="cards">${rows || `<div class="empty">no matches</div>`}</div></div>`;
+  v.querySelectorAll(".card").forEach(el => el.onclick = () => {
+    const p = el.dataset.p;
+    if (p.endsWith("/_topic.md")) {
+      const dir = p.split("/").slice(0, -1).join("/");
+      ctxOpen().add(dir); ctxSaveOpen();
+      return ctxGo(dir);
+    }
+    ctxGo(p);
+  });
 }
 
 function ctxBusy(d) {
@@ -53,11 +103,7 @@ function ctxPaint(d) {
   if (waiting) bits.push(`${waiting} waiting${cur ? "" : ` · next sweep within ${Math.round((f.every || 300) / 60)} min`}`);
   if (failed) bits.push(`<span class="bad">${failed} failed</span>`);
   if (s.current) bits.push(`<span class="run">summarising ${esc(s.current.topic)}</span>${s.queued ? ` +${s.queued}` : ""}`);
-  const last = (f.recent || [])[0], lastS = (s.recent || [])[0];
-  if (!cur && !waiting && !failed && !s.current) {
-    bits.push(last ? `inbox empty · last filing ${last.ok ? "ok" : `<span class="bad">failed</span>`} ${fmtAgo(last.at)} ago (${last.seconds}s)` : "inbox empty");
-    if (lastS) bits.push(lastS.ok ? `summaries up to date ($${(lastS.cost || 0).toFixed(4)} last)` : `<span class="bad">summary of ${esc(lastS.topic)} failed: ${esc(lastS.error || "")}</span>`);
-  }
+  // idle: nothing; the bar only speaks while something is queued, running or failed
   q.innerHTML = bits.join(`<span class="dot">·</span>`);
   ctxTree(d);
 }
@@ -128,15 +174,15 @@ function openTopic(p) {
   const head = `${ctxCrumbs(root ? "" : p.split("/").slice(0, -1).join("/"), root ? "" : node.slug)}
     <div class="th"><h2>${esc(root ? "All context" : node.title)}</h2>
       <div class="pa">${root ? "" : `<button class="ghost sm" id="tpedit" title="edit _topic.md">Edit description</button><button class="ghost sm" id="tpsum" ${busy ? "disabled" : ""}>${busy ? "summarising…" : "Refresh summary"}</button>`}</div></div>
-    ${node.about ? `<p class="about">${esc(node.about)}</p>` : root ? `<p class="about">Pillars are the owner's truth. Topics hold what was uploaded and filed, each with a generated summary.</p>` : ""}`;
+    ${node.about ? `<p class="about">${esc(node.about)}</p>` : ""}`;
   const sum = root ? "" : node.summary ? `<div class="sec"><div class="sh">Summary <span class="stamp">${esc((node.summarized || "").replace("T", " ").replace(/:\d\dZ/, "Z"))}</span></div>${mdLines(node.summary)}</div>`
     : `<div class="sec"><div class="sh">Summary</div><div class="empty">${busy ? "being written now" : notes.length || kids.length ? "not written yet; it comes after the next filing or save, or press Refresh summary" : "empty topic"}</div></div>`;
   const pill = root ? `<div class="sec"><div class="sh">Pillars</div><div class="cards">${(d.pillars || []).map(n => `<div class="card f" data-p="${esc(n)}"><div class="ct">${esc(n.replace(/\.md$/, ""))}</div><div class="cb">owner-written</div></div>`).join("")}</div></div>` : "";
   const subs = kids.length ? `<div class="sec"><div class="sh">${root ? "Topics" : "Subtopics"}</div><div class="cards">${kids.map(k => `<div class="card t" data-p="${esc(k.path)}"><div class="ct">${SVG_FOLDER}${esc(k.title || k.slug)}<span class="cnt">${ctxCount(k)}</span></div><div class="cb">${esc(k.about || "")}</div><div class="cs">${esc(k.slug)}${k.summary ? "" : " · no summary yet"}</div></div>`).join("")}</div></div>` : "";
-  const nts = notes.length ? `<div class="sec"><div class="sh">Notes</div><div class="notes">${notes.map(n => { const m = ctxNoteMeta(n); return `<div class="note" data-p="${esc(p)}/${esc(n)}"><div class="nt">${esc((node.titles || {})[n] || n)}</div><div class="nm2">${esc(m.date)}${m.rest ? ` · ${esc(m.rest)}` : ""}</div></div>`; }).join("")}</div></div>` : root ? "" : `<div class="sec"><div class="sh">Notes</div><div class="empty">none here; ${kids.length ? "they sit in the subtopics" : "nothing filed yet"}</div></div>`;
+  const nts = notes.length ? `<div class="sec"><div class="sh">Files</div><div class="cards">${notes.map(n => { const m = ctxNoteMeta(n); return `<div class="card n" data-p="${esc(p)}/${esc(n)}"><div class="ct">${SVG_FILE}${esc((node.titles || {})[n] || n)}</div><div class="cb">${esc((node.previews || {})[n] || "")}</div><div class="cs">${esc(m.date)}${m.rest ? ` · ${esc(m.rest)}` : ""}</div></div>`; }).join("")}</div></div>` : root ? "" : `<div class="sec"><div class="sh">Files</div><div class="empty">none here; ${kids.length ? "they sit in the subtopics" : "nothing filed yet"}</div></div>`;
   v.innerHTML = head + sum + pill + subs + nts;
   wireCrumbs(v);
-  v.querySelectorAll(".card, .note").forEach(el => el.onclick = () => { if (el.classList.contains("t")) { ctxOpen().add(el.dataset.p); ctxSaveOpen(); } ctxGo(el.dataset.p); });
+  v.querySelectorAll(".card").forEach(el => el.onclick = () => { if (el.classList.contains("t")) { ctxOpen().add(el.dataset.p); ctxSaveOpen(); } ctxGo(el.dataset.p); });
   const ed = $("#tpedit"); if (ed) ed.onclick = () => ctxGo(`${p}/_topic.md`);
   const rs = $("#tpsum"); if (rs) rs.onclick = async () => { rs.disabled = true; const r = await post(`/biz/${state.biz}/context/summarize`, { topic: p }); toast(r.error || `summarising ${p}`); const d2 = await api(`/biz/${state.biz}/context`); ctxPaint(d2); openTopic(p); ctxWatch(d2); };
 }

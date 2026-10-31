@@ -21,7 +21,7 @@
 .ctxtree .item.n.on .nm { color: var(--fg); }
 .ctxtree .item.u .tt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-2); }
 .ctxtree .item.u.failed .tt { color: var(--fg-3); }
-.ctxtree .item .retry { height: 20px; padding: 0 8px; font-size: 11px; border-radius: var(--r-full); }
+.ctxtree .item .retry { height: 20px; padding: 0 8px; font-size: 11px; font-weight: 800; border-radius: var(--r-full); }
 .ctxtree .empty.pad { padding: 4px 24px 8px; font-size: 12.5px; }
 
 .ctxview .ph { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
@@ -68,8 +68,9 @@
 .ctxview .card .ct .cnt { margin-left: auto; font: 11px var(--mono); color: var(--fg-3); }
 .ctxview .card .cb { margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--fg-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .ctxview .card .cs { margin-top: 8px; font: 11px var(--mono); color: var(--fg-3); }
-.ctxview .notes { display: flex; flex-direction: column; }
-.ctxview .note { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 9px 12px; margin: 0 -12px; border-radius: var(--r-sm); cursor: pointer; border-bottom: 1px solid var(--line); }
-.ctxview .note:hover { background: var(--hover); }
-.ctxview .note .nt { font-size: 14px; min-width: 0; }
-.ctxview .note .nm2 { font: 11.5px var(--mono); color: var(--fg-3); white-space: nowrap; }
+.ctxview .card.n .ct .fi { color: var(--fg-3); flex: none; }
+
+/* search */
+.ctxbar #ctxsearch { width: 260px; height: 32px; padding: 0 12px; border-radius: var(--r-full); }
+.ctxview .kd { font: 10px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--fg-3); }
+.ctxview mark { background: rgba(245,240,232,.18); color: var(--fg); border-radius: 2px; padding: 0 1px; }

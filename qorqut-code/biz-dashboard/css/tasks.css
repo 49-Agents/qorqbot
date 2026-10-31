@@ -51,7 +51,7 @@
 
 .tasks .pill {
   height: 30px; padding: 0 14px; border: 0; border-radius: var(--r-full);
-  background: var(--accent); color: var(--accent-fg); font-weight: 600; font-size: 12.5px; cursor: pointer;
+  background: var(--accent); color: var(--accent-fg); font-weight: 800; font-size: 12.5px; cursor: pointer;
   transition: transform .12s ease, opacity .12s ease;
 }
 .tasks .pill:hover { transform: scale(1.02); }
@@ -170,7 +170,7 @@
 .chip {
   display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: var(--r-full);
   border: 1px solid var(--line); background: var(--wash); color: var(--fg-2);
-  font-size: 11px; letter-spacing: .01em; cursor: pointer; white-space: nowrap;
+  font-size: 11px; font-weight: 400; letter-spacing: .01em; cursor: pointer; white-space: nowrap;
   transition: border-color .15s ease, color .15s ease, background .15s ease;
 }
 .chip:hover { border-color: var(--danger); color: var(--danger); }
@@ -189,7 +189,7 @@
 }
 .trow .more {
   flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--r-sm);
-  background: none; color: var(--fg-3); font-size: 15px; line-height: 1; cursor: pointer;
+  background: none; color: var(--fg-3); font-size: 15px; font-weight: 400; line-height: 1; cursor: pointer;
   transition: background .12s ease, color .12s ease;
 }
 .trow .more:hover { background: var(--hover); color: var(--fg); }
@@ -229,10 +229,7 @@
 .tdetail textarea:focus { border-color: rgba(255,255,255,.3); box-shadow: 0 0 0 4px rgba(255,255,255,.025); }
 .tdetail .drow { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .tdetail .ghost {
-  height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--r-sm);
-  background: none; color: var(--fg-2); font-size: 12.5px; cursor: pointer;
-  transition: background .12s ease, color .12s ease, border-color .12s ease;
+  height: 30px; padding: 0 12px; font-size: 12.5px; cursor: pointer;
 }
-.tdetail .ghost:hover { background: var(--hover); color: var(--fg); border-color: var(--line-2); }
 
 @media (max-width: 1120px) { .tasks { width: 100vw; min-width: 0; } }

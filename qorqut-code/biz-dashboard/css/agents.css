@@ -2,12 +2,12 @@
 
 /* ---------------------------------------------------------------- header */
 .chat .top .aglyph { width: 28px; height: 28px; padding: 0; border: 1px solid transparent; background: none;
-  border-radius: var(--r-sm); display: inline-flex; align-items: center; justify-content: center; line-height: 0; cursor: pointer;
+  border-radius: var(--r-sm); font-weight: 400; display: inline-flex; align-items: center; justify-content: center; line-height: 0; cursor: pointer;
   transition: background 140ms ease, border-color 140ms ease; }
 .chat .top .aglyph:hover { background: var(--hover); border-color: var(--line); }
 .chat .top .name { font-weight: 500; letter-spacing: -.011em; }
 .chat .top .badge { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 11px; margin-left: 2px;
-  border: 1px solid var(--line); background: none; border-radius: var(--r-full); color: var(--fg-2); font-size: 12px;
+  border: 1px solid var(--line); background: none; border-radius: var(--r-full); color: var(--fg-2); font-size: 12px; font-weight: 400;
   cursor: pointer; white-space: nowrap; transition: background 140ms ease, border-color 140ms ease, color 140ms ease; }
 .chat .top .badge:hover { background: var(--hover); border-color: var(--line-2); color: var(--fg); }
 .chat .top .sp { flex: 1; }
@@ -24,7 +24,7 @@
 .listcol .lhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 16px 10px 24px; }
 .listcol .lhead .h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--fg-3); }
 .listcol .plus { width: 24px; height: 24px; padding: 0; border: 0; background: none; color: var(--fg-2); border-radius: var(--r-full);
-  font-size: 17px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+  font-size: 17px; font-weight: 400; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
   transition: background 140ms ease, color 140ms ease, transform 140ms ease; }
 .listcol .plus:hover { background: var(--hover); color: var(--fg); transform: scale(1.06); }
 .listcol .plus:active { transform: scale(.94); }

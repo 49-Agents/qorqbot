@@ -272,6 +272,78 @@ def ctx_file(biz, relpath):
     return p
 
 
+def ctx_title(text, fname):
+    """frontmatter `title:` if present, else the first `# heading`, else the file name."""
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end > 0:
+            for line in text[4:end].splitlines():
+                m = re.match(r"^title:\s*(.*?)\s*$", line)
+                if m:
+                    return m.group(1).strip().strip('"\'')
+    m = re.search(r"^#\s+(.+)$", text, re.MULTILINE)
+    if m:
+        return m.group(1).strip()
+    return os.path.splitext(fname)[0]
+
+
+def ctx_kind(relpath):
+    """pillar|index|topic|note|inbox|dump|person|other, derived from a context/-relative path."""
+    if relpath == "INDEX.md":
+        return "index"
+    if os.path.basename(relpath) == "_topic.md":
+        return "topic"
+    parts = relpath.split("/")
+    if parts[0] == "_inbox":
+        return "inbox"
+    if parts[0] == "_dumps":
+        return "dump"
+    if parts[0] == "_people":
+        return "person"
+    if len(parts) == 1:
+        return "pillar"
+    if len(parts) > 1:
+        return "note"
+    return "other"
+
+
+def context_search(biz, q):
+    """Case-insensitive substring search over every .md under context/. Pure Python, no bizctx call."""
+    q = (q or "").strip()
+    if len(q) < 2:
+        return {"q": q, "hits": []}
+    ql = q.lower()
+    root = os.path.join(biz, "context")
+    hits = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d != ".git"]
+        for fname in filenames:
+            if not fname.endswith(".md"):
+                continue
+            fpath = os.path.join(dirpath, fname)
+            relpath = os.path.relpath(fpath, root).replace("\\", "/")
+            text = read(fpath)
+            n = text.lower().count(ql)
+            if not n and ql not in relpath.lower():
+                continue
+            snippet = ""
+            idx = text.lower().find(ql)
+            if idx >= 0:
+                ls = text.rfind("\n", 0, idx) + 1
+                le = text.find("\n", idx)
+                line = text[ls:le if le >= 0 else len(text)].strip()
+                pos = line.lower().find(ql)
+                if pos >= 0:
+                    start, end = max(0, pos - 70), min(len(line), pos + len(q) + 70)
+                    snippet = ("…" if start > 0 else "") + line[start:end] + ("…" if end < len(line) else "")
+                else:
+                    snippet = line[:160]
+            hits.append({"path": relpath, "title": ctx_title(text, fname), "kind": ctx_kind(relpath),
+                        "snippet": snippet, "n": max(n, 1)})
+    hits.sort(key=lambda h: (-h["n"], h["path"]))
+    return {"q": q, "hits": hits[:50]}
+
+
 def context_view(biz):
     t = run_json(biz, "bizctx", "tree")
     if "error" in t:
@@ -490,8 +562,9 @@ class Filer:
         with LOCK:
             self.current = {"biz": biz, "id": dump_id, "started": time.time()}
         msg = (f"File the context upload {dump_id}: `bizctx show {dump_id}`, split it by topic, file every piece "
-               f"with bizctx (create topics if needed), then `bizctx file {dump_id} --result \"...\"`, one bizlog "
-               f"line, and call done.")
+               f"with bizctx (create topics if needed), add tasks for explicit action items and a `needs-owner` "
+               f"task per pillar contradiction (see your skill), then `bizctx file {dump_id} --result \"...\"`, "
+               f"one bizlog line, and call done.")
         cmd = cli("bizrun") + ["run", "--agent", "_filer", "--no-learn", "--max-turns", str(FILER_TURNS), "-m", msg]
         head = git_head(biz)
         t0 = time.time()
@@ -670,6 +743,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not p or not os.path.isfile(p):
                     return self.send_json({"error": "no such file"}, 404)
                 return self.send_json({"path": q.get("p"), "text": read(p)})
+            if what == "context" and len(parts) == 4 and parts[3] == "search":
+                return self.send_json(context_search(biz, q.get("q", "")))
             if what == "live":
                 return self.send_json(live_list(biz))
         return self.send_json({"error": "not found"}, 404)
