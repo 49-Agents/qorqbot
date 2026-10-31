@@ -183,7 +183,7 @@ function paintList() {
 }
 function paintHead(a) {
   const ch = $("#chat"); if (!ch) return;
-  const g = $("#aglyph"); if (g) g.innerHTML = agentGlyph(a, 18);
+  const g = $("#aglyph"); if (g) { g.innerHTML = agentGlyph(a, 18); g.title = "Change look"; g.onclick = () => lookModal(a); }
   const b = $("#deptbadge"); const d = dept(a.department);
   if (b) b.innerHTML = `${glyph(d.icon, d.color, 8)}<span>${esc(d.label)}</span>`;
 }
@@ -215,21 +215,46 @@ const kindItems = kinds => kinds.map(k => ({
 const kindBtn = k => k ? `<span class="v">${glyph(k.icon, hex(k.color), 14)}<span>${esc(k.label)}</span>${k.available ? "" : `<em class="soon">soon</em>`}</span>` : `<span class="v muted">pick a kind</span>`;
 
 function lookModal(a) {
-  const pick = { department: DEPTS[a.department] ? a.department : "general" };
+  const startDept = DEPTS[a.department] ? a.department : "general";
+  const pick = { department: startDept, icon: a.icon && AICONS[a.icon] ? a.icon : null };
+  const igrid = `<div class="igrid" style="display:flex;flex-wrap:wrap;gap:8px">
+    <button type="button" class="ibtn" data-icon="" style="width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);background:none;border-radius:var(--r-sm);cursor:pointer"></button>
+    ${Object.keys(AICONS).map(k => `<button type="button" class="ibtn" data-icon="${k}" style="width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);background:none;border-radius:var(--r-sm);cursor:pointer"></button>`).join("")}
+  </div>`;
   const body = `<div class="prev" id="lkprev"></div>
     <div class="fl">Department</div><button class="selbtn" id="lkdept">${deptBtn(pick.department)}</button>
-    <div class="fmsg">the department fixes the icon and colour, the same in every business</div>`;
+    <div class="fl">Icon</div>${igrid}
+    <div class="fmsg">the department fixes the colour; pick an icon or leave it as the department shape</div>`;
   modal({
     title: "Agent look", body, width: 440,
     onOpen: el => {
       const prev = el.querySelector("#lkprev"), db = el.querySelector("#lkdept");
-      const repaint = () => { const d = dept(pick.department); prev.innerHTML = glyph(d.icon, d.color, 34); db.innerHTML = deptBtn(pick.department); };
+      const ibtns = [...el.querySelectorAll(".ibtn")];
+      const repaint = () => {
+        const d = dept(pick.department);
+        prev.innerHTML = agentGlyph({ department: pick.department, icon: pick.icon }, 34);
+        db.innerHTML = deptBtn(pick.department);
+        ibtns.forEach(b => {
+          const k = b.dataset.icon;
+          b.innerHTML = k ? aicon(k, d.color, 18) : glyph(d.icon, d.color, 18);
+          b.style.borderColor = (k || null) === (pick.icon || null) ? "rgba(255,255,255,.34)" : "var(--line)";
+          b.style.background = (k || null) === (pick.icon || null) ? "var(--wash)" : "none";
+        });
+      };
       db.onclick = () => dropdown(db, deptItems(), v => { pick.department = v; repaint(); }, pick.department);
+      ibtns.forEach(b => b.onclick = () => { pick.icon = b.dataset.icon || null; repaint(); });
       repaint();
     },
     actions: [
       { label: "Cancel", onClick: close => close() },
-      { label: "Save", primary: true, onClick: async close => { if (await applyMeta(a, pick)) close(); } },
+      { label: "Save", primary: true, onClick: async close => {
+        const patch = {};
+        if (pick.department !== startDept) patch.department = pick.department;
+        const startIcon = a.icon && AICONS[a.icon] ? a.icon : null;
+        if (pick.icon !== startIcon) patch.icon = pick.icon || dept(pick.department).icon;
+        if (!Object.keys(patch).length) return close();
+        if (await applyMeta(a, patch)) close();
+      } },
     ],
   });
 }
