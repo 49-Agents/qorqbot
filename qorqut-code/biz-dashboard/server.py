@@ -109,6 +109,25 @@ def git_commit(biz, paths, message):
         return 1, str(exc)
 
 
+def ensure_state(biz, name):
+    """biztask states are per-business config (tasks/config.json). Add `name` there if it is missing
+    (`biztask config add-state <name>`, one commit); returns an error string or None."""
+    try:
+        cfg = json.loads(read(os.path.join(biz, "tasks", "config.json")) or "{}")
+    except json.JSONDecodeError:
+        cfg = {}
+    states = cfg.get("states") if isinstance(cfg, dict) else None
+    if any(isinstance(s, dict) and s.get("name") == name for s in states or []):
+        return None
+    r = run_json(biz, "biztask", "config", "add-state", name)   # prints the config on success
+    if not isinstance(r, dict):
+        return "config add-state failed"
+    if r.get("error"):
+        return r["error"]
+    git_commit(biz, ["tasks"], f"tasks: add {name} state")
+    return None
+
+
 def git_head(biz):
     try:
         return subprocess.run(["git", "rev-parse", "HEAD"], cwd=biz, capture_output=True, text=True, timeout=20).stdout.strip()
@@ -1377,6 +1396,11 @@ class Handler(BaseHTTPRequestHandler):
         if not changes and not note:
             return self.send_json({"error": "nothing to change"}, 400)
         if changes:
+            # `waiting` is newer than some businesses' config: make sure the state exists before the write
+            if "status=waiting" in changes:
+                err = ensure_state(biz, "waiting")
+                if err:
+                    return self.send_json({"error": err}, 400)
             r = run_json(biz, "biztask", "set", tid, "--", *changes)
             if isinstance(r, dict) and r.get("error"):
                 return self.send_json(r, 400)

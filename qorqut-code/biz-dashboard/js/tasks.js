@@ -16,45 +16,52 @@
 
 
 
-const T_ORDER = ["open", "doing", "done"];
+
+
+
+const T_ORDER = ["open", "doing", "waiting", "done"];          // the left-click cycle
 const T_CLOSED = ["done", "dropped"];
-const T_STATES = ["open", "doing", "blocked", "done", "dropped"];
-const T_LABEL = { open: "Open", doing: "In progress", done: "Done", blocked: "Blocked", dropped: "Dropped" };
-const T_DOT = { open: "rgba(245,240,232,.4)", doing: "#0A84FF", done: "#30D158", blocked: "#FF453A", dropped: "#8A8680" };
+const T_STATES = ["open", "doing", "waiting", "blocked", "done", "dropped"];   // the detail's status picker
+const T_LABEL = { open: "Open", doing: "Doing", waiting: "Waiting", done: "Done", blocked: "Blocked", dropped: "Dropped" };
 const T_TAGS = ["operations", "coding", "research", "marketing", "needs-owner"];
-const T_BUCKETS = [["today", "Today"], ["tomorrow", "Tomorrow"], ["later", "Later"], ["someday", "Someday"], ["done", "Completed"]];
-const T_FILTERS = [["all", "All"], ["today", "Today"], ["upcoming", "Upcoming"], ["overdue", "Overdue"]];
+const T_DEPTS = ["marketing", "accounting", "data-science", "code", "general"];
+// department -> the tag that files a task there (the reverse of core's TAG_DEPT); general has none
+const T_DEPT_TAG = {};
+Object.keys(TAG_DEPT).forEach(tag => { if (!T_DEPT_TAG[TAG_DEPT[tag]]) T_DEPT_TAG[TAG_DEPT[tag]] = tag; });
 const T_DONE_HOLD = 550;
 const T_POP = 260;           // ms the ball pop runs before a repaint may replace it
-const T_DBL = 250;           // ms a click on the title text waits for a second click (inline edit) before opening the detail
 const T_DAY = 86400000;
 
 const SVG_TCHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
-const SVG_TCHEV = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`;
 const SVG_TPLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>`;
-const SVG_TCAL = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>`;
+const SVG_TMORE = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>`;
 const SVG_TTAG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>`;
 const SVG_TSEARCH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`;
 const SVG_TINBOX = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
 
 const tShort = o => String(o || "").replace(/^(agent|human|system):/, "") || "unassigned";
-const tYmd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const tDay = s => { const [y, m, d] = String(s).slice(0, 10).split("-").map(Number); return new Date(y, (m || 1) - 1, d || 1).getTime(); };
 const tToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const tDays = due => Math.round((tDay(due) - tToday()) / T_DAY);
 const tClosed = t => T_CLOSED.indexOf(t.status) >= 0;
+// a closed row sinks to the bottom of its section, except while its completion is still being held in place
+const tSunk = t => tClosed(t) && !tCompleting.has(t.id);
 const tNext = s => { const i = T_ORDER.indexOf(s); return i < 0 ? "open" : T_ORDER[(i + 1) % T_ORDER.length]; };
+function tDept(t) {
+  for (const x of (t.tags || [])) if (TAG_DEPT[x]) return TAG_DEPT[x];
+  return "general";
+}
 
-let tFilter = T_FILTERS.some(f => f[0] === ls("tasksflt")) ? ls("tasksflt") : "all";
 let tSearch = "";
-let tFold = { done: true };
-try { tFold = Object.assign({ done: true }, JSON.parse(ls("tasksfold2") || "{}")); } catch (e) {}
-let tAdding = null;                 // bucket key with an open inline add row
+let tAdding = null;                 // department key with an open inline add row
+let tPainting = false;              // rows are being replaced: a blur fired by that detachment is not a commit
 let tAnim = null;                   // task id whose ball animates on the next paint
 let tHold = 0, tHoldT = null;       // no repaint before this time (an animation is running)
-const tCompleting = new Set();      // ids shown done but still in their old section
+const tCompleting = new Set();      // ids shown done but still in place
+const tDoneT = new Map();           // id -> the timer that sends the done write once the hold is over
 let tGen = 0;                       // bumped when a write starts; a refresh that began before it is stale when it lands
-let tLastBiz = null, tSoonT = null, tInside = false, tSearchT = null, tClickT = null;
+let tLastBiz = null, tSoonT = null, tInside = false, tSearchT = null;
 state.tasks = [];
 
 const tPanelOpen = () => { const w = $("#taskswrap"); return !!w && w.classList.contains("open"); };
@@ -65,15 +72,8 @@ const tHuman = () => "human:" + (tBiz().owner || "dashboard");
 const tAgents = () => (tBiz().agents || []).map(a => "agent:" + a);
 const tMeta = o => (tBiz().agent_meta || {})[tShort(o)];
 
-// A repaint replaces every row, so it must not fire while the user is inside one:
-// an open dropdown loses its anchor, a half-picked date loses its value.
-function tEditingNow() {
-  if (document.querySelector(".menu")) return true;
-  const a = document.activeElement;
-  if (!a || !a.closest) return false;
-  if (a.classList.contains("tedit")) return true;
-  return !!(a.closest("#taskspanel") && (a.classList.contains("duein") || a.classList.contains("selbtn")));
-}
+// A repaint replaces every row, so it must not fire while a dropdown is open: it would lose its anchor.
+function tEditingNow() { return !!document.querySelector(".menu"); }
 
 function openTasks(on) {
   const w = $("#taskswrap"); if (!w) return;
@@ -137,37 +137,15 @@ async function tadd(fields) {
   return r;
 }
 
-// ---------------------------------------------------------------- buckets & filters
-function tBucket(t) {
-  if (tClosed(t) && !tCompleting.has(t.id)) return "done";
-  if (!t.due) return "someday";
-  const due = tDay(t.due), today = tToday();
-  if (due <= today) return "today";
-  if (due === today + T_DAY) return "tomorrow";
-  return "later";
-}
-
+// ---------------------------------------------------------------- search
 function tMatch(t) {
   const q = tSearch.trim().toLowerCase();
-  if (q && !(String(t.title).toLowerCase().includes(q) || (t.tags || []).some(x => x.includes(q))
-      || (t.notes || []).some(n => String(n.text || "").toLowerCase().includes(q)))) return false;
-  const closed = tClosed(t), today = tToday();
-  if (tFilter === "today") return !!t.due && !closed && tDay(t.due) <= today;
-  // upcoming = today onward; no due date counts too (do-it-whenever)
-  if (tFilter === "upcoming") return !closed && (!t.due || tDay(t.due) >= today);
-  if (tFilter === "overdue") return !!t.due && !closed && tDay(t.due) < today;
-  return true;
-}
-
-function tDueLabel(due) {
-  const d = tDay(due), today = tToday();
-  if (d === today) return "Today";
-  if (d === today - T_DAY) return "Yesterday";
-  if (d === today + T_DAY) return "Tomorrow";
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return !q || String(t.title).toLowerCase().includes(q) || (t.tags || []).some(x => x.includes(q))
+    || (t.notes || []).some(n => String(n.text || "").toLowerCase().includes(q));
 }
 
 const tTagColor = x => x === "needs-owner" ? "var(--accent)" : dept(TAG_DEPT[x]).color;
+const tDotHtml = s => `<span class="sdot ${esc(s)}"></span>`;
 
 // ---------------------------------------------------------------- assignee
 // none | agent (one of the business's agents) | human (the owner) | other (any other actor)
@@ -185,15 +163,16 @@ function tWhoLeft(o) {
 }
 const tWhoRight = o => (o === tHuman() ? "" : tHuman());
 
-function tWhoInner(o) {
+// the dot: dashed ring unassigned, the agent's department colour, cream for the owner, gray for anyone else
+function tWhoDot(o) {
   const k = tWhoKind(o);
-  if (k === "none") return `<span class="ring"></span>`;
-  if (k === "agent") return agentGlyph(tMeta(o), 10);
-  return `<span class="disc ${k}">${esc(tShort(o).slice(0, 1).toUpperCase())}</span>`;
+  const c = k === "agent" ? dept((tMeta(o) || {}).department).color : k === "human" ? "var(--accent)" : "var(--fg-3)";
+  return `<span class="wd ${k}" style="--wc:${c}"></span>`;
 }
+const tWhoInner = o => `<span class="who inl ${tWhoKind(o)}">${tWhoDot(o)}</span>`;
 function tWho(t) {
   const o = t.owner || "";
-  return `<button class="who ${tWhoKind(o)}" type="button" aria-label="Assignee: ${esc(o || "unassigned")}">${tWhoInner(o)}</button>`;
+  return `<button class="who ${tWhoKind(o)}" type="button" aria-label="Assignee: ${esc(o || "unassigned")}">${tWhoDot(o)}</button>`;
 }
 function tWhoTip(t) {
   const o = t.owner || "", k = tWhoKind(o);
@@ -204,46 +183,49 @@ function tWhoTip(t) {
   return `${who}<br><span class="k">${hints.join(" · ")}</span>`;
 }
 function tWhoItems() {
-  const items = [{ value: "", label: "Unassigned", html: `<span class="towner"><span class="who none"><span class="ring"></span></span><span class="tn">Unassigned</span></span>` }];
-  tAgents().forEach(o => items.push({ value: o, label: o, html: `<span class="towner"><span class="who agent">${agentGlyph(tMeta(o), 10)}</span><span class="tn">${esc(tShort(o))}</span><span class="tsub">agent</span></span>` }));
-  if (tBiz().owner) items.push({ value: tHuman(), label: tHuman(), html: `<span class="towner"><span class="who human"><span class="disc human">${esc(tShort(tHuman()).slice(0, 1).toUpperCase())}</span></span><span class="tn">${esc(tShort(tHuman()))}</span><span class="tsub">owner</span></span>` });
+  const items = [{ value: "", label: "Unassigned", html: `<span class="towner">${tWhoInner("")}<span class="tn">Unassigned</span></span>` }];
+  tAgents().forEach(o => items.push({ value: o, label: o, html: `<span class="towner">${tWhoInner(o)}<span class="tn">${esc(tShort(o))}</span><span class="tsub">agent</span></span>` }));
+  if (tBiz().owner) items.push({ value: tHuman(), label: tHuman(), html: `<span class="towner">${tWhoInner(tHuman())}<span class="tn">${esc(tShort(tHuman()))}</span><span class="tsub">owner</span></span>` });
   return items;
 }
 
-// ---------------------------------------------------------------- render
+
+
+function tDue(t) {
+  if (!t.due || tClosed(t)) return "";
+  const n = tDays(t.due);
+  const text = n === 0 ? "today" : n > 0 ? `${n}d` : `-${-n}d`;
+  const tone = t.status === "blocked" || n < 0 ? "over" : n <= 1 ? "soon" : "far";
+  return `<span class="tdl ${tone}" title="Due ${esc(t.due)}">${text}</span>`;
+}
+
 function tBall(t, anim) {
   const s = t.status, label = T_LABEL[s] || s;
   return `<button class="ball ${esc(s)}${anim ? " anim" : ""}" type="button" title="${esc(label)} — click to change, right-click to block"
     aria-label="Status: ${esc(label)}. Click to change."><span class="core"></span><span class="burst"></span><span class="chk">${SVG_TCHECK}</span></button>`;
 }
 
-function tRow(t) {
-  const closed = tClosed(t);
-  const over = !closed && t.due && tDay(t.due) < tToday();
-  const desc = !closed && (t.notes || []).length ? String(t.notes[0].text || "").split("\n")[0] : "";
-  const tags = (t.tags || []).map(x => `<button class="chip" type="button" data-tag="${esc(x)}" title="Tag: ${esc(x)}"><span class="tdot" style="--tc:${tTagColor(x)}"></span><span class="tn">${esc(x)}</span></button>`).join("");
-  const due = t.due
-    ? `<span class="duew"><button class="due${over ? " over" : ""}" type="button" title="Due ${esc(t.due)}">${SVG_TCAL}<span>${esc(tDueLabel(t.due))}</span></button><input type="date" class="duein" value="${esc(t.due)}" tabindex="-1" aria-label="Due date"></span>`
-    : closed ? "" : `<span class="duew"><button class="due none" type="button" title="Set due date">${SVG_TCAL}</button><input type="date" class="duein" value="" tabindex="-1" aria-label="Due date"></span>`;
-  return `<div class="trow ${esc(t.status)}${closed ? " off" : ""}" data-id="${esc(t.id)}">
-    ${tWho(t)}${tBall(t, tAnim === t.id)}
-    <div class="tmain"><p class="ttl">${esc(t.title)}</p>${desc ? `<span class="tdesc">${esc(desc)}</span>` : ""}</div>
-    <div class="tags">${tags}${closed ? "" : `<button class="chip add" type="button" title="Add tag">${SVG_TTAG}</button>`}</div>
-    ${due}
-  </div>`;
+// `col` = this section reserves the deadline column (some row has a due date), so the balls line up
+function tRow(t, col) {
+  return `<div class="trow ${esc(t.status)}${tClosed(t) ? " off" : ""}" data-id="${esc(t.id)}">${col ? (tDue(t) || `<span class="tdl"></span>`) : ""}${tWho(t)}${tBall(t, tAnim === t.id)}<p class="ttl">${esc(t.title)}</p><button class="tmore" type="button" title="Details" aria-label="Task details">${SVG_TMORE}</button></div>`;
 }
 
-const tAddRow = key => `<div class="tadd" data-b="${esc(key)}"><span class="who ph"></span><span class="ring18"></span><input id="taddin" placeholder="Task name…" autocomplete="off" spellcheck="false"></div>`;
+const tAddRow = (key, col) => `<div class="tadd" data-b="${esc(key)}">${col ? `<span class="tdl"></span>` : ""}<span class="who ph"><span class="wd none"></span></span><span class="ball ph"><span class="core"></span></span><input id="taddin" placeholder="Task name…" autocomplete="off" spellcheck="false"></div>`;
+
+function tSection(key, rows) {
+  const d = dept(key), col = rows.some(t => !!t.due);
+  const open = rows.filter(t => !tSunk(t)), sunk = rows.filter(tSunk);
+  return `<section class="tsec" data-b="${esc(key)}">
+    <div class="tsh"><h2>${esc(d.label)}</h2><span class="c">${open.length}</span><button class="tplus" type="button" title="Add task to ${esc(d.label)}" aria-label="Add task to ${esc(d.label)}">${SVG_TPLUS}</button></div>
+    <div class="tsi">${open.concat(sunk).map(t => tRow(t, col)).join("")}${tAdding === key ? tAddRow(key, col) : ""}</div>
+  </section>`;
+}
 
 function tHead() {
   return `<div class="thead">
     <div class="ttop">
       <div><h1>Tasks</h1><div class="tstats" id="tstats"></div></div>
-      <button class="pill" id="tnew" type="button">${SVG_TPLUS}New task</button>
-    </div>
-    <div class="tbar">
       <label class="tsearch">${SVG_TSEARCH}<input id="tsearch" type="text" placeholder="Search by title, tag or content..." autocomplete="off" spellcheck="false"></label>
-      <div class="qf" id="tqf">${T_FILTERS.map(([k, l]) => `<button type="button" data-f="${k}" class="${tFilter === k ? "on" : ""}">${l}</button>`).join("")}</div>
     </div>
   </div><div class="tbody" id="tbody"></div>`;
 }
@@ -268,32 +250,25 @@ function paintTasks() {
   const keep = prev ? prev.value : "";
   const hadFocus = prev && document.activeElement === prev;
 
-  const tasks = (state.tasks || []).filter(tMatch);
   const groups = {};
-  tasks.forEach(t => { const b = tBucket(t); (groups[b] = groups[b] || []).push(t); });
+  (state.tasks || []).filter(tMatch).forEach(t => { const k = tDept(t); (groups[k] = groups[k] || []).push(t); });
   let html = "";
-  T_BUCKETS.forEach(([key, label]) => {
+  T_DEPTS.forEach(key => {
     const rows = groups[key] || [];
-    if (!rows.length && tAdding !== key) return;
-    const fold = !!tFold[key] && tAdding !== key;
-    html += `<section class="tsec${fold ? " closed" : ""}" data-b="${key}">
-      <div class="tsh">
-        <button class="tst" type="button">${SVG_TCHEV}<h2>${esc(label)}</h2><span class="c">${rows.length}</span></button>
-        ${key !== "done" ? `<button class="tplus" type="button" title="Add task to ${esc(label)}">${SVG_TPLUS}</button>` : ""}
-      </div>
-      <div class="tsb"><div class="tsi">${rows.map(tRow).join("")}${tAdding === key ? tAddRow(key) : ""}</div></div>
-    </section>`;
+    if (rows.length || tAdding === key) html += tSection(key, rows);   // an empty section shows only while its add row is open
   });
   if (!html) {
     html = `<div class="tempty"><div class="ic">${SVG_TINBOX}</div>
       <p class="t">${!state.biz ? "Pick a business first." : (state.tasks || []).length ? "Nothing here." : "Nothing scheduled."}</p>
-      <p class="s">${(state.tasks || []).length ? "No task matches this view." : "Create your first task to start organizing what matters."}</p>
+      <p class="s">${(state.tasks || []).length ? "No task matches this search." : "Create your first task to start organizing what matters."}</p>
       ${state.biz ? `<button class="pill create" type="button">Create task</button>` : ""}</div>`;
   } else if (!tAdding) {
     html += `<button class="taddbtn" id="taddbottom" type="button">${SVG_TPLUS}Add task</button>`;
   }
   const body = $("#tbody"); if (!body) return;
-  body.innerHTML = html;
+  // Chrome fires blur on the focused add input before detaching it (isConnected is still true then)
+  tPainting = true;
+  try { body.innerHTML = html; } finally { tPainting = false; }
   tAnim = null;
 
   body.querySelectorAll(".trow").forEach(row => {
@@ -310,80 +285,49 @@ function paintTasks() {
 
 // ---------------------------------------------------------------- add
 function tOpenAdd(key) {
-  tAdding = key;
-  if (tFold[key]) { tFold[key] = false; ls("tasksfold2", JSON.stringify(tFold)); }
+  tAdding = T_DEPTS.indexOf(key) >= 0 ? key : "general";
   paintTasks();
   const el = $("#taddin"); if (el) { el.focus(); el.scrollIntoView({ block: "nearest" }); }
 }
 
+// a task typed under a department heading carries that department's tag; general carries none
 function tWireAdd(inp) {
   let settled = false;
+  const key = tAdding;   // the section this row was opened in, whatever happens to the global later
   const commit = async () => {
     if (settled) return; settled = true;
-    const title = inp.value.trim(), key = tAdding;
-    tAdding = null;
+    const title = inp.value.trim();
+    if (tAdding === key) tAdding = null;
     if (!title) return paintTasks();
     inp.disabled = true;
-    const due = key === "today" ? tYmd(new Date()) : key === "tomorrow" ? tYmd(new Date(Date.now() + T_DAY)) : "";
-    const r = await tadd({ title, owner: "", due });
+    const tag = T_DEPT_TAG[key];
+    const r = await tadd({ title, owner: "", tags: tag ? [tag] : [] });
     if (r && r.id) tAnim = r.id;
     paintTasks();
   };
   inp.onkeydown = e => {
     if (e.key === "Enter") { e.preventDefault(); commit(); }
-    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); settled = true; tAdding = null; paintTasks(); }
+    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); settled = true; if (tAdding === key) tAdding = null; paintTasks(); }
   };
 
-  inp.onblur = () => { if (inp.isConnected && !settled) commit(); };
-}
-
-function tNewModal() {
-  if (typeof modal !== "function") return tOpenAdd("someday");
-  let owner = "", tags = [];
-  const chips = T_TAGS.map(x => `<button class="chip tog" type="button" data-tag="${esc(x)}"><span class="tdot" style="--tc:${tTagColor(x)}"></span><span class="tn">${esc(x)}</span></button>`).join("");
-  const body = `<div class="tform">
-    <input id="tf-title" type="text" placeholder="What needs to be done?" autocomplete="off">
-    <div class="grid">
-      <div><label class="field">Assignee</label><button class="selbtn" id="tf-who" type="button"><span class="v">Unassigned</span></button></div>
-      <div><label class="field">Due date</label><input id="tf-due" type="date"></div>
-    </div>
-    <div><label class="field">Tags</label><div class="tags">${chips}</div></div>
-    <textarea id="tf-note" placeholder="Add a note (optional)…"></textarea>
-  </div>`;
-  modal({
-    title: "New task", width: 560, body,
-    actions: [
-      { label: "Cancel", onClick: close => close() },
-      { label: "Create task", primary: true, onClick: async (close, el) => {
-        const title = el.querySelector("#tf-title").value.trim(); if (!title) return toast("a title, please");
-        const due = el.querySelector("#tf-due").value || "", note = el.querySelector("#tf-note").value.trim();
-        close();
-        const r = await tadd({ title, owner, due, tags, note });
-        if (r && r.id) { tAnim = r.id; paintTasks(); }
-      } },
-    ],
-    onOpen(el) {
-      const who = el.querySelector("#tf-who");
-      who.onclick = () => dropdown(who, tWhoItems(), v => { owner = v; who.querySelector(".v").innerHTML = v ? `${tWhoInner(v)} ${esc(tShort(v))}` : "Unassigned"; }, owner);
-      el.querySelectorAll(".chip.tog").forEach(ch => ch.onclick = () => {
-        const x = ch.dataset.tag; tags = tags.indexOf(x) >= 0 ? tags.filter(y => y !== x) : tags.concat([x]);
-        ch.classList.toggle("on", tags.indexOf(x) >= 0);
-      });
-      el.querySelector("#tf-title").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); el.querySelector(".mfoot .primary").click(); } };
-    },
-  });
+  inp.onblur = () => { if (!tPainting && inp.isConnected && !settled) commit(); };
 }
 
 // ---------------------------------------------------------------- row actions
 // optimistic: the ball changes at once (and pops), the write follows; a failed write refreshes
 function tSetStatus(t, next) {
   if (!next || next === t.status) return;
-  const id = t.id;
+  const id = t.id, biz = state.biz;
+  // another change during the completion hold cancels the pending done write
+  if (tDoneT.has(id)) { clearTimeout(tDoneT.get(id)); tDoneT.delete(id); tCompleting.delete(id); }
   t.status = next; tAnim = id;
   if (next === "done") {
     tCompleting.add(id);
     paintTasks(); tHold = Date.now() + T_DONE_HOLD + 120;
-    setTimeout(async () => { tCompleting.delete(id); await tdone(id); }, T_DONE_HOLD);
+    tDoneT.set(id, setTimeout(async () => {
+      tDoneT.delete(id); tCompleting.delete(id);
+      if (state.biz === biz) await tdone(id);
+    }, T_DONE_HOLD));
   } else {
     paintTasks(); tHold = Date.now() + T_POP;
     twrite(id, { set: { status: next } });
@@ -396,42 +340,9 @@ function tSetOwner(t, o) {
   twrite(t.id, { set: { owner: o } });
 }
 
-function tEditTitle(row, t) {
-  const el = row.querySelector(".ttl"); if (!el) return;
-  const inp = document.createElement("input");
-  inp.className = "tedit"; inp.value = t.title; inp.type = "text";
-  el.replaceWith(inp);
-  inp.focus(); inp.select();
-  let settled = false;
-  const stop = () => { if (settled) return; settled = true; inp.classList.remove("tedit"); paintTasks(); };
-  inp.onkeydown = e => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const v = inp.value.trim(); settled = true;
-      inp.classList.remove("tedit");
-      if (!v || v === t.title) return paintTasks();
-      inp.disabled = true; twrite(t.id, { set: { title: v } });
-    } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); stop(); }
-  };
-  inp.onblur = stop;
-}
-
 function tTagItems(t) {
   const have = t.tags || [];
   return T_TAGS.map(x => ({ value: x, label: x, html: `<span class="towner"><span class="tdot" style="--tc:${tTagColor(x)}"></span><span class="tn">${esc(x)}</span>${have.indexOf(x) >= 0 ? `<span class="tsub">on</span>` : ""}</span>` }));
-}
-
-function tTagMenu(anchor, t, current) {
-  dropdown(anchor, tTagItems(t), v => {
-    const have = t.tags || [];
-    twrite(t.id, { set: { tags: have.indexOf(v) >= 0 ? have.filter(x => x !== v) : have.concat([v]) } });
-  }, current || null);
-}
-
-function tPickDue(row) {
-  const inp = row.querySelector(".duein"); if (!inp) return;
-  try { if (inp.showPicker) return inp.showPicker(); } catch (e) {}
-  inp.focus(); inp.click();
 }
 
 
@@ -446,14 +357,14 @@ function tDetail(t) {
       <div class="nh"><span class="by">${esc(tShort(n.by))}</span><span class="ts">${stamp(n.ts)}</span></div>
       <div class="tx">${esc(n.text)}</div></div>`).join("");
   const tags = (t.tags || []).map(x => `<button class="chip" type="button" data-tag="${esc(x)}" title="Tag: ${esc(x)}"><span class="tdot" style="--tc:${tTagColor(x)}"></span><span class="tn">${esc(x)}</span></button>`).join("")
-    + `<button class="chip add on" type="button" title="Add tag">${SVG_TTAG}</button>`;
+    + `<button class="chip add" type="button" title="Add tag">${SVG_TTAG}</button>`;
   const o = t.owner || "";
   const body = `<div class="tdetail">
-    <div class="dstat"><span class="dot" style="background:${T_DOT[t.status] || T_DOT.open}"></span>${esc(T_LABEL[t.status] || t.status)}</div>
+    <div class="dstat">${tDotHtml(t.status)}${esc(T_LABEL[t.status] || t.status)}</div>
     <button class="dtitle" type="button" title="Edit title">${esc(t.title)}</button>
     <div class="did">${esc(t.id)}</div>
     <div class="flds">
-      ${fld("Status", `<button class="selbtn" id="td-status" type="button"><span class="v"><span class="dot" style="background:${T_DOT[t.status] || T_DOT.open}"></span>${esc(T_LABEL[t.status] || t.status)}</span></button>`)}
+      ${fld("Status", `<button class="selbtn" id="td-status" type="button"><span class="v">${tDotHtml(t.status)}${esc(T_LABEL[t.status] || t.status)}</span></button>`)}
       ${fld("Assignee", `<button class="selbtn" id="td-who" type="button"><span class="v">${o ? `${tWhoInner(o)} ${esc(tShort(o))}` : "Unassigned"}</span></button>`)}
       ${fld("Due", `<input id="td-due" type="date" value="${esc(t.due || "")}">`)}
       ${fld("Tags", `<div class="tags">${tags}</div>`)}
@@ -491,7 +402,7 @@ function tDetail(t) {
         inp.onblur = commit;
       };
       const sb = el.querySelector("#td-status");
-      sb.onclick = () => dropdown(sb, T_STATES.map(s => ({ value: s, label: T_LABEL[s], html: `<span class="towner"><span class="dot" style="background:${T_DOT[s]}"></span><span class="tn">${T_LABEL[s]}</span></span>` })),
+      sb.onclick = () => dropdown(sb, T_STATES.map(s => ({ value: s, label: T_LABEL[s], html: `<span class="towner">${tDotHtml(s)}<span class="tn">${T_LABEL[s]}</span></span>` })),
         v => { if (v !== t.status) again(t.id, { set: { status: v } }); }, t.status);
       const wb = el.querySelector("#td-who");
       wb.onclick = () => dropdown(wb, tWhoItems(), v => { if (v !== o) again(t.id, { set: { owner: v } }); }, o);
@@ -510,13 +421,6 @@ function tDetail(t) {
 
 // ---------------------------------------------------------------- wiring
 function tWireHead(p) {
-  const nb = p.querySelector("#tnew"); if (nb) nb.onclick = tNewModal;
-  const qf = p.querySelector("#tqf");
-  if (qf) qf.querySelectorAll("button").forEach(b => b.onclick = () => {
-    tFilter = b.dataset.f; ls("tasksflt", tFilter);
-    qf.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
-    paintTasks();
-  });
   const s = p.querySelector("#tsearch");
   if (s) {
     s.oninput = () => { clearTimeout(tSearchT); tSearchT = setTimeout(() => { tSearch = s.value; paintTasks(); }, 80); };
@@ -532,29 +436,15 @@ function tWireHead(p) {
   if (ls("tasks") === "1") wrap.classList.add("open");
 
   panel.addEventListener("click", e => {
-    const st = e.target.closest(".tst");
-    if (st) {
-      const sec = st.closest(".tsec"), key = sec && sec.dataset.b; if (!key) return;
-      tFold[key] = !sec.classList.contains("closed"); ls("tasksfold2", JSON.stringify(tFold));
-      sec.classList.toggle("closed", tFold[key]);
-      return;
-    }
     const plus = e.target.closest(".tplus");
-    if (plus) { const sec = plus.closest(".tsec"); return void tOpenAdd(sec ? sec.dataset.b : "someday"); }
-    if (e.target.closest("#taddbottom")) return void tOpenAdd("someday");
-    if (e.target.closest(".tempty .create")) return void tNewModal();
+    if (plus) { const sec = plus.closest(".tsec"); return void tOpenAdd(sec ? sec.dataset.b : "general"); }
+    if (e.target.closest("#taddbottom") || e.target.closest(".tempty .create")) return void tOpenAdd("general");
     if (e.target.closest(".tadd")) return;
     const row = e.target.closest(".trow"); if (!row) return;
     const t = taskById(row.dataset.id); if (!t) return;
     if (e.target.closest(".ball")) return void tSetStatus(t, tNext(t.status));
     const who = e.target.closest(".who");
     if (who) { const nx = tWhoLeft(t.owner || ""); if (nx == null) return toast("no agents in this business"); return void tSetOwner(t, nx); }
-    const chip = e.target.closest(".chip");
-    if (chip) return void tTagMenu(chip, t, chip.dataset.tag);
-    if (e.target.closest(".due")) return void tPickDue(row);
-    if (e.target.closest(".duein") || e.target.closest(".tedit")) return;
-
-    if (e.target.closest(".ttl")) { clearTimeout(tClickT); tClickT = setTimeout(() => tDetail(t), T_DBL); return; }
     tDetail(t);
   });
 
@@ -564,21 +454,6 @@ function tWireHead(p) {
     const t = taskById(row.dataset.id); if (!t) return;
     if (e.target.closest(".ball")) { e.preventDefault(); return void tSetStatus(t, t.status === "blocked" ? "open" : "blocked"); }
     if (e.target.closest(".who")) { e.preventDefault(); return void tSetOwner(t, tWhoRight(t.owner || "")); }
-  });
-
-  panel.addEventListener("dblclick", e => {
-    const ttl = e.target.closest(".ttl"); if (!ttl) return;
-    const row = ttl.closest(".trow"), t = row && taskById(row.dataset.id); if (!t) return;
-    clearTimeout(tClickT);
-    if (_modal) _modal.close();
-    tEditTitle(row, t);
-  });
-
-  panel.addEventListener("change", e => {
-    const due = e.target.closest(".duein"); if (!due) return;
-    const row = due.closest(".trow"); const t = row && taskById(row.dataset.id); if (!t) return;
-    if ((due.value || "") === (t.due || "")) return;
-    twrite(t.id, { set: { due: due.value || "" } });
   });
 
   // click outside closes; capture phase records origin before rows are re-rendered
@@ -597,6 +472,12 @@ function tWireHead(p) {
   });
 
   paintTasks();
-  setInterval(() => { if (state.biz && state.biz !== tLastBiz) { tLastBiz = state.biz; tCompleting.clear(); refreshTasks(); } }, 500);
+  setInterval(() => {
+    if (state.biz && state.biz !== tLastBiz) {
+      tLastBiz = state.biz;
+      tDoneT.forEach(clearTimeout); tDoneT.clear(); tCompleting.clear();   // holds belong to the business they started in
+      refreshTasks();
+    }
+  }, 500);
   setInterval(() => { if (state.biz) refreshTasks(); }, 12000);
 })();

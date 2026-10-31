@@ -17,7 +17,7 @@
 .thandle .n:empty::before { content: "·"; opacity: .5; }
 
 .tasks {
-  position: fixed; top: 0; right: 0; z-index: 1; height: 100vh; width: 50vw; min-width: 600px; max-width: 100vw;
+  position: fixed; top: 0; right: 0; z-index: 1; height: 100vh; width: 70vw; min-width: 600px; max-width: 100vw;
   display: flex; flex-direction: column; min-height: 0;
   background: var(--surface); border-left: 1px solid var(--line);
   box-shadow: var(--shadow-float);
@@ -28,31 +28,21 @@
 .taskswrap.open .tasks { transform: none; opacity: 1; visibility: visible; transition-delay: 0s; }
 .tasks svg { width: 1em; height: 1em; flex: none; }
 
- 
-.tasks .thead { flex: none; padding: 30px 64px 18px 28px; }
-.tasks .ttop { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+/* ---------------------------------------------------------------- header: title, stats, search */
+.tasks .thead { flex: none; padding: 30px 64px 14px 28px; }
+.tasks .ttop { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
 .tasks .ttop h1 {
   font-size: 26px; font-weight: 700; letter-spacing: -.025em; line-height: 1.15; margin: 0 0 8px; color: var(--fg);
 }
 .tstats { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--fg-2); opacity: .85; }
 .tstats span { display: inline-flex; align-items: baseline; gap: 4px; }
 .tstats b { font: 600 12px var(--mono); color: var(--fg); opacity: .8; font-variant-numeric: tabular-nums; }
-.tstats b.blue { color: #0A84FF; opacity: 1; }
-.tstats b.over { color: #1D6FA8; opacity: 1; }
+.tstats b.blue { color: #F5F5F0; opacity: 1; }
+.tstats b.over { color: #FF453A; opacity: 1; }
 .tstats i { font-style: normal; color: var(--fg-3); }
 
-.tasks .pill {
-  height: 40px; padding: 0 20px 0 16px; gap: 8px; border: 0; border-radius: var(--r-full);
-  background: var(--accent); color: var(--accent-fg); font-weight: 600; font-size: 13px; cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: transform .12s ease, box-shadow .12s ease;
-}
-.tasks .pill svg { font-size: 14px; stroke-width: 2.5; }
-.tasks .pill:hover { transform: scale(1.02); box-shadow: 0 6px 16px -8px rgba(0,0,0,.6); background: var(--accent); }
-.tasks .pill:active { transform: scale(.98); }
-
-.tasks .tbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .tsearch {
-  position: relative; display: flex; align-items: center; flex: 1 1 220px; max-width: 300px; height: 36px;
+  position: relative; display: flex; align-items: center; flex: 0 1 280px; height: 36px; margin-bottom: 2px;
   background: var(--wash); border: 1px solid var(--line); border-radius: 14px; color: var(--fg-3);
   transition: border-color .15s ease, background .15s ease, box-shadow .15s ease, color .15s ease;
 }
@@ -63,116 +53,95 @@
   padding: 0 12px 0 32px; font: 13px var(--sans); color: var(--fg);
 }
 .tsearch input::placeholder { color: var(--fg-3); }
-.qf { display: flex; align-items: center; gap: 4px; overflow-x: auto; }
-.qf button {
-  height: 32px; padding: 0 12px; border: 0; border-radius: var(--r-full); background: none;
-  font-size: 12px; font-weight: 600; color: var(--fg-2); white-space: nowrap; cursor: pointer;
-  transition: background .15s ease, color .15s ease;
-}
-.qf button:hover { color: var(--fg); background: var(--hover); transform: none; }
-.qf button.on { background: var(--fg); color: var(--bg); box-shadow: 0 1px 2px rgba(0,0,0,.2); }
-.qf button.on:hover { background: var(--fg); color: var(--bg); }
 
 /* ---------------------------------------------------------------- body */
-.tasks .tbody { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 28px 64px 20px; }
+.tasks .tbody { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 28px 64px 20px; }
 .tasks .tbody::-webkit-scrollbar { width: 6px; }
 .tasks .tbody::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 3px; }
 .tasks .tbody::-webkit-scrollbar-track { background: transparent; }
 
-/* sections: Today / Tomorrow / Later / Someday / Completed */
-.tsec { margin-bottom: 40px; }
+/* The panel's own controls are quiet glyphs, not app.css's cream pill `button`: each opts out here
+   (the old centred bold section header was that pill rule leaking into a heading button). */
+.tplus, .trow .ball, .trow .who, .trow .tmore, .taddbtn {
+  height: auto; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
+  color: var(--fg-2); font: inherit; font-weight: 400; letter-spacing: normal;
+  display: inline-flex; align-items: center; justify-content: flex-start; gap: 0;
+  user-select: none; -webkit-user-select: none;
+}
+.tplus:hover, .trow .ball:hover, .trow .who:hover, .trow .tmore:hover, .taddbtn:hover,
+.tplus:active, .trow .ball:active, .trow .who:active, .trow .tmore:active, .taddbtn:active {
+  background: none; color: var(--fg); transform: none;
+}
+
+/* ---------------------------------------------------------------- sections: one per department */
+.tsec { margin-bottom: 26px; }
 .tsec:last-of-type { margin-bottom: 8px; }
-.tsh { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 0 8px; }
-.tst {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: auto; padding: 0; border: 0;
-  background: none; text-align: left; cursor: pointer; color: var(--fg); font-weight: 400; border-radius: 0;
+.tsh {
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px; height: 26px; padding: 0 12px; margin-bottom: 2px;
+  text-align: left;
 }
-.tst:hover, .tst:active { background: none; transform: none; color: var(--fg); }
-.tst svg { font-size: 14px; color: var(--fg-2); opacity: .5; transition: transform .18s ease; transform: rotate(90deg); }
-.tsec.closed .tst svg { transform: none; }
-.tst h2 {
-  margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.015em; text-transform: none;
-  color: var(--fg); opacity: .9; transition: opacity .15s ease;
+.tsh h2 {
+  flex: none; margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--fg-2); opacity: .6; text-align: left; line-height: 1;
 }
-.tst:hover h2 { opacity: 1; }
-.tst .c { font: 500 11px var(--mono); color: var(--fg-3); opacity: .75; font-variant-numeric: tabular-nums; }
+.tsh .c { font: 500 11px/1 var(--mono); color: var(--fg-3); font-variant-numeric: tabular-nums; }
 .tplus {
-  flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r-full); background: none;
-  color: var(--fg-2); opacity: .55; font-size: 14px; cursor: pointer; transition: background .15s ease, color .15s ease, opacity .15s ease;
+  margin-left: auto; width: 24px; height: 24px; justify-content: center; border-radius: var(--r-full);
+  color: var(--fg-2); opacity: 0; cursor: pointer; transition: opacity .15s ease, background .15s ease, color .15s ease;
 }
-.tplus:hover { background: var(--hover); color: var(--fg); opacity: 1; transform: none; }
-.tsb { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .18s ease-in-out, opacity .18s ease-in-out; }
-.tsec.closed .tsb { grid-template-rows: 0fr; opacity: 0; }
-.tsi { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 1px; }
+.tsh:hover .tplus, .tplus:focus-visible { opacity: .7; }
+.tplus:hover { opacity: 1; background: var(--hover); color: var(--fg); }
+.tplus svg { font-size: 14px; }
+.tsi { display: flex; flex-direction: column; gap: 1px; }
 
-/* the bottom "Add task" line */
-.taddbtn {
-  display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 20px; border: 0; border-radius: var(--r);
-  background: none; color: var(--fg-2); opacity: .6; font-size: 13px; font-weight: 400; cursor: pointer;
-  transition: color .15s ease, opacity .15s ease;
-}
-.taddbtn svg { font-size: 14px; }
-.taddbtn:hover { color: var(--fg); opacity: 1; background: none; transform: none; }
-
-/* inline add row */
-.tadd { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 12px; }
-.tadd .who.ph { width: 22px; height: 22px; cursor: default; }
-.ring18 { flex: none; width: 18px; height: 18px; border-radius: var(--r-full); border: 2px solid var(--line-2); }
-.tadd input {
-  flex: 1; min-width: 0; height: 100%; border: 0; background: none; outline: none; box-shadow: none; padding: 0;
-  font: 14px var(--sans); color: var(--fg);
-}
-.tadd input::placeholder { color: var(--fg-3); opacity: .8; }
-
-/* empty state */
-.tempty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 80px 20px; }
-.tempty .ic {
-  width: 48px; height: 48px; border-radius: var(--r-full); display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,.03); border: 1px solid var(--line); color: var(--fg-2); opacity: .7; font-size: 20px; margin-bottom: 20px;
-}
-.tempty .t { font-size: 16px; font-weight: 500; color: var(--fg); opacity: .9; margin: 0 0 8px; }
-.tempty .s { font-size: 13.5px; color: var(--fg-2); opacity: .7; max-width: 300px; margin: 0 0 24px; }
-.tempty .pill { height: 36px; padding: 0 16px; font-weight: 600; }
-
-/* ---------------------------------------------------------------- rows */
+/* ---------------------------------------------------------------- rows: deadline · assignee · status · title · ⋯ */
 .trow {
-  display: flex; align-items: center; gap: 14px; height: 48px; padding: 0 12px; border-radius: 14px;  
+  display: flex; align-items: center; height: 48px; padding: 0 12px; border-radius: 14px;  
   cursor: pointer; transition: background .15s ease;
 }
 .trow:hover { background: rgba(255,255,255,.03); }
-.trow .tmain { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; }
 .trow .ttl {
-  margin: 0; min-width: 0; font-size: 14.7px; font-weight: 500; letter-spacing: -.025em; color: var(--fg);
+  flex: 1; min-width: 0; margin: 0 0 0 4px; font-size: 14.7px; font-weight: 500; letter-spacing: -.025em; color: var(--fg);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color .15s ease;
 }
-.trow .tdesc { min-width: 0; font-size: 12.5px; color: var(--fg-2); opacity: .5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.trow.off .ttl { color: var(--fg-2); text-decoration: line-through; }
-.trow input.tedit {
-  flex: 1; min-width: 0; font: 500 14.7px var(--sans); letter-spacing: -.025em; color: var(--fg);
-  background: none; border: 0; border-bottom: 1px solid rgba(247,247,247,.3); border-radius: 0; padding: 4px 0; outline: none; box-shadow: none;
-}
-@media (max-width: 1400px) { .trow .tdesc { display: none; } }
+/* done and dropped rows sink to the bottom of their section, struck and dimmed */
+.trow.off { opacity: .55; }
+.trow.off .ttl { text-decoration: line-through; color: var(--fg-2); }
+.trow.off .ball .core, .trow.off .who .wd { opacity: .75; }
 
-/* status ball — open hollow gray, doing solid blue, done soft green + check, blocked solid red, dropped hollow */
-.ball {
-  position: relative; flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--r-full);
-  background: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
-  transition: transform .12s ease;
+/* the countdown chip: a 26 px column the section reserves as soon as one of its rows has a due date */
+.tdl {
+  flex: none; display: flex; justify-content: flex-end; width: 26px; padding-right: 4px; white-space: nowrap;
+  font-size: 9.5px; line-height: 1; font-weight: 600; letter-spacing: .02em; font-variant-numeric: tabular-nums;
+  color: var(--fg-3); opacity: .9;   /* right-aligned; a wide word (`today`) overflows leftwards, away from the balls */
 }
-.ball:hover { transform: scale(1.1); background: none; }
-.ball:active { transform: scale(.95); }
-.ball .core {
-  display: block; width: 18px; height: 18px; border-radius: var(--r-full);
-  border: 1.5px solid var(--fg-2); background: transparent;
+.tdl.soon { color: #FF9F0A; }
+.tdl.over { color: #FF453A; }
+
+ 
+.trow .ball, .trow .who, .tadd .ball, .tadd .who {
+  position: relative; flex: none; width: 30px; height: 30px; border-radius: var(--r-full);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
 }
-.ball.doing .core { border: 0; background: #0A84FF; }
+.ball .core, .who .wd {
+  display: block; width: 6px; height: 6px; border-radius: var(--r-full); opacity: .9;
+  transition: width .15s ease, height .15s ease, background .15s ease, border-color .15s ease;
+}
+.trow .ball:hover .core, .trow .who:hover .wd { width: 9px; height: 9px; }
+
+/* status: open and dropped hollow; doing white, waiting blue, done green (+ check), blocked red */
+.ball .core { border: 1.5px solid var(--fg-3); background: transparent; }
+.ball.doing .core { border: 0; background: #F5F5F0; }
+.ball.waiting .core { border: 0; background: #0A84FF; }
 .ball.blocked .core { border: 0; background: #FF453A; }
-.ball.done .core { border: 0; background: rgba(48,209,88,.4); }
-.ball.dropped .core { border-color: var(--fg-2); }
-.ball .burst { position: absolute; inset: 0; border-radius: var(--r-full); border: 1.5px solid #30D158; opacity: 0; pointer-events: none; }
-.ball .chk { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: #30D158; font-size: 13px; pointer-events: none; }
+.ball.done .core { border: 0; background: rgba(48,209,88,.45); }
+.ball .burst {
+  position: absolute; left: 50%; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px;
+  border-radius: var(--r-full); border: 1.5px solid #30D158; opacity: 0; pointer-events: none;
+}
+.ball .chk { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: #30D158; font-size: 9px; pointer-events: none; }
 .ball.done .chk { display: flex; }
-/* the ball pops on every status change, harder when it lands on done; done also bursts a ring and settles a check */
+/* the ball pops on every status change, harder when it lands on done; done also bursts a ring and settles the check */
 .ball.anim .core { animation: tpop .32s cubic-bezier(.34,1.56,.64,1) both; }
 .ball.anim.done .core { animation: tpop .42s cubic-bezier(.3,1.9,.5,1) both; }
 .ball.anim.done .burst { animation: tburst .45s ease-out both; }
@@ -181,73 +150,66 @@
 @keyframes tburst { from { transform: scale(.6); opacity: .7; } to { transform: scale(2.2); opacity: 0; } }
 @keyframes tcheck { from { transform: scale(0); opacity: 0; } to { transform: none; opacity: 1; } }
 
-/* assignee — left of the ball: unassigned dashed ring, agent = department glyph, human = cream disc with initial */
-.who {
-  position: relative; flex: none; width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--r-full);
-  background: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
-  transition: transform .12s ease, background .15s ease;
+/* assignee: dashed ring unassigned, department-coloured dot for an agent, cream dot for the owner, small gray dot otherwise */
+.who .wd.none { border: 1.5px dashed var(--fg-3); background: transparent; }
+.who:hover .wd.none { border-color: var(--fg-2); }
+.who .wd.agent, .who .wd.human { background: var(--wc); }
+.who .wd.other { background: var(--wc, var(--fg-3)); width: 5px; height: 5px; }
+.trow .who:hover .wd.other { width: 7px; height: 7px; }
+/* the same dot inline, in the detail's assignee field and the pickers */
+.who.inl { width: 14px; height: 14px; cursor: default; }
+.who.inl .wd { opacity: 1; }
+
+/* the ⋯ at the right end, shown while the row is hovered; opens the detail */
+.trow .tmore {
+  flex: none; width: 28px; height: 28px; margin-left: 6px; justify-content: center; border-radius: var(--r-sm);
+  color: var(--fg-2); opacity: 0; cursor: pointer; transition: opacity .15s ease, background .15s ease, color .15s ease;
 }
-.who:hover { transform: scale(1.1); background: var(--hover); }
-.who:active { transform: scale(.95); }
-.who .ring { display: block; width: 14px; height: 14px; border-radius: var(--r-full); border: 1.5px dashed var(--fg-3); }
-.who:hover .ring { border-color: var(--fg-2); }
-.who .disc {
-  display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: var(--r-full);
-  font: 700 9px/1 var(--sans); letter-spacing: 0;
+.trow:hover .tmore, .trow .tmore:focus-visible { opacity: .7; }
+.trow .tmore:hover { opacity: 1; background: var(--hover); color: var(--fg); }
+.trow .tmore svg { font-size: 16px; }
+
+/* ---------------------------------------------------------------- adding */
+/* the inline add row: the balls-to-be, then the input */
+.tadd { display: flex; align-items: center; height: 48px; padding: 0 12px; }
+.tadd .who, .tadd .ball { cursor: default; }
+.tadd .who .wd { border: 1.5px dashed var(--fg-3); background: transparent; }
+.tadd .ball .core { border: 1.5px solid var(--fg-3); background: transparent; }
+.tadd input {
+  flex: 1; min-width: 0; height: 100%; margin-left: 4px; padding: 0; border: 0; border-radius: 0;
+  background: none; outline: none; box-shadow: none;
+  font: 500 14.7px var(--sans); letter-spacing: -.025em; color: var(--fg);
 }
-.who .disc.human { background: var(--accent); color: var(--accent-fg); }
-.who .disc.other { background: rgba(255,255,255,.08); border: 1px solid var(--line-2); color: var(--fg-2); }
-.trow.off .who, .trow.off .tags { opacity: .6; }
+.tadd input:focus { border: 0; box-shadow: none; background: none; }
+.tadd input::placeholder { color: var(--fg-3); opacity: .8; }
+/* the bottom "Add task" line (general) */
+.taddbtn {
+  gap: 8px; height: 40px; padding: 0 12px; margin-left: 4px; color: var(--fg-2); opacity: .6; font-size: 13px; cursor: pointer;
+  transition: color .15s ease, opacity .15s ease;
+}
+.taddbtn:hover { color: var(--fg); opacity: 1; }
+.taddbtn svg { font-size: 14px; }
 
  
-.trow .tags { flex: none; display: flex; align-items: center; gap: 6px; }
-.chip {
-  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: var(--r-full);
-  border: 1px solid var(--line-2); background: none; color: var(--fg-2);
-  font-size: 11.5px; font-weight: 500; letter-spacing: 0; cursor: pointer; white-space: nowrap;
-  transition: border-color .15s ease, color .15s ease, background .15s ease, opacity .15s ease;
+.tempty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 80px 20px; }
+.tempty .ic {
+  width: 48px; height: 48px; border-radius: var(--r-full); display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.03); border: 1px solid var(--line); color: var(--fg-2); opacity: .7; font-size: 20px; margin-bottom: 20px;
 }
-.chip:hover { color: var(--fg); background: var(--hover); border-color: var(--line-2); transform: none; }
-.chip .tn { max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
-.tdot { display: inline-block; width: 6px; height: 6px; border-radius: var(--r-full); background: var(--tc, var(--fg-2)); flex: none; }
-.chip.add { padding: 0 7px; border-color: transparent; color: transparent; font-size: 11.5px; }
-.chip.add svg { opacity: .7; }
-.trow:hover .chip.add, .chip.add.on { border-color: var(--line); color: var(--fg-2); }
-.chip.add:hover { color: var(--fg) !important; }
-.chip.tog { border-color: var(--line-2); }
-.chip.tog.on { border-color: var(--accent); color: var(--fg); background: var(--wash); }
+.tempty .t { font-size: 16px; font-weight: 500; color: var(--fg); opacity: .9; margin: 0 0 8px; }
+.tempty .s { font-size: 13.5px; color: var(--fg-2); opacity: .7; max-width: 300px; margin: 0 0 24px; }
+.tempty .pill { height: 36px; padding: 0 16px; font-weight: 600; font-size: 13px; }
 
-/* due — a label with a calendar glyph, red when overdue; the native picker hides behind it */
-.duew { position: relative; flex: none; display: inline-flex; }
-.due {
-  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px; border: 0; border-radius: var(--r-sm);
-  background: none; color: var(--fg-2); opacity: .6; font-size: 12px; font-weight: 500; cursor: pointer;
-  transition: color .15s ease, opacity .15s ease, background .15s ease;
-}
-.due svg { font-size: 12px; }
-.due:hover { opacity: 1; color: var(--fg); background: var(--hover); transform: none; }
-.due.over { color: #FF453A; opacity: 1; }
-.due.none { opacity: 0; }
-.trow:hover .due.none { opacity: .45; }
-.trow:hover .due.none:hover { opacity: 1; }
-.duein { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; border: 0; padding: 0; }
-
-/* ---------------------------------------------------------------- popover rows (inside core's .menu .mi) */
+/* ---------------------------------------------------------------- popover rows (inside core's .menu .mi) and status dots */
 .towner { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .towner .tn { overflow: hidden; text-overflow: ellipsis; }
 .towner .tsub { font: 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--fg-3); padding-left: 2px; }
-.towner .who { width: 18px; height: 18px; cursor: default; }
-.towner .who:hover { transform: none; background: none; }
-.towner .dot, .tdetail .dot { display: inline-block; width: 6px; height: 6px; border-radius: var(--r-full); flex: none; }
-
-/* ---------------------------------------------------------------- new task form */
-.tform { display: flex; flex-direction: column; gap: 14px; }
-.tform > input[type=text] { width: 100%; font-size: 15px; padding: 10px 12px; }
-.tform .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.tform .selbtn, .tform input[type=date] { width: 100%; height: 36px; }
-.tform .selbtn .v { display: inline-flex; align-items: center; gap: 8px; }
-.tform .tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.tform textarea { width: 100%; min-height: 70px; resize: vertical; font: 13px/1.5 var(--sans); }
+.sdot { display: inline-block; flex: none; width: 6px; height: 6px; border-radius: var(--r-full); border: 1.5px solid var(--fg-3); background: transparent; }
+.sdot.doing { border: 0; background: #F5F5F0; }
+.sdot.waiting { border: 0; background: #0A84FF; }
+.sdot.blocked { border: 0; background: #FF453A; }
+.sdot.done { border: 0; background: #30D158; }
+.tdot { display: inline-block; width: 6px; height: 6px; border-radius: var(--r-full); background: var(--tc, var(--fg-2)); flex: none; }
 
 /* ---------------------------------------------------------------- detail modal */
 .tdetail { font-size: 13px; }
@@ -272,6 +234,17 @@
 .tdetail .selbtn .v { display: inline-flex; align-items: center; gap: 8px; }
 .tdetail input[type=date] { height: 32px; padding: 0 10px; font: 12px var(--mono); }
 .tdetail .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+/* tag chips live in the detail only (rows carry no chips); a chip opens the tag picker */
+.tdetail .chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: var(--r-full);
+  border: 1px solid var(--line-2); background: none; color: var(--fg-2);
+  font-size: 11.5px; font-weight: 500; letter-spacing: 0; cursor: pointer; white-space: nowrap;
+  transition: border-color .15s ease, color .15s ease, background .15s ease;
+}
+.tdetail .chip:hover { color: var(--fg); background: var(--hover); border-color: var(--line-2); transform: none; }
+.tdetail .chip .tn { max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.tdetail .chip.add { padding: 0 7px; border-color: var(--line); }
+.tdetail .chip.add svg { opacity: .7; }
 .tdetail h4 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--fg-2); opacity: .6; margin: 20px 0 8px; }
 .tnote { padding: 10px 0; border-top: 1px solid var(--line); }
 .tnote .nh { display: flex; gap: 10px; align-items: baseline; margin-bottom: 3px; }
@@ -287,4 +260,4 @@
 .tdetail .drow { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .tdetail .ghost { height: 30px; padding: 0 12px; font-size: 12.5px; cursor: pointer; }
 
-@media (max-width: 1200px) { .tasks { width: 100vw; min-width: 0; } }
+@media (max-width: 860px) { .tasks { width: 100vw; min-width: 0; } }
