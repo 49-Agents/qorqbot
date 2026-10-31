@@ -14,6 +14,7 @@ async function contextOpenItem(biz, item, beforeOpen) {
     state.ctx=item.path.slice(8).replace(/\.md$/, '');
     await goTab('context'); return;
   }
+  if (item.type === 'person') { await editPersonDetails(biz, item.id); return; }
   if (item.type === 'story') {
     if (state.biz !== biz) await selectBiz(biz);
     ls(`story:${biz}`, item.id); openTasks(false); await goTab('stories'); return;

@@ -285,16 +285,18 @@ const ctxNoteMeta = n => ({ date: n.slice(0, 10), rest: "" });
 // a person: bio, generated summary, the notes filed under them, where they're mentioned
 async function openPerson(slug) {
   const v = $("#ctxview"), d = _ctxData || {};
-  const person = findPerson(slug);
+  let person = findPerson(slug);
   if (!person) { v.innerHTML = `<div class="empty">no such person</div>`; return; }
   const s = d.summarizing || {}, busy = s.current && s.current.topic === `person:${slug}`;
   const r = await api(`/biz/${state.biz}/context/person/${slug}`);
   if (state.ctx !== `_people/${slug}`) return;    // navigated away while the notes were loading
+  person = {...person, ...r};
   const notesText = (r && r.notes_text) || "";
   const head = `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><a data-p="_people">People</a><span class="sep">›</span><span class="cur">${esc(person.name)}</span></div>
     <div class="th"><h2>${esc(person.name)}</h2>
-      <div class="pa"><button class="ghost sm" id="ctxpedit">Edit</button><button class="ghost sm" id="ctxpsum" ${busy ? "disabled" : ""}>${busy ? "summarising…" : "Refresh summary"}</button></div></div>`;
-  const metaLine = [person.role, person.org, person.email].filter(Boolean).join(" · ");
+      <div class="pa"><button class="ghost sm" id="ctxpedit">Edit details</button><button class="ghost sm" id="ctxpnotes">Edit notes</button><button class="ghost sm" id="ctxpsum" ${busy ? "disabled" : ""}>${busy ? "summarising…" : "Refresh summary"}</button></div></div>`;
+  const contact = person.contact || {};
+  const metaLine = [person.affiliation || "external", person.role, person.org, contact.email, contact.phone].filter(Boolean).join(" · ");
   const meta = metaLine ? `<div class="meta">${esc(metaLine)}</div>` : "";
   const akaList = person.aka || [];
   const aka = akaList.length ? `<div class="aka">${akaList.map(a => `<span class="chip">${esc(a)}</span>`).join("")}</div>` : "";
@@ -310,14 +312,16 @@ async function openPerson(slug) {
     const body = node?.summaries?.[file] || node?.previews?.[file] || "";
     return `<div class="card n" data-p="${esc(m)}" title="${esc(title)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(title))}</span></div><div class="cb">${esc(body)}</div><div class="cs">${esc(m)}</div></div>`;
   }).join("")}</div></div>` : "";
-  v.innerHTML = head + meta + aka + about + sum + notesSec + ment;
+  const contactNotes = contact.notes ? `<div class="sec"><div class="sh">How to contact</div><p class="about">${esc(contact.notes)}</p></div>` : "";
+  v.innerHTML = head + meta + aka + about + contactNotes + sum + notesSec + ment;
   if(d.graph){
     const related=document.createElement('div');related.className='story-associations';v.appendChild(related);
     contextRelatedChips(related,state.biz,{type:'person',id:person.document_id}).catch(e=>toast(e.message));
   }
   wireCrumbs(v);
   v.querySelectorAll(".card").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
-  const ed = $("#ctxpedit"); if (ed) ed.onclick = () => ctxGo(`_people/${slug}.md`);
+  const ed = $("#ctxpedit"); if (ed) ed.onclick = () => editPersonDetails(state.biz, person.document_id, () => openPerson(slug)).catch(e => toast(e.message));
+  const ne = $("#ctxpnotes"); if (ne) ne.onclick = () => ctxGo(`_people/${slug}.md`);
   const rs = $("#ctxpsum"); if (rs) rs.onclick = async () => {
     rs.disabled = true;
     const rr = await post(`/biz/${state.biz}/context/summarize`, { person: slug });
@@ -573,4 +577,39 @@ function uploadModal({stories=[],onUploaded}={}) {
       } },
     ],
   });
+}
+
+
+async function editPersonDetails(biz, id, after) {
+  const {item} = await storyCall(biz, 'context_items_get', {item:{type:'person', id}});
+  const contact = item.contact || {};
+  const field = (name, label, value, type='text', max=4000) => `<label>${label}<input name="${name}" type="${type}" maxlength="${max}" value="${esc(value || '')}"></label>`;
+  const body = `<div class="data-form">
+    <label>Affiliation<select name="affiliation"><option value="external" ${item.affiliation==='external'?'selected':''}>External</option><option value="internal" ${item.affiliation==='internal'?'selected':''}>Internal</option></select></label>
+    ${field('email','Email',contact.email,'email',320)}${field('phone','Phone',contact.phone,'tel',100)}
+    <label>How to contact<textarea name="contact-notes" rows="3" maxlength="4000">${esc(contact.notes || '')}</textarea></label>
+    <label>Summary<textarea name="summary" rows="4">${esc(item.summary || '')}</textarea></label>
+    <p class="data-form-error" role="alert"></p></div>`;
+  let attempt;
+  modal({stack:true, title:esc(item.label || item.name || 'Person'), body, actions:[{label:'Save', primary:true, onClick:async(close, el)=>{
+    const button=el.querySelector('.mfoot .primary'); button.disabled=true;
+    try {
+      const value=name=>el.querySelector(`[name="${name}"]`).value;
+      const email=el.querySelector('[name="email"]');
+      if (!email.checkValidity()) { email.reportValidity(); return; }
+      const changes={};
+      if(value('affiliation')!==item.affiliation) changes.affiliation=value('affiliation');
+      if(value('summary')!==(item.summary || '')) changes.summary=value('summary');
+      const editedContact={email:value('email'),phone:value('phone'),notes:value('contact-notes')};
+      const contactChanges=Object.fromEntries(Object.entries(editedContact).filter(([key,v])=>v!==(contact[key] || '')));
+      if(Object.keys(contactChanges).length) changes.contact=contactChanges;
+      if(Object.keys(changes).length) {
+        const binding=JSON.stringify(changes);
+        if(attempt?.binding!==binding) attempt={binding,key:newRequestId()};
+        await storyCall(biz,'context_people_update',{document_id:id,changes},{expected_revision:item.revision,idempotency_key:attempt.key});
+      }
+      close(); if(state.biz===biz) await after?.();
+    } catch(e) {el.querySelector('.data-form-error').textContent=e.message;}
+    finally {if(button.isConnected) button.disabled=false;}
+  }}]});
 }
