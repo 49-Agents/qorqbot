@@ -190,8 +190,8 @@ function agpadPaintInbox(p) {
   if (!body) return;
   const error = p.inboxError ? '<p class="agpad-inbox-status" role="alert">Inbox unavailable. Retrying…</p>' : '';
   const agentId = p.agentId || state.agents.find(agent => agent.name === p.agent)?.agent_id;
-  const card = (item, subscription = false) => item.message ? `<details class="agpad-inbox-item agpad-message">
-    <summary><strong>Message from ${esc(item.message.sender_name)}</strong><span>${esc(agpadInboxAge(item.created_at))}${item.message.reply_to ? ' · Reply' : ''}</span></summary>
+  const card = (item, subscription = false) => item.message ? `<details class="agpad-inbox-item agpad-message" data-message-id="${esc(item.message.id)}">
+    <summary><strong>Message from ${esc(item.message.sender_name)}</strong><span>${esc(agpadInboxAge(item.created_at))}${item.message.reply_to ? ' · Reply' : ''}</span><span>${esc(messagePreview(item.message.body,item.message.summary))}</span></summary>
     <div class="agpad-message-body">${esc(item.message.body)}</div>
     <span>To ${esc(item.message.recipient_name)}</span></details>` : `<button type="button" class="agpad-inbox-item" data-agent-id="${esc(agentId || '')}" data-inbox-source="${esc(item.source_id)}" data-source-type="${esc(item.source_type)}" data-business="${esc(item.business_slug || '')}">
     <strong>${esc(item.summary || 'Source item')}</strong><span>${esc(({focus_cards:'Focus Reference',stories:'Story',tasks:'Task',signoffs:'Signoff',documents:'Document',email_conversations:'Email',data_tables:'Table',action_logs:'Action',requests:'Request',agent_profiles:'Agent',principals:'Person',context_entities:'Reference'})[item.source_type] || 'Update')}${subscription ? (item.include_related ? ' · Includes linked items' : ' · Item only') : ' · ' + esc(item.event_type.split(',').map(type => ({relationship_changed:'Links changed',assignment_changed:'Assignment changed',response_submitted:'Response submitted',action_outcome:'Action result',note_added:'Note added',note:'Note added',message_changed:'Message received'})[type] || type.replaceAll('_', ' ')).join(', '))}</span>
@@ -203,7 +203,9 @@ function agpadPaintInbox(p) {
   if (p.bodyHtml === html) return;
   p.bodyHtml = html;
   const scroll = body.scrollTop;
+  const expandedMessages=new Set([...body.querySelectorAll('.agpad-message[open]')].map(el=>el.dataset.messageId));
   body.innerHTML = html; body.scrollTop = scroll;
+  body.querySelectorAll('.agpad-message').forEach(el=>{el.open=expandedMessages.has(el.dataset.messageId);});
   body.querySelectorAll('[data-inbox-source]').forEach(button => {
     button.onclick = () => agpadOpenInboxSource(button.dataset).catch(error => toast(error.message || 'Source unavailable'));
   });

@@ -22,6 +22,17 @@ function conversationGlyph(person,size) {
     ? agentGlyph({...person.presentation,...profile},size)
     : esc(conversationPersonName(person).slice(0,2));
 }
+// Presentation only: canonical bodies and transport payloads stay complete.
+function messagePreview(body, summary) {
+  const words=String(summary || body || '').trim().split(/\s+/u).filter(Boolean);
+  return words.slice(0,15).join(' ') + (words.length>15?'…':'');
+}
+function conversationMessage(note, open) {
+  const body=`<div data-conversation-body="${esc(note.id)}">${esc(note.body || '')}</div>`;
+  const preview=messagePreview(note.body,note.summary);
+  if(!note.summary && String(note.body || '').trim().split(/\s+/u).length<=15)return body;
+  return `<details data-message-id="${esc(note.id)}"${open?' open':''}><summary aria-label="${esc(preview)} — expand full message">${esc(preview)}</summary>${body}</details>`;
+}
 async function conversationCall(source,operation,args,options={}) {
   const path=source.biz?`/biz/${encodeURIComponent(source.biz)}`:'/root';
   return coreData(await post(`${path}/operations/${operation}`,{...args,...(!source.biz?{scope:'global'}:{}),...options}));
@@ -30,6 +41,7 @@ function conversationMount(host,source,adapter={}) {
   if (!host) return;
   const key=conversationKey(source),s=conversationState(source);
   let expanded=false;
+  const expandedMessages=new Set();
   if (host.dataset.conversation===key) { host._source=source; return host._conversation; }
   host.dataset.conversation=key;host._source=source;
   const panelId=`conversation-panel-${++conversationMountId}`;
@@ -72,8 +84,9 @@ function conversationMount(host,source,adapter={}) {
       const owner=first.is_owner ?? (first.author_kind==='human');
       const name=conversationPersonName(first);
       const avatar=conversationGlyph(first,24);
-      return `<div class="conversation-group ${owner?'conversation-owner':'conversation-agent'}">${!owner?`<span class="conversation-avatar" aria-hidden="true">${avatar}</span><small>${esc(name)}</small>`:''}<div>${group.map(note=>`<div class="conversation-bubble">${note.title && note.title!=='Message'?`<strong>${esc(note.title)}</strong>`:''}${note.parent_event_id && adapter.openParent?`<button type="button" class="quiet conversation-parent" data-note-parent="${esc(note.id)}">About an earlier entry</button>`:''}<div data-conversation-body="${esc(note.id)}">${esc(note.body || '')}</div>${(note.refs||[]).map((r,i)=>`<button type="button" class="quiet" data-note-ref="${esc(note.id)}:${i}" ${r.unavailable?'disabled':''}>${esc(r.label || r.type || 'Reference')}</button>`).join('')}</div>`).join('')}${time}</div></div>`;
+      return `<div class="conversation-group ${owner?'conversation-owner':'conversation-agent'}">${!owner?`<span class="conversation-avatar" aria-hidden="true">${avatar}</span><small>${esc(name)}</small>`:''}<div>${group.map(note=>`<div class="conversation-bubble">${note.title && note.title!=='Message'?`<strong>${esc(note.title)}</strong>`:''}${note.parent_event_id && adapter.openParent?`<button type="button" class="quiet conversation-parent" data-note-parent="${esc(note.id)}">About an earlier entry</button>`:''}${conversationMessage(note,expandedMessages.has(note.id))}${(note.refs||[]).map((r,i)=>`<button type="button" class="quiet" data-note-ref="${esc(note.id)}:${i}" ${r.unavailable?'disabled':''}>${esc(r.label || r.type || 'Reference')}</button>`).join('')}</div>`).join('')}${time}</div></div>`;
     }).join('');
+    feed.querySelectorAll('[data-message-id]').forEach(details=>details.addEventListener('toggle',()=>{if(!details.isConnected)return;if(details.open)expandedMessages.add(details.dataset.messageId);else expandedMessages.delete(details.dataset.messageId);}));
     if(typeof StoryNotePane==='function') for(const note of s.notes) {
       if(note.statuses_json) {const body=[...feed.querySelectorAll('[data-conversation-body]')].find(el=>el.dataset.conversationBody===note.id);if(body)new StoryNotePane(body,{body:note.body,statuses:note.statuses_json},{readonly:true});}
     }
