@@ -1,0 +1,17 @@
+.global-progress { width:100%; margin:0 0 32px; padding:20px 24px 12px; box-sizing:border-box; border:1px solid var(--line-2); border-radius:16px; background:var(--wash); }
+.global-progress header { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+.global-progress-periods { display:flex; gap:4px; }
+.global-progress-periods button { padding:6px 10px; border:1px solid transparent; background:none; border-radius:8px; font-size:12px; color:var(--fg-2); }
+.global-progress-periods button[aria-pressed=true] { color:var(--fg); border-color:var(--line-2); background:var(--wash); }
+.global-progress-legend { display:flex; gap:18px; font-size:12px; }
+.global-progress-legend span::before { content:''; display:inline-block; width:16px; height:2px; background:currentColor; margin:0 7px 3px 0; }
+.gp-tasks { color:#66d9e8; } .gp-emails { color:#C6A46A; }
+.global-progress-plot { position:relative; min-height:300px; margin-top:16px; color:var(--fg-2); }
+.global-progress-plot svg { display:block; width:100%; height:clamp(300px,30vw,420px); overflow:visible; }
+.global-progress-plot text { fill:var(--fg-2); font:11px var(--sans); }
+.gp-grid { stroke:var(--line-2); stroke-width:1; }
+.gp-line { fill:none; stroke:currentColor; stroke-width:2; stroke-linejoin:round; stroke-linecap:round; vector-effect:non-scaling-stroke; }
+.gp-today { stroke-dasharray:5 5; }
+.gp-cursor { stroke:var(--fg-3); stroke-dasharray:3 4; } .gp-cursor[hidden] { display:none; }
+.gp-readout { position:absolute; top:0; right:0; padding:6px 10px; border:1px solid var(--line-2); border-radius:8px; background:var(--bg); color:var(--fg); font-size:12px; pointer-events:none; }
+@media(max-width:600px) { .global-progress { padding:14px 12px; } .global-progress-plot svg { height:260px; } .global-progress-plot { min-height:260px; } }
