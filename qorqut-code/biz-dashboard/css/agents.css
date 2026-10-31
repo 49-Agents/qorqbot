@@ -24,6 +24,10 @@
 .listcol:has(.ctop) { display: flex; flex-direction: column; }
 .listcol .ctop { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px 12px; }
 .listcol .ctop .primary { width: 100%; }
+.agtools { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.agtools .agpad-toggle { flex: 1; min-width: 0; }
+.agtools .agcompact { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 30px; width: 30px; height: 30px; padding: 0; }
+.agcompact:disabled { opacity: .45; }
 .listcol .crows { flex: 1; overflow-y: auto; min-height: 0; }
 .listcol .h { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-3); padding: 14px 24px 6px;
   display: flex; align-items: center; justify-content: space-between; gap: 8px; position: relative; }

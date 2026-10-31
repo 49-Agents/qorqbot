@@ -5,20 +5,23 @@
 # Claude Code session it inherits CLAUDE_CODE_* markers, and every agent shell would then run as a
 # child of that session (no transcript, wrong effort). This script builds the environment from
 # scratch (`env -i`), reads the machine's config from one file, detaches the process (setsid) and
-# keeps a pidfile and a log under ~/.local/state/biz-dashboard/.
+# keeps a pidfile and a log under this app's ignored .state/ directory.
 #
 # Config: .env.dashboard next to this script (gitignored; copy .env.dashboard.example). Plain
 # KEY=VALUE lines. HOST and PORT become --host/--port; everything else is passed as environment
-# (BIZ_ROOT, BIZ_DIRS, BIZ_PLUGINS_DIR, DEEPSEEK_API_KEY, BIZ_DASH_TOKEN, BIZ_FLEET_HOME, ...).
+# (BIZ_ROOT, BIZ_SERVICE_ORIGINS, DEEPSEEK_API_KEY, BIZ_DASH_TOKEN, ...).
+# The registered database and authority marker must already exist. This script never migrates data.
 #
 # `stop` ends the dashboard only. Agent shells live in tmux (`tmux -L bazarlyk`) and keep running;
 # the next `start` re-attaches to them. Kill one on purpose with the Stop button or
 # `tmux -L bazarlyk kill-session -t =<slug>__<agent>`.
 set -euo pipefail
+umask 077
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PYTHON=$HERE/../biz-core/.venv/bin/python
 CONF=${BIZ_DASH_CONF:-$HERE/.env.dashboard}
-STATE=${BIZ_DASH_STATE:-$HOME/.local/state/biz-dashboard}
+STATE=${BIZ_DASH_STATE:-$HERE/.state}
 PIDFILE=$STATE/dashboard.pid
 LOG=$STATE/dashboard.log
 
@@ -54,13 +57,14 @@ running_pid() {
 cmd_start() {
   read_conf
   if pid=$(running_pid); then echo "already running (pid $pid) on $HOST:$PORT"; return 0; fi
+  [ -x "$PYTHON" ] || die "project runtime missing; install biz-core into biz-core/.venv first"
   mkdir -p "$STATE"
   # A fresh environment: nothing from the caller but the basics. No CLAUDE_* can get through.
   env -i \
     HOME="$HOME" USER="${USER:-$(id -un)}" LOGNAME="${LOGNAME:-$(id -un)}" PATH="$PATH" \
     SHELL="${SHELL:-/bin/bash}" LANG="${LANG:-C.UTF-8}" TERM=xterm-256color \
     "${ENV_ARGS[@]}" \
-    setsid nohup python3 -u "$HERE/server.py" --host "$HOST" --port "$PORT" \
+    setsid nohup "$PYTHON" -I -u -m bazarlyk.service --workspace "$HERE/.." --host "$HOST" --port "$PORT" \
       >> "$LOG" 2>&1 < /dev/null &
   echo $! > "$PIDFILE"
   sleep 1.5
@@ -74,7 +78,7 @@ cmd_start() {
 cmd_stop() {
   if ! pid=$(running_pid); then echo "not running"; rm -f "$PIDFILE"; return 0; fi
   kill "$pid"
-  for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+  for _ in {1..40}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
   kill -0 "$pid" 2>/dev/null && kill -9 "$pid"
   rm -f "$PIDFILE"
   echo "stopped (pid $pid). Agent shells in tmux keep running; 'start' re-attaches."

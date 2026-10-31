@@ -10,6 +10,7 @@ loadBiz();
 
   const blocked = () => {
     const a = document.activeElement;
+    if (a && a.closest && a.closest(".sg, .ac, #taskspanel .ttabs, #thandle")) return true;
     if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return true;
     if (a && a.isContentEditable) return true;
     if (document.querySelector(".overlay") || document.querySelector(".menu")) return true;
@@ -18,7 +19,7 @@ loadBiz();
   };
 
   document.addEventListener("keydown", e => {
-    if (blocked()) return;
+    if (blocked()) { tabHeld = false; lastTabAt = 0; sawLetter = false; return; }
     if (e.key === "Tab" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
       e.preventDefault();
       if (e.repeat) return;   // holding Tab down auto-repeats keydown; only the initial press counts

@@ -1,0 +1,5 @@
+__pycache__/
+.worktrees/
+.env.dashboard
+tests/artifacts/
+.state/

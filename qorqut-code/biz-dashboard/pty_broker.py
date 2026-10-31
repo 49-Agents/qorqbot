@@ -54,6 +54,8 @@ class Terminal:
         self.cwd = cwd
         self.cols = cols
         self.rows = rows
+        self._io_lock = threading.Lock()
+        self._stopping = threading.Event()
 
         self.master_fd, slave_fd = pty.openpty()
         self._set_winsize(rows, cols)
@@ -83,10 +85,13 @@ class Terminal:
 
     # ---- window size ----
     def _set_winsize(self, rows: int, cols: int) -> None:
-        try:
-            fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-        except OSError:
-            pass
+        with self._io_lock:
+            if self._stopping.is_set() or self.master_fd < 0:
+                return
+            try:
+                fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+            except OSError:
+                pass
 
     def resize(self, rows: int, cols: int) -> None:
         self.rows, self.cols = rows, cols
@@ -98,10 +103,12 @@ class Terminal:
 
     # ---- output pump ----
     def _pump(self) -> None:
-        while True:
+        while not self._stopping.is_set():
             try:
                 r, _, _ = select.select([self.master_fd], [], [], 0.5)
             except (OSError, ValueError):
+                break
+            if self._stopping.is_set():
                 break
             if self.master_fd in r:
                 try:
@@ -118,6 +125,15 @@ class Terminal:
                         self._nbytes -= len(self._chunks.pop(0))
             elif self.proc.poll() is not None:
                 break
+        # Only the reader closes the descriptor, after its last possible read.
+        # Closing it in stop() lets select/read consume a newly reused file fd.
+        self._stopping.set()
+        with self._io_lock:
+            descriptor, self.master_fd = self.master_fd, -1
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
         try:
             self.proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
@@ -127,10 +143,13 @@ class Terminal:
 
     # ---- input ----
     def write(self, data: bytes) -> None:
-        try:
-            os.write(self.master_fd, data)
-        except OSError:
-            pass
+        with self._io_lock:
+            if self._stopping.is_set() or self.master_fd < 0:
+                return
+            try:
+                os.write(self.master_fd, data)
+            except OSError:
+                pass
 
     # ---- mirror reads ----
     def snapshot(self) -> tuple[bytes, int]:
@@ -149,14 +168,13 @@ class Terminal:
 
     # ---- lifecycle ----
     def stop(self) -> None:
+        self._stopping.set()
         try:
             os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
         except (OSError, ProcessLookupError):
             pass
-        try:
-            os.close(self.master_fd)
-        except OSError:
-            pass
+        if threading.current_thread() is not self._reader:
+            self._reader.join(timeout=3)
 
 
 # ------------------------------------------------------------------ registry
@@ -215,6 +233,7 @@ def keys() -> list[str]:
 
 TMUX = shutil.which("tmux")
 TMUX_SOCK = "bazarlyk"
+TMUX_CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".state")
 TMUX_CONF = """\
 set -g status off
 set -g prefix None
@@ -242,12 +261,20 @@ def session_prefix(slug: str) -> str:
 
 
 def _conf_path() -> str:
-    d = os.path.join(os.path.expanduser("~"), ".cache", "biz-dashboard")
+    d = TMUX_CONFIG_DIR
     p = os.path.join(d, f"tmux-{TMUX_SOCK}.conf")
     try:
-        if not os.path.exists(p) or open(p, encoding="utf-8").read() != TMUX_CONF:
-            os.makedirs(d, exist_ok=True)
-            with open(p, "w", encoding="utf-8") as fh:
+        if os.path.islink(d):
+            return "/dev/null"
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        existing = None
+        try:
+            with os.fdopen(os.open(p, os.O_RDONLY | os.O_NOFOLLOW), encoding="utf-8") as fh:
+                existing = fh.read()
+        except FileNotFoundError:
+            pass
+        if existing != TMUX_CONF:
+            with os.fdopen(os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600), "w", encoding="utf-8") as fh:
                 fh.write(TMUX_CONF)
     except OSError:
         pass

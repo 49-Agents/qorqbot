@@ -36,9 +36,16 @@
 .rtfields > label[hidden] { display: none; }
 .rtfields .inp { width: 100%; box-sizing: border-box; font-size: 12px; }
 .rtfields textarea { min-height: 70px; resize: vertical; }
+.rtarguments { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.rtarguments:empty, #rtprogramerror:empty { display: none; }
+.rtarguments > label { display: flex; flex-direction: column; gap: 6px; font: 12px var(--sans); color: var(--fg-2); min-width: 0; }
+.rtarguments label.rtcheck { flex-direction: row; }
+.rtfields > label, .rtdetail .v { min-width: 0; overflow-wrap: anywhere; }
+.rtfields > label.rtcheck { flex-direction: row; }
+.rtfields input[type="checkbox"] { flex: 0 0 auto; }
 .rtwide { grid-column: 1 / -1; }
 .rtfields fieldset { border: 1px solid var(--line); border-radius: var(--r); font-size: 11px; color: var(--fg-2); padding: 10px; }
 .rtfields .rtcheck { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; margin: 4px 12px 4px 0; }
 .rtform #rterror { margin-bottom: 0; font-size: 12px; }
 @media (max-width: 900px) { .rtworkspace .rtnav { width: 68px; padding: 20px 12px; } .rtnav .jricon { justify-content: center; padding: 0; } .rtnav .jricon span { display: none; } .rtcontent { padding-right: 18px; padding-left: 18px; } }
-@media (max-width: 600px) { .rtfields { grid-template-columns: 1fr; } .rtcontent { padding: 18px 10px; } .rtrow { column-gap: 6px; } }
+@media (max-width: 600px) { .rtfields, .rtarguments { grid-template-columns: 1fr; } .rtcontent { padding: 18px 10px; } .rtrow { column-gap: 6px; } }

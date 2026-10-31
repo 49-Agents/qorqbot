@@ -39,9 +39,9 @@
    plus a sliding indicator that glides under the active icon (see moveTInd in tasks.js) */
 /* 24px clearance under the row on every tab, including the Journal/Notes/Uploads ones that bring their
    own headline (.thead.nott) */
-.ttabs { position: relative; display: flex; gap: 4px; margin-bottom: 24px; }
+.ttabs { position: relative; display: flex; gap: 4px; margin-bottom: 16px; padding-bottom: 8px; overflow-x: auto; scrollbar-width: thin; }
 .ttab {
-  position: relative; z-index: 1; height: 44px; width: 44px; padding: 0; border: 0; border-radius: 12px; background: none;
+  position: relative; z-index: 1; flex: 0 0 44px; height: 44px; width: 44px; padding: 0; border: 0; border-radius: 12px; background: none;
   display: flex; align-items: center; justify-content: center;
   color: var(--fg-2); cursor: pointer; transition: color .14s ease, background .14s ease;
 }
@@ -49,6 +49,7 @@
 .ttab svg { display: block; width: 19px; height: 19px; }
 .ttab:hover { color: var(--fg); background: var(--hover); transform: none; }
 .ttab.on { color: var(--fg); background: none; }
+.ttab:focus-visible { outline: 2px solid var(--fg-2); outline-offset: -2px; }
 .tind {
   position: absolute; left: 0; top: 0; height: 44px; border-radius: 12px;
   background: rgba(255,255,255,.05); pointer-events: none;

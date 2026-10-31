@@ -9,8 +9,9 @@ const RT_ICONS = {
   more: lnSvg('<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>'),
 };
 const rtMoney = n => '$' + Number(n || 0).toFixed(4);
-const rtCommand = argv => (argv || []).map(a => /^[a-zA-Z0-9_./=-]+$/.test(a) ? a : "'" + a.replace(/'/g, "'\\''") + "'").join(' ');
 const rtEndpoint = (global, biz = state.biz) => global ? '/root/routines' : `/biz/${encodeURIComponent(biz)}/routines`;
+const rtBusinessId = biz => { const row = state.bizs.find(b => b.slug === biz); return row && (row.business_id || row.id); };
+const rtResult = result => { const data = coreData(result); return data; };
 const rtKey = row => row.key || `${row.scope}/${row.location || ''}/${row.id}`;
 function rtScope(scope) {
   const info = LN_SCOPE_BY_KEY[scope] || LN_SCOPE_BY_KEY.biz;
@@ -35,9 +36,11 @@ async function rtRefresh() {
   try {
     const [data, logs] = await Promise.all([api(rtEndpoint(false, biz)), api(rtEndpoint(false, biz) + '/runs?n=50')]);
     if (biz !== state.biz || generation !== rtGeneration || tView !== 'routines') return;
+    if (data.error) throw new Error(data.error);
+    if (logs.error) throw new Error(logs.error);
     rtData = data; rtRuns = logs;
     rtRender();
-  } catch (_) { if (biz === state.biz) notify({text:'Could not load routines', color:'var(--danger)'}); }
+  } catch (error) { if (biz === state.biz) notify({text:error.message || 'Could not load routines', color:'var(--danger)'}); }
 }
 function rtRows() {
   const seen = new Set();
@@ -46,12 +49,12 @@ function rtRows() {
   }).sort((a,b) => (a.status === 'paused') - (b.status === 'paused') || String(a.next || '').localeCompare(String(b.next || '')) || a.name.localeCompare(b.name));
 }
 function rtRoutineRow(row) {
-  const next = row.status === 'paused' ? 'Paused' : 'Next ' + rtTime(row.next, row.zone);
+  const next = row.status === 'paused' ? 'Paused' : row.scheduling_available === false ? row.scheduling_unavailable_reason || 'Scheduling unavailable' : 'Next ' + rtTime(row.next, row.zone);
   const current = rtData.current && rtData.current.key === row.key;
   return `<article class="rtrow" data-key="${esc(rtKey(row))}">
     ${rtScope(row.scope)}<button class="rttitle" data-action="detail" title="${esc(row.name)}">${esc(row.name)}</button>
     <div class="rtmeta" title="${esc(next)}">${current ? '<span class="rtok">Running</span><span class="sep">·</span>' : ''}${esc(next)}</div>
-    <div class="rtrowactions"><button class="jricon" data-action="run" aria-label="Run ${esc(row.name)} now" title="Run now" ${!rtData.enabled ? 'disabled' : ''}>${RT_ICONS.play}</button>
+    <div class="rtrowactions"><button class="jricon" data-action="run" aria-label="Run ${esc(row.name)} now" title="${esc(row.unavailable_reason || 'Run now')}" ${!rtData.enabled || row.available === false ? 'disabled' : ''}>${RT_ICONS.play}</button>
     <button class="jricon" data-action="more" aria-label="Actions for ${esc(row.name)}" title="Routine actions">${RT_ICONS.more}</button></div></article>`;
 }
 function rtRunRow(run, index) {
@@ -98,11 +101,19 @@ function rtRender() {
   const add = $('#rtnew'), show = $('#rtpaused'), kill = $('#rtkill');
   if (add) add.onclick = () => rtOpenForm();
   if (show) show.onchange = () => { rtShowPaused = show.checked; rtRender(); };
-  if (kill) kill.onclick = async () => {
-    const result = await post('/routines/kill', {});
-    notify({text:result.error || 'Stopping routine', ...(result.error ? {color:'var(--danger)'} : {})});
-    rtRefresh();
-  };
+  if (kill) kill.onclick = () => rtStop(current, kill);
+}
+async function rtStop(current, button) {
+  const biz = state.biz, definition = current.definition_ref_json || {};
+  if (!current.id || !definition.routine_id) return;
+  button.disabled = true;
+  try {
+    rtResult(await post(rtEndpoint(definition.scope === 'global', biz), {op:'stop', id:definition.routine_id,
+      job_id:current.id, ...(current.business_id ? {target_business_id:current.business_id} : {}), review_business_id:rtBusinessId(biz)}));
+    notify({text:'Stop requested',sub:definition.routine_id});
+    if (state.biz === biz) rtRefresh();
+  } catch (error) { notify({text:error.message,color:'var(--danger)'}); }
+  finally { button.disabled = false; }
 }
 function rtMenu(button, row) {
   dropdown(button, [{value:'edit',label:'Edit routine'}, {value:row.status === 'paused' ? 'resume' : 'pause',label:row.status === 'paused' ? 'Resume' : 'Pause'}, {value:'rm',label:'Delete routine'}], action => rtAction(action, row));
@@ -121,25 +132,26 @@ async function rtAction(action, row) {
     return;
   }
   if (action !== 'run') return rtWrite(action, row, biz);
-  const result = await post('/routines/run', {location:row.location,id:row.id});
-  rtNotify(result.error || result.warn || `Queued ${row.name}`, row, !!result.error, biz);
-  if (biz === state.biz) rtRefresh();
+  return rtWrite('run', row, biz);
 }
 async function rtWrite(op, row, biz) {
-  const result = await post(rtEndpoint(row.scope === 'global', biz), {op,id:row.id});
-  rtNotify(result.error || result.warn || (op === 'rm' ? 'Routine deleted' : op === 'pause' ? 'Routine paused' : 'Routine resumed'), row, !!result.error, biz);
+  try {
+    rtResult(await post(rtEndpoint(row.scope === 'global', biz), {op,id:row.id,expected_revision:row.revision,review_business_id:rtBusinessId(biz)}));
+    rtNotify(op === 'run' ? `Queued ${row.name}` : op === 'rm' ? 'Routine deleted' : op === 'pause' ? 'Routine paused' : 'Routine resumed', row, false, biz);
+  } catch (error) { rtNotify(error.message, row, true, biz); }
   if (biz === state.biz) rtRefresh();
 }
 function rtDetail(row) {
   const fields = [
     ['Next scheduled',row.status === 'paused' ? 'Paused' : rtTime(row.next,row.zone)],
-    ['Command',rtCommand(row.run)], ['Departments',row.departments.join(', ')],
-    ['Timeout',row.timeout + ' seconds'], ['Output paths',(row.commit || []).join(', ') || 'None'],
+    ['Program',row.program], ['Arguments',JSON.stringify(row.arguments || {})], ['Departments',(row.departments || []).join(', ')],
+    ['Timeout',row.timeout + ' seconds'], ['Target',row.target || 'business'],
+    ...(row.scheduling_available === false ? [['Scheduling',row.scheduling_unavailable_reason || 'Unavailable']] : []),
   ];
   rtDialog = modal({title:esc(row.name),width:620,body:`<div class="tdetail rtdetail"><div class="rtscope">${rtScope(row.scope)}</div><div class="flds">${fields.map(([label,value])=>`<span class="k">${label}</span><span class="v">${esc(value)}</span>`).join('')}</div><p>${esc(row.why)}</p></div>`,actions:[
     {label:'Close',onClick:close=>close()},
     {label:'Edit',onClick:close=>{close();rtOpenForm(row);}},
-    ...(rtData.enabled ? [{label:'Run now',primary:true,onClick:close=>{close();rtAction('run',row);}}] : []),
+    ...(rtData.enabled && row.available !== false ? [{label:'Run now',primary:true,onClick:close=>{close();rtAction('run',row);}}] : []),
   ]});
 }
 function rtRunDetail(run) {
@@ -154,14 +166,16 @@ function rtRunDetail(run) {
 function rtFormHTML(row = {}) {
   const input = (key,label,value,extra='') => `<label>${label}<input class="inp" name="${key}" value="${esc(String(value == null ? '' : value))}" ${extra}></label>`;
   return `<form id="rtform" class="rtform"><div class="rtscopepick"><span class="rtmuted">Scope</span>${['biz','global'].map(scope=>`<button type="button" class="lnscope ${scope === (row.scope || 'biz') ? 'on' : ''}" data-scope="${scope}" title="${esc(LN_SCOPE_BY_KEY[scope].label)}" aria-label="${esc(LN_SCOPE_BY_KEY[scope].label)}" ${(row.id && scope !== row.scope) || (scope === 'global' && !rtData.root) ? 'disabled' : ''}>${LN_SCOPE_BY_KEY[scope].ico}</button>`).join('')}</div><div class="rtfields">
-    ${input('id','ID',row.id,row.id ? 'readonly required' : 'required pattern="[a-z0-9][a-z0-9-]{1,39}"')}${input('name','Name',row.name,'required maxlength="80"')}
-    <label class="rtwide">Command<input class="inp" name="run" value="${esc(rtCommand(row.run))}" required placeholder="git status --short"></label>
-    ${input('when','Schedule',row.when || '17 4 * * *','required')}${input('tz','Timezone (blank uses default)',row.tz || '')}
+    ${input('name','Name',row.name,'required maxlength="80"')}
+    <label>Program<select class="inp" name="program" required></select></label>
+    <div id="rtarguments" class="rtwide rtarguments"></div><p id="rtprogramerror" class="rtwide rtfail" role="status"></p>
+    ${input('when','Schedule',row.when || '17 4 * * *','required')}${input('tz','Timezone',row.tz || 'UTC','required')}
     <div id="rtpreview" class="rtwide rtmuted" aria-live="polite">Checking next scheduled times…</div>
     <label id="rttarget" ${row.scope !== 'global' ? 'hidden' : ''}>Run in<select class="inp" name="target"><option value="each-business" ${row.target !== 'root' ? 'selected' : ''}>Each business</option><option value="root" ${row.target === 'root' ? 'selected' : ''}>Businesses root</option></select></label>
+    <label id="rtreview" ${row.scope !== 'global' ? 'hidden' : ''}>Review business<select class="inp" name="review_business_id">${state.bizs.map(b=>`<option value="${esc(b.business_id || b.id)}" ${b.slug === state.biz ? 'selected' : ''}>${esc(b.name || b.slug)}</option>`).join('')}</select></label>
     ${input('timeout','Timeout (seconds)',row.timeout || 900,'type="number" min="60" max="7200" required')}
     <fieldset class="rtwide"><legend>Departments</legend>${['marketing','accounting','data-science','code','general','onbashlyk'].map(d=>`<label class="rtcheck"><input type="checkbox" name="departments" value="${d}" ${(row.departments || ['onbashlyk']).includes(d) ? 'checked' : ''}>${d}</label>`).join('')}</fieldset>
-    ${input('commit','Output paths (comma-separated)',(row.commit || []).join(', '))}
+    <label class="rtcheck"><input type="checkbox" name="skip_if_live" ${row.skip_if_live !== false ? 'checked' : ''}>Skip while an agent is active</label>
     <label class="rtwide">Why<textarea class="inp" name="why" required>${esc(row.why || '')}</textarea></label></div><p id="rterror" class="rtfail" role="alert"></p></form>`;
 }
 function rtOpenForm(row = null) {
@@ -170,25 +184,37 @@ function rtOpenForm(row = null) {
     const form = el.querySelector('#rtform'); if (!form.reportValidity()) return;
     const data = new FormData(form), departments = data.getAll('departments');
     if (!departments.length) { form.querySelector('#rterror').textContent = 'Choose at least one department.'; return; }
-    const payload = {op:row ? 'set' : 'add',id:data.get('id'),name:data.get('name'),run:data.get('run'),when:data.get('when'),tz:data.get('tz'),
-      timeout:Number(data.get('timeout')),departments,commit:String(data.get('commit') || '').split(',').map(x=>x.trim()).filter(Boolean),why:data.get('why')};
-    if (draft.scope === 'global') payload.target = data.get('target');
+    if (state.biz !== draft.biz) { form.querySelector('#rterror').textContent = 'The selected business changed. Reopen this form.'; return; }
+    let argumentsValue;
+    try { argumentsValue = rtReadArguments(form); } catch (error) { form.querySelector('#rterror').textContent = error.message; return; }
+    const program = (rtData.programs || []).find(p => p.id === data.get('program'));
+    if (!program || program.unavailable_reason) { form.querySelector('#rterror').textContent = program && program.unavailable_reason || 'Select an available program.'; return; }
+    const definition = {name:data.get('name'),program:program.id,arguments:argumentsValue,schedule:data.get('when'),timezone:data.get('tz'),
+      timeout_seconds:Number(data.get('timeout')),departments,why:data.get('why'),status:row && row.status || 'active',
+      skip_if_live:data.has('skip_if_live'),target:draft.scope === 'global' ? data.get('target') : 'business'};
+    const payload = {op:row ? 'set' : 'add',definition,review_business_id:draft.scope === 'global' ? data.get('review_business_id') : rtBusinessId(draft.biz),
+      ...(row ? {id:row.id,expected_revision:row.revision} : {})};
     const button = el.querySelector('.mfoot .primary'); button.disabled = true;
     try {
       const result = await post(rtEndpoint(draft.scope === 'global',draft.biz),payload);
-      if (result.error) { form.querySelector('#rterror').textContent = result.error; return; }
-      close(); rtNotify(result.warn || 'Routine saved',{scope:draft.scope},false,draft.biz);
+      rtResult(result);
+      close(); rtNotify('Routine saved',{scope:draft.scope},false,draft.biz);
       if (draft.biz === state.biz) rtRefresh();
-    } catch (_) {
-      form.querySelector('#rterror').textContent = 'Could not save routine. Please try again.';
+    } catch (error) {
+      form.querySelector('#rterror').textContent = error.message || 'Could not save routine. Please try again.';
     } finally { button.disabled = false; }
   };
   rtDialog = modal({title:row ? 'Edit routine' : 'New routine',width:640,body:rtFormHTML(row || {}),actions:[{label:'Cancel',onClick:close=>close()},{label:'Save routine',primary:true,onClick:save}],onOpen:el=>{
     const form = el.querySelector('#rtform');
     const preview = () => rtPreview(form,draft.scope === 'global',draft.biz);
+    const programs = () => rtProgramChoices(form, draft.scope, row);
+    programs();
+    form.elements.program.onchange = () => rtArgumentFields(form, {});
+    form.elements.target.onchange = programs;
+    form.elements.review_business_id.onchange = preview;
     for (const name of ['when','tz']) form.elements[name].oninput = () => { clearTimeout(rtPreviewTimer); rtPreviewTimer = setTimeout(preview,300); };
     form.querySelectorAll('[data-scope]').forEach(button=>button.onclick=()=>{
-      draft.scope=button.dataset.scope;form.querySelectorAll('[data-scope]').forEach(b=>b.classList.toggle('on',b===button));form.querySelector('#rttarget').hidden=draft.scope!=='global';preview();
+      draft.scope=button.dataset.scope;form.querySelectorAll('[data-scope]').forEach(b=>b.classList.toggle('on',b===button));form.querySelector('#rttarget').hidden=draft.scope!=='global';form.querySelector('#rtreview').hidden=draft.scope!=='global';programs();preview();
     });
     form.onsubmit = e => { e.preventDefault(); el.querySelector('.mfoot .primary').click(); };
     preview();
@@ -197,9 +223,47 @@ function rtOpenForm(row = null) {
 async function rtPreview(form, global, biz) {
   const generation = ++rtPreviewGeneration;
   const q = new URLSearchParams({when:form.elements.when.value,tz:form.elements.tz.value});
-  const result = await api(rtEndpoint(global,biz) + '/next?' + q);
-  if (generation !== rtPreviewGeneration || !form.isConnected || biz !== state.biz) return;
-  form.querySelector('#rtpreview').textContent = result.error || (result.next || []).map(x=>x.local).join(' · ');
+  if (global) q.set('review_business_id',form.elements.review_business_id.value);
+  try {
+    const result = await api(rtEndpoint(global,biz) + '/next?' + q);
+    if (generation !== rtPreviewGeneration || !form.isConnected || biz !== state.biz) return;
+    form.querySelector('#rtpreview').textContent = result.error || (result.next || []).map(x=>x.local).join(' · ');
+  } catch (error) { if (form.isConnected) form.querySelector('#rtpreview').textContent = error.message; }
+}
+
+function rtProgramChoices(form, scope, row) {
+  const target = scope === 'global' && form.elements.target.value === 'root' ? 'global' : 'business';
+  const selected = form.elements.program.value || row && row.program;
+  const programs = (rtData.programs || []).filter(p => (p.scope_kinds || []).includes(target));
+  form.elements.program.innerHTML = '<option value="">Select a program</option>' + programs.map(p=>`<option value="${esc(p.id)}" ${p.id === selected ? 'selected' : ''}>${esc(p.id)}${p.unavailable_reason ? ' (unavailable)' : ''}</option>`).join('');
+  rtArgumentFields(form, row && form.elements.program.value === row.program ? row.arguments || {} : {});
+}
+function rtArgumentFields(form, values) {
+  const program = (rtData.programs || []).find(p => p.id === form.elements.program.value);
+  const schema = program && program.input_schema || {};
+  form.querySelector('#rtprogramerror').textContent = program && program.unavailable_reason || '';
+  form.querySelector('#rtarguments').innerHTML = Object.entries(schema.properties || {}).map(([key, field]) => {
+    const required = (schema.required || []).includes(key), value = values[key] ?? field.default ?? '';
+    const type = Array.isArray(field.type) ? field.type.find(t => t !== 'null') : field.type;
+    const attrs = `data-argument="${esc(key)}" data-type="${esc(type || 'json')}" ${required && type !== 'boolean' ? 'required' : ''}`;
+    const label = esc(field.title || key.replace(/_/g, ' '));
+    if (type === 'boolean') return `<label class="rtcheck"><input type="checkbox" ${attrs} ${value === true ? 'checked' : ''}>${label}</label>`;
+    if (field.enum) return `<label>${label}<select class="inp" ${attrs}>${required ? '' : '<option value=""></option>'}${field.enum.map(v=>`<option value="${esc(v)}" ${String(v) === String(value) ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>`;
+    if (['integer','number','string'].includes(type)) return `<label>${label}<input class="inp" ${attrs} type="${type === 'string' ? 'text' : 'number'}" value="${esc(value)}" ${type === 'integer' ? 'step="1"' : type === 'number' ? 'step="any"' : ''} ${field.minimum != null ? `min="${Number(field.minimum)}"` : ''} ${field.maximum != null ? `max="${Number(field.maximum)}"` : ''} ${field.maxLength ? `maxlength="${Number(field.maxLength)}"` : ''}></label>`;
+    return `<label class="rtwide">${label}<textarea class="inp" ${attrs} spellcheck="false">${esc(value === '' ? '' : JSON.stringify(value, null, 2))}</textarea></label>`;
+  }).join('');
+}
+function rtReadArguments(form) {
+  const result = {};
+  form.querySelectorAll('[data-argument]').forEach(input => {
+    const key = input.dataset.argument, type = input.dataset.type;
+    if (type === 'boolean') { result[key] = input.checked; return; }
+    if (input.value === '' && !input.required) return;
+    if (type === 'integer' || type === 'number') { result[key] = Number(input.value); return; }
+    if (type === 'string') { result[key] = input.value; return; }
+    try { result[key] = JSON.parse(input.value); } catch (_) { throw new Error(`${key.replace(/_/g, ' ')} must be valid JSON.`); }
+  });
+  return result;
 }
 function rtFailureToasts(rows) {
   let prior;

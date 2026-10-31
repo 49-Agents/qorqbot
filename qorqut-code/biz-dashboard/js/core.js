@@ -59,8 +59,31 @@ let verbose0 = ls("verbose") === "1", tab0 = ls("tab");
 const state = { biz: null, bizs: [], tab: TABS[tab0] ? tab0 : "agents", agent: null, agents: [], liveNow: [], ctx: null, live: null, verbose: verbose0 };
 const TOKEN = new URLSearchParams(location.search).get("token") || "";
 const authHead = TOKEN ? { Authorization: "Bearer " + TOKEN } : {};
-const api = async (p, opt = {}) => { const r = await fetch("/api" + p, { ...opt, headers: { ...(opt.headers || {}), ...authHead } }); return r.json(); };
+const api = async (p, opt = {}) => {
+  const r = await fetch("/api" + p, { ...opt, headers: { ...(opt.headers || {}), ...authHead } });
+  const body = await r.json();
+  // Legacy views consume error text; core adapters still need the structured failure.
+  if (body && typeof body === "object") {
+    Object.defineProperty(body, "httpStatus", { value: r.status, enumerable: false });
+    if (body.status === "error" && body.error && typeof body.error === "object") {
+      Object.defineProperty(body, "coreError", { value: body.error, enumerable: false });
+      body.error = body.error.message || "The request failed.";
+    }
+  }
+  return body;
+};
 const post = (p, body) => api(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+function coreData(result) {
+  if (!result || !["ok", "accepted"].includes(result.status) || result.error || !result.data) {
+    const source = result && (result.coreError || result.error);
+    const error = new Error(typeof source === "string" ? source : (source && source.message) || "The server returned an invalid response.");
+    error.code = (source && source.code) || "invalid_response";
+    error.details = (source && source.details) || {};
+    error.httpStatus = result && result.httpStatus;
+    throw error;
+  }
+  return result.data;
+}
 // EventSource can't set headers, so carry the token as a query param.
 const evUrl = p => "/api" + p + (TOKEN ? (p.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(TOKEN) : "");
 // ---------------------------------------------------------------- notifications
@@ -273,6 +296,7 @@ function selectBiz(slug) {
   // the agent this business was last left on wins over its first agent (see agents.js's agKey/agSetSel)
   const lastAgent = ls(`ag:${slug}`);
   state.biz = slug;
+  if (typeof sgBusinessChanged === "function") sgBusinessChanged();
   state.agent = (lastAgent && b.agents.includes(lastAgent) ? lastAgent : b.agents[0]) || null;
   state.ctx = null; location.hash = slug;
   paintBiz();

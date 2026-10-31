@@ -7,9 +7,11 @@
 let _envRows = [];   // [{key, value}] as edited, before save
 
 async function renderSettings(c) {
+  const biz = state.biz;
   const pane = document.createElement("div");
   pane.className = "pane settingspane";
   pane.innerHTML = `
+    <section class="ac" id="agent-config" aria-label="Agent configuration"></section>
     <div class="set-head">
       <div>
         <div class="set-title">Environment</div>
@@ -22,7 +24,9 @@ async function renderSettings(c) {
     <button class="envadd" id="envadd">+ Add variable</button>
     <div class="set-note muted small" id="envnote"></div>`;
   c.appendChild(pane);
-  const r = await api(`/biz/${state.biz}/env`);
+  if (typeof acMount === "function") acMount($("#agent-config", pane), biz);
+  const r = await api(`/biz/${biz}/env`);
+  if (state.biz !== biz || !pane.isConnected) return;
   _envRows = (r && Array.isArray(r.pairs)) ? r.pairs.map(p => ({ ...p })) : [];
   if (!_envRows.length) _envRows.push({ key: "", value: "" });
   paintEnv();

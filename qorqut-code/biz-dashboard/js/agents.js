@@ -69,11 +69,13 @@ async function renderAgents(c) {
   if (gen !== agRenderGen || biz !== state.biz || state.tab !== "agents" || !c.isConnected) return;
   state.agents = Array.isArray(agents) ? agents : [];
   state.terms = Array.isArray(terms) ? terms : [];
-  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">${ICO_PLUS}New agent</button><button class="agpad-toggle" id="agpad-toggle" aria-controls="agpad" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>Agent pane</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
+  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">${ICO_PLUS}New agent</button><div class="agtools"><button class="agpad-toggle" id="agpad-toggle" aria-controls="agpad" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>Agent pane</button><button class="agcompact" id="agcompact" title="Summarize conversation" aria-label="Summarize conversation">${aicon('brain', 'currentColor', 16)}</button></div></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
   $("#addagent").onclick = newAgentModal;
   paintList();
   const want = state.agent || ls(agKey());
   const a = state.agents.find(x => x.name === want) || state.agents[0];
+  const compact = $('#agcompact'); compact.disabled = !a;
+  compact.onclick = () => agCompact(a, compact);
   if (!a) { agSetSel(null); $("#chat").innerHTML = `<div class="empty" style="padding:24px">No agents yet — add one with New agent.</div>`; agpadMount(null, $("#agpad")); return; }
   agSetSel(a.name);
   paintList();
@@ -162,15 +164,50 @@ function pulse(msgs) {
 async function runSlash(cmd, a, msgs, send) {
   if (cmd === "clear") return clearView(a, msgs);
   if (cmd !== "compact") return;
-  send.disabled = true;
   const w = pulse(msgs);
-  let r; try { r = await post(`/biz/${state.biz}/compact`, { agent: a.name }); } catch (e) { r = { error: "could not reach the server" }; }
-  w.remove(); send.disabled = false;
-  if (!r || r.error || !r.summary) return toast((r && r.error) || "could not compact");
+  const summary = await agCompact(a, send);
+  w.remove();
+  if (!summary || !msgs.isConnected) return;
   clearView(a, msgs, false);
   const d = document.createElement("div"); d.className = "m agent compact";
-  d.innerHTML = `<span class="tag">compact</span>${esc(r.summary)}`;
+  d.innerHTML = `<span class="tag">compact</span>${esc(summary)}`;
   msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight;
+}
+const agCompactJobs = new Map();
+async function agCompact(agent, button) {
+  const biz = state.biz, key = `${biz}:${agent.agent_id || agent.name}`;
+  if (button) button.disabled = true;
+  try {
+    let jobId = agCompactJobs.get(key);
+    if (!jobId) {
+      const result = coreData(await post(`/biz/${encodeURIComponent(biz)}/compact`, agent.agent_id ? {agent_id:agent.agent_id} : {agent:agent.name}));
+      jobId = result.job_id;
+      if (!jobId) throw new Error('The compact job was not returned.');
+      agCompactJobs.set(key, jobId);
+      notify({text:'Conversation summary queued',sub:agent.name});
+    }
+    while (state.biz === biz) {
+      const {job} = coreData(await api(`/biz/${encodeURIComponent(biz)}/jobs/${encodeURIComponent(jobId)}`));
+      if (state.biz !== biz) return null;
+      if (!job) throw new Error('The compact job could not be read.');
+      if (job.state === 'succeeded') {
+        agCompactJobs.delete(key);
+        const agents = await api(`/biz/${encodeURIComponent(biz)}/agents`);
+        if (state.biz === biz && Array.isArray(agents)) { state.agents = agents; if (state.tab === 'agents') paintList(); }
+        if (state.biz === biz && typeof tView !== 'undefined' && tView === 'notes') tPaintNotes();
+        notify({text:'Conversation summary saved',sub:agent.name});
+        const output = ((job.result_json || {}).outputs || []).find(x => x.operation === 'notes_create');
+        return output && output.arguments.body || '';
+      }
+      if (['failed','cancelled','conflicted'].includes(job.state)) {
+        agCompactJobs.delete(key);
+        throw new Error(job.error_json && job.error_json.message || `Conversation summary ${job.state}.`);
+      }
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+  } catch (error) { notify({text:error.message || 'Could not summarize this conversation.',sub:agent.name,color:'var(--danger)'}); }
+  finally { if (button) button.disabled = false; }
+  return null;
 }
 
 // ------------------------------------------------------------------- org (pins, custom categories, order)
@@ -493,29 +530,31 @@ function lookModal(a) {
 }
 
 function newAgentModal() {
-  const pick = { kind: null, department: "general" };
+  const biz = state.biz, pick = { kind: null, department: "general" };
   const body = `<div class="prev" id="naprev"></div>
     <div class="fl">Name</div><input class="inp" id="naname" placeholder="growth" autocomplete="off" spellcheck="false">
     <div class="fmsg" id="namsg">lowercase letters, digits and dashes, 2–32 characters</div>
-    <div class="fl">Kind</div><button class="selbtn" id="nakind">${kindBtn(null)}</button>
-    <div class="fmsg" id="nakmsg">from the marketplace, shared by every business</div>
+    <div class="fl">Role</div><select class="inp" id="narole" aria-label="Role" required><option value="">Loading roles...</option></select>
+    <div class="fmsg" id="nakmsg"></div>
+    <label class="fl" for="nabrief">Assignment</label><textarea class="inp ta" id="nabrief" rows="4" required></textarea>
     <div class="fl">Department</div><button class="selbtn" id="nadept">${deptBtn(pick.department)}</button>
     <div class="ferr" id="naerr" hidden></div>`;
   const m = modal({
     title: "New agent", body, width: 460,
     onOpen: async el => {
-      const prev = el.querySelector("#naprev"), kb = el.querySelector("#nakind"), db = el.querySelector("#nadept"), kmsg = el.querySelector("#nakmsg");
-      const repaint = () => { const d = dept(pick.department); prev.innerHTML = glyph(d.icon, d.color, 34); db.innerHTML = deptBtn(pick.department); kb.innerHTML = kindBtn(pick.kind); };
+      const prev = el.querySelector("#naprev"), kb = el.querySelector("#narole"), db = el.querySelector("#nadept"), kmsg = el.querySelector("#nakmsg");
+      const repaint = () => { const d = dept(pick.department); prev.innerHTML = glyph(d.icon, d.color, 34); db.innerHTML = deptBtn(pick.department); };
       db.onclick = () => dropdown(db, deptItems(), v => { pick.department = v; repaint(); }, pick.department);
       const mk = await marketplace();
+      if (!el.isConnected || state.biz !== biz) return;
       if (mk.error) kmsg.textContent = mk.error;
-      const first = mk.kinds.find(k => k.available) || mk.kinds[0];
-      if (first) { pick.kind = first; pick.department = first.department; }
-      kb.onclick = () => dropdown(kb, kindItems(mk.kinds), v => {
-        pick.kind = mk.kinds.find(k => k.id === v); pick.department = pick.kind.department;
-        kmsg.textContent = pick.kind.available ? pick.kind.blurb || "" : `${pick.kind.label} is listed but not built yet`;
+      const roles = mk.kinds.filter(k => k.available && k.role && k.role.digest && k.role.version);
+      kb.innerHTML = '<option value="">Select a role</option>' + roles.map((k, i) => `<option value="${i}">${esc(k.label)} · ${esc(k.role.version)}</option>`).join("");
+      kb.onchange = () => {
+        pick.kind = kb.value === "" ? null : roles[Number(kb.value)];
+        kmsg.textContent = pick.kind ? `${pick.kind.role.id} · ${pick.kind.role.version}` : "";
         repaint();
-      }, pick.kind && pick.kind.id);
+      };
       repaint();
       const inp = el.querySelector("#naname"), msg = el.querySelector("#namsg");
       const check = () => {
@@ -536,16 +575,18 @@ function newAgentModal() {
         const fail = t => { err.hidden = false; err.textContent = t; };
         if (!NAME_RE.test(name)) return fail("that name will not do: ^[a-z][a-z0-9-]{1,31}$");
         if (state.agents.some(x => x.name === name)) return fail(`${name} already exists`);
-        if (!pick.kind) return fail("pick a kind from the marketplace");
-        if (!pick.kind.available) return fail(`${pick.kind.label} is not available yet`);
+        if (state.biz !== biz) return fail("The selected business changed. Reopen this form.");
+        if (!pick.kind || !pick.kind.role) return fail("Select a published role.");
+        const brief = el.querySelector("#nabrief").value;
+        if (!brief.trim()) return fail("Enter this agent's assignment.");
         err.hidden = true;
-        let r; try { r = await post(`/biz/${state.biz}/agent`, { name, kind: pick.kind.id, department: pick.department }); }
-        catch (e) { r = { error: "could not reach the server" }; }
-        if (!r || r.error) return fail((r && r.error) || "could not create the agent");
-        if (!Array.isArray(r.sessions)) r.sessions = [];
-        state.agents.push(r); agSetSel(r.name);
-        close(); toast(`${r.name} created`);
-        renderAgents($("#content")); loadBiz();
+        const button = el.querySelector(".mfoot .primary"); button.disabled = true;
+        try {
+          coreData(await post(`/biz/${encodeURIComponent(biz)}/agent`, { name, role: pick.kind.role, assignment_brief: brief, department: pick.department }));
+          close(); toast(`${name} created`);
+          if (state.biz === biz) { agSetSel(name); await loadBiz(); if (state.tab === "agents") renderAgents($("#content")); }
+        } catch (e) { fail(e.message || "Could not create the agent."); }
+        finally { button.disabled = false; }
       } },
     ],
   });

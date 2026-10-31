@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------- context
 // The Context tab: upload text (goes to context/_inbox, filed by the queue), browse the topic tree
-// like folders, read and edit any file. Every save is one commit. Summaries are rewritten by the
+// like folders, read and edit registered files. Saves go through the shared application. Summaries are rewritten by the
 // server's summariser after a filing or a save, deepest topic first, up to the root.
 let _ctxTimer = null, _ctxData = null;
 const SVG_FOLDER = `<svg class="fo" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M1.5 3.5h4l1.5 1.5h5.5v6h-11z"/></svg>`;
@@ -17,7 +17,13 @@ const isTopic = p => p != null && !p.endsWith(".md");           // state.ctx is 
 const ctxCount = n => (n.notes || []).length + (n.children || []).reduce((s, k) => s + ctxCount(k), 0);
 const ctxFind = (node, path) => { if (!node) return null; if ((node.path || "") === path) return node; for (const c of node.children || []) { const h = ctxFind(c, path); if (h) return h; } return null; };
 const PERSON_VIEW_RE = /^_people\/([a-z][a-z0-9-]{1,63})$/;     // "_people/<slug>" (no .md) is the person view, not a raw file
-const uploadId = p => { const m = /^_(?:inbox|dumps)\/(\d{4}-\d{2}-\d{2}-\d{4}-[0-9a-z]{4})\.md$/.exec(p || ""); return m ? m[1] : ""; };
+const uploadId = p => {
+  const data = _ctxData || {};
+  const registered = [...(data.inbox || []), ...(data.dumps || [])].find(row => String(row.path || '').replace(/^context\//, '') === p);
+  if (registered) return registered.id;
+  const legacy = /^_(?:inbox|dumps)\/(\d{4}-\d{2}-\d{2}-\d{4}-[0-9a-z]{4})\.md$/.exec(p || '');
+  return legacy ? legacy[1] : '';
+};
 const ctxMapStamp = (d, id) => { const m = ((d || {}).maps || []).find(x => x.id === id); return m ? `${m.at}|${m.nodes}` : ""; };
 let _ctxMapAt = "", _ctxMapping = false;                        // the upload view's mind map state, so the watcher knows when to redraw
 const personNoteCount = p => Array.isArray(p.notes) ? p.notes.length : (p.notes || 0);
@@ -391,16 +397,20 @@ function jCountdown(n) {
 }
 async function jSave() {
   const s = _jState, ta = $("#jta"), el = $("#jsave");
-  if (!s || !ta || s.saving) return;
+  if (!s || !ta || s.saving || s.biz !== state.biz) return;
+  const submitted = ta.value;
   jClearTimers();
   s.saving = true;
   if (el) el.textContent = "saving…";
   try {
-    const r = await post(`/biz/${state.biz}/context/save`, { path: s.path, text: s.fm + s.sep + ta.value });
+    const r = await post(`/biz/${encodeURIComponent(s.biz)}/context/save`, { path: s.path, text: s.fm + s.sep + submitted,
+      expected_revision: s.revision, expected_content_hash: s.content_hash });
     if (_jState !== s) return;           // navigated away while saving
     if (r.error) { toast(r.error); if (el) el.textContent = "save failed"; return; }
     if (r.warn) toast(r.warn);
-    s.dirty = false; s.body0 = ta.value;               // a discard now reverts to what was just saved
+    s.revision = r.document.revision; s.content_hash = r.document.content_hash;
+    s.dirty = ta.value !== submitted; s.body0 = submitted;
+    if (s.dirty) jSchedule();
     if (el) { el.textContent = "saved"; setTimeout(() => { if ($("#jsave") === el && el.textContent === "saved") el.textContent = ""; }, 2000); }
   } catch (e) {
     toast(`save failed: ${(e && e.message) || e}`);
@@ -413,8 +423,10 @@ async function jSave() {
 
 
 async function openCtx(p) {
+  const biz = state.biz;
   const v = $("#ctxview");
-  const r = await api(`/biz/${state.biz}/context/file?p=${encodeURIComponent(p)}`);
+  const r = await api(`/biz/${encodeURIComponent(biz)}/context/file?p=${encodeURIComponent(p)}`);
+  if (state.biz !== biz || state.ctx !== p || !v.isConnected) return;
   if (r.error) { v.innerHTML = `<div class="empty">${esc(r.error)}</div>`; return; }
   const ro = p === "INDEX.md" || p.startsWith("_dumps/");
   const { meta } = ctxSplit(r.text);                 // for the chip row
@@ -436,13 +448,13 @@ async function openCtx(p) {
   const ta = $("#jta");
   ta.value = body;
   jGrow(ta);
-  _jState = { path: p, fm, sep, body0: body, dirty: false, saving: false };
+  _jState = { biz, path: p, revision:r.revision, content_hash:r.content_hash, fm, sep, body0: body, dirty: false, saving: false };
   ta.oninput = () => { _jState.dirty = true; jGrow(ta); jSchedule(); };
   ta.onkeydown = e => {
     if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) { e.preventDefault(); jSave(); }
     else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") jSave();
   };
-  ta.onblur = () => { if (_jState && _jState.dirty) jSave(); };
+  ta.onblur = event => { if (_jState && _jState.dirty && !event.relatedTarget?.closest('#jdiscard')) jSave(); };
   $("#jsave").onclick = () => { if (_jState && _jState.dirty) jSave(); };
   $("#jsavebtn").onclick = () => jSave();
   // discard: back to the text the file opened with (or last had after a save elsewhere); nothing sent
@@ -511,7 +523,7 @@ function uploadModal() {
         let r; try { r = await post(`/biz/${state.biz}/context/upload`, payload); }
         catch (e) { r = { error: "could not reach the server" }; }
         if (!r || r.error) { b.disabled = false; return fail((r && r.error) || "upload failed"); }
-        close(); toast(r.warn ? `uploaded ${r.id}, but: ${r.warn}` : `uploaded ${r.id}; filing starts now`);
+        close(); toast(r.warn ? `uploaded ${r.id}, but: ${r.warn}` : `uploaded ${r.id}; filing queued`);
         state.ctx = `_inbox/${r.id}.md`;
         renderContext($("#content")); if (typeof refreshSide === "function") refreshSide();
       } },

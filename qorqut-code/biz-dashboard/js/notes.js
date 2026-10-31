@@ -63,7 +63,8 @@ function ntPreview(content) {
 // ---- data
 async function ntFetch() {
   if (!state.biz) { ntNotes = []; return; }
-  const r = await api(`/biz/${state.biz}/notes`);
+  const biz = state.biz, r = await api(`/biz/${biz}/notes`);
+  if (state.biz !== biz) return;
   if (Array.isArray(r)) ntNotes = r; else if (r && r.error) toast(r.error);
 }
 const ntById = id => ntNotes.find(n => n.id === id);
@@ -73,12 +74,22 @@ async function ntCreate(fields) {
   return r;
 }
 async function ntPatch(biz, id, fields) {
-  const r = await post(`/biz/${biz}/notes/${encodeURIComponent(id)}`, fields);
-  if (r && r.error) { toast(r.error); return null; }
+  const before = ntById(id) || {}, editing = ntEditState;
+  let r;
+  try { r = await post(`/biz/${biz}/notes/${encodeURIComponent(id)}`, {expected_revision:before.revision,expected_content_hash:before.content_hash,...fields}); }
+  catch(error) { r={error:error.message || 'Could not save this page.'}; }
+  if (r && r.error) {
+    toast(r.error);
+    if (editing && ntEditState===editing && editing.biz===biz && editing.id===id) {editing.error=r.error;ntPaintSaveState();}
+    return null;
+  }
+  const baseRevision=fields.expected_revision ?? before.revision;
+  if (editing && ntEditState===editing && editing.revision===baseRevision) {editing.revision=r.revision;editing.content_hash=r.content_hash;}
+  if (state.biz===biz && before.id===id) Object.assign(before,r);
   return r;
 }
-async function ntDeleteReq(id) {
-  const r = await post(`/biz/${state.biz}/notes/${encodeURIComponent(id)}/delete`, {});
+async function ntDeleteReq(id, version = ntById(id) || {}) {
+  const r = await post(`/biz/${state.biz}/notes/${encodeURIComponent(id)}/delete`, {expected_revision:version.revision,expected_content_hash:version.content_hash});
   if (r && r.error) { toast(r.error); return null; }
   return r;
 }
@@ -103,20 +114,12 @@ function ntOpenView() {
 // force-save whatever's dirty in the open editor, reading the DOM/model before it's torn down by a
 // repaint; used when the tab is left or the business/selection changes (tasks.js's tSetView/interval)
 async function ntFlush() {
-  const s = ntEditState; if (!s) return;
+  const s = ntEditState; if (!s) return true;
   ntClearTimers();
-  if (s.dirty) {
-    const titleEl = $("#nttitle");
-    const title = titleEl ? titleEl.value : s.title0;
-    ntPruneStatuses(s);
-    const content = s.lines.join("\n");
-    const statusesJson = JSON.stringify(s.statuses);
-    if (title !== s.title0 || content !== s.lines0.join("\n") || statusesJson !== s.statuses0) {
-      const r = await ntPatch(s.biz, s.id, { title, content, statuses: s.statuses });
-      if (r) { const m = ntNotes.find(x => x.id === s.id); if (m) { m.title = title; m.content = content; m.statuses = Object.assign({}, s.statuses); m.updatedAt = r.updatedAt || m.updatedAt; } }
-    }
-  }
-  ntEditState = null;
+  if ((s.dirty || s.saving) && !await ntSaveNow()) return false;
+  if (s.dirty) return false;
+  if (ntEditState === s) ntEditState = null;
+  return true;
 }
 
 // ---- render dispatch
@@ -256,6 +259,12 @@ function ntPaintSaveState() {
   const btn = el.querySelector(".ntsavepill"); if (btn) btn.onclick = () => ntSaveNow();
   // Discard only exists while there are unsaved changes: hidden otherwise, not just disabled
   const disc = $("#ntdiscard"); if (disc) disc.hidden = !ntEditState || !ntEditState.dirty;
+  const error = $('#nterror');
+  if (error) {
+    error.hidden = !ntEditState || !ntEditState.error;
+    error.querySelector('span').textContent = ntEditState && ntEditState.error || '';
+    error.querySelector('button').onclick = async()=>{await ntFetch();if(tView==='notes')ntRender();};
+  }
 }
 function ntPatchMeta() {
   const n = ntById(ntSel); if (!n) return;
@@ -289,6 +298,7 @@ function ntDetailHtml(n) {
           </div>
         </div>
         <div class="ntmeta" id="ntmeta">${ntMetaHtml(n)}</div>
+        <div id="nterror" class="ferr" role="alert" hidden><span></span><button class="ghost" type="button">Reload page</button></div>
         <div class="nthr"></div>
         <div class="ntlinewrap" id="ntlinewrap">
           <div class="ntlines" id="ntlines"></div>
@@ -305,7 +315,7 @@ function ntWireDetail(root, n) {
   const lines = (n.content || "").split("\n");
   const statuses = Object.assign({}, n.statuses || {});
   ntEditState = {
-    id: n.id, biz: state.biz, title0: n.title || "", lines0: lines.slice(), statuses0: JSON.stringify(statuses),
+    id: n.id, biz: state.biz, revision:n.revision, content_hash:n.content_hash, title0: n.title || "", lines0: lines.slice(), statuses0: JSON.stringify(statuses),
     lines: lines.slice(), statuses, dirty: false, saving: false, countdown: null,
   };
   const titleEl = $("#nttitle");
@@ -317,7 +327,7 @@ function ntWireDetail(root, n) {
     if (e.key === "Enter") { e.preventDefault(); titleEl.blur(); }
     else if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) { e.preventDefault(); ntSaveNow(); }
   };
-  titleEl.onblur = () => { if (ntEditState && ntEditState.dirty) ntSaveNow(); };
+  titleEl.onblur = event => { if (ntEditState && ntEditState.dirty && !event.relatedTarget?.closest('#nterror, #ntdiscard')) ntSaveNow(); };
 
   const toggleBtn = root.querySelector("#nttoggle");
   toggleBtn.onclick = () => {
@@ -616,23 +626,26 @@ function ntCountdown(n) {
   ntTickT = setTimeout(() => ntCountdown(n - 1), 1000);
 }
 async function ntSaveNow() {
-  const s = ntEditState; if (!s || s.saving) return;
+  const s = ntEditState; if (!s) return true; if (s.saving) return s.savePromise;
   ntClearTimers();
   const titleEl = $("#nttitle"); if (!titleEl) return;
   ntPruneStatuses(s);
   const title = titleEl.value, content = s.lines.join("\n");
   const statusesJson = JSON.stringify(s.statuses);
-  if (title === s.title0 && content === s.lines0.join("\n") && statusesJson === s.statuses0) { s.dirty = false; s.countdown = null; ntPaintSaveState(); return; }
-  s.saving = true; ntPaintSaveState();
-  const r = await ntPatch(s.biz, s.id, { title, content, statuses: s.statuses });
+  if (title === s.title0 && content === s.lines0.join("\n") && statusesJson === s.statuses0) { s.dirty = false; s.countdown = null; ntPaintSaveState(); return true; }
+  s.saving = true; s.error=null; ntPaintSaveState();
+  s.savePromise=ntPatch(s.biz, s.id, { title, content, statuses: JSON.parse(statusesJson),expected_revision:s.revision,expected_content_hash:s.content_hash });
+  const r = await s.savePromise;
   if (ntEditState !== s) return;   // navigated away while saving
   s.saving = false;
   if (r) {
-    s.title0 = title; s.lines0 = s.lines.slice(); s.statuses0 = statusesJson; s.dirty = false; s.countdown = null;
-    const m = ntNotes.find(x => x.id === s.id); if (m) { m.title = title; m.content = content; m.statuses = Object.assign({}, s.statuses); m.updatedAt = r.updatedAt || new Date().toISOString(); }
+    s.title0 = title; s.lines0 = content.split('\n'); s.statuses0 = statusesJson; s.revision=r.revision; s.content_hash=r.content_hash;
+    s.dirty = titleEl.value!==title || s.lines.join('\n')!==content || JSON.stringify(s.statuses)!==statusesJson; s.countdown = null;
+    if(s.dirty)ntSchedule();
     ntPatchMeta(); ntPatchSidebar();
   }
   ntPaintSaveState();
+  return !!r;
 }
 // revert to the last-saved snapshot, cancel any pending autosave, rebuild the lines column and repaint
 // the save pill back to idle; a no-op (button stays disabled) while there's nothing unsaved to drop
@@ -650,13 +663,13 @@ function ntDiscard() {
 // ---- selection / navigation / create
 async function ntSelect(id) {
   if (id === ntSel) return;
-  await ntFlush();
+  if(!await ntFlush())return;
   ntSetSel(id);
   ntRender();
 }
 const ntGoHome = () => ntSelect(null);
 async function ntCreateNew() {
-  await ntFlush();
+  if(!await ntFlush())return;
   const r = await ntCreate({});
   if (!r) return;
   await ntFetch();
@@ -676,18 +689,19 @@ function ntTogglePin(n) {
   });
 }
 function ntRenameFlow(n) {
+  const version = {expected_revision:n.revision,expected_content_hash:n.content_hash}, biz=state.biz;
   const body = `<input id="ntrenamein" class="inp" type="text" value="${esc(n.title || "")}" autocomplete="off" spellcheck="false">`;
   const commit = async (close, el) => {
     const inp = el.querySelector("#ntrenamein");
     const v = inp ? inp.value.trim() : "";
     close();
-    const r = await ntPatch(state.biz, n.id, { title: v });
+    const r = await ntPatch(biz, n.id, { title: v,...version });
     if (!r) return;
     await ntFetch();
     if (ntSel === n.id) {
       ntPatchMeta();
       const t = $("#nttitle"); if (t) { t.value = v; ntGrow(t); }
-      if (ntEditState && ntEditState.id === n.id) ntEditState.title0 = v;
+      if (ntEditState && ntEditState.id === n.id) {ntEditState.title0=v;ntEditState.revision=r.revision;ntEditState.content_hash=r.content_hash;}
     }
     ntPatchSidebar();
   };
@@ -704,6 +718,7 @@ function ntRenameFlow(n) {
 }
 function ntDeleteFlow(id) {
   const n = ntById(id); if (!n) return;
+  const version = {revision:n.revision,content_hash:n.content_hash};
   const title = n.title && n.title.trim() ? n.title : "Untitled";
   modal({
     title: "Delete page?",
@@ -712,7 +727,7 @@ function ntDeleteFlow(id) {
       { label: "Cancel", onClick: close => close() },
       { label: "Delete", primary: true, onClick: async close => {
         close();
-        const r = await ntDeleteReq(id); if (!r) return;
+        const r = await ntDeleteReq(id,version); if (!r) return;
         let nextId = null;
         if (ntSel === id) {
           const capped = ntFilterNotes();

@@ -7,18 +7,21 @@ let sideT;
 function refreshSideSoon() { clearTimeout(sideT); sideT = setTimeout(refreshSide, 800); }
 async function refreshSide() {
   if (!state.biz) return;
-  const [log, live] = await Promise.all([api(`/biz/${state.biz}/log?n=${LOG_N}`), api(`/biz/${state.biz}/live`)]);
+  const biz = state.biz;
+  const [log, live] = await Promise.all([api(`/biz/${biz}/log?n=${LOG_N}`), api(`/biz/${biz}/live`)]);
+  if (state.biz !== biz) return;
   const rows = Array.isArray(log) ? log.slice(0, LOG_N) : [];
   const logEl = $("#log");                                   // no log on screen right now; the rows are parked in logHtml()
   if (logEl) { logEl.innerHTML = rows.length ? logHtml(rows) : `<div class="empty">Nothing logged yet.</div>`; logTips(logEl, rows); }
-  logToasts(state.biz, rows);
+  logToasts(biz, rows);
   // /live is {sessions, requests, requests_error}; the requests feed the Marketing toasts and badge (no second poll loop)
   const sessions = Array.isArray(live) ? live : (live && Array.isArray(live.sessions) ? live.sessions : []);
   const reqs = (live && Array.isArray(live.requests)) ? live.requests : [];
-  if (typeof mkLiveToasts === "function") mkLiveToasts(state.biz, reqs);
+  if (typeof mkLiveToasts === "function") mkLiveToasts(biz, reqs);
   if (typeof mkBadgePaint === "function" && state.tab !== "marketing") mkBadgePaint(reqs);
   if (typeof rtFailureToasts === "function") rtFailureToasts(live && live.routine_failures);
   if (typeof lnLivePaint === "function") lnLivePaint(live);   // learnings_open → the Context rail badge
+  if (typeof sgLivePaint === "function") sgLivePaint(biz, live);
   const running = sessions.filter(s => !s.done);
   const f = $("#foot");
   f.innerHTML = running.length ? `<span class="dot on"></span>` : `<span class="dot"></span>`;
