@@ -33,8 +33,9 @@ async function renderGlobalAgents(c) {
     <span class="ldot" data-global-agent-status title="Terminal not connected"></span>
   </button>` + agents.map(agent => `<button class="item agent" type="button" data-global-agent="${esc(agent.agent_id)}">
     <span class="nm">${identityAvatar("agent", agent.display_name || agent.name, {...agent, ...agent.presentation})}<span class="tt">${esc(agent.display_name || agent.name)}</span></span>
-    <span class="ldot ${terms.some(t => t.agent_id === agent.agent_id && !t.done) ? 'live' : ''}" data-global-agent-status title="${terms.some(t => t.agent_id === agent.agent_id && !t.done) ? 'Terminal open' : 'Terminal not connected'}"></span>
+    <span class="agent-presence" data-agent-presence="${esc(agent.agent_id)}" role="img"></span>
   </button>`).join('');
+  agentNavPaint(); agentNavRefresh();
   let selected;
   const select = agent => {
     if (!current()) return;
@@ -50,13 +51,14 @@ async function renderGlobalAgents(c) {
       if (!current() || selected !== (workspace ? GLOBAL_WORKSPACE_TERMINAL : agent.agent_id)) return;
       const button = [...list.querySelectorAll('[data-global-agent]')].find(b => b.dataset.globalAgent === selected);
       const dot = $('[data-global-agent-status]', button);
+      if (!dot) return;
       dot.classList.toggle('live', status === 'live');
       dot.title = status === 'live' ? 'Terminal connected' : status === 'ended' ? 'Terminal exited' : 'Terminal disconnected';
     }, workspace ? '/root/workspace-terminal' : `/root/terminal/${encodeURIComponent(agent.agent_id)}`);
     agpadMount(workspace ? '' : (agent.display_name || agent.name), $('#agpad', c), workspace ? {
       biz: null, open: false, isCurrent: () => false,
     } : {
-      biz: null, agentId: agent.agent_id, views: agent.role?.id === 'ordubashy' ? ['focus', 'inbox', 'globalTasks', 'memory'] : ['inbox', 'globalTasks', 'memory'], open: ls('agpad:null') !== 'off',
+      biz: null, agentId: agent.agent_id, views: agent.role?.id === 'ordubashy' ? ['focus', 'inbox', 'globalTasks'] : ['inbox', 'globalTasks'], open: ls('agpad:null') !== 'off',
       isCurrent: () => current() && selected === agent.agent_id,
     });
   };

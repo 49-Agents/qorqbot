@@ -51,7 +51,7 @@ function agpadMount(name, el, options = {}) {
     view: "tasks",
     logs: null, logError: false, nextLog: 0, pending: false,
     tasks: null, source: state.tasks, tasksStarted: false, taskError: false, bodyHtml: null,
-    views: ["tasks", "signoffs", "inbox", "memory"], ...options,
+    views: ["tasks", "signoffs", "inbox"], ...options,
   };
   p.views = [...new Set([...p.views, "status"])];
   const button = $("#agpad-toggle");
@@ -89,10 +89,6 @@ function agpadSetView(p, view) {
   if (view === "inbox") p.nextInbox = 0;
   if (view === 'focus') { p.nextFocus = 0; agfocusMount(p); }
   if (view === "signoffs") { agpadSignoffs().paint(); p.nextSignoffs = Date.now() + AGPAD_POLL_MS; }
-  if (view === 'memory') {
-    const identity = p.agentId || state.agents.find(agent => agent.name === p.agent)?.agent_id;
-    workingMemoryMount($('#agpad-body', p.el), identity, p.biz, {globalAgent: p.biz === null});
-  }
   if (view === 'globalTasks') globalTasksMount($('#agpad-body', p.el), {agentId: p.agentId, compact: true});
   agpadPaint(p);
   if (typeof sgAgentAttentionPaint === "function") sgAgentAttentionPaint();
@@ -113,7 +109,6 @@ function agpadVisibility(p) {
 function agpadPaint(p) {
   if (p.view === 'status' || p.view === 'focus') return;
   if (p.view === 'globalTasks') return;
-  if (p.view === 'memory') return;
   if (p.view === "signoffs") return;
   if (p.view === "inbox") { agpadPaintInbox(p); return; }
   let html;
@@ -162,7 +157,6 @@ function agpadTick() {
   if (p.views.includes('focus')) agfocusTick(p);
   if (p.view === 'status' || p.view === 'focus') return;
   if (p.view === 'globalTasks') return;
-  if (p.view === 'memory') return;
   if (p.view === "inbox") {
     if (Date.now() >= (p.nextInbox || 0)) agpadRefreshInbox(p);
     return;

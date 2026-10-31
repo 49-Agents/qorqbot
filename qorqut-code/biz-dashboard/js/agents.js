@@ -117,8 +117,7 @@ function markTermState(name, stat) {
   const running = stat === "live";
   const t = (state.terms || []).find(x => x.agent === name);
   if (t) t.done = !running; else (state.terms = state.terms || []).push({ agent: name, done: !running });
-  const row = $(`#agentlist .agent[data-a="${(window.CSS && CSS.escape) ? CSS.escape(name) : name}"] [data-st]`);
-  if (row) { row.classList.toggle("live", running); row.title = running ? "running" : (stat === "ended" ? "exited" : "idle"); }
+
 }
 
 function wireCompose(a, msgs) {
@@ -243,11 +242,11 @@ const ICO_PLUS = `<svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="
 
 function paintList() {
   const rows=$('#agentrows'); if(!rows)return;
-  const live=new Set((state.terms||[]).filter(t=>!t.done).map(t=>t.agent));
   rows.innerHTML=agentNavOrder().map(name=>{
     const a=state.agents.find(a=>a.name===name);
-    return `<button type="button" class="item agent ${name===state.agent?'on':''}" data-a="${esc(name)}"><span class="nm">${identityAvatar('agent',name,a)}<span class="tt">${esc(name)}</span></span><span class="ldot ${live.has(name)?'live':''}" data-st></span></button>`;
+    return `<button type="button" class="item agent ${name===state.agent?'on':''}" data-a="${esc(name)}"><span class="nm">${identityAvatar('agent',name,a)}<span class="tt">${esc(name)}</span></span><span class="agent-presence" data-agent-presence="${esc(a.agent_id || '')}" role="img"></span></button>`;
   }).join('') || '<p class="empty pad">No agents yet.</p>';
+  agentNavPaint(); agentNavRefresh();
   rows.querySelectorAll('[data-a]').forEach(b=>{b.onclick=()=>selectAgent(b.dataset.a);b.oncontextmenu=e=>{e.preventDefault();lookModal(state.agents.find(a=>a.name===b.dataset.a));};});
 }
 function paintHead(a) {
