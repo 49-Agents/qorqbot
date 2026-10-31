@@ -217,9 +217,6 @@ function sgCreateView(options) {
     const oldRow = focused && focused.closest && focused.closest(".sg-row");
     const selectedRow = [...sg.mount.querySelectorAll(".sg-row")].find(row => row.dataset.id === sg.selected);
     const anchorTop = selectedRow && selectedRow.getBoundingClientRect().top;
-    const business = (state.bizs || []).find(b => b.slug === sg.slug) || {};
-    if (!options.hideHeading) sg.mount.querySelector(".sg-business").textContent = options.global ? "Global" : business.name || sg.slug || "";
-    if (!options.hideHeading) sg.mount.querySelector(".sg-count").textContent = sg.counts ? `${sg.counts.pending || 0} pending` : "";
     sg.mount.querySelector(".sg").setAttribute("aria-busy", String(sg.loading));
     html(sg.mount.querySelector(".sg-listnotice"), !sg.slug ? `<p class="sg-empty">Pick a business first.</p>` : sg.error ? errorHtml(sg.error, "list") + (sg.items.size ? `<p class="sg-notice">Showing the last update. Review is disabled until refreshed.</p>` : "") : sg.loading && !sg.loaded ? `<p class="sg-empty">Loading signoffs...</p>` : "");
     const attention = typeof sgAttention !== 'undefined' ? sgAttention : {urgent:[]};
@@ -494,7 +491,7 @@ function sgCreateView(options) {
     }
     if(options.campaigns)sg.updatedCursor=null;
     body.classList.add("sg-body");
-    body.innerHTML = `<div class="sg">${options.hideHeading ? "" : '<header class="sg-head"><div><p class="sg-business"></p></div><span class="sg-count"></span></header>'}${options.waitingOnly && !options.campaigns ? "" : '<div class="sg-filter"></div>'}<div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All businesses</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
+    body.innerHTML = `<div class="sg">${options.waitingOnly && !options.campaigns ? "" : '<div class="sg-filter"></div>'}<div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All businesses</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
     body.onclick = event => {
       const campaign=event.target.closest('[data-campaign-id]');
       if(campaign){contextOpenItem(sg.slug,{type:'story',id:campaign.dataset.campaignId}).catch(error=>toast(error.message));return;}
