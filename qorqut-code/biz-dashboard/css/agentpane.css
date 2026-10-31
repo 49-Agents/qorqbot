@@ -13,31 +13,7 @@
 .agpad-toggle:disabled { opacity: .4; cursor: default; }
 .agpad-toggle svg { width: 15px; height: 15px; flex: none; }
 
-.agpad { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--bg); }
+/* Content uses the shared .tasks surface, header, tabs, rows, and scrolling body. */
+.agpad { min-width: 0; }
 .agpad[hidden] { display: none; }
-.agpad-head { flex: none; padding: 32px 24px 20px; }
-.agpad-eyebrow, .agpad h2 { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--fg-3); }
-.agpad-head h1 { margin: 8px 0 0; font-size: 19px; font-weight: 400; letter-spacing: -.02em; overflow-wrap: anywhere; }
-.agpad-sections { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr); gap: 24px; padding: 0 24px 28px; }
-.agpad section { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
-.agpad h2 { flex: none; display: flex; align-items: baseline; gap: 8px; margin: 0 0 12px; }
-.agpad h2 span, .agpad h3 span { font: 10px var(--mono); color: var(--fg-3); letter-spacing: 0; }
-.agpad h3 { display: flex; gap: 8px; align-items: baseline; margin: 0 0 8px; color: var(--fg-2); font-size: 11px; font-weight: 500; }
-.agpad h3:not(:first-child) { margin-top: 22px; }
-.agpad-scroll { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
-.agpad-empty { margin: 0; padding: 4px 0 10px; color: var(--fg-3); font-size: 12px; line-height: 1.6; }
-.agpad-task { padding: 8px 0; border-bottom: 1px solid var(--line); }
-.agpad-task:last-child { border-bottom: 0; }
-.agpad-task-main { display: flex; align-items: baseline; gap: 9px; }
-.agpad-task-title { min-width: 0; color: var(--fg-2); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
-.agpad-status { flex: none; width: 7px; height: 7px; box-sizing: border-box; border: 1px solid var(--fg-3); border-radius: 50%; }
-.agpad-status[data-state="doing"] { background: #f5f5f0; border-color: #f5f5f0; }
-.agpad-status[data-state="waiting"] { background: #0a84ff; border-color: #0a84ff; }
-.agpad-status[data-state="blocked"] { background: #ff453a; border-color: #ff453a; }
-.agpad-meta, .agpad-blockers { margin: 4px 0 0 16px; color: var(--fg-3); font: 10px/1.5 var(--mono); overflow-wrap: anywhere; }
-.agpad-blockers { font-family: var(--sans); font-size: 11px; }
-
-@media (max-height: 650px) {
-  .agpad-head { padding-top: 20px; padding-bottom: 16px; }
-  .agpad-sections { gap: 16px; padding-bottom: 16px; }
-}
+.agpad .ttop > div { min-width: 0; overflow-wrap: anywhere; }

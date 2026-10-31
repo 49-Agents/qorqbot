@@ -212,9 +212,10 @@ function tWho(t) {
   const o = t.owner || "";
   return `<button class="who ${tWhoKind(o)}" type="button" aria-label="Assignee: ${esc(o || "unassigned")}">${tWhoDot(o)}</button>`;
 }
-function tWhoTip(t) {
+function tWhoTip(t, detailsOnly = false) {
   const o = t.owner || "", k = tWhoKind(o);
   const who = k === "none" ? "Unassigned" : `${esc(tShort(o))} <span class="k">${k === "human" ? "owner" : k === "agent" ? "agent" : o.split(":")[0]}</span>`;
+  if (detailsOnly) return `${who}<br><span class="k">Open in Tasks</span>`;
   const left = tWhoLeft(o);
   const hints = [left == null ? "no agents" : `click: ${left ? tShort(left) : "unassign"}`,
     `right-click: ${k === "human" ? "unassign" : tShort(tHuman())}`];
@@ -237,48 +238,64 @@ function tDue(t) {
   return `<span class="tdl ${tone}" title="Due ${esc(t.due)}">${text}</span>`;
 }
 
-function tBall(t) {
+function tBall(t, detailsOnly = false) {
   const s = t.status, label = T_LABEL[s] || s;
-  return `<button class="ball ${esc(s)}" type="button" title="${esc(label)} — click to change, right-click to block"
-    aria-label="Status: ${esc(label)}. Click to change."><span class="core"></span></button>`;
+  return `<button class="ball ${esc(s)}" type="button" title="${esc(label)} — ${detailsOnly ? "open in Tasks" : "click to change, right-click to block"}"
+    aria-label="Status: ${esc(label)}. ${detailsOnly ? "Open in Tasks." : "Click to change."}"><span class="core"></span></button>`;
 }
 
 // the deadline slot is reserved on every row in every section, whether or not any task anywhere has a
 // due date, so assignee/status balls line up identically across sections
-function tRow(t) {
-  return `<div class="trow ${esc(t.status)}${tClosed(t) ? " off" : ""}" data-id="${esc(t.id)}">${tDue(t) || `<span class="tdl"></span>`}${tWho(t)}${tBall(t)}<p class="ttl">${esc(t.title)}</p><button class="tmore" type="button" title="Details" aria-label="Task details">${SVG_TMORE}</button></div>`;
+function tRow(t, detailsOnly = false) {
+  return `<div class="trow ${esc(t.status)}${tClosed(t) ? " off" : ""}" data-id="${esc(t.id)}">${tDue(t) || `<span class="tdl"></span>`}${tWho(t)}${tBall(t, detailsOnly)}<p class="ttl">${esc(t.title)}</p><button class="tmore" type="button" title="Details" aria-label="Task details">${SVG_TMORE}</button></div>`;
+}
+
+function tWireRows(body, detailsOnly = false) {
+  body.querySelectorAll(".trow").forEach(row => {
+    const t = taskById(row.dataset.id); if (!t) return;
+    const who = row.querySelector(".who");
+    if (who && typeof tip === "function") tip(who, () => tWhoTip(t, detailsOnly));
+  });
 }
 
 const tAddRow = key => `<div class="tadd" data-b="${esc(key)}"><span class="tdl"></span><span class="who ph"><span class="wd none"></span></span><span class="ball ph"><span class="core"></span></span><input id="taddin" placeholder="Task name…" autocomplete="off" spellcheck="false"></div>`;
 
-function tSection(key, rows) {
-  const d = dept(key);
+function tSection(key, rows, { label = dept(key).label, canAdd = true, detailsOnly = false } = {}) {
   const open = rows.filter(t => !tSunk(t)), sunk = rows.filter(tSunk);
+  const heading = `<h2>${esc(label)}</h2><span class="c">${open.length}</span>`;
   // two ways to add to this section: the heading text/count itself, or the + — both call tOpenAdd(key)
   return `<section class="tsec" data-b="${esc(key)}">
     <div class="tsh">
-      <button class="tshbtn" type="button" title="Add task to ${esc(d.label)}" aria-label="Add task to ${esc(d.label)}"><h2>${esc(d.label)}</h2><span class="c">${open.length}</span></button>
-      <button class="tplus" type="button" title="Add task to ${esc(d.label)}" aria-label="Add task to ${esc(d.label)}">${SVG_TPLUS}</button>
+      ${canAdd ? `<button class="tshbtn" type="button" title="Add task to ${esc(label)}" aria-label="Add task to ${esc(label)}">${heading}</button>
+      <button class="tplus" type="button" title="Add task to ${esc(label)}" aria-label="Add task to ${esc(label)}">${SVG_TPLUS}</button>` : heading}
     </div>
-    <div class="tsi">${open.concat(sunk).map(t => tRow(t)).join("")}${tAdding === key ? tAddRow(key) : ""}</div>
+    <div class="tsi">${open.concat(sunk).map(t => tRow(t, detailsOnly)).join("")}${canAdd && tAdding === key ? tAddRow(key) : ""}</div>
   </section>`;
 }
 
-function tTabs() {
-  return `<div class="ttabs"><div class="tind" id="tind" hidden></div>${T_VIEWS.map(v => `<button class="ttab${v === tView ? " on" : ""}" type="button" data-v="${v}" title="${T_VIEW_LABEL[v]}" aria-label="${T_VIEW_LABEL[v]}">${T_VIEW_ICON[v]}</button>`).join("")}</div>`;
+const tTabId = (view, bodyId = "tbody") => `${bodyId === "tbody" ? "ttab" : `${bodyId}-tab`}-${view}`;
+function tTabs(views = T_VIEWS, active = tView, bodyId = "tbody") {
+  return `<div class="ttabs" role="tablist" aria-label="${bodyId === "tbody" ? "Business panel" : "Agent pane"}"><div class="tind" hidden></div>${views.map(v => `<button class="ttab${v === active ? " on" : ""}" id="${esc(tTabId(v, bodyId))}" role="tab" aria-selected="${v === active}" aria-controls="${esc(bodyId)}" type="button" data-v="${v}" title="${T_VIEW_LABEL[v]}" aria-label="${T_VIEW_LABEL[v]}">${T_VIEW_ICON[v]}</button>`).join("")}</div>`;
 }
 
-function tHead() {
+function tHead({ view = tView, views = T_VIEWS, title = T_VIEW_LABEL[view], bodyId = "tbody", taskTools = true } = {}) {
   // the journal/notes tabs supply their own header (homepage title/subtitle/Create, or the detail's
   // own sidebar controls) in #tbody, so the generic ttop (title + tasks-only stats/search) sits out
-  const ownHead = tView === "journal" || tView === "notes" || tView === "uploads" || tView === "routines";
+  const ownHead = view === "journal" || view === "notes" || view === "uploads" || view === "routines";
+  const tools = view === "tasks" && taskTools;
   return `<div class="thead${ownHead ? " nott" : ""}">
-    ${tTabs()}
+    ${tTabs(views, view, bodyId)}
     ${ownHead ? "" : `<div class="ttop">
-      <div><h1>${T_VIEW_LABEL[tView]}</h1>${tView === "tasks" ? `<div class="tstats" id="tstats"></div>` : ""}</div>
-      ${tView === "tasks" ? `<label class="tsearch">${SVG_TSEARCH}<input id="tsearch" type="text" placeholder="Search by title, tag or content..." autocomplete="off" spellcheck="false"></label>` : ""}
+      <div><h1>${esc(title)}</h1>${tools ? `<div class="tstats" id="tstats"></div>` : ""}</div>
+      ${tools ? `<label class="tsearch">${SVG_TSEARCH}<input id="tsearch" type="text" placeholder="Search by title, tag or content..." autocomplete="off" spellcheck="false"></label>` : ""}
     </div>`}
-  </div><div class="tbody" id="tbody"></div>`;
+  </div><div class="tbody" id="${esc(bodyId)}" role="tabpanel" aria-labelledby="${esc(tTabId(view, bodyId))}"></div>`;
+}
+
+function tEmptyHtml(title, { sub = "", create = false } = {}) {
+  return `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">${esc(title)}</p>` +
+    (sub ? `<p class="s">${esc(sub)}</p>` : "") +
+    (create ? `<button class="pill create" type="button">Create task</button>` : "") + `</div>`;
 }
 
 function tStats() {
@@ -311,10 +328,10 @@ function paintTasks() {
     if (rows.length || tAdding === key) html += tSection(key, rows);   // an empty section shows only while its add row is open
   });
   if (!html) {
-    html = `<div class="tempty"><div class="ic">${SVG_TINBOX}</div>
-      <p class="t">${!state.biz ? "Pick a business first." : (state.tasks || []).length ? "Nothing here." : "Nothing scheduled."}</p>
-      <p class="s">${(state.tasks || []).length ? "No task matches this search." : "Create your first task to start organizing what matters."}</p>
-      ${state.biz ? `<button class="pill create" type="button">Create task</button>` : ""}</div>`;
+    html = tEmptyHtml(!state.biz ? "Pick a business first." : (state.tasks || []).length ? "Nothing here." : "Nothing scheduled.", {
+      sub: (state.tasks || []).length ? "No task matches this search." : "Create your first task to start organizing what matters.",
+      create: !!state.biz,
+    });
   } else if (!tAdding) {
     html += `<button class="taddbtn" id="taddbottom" type="button">${SVG_TPLUS}Add task</button>`;
   }
@@ -324,10 +341,7 @@ function paintTasks() {
   try { body.innerHTML = html; } finally { tPainting = false; }
   tPaintSig = tVisSig();   // record what's now on screen so a later background refresh can skip a no-op rebuild
 
-  body.querySelectorAll(".trow").forEach(row => {
-    const t = taskById(row.dataset.id); if (!t) return;
-    const who = row.querySelector(".who"); if (who && typeof tip === "function") tip(who, () => tWhoTip(t));
-  });
+  tWireRows(body);
   const add = $("#taddin");
   if (add) {
     if (keep && prev && prev.closest(".tadd") && prev.closest(".tadd").dataset.b === tAdding) add.value = keep;
@@ -361,17 +375,19 @@ function tSetView(v) {
 // stroke, day gaps) stays a single source of truth with the (currently parked) side rail log.
 function tActivitySig() { return JSON.stringify([state.biz, tLog.map(e => e.id || `${e.ts}|${e.summary}`)]); }
 
+function tActivityHtml(rows, emptyMessage = "Nothing logged yet.") {
+  return rows.length ? `<div class="tlog">${logHtml(rows)}</div>` : tEmptyHtml(emptyMessage);
+}
+
 function tPaintActivity() {
   if (tView !== "activity") return;
   const body = $("#tbody"); if (!body) return;
-  if (!state.biz) { body.innerHTML = `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">Pick a business first.</p></div>`; tLogSig = null; return; }
+  if (!state.biz) { body.innerHTML = tEmptyHtml("Pick a business first."); tLogSig = null; return; }
   const sig = tActivitySig();
-  if (sig === tLogSig && body.querySelector("#tlog")) return;   // nothing changed: skip the rebuild, keep tooltips alive
+  if (sig === tLogSig && body.querySelector(".tlog")) return;   // nothing changed: skip the rebuild, keep tooltips alive
   tLogSig = sig;
-  body.innerHTML = tLog.length
-    ? `<div class="tlog" id="tlog">${logHtml(tLog)}</div>`
-    : `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">Nothing logged yet.</p></div>`;
-  const wrap = $("#tlog");
+  body.innerHTML = tActivityHtml(tLog);
+  const wrap = body.querySelector(".tlog");
   if (wrap) logTips(wrap, tLog);
 }
 
@@ -419,7 +435,9 @@ function tWireAdd(inp) {
 // in sync with the patch so the write's own refresh (which lands ~0.3-0.6s later) sees nothing changed
 // and skips its own repaint (see refreshTasks()).
 function tPatchRow(t) {
-  const row = [...document.querySelectorAll(".trow")].find(r => r.dataset.id === t.id);
+  // The agent pane shares these rows; edits patch the drawer that owns the controls.
+  const panel = $("#taskspanel");
+  const row = panel && [...panel.querySelectorAll(".trow")].find(r => r.dataset.id === t.id);
   if (!row) { paintTasks(); return; }
   const closed = tClosed(t);
   row.className = `trow ${t.status}${closed ? " off" : ""}`;
@@ -478,6 +496,18 @@ function tTagItems(t) {
   return T_TAGS.map(x => ({ value: x, label: x, html: `<span class="towner"><span class="tdot" style="--tc:${tTagColor(x)}"></span><span class="tn">${esc(x)}</span>${have.indexOf(x) >= 0 ? `<span class="tsub">on</span>` : ""}</span>` }));
 }
 
+
+function tOpenTask(id) {
+  const t = taskById(id); if (!t) return;
+  clearTimeout(tSearchT); tSearch = "";
+  // Cross-pane navigation belongs to this click, even though it began outside the drawer.
+  tInside = true;
+  openTasks(true);
+  tSetView("tasks");
+  const row = [...$("#taskspanel").querySelectorAll(".trow")].find(r => r.dataset.id === id);
+  if (row) row.scrollIntoView({ block: "nearest" });
+  tDetail(t);
+}
 
 function tDetail(t) {
   if (typeof modal !== "function") return toast("details need core modal()");
@@ -553,21 +583,35 @@ function tDetail(t) {
 }
 
 // ---------------------------------------------------------------- wiring
-function tWireHead(p, from) {
+function tWireHead(p, from, onTab = tSetView) {
   const s = p.querySelector("#tsearch");
   if (s) {
     s.oninput = () => { clearTimeout(tSearchT); tSearchT = setTimeout(() => { tSearch = s.value; paintTasks(); }, 80); };
     s.onkeydown = e => { if (e.key === "Escape") { e.stopPropagation(); s.value = ""; tSearch = ""; paintTasks(); s.blur(); } };
   }
-  p.querySelectorAll(".ttab").forEach(b => b.onclick = () => { if (b.dataset.v !== tView) tSetView(b.dataset.v); });
+  const tabs = [...p.querySelectorAll(".ttab")];
+  const select = v => {
+    onTab(v);
+    const selected = p.querySelector(`.ttab[data-v="${v}"]`);
+    if (selected) selected.focus({ preventScroll: true });
+  };
+  tabs.forEach((b, i) => {
+    b.onclick = () => { if (!b.classList.contains("on")) select(b.dataset.v); };
+    b.onkeydown = e => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+      e.preventDefault();
+      const next = e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : (i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      select(tabs[next].dataset.v);
+    };
+  });
   moveTInd(p, from);
 }
-// .thead (tabs included) is rebuilt from scratch on every switch, so #tind is a brand-new node each
+// .thead (tabs included) is rebuilt from scratch on every switch, so .tind is a brand-new node each
 // time: left to its own devices it'd render at its CSS default (translateX(0), i.e. sat under the
 // first tab) for a frame before jumping to the real target. Instead, plant it at the tab we came FROM
 // with transitions off, force a reflow, then re-enable transitions and slide to the real target.
 function moveTInd(p, from) {
-  const on = p.querySelector(".ttab.on"), ind = p.querySelector("#tind");
+  const on = p.querySelector(".ttab.on"), ind = p.querySelector(".tind");
   if (!on || !ind) return;
   const fromBtn = from && p.querySelector(`.ttab[data-v="${from}"]`);
   if (fromBtn && fromBtn !== on) {

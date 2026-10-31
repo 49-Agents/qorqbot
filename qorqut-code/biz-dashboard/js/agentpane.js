@@ -1,5 +1,5 @@
-// Read-only agent overview. Activity uses the existing log renderer; tasks come from
-// tasks.js's shared cache and refresh loop. No task controls or business writes live here.
+// Agent tasks and activity, using the drawer's shared renderers and task cache.
+// Task clicks open the existing drawer detail; business writes stay in tasks.js.
 const AGPAD_LOG_N = 200, AGPAD_POLL_MS = 12000;
 let _agpad = null;
 
@@ -9,29 +9,10 @@ function agpadGroups(tasks, name) {
   const owned = open.filter(t => t.owner === actor);
   return {
     open: owned,
-    blocked: owned.filter(t => ["waiting", "blocked"].includes(t.status) || (t.blocked_by || []).length),
     // `by` is last editor, not creator. The first note is only a proxy: it can
     // have been added after creation, by someone other than the task's creator.
-    assigned: open.filter(t => t.owner !== actor && t.notes && t.notes[0] && t.notes[0].by === actor),
+    waiting: open.filter(t => t.owner !== actor && t.notes && t.notes[0] && t.notes[0].by === actor),
   };
-}
-
-function agpadTaskHtml(rows, tasks, assigned = false, blocked = false) {
-  return rows.map(t => {
-    const label = T_LABEL[t.status] || t.status || "Open";
-    const meta = [esc(label)];
-    if (assigned) meta.push(esc(tShort(t.owner)));
-    if (t.due) meta.push(`Due ${esc(t.due)}`);
-    const blockers = blocked ? (t.blocked_by || []).map(id => {
-      const task = tasks.find(x => x.id === id);
-      return task ? task.title : id;
-    }) : [];
-    return `<div class="agpad-task"><div class="agpad-task-main">` +
-      `<span class="agpad-status" data-state="${esc(t.status)}" aria-hidden="true"></span>` +
-      `<span class="agpad-task-title">${esc(t.title)}</span></div>` +
-      `<div class="agpad-meta">${meta.join(" · ")}</div>` +
-      (blockers.length ? `<div class="agpad-blockers">Blocked by ${esc(blockers.join(", "))}</div>` : "") + `</div>`;
-  }).join("");
 }
 
 function agpadActive(p) {
@@ -43,8 +24,9 @@ function agpadActive(p) {
 function agpadMount(name, el) {
   const p = _agpad = {
     biz: state.biz, agent: name, el, open: !!name && ls(`agpad:${state.biz}`) !== "off",
+    view: "tasks",
     logs: null, logError: false, nextLog: 0, pending: false,
-    tasks: null, source: state.tasks, tasksStarted: false, taskError: false, sigs: {},
+    tasks: null, source: state.tasks, tasksStarted: false, taskError: false, bodyHtml: null,
   };
   const button = $("#agpad-toggle");
   button.disabled = !name;
@@ -58,15 +40,21 @@ function agpadMount(name, el) {
   };
   agpadVisibility(p);
   if (!name) { el.innerHTML = ""; return; }
-  el.innerHTML = `<header class="agpad-head"><span class="agpad-eyebrow">Agent overview</span><h1>${esc(name)}</h1></header>
-    <div class="agpad-sections">
-      <section aria-labelledby="agpad-activity-title"><h2 id="agpad-activity-title">Activity <span id="agpad-activity-count"></span></h2><div class="agpad-scroll" id="agpad-activity"></div></section>
-      <section aria-labelledby="agpad-open-title"><h2 id="agpad-open-title">Open tasks <span id="agpad-open-count"></span></h2><div class="agpad-scroll" id="agpad-open"></div></section>
-      <section aria-labelledby="agpad-waiting-title"><h2 id="agpad-waiting-title">Waiting on <span id="agpad-waiting-count"></span></h2><div class="agpad-scroll">
-        <h3>Blocked <span id="agpad-blocked-count"></span></h3><div id="agpad-blocked"></div>
-        <h3 title="Open tasks owned by someone else whose first note was written by this agent. The first note's author can differ from the task's creator.">Assigned out <span id="agpad-assigned-count"></span></h3><div id="agpad-assigned"></div>
-      </div></section>
-    </div>`;
+  el.onclick = e => {
+    const row = e.target.closest(".trow");
+    if (row && agpadActive(p)) tOpenTask(row.dataset.id);
+  };
+  agpadSetView(p, "tasks");
+}
+
+function agpadSetView(p, view) {
+  if (_agpad !== p || !["tasks", "activity"].includes(view)) return;
+  const from = p.view;
+  p.view = view;
+  p.bodyHtml = null;
+  p.el.innerHTML = tHead({ view, views: ["tasks", "activity"], title: p.agent, bodyId: "agpad-body", taskTools: false });
+  tWireHead(p.el, from, next => agpadSetView(p, next));
+  if (view === "activity") p.nextLog = 0;
   agpadPaint(p);
   agpadTick();
 }
@@ -77,52 +65,45 @@ function agpadVisibility(p) {
   const button = $("#agpad-toggle");
   button.setAttribute("aria-expanded", String(p.open));
   button.title = p.open ? "Hide agent pane" : "Show agent pane";
-}
-
-function agpadReplace(p, key, html) {
-  if (p.sigs[key] === html) return false;
-  p.sigs[key] = html;
-  const el = $(`#agpad-${key}`, p.el), scroll = el.scrollTop;
-  el.innerHTML = html;
-  el.scrollTop = scroll;
-  return true;
+  if (p.open) moveTInd(p.el, p.view);
 }
 
 function agpadPaint(p) {
-  const empty = text => `<p class="agpad-empty">${text}</p>`;
-  const logHtmlBody = p.logs && p.logs.length ? logHtml(p.logs) : empty(p.logs ?
-    `No actions in the latest ${AGPAD_LOG_N} business log entries.` : "Loading activity…");
-  const activity = p.logError ? empty(p.logs ? "Could not refresh activity. Showing the last update." : "Activity unavailable. Retrying…") +
-    (p.logs ? logHtmlBody : "") : logHtmlBody;
-  if (agpadReplace(p, "activity", activity) && p.logs) logTips($("#agpad-activity", p.el), p.logs);
-  $("#agpad-activity-count", p.el).textContent = p.logs ? String(p.logs.length) : "";
-
-  const groups = agpadGroups(p.tasks || [], p.agent);
-  for (const key of ["open", "blocked", "assigned"]) {
-    const message = { open: "No open tasks.", blocked: "Nothing blocked or waiting.", assigned: "No assigned-out tasks found." }[key];
-    const html = p.tasks ? (groups[key].length ? agpadTaskHtml(groups[key], p.tasks, key === "assigned", key === "blocked") : empty(message)) :
-      empty(p.taskError ? "Tasks unavailable. Waiting for the next refresh…" : "Loading tasks…");
-    agpadReplace(p, key, html);
-    $(`#agpad-${key}-count`, p.el).textContent = p.tasks ? String(groups[key].length) : "";
+  let html;
+  if (p.view === "activity") {
+    html = p.logs ? tActivityHtml(p.logs, `No actions in the latest ${AGPAD_LOG_N} business log entries.`) : tEmptyHtml("Loading activity…");
+    if (p.logError) html = tEmptyHtml(p.logs ? "Could not refresh activity. Showing the last update." : "Activity unavailable. Retrying…") + (p.logs ? html : "");
+  } else if (!p.tasks) {
+    html = tEmptyHtml(p.taskError ? "Tasks unavailable. Waiting for the next refresh…" : "Loading tasks…");
+  } else {
+    const groups = agpadGroups(p.tasks, p.agent);
+    html = tSection("open", groups.open, { label: "Open tasks", canAdd: false, detailsOnly: true }) +
+      tSection("waiting", groups.waiting, { label: "Waiting on", canAdd: false, detailsOnly: true });
   }
-  $("#agpad-waiting-count", p.el).textContent = p.tasks ? String(groups.blocked.length + groups.assigned.length) : "";
+  if (p.bodyHtml === html) return;
+  p.bodyHtml = html;
+  const body = $("#agpad-body", p.el), scroll = body.scrollTop;
+  body.innerHTML = html;
+  body.scrollTop = scroll;
+  if (p.view === "tasks") tWireRows(body, true);
+  else if (p.logs) logTips(body, p.logs);
 }
 
 async function agpadRefreshLog(p) {
-  if (!agpadActive(p) || p.pending) return;
+  if (!agpadActive(p) || p.view !== "activity" || p.pending) return;
   p.pending = true;
   try {
     const rows = await api(`/biz/${encodeURIComponent(p.biz)}/log?n=${AGPAD_LOG_N}`);
-    if (!agpadActive(p)) return;
+    if (!agpadActive(p) || p.view !== "activity") return;
     if (!Array.isArray(rows)) throw new Error("Log unavailable");
     p.logs = rows.filter(e => e.actor === `agent:${p.agent}`);
     p.logError = false;
   } catch (e) {
-    if (agpadActive(p)) p.logError = true;
+    if (agpadActive(p) && p.view === "activity") p.logError = true;
   } finally {
     p.pending = false;
     p.nextLog = Date.now() + AGPAD_POLL_MS;
-    if (agpadActive(p)) agpadPaint(p);
+    if (agpadActive(p) && p.view === "activity") agpadPaint(p);
   }
 }
 
@@ -144,9 +125,9 @@ function agpadTick() {
   }
   if (state.tasks !== p.source) { p.source = p.tasks = state.tasks; p.taskError = false; }
   agpadPaint(p);
-  if (Date.now() >= p.nextLog) agpadRefreshLog(p);
+  if (p.view === "activity" && Date.now() >= p.nextLog) agpadRefreshLog(p);
 }
 
 // A cheap local reconciliation keeps edits in the shared task cache visible.
-// The only pane-specific network poll is the 12-second log request, while visible.
+// The only pane-specific network poll is the 12-second log request, while Activity is visible.
 setInterval(agpadTick, 1000);
