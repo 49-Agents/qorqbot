@@ -76,9 +76,14 @@ let tLog = [];
 let tLogSig = null;                 // signature of what's on screen for the log list; skips a no-op rebuild
 let tLogLoaded = false;             // has this business's log been fetched at least once since the view opened
 
-// journal view state: the form is built once per view-switch and never touched by an interval repaint
-let tJournalBuilt = false;
-let tJournalBiz = null;             // the business the current form instance belongs to
+// journal view state: painted on tab-switch/selection-change/after-writes only — never by the 12s interval
+let jrSel = null;                   // selected memo id, or null for the homepage
+let jrMemos = [];                   // cache of the last /journal fetch
+let jrSearch = "";                  // detail sidebar search (in-memory filter)
+let jrListOff = ls("jrlistoff") === "1";   // sidebar collapsed, persisted
+let jrEditState = null;             // { id, biz, title0, body0, dirty, saving, countdown }
+let jrIdleT = null, jrTickT = null; // autosave idle/countdown timers
+const jrUploadingIds = new Set();   // memo ids with an in-flight /upload
 
 const tPanelOpen = () => { const w = $("#taskswrap"); return !!w && w.classList.contains("open"); };
 const taskById = id => (state.tasks || []).find(t => t.id === id);
@@ -260,12 +265,14 @@ function tTabs() {
 }
 
 function tHead() {
-  return `<div class="thead">
+  // the journal tab supplies its own header (homepage title/subtitle/Create, or the detail's own
+  // sidebar controls) in #tbody, so the generic ttop (title + tasks-only stats/search) sits out for it
+  return `<div class="thead${tView === "journal" ? " nott" : ""}">
     ${tTabs()}
-    <div class="ttop">
+    ${tView === "journal" ? "" : `<div class="ttop">
       <div><h1>${T_VIEW_LABEL[tView]}</h1>${tView === "tasks" ? `<div class="tstats" id="tstats"></div>` : ""}</div>
       ${tView === "tasks" ? `<label class="tsearch">${SVG_TSEARCH}<input id="tsearch" type="text" placeholder="Search by title, tag or content..." autocomplete="off" spellcheck="false"></label>` : ""}
-    </div>
+    </div>`}
   </div><div class="tbody" id="tbody"></div>`;
 }
 
@@ -330,6 +337,7 @@ function paintTasks() {
 // intervals below only ever touch the view that's currently active.
 function tSetView(v) {
   if (T_VIEWS.indexOf(v) < 0) v = "tasks";
+  if (tView === "journal" && v !== "journal") jrFlush();
   tView = v; ls("tview", v);
   const p = $("#taskspanel"); if (!p) return;
   p.innerHTML = tHead(); tWireHead(p);
@@ -366,38 +374,443 @@ async function tActivityRefresh() {
   tPaintActivity();
 }
 
-// ---------------------------------------------------------------- journal view
-// Frictionless context capture, the uploadModal fields (js/context.js) inline instead of in a modal.
-// Built once per view-switch only: an interval repaint here would blow away a note mid-typing.
-function tJournalHtml() {
-  if (!state.biz) return `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">Pick a business first.</p></div>`;
-  return `<div class="tjournal">
-    <textarea id="jtext" class="jta" placeholder="Paste or type anything — notes, thoughts, transcripts…" spellcheck="false"></textarea>
-    <input id="jnotes" class="jin" placeholder="Notes (provenance) — optional" autocomplete="off">
-    <input id="jtopic" class="jin" placeholder="Topic — optional" autocomplete="off">
-    <button id="jsubmit" class="jsubmit" type="button" disabled>Upload to context</button>
-  </div>`;
+
+
+
+
+
+
+const JR_ICO_PANELLEFT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>`;
+const JR_ICO_BOOK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>`;
+const JR_ICO_ARROWUP = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/></svg>`;
+const JR_ICO_ARROWUP_SM = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/></svg>`;
+const JR_ICO_CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+const JR_ICO_PIN_SM = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
+const JR_ICO_PIN_TINY = `<svg class="jrpt" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
+const JR_ICO_PINOFF = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M15 9.34V6a2 2 0 0 0 0-4H9.55"/><path d="M9 9.35V6a2 2 0 0 1 2-2h1.53"/><path d="m2 2 20 20"/><path d="M9.51 9.51 5 15.24V16a1 1 0 0 0 1 1h9.53"/></svg>`;
+
+
+function relativeTime(iso) {
+  const t = Date.parse(iso || ""); if (isNaN(t)) return "";
+  const diff = Date.now() - t;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+function jrFullLabel(dateStr) {
+  const day = tDay(dateStr), today = tToday();
+  const n = Math.round((day - today) / T_DAY);
+  const full = new Date(day).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  if (n === 0) return `Today · ${full}`;
+  if (n === -1) return `Yesterday · ${full}`;
+  if (n === 1) return `Tomorrow · ${full}`;
+  if (n > 1 && n <= 3) return `In ${n} days · ${full}`;
+  if (n < -1 && n >= -3) return `${-n} days ago · ${full}`;
+  return full;
+}
+const jrWords = c => { const s = String(c || "").trim(); return s ? s.split(/\s+/).length : 0; };
+const jrPreview = c => { const l = String(c || "").split("\n").find(x => x.trim()); return l ? l.trim() : ""; };
+const jrTodayStr = () => { const d = new Date(), p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+
+// ---- data
+async function jrFetch() {
+  if (!state.biz) { jrMemos = []; return; }
+  const r = await api(`/biz/${state.biz}/journal`);
+  if (Array.isArray(r)) jrMemos = r; else if (r && r.error) toast(r.error);
+}
+const jrById = id => jrMemos.find(m => m.id === id);
+async function jrCreate(fields) {
+  const r = await post(`/biz/${state.biz}/journal`, fields || {});
+  if (r && r.error) { toast(r.error); return null; }
+  return r;
+}
+async function jrPatch(biz, id, fields) {
+  const r = await post(`/biz/${biz}/journal/${encodeURIComponent(id)}`, fields);
+  if (r && r.error) { toast(r.error); return null; }
+  return r;
+}
+async function jrDeleteReq(id) {
+  const r = await post(`/biz/${state.biz}/journal/${encodeURIComponent(id)}/delete`, {});
+  if (r && r.error) { toast(r.error); return null; }
+  return r;
+}
+async function jrUploadReq(id) {
+  const r = await post(`/biz/${state.biz}/journal/${encodeURIComponent(id)}/upload`, {});
+  if (r && r.error) { toast(r.error); return null; }
+  return r;
 }
 
-function tPaintJournal() {
-  const body = $("#tbody"); if (!body) return;
-  body.innerHTML = tJournalHtml();
+// ---- entry / flush
+function tPaintJournal() { jrOpenView(); }
+function jrOpenView() {
+  jrRender();
   if (!state.biz) return;
-  const ta = $("#jtext"), notes = $("#jnotes"), topic = $("#jtopic"), btn = $("#jsubmit");
-  const sync = () => { btn.disabled = !ta.value.trim(); };
-  ta.oninput = sync;
-  btn.onclick = async () => {
-    const text = ta.value.trim();
-    if (!text) return;
-    btn.disabled = true;
-    const r = await post(`/biz/${state.biz}/context/upload`, { text, notes: notes.value, topic: topic.value });
-    if (r && r.error) { toast(r.error); sync(); return; }
-    toast("Uploaded — filer will file it.");
-    ta.value = ""; notes.value = ""; topic.value = "";
-    sync(); ta.focus();
-    if (typeof refreshSideSoon === "function") refreshSideSoon();
+  const biz = state.biz;
+  jrFetch().then(() => { if (tView === "journal" && state.biz === biz) jrRender(); });
+}
+// force-save whatever's dirty in the open editor, reading the DOM before it's torn down by a repaint;
+// used when the tab is left or the business/selection changes
+async function jrFlush() {
+  const s = jrEditState; if (!s) return;
+  jrClearTimers();
+  if (s.dirty) {
+    const titleEl = $("#jrtitle"), bodyEl = $("#jrbody");
+    const title = titleEl ? titleEl.value : s.title0, content = bodyEl ? bodyEl.value : s.body0;
+    if (title !== s.title0 || content !== s.body0) {
+      const r = await jrPatch(s.biz, s.id, { title, content });
+      if (r) { const m = jrMemos.find(x => x.id === s.id); if (m) { m.title = title; m.content = content; m.updatedAt = r.updatedAt || m.updatedAt; } }
+    }
+  }
+  jrEditState = null;
+}
+
+// ---- render dispatch
+function jrRender() {
+  const body = $("#tbody"); if (!body) return;
+  if (!state.biz) { body.className = "tbody"; body.innerHTML = `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">Pick a business first.</p></div>`; return; }
+  if (jrSel == null) {
+    body.className = "tbody jr jr-home";
+    body.innerHTML = jrHomeHtml();
+    jrWireHome(body);
+  } else {
+    const m = jrById(jrSel);
+    if (!m) { jrSel = null; return jrRender(); }
+    body.className = "tbody jr jr-detail";
+    body.innerHTML = jrDetailHtml(m);
+    jrWireDetail(body, m);
+  }
+}
+// non-typing refreshes (pin, rename, upload-from-menu): patch sidebar/meta in place, never rebuild the
+// homepage or the open textareas from a background write
+function jrRenderCurrent() {
+  if (tView !== "journal") return;
+  if (jrSel == null) { jrRender(); return; }
+  jrPatchSidebar(); jrPatchMeta();
+}
+
+// ---- homepage
+function jrCardHtml(m) {
+  const title = esc(m.title && m.title.trim() ? m.title : "Untitled");
+  const prev = jrPreview(m.content);
+  const words = jrWords(m.content);
+  const foot = `${esc(relativeTime(m.updatedAt))}${m.uploaded ? ` <span class="jrup">${JR_ICO_ARROWUP_SM}in context</span>` : ""}`;
+  return `<button class="jrcard" type="button" data-id="${esc(m.id)}">
+    <div class="jrcrow1"><span class="jrctitle">${title}</span>${m.pinned ? JR_ICO_PIN_TINY : ""}</div>
+    <div class="jrcprev">${prev ? esc(prev) : `<span class="jrfaint">Empty memo</span>`}</div>
+    <div class="jrcfoot"><span>${foot}</span><span>${words} word${words === 1 ? "" : "s"}</span></div>
+  </button>`;
+}
+function jrHomeHtml() {
+  const n = jrMemos.length;
+  const pinned = jrMemos.filter(m => m.pinned);
+  const today = tToday(), weekAgo = today - 7 * T_DAY;
+  const byUpdated = jrMemos.slice().sort((a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0));
+  const editedToday = byUpdated.filter(m => Date.parse(m.updatedAt || 0) >= today);
+  const editedWeek = byUpdated.filter(m => { const t = Date.parse(m.updatedAt || 0); return t < today && t >= weekAgo; });
+  const sec = (label, icon, rows) => rows.length ? `<div class="jrsec"><div class="jreyebrow">${icon || ""}${esc(label)}</div><div class="jrgrid">${rows.map(jrCardHtml).join("")}</div></div>` : "";
+  return `<div class="jrhome">
+    <div class="jrhhead">
+      <div><h1>Journal</h1><div class="jrsub">${n} ${n === 1 ? "memo" : "memos"}</div></div>
+      <button id="jrnew" class="jrcreate" type="button">Create new</button>
+    </div>
+    ${sec("Pinned", JR_ICO_PIN_SM, pinned)}
+    ${sec("Edited today", "", editedToday)}
+    ${sec("Edited last week", "", editedWeek)}
+    ${sec("All memos", "", byUpdated)}
+    ${!n ? `<div class="jrfaint jrfaint-lg">No memos yet — create your first one.</div>` : ""}
+  </div>`;
+}
+function jrWireHome(root) {
+  root.querySelectorAll(".jrcard").forEach(c => {
+    c.onclick = () => jrSelect(c.dataset.id);
+    c.oncontextmenu = e => { e.preventDefault(); jrCtxMenu(e.clientX, e.clientY, c.dataset.id); };
+  });
+  const nb = root.querySelector("#jrnew"); if (nb) nb.onclick = () => jrCreateNew();
+}
+
+// ---- detail: sidebar list
+function jrFilterMemos() {
+  const q = jrSearch.trim().toLowerCase();
+  if (!q) return jrMemos.slice();
+  return jrMemos.filter(m => (m.title || "").toLowerCase().includes(q) || jrFullLabel(m.date).toLowerCase().includes(q) || (m.content || "").toLowerCase().includes(q));
+}
+function jrRowHtml(m) {
+  return `<div class="jrrow ${m.id === jrSel ? "on" : ""}" data-id="${esc(m.id)}">
+    ${m.id === jrSel ? `<span class="jrind"></span>` : ""}
+    <div class="jrr1"><span class="jrrttl">${m.pinned ? JR_ICO_PIN_TINY : ""}${esc(m.title && m.title.trim() ? m.title : "Untitled")}</span>${m.uploaded ? `<span class="jrdot"></span>` : ""}<span class="jrrtime">${esc(relativeTime(m.updatedAt))}</span></div>
+    <div class="jrr2">${esc(jrPreview(m.content) || "Empty memo")}</div>
+    <button class="jrrowdel" type="button" data-id="${esc(m.id)}" title="Delete memo">${ICO_TRASH}</button>
+  </div>`;
+}
+function jrListHtml() {
+  const filtered = jrFilterMemos();
+  const pinned = filtered.filter(m => m.pinned), rest = filtered.filter(m => !m.pinned);
+  let html = "";
+  if (pinned.length) html += `<div class="jreyebrow jrsm">Pinned</div>` + pinned.map(jrRowHtml).join("");
+  html += rest.map(jrRowHtml).join("");
+  if (!filtered.length) html += `<div class="jrfaint jrfaint-pad">No memos found.</div>`;
+  return html;
+}
+function jrWireListRows(list) {
+  if (!list) return;
+  list.querySelectorAll(".jrrow").forEach(row => {
+    row.onclick = e => { if (e.target.closest(".jrrowdel")) return; jrSelect(row.dataset.id); };
+    row.oncontextmenu = e => { e.preventDefault(); jrCtxMenu(e.clientX, e.clientY, row.dataset.id); };
+  });
+  list.querySelectorAll(".jrrowdel").forEach(b => b.onclick = e => { e.stopPropagation(); jrDeleteFlow(b.dataset.id); });
+}
+function jrPatchSidebar() {
+  const list = $("#jrlist"); if (!list) return;
+  const scroll = list.scrollTop;
+  list.innerHTML = jrListHtml();
+  list.scrollTop = scroll;
+  jrWireListRows(list);
+  const foot = $("#jrfoot"); if (foot) foot.textContent = `${jrMemos.length} ${jrMemos.length === 1 ? "memo" : "memos"}`;
+}
+
+// ---- detail: editor chrome (meta line, upload button, save pill) — patchable without touching textareas
+function jrMetaHtml(m) {
+  const words = jrWords(m.content);
+  const upl = m.uploaded ? `<span class="jrup">${JR_ICO_ARROWUP_SM}in context ${esc(relativeTime(m.uploaded))}</span>` : `<span class="jrup off">not in context</span>`;
+  return `${esc(jrFullLabel(m.date))}<span class="sep">·</span>edited ${esc(relativeTime(m.updatedAt))}<span class="sep">·</span>${words} word${words === 1 ? "" : "s"}<span class="sep">·</span>${upl}`;
+}
+function jrUploadBtnHtml(m) {
+  const busy = jrUploadingIds.has(m.id);
+  const label = busy ? "Uploading…" : (m.uploaded ? "Re-upload" : "Upload to context");
+  const dis = busy || !String(m.content || "").trim();
+  return `<button id="jrupload" class="jruploadbtn" type="button"${dis ? " disabled" : ""}>${JR_ICO_ARROWUP}<span>${esc(label)}</span></button>`;
+}
+function jrRingSvg(n) {
+  const total = 8, frac = Math.max(0, Math.min(1, n / total)), r = 6, c = 2 * Math.PI * r, off = c * (1 - frac);
+  return `<svg width="16" height="16" viewBox="0 0 16 16" class="jrring"><circle cx="8" cy="8" r="${r}" fill="none" stroke="currentColor" stroke-opacity=".25" stroke-width="2"/><circle cx="8" cy="8" r="${r}" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="${c}" stroke-dashoffset="${off}" transform="rotate(-90 8 8)"/></svg>`;
+}
+function jrSaveHtml() {
+  const s = jrEditState; if (!s) return "";
+  if (s.saving) return `<span class="jrsavepill busy">Saving…</span>`;
+  if (s.dirty) return `<span class="jrsavepill" type="button">${s.countdown != null ? jrRingSvg(s.countdown) : ""}Save</span>`;
+  return `<span class="jrsaved">${JR_ICO_CHECK}Saved</span>`;
+}
+function jrPaintSaveState() {
+  const el = $("#jrsavewrap"); if (!el) return;
+  el.innerHTML = jrSaveHtml();
+  const btn = el.querySelector(".jrsavepill"); if (btn) btn.onclick = () => jrSaveNow();
+}
+function jrPatchMeta() {
+  const m = jrById(jrSel); if (!m) return;
+  const meta = $("#jrmeta"); if (meta) meta.innerHTML = jrMetaHtml(m);
+  const upBtn = $("#jrupload");
+  if (upBtn) { upBtn.outerHTML = jrUploadBtnHtml(m); const nb = $("#jrupload"); if (nb) nb.onclick = () => jrDoUpload(m.id); }
+}
+
+// ---- detail: full build (selection change / tab open / create-new only)
+function jrDetailHtml(m) {
+  return `<div class="jred">
+    <div class="jrside ${jrListOff ? "off" : ""}" id="jrside">
+      <div class="jrsidectrl">
+        <button id="jrtoggle" class="jricon" type="button" title="Toggle list">${JR_ICO_PANELLEFT}</button>
+        <button id="jrhomebtn" class="jricon" type="button" title="Journal home">${JR_ICO_BOOK}</button>
+        <button id="jrnew2" class="jrcreate jrflex" type="button">Create new</button>
+      </div>
+      <div class="jrsearchwrap"><input id="jrsearch" class="jrsearch-in" placeholder="Search memos…" value="${esc(jrSearch)}" autocomplete="off" spellcheck="false"></div>
+      <div class="jrdivider"></div>
+      <div class="jrlist" id="jrlist">${jrListHtml()}</div>
+      <div class="jrfoot" id="jrfoot">${jrMemos.length} ${jrMemos.length === 1 ? "memo" : "memos"}</div>
+    </div>
+    <div class="jreditor" id="jreditor">
+      <div class="jredinner">
+        <div class="jredhead">
+          <textarea id="jrtitle" class="jrtitlein" rows="1" placeholder="Untitled"></textarea>
+          <div class="jredctrls" id="jredctrls">
+            ${jrUploadBtnHtml(m)}
+            <span class="jrsavewrap" id="jrsavewrap">${jrSaveHtml()}</span>
+            <button id="jrdel" class="jricon danger" type="button" title="Delete memo">${ICO_TRASH}</button>
+          </div>
+        </div>
+        <div class="jrmeta" id="jrmeta">${jrMetaHtml(m)}</div>
+        <div class="jrhr"></div>
+        <textarea id="jrbody" class="jrbodyin" placeholder="Start writing…" spellcheck="false"></textarea>
+      </div>
+    </div>
+  </div>`;
+}
+function jrWireDetail(root, m) {
+  jrEditState = { id: m.id, biz: state.biz, title0: m.title || "", body0: m.content || "", dirty: false, saving: false, countdown: null };
+  const titleEl = $("#jrtitle"), bodyEl = $("#jrbody");
+  titleEl.value = m.title || ""; jrGrow(titleEl);
+  bodyEl.value = m.content || "";
+
+  titleEl.oninput = () => { jrGrow(titleEl); jrEditState.dirty = true; jrSchedule(); };
+  titleEl.onkeydown = e => {
+    if (e.key === "Enter") { e.preventDefault(); titleEl.blur(); }
+    else if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) { e.preventDefault(); jrSaveNow(); }
   };
-  sync();
+  titleEl.onblur = () => { if (jrEditState && jrEditState.dirty) jrSaveNow(); };
+
+  bodyEl.oninput = () => { jrEditState.dirty = true; jrSchedule(); };
+  bodyEl.onkeydown = e => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) { e.preventDefault(); jrSaveNow(); }
+    else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); jrSaveNow(); }
+    else if ((e.ctrlKey || e.metaKey) && e.key === "=") {
+      e.preventDefault();
+      const start = bodyEl.selectionStart, end = bodyEl.selectionEnd;
+      bodyEl.setRangeText("─".repeat(32), start, end, "end");
+      jrEditState.dirty = true; jrSchedule();
+    }
+  };
+
+  root.querySelector("#jrtoggle").onclick = () => {
+    jrListOff = !jrListOff; ls("jrlistoff", jrListOff ? "1" : "0");
+    const side = root.querySelector("#jrside"); if (side) side.classList.toggle("off", jrListOff);
+  };
+  root.querySelector("#jrhomebtn").onclick = () => jrGoHome();
+  root.querySelector("#jrnew2").onclick = () => jrCreateNew();
+  root.querySelector("#jrdel").onclick = () => jrDeleteFlow(m.id);
+  const up = root.querySelector("#jrupload"); if (up) up.onclick = () => jrDoUpload(m.id);
+  const savepill = root.querySelector(".jrsavepill"); if (savepill) savepill.onclick = () => jrSaveNow();
+
+  const search = root.querySelector("#jrsearch");
+  let searchT = null;
+  search.oninput = () => { clearTimeout(searchT); searchT = setTimeout(() => { jrSearch = search.value; jrPatchSidebar(); }, 80); };
+
+  jrWireListRows(root.querySelector("#jrlist"));
+}
+
+// ---- autosave (idle 4s → 8s visible countdown → save; Ctrl/Cmd+S, Ctrl/Cmd+Enter, title blur save now)
+function jrClearTimers() { clearTimeout(jrIdleT); clearTimeout(jrTickT); jrIdleT = jrTickT = null; }
+function jrGrow(ta) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; }
+function jrSchedule() {
+  jrClearTimers();
+  if (jrEditState) jrEditState.countdown = null;
+  jrPaintSaveState();
+  jrIdleT = setTimeout(() => jrCountdown(8), 4000);
+}
+function jrCountdown(n) {
+  const s = jrEditState; if (!s) return;
+  if (n <= 0) { s.countdown = null; return void jrSaveNow(); }
+  s.countdown = n; jrPaintSaveState();
+  jrTickT = setTimeout(() => jrCountdown(n - 1), 1000);
+}
+async function jrSaveNow() {
+  const s = jrEditState; if (!s || s.saving) return;
+  jrClearTimers();
+  const titleEl = $("#jrtitle"), bodyEl = $("#jrbody"); if (!titleEl || !bodyEl) return;
+  const title = titleEl.value, content = bodyEl.value;
+  if (title === s.title0 && content === s.body0) { s.dirty = false; s.countdown = null; jrPaintSaveState(); return; }
+  s.saving = true; jrPaintSaveState();
+  const r = await jrPatch(s.biz, s.id, { title, content });
+  if (jrEditState !== s) return;   // navigated away while saving
+  s.saving = false;
+  if (r) {
+    s.title0 = title; s.body0 = content; s.dirty = false; s.countdown = null;
+    const m = jrMemos.find(x => x.id === s.id); if (m) { m.title = title; m.content = content; m.updatedAt = r.updatedAt || new Date().toISOString(); }
+    jrPatchMeta(); jrPatchSidebar();
+  }
+  jrPaintSaveState();
+}
+
+// ---- selection / navigation / create
+async function jrSelect(id) {
+  if (id === jrSel) return;
+  await jrFlush();
+  jrSel = id;
+  jrRender();
+}
+const jrGoHome = () => jrSelect(null);
+async function jrCreateNew() {
+  await jrFlush();
+  const r = await jrCreate({ date: jrTodayStr() });
+  if (!r) return;
+  await jrFetch();
+  jrSel = r.id;
+  jrRender();
+}
+
+// ---- pin / rename / upload / delete
+function jrTogglePin(m) {
+  const next = !m.pinned;
+  m.pinned = next;
+  jrRenderCurrent();
+  jrPatch(state.biz, m.id, { pinned: next }).then(async r => {
+    if (!r) { m.pinned = !next; jrRenderCurrent(); return; }
+    await jrFetch();
+    jrRenderCurrent();
+  });
+}
+function jrRenameFlow(m) {
+  const body = `<input id="jrrenamein" class="inp" type="text" value="${esc(m.title || "")}" autocomplete="off" spellcheck="false">`;
+  const commit = async (close, el) => {
+    const inp = el.querySelector("#jrrenamein");
+    const v = inp ? inp.value.trim() : "";
+    close();
+    const r = await jrPatch(state.biz, m.id, { title: v });
+    if (!r) return;
+    await jrFetch();
+    if (jrSel === m.id) {
+      jrPatchMeta();
+      const t = $("#jrtitle"); if (t) { t.value = v; jrGrow(t); }
+      if (jrEditState && jrEditState.id === m.id) jrEditState.title0 = v;
+    }
+    jrPatchSidebar();
+  };
+  modal({
+    title: "Rename memo", body, width: 420,
+    onOpen: el => { const inp = el.querySelector("#jrrenamein"); inp.select(); },
+    actions: [
+      { label: "Cancel", onClick: close => close() },
+      { label: "Save", primary: true, onClick: commit },
+    ],
+  });
+  const inp = document.getElementById("jrrenamein");
+  if (inp) inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); const b = document.querySelector(".modal .mfoot .primary"); if (b) b.click(); } };
+}
+async function jrDoUpload(id) {
+  if (jrUploadingIds.has(id)) return;
+  const m = jrById(id); if (!m || !String(m.content || "").trim()) return;
+  jrUploadingIds.add(id);
+  jrRenderCurrent();
+  const r = await jrUploadReq(id);
+  jrUploadingIds.delete(id);
+  if (r) { toast("Uploaded — filer will file it."); await jrFetch(); }
+  jrRenderCurrent();
+}
+function jrDeleteFlow(id) {
+  const m = jrById(id); if (!m) return;
+  const title = m.title && m.title.trim() ? m.title : "Untitled";
+  modal({
+    title: "Delete memo?",
+    body: `<p>"${esc(title)}" will be deleted. This can’t be undone.</p>`,
+    actions: [
+      { label: "Cancel", onClick: close => close() },
+      { label: "Delete", primary: true, onClick: async close => {
+        close();
+        const r = await jrDeleteReq(id); if (!r) return;
+        let nextId = null;
+        if (jrSel === id) {
+          const filtered = jrFilterMemos();
+          const ordered = filtered.filter(x => x.pinned).concat(filtered.filter(x => !x.pinned));
+          const idx = ordered.findIndex(x => x.id === id);
+          if (idx >= 0) nextId = (ordered[idx + 1] || ordered[idx - 1] || {}).id || null;
+        }
+        await jrFetch();
+        if (jrSel === id) jrSel = nextId;
+        jrRender();
+      } },
+    ],
+  });
+}
+function jrCtxMenu(x, y, id) {
+  const m = jrById(id); if (!m) return;
+  ctxMenu(x, y, [
+    { label: m.pinned ? "Unpin" : "Pin", icon: m.pinned ? JR_ICO_PINOFF : ICO_PIN, onClick: () => jrTogglePin(m) },
+    { label: "Rename", icon: ICO_PENCIL, onClick: () => jrRenameFlow(m) },
+    { label: "Upload to context", icon: JR_ICO_ARROWUP, onClick: () => jrDoUpload(m.id) },
+    { label: "Delete", icon: ICO_TRASH, danger: true, onClick: () => jrDeleteFlow(m.id) },
+  ]);
 }
 
 // ---------------------------------------------------------------- add
@@ -630,8 +1043,10 @@ function tWireHead(p) {
       tDoneT.forEach(clearTimeout); tDoneT.clear(); tCompleting.clear();   // holds belong to the business they started in
       refreshTasks();
       if (tView === "activity") { tLog = []; tLogSig = null; tActivityRefresh(); }
-      // only when it's still showing the "pick a business" placeholder: nothing typed to lose
-      if (tView === "journal" && !$("#jtext")) tPaintJournal();
+      // the business changed under the journal tab: flush whatever was dirty to the OLD business
+      // (jrFlush snapshots its biz at edit-open time, so this is safe even though state.biz just moved
+      // on), then start clean on the new one
+      if (tView === "journal") { jrFlush(); jrSel = null; jrSearch = ""; jrMemos = []; tPaintJournal(); }
     }
   }, 500);
   setInterval(() => {
