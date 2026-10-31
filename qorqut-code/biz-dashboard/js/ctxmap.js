@@ -211,7 +211,7 @@ function mapMermaid(root) {
 }
 
 // ------------------------------------------------------------- adapters
-// the context tree as a map: topic -> subtopics -> notes; at the root also every person as one branch.
+// the context tree as a map: topic -> subtopics -> notes; at the root also the Core pillars and every person.
 // `links` on a note point at "topic:<path>" (also) and "person:<slug>" (people), matched by node id.
 function ctxMapTree(d, node, isRoot) {
   const mk = t => ({
@@ -227,6 +227,9 @@ function ctxMapTree(d, node, isRoot) {
   if (!isRoot) return mk(node);
   const biz = (state.bizs || []).find(b => b.slug === state.biz);
   const root = { label: (biz && biz.name) || state.biz || "context", kind: "root", id: "root", children: (d.tree && d.tree.children || []).map(mk) };
+  const pillars = d.pillars || [];
+  if (pillars.length) root.children.unshift({ label: "Core", kind: "group", id: "core", children: pillars.map(n => ({
+    label: titleCase(n.replace(/\.md$/, "")), kind: "note", id: `pillar:${n}`, path: n, tip: "owner-written", children: [] })) });
   const people = d.people || [];
   if (people.length) root.children.push({ label: "People", kind: "group", id: "people", children: people.map(p => ({
     label: p.name + (p.role ? ` · ${p.role}` : ""), kind: "person", id: `person:${p.slug}`, path: `_people/${p.slug}`, tip: p.about || p.summary || "", children: [] })) });

@@ -101,12 +101,13 @@
 
 /* search */
 .ctop input[type=search] {
-  width: 100%; height: 32px; padding: 0 12px; border-radius: var(--r-full);
-  border: 0; background: rgba(247,247,247,.04); box-shadow: inset 0 0 0 1px transparent;
-  transition: background .14s ease, box-shadow .14s ease;
+  width: 100%; height: 32px; padding: 0 12px; box-sizing: border-box; border-radius: var(--r-sm);
+  border: 1px solid var(--line-2); background: var(--wash); color: var(--fg); font: 13px var(--sans); outline: none;
+  transition: border-color .14s ease, box-shadow .14s ease;
 }
+.ctop input[type=search]::placeholder { color: var(--fg-3); }
 .ctop input[type=search]:focus {
-  background: rgba(247,247,247,.06); box-shadow: inset 0 0 0 1px var(--line-2); border-color: transparent;
+  border-color: rgba(255, 255, 255, .3); box-shadow: 0 0 0 4px rgba(255, 255, 255, .025);
 }
 .ctxview .kd { font: 10px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--fg-3); }
 .ctxview mark { background: rgba(245,240,232,.18); color: var(--fg); border-radius: 2px; padding: 0 1px; }
