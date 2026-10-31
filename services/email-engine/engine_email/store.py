@@ -3,8 +3,9 @@
 import json
 import os
 import sqlite3
+import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 def now():
@@ -14,6 +15,7 @@ def now():
 class Store:
     def __init__(self, path):
         self.path = path
+        self.history = None
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         if self.path.is_symlink():
             raise ValueError("Email database must not be a symlink")
@@ -51,8 +53,55 @@ class Store:
                     payload TEXT NOT NULL, state TEXT NOT NULL,
                     draft_id TEXT, result TEXT NOT NULL DEFAULT '{}',
                     updated_at TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS sender_bindings (
+                    ref TEXT PRIMARY KEY, address TEXT NOT NULL UNIQUE, account_ref TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS sender_reservations (
+                    request_id TEXT PRIMARY KEY REFERENCES sends(request_id), account_ref TEXT NOT NULL,
+                    state TEXT NOT NULL, used_at TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS sender_quota ON sender_reservations(account_ref,state,used_at);
+                CREATE TABLE IF NOT EXISTS history_outbox (
+                    event_id TEXT PRIMARY KEY, digest TEXT NOT NULL, envelope TEXT NOT NULL);
             """)
         os.chmod(self.path, 0o600)
+
+    def _history(self, db, request_id, kind):
+        if self.history is None:
+            return
+        row = dict(db.execute("SELECT * FROM sends WHERE request_id=?", (request_id,)).fetchone())
+        row["payload"], row["result"] = json.loads(row["payload"]), json.loads(row["result"])
+        record = self.history.seal("engine:" + str(uuid.uuid4()), kind, row)
+        db.execute("INSERT INTO history_outbox VALUES(?,?,?)", record)
+
+    def flush_history(self):
+        if self.history is None:
+            return
+        # Copy encrypted records first; deletion follows a durable idempotent append.
+        while True:
+            with self.connect() as db:
+                record = db.execute("SELECT event_id,digest,envelope FROM history_outbox LIMIT 1").fetchone()
+            if record is None:
+                return
+            self.history.append_sealed(tuple(record))
+            with self.connect() as db:
+                db.execute("DELETE FROM history_outbox WHERE event_id=?", (record[0],))
+
+    def bind_senders(self, senders):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for sender in senders:
+                values = (sender.ref, sender.address, sender.account_ref)
+                old = db.execute("SELECT ref,address,account_ref FROM sender_bindings WHERE ref=? OR address=?",
+                    (sender.ref, sender.address)).fetchall()
+                if old and (len(old) != 1 or tuple(old[0]) != values):
+                    raise ValueError("Shared sender identity and account cannot be reassigned")
+                db.execute("INSERT OR IGNORE INTO sender_bindings VALUES(?,?,?)", values)
+                # Adding a quota cannot erase already-recorded sends from that address.
+                for row in db.execute("SELECT * FROM sends WHERE json_extract(payload,'$.from_address')=?",
+                        (sender.address,)).fetchall():
+                    if row["state"] in {"failed", "canceled", "queued"}:
+                        continue
+                    db.execute("INSERT OR IGNORE INTO sender_reservations VALUES(?,?,?,?)",
+                        (row["request_id"], sender.account_ref, "sent" if row["state"] == "sent" else "reserved", row["updated_at"]))
 
     def bind_provider(self, account_id):
         with self.connect() as db:
@@ -158,7 +207,7 @@ class Store:
         with self.connect() as db:
             return [dict(row) for row in db.execute("SELECT * FROM mailbox_sync ORDER BY mailbox")]
 
-    def begin_send(self, message):
+    def begin_send(self, message, *, queued=False):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM sends WHERE request_id=?", (message.request_id,)).fetchone()
@@ -166,14 +215,66 @@ class Store:
                 if row["digest"] != message.digest():
                     raise ValueError("Request ID already belongs to different content")
                 return dict(row), False
-            db.execute("INSERT INTO sends(request_id,business_id,mailbox,digest,payload,state,updated_at) VALUES(?,?,?,?,?,'creating',?)",
-                (message.request_id, message.business_id, message.mailbox, message.digest(), message.model_dump_json(), now()))
+            db.execute("INSERT INTO sends(request_id,business_id,mailbox,digest,payload,state,updated_at) VALUES(?,?,?,?,?,?,?)",
+                (message.request_id, message.business_id, message.mailbox, message.digest(), message.model_dump_json(),
+                 "queued" if queued else "creating", now()))
+            self._history(db, message.request_id, "send.prepared")
             return dict(db.execute("SELECT * FROM sends WHERE request_id=?", (message.request_id,)).fetchone()), True
+
+    def reserve(self, request_id, sender):
+        """Atomically claim one account slot; unresolved reservations never age out."""
+        instant = now()
+        cutoff = (datetime.fromisoformat(instant) - timedelta(hours=24)).isoformat()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM sends WHERE request_id=?", (request_id,)).fetchone()
+            if row["state"] not in {"queued", "creating", "draft"}:
+                return False, dict(row)
+            existing = db.execute("SELECT * FROM sender_reservations WHERE request_id=?", (request_id,)).fetchone()
+            if existing:
+                if existing["account_ref"] != sender.account_ref or existing["state"] != "reserved":
+                    raise ValueError("Invalid sender reservation")
+                return True, dict(row)
+            used = db.execute("SELECT * FROM sender_reservations WHERE account_ref=? AND (state='reserved' OR (state='sent' AND used_at>?))",
+                (sender.account_ref, cutoff)).fetchall()
+            if len(used) >= sender.rolling_limit:
+                releases = sorted(datetime.fromisoformat(item["used_at"]) + timedelta(hours=24)
+                    for item in used if item["state"] == "sent")
+                needed = len(used) - sender.rolling_limit + 1
+                retry = releases[needed - 1].isoformat() if len(releases) >= needed else None
+                db.execute("UPDATE sends SET result=?,updated_at=? WHERE request_id=?",
+                    (json.dumps({"reason": "sender_quota", "retry_at": retry}), instant, request_id))
+                return False, dict(db.execute("SELECT * FROM sends WHERE request_id=?", (request_id,)).fetchone())
+            db.execute("INSERT INTO sender_reservations VALUES(?,?,'reserved',?)", (request_id, sender.account_ref, instant))
+            db.execute("UPDATE sends SET state=CASE WHEN state='queued' THEN 'creating' ELSE state END,result='{}',updated_at=? WHERE request_id=?",
+                (instant, request_id))
+            self._history(db, request_id, "send.reserved")
+            return True, dict(db.execute("SELECT * FROM sends WHERE request_id=?", (request_id,)).fetchone())
+
+    def cancel_queued(self, request_id, mailbox):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM sends WHERE request_id=? AND mailbox=? AND business_id=?",
+                (request_id, mailbox.ref, mailbox.business_id)).fetchone()
+            if row is None:
+                raise ValueError("Send not found")
+            if row["state"] == "queued":
+                db.execute("UPDATE sends SET state='canceled',result=?,updated_at=? WHERE request_id=?",
+                    (json.dumps({"reason": "owner_canceled", "not_sent": True}), now(), request_id))
+                self._history(db, request_id, "send.canceled")
+            return dict(db.execute("SELECT * FROM sends WHERE request_id=?", (request_id,)).fetchone())
 
     def save_send(self, request_id, state, *, draft_id=None, result=None):
         with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
             db.execute("UPDATE sends SET state=?,draft_id=COALESCE(?,draft_id),result=?,updated_at=? WHERE request_id=?",
                 (state, draft_id, json.dumps(result or {}), now(), request_id))
+            if state in {"failed", "canceled"}:
+                db.execute("UPDATE sender_reservations SET state='released' WHERE request_id=?", (request_id,))
+            elif state == "sent":
+                # Confirmation time is conservative if the provider's send timestamp is unavailable.
+                db.execute("UPDATE sender_reservations SET state='sent',used_at=? WHERE request_id=? AND state='reserved'", (now(), request_id))
+            self._history(db, request_id, "send." + state)
         return self.send(request_id)
 
     def send(self, request_id):
@@ -183,10 +284,11 @@ class Store:
 
     def pending_sends(self):
         with self.connect() as db:
-            return [dict(row) for row in db.execute("SELECT * FROM sends WHERE state IN ('creating','draft','sending','accepted','uncertain') ORDER BY updated_at LIMIT 100")]
+            return [dict(row) for row in db.execute("SELECT * FROM sends WHERE state IN ('queued','creating','draft','sending','accepted','uncertain') ORDER BY updated_at LIMIT 100")]
 
     @staticmethod
     def receipt(row):
         return {"request_id": row["request_id"], "business_id": row["business_id"], "mailbox": row["mailbox"],
+            "sender_ref": json.loads(row["payload"]).get("sender_ref"),
             "state": row["state"], "draft_id": row["draft_id"], "updated_at": row["updated_at"],
             "result": json.loads(row["result"])}

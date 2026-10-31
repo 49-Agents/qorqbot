@@ -11,7 +11,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from .fastmail import ProviderError
-from .models import MAX_HTTP_BYTES, Outgoing
+from .models import MAX_HTTP_BYTES, HistoryEvent, Outgoing
 from .store import Store
 
 
@@ -23,6 +23,7 @@ def create_app(service, *, background=True):
             try:
                 await anyio.to_thread.run_sync(service.sync)
                 await anyio.to_thread.run_sync(service.reconcile_pending)
+                await anyio.to_thread.run_sync(service.collect_history)
             except Exception:
                 import logging
                 logging.getLogger(__name__).error("Email background pass failed; mailbox state is not current")
@@ -59,6 +60,7 @@ def create_app(service, *, background=True):
         try:
             if kind == "mailboxes":
                 return JSONResponse({"mailboxes": [box.model_dump() for box in settings.mailboxes],
+                    "shared_senders": [sender.model_dump() for sender in settings.shared_senders],
                     "sync": await anyio.to_thread.run_sync(service.store.sync_status)})
             mailbox = settings.mailbox(request.path_params["mailbox"])
             if kind == "send":
@@ -112,7 +114,7 @@ def create_app(service, *, background=True):
         try:
             message = Outgoing.model_validate_json(bytes(content))
             receipt = await anyio.to_thread.run_sync(lambda: service.submit(message))
-            return JSONResponse(receipt, status_code=200 if receipt["state"] in {"sent", "failed"} else 202)
+            return JSONResponse(receipt, status_code=200 if receipt["state"] in {"sent", "failed", "canceled"} else 202)
         except ValidationError as exc:
             return JSONResponse({"error": "invalid_message", "fields": [".".join(map(str, item["loc"])) for item in exc.errors()]}, status_code=400)
         except ValueError:
@@ -127,8 +129,51 @@ def create_app(service, *, background=True):
             return JSONResponse({"error": "send_not_found"}, status_code=404)
         return JSONResponse(Store.receipt(row))
 
+    async def cancel(request):
+        denied = authenticate(request)
+        if denied is not None:
+            return denied
+        content = bytearray()
+        async for chunk in request.stream():
+            content.extend(chunk)
+            if len(content) > 1024:
+                return JSONResponse({"error": "request_too_large"}, status_code=413)
+        try:
+            import json
+            data = json.loads(content)
+            if not isinstance(data, dict) or set(data) != {"request_id"} or not isinstance(data["request_id"], str):
+                raise ValueError("Invalid cancellation")
+            mailbox = settings.mailbox(request.path_params["mailbox"])
+            result = await anyio.to_thread.run_sync(lambda: service.cancel(mailbox, data["request_id"]))
+            return JSONResponse(result)
+        except ValueError:
+            return JSONResponse({"error": "invalid_cancellation"}, status_code=400)
+
+    async def append_history(request):
+        denied = authenticate(request)
+        if denied is not None:
+            return denied
+        if service.history is None:
+            return JSONResponse({"error": "history_unavailable"}, status_code=503)
+        content = bytearray()
+        async for chunk in request.stream():
+            content.extend(chunk)
+            if len(content) > MAX_HTTP_BYTES:
+                return JSONResponse({"error": "request_too_large"}, status_code=413)
+        try:
+            event = HistoryEvent.model_validate_json(bytes(content))
+        except ValueError:
+            return JSONResponse({"error": "invalid_history_event"}, status_code=400)
+        try:
+            result = await anyio.to_thread.run_sync(lambda: service.history.append(event.event_id, event.kind, event.content))
+            return JSONResponse(result)
+        except ValueError:
+            return JSONResponse({"error": "history_event_conflict"}, status_code=409)
+
     routes = [Route("/health/live", health), Route("/mailboxes", read), Route("/sync", sync, methods=["POST"]),
         Route("/sends", submit, methods=["POST"]), Route("/sends/{request_id}", receipt)]
+    routes.append(Route("/mailboxes/{mailbox}/send/cancel", cancel, methods=["POST"]))
+    routes.append(Route("/history/events", append_history, methods=["POST"]))
     # Explicit paths keep new provider features from becoming accidentally exposed.
     for kind in ("messages", "message", "attachments", "attachment", "send"):
         async def endpoint(request, selected=kind):

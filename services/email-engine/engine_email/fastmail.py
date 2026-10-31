@@ -2,6 +2,7 @@
 
 import json
 import re
+import base64
 from email.message import EmailMessage
 from email.policy import SMTP
 from email.utils import formataddr, formatdate
@@ -136,9 +137,16 @@ class Fastmail:
             folder = found.get(box.folder_id)
             if not folder or folder.get("role") or not folder.get("myRights", {}).get("mayReadItems"):
                 raise ProviderError("business_folder_missing_or_not_dedicated")
+        for identity in self.settings.history.private_folder_ids if self.settings.history else []:
+            folder = found.get(identity)
+            if not folder or folder.get("role") or not folder.get("myRights", {}).get("mayReadItems"):
+                raise ProviderError("private_history_folder_missing_or_not_dedicated")
         return found
 
     def owner(self, raw):
+        if self.settings.history and any(raw.get("mailboxIds", {}).get(folder)
+                for folder in self.settings.history.private_folder_ids):
+            return None
         matches = [box for box in self.settings.mailboxes if raw.get("mailboxIds", {}).get(box.folder_id)]
         # Never expose a message filed into multiple business routes.
         return matches[0] if len(matches) == 1 else None
@@ -214,6 +222,45 @@ class Fastmail:
         return {"items": items, "destroyed": list(set(destroyed) | (set(ids) - present)),
             "cursor": json.dumps(next_cursor, sort_keys=True), "complete": not more}
 
+    def collect_history(self, archive):
+        """Only changes after the explicitly pinned start state; never initial import."""
+        self.folders()
+        delta = self.call("Email/changes", {"sinceState": archive.cursor(), "maxChanges": 20})
+        identities = list(dict.fromkeys([*delta["created"], *delta["updated"]]))
+        for identity in identities:
+            metadata = self.get_raw([identity], metadata=True).get("list", [])
+            if not metadata:
+                if archive.observed(identity):
+                    archive.observation(identity, {"id": identity, "removed": True})
+                continue
+            raw = metadata[0]
+            private = any(raw.get("mailboxIds", {}).get(folder) for folder in archive.config.private_folder_ids)
+            if not self.owner(raw) and not private:
+                if archive.observed(identity):
+                    archive.observation(identity, {"id": identity, "outside_capture_folders": True})
+                continue
+            values = self.call("Email/get", {"ids": [identity], "properties": [
+                "id", "blobId", "threadId", "mailboxIds", "keywords", "receivedAt", "sentAt"]}).get("list", [])
+            if not values:
+                raise ProviderError("history_message_disappeared")
+            snapshot = values[0]
+            # Recheck ownership after the fetch to avoid an unrelated private move.
+            private = any(snapshot.get("mailboxIds", {}).get(folder) for folder in archive.config.private_folder_ids)
+            if not self.owner(snapshot) and not private:
+                if archive.observed(identity):
+                    archive.observation(identity, {"id": identity, "outside_capture_folders": True})
+                continue
+            if not snapshot.get("blobId"):
+                raise ProviderError("history_mime_blob_missing")
+            snapshot = {**snapshot, "mime_base64": base64.b64encode(self.download_blob(snapshot["blobId"])).decode()}
+            archive.observation(identity, snapshot)
+        for identity in delta["destroyed"]:
+            if archive.observed(identity):
+                archive.observation(identity, {"id": identity, "removed": True})
+        # Advance only after every observed message has a durable encrypted record.
+        archive.advance(delta["newState"])
+        return {"state": "partial" if delta["hasMoreChanges"] else "synced"}
+
     @staticmethod
     def mime(message, parent=None):
         # Keep long ASCII message-id tokens intact instead of RFC 2047 encoding.
@@ -225,6 +272,8 @@ class Fastmail:
         mail["Subject"], mail["Date"] = message.subject, formatdate(usegmt=True)
         mail["Message-ID"] = f"<qorqut.{message.digest()}@{message.from_address.split('@')[1]}>"
         mail["X-Qorqut-Request"] = message.request_id
+        if message.reply_to:
+            mail["Reply-To"] = message.reply_to
         if parent:
             identity = parent.get("internetMessageId")
             if not identity:
@@ -237,8 +286,13 @@ class Fastmail:
             mail.add_attachment(attachment.content(), maintype=main, subtype=sub, filename=attachment.filename)
         return mail.as_bytes()
 
-    def identity(self, mailbox, sender):
-        if not mailbox.accepts_sender(sender):
+    def identity(self, mailbox, sender, message=None):
+        if message is not None:
+            try:
+                self.settings.sender(mailbox, message)
+            except ValueError as exc:
+                raise ProviderError("sender_outside_business") from exc
+        elif not mailbox.accepts_sender(sender):
             raise ProviderError("sender_outside_business")
         identities = self.call("Identity/get")["list"]
         matches = [item for item in identities if item.get("email", "").lower() == sender]
@@ -250,7 +304,7 @@ class Fastmail:
         return matches[0]["id"]
 
     def create_draft(self, mailbox, message):
-        self.identity(mailbox, message.from_address)
+        self.identity(mailbox, message.from_address, message)
         self.folders()
         parent = self.get_message(mailbox, message.reply_message_id) if message.reply_message_id else None
         content = self.mime(message, parent)
@@ -277,14 +331,17 @@ class Fastmail:
         selected = next((item for item in self.attachments(mailbox, message_id) if item["id"] == attachment_id), None)
         if selected is None:
             raise ProviderError("attachment_outside_business", status=404)
+        return self.download_blob(attachment_id)
+
+    def download_blob(self, blob_id):
         url = self.session()["downloadUrl"]
-        for name, value in {"accountId": self.account_id, "blobId": attachment_id,
+        for name, value in {"accountId": self.account_id, "blobId": blob_id,
                 "name": "attachment", "type": "application/octet-stream"}.items():
             url = url.replace("{" + name + "}", quote(value, safe=""))
         return self.request("GET", url, binary=True)
 
     def send_draft(self, mailbox, draft_id, message):
-        identity = self.identity(mailbox, message.from_address)
+        identity = self.identity(mailbox, message.from_address, message)
         return self.created(self.call("EmailSubmission/set", {"create": {"prepared": {
             "emailId": draft_id, "identityId": identity, "envelope": {
                 "mailFrom": {"email": message.from_address},
