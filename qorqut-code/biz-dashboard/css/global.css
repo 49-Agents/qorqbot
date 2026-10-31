@@ -60,7 +60,7 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-agents .global-workspace-terminal { margin-bottom: 8px; }
 .global-agents .global-workspace-terminal svg { width: 20px; height: 20px; flex: none; }
 .global-agent-session { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.global-agent-session .chat.termmode { flex: 1; min-height: 180px; }
+.global-agent-session .chat.termmode { flex: 1; min-height: 180px; padding: 24px; }
 @media (max-width: 800px) {
   .split.global-agents { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .global-agents > .listcol { max-height: 145px; border-right: 0; border-bottom: 1px solid var(--line); }
