@@ -24,11 +24,9 @@ const LN_SCOPES = [
   ["global", "All businesses", lnSvg(AICONS.globe)],
 ];
 const LN_SCOPE_BY_KEY = Object.fromEntries(LN_SCOPES.map(([k, label, ico]) => [k, { key: k, label, ico }]));
-// bucket is an icon too, the same two glyphs as the main rail: Context for a fact about the world, Code for a
-// change to how the system works
 const LN_BUCKETS = {
-  context: { label: "Context", ico: lnSvg('<path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/>') },
-  delta: { label: "Agent behavior", ico: lnSvg(AICONS.code) },
+  context: { label: "Context", hex: COLORS.teal },
+  delta: { label: "Delta", hex: COLORS.plum },
 };
 // the decided card's ball wears the same two colours as the notes gutter balls (done / blocked)
 const LN_STATE_HEX = { accepted: "#30D158", "in-progress": "#30D158", rejected: "#FF453A", "rejected-in-work": "#FF453A" };
@@ -51,7 +49,7 @@ const lnOpenItem = it => !!it && (!it.state || it.state === "open");
 const lnCreated = it => Date.parse((it && it.created) || "") || 0;
 const lnDecided = it => Date.parse((it && it.decision && it.decision.created) || (it && it.created) || "") || 0;
 const lnNote = it => (it && it.decision && it.decision.note) || "";
-const lnErr = r => (r && r.error) || "no reply from the server";
+const lnErr = r => r?.error?.message || r?.error || "No reply from the server";
 const lnWho = a => String(a || "").replace(/^(agent|human|system):/, "");
 const lnRel = t => (typeof mkRel === "function" ? mkRel(t) : "");
 function lnSourceAge(t, now = Date.now()) {
@@ -240,7 +238,7 @@ function lnCardHtml(item, people) {
   const touches = lnTouches(it, people).map(x => `<span class="chip ${esc(x.kind)}" ${x.title ? `title="${esc(x.title)}"` : ""}>${esc(x.label)}</span>`).join("");
   const scopeIco = `<span class="lnscopeico" title="${esc((LN_SCOPE_BY_KEY[it.scope] || {}).label || it.scope || "")}">${(LN_SCOPE_BY_KEY[it.scope] || {}).ico || ""}</span>`;
   const bk = LN_BUCKETS[it.bucket];
-  const bucketIco = bk ? `<span class="lnbucket" data-bucket="${esc(it.bucket)}" title="${esc(bk.label)}">${bk.ico}</span>` : "";
+  const bucketIco = bk ? `<span class="lntag lnbucket" data-bucket="${esc(it.bucket)}" style="--tc:${esc(bk.hex)}">${esc(bk.label)}</span>` : "";
   const source = ev.source;
   const stamp = source ? [String(source.kind).replaceAll('_', ' '), source.actor_name, lnSourceAge(source.at)].filter(Boolean).join(' · ') : [(ev.turns || []).join(" "), lnWho(obs.agent), String(ev.session || "").slice(0, 8)].filter(Boolean).join(" · ");
   const conflict = it.contradicts?.length ? `<p class="lnpending">Possible conflict with ${it.contradicts.length} related learning${it.contradicts.length === 1 ? '' : 's'}.</p>` : '';
@@ -258,7 +256,7 @@ function lnCardHtml(item, people) {
     const pill = {"in-progress": "In progress", "rejected-in-work": "Rejected in work"}[st];
     const pending = it.origin_scope === "global" && it.bucket === "context" && st === "accepted" ? "Accepted Global context" : it.intake_pending ? "Context handoff interrupted" : ({accepted: "awaiting selection", rejected: "rejected", "in-progress": "work in progress", "rejected-in-work": "work stopped"}[st] || st);
     return `<div class="mkcard lncard done" data-id="${esc(it.id)}" data-state="${esc(st)}" style="--sc:${esc(LN_STATE_HEX[st] || "var(--fg-3)")}">
-      <div class="mkhead"><span class="lnball" title="${esc(st)}"></span>${pill ? `<span class="lnstate">${esc(pill)}</span>` : ""}<span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span>${scopeIco}${bucketIco}${touches}<span class="sp"></span><span class="ago">${esc(lnRel((it.decision || {}).created || it.created))}</span></div>
+      <div class="mkhead">${bucketIco}<span class="lnball" title="${esc(st)}"></span>${pill ? `<span class="lnstate">${esc(pill)}</span>` : ""}<span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span>${scopeIco}${touches}<span class="sp"></span><span class="ago">${esc(lnRel((it.decision || {}).created || it.created))}</span></div>
       <div class="mkt">${esc(it.text || "")}</div>
       ${note ? `<div class="lnwhy"><span class="lnnotelabel">Owner note</span>${esc(note)}</div>` : ""}
       ${quote}${sourceInfo}<div class="ln-evidence-tools">${sourceButton}</div>${it.agent_note ? `<div class="lnagentnote"><span class="lnnotelabel">Agent note</span>${esc(it.agent_note)}</div>` : ""}
@@ -271,7 +269,7 @@ function lnCardHtml(item, people) {
   const notes = _ln.notes[it.id] || "";
   const noteBox = `<textarea class="lnnote" placeholder="Note (required to reject)" spellcheck="false" ${_ln.noteOpen[it.id] || notes ? "" : "hidden"}>${esc(notes)}</textarea>`;
   return `<div class="mkcard lncard" tabindex="0" data-id="${esc(it.id)}" data-tag="${esc(it.tag || "")}">
-    <div class="mkhead"><span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span><span class="lnpick">${pick}</span>${bucketIco}${touches}
+    <div class="mkhead">${bucketIco}<span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span><span class="lnpick">${pick}</span>${touches}
       <span class="who">${esc(lnWho(obs.agent))}</span><span class="sp"></span>${votes}<span class="ago">${esc(lnRel(it.created))}</span></div>
     <div class="mkt">${esc(it.text || "")}</div>
     ${quote}${sourceInfo}<div class="ln-evidence-tools">${sourceButton}${moreEv}${variants}</div>${noteBox}
@@ -292,6 +290,7 @@ function lnOpenNote(card) {
   if (document.activeElement !== ta) ta.focus();
 }
 function lnWire(root) {
+  root.querySelectorAll(".lncard").forEach(card => { if (_ln.busy[card.dataset.id]) lnReviewBusy(card.dataset.id, true); });
   root.querySelectorAll(".lncard:not(.done)").forEach(card => {
     card.onfocus = () => lnOpenNote(card);
     card.onclick = e => { if (!e.target.closest || !e.target.closest("button, a, summary, details")) lnOpenNote(card); };
@@ -327,18 +326,57 @@ function lnUndecide(it) {
   lnPaintCols(); lnItemsBadge(_ln.items);
 }
 async function lnRefetch() { const d = await lnFetch(); if (d && !d.error && lnActive()) lnPaintCols(); }
+// Context decisions share an index: commit one review at a time, without blocking card interaction.
+let lnReviewQueue = Promise.resolve();
+function lnReviewBusy(id, busy, label = 'Saving…') {
+  const card = document.querySelector(`.lncard[data-id="${id}"]`);
+  if (!card) return;
+  card.setAttribute('aria-busy', String(busy));
+  card.querySelectorAll('button, textarea').forEach(el => { el.disabled = busy; });
+  let status = card.querySelector('.lnsaving');
+  if (busy && !status) { status = document.createElement('span'); status.className = 'lnsaving'; status.setAttribute('role', 'status'); card.querySelector('.mkfoot')?.prepend(status); }
+  if (status) { if (busy) status.textContent = label; else status.remove(); }
+}
 async function lnSend(it, st, note, apply, label) {
   const id = it.id, biz = lnWorkspace(), base = lnBase(), model = _ln;
-  if (_ln.busy[id]) return;
-  _ln.busy[id] = 1;
-  let r; try { r = await post(`${base}/${id}/state`, { state: st, ...(note !== undefined ? {note} : {}), ...(it.revision ? {expected_revision: it.revision} : {}) }); } catch (e) { r = null; }
-  delete model.busy[id];
-  if (lnWorkspace() !== biz || _ln !== model) return;
-  if (!r || r.error) { notify({ text: `${label} failed`, sub: lnErr(r), color: "var(--danger)" }); return lnRefetch(); }
-  apply();
-  if (r.item) { Object.assign(it, r.item); lnPaintCols(); lnItemsBadge(_ln.items); }
-  if (r.item && r.item.filing && r.item.filing.upload_id) await lnRefetch();
-  toast(label.toLowerCase());
+  if (model.busy[id]) return;
+  model.busy[id] = 1;
+  lnReviewBusy(id, true);
+  const previous = lnReviewQueue;
+  let release; lnReviewQueue = new Promise(resolve => { release = resolve; });
+  await previous;
+  try {
+    // A queued click belongs to the workspace where it was made.
+    const request = {state: st, ...(note !== undefined ? {note} : {}), ...(it.revision ? {expected_revision: it.revision} : {}), idempotency_key: newRequestId()};
+    let r, observed;
+    try { r = await post(`${base}/${id}/state`, request); } catch (e) { r = {error: e.message}; }
+    if (!r || r.error) {
+      // A transport failure can happen after commit. Read this item, never resubmit blindly.
+      try {
+        const saved = await api(`${base}/${id}`), item = saved?.item || saved?.data?.item;
+        observed = item;
+        if (item && (item.decision?.state || item.state) === st && (note === undefined || lnNote(item) === note)) r = {item};
+      } catch (_) {}
+    }
+    if (lnWorkspace() !== biz || _ln !== model) return;
+    if (!r || r.error) {
+      if (observed) Object.assign(lnFind(id) || it, observed);
+      notify({text: `${label} could not be confirmed`, sub: lnErr(r), color: 'var(--danger)'});
+      return;
+    }
+    delete model.notes[id]; delete model.noteOpen[id]; lnDraftsSave();
+    if (r.item) {
+      const current = lnFind(id) || it;
+      Object.assign(current, r.item);
+      if (st === "open" && lnNote(current)) { model.notes[id] = lnNote(current); lnDraftsSave(); }
+      if (r.item.filing?.upload_id) model.items = model.items.filter(item => item.id !== id);
+      lnItemsBadge(model.items);
+    } else { apply(); }
+    toast(label.toLowerCase());
+  } finally {
+    delete model.busy[id]; release();
+    if (_ln === model && lnWorkspace() === biz) { lnPaintCols(); }
+  }
 }
 function lnApprove(it) {
   if (!lnOpenItem(it)) return;
@@ -392,6 +430,7 @@ async function lnSetScope(it, scope) {
   if (!r || r.error) { it.scope = was; notify({ text: "Scope change failed", sub: lnErr(r), color: "var(--danger)" }); return lnRefetch(); }
   if (r.item) Object.assign(it, r.item);
   else await lnRefetch();
+  lnPaintCols();
   toast(`scope → ${scope}`);
 }
 

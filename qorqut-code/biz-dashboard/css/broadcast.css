@@ -108,6 +108,7 @@
 }
 .broadcast-business-tile {
   display: flex;
+  justify-content: flex-start;
   align-items: center;
   gap: 9px;
   min-width: 160px;

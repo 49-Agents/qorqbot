@@ -53,6 +53,7 @@ function agpadMount(name, el, options = {}) {
     tasks: null, source: state.tasks, tasksStarted: false, taskError: false, bodyHtml: null,
     views: ["tasks", "signoffs", "inbox", "memory"], ...options,
   };
+  p.views = [...new Set([...p.views, "status"])];
   const button = $("#agpad-toggle");
   if (button) {
     button.disabled = !name;
@@ -82,7 +83,7 @@ function agpadSetView(p, view) {
   p.view = view;
   p.bodyHtml = null;
   p.el.innerHTML = tHead({ view, views: p.views, bodyId: "agpad-body", taskTools: false });
-  if (typeof agentCurrentWorkMount === 'function') agentCurrentWorkMount(p);
+  if (view === 'status') agentCurrentWorkMount(p);
   tWireHead(p.el, from, next => agpadSetView(p, next));
   if (view === "activity") p.nextLog = 0;
   if (view === "inbox") p.nextInbox = 0;
@@ -104,13 +105,13 @@ function agpadVisibility(p) {
   const button = $("#agpad-toggle");
   if (button) {
     button.setAttribute("aria-expanded", String(p.open));
-    button.title = p.open ? "Hide agent pane" : "Show agent pane";
+    button.removeAttribute("title");
   }
   if (p.open) moveTInd(p.el, p.view);
 }
 
 function agpadPaint(p) {
-  if (p.view === 'focus') return;
+  if (p.view === 'status' || p.view === 'focus') return;
   if (p.view === 'globalTasks') return;
   if (p.view === 'memory') return;
   if (p.view === "signoffs") return;
@@ -157,9 +158,9 @@ async function agpadRefreshLog(p) {
 function agpadTick() {
   const p = _agpad;
   if (!agpadActive(p)) return;
-  if (typeof agentCurrentWorkRefresh === 'function' && Date.now() >= (p.nextActivity || 0)) agentCurrentWorkRefresh(p);
+  if (p.view === 'status' && Date.now() >= (p.nextActivity || 0)) agentCurrentWorkRefresh(p);
   if (p.views.includes('focus')) agfocusTick(p);
-  if (p.view === 'focus') return;
+  if (p.view === 'status' || p.view === 'focus') return;
   if (p.view === 'globalTasks') return;
   if (p.view === 'memory') return;
   if (p.view === "inbox") {
