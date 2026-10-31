@@ -65,6 +65,21 @@ let tGen = 0;                       // bumped when a write starts; a refresh tha
 let tLastBiz = null, tSoonT = null, tInside = false, tSearchT = null;
 state.tasks = [];
 
+// ---------------------------------------------------------------- view (tabs)
+const T_VIEWS = ["tasks", "activity", "journal"];
+const T_VIEW_LABEL = { tasks: "Tasks", activity: "Activity", journal: "Journal" };
+let tView = ls("tview") || "tasks";
+if (T_VIEWS.indexOf(tView) < 0) tView = "tasks";
+
+// activity (log) view state
+let tLog = [];
+let tLogSig = null;                 // signature of what's on screen for the log list; skips a no-op rebuild
+let tLogLoaded = false;             // has this business's log been fetched at least once since the view opened
+
+// journal view state: the form is built once per view-switch and never touched by an interval repaint
+let tJournalBuilt = false;
+let tJournalBiz = null;             // the business the current form instance belongs to
+
 const tPanelOpen = () => { const w = $("#taskswrap"); return !!w && w.classList.contains("open"); };
 const taskById = id => (state.tasks || []).find(t => t.id === id);
 const tBiz = () => (state.bizs || []).find(x => x.slug === state.biz) || {};
@@ -219,15 +234,16 @@ function tBall(t) {
     aria-label="Status: ${esc(label)}. Click to change."><span class="core"></span></button>`;
 }
 
-// `col` = this section reserves the deadline column (some row has a due date), so the balls line up
-function tRow(t, col) {
-  return `<div class="trow ${esc(t.status)}${tClosed(t) ? " off" : ""}" data-id="${esc(t.id)}">${col ? (tDue(t) || `<span class="tdl"></span>`) : ""}${tWho(t)}${tBall(t)}<p class="ttl">${esc(t.title)}</p><button class="tmore" type="button" title="Details" aria-label="Task details">${SVG_TMORE}</button></div>`;
+// the deadline slot is reserved on every row in every section, whether or not any task anywhere has a
+// due date, so assignee/status balls line up identically across sections
+function tRow(t) {
+  return `<div class="trow ${esc(t.status)}${tClosed(t) ? " off" : ""}" data-id="${esc(t.id)}">${tDue(t) || `<span class="tdl"></span>`}${tWho(t)}${tBall(t)}<p class="ttl">${esc(t.title)}</p><button class="tmore" type="button" title="Details" aria-label="Task details">${SVG_TMORE}</button></div>`;
 }
 
-const tAddRow = (key, col) => `<div class="tadd" data-b="${esc(key)}">${col ? `<span class="tdl"></span>` : ""}<span class="who ph"><span class="wd none"></span></span><span class="ball ph"><span class="core"></span></span><input id="taddin" placeholder="Task name…" autocomplete="off" spellcheck="false"></div>`;
+const tAddRow = key => `<div class="tadd" data-b="${esc(key)}"><span class="tdl"></span><span class="who ph"><span class="wd none"></span></span><span class="ball ph"><span class="core"></span></span><input id="taddin" placeholder="Task name…" autocomplete="off" spellcheck="false"></div>`;
 
 function tSection(key, rows) {
-  const d = dept(key), col = rows.some(t => !!t.due);
+  const d = dept(key);
   const open = rows.filter(t => !tSunk(t)), sunk = rows.filter(tSunk);
   // two ways to add to this section: the heading text/count itself, or the + — both call tOpenAdd(key)
   return `<section class="tsec" data-b="${esc(key)}">
@@ -235,15 +251,20 @@ function tSection(key, rows) {
       <button class="tshbtn" type="button" title="Add task to ${esc(d.label)}" aria-label="Add task to ${esc(d.label)}"><h2>${esc(d.label)}</h2><span class="c">${open.length}</span></button>
       <button class="tplus" type="button" title="Add task to ${esc(d.label)}" aria-label="Add task to ${esc(d.label)}">${SVG_TPLUS}</button>
     </div>
-    <div class="tsi">${open.concat(sunk).map(t => tRow(t, col)).join("")}${tAdding === key ? tAddRow(key, col) : ""}</div>
+    <div class="tsi">${open.concat(sunk).map(t => tRow(t)).join("")}${tAdding === key ? tAddRow(key) : ""}</div>
   </section>`;
+}
+
+function tTabs() {
+  return `<div class="ttabs">${T_VIEWS.map(v => `<button class="ttab${v === tView ? " on" : ""}" type="button" data-v="${v}">${T_VIEW_LABEL[v]}</button>`).join("")}</div>`;
 }
 
 function tHead() {
   return `<div class="thead">
+    ${tTabs()}
     <div class="ttop">
-      <div><h1>Tasks</h1><div class="tstats" id="tstats"></div></div>
-      <label class="tsearch">${SVG_TSEARCH}<input id="tsearch" type="text" placeholder="Search by title, tag or content..." autocomplete="off" spellcheck="false"></label>
+      <div><h1>${T_VIEW_LABEL[tView]}</h1>${tView === "tasks" ? `<div class="tstats" id="tstats"></div>` : ""}</div>
+      ${tView === "tasks" ? `<label class="tsearch">${SVG_TSEARCH}<input id="tsearch" type="text" placeholder="Search by title, tag or content..." autocomplete="off" spellcheck="false"></label>` : ""}
     </div>
   </div><div class="tbody" id="tbody"></div>`;
 }
@@ -260,6 +281,9 @@ function paintTasks() {
   const p = $("#taskspanel"); if (!p) return;
   const c = $("#tcount"); if (c) { const n = tCount(); c.textContent = n ? String(n) : ""; }
   if (!p.querySelector(".thead")) { p.innerHTML = tHead(); tWireHead(p); }
+  // the tasks rows own #tbody only while the Tasks tab is active: another view (Activity, Journal) is
+  // painted by its own function, and this repaint must not stomp it — #tcount above still gets refreshed
+  if (tView !== "tasks") return;
   const st = $("#tstats"); if (st) st.innerHTML = tStats();
   if (tEditingNow()) return;
 
@@ -298,6 +322,82 @@ function paintTasks() {
     if (hadFocus || tAdding) { add.focus(); add.setSelectionRange(add.value.length, add.value.length); }
     tWireAdd(add);
   }
+}
+
+// ---------------------------------------------------------------- view switch (tabs)
+// A tab click owns the whole panel repaint: it rebuilds .thead (h1 label, stats/search visibility, the
+// tabs themselves) and then paints #tbody for the view landed on. Only a tab switch does this — the
+// intervals below only ever touch the view that's currently active.
+function tSetView(v) {
+  if (T_VIEWS.indexOf(v) < 0) v = "tasks";
+  tView = v; ls("tview", v);
+  const p = $("#taskspanel"); if (!p) return;
+  p.innerHTML = tHead(); tWireHead(p);
+  if (v === "tasks") { tPaintSig = null; paintTasks(); }
+  else if (v === "activity") { tLogSig = null; tPaintActivity(); tActivityRefresh(); }
+  else if (v === "journal") { tPaintJournal(); }
+}
+
+// ---------------------------------------------------------------- activity view
+// Business activity log, reusing side.js's global logHtml()/logTips() so the row look (department
+// stroke, day gaps) stays a single source of truth with the (currently parked) side rail log.
+function tActivitySig() { return JSON.stringify([state.biz, tLog.map(e => e.id || `${e.ts}|${e.summary}`)]); }
+
+function tPaintActivity() {
+  if (tView !== "activity") return;
+  const body = $("#tbody"); if (!body) return;
+  if (!state.biz) { body.innerHTML = `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">Pick a business first.</p></div>`; tLogSig = null; return; }
+  const sig = tActivitySig();
+  if (sig === tLogSig && body.querySelector("#tlog")) return;   // nothing changed: skip the rebuild, keep tooltips alive
+  tLogSig = sig;
+  body.innerHTML = tLog.length
+    ? `<div class="tlog" id="tlog">${logHtml(tLog)}</div>`
+    : `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">Nothing logged yet.</p></div>`;
+  const wrap = $("#tlog");
+  if (wrap) logTips(wrap, tLog);
+}
+
+async function tActivityRefresh() {
+  if (!state.biz) { tLog = []; return tPaintActivity(); }
+  const biz = state.biz;
+  const r = await api(`/biz/${biz}/log?n=60`);
+  if (biz !== state.biz || tView !== "activity") return;   // stale by the time it landed
+  tLog = Array.isArray(r) ? r : [];
+  tPaintActivity();
+}
+
+// ---------------------------------------------------------------- journal view
+// Frictionless context capture, the uploadModal fields (js/context.js) inline instead of in a modal.
+// Built once per view-switch only: an interval repaint here would blow away a note mid-typing.
+function tJournalHtml() {
+  if (!state.biz) return `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">Pick a business first.</p></div>`;
+  return `<div class="tjournal">
+    <textarea id="jtext" class="jta" placeholder="Paste or type anything — notes, thoughts, transcripts…" spellcheck="false"></textarea>
+    <input id="jnotes" class="jin" placeholder="Notes (provenance) — optional" autocomplete="off">
+    <input id="jtopic" class="jin" placeholder="Topic — optional" autocomplete="off">
+    <button id="jsubmit" class="jsubmit" type="button" disabled>Upload to context</button>
+  </div>`;
+}
+
+function tPaintJournal() {
+  const body = $("#tbody"); if (!body) return;
+  body.innerHTML = tJournalHtml();
+  if (!state.biz) return;
+  const ta = $("#jtext"), notes = $("#jnotes"), topic = $("#jtopic"), btn = $("#jsubmit");
+  const sync = () => { btn.disabled = !ta.value.trim(); };
+  ta.oninput = sync;
+  btn.onclick = async () => {
+    const text = ta.value.trim();
+    if (!text) return;
+    btn.disabled = true;
+    const r = await post(`/biz/${state.biz}/context/upload`, { text, notes: notes.value, topic: topic.value });
+    if (r && r.error) { toast(r.error); sync(); return; }
+    toast("Uploaded — filer will file it.");
+    ta.value = ""; notes.value = ""; topic.value = "";
+    sync(); ta.focus();
+    if (typeof refreshSideSoon === "function") refreshSideSoon();
+  };
+  sync();
 }
 
 // ---------------------------------------------------------------- add
@@ -475,6 +575,7 @@ function tWireHead(p) {
     s.oninput = () => { clearTimeout(tSearchT); tSearchT = setTimeout(() => { tSearch = s.value; paintTasks(); }, 80); };
     s.onkeydown = e => { if (e.key === "Escape") { e.stopPropagation(); s.value = ""; tSearch = ""; paintTasks(); s.blur(); } };
   }
+  p.querySelectorAll(".ttab").forEach(b => b.onclick = () => { if (b.dataset.v !== tView) tSetView(b.dataset.v); });
 }
 
 (function tInit() {
@@ -522,13 +623,20 @@ function tWireHead(p) {
     openTasks(false);
   });
 
-  paintTasks();
+  tSetView(tView);
   setInterval(() => {
     if (state.biz && state.biz !== tLastBiz) {
       tLastBiz = state.biz;
       tDoneT.forEach(clearTimeout); tDoneT.clear(); tCompleting.clear();   // holds belong to the business they started in
       refreshTasks();
+      if (tView === "activity") { tLog = []; tLogSig = null; tActivityRefresh(); }
+      // only when it's still showing the "pick a business" placeholder: nothing typed to lose
+      if (tView === "journal" && !$("#jtext")) tPaintJournal();
     }
   }, 500);
-  setInterval(() => { if (state.biz) refreshTasks(); }, 12000);
+  setInterval(() => {
+    if (!state.biz) return;
+    refreshTasks();                                    // keeps #tcount live in every view
+    if (tView === "activity") tActivityRefresh();
+  }, 12000);
 })();

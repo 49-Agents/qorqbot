@@ -28,8 +28,18 @@
 .taskswrap.open .tasks { transform: none; opacity: 1; visibility: visible; transition-delay: 0s; }
 .tasks svg { width: 1em; height: 1em; flex: none; }
 
-/* ---------------------------------------------------------------- header: title, stats, search */
+/* ---------------------------------------------------------------- header: tabs, title, stats, search */
 .tasks .thead { flex: none; padding: 30px 64px 14px 28px; }
+
+ 
+.ttabs { display: flex; gap: 22px; margin-bottom: 18px; }
+.ttab {
+  height: auto; padding: 0 0 8px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none;
+  font: 500 13px var(--sans); letter-spacing: 0; color: var(--fg-3); cursor: pointer; transition: color .15s ease, border-color .15s ease;
+}
+.ttab:hover { color: var(--fg-2); background: none; transform: none; }
+.ttab.on { color: var(--fg); border-bottom-color: var(--accent); }
+
 .tasks .ttop { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
 .tasks .ttop h1 {
   font-size: 26px; font-weight: 700; letter-spacing: -.025em; line-height: 1.15; margin: 0 0 8px; color: var(--fg);
@@ -258,5 +268,36 @@
 .tdetail textarea:focus { border-color: rgba(255,255,255,.3); box-shadow: 0 0 0 4px rgba(255,255,255,.025); }
 .tdetail .drow { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .tdetail .ghost { height: 30px; padding: 0 12px; font-size: 12.5px; cursor: pointer; }
+
+/* ---------------------------------------------------------------- activity view (business log) */
+/* .le/.lday/.ls/.lm (css/side.css) are unscoped, so they already render correctly inside .tlog; this
+   only owns the scrolling/padding shell, matching .log's rhythm but sized to the tasks panel's #tbody. */
+.tlog { padding: 4px 0 0; }
+
+/* ---------------------------------------------------------------- journal view (context capture) */
+.tjournal { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 10px; }
+.tjournal .jta {
+  flex: 1; min-height: 180px; resize: none;
+  background: var(--wash); border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  color: var(--fg); font: 13px/1.55 var(--sans); padding: 11px 12px; outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.tjournal .jta:focus { border-color: rgba(255,255,255,.3); box-shadow: 0 0 0 4px rgba(255,255,255,.025); }
+.tjournal .jta::placeholder { color: var(--fg-3); }
+.tjournal .jin {
+  flex: none; height: 36px; padding: 0 12px; box-sizing: border-box;
+  background: var(--wash); border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  color: var(--fg); font: 13px var(--sans); outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.tjournal .jin:focus { border-color: rgba(255,255,255,.3); box-shadow: 0 0 0 4px rgba(255,255,255,.025); }
+.tjournal .jin::placeholder { color: var(--fg-3); }
+.tjournal .jsubmit {
+  flex: none; width: 100%; height: 40px; padding: 0 16px; border: 0; border-radius: var(--r-full);
+  background: var(--accent); color: var(--accent-fg); font-weight: 700; font-size: 13px; cursor: pointer;
+  transition: background .15s ease, transform .15s ease, opacity .15s ease;
+}
+.tjournal .jsubmit:hover:not(:disabled) { background: #fff; transform: scale(1.01); }
+.tjournal .jsubmit:disabled { opacity: .4; cursor: default; }
 
 @media (max-width: 860px) { .tasks { width: 100vw; min-width: 0; } }

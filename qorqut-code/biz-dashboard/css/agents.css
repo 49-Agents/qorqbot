@@ -22,7 +22,7 @@
 
 /* ---------------------------------------------------- agent list + plus */
 .listcol:has(.ctop) { display: flex; flex-direction: column; }
-.listcol .ctop { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 0 16px 12px; }
+.listcol .ctop { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px 12px; }
 .listcol .ctop .primary { width: 100%; }
 .listcol .crows { flex: 1; overflow-y: auto; min-height: 0; }
 .listcol .h { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-3); padding: 14px 24px 6px; }

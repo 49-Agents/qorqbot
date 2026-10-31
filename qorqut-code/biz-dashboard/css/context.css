@@ -8,7 +8,7 @@
 
 /* sidebar: sticky upload+search on top, a flat scrolling row list, a tiny status line at the bottom */
 .ctxtree { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
-.ctop { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
+.ctop { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 30px 16px 12px; border-bottom: 1px solid var(--line); }
 .ctop .primary { width: 100%; }
 .crows { flex: 1; overflow-y: auto; min-height: 0; padding: 10px 0; }
 .cfoot { flex: none; padding: 8px 16px; border-top: 1px solid var(--line); }
