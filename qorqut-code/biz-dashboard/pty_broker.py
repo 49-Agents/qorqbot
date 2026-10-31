@@ -207,7 +207,7 @@ def keys() -> list[str]:
 #
 # Server options come from a config file passed with `-f` (read when the server starts): no status
 # bar and no prefix key (the terminal is transparent, Ctrl-B reaches the shell), tmux-256color
-# inside, deep history. Window size is `manual` per window (set right after creation) so the
+# inside, deep history, mouse on so the wheel scrolls tmux history in the browser and over ssh. Window size is `manual` per window (set right after creation) so the
 # browser is the authority (resize_session); a global `window-size manual` crashes tmux 3.4 when a
 # second detached session is created, so it is never set globally.
 #
@@ -221,6 +221,7 @@ set -g prefix None
 set -g history-limit 50000
 set -sg escape-time 0
 set -g default-terminal tmux-256color
+set -g mouse on
 """
 _NAME_BAD = re.compile(r"[^A-Za-z0-9-]")
 
