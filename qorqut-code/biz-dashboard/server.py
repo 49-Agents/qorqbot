@@ -398,7 +398,7 @@ class Summarizer:
         for attempt in (1, 2):   # a reasoning model can spend the whole budget thinking and return nothing
             msg, usage = bizrun.chat([{"role": "user", "content": prompt + ("" if attempt == 1 else
                                       "\n\nAnswer directly with the bullet lines; keep any reasoning very short.")}],
-                                     SUMMARY_MODEL, max_tokens=6000)
+                                     SUMMARY_MODEL, max_tokens=40000)
             try:
                 u = bizrun.usage_of(usage or {})
                 cost += float(bizrun.call_cost(SUMMARY_MODEL, u["hit"], u["miss"], u["out"]))
