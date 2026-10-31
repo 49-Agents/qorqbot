@@ -224,7 +224,7 @@ function ntPatchSidebar() {
 // ---- detail: editor chrome (meta line, save pill) — patchable without touching the lines editor
 function ntMetaHtml(n) {
   const words = ntWords(ntEditState ? ntEditState.lines.join("\n") : n.content);
-  return `${esc(ntTodayLabel())}<span class="sep">·</span>${words} word${words === 1 ? "" : "s"}`;
+  return `<span class="ntmeta-date">${esc(ntTodayLabel())}</span><span class="sep">·</span><span class="ntmeta-words">${words} word${words === 1 ? "" : "s"}</span>`;
 }
 function ntRingSvg(nn) {
   const total = 8, frac = Math.max(0, Math.min(1, nn / total)), r = 6, c = 2 * Math.PI * r, off = c * (1 - frac);

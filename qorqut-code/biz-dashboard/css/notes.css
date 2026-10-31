@@ -75,12 +75,12 @@
 .ntfoot { flex: none; padding: 16px 24px; font-size: 11px; color: var(--fg-2); opacity: .6; }
 
 .nteditor { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; border-left: 1px solid var(--line); }
-.ntedinner { max-width: 760px; margin: 0 auto; padding: 40px 40px 128px; }
+.ntedinner { max-width: 760px; margin: 0 auto; padding: 80px 40px 128px; }
 
 .ntedhead { display: flex; align-items: flex-start; gap: 12px; }
 .nttitlein {
   flex: 1; min-width: 0; resize: none; overflow: hidden; border: 0; background: none; outline: none; box-shadow: none;
-  font: 600 26px/1.25 var(--sans); letter-spacing: -.02em; color: var(--fg); padding: 0;
+  font: 600 26px/1.5 var(--sans); letter-spacing: -.02em; color: var(--fg); padding: 4px 0;
 }
 .nttitlein::placeholder { color: var(--fg-3); }
 .nttitlein:focus { border: 0; box-shadow: none; background: none; }
@@ -103,9 +103,12 @@
 .ntring { flex: none; }
 .ntsaved { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 4px; font: 500 12px var(--sans); color: var(--fg-3); }
 .ntsaved svg { width: 13px; height: 13px; }
-.ntmeta { margin-top: 10px; font-size: 12.5px; color: var(--fg-3); }
+.ntmeta { margin-top: 8px; padding-left: 4px; }
 .ntmeta .sep { margin: 0 6px; color: var(--fg-3); opacity: .55; }
-.nthr { height: 1px; background: var(--line); margin: 16px 0 32px; }
+.ntmeta-date { font-size: 12px; color: var(--fg-2); }
+.ntmeta-words { font-size: 11px; color: rgba(138,138,138,.4); opacity: 0; transition: opacity .15s ease; }
+.ntedinner:hover .ntmeta-words { opacity: 1; }
+.nthr { height: 1px; background: var(--line); margin: 0 0 48px; }
 
 
 
@@ -116,14 +119,14 @@
   display: block; width: 100%; box-sizing: border-box; resize: none; overflow: hidden;
   border: 0; background: none; outline: none; box-shadow: none;
   font: 400 15.5px/1.75 var(--sans); letter-spacing: -.005em; color: var(--fg);
-  padding: 0 0 0 1.5rem; text-indent: -1.5rem;
+  padding: 0 0 0 calc(1.5rem + 1.5rem); text-indent: -1.5rem;
 }
 .ntlinein:focus { border: 0; box-shadow: none; background: none; }
-.ntline.task .ntlinein { padding-left: calc(1.5rem + 10px); }
+.ntline.task .ntlinein { padding-left: calc(1.5rem + 1.5rem + 10px); }
 .ntline.bold .ntlinein { font-weight: 600; }
 .ntline.done .ntlinein { text-decoration: line-through; opacity: .55; }
 .ntball {
-  position: absolute; left: -2px; top: calc(15.5px * 1.75 / 2); transform: translateY(-50%);
+  position: absolute; left: 0; top: calc(15.5px * 1.75 / 2); transform: translateY(-50%);
   width: 30px; height: 30px; padding: 0; border: 0; background: none; z-index: 2;
   cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
 }
@@ -137,11 +140,11 @@
 .ntball.ntb-in_progress::before { background: #0A84FF; border-color: transparent; }
 .ntball.ntb-done::before { background: #30D158; border-color: transparent; opacity: .75; }
 .ntball.ntb-blocked::before { background: #FF453A; border-color: transparent; }
-.ntball.ntb-cancelled::before { background: transparent; border-color: #8a8680; }
+.ntball.ntb-cancelled::before { background: transparent; border-color: #8a8680; opacity: .75; }
 .ntline.ntrule { height: 30px; display: flex; align-items: center; }
 .ntrulehr { width: 100%; height: 1px; background: var(--line); }
 
 /* Empty+unfocused overlay prompt, absolutely centered over the (empty) lines column. */
-.ntoverlay { position: absolute; inset: 0; top: 4px; left: 1.5rem; pointer-events: none; }
-.ntoh { font: 500 16px var(--sans); color: var(--fg-2); opacity: .5; }
-.nto2 { margin-top: 4px; font-size: 13.5px; color: var(--fg-3); opacity: .7; }
+.ntoverlay { position: absolute; inset: 0; top: 0; left: 1.5rem; pointer-events: none; }
+.ntoh { font: 500 16px var(--sans); line-height: 1.6; letter-spacing: -0.025em; color: var(--fg); }
+.nto2 { margin-top: 6px; font-size: 13.5px; line-height: 1.625; color: var(--fg-3); }
