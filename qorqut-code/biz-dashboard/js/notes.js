@@ -317,7 +317,7 @@ function ntWireDetail(root, n) {
     if (!e.target.closest('#nttitle, #ntlines')) return;
     if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') {
       e.preventDefault(); ntUndoRedo(e.inputType === 'historyRedo');
-    } else ntRememberSelection();
+    } else if (!e.defaultPrevented) ntRememberSelection();
   };
 
   titleEl.oninput = () => { ntGrow(titleEl); ntEditState.dirty = true; ntSchedule(); };
@@ -339,10 +339,9 @@ function ntWireDetail(root, n) {
   // click anywhere in the editor's empty space (not on a line/ball) focuses the end of the last line
   const wrap = root.querySelector("#ntlinewrap");
   wrap.onclick = e => {
-    if (e.target.closest(".ntlinein") || e.target.closest(".ntball")) return;
+    if (e.target.closest("#ntdoc") || e.target.closest(".ntball")) return;
     const es = ntEditState; if (!es) return;
-    let j = es.lines.length - 1; while (j > 0 && ntIsRuleAt(es, j)) j--;
-    ntFocusLine(j, ntDisp(es, j).length);
+    ntFocusLine(es.lines.length - 1, Infinity);
   };
 
   ntWireUpload(); ntWatchFiling();
@@ -397,158 +396,123 @@ function ntPruneStatuses(es) {
   Object.keys(es.statuses).forEach(k => { if (!live.has(k)) delete es.statuses[k]; });
 }
 
-function ntLineRowHtml(es, i) {
-  if (ntIsRuleAt(es, i)) return `<div class="ntline ntrule" data-i="${i}"><div class="ntrulehr"></div></div>`;
-  const raw = es.lines[i];
-  const isTask = ntIsTaskLine(raw);
-  const { meta } = ntParseRaw(raw);
-  const status = isTask ? ntLineStatus(es, i) : null;
-  const closed = status === "done" || status === "cancelled";
-  const cls = ["ntline"];
-  if (isTask) cls.push("nttask");
-  if (meta.bold) cls.push("bold");
-  if (closed) cls.push("done");
-  const ball = isTask ? `<span class="ntballwrap"><button type="button" class="ntball ntb-${esc(status)}" data-i="${i}" aria-label="Status: ${esc(NT_STATUS_LABEL[status] || status)}. Click to change."><span class="ntdot"></span></button></span>` : "";
-  return `<div class="${cls.join(" ")}" data-i="${i}">${ball}<textarea class="ntlinein" data-i="${i}" rows="1" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea></div>`;
+// Single-surface editor: the whole note is ONE contenteditable with a block <div> per line, so a
+// drag, shift-click or Ctrl+A selects across tasks, dividers and prose alike. Typing inside a block is
+// native and re-read into es.lines; anything that changes block structure (Enter, joins, edits that
+// span blocks, paste, cut) is applied to the model and the surface is rebuilt.
+const ntDoc = () => $("#ntdoc");
+const ntBlockText = b => b.textContent.replace(/​/g, "");
+function ntSetEditable(doc, on) {
+  if (!on) { doc.contentEditable = "false"; return; }
+  doc.contentEditable = "plaintext-only";
+  if (doc.contentEditable !== "plaintext-only") doc.contentEditable = "true";
 }
-// Plain journal prose can use one native editing surface, which lets the browser select
-// across block boundaries. Structured lines keep the existing per-line editor so task
-// markers, status balls, bold metadata, and dividers retain their current behavior.
-const ntIsPlainAt = (es, i) => !ntIsTaskLine(es.lines[i]) && !ntIsRuleAt(es, i) && !ntParseRaw(es.lines[i]).meta.bold;
-const ntCanUseMultilineSurface = es => es.lines.every((_, i) => ntIsPlainAt(es, i));
-function ntHandleMultilineInput(ta) {
-  const es = ntEditState; if (!es) return;
-  es.lines = ta.value.replace(/\r\n?/g, "\n").split("\n");
-  es.dirty = true;
-  ntGrowLine(ta);
-  ntPaintOverlay();
-  ntSchedule();
+function ntBlocks(es) {
+  return es.lines.map((raw, i) => {
+    if (ntIsRuleAt(es, i)) return { rule: true, task: false, bold: false, text: "" };
+    const p = ntParseRaw(raw);
+    return { rule: false, task: ntIsTaskLine(raw), bold: p.meta.bold, text: p.display };
+  });
 }
-// A mixed note (some task/rule/bold lines) still keeps every run of 2+ consecutive plain lines on
-// its own shared native textarea, same idea as the whole-note surface above and built the same way
-// (blocks joined by "\n", re-split on input) — just scoped to the run instead of the whole note. A
-// lone plain line stays on the per-line editor below so it keeps Ctrl+B/Ctrl+=/neighbor-merge, which
-// only matter for a single block, not a run one drag-select needs to cross.
-function ntPlainRuns(es) {
-  const runs = [];
-  for (let i = 0; i < es.lines.length; i++) {
-    if (!ntIsPlainAt(es, i)) continue;
-    let j = i; while (j + 1 < es.lines.length && ntIsPlainAt(es, j + 1)) j++;
-    if (j > i) runs.push([i, j]);
-    i = j;
+function ntComposeRaw(b) {
+  if (b.rule) return NT_DIVIDER;
+  const t = b.text.replaceAll("\n", NT_SOFT_BREAK), meta = ntBuildMetaToken({ bold: b.bold });
+  if (b.task) return `- ${meta}${t}`;
+  return t === "" ? "" : `${meta}${t}`;
+}
+function ntDocBlocks() {
+  const out = [];
+  for (const n of ntDoc().childNodes) {
+    if (n.nodeType === 3) { if (n.nodeValue) out.push({ rule: false, task: false, bold: false, text: n.nodeValue }); continue; }
+    if (n.nodeType !== 1) continue;
+    if (n.classList.contains("ntrule")) { out.push({ rule: true, task: false, bold: false, text: "" }); continue; }
+    out.push({ rule: false, task: n.classList.contains("nttask"), bold: n.classList.contains("bold"), text: ntBlockText(n) });
   }
-  return runs;
+  return out.length ? out : [{ rule: false, task: false, bold: false, text: "" }];
 }
-function ntSegRowHtml(es, start, end) {
-  return `<div class="ntline" data-i="${start}"><textarea class="ntlinein" data-i="${start}" data-end="${end}" rows="${end - start + 1}" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-label="Free text"></textarea></div>`;
+function ntMakeBlock(es, i) {
+  const el = document.createElement("div");
+  el.dataset.i = i;
+  if (ntIsRuleAt(es, i)) { el.className = "ntline ntrule"; el.contentEditable = "false"; el.innerHTML = '<div class="ntrulehr"></div>'; return el; }
+  const raw = es.lines[i], task = ntIsTaskLine(raw), { meta, display } = ntParseRaw(raw);
+  el.className = ["ntline", task && "nttask", meta.bold && "bold"].filter(Boolean).join(" ");
+  if (task) {
+    const status = ntLineStatus(es, i);
+    if (status === "done" || status === "cancelled") el.classList.add("done");
+    el.insertAdjacentHTML("afterbegin", `<span class="ntballwrap" contenteditable="false"><button type="button" class="ntball ntb-${esc(status)}" data-i="${i}" aria-label="Status: ${esc(NT_STATUS_LABEL[status] || status)}. Click to change."><span class="ntdot"></span></button></span>`);
+  }
+  if (display) el.append(display);
+  if (display === "" || display.endsWith("\n")) el.append(document.createElement("br"));
+  return el;
 }
-function ntHandleSegmentInput(start, ta) {
-  const es = ntEditState; if (!es) return;
-  const end = Number(ta.dataset.end);
-  const newBlocks = ta.value.replace(/\r\n?/g, "\n").split("\n");
-  es.lines = [...es.lines.slice(0, start), ...newBlocks, ...es.lines.slice(end + 1)];
-  ta.dataset.end = start + newBlocks.length - 1;   // keep the boundary in sync for the next keystroke
-  es.dirty = true;
-  ntGrowLine(ta);
-  ntPaintOverlay();
-  ntSchedule();
+
+// selection as {i: block index, pos: offset in that block's display text}
+function ntPosOf(node, offset) {
+  const doc = ntDoc(); if (!doc || !doc.contains(node)) return null;
+  const kids = doc.children;
+  if (node === doc) {
+    if (!kids.length) return { i: 0, pos: 0 };
+    const i = Math.min(offset, kids.length - 1);
+    return { i, pos: offset >= kids.length ? ntBlockText(kids[i]).length : 0 };
+  }
+  let b = node; while (b.parentNode !== doc) b = b.parentNode;
+  const i = Array.prototype.indexOf.call(kids, b);
+  if (b.classList.contains("ntrule")) return { i, pos: 0 };
+  const r = document.createRange(); r.setStart(b, 0); r.setEnd(node, offset);
+  return { i, pos: r.toString().replace(/​/g, "").length };
 }
-// Boundary keys only: everything else (Enter, mid-run Backspace/Delete, native ArrowUp/Down) is
-// already correct native textarea behavior. Only where a run meets its task/rule/bold neighbor does
-// it need the same merge/hop-out the per-line editor gives every other line pair.
-function ntHandleSegmentKeydown(start, ta, e) {
-  ntRememberSelection();
-  if (ta.readOnly) return;
-  const es = ntEditState; if (!es) return;
-  if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S" || e.key === "Enter")) { e.preventDefault(); ntSaveNow(); return; }
-  const end = start + ta.value.split("\n").length - 1;
-  const atStart = ta.selectionStart === 0 && ta.selectionEnd === 0;
-  const atEnd = ta.selectionStart === ta.value.length && ta.selectionEnd === ta.value.length;
-  if (e.key === "Backspace" && atStart && start > 0) {
-    e.preventDefault();
-    const dtext = ntDisp(es, start);
-    if (ntIsRuleAt(es, start - 1)) { ntCommit([...es.lines.slice(0, start - 1), ...es.lines.slice(start)], { index: start - 1, pos: 0 }); return; }
-    const prevD = ntDisp(es, start - 1);
-    ntCommit([...es.lines.slice(0, start - 1), es.lines[start - 1] + dtext.replaceAll("\n", NT_SOFT_BREAK), ...es.lines.slice(start + 1)], { index: start - 1, pos: prevD.length });
-    return;
-  }
-  if (e.key === "ArrowUp" && atStart && start > 0) {
-    e.preventDefault();
-    let j = start - 1; while (j >= 0 && ntIsRuleAt(es, j)) j--;
-    if (j >= 0) ntFocusLine(j, ntDisp(es, j).length);
-    return;
-  }
-  if (e.key === "Delete" && atEnd && end < es.lines.length - 1) {
-    e.preventDefault();
-    const dtext = ntDisp(es, end);
-    if (ntIsRuleAt(es, end + 1)) { ntCommit([...es.lines.slice(0, end + 1), ...es.lines.slice(end + 2)], { index: end, pos: dtext.length }); return; }
-    ntCommit([...es.lines.slice(0, end), es.lines[end] + ntDisp(es, end + 1).replaceAll("\n", NT_SOFT_BREAK), ...es.lines.slice(end + 2)], { index: end, pos: dtext.length });
-    return;
-  }
-  if (e.key === "ArrowDown" && atEnd && end < es.lines.length - 1) {
-    e.preventDefault();
-    let j = end + 1; while (j < es.lines.length && ntIsRuleAt(es, j)) j++;
-    if (j < es.lines.length) ntFocusLine(j, 0);
-  }
+function ntSelection() {
+  const s = getSelection(); if (!s.rangeCount) return null;
+  const a = ntPosOf(s.anchorNode, s.anchorOffset), f = ntPosOf(s.focusNode, s.focusOffset);
+  return a && f ? { a, f } : null;
 }
+const ntOrdered = s => (s.a.i < s.f.i || (s.a.i === s.f.i && s.a.pos <= s.f.pos)) ? [s.a, s.f] : [s.f, s.a];
+function ntDomPoint(i, pos) {
+  const doc = ntDoc(), b = doc.children[i];
+  if (!b) return { node: doc, offset: doc.childNodes.length };
+  if (b.classList.contains("ntrule")) return { node: doc, offset: i };
+  const w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
+  let acc = 0, n;
+  while ((n = w.nextNode())) { const len = n.nodeValue.length; if (pos <= acc + len) return { node: n, offset: pos - acc }; acc += len; }
+  return { node: b, offset: b.querySelector(":scope > .ntballwrap") ? 1 : 0 };
+}
+function ntSetSelection(a, f) {
+  const p = ntDomPoint(a.i, a.pos), q = ntDomPoint(f.i, f.pos);
+  getSelection().setBaseAndExtent(p.node, p.offset, q.node, q.offset);
+}
+function ntFocusLine(index, pos) {
+  const doc = ntDoc(); if (!doc || !doc.children.length) return;
+  const n = doc.children.length, isRule = k => doc.children[k].classList.contains("ntrule");
+  let i = Math.max(0, Math.min(index, n - 1));
+  while (i < n - 1 && isRule(i)) { i++; pos = 0; }
+  while (i > 0 && isRule(i)) { i--; pos = Infinity; }
+  if (isRule(i)) return;
+  const p = Math.min(pos, ntBlockText(doc.children[i]).length);
+  if (document.activeElement !== doc) doc.focus({ preventScroll: true });
+  ntSetSelection({ i, pos: p }, { i, pos: p });
+  doc.children[i].scrollIntoView({ block: "nearest" });
+}
+
 function ntRenderLines() {
   const wrap = $("#ntlines"); if (!wrap) return;
   const es = ntEditState; if (!es) return;
-  if (ntCanUseMultilineSurface(es)) {
-    wrap.innerHTML = `<div class="ntline ntmultiline"><textarea class="ntlinein" data-i="0" data-end="${es.lines.length - 1}" rows="8" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-label="Journal entry"></textarea></div>`;
-    const ta = wrap.querySelector(".ntlinein");
-    ta.value = es.lines.map((_, i) => ntDisp(es, i)).join("\n");
-    ntGrowLine(ta);
-    ta.oninput = () => ntHandleMultilineInput(ta);
-    ta.onkeydown = e => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S" || e.key === "Enter")) {
-        e.preventDefault(); ntSaveNow();
-      }
-    };
-    ta.onfocus = () => ntPaintOverlay();
-    ta.onblur = () => setTimeout(ntPaintOverlay, 0);
-    ntPaintOverlay();
-    return;
+  let doc = ntDoc();
+  if (!doc) {
+    doc = document.createElement("div");
+    doc.id = "ntdoc"; doc.className = "ntdoc";
+    doc.setAttribute("role", "textbox"); doc.setAttribute("aria-multiline", "true"); doc.setAttribute("aria-label", "Note");
+    doc.spellcheck = false;
+    doc.onbeforeinput = ntDocBeforeInput; doc.oninput = ntDocInput; doc.onkeydown = ntDocKeydown;
+    doc.oncopy = e => ntDocClipboard(e, false); doc.oncut = e => ntDocClipboard(e, true); doc.onpaste = ntDocPaste;
+    doc.ondrop = e => e.preventDefault();
+    doc.onmousedown = e => { if (e.target.closest(".ntballwrap")) e.preventDefault(); };
+    doc.onfocus = () => ntPaintOverlay();
+    doc.onblur = () => setTimeout(ntPaintOverlay, 0);
+    wrap.replaceChildren(doc);
   }
-  const runs = ntPlainRuns(es), segStart = runs.reduce((set, [s]) => set.add(s), new Set());
-  let html = "";
-  for (let i = 0; i < es.lines.length;) {
-    if (segStart.has(i)) { const [, end] = runs.find(([s]) => s === i); html += ntSegRowHtml(es, i, end); i = end + 1; }
-    else { html += ntLineRowHtml(es, i); i++; }
-  }
-  wrap.innerHTML = html;
-  wrap.querySelectorAll(".ntlinein[data-end]").forEach(ta => {
-    const start = Number(ta.dataset.i), end = Number(ta.dataset.end);
-    ta.value = es.lines.slice(start, end + 1).map((_, k) => ntDisp(es, start + k)).join("\n");
-    ntGrowLine(ta);
-    ta.oninput = () => ntHandleSegmentInput(start, ta);
-    ta.onkeydown = e => ntHandleSegmentKeydown(start, ta, e);
-    ta.onfocus = () => ntPaintOverlay();
-    ta.onblur = () => setTimeout(ntPaintOverlay, 0);
-  });
-  wrap.querySelectorAll(".ntlinein:not([data-end])").forEach(ta => {
-    const i = Number(ta.dataset.i);
-    ta.value = ntDisp(es, i);          // values are set via .value, never interpolated into the HTML
-    ntGrowLine(ta);
-    ta.oninput = () => ntHandleInput(i, ta.value, ta.selectionStart);
-    ta.onkeydown = e => ntHandleKeydown(i, e);
-    ta.onpaste = e => {
-      if (ta.readOnly) {e.preventDefault(); return;}
-      const pasted = e.clipboardData?.getData("text/plain").replace(/\r\n?/g, "\n");
-      if (!pasted?.includes("\n")) return;
-      e.preventDefault();
-      const parts = pasted.split("\n"), display = ntDisp(es, i);
-      const first = ntToRaw(es, display.slice(0, ta.selectionStart) + parts[0], i);
-      const tail = display.slice(ta.selectionEnd).replaceAll("\n", NT_SOFT_BREAK);
-      const last = parts[parts.length - 1] + tail;
-      ntCommit([...es.lines.slice(0, i), first, ...parts.slice(1, -1), last, ...es.lines.slice(i + 1)],
-        {index:i + parts.length - 1, pos:parts[parts.length - 1].length});
-    };
-    ta.setAttribute("aria-label", ntIsTaskLine(es.lines[i]) ? "Dash item" : "Free text");
-    ta.onfocus = () => ntPaintOverlay();
-    ta.onblur = () => setTimeout(ntPaintOverlay, 0);   // let the next element take focus first
-  });
-  wrap.querySelectorAll(".ntball").forEach(b => {
+  ntSetEditable(doc, !ntUploadingIds.has(ntSel));
+  doc.replaceChildren(...es.lines.map((_, i) => ntMakeBlock(es, i)));
+  doc.querySelectorAll(".ntball").forEach(b => {
     const i = Number(b.dataset.i);
     b.onclick = e => { e.stopPropagation(); e.preventDefault(); ntCycleBall(i); };
     b.oncontextmenu = e => { e.preventDefault(); e.stopPropagation(); ntToggleBlocked(i); };
@@ -559,31 +523,9 @@ function ntPaintOverlay() {
   const es = ntEditState; if (!es) return;
   const ov = $("#ntoverlay"); if (!ov) return;
   const empty = es.lines.length <= 1 && !es.lines[0];
-  const focused = document.activeElement && document.activeElement.classList && document.activeElement.classList.contains("ntlinein");
-  ov.hidden = !(empty && !focused);
+  ov.hidden = !(empty && document.activeElement !== ntDoc());
 }
-// A block index either owns its own textarea (data-i matches exactly) or was absorbed into a
-// multi-line run (data-end covers it) — used by ntFocusLine below to restore the caret after a
-// structural edit whose target index can land anywhere inside a run, not just at its start.
-function ntElementForBlock(wrap, index) {
-  let el = wrap.querySelector(`.ntlinein[data-i="${index}"]`);
-  if (el) return { el, start: index };
-  el = [...wrap.querySelectorAll(".ntlinein[data-end]")].find(x => index > Number(x.dataset.i) && index <= Number(x.dataset.end));
-  return el ? { el, start: Number(el.dataset.i) } : null;
-}
-function ntFocusLine(index, pos) {
-  const wrap = $("#ntlines"); if (!wrap) return;
-  const found = ntElementForBlock(wrap, index); if (!found) return;
-  const { el, start } = found;
-  let offset = pos;
-  if (start !== index) { const es = ntEditState; for (let k = start; k < index; k++) offset += ntDisp(es, k).length + 1; }
-  el.focus();
-  const p = Math.min(offset, el.value.length);
-  el.setSelectionRange(p, p);
-}
-// Commit a structural change (split/merge/divider/auto-convert) — full rebuild of the lines column,
-// caret restored precisely afterward (the "rebuild only what changed, but a full rebuild on structural
-// changes is fine if focus is restored" allowance in the spec).
+// Commit a structural change: rebuild the surface from new raw lines and put the caret back.
 function ntCommit(newLines, focus) {
   const es = ntEditState; if (!es) return;
   es.lines = newLines; es.dirty = true;
@@ -591,129 +533,142 @@ function ntCommit(newLines, focus) {
   if (focus) ntFocusLine(focus.index, focus.pos);
   ntSchedule();
 }
-
-function ntHandleInput(i, value, selStart) {
+// Replace the range [a,f] with `text` (each "\n" starts a new block; soft keeps it inside the block).
+function ntEditRange(a, f, text, soft = false) {
   const es = ntEditState; if (!es) return;
-  const wasTask = ntIsTaskLine(es.lines[i]);
-  const converted = !wasTask && value.startsWith("-");
-  const newLines = es.lines.slice();
-  newLines[i] = ntToRaw(es, value, i);
-  es.lines = newLines; es.dirty = true;
-  if (converted) {
-    // structural: the row gains a gutter ball, and the auto-convert swallows the "-" just typed.
-    // selStart was captured by the oninput handler (ta.selectionStart) BEFORE this rebuild tears the
-    // textarea down, so the caret restores to exactly where it was, minus the swallowed "-".
-    const caret = Math.max(0, (selStart != null ? selStart : value.length) - 1);
-    ntRenderLines();
-    ntFocusLine(i, caret);
-  } else {
-    const ta = document.querySelector(`.ntlinein[data-i="${i}"]`); if (ta) ntGrowLine(ta);
-    ntPaintOverlay();
+  const bl = ntBlocks(es), first = bl[a.i], last = bl[f.i];
+  const head = first.rule ? "" : first.text.slice(0, a.pos), tail = last.rule ? "" : last.text.slice(f.pos);
+  const src = first.rule ? {} : first;
+  const mk = t => ({ rule: false, task: !!src.task, bold: !!src.bold, text: t });
+  const parts = soft ? [text] : text.split("\n");
+  const mid = [];
+  let pos;
+  if (parts.length === 1) { mid.push(ntComposeRaw(mk(head + parts[0] + tail))); pos = head.length + parts[0].length; }
+  else {
+    mid.push(ntComposeRaw(mk(head + parts[0])));
+    for (let k = 1; k < parts.length - 1; k++) mid.push(parts[k]);
+    mid.push(parts[parts.length - 1] + tail.replaceAll("\n", NT_SOFT_BREAK));
+    pos = parts[parts.length - 1].length;
   }
-  ntSchedule();
+  ntCommit([...bl.slice(0, a.i).map(ntComposeRaw), ...mid, ...bl.slice(f.i + 1).map(ntComposeRaw)],
+    { index: a.i + (soft ? 0 : parts.length - 1), pos });
+}
+function ntRangeText(a, f) {
+  const bl = ntBlocks(ntEditState), out = [];
+  for (let i = a.i; i <= f.i; i++) {
+    const b = bl[i], s = b.rule ? NT_DIVIDER : b.text;
+    const from = i === a.i ? a.pos : 0, piece = s.slice(from, i === f.i ? f.pos : s.length);
+    out.push(b.task && from === 0 ? "- " + piece : piece);
+  }
+  return out.join("\n");
 }
 
-function ntHandleKeydown(i, e) {
+function ntDocBeforeInput(e) {
+  const es = ntEditState; if (!es) return;
+  const t = e.inputType;
+  if (t === "historyUndo" || t === "historyRedo") return;
+  if (ntUploadingIds.has(ntSel)) { e.preventDefault(); return; }
+  if (e.isComposing) return;
+  const s = ntSelection(); if (!s) return;
+  const [a, f] = ntOrdered(s), multi = a.i !== f.i, collapsed = !multi && a.pos === f.pos;
+  const take = fn => { e.preventDefault(); ntRememberSelection(); fn(); };
+  if (t === "insertParagraph") return take(() => ntEditRange(a, f, "\n"));
+  if (t === "insertLineBreak") return take(() => ntEditRange(a, f, "\n", true));
+  if (t === "insertFromDrop" || t === "deleteByDrag") return e.preventDefault();
+  if (t.startsWith("delete")) {
+    if (multi || (!collapsed && false)) return take(() => ntEditRange(a, f, ""));
+    if (!collapsed) return;
+    const bl = ntBlocks(es), b = bl[a.i], n = bl.length;
+    if (t.includes("Backward") && a.pos === 0) {
+      if (b.task) return take(() => { b.task = false; ntCommit(bl.map(ntComposeRaw), { index: a.i, pos: 0 }); });
+      if (a.i === 0) return;
+      return take(() => {
+        const prev = bl[a.i - 1];
+        if (prev.rule) { bl.splice(a.i - 1, 1); ntCommit(bl.map(ntComposeRaw), { index: a.i - 1, pos: 0 }); return; }
+        const at = prev.text.length; prev.text += b.text; bl.splice(a.i, 1);
+        ntCommit(bl.map(ntComposeRaw), { index: a.i - 1, pos: at });
+      });
+    }
+    if (t.includes("Forward") && a.pos === b.text.length && a.i < n - 1) {
+      return take(() => {
+        const next = bl[a.i + 1];
+        if (next.rule) { bl.splice(a.i + 1, 1); ntCommit(bl.map(ntComposeRaw), { index: a.i, pos: b.text.length }); return; }
+        const at = b.text.length; b.text += next.text; bl.splice(a.i + 1, 1);
+        ntCommit(bl.map(ntComposeRaw), { index: a.i, pos: at });
+      });
+    }
+    return;
+  }
+  if (multi && t.startsWith("insert")) return take(() => ntEditRange(a, f, e.data || ""));
+}
+// Native typing inside one block: re-read the surface; typing "-" at the start of a plain line makes it a task.
+function ntDocInput(e) {
+  const es = ntEditState; if (!es) return;
+  const doc = ntDoc(), bl = ntDocBlocks(), s = ntSelection();
+  if (s && s.a.i === s.f.i && !e.isComposing) {
+    const b = bl[s.a.i];
+    if (b && !b.rule && !b.task && b.text.startsWith("-")) {
+      b.task = true; b.text = b.text.slice(1).replace(/^\s/, "");
+      ntCommit(bl.map(ntComposeRaw), { index: s.a.i, pos: Math.max(0, s.a.pos - 1) });
+      return;
+    }
+  }
+  const stray = [...doc.childNodes].some(n => n.nodeType !== 1 || !n.classList.contains("ntline"));
+  if (stray) { ntCommit(bl.map(ntComposeRaw), s ? { index: s.a.i, pos: s.a.pos } : null); return; }
+  es.lines = bl.map(ntComposeRaw); es.dirty = true;
+  ntPaintOverlay();
+  ntSchedule();
+}
+function ntDocKeydown(e) {
+  const mod = e.ctrlKey || e.metaKey, k = e.key;
+  if (k === "Enter" && !mod && !e.isComposing && !ntUploadingIds.has(ntSel)) {
+    // plaintext-only reports both Enter and Shift+Enter as insertLineBreak, so decide here
+    const s = ntSelection(); if (!s) return;
+    e.preventDefault(); ntRememberSelection();
+    const [a, f] = ntOrdered(s); ntEditRange(a, f, "\n", e.shiftKey);
+  }
+  else if (mod && (k === "s" || k === "S" || k === "Enter")) { e.preventDefault(); ntSaveNow(); }
+  else if (mod && (k === "b" || k === "B")) { e.preventDefault(); ntToggleBold(); }
+  else if (mod && (k === "=" || k === "+")) { e.preventDefault(); ntInsertDivider(); }
+}
+function ntDocClipboard(e, cut) {
+  const s = ntSelection(); if (!s) return;
+  const [a, f] = ntOrdered(s);
+  if (a.i === f.i && a.pos === f.pos) return;
+  e.preventDefault();
+  e.clipboardData.setData("text/plain", ntRangeText(a, f));
+  if (cut && !ntUploadingIds.has(ntSel)) { ntRememberSelection(); ntEditRange(a, f, ""); }
+}
+function ntDocPaste(e) {
+  e.preventDefault();
+  if (ntUploadingIds.has(ntSel)) return;
+  const text = (e.clipboardData?.getData("text/plain") || "").replace(/\r\n?/g, "\n");
+  const s = ntSelection(); if (!text || !s) return;
+  const [a, f] = ntOrdered(s);
   ntRememberSelection();
-  if (e.currentTarget.readOnly) return;
-  const es = ntEditState; if (!es) return;
-  const el = e.currentTarget;
-  const start = el.selectionStart, end = el.selectionEnd;
-  const dtext = ntDisp(es, i);
-  const atStart = start === 0 && end === 0;
-  const atEnd = start === dtext.length && end === dtext.length;
-  const mod = e.ctrlKey || e.metaKey;
-
-  if (mod && (e.key === "s" || e.key === "S")) { e.preventDefault(); ntSaveNow(); return; }
-  if (mod && e.key === "Enter") { e.preventDefault(); ntSaveNow(); return; }
-  if (mod && (e.key === "b" || e.key === "B")) { e.preventDefault(); ntToggleBold(i); return; }
-  if (mod && (e.key === "=" || e.key === "+")) {
-    e.preventDefault();
-    if (dtext.trim() === "") {
-      const hasNext = i < es.lines.length - 1;
-      ntCommit([...es.lines.slice(0, i), NT_DIVIDER, ...(hasNext ? [] : [""]), ...es.lines.slice(i + 1)], { index: i + 1, pos: 0 });
-    } else {
-      const isLast = i === es.lines.length - 1;
-      const insert = isLast ? [NT_DIVIDER, ""] : [NT_DIVIDER];
-      ntCommit([...es.lines.slice(0, i + 1), ...insert, ...es.lines.slice(i + 1)], { index: i + 2, pos: 0 });
-    }
-    return;
-  }
-  if (e.key === "Enter" && e.shiftKey && !mod) {
-    e.preventDefault();
-    const next = es.lines.slice(), status = ntLineStatus(es, i);
-    next[i] = ntToRaw(es, dtext.slice(0, start) + "\n" + dtext.slice(end), i);
-    es.lines = next;
-    if (ntIsTaskLine(next[i])) ntSetStatus(es, i, status);
-    ntCommit(next, {index:i, pos:start + 1});
-    return;
-  }
-  if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-    e.preventDefault();
-    const off = es.lines[i].length - dtext.length;
-    const head = es.lines[i].slice(0, start + off);
-    const tail = dtext.slice(end).replaceAll("\n", NT_SOFT_BREAK);
-    ntCommit([...es.lines.slice(0, i), head, tail, ...es.lines.slice(i + 1)], { index: i + 1, pos: 0 });
-    return;
-  }
-
-
-
-
-
-
-
-
-  if (e.key === "Backspace" && atStart) {
-    if (ntIsTaskLine(es.lines[i])) {
-      e.preventDefault();
-      const newLines = es.lines.slice(); newLines[i] = dtext.replaceAll("\n", NT_SOFT_BREAK);
-      ntCommit(newLines, { index: i, pos: 0 });
-      return;
-    }
-    if (i > 0) {
-      e.preventDefault();
-      if (ntIsRuleAt(es, i - 1)) { ntCommit([...es.lines.slice(0, i - 1), ...es.lines.slice(i)], { index: i - 1, pos: 0 }); return; }
-      const prevD = ntDisp(es, i - 1);
-      ntCommit([...es.lines.slice(0, i - 1), es.lines[i - 1] + dtext.replaceAll("\n", NT_SOFT_BREAK), ...es.lines.slice(i + 1)], { index: i - 1, pos: prevD.length });
-      return;
-    }
-  }
-  if (e.key === "Delete" && atEnd && i < es.lines.length - 1) {
-    e.preventDefault();
-    if (ntIsRuleAt(es, i + 1)) { ntCommit([...es.lines.slice(0, i + 1), ...es.lines.slice(i + 2)], { index: i, pos: dtext.length }); return; }
-    ntCommit([...es.lines.slice(0, i), es.lines[i] + ntDisp(es, i + 1).replaceAll("\n", NT_SOFT_BREAK), ...es.lines.slice(i + 2)], { index: i, pos: dtext.length });
-    return;
-  }
-  if (e.key === "ArrowUp" && atStart && i > 0) {
-    e.preventDefault();
-    let j = i - 1; while (j >= 0 && ntIsRuleAt(es, j)) j--;
-    if (j >= 0) ntFocusLine(j, ntDisp(es, j).length);
-    return;
-  }
-  if (e.key === "ArrowDown" && atEnd && i < es.lines.length - 1) {
-    e.preventDefault();
-    let j = i + 1; while (j < es.lines.length && ntIsRuleAt(es, j)) j++;
-    if (j < es.lines.length) ntFocusLine(j, 0);
-  }
+  ntEditRange(a, f, text);
+}
+// Ctrl/Cmd+=: a blank block becomes the divider, otherwise the divider goes below the caret's block.
+function ntInsertDivider() {
+  const es = ntEditState, s = ntSelection(); if (!es || !s || ntUploadingIds.has(ntSel)) return;
+  const i = s.f.i, last = i === es.lines.length - 1;
+  if (ntDisp(es, i).trim() === "") ntCommit([...es.lines.slice(0, i), NT_DIVIDER, ...(last ? [""] : []), ...es.lines.slice(i + 1)], { index: i + 1, pos: 0 });
+  else ntCommit([...es.lines.slice(0, i + 1), NT_DIVIDER, ...(last ? [""] : []), ...es.lines.slice(i + 1)], { index: i + 2, pos: 0 });
 }
 
-// Ctrl/Cmd+B: line-level bold, stored as the invisible "⁣b⁣ " token — the displayed text is unchanged,
-// so this patches the wrapper's class in place instead of a full rebuild (no caret disruption).
-function ntToggleBold(i) {
-  const es = ntEditState; if (!es) return;
-  const cur = ntParseRaw(es.lines[i]);
-  const meta = { bold: !cur.meta.bold };
-  const token = ntBuildMetaToken(meta);
-  const marker = ntIsTaskLine(es.lines[i]) ? "- " : "";
-  const newLines = es.lines.slice();
-  newLines[i] = cur.display === "" && !token ? "" : `${marker}${token}${cur.display.replaceAll("\n", NT_SOFT_BREAK)}`;
-  es.lines = newLines; es.dirty = true;
-  const ta = document.querySelector(`.ntlinein[data-i="${i}"]`);
-  const row = ta ? ta.closest(".ntline") : null;
-  if (row) row.classList.toggle("bold", meta.bold);
+// Ctrl/Cmd+B: bold for every text block in the selection (all bold -> unbold), stored as the invisible
+// "⁣b⁣ " token; patches classes in place so the caret and selection stay put.
+function ntToggleBold() {
+  const es = ntEditState, sel = ntSelection(); if (!es || !sel || ntUploadingIds.has(ntSel)) return;
+  const [a, f] = ntOrdered(sel), bl = ntBlocks(es);
+  const idx = []; for (let i = a.i; i <= f.i; i++) if (!bl[i].rule) idx.push(i);
+  if (!idx.length) return;
+  const on = !idx.every(i => bl[i].bold);
+  idx.forEach(i => { bl[i].bold = on; ntBlockClass(i, "bold", on); });
+  es.lines = bl.map(ntComposeRaw); es.dirty = true;
   ntSchedule();
 }
+const ntBlockClass = (i, cls, on) => ntDoc()?.children[i]?.classList.toggle(cls, on);
 // Left-click cycle / right-click blocked-toggle on a task line's gutter ball — patches just that ball
 // (and its row's struck-through state) rather than a full rebuild.
 function ntCycleBall(i) {
@@ -743,14 +698,12 @@ function ntPatchBall(i) {
   const row = btn.closest(".ntline"); if (row) row.classList.toggle("done", closed);
 }
 
-// History belongs to the open note, not the textareas replaced by structural edits.
+// History belongs to the open note, not the surface rebuilt by structural edits.
 function ntHistorySnapshot() {
   const es = ntEditState, el = document.activeElement;
-  const focus = el?.matches('#nttitle, .ntlinein') ? {
-    title: el.id === 'nttitle', index: Number(el.dataset.i || 0),
-    start: el.selectionStart, end: el.selectionEnd,
-    multiline: !!el.closest('.ntmultiline'),
-  } : null;
+  let focus = null;
+  if (el?.id === 'nttitle') focus = {title: true, start: el.selectionStart, end: el.selectionEnd};
+  else if (el && el === ntDoc()) { const sel = ntSelection(); if (sel) focus = {a: sel.a, f: sel.f}; }
   return {title: $('#nttitle').value, lines: es.lines.slice(), statuses: {...es.statuses}, focus};
 }
 function ntRememberSelection() {
@@ -777,23 +730,18 @@ function ntUndoRedo(redo) {
   es.lines = snapshot.lines.slice(); es.statuses = {...snapshot.statuses}; es.dirty = true;
   const title = $('#nttitle'); title.value = snapshot.title; ntGrow(title);
   ntRenderLines();
-  let f = snapshot.focus;
-  if (f?.multiline && !ntCanUseMultilineSurface(es)) {
-    let offset = f.start, index = 0;
-    while (index < es.lines.length - 1 && offset > es.lines[index].length) offset -= es.lines[index++].length + 1;
-    const marker = ntParseRaw(es.lines[index]).marker.length;
-    f = {...f, index, start: Math.max(0, offset - marker), end: Math.max(0, offset - marker)};
-  }
-  let el = f?.title ? title : document.querySelector(`.ntlinein[data-i="${f?.index || 0}"]`);
-  if (!el) el = document.querySelector('.ntlinein');
-  if (el) { el.focus(); el.setSelectionRange(Math.min(f?.start || 0,el.value.length),Math.min(f?.end || 0,el.value.length)); }
+  const f = snapshot.focus;
+  if (f?.title) { title.focus(); title.setSelectionRange(Math.min(f.start || 0, title.value.length), Math.min(f.end || 0, title.value.length)); }
+  else if (f?.a) {
+    const clamp = p => { const i = Math.min(p.i, es.lines.length - 1); return {i, pos: Math.min(p.pos, ntBlockText(ntDoc().children[i]).length)}; };
+    ntDoc().focus({preventScroll: true}); ntSetSelection(clamp(f.a), clamp(f.f));
+  } else ntFocusLine(0, 0);
   ntSchedule(); es.restoringHistory = false;
 }
 
 // ---- autosave (idle 4s → 8s visible countdown → save; Ctrl/Cmd+S, Ctrl/Cmd+Enter, title blur save now)
 function ntClearTimers() { clearTimeout(ntIdleT); clearTimeout(ntTickT); ntIdleT = ntTickT = null; }
 function ntGrow(ta) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; }
-function ntGrowLine(ta) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; }
 function ntSchedule() {
   ntRecordHistory();
   ntClearTimers();
@@ -1003,8 +951,9 @@ async function ntDoUpload(id) {
     if (ntEditState && !await ntSaveNow()) return;
     if (ntScope() !== biz || ntEditState?.dirty) return;
     const n = ntById(id); if (!n) return;
-    locked = [...document.querySelectorAll('#nttitle, .ntlinein')];
+    locked = [...document.querySelectorAll('#nttitle')];
     locked.forEach(el => el.readOnly = true);
+    if (ntDoc()) ntSetEditable(ntDoc(), false);
     const r = await post(`/biz/${biz}/notes/${encodeURIComponent(id)}/upload`, {
       expected_revision:n.revision, expected_content_hash:n.content_hash});
     if (r?.error) {toast(r.error); return;}
@@ -1018,7 +967,7 @@ async function ntDoUpload(id) {
     toast("Submitted to Context — filing queued.");
     ntWatchFiling();
   } catch (error) {toast(error.message || "Could not add note to Context.");}
-  finally {locked.forEach(el => el.readOnly = false); ntUploadingIds.delete(id); ntPaintUpload();}
+  finally {locked.forEach(el => el.readOnly = false); if (ntDoc()) ntSetEditable(ntDoc(), true); ntUploadingIds.delete(id); ntPaintUpload();}
 }
 function ntWatchFiling() {
   clearTimeout(ntFilingPoll);

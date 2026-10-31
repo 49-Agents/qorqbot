@@ -99,19 +99,13 @@
 
 .ntlinewrap { position: relative; min-height: 280px; }
 .ntlines { display: flex; flex-direction: column; }
-.ntline { position: relative; }
-.ntlinein {
-  display: block; width: 100%; box-sizing: border-box; resize: none; overflow: hidden;
-  border: 0; background: none; outline: none; box-shadow: none;
-  font: 400 14.5px/1.75 var(--sans); letter-spacing: -.005em; color: var(--fg);
-  padding: 0 0 0 calc(1.5rem + 1.5rem); text-indent: -1.5rem;
-}
-.ntlinein:focus { border: 0; box-shadow: none; background: none; }
-.ntmultiline .ntlinein { min-height: 280px; overflow-y: auto; resize: vertical; white-space: pre-wrap; }
-.ntline:not(.nttask) .ntlinein { padding-left: 0; text-indent: 0; }
-.ntline.nttask .ntlinein { padding-left: calc(1.5rem + 1.5rem + 10px); }
-.ntline.bold .ntlinein { font-weight: 600; }
-.ntline.done .ntlinein { text-decoration: line-through; opacity: .55; }
+.ntdoc { min-height: 280px; outline: none; cursor: text; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: 400 14.5px/1.75 var(--sans); letter-spacing: -.005em; color: var(--fg); }
+.ntline { position: relative; min-height: calc(14.5px * 1.75); }
+.ntline.nttask { padding-left: calc(1.5rem + 1.5rem + 10px); text-indent: -1.5rem; }
+.ntline.bold { font-weight: 600; }
+.ntline.done { text-decoration: line-through; color: color-mix(in srgb, var(--fg) 55%, transparent); }
+.ntballwrap { user-select: none; }
 
 
 
