@@ -51,8 +51,9 @@ let tPersonalLoaded = false, tPersonalError = null, tFetch = 0;
 
 // ---------------------------------------------------------------- view (tabs)
 const T_VIEWS = ["tasks", "notes", "signoffs", "uploads", "routines", "activity"];
-const T_VIEW_LABEL = { tasks: "Tasks", activity: "Activity", notes: "Notes", signoffs: "Signoffs", uploads: "Uploads", routines: "Routines" };
+const T_VIEW_LABEL = { tasks: "Tasks", activity: "Activity", notes: "Notes", signoffs: "Signoffs", uploads: "Uploads", routines: "Routines", inbox: "Agent inbox" };
 const T_VIEW_ICON = {
+  inbox: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M4 4h16l2 12v4H2v-4L4 4Z"/><path d="M2 16h6l2 3h4l2-3h6"/></svg>`,
   signoffs: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="m9 14 2 2 4-4"/></svg>`,
   tasks: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10.656V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.344"></path><path d="m9 11 3 3L22 4"></path></svg>`,
   notes: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.67 19a2 2 0 0 0 1.416-.588l6.154-6.172a6 6 0 0 0-8.49-8.49L5.586 9.914A2 2 0 0 0 5 11.328V18a1 1 0 0 0 1 1z"></path><path d="M16 8 2 22"></path><path d="M17.5 15H9"></path></svg>`,

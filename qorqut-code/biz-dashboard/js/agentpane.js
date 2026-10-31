@@ -36,17 +36,18 @@ function agpadGroups(tasks, name) {
 
 function agpadActive(p) {
   return p && _agpad === p && p.agent && p.open && !document.hidden &&
-    state.tab === "agents" && state.biz === p.biz && state.agent === p.agent &&
+    (p.isCurrent ? p.isCurrent() : state.tab === "agents" && state.biz === p.biz && state.agent === p.agent) &&
     p.el.isConnected && $("#agpad") === p.el;
 }
 
-function agpadMount(name, el) {
+function agpadMount(name, el, options = {}) {
   if (_agpadSignoffs) _agpadSignoffs.suspend();
   const p = _agpad = {
     biz: state.biz, agent: name, el, open: !!name && ls(`agpad:${state.biz}`) !== "off",
     view: "tasks",
     logs: null, logError: false, nextLog: 0, pending: false,
     tasks: null, source: state.tasks, tasksStarted: false, taskError: false, bodyHtml: null,
+    views: ["tasks", "activity", "signoffs", "inbox"], ...options,
   };
   const button = $("#agpad-toggle");
   if (button) {
@@ -67,18 +68,19 @@ function agpadMount(name, el) {
     const row = e.target.closest(".trow");
     if (row && agpadActive(p)) tOpenTask(row.dataset.id);
   };
-  agpadSetView(p, "tasks");
+  agpadSetView(p, p.views[0]);
 }
 
 function agpadSetView(p, view) {
-  if (_agpad !== p || !["tasks", "activity", "signoffs"].includes(view)) return;
+  if (_agpad !== p || !p.views.includes(view)) return;
   if (_agpadSignoffs) _agpadSignoffs.suspend();
   const from = p.view;
   p.view = view;
   p.bodyHtml = null;
-  p.el.innerHTML = tHead({ view, views: ["tasks", "activity", "signoffs"], title: p.agent, bodyId: "agpad-body", taskTools: false });
+  p.el.innerHTML = tHead({ view, views: p.views, title: p.agent, bodyId: "agpad-body", taskTools: false });
   tWireHead(p.el, from, next => agpadSetView(p, next));
   if (view === "activity") p.nextLog = 0;
+  if (view === "inbox") p.nextInbox = 0;
   if (view === "signoffs") { agpadSignoffs().paint(); p.nextSignoffs = Date.now() + AGPAD_POLL_MS; }
   agpadPaint(p);
   agpadTick();
@@ -97,6 +99,7 @@ function agpadVisibility(p) {
 
 function agpadPaint(p) {
   if (p.view === "signoffs") return;
+  if (p.view === "inbox") { agpadPaintInbox(p); return; }
   let html;
   if (p.view === "activity") {
     html = p.logs ? tActivityHtml(p.logs, `No actions in the latest ${AGPAD_LOG_N} business log entries.`) : tEmptyHtml("Loading activity…");
@@ -138,6 +141,10 @@ async function agpadRefreshLog(p) {
 function agpadTick() {
   const p = _agpad;
   if (!agpadActive(p)) return;
+  if (p.view === "inbox") {
+    if (Date.now() >= (p.nextInbox || 0)) agpadRefreshInbox(p);
+    return;
+  }
   if (p.view === "signoffs") {
     if (Date.now() >= (p.nextSignoffs || 0)) {
       p.nextSignoffs = Date.now() + AGPAD_POLL_MS;
@@ -166,3 +173,61 @@ function agpadTick() {
 // A cheap local reconciliation keeps edits in the shared task cache visible.
 // Activity and Signoffs refresh every 12 seconds only while their pane view is visible.
 setInterval(agpadTick, 1000);
+
+function agpadPaintInbox(p) {
+  const body = $('#agpad-body', p.el), data = p.inbox;
+  if (!body) return;
+  const error = p.inboxError ? '<p class="agpad-inbox-status" role="alert">Inbox unavailable. Retrying…</p>' : '';
+  const card = (item, subscription = false) => `<button type="button" class="agpad-inbox-item" data-inbox-source="${esc(item.source_id)}" data-source-type="${esc(item.source_type)}" data-business="${esc(item.business_slug || '')}">
+    <strong>${esc(item.summary || item.source_id)}</strong><span>${esc(item.source_type.replaceAll('_', ' '))}${subscription ? (item.include_related ? ' · Includes linked items' : ' · Item only') : ' · ' + esc(item.event_type.replaceAll('_', ' '))}</span>
+    ${subscription ? '' : `<span>${esc(item.actor_name)} · ${esc(new Date(item.created_at).toLocaleString())}</span>`}</button>`;
+  const html = error + (!data ? tEmptyHtml(p.inboxError ? 'No inbox data available.' : 'Loading inbox…') :
+    `<div class="agpad-inbox-status"><b>${data.watcher_active ? 'Watcher connected' : data.watcher ? 'Watcher disconnected' : 'Watcher not started'}</b><span>${data.watcher ? 'Last check: ' + esc(new Date(data.watcher.last_check_at).toLocaleString()) : 'Claude must start its inbox watcher.'}</span></div>
+    <h3 class="agpad-inbox-heading">Pending updates</h3>${data.items.length ? data.items.map(item => card(item)).join('') : tEmptyHtml('No accessible pending updates.')}
+    ${data.next_cursor ? '<button type="button" class="quiet" id="agpad-inbox-more">More updates</button>' : ''}
+    <h3 class="agpad-inbox-heading">Subscriptions</h3>${data.subscriptions.length ? data.subscriptions.map(item => card(item, true)).join('') : tEmptyHtml('No subscriptions.')}`);
+  if (p.bodyHtml === html) return;
+  p.bodyHtml = html;
+  const scroll = body.scrollTop;
+  body.innerHTML = html; body.scrollTop = scroll;
+  body.querySelectorAll('[data-inbox-source]').forEach(button => {
+    button.onclick = () => agpadOpenInboxSource(button.dataset).catch(error => toast(error.message || 'Source unavailable'));
+  });
+  const more = $('#agpad-inbox-more', body);
+  if (more) more.onclick = () => agpadRefreshInbox(p, true);
+}
+
+async function agpadRefreshInbox(p, more = false) {
+  if (!agpadActive(p) || p.view !== 'inbox' || p.inboxPending) return;
+  p.inboxPending = true;
+  try {
+    const agentId = p.agentId || state.agents.find(agent => agent.name === p.agent)?.agent_id;
+    if (!agentId) throw new Error('Registered agent unavailable');
+    let cursor = more ? p.inbox?.next_cursor : null, data, items = more ? [...p.inbox.items] : [];
+    const pages = more ? 1 : Math.max(1, Math.ceil((p.inbox?.items.length || 0) / 20));
+    for (let page = 0; page < pages; page++) {
+      data = coreData(await api(`/me/agents/${encodeURIComponent(agentId)}/inbox${cursor ? '?after=' + cursor : ''}`));
+      if (!agpadActive(p) || p.view !== 'inbox') return;
+      if (!Array.isArray(data.items) || !Array.isArray(data.subscriptions)) throw new Error('Invalid inbox response');
+      items.push(...data.items); cursor = data.next_cursor;
+      if (!cursor) break;
+    }
+    p.inbox = { ...data, items: [...new Map(items.map(item => [item.id, item])).values()] };
+    p.inboxError = false;
+  } catch (_) {
+    if (agpadActive(p) && p.view === 'inbox') p.inboxError = true;
+  } finally {
+    p.inboxPending = false; p.nextInbox = Date.now() + AGPAD_POLL_MS;
+    if (agpadActive(p) && p.view === 'inbox') agpadPaintInbox(p);
+  }
+}
+
+async function agpadOpenInboxSource({ inboxSource: id, sourceType: type, business: biz }) {
+  if (type === 'signoffs') return sgAttentionNavigate(biz || null, id);
+  if (biz && (state.scope === 'global' || state.biz !== biz)) await selectBiz(biz);
+  if (biz && state.biz !== biz) return;
+  if (type === 'stories') { state.ctx = '_stories/' + id; return goTab('context'); }
+  if (type === 'tasks') return tOpenTask(id);
+  const data = await storyCall(biz, 'stories_resource_get', { resource_type: type, resource_id: id });
+  return storyOpenLink({ biz }, { resource_type: type, resource_id: id, current: data.resource || {} });
+}

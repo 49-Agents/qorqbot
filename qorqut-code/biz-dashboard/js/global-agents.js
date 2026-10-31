@@ -19,9 +19,10 @@ async function renderGlobalAgents(c) {
     return;
   }
   if (!current()) return;
-  c.innerHTML = `<div class="split global-agents">
+  c.innerHTML = `<div class="split global-agents agsplit">
     <div class="listcol"><div class="ctop"><div class="global-eyebrow">Global</div><h1>Agents</h1></div><div class="crows" id="global-agent-list"></div></div>
     <section class="global-agent-session" aria-label="Agent session"><div class="chat termmode" id="global-agent-terminal"></div></section>
+    <aside class="tasks agpad" id="agpad" aria-label="Agent inbox"></aside>
   </div>`;
   if (!agents.length) {
     $('#global-agent-list', c).innerHTML = '<p class="empty pad">No global agents yet.</p>';
@@ -49,6 +50,10 @@ async function renderGlobalAgents(c) {
       dot.classList.toggle('live', status === 'live');
       dot.title = status === 'live' ? 'Running' : status === 'ended' ? 'Exited' : 'Disconnected';
     }, `/root/terminal/${encodeURIComponent(agent.agent_id)}`);
+    agpadMount(agent.display_name || agent.name, $('#agpad', c), {
+      biz: null, agentId: agent.agent_id, views: ['inbox'], open: ls('agpad:null') !== 'off',
+      isCurrent: () => current() && selected === agent.agent_id,
+    });
   };
   list.querySelectorAll('[data-global-agent]').forEach(button => {
     button.onclick = () => select(agents.find(a => a.agent_id === button.dataset.globalAgent));

@@ -1,6 +1,8 @@
 /* Agent overview: scope the third column to Agents; other .split views keep their layout. */
 .split.agsplit { grid-template-columns: 240px minmax(0, 1fr) minmax(0, .7fr); min-width: 0; }
 .split.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
+.split.global-agents.agsplit { grid-template-columns: 240px minmax(0, 1fr) minmax(0, .7fr); }
+.split.global-agents.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
 .agsplit:not(.pad-off) > .chat.termmode { padding-left: 24px; padding-right: 24px; }
 
 .agpad-toggle[aria-expanded="true"] { color: var(--fg); background: var(--wash); }
@@ -10,3 +12,10 @@
 .agpad { min-width: 0; }
 .agpad[hidden] { display: none; }
 .agpad .ttop > div { min-width: 0; overflow-wrap: anywhere; }
+.agpad-inbox-status { padding: 12px 16px; color: var(--fg-2); font-size: 12px; }
+.agpad-inbox-status b, .agpad-inbox-status span { display: block; margin-bottom: 6px; }
+.agpad-inbox-heading { margin: 20px 16px 8px; color: var(--fg-2); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.agpad-inbox-item { display: block; width: 100%; border: 0; border-bottom: 1px solid var(--line); padding: 12px 16px; background: transparent; color: var(--fg); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.agpad-inbox-item:hover, .agpad-inbox-item:focus-visible { background: var(--wash); }
+.agpad-inbox-item strong, .agpad-inbox-item span { display: block; }
+.agpad-inbox-item span { margin-top: 5px; font-size: 12px; color: var(--fg-2); }
