@@ -148,8 +148,6 @@
   border-radius: 7px; background: #0b0e14; color: var(--fg); font: 13px var(--mono, monospace); }
 .termcomposer input:focus { outline: 1px solid var(--accent, #7dd3fc); }
 .termcomposer button { padding: 7px 12px; border-radius: 7px; }
-.termcomposer-status { flex-basis: 100%; font-size: 11px; color: var(--fg-2); }
-.termcomposer-status:empty { display: none; }
 
 .termcomposer [data-terminal-key] { padding: 7px 8px; background: transparent; color: var(--fg-2); border: 1px solid var(--line); font-size: 11px; }
 .termcomposer [data-terminal-key]:hover { background: var(--hover); color: var(--fg); }

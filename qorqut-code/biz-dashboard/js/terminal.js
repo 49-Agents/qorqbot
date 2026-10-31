@@ -42,14 +42,13 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
       <button type="submit">Send</button>
       <button type="button" data-terminal-key="interrupt" aria-label="Send Ctrl+C to terminal">Ctrl+C</button>
       <button type="button" data-terminal-key="escape" aria-label="Send Escape to terminal">Esc</button>
-      <span class="termcomposer-status" role="status"></span>
     </form>
     <div class="termtools"><button type="button" class="ttab" id="termcompose-toggle" aria-label="Toggle local composer" aria-expanded="false" aria-controls="termcomposer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 9h.01M11 9h.01M15 9h.01M7 12h.01M11 12h.01M15 12h.01M8 15h8"/></svg></button><button class="ttab tref" id="tref" title="Reconnect the stream" aria-label="Reconnect the stream"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 12l-3-4"/></svg></button></div>
   </div>`;
   const host = $("#termhost", pane), btn = $("#tref", pane);
   const composer = $(".termcomposer", pane), composeToggle = $("#termcompose-toggle", pane);
   composer.id = "termcomposer";
-  const input = $("input", composer), send = $("button[type=submit]", composer), status = $(".termcomposer-status", composer);
+  const input = $("input", composer), send = $("button[type=submit]", composer);
   const controls = [...composer.querySelectorAll('[data-terminal-key]')];
   const disableSend = disabled => { send.disabled = disabled; controls.forEach(button => { button.disabled = disabled; }); };
   const draft = terminalDrafts.get(terminalBase) || { text: '' };
@@ -178,29 +177,27 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     // become hidden terminal commands. This appends to the current remote prompt.
     const text = input.value;
     if (/[\x00-\x1f\x7f]/.test(text)) {
-      status.textContent = 'Remove control characters before sending.';
+      toast('Remove control characters before sending.');
       return;
     }
     disableSend(true);
     input.readOnly = true;
-    status.textContent = 'Sending…';
     const sent = await sendInput(text + (pressEnter ? '\r' : ''));
     if (sent && draft.text === text) draft.text = '';
     if (_term !== term) return;
     input.readOnly = false;
     input.value = draft.text;
     disableSend(!sent);
-    status.textContent = sent ? '' : 'Delivery unconfirmed. Check the terminal before reconnecting and retrying.';
+    if (!sent) toast('Delivery unconfirmed. Check the terminal before reconnecting and retrying.');
     if (!composer.hidden) input.focus();
   };
   controls.forEach(button => button.onclick = async () => {
     if (send.disabled || _term !== term) return;
     disableSend(true);
-    status.textContent = 'Sending…';
     const sent = await sendInput(button.dataset.terminalKey === 'interrupt' ? '\x03' : '\x1b');
     if (_term !== term) return;
     disableSend(!sent);
-    status.textContent = sent ? '' : 'Delivery unconfirmed. Check the terminal before reconnecting and retrying.';
+    if (!sent) toast('Delivery unconfirmed. Check the terminal before reconnecting and retrying.');
     if (!composer.hidden) input.focus();
   });
   composer.onsubmit = event => { event.preventDefault(); submitComposer(false); };
