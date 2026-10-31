@@ -25,12 +25,8 @@ let ntListOff = ls("ntlistoff") === "1";   // sidebar collapsed, persisted
 let ntEditState = null;             // { id, biz, title0, lines0[], statuses0(json), lines[], statuses{}, dirty, saving, countdown }
 let ntIdleT = null, ntTickT = null; // autosave idle/countdown timers
 
-
-
-
-const NT_ICO_PANELLEFT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>`;
-const NT_ICO_PANELLEFTCLOSE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></svg>`;
-const NT_ICO_HOME = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
+// icons (notes-local; the generic ICO_PIN/ICO_PENCIL/ICO_TRASH used in the context menu below come
+// from js/agents.js, same as journal's).
 const NT_ICO_PIN_TINY = `<svg class="ntpt" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
 const NT_ICO_PINOFF = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M15 9.34V6a2 2 0 0 0 0-4H9.55"/><path d="M9 9.35V6a2 2 0 0 1 2-2h1.53"/><path d="m2 2 20 20"/><path d="M9.51 9.51 5 15.24V16a1 1 0 0 0 1 1h9.53"/></svg>`;
 
@@ -258,10 +254,6 @@ function ntPatchMeta() {
 // ---- detail: full build (selection change / tab open / create-new only)
 function ntDetailHtml(n) {
   return `<div class="nted">
-    <div class="ntrail">
-      <button id="nttoggle" class="nticon" type="button" aria-label="${ntListOff ? "Show page list" : "Hide page list"}" data-tip="${ntListOff ? "Show page list" : "Hide page list"}">${ntListOff ? NT_ICO_PANELLEFT : NT_ICO_PANELLEFTCLOSE}</button>
-      <button id="nthomebtn" class="nticon" type="button" aria-label="Notes home" data-tip="Notes home">${NT_ICO_HOME}</button>
-    </div>
     <div class="ntside ${ntListOff ? "off" : ""}" id="ntside">
       <div class="ntsidectrl">
         <button id="ntnew2" class="btn" type="button">${ICO_PLUS}New page</button>
@@ -335,15 +327,6 @@ function ntWireDetail(root, n) {
   };
   titleEl.onblur = event => { if (ntEditState && ntEditState.dirty && !event.relatedTarget?.closest('#nterror, #ntdiscard')) ntSaveNow(); };
 
-  const toggleBtn = root.querySelector("#nttoggle");
-  toggleBtn.onclick = () => {
-    ntListOff = !ntListOff; ls("ntlistoff", ntListOff ? "1" : "0");
-    const side = root.querySelector("#ntside"); if (side) side.classList.toggle("off", ntListOff);
-    const label = ntListOff ? "Show page list" : "Hide page list";
-    toggleBtn.setAttribute("data-tip", label); toggleBtn.setAttribute("aria-label", label);
-    toggleBtn.innerHTML = ntListOff ? NT_ICO_PANELLEFT : NT_ICO_PANELLEFTCLOSE;
-  };
-  root.querySelector("#nthomebtn").onclick = () => ntGoHome();
   root.querySelector("#ntnew2").onclick = () => ntCreateNew();
   root.querySelector("#ntdel").onclick = () => ntDeleteFlow(n.id);
   root.querySelector("#ntdiscard").onclick = () => ntDiscard();
@@ -431,7 +414,8 @@ function ntLineRowHtml(es, i) {
 // Plain journal prose can use one native editing surface, which lets the browser select
 // across block boundaries. Structured lines keep the existing per-line editor so task
 // markers, status balls, bold metadata, and dividers retain their current behavior.
-const ntCanUseMultilineSurface = es => es.lines.every((raw, i) => !ntIsTaskLine(raw) && !ntIsRuleAt(es, i) && !ntParseRaw(raw).meta.bold);
+const ntIsPlainAt = (es, i) => !ntIsTaskLine(es.lines[i]) && !ntIsRuleAt(es, i) && !ntParseRaw(es.lines[i]).meta.bold;
+const ntCanUseMultilineSurface = es => es.lines.every((_, i) => ntIsPlainAt(es, i));
 function ntHandleMultilineInput(ta) {
   const es = ntEditState; if (!es) return;
   es.lines = ta.value.replace(/\r\n?/g, "\n").split("\n");
@@ -440,11 +424,78 @@ function ntHandleMultilineInput(ta) {
   ntPaintOverlay();
   ntSchedule();
 }
+// A mixed note (some task/rule/bold lines) still keeps every run of 2+ consecutive plain lines on
+// its own shared native textarea, same idea as the whole-note surface above and built the same way
+// (blocks joined by "\n", re-split on input) — just scoped to the run instead of the whole note. A
+// lone plain line stays on the per-line editor below so it keeps Ctrl+B/Ctrl+=/neighbor-merge, which
+// only matter for a single block, not a run one drag-select needs to cross.
+function ntPlainRuns(es) {
+  const runs = [];
+  for (let i = 0; i < es.lines.length; i++) {
+    if (!ntIsPlainAt(es, i)) continue;
+    let j = i; while (j + 1 < es.lines.length && ntIsPlainAt(es, j + 1)) j++;
+    if (j > i) runs.push([i, j]);
+    i = j;
+  }
+  return runs;
+}
+function ntSegRowHtml(es, start, end) {
+  return `<div class="ntline" data-i="${start}"><textarea class="ntlinein" data-i="${start}" data-end="${end}" rows="${end - start + 1}" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-label="Free text"></textarea></div>`;
+}
+function ntHandleSegmentInput(start, ta) {
+  const es = ntEditState; if (!es) return;
+  const end = Number(ta.dataset.end);
+  const newBlocks = ta.value.replace(/\r\n?/g, "\n").split("\n");
+  es.lines = [...es.lines.slice(0, start), ...newBlocks, ...es.lines.slice(end + 1)];
+  ta.dataset.end = start + newBlocks.length - 1;   // keep the boundary in sync for the next keystroke
+  es.dirty = true;
+  ntGrowLine(ta);
+  ntPaintOverlay();
+  ntSchedule();
+}
+// Boundary keys only: everything else (Enter, mid-run Backspace/Delete, native ArrowUp/Down) is
+// already correct native textarea behavior. Only where a run meets its task/rule/bold neighbor does
+// it need the same merge/hop-out the per-line editor gives every other line pair.
+function ntHandleSegmentKeydown(start, ta, e) {
+  ntRememberSelection();
+  if (ta.readOnly) return;
+  const es = ntEditState; if (!es) return;
+  if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S" || e.key === "Enter")) { e.preventDefault(); ntSaveNow(); return; }
+  const end = start + ta.value.split("\n").length - 1;
+  const atStart = ta.selectionStart === 0 && ta.selectionEnd === 0;
+  const atEnd = ta.selectionStart === ta.value.length && ta.selectionEnd === ta.value.length;
+  if (e.key === "Backspace" && atStart && start > 0) {
+    e.preventDefault();
+    const dtext = ntDisp(es, start);
+    if (ntIsRuleAt(es, start - 1)) { ntCommit([...es.lines.slice(0, start - 1), ...es.lines.slice(start)], { index: start - 1, pos: 0 }); return; }
+    const prevD = ntDisp(es, start - 1);
+    ntCommit([...es.lines.slice(0, start - 1), es.lines[start - 1] + dtext.replaceAll("\n", NT_SOFT_BREAK), ...es.lines.slice(start + 1)], { index: start - 1, pos: prevD.length });
+    return;
+  }
+  if (e.key === "ArrowUp" && atStart && start > 0) {
+    e.preventDefault();
+    let j = start - 1; while (j >= 0 && ntIsRuleAt(es, j)) j--;
+    if (j >= 0) ntFocusLine(j, ntDisp(es, j).length);
+    return;
+  }
+  if (e.key === "Delete" && atEnd && end < es.lines.length - 1) {
+    e.preventDefault();
+    const dtext = ntDisp(es, end);
+    if (ntIsRuleAt(es, end + 1)) { ntCommit([...es.lines.slice(0, end + 1), ...es.lines.slice(end + 2)], { index: end, pos: dtext.length }); return; }
+    ntCommit([...es.lines.slice(0, end), es.lines[end] + ntDisp(es, end + 1).replaceAll("\n", NT_SOFT_BREAK), ...es.lines.slice(end + 2)], { index: end, pos: dtext.length });
+    return;
+  }
+  if (e.key === "ArrowDown" && atEnd && end < es.lines.length - 1) {
+    e.preventDefault();
+    let j = end + 1; while (j < es.lines.length && ntIsRuleAt(es, j)) j++;
+    if (j < es.lines.length) ntFocusLine(j, 0);
+  }
+}
 function ntRenderLines() {
   const wrap = $("#ntlines"); if (!wrap) return;
   const es = ntEditState; if (!es) return;
   if (ntCanUseMultilineSurface(es)) {
-    wrap.innerHTML = `<div class="ntline ntmultiline"><textarea class="ntlinein" data-i="0" rows="8" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-label="Journal entry"></textarea></div>`;
+    wrap.innerHTML = `<div class="ntline ntmultiline"><textarea class="ntlinein" data-i="0" data-end="${es.lines.length - 1}" rows="8" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-label="Journal entry"></textarea></div>`;
     const ta = wrap.querySelector(".ntlinein");
     ta.value = es.lines.map((_, i) => ntDisp(es, i)).join("\n");
     ntGrowLine(ta);
@@ -459,8 +510,23 @@ function ntRenderLines() {
     ntPaintOverlay();
     return;
   }
-  wrap.innerHTML = es.lines.map((_, i) => ntLineRowHtml(es, i)).join("");
-  wrap.querySelectorAll(".ntlinein").forEach(ta => {
+  const runs = ntPlainRuns(es), segStart = runs.reduce((set, [s]) => set.add(s), new Set());
+  let html = "";
+  for (let i = 0; i < es.lines.length;) {
+    if (segStart.has(i)) { const [, end] = runs.find(([s]) => s === i); html += ntSegRowHtml(es, i, end); i = end + 1; }
+    else { html += ntLineRowHtml(es, i); i++; }
+  }
+  wrap.innerHTML = html;
+  wrap.querySelectorAll(".ntlinein[data-end]").forEach(ta => {
+    const start = Number(ta.dataset.i), end = Number(ta.dataset.end);
+    ta.value = es.lines.slice(start, end + 1).map((_, k) => ntDisp(es, start + k)).join("\n");
+    ntGrowLine(ta);
+    ta.oninput = () => ntHandleSegmentInput(start, ta);
+    ta.onkeydown = e => ntHandleSegmentKeydown(start, ta, e);
+    ta.onfocus = () => ntPaintOverlay();
+    ta.onblur = () => setTimeout(ntPaintOverlay, 0);
+  });
+  wrap.querySelectorAll(".ntlinein:not([data-end])").forEach(ta => {
     const i = Number(ta.dataset.i);
     ta.value = ntDisp(es, i);          // values are set via .value, never interpolated into the HTML
     ntGrowLine(ta);
@@ -496,12 +562,24 @@ function ntPaintOverlay() {
   const focused = document.activeElement && document.activeElement.classList && document.activeElement.classList.contains("ntlinein");
   ov.hidden = !(empty && !focused);
 }
+// A block index either owns its own textarea (data-i matches exactly) or was absorbed into a
+// multi-line run (data-end covers it) — used by ntFocusLine below to restore the caret after a
+// structural edit whose target index can land anywhere inside a run, not just at its start.
+function ntElementForBlock(wrap, index) {
+  let el = wrap.querySelector(`.ntlinein[data-i="${index}"]`);
+  if (el) return { el, start: index };
+  el = [...wrap.querySelectorAll(".ntlinein[data-end]")].find(x => index > Number(x.dataset.i) && index <= Number(x.dataset.end));
+  return el ? { el, start: Number(el.dataset.i) } : null;
+}
 function ntFocusLine(index, pos) {
   const wrap = $("#ntlines"); if (!wrap) return;
-  const ta = wrap.querySelector(`.ntlinein[data-i="${index}"]`); if (!ta) return;
-  ta.focus();
-  const p = Math.min(pos, ta.value.length);
-  ta.setSelectionRange(p, p);
+  const found = ntElementForBlock(wrap, index); if (!found) return;
+  const { el, start } = found;
+  let offset = pos;
+  if (start !== index) { const es = ntEditState; for (let k = start; k < index; k++) offset += ntDisp(es, k).length + 1; }
+  el.focus();
+  const p = Math.min(offset, el.value.length);
+  el.setSelectionRange(p, p);
 }
 // Commit a structural change (split/merge/divider/auto-convert) — full rebuild of the lines column,
 // caret restored precisely afterward (the "rebuild only what changed, but a full rebuild on structural
