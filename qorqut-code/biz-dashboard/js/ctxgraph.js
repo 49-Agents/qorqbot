@@ -138,7 +138,7 @@ function contextGraph(el, graph, opts = {}) {
     <div class="ctxgraph-canvas" tabindex="0" role="group" aria-label="Context map. Drag nodes to arrange; drag the background to pan. Use plus, minus and arrow keys to navigate.">
       <svg class="ctxgraph-network" aria-hidden="true"><defs><marker id="${arrowId}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 Z" fill="#a6aaa6"></path></marker></defs><g class="ctxgraph-edges"></g></svg>
       <div class="ctxgraph-nodes"></div>
-      <div class="ctxgraph-hint">drag nodes to arrange · scroll to zoom</div>
+
       <div class="ctxgraph-zoom"><button type="button" data-action="out" aria-label="Zoom out">−</button><output aria-label="Zoom level">100%</output><button type="button" data-action="in" aria-label="Zoom in">+</button><button type="button" data-action="fit" title="Fit to view" aria-label="Fit to view">${SVG_MAPFIT}</button></div>
     </div>
     <div class="ctxgraph-footer"><div class="ctxgraph-legend"><span><i class="ctxgraph-topic-key"></i>Topic</span><span><i class="ctxgraph-note-key"></i>Material</span><span><i class="ctxgraph-person-key"></i>Person</span><span>Task</span><span>Story</span><span>Table</span><span>Agent</span></div><span class="ctxgraph-count"></span></div>

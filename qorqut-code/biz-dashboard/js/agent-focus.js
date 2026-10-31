@@ -47,7 +47,7 @@ function agfocusPaint(p) {
   if (!data) return;
   agfocusText($('.agfocus-status', host), data.status || 'Nothing on Focus yet');
   agfocusText($('.agfocus-updated', host), data.updated_at
-    ? `${data.stale ? 'Earlier session · ' : ''}Updated ${agpadInboxAge(data.updated_at)}` : 'Ordubashy can bring tasks, signoffs and context here.');
+    ? `${data.stale ? 'Earlier session · ' : ''}Updated ${agpadInboxAge(data.updated_at)}` : 'Nothing on Focus yet.');
   const activity = $('.agfocus-activity', host), a = data.activity;
   activity.hidden = !a;
   if (a) {

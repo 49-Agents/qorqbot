@@ -27,8 +27,8 @@ const LN_SCOPE_BY_KEY = Object.fromEntries(LN_SCOPES.map(([k, label, ico]) => [k
 // bucket is an icon too, the same two glyphs as the main rail: Context for a fact about the world, Code for a
 // change to how the system works
 const LN_BUCKETS = {
-  context: { label: "context: a fact about the world (product, market, people); lands in the context/ tree, so scope is always this business", ico: lnSvg('<path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/>') },
-  delta: { label: "delta: a change to how agents work; lands in CLAUDE.md, an agent's rules or a plugin's SKILL.md", ico: lnSvg(AICONS.code) },
+  context: { label: "Context", ico: lnSvg('<path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/>') },
+  delta: { label: "Agent behavior", ico: lnSvg(AICONS.code) },
 };
 // the decided card's ball wears the same two colours as the notes gutter balls (done / blocked)
 const LN_STATE_HEX = { accepted: "#30D158", "in-progress": "#30D158", rejected: "#FF453A", "rejected-in-work": "#FF453A" };
@@ -267,7 +267,7 @@ function lnCardHtml(item, people) {
       </div></div></div>`;
   }
   const notes = _ln.notes[it.id] || "";
-  const noteBox = `<textarea class="lnnote" placeholder="a note for the record — it rides with your decision, and Reject needs one" spellcheck="false" ${_ln.noteOpen[it.id] || notes ? "" : "hidden"}>${esc(notes)}</textarea>`;
+  const noteBox = `<textarea class="lnnote" placeholder="Note (required to reject)" spellcheck="false" ${_ln.noteOpen[it.id] || notes ? "" : "hidden"}>${esc(notes)}</textarea>`;
   return `<div class="mkcard lncard" tabindex="0" data-id="${esc(it.id)}" data-tag="${esc(it.tag || "")}">
     <div class="mkhead"><span class="lntag" style="--tc:${esc(t.hex)}">${esc(t.label)}</span><span class="lnpick">${pick}</span>${bucketIco}${touches}
       <span class="who">${esc(lnWho(obs.agent))}</span><span class="sp"></span>${votes}<span class="ago">${esc(lnRel(it.created))}</span></div>
