@@ -1,8 +1,9 @@
 // ---------------------------------------------------------------- side rail
 // Side refresh: the last 30 log actions, fetched once per refresh, never more. They feed the toasts (and the
-// `#log` list if a page ever has one; the right rail is gone for now) plus the running-session count in the foot.
+// `#log` list if a page ever has one; the right rail is gone for now).
 const LOG_N = 30;
 const _logSeen = {};      // biz -> Set of log ids already on screen, so only actions logged since the last fetch toast
+const _liveSince = {};    // biz -> the last /live response's cursor, so the next poll asks for changes only
 let sideT;
 function refreshSideSoon() { clearTimeout(sideT); sideT = setTimeout(refreshSide, 800); }
 let sidePending = false;
@@ -11,7 +12,9 @@ async function refreshSide() {
   sidePending = true;
   try {
   const biz = state.biz;
-  const results = await Promise.allSettled([pageRead(`/biz/${biz}/log?n=${LOG_N}`), pageRead(`/biz/${biz}/live`)]);
+  const since = _liveSince[biz];
+  const liveUrl = `/biz/${biz}/live` + (since ? `?since=${encodeURIComponent(since)}` : "");
+  const results = await Promise.allSettled([pageRead(`/biz/${biz}/log?n=${LOG_N}`), pageRead(liveUrl)]);
   if (results.some(result => result.status === "rejected")) return;
   const [log, live] = results.map(result => result.value);
   if (state.biz !== biz) return;
@@ -19,18 +22,14 @@ async function refreshSide() {
   const logEl = $("#log");                                   // no log on screen right now; the rows are parked in logHtml()
   if (logEl) { logEl.innerHTML = rows.length ? logHtml(rows) : `<div class="empty">Nothing logged yet.</div>`; logTips(logEl, rows); }
   logToasts(biz, rows);
+  if (live && live.since) _liveSince[biz] = live.since;
   // The shared platform Signoff feed supplies Marketing badges and outcome notifications.
-  const sessions = Array.isArray(live) ? live : (live && Array.isArray(live.sessions) ? live.sessions : []);
   const reqs = (live && Array.isArray(live.platform_signoffs)) ? live.platform_signoffs.map(mkPlatformRow) : [];
   if (typeof mkLiveToasts === "function") mkLiveToasts(biz, reqs);
   if (typeof mkBadgePaint === "function" && state.tab !== "marketing") mkBadgePaint(reqs);
   if (typeof rtFailureToasts === "function") rtFailureToasts(live && live.routine_failures);
   if (typeof lnLivePaint === "function") lnLivePaint(live);   // learnings_open → the Context rail badge
   if (typeof sgLivePaint === "function") sgLivePaint(biz, live);
-  const running = sessions.filter(s => !s.done);
-  const f = $("#foot");
-  f.innerHTML = running.length ? `<span class="dot on"></span>` : `<span class="dot"></span>`;
-  f.title = running.length ? `${running.length} session${running.length === 1 ? "" : "s"} running` : "quiet";
   } catch (_) { /* Keep the last good sidebar snapshot. */ } finally { sidePending = false; }
 }
 
