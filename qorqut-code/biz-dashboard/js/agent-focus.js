@@ -6,7 +6,7 @@ function agfocusText(el, value) { if (el && el.textContent !== value) el.textCon
 function agfocusMount(p) {
   const body = $('#agpad-body', p.el);
   body.innerHTML = `<div class="agfocus"><p class="agfocus-error" role="alert" hidden></p>
-    <header><div class="global-eyebrow">Ordubashy · Focus</div><h2 class="agfocus-status">Loading Focus…</h2><p class="agfocus-updated muted"></p></header>
+    <header><div class="global-eyebrow">Focus</div><h2 class="agfocus-status">Loading Focus…</h2><p class="agfocus-updated muted"></p></header>
     <p class="agfocus-activity muted" hidden></p><div class="agfocus-browser"></div><div class="agfocus-items"></div></div>`;
   p.focusDrafts ||= new Map();
   agfocusPaint(p);
