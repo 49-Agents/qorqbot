@@ -54,6 +54,14 @@ const lnNote = it => (it && it.decision && it.decision.note) || "";
 const lnErr = r => (r && r.error) || "no reply from the server";
 const lnWho = a => String(a || "").replace(/^(agent|human|system):/, "");
 const lnRel = t => (typeof mkRel === "function" ? mkRel(t) : "");
+function lnSourceAge(t, now = Date.now()) {
+  const at = Date.parse(t || "");
+  if (!Number.isFinite(at)) return "";
+  const minutes = Math.max(0, Math.floor((now - at) / 60000));
+  if (minutes < 1) return "just now";
+  const [n, unit] = minutes < 60 ? [minutes, "minute"] : minutes < 1440 ? [Math.floor(minutes / 60), "hour"] : [Math.floor(minutes / 1440), "day"];
+  return `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+}
 // context-bucket items are scope biz by rule (the CLI refuses anything else), so their other buttons are dead
 const lnScopeLocked = it => !!it && it.bucket === "context";
 
@@ -203,7 +211,7 @@ function lnReconciliationHtml(it) {
     const old = r.earlier || {};
     const label = r.kept_both ? 'Kept separately' : r.automatic ? (labels[r.kind] || 'Related evidence') : 'Proposed update — review both';
     return `<details class="lnreconciliation"><summary>${esc(label)}</summary><p><strong>Earlier:</strong> ${esc(old.text || '')}</p>
-      <p>${esc(old.evidence?.source_at || old.evidence?.source?.at || '')}</p>
+      <p>${esc(lnSourceAge(old.evidence?.source_at || old.evidence?.source?.at))}</p>
       <blockquote>${esc(old.evidence?.owner_quote || '')}</blockquote><p>${esc(r.reason || '')}</p>
       ${r.automatic && !r.kept_both ? '<button type="button" class="mka" data-act="keep-both">Keep both separately</button>' : ''}</details>`;
   }).join('');
@@ -232,7 +240,7 @@ function lnCardHtml(item, people) {
   const bk = LN_BUCKETS[it.bucket];
   const bucketIco = bk ? `<span class="lnbucket" data-bucket="${esc(it.bucket)}" title="${esc(bk.label)}">${bk.ico}</span>` : "";
   const source = ev.source;
-  const stamp = source ? [String(source.kind).replaceAll('_', ' '), source.actor_name, source.at].filter(Boolean).join(' · ') : [(ev.turns || []).join(" "), lnWho(obs.agent), String(ev.session || "").slice(0, 8)].filter(Boolean).join(" · ");
+  const stamp = source ? [String(source.kind).replaceAll('_', ' '), source.actor_name, lnSourceAge(source.at)].filter(Boolean).join(' · ') : [(ev.turns || []).join(" "), lnWho(obs.agent), String(ev.session || "").slice(0, 8)].filter(Boolean).join(" · ");
   const conflict = it.contradicts?.length ? `<p class="lnpending">Possible conflict with ${it.contradicts.length} related learning${it.contradicts.length === 1 ? '' : 's'}.</p>` : '';
   const sourceButton = `${lnReconciliationHtml(it)}${conflict}<button type="button" class="mka" data-act="source">View source${it.contradicts?.length ? ' and conflicting lessons' : ''}</button>`;
   const quote = ev.owner_quote ? `<div class="lnquote">“${esc(ev.owner_quote)}”<span class="src">${esc(stamp)}</span></div>` : "";
