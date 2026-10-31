@@ -19,10 +19,20 @@
   button:hover { border-color: var(--ink); }
   button.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
   button.primary:disabled { opacity: .4; cursor: default; }
-  .app { display: grid; grid-template-columns: 220px 1fr 360px; height: 100vh; }
-  .rail, .side { border-right: 1px solid var(--line); overflow-y: auto; }
-  .side { border-right: 0; border-left: 1px solid var(--line); }
-  .rail h1 { font-size: 13px; letter-spacing: .18em; text-transform: uppercase; font-weight: 500; margin: 0; padding: 22px 22px 14px; color: var(--ink-2); }
+  .app { display: grid; grid-template-columns: 1fr 360px; height: 100vh; }
+  .side { overflow-y: auto; border-left: 1px solid var(--line); }
+  /* businesses: hidden rail, shown while the mouse is over the handle or the rail */
+  .navwrap { position: fixed; top: 0; left: 0; z-index: 20; }
+  .handle { position: absolute; top: 16px; left: 18px; width: 34px; height: 34px; border: 0; padding: 0; border-radius: 3px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px; cursor: pointer; z-index: 2; }
+  .handle:hover { background: var(--paper-2); }
+  .handle i { display: block; width: 16px; height: 1.5px; background: var(--ink); transition: width .28s ease; }
+  .handle i:last-child { width: 10px; }
+  .navwrap:hover .handle i, .navwrap.pin .handle i { width: 16px; }
+  .rail { position: absolute; top: 0; left: 0; width: 250px; height: 100vh; overflow-y: auto; background: var(--paper); border-right: 1px solid var(--line);
+    box-shadow: 0 0 0 rgba(28,27,25,0); transform: translateX(-100%); opacity: 0; visibility: hidden;
+    transition: transform .28s cubic-bezier(.4,0,.2,1), opacity .22s ease, box-shadow .28s ease, visibility 0s linear .28s; }
+  .navwrap:hover .rail, .navwrap.pin .rail { transform: none; opacity: 1; visibility: visible; box-shadow: 12px 0 32px rgba(28,27,25,.08); transition-delay: 0s; }
+  .rail h1 { font-size: 13px; letter-spacing: .18em; text-transform: uppercase; font-weight: 500; margin: 0; padding: 24px 22px 14px 64px; color: var(--ink-2); }
   .biz { display: block; padding: 12px 22px; border-left: 2px solid transparent; }
   .biz:hover { background: var(--paper-2); }
   .biz.on { border-left-color: var(--accent); background: var(--paper-2); }
@@ -30,7 +40,7 @@
   .biz .meta { color: var(--ink-3); font-size: 12px; }
   .rail .foot { padding: 18px 22px; color: var(--ink-3); font-size: 12px; border-top: 1px solid var(--line); margin-top: 20px; }
   .main { display: flex; flex-direction: column; min-width: 0; }
-  header { padding: 22px 32px 0; border-bottom: 1px solid var(--line); }
+  header { padding: 22px 32px 0 68px; border-bottom: 1px solid var(--line); }
   header .title { font-size: 22px; font-weight: 500; letter-spacing: -.01em; }
   header .sub { color: var(--ink-2); margin-top: 2px; }
   .tabs { display: flex; gap: 26px; margin-top: 18px; }
@@ -62,6 +72,16 @@
   .chat .top { padding: 14px 28px; border-bottom: 1px solid var(--line); display: flex; gap: 18px; align-items: center; }
   .chat .top .name { font-weight: 500; }
   .chat .top .sp { flex: 1; }
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; color: var(--ink-3); user-select: none; letter-spacing: .04em; }
+  .switch .k { width: 26px; height: 14px; border-radius: 7px; border: 1px solid var(--line); position: relative; transition: background .2s, border-color .2s; }
+  .switch .k::after { content: ""; position: absolute; top: 2px; left: 2px; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); transition: transform .2s, background .2s; }
+  .switch.on { color: var(--ink); }
+  .switch.on .k { background: var(--ink); border-color: var(--ink); }
+  .switch.on .k::after { transform: translateX(12px); background: var(--paper); }
+  .msgs.quiet .m.tool:not(.fatal), .msgs.quiet .m.sys:not(.working) { display: none; }
+  .m.sys.working { color: var(--ink-2); }
+  .m.sys.working::after { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: 8px; vertical-align: middle; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
   .msgs { flex: 1; overflow-y: auto; padding: 22px 28px; display: flex; flex-direction: column; gap: 10px; }
   .m { max-width: 72%; padding: 10px 14px; border-radius: 3px; white-space: pre-wrap; word-break: break-word; }
   .m.user { align-self: flex-end; background: var(--ink); color: var(--paper); }
@@ -99,16 +119,19 @@
   .side .actions { padding: 6px 22px 22px; display: flex; gap: 8px; flex-wrap: wrap; }
   .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 8px 16px; border-radius: 2px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
   .toast.show { opacity: 1; }
-  @media (max-width: 1100px) { .app { grid-template-columns: 180px 1fr 300px; } }
+  @media (max-width: 1100px) { .app { grid-template-columns: 1fr 300px; } }
 </style>
 </head>
 <body>
-<div class="app">
+<div class="navwrap" id="navwrap">
+  <button class="handle" id="handle" title="Businesses" aria-label="Businesses"><i></i><i></i></button>
   <nav class="rail">
     <h1>Businesses</h1>
     <div id="bizlist"></div>
     <div class="foot" id="foot">bazarlyk</div>
   </nav>
+</div>
+<div class="app">
   <section class="main">
     <header>
       <div class="title" id="title">—</div>
@@ -140,7 +163,8 @@
 <script>
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const state = { biz: null, bizs: [], tab: "agents", agent: null, live: null, sessionsSeen: {} };
+let verbose0 = false; try { verbose0 = localStorage.getItem("verbose") === "1"; } catch (e) {}
+const state = { biz: null, bizs: [], tab: "agents", agent: null, live: null, sessionsSeen: {}, verbose: verbose0 };
 const api = async (p, opt) => { const r = await fetch("/api" + p, opt); return r.json(); };
 const post = (p, body) => api(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 let toastT; const toast = m => { const t = $("#toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2600); };
@@ -187,9 +211,12 @@ async function renderAgents(c) {
   const a = agents.find(x => x.name === state.agent); if (!a) return;
   const ch = $("#chat");
   ch.innerHTML = `<div class="top"><span class="name">agent:${esc(a.name)}</span><span class="muted small">${esc((a.agent_yaml.match(/plugin:\s*(\S+)/) || [])[1] || "")}</span><span class="sp"></span>
+      <label class="switch ${state.verbose ? "on" : ""}" id="verbose"><span class="k"></span>verbose</label>
       <button id="planbtn">Plan</button><button id="learnbtn">Learnings</button></div>
-    <div class="msgs" id="msgs"></div>
+    <div class="msgs ${state.verbose ? "" : "quiet"}" id="msgs"></div>
     <div class="compose"><textarea id="box" rows="1" placeholder="Tell ${esc(a.name)} what to do. Enter to send, Shift+Enter for a new line."></textarea><button class="primary" id="send">Send</button></div>`;
+  $("#verbose").onclick = () => { state.verbose = !state.verbose; try { localStorage.setItem("verbose", state.verbose ? "1" : "0"); } catch (e) {}
+    $("#verbose").classList.toggle("on", state.verbose); $("#msgs").classList.toggle("quiet", !state.verbose); $("#msgs").scrollTop = $("#msgs").scrollHeight; };
   $("#planbtn").onclick = () => showDoc("PLAN.md", a.plan);
   $("#learnbtn").onclick = () => showDoc("session learnings", a.learnings || "(none yet)");
   const msgs = $("#msgs");
@@ -230,16 +257,18 @@ function addEvent(msgs, e) {
   }
   else if (e.kind === "end") { d.className = "m sys"; d.textContent = `ended: ${e.summary || ""} · ${e.turns || 0} turns`; }
   else if (e.kind === "learnings") { d.className = "m sys"; d.textContent = e.count ? `${e.count} learning${e.count === 1 ? "" : "s"} noted` : "nothing new learned"; }
-  else if (e.kind === "error") { d.className = "m tool err"; d.textContent = e.error || "error"; }
+  else if (e.kind === "error") { d.className = "m tool err fatal"; d.textContent = e.error || "error"; }
   else return;
   msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight;
 }
 function attach(sid, msgs) {
   if (state.live) state.live.close();
   const es = new EventSource(`/api/session/${sid}/events`); state.live = es;
-  es.onmessage = ev => { const e = JSON.parse(ev.data); if (e.kind !== "start") addEvent(msgs, e); if (e.kind === "tool_result") refreshSideSoon(); };
-  es.addEventListener("done", () => { es.close(); state.live = null; const s = $("#send"); if (s) s.disabled = false; refreshSide(); });
-  es.onerror = () => { es.close(); state.live = null; const s = $("#send"); if (s) s.disabled = false; };
+  const w = document.createElement("div"); w.className = "m sys working"; w.textContent = "working"; msgs.appendChild(w); msgs.scrollTop = msgs.scrollHeight;
+  const stop = () => { es.close(); state.live = null; w.remove(); const s = $("#send"); if (s) s.disabled = false; };
+  es.onmessage = ev => { const e = JSON.parse(ev.data); if (e.kind !== "start") addEvent(msgs, e); msgs.appendChild(w); if (e.kind === "tool_result") refreshSideSoon(); };
+  es.addEventListener("done", () => { stop(); refreshSide(); });
+  es.onerror = stop;
 }
 function showDoc(title, text) {
   const msgs = $("#msgs"); if (!msgs) return;
@@ -343,6 +372,8 @@ $("#taskbtn").onclick = async () => {
   const owner = prompt("Owner (agent:name or human:name)", b && b.agents[0] ? "agent:" + b.agents[0] : "human:owner") || "";
   const r = await post(`/biz/${state.biz}/task`, { title, owner }); toast(r.error || `added ${r.id}`); refreshSide();
 };
+$("#handle").onclick = () => $("#navwrap").classList.toggle("pin");
+document.addEventListener("click", e => { if (!$("#navwrap").contains(e.target)) $("#navwrap").classList.remove("pin"); });
 setInterval(refreshSide, 12000);
 loadBiz();
 </script>
