@@ -18,6 +18,7 @@ where = ["."]
 include = ["bazarlyk*"]
 
 [tool.setuptools.package-data]
+"bazarlyk.bootstrap" = ["browser_init.cjs"]
 "bazarlyk.storage" = ["migrations/*.sql"]
 
 [tool.pytest.ini_options]
