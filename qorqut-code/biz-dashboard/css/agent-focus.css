@@ -11,7 +11,7 @@
 .agfocus-items .agfocus-card{cursor:default}
 .agfocus-items .agfocus-card:hover{border-color:var(--line-2);background:var(--wash)}
 .agfocus-items .agfocus-card:focus-visible{outline:2px solid var(--fg-2);outline-offset:2px}
-.agfocus-card h3{font-size:12px;font-weight:600;line-height:1.4;margin:5px 0}
+.agfocus-card h3{font-size:14px;font-weight:300;line-height:1.4;margin:5px 0}
 .agfocus-card .agfocus-reason{color:var(--fg-2);font-size:11px;line-height:1.5}
 .agfocus-framing{display:grid;gap:8px;margin:9px 0}
 .agfocus-framing section{border-left:2px solid var(--line-2);padding-left:8px}
@@ -91,3 +91,6 @@
 .agfocus-card.agfocus-collapsed .agfocus-meta{padding-right:68px}
 .agfocus-card.agfocus-collapsed .agfocus-actions .conversation-toggle{width:27px;height:26px;min-height:26px;padding:4px}
 .agfocus-card.agfocus-collapsed .agfocus-actions .conversation-toggle svg{width:18px;height:18px}
+
+.agfocus-card.agfocus-collapsed > .agfocus-meta,
+.agfocus-card.agfocus-collapsed > .agfocus-actions{opacity:.7;filter:saturate(.65)}
