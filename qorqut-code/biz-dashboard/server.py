@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import journal
+import notes
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1977,6 +1978,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(context_map_view(biz, did))
             if what == "journal" and len(parts) == 3:
                 return self.send_json(journal.list_memos(biz))
+            if what == "notes" and len(parts) == 3:
+                return self.send_json(notes.list_notes(biz))
             if what == "live":
                 try:
                     reqs, rerr = requests_rows(biz), None
@@ -2054,6 +2057,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.compact(biz, body)
             if parts[3] == "journal" and len(parts) in (4, 5, 6):
                 return self.journal_post(biz, parts[4:], body)
+            if parts[3] == "notes" and len(parts) in (4, 5, 6):
+                return self.notes_post(biz, parts[4:], body)
             if parts[3] == "context" and len(parts) == 5:
                 if parts[4] == "upload":
                     return self.context_upload(biz, body)
@@ -2288,6 +2293,33 @@ class Handler(BaseHTTPRequestHandler):
             row2, p = journal.mark_uploaded(biz, mid, r["id"])
             rc, out = git_commit(biz, [p], f"journal({mid}): uploaded to context as {r['id']}")
             return self.send_json(warned(row2, rc, out))
+        return self.send_json({"error": "not found"}, 404)
+
+    def notes_post(self, biz, sub, body):
+        """POST /biz/<b>/notes[/<id>[/delete]] — create, update, or delete a note (page)."""
+        if not sub:
+            row, p = notes.create(biz, body)
+            if not row:
+                return self.send_json({"error": "could not allocate a note id"}, 500)
+            rc, out = git_commit(biz, [p], f"notes({row['id']}): create")
+            return self.send_json(warned(row, rc, out))
+        nid = sub[0]
+        if not notes.NOTE_ID_RE.match(nid):
+            return self.send_json({"error": "bad note id"}, 400)
+        if len(sub) == 1:
+            row, p = notes.update(biz, nid, body)
+            if row is None:
+                return self.send_json({"error": "no such note"}, 404)
+            if "error" in row:
+                return self.send_json(row, 400)
+            rc, out = git_commit(biz, [p], f"notes({nid}): update")
+            return self.send_json(warned(row, rc, out))
+        if sub[1] == "delete":
+            p = notes.delete(biz, nid)
+            if not p:
+                return self.send_json({"error": "no such note"}, 404)
+            rc, out = git_commit(biz, [p], f"notes({nid}): delete")
+            return self.send_json(warned({"ok": True}, rc, out))
         return self.send_json({"error": "not found"}, 404)
 
     def context_upload(self, biz, body):
