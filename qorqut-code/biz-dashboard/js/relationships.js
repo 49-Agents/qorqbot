@@ -1,6 +1,7 @@
 // Shared context catch-up for every item. Reads never acknowledge a relationship.
 const contextRoleLabel = role => String(role || 'related to').replace(/_/g, ' ');
-const contextItemType = item => item.subtype === 'conversation' ? 'Conversation' : ({material:'Material',topic:'Topic',story:'Story',task:'Task',table:'Table',person:'Person',agent:'Agent'}[item.type] || item.type);
+const contextItemType = item => item.material_type ? item.material_type.charAt(0).toUpperCase()+item.material_type.slice(1) : item.subtype === 'conversation' ? 'Conversation' : ({material:'Material',topic:'Topic',story:'Story',task:'Task',table:'Table',person:'Person',agent:'Agent'}[item.type] || item.type);
+const contextMaterialLabel = item => [item.origin,...(item.tags || [])].filter(Boolean).join(' · ');
 
 async function contextOpenItem(biz, item, beforeOpen) {
   if (await beforeOpen?.() === false) return;
@@ -65,6 +66,7 @@ async function contextReviewPanel(host, biz, item, options={}) {
     const latest=row.latest_review;
     article.innerHTML=`<div class="context-relation-heading"><button class="quiet context-source" ${source?'':'disabled'}>${esc(source?.label || 'Unavailable context')}</button><span class="context-review-state">${row.pending?'Pending':'Reviewed'}</span></div>
       <div class="context-relation-role">${esc(row.direction==='incoming'?'Incoming':'Outgoing')} · ${esc(contextRoleLabel(row.role))}${source?' · '+esc(contextItemType(source)):''}</div>
+      ${source?.material_type?`<div class="context-relation-role context-material-label">${esc(contextMaterialLabel(source))}</div>`:''}
       ${row.context?`<p>${esc(row.context)}</p>`:''}${source?.summary?`<p>${esc(source.summary)}</p>`:''}
       ${latest?`<div class="context-last-review"><strong>${esc(latest.result==='pending'?'Reopened':latest.result==='incorporated'?'Incorporated':'No change needed')}</strong> · ${esc(latest.actor?.name || '')} · ${esc(storyDate(latest.created_at))}<p>${esc(latest.explanation)}</p></div>`:''}
       <label class="context-review-explanation">Explanation<textarea class="inp" rows="2" maxlength="4000" ${row.available?'':'disabled'}></textarea></label>
