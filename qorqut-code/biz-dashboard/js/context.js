@@ -36,8 +36,6 @@ async function renderContext(c) {
   ctxClearGraph();
   clearTimeout(_ctxTimer); _ctxTimer = null;
   const biz = state.biz, generation = ++_ctxGeneration;
-  const d = await api(`/biz/${biz}/context`);
-  if (generation !== _ctxGeneration || state.scope === "global" || state.biz !== biz || state.tab !== "context" || !c.isConnected) return;
   c.innerHTML = `<div class="ctxwrap">
     <div class="split ctxsplit"><div class="listcol ctxtree" id="ctxtree">
       <div class="ctop"><input type="search" id="ctxsearch" placeholder="Search context" autocomplete="off"></div>
@@ -46,10 +44,20 @@ async function renderContext(c) {
     </div><div class="pane ctxview" id="ctxview"></div></div></div>`;
   wireCtxSearch();
   if (state.ctx == null) state.ctx = ls(`ctxpage:${biz}`) ?? contextTab0 ?? "_learning";
-  ctxPaint(d);
-  if (typeof lnFetch === "function") lnFetch();   // refresh the rail badge; Learning owns its page refresh.
-  await ctxShow(state.ctx);
-  if (state.biz === biz && state.tab === "context" && c.isConnected) ctxWatch(d);
+  _ctxData = null;
+  ctxTree({loading:true});
+  const current = () => generation === _ctxGeneration && state.scope !== 'global' && state.biz === biz && state.tab === 'context' && c.isConnected;
+  const treeLoad = api(`/biz/${biz}/context`).then(async d => {
+    if (!current()) return;
+    ctxPaint(d);
+    if (!ctxIndependentPage(state.ctx)) await ctxShow(state.ctx);
+    if (current()) ctxWatch(d);
+  }).catch(error => {
+    if (current()) $('#ctxq', c).innerHTML = `<span class="bad" role="alert">${esc(error.message || 'Could not load context.')}</span>`;
+  });
+  // These pages fetch their own data; the context tree need not delay them.
+  const pageLoad = ctxShow(state.ctx);
+  await Promise.all([treeLoad, pageLoad]);
 }
 
 // ------------------------------------------------------------- search
@@ -163,7 +171,7 @@ function ctxTree(d) {
   const isRoot = !state.ctx;                                  // "" is the Context root; "_learning" is a page of its own
   rows.push(`<div class="item ov ${state.ctx === '_learning' ? 'on' : ''}" data-p="_learning"><div class="nm">${SVG_BRAIN}<span class="tt">Learning</span></div></div>`);
   const graphNodes = d.graph?.nodes || [];
-  rows.push(`<div class="ctx-counts">${[['story','Stories','_stories'],['table','Tables','_tables'],['person','People','_people']].map(([type,label,path]) => `<button type="button" data-count-page="${path}"><b>${graphNodes.filter(n=>n.type===type).length}</b><span>${label}</span></button>`).join('')}</div>`);
+  rows.push(`<div class="ctx-counts">${[['story','Stories','_stories'],['table','Tables','_tables'],['person','People','_people']].map(([type,label,path]) => `<button type="button" data-count-page="${path}"><b>${d.loading ? "—" : graphNodes.filter(n=>n.type===type).length}</b><span>${label}</span></button>`).join('')}</div>`);
   rows.push(`<div class="item ov ${isRoot ? 'on' : ''}" data-p=""><div class="nm">${aicon('share-2','currentColor',15)}<span class="tt">Graph</span></div></div>`);
   for (const [key, label, icon] of [['_stories', 'Stories', `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M12 5h8M12 11h6M12 19h8"/></svg>`], ['_tables', 'Tables', aicon('database', 'currentColor', 15)]]) {
     rows.push(`<button type="button" class="item bt ${(state.ctx === key || key === '_stories' && state.ctx?.startsWith('_stories/')) ? 'on' : ''}" data-p="${key}"><div class="nm">${icon}<span class="tt">${label}</span></div></button>`);
@@ -185,10 +193,11 @@ async function ctxGo(p) {
   clearTimeout(_ctxSearchTimer);
   const search = $("#ctxsearch"); if (search) search.value = '';
   state.ctx = p;
-  if (_ctxData) ctxTree(_ctxData);
+  ctxTree(_ctxData || {loading:true});
   return ctxShow(p);
 }
 
+const ctxIndependentPage = p => p === '_learning' || p === '_tables' || p?.startsWith('_stories');
 function ctxShow(p) {
   if (p === "_tasks") { p = ""; state.ctx = ""; }
   ls(`ctxpage:${state.biz}`, (["_tables", "_people", "_learning", "_uploads"].includes(p) || p?.startsWith("_stories")) ? p : "");
@@ -197,6 +206,11 @@ function ctxShow(p) {
   pane?.classList.toggle('ctxembedded-view', (['_tables'].includes(p) || p?.startsWith('_stories')));
   ctxClearGraph();
   jClearTimers();
+  if (!_ctxData && !ctxIndependentPage(p)) {
+    const pane = $('#ctxview');
+    if (pane) pane.innerHTML = '<p class="empty pad" role="status">Loading context…</p>';
+    return;
+  }
   if (p === "_learning") {                                   // learning.js loads after this file; it may not be there at all
     _ctxLastSig = ctxSig(_ctxData, p);                       // a constant, so the tree watcher leaves this pane alone
     if (typeof openLearning === "function") return openLearning();
