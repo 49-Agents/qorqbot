@@ -90,6 +90,9 @@
 .sg-message { white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.6 var(--sans); margin: 10px 0; }
 .sg-recipient { padding: 12px 0; border-top: 1px solid var(--line-2); }
 .sg-platform h3 { font-size: 14px; margin: 12px 0 6px; }
+.sg-platform-field span { white-space: pre-wrap; }
+.sg-outreach-progress, .sg-recipient-result { padding: 8px 12px; margin: 10px 0; background: var(--wash); border-radius: var(--r-sm); }
+.sg-outreach-progress p { margin: 6px 0; }
 
 .sg .sg-rows { display:flex; flex-direction:column; gap:16px; }
 .sg-urgent:not([hidden]) + .sg-waiting { margin-top:16px; }

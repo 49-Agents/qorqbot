@@ -27,3 +27,16 @@
 .envrow .envdel { font-size: 12px; white-space: nowrap; }
 .envrow > .ev { align-self: start; min-width: 0; }
 @media (max-width: 600px) { .envrow { grid-template-columns: minmax(0, 1fr) auto; } .envrow > .ev { grid-column: 1 / -1; grid-row: 2; } .envrow { padding-bottom: 12px; } }
+
+.outreach-settings { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--line); }
+.outreach-settings h2 { font-size: 16px; margin-bottom: 8px; }
+.outreach-settings p { line-height: 1.6; overflow-wrap: anywhere; }
+.outreach-settings-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 16px; }
+.outreach-settings-form label { display: grid; gap: 6px; min-width: 0; }
+.outreach-settings-form input, .outreach-settings-form select, .outreach-settings-form textarea { width: 100%; min-width: 0; padding: 8px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.outreach-settings-form textarea { resize: vertical; }
+.outreach-settings-form > p, .outreach-instructions, .outreach-actions, .outreach-conflict { grid-column: 1 / -1; }
+.outreach-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.outreach-conflict { padding: 12px; border: 1px solid var(--line-2); border-radius: var(--r-sm); }
+.outreach-conflict pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+@media(max-width: 600px) { .outreach-settings-form { grid-template-columns: 1fr; } }
