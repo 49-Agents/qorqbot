@@ -313,8 +313,9 @@ PERSON_RE = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 
 
 def ctx_file(biz, relpath, tree="context"):
-    """Absolute path of a file under context/ (or another tree in TREES, e.g. marketing-content/), or None
-    if the path is not allowed. Same allow-list for every tree."""
+    """Absolute path of a file under context/ (or another tree in TREES: marketing-content/, read-only here,
+    for the History view's verbatim note body), or None if the path is not allowed. Same allow-list for
+    every tree."""
     rp = (relpath or "").replace("\\", "/").strip("/")
     if tree not in TREES or not CTX_PATH_RE.match(rp) or ".." in rp.split("/"):
         return None
@@ -399,25 +400,18 @@ def context_search(biz, q):
     return {"q": q, "hits": hits[:50]}
 
 
-TREES = ("context", CONTENT_TREE)
+TREES = ("context", CONTENT_TREE)   # the trees `context/file?dir=` may read; only context/ has an inbox
 
 
-def tree_args(tree):
-    """`bizctx` global flags selecting a tree: nothing for context/, `--dir <tree>` otherwise."""
-    return [] if tree == "context" else ["--dir", tree]
-
-
-def context_view(biz, tree="context"):
-    """`bizctx tree --json` plus the queues' state; `tree` selects context/ (default) or marketing-content/
-    (the Marketing tab's Record view reads only `.inbox` from the second)."""
-    t = run_json(biz, "bizctx", *tree_args(tree), "tree")
+def context_view(biz):
+    """`bizctx tree --json` of context/ plus the queues' state."""
+    t = run_json(biz, "bizctx", "tree")
     if "error" in t:
-        return {"error": t["error"], "pillars": [], "tree": {"path": "", "children": []}, "inbox": [], "dir": tree}
+        return {"error": t["error"], "pillars": [], "tree": {"path": "", "children": []}, "inbox": []}
     for i in t.get("inbox", []):
         i["attempts"] = int(i.get("attempts") or 0)
         i["failed"] = bool(i.get("error")) and i["attempts"] >= FILER_ATTEMPTS
-    t["dir"] = tree
-    t["filing"] = FILER.status(biz, tree)
+    t["filing"] = FILER.status(biz)
     t["summarizing"] = SUMMARIZER.status(biz)
     t["has_filer"] = os.path.isfile(os.path.join(biz, "agents", "_filer", "agent.yaml"))
     t.setdefault("people", [])
@@ -877,33 +871,26 @@ SUMMARIZER = Summarizer()
 
 
 class Filer:
-    """One thread: every FILER_EVERY seconds (or when kicked) sweep every business's context/_inbox and
-    marketing-content/_inbox (spec 06, "The Filer: passing the tree") and run one `bizrun run --agent
-    _filer` per upload, oldest first, strictly one at a time per business across both trees."""
+    """One thread: every FILER_EVERY seconds (or when kicked) sweep every business's context/_inbox and run
+    one `bizrun run --agent _filer` per upload, oldest first, strictly one at a time per business. Only
+    context/ has an inbox: marketing-content/ is written by the gateway write-back alone."""
 
     def __init__(self):
         self.wake = threading.Event()
-        self.current = None      # {"biz", "id", "tree", "started"}
+        self.current = None      # {"biz", "id", "started"}
         self.history = []        # last runs, newest first
         self.last_sweep = None
-        self.last_kick = None    # the tree named by the last kick (a retry), None for a plain wake
 
-    def kick(self, tree=None):
-        """Wake the sweep now. `tree` is informational (the sweep covers every tree in TREES); it is
-        remembered as `last_kick` so a retry on marketing-content/ is visible in the status."""
-        self.last_kick = tree
+    def kick(self):
+        """Wake the sweep now."""
         self.wake.set()
 
-    def status(self, biz=None, tree=None):
+    def status(self, biz=None):
         with LOCK:
             cur = self.current
-            if cur and (biz is None or cur["biz"] == biz) and (tree is None or cur.get("tree") == tree):
-                cur = dict(cur)
-            else:
-                cur = None
-            hist = [h for h in self.history if (biz is None or h["biz"] == biz) and (tree is None or h.get("tree") == tree)][:5]
-        return {"current": cur, "recent": hist, "every": FILER_EVERY, "last_sweep": self.last_sweep,
-                "last_kick": self.last_kick}
+            cur = dict(cur) if cur and (biz is None or cur["biz"] == biz) else None
+            hist = [h for h in self.history if biz is None or h["biz"] == biz][:5]
+        return {"current": cur, "recent": hist, "every": FILER_EVERY, "last_sweep": self.last_sweep}
 
     def loop(self):
         while True:
@@ -914,10 +901,8 @@ class Filer:
             except Exception as exc:  # noqa: BLE001 - the queue must survive anything
                 print(f"filer: sweep failed: {exc}", file=sys.stderr)
 
-    def pending(self, biz, tree="context"):
-        if tree != "context" and not os.path.isdir(os.path.join(biz, tree)):
-            return []
-        items = run_json(biz, "bizctx", *tree_args(tree), "inbox")
+    def pending(self, biz):
+        items = run_json(biz, "bizctx", "inbox")
         if not isinstance(items, list):
             return []
         return [i for i in items if int(i.get("attempts") or 0) < FILER_ATTEMPTS]
@@ -928,44 +913,30 @@ class Filer:
             biz = b["path"]
             if not os.path.isfile(os.path.join(biz, "agents", "_filer", "agent.yaml")):
                 continue
-            for tree in TREES:
-                tried = set()   # one attempt per upload per sweep; a failure waits for the next sweep
-                for _ in range(50):
-                    if any(s.biz == biz and not s.done for s in SESSIONS.values()):
-                        break   # an agent is committing in this repo right now; come back next sweep
-                    items = [i for i in self.pending(biz, tree) if i["id"] not in tried]
-                    if not items:
-                        break
-                    tried.add(items[0]["id"])
-                    self.run(biz, items[0]["id"], tree)
+            tried = set()   # one attempt per upload per sweep; a failure waits for the next sweep
+            for _ in range(50):
+                if any(s.biz == biz and not s.done for s in SESSIONS.values()):
+                    break   # an agent is committing in this repo right now; come back next sweep
+                items = [i for i in self.pending(biz) if i["id"] not in tried]
+                if not items:
+                    break
+                tried.add(items[0]["id"])
+                self.run(biz, items[0]["id"])
             # every filed upload has a mind map: draw the ones filed before maps existed (or lost), a few per sweep
             missing = [f"map:{d}" for d in dumps_without_map(biz)]
             if missing:
                 SUMMARIZER.enqueue(biz, missing[:10])
 
-    def run(self, biz, dump_id, tree="context"):
-        """One `bizrun run --agent _filer` for one upload. For the marketing-content tree the subprocess gets
-        `BIZCTX_DIR=<tree>` and the message spells `--dir <tree>` on every bizctx call (spec 06: the env var
-        covers any bare bizctx the filer improvises, the message keeps the agent oriented)."""
+    def run(self, biz, dump_id):
+        """One `bizrun run --agent _filer` for one context/ upload."""
         with LOCK:
-            self.current = {"biz": biz, "id": dump_id, "tree": tree, "started": time.time()}
-        d = "" if tree == "context" else f" --dir {tree}"
-        if tree == "context":
-            msg = (f"File the context upload {dump_id}: `bizctx show {dump_id}`, split it by topic, file every piece "
-                   f"with bizctx (create topics if needed), add tasks for explicit action items and a `needs-owner` "
-                   f"task per pillar contradiction (see your skill), then `bizctx file {dump_id} --result \"...\"`, "
-                   f"one bizlog line, and call done.")
-        else:
-            msg = (f"File the {tree} upload {dump_id} in actions mode (it is a marketing-content upload, tree "
-                   f"`{tree}/`, not `context/`): `bizctx{d} show {dump_id}`, split it into discrete actions, one "
-                   f"bizlog line (-t marketing, -r kind= channel= target=) per action and one `bizctx{d} note add` "
-                   f"per action with verbatim text (predict the path with `bizctx{d} note path` first, never a "
-                   f"note for a decision), then `bizctx{d} file {dump_id} --result \"...\"`, one operations bizlog "
-                   f"line, and call done. Every bizctx call takes `--dir {tree}`.")
+            self.current = {"biz": biz, "id": dump_id, "started": time.time()}
+        msg = (f"File the context upload {dump_id}: `bizctx show {dump_id}`, split it by topic, file every piece "
+               f"with bizctx (create topics if needed), add tasks for explicit action items and a `needs-owner` "
+               f"task per pillar contradiction (see your skill), then `bizctx file {dump_id} --result \"...\"`, "
+               f"one bizlog line, and call done.")
         cmd = cli("bizrun") + ["run", "--agent", "_filer", "--no-learn", "--max-turns", str(FILER_TURNS), "-m", msg]
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
-        if tree != "context":
-            env["BIZCTX_DIR"] = tree
         head = git_head(biz)
         t0 = time.time()
         err, rc = "", 0
@@ -978,22 +949,22 @@ class Filer:
             rc, err, tail = 124, f"timed out after {FILER_TIMEOUT}s", [""]
         except (OSError, RuntimeError) as exc:
             rc, err, tail = 127, str(exc), [""]
-        inbox = run_json(biz, "bizctx", *tree_args(tree), "inbox")
+        inbox = run_json(biz, "bizctx", "inbox")
         still = any(i["id"] == dump_id for i in (inbox if isinstance(inbox, list) else []) if isinstance(i, dict))
         ok = not still
         if still:
             reason = err or (f"bizrun exit {rc}" if rc else "agent ended without filing the upload")
-            run_json(biz, "bizctx", *tree_args(tree), "fail", dump_id, "--reason", reason)
+            run_json(biz, "bizctx", "fail", dump_id, "--reason", reason)
         changed = git_changed(biz, head)
         topics = topics_of_paths(changed)
         notes = {f"note:{rp}" for t in topics for rp in notes_without_summary(biz, t)}
         touched = notes | topics | people_of_paths(changed)
-        if ok and tree == "context":
+        if ok:
             touched.add(f"map:{dump_id}")     # the upload's own mind map, drawn from its raw text
         if touched:
             SUMMARIZER.enqueue(biz, touched)
         with LOCK:
-            self.history.insert(0, {"biz": biz, "id": dump_id, "tree": tree, "ok": ok, "seconds": round(time.time() - t0),
+            self.history.insert(0, {"biz": biz, "id": dump_id, "ok": ok, "seconds": round(time.time() - t0),
                                     "summary": tail[0][:200], "error": None if ok else (err or f"exit {rc}")[:300],
                                     "at": time.time()})
             del self.history[20:]
@@ -1943,12 +1914,9 @@ class Handler(BaseHTTPRequestHandler):
             if what == "git":
                 return self.send_json(git_recent(biz))
             if what == "context" and len(parts) == 3:
-                tree = q.get("dir") or "context"
-                if tree not in TREES:
-                    return self.send_json({"error": f"bad dir: {tree}"}, 400)
-                return self.send_json(context_view(biz, tree))
+                return self.send_json(context_view(biz))
             if what == "context" and len(parts) == 4 and parts[3] == "file":
-                tree = q.get("dir") or "context"
+                tree = q.get("dir") or "context"     # marketing-content/ too: the History view opens notes with it
                 if tree not in TREES:
                     return self.send_json({"error": f"bad dir: {tree}"}, 400)
                 p = ctx_file(biz, q.get("p", ""), tree)
@@ -2022,8 +1990,6 @@ class Handler(BaseHTTPRequestHandler):
                 if parts[5] == "state":
                     return self.request_state(biz, rid, body)
                 return self.request_posted(biz, rid, body)
-            if parts[3] == "marketing" and len(parts) == 5 and parts[4] == "upload":
-                return self.marketing_upload(biz, body)
             if parts[3] == "log" and len(parts) == 6 and parts[5] == "labels":
                 return self.log_labels(biz, parts[4], body)
             if parts[3] == "task" and len(parts) == 4:
@@ -2166,23 +2132,6 @@ class Handler(BaseHTTPRequestHandler):
             resp["warn"] = warn
         return self.send_json(warned(warned(resp, rc, out), rc2, out2))
 
-    def marketing_upload(self, biz, body):
-        """Same code path as context_upload, two literals changed: `--dir marketing-content`, `--mode actions`."""
-        text = str(body.get("text") or "").strip()
-        if not text:
-            return self.send_json({"error": "empty upload"}, 400)
-        if len(text) > 200000:
-            return self.send_json({"error": "upload over 200k chars; split it"}, 400)
-        args = ["--dir", CONTENT_TREE, "dump", "--mode", "actions"]
-        notes = str(body.get("notes") or "").strip()
-        if notes:
-            args += ["--notes", notes[:300]]
-        r = run_json(biz, "bizctx", *args, stdin=text)
-        if "error" in r:
-            return self.send_json(r, 500)
-        FILER.kick()
-        return self.send_json({"ok": True, "id": r["id"], "chars": r.get("chars")})
-
     def log_labels(self, biz, lid, body):
         """`bizlog label <id> +a -b`; bizlog commits log/labels.jsonl itself, so no git_commit here."""
         if not LOG_ID_RE.match(lid):
@@ -2279,18 +2228,15 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json({"ok": True, "id": did})
 
     def context_retry(self, biz, body):
-        """Clear a failed upload's attempts in `dir` (context/ default, or marketing-content/) and kick the filer."""
+        """Clear a failed context/ upload's attempts and kick the filer."""
         did = str(body.get("id") or "")
-        tree = str(body.get("dir") or "context")
         if not UPLOAD_ID_RE.match(did):
             return self.send_json({"error": "bad upload id"}, 400)
-        if tree not in TREES:
-            return self.send_json({"error": f"bad dir: {tree}"}, 400)
-        r = run_json(biz, "bizctx", *tree_args(tree), "retry", did)
+        r = run_json(biz, "bizctx", "retry", did)
         if "error" in r:
             return self.send_json(r, 400)
-        FILER.kick(tree)
-        return self.send_json({"ok": True, "id": did, "dir": tree})
+        FILER.kick()
+        return self.send_json({"ok": True, "id": did})
 
     def task_add(self, biz, body):
         title = str(body.get("title", "")).strip()
