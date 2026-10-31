@@ -1,8 +1,8 @@
 // Global is an explicit workspace scope, never a synthetic business slug.
-// Overview reads summaries for authorized businesses; other global workflows remain a shell.
+// Overview reads summaries for authorized businesses; agents use registered root workspaces.
 const GLOBAL_PAGES = {
   overview: { title: 'Overview', icon: 'globe' },
-  agents: { title: 'Agents', icon: 'agents', heading: 'Ordubashy agents', description: 'Coordinate work across your businesses with ecosystem-level agents.', detail: 'Ordubashy agents and their workspaces will live here.' },
+  agents: { title: 'Agents', icon: 'agents' },
   signoffs: { title: 'Signoffs', icon: 'signoffs' },
   requests: { title: 'Requests', icon: 'requests', heading: 'Global requests', description: 'A shared place for requests that belong to the wider ecosystem.', detail: 'Global requests and their review workflow will live here.' },
   evolution: { title: 'Learning & evolution', icon: 'learning', heading: 'Learning & evolution', description: 'Turn shared learnings into improvements across the ecosystem.', detail: 'Learning application and evolution workflows will live here.' },
@@ -81,6 +81,7 @@ function goGlobalTab(tab) {
 let globalRender = 0;
 function renderGlobal(c) {
   sgGlobal.suspend();
+  if (state.globalTab === 'agents') return renderGlobalAgents(c);
   if (state.globalTab === 'signoffs') {
     c.innerHTML = '<section class="pane global-signoffs"><div id="global-signoff-body"></div></section>';
     sgGlobal.paint(); return;
@@ -93,7 +94,7 @@ function renderGlobal(c) {
       <div class="global-grid">${state.bizs.map(b => `<article class="global-business" data-business="${esc(b.slug)}">
         <button class="global-business-head" data-open-business="${esc(b.slug)}"><span class="global-business-letter">${esc((b.name || b.slug).charAt(0).toUpperCase())}</span><span class="global-business-name"><h2>${esc(b.name || b.slug)}</h2></span><span class="global-action-count" aria-label="Actions loading">${T_VIEW_ICON.activity}<strong>—</strong></span></button>
         <div class="global-summary" aria-live="polite"><p class="global-summary-note">Loading summary…</p></div>
-      </article>`).join('') || '<p class="muted">No businesses yet.</p>'}</div>` : `<header class="global-heading"><h1>${page.heading}</h1><p>${page.description}</p></header><div class="global-placeholder"><span class="global-placeholder-icon">${globalIcon(page.icon)}</span><h2>A home for ${state.globalTab === 'agents' ? 'Ordubashy' : page.title.toLowerCase()}</h2><p>${page.detail}</p><span class="global-status">Coming soon</span></div>`}
+      </article>`).join('') || '<p class="muted">No businesses yet.</p>'}</div>` : `<header class="global-heading"><h1>${page.heading}</h1><p>${page.description}</p></header><div class="global-placeholder"><span class="global-placeholder-icon">${globalIcon(page.icon)}</span><h2>A home for ${page.title.toLowerCase()}</h2><p>${page.detail}</p><span class="global-status">Coming soon</span></div>`}
     </section>`;
   c.querySelectorAll('[data-open-business]').forEach(el => el.onclick = () => selectBiz(el.dataset.openBusiness));
   if (state.globalTab === 'overview') loadGlobalSummaries(c, generation);

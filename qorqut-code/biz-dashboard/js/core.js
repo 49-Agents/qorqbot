@@ -417,6 +417,8 @@ function moveInd() {
 }
 
 function renderTab() {
+  agRenderGen++;
+  globalAgentsGeneration++;
   if (typeof rtSuspend === 'function') rtSuspend();
   if (typeof ctxClearGraph === "function") ctxClearGraph();
   if (typeof storyDispose === 'function') storyDispose();

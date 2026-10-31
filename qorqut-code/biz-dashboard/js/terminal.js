@@ -27,7 +27,7 @@ function teardownTerm() {
 // Mount a live terminal for `agent` into `pane` (an element). `onStat(t)` gets
 // "live" / "ended" / "disconnected" so a caller (e.g. the agent list) can reflect it.
 // One terminal is active in the page at a time; the PTY on the server keeps running.
-function mountTerminal(agent, pane, onStat) {
+function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComponent(state.biz)}/terminal/${encodeURIComponent(agent)}`) {
   const paneToggle = pane.querySelector("#agpad-toggle");
   teardownTerm();
   pane.innerHTML = `<div class="termpane">
@@ -63,7 +63,7 @@ function mountTerminal(agent, pane, onStat) {
     const rows = Math.max(6, Math.floor(host.clientHeight / h));
     if (cols !== term.cols || rows !== term.rows) {
       term.resize(cols, rows);
-      post(`/biz/${state.biz}/terminal/${agent}/resize`, { cols, rows });
+      post(`${terminalBase}/resize`, { cols, rows });
     }
     term.scrollToBottom();
   };
@@ -73,25 +73,49 @@ function mountTerminal(agent, pane, onStat) {
   _termRO.observe(host);
 
   const setStat = t => {
+    if (_term !== term) return;
     if (btn) btn.classList.toggle("warn", t === "disconnected" || t === "ended");
     if (onStat) { try { onStat(t); } catch (e) {} }
   };
 
   // output: base64 SSE frames -> xterm. On a real drop, close (no auto-retry, which would
   // replay the whole scrollback and duplicate it) and flag the button so the user can reconnect.
-  const es = new EventSource(evUrl(`/biz/${state.biz}/terminal/${agent}/stream`));
+  const es = new EventSource(evUrl(`${terminalBase}/stream`));
   _termES = es;
-  es.onmessage = ev => { try { term.write(b64ToBytes(ev.data)); } catch (e) {} setStat("live"); };
+  // The first layout pass can precede server-side preparation; size again once attached.
+  es.onopen = () => { if (_term === term) post(`${terminalBase}/resize`, { cols: term.cols, rows: term.rows }); };
+  let nextReplay = false, replaying = false, outputQueue = Promise.resolve();
+  es.addEventListener('replay', () => { nextReplay = true; });
+  es.onmessage = ev => {
+    const replay = nextReplay; nextReplay = false;
+    outputQueue = outputQueue.then(() => new Promise(resolve => {
+      if (_term !== term) return resolve();
+      replaying = replay;
+      try { term.write(b64ToBytes(ev.data), () => { replaying = false; resolve(); }); }
+      catch (_) { replaying = false; resolve(); }
+    }));
+    setStat("live");
+  };
   es.addEventListener("done", () => setStat("ended"));
   es.onerror = () => { es.close(); if (_termES === es) _termES = null; setStat("disconnected"); };
 
   // input: keystrokes -> POST (the PTY echoes back over the stream)
-  term.onData(d => { post(`/biz/${state.biz}/terminal/${agent}/input`, { data: d }); });
+  let inputQueue = Promise.resolve(), inputFailed = false;
+  term.onData(d => {
+    // Replaying old terminal queries must not type their generated replies into
+    // the current shell. Keep ordinary keystrokes and live protocol replies.
+    if (replaying && /^\x1b\[(?:\?|>)?[0-9;]*[cnR]$/.test(d)) return;
+    inputQueue = inputQueue.then(async () => {
+      if (_term !== term || inputFailed) return;
+      const result = await post(`${terminalBase}/input`, { data: d });
+      if (result.error) { inputFailed = true; setStat('disconnected'); }
+    }).catch(() => { inputFailed = true; setStat('disconnected'); });
+  });
   term.focus();
 
   // reconnect: re-open the stream. The PTY persists, so this replays scrollback; if the shell
   // had exited, the server spawns a fresh one. It is NOT a kill/restart.
-  if (btn) btn.onclick = () => mountTerminal(agent, pane, onStat);
+  if (btn) btn.onclick = () => mountTerminal(agent, pane, onStat, terminalBase);
 }
 
 // Terminal tab (legacy — the Agents tab now mounts terminals directly). Kept so the tab keeps

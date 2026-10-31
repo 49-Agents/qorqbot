@@ -53,6 +53,25 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 
 .global-signoffs { max-width: 1080px; margin: 0 auto; }
 .global-signoffs .sg-body { min-height: 300px; }
+/* Registered global agents share the business terminal's type, spacing and controls. */
+.global-agents { grid-template-columns: 240px minmax(0, 1fr); min-width: 0; }
+.global-agents h1 { margin: 0; font-size: 20px; }
+.global-agents .item.agent { width: calc(100% - 20px); text-align: left; height: auto; background: none; color: var(--fg-2); font-weight: 400; transform: none; }
+.global-agents .item.agent:hover { background: var(--hover); color: var(--fg); }
+.global-agents .item.agent.on { background: rgba(247,247,247,.06); color: var(--fg); }
+.global-agent-session { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.global-agent-heading { padding: 28px 50px 0; }
+.global-agent-heading h2 { color: var(--fg); font-size: 18px; margin: 0 0 8px; text-transform: none; letter-spacing: -.01em; }
+.global-agent-heading p { color: var(--fg-2); font-size: 12px; line-height: 1.6; margin: 0 0 8px; max-width: 800px; }
+.global-agent-session .chat.termmode { flex: 1; min-height: 180px; padding-top: 16px; }
+@media (max-width: 800px) {
+  .split.global-agents { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .global-agents > .listcol { max-height: 145px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .global-agents .ctop { padding: 10px 16px 4px; }
+  .global-agent-heading { padding: 12px 16px 0; }
+  .global-agent-session .chat.termmode { padding: 8px 12px 12px; }
+}
+
 .global-business-name { flex: 1; min-width: 0; }
 .global-action-count { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-2); flex: none; }
 .global-action-count svg { width: 15px; height: 15px; }
