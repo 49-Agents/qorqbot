@@ -183,7 +183,7 @@ function rtDetail(row) {
     ['Timeout',row.timeout + ' seconds'], ['Target',row.target || 'business'],
     ...(row.scheduling_available === false ? [['Scheduling',row.scheduling_unavailable_reason || 'Unavailable']] : []),
   ];
-  rtDialog = modal({title:esc(row.name),width:620,body:`<div class="tdetail rtdetail"><div class="rtscope">${rtScope(row.scope)}</div><div class="flds">${fields.map(([label,value])=>`<span class="k">${label}</span><span class="v">${esc(value)}</span>`).join('')}</div><p>${esc(row.why)}</p></div>`,actions:[
+  rtDialog = modal({title:esc(row.name),width:620,body:`<div class="tdetail rtdetail"><div class="rtscope">${rtScope(row.scope)}</div><div class="flds">${fields.map(([label,value])=>`<span class="k">${label}</span><span class="v">${label==='Departments'?(row.departments || []).map(departmentTag).join(' '):esc(value)}</span>`).join('')}</div><p>${esc(row.why)}</p></div>`,actions:[
     {label:'Close',onClick:close=>close()},
     {label:'Edit',onClick:close=>{close();rtOpenForm(row);}},
     ...(rtData.enabled && row.available !== false ? [{label:'Run now',primary:true,onClick:close=>{close();rtAction('run',row);}}] : []),

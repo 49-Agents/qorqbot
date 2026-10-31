@@ -400,6 +400,10 @@ function openWorkspaceMenu() {
     row.ondragend = () => { dragged = null; clear(); };
   });
 }
+for (const id of ['marketing', 'accounting', 'data-science']) {
+  const nav = document.querySelector(`.ritem[data-tab="${id}"]`);
+  if (nav) { nav.innerHTML = departmentIcon(id, 20); nav.style.color = dept(id).color; }
+}
 $('#wsbtn').onclick = openWorkspaceMenu;
 async function goTab(name) {
   if (state.scope === "global") return;
