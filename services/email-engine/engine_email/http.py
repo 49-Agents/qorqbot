@@ -15,7 +15,8 @@ from starlette.routing import Route
 from .fastmail import ProviderError
 from .account import AccountAction, AccountMailService
 from .business import ATTACHMENT_PAGE_BYTES, BusinessMailService, parse_owned_ids
-from .models import MAX_HTTP_BYTES, HistoryEvent, Outgoing
+from .models import MAX_HTTP_BYTES, HandoffRequest, HistoryEvent, IntentSubmission, Outgoing, StopRequest
+from .service import IntentConflict
 from .store import Store
 from .mailbox_settings import MailboxUpdate, configure, revisions as mailbox_revisions
 
@@ -61,6 +62,24 @@ def create_app(service, *, background=True):
         if (not token or "token" in request.query_params or not hmac.compare_digest(
                 request.headers.get("Authorization", "").encode(), ("Bearer " + token).encode())):
             return JSONResponse({"error": "unauthenticated"}, status_code=401)
+
+    def integration_client_for(request):
+        """The matching configured integration client, or None. Never compares against
+        the read/send/admin token pool, so a legacy token can never authenticate here."""
+        if "token" in request.query_params:
+            return None
+        supplied = request.headers.get("Authorization", "")
+        if not supplied.startswith("Bearer "):
+            return None
+        return settings.integration_client(supplied[len("Bearer "):])
+
+    def authenticate_integration(request):
+        """``/integrations/*`` routes: only a configured integration client, never a
+        legacy read/send/admin token."""
+        client = integration_client_for(request)
+        if client is None:
+            return None, JSONResponse({"error": "unauthenticated"}, status_code=401)
+        return client, None
 
     async def fastmail_account(request):
         denied = authenticate_account(request)
@@ -180,12 +199,6 @@ def create_app(service, *, background=True):
                 if row is None or row["mailbox"] != mailbox.ref or row["business_id"] != mailbox.business_id:
                     return JSONResponse({"error": "send_not_found"}, status_code=404)
                 return JSONResponse(Store.receipt(row))
-            if kind == "messages":
-                after, limit = int(request.query_params.get("after", "0")), int(request.query_params.get("limit", "100"))
-                if after < 0 or not 1 <= limit <= 500:
-                    raise ValueError("Invalid page")
-                result = await anyio.to_thread.run_sync(lambda: service.store.messages(mailbox.ref, after=after, limit=limit))
-                return JSONResponse(result)
             identity = request.query_params.get("message_id", "")
             owned = parse_owned_ids(request.query_params.get("owned_ids", ""))
             ranged = "offset" in request.query_params or "limit" in request.query_params
@@ -230,6 +243,113 @@ def create_app(service, *, background=True):
             return JSONResponse({"error": "invalid_request"}, status_code=400)
         except ProviderError as exc:
             return JSONResponse({"error": exc.code, "provider_status": exc.status}, status_code=502)
+
+    async def mailbox_messages(request):
+        """Shared with the scoped integration reply view (docs/INTEGRATION-CONTRACT.md);
+        an integration secret filters out sent copies, a legacy token sees everything."""
+        client = integration_client_for(request)
+        if client is None:
+            denied = authenticate(request)
+            if denied is not None:
+                return denied
+        try:
+            mailbox_ref = request.path_params["mailbox"]
+            if client is not None and mailbox_ref not in client.allowed_mailboxes:
+                return JSONResponse({"error": "mailbox_not_allowed_for_client"}, status_code=403)
+            mailbox = service.settings.mailbox(mailbox_ref)
+            after, limit = int(request.query_params.get("after", "0")), int(request.query_params.get("limit", "100"))
+            if after < 0 or not 1 <= limit <= 500:
+                raise ValueError("Invalid page")
+            result = await anyio.to_thread.run_sync(lambda: service.store.messages(mailbox.ref, after=after,
+                limit=limit, exclude_sent_copies=client is not None))
+            return JSONResponse(result)
+        except ValueError:
+            return JSONResponse({"error": "invalid_request"}, status_code=400)
+
+    async def integration_intents_submit(request):
+        client, denied = authenticate_integration(request)
+        if denied is not None:
+            return denied
+        content = bytearray()
+        async for chunk in request.stream():
+            content.extend(chunk)
+            if len(content) > MAX_HTTP_BYTES:
+                return JSONResponse({"error": "request_too_large"}, status_code=413)
+        try:
+            submission = IntentSubmission.model_validate_json(bytes(content))
+        except ValidationError as exc:
+            return JSONResponse({"error": "invalid_intent",
+                "fields": [".".join(map(str, item["loc"])) for item in exc.errors()]}, status_code=400)
+        try:
+            receipt = await anyio.to_thread.run_sync(lambda: service.submit_intent(client, submission))
+            return JSONResponse(receipt, status_code=200 if receipt["state"] in
+                {"confirmed", "failed", "cancelled", "uncertain"} else 202)
+        except IntentConflict:
+            return JSONResponse({"error": "intent_conflict"}, status_code=409)
+        except ValidationError as exc:
+            return JSONResponse({"error": "invalid_message",
+                "fields": [".".join(map(str, item["loc"])) for item in exc.errors()]}, status_code=400)
+        except ValueError as exc:
+            return JSONResponse({"error": "invalid_intent_request", "message": str(exc)}, status_code=400)
+
+    async def integration_intent_get(request):
+        client, denied = authenticate_integration(request)
+        if denied is not None:
+            return denied
+        receipt = await anyio.to_thread.run_sync(lambda: service.intent(client, request.path_params["intent_id"]))
+        if receipt is None:
+            return JSONResponse({"error": "intent_not_found"}, status_code=404)
+        return JSONResponse(receipt)
+
+    async def integration_intent_cancel(request):
+        client, denied = authenticate_integration(request)
+        if denied is not None:
+            return denied
+        receipt = await anyio.to_thread.run_sync(lambda: service.cancel_intent(client, request.path_params["intent_id"]))
+        if receipt is None:
+            return JSONResponse({"error": "intent_not_found"}, status_code=404)
+        return JSONResponse(receipt)
+
+    async def integration_stops_create(request):
+        client, denied = authenticate_integration(request)
+        if denied is not None:
+            return denied
+        content = bytearray()
+        async for chunk in request.stream():
+            content.extend(chunk)
+            if len(content) > 65536:
+                return JSONResponse({"error": "request_too_large"}, status_code=413)
+        try:
+            stop = StopRequest.model_validate_json(bytes(content))
+        except ValidationError:
+            return JSONResponse({"error": "invalid_stop"}, status_code=400)
+        try:
+            result = await anyio.to_thread.run_sync(lambda: service.record_stop(client, stop))
+            return JSONResponse(result)
+        except ValueError as exc:
+            return JSONResponse({"error": "invalid_stop_request", "message": str(exc)}, status_code=400)
+
+    async def integration_handoff(request):
+        client, denied = authenticate_integration(request)
+        if denied is not None:
+            return denied
+        content = bytearray()
+        async for chunk in request.stream():
+            content.extend(chunk)
+            if len(content) > 65536:
+                return JSONResponse({"error": "request_too_large"}, status_code=413)
+        try:
+            payload = HandoffRequest.model_validate_json(bytes(content))
+        except ValidationError:
+            return JSONResponse({"error": "invalid_handoff"}, status_code=400)
+        try:
+            result = await anyio.to_thread.run_sync(lambda: service.handoff(
+                client, request.path_params["thread_or_message_id"], payload))
+            return JSONResponse(result)
+        except IntentConflict:
+            return JSONResponse({"error": "handoff_conflict"}, status_code=409)
+        except ValueError as exc:
+            return JSONResponse({"error": "invalid_handoff_request", "message": str(exc)}, status_code=400)
 
     async def business_search(request):
         denied = authenticate(request)
@@ -337,14 +457,20 @@ def create_app(service, *, background=True):
     routes.append(Route("/mailboxes/{mailbox}/send/cancel", cancel, methods=["POST"]))
     routes.append(Route("/history/events", append_history, methods=["POST"]))
     # Explicit paths keep new provider features from becoming accidentally exposed.
-    for kind in ("messages", "message", "attachments", "attachment", "send"):
+    for kind in ("message", "attachments", "attachment", "send"):
         async def endpoint(request, selected=kind):
             request.path_params["kind"] = selected
             return await read(request)
         routes.append(Route("/mailboxes/{mailbox}/" + kind, endpoint))
+    routes.append(Route("/mailboxes/{mailbox}/messages", mailbox_messages))
     routes.append(Route("/mailboxes/{mailbox}/search", business_search))
     routes.append(Route("/mailboxes/{mailbox}/drafts", business_drafts))
     routes.insert(0, Route("/mailboxes/configure", configure_mailbox, methods=["POST"]))
     routes.append(Route("/fastmail", fastmail_account, methods=["GET"]))
     routes.append(Route("/fastmail/{path:path}", fastmail_account, methods=["GET", "POST"]))
+    routes.append(Route("/integrations/intents", integration_intents_submit, methods=["POST"]))
+    routes.append(Route("/integrations/intents/{intent_id}", integration_intent_get))
+    routes.append(Route("/integrations/intents/{intent_id}/cancel", integration_intent_cancel, methods=["POST"]))
+    routes.append(Route("/integrations/stops", integration_stops_create, methods=["POST"]))
+    routes.append(Route("/integrations/threads/{thread_or_message_id}/handoff", integration_handoff, methods=["POST"]))
     return Starlette(routes=routes, lifespan=lifespan)
