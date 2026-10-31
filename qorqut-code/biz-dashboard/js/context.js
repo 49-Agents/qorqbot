@@ -146,7 +146,6 @@ function ctxTree(d) {
   row("r", "", 0, `${SVG_FOLDER}<span class="tt">context</span><span class="cnt">${ctxCount(d.tree || {})}</span>`);
   rows.push(`<div class="h">Pillars</div>`);
   (d.pillars || []).forEach(n => row("f", n, 0, esc(n)));
-  row("f idx", "INDEX.md", 0, `INDEX.md <em>generated</em>`);
   rows.push(`<div class="h">Topics</div>`);
   const walk = (node, depth) => {
     const notes = node.notes || [], kids = node.children || [], isOpen = open.has(node.path);

@@ -12,7 +12,6 @@
 .ctxtree .item { padding: 6px 12px 6px calc(14px + var(--ind, 0px)); }
 .ctxtree .item .nm { font-size: 13px; gap: 6px; }
 .ctxtree .item .sub { font: 11px/1.4 var(--mono); color: var(--fg-3); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ctxtree .item.f .nm em { font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--fg-3); margin-left: 4px; }
 .ctxtree .item.t .car { flex: none; color: var(--fg-3); transition: transform .15s ease; }
 .ctxtree .item.t.open .car { transform: rotate(90deg); }
 .ctxtree .item.t .tt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
