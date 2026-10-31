@@ -51,7 +51,7 @@ const aicon = (name, colorHex, sizePx) => `<svg class="ai" width="${sizePx}" hei
 const agentGlyph = (m, size) => { const d = dept((m || {}).department); return (m && m.icon && AICONS[m.icon]) ? aicon(m.icon, d.color, size) : glyph(d.icon, d.color, size); };
 
 // lazy: the render functions live in later script files
-const TABS = { agents: c => renderAgents(c), context: c => renderContext(c), stories: c => renderStories(c), tables: c => renderTables(c),
+const TABS = { agents: c => renderAgents(c), context: c => renderContext(c),
   marketing: c => renderMarketing(c), accounting: c => renderTables(c, {department: 'accounting'}),
   datascience: c => soon(c, "Experiments and metric deep-dives."),
   progress: c => soon(c, "Tasks, milestones and what shipped."),
@@ -59,7 +59,9 @@ const TABS = { agents: c => renderAgents(c), context: c => renderContext(c), sto
   settings: c => renderSettings(c) };
 let verbose0 = ls("verbose") === "1", tab0 = ls("tab");
 if (tab0 === "email") tab0 = "marketing";
-const state = { scope: "business", globalTab: "overview", biz: null, bizs: [], tab: TABS[tab0] ? tab0 : "agents", agent: null, agents: [], liveNow: [], ctx: null, live: null, verbose: verbose0 };
+const contextTab0 = {stories: "_stories", tables: "_tables"}[tab0];
+if (contextTab0) tab0 = "context";
+const state = { scope: "business", globalTab: "overview", biz: null, bizs: [], tab: TABS[tab0] ? tab0 : "agents", agent: null, agents: [], liveNow: [], ctx: contextTab0 || null, live: null, verbose: verbose0 };
 const api = async (p, opt = {}) => {
   const r = await fetch("/api" + p, opt);
   const body = await r.json();
@@ -398,12 +400,15 @@ function openWorkspaceMenu() {
 $('#wsbtn').onclick = openWorkspaceMenu;
 async function goTab(name) {
   if (state.scope === "global") return;
+  const contextPage = {stories: "_stories", tables: "_tables"}[name];
+  if (contextPage) name = "context";
   const t = [...document.querySelectorAll(".ritem")].find(x => x.dataset.tab === name);
   if (!t || t.classList.contains("soon")) return;
   if (typeof storyView !== 'undefined' && storyView && !await storyCanLeave()) return;
+  if (contextPage) state.ctx = contextPage;
   state.tab = t.dataset.tab; ls("tab", state.tab);
   document.querySelectorAll(".ritem").forEach(x => x.classList.toggle("on", x === t));
-  renderTab(); moveInd();
+  await renderTab(); moveInd();
 }
 document.querySelectorAll(".ritem").forEach(t => t.onclick = () => goTab(t.dataset.tab));
 document.querySelectorAll(".ritem").forEach(t => t.classList.toggle("on", t.dataset.tab === state.tab));
@@ -426,7 +431,7 @@ function renderTab() {
   if (typeof teardownTerm === "function") teardownTerm();
   if (state.scope === "global") return renderGlobal(c);
   if (!state.biz) return;
-  (TABS[state.tab] || TABS.agents)(c);
+  return (TABS[state.tab] || TABS.agents)(c);
 }
 function soon(c, line) {
   const p = document.createElement("div"); p.className = "pane soonpane";

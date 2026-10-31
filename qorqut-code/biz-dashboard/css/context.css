@@ -32,17 +32,6 @@
 .ctxtree .item.tp .fresh { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 .ctxtree .item.bt .bdot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 4px; background: var(--accent); }
 .ctxtree .item.bt .bdot.bad { background: var(--danger); }
-/* the mini-queue hanging under the Context row: the marketing column's .mkpend/.mkpi look, own names.
-   Indented a hair past the item's own left edge, not all the way under its label. */
-.ctxpend { flex: none; padding: 2px 12px 8px 22px; display: flex; flex-direction: column; }
-.ctxpi {
-  display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 8px;
-  font-size: 12px; color: var(--fg-2); cursor: pointer; transition: color .12s ease, background .12s ease;
-}
-.ctxpi:hover { color: var(--fg); background: var(--hover); }
-.ctxpi svg { flex: none; }
-.ctxpi .tt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
 .ctxtree .empty.pad, .listcol .empty.pad { padding: 4px 24px 8px; font-size: 12.5px; }
 
 /* Filing/upload cards inside the Uploads pane view (moved out of the tree) */
@@ -141,3 +130,26 @@
 .ctxview .nh { margin: 14px 0 4px; font: 11px var(--mono); color: var(--fg-3); }
 .ctxview .nh:first-child { margin-top: 0; }
 .ctxview .card.p .ct { font-weight: 600; }
+
+/* Embedded workspaces keep their own lists and scrolling within Context. */
+.ctxsplit .ctxview.ctxembedded-view { padding: 0; display: flex; overflow: hidden; }
+#ctxembedded { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+#ctxrows button.item { width: calc(100% - 20px); height: auto; justify-content: flex-start; text-align: left; background: transparent; color: inherit; border: 0; border-radius: 12px; font: inherit; }
+#ctxrows button.item:hover { transform: none; background: var(--hover); }
+#ctxrows button.item.on { background: var(--wash); }
+.ctx-all-tasks { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; padding: 24px; }
+.ctx-all-tasks .data-heading { justify-content: space-between; }
+.ctx-all-tasks .data-grid th, .ctx-all-tasks .data-grid td { padding: 10px 14px; }
+.ctx-all-tasks .data-grid td:first-child { min-width: 220px; }
+.ctx-all-tasks td button { white-space: normal; text-align: left; height: auto; padding: 0; border: 0; border-radius: 0; background: transparent; font-weight: 400; line-height: 1.5; }
+.ctx-all-tasks td button:hover { text-decoration: underline; transform: none; }
+@media (max-width: 1100px) {
+  #ctxembedded .stories { grid-template-columns: 210px minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  #ctxrows { display: flex; align-items: center; overflow-x: auto; overflow-y: hidden; padding: 4px; }
+  #ctxrows .item, #ctxrows button.item { flex: none; width: auto; margin: 0; padding: 10px; white-space: nowrap; }
+  #ctxrows .item.on::before { left: 50%; top: auto; bottom: 0; width: 20px; height: 2px; transform: translateX(-50%); }
+  #ctxembedded .stories { grid-template-columns: minmax(0, 1fr); grid-template-rows: 180px minmax(0, 1fr); }
+  .ctx-all-tasks { padding: 12px; }
+}

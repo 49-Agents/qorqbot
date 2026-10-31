@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------- context
 // Upload originals, browse logical topic memberships, and inspect the shared relationship map.
 // Authored text and filer-maintained summaries remain separate.
-let _ctxTimer = null, _ctxData = null;
+let _ctxTimer = null, _ctxData = null, _ctxGeneration = 0;
 let _ctxGraph = null;
 function ctxClearGraph() { if (_ctxGraph) { _ctxGraph.destroy(); _ctxGraph = null; } }
 const SVG_FOLDER = `<svg class="fo" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M1.5 3.5h4l1.5 1.5h5.5v6h-11z"/></svg>`;
@@ -48,13 +48,6 @@ function topicColor(slug) {
   for (let i = 0; i < slug.length; i++) sum += slug.charCodeAt(i);
   return COLORS[keys[sum % keys.length]];
 }
-// newest note date (its filename's YYYY-MM-DD prefix) anywhere under a topic, notes and subtopics alike
-function newestNoteDate(node) {
-  let best = "";
-  (node.notes || []).forEach(n => { const m = /^(\d{4}-\d{2}-\d{2})-/.exec(n); if (m && m[1] > best) best = m[1]; });
-  (node.children || []).forEach(c => { const d = newestNoteDate(c); if (d > best) best = d; });
-  return best;
-}
 // last time each top-level topic was opened, so the sidebar can show a "something new" dot; per business
 const ctxSeenKey = () => `ctxseen:${state.biz}`;
 const ctxSeenGet = () => { try { return JSON.parse(ls(ctxSeenKey()) || "{}"); } catch (e) { return {}; } };
@@ -63,9 +56,9 @@ const ctxSeenSave = m => ls(ctxSeenKey(), JSON.stringify(m));
 async function renderContext(c) {
   ctxClearGraph();
   clearTimeout(_ctxTimer); _ctxTimer = null;
-  const biz = state.biz;
+  const biz = state.biz, generation = ++_ctxGeneration;
   const d = await api(`/biz/${biz}/context`);
-  if (state.scope === "global" || state.biz !== biz || state.tab !== "context" || !c.isConnected) return;
+  if (generation !== _ctxGeneration || state.scope === "global" || state.biz !== biz || state.tab !== "context" || !c.isConnected) return;
   c.innerHTML = `<div class="ctxwrap">
     <div class="split ctxsplit"><div class="listcol ctxtree" id="ctxtree">
       <div class="ctop"><button class="primary" id="ctxup">${ICO_UPLOAD}Upload context</button><input type="search" id="ctxsearch" placeholder="Search context" autocomplete="off"></div>
@@ -75,11 +68,11 @@ async function renderContext(c) {
     </div><div class="pane ctxview" id="ctxview"></div></div></div>`;
   $("#ctxup").onclick = () => uploadModal();
   wireCtxSearch();
-  if (state.ctx == null) state.ctx = "";
+  if (state.ctx == null) state.ctx = ls(`ctxpage:${biz}`) || contextTab0 || "";
   ctxPaint(d);
   if (typeof lnFetch === "function") lnFetch();   // fills the status pane and the rail badge; learning.js repaints itself after that
-  ctxShow(state.ctx);
-  ctxWatch(d);
+  await ctxShow(state.ctx);
+  if (state.biz === biz && state.tab === "context" && c.isConnected) ctxWatch(d);
 }
 
 // ------------------------------------------------------------- search
@@ -90,14 +83,14 @@ function wireCtxSearch() {
   inp.oninput = () => {
     clearTimeout(_ctxSearchTimer);
     const q = inp.value.trim();
-    if (q.length < 2) { ctxShow(state.ctx); return; }
+    if (q.length < 2) { if ($(".ctx-search-results")) ctxGo(state.ctx); return; }
     _ctxSearchTimer = setTimeout(() => ctxSearch(q), 250);
   };
   inp.onkeydown = e => {
     if (e.key !== "Escape") return;
     clearTimeout(_ctxSearchTimer);
     inp.value = "";
-    ctxShow(state.ctx);
+    ctxGo(state.ctx);
   };
 }
 
@@ -109,16 +102,20 @@ function ctxMark(snippet, q) {
 }
 
 async function ctxSearch(q) {
+  if (storyView && !await storyCanLeave()) return;
   const v = $("#ctxview");
   if (!v) return;
-  const r = await api(`/biz/${state.biz}/context/search?q=${encodeURIComponent(q)}`);
+  const biz = state.biz, selected = state.ctx;
+  const r = await api(`/biz/${biz}/context/search?q=${encodeURIComponent(q)}`);
   const inp = $("#ctxsearch");
-  if (!inp || inp.value.trim() !== q) return;   // a newer query is already in flight
+  if (!v.isConnected || state.biz !== biz || state.ctx !== selected || !inp || inp.value.trim() !== q) return;
   const hits = r.hits || [];
+  storyDispose();
+  v.classList.remove('ctxembedded-view');
   ctxClearGraph();
   const rows = hits.map(h => `<div class="card" data-p="${esc(h.path)}" data-k="${esc(h.kind)}" title="${esc(h.title)}"><div class="ct"><span class="kd">${esc(h.kind)}</span><span class="tt">${esc(cap(h.title))}</span></div>
     <div class="cb">${ctxMark(h.snippet, q)}</div><div class="cs">${esc(h.path)}</div></div>`).join("");
-  v.innerHTML = `<div class="sec"><div class="sh">Search: ${esc(q)} <span class="stamp">${hits.length} hit${hits.length === 1 ? "" : "s"}</span></div>
+  v.innerHTML = `<div class="sec ctx-search-results"><div class="sh">Search: ${esc(q)} <span class="stamp">${hits.length} hit${hits.length === 1 ? "" : "s"}</span></div>
     <div class="cards">${rows || `<div class="empty">no matches</div>`}</div></div>`;
   v.querySelectorAll(".card").forEach(el => el.onclick = () => {
     const p = el.dataset.p;
@@ -138,7 +135,7 @@ function ctxBusy(d) {
 }
 // Poll the tree while the tab is open: every 8 s while the queues are busy, every 20 s when idle (work
 // arrives from the filer sweep and from other clients too). Re-render only what changed.
-const ctxSig = (d, p) => p === "_learning" ? "_learning"      // learning.js owns that pane; nothing in the context tree changes it
+const ctxSig = (d, p) => ["_learning", "_stories", "_tables", "_tasks"].includes(p) ? p // These views own their refreshes.
   : p === "_people" ? JSON.stringify((d || {}).people || [])
   : p === "_uploads" ? JSON.stringify([(d || {}).inbox || [], (d || {}).dumps || []])
   : JSON.stringify([ls("ctxmapmode") === "1" ? (d || {}).tree : ctxFind((d || {}).tree, p || ""),
@@ -147,10 +144,11 @@ const ctxSig = (d, p) => p === "_learning" ? "_learning"      // learning.js own
 let _ctxLastSig = "";
 function ctxWatch(d) {
   clearTimeout(_ctxTimer); _ctxTimer = null;
+  const biz = state.biz, tree = $("#ctxtree");
   const tick = async () => {
     if (state.tab !== "context" || !$("#ctxtree")) { _ctxTimer = null; return; }
-    const d2 = await api(`/biz/${state.biz}/context`);
-    if (state.tab !== "context" || !$("#ctxtree")) { _ctxTimer = null; return; }
+    const d2 = await api(`/biz/${biz}/context`);
+    if (state.tab !== "context" || state.biz !== biz || !tree.isConnected) return;
     ctxPaint(d2);
     const uid = uploadId(state.ctx);
     if (state.ctx && state.ctx.startsWith("_inbox/") && !(d2.inbox || []).some(i => `_inbox/${i.id}.md` === state.ctx)) {
@@ -182,33 +180,40 @@ function ctxPaint(d) {
   ctxTree(d);
 }
 
-// the sidebar: Learning, then Context with the four most recently touched topics hanging under it, then
-// People/Uploads, then CORE pillars, then a TOPICS section with every top-level topic (dot + title, no
-// nesting — drilling into subtopics happens via the right-pane cards)
+// Flat Context workspace navigation. Topics remain available in the overview.
 function ctxTree(d) {
   const t = $("#ctxrows"), rows = [];
   const isRoot = !state.ctx;                                  // "" is the Context root; "_learning" is a page of its own
-  const kids = (d.tree && d.tree.children) || [];
-  rows.push(`<div class="item ov ${state.ctx === "_learning" ? "on" : ""}" data-p="_learning"><div class="nm">${SVG_BRAIN}<span class="tt">Learning</span></div></div>`);
   rows.push(`<div class="item ov ${isRoot ? "on" : ""}" data-p=""><div class="nm">${SVG_LIB}<span class="tt">Context</span></div></div>`);
-  // a peek at what moved lately, the way the marketing column hangs the submitted pile under Queue
-  const recent = kids.map(k => [k, newestNoteDate(k)]).filter(([, dt]) => dt).sort((a, b) => a[1] < b[1] ? 1 : a[1] > b[1] ? -1 : 0).slice(0, 4);
-  rows.push(`<div class="ctxpend" id="ctxpend">${recent.map(([k]) =>
-    `<div class="ctxpi" data-p="${esc(k.path)}" title="${esc(k.title || k.slug)}">${glyph("circle", topicColor(k.slug), 8)}<span class="tt">${esc(cap(k.title || k.slug, 24))}</span></div>`).join("")}</div>`);
+  for (const [key, label, icon] of [['_stories', 'Stories', `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M12 5h8M12 11h6M12 19h8"/></svg>`], ['_tasks', 'All tasks', SVG_TINBOX], ['_tables', 'Tables', aicon('database', 'currentColor', 15)]]) {
+    rows.push(`<button type="button" class="item bt ${state.ctx === key ? 'on' : ''}" data-p="${key}"><div class="nm">${icon}<span class="tt">${label}</span></div></button>`);
+  }
   const inbox0 = d.inbox || [], failed0 = inbox0.filter(i => i.failed).length, waiting0 = inbox0.filter(i => ["queued", "running", "waiting_signoff", "cancelling"].includes(i.status)).length;
   const badge0 = failed0 ? `<span class="bdot bad"></span>` : waiting0 ? `<span class="bdot acc"></span>` : "";
   const peopleOn0 = state.ctx === "_people" || (state.ctx != null && PERSON_VIEW_RE.test(state.ctx));
   rows.push(`<div class="item bt ${peopleOn0 ? "on" : ""}" data-p="_people"><div class="nm">${SVG_PEOPLE}<span class="tt">People</span></div></div>`);
+  rows.push(`<div class="item ov ${state.ctx === "_learning" ? "on" : ""}" data-p="_learning"><div class="nm">${SVG_BRAIN}<span class="tt">Learning</span></div></div>`);
   rows.push(`<div class="item bt ${state.ctx === "_uploads" ? "on" : ""}" data-p="_uploads"><div class="nm">${SVG_INBOX}<span class="tt">Uploads</span>${badge0}</div></div>`);
-  // no Core or Topics list here: the pillars are reached from the overview, topics from the overview and
-  // the four latest under Context above
   t.innerHTML = rows.join("");
-  t.querySelectorAll(".item, .ctxpi").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
+  t.querySelectorAll(".item").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
 }
 
-function ctxGo(p) { state.ctx = p; if (_ctxData) ctxTree(_ctxData); ctxShow(p); }
+async function ctxGo(p) {
+  const pane = $("#ctxview"), biz = state.biz;
+  if (typeof storyView !== 'undefined' && storyView && !await storyCanLeave()) return;
+  if (!pane?.isConnected || state.biz !== biz || state.tab !== 'context') return;
+  clearTimeout(_ctxSearchTimer);
+  const search = $("#ctxsearch"); if (search) search.value = '';
+  state.ctx = p;
+  if (_ctxData) ctxTree(_ctxData);
+  return ctxShow(p);
+}
 
 function ctxShow(p) {
+  ls(`ctxpage:${state.biz}`, ["_stories", "_tables", "_tasks", "_people", "_learning", "_uploads"].includes(p) ? p : "");
+  storyDispose();
+  const pane = $("#ctxview");
+  pane?.classList.toggle('ctxembedded-view', ['_stories', '_tables', '_tasks'].includes(p));
   ctxClearGraph();
   jClearTimers();
   if (p === "_learning") {                                   // learning.js loads after this file; it may not be there at all
@@ -216,6 +221,14 @@ function ctxShow(p) {
     if (typeof openLearning === "function") return openLearning();
     const v = $("#ctxview"); if (v) v.innerHTML = `<div class="empty">learning.js not loaded</div>`;
     return;
+  }
+  if (['_stories', '_tables', '_tasks'].includes(p)) {
+    _ctxLastSig = ctxSig(_ctxData, p);
+    pane.innerHTML = '<div id="ctxembedded"></div>';
+    const content = pane.firstElementChild;
+    if (p === '_stories') return renderStories(content);
+    if (p === '_tables') return renderTables(content);
+    return renderAllTasks(content);
   }
   if (p === "_people") return openPeople();
   if (p === "_uploads") return openUploads();
@@ -612,4 +625,42 @@ async function editPersonDetails(biz, id, after) {
     } catch(e) {el.querySelector('.data-form-error').textContent=e.message;}
     finally {if(button.isConnected) button.disabled=false;}
   }}]});
+}
+
+// All business tasks, independent of the personal drawer's assignment filter.
+async function renderAllTasks(container) {
+  const biz = state.biz;
+  container.innerHTML = `<section class="ctx-all-tasks"><header class="data-heading"><h1>All tasks</h1><button class="btn" id="all-tasks-refresh">Refresh</button></header>
+    <div class="data-row-tools"><label>Search tasks<input class="inp" type="search" id="all-tasks-search"></label>
+    <label>Status<select class="inp" id="all-tasks-status"><option value="">All statuses</option>${T_STATES.map(s => `<option value="${s}">${T_LABEL[s]}</option>`).join('')}</select></label></div>
+    <p id="all-tasks-message" role="status">Loading tasks…</p><div class="data-grid-wrap"><table class="data-grid"><thead><tr><th>Task</th><th>Status</th><th>Assignees</th><th>Due</th><th>Tags</th></tr></thead><tbody></tbody></table></div></section>`;
+  let rows = [], request = 0;
+  const current = () => container.isConnected && state.biz === biz && state.tab === 'context' && state.ctx === '_tasks';
+  const message = container.querySelector('#all-tasks-message');
+  const search = container.querySelector('#all-tasks-search'), status = container.querySelector('#all-tasks-status');
+  const paint = () => {
+    const query = search.value.trim().toLowerCase();
+    const visible = rows.filter(t => (!status.value || t.status === status.value) &&
+      [t.title, ...(t.owners || []), ...(t.tags || [])].join(' ').toLowerCase().includes(query));
+    message.textContent = `${visible.length} ${visible.length === 1 ? 'task' : 'tasks'}`;
+    const body = container.querySelector('tbody');
+    body.innerHTML = visible.map(t => `<tr><td><button class="quiet" data-task="${esc(t.id)}">${esc(t.title)}</button></td><td>${esc(T_LABEL[t.status] || t.status)}</td><td>${esc((t.owners || []).map(tShort).join(', ') || 'Unassigned')}</td><td>${esc(t.due || '—')}</td><td>${esc((t.tags || []).join(', '))}</td></tr>`).join('');
+    body.querySelectorAll('[data-task]').forEach(button => button.onclick = async () => {
+      try { const task = await tFetchTask(biz, button.dataset.task); if (current()) tDetail(task); }
+      catch (error) { if (current()) message.textContent = error.message; }
+    });
+  };
+  const refresh = async () => {
+    const sequence = ++request;
+    try {
+      const result = await api(`/biz/${encodeURIComponent(biz)}/tasks?all=1`);
+      if (!current() || sequence !== request) return;
+      if (!Array.isArray(result)) throw new Error('Could not load tasks. Use Refresh to retry.');
+      rows = result.sort((a,b) => Number(tClosed(a)) - Number(tClosed(b)) || String(a.title).localeCompare(String(b.title)));
+      paint();
+    } catch (error) { if (current() && sequence === request) message.textContent = error.message; }
+  };
+  search.oninput = paint; status.onchange = paint;
+  container.querySelector('#all-tasks-refresh').onclick = refresh;
+  await refresh();
 }

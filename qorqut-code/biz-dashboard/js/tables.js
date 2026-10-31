@@ -9,14 +9,14 @@ window.addEventListener('beforeunload', event => {
   if (_dataDrafts.size) { event.preventDefault(); event.returnValue = ''; }
 });
 const dataCall = async (biz, op, args = {}) => coreData(await post(`/biz/${encodeURIComponent(biz)}/operations/${op}`, args));
-const dataView = () => ['tables', 'accounting'].includes(state.tab);
+const dataView = () => state.tab === 'accounting' || state.tab === 'context' && state.ctx === '_tables';
+const dataContainer = () => document.querySelector(state.tab === 'context' ? '#ctxembedded' : '#content');
 const dataActive = (biz, node) => state.scope === 'business' && state.biz === biz && dataView() && node?.isConnected;
 const dataIconButton = (id, label, icon) => `<button class="data-icon" type="button" id="${id}" title="${esc(label)}" aria-label="${esc(label)}">${icon}</button>`;
 const dataValue = value => value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
 const dataCell = (row, key) => row && Object.hasOwn(row.cells, key) ? row.cells[key] : null;
 const dataDownload = (biz, id) => `/api/biz/${encodeURIComponent(biz)}/data-uploads/${encodeURIComponent(id)}/download`;
 const dataSettingsIcon = document.querySelector('.ritem[data-tab="settings"] svg').outerHTML;
-document.querySelector('#tablesnav').innerHTML = aicon('database', 'currentColor', 20);
 
 async function renderTables(container, filters = null) {
   const biz = state.biz, generation = ++_dataGeneration;
@@ -303,7 +303,7 @@ function dataTableEditor(table = null) {
       tags: Object.fromEntries([...el.querySelectorAll('[data-tags]')].map(node => [node.dataset.tags, [...new Set(node.value.split(',').map(value => value.trim()).filter(Boolean))]])),
       ...(table ? {archived: el.querySelector('#data-table-archived').checked} : {})};
     return submit(table ? 'tables_update' : 'tables_create', table ? {table_id: table.id, expected_revision: table.revision, changes} : {...changes, purpose: el.querySelector('#data-purpose').value});
-  }, async result => { if (dataView()) { _data.selected = result.table.id; _data.mode = 'tables'; await renderTables(document.querySelector('#content')); } });
+  }, async result => { if (dataView()) { _data.selected = result.table.id; _data.mode = 'tables'; await renderTables(dataContainer()); } });
   const host = editor.el.querySelector('#data-columns');
   const add = (column, existing = false, required = false) => {
     const row = document.createElement('div'); row.className = 'data-column';
@@ -353,7 +353,7 @@ function dataUploadDialog() {
     if (file.size > 20 * 1024 * 1024 || !file.size) throw new Error('Choose a file between 1 byte and 20 MiB.');
     const content = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result.slice(reader.result.indexOf(',') + 1)); reader.onerror = () => reject(new Error('Could not read the file.')); reader.readAsDataURL(file); });
     return submit('data_uploads_upload', {filename: file.name, content_b64: content, notes: el.querySelector('#data-upload-notes').value});
-  }, async result => { if (dataView()) { _data.mode = 'uploads'; _data.selected = result.upload.id; await renderTables(document.querySelector('#content')); } else toast('Data uploaded.'); }, 'Upload');
+  }, async result => { if (dataView()) { _data.mode = 'uploads'; _data.selected = result.upload.id; await renderTables(dataContainer()); } else toast('Data uploaded.'); }, 'Upload');
   const choose = value => { file = value; view.el.querySelector('#data-file-name').textContent = file ? file.name : 'Choose or drop a data file'; };
   view.el.querySelector('#data-file').onchange = event => choose(event.target.files[0]);
   const drop = view.el.querySelector('#data-upload-drop'); drop.ondragover = event => event.preventDefault(); drop.ondrop = event => { event.preventDefault(); choose(event.dataTransfer.files[0]); };
@@ -362,7 +362,7 @@ function dataUploadDialog() {
 async function tablesOpen(biz, id, mode = 'tables', filters = {}) {
   if (state.biz !== biz) return;
   await goTab('tables');
-  if (state.biz !== biz || state.tab !== 'tables') return;
+  if (state.biz !== biz || state.tab !== 'context' || state.ctx !== '_tables') return;
   _data.mode = mode; _data.selected = id; _data.department = filters.department || ''; _data.purpose = filters.purpose || '';
-  await renderTables(document.querySelector('#content'));
+  await renderTables(dataContainer());
 }
