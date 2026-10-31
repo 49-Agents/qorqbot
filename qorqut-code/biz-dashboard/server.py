@@ -1205,6 +1205,9 @@ class Handler(BaseHTTPRequestHandler):
         if not title:
             return self.send_json({"error": "empty title"}, 400)
         args = ["add", title]
+        # owner: absent -> biztask's default (the actor); "" -> unassigned (`--owner -`)
+        if "owner" in body and not str(body.get("owner") or "").strip():
+            args += ["--owner", "-"]
         for flag, key in (("--owner", "owner"), ("--due", "due"), ("-n", "note")):
             val = str(body.get(key) or "").strip()
             if val:
