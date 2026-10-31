@@ -427,7 +427,7 @@ function sgCreateView(options) {
   };
   document.addEventListener('click', event => {
     if (!active() || !sg.selected || !sg.mount) return;
-    if (event.composedPath().some(node => node.classList?.contains('sg-toast') || node.dataset?.attentionId)) return;
+    if (event.composedPath().some(node => node.dataset?.action === 'open' || node.dataset?.attentionId)) return;
     const row = event.composedPath().find(node => node.classList?.contains('sg-row'));
     if (row && sg.mount.contains(row)) return;
     sg.selected=null; sg.selections.delete(sg.slug); sg.detailRequest++; render();

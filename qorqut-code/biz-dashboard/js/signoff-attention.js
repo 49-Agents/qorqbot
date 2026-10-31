@@ -29,7 +29,7 @@ function sgAttentionPaint() {
     row.querySelector('.sg-attention-badge')?.remove();
     if (business) row.querySelector('.workspace-choice')?.insertAdjacentHTML('beforeend', sgAttentionBadge(business.slug));
   });
-  const tab = document.querySelector('[data-v="signoffs"]');
+  const tab = document.querySelector('#taskspanel .ttab[data-v="signoffs"]');
   if (tab) {
     tab.querySelector('.sg-signoff-count')?.remove();
     const b = sgAttention.businesses.find(b => b.slug === (state.scope === 'global' ? null : state.biz));
