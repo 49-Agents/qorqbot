@@ -65,7 +65,12 @@
   function previewHtml(s) {
     const preview = s.preview;
     if (!preview || !Array.isArray(preview.changes)) return "";
-    const resources = [...new Set([...(preview.resources || []), ...preview.changes.map(change => change && change.resource)].filter(Boolean).map(resourceText))];
+    const resourcesById = new Map();
+    for (const resource of [...(preview.resources || []), ...preview.changes.map(change => change && change.resource)].filter(Boolean)) {
+      const key = typeof resource === "string" ? resource : resource.resource_id || resource.label;
+      if (!resourcesById.has(key)) resourcesById.set(key, resourceText(resource));
+    }
+    const resources = [...new Set(resourcesById.values())];
     const effects = (preview.effects || []).map(effect => typeof effect === "string" ? effect : effect && effect.description).filter(Boolean);
     return `${preview.rationale ? `<div class="sg-rationale"><h3>${s.proposer_agent_id ? "Agent's explanation" : "Proposer's explanation"}</h3><p>${esc(preview.rationale)}</p></div>` : ""}
       <div class="sg-impact"><h3>Affected scope</h3><p>${esc(scopeText(preview.affected_scope || s.affected_scope))}</p>${resources.length ? `<ul>${resources.map(resource => `<li>${esc(resource)}</li>`).join("")}</ul>` : ""}</div>
