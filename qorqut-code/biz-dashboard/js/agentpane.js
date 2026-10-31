@@ -48,7 +48,7 @@ function agpadMount(name, el, options = {}) {
     view: "tasks",
     logs: null, logError: false, nextLog: 0, pending: false,
     tasks: null, source: state.tasks, tasksStarted: false, taskError: false, bodyHtml: null,
-    views: ["tasks", "activity", "signoffs", "inbox"], ...options,
+    views: ["tasks", "signoffs", "inbox"], ...options,
   };
   const button = $("#agpad-toggle");
   if (button) {
@@ -175,6 +175,13 @@ function agpadTick() {
 // Activity and Signoffs refresh every 12 seconds only while their pane view is visible.
 setInterval(agpadTick, 1000);
 
+function agpadWatcherAge(at) {
+  const checked = Date.parse(at);
+  if (!Number.isFinite(checked)) return 'Last check unavailable';
+  const minutes = Math.max(0, Math.floor((Date.now() - checked) / 60000));
+  return `Last check: ${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+}
+
 function agpadPaintInbox(p) {
   const body = $('#agpad-body', p.el), data = p.inbox;
   if (!body) return;
@@ -187,7 +194,7 @@ function agpadPaintInbox(p) {
     <strong>${esc(item.summary || 'Source item')}</strong><span>${esc(({stories:'Story',tasks:'Task',signoffs:'Signoff',documents:'Document',email_conversations:'Email',data_tables:'Table',action_logs:'Action',requests:'Request',agent_profiles:'Agent',principals:'Person',context_entities:'Reference'})[item.source_type] || 'Update')}${subscription ? (item.include_related ? ' · Includes linked items' : ' · Item only') : ' · ' + esc(item.event_type.split(',').map(type => ({relationship_changed:'Links changed',assignment_changed:'Assignment changed',response_submitted:'Response submitted',action_outcome:'Action result',note_added:'Note added',note:'Note added',message_changed:'Message received'})[type] || type.replaceAll('_', ' ')).join(', '))}</span>
     ${subscription ? '' : `<span>${esc(item.actor_name)} · ${esc(new Date(item.created_at).toLocaleString())}</span>`}</button>`;
   const html = error + (!data ? tEmptyHtml(p.inboxError ? 'No inbox data available.' : 'Loading inbox…') :
-    `<div class="agpad-inbox-status"><b>${data.watcher_active ? 'Watcher connected' : data.watcher ? 'Watcher disconnected' : 'Watcher not started'}</b><span>${data.watcher ? 'Last check: ' + esc(new Date(data.watcher.last_check_at).toLocaleString()) : 'Claude must start its inbox watcher.'}</span></div>
+    `<div class="agpad-inbox-status"><span class="agpad-watcher-dot${data.watcher_active ? ' connected' : ''}" role="img" aria-label="${data.watcher_active ? 'Watcher connected' : data.watcher ? 'Watcher disconnected' : 'Watcher not started'}" title="${data.watcher_active ? 'Watcher connected' : data.watcher ? 'Watcher disconnected' : 'Watcher not started'}"></span><span>${data.watcher ? esc(agpadWatcherAge(data.watcher.last_check_at)) : 'Claude must start its inbox watcher.'}</span></div>
     <h3 class="agpad-inbox-heading">Pending updates</h3>${data.items.length ? data.items.map(item => card(item)).join('') : tEmptyHtml('No accessible pending updates.')}
     ${data.next_cursor ? '<button type="button" class="quiet" id="agpad-inbox-more">More updates</button>' : ''}
     <h3 class="agpad-inbox-heading">Subscriptions</h3>${data.subscriptions.length ? data.subscriptions.map(item => card(item, true)).join('') : tEmptyHtml('No subscriptions.')}`);
