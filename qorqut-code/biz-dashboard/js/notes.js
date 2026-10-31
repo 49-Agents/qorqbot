@@ -392,7 +392,7 @@ function ntLineRowHtml(es, i) {
   if (isTask) cls.push("nttask");
   if (meta.bold) cls.push("bold");
   if (closed) cls.push("done");
-  const ball = isTask ? `<button type="button" class="ntball ntb-${esc(status)}" data-i="${i}" aria-label="Status: ${esc(NT_STATUS_LABEL[status] || status)}. Click to change."></button>` : "";
+  const ball = isTask ? `<span class="ntballwrap"><button type="button" class="ntball ntb-${esc(status)}" data-i="${i}" aria-label="Status: ${esc(NT_STATUS_LABEL[status] || status)}. Click to change."><span class="ntdot"></span></button></span>` : "";
   return `<div class="${cls.join(" ")}" data-i="${i}">${ball}<textarea class="ntlinein" data-i="${i}" rows="1" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea></div>`;
 }
 function ntRenderLines() {
