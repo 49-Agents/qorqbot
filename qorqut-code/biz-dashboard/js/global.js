@@ -11,7 +11,7 @@ const GLOBAL_PAGES = {
 };
 // Reuse the actual business navigation and drawer glyphs, including placeholder pages.
 const GLOBAL_ICONS = {
-  ideas: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4M8.5 14.5a6 6 0 1 1 7 0c-.9.7-1.5 1.5-1.5 3.5h-4c0-2-.6-2.8-1.5-3.5Z"/></svg>',
+  ideas: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${AICONS.lightbulb}</svg>`,
   personal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg>',
   learning: SVG_BRAIN,
   notes: T_VIEW_ICON.notes,
