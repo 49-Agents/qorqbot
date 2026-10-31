@@ -108,7 +108,7 @@
 .ntlinein {
   display: block; width: 100%; box-sizing: border-box; resize: none; overflow: hidden;
   border: 0; background: none; outline: none; box-shadow: none;
-  font: 400 15.5px/1.75 var(--sans); letter-spacing: -.005em; color: var(--fg);
+  font: 400 14.5px/1.75 var(--sans); letter-spacing: -.005em; color: var(--fg);
   padding: 0 0 0 calc(1.5rem + 1.5rem); text-indent: -1.5rem;
 }
 .ntlinein:focus { border: 0; box-shadow: none; background: none; }
