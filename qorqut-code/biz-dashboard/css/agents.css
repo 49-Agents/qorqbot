@@ -130,7 +130,7 @@
 /* the terminal is a rounded card inset 50px on every side of the workspace. The inner
    padding on the host shrinks its clientWidth/Height, so the measured-cell fit math stays
    exact (cols/rows follow the reduced area). */
-.termpane { position: relative; flex: 1; min-height: 0; display: flex; background: #0b0e14;
+.termpane { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: #0b0e14;
   min-width: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .termhost { flex: 1; min-width: 0; min-height: 0; width: 100%; box-sizing: border-box; padding: 12px 20px 12px 12px; overflow: hidden; }
 .termtools { position: absolute; top: 8px; right: 8px; z-index: 5; display: flex; align-items: center; gap: 6px; }
@@ -139,3 +139,14 @@
 .agent-group-control { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 16px; font-size:11px; color:var(--fg-2); }
 .agent-group-control select { max-width:130px; background:var(--wash); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:5px; }
 #agentrows .cn { display:flex; align-items:center; gap:7px; }
+
+/* Local editing takes its own space so it never covers the remote prompt. */
+.termcomposer { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 0 12px 12px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--wash); }
+.termcomposer[hidden] { display: none; }
+.termcomposer input { flex: 1; min-width: 0; width: 0; padding: 8px 10px; border: 1px solid var(--line);
+  border-radius: 7px; background: #0b0e14; color: var(--fg); font: 13px var(--mono, monospace); }
+.termcomposer input:focus { outline: 1px solid var(--accent, #7dd3fc); }
+.termcomposer button { padding: 7px 12px; border-radius: 7px; }
+.termcomposer-status { flex-basis: 100%; font-size: 11px; color: var(--fg-2); }
+.termcomposer-status:empty { display: none; }

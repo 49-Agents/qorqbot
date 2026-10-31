@@ -17,6 +17,8 @@ function b64ToBytes(b64) {
 }
 
 let _termES = null, _term = null, _termRO = null;
+// Local drafts are scoped to the terminal endpoint, never persisted to storage.
+const terminalDrafts = new Map();
 
 function teardownTerm() {
   if (_termRO) { _termRO.disconnect(); _termRO = null; }
@@ -35,9 +37,21 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
   teardownTerm();
   pane.innerHTML = `<div class="termpane">
     <div class="termhost" id="termhost"></div>
-    <div class="termtools"><button class="ttab tref" id="tref" title="Reconnect the stream" aria-label="Reconnect the stream"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 12l-3-4"/></svg></button></div>
+    <form class="termcomposer" hidden>
+      <input type="text" aria-label="Local terminal input" maxlength="16000" autocomplete="off" spellcheck="false">
+      <button type="submit">Send</button>
+      <span class="termcomposer-status" role="status"></span>
+    </form>
+    <div class="termtools"><button type="button" class="ttab" id="termcompose-toggle" aria-label="Toggle local composer" aria-expanded="false" aria-controls="termcomposer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 9h.01M11 9h.01M15 9h.01M7 12h.01M11 12h.01M15 12h.01M8 15h8"/></svg></button><button class="ttab tref" id="tref" title="Reconnect the stream" aria-label="Reconnect the stream"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 12l-3-4"/></svg></button></div>
   </div>`;
   const host = $("#termhost", pane), btn = $("#tref", pane);
+  const composer = $(".termcomposer", pane), composeToggle = $("#termcompose-toggle", pane);
+  composer.id = "termcomposer";
+  const input = $("input", composer), send = $("button", composer), status = $(".termcomposer-status", composer);
+  const draft = terminalDrafts.get(terminalBase) || { open: false, text: '' };
+  terminalDrafts.set(terminalBase, draft);
+  input.value = draft.text;
+  input.oninput = () => { draft.text = input.value; };
   if (pane.closest(".agsplit") && pane.dataset.agentPane !== "off") agpadTerminalButton($(".termtools", pane), paneToggle);
 
   const term = new Terminal({
@@ -115,17 +129,60 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
 
   // input: keystrokes -> POST (the PTY echoes back over the stream)
   let inputQueue = Promise.resolve(), inputFailed = false;
+  const sendInput = d => {
+    const pending = inputQueue.then(async () => {
+      if (_term !== term || inputFailed) return false;
+      const result = await post(`${terminalBase}/input`, { data: d });
+      if (result.error) throw new Error('Terminal input failed');
+      return true;
+    }).catch(() => { inputFailed = true; setStat('disconnected'); return false; });
+    inputQueue = pending;
+    return pending;
+  };
   term.onData(d => {
     // Replaying old terminal queries must not type their generated replies into
     // the current shell. Keep ordinary keystrokes and live protocol replies.
     if (replaying && /^\x1b\[(?:\?|>)?[0-9;]*[cnR]$/.test(d)) return;
-    inputQueue = inputQueue.then(async () => {
-      if (_term !== term || inputFailed) return;
-      const result = await post(`${terminalBase}/input`, { data: d });
-      if (result.error) { inputFailed = true; setStat('disconnected'); }
-    }).catch(() => { inputFailed = true; setStat('disconnected'); });
+    sendInput(d);
   });
-  term.focus();
+
+  const showComposer = open => {
+    draft.open = open;
+    composer.hidden = !open;
+    composeToggle.setAttribute('aria-expanded', String(open));
+    composeToggle.classList.toggle('on', open);
+    requestAnimationFrame(fit);
+    if (open) input.focus(); else term.focus();
+  };
+  composeToggle.onclick = () => showComposer(!draft.open);
+  input.addEventListener('keydown', event => {
+    // IME Enter finishes composition, not the terminal command.
+    if (event.key === 'Enter' && (event.isComposing || event.keyCode === 229)) event.preventDefault();
+    if (event.key === 'Escape') { event.preventDefault(); showComposer(false); }
+  });
+  composer.onsubmit = async event => {
+    event.preventDefault();
+    if (send.disabled || !input.value || _term !== term) return;
+    // Single-line local editing. Control characters from pasted text must not
+    // become hidden terminal commands. This appends to the current remote prompt.
+    const text = input.value;
+    if (/[\x00-\x1f\x7f]/.test(text)) {
+      status.textContent = 'Remove control characters before sending.';
+      return;
+    }
+    send.disabled = true;
+    input.readOnly = true;
+    status.textContent = 'Sending…';
+    const sent = await sendInput(text + '\r');
+    if (sent && draft.text === text) draft.text = '';
+    if (_term !== term) return;
+    input.readOnly = false;
+    input.value = draft.text;
+    send.disabled = !sent;
+    status.textContent = sent ? '' : 'Delivery unconfirmed. Check the terminal before reconnecting and retrying.';
+    if (!composer.hidden) input.focus();
+  };
+  showComposer(draft.open);
 
   // reconnect: re-open the stream. The PTY persists, so this replays scrollback; if the shell
   // had exited, the server spawns a fresh one. It is NOT a kill/restart.
