@@ -350,6 +350,7 @@ function tSetView(v) {
   else if (v === "uploads") { tPaintUploads(); }
   else if (v === "routines") { tPaintRoutines(); }
   if (tabFocused) p.querySelector(`.ttab[data-v="${v}"]`).focus({ preventScroll: true });
+  if (typeof sgAttentionPaint === "function") sgAttentionPaint();
 }
 
 // ---------------------------------------------------------------- activity view

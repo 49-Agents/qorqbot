@@ -45,9 +45,9 @@ function sgAttentionPaint() {
       if (!delivery) return;
       try {
         button.disabled=true;
-        if (button.dataset.action==='dismiss') await post(`/me/attention/deliveries/${encodeURIComponent(delivery.id)}/dismiss`,{});
+        if (button.dataset.action==='dismiss') coreData(await post(`/me/attention/deliveries/${encodeURIComponent(delivery.id)}/dismiss`,{}));
         else if (button.dataset.action==='snooze') {
-          await post(`/me/attention/signoffs/${encodeURIComponent(delivery.items[0].id)}/snooze`, {until:new Date(Date.now()+4*3600000).toISOString()});
+          coreData(await post(`/me/attention/signoffs/${encodeURIComponent(delivery.items[0].id)}/snooze`, {until:new Date(Date.now()+4*3600000).toISOString()}));
         } else if (button.dataset.action==='open') {
           const item=delivery.items.find(i=>i.id===button.dataset.id) || delivery.items.find(i=>(i.business_slug || '')===button.dataset.slug);
           if (item) await sgAttentionNavigate(item.business_slug, button.dataset.id ? item.id : null);
@@ -67,7 +67,7 @@ function sgAttentionPaint() {
   const groups=new Map();
   delivery.items.forEach(item=>{ const key=item.business_slug || ''; const old=groups.get(key); groups.set(key,{name:item.business_name,count:(old?.count||0)+1}); });
   host.innerHTML=`<section class="sg-toast"><header>${SG_BELL}<strong>${delivery.kind==='individual' ? esc(row.business_name) : 'Waiting on you'}</strong><button type="button" data-action="dismiss" aria-label="Dismiss notification">×</button></header>
-    ${delivery.kind==='individual' ? `<button type="button" class="sg-toast-open" data-action="open" data-id="${esc(row.id)}">${esc(row.title)}</button><p>${esc(row.attention.reason || '')}</p><button type="button" class="sg-toast-snooze" data-action="snooze">Snooze 4 hours</button>` :
+    ${delivery.kind==='individual' ? `<button type="button" class="sg-toast-open" data-action="open" data-id="${esc(row.id)}">${esc(row.title)}</button><p>${esc(row.attention.reason || '')}</p>${row.attention.deadline ? `<p>Deadline: ${esc(new Date(row.attention.deadline).toLocaleString())}</p>` : ''}<button type="button" class="sg-toast-snooze" data-action="snooze">Snooze 4 hours</button>` :
       `<p>${delivery.items.length} signoffs need your response</p>${[...groups].map(([slug,g])=>`<button type="button" class="sg-toast-business" data-action="open" data-slug="${esc(slug)}">${esc(g.name)} <span>${g.count}</span></button>`).join('')}`}
     <p class="sg-toast-error" role="alert"></p></section>`;
 }

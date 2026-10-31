@@ -107,12 +107,17 @@ function sgCreateView(options) {
     const verified = sg.verified.get(s.id) === s.status_revision;
     const canReview = verified && completePreview(s) && owner() && !sg.error && !error && !s.superseded_by_id;
     if (!detail.querySelector(".sg-preview")) {
-      detail.innerHTML = `<div class="sg-detailnotice"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div><div class="sg-stories" aria-label="Related stories"></div>`;
+      detail.innerHTML = `<div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div><div class="sg-stories" aria-label="Related stories"></div>`;
       if (!options.global) storyRelatedChips(detail.querySelector('.sg-stories'),sg.slug,'signoffs',s.id);
     }
     detail.setAttribute("aria-busy", String(!!busy || sg.detailLoading === s.id));
     const notice = error ? errorHtml(error, "detail") : !verified ? `<p class="sg-notice">${sg.detailLoading === s.id ? "Loading prepared change..." : "This detail is out of date."}</p>` : !completePreview(s) ? errorHtml("The proposal could not be loaded completely. Reload it before approving.", "detail") : "";
     html(detail.querySelector(".sg-detailnotice"), notice);
+    const attention = s.attention || {};
+    const attentionText = [attention.urgent ? 'Urgent' : '', attention.blocking ? 'Blocking' : '', attention.reason || '',
+      attention.deadline ? `Deadline: ${stamp(attention.deadline)}` : '',
+      attention.snoozed_until && Date.parse(attention.snoozed_until) > Date.now() ? `Snoozed until ${stamp(attention.snoozed_until)}` : ''].filter(Boolean).join(' · ');
+    html(detail.querySelector('.sg-attention-meta'), attentionText ? `<p class="sg-notice">${esc(attentionText)}</p>` : '');
     html(detail.querySelector(".sg-preview"), previewHtml(s));
     const chosen = sg.choices.get(draftKey(s)) || [];
     const submitted = s.decision?.selected_choices || [];
@@ -163,7 +168,7 @@ function sgCreateView(options) {
       const container = sg.mount.querySelector(`.sg-${name}`);
       const content = container.querySelector(".sg-rows");
       container.hidden = !sg.slug || (!sg.loaded && !sg.items.size);
-      html(container.querySelector(".sg-sectionempty"), name === "waiting" && !groups[name].length ? `<p class="sg-empty">${sg.responded ? "No submitted responses." : "No signoffs waiting."}</p>` : "");
+      html(container.querySelector(".sg-sectionempty"), name === "waiting" && !groups[name].length ? `<p class="sg-empty">${sg.responded ? "No submitted responses." : attention.urgent.length ? "No other signoffs waiting." : "No signoffs waiting."}</p>` : "");
       groups[name].forEach((s, index) => {
         let row = [...sg.mount.querySelectorAll(".sg-row")].find(node => node.dataset.id === s.id);
         if (!row) {
@@ -217,7 +222,13 @@ function sgCreateView(options) {
         if (isAuth(error)) sg.session = null;
       }
     } finally {
-      if (mounted(c) && request === sg.detailRequest) { sg.detailLoading = null; render(); }
+      if (mounted(c) && request === sg.detailRequest) {
+        sg.detailLoading = null; render();
+        if (sg.reveal === id && sg.selected === id) {
+          [...sg.mount.querySelectorAll('.sg-row')].find(row=>row.dataset.id===id)?.scrollIntoView({block:'nearest'});
+          sg.reveal=null;
+        }
+      }
     }
   }
   async function refresh(more = false) {
@@ -391,13 +402,13 @@ function sgCreateView(options) {
   function businessChanged() {
     if (sg.slug === workspace()) return;
     sg.slug = workspace(); sg.businessId = null; sg.generation++;
-    sg.items.clear(); sg.order = []; sg.selected = null;
+    sg.items.clear(); sg.order = []; sg.selected = null; sg.reveal=null;
     sg.verified.clear(); sg.detailErrors.clear(); sg.detailRequest++;
     sg.counts = null; sg.nextCursor = null; sg.updatedCursor = null; sg.error = null; sg.loaded = false; sg.loading = false;
     mount();
   };
   const view = {
-    open(id) { sg.responded=false; sg.selected=id; sg.selections.set(workspace(),id); if (active()) { refresh(); loadDetail(id,true); } },
+    open(id) { sg.responded=false; sg.reveal=id; sg.selected=id; sg.selections.set(workspace(),id); if (active()) { refresh(); loadDetail(id,true); } },
     businessChanged,
     render,
     paint() { if (sg.slug !== workspace()) businessChanged(); else mount(); },
