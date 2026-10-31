@@ -2,8 +2,7 @@
 # The one way to run biz-dashboard on a machine: start | stop | restart | status | logs.
 #
 # Why a script: the dashboard must start with a clean environment. Started by hand from inside a
-# Claude Code session it inherits CLAUDE_CODE_* markers, and every agent shell would then run as a
-# child of that session (no transcript, wrong effort). This script builds the environment from
+# Claude Code session it can inherit CLAUDE_CODE_* markers. This script builds the environment from
 # scratch (`env -i`), reads the machine's config from one file, detaches the process (setsid) and
 # keeps a pidfile and a log under this app's ignored .state/ directory.
 #

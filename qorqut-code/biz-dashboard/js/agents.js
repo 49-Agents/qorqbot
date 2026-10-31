@@ -4,7 +4,6 @@ const agRates = () => (typeof RATES === "object" && RATES && RATES[AG_MODEL]) ||
 const agCost = (hit, miss, out) => { const r = agRates(); return (hit * r.hit + miss * r.miss + out * r.out) / 1e6; };
 const NAME_RE = /^[a-z][a-z0-9-]{1,31}$/;
 const SLASH = [
-  { cmd: "compact", hint: "Summarize this conversation into a note the agent reads next time, then clear the view" },
   { cmd: "clear", hint: "Clear the view; sessions stay on disk" },
 ];
 
@@ -69,13 +68,11 @@ async function renderAgents(c) {
   if (gen !== agRenderGen || biz !== state.biz || state.tab !== "agents" || !c.isConnected) return;
   state.agents = Array.isArray(agents) ? agents : [];
   state.terms = Array.isArray(terms) ? terms : [];
-  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">${ICO_PLUS}New agent</button><div class="agtools"><button class="agpad-toggle" id="agpad-toggle" aria-controls="agpad" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>Agent pane</button><button class="agcompact" id="agcompact" title="Summarize conversation" aria-label="Summarize conversation">${aicon('brain', 'currentColor', 16)}</button></div></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
+  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">${ICO_PLUS}New agent</button><div class="agtools"><button class="agpad-toggle" id="agpad-toggle" aria-controls="agpad" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>Agent pane</button></div></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
   $("#addagent").onclick = newAgentModal;
   paintList();
   const want = state.agent || ls(agKey());
   const a = state.agents.find(x => x.name === want) || state.agents[0];
-  const compact = $('#agcompact'); compact.disabled = !a;
-  compact.onclick = () => agCompact(a, compact);
   if (!a) { agSetSel(null); $("#chat").innerHTML = `<div class="empty" style="padding:24px">No agents yet — add one with New agent.</div>`; agpadMount(null, $("#agpad")); return; }
   agSetSel(a.name);
   paintList();
@@ -161,53 +158,8 @@ function pulse(msgs) {
   const w = document.createElement("div"); w.className = "m sys working"; w.textContent = "working";
   msgs.appendChild(w); msgs.scrollTop = msgs.scrollHeight; return w;
 }
-async function runSlash(cmd, a, msgs, send) {
-  if (cmd === "clear") return clearView(a, msgs);
-  if (cmd !== "compact") return;
-  const w = pulse(msgs);
-  const summary = await agCompact(a, send);
-  w.remove();
-  if (!summary || !msgs.isConnected) return;
-  clearView(a, msgs, false);
-  const d = document.createElement("div"); d.className = "m agent compact";
-  d.innerHTML = `<span class="tag">compact</span>${esc(summary)}`;
-  msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight;
-}
-const agCompactJobs = new Map();
-async function agCompact(agent, button) {
-  const biz = state.biz, key = `${biz}:${agent.agent_id || agent.name}`;
-  if (button) button.disabled = true;
-  try {
-    let jobId = agCompactJobs.get(key);
-    if (!jobId) {
-      const result = coreData(await post(`/biz/${encodeURIComponent(biz)}/compact`, agent.agent_id ? {agent_id:agent.agent_id} : {agent:agent.name}));
-      jobId = result.job_id;
-      if (!jobId) throw new Error('The compact job was not returned.');
-      agCompactJobs.set(key, jobId);
-      notify({text:'Conversation summary queued',sub:agent.name});
-    }
-    while (state.biz === biz) {
-      const {job} = coreData(await api(`/biz/${encodeURIComponent(biz)}/jobs/${encodeURIComponent(jobId)}`));
-      if (state.biz !== biz) return null;
-      if (!job) throw new Error('The compact job could not be read.');
-      if (job.state === 'succeeded') {
-        agCompactJobs.delete(key);
-        const agents = await api(`/biz/${encodeURIComponent(biz)}/agents`);
-        if (state.biz === biz && Array.isArray(agents)) { state.agents = agents; if (state.tab === 'agents') paintList(); }
-        if (state.biz === biz && typeof tView !== 'undefined' && tView === 'notes') tPaintNotes();
-        notify({text:'Conversation summary saved',sub:agent.name});
-        const output = ((job.result_json || {}).outputs || []).find(x => x.operation === 'notes_create');
-        return output && output.arguments.body || '';
-      }
-      if (['failed','cancelled','conflicted'].includes(job.state)) {
-        agCompactJobs.delete(key);
-        throw new Error(job.error_json && job.error_json.message || `Conversation summary ${job.state}.`);
-      }
-      await new Promise(resolve => setTimeout(resolve, 1500));
-    }
-  } catch (error) { notify({text:error.message || 'Could not summarize this conversation.',sub:agent.name,color:'var(--danger)'}); }
-  finally { if (button) button.disabled = false; }
-  return null;
+function runSlash(cmd, a, msgs) {
+  if (cmd === "clear") clearView(a, msgs);
 }
 
 // ------------------------------------------------------------------- org (pins, custom categories, order)
