@@ -66,8 +66,8 @@ let tLastBiz = null, tSoonT = null, tInside = false, tSearchT = null;
 state.tasks = [];
 
 // ---------------------------------------------------------------- view (tabs)
-const T_VIEWS = ["tasks", "journal", "activity"];
-const T_VIEW_LABEL = { tasks: "Tasks", activity: "Activity", journal: "Journal" };
+const T_VIEWS = ["tasks", "journal", "notes", "activity"];
+const T_VIEW_LABEL = { tasks: "Tasks", activity: "Activity", journal: "Journal", notes: "Notes" };
 let tView = ls("tview") || "tasks";
 if (T_VIEWS.indexOf(tView) < 0) tView = "tasks";
 
@@ -78,6 +78,7 @@ let tLogLoaded = false;             // has this business's log been fetched at l
 
 // journal view state (jrSel/jrMemos/jrSearch/...) lives in js/journal.js, which owns the whole
 // journal tab; this file only calls into it at tab-switch/business-change points (see tSetView, tInit).
+// notes view state (ntSel/ntNotes/ntSearch/...) lives in js/notes.js the same way.
 
 const tPanelOpen = () => { const w = $("#taskswrap"); return !!w && w.classList.contains("open"); };
 const taskById = id => (state.tasks || []).find(t => t.id === id);
@@ -259,11 +260,12 @@ function tTabs() {
 }
 
 function tHead() {
-  // the journal tab supplies its own header (homepage title/subtitle/Create, or the detail's own
-  // sidebar controls) in #tbody, so the generic ttop (title + tasks-only stats/search) sits out for it
-  return `<div class="thead${tView === "journal" ? " nott" : ""}">
+  // the journal/notes tabs supply their own header (homepage title/subtitle/Create, or the detail's
+  // own sidebar controls) in #tbody, so the generic ttop (title + tasks-only stats/search) sits out
+  const ownHead = tView === "journal" || tView === "notes";
+  return `<div class="thead${ownHead ? " nott" : ""}">
     ${tTabs()}
-    ${tView === "journal" ? "" : `<div class="ttop">
+    ${ownHead ? "" : `<div class="ttop">
       <div><h1>${T_VIEW_LABEL[tView]}</h1>${tView === "tasks" ? `<div class="tstats" id="tstats"></div>` : ""}</div>
       ${tView === "tasks" ? `<label class="tsearch">${SVG_TSEARCH}<input id="tsearch" type="text" placeholder="Search by title, tag or content..." autocomplete="off" spellcheck="false"></label>` : ""}
     </div>`}
@@ -332,12 +334,14 @@ function paintTasks() {
 function tSetView(v) {
   if (T_VIEWS.indexOf(v) < 0) v = "tasks";
   if (tView === "journal" && v !== "journal") jrFlush();
+  if (tView === "notes" && v !== "notes") ntFlush();
   tView = v; ls("tview", v);
   const p = $("#taskspanel"); if (!p) return;
   p.innerHTML = tHead(); tWireHead(p);
   if (v === "tasks") { tPaintSig = null; paintTasks(); }
   else if (v === "activity") { tLogSig = null; tPaintActivity(); tActivityRefresh(); }
   else if (v === "journal") { tPaintJournal(); }
+  else if (v === "notes") { tPaintNotes(); }
 }
 
 // ---------------------------------------------------------------- activity view
@@ -602,6 +606,8 @@ function tWireHead(p) {
       // (jrFlush snapshots its biz at edit-open time, so this is safe even though state.biz just moved
       // on), then start clean on the new one
       if (tView === "journal") { jrFlush(); jrSel = null; jrSearch = ""; jrMemos = []; tPaintJournal(); }
+      // same idea for the notes tab (see js/notes.js's ntFlush)
+      if (tView === "notes") { ntFlush(); ntSel = null; ntSearch = ""; ntNotes = []; tPaintNotes(); }
     }
   }, 500);
   setInterval(() => {

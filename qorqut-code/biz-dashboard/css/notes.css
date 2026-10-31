@@ -1,0 +1,147 @@
+
+
+
+
+
+
+
+
+.tasks .tbody.nt { padding: 0; }
+.tasks .tbody.nt.nt-home { overflow-y: auto; }
+.tasks .tbody.nt.nt-detail { overflow: hidden; display: flex; flex-direction: row; min-height: 0; }
+
+.nt .ntflex { flex: 1; }
+/* sidebar's "Pinned" group label (jreyebrow's detail-view analog — the homepage uses .jreyebrow
+   itself now, not this) */
+.nteyebrow {
+  display: flex; align-items: center; gap: 5px; font: 600 11px/1 var(--sans); letter-spacing: .12em;
+  text-transform: uppercase; color: var(--fg-2); opacity: .6; margin-bottom: 12px;
+}
+.ntfaint { color: var(--fg-3); }
+.ntfaint-pad { padding: 16px 12px; font-size: 12.5px; }
+
+/* "New page" button — homepage now uses .jrcreate; this is still the detail sidebar's own button */
+.ntcreate {
+  flex: none; height: 40px; padding: 0 16px; border: 0; border-radius: var(--r-lg);
+  background: var(--fg); color: var(--bg); font: 500 13px var(--sans); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.ntcreate:hover { background: var(--fg); opacity: .88; transform: none; }
+
+/* -- detail: two-pane -- */
+.nted { display: flex; flex-direction: row; width: 100%; height: 100%; min-height: 0; }
+.ntrail { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 16px 12px; border-right: 1px solid var(--line); }
+.ntside { flex: none; width: 300px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; transition: width .2s ease; }
+.ntside.off { width: 0; }
+.ntsidectrl { flex: none; display: flex; align-items: center; gap: 8px; padding: 16px; }
+.nticon {
+  flex: none; width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 14px;
+  background: rgba(255,255,255,.015); color: var(--fg-2); display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background .15s ease, color .15s ease, border-color .15s ease, transform .15s ease;
+}
+.nticon:hover { background: var(--hover); color: var(--fg); border-color: var(--line-2); transform: none; }
+.nticon svg { width: 15px; height: 15px; }
+.nticon.danger:hover { color: #FF6B5E; }
+.ntsearchwrap { flex: none; padding: 0 16px; }
+.ntsearch-in {
+  width: 100%; height: 36px; padding: 0 12px; box-sizing: border-box; border: 0; border-radius: var(--r-lg);
+  background: rgba(255,255,255,.04); color: var(--fg); font: 13px var(--sans); outline: none;
+  transition: box-shadow .15s ease;
+}
+.ntsearch-in:focus { border-color: transparent; box-shadow: inset 0 0 0 1px var(--line-2); }
+.ntsearch-in::placeholder { color: var(--fg-3); }
+.ntdivider { flex: none; height: 1px; margin: 16px 24px; background: var(--line); }
+.ntlist { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 1px; }
+.nteyebrow.ntsm { padding: 4px 12px 6px; margin-bottom: 0; }
+.ntrow { position: relative; display: flex; flex-direction: column; gap: 4px; border-radius: 16px; padding: 10px 12px; cursor: pointer; transition: background .15s ease; }
+.ntrow:hover { background: rgba(255,255,255,.03); }
+.ntrow.on { background: rgba(255,255,255,.06); }
+.ntind { position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 2.5px; height: 20px; border-radius: var(--r-full); background: var(--accent); }
+.ntr1 { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.ntrttl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; font: 500 13px/1.3 var(--sans); color: var(--fg); }
+.ntrttl svg { flex: none; width: 11px; height: 11px; color: var(--fg-2); }
+.ntrtime { flex: none; font: 11px var(--mono); color: var(--fg-3); font-variant-numeric: tabular-nums; transition: opacity .15s ease; }
+.ntrow:hover .ntrtime { opacity: 0; }
+.ntr2 { font-size: 12px; color: var(--fg-2); opacity: .75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ntrowdel {
+  position: absolute; right: 8px; top: 8px; width: 24px; height: 24px; border-radius: 12px; border: 0;
+  background: var(--hover); color: var(--fg-2); display: none; align-items: center; justify-content: center;
+  cursor: pointer; transition: color .15s ease, background .15s ease;
+}
+.ntrowdel svg { width: 13.5px; height: 13.5px; }
+.ntrow:hover .ntrowdel { display: inline-flex; }
+.ntrowdel:hover { color: #FF6B5E; background: var(--hover); transform: none; }
+.ntfoot { flex: none; padding: 16px 24px; font-size: 11px; color: var(--fg-2); opacity: .6; }
+
+.nteditor { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; border-left: 1px solid var(--line); }
+.ntedinner { max-width: 760px; margin: 0 auto; padding: 40px 40px 128px; }
+
+.ntedhead { display: flex; align-items: flex-start; gap: 12px; }
+.nttitlein {
+  flex: 1; min-width: 0; resize: none; overflow: hidden; border: 0; background: none; outline: none; box-shadow: none;
+  font: 600 26px/1.25 var(--sans); letter-spacing: -.02em; color: var(--fg); padding: 0;
+}
+.nttitlein::placeholder { color: var(--fg-3); }
+.nttitlein:focus { border: 0; box-shadow: none; background: none; }
+.ntedctrls { flex: none; display: flex; align-items: center; gap: 8px; padding-top: 5px; }
+.nt .ntghost {
+  flex: none; height: 26px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: var(--r-full);
+  background: none; color: var(--fg-2); font: 600 12px var(--sans); cursor: pointer;
+  transition: color .15s ease, border-color .15s ease;
+}
+.nt .ntghost:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-3); transform: none; }
+.nt .ntghost:disabled { opacity: .4; cursor: default; }
+.ntsavewrap { display: inline-flex; align-items: center; }
+.ntsavepill {
+  height: 32px; padding: 0 14px; border: 0; border-radius: var(--r-full); background: var(--fg); color: var(--bg);
+  font: 600 12px var(--sans); cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  transition: opacity .15s ease;
+}
+.ntsavepill:hover { opacity: .88; transform: none; }
+.ntsavepill.busy { cursor: default; opacity: .7; }
+.ntring { flex: none; }
+.ntsaved { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 4px; font: 500 12px var(--sans); color: var(--fg-3); }
+.ntsaved svg { width: 13px; height: 13px; }
+.ntmeta { margin-top: 10px; font-size: 12.5px; color: var(--fg-3); }
+.ntmeta .sep { margin: 0 6px; color: var(--fg-3); opacity: .55; }
+.nthr { height: 1px; background: var(--line); margin: 16px 0 32px; }
+
+
+
+.ntlinewrap { position: relative; min-height: 280px; }
+.ntlines { display: flex; flex-direction: column; }
+.ntline { position: relative; }
+.ntlinein {
+  display: block; width: 100%; box-sizing: border-box; resize: none; overflow: hidden;
+  border: 0; background: none; outline: none; box-shadow: none;
+  font: 400 15.5px/1.75 var(--sans); letter-spacing: -.005em; color: var(--fg);
+  padding: 0 0 0 1.5rem; text-indent: -1.5rem;
+}
+.ntlinein:focus { border: 0; box-shadow: none; background: none; }
+.ntline.task .ntlinein { padding-left: calc(1.5rem + 10px); }
+.ntline.bold .ntlinein { font-weight: 600; }
+.ntline.done .ntlinein { text-decoration: line-through; opacity: .55; }
+.ntball {
+  position: absolute; left: -2px; top: calc(15.5px * 1.75 / 2); transform: translateY(-50%);
+  width: 30px; height: 30px; padding: 0; border: 0; background: none; z-index: 2;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.ntball::before {
+  content: ""; display: block; width: 6px; height: 6px; border-radius: 50%;
+  background: transparent; border: 1.5px solid #8a8680; opacity: .9;
+  transition: width .15s ease, height .15s ease, background .15s ease, border-color .15s ease;
+}
+.ntball:hover::before { width: 9px; height: 9px; }
+.ntball.ntb-white::before { background: #F5F5F0; border-color: transparent; }
+.ntball.ntb-in_progress::before { background: #0A84FF; border-color: transparent; }
+.ntball.ntb-done::before { background: #30D158; border-color: transparent; opacity: .75; }
+.ntball.ntb-blocked::before { background: #FF453A; border-color: transparent; }
+.ntball.ntb-cancelled::before { background: transparent; border-color: #8a8680; }
+.ntline.ntrule { height: 30px; display: flex; align-items: center; }
+.ntrulehr { width: 100%; height: 1px; background: var(--line); }
+
+/* Empty+unfocused overlay prompt, absolutely centered over the (empty) lines column. */
+.ntoverlay { position: absolute; inset: 0; top: 4px; left: 1.5rem; pointer-events: none; }
+.ntoh { font: 500 16px var(--sans); color: var(--fg-2); opacity: .5; }
+.nto2 { margin-top: 4px; font-size: 13.5px; color: var(--fg-3); opacity: .7; }
