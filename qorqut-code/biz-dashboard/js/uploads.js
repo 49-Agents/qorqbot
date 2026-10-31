@@ -101,7 +101,7 @@ function upRender() {
 
 function upFormHtml() {
   const f = upForm, mode = upMode(f), media = mode === "media";
-  return `<div class="uphead"><h1>Uploads</h1><p class="upsub">Text goes into context. Images and videos go into assets. One or the other per upload.</p></div>
+  return `<div class="uphead"><h1>Uploads</h1><button class="btn" type="button" id="up-data-upload">${ICO_UPLOAD}Data upload</button><p class="upsub">Text goes into context. Images and videos go into assets. One or the other per upload.</p></div>
   <div class="upbox${media ? " media" : ""}" id="upbox" tabindex="0">
     <textarea class="uptext" id="uptext" placeholder="paste anything: notes from a call, a doc, a thread, a decision — or images and videos" spellcheck="false"${media ? " readonly" : ""}>${esc(f.text)}</textarea>
     ${media ? `<div class="upstrip" id="upstrip">${f.files.map((x, i) => upThumbHtml(x, i)).join("")}</div>` : ""}
@@ -149,6 +149,7 @@ function upPatch() {
 
 // ---------------------------------------------------------------- wiring
 function upWire(root) {
+  const dataUpload = root.querySelector('#up-data-upload'); if (dataUpload) dataUpload.onclick = () => dataUploadDialog();
   const ta = root.querySelector("#uptext"), box = root.querySelector("#upbox"), err = root.querySelector("#uperr");
   const fail = t => { if (!err) return; err.hidden = !t; err.textContent = t || ""; };
   const addFiles = list => {

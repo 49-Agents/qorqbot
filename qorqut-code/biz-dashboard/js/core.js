@@ -51,7 +51,7 @@ const aicon = (name, colorHex, sizePx) => `<svg class="ai" width="${sizePx}" hei
 const agentGlyph = (m, size) => { const d = dept((m || {}).department); return (m && m.icon && AICONS[m.icon]) ? aicon(m.icon, d.color, size) : glyph(d.icon, d.color, size); };
 
 // lazy: the render functions live in later script files
-const TABS = { agents: c => renderAgents(c), context: c => renderContext(c), stories: c => renderStories(c),
+const TABS = { agents: c => renderAgents(c), context: c => renderContext(c), stories: c => renderStories(c), tables: c => renderTables(c),
   marketing: c => renderMarketing(c), accounting: c => soon(c, "The cash ledger and what recurs."),
   datascience: c => soon(c, "Experiments and metric deep-dives."),
   progress: c => soon(c, "Tasks, milestones and what shipped."),
