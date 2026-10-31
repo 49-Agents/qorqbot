@@ -43,7 +43,6 @@ const NT_ICO_PLUS = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none"
 const NT_ICO_PANELLEFT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>`;
 const NT_ICO_PANELLEFTCLOSE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></svg>`;
 const NT_ICO_HOME = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
-const NT_ICO_CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
 const NT_ICO_PIN_TINY = `<svg class="ntpt" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
 const NT_ICO_PINOFF = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M15 9.34V6a2 2 0 0 0 0-4H9.55"/><path d="M9 9.35V6a2 2 0 0 1 2-2h1.53"/><path d="m2 2 20 20"/><path d="M9.51 9.51 5 15.24V16a1 1 0 0 0 1 1h9.53"/></svg>`;
 
@@ -248,16 +247,16 @@ function ntRingSvg(nn) {
 }
 function ntSaveHtml() {
   const s = ntEditState; if (!s) return "";
-  if (s.saving) return `<span class="ntsavepill busy">Saving…</span>`;
-  if (s.dirty) return `<span class="ntsavepill" type="button">${s.countdown != null ? ntRingSvg(s.countdown) : ""}Save</span>`;
-  return `<span class="ntsaved">${NT_ICO_CHECK}Saved</span>`;
+  if (s.saving) return `<button class="btn ntsavepill busy" type="button" disabled>Saving…</button>`;
+  if (s.dirty) return `<button class="btn ntsavepill" type="button">${s.countdown != null ? ntRingSvg(s.countdown) : ""}Save</button>`;
+  return "";  // nothing to save: no pill at all, same as Discard
 }
 function ntPaintSaveState() {
   const el = $("#ntsavewrap"); if (!el) return;
   el.innerHTML = ntSaveHtml();
   const btn = el.querySelector(".ntsavepill"); if (btn) btn.onclick = () => ntSaveNow();
   // Discard only exists while there are unsaved changes: hidden otherwise, not just disabled
-  const disc = $("#ntdiscard"); if (disc) disc.hidden = !ntEditState || !ntEditState.dirty || ntEditState.saving;
+  const disc = $("#ntdiscard"); if (disc) disc.hidden = !ntEditState || !ntEditState.dirty;
 }
 function ntPatchMeta() {
   const n = ntById(ntSel); if (!n) return;
@@ -285,7 +284,7 @@ function ntDetailHtml(n) {
         <div class="ntedhead">
           <textarea id="nttitle" class="nttitlein" rows="1" placeholder="Untitled"></textarea>
           <div class="ntedctrls" id="ntedctrls">
-            <button id="ntdiscard" class="ntghost" type="button" hidden>Discard</button>
+            <button id="ntdiscard" class="btn" type="button" hidden>Discard</button>
             <span class="ntsavewrap" id="ntsavewrap"></span>
             <button id="ntdel" class="nticon danger" type="button" data-tip="Delete page">${ICO_TRASH}</button>
           </div>

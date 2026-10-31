@@ -94,30 +94,14 @@
 /* chromeless: the global textarea:focus ring (app.css) would otherwise put a border/box-shadow on focus */
 .nttitlein:focus, .jrtitlein:focus { border: 0; box-shadow: none; background: none; }
 .ntedctrls, .jredctrls { flex: none; display: flex; align-items: center; gap: 8px; padding-top: 5px; }
-/* the quiet ghost pill (Discard, and Journal's Upload/Re-upload) — same language as context view's
-   Save/Discard (css/context.css .jbtn) */
-.nt .ntghost, .jr .jbtn {
-  flex: none; height: 26px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: var(--r-full);
-  background: none; color: var(--fg-2); font: 600 12px var(--sans); cursor: pointer;
-  transition: color .15s ease, border-color .15s ease;
-}
-.nt .ntghost:hover:not(:disabled), .jr .jbtn:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-3); transform: none; }
-.nt .ntghost:disabled, .jr .jbtn:disabled { opacity: .4; cursor: default; }
+/* every button in this header (Upload to context, Discard, Save) is app.css's one pill — the same
+   `.btn`/`button.primary` the Agents tab's "New agent" uses. Nothing is restyled here. */
+.ntedctrls .btn, .jredctrls .btn { flex: none; }
 .ntsavewrap, .jrsavewrap { display: inline-flex; align-items: center; }
-.ntsavepill, .jrsavepill {
-  height: 32px; padding: 0 14px; border: 0; border-radius: var(--r-full); background: var(--fg); color: var(--bg);
-  font: 600 12px var(--sans); cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
-  transition: opacity .15s ease;
-}
-.ntsavepill:hover, .jrsavepill:hover { opacity: .88; transform: none; }
-.ntsavepill.busy, .jrsavepill.busy { cursor: default; opacity: .7; }
-.jrupbtn:disabled { opacity: .35; cursor: default; }
-.jrupbtn:disabled:hover { opacity: .35; }
+.ntsavepill.busy, .jrsavepill.busy { cursor: default; }
 .ntring, .jrring { flex: none; }
-.ntsaved, .jrsaved { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 4px; font: 500 12px var(--sans); color: var(--fg-3); }
-.ntsaved svg, .jrsaved svg { width: 13px; height: 13px; }
 /* the line under the title: same family, weight and tracking as the title input, just smaller */
-.ntmeta, .jrmeta { margin-top: 16px; padding-left: 4px; font: 600 12.5px/1.5 var(--sans); letter-spacing: -.02em; color: var(--fg-2); }
+.ntmeta, .jrmeta { margin-top: 16px; padding: 0 0 7px 4px; font: 600 12.5px/1.5 var(--sans); letter-spacing: -.02em; color: var(--fg-2); }
 .ntmeta .sep { margin: 0 6px; color: var(--fg-3); opacity: .55; }
 .nthr, .jrhr { height: 1px; background: var(--line); margin: 0 0 48px; }
 

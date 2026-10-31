@@ -63,6 +63,9 @@ a { color: inherit; text-decoration: none; }
 
 /* ============================================================ form controls */
 button, input, textarea, select { font: inherit; color: inherit; letter-spacing: inherit; }
+/* the `hidden` attribute has to win over the display rules below: a UA `[hidden] { display: none }`
+   loses to any author `display`, so `<button hidden>` stayed visible before this. */
+[hidden] { display: none !important; }
 
 button {
   height: 36px; padding: 0 16px; border: 0; border-radius: var(--r-full);
