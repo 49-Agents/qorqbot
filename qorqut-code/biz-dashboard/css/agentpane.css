@@ -3,7 +3,7 @@
 .split.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
 .split.global-agents.agsplit { grid-template-columns: 240px minmax(0, 1fr) minmax(0, .7fr); }
 .split.global-agents.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
-.agsplit:not(.pad-off) > .chat.termmode { padding-left: 24px; padding-right: 20px; }
+.agsplit:not(.pad-off) > .chat.termmode { padding-left: 24px; padding-right: 28px; }
 
 .agpad-toggle[aria-expanded="true"] { color: var(--fg); background: var(--wash); }
 .agpad-toggle:disabled { opacity: .4; cursor: default; }
