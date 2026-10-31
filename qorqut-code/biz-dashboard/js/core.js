@@ -338,10 +338,10 @@ async function selectBiz(slug) {
   renderTab(); refreshSide();
 }
 $("#wsbtn").onclick = () => dropdown($("#wsbtn"), [{
-  value: "/global", html: `<span class="workspace-global">${globalIcon("globe")}Global<span class="muted small">Pinned</span></span>`,
+  value: "/global", html: `<span class="workspace-choice workspace-global">${globalIcon("globe")}<span class="workspace-name">Global</span><span class="muted small">Pinned</span></span>`,
 }, ...state.bizs.map(b => ({
   value: b.slug,
-  html: `${esc(b.name)} <span class="muted small">${b.agents.length}</span>`,
+  html: `<span class="workspace-choice"><span class="workspace-business-icon">${esc((b.name || b.slug).charAt(0).toUpperCase())}</span><span class="workspace-name">${esc(b.name)}</span><span class="muted small">${b.agents.length}</span></span>`,
 }))], slug => slug === "/global" ? selectGlobal() : selectBiz(slug), state.scope === "global" ? "/global" : state.biz);
 async function goTab(name) {
   if (state.scope === "global") return;

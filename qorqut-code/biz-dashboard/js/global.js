@@ -160,12 +160,12 @@ function globalActivityDays(rows, now = new Date()) {
 function globalActivityChart(rows) {
   if (!rows) return '<div class="global-activity"><span>Activity unavailable</span></div>';
   const days = globalActivityDays(rows), total = days.reduce((sum, d) => sum + d.count, 0), max = Math.max(20, Math.ceil(Math.max(...days.map(d => d.count)) / 10) * 10);
-  const points = days.map((d, i) => ({x: 22 + i * 96 / (days.length - 1), y: 30 - d.count / max * 26}));
+  const points = days.map((d, i) => ({x: 22 + i * 218 / (days.length - 1), y: 30 - d.count / max * 26}));
   const label = `Daily actions, last 14 days (UTC), scale 0–${max}: ${days.map(d => `${d.date}: ${d.count}`).join(', ')}`;
   return `<div class="global-activity"><span><strong>${total}</strong> actions</span>
-    <svg class="global-spark" viewBox="0 0 122 36" role="img" aria-label="${esc(label)}" data-y-max="${max}">
+    <svg class="global-spark" viewBox="0 0 244 36" role="img" aria-label="${esc(label)}" data-y-max="${max}">
       <text x="16" y="8" text-anchor="end">${max}</text><text x="16" y="32" text-anchor="end">0</text>
-      <path class="global-spark-grid" d="M22 4H118M22 30H118"/>
+      <path class="global-spark-grid" d="M22 4H240M22 30H240"/>
       <polyline class="global-spark-line" points="${points.map(p => `${p.x},${p.y}`).join(' ')}"/>
       ${days.map((d, i) => `<circle class="global-spark-point" cx="${points[i].x}" cy="${points[i].y}" r="2"><title>${d.date} · ${d.count} action${d.count === 1 ? '' : 's'} (UTC)</title></circle>`).join('')}
     </svg></div>`;
