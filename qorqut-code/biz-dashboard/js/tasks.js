@@ -66,7 +66,7 @@ let tLastBiz = null, tSoonT = null, tInside = false, tSearchT = null;
 state.tasks = [];
 
 // ---------------------------------------------------------------- view (tabs)
-const T_VIEWS = ["tasks", "activity", "journal"];
+const T_VIEWS = ["tasks", "journal", "activity"];
 const T_VIEW_LABEL = { tasks: "Tasks", activity: "Activity", journal: "Journal" };
 let tView = ls("tview") || "tasks";
 if (T_VIEWS.indexOf(tView) < 0) tView = "tasks";
@@ -583,7 +583,7 @@ function jrUploadBtnHtml(m) {
   const busy = jrUploadingIds.has(m.id);
   const label = busy ? "Uploading…" : (m.uploaded ? "Re-upload" : "Upload to context");
   const dis = busy || !String(m.content || "").trim();
-  return `<button id="jrupload" class="jruploadbtn" type="button"${dis ? " disabled" : ""}>${JR_ICO_ARROWUP}<span>${esc(label)}</span></button>`;
+  return `<button id="jrupload" class="jbtn" type="button"${dis ? " disabled" : ""}>${esc(label)}</button>`;
 }
 function jrRingSvg(n) {
   const total = 8, frac = Math.max(0, Math.min(1, n / total)), r = 6, c = 2 * Math.PI * r, off = c * (1 - frac);
@@ -599,6 +599,8 @@ function jrPaintSaveState() {
   const el = $("#jrsavewrap"); if (!el) return;
   el.innerHTML = jrSaveHtml();
   const btn = el.querySelector(".jrsavepill"); if (btn) btn.onclick = () => jrSaveNow();
+  // Discard only does something while there are unsaved changes; disabled (not hidden) otherwise
+  const disc = $("#jrdiscard"); if (disc) disc.disabled = !jrEditState || !jrEditState.dirty || jrEditState.saving;
 }
 function jrPatchMeta() {
   const m = jrById(jrSel); if (!m) return;
@@ -612,8 +614,6 @@ function jrDetailHtml(m) {
   return `<div class="jred">
     <div class="jrside ${jrListOff ? "off" : ""}" id="jrside">
       <div class="jrsidectrl">
-        <button id="jrtoggle" class="jricon" type="button" title="Toggle list">${JR_ICO_PANELLEFT}</button>
-        <button id="jrhomebtn" class="jricon" type="button" title="Journal home">${JR_ICO_BOOK}</button>
         <button id="jrnew2" class="jrcreate jrflex" type="button">Create new</button>
       </div>
       <div class="jrsearchwrap"><input id="jrsearch" class="jrsearch-in" placeholder="Search memos…" value="${esc(jrSearch)}" autocomplete="off" spellcheck="false"></div>
@@ -623,10 +623,15 @@ function jrDetailHtml(m) {
     </div>
     <div class="jreditor" id="jreditor">
       <div class="jredinner">
+        <div class="jrtopbar">
+          <button id="jrtoggle" class="jricon" type="button" title="${jrListOff ? "Show memo list" : "Hide memo list"}">${JR_ICO_PANELLEFT}</button>
+          <button id="jrhomebtn" class="jrback" type="button" title="Journal home">${JR_ICO_BOOK}<span>Journal</span></button>
+        </div>
         <div class="jredhead">
           <textarea id="jrtitle" class="jrtitlein" rows="1" placeholder="Untitled"></textarea>
           <div class="jredctrls" id="jredctrls">
             ${jrUploadBtnHtml(m)}
+            <button id="jrdiscard" class="jbtn" type="button" disabled>Discard</button>
             <span class="jrsavewrap" id="jrsavewrap">${jrSaveHtml()}</span>
             <button id="jrdel" class="jricon danger" type="button" title="Delete memo">${ICO_TRASH}</button>
           </div>
@@ -663,13 +668,18 @@ function jrWireDetail(root, m) {
     }
   };
 
-  root.querySelector("#jrtoggle").onclick = () => {
+  const toggleBtn = root.querySelector("#jrtoggle");
+  toggleBtn.onclick = () => {
     jrListOff = !jrListOff; ls("jrlistoff", jrListOff ? "1" : "0");
     const side = root.querySelector("#jrside"); if (side) side.classList.toggle("off", jrListOff);
+    toggleBtn.title = jrListOff ? "Show memo list" : "Hide memo list";
   };
+  // Both controls live in the editor header (outside .jrside), so they still work — and stay
+  // reachable — whether or not the sidebar is collapsed.
   root.querySelector("#jrhomebtn").onclick = () => jrGoHome();
   root.querySelector("#jrnew2").onclick = () => jrCreateNew();
   root.querySelector("#jrdel").onclick = () => jrDeleteFlow(m.id);
+  root.querySelector("#jrdiscard").onclick = () => jrDiscard();
   const up = root.querySelector("#jrupload"); if (up) up.onclick = () => jrDoUpload(m.id);
   const savepill = root.querySelector(".jrsavepill"); if (savepill) savepill.onclick = () => jrSaveNow();
 
@@ -710,6 +720,18 @@ async function jrSaveNow() {
     const m = jrMemos.find(x => x.id === s.id); if (m) { m.title = title; m.content = content; m.updatedAt = r.updatedAt || new Date().toISOString(); }
     jrPatchMeta(); jrPatchSidebar();
   }
+  jrPaintSaveState();
+}
+
+// revert the open memo's title/body to the last-saved snapshot, cancel any pending autosave, and repaint
+// the save pill back to idle; a no-op (buttons stays disabled) while there's nothing unsaved to drop
+function jrDiscard() {
+  const s = jrEditState; if (!s || !s.dirty) return;
+  jrClearTimers();
+  s.dirty = false; s.saving = false; s.countdown = null;
+  const titleEl = $("#jrtitle"), bodyEl = $("#jrbody");
+  if (titleEl) { titleEl.value = s.title0; jrGrow(titleEl); }
+  if (bodyEl) bodyEl.value = s.body0;
   jrPaintSaveState();
 }
 
