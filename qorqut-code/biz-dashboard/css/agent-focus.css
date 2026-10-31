@@ -37,7 +37,8 @@
 .agfocus-detail-body .tdetail{padding:0}
 .agfocus-detail-body .tdetail .flds{grid-template-columns:85px minmax(0,1fr)}
 .agfocus-detail-body .tdetail .v{min-width:0;overflow-wrap:anywhere}
-.agfocus-reference-frame{width:100%;height:calc(100vh - 210px);min-height:350px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--surface)}
+.agfocus-reference-frame{display:block;width:100%;height:calc(100vh - 210px);min-height:350px;box-sizing:border-box;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--surface)}
+.agfocus-desktop-frame{width:100%;height:auto;min-height:0;max-width:100%;margin-inline:auto}
 .agfocus-reference-help{font-size:11px}.agfocus-reference-help a{text-decoration:underline}
 .agfocus-detail-body .story-back{display:none}
 @media(max-width:600px){.agfocus-card{padding:9px 10px}.agfocus-detail{padding:10px}}
