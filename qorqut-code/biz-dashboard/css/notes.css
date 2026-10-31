@@ -10,7 +10,6 @@
 .tasks .tbody.nt.nt-home { overflow-y: auto; }
 .tasks .tbody.nt.nt-detail { overflow: hidden; display: flex; flex-direction: row; min-height: 0; }
 
-.nt .ntflex { flex: 1; }
 /* sidebar's "Pinned" group label (jreyebrow's detail-view analog — the homepage uses .jreyebrow
    itself now, not this) */
 .nteyebrow {
@@ -19,15 +18,6 @@
 }
 .ntfaint { color: var(--fg-3); }
 .ntfaint-pad { padding: 16px 12px; font-size: 12.5px; }
-
-/* "New page" button — homepage now uses .jrcreate; this is still the detail sidebar's own button */
-.ntcreate {
-  flex: none; height: 40px; padding: 0 16px; border: 0; border-radius: var(--r-lg);
-  background: var(--fg); color: var(--bg); font: 500 13px var(--sans); cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  transition: opacity .15s ease, transform .15s ease;
-}
-.ntcreate:hover { background: var(--fg); opacity: .88; transform: none; }
 
 
 
@@ -40,6 +30,7 @@
 .ntside, .jrside { flex: none; width: 300px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; transition: width .2s ease; }
 .ntside.off, .jrside.off { width: 0; }
 .ntsidectrl, .jrsidectrl { flex: none; display: flex; align-items: center; gap: 8px; padding: 16px; }
+.ntsidectrl .btn, .jrsidectrl .btn { flex: 1; }
 .nticon, .jricon {
   flex: none; width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 14px;
   background: rgba(255,255,255,.015); color: var(--fg-2); display: inline-flex; align-items: center; justify-content: center;

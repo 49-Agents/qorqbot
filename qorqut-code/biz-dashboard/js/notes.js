@@ -39,7 +39,6 @@ let ntIdleT = null, ntTickT = null; // autosave idle/countdown timers
 
 
 
-const NT_ICO_PLUS = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>`;
 const NT_ICO_PANELLEFT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>`;
 const NT_ICO_PANELLEFTCLOSE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></svg>`;
 const NT_ICO_HOME = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
@@ -145,7 +144,7 @@ function ntRenderCurrent() {
 }
 
 // ---- homepage
-// Reuses journal's homepage markup/classes 1:1 (.jrhome/.jrhhead/.jrsub/.jrcreate/.jreyebrow/.jrcard/
+// Reuses journal's homepage markup/classes 1:1 (.jrhome/.jrhhead/.jrsub/.jreyebrow/.jrcard/
 // .jrctitle/.jrcprev/.jrcfoot, and jrHeatmapHtml(entries) bare, no extra wrapper) so the two homepages
 // render identically apart from the h1/count/section-label text, the notes-sourced card data, and the
 // nt* click/context handlers. Nothing nt-specific is introduced here — see css/notes.css's header
@@ -174,7 +173,7 @@ function ntHomeHtml() {
   return `<div class="jrhome">
     <div class="jrhhead">
       <div><h1>Notes</h1><div class="jrsub">${n} ${n === 1 ? "page" : "pages"}</div></div>
-      <button id="ntnew" class="jrcreate" type="button">Create new</button>
+      <button id="ntnew" class="btn" type="button">${ICO_PLUS}Create new</button>
     </div>
     ${jrHeatmapHtml(heatEntries)}
     ${sec("Pinned", JR_ICO_PIN_SM, pinned)}
@@ -272,7 +271,7 @@ function ntDetailHtml(n) {
     </div>
     <div class="ntside ${ntListOff ? "off" : ""}" id="ntside">
       <div class="ntsidectrl">
-        <button id="ntnew2" class="ntcreate ntflex" type="button">${NT_ICO_PLUS}New page</button>
+        <button id="ntnew2" class="btn" type="button">${ICO_PLUS}New page</button>
       </div>
       <div class="ntsearchwrap"><input id="ntsearch" class="ntsearch-in" placeholder="Search pages…" value="${esc(ntSearch)}" autocomplete="off" spellcheck="false"></div>
       <div class="ntdivider"></div>

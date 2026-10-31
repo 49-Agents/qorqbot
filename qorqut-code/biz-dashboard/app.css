@@ -70,7 +70,7 @@ button, input, textarea, select { font: inherit; color: inherit; letter-spacing:
    replaced-element default (300x150) and blow the button open — see ICO_PLUS on "New agent". */
 button svg, .btn svg { width: 14px; height: 14px; flex: none; display: block; }
 /* the plus that leads a pill's label reads thin next to 700-weight text at this size */
-button .ico-plus, .btn .ico-plus { stroke-width: 2.75; }
+button .ico-plus, .btn .ico-plus { width: 16px; height: 16px; stroke-width: 2.4; }
 .cmenu .ci .ico-plus { stroke-width: 2; }
 
 button {
