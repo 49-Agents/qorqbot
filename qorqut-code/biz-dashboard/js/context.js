@@ -61,7 +61,7 @@ async function renderContext(c) {
       <div class="crows" id="ctxrows"></div>
       <div class="cfoot" id="ctxq"></div>
     </div><div class="pane ctxview" id="ctxview"></div></div></div>`;
-  $("#ctxup").onclick = () => uploadModal({ endpoint: `/biz/${state.biz}/context/upload`, showTopic: true });
+  $("#ctxup").onclick = () => uploadModal();
   wireCtxSearch();
   if (state.ctx == null) state.ctx = "";
   ctxPaint(d);
@@ -399,7 +399,7 @@ async function jSave() {
     if (_jState !== s) return;           // navigated away while saving
     if (r.error) { toast(r.error); if (el) el.textContent = "save failed"; return; }
     if (r.warn) toast(r.warn);
-    s.dirty = false;
+    s.dirty = false; s.body0 = ta.value;               // a discard now reverts to what was just saved
     if (el) { el.textContent = "saved"; setTimeout(() => { if ($("#jsave") === el && el.textContent === "saved") el.textContent = ""; }, 2000); }
   } catch (e) {
     toast(`save failed: ${(e && e.message) || e}`);
@@ -425,7 +425,7 @@ async function openCtx(p) {
   if (state.ctx !== p) return;                                                     // navigated away meanwhile
   const title = meta.title || (uid ? (meta.notes || meta.topic || `Upload ${uid}`) : p.endsWith("/_topic.md") ? "description" : p.split("/").pop());
   v.innerHTML = `${ctxCrumbs(dir, p.split("/").pop())}
-    <div class="jcol"><div class="jhead"><h2 class="jt">${esc(title)}</h2>${ro ? `<span class="ro">${p === "INDEX.md" ? "generated" : "filed upload, immutable"}</span>` : `<span class="jsave" id="jsave"></span>`}</div>
+    <div class="jcol"><div class="jhead"><h2 class="jt">${esc(title)}</h2>${ro ? `<span class="ro">${p === "INDEX.md" ? "generated" : "filed upload, immutable"}</span>` : `<span class="jsave" id="jsave"></span><button class="jbtn" id="jsavebtn" type="button">Save</button><button class="jbtn" id="jdiscard" type="button">Discard</button>`}</div>
     ${chips ? `<div class="chips">${chips}</div>` : ""}<hr class="jhr">
     ${uid ? uploadSections(uid, um || {}) : ""}
     ${ro ? `<div class="jbody">${esc(body)}</div>` : `<textarea class="jta" id="jta" spellcheck="false" placeholder="Start writing…"></textarea>`}</div>`;
@@ -435,7 +435,7 @@ async function openCtx(p) {
   const ta = $("#jta");
   ta.value = body;
   jGrow(ta);
-  _jState = { path: p, fm, sep, dirty: false, saving: false };
+  _jState = { path: p, fm, sep, body0: body, dirty: false, saving: false };
   ta.oninput = () => { _jState.dirty = true; jGrow(ta); jSchedule(); };
   ta.onkeydown = e => {
     if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) { e.preventDefault(); jSave(); }
@@ -443,6 +443,14 @@ async function openCtx(p) {
   };
   ta.onblur = () => { if (_jState && _jState.dirty) jSave(); };
   $("#jsave").onclick = () => { if (_jState && _jState.dirty) jSave(); };
+  $("#jsavebtn").onclick = () => jSave();
+  // discard: back to the text the file opened with (or last had after a save elsewhere); nothing sent
+  $("#jdiscard").onclick = () => {
+    if (!_jState) return;
+    jClearTimers();
+    ta.value = _jState.body0; _jState.dirty = false; jGrow(ta);
+    const el = $("#jsave"); if (el) { el.textContent = "discarded"; setTimeout(() => { if ($("#jsave") === el && el.textContent === "discarded") el.textContent = ""; }, 2000); }
+  };
 }
 
 // an upload's two maps: the model-drawn mind map of its text, and where it went (notes, topics, people)
@@ -474,21 +482,17 @@ function wireUpload(v, uid, um) {
   };
 }
 
-// The upload box, shared with the Marketing tab's Record view: `endpoint` takes {text, notes, topic?}; `showTopic`
-// false drops the Topic field (the marketing tree's layout is fixed); `onDone(r)` runs after a successful upload
-// (default: open the upload in the Context tab).
-function uploadModal({
-  endpoint = `/biz/${state.biz}/context/upload`, title = "Upload context",
-  placeholder = "paste anything: notes from a call, a doc, a thread, a decision",
-  msg = "the filer splits it by topic and files it; the raw text is kept", showTopic = true, onDone,
-} = {}) {
-  const body = `<div class="fl">${showTopic ? "Context" : "Text"}</div><textarea class="inp ta" id="uptext" placeholder="${esc(placeholder)}" spellcheck="false"></textarea>
+// The upload box: text (required), notes (attribution), topic (a hint) → POST context/upload, then the new
+// upload opens in the Context tab. The only upload into a business tree: marketing-content/ is write-back only.
+function uploadModal() {
+  const msg = "the filer splits it by topic and files it; the raw text is kept";
+  const body = `<div class="fl">Context</div><textarea class="inp ta" id="uptext" placeholder="paste anything: notes from a call, a doc, a thread, a decision" spellcheck="false"></textarea>
     <div class="fmsg" id="upmsg">${esc(msg)}</div>
     <div class="fl">Notes <span class="opt">optional</span></div><input class="inp" id="upnotes" placeholder="where it came from: call with Sarah, PH hunter" autocomplete="off">
-    ${showTopic ? `<div class="fl">Topic <span class="opt">optional</span></div><input class="inp" id="uptopic" placeholder="hint: producthunt launch, pricing, brand voice" autocomplete="off">` : ""}
+    <div class="fl">Topic <span class="opt">optional</span></div><input class="inp" id="uptopic" placeholder="hint: producthunt launch, pricing, brand voice" autocomplete="off">
     <div class="ferr" id="uperr" hidden></div>`;
   modal({
-    title, body, width: 560,
+    title: "Upload context", body, width: 560,
     onOpen: el => {
       const ta = el.querySelector("#uptext"), m = el.querySelector("#upmsg");
       ta.oninput = () => { const n = ta.value.trim().length; m.textContent = n ? `${n.toLocaleString()} chars` : msg; };
@@ -502,13 +506,11 @@ function uploadModal({
         if (!text) return fail("nothing to upload");
         err.hidden = true;
         const b = el.querySelector(".mfoot .primary"); b.disabled = true;
-        const payload = { text, notes: el.querySelector("#upnotes").value };
-        if (showTopic) payload.topic = el.querySelector("#uptopic").value;
-        let r; try { r = await post(endpoint, payload); }
+        const payload = { text, notes: el.querySelector("#upnotes").value, topic: el.querySelector("#uptopic").value };
+        let r; try { r = await post(`/biz/${state.biz}/context/upload`, payload); }
         catch (e) { r = { error: "could not reach the server" }; }
         if (!r || r.error) { b.disabled = false; return fail((r && r.error) || "upload failed"); }
         close(); toast(r.warn ? `uploaded ${r.id}, but: ${r.warn}` : `uploaded ${r.id}; filing starts now`);
-        if (onDone) return onDone(r);
         state.ctx = `_inbox/${r.id}.md`;
         renderContext($("#content")); if (typeof refreshSide === "function") refreshSide();
       } },

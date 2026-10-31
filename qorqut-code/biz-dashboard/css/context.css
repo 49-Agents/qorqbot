@@ -37,7 +37,12 @@
 .ctxview .jcol { max-width: 720px; margin: 0 auto; padding: 24px 0 96px; }
 .ctxview .jhead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .ctxview .jt { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -.02em; }
-.ctxview .jsave { font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; flex: none; cursor: pointer; }
+.ctxview .jsave { font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; flex: none; cursor: pointer; margin-left: auto; }
+.ctxview .jbtn {
+  flex: none; height: 26px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: var(--r-full);
+  background: none; color: var(--fg-2); font: 600 12px var(--sans); cursor: pointer; transition: color .15s ease, border-color .15s ease;
+}
+.ctxview .jbtn:hover { color: var(--fg); border-color: var(--fg-3); }
 .ctxview .jhr { border: 0; border-top: 1px solid var(--line); margin: 16px 0 20px; }
 .ctxview .jta {
   display: block; width: 100%; min-height: 55vh; resize: none; border: 0; background: none;
