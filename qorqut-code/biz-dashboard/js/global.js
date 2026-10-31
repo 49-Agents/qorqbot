@@ -3,12 +3,10 @@
 const GLOBAL_PAGES = {
   overview: { title: 'Overview', icon: 'globe' },
   ideas: { title: 'Ideas', icon: 'ideas' },
-  'personal-context': { title: 'Personal Context', icon: 'personal' },
+  context: { title: 'Context', icon: 'learning' },
   agents: { title: 'Agents', icon: 'agents' },
-  learning: { title: 'Learning', icon: 'learning' },
   notes: { title: 'Notes', icon: 'notes' },
   settings: { title: 'Settings', icon: 'settings' },
-  analytics: { title: 'Analytics', icon: 'analytics', soon: true },
 };
 // Reuse the actual business navigation and drawer glyphs, including placeholder pages.
 const GLOBAL_ICONS = {
@@ -27,10 +25,9 @@ const GLOBAL_ICONS = {
 function globalIcon(name) { return GLOBAL_ICONS[name]; }
 for (const [id, page] of Object.entries(GLOBAL_PAGES)) {
   const button = document.createElement('button');
-  button.className = 'ritem global-rail'; button.type = 'button'; button.hidden = true;
+  button.className = 'ritem global-rail' + (id === 'settings' ? ' rbottom' : ''); button.type = 'button'; button.hidden = true;
   button.dataset.globalTab = id;
-  button.title = page.title + (page.soon ? ' — Coming soon' : '');
-  button.setAttribute('aria-label', button.title);
+  button.setAttribute('aria-label', page.title);
   if (page.soon) { button.classList.add('soon'); button.setAttribute('aria-disabled', 'true'); }
   button.innerHTML = globalIcon(page.icon); button.onclick = () => goGlobalTab(id);
   $('#ritems').appendChild(button);
@@ -76,26 +73,42 @@ async function selectGlobal(tab = ls('global-tab') || 'overview') {
 async function goGlobalTab(tab) {
   if (state.scope !== 'global') return;
   if (GLOBAL_PAGES[tab]?.soon) return;
+  if (tab === 'personal-context' || tab === 'learning') {
+    const suffix = tab === 'personal-context' ? location.hash.split('/').slice(3).join('/') : '';
+    location.hash = '/global/context/' + (tab === 'learning' ? 'learning' : 'personal') + (suffix ? '/' + suffix : '');
+    tab = 'context';
+  }
   const navigation=++workspaceNavigation;
   if(ntGlobalPage() && !await ntFlush())return;
   if(navigation!==workspaceNavigation)return;
   state.globalTab = Object.hasOwn(GLOBAL_PAGES, tab) ? tab : 'overview';
   ls('global-tab', state.globalTab);
-  if (!(["ideas", "personal-context"].includes(state.globalTab) && location.hash.startsWith(`#/global/${state.globalTab}/`)))
+  if (!(["ideas", "context"].includes(state.globalTab) && location.hash.startsWith(`#/global/${state.globalTab}/`)))
     location.hash = `/global/${state.globalTab}`;
   renderTab(); syncWorkspaceNav();
   // Old page links now open the corresponding drawer tab.
   if (['routines', 'signoffs'].includes(tab)) { openTasks(true); tSetView(tab); }
 }
+function renderGlobalContext(c) {
+  const personal = location.hash.split('/')[3] === 'personal';
+  c.innerHTML = `<div class="ctxwrap global-context"><div class="split ctxsplit">
+    <nav class="listcol ctxtree" aria-label="Global Context"><div class="crows">
+      ${[['learning','Learning',SVG_BRAIN],['personal','Personal Context',GLOBAL_ICONS.personal]].map(([key,label,icon]) => `<button type="button" class="item bt ${(personal ? key === 'personal' : key === 'learning') ? 'on' : ''}" data-global-context="${key}" ${((personal ? 'personal' : 'learning') === key) ? 'aria-current="page"' : ''}><div class="nm">${icon}<span class="tt">${label}</span></div></button>`).join('')}
+    </div></nav><div class="pane ctxview ${personal ? 'ctxembedded-view' : 'global-learning'}" id="ctxview"></div></div></div>`;
+  c.querySelectorAll('[data-global-context]').forEach(button => button.onclick = () => {
+    location.hash = '/global/context/' + button.dataset.globalContext;
+  });
+  if (personal) return renderPersonalContext($('#ctxview', c));
+  return openLearning();
+}
 let globalRender = 0;
 function renderGlobal(c) {
   if (state.globalTab === "ideas") return renderIdeas(c);
-  if (state.globalTab === "personal-context") return renderPersonalContext(c);
+  if (state.globalTab === "context") return renderGlobalContext(c);
   if(state.globalTab==='notes'){
     c.innerHTML='<section class="pane tasks global-notes" aria-label="Global Notes"><div id="global-notes-body" class="tbody"></div></section>';
     ntOpenView();return;
   }
-  if (state.globalTab === 'learning') { c.innerHTML = '<section class="pane ctxview global-learning" id="ctxview" aria-label="Global Learning"></section>'; return openLearning(); }
   if (state.globalTab === 'settings') return renderSettings(c);
   if (state.globalTab === 'agents') return renderGlobalAgents(c);
   const generation = ++globalRender, page = GLOBAL_PAGES[state.globalTab];
@@ -175,7 +188,7 @@ window.addEventListener('hashchange', () => {
   if (location.hash.startsWith('#/global')) {
     const tab = location.hash.split('/')[2] || 'overview';
     if (state.scope !== 'global' || state.globalTab !== tab) selectGlobal(tab);
-    else if (['ideas','personal-context'].includes(tab)) renderTab();
+    else if (['ideas','context'].includes(tab)) renderTab();
   } else {
     const slug = location.hash.slice(1);
     if (slug !== state.biz && state.bizs.some(b => b.slug === slug)) selectBiz(slug);

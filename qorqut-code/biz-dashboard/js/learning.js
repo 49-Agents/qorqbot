@@ -40,7 +40,7 @@ const lnCanRevert = it => ["accepted", "rejected"].includes(it && it.state) && !
 let _ln = { biz: null, items: [], counts: null, notes: {}, noteOpen: {}, busy: {}, q: "" };
 const lnWorkspace = () => state.scope === 'global' ? 'global' : state.biz;
 const lnBase = () => state.scope === 'global' ? '/root/learnings' : `/biz/${state.biz}/learnings`;
-const lnActive = () => state.scope === 'global' ? state.globalTab === 'learning' : state.ctx === '_learning';
+const lnActive = () => state.scope === 'global' ? state.globalTab === 'context' && location.hash.split('/')[3] !== 'personal' : state.ctx === '_learning';
 const lnDraftKey = () => `lnnotes:${lnWorkspace()}`;
 function lnDraftsLoad() { try { return JSON.parse(ls(lnDraftKey()) || "{}") || {}; } catch (e) { return {}; } }
 function lnDraftsSave() { ls(lnDraftKey(), JSON.stringify(_ln.notes)); }
