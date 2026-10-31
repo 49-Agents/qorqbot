@@ -410,9 +410,37 @@ function ntLineRowHtml(es, i) {
   const ball = isTask ? `<span class="ntballwrap"><button type="button" class="ntball ntb-${esc(status)}" data-i="${i}" aria-label="Status: ${esc(NT_STATUS_LABEL[status] || status)}. Click to change."><span class="ntdot"></span></button></span>` : "";
   return `<div class="${cls.join(" ")}" data-i="${i}">${ball}<textarea class="ntlinein" data-i="${i}" rows="1" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea></div>`;
 }
+// Plain journal prose can use one native editing surface, which lets the browser select
+// across block boundaries. Structured lines keep the existing per-line editor so task
+// markers, status balls, bold metadata, and dividers retain their current behavior.
+const ntCanUseMultilineSurface = es => es.lines.every((raw, i) => !ntIsTaskLine(raw) && !ntIsRuleAt(es, i) && !ntParseRaw(raw).meta.bold);
+function ntHandleMultilineInput(ta) {
+  const es = ntEditState; if (!es) return;
+  es.lines = ta.value.replace(/\r\n?/g, "\n").split("\n");
+  es.dirty = true;
+  ntGrowLine(ta);
+  ntPaintOverlay();
+  ntSchedule();
+}
 function ntRenderLines() {
   const wrap = $("#ntlines"); if (!wrap) return;
   const es = ntEditState; if (!es) return;
+  if (ntCanUseMultilineSurface(es)) {
+    wrap.innerHTML = `<div class="ntline ntmultiline"><textarea class="ntlinein" data-i="0" rows="8" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-label="Journal entry"></textarea></div>`;
+    const ta = wrap.querySelector(".ntlinein");
+    ta.value = es.lines.map((_, i) => ntDisp(es, i)).join("\n");
+    ntGrowLine(ta);
+    ta.oninput = () => ntHandleMultilineInput(ta);
+    ta.onkeydown = e => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S" || e.key === "Enter")) {
+        e.preventDefault(); ntSaveNow();
+      }
+    };
+    ta.onfocus = () => ntPaintOverlay();
+    ta.onblur = () => setTimeout(ntPaintOverlay, 0);
+    ntPaintOverlay();
+    return;
+  }
   wrap.innerHTML = es.lines.map((_, i) => ntLineRowHtml(es, i)).join("");
   wrap.querySelectorAll(".ntlinein").forEach(ta => {
     const i = Number(ta.dataset.i);

@@ -112,6 +112,7 @@
   padding: 0 0 0 calc(1.5rem + 1.5rem); text-indent: -1.5rem;
 }
 .ntlinein:focus { border: 0; box-shadow: none; background: none; }
+.ntmultiline .ntlinein { min-height: 280px; overflow-y: auto; resize: vertical; white-space: pre-wrap; }
 .ntline:not(.nttask) .ntlinein { padding-left: 0; text-indent: 0; }
 .ntline.nttask .ntlinein { padding-left: calc(1.5rem + 1.5rem + 10px); }
 .ntline.bold .ntlinein { font-weight: 600; }
