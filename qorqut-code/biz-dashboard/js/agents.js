@@ -51,8 +51,7 @@ function bumpUsage(u) { addUsage(state.usage || (state.usage = blankUsage()), u)
 
 // ------------------------------------------------------------------- pane
 // The Agents tab: each agent IS a live terminal bound to its background PTY on the server.
-// Left = the agent list (glyphs, add-agent). Right = the mirrored terminal, filling to the
-// bottom of the page. No chat chrome — every control is done inside the shell itself.
+// Left = the agent list, middle = the mirrored terminal, right = the read-only agent overview.
 // remember which agent was focused, per business — same shape as journal.js's jrKey/jrSetSel
 const agKey = () => `ag:${state.biz}`;
 function agSetSel(name) {
@@ -60,22 +59,26 @@ function agSetSel(name) {
   if (state.biz) ls(agKey(), name || "");
 }
 
+let agRenderGen = 0;
 async function renderAgents(c) {
+  const gen = ++agRenderGen, biz = state.biz;
   const [agents, terms] = await Promise.all([
-    api(`/biz/${state.biz}/agents`),
-    api(`/biz/${state.biz}/terminals`),
+    api(`/biz/${biz}/agents`),
+    api(`/biz/${biz}/terminals`),
   ]);
+  if (gen !== agRenderGen || biz !== state.biz || state.tab !== "agents" || !c.isConnected) return;
   state.agents = Array.isArray(agents) ? agents : [];
   state.terms = Array.isArray(terms) ? terms : [];
-  c.innerHTML = `<div class="split"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">${ICO_PLUS}New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div></div>`;
+  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">${ICO_PLUS}New agent</button><button class="agpad-toggle" id="agpad-toggle" aria-controls="agpad" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>Agent pane</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
   $("#addagent").onclick = newAgentModal;
   paintList();
   const want = state.agent || ls(agKey());
   const a = state.agents.find(x => x.name === want) || state.agents[0];
-  if (!a) { $("#chat").innerHTML = `<div class="empty" style="padding:24px">No agents yet — add one with New agent.</div>`; return; }
+  if (!a) { agSetSel(null); $("#chat").innerHTML = `<div class="empty" style="padding:24px">No agents yet — add one with New agent.</div>`; agpadMount(null, $("#agpad")); return; }
   agSetSel(a.name);
   paintList();
   mountTerminal(a.name, $("#chat"), stat => markTermState(a.name, stat));
+  agpadMount(a.name, $("#agpad"));
 }
 
 // reflect a terminal's live/ended state on its row in the agent list, without a refetch

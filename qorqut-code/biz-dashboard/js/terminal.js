@@ -55,6 +55,7 @@ function mountTerminal(agent, pane, onStat) {
     return { w: (c && c.width) || CELL_W, h: (c && c.height) || CELL_H };
   };
   const fit = () => {
+    if (_term !== term || !host.isConnected) return; // a queued fit can outlive a tab/agent switch
     const { w, h } = cell();
     const cols = Math.max(20, Math.floor(host.clientWidth / w));
     const rows = Math.max(6, Math.floor(host.clientHeight / h));
