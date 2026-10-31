@@ -5,9 +5,24 @@ loadBiz();
 
 // ---------------------------------------------------------- tab-chord shortcuts
 // Hold Tab as a modifier: Tab+letter jumps around the app; a double-tap of Tab (no letter
-// between) steps through agents when the Agents tab is showing.
+// between) toggles the right pane.
+(function doubleTabPane() {
+  let lastTap = null;
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.isComposing || document.querySelector('.overlay')) { lastTap = null; return; }
+    if (event.repeat) return;
+    const now = Date.now();
+    if (lastTap !== null && now - lastTap < 400) {
+      lastTap = null; event.preventDefault(); event.stopImmediatePropagation();
+      openTasks(!tPanelOpen());
+    } else lastTap = now;
+  }, true);
+  document.addEventListener('pointerdown', () => { lastTap = null; }, true);
+  window.addEventListener('blur', () => { lastTap = null; });
+})();
+
 (function tabChords() {
-  let tabHeld = false, lastTabAt = 0, sawLetter = false;
+  let tabHeld = false;
 
   const blocked = () => {
     const a = document.activeElement;
@@ -20,36 +35,24 @@ loadBiz();
   };
 
   document.addEventListener("keydown", e => {
-    if (state.scope === "global") { tabHeld = false; lastTabAt = 0; sawLetter = false; return; }
-    if (blocked()) { tabHeld = false; lastTabAt = 0; sawLetter = false; return; }
+    if (state.scope === "global") { tabHeld = false; return; }
+    if (blocked()) { tabHeld = false; return; }
     if (e.key === "Tab" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
       e.preventDefault();
       if (e.repeat) return;   // holding Tab down auto-repeats keydown; only the initial press counts
-      const now = Date.now();
-      if (tabHeld === false && now - lastTabAt < 400 && !sawLetter) {
-        // double-tap: step through agents in nav order
-        if (state.tab === "agents" && typeof agentNavOrder === "function") {
-          const order = agentNavOrder();
-          if (order.length) {
-            const i = order.indexOf(state.agent);
-            state.agent = order[(i + 1 + order.length) % order.length];
-            if (typeof renderAgents === "function") renderAgents($("#content"));
-          }
-        }
-      }
-      tabHeld = true; lastTabAt = now; sawLetter = false;
+      tabHeld = true;
       return;
     }
     if (!tabHeld) return;
     if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
     const k = e.key.toLowerCase();
-    if (k === "t") { e.preventDefault(); sawLetter = true; openTasks(true); tSetView("tasks"); }
-    else if (k === "n") { e.preventDefault(); sawLetter = true; openTasks(true); tSetView("notes"); }
-    else if (k === "u") { e.preventDefault(); sawLetter = true; openTasks(true); tSetView("uploads"); }
-    else if (k === "r") { e.preventDefault(); sawLetter = true; openTasks(true); tSetView("routines"); }
-    else if (k === "m") { e.preventDefault(); sawLetter = true; goTab("marketing"); }
-    else if (k === "c") { e.preventDefault(); sawLetter = true; goTab("context"); }
-    else if (k === "a") { e.preventDefault(); sawLetter = true; goTab("agents"); }
+    if (k === "t") { e.preventDefault(); openTasks(true); tSetView("tasks"); }
+    else if (k === "n") { e.preventDefault(); openTasks(true); tSetView("notes"); }
+    else if (k === "u") { e.preventDefault(); openTasks(true); tSetView("uploads"); }
+    else if (k === "r") { e.preventDefault(); openTasks(true); tSetView("routines"); }
+    else if (k === "m") { e.preventDefault(); goTab("marketing"); }
+    else if (k === "c") { e.preventDefault(); goTab("context"); }
+    else if (k === "a") { e.preventDefault(); goTab("agents"); }
   });
 
   document.addEventListener("keyup", e => {
