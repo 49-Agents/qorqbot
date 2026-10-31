@@ -68,6 +68,12 @@ class Attachment(BaseModel):
         return self
 
 
+class StopKey(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    contact_key: str = Field(min_length=1, max_length=320)
+    business_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
+
+
 class Outgoing(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     request_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
@@ -81,6 +87,9 @@ class Outgoing(BaseModel):
     expires_at: str | None = None
     # Optional; omitted means conversational. Excluded from digest() like sender_ref/transport.
     category: Literal["conversational", "cold_outreach"] | None = Field(default=None, exclude_if=lambda value: value is None)
+    # Legacy /sends cold-outreach label; see docs/INTEGRATION-CONTRACT.md.
+    workflow_owner: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,60}$", exclude_if=lambda value: value is None)
+    stop_key: StopKey | None = Field(default=None, exclude_if=lambda value: value is None)
     to: list[str] = Field(min_length=1, max_length=50)
     cc: list[str] = Field(default_factory=list, max_length=50)
     bcc: list[str] = Field(default_factory=list, max_length=50)
@@ -121,6 +130,13 @@ class Outgoing(BaseModel):
             raise ValueError("Attachments exceed the combined size limit")
         if len(self.envelope_recipients()) > 50:
             raise ValueError("At most 50 total recipients are allowed")
+        if self.effective_category() == "cold_outreach":
+            if self.stop_key is None or self.workflow_owner is None:
+                raise ValueError("cold_outreach requires workflow_owner and stop_key")
+            if self.stop_key.business_id != self.business_id:
+                raise ValueError("stop_key.business_id must match business_id")
+        elif self.stop_key is not None or self.workflow_owner is not None:
+            raise ValueError("workflow_owner and stop_key require category cold_outreach")
         return self
 
     def envelope_recipients(self):
@@ -129,10 +145,17 @@ class Outgoing(BaseModel):
     def effective_category(self):
         return self.category or "conversational"
 
+    def cold_outreach_label(self):
+        """(workflow_owner, contact_key, business_id) when labelled for the stop guard, else None."""
+        if self.effective_category() != "cold_outreach" or self.stop_key is None or self.workflow_owner is None:
+            return None
+        return (self.workflow_owner, self.stop_key.contact_key, self.stop_key.business_id)
+
     def digest(self):
         # Preserve pre-extension request digests, including recovery of saved drafts.
         data = self.model_dump()
-        for field in ("sender_ref", "transport", "reply_to", "expires_at", "category"):
+        for field in ("sender_ref", "transport", "reply_to", "expires_at", "category",
+                "workflow_owner", "stop_key"):
             if data.get(field) is None:
                 data.pop(field, None)
         raw = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
@@ -220,12 +243,6 @@ class IntegrationClient(BaseModel):
         if any(not re.fullmatch(r"[A-Za-z0-9_-]{1,120}", value) for value in values):
             raise ValueError("Invalid business ID")
         return list(dict.fromkeys(values))
-
-
-class StopKey(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    contact_key: str = Field(min_length=1, max_length=320)
-    business_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
 
 
 class IntentCorrelation(BaseModel):

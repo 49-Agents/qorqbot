@@ -17,6 +17,22 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def legacy_cold_label(send_row):
+    """(workflow_owner, contact_key, business_id) for a labelled legacy /sends row, else None."""
+    try:
+        payload = json.loads(send_row["payload"])
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    stop, owner = payload.get("stop_key"), payload.get("workflow_owner")
+    if payload.get("category") != "cold_outreach" or not owner or not isinstance(stop, dict):
+        return None
+    if not stop.get("contact_key") or not stop.get("business_id"):
+        return None
+    return (owner, stop["contact_key"], stop["business_id"])
+
+
 class Store:
     def __init__(self, path):
         self.path = path
@@ -626,15 +642,19 @@ class Store:
                                 continue
                             intent = db.execute("SELECT * FROM integration_intents WHERE request_id=?",
                                 (send_row["request_id"],)).fetchone()
-                            if not intent or intent["category"] != "cold_outreach":
-                                continue
-                            workflow_owner, intent_id = intent["workflow_owner"], intent["intent_id"]
-                            matched_request_id = intent["request_id"]
+                            if intent is not None and intent["category"] == "cold_outreach":
+                                workflow_owner, intent_id = intent["workflow_owner"], intent["intent_id"]
+                                key = (workflow_owner, intent["stop_contact_key"], intent["stop_business_id"])
+                            else:
+                                label = legacy_cold_label(send_row)
+                                if intent is not None or label is None:
+                                    continue
+                                workflow_owner, intent_id, key = label[0], None, label
+                            matched_request_id = send_row["request_id"]
                             correlation_payload = {"matched_internet_message_id": sent_identity,
                                 "sent_request_id": send_row["request_id"]}
                             db.execute("INSERT OR IGNORE INTO integration_stops VALUES(?,?,?,?,?,?,?)",
-                                (workflow_owner, intent["stop_contact_key"], intent["stop_business_id"],
-                                 "reply_detected", "reply", message_id, now()))
+                                (*key, "reply_detected", "reply", message_id, now()))
                             break
                 db.execute("INSERT INTO message_correlations VALUES(?,?,?,?,?,?,?,?)",
                     (mailbox, message_id, int(is_sent_copy), workflow_owner, intent_id, matched_request_id,
