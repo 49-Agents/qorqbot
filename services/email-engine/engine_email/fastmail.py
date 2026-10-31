@@ -44,6 +44,8 @@ def mime_content_digest(content):
     mail = BytesParser(policy=default).parsebytes(content)
     headers = {key: [str(value) for value in mail.get_all(key, [])]
         for key in ("subject", "message-id", "in-reply-to", "references")}
+    # Outlook may prefix the sent Subject with a folding tab absent on delivery.
+    headers["subject"] = [value.removeprefix("\t") for value in headers["subject"]]
     # Exchange's Sent copy may unfold the same Message-ID with a tab while
     # SMTP delivery uses a space. Field-edge folding whitespace is not identity.
     for key in ("message-id", "in-reply-to", "references"):
