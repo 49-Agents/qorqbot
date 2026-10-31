@@ -78,7 +78,7 @@ function agpadSetView(p, view) {
   const from = p.view;
   p.view = view;
   p.bodyHtml = null;
-  p.el.innerHTML = tHead({ view, views: p.views, title: p.agent, bodyId: "agpad-body", taskTools: false });
+  p.el.innerHTML = tHead({ view, views: p.views, bodyId: "agpad-body", taskTools: false });
   tWireHead(p.el, from, next => agpadSetView(p, next));
   if (view === "activity") p.nextLog = 0;
   if (view === "inbox") p.nextInbox = 0;
