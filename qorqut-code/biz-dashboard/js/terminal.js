@@ -1,10 +1,10 @@
 // Terminal mirror: one live xterm bound to an agent's background PTY on the server.
 // Output = base64 SSE frames -> xterm; keystrokes -> POST input. The PTY lives on the
 // server and persists (survives tab switches / reconnects); reconnecting replays scrollback.
-// No chrome: the terminal fills the pane. A single floating button reconnects a broken
-// stream (which also respawns the shell if it exited). All other control is done in the shell.
+// No chrome: the mirror fills the pane and re-fits on resize. One floating button reconnects
+// a broken stream (which also respawns the shell if it exited); all other control is in the shell.
 
-const CELL_W = 7.8, CELL_H = 17; // rough xterm cell metrics at 13px mono; used to size the PTY
+const CELL_W = 8.4, CELL_H = 18.5; // rough xterm cell metrics at 14px mono; used to size the PTY
 
 function b64ToBytes(b64) {
   const bin = atob(b64);
@@ -13,9 +13,10 @@ function b64ToBytes(b64) {
   return a;
 }
 
-let _termES = null, _term = null;
+let _termES = null, _term = null, _termRO = null;
 
 function teardownTerm() {
+  if (_termRO) { _termRO.disconnect(); _termRO = null; }
   if (_termES) { _termES.close(); _termES = null; }
   if (_term) { _term.dispose(); _term = null; }
 }
@@ -33,24 +34,35 @@ function mountTerminal(agent, pane, onStat) {
 
   const term = new Terminal({
     fontFamily: "var(--mono, ui-monospace, monospace)",
-    fontSize: 13,
+    fontSize: 14,
+    lineHeight: 1.15,
     cursorBlink: true,
-    scrollback: 5000,
+    scrollback: 8000,
     theme: { background: "#0b0e14", foreground: "#c8d3e0", cursor: "#7dd3fc" },
   });
   term.open(host);
   _term = term;
 
-  const cols = Math.max(20, Math.floor(host.clientWidth / CELL_W));
-  const rows = Math.max(6, Math.floor(host.clientHeight / CELL_H));
-  term.resize(cols, rows);
+  // size the PTY to fill the pane, and re-fit when the pane changes (window resize, etc.)
+  const fit = () => {
+    const cols = Math.max(20, Math.floor(host.clientWidth / CELL_W));
+    const rows = Math.max(6, Math.floor(host.clientHeight / CELL_H));
+    if (cols !== term.cols || rows !== term.rows) {
+      term.resize(cols, rows);
+      post(`/biz/${state.biz}/terminal/${agent}/resize`, { cols, rows });
+    }
+  };
+  fit();
+  let rt;
+  _termRO = new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(fit, 100); });
+  _termRO.observe(host);
 
   const setStat = t => {
     if (btn) btn.classList.toggle("warn", t === "disconnected" || t === "ended");
     if (onStat) { try { onStat(t); } catch (e) {} }
   };
 
-  // output: base64 SSE frames -> xterm. On a real drop, close (no auto-retry: a retry would
+  // output: base64 SSE frames -> xterm. On a real drop, close (no auto-retry, which would
   // replay the whole scrollback and duplicate it) and flag the button so the user can reconnect.
   const es = new EventSource(evUrl(`/biz/${state.biz}/terminal/${agent}/stream`));
   _termES = es;
@@ -60,9 +72,6 @@ function mountTerminal(agent, pane, onStat) {
 
   // input: keystrokes -> POST (the PTY echoes back over the stream)
   term.onData(d => { post(`/biz/${state.biz}/terminal/${agent}/input`, { data: d }); });
-
-  // tell the PTY our window size
-  post(`/biz/${state.biz}/terminal/${agent}/resize`, { cols, rows });
   term.focus();
 
   // reconnect: re-open the stream. The PTY persists, so this replays scrollback; if the shell
@@ -70,12 +79,13 @@ function mountTerminal(agent, pane, onStat) {
   if (btn) btn.onclick = () => mountTerminal(agent, pane, onStat);
 }
 
-// Terminal tab: pick an agent, open its terminal in the right pane.
+// Terminal tab (legacy — the Agents tab now mounts terminals directly). Kept so the tab keeps
+// working wherever it is still wired. Pick an agent, open its terminal in the right pane.
 function renderTerminals(content) {
   teardownTerm();
   content.innerHTML = `<div class="split">
     <div class="listcol" id="termlist"><div class="empty">loading…</div></div>
-    <div class="chat" id="termpane"><div class="empty">Pick an agent to open its terminal.</div></div>
+    <div class="chat termmode" id="termpane"><div class="empty">Pick an agent to open its terminal.</div></div>
   </div>`;
   const listEl = $("#termlist", content);
   api(`/biz/${state.biz}/agents`).then(agents => {
