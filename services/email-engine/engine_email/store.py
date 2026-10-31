@@ -388,9 +388,19 @@ class Store:
             row = db.execute("SELECT * FROM sends WHERE request_id=?", (request_id,)).fetchone()
             return dict(row) if row else None
 
-    def pending_sends(self):
+    def pending_sends(self, *, due_only=False, as_of=None):
         with self.connect() as db:
-            return [dict(row) for row in db.execute("SELECT * FROM sends WHERE state IN ('queued','creating','draft','sending','accepted','uncertain') ORDER BY updated_at LIMIT 100")]
+            query = "SELECT * FROM sends WHERE state IN ('queued','creating','draft','sending','accepted','uncertain')"
+            params = []
+            if due_only:
+                # Apply the schedule before the batch limit so an old stuck row
+                # cannot hide due work behind a full page of delayed rows.
+                query += " AND (json_type(result,'$.reconciliation.next_check_at') IS NULL " \
+                    "OR json_type(result,'$.reconciliation.next_check_at') != 'text' " \
+                    "OR json_extract(result,'$.reconciliation.next_check_at') <= ?)"
+                params.append(as_of or now())
+            query += " ORDER BY updated_at LIMIT 100"
+            return [dict(row) for row in db.execute(query, params)]
 
     @staticmethod
     def receipt(row):

@@ -434,12 +434,22 @@ class Fastmail:
             if identity in {internet_message_id(value) for value in item.get("messageId", [])}]
         if not matches:
             return None
-        if len(matches) != 1 or self.owner(matches[0]) != mailbox:
+        # A sent message can legitimately have both the authorized business
+        # Bcc copy and an owner/foreign-folder copy.  Resolve ownership from
+        # metadata before downloading any MIME so a foreign message body is
+        # never read or used to bind a business receipt.
+        owned = [item for item in matches if self.owner(item) == mailbox]
+        if len(owned) > 1:
+            raise ProviderError("outlook_import_lookup_ambiguous")
+        if not owned:
             raise ProviderError("outlook_import_conflicting_owner")
-        existing = self.download_blob(matches[0]["blobId"])
+        selected = owned[0]
+        if not selected.get("blobId"):
+            raise ProviderError("outlook_import_lookup_incomplete")
+        existing = self.download_blob(selected["blobId"])
         if mime_content_digest(existing) != mime_content_digest(content):
             raise ProviderError("outlook_import_content_conflict")
-        return self.get_message(mailbox, matches[0]["id"])
+        return self.get_message(mailbox, selected["id"])
 
     def import_observed_mime(self, mailbox, content, *, message_id, received_at=None, is_read=False):
         """Copy complete provider MIME into its proven business folder; never submit mail."""

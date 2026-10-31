@@ -21,7 +21,8 @@ def create_app(service, *, background=True):
 
     async def poll():
         while True:
-            for operation in (service.sync, service.collect_history, service.collect_outlook, service.reconcile_pending):
+            for operation in (service.sync, service.collect_history, service.collect_outlook,
+                    lambda: service.reconcile_pending(scheduled=True)):
                 try:
                     await anyio.to_thread.run_sync(operation)
                 except Exception:
