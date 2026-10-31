@@ -21,11 +21,11 @@ async function renderGlobalAgents(c) {
   if (!current()) return;
   c.innerHTML = `<div class="split global-agents">
     <div class="listcol"><div class="ctop"><div class="global-eyebrow">Global</div><h1>Agents</h1></div><div class="crows" id="global-agent-list"></div></div>
-    <section class="global-agent-session" aria-label="Agent session"><header class="global-agent-heading" id="global-agent-heading"></header><div class="chat termmode" id="global-agent-terminal"></div></section>
+    <section class="global-agent-session" aria-label="Agent session"><div class="chat termmode" id="global-agent-terminal"></div></section>
   </div>`;
   if (!agents.length) {
     $('#global-agent-list', c).innerHTML = '<p class="empty pad">No global agents yet.</p>';
-    $('#global-agent-heading', c).textContent = 'Registered global agents will appear here.';
+    $('#global-agent-terminal', c).textContent = 'Registered global agents will appear here.';
     return;
   }
   const list = $('#global-agent-list', c), pane = $('#global-agent-terminal', c);
@@ -42,7 +42,6 @@ async function renderGlobalAgents(c) {
       const on = button.dataset.globalAgent === selected;
       button.classList.toggle('on', on); button.setAttribute('aria-pressed', String(on));
     });
-    $('#global-agent-heading', c).innerHTML = `<h2>${esc(agent.display_name || agent.name)}</h2><p>${esc(agent.assignment_brief)}</p><p class="muted">Type <code>claude</code> in the terminal to begin, or <code>claude --continue</code> to resume.</p>`;
     mountTerminal(agent.agent_id, pane, status => {
       if (!current() || selected !== agent.agent_id) return;
       const button = [...list.querySelectorAll('[data-global-agent]')].find(b => b.dataset.globalAgent === selected);
