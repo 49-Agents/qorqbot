@@ -5,7 +5,7 @@
 .set-head .small { max-width: 480px; }
 .settingspane .mono { font-family: var(--mono); }
 .envrows { display: flex; flex-direction: column; gap: 8px; }
-.envrow { display: grid; grid-template-columns: minmax(140px, 1fr) 2fr auto; gap: 8px; align-items: center; }
+.envrow { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(100px, 2fr) auto; gap: 8px; align-items: center; }
 .envrow input { font-family: var(--mono); font-size: 13px; }
 .envrow .ek.bad { border-color: var(--danger); }
 .envdel {
@@ -20,3 +20,10 @@
 .envadd:hover { border-color: rgba(255,255,255,.2); background: var(--hover); color: var(--fg); }
 .set-note { margin-top: 10px; min-height: 1.2em; }
 .set-note:not(:empty) { color: var(--danger); }
+
+.envkey { min-width: 0; }
+.envkey input { width: 100%; }
+.envsource { display: block; color: var(--fg-3); font-size: 11px; margin-top: 4px; }
+.envrow .envdel { font-size: 12px; white-space: nowrap; }
+.envrow > .ev { align-self: start; min-width: 0; }
+@media (max-width: 600px) { .envrow { grid-template-columns: minmax(0, 1fr) auto; } .envrow > .ev { grid-column: 1 / -1; grid-row: 2; } .envrow { padding-bottom: 12px; } }

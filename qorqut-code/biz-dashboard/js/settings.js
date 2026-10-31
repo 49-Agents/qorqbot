@@ -1,71 +1,113 @@
-// ---------------------------------------------------------------- settings tab
-// Per-business environment: the gitignored `.env` in the biz repo root, edited as key-value rows.
-// Every agent session and CLI the dashboard spawns for this business gets these merged over the
-// machine's environment (biz values win). Saved as a whole file: comments in a hand-edited .env
-// are dropped on the first save from here.
-
-let _envRows = [];   // [{key, value}] as edited, before save
+// Environment defaults belong to Global; a business saves only its explicit overrides.
+let envView = null;
+const ENV_KEY_JS = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const envScope = () => state.scope === "global" ? "global" : state.biz;
+const envCurrent = p => envView === p && p.pane.isConnected && envScope() === p.scope;
 
 async function renderSettings(c) {
-  const biz = state.biz;
+  const scope = envScope(), global = state.scope === "global";
   const pane = document.createElement("div");
   pane.className = "pane settingspane";
+  const p = envView = { pane, scope, global, url: global ? "/root/env" : "/biz/" + encodeURIComponent(state.biz) + "/env",
+    rows: [], inherited: [], loaded: false, saving: false, dirty: false };
   pane.innerHTML = `
-    <section class="ac" id="agent-config" aria-label="Agent configuration"></section>
-    <div class="set-head">
-      <div>
-        <div class="set-title">Environment</div>
-        <div class="muted small">Key-value pairs in this business's <span class="mono">.env</span> (gitignored).
-        Agents and CLIs run for this business see them; they override the machine's own variables.</div>
-      </div>
-      <button class="btn" id="envsave" disabled>Save</button>
-    </div>
+    <div class="set-head"><div>
+      <h1 class="set-title">${global ? "Global environment" : "Environment"}</h1>
+      <div class="muted small">${global ? "Shared defaults for all businesses and Global agents. Businesses can override individual values." : "Global values are inherited automatically. Override a value for this business, or use Global again."}</div>
+    </div><button class="btn" id="envsave" disabled>Save</button></div>
     <div class="envrows" id="envrows"></div>
-    <button class="envadd" id="envadd">+ Add variable</button>
-    <div class="set-note muted small" id="envnote"></div>`;
+    <button class="envadd" id="envadd" disabled>+ Add variable</button>
+    <div class="set-note muted small" id="envnote" role="status"></div>
+    <p class="muted small">Changes apply to new agent sessions and subsequent jobs. Already-running agent sessions keep their current environment.</p>`;
   c.appendChild(pane);
-  if (typeof acMount === "function") acMount($("#agent-config", pane), biz);
-  const r = await api(`/biz/${biz}/env`);
-  if (state.biz !== biz || !pane.isConnected) return;
-  _envRows = (r && Array.isArray(r.pairs)) ? r.pairs.map(p => ({ ...p })) : [];
-  if (!_envRows.length) _envRows.push({ key: "", value: "" });
-  paintEnv();
-  $("#envadd").onclick = () => { _envRows.push({ key: "", value: "" }); paintEnv(); envDirty(); focusEnvRow(_envRows.length - 1); };
-  $("#envsave").onclick = saveEnv;
+  pane.querySelector("#envsave").onclick = () => saveEnv(p);
+  pane.querySelector("#envadd").onclick = () => {
+    p.rows.push({ key: "", value: "" }); envDirty(p); paintEnv(p);
+    pane.querySelector(".envrow:last-child .ek")?.focus();
+  };
+  await loadEnv(p);
 }
 
-const ENV_KEY_JS = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-function paintEnv() {
-  const box = $("#envrows");
-  box.innerHTML = _envRows.map((p, i) => `
-    <div class="envrow" data-i="${i}">
-      <input class="ek mono" type="text" placeholder="KEY" value="${esc(p.key)}" spellcheck="false">
-      <input class="ev mono" type="text" placeholder="value" value="${esc(p.value)}" spellcheck="false">
-      <button class="envdel" title="Remove">&times;</button>
-    </div>`).join("");
-  box.querySelectorAll(".envrow").forEach(row => {
-    const i = +row.dataset.i;
-    row.querySelector(".ek").oninput = e => { _envRows[i].key = e.target.value; envDirty(); markKey(e.target); };
-    row.querySelector(".ev").oninput = e => { _envRows[i].value = e.target.value; envDirty(); };
-    row.querySelector(".envdel").onclick = () => { _envRows.splice(i, 1); paintEnv(); envDirty(); };
-    markKey(row.querySelector(".ek"));
+function envError(p, message, retry = false) {
+  const note = p.pane.querySelector("#envnote");
+  note.textContent = message;
+  if (retry) {
+    const button = document.createElement("button");
+    button.className = "btn quiet"; button.id = "envretry"; button.textContent = "Retry";
+    button.onclick = () => loadEnv(p); note.append(" ", button);
+  }
+}
+async function loadEnv(p) {
+  envError(p, "Loading environment…");
+  try {
+    const r = await api(p.url);
+    if (!envCurrent(p)) return;
+    if (r.error || !Array.isArray(r.pairs)) throw new Error(r.error || "Environment response is unavailable.");
+    p.rows = r.pairs.map(row => ({ ...row }));
+    p.inherited = (r.inherited || []).map(row => ({ ...row }));
+    p.loaded = true; p.dirty = false;
+    envError(p, ""); paintEnv(p);
+  } catch (error) {
+    if (envCurrent(p)) envError(p, error.message || "Could not load environment.", true);
+  }
+}
+function envDirty(p) {
+  p.dirty = true;
+  p.pane.querySelector("#envsave").disabled = p.saving || !p.loaded;
+  envError(p, "");
+}
+function paintEnv(p) {
+  const inherited = new Map(p.inherited.map(row => [row.key, row.value]));
+  const local = new Set(p.rows.map(row => row.key.trim()));
+  const shown = [
+    ...p.inherited.filter(row => !local.has(row.key)).map(row => ({ ...row, inherited: true })),
+    ...p.rows.map((row, index) => ({ ...row, index })),
+  ];
+  p.pane.querySelector("#envrows").innerHTML = shown.map(row => {
+    const override = !p.global && inherited.has(row.key.trim()) && !row.inherited;
+    const source = row.inherited ? "Global" : override ? "Business override" : p.global ? "Global" : "Business";
+    return `<div class="envrow" data-index="${row.index ?? ""}">
+      <div class="envkey"><input class="ek mono" aria-label="Variable name" placeholder="KEY" value="${esc(row.key)}" ${row.inherited ? "disabled" : override ? "readonly" : ""} spellcheck="false"><span class="envsource">${source}</span></div>
+      <input class="ev mono" aria-label="Value for ${esc(row.key || "new variable")}" placeholder="value" value="${esc(row.value)}" ${row.inherited ? "disabled" : ""} spellcheck="false">
+      <button class="envdel" type="button" data-key="${esc(row.key)}" data-action="${row.inherited ? "override" : "remove"}" aria-label="${row.inherited ? "Override " : override ? "Use Global for " : "Remove "}${esc(row.key || "variable")}">${row.inherited ? "Override" : override ? "Use Global" : "×"}</button>
+    </div>`;
+  }).join("") || '<p class="muted small">No environment variables yet.</p>';
+  p.pane.querySelectorAll(".envrow").forEach(row => {
+    const button = row.querySelector("button");
+    if (button.dataset.action === "override") {
+      button.onclick = () => {
+        p.rows.push({ key: button.dataset.key, value: inherited.get(button.dataset.key) });
+        envDirty(p); paintEnv(p);
+        p.pane.querySelector(".envrow:last-child .ev")?.focus();
+      };
+      return;
+    }
+    const index = Number(row.dataset.index), key = row.querySelector(".ek");
+    key.oninput = () => { p.rows[index].key = key.value; key.classList.toggle("bad", !!key.value.trim() && !ENV_KEY_JS.test(key.value.trim())); envDirty(p); };
+    row.querySelector(".ev").oninput = e => { p.rows[index].value = e.target.value; envDirty(p); };
+    button.onclick = () => { p.rows.splice(index, 1); envDirty(p); paintEnv(p); };
   });
+  p.pane.querySelector("#envsave").disabled = !p.loaded || p.saving || !p.dirty;
+  p.pane.querySelector("#envadd").disabled = !p.loaded || p.saving;
+  if (p.saving) p.pane.querySelectorAll("#envrows input, #envrows button").forEach(el => el.disabled = true);
 }
 
-function markKey(inp) { inp.classList.toggle("bad", !!inp.value.trim() && !ENV_KEY_JS.test(inp.value.trim())); }
-function focusEnvRow(i) { const row = $(`#envrows .envrow[data-i="${i}"] .ek`); if (row) row.focus(); }
-function envDirty() { const b = $("#envsave"); if (b) b.disabled = false; const n = $("#envnote"); if (n) n.textContent = ""; }
-
-async function saveEnv() {
-  const pairs = _envRows.map(p => ({ key: p.key.trim(), value: p.value })).filter(p => p.key);
-  const bad = pairs.find(p => !ENV_KEY_JS.test(p.key));
-  if (bad) { $("#envnote").textContent = `Bad key: ${bad.key} — letters, digits and _ only, not starting with a digit.`; return; }
-  const b = $("#envsave");
-  b.disabled = true;
-  const r = await post(`/biz/${state.biz}/env`, { pairs });
-  if (r && r.error) { $("#envnote").textContent = r.error; b.disabled = false; return; }
-  _envRows = (r && Array.isArray(r.pairs) && r.pairs.length) ? r.pairs.map(p => ({ ...p })) : [{ key: "", value: "" }];
-  paintEnv();
-  toast("Environment saved");
+async function saveEnv(p = envView) {
+  if (!p || !envCurrent(p) || !p.loaded || p.saving) return;
+  const pairs = p.rows.map(row => ({ key: row.key.trim(), value: row.value })).filter(row => row.key);
+  if (pairs.some(row => !ENV_KEY_JS.test(row.key))) return envError(p, "Use letters, digits and underscores for keys; do not start with a digit.");
+  if (new Set(pairs.map(row => row.key)).size !== pairs.length) return envError(p, "Each variable name must be unique.");
+  p.saving = true; paintEnv(p);
+  try {
+    const r = await post(p.url, { pairs });
+    if (!envCurrent(p)) return;
+    if (r.error || !Array.isArray(r.pairs)) throw new Error(r.error || "Could not save environment.");
+    p.rows = r.pairs.map(row => ({ ...row })); p.inherited = (r.inherited || []).map(row => ({ ...row }));
+    p.dirty = false; envError(p, ""); toast("Environment saved");
+  } catch (error) {
+    if (envCurrent(p)) envError(p, error.message || "Could not save environment.");
+  } finally {
+    p.saving = false;
+    if (envCurrent(p)) paintEnv(p);
+  }
 }

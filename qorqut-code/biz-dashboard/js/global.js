@@ -3,6 +3,7 @@
 const GLOBAL_PAGES = {
   overview: { title: 'Overview', icon: 'globe' },
   agents: { title: 'Agents', icon: 'agents' },
+  settings: { title: 'Settings', icon: 'settings' },
   analytics: { title: 'Analytics', icon: 'analytics', soon: true },
 };
 // Reuse the actual business navigation and drawer glyphs, including placeholder pages.
@@ -13,6 +14,7 @@ const GLOBAL_ICONS = {
   requests: MK_ICO.queue,
   analytics: document.querySelector('.ritem[data-tab="progress"] svg').outerHTML,
   routines: T_VIEW_ICON.routines,
+  settings: document.querySelector('.ritem[data-tab="settings"] svg').outerHTML,
 };
 function globalIcon(name) { return GLOBAL_ICONS[name]; }
 for (const [id, page] of Object.entries(GLOBAL_PAGES)) {
@@ -75,6 +77,7 @@ function goGlobalTab(tab) {
 }
 let globalRender = 0;
 function renderGlobal(c) {
+  if (state.globalTab === 'settings') return renderSettings(c);
   if (state.globalTab === 'agents') return renderGlobalAgents(c);
   const generation = ++globalRender, page = GLOBAL_PAGES[state.globalTab];
   c.innerHTML = `<section class="pane global-content" aria-label="${esc(page.title)}">
