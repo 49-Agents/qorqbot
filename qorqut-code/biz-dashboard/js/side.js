@@ -12,7 +12,12 @@ async function refreshSide() {
   const logEl = $("#log");                                   // no log on screen right now; the rows are parked in logHtml()
   if (logEl) { logEl.innerHTML = rows.length ? logHtml(rows) : `<div class="empty">Nothing logged yet.</div>`; logTips(logEl, rows); }
   logToasts(state.biz, rows);
-  const running = (Array.isArray(live) ? live : []).filter(s => !s.done);
+  // /live is {sessions, requests, requests_error}; the requests feed the Marketing toasts and badge (no second poll loop)
+  const sessions = Array.isArray(live) ? live : (live && Array.isArray(live.sessions) ? live.sessions : []);
+  const reqs = (live && Array.isArray(live.requests)) ? live.requests : [];
+  if (typeof mkLiveToasts === "function") mkLiveToasts(state.biz, reqs);
+  if (typeof mkBadgePaint === "function" && state.tab !== "marketing") mkBadgePaint(reqs);
+  const running = sessions.filter(s => !s.done);
   const f = $("#foot");
   f.innerHTML = running.length ? `<span class="dot on"></span>` : `<span class="dot"></span>`;
   f.title = running.length ? `${running.length} session${running.length === 1 ? "" : "s"} running` : "quiet";

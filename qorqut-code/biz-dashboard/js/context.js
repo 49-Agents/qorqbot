@@ -61,7 +61,7 @@ async function renderContext(c) {
       <div class="crows" id="ctxrows"></div>
       <div class="cfoot" id="ctxq"></div>
     </div><div class="pane ctxview" id="ctxview"></div></div></div>`;
-  $("#ctxup").onclick = uploadModal;
+  $("#ctxup").onclick = () => uploadModal({ endpoint: `/biz/${state.biz}/context/upload`, showTopic: true });
   wireCtxSearch();
   if (state.ctx == null) state.ctx = "";
   ctxPaint(d);
@@ -474,17 +474,24 @@ function wireUpload(v, uid, um) {
   };
 }
 
-function uploadModal() {
-  const body = `<div class="fl">Context</div><textarea class="inp ta" id="uptext" placeholder="paste anything: notes from a call, a doc, a thread, a decision" spellcheck="false"></textarea>
-    <div class="fmsg" id="upmsg">the filer splits it by topic and files it; the raw text is kept</div>
+// The upload box, shared with the Marketing tab's Record view: `endpoint` takes {text, notes, topic?}; `showTopic`
+// false drops the Topic field (the marketing tree's layout is fixed); `onDone(r)` runs after a successful upload
+// (default: open the upload in the Context tab).
+function uploadModal({
+  endpoint = `/biz/${state.biz}/context/upload`, title = "Upload context",
+  placeholder = "paste anything: notes from a call, a doc, a thread, a decision",
+  msg = "the filer splits it by topic and files it; the raw text is kept", showTopic = true, onDone,
+} = {}) {
+  const body = `<div class="fl">${showTopic ? "Context" : "Text"}</div><textarea class="inp ta" id="uptext" placeholder="${esc(placeholder)}" spellcheck="false"></textarea>
+    <div class="fmsg" id="upmsg">${esc(msg)}</div>
     <div class="fl">Notes <span class="opt">optional</span></div><input class="inp" id="upnotes" placeholder="where it came from: call with Sarah, PH hunter" autocomplete="off">
-    <div class="fl">Topic <span class="opt">optional</span></div><input class="inp" id="uptopic" placeholder="hint: producthunt launch, pricing, brand voice" autocomplete="off">
+    ${showTopic ? `<div class="fl">Topic <span class="opt">optional</span></div><input class="inp" id="uptopic" placeholder="hint: producthunt launch, pricing, brand voice" autocomplete="off">` : ""}
     <div class="ferr" id="uperr" hidden></div>`;
   modal({
-    title: "Upload context", body, width: 560,
+    title, body, width: 560,
     onOpen: el => {
-      const ta = el.querySelector("#uptext"), msg = el.querySelector("#upmsg");
-      ta.oninput = () => { const n = ta.value.trim().length; msg.textContent = n ? `${n.toLocaleString()} chars` : "the filer splits it by topic and files it; the raw text is kept"; };
+      const ta = el.querySelector("#uptext"), m = el.querySelector("#upmsg");
+      ta.oninput = () => { const n = ta.value.trim().length; m.textContent = n ? `${n.toLocaleString()} chars` : msg; };
       ta.onkeydown = e => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") el.querySelector(".mfoot .primary").click(); };
     },
     actions: [
@@ -495,10 +502,13 @@ function uploadModal() {
         if (!text) return fail("nothing to upload");
         err.hidden = true;
         const b = el.querySelector(".mfoot .primary"); b.disabled = true;
-        let r; try { r = await post(`/biz/${state.biz}/context/upload`, { text, notes: el.querySelector("#upnotes").value, topic: el.querySelector("#uptopic").value }); }
+        const payload = { text, notes: el.querySelector("#upnotes").value };
+        if (showTopic) payload.topic = el.querySelector("#uptopic").value;
+        let r; try { r = await post(endpoint, payload); }
         catch (e) { r = { error: "could not reach the server" }; }
         if (!r || r.error) { b.disabled = false; return fail((r && r.error) || "upload failed"); }
         close(); toast(r.warn ? `uploaded ${r.id}, but: ${r.warn}` : `uploaded ${r.id}; filing starts now`);
+        if (onDone) return onDone(r);
         state.ctx = `_inbox/${r.id}.md`;
         renderContext($("#content")); if (typeof refreshSide === "function") refreshSide();
       } },
