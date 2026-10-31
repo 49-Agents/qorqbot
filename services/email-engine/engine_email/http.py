@@ -1,7 +1,9 @@
 """Trusted-service API. Read credentials cannot submit or resume a send."""
 
 import asyncio
+import hashlib
 import hmac
+import json
 from contextlib import asynccontextmanager
 
 import anyio
@@ -11,6 +13,8 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from .fastmail import ProviderError
+from .account import AccountAction, AccountMailService
+from .business import ATTACHMENT_PAGE_BYTES, BusinessMailService, parse_owned_ids
 from .models import MAX_HTTP_BYTES, HistoryEvent, Outgoing
 from .store import Store
 from .mailbox_settings import MailboxUpdate, configure, revisions as mailbox_revisions
@@ -18,6 +22,8 @@ from .mailbox_settings import MailboxUpdate, configure, revisions as mailbox_rev
 
 def create_app(service, *, background=True):
     settings = service.settings
+    account = AccountMailService(settings, service.store, service.provider)
+    business = BusinessMailService(settings, service.provider)
 
     async def poll():
         while True:
@@ -49,6 +55,86 @@ def create_app(service, *, background=True):
         expected = settings.send_token if send else settings.read_token
         if "token" in request.query_params or not hmac.compare_digest(supplied.encode(), ("Bearer " + expected).encode()):
             return JSONResponse({"error": "unauthenticated"}, status_code=401)
+
+    def authenticate_account(request):
+        token = settings.admin_token
+        if (not token or "token" in request.query_params or not hmac.compare_digest(
+                request.headers.get("Authorization", "").encode(), ("Bearer " + token).encode())):
+            return JSONResponse({"error": "unauthenticated"}, status_code=401)
+
+    async def fastmail_account(request):
+        denied = authenticate_account(request)
+        if denied is not None:
+            return denied
+        path = request.path_params.get("path", "").strip("/")
+        try:
+            if request.method == "GET" and path in {"", "metadata"}:
+                return JSONResponse(await anyio.to_thread.run_sync(account.metadata))
+            if request.method == "GET" and path == "folders":
+                return JSONResponse(await anyio.to_thread.run_sync(account.folders))
+            if request.method == "GET" and path == "identities":
+                return JSONResponse({"identities": await anyio.to_thread.run_sync(service.provider.account_identities)})
+            if request.method == "GET" and path == "messages":
+                params = dict(request.query_params)
+                return JSONResponse(await anyio.to_thread.run_sync(lambda: account.search(params)))
+            if request.method == "GET" and path.startswith("messages/"):
+                bits = path.split("/")
+                identity = bits[1]
+                if len(bits) == 3 and bits[2] == "attachments":
+                    raw = await anyio.to_thread.run_sync(lambda: service.provider.account_raw(identity, metadata=True))
+                    return JSONResponse({"attachments": raw.get("attachments", [])})
+                if len(bits) == 2:
+                    return JSONResponse(await anyio.to_thread.run_sync(lambda: account.message(identity)))
+            if request.method == "GET" and path.startswith("threads/"):
+                identity = path.split("/", 1)[1]
+                limit = int(request.query_params.get("limit", "50"))
+                position = int(request.query_params.get("position", "0"))
+                if not 1 <= limit <= 100 or position < 0:
+                    raise ValueError("Invalid page")
+                return JSONResponse(await anyio.to_thread.run_sync(
+                    lambda: service.provider.account_thread(identity, limit=limit, position=position)))
+            if request.method == "GET" and path.startswith("actions/"):
+                request_id = path.split("/", 1)[1]
+                receipt = await anyio.to_thread.run_sync(lambda: account.receipt(request_id))
+                if receipt is None:
+                    return JSONResponse({"error": "operation_not_found"}, status_code=404)
+                return JSONResponse(receipt)
+            if request.method == "GET" and path.startswith("attachments/"):
+                bits = path.split("/")
+                identity = request.query_params.get("message_id", "")
+                if len(bits) == 2 and identity:
+                    offset = int(request.query_params.get("offset", "0"))
+                    limit = int(request.query_params.get("limit", str(5 * 1024 * 1024)))
+                    if offset < 0 or not 1 <= limit <= 5 * 1024 * 1024:
+                        raise ValueError("Invalid attachment range")
+                    content = await anyio.to_thread.run_sync(lambda: account.attachment(identity, bits[1]))
+                    if offset > len(content):
+                        raise ValueError("Invalid attachment offset")
+                    selected = content[offset:offset + limit]
+                    return Response(selected, media_type="application/octet-stream",
+                        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store",
+                            "X-Attachment-Total": str(len(content)), "X-Attachment-Offset": str(offset)})
+            if request.method == "POST" and path == "actions":
+                content = bytearray()
+                async for chunk in request.stream():
+                    content.extend(chunk)
+                    if len(content) > MAX_HTTP_BYTES:
+                        return JSONResponse({"error": "request_too_large"}, status_code=413)
+                parsed = json.loads(bytes(content))
+                if not isinstance(parsed, dict):
+                    raise ValueError("Account action must be a JSON object")
+                action = AccountAction.model_validate(parsed)
+                request_digest = hashlib.sha256(json.dumps(parsed, sort_keys=True, ensure_ascii=False,
+                    separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+                receipt = await anyio.to_thread.run_sync(lambda: account.apply(action, request_digest=request_digest))
+                return JSONResponse(receipt, status_code=200 if receipt["state"] in {"completed", "failed", "uncertain"} else 202)
+            return JSONResponse({"error": "not_found"}, status_code=404)
+        except ValidationError:
+            return JSONResponse({"error": "invalid_account_action"}, status_code=400)
+        except ValueError:
+            return JSONResponse({"error": "invalid_account_request"}, status_code=400)
+        except ProviderError as exc:
+            return JSONResponse({"error": exc.code}, status_code=exc.status or 502)
 
     async def configure_mailbox(request):
         token = settings.admin_token
@@ -101,6 +187,30 @@ def create_app(service, *, background=True):
                 result = await anyio.to_thread.run_sync(lambda: service.store.messages(mailbox.ref, after=after, limit=limit))
                 return JSONResponse(result)
             identity = request.query_params.get("message_id", "")
+            owned = parse_owned_ids(request.query_params.get("owned_ids", ""))
+            ranged = "offset" in request.query_params or "limit" in request.query_params
+            if kind == "attachment" and (owned or ranged) or kind == "attachments" and owned:
+                # Provider-side scoped reads mirroring the /fastmail ranged pages;
+                # their 403/404 outcomes are results, not upstream failures.
+                try:
+                    if kind == "attachments":
+                        listed = await anyio.to_thread.run_sync(
+                            lambda: business.attachments(mailbox, identity, owned))
+                        return JSONResponse({"attachments": listed})
+                    attachment_id = request.query_params.get("attachment_id", "")
+                    offset = int(request.query_params.get("offset", "0"))
+                    limit = int(request.query_params.get("limit", str(ATTACHMENT_PAGE_BYTES)))
+                    if offset < 0 or not 1 <= limit <= ATTACHMENT_PAGE_BYTES:
+                        raise ValueError("Invalid attachment range")
+                    content = await anyio.to_thread.run_sync(
+                        lambda: business.attachment(mailbox, identity, attachment_id, owned))
+                    if offset > len(content):
+                        raise ValueError("Invalid attachment offset")
+                    return Response(content[offset:offset + limit], media_type="application/octet-stream",
+                        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store",
+                            "X-Attachment-Total": str(len(content)), "X-Attachment-Offset": str(offset)})
+                except ProviderError as exc:
+                    return JSONResponse({"error": exc.code}, status_code=exc.status or 502)
             message = await anyio.to_thread.run_sync(lambda: service.store.message(mailbox.ref, identity))
             if message is None:
                 return JSONResponse({"error": "message_not_found"}, status_code=404)
@@ -120,6 +230,32 @@ def create_app(service, *, background=True):
             return JSONResponse({"error": "invalid_request"}, status_code=400)
         except ProviderError as exc:
             return JSONResponse({"error": exc.code, "provider_status": exc.status}, status_code=502)
+
+    async def business_search(request):
+        denied = authenticate(request)
+        if denied is not None:
+            return denied
+        try:
+            mailbox = service.settings.mailbox(request.path_params["mailbox"])
+            params = dict(request.query_params)
+            return JSONResponse(await anyio.to_thread.run_sync(lambda: business.search(mailbox, params)))
+        except ValueError:
+            return JSONResponse({"error": "invalid_request"}, status_code=400)
+        except ProviderError as exc:
+            return JSONResponse({"error": exc.code}, status_code=exc.status or 502)
+
+    async def business_drafts(request):
+        denied = authenticate(request)
+        if denied is not None:
+            return denied
+        try:
+            mailbox = service.settings.mailbox(request.path_params["mailbox"])
+            params = dict(request.query_params)
+            return JSONResponse(await anyio.to_thread.run_sync(lambda: business.drafts(mailbox, params)))
+        except ValueError:
+            return JSONResponse({"error": "invalid_request"}, status_code=400)
+        except ProviderError as exc:
+            return JSONResponse({"error": exc.code}, status_code=exc.status or 502)
 
     async def sync(request):
         denied = authenticate(request)
@@ -206,5 +342,9 @@ def create_app(service, *, background=True):
             request.path_params["kind"] = selected
             return await read(request)
         routes.append(Route("/mailboxes/{mailbox}/" + kind, endpoint))
+    routes.append(Route("/mailboxes/{mailbox}/search", business_search))
+    routes.append(Route("/mailboxes/{mailbox}/drafts", business_drafts))
     routes.insert(0, Route("/mailboxes/configure", configure_mailbox, methods=["POST"]))
+    routes.append(Route("/fastmail", fastmail_account, methods=["GET"]))
+    routes.append(Route("/fastmail/{path:path}", fastmail_account, methods=["GET", "POST"]))
     return Starlette(routes=routes, lifespan=lifespan)

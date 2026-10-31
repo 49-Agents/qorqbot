@@ -85,6 +85,7 @@ class Outgoing(BaseModel):
     subject: str = Field(min_length=1, max_length=998)
     body: str = Field(min_length=1, max_length=50_000)
     reply_message_id: str | None = Field(default=None, min_length=1, max_length=1000)
+    forward_message_id: str | None = Field(default=None, min_length=1, max_length=1000, exclude_if=lambda value: value is None)
     attachments: list[Attachment] = Field(default_factory=list, max_length=10)
 
     _sender = field_validator("from_address")(address)
@@ -112,6 +113,8 @@ class Outgoing(BaseModel):
 
     @model_validator(mode="after")
     def bounded(self):
+        if self.reply_message_id and self.forward_message_id:
+            raise ValueError("An email cannot be both a reply and a forward")
         if sum(len(a.content()) for a in self.attachments) > MAX_ATTACHMENT_BYTES:
             raise ValueError("Attachments exceed the combined size limit")
         if len(self.envelope_recipients()) > 50:

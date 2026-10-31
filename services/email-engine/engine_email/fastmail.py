@@ -12,11 +12,13 @@ from urllib.parse import quote, urlsplit
 
 import httpx
 
-from .models import MAX_MESSAGE_BYTES
+from .models import MAX_MESSAGE_BYTES, MAX_ATTACHMENT_BYTES
 
 CORE = "urn:ietf:params:jmap:core"
 MAIL = "urn:ietf:params:jmap:mail"
 SUBMISSION = "urn:ietf:params:jmap:submission"
+VACATION = "urn:ietf:params:jmap:vacationresponse"
+MASKED_EMAIL = "https://www.fastmail.com/dev/maskedemail"
 SESSION = "https://api.fastmail.com/jmap/session"
 REQUEST_HEADER = "header:X-Qorqut-Request:asText"
 FIELDS = ["id", "threadId", "mailboxIds", "keywords", "messageId", "inReplyTo", "references",
@@ -28,6 +30,8 @@ HISTORY_FIELDS = ["id", "blobId", "threadId", "mailboxIds", "keywords", "size", 
     "htmlBody", "bodyValues", "attachments"]
 HISTORY_BODY_FIELDS = ["partId", "blobId", "size", "name", "type", "charset", "disposition",
     "cid", "language", "location", "headers"]
+ACCOUNT_READ_BODY_BYTES = 128 * 1024
+ACCOUNT_MAX_RESULTS = 100
 
 
 def internet_message_id(value):
@@ -140,10 +144,10 @@ class Fastmail:
     def account_id(self):
         return self.session()["accountId"]
 
-    def call(self, method, arguments=None, *, write=False):
+    def call(self, method, arguments=None, *, write=False, using=None):
         session = self.session()
         args = {**(arguments or {}), "accountId": session["accountId"]}
-        response = self.request("POST", session["apiUrl"], body={"using": [CORE, MAIL, SUBMISSION],
+        response = self.request("POST", session["apiUrl"], body={"using": using or [CORE, MAIL, SUBMISSION],
             "methodCalls": [[method, args, "request"]]}, write=write)
         for entry in response.get("methodResponses", []):
             if not isinstance(entry, list) or len(entry) != 3 or entry[2] != "request":
@@ -154,6 +158,425 @@ class Fastmail:
             if name == method and isinstance(data, dict) and data.get("accountId") == session["accountId"]:
                 return data
         raise ProviderError("invalid_jmap_response", uncertain=write)
+
+    def account_folder_catalog(self):
+        """Return folders plus the JMAP state used by optimistic writes."""
+        result = self.call("Mailbox/get", {"ids": None,
+            "properties": ["id", "name", "parentId", "role", "sortOrder", "isSubscribed", "myRights"]})
+        values = result.get("list")
+        if not isinstance(values, list) or result.get("notFound") or any(
+                not isinstance(item, dict) or not isinstance(item.get("id"), str) for item in values):
+            raise ProviderError("invalid_account_folder_catalog")
+        return {"state": result.get("state"), "folders": values}
+
+    def account_folders(self):
+        """Preserve the list-only helper used by provider internals."""
+        return self.account_folder_catalog()["folders"]
+
+    def account_identities(self):
+        result = self.call("Identity/get")
+        values = result.get("list")
+        if not isinstance(values, list):
+            raise ProviderError("invalid_account_identity_catalog")
+        # Do not return provider settings such as auto-Bcc or reply-to overrides.
+        if any(not isinstance(item, dict) or not isinstance(item.get("id"), str) for item in values):
+            raise ProviderError("invalid_account_identity_catalog")
+        return [{key: item.get(key) for key in ("id", "name", "email", "replyTo", "bcc")} for item in values]
+
+    def account_search(self, params, *, limit=50, position=0):
+        conditions = []
+        mapping = {"q": "text", "from": "from", "to": "to", "subject": "subject",
+            "in_mailbox": "inMailbox", "has_keyword": "hasKeyword", "before": "before",
+            "after": "after"}
+        for key, value in params.items():
+            if key not in mapping:
+                continue
+            if key in {"before", "after"}:
+                value = value
+            conditions.append({mapping[key]: value})
+        filter_value = conditions[0] if len(conditions) == 1 else {"operator": "AND", "conditions": conditions}
+        result = self.call("Email/query", {"filter": filter_value, "sort": [{"property": "receivedAt", "isAscending": False}],
+            "position": position, "limit": limit, "calculateTotal": True})
+        if not isinstance(result.get("ids"), list) or type(result.get("total")) is not int:
+            raise ProviderError("invalid_account_search_response")
+        return {"ids": result["ids"], "position": result.get("position", position),
+            "total": result["total"], "query_state": result.get("queryState")}
+
+    def account_thread(self, identity, *, limit=50, position=0):
+        if not isinstance(identity, str) or not identity or not 1 <= limit <= ACCOUNT_MAX_RESULTS or position < 0:
+            raise ProviderError("invalid_account_thread_page", status=400)
+        # Thread/get has no query pagination arguments. Bound the returned
+        # email IDs locally after fetching the named thread.
+        result = self.call("Thread/get", {"ids": [identity], "properties": ["id", "emailIds"]})
+        values = result.get("list", [])
+        if len(values) != 1 or values[0].get("id") != identity:
+            raise ProviderError("account_thread_not_found", status=404)
+        email_ids = values[0].get("emailIds")
+        if not isinstance(email_ids, list) or any(not isinstance(item, str) for item in email_ids):
+            raise ProviderError("invalid_account_thread_response")
+        return {**values[0], "emailIds": email_ids[position:position + limit],
+            "position": position, "total": len(email_ids),
+            "has_more": position + limit < len(email_ids)}
+
+    def account_message(self, identity, *, body=True):
+        if not isinstance(identity, str) or not identity:
+            raise ProviderError("invalid_account_message_id", status=400)
+        properties = [*FIELDS, "blobId"] if body else ["id", "threadId", "mailboxIds", "keywords", "subject",
+            "from", "to", "cc", "replyTo", "receivedAt", "sentAt", "hasAttachment", "attachments"]
+        args = {"ids": [identity], "properties": properties}
+        if body:
+            args.update(fetchAllBodyValues=True, maxBodyValueBytes=ACCOUNT_READ_BODY_BYTES)
+        result = self.call("Email/get", args)
+        values = result.get("list", [])
+        if len(values) != 1 or values[0].get("id") != identity:
+            raise ProviderError("account_message_not_found", status=404)
+        return {"message": self.normalize(values[0]), "expected_state": result.get("state")}
+
+    def account_raw(self, identity, *, metadata=False):
+        args = {"ids": [identity], "properties": ["id", "mailboxIds", "keywords", "attachments"] if metadata else [*FIELDS, "blobId"]}
+        if not metadata:
+            args.update(fetchAllBodyValues=True, maxBodyValueBytes=ACCOUNT_READ_BODY_BYTES)
+        result = self.call("Email/get", args)
+        values = result.get("list", [])
+        if len(values) != 1 or values[0].get("id") != identity:
+            raise ProviderError("account_message_not_found", status=404)
+        return values[0]
+
+    def account_attachment(self, identity, attachment_id):
+        raw = self.account_raw(identity, metadata=True)
+        found = next((item for item in raw.get("attachments", []) if item.get("blobId") == attachment_id), None)
+        if found is None:
+            raise ProviderError("account_attachment_not_found", status=404)
+        return self.download_blob(attachment_id)
+
+    def _account_folder(self, folder_id):
+        found = next((item for item in self.account_folders() if item["id"] == folder_id), None)
+        if found is None:
+            raise ProviderError("account_folder_not_found", status=404)
+        return found
+
+    def account_move(self, identity, destination, *, expected_state=None, protected=()):
+        raw = self.account_raw(identity, metadata=True)
+        folder = self._account_folder(destination)
+        if not folder.get("myRights", {}).get("mayAddItems"):
+            raise ProviderError("account_folder_write_denied", status=403)
+        current = raw.get("mailboxIds") or {}
+        if not current:
+            raise ProviderError("account_message_mailbox_missing")
+        updates = {"mailboxIds/" + value: (True if value == destination else None) for value in current}
+        updates["mailboxIds/" + destination] = True
+        args = {"update": {identity: updates}}
+        if expected_state:
+            args["ifInState"] = expected_state
+        result = self.call("Email/set", args, write=True)
+        return {"message_id": identity, "destination_folder_id": destination, "provider": result,
+            **({"partial": True} if result.get("notUpdated") else {})}
+
+    def account_update_message(self, identity, action, *, expected_state=None):
+        raw = self.account_raw(identity, metadata=True)
+        updates = {}
+        for keyword in action.add_keywords:
+            updates["keywords/" + keyword] = True
+        for keyword in action.remove_keywords:
+            updates["keywords/" + keyword] = None
+        for name, value in (("$seen", action.seen), ("$flagged", action.flagged), ("$answered", action.answered)):
+            if value is not None:
+                updates["keywords/" + name] = bool(value) or None
+        destination = action.move_to_folder_id
+        if action.trash is True or action.restore is True:
+            role = "trash" if action.trash is True else "inbox"
+            destination = next((item["id"] for item in self.account_folders() if item.get("role") == role), None)
+            if destination is None:
+                raise ProviderError("account_destination_folder_missing", status=503)
+        if destination:
+            folder = self._account_folder(destination)
+            if not folder.get("myRights", {}).get("mayAddItems"):
+                raise ProviderError("account_folder_write_denied", status=403)
+            for value in raw.get("mailboxIds", {}):
+                updates["mailboxIds/" + value] = None
+            updates["mailboxIds/" + destination] = True
+        args = {"update": {identity: updates}}
+        if expected_state:
+            args["ifInState"] = expected_state
+        result = self.call("Email/set", args, write=True)
+        return {"message_id": identity, "provider": result,
+            **({"partial": True} if result.get("notUpdated") else {})}
+
+    def account_set_flags(self, identity, *, seen=None, flagged=None, answered=None, expected_state=None):
+        updates = {}
+        for name, value in (("$seen", seen), ("$flagged", flagged), ("$answered", answered)):
+            if value is not None:
+                updates["keywords/" + name] = bool(value) or None
+        args = {"update": {identity: updates}}
+        if expected_state:
+            args["ifInState"] = expected_state
+        result = self.call("Email/set", args, write=True)
+        return {"message_id": identity, "flags": {key[9:]: value for key, value in updates.items()}, "provider": result,
+            **({"partial": True} if result.get("notUpdated") else {})}
+
+    def account_create_folder(self, name, *, parent_id=None):
+        result = self.call("Mailbox/set", {"create": {"prepared": {"name": name, **({"parentId": parent_id} if parent_id else {})}}}, write=True)
+        return {"folder": self.created(result), "provider": result,
+            **({"partial": True} if result.get("notCreated") else {})}
+
+    def account_rename_folder(self, folder_id, name, *, expected_state=None, protected=()):
+        self._account_folder(folder_id)
+        if folder_id in protected:
+            raise ProviderError("account_protected_folder", status=409)
+        args = {"update": {folder_id: {"name": name}}}
+        if expected_state:
+            args["ifInState"] = expected_state
+        result = self.call("Mailbox/set", args, write=True)
+        return {"folder_id": folder_id, "name": name, "provider": result,
+            **({"partial": True} if result.get("notUpdated") else {})}
+
+    def account_delete_folder(self, folder_id, *, expected_state=None, protected=()):
+        folder = self._account_folder(folder_id)
+        if folder_id in protected or folder.get("role"):
+            raise ProviderError("account_protected_folder", status=409)
+        args = {"destroy": [folder_id]}
+        if expected_state:
+            args["ifInState"] = expected_state
+        result = self.call("Mailbox/set", args, write=True)
+        return {"folder_id": folder_id, "provider": result,
+            **({"partial": True} if result.get("notDestroyed") else {})}
+
+    def vacation_available(self):
+        session = self.session()
+        account = session.get("accounts", {}).get(session["accountId"], {})
+        return VACATION in session.get("capabilities", {}) and VACATION in account.get("accountCapabilities", {})
+
+    def account_set_vacation(self, value):
+        if not self.vacation_available():
+            raise ProviderError("account_vacation_unavailable", status=501)
+        # The API intentionally accepts only the provider's typed vacation fields.
+        if not isinstance(value, dict) or set(value) - {"id", "isEnabled", "fromDate", "toDate", "subject", "textBody"}:
+            raise ProviderError("invalid_vacation_fields", status=400)
+        result = self.call("VacationResponse/set", {"update": {"singleton": value}}, write=True,
+            using=[CORE, VACATION])
+        return {"provider": result, **({"partial": True} if result.get("notUpdated") else {})}
+
+    def masked_email_available(self):
+        return MASKED_EMAIL in self.session().get("capabilities", {})
+
+    def account_set_masked_email(self, value):
+        if not self.masked_email_available():
+            raise ProviderError("account_masked_email_unavailable", status=501)
+        if not isinstance(value, dict) or not value.get("id") or set(value) - {"id", "state", "description", "forDomain", "url", "emailPrefix"}:
+            raise ProviderError("invalid_masked_email_fields", status=400)
+        result = self.call("MaskedEmail/set", {"update": {value["id"]: value}}, write=True,
+            using=[CORE, MASKED_EMAIL])
+        return {"provider": result, **({"partial": True} if result.get("notUpdated") else {})}
+
+    def _account_composed_content(self, action):
+        """Build the immutable body/attachment expectation for account compose."""
+        body = action.body
+        attachments = []
+        if action.forward_message_id:
+            parent = self.account_raw(action.forward_message_id)
+            text_parts = parent.get("textBody") or parent.get("htmlBody") or []
+            values = parent.get("bodyValues") or {}
+            if any(not isinstance(part, dict) or not isinstance(part.get("partId"), str)
+                    or not isinstance(values.get(part["partId"]), dict)
+                    or values[part["partId"]].get("isTruncated")
+                    or values[part["partId"]].get("isEncodingProblem")
+                    for part in text_parts):
+                raise ProviderError("account_source_body_truncated", status=409)
+            normalized = self.normalize(parent)
+            sender = normalized.get("from", {}).get("emailAddress", {}).get("address", "")
+            subject = normalized.get("subject", "")
+            quoted = normalized.get("body", {}).get("content", "")
+            body = (action.body + "\n\n---------- Forwarded message ----------\n"
+                f"From: {sender}\nSubject: {subject}\n\n{quoted}")
+            for source in parent.get("attachments") or []:
+                blob_id = source.get("blobId")
+                content_type = source.get("type") or "application/octet-stream"
+                filename = source.get("name") or "attachment"
+                if not isinstance(blob_id, str) or "/" not in content_type:
+                    raise ProviderError("account_source_attachment_invalid", status=409)
+                content = self.download_blob(blob_id)
+                if source.get("size") is not None and source.get("size") != len(content):
+                    raise ProviderError("account_source_attachment_changed", status=409)
+                attachments.append({"name": filename, "type": content_type,
+                    "content": content, "sha256": hashlib.sha256(content).hexdigest()})
+        for attachment in action.attachments:
+            content = attachment.content()
+            attachments.append({"name": attachment.filename, "type": attachment.content_type,
+                "content": content, "sha256": attachment.sha256})
+        if sum(len(item["content"]) for item in attachments) > MAX_ATTACHMENT_BYTES:
+            raise ProviderError("account_attachments_too_large", status=413)
+        return body, attachments
+
+    def _account_identity(self, action):
+        identities = self.account_identities()
+        if action.identity_id:
+            identity = next((item for item in identities if item.get("id") == action.identity_id), None)
+        else:
+            matches = [item for item in identities
+                if item.get("email", "").lower() == action.from_address.lower()]
+            identity = matches[0] if len(matches) == 1 else None
+        if (identity is None or identity.get("email", "").lower() != action.from_address.lower()
+                or identity.get("bcc") or identity.get("replyTo")):
+            raise ProviderError("account_sender_identity_denied", status=403)
+        return identity
+
+    def account_create_draft(self, action):
+        self._account_identity(action)
+        mail = EmailMessage()
+        mail["From"] = formataddr((action.from_name, action.from_address))
+        mail["X-Qorqut-Request"] = action.request_id
+        mail["To"] = ", ".join(action.to)
+        if action.cc:
+            mail["Cc"] = ", ".join(action.cc)
+        if action.bcc:
+            mail["Bcc"] = ", ".join(action.bcc)
+        mail["Subject"], mail["Date"] = action.subject, formatdate(usegmt=True)
+        body, composed_attachments = self._account_composed_content(action)
+        if action.reply_message_id:
+            parent = self.account_raw(action.reply_message_id)
+            message_ids = parent.get("messageId") or []
+            if not message_ids:
+                raise ProviderError("account_source_missing_message_id", status=409)
+            parent_id = internet_message_id(message_ids[0])
+            if parent_id is None:
+                raise ProviderError("account_source_invalid_message_id", status=409)
+            if action.reply_message_id:
+                mail["In-Reply-To"] = parent_id
+                references = [value for value in (internet_message_id(item) for item in parent.get("references") or [])
+                    if value is not None]
+                mail["References"] = " ".join([*references, parent_id])
+        mail.set_content(body)
+        for attachment in composed_attachments:
+            content = attachment["content"]
+            content_type = attachment["type"]
+            filename = attachment["name"]
+            main, sub = content_type.split("/", 1)
+            mail.add_attachment(content, maintype=main, subtype=sub, filename=filename)
+        upload = self.session()["uploadUrl"].replace("{accountId}", quote(self.account_id, safe=""))
+        blob = self.request("POST", upload, content=mail.as_bytes(), content_type="message/rfc822", write=True)
+        if not blob.get("blobId"):
+            raise ProviderError("invalid_account_upload", uncertain=True)
+        folders = {item["id"]: item for item in self.account_folders()}
+        drafts = next((item["id"] for item in folders.values() if item.get("role") == "drafts"), None)
+        if drafts is None:
+            raise ProviderError("account_drafts_folder_missing", status=503)
+        result = self.call("Email/import", {"emails": {"prepared": {"blobId": blob["blobId"],
+            "mailboxIds": {drafts: True}, "keywords": {"$draft": True}}},
+            **({"ifInState": action.expected_state} if action.action == "update_draft" else {})}, write=True)
+        return {"draft": self.created(result), "expected_state": result.get("newState")}
+
+    def account_update_draft(self, action):
+        # RFC 8621: content is immutable. Import a replacement before deleting
+        # the old draft, using successive account states to detect concurrent edits.
+        raw = self.account_raw(action.message_id)
+        if not raw.get("keywords", {}).get("$draft"):
+            raise ProviderError("account_not_a_draft", status=409)
+        replacement = self.account_create_draft(action)
+        if not replacement.get("draft", {}).get("id") or not replacement.get("expected_state"):
+            raise ProviderError("account_draft_replacement_unconfirmed", uncertain=True)
+        try:
+            deleted = self.account_delete_message(action.message_id, expected_state=replacement["expected_state"])
+        except ProviderError:
+            return {**replacement, "replaces": action.message_id, "old_draft_retained": True}
+        return {**replacement, "replaces": action.message_id,
+            "old_draft_retained": bool(deleted.get("partial"))}
+
+    def account_find_draft(self, request_id):
+        result = self.call("Email/query", {"filter": {"header": ["X-Qorqut-Request", request_id]},
+            "limit": 2, "calculateTotal": True})
+        if result.get("total", 0) > 1:
+            raise ProviderError("account_draft_ambiguous", status=409)
+        ids = result.get("ids") or []
+        if not ids:
+            return None
+        raw = self.account_raw(ids[0], metadata=True)
+        if not raw.get("keywords", {}).get("$draft"):
+            raise ProviderError("account_draft_not_draft", status=409)
+        return raw
+
+    def account_send(self, draft_id, identity_id=None, *, action=None):
+        identity = next((item for item in self.account_identities() if item.get("id") == identity_id), None)
+        if identity is None or identity.get("bcc") or identity.get("replyTo"):
+            raise ProviderError("account_sender_identity_denied", status=403)
+        if action is not None and identity.get("email", "").lower() != action.from_address.lower():
+            raise ProviderError("account_sender_identity_denied", status=403)
+        draft = self.account_raw(draft_id, metadata=True)
+        if not draft.get("keywords", {}).get("$draft"):
+            raise ProviderError("account_message_is_not_draft", status=409)
+        if action is not None:
+            expected_body, expected_attachments = self._account_composed_content(action)
+            full = self.account_raw(draft_id)
+            sender_item = (full.get("from") or [{}])[0]
+            sender = sender_item.get("email", "").lower()
+            recipients = {
+                key: [item.get("email", "").lower() for item in full.get(key) or []]
+                for key in ("to", "cc", "bcc")}
+            normalized = self.normalize(full)
+            body = normalized.get("body", {}).get("content", "")
+            canonical = lambda value: (value or "").replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+            if (sender != action.from_address or (sender_item.get("name") or "") != action.from_name
+                    or recipients["to"] != [value.lower() for value in action.to]
+                    or recipients["cc"] != [value.lower() for value in action.cc]
+                    or recipients["bcc"] != [value.lower() for value in action.bcc]
+                    or full.get("subject", "") != action.subject or canonical(body) != canonical(expected_body)):
+                raise ProviderError("account_draft_content_changed", status=409)
+            attachments = full.get("attachments") or []
+            if len(attachments) != len(expected_attachments):
+                raise ProviderError("account_draft_content_changed", status=409)
+            for expected, found in zip(expected_attachments, attachments):
+                if (found.get("name") != expected["name"] or found.get("type") != expected["type"]
+                        or found.get("size") != len(expected["content"])):
+                    raise ProviderError("account_draft_content_changed", status=409)
+                if hashlib.sha256(self.download_blob(found["blobId"])).hexdigest() != expected["sha256"]:
+                    raise ProviderError("account_draft_content_changed", status=409)
+        folders = self.account_folders()
+        sent = next((item["id"] for item in folders if item.get("role") == "sent"), None)
+        if sent is None:
+            raise ProviderError("account_sent_folder_missing", status=503)
+        envelope = {"mailFrom": {"email": action.from_address if action is not None else identity["email"]},
+            "rcptTo": [{"email": value} for value in ([*(action.to if action is not None else []),
+                *(action.cc if action is not None else []), *(action.bcc if action is not None else [])])]}
+        updates = {"keywords/$draft": None, **{"mailboxIds/" + folder: None for folder in draft.get("mailboxIds", {})},
+            "mailboxIds/" + sent: True}
+        result = self.call("EmailSubmission/set", {"create": {"prepared": {"emailId": draft_id,
+            "identityId": identity["id"], "envelope": envelope}},
+            "onSuccessUpdateEmail": {"#prepared": updates}}, write=True)
+        return {"submission": self.created(result), **({"partial": True} if result.get("notCreated") else {})}
+
+    def account_submission(self, draft_id, *, action=None):
+        result = self.call("EmailSubmission/query", {"filter": {"emailIds": [draft_id]},
+            "limit": 2, "calculateTotal": True})
+        if result.get("total", 0) > 1:
+            raise ProviderError("account_submission_ambiguous", status=409)
+        ids = result.get("ids") or []
+        if not ids:
+            return None
+        found = self.call("EmailSubmission/get", {"ids": ids}).get("list", [])
+        if len(found) != 1:
+            return None
+        submission = found[0]
+        if submission.get("emailId") != draft_id or submission.get("undoStatus") in {"canceled", "pending"}:
+            return None
+        if submission.get("undoStatus") != "final":
+            return None
+        if action is not None:
+            if submission.get("identityId") != action.identity_id:
+                raise ProviderError("account_submission_identity_changed", status=409)
+            envelope = submission.get("envelope") or {}
+            expected = [*action.to, *action.cc, *action.bcc]
+            actual = [item.get("email", "").lower() for item in envelope.get("rcptTo", [])]
+            if (envelope.get("mailFrom", {}).get("email", "").lower() != action.from_address.lower()
+                    or sorted(actual) != sorted(value.lower() for value in expected)):
+                raise ProviderError("account_submission_envelope_changed", status=409)
+        return submission
+
+    def account_delete_message(self, identity, *, expected_state=None):
+        args = {"destroy": [identity]}
+        if expected_state:
+            args["ifInState"] = expected_state
+        result = self.call("Email/set", args, write=True)
+        return {"message_id": identity, "provider": result,
+            **({"partial": True} if result.get("notDestroyed") else {})}
 
     @staticmethod
     def raise_error(data, *, uncertain=False):
@@ -240,7 +663,7 @@ class Fastmail:
             "bodyTruncated": any(not values.get(part["partId"])
                 or values[part["partId"]].get("isTruncated")
                 or values[part["partId"]].get("isEncodingProblem") for part in text),
-            "requestId": raw.get(REQUEST_HEADER), "isDraft": bool(raw.get("keywords", {}).get("$draft")),
+            "keywords": raw.get("keywords", {}), "requestId": raw.get(REQUEST_HEADER), "isDraft": bool(raw.get("keywords", {}).get("$draft")),
             "isRead": bool(raw.get("keywords", {}).get("$seen")), "hasAttachments": bool(attachments),
             "attachments": attachments, "internetMessageId": "<" + message_ids[0].strip("<>") + ">" if message_ids else None,
             "references": raw.get("references") or [], "inReplyTo": raw.get("inReplyTo") or [],
@@ -402,11 +825,23 @@ class Fastmail:
             raise ProviderError("fastmail_identity_remove_auto_bcc_and_reply_to")
         return matches[0]["id"]
 
+    def composed_business_message(self, mailbox, message):
+        if not message.forward_message_id:
+            return message
+        from .business import BusinessMailService
+        from .models import Attachment
+        BusinessMailService(self.settings, self)._scoped_metadata(
+            mailbox, message.forward_message_id, [message.forward_message_id])
+        body, attachments = self._account_composed_content(message)
+        return message.model_copy(update={"body": body, "attachments": [Attachment(
+            filename=item["name"], content_type=item["type"], sha256=item["sha256"],
+            data_base64=base64.b64encode(item["content"]).decode()) for item in attachments]})
+
     def create_draft(self, mailbox, message):
         self.identity(mailbox, message.from_address, message)
         self.folders()
         parent = self.get_message(mailbox, message.reply_message_id) if message.reply_message_id else None
-        content = self.mime(message, parent)
+        content = self.mime(self.composed_business_message(mailbox, message), parent)
         upload = self.session()["uploadUrl"].replace("{accountId}", quote(self.account_id, safe=""))
         blob = self.request("POST", upload, content=content, content_type="message/rfc822", write=True)
         if blob.get("accountId") != self.account_id or not blob.get("blobId"):

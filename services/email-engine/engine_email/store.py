@@ -74,6 +74,10 @@ class Store:
                     PRIMARY KEY(account_ref,provider_id));
                 CREATE TABLE IF NOT EXISTS history_outbox (
                     event_id TEXT PRIMARY KEY, digest TEXT NOT NULL, envelope TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS account_operations (
+                    request_id TEXT PRIMARY KEY, digest TEXT NOT NULL, action TEXT NOT NULL,
+                    payload TEXT NOT NULL, state TEXT NOT NULL, result TEXT NOT NULL DEFAULT '{}',
+                    updated_at TEXT NOT NULL);
             """)
             # Never reinterpret a saved approval when an owner changes transport.
             # This additive column preserves every legacy payload and wire digest.
@@ -387,6 +391,61 @@ class Store:
         with self.connect() as db:
             row = db.execute("SELECT * FROM sends WHERE request_id=?", (request_id,)).fetchone()
             return dict(row) if row else None
+
+    def begin_account_operation(self, request_id, digest, action, payload):
+        """Durably reserve an owner account operation before provider effects."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM account_operations WHERE request_id=?", (request_id,)).fetchone()
+            if row:
+                if row["digest"] != digest:
+                    raise ValueError("Request ID already belongs to different account content")
+                return dict(row), False
+            db.execute("INSERT INTO account_operations(request_id,digest,action,payload,state,result,updated_at) "
+                "VALUES(?,?,?,?,?,'{}',?)", (request_id, digest, action, payload, "prepared", now()))
+            return dict(db.execute("SELECT * FROM account_operations WHERE request_id=?", (request_id,)).fetchone()), True
+
+    def save_account_operation(self, request_id, state, *, result=None):
+        if state not in {"prepared", "completed", "failed", "uncertain"}:
+            raise ValueError("Invalid account operation state")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("UPDATE account_operations SET state=?,result=?,updated_at=? WHERE request_id=?",
+                (state, json.dumps(result or {}, sort_keys=True), now(), request_id))
+            row = db.execute("SELECT * FROM account_operations WHERE request_id=?", (request_id,)).fetchone()
+            if row is None:
+                raise ValueError("Account operation not found")
+            return dict(row)
+
+    def save_account_operation_if_state(self, request_id, states, state, *, result=None):
+        """Advance recovery state without overwriting a concurrent terminal receipt."""
+        if state not in {"prepared", "completed", "failed", "uncertain"}:
+            raise ValueError("Invalid account operation state")
+        states = tuple(states)
+        if not states:
+            raise ValueError("At least one expected state is required")
+        placeholders = ",".join("?" for _ in states)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(f"UPDATE account_operations SET state=?,result=?,updated_at=? "
+                f"WHERE request_id=? AND state IN ({placeholders})",
+                (state, json.dumps(result or {}, sort_keys=True), now(), request_id, *states))
+            row = db.execute("SELECT * FROM account_operations WHERE request_id=?", (request_id,)).fetchone()
+            if row is None:
+                raise ValueError("Account operation not found")
+            return dict(row)
+
+    def account_operation(self, request_id):
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM account_operations WHERE request_id=?", (request_id,)).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def account_receipt(row):
+        payload = json.loads(row["payload"])
+        return {"request_id": row["request_id"], "account_id": payload.get("account_id"),
+            "digest": row["digest"], "action": row["action"], "state": row["state"],
+            "updated_at": row["updated_at"], "result": json.loads(row["result"])}
 
     def pending_sends(self, *, due_only=False, as_of=None):
         with self.connect() as db:

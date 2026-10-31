@@ -10,6 +10,8 @@ def recipients(data, name):
 
 
 def verify_approved_message(provider, mailbox, message, observed, *, is_draft=True):
+    if message.forward_message_id:
+        message = provider.composed_business_message(mailbox, message)
     normalize = lambda value: value.replace("\r\n", "\n").rstrip("\n")
     if (observed.get("isDraft") is not is_draft or observed.get("subject") != message.subject
             or observed.get("from", {}).get("emailAddress", {}).get("address", "").lower() != message.from_address
