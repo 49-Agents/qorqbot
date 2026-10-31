@@ -7,6 +7,8 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
+from .fastmail import internet_message_id
+
 
 SHARED_ROLLING_LIMIT = 150
 
@@ -78,6 +80,28 @@ class Store:
                     request_id TEXT PRIMARY KEY, digest TEXT NOT NULL, action TEXT NOT NULL,
                     payload TEXT NOT NULL, state TEXT NOT NULL, result TEXT NOT NULL DEFAULT '{}',
                     updated_at TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS integration_intents (
+                    client_id TEXT NOT NULL, intent_id TEXT NOT NULL, request_id TEXT NOT NULL UNIQUE,
+                    payload_digest TEXT NOT NULL, workflow_owner TEXT NOT NULL, business_id TEXT NOT NULL,
+                    mailbox TEXT NOT NULL, category TEXT NOT NULL, campaign_id TEXT, enrollment_id TEXT,
+                    step_index INTEGER, manifest_digest TEXT, stop_contact_key TEXT NOT NULL,
+                    stop_business_id TEXT NOT NULL, correlation TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL, PRIMARY KEY(client_id, intent_id));
+                CREATE INDEX IF NOT EXISTS integration_intents_request ON integration_intents(request_id);
+                CREATE TABLE IF NOT EXISTS integration_stops (
+                    workflow_owner TEXT NOT NULL, contact_key TEXT NOT NULL, business_id TEXT NOT NULL,
+                    reason TEXT NOT NULL, source_kind TEXT NOT NULL, source_id TEXT, created_at TEXT NOT NULL,
+                    PRIMARY KEY(workflow_owner, contact_key, business_id));
+                CREATE TABLE IF NOT EXISTS integration_handoffs (
+                    thread_or_message_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, client_id TEXT NOT NULL,
+                    workflow_owner TEXT NOT NULL, payload_digest TEXT NOT NULL, result TEXT NOT NULL,
+                    created_at TEXT NOT NULL, PRIMARY KEY(thread_or_message_id, idempotency_key));
+                CREATE TABLE IF NOT EXISTS message_correlations (
+                    mailbox TEXT NOT NULL, message_id TEXT NOT NULL, is_sent_copy INTEGER NOT NULL,
+                    workflow_owner TEXT, intent_id TEXT, request_id TEXT, correlation TEXT,
+                    computed_at TEXT NOT NULL, PRIMARY KEY(mailbox, message_id));
+                CREATE TABLE IF NOT EXISTS correlation_cursor (
+                    mailbox TEXT PRIMARY KEY, revision INTEGER NOT NULL);
             """)
             # Never reinterpret a saved approval when an owner changes transport.
             # This additive column preserves every legacy payload and wire digest.
@@ -228,12 +252,29 @@ class Store:
             db.execute("INSERT INTO mailbox_sync VALUES(?,?,?,?) ON CONFLICT(mailbox) DO UPDATE SET state=excluded.state,synced_at=COALESCE(excluded.synced_at,mailbox_sync.synced_at),error=excluded.error",
                 (mailbox, state, now() if state == "synced" else None, error))
 
-    def messages(self, mailbox, *, after=0, limit=100):
+    def messages(self, mailbox, *, after=0, limit=100, exclude_sent_copies=False):
+        """``correlation``/``is_sent_copy`` are additive annotations; the cursor
+        always advances past filtered rows even when ``exclude_sent_copies``."""
         with self.connect() as db:
-            rows = db.execute("SELECT * FROM messages WHERE mailbox=? AND revision>? ORDER BY revision LIMIT ?", (mailbox, after, limit)).fetchall()
-            items = [{"mailbox": mailbox, "revision": row["revision"], "deleted": bool(row["deleted"]),
-                "message": json.loads(row["content"])} for row in rows]
-            return {"items": items, "cursor": rows[-1]["revision"] if rows else after}
+            rows = db.execute(
+                "SELECT m.*, c.is_sent_copy AS c_sent, c.workflow_owner AS c_owner, c.intent_id AS c_intent, "
+                "c.request_id AS c_request, c.correlation AS c_correlation FROM messages m "
+                "LEFT JOIN message_correlations c ON c.mailbox=m.mailbox AND c.message_id=m.id "
+                "WHERE m.mailbox=? AND m.revision>? ORDER BY m.revision LIMIT ?", (mailbox, after, limit)).fetchall()
+            items = []
+            cursor = after
+            for row in rows:
+                cursor = row["revision"]
+                sent_copy = bool(row["c_sent"])
+                if exclude_sent_copies and sent_copy:
+                    continue
+                item = {"mailbox": mailbox, "revision": row["revision"], "deleted": bool(row["deleted"]),
+                    "message": json.loads(row["content"]), "is_sent_copy": sent_copy}
+                if row["c_owner"]:
+                    item["correlation"] = {"workflow_owner": row["c_owner"], "intent_id": row["c_intent"],
+                        "request_id": row["c_request"], **(json.loads(row["c_correlation"]) if row["c_correlation"] else {})}
+                items.append(item)
+            return {"items": items, "cursor": cursor}
 
     def message(self, mailbox, identity):
         with self.connect() as db:
@@ -368,11 +409,24 @@ class Store:
                 (request_id, mailbox.ref, mailbox.business_id)).fetchone()
             if row is None:
                 raise ValueError("Send not found")
-            if row["state"] == "queued":
-                db.execute("UPDATE sends SET state='canceled',result=?,updated_at=? WHERE request_id=?",
-                    (json.dumps({"reason": "owner_canceled", "not_sent": True}), now(), request_id))
-                self._history(db, request_id, "send.canceled")
-            return dict(db.execute("SELECT * FROM sends WHERE request_id=?", (request_id,)).fetchone())
+            return self._cancel_if_queued_in(db, row, reason="owner_canceled")
+
+    def cancel_send_if_queued(self, request_id, *, reason="owner_canceled"):
+        """As ``cancel_queued``, but scoped by the caller (already checked ownership)."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM sends WHERE request_id=?", (request_id,)).fetchone()
+            if row is None:
+                raise ValueError("Send not found")
+            return self._cancel_if_queued_in(db, row, reason=reason)
+
+    def _cancel_if_queued_in(self, db, row, *, reason):
+        # Only 'queued' is still cancellable; matches start_send's guard boundary.
+        if row["state"] == "queued":
+            db.execute("UPDATE sends SET state='canceled',result=?,updated_at=? WHERE request_id=?",
+                (json.dumps({"reason": reason, "not_sent": True}), now(), row["request_id"]))
+            self._history(db, row["request_id"], "send.canceled")
+        return dict(db.execute("SELECT * FROM sends WHERE request_id=?", (row["request_id"],)).fetchone())
 
     def save_send(self, request_id, state, *, draft_id=None, draft_internet_message_id=None, result=None):
         with self.connect() as db:
@@ -468,3 +522,122 @@ class Store:
             "transport": row["transport"],
             "state": row["state"], "draft_id": row["draft_id"], "updated_at": row["updated_at"],
             "result": json.loads(row["result"])}
+
+    # -- Integration envelope: intents, reply-stop guard, handoff, correlation --
+
+    def begin_integration_intent(self, *, client_id, intent_id, request_id, payload_digest, workflow_owner,
+            business_id, mailbox, category, stop_contact_key, stop_business_id, correlation=None,
+            campaign_id=None, enrollment_id=None, step_index=None, manifest_digest=None):
+        """Durably reserve ``(client_id, intent_id)`` before touching the send ledger."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM integration_intents WHERE client_id=? AND intent_id=?",
+                (client_id, intent_id)).fetchone()
+            if row:
+                return dict(row), False
+            db.execute("""INSERT INTO integration_intents(client_id,intent_id,request_id,payload_digest,
+                workflow_owner,business_id,mailbox,category,campaign_id,enrollment_id,step_index,manifest_digest,
+                stop_contact_key,stop_business_id,correlation,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (client_id, intent_id, request_id, payload_digest, workflow_owner, business_id, mailbox, category,
+                 campaign_id, enrollment_id, step_index, manifest_digest, stop_contact_key, stop_business_id,
+                 json.dumps(correlation or {}, sort_keys=True), now()))
+            return dict(db.execute("SELECT * FROM integration_intents WHERE client_id=? AND intent_id=?",
+                (client_id, intent_id)).fetchone()), True
+
+    def integration_intent(self, client_id, intent_id):
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM integration_intents WHERE client_id=? AND intent_id=?",
+                (client_id, intent_id)).fetchone()
+            return dict(row) if row else None
+
+    def integration_intent_by_request(self, request_id):
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM integration_intents WHERE request_id=?", (request_id,)).fetchone()
+            return dict(row) if row else None
+
+    def record_stop(self, workflow_owner, contact_key, business_id, *, reason, source_kind, source_id=None):
+        """Idempotent: a repeated stop for the same key never overwrites the first one."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("INSERT OR IGNORE INTO integration_stops VALUES(?,?,?,?,?,?,?)",
+                (workflow_owner, contact_key, business_id, reason, source_kind, source_id, now()))
+            return dict(db.execute("SELECT * FROM integration_stops WHERE workflow_owner=? AND contact_key=? "
+                "AND business_id=?", (workflow_owner, contact_key, business_id)).fetchone())
+
+    def stop_exists(self, workflow_owner, contact_key, business_id):
+        with self.connect() as db:
+            return db.execute("SELECT 1 FROM integration_stops WHERE workflow_owner=? AND contact_key=? "
+                "AND business_id=?", (workflow_owner, contact_key, business_id)).fetchone() is not None
+
+    def begin_handoff(self, thread_or_message_id, idempotency_key, *, client_id, workflow_owner,
+            payload_digest, result):
+        """Idempotent on ``(thread_or_message_id, idempotency_key)``."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM integration_handoffs WHERE thread_or_message_id=? AND "
+                "idempotency_key=?", (thread_or_message_id, idempotency_key)).fetchone()
+            if row:
+                return dict(row), False
+            db.execute("INSERT INTO integration_handoffs VALUES(?,?,?,?,?,?,?)",
+                (thread_or_message_id, idempotency_key, client_id, workflow_owner, payload_digest,
+                 json.dumps(result, sort_keys=True), now()))
+            return dict(db.execute("SELECT * FROM integration_handoffs WHERE thread_or_message_id=? AND "
+                "idempotency_key=?", (thread_or_message_id, idempotency_key)).fetchone()), True
+
+    def correlate_replies(self, mailbox, business_id):
+        """Annotate replies to a cold_outreach intent and record its stop, one transaction.
+        Keyed once per (mailbox, message_id); a later label-only revision is skipped."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            cursor_row = db.execute("SELECT revision FROM correlation_cursor WHERE mailbox=?", (mailbox,)).fetchone()
+            after = cursor_row[0] if cursor_row else 0
+            rows = db.execute("SELECT * FROM messages WHERE mailbox=? AND revision>? ORDER BY revision",
+                (mailbox, after)).fetchall()
+            max_revision = after
+            sent_rows = None
+            for row in rows:
+                max_revision = max(max_revision, row["revision"])
+                message_id = row["id"]
+                if row["deleted"]:
+                    continue
+                if db.execute("SELECT 1 FROM message_correlations WHERE mailbox=? AND message_id=?",
+                        (mailbox, message_id)).fetchone():
+                    continue
+                content = json.loads(row["content"])
+                is_sent_copy = bool(content.get("requestId"))
+                workflow_owner = intent_id = matched_request_id = None
+                correlation_payload = None
+                if not is_sent_copy:
+                    candidates = set()
+                    for key in ("inReplyTo", "references"):
+                        for value in content.get(key) or []:
+                            normalized = internet_message_id(value)
+                            if normalized:
+                                candidates.add(normalized)
+                    if candidates:
+                        if sent_rows is None:
+                            sent_rows = db.execute("SELECT * FROM sends WHERE business_id=? AND mailbox=? "
+                                "AND state='sent'", (business_id, mailbox)).fetchall()
+                        for send_row in sent_rows:
+                            result = json.loads(send_row["result"])
+                            sent_identity = (internet_message_id(result.get("internet_message_id"))
+                                or internet_message_id(send_row["draft_internet_message_id"]))
+                            if not sent_identity or sent_identity not in candidates:
+                                continue
+                            intent = db.execute("SELECT * FROM integration_intents WHERE request_id=?",
+                                (send_row["request_id"],)).fetchone()
+                            if not intent or intent["category"] != "cold_outreach":
+                                continue
+                            workflow_owner, intent_id = intent["workflow_owner"], intent["intent_id"]
+                            matched_request_id = intent["request_id"]
+                            correlation_payload = {"matched_internet_message_id": sent_identity,
+                                "sent_request_id": send_row["request_id"]}
+                            db.execute("INSERT OR IGNORE INTO integration_stops VALUES(?,?,?,?,?,?,?)",
+                                (workflow_owner, intent["stop_contact_key"], intent["stop_business_id"],
+                                 "reply_detected", "reply", message_id, now()))
+                            break
+                db.execute("INSERT INTO message_correlations VALUES(?,?,?,?,?,?,?,?)",
+                    (mailbox, message_id, int(is_sent_copy), workflow_owner, intent_id, matched_request_id,
+                     json.dumps(correlation_payload) if correlation_payload else None, now()))
+            db.execute("INSERT INTO correlation_cursor VALUES(?,?) ON CONFLICT(mailbox) DO UPDATE SET "
+                "revision=excluded.revision", (mailbox, max_revision))

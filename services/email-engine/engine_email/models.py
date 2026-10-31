@@ -79,6 +79,8 @@ class Outgoing(BaseModel):
     transport: Literal["fastmail", "outlook_web"] | None = Field(default=None, exclude_if=lambda value: value is None)
     reply_to: str | None = None
     expires_at: str | None = None
+    # Optional; omitted means conversational. Excluded from digest() like sender_ref/transport.
+    category: Literal["conversational", "cold_outreach"] | None = Field(default=None, exclude_if=lambda value: value is None)
     to: list[str] = Field(min_length=1, max_length=50)
     cc: list[str] = Field(default_factory=list, max_length=50)
     bcc: list[str] = Field(default_factory=list, max_length=50)
@@ -124,10 +126,13 @@ class Outgoing(BaseModel):
     def envelope_recipients(self):
         return list(dict.fromkeys([*self.to, *self.cc, *self.bcc]))
 
+    def effective_category(self):
+        return self.category or "conversational"
+
     def digest(self):
         # Preserve pre-extension request digests, including recovery of saved drafts.
         data = self.model_dump()
-        for field in ("sender_ref", "transport", "reply_to", "expires_at"):
+        for field in ("sender_ref", "transport", "reply_to", "expires_at", "category"):
             if data.get(field) is None:
                 data.pop(field, None)
         raw = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
@@ -184,6 +189,87 @@ class SharedSender(BaseModel):
     def permits_business(self, business_id):
         """Scope grant only; sending also requires enablement and a registered mailbox."""
         return self.business_scope == "all" or business_id in self.allowed_business_ids
+
+
+class IntegrationClient(BaseModel):
+    """Scoped trusted-service caller (e.g. Outreach), never an agent credential."""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    client_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,60}$")
+    secret: str = Field(min_length=32, max_length=200)
+    workflow_owner: str = Field(pattern=r"^[A-Za-z0-9_-]{1,60}$")
+    allowed_mailboxes: list[str] = Field(min_length=1, max_length=100)
+    business_ids: list[str] = Field(default_factory=list, max_length=200)
+
+    @field_validator("secret")
+    @classmethod
+    def ascii_secret(cls, value):
+        if not value.isascii():
+            raise ValueError("Integration secret must be ASCII")
+        return value
+
+    @field_validator("allowed_mailboxes")
+    @classmethod
+    def mailbox_refs(cls, values):
+        if not values or any(not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", value) for value in values):
+            raise ValueError("Invalid mailbox reference")
+        return list(dict.fromkeys(values))
+
+    @field_validator("business_ids")
+    @classmethod
+    def business_id_values(cls, values):
+        if any(not re.fullmatch(r"[A-Za-z0-9_-]{1,120}", value) for value in values):
+            raise ValueError("Invalid business ID")
+        return list(dict.fromkeys(values))
+
+
+class StopKey(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    contact_key: str = Field(min_length=1, max_length=320)
+    business_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
+
+
+class IntentCorrelation(BaseModel):
+    """Workflow context kept separate from the wrapped ``Outgoing`` payload."""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    workflow_owner: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,60}$")
+    account_id: str | None = Field(default=None, max_length=200)
+    business_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,120}$")
+    campaign_id: str | None = Field(default=None, max_length=200)
+    enrollment_id: str | None = Field(default=None, max_length=200)
+    step_index: int | None = Field(default=None, ge=0, le=1_000_000)
+    manifest_digest: str | None = Field(default=None, max_length=200)
+    stop_key: StopKey
+
+
+class IntentSubmission(BaseModel):
+    """``POST /integrations/intents`` envelope; see ``EmailService.submit_intent``."""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    intent_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    message: dict
+    correlation: IntentCorrelation
+    category: Literal["cold_outreach"]
+    expires_at: str
+
+    @field_validator("expires_at")
+    @classmethod
+    def expiry(cls, value):
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise ValueError("Envelope expiry requires a timezone")
+        return parsed.astimezone(timezone.utc).isoformat()
+
+
+class StopRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    workflow_owner: str = Field(pattern=r"^[A-Za-z0-9_-]{1,60}$")
+    stop_key: StopKey
+    reason: str = Field(default="caller_requested", max_length=200)
+
+
+class HandoffRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    idempotency_key: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
+    workflow_owner: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,60}$")
 
 
 class HistoryConfig(BaseModel):
@@ -254,6 +340,7 @@ class Settings:
     history: HistoryConfig | None = None
     outlook_web: OutlookWebConfig | None = None
     admin_token: str = ""
+    integrations: tuple[IntegrationClient, ...] = ()
 
     def __post_init__(self):
         if self.admin_token and (len(self.admin_token) < 32 or not self.admin_token.isascii()
@@ -291,6 +378,21 @@ class Settings:
             raise ValueError("Outlook browser collection requires private email history")
         if self.history and set(self.history.private_folder_ids) & {box.folder_id for box in self.mailboxes}:
             raise ValueError("Private history folders cannot be business mailboxes")
+        mailbox_refs = {box.ref for box in self.mailboxes}
+        secrets_by_token = {self.read_token, self.send_token, *([self.admin_token] if self.admin_token else [])}
+        client_ids, secrets = set(), set()
+        for client in self.integrations:
+            if client.client_id in client_ids:
+                raise ValueError("Integration client IDs must be unique")
+            if client.secret in secrets_by_token or client.secret in secrets:
+                raise ValueError("Integration client secrets must be distinct from every other credential")
+            if not set(client.allowed_mailboxes) <= mailbox_refs:
+                raise ValueError("Integration client mailboxes must be registered")
+            allowed_businesses = {box.business_id for box in self.mailboxes if box.ref in client.allowed_mailboxes}
+            if client.business_ids and not set(client.business_ids) <= allowed_businesses:
+                raise ValueError("Integration client business IDs must match its allowed mailboxes")
+            client_ids.add(client.client_id)
+            secrets.add(client.secret)
 
     @classmethod
     def from_env(cls):
@@ -324,13 +426,26 @@ class Settings:
             history=HistoryConfig.model_validate_json(Path(os.environ["EMAIL_HISTORY_FILE"]).read_text())
                 if os.environ.get("EMAIL_HISTORY_FILE") else None,
             outlook_web=OutlookWebConfig.model_validate_json(Path(os.environ["EMAIL_OUTLOOK_WEB_FILE"]).read_text())
-                if os.environ.get("EMAIL_OUTLOOK_WEB_FILE") else None)
+                if os.environ.get("EMAIL_OUTLOOK_WEB_FILE") else None,
+            integrations=tuple(IntegrationClient.model_validate(item) for item in
+                json.loads(Path(os.environ["EMAIL_INTEGRATIONS_FILE"]).read_text()))
+                if os.environ.get("EMAIL_INTEGRATIONS_FILE") else ())
 
     def mailbox(self, ref):
         found = next((box for box in self.mailboxes if box.ref == ref), None)
         if found is None:
             raise ValueError("Mailbox is not registered")
         return found
+
+    def integration_client(self, secret):
+        """Constant-time match against every configured client; never the read/send/admin pool."""
+        import hmac
+        supplied = secret.encode()
+        matched = None
+        for client in self.integrations:
+            if hmac.compare_digest(supplied, client.secret.encode()):
+                matched = client
+        return matched
 
     def sender(self, mailbox, message):
         if mailbox.business_id != message.business_id:
