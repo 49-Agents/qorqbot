@@ -29,30 +29,35 @@
 }
 .ntcreate:hover { background: var(--fg); opacity: .88; transform: none; }
 
-/* -- detail: two-pane -- */
-.nted { display: flex; flex-direction: row; width: 100%; height: 100%; min-height: 0; }
-.ntrail { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 16px 12px; border-right: 1px solid var(--line); }
-.ntside { flex: none; width: 300px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; transition: width .2s ease; }
-.ntside.off { width: 0; }
-.ntsidectrl { flex: none; display: flex; align-items: center; gap: 8px; padding: 16px; }
-.nticon {
+
+
+
+
+.nted, .jred { display: flex; flex-direction: row; width: 100%; height: 100%; min-height: 0; }
+.ntrail, .jrrail { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 16px 12px; border-right: 1px solid var(--line); }
+.ntside, .jrside { flex: none; width: 300px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; transition: width .2s ease; }
+.ntside.off, .jrside.off { width: 0; }
+.ntsidectrl, .jrsidectrl { flex: none; display: flex; align-items: center; gap: 8px; padding: 16px; }
+.nticon, .jricon {
   flex: none; width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 14px;
   background: rgba(255,255,255,.015); color: var(--fg-2); display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; transition: background .15s ease, color .15s ease, border-color .15s ease, transform .15s ease;
 }
-.nticon:hover { background: var(--hover); color: var(--fg); border-color: var(--line-2); transform: none; }
-.nticon svg { width: 15px; height: 15px; }
-.nticon.danger:hover { color: #FF6B5E; }
-.ntsearchwrap { flex: none; padding: 0 16px; }
-.ntsearch-in {
+.nticon:hover, .jricon:hover { background: var(--hover); color: var(--fg); border-color: var(--line-2); transform: none; }
+.nticon svg, .jricon svg { width: 15px; height: 15px; }
+.nticon.danger:hover, .jricon.danger:hover { color: #FF6B5E; }
+.ntsearchwrap, .jrsearchwrap { flex: none; padding: 0 16px; }
+.ntsearch-in, .jrsearch-in {
   width: 100%; height: 36px; padding: 0 12px; box-sizing: border-box; border: 0; border-radius: var(--r-lg);
   background: rgba(255,255,255,.04); color: var(--fg); font: 13px var(--sans); outline: none;
   transition: box-shadow .15s ease;
 }
-.ntsearch-in:focus { border-color: transparent; box-shadow: inset 0 0 0 1px var(--line-2); }
-.ntsearch-in::placeholder { color: var(--fg-3); }
-.ntdivider { flex: none; height: 1px; margin: 16px 24px; background: var(--line); }
-.ntlist { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 1px; }
+/* quiet inset shadow only — app.css's global `input:focus` ring (border-color + outer box-shadow)
+   would otherwise layer on top of this, since it's a plain `input` and matches that selector too */
+.ntsearch-in:focus, .jrsearch-in:focus { border-color: transparent; box-shadow: inset 0 0 0 1px var(--line-2); }
+.ntsearch-in::placeholder, .jrsearch-in::placeholder { color: var(--fg-3); }
+.ntdivider, .jrdivider { flex: none; height: 1px; margin: 16px 24px; background: var(--line); }
+.ntlist, .jrlist { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 1px; }
 .nteyebrow.ntsm { padding: 4px 12px 6px; margin-bottom: 0; }
 .ntrow { position: relative; display: flex; flex-direction: column; gap: 4px; border-radius: 16px; padding: 10px 12px; cursor: pointer; transition: background .15s ease; }
 .ntrow:hover { background: rgba(255,255,255,.03); }

@@ -68,6 +68,13 @@ state.tasks = [];
 // ---------------------------------------------------------------- view (tabs)
 const T_VIEWS = ["tasks", "journal", "notes", "uploads", "activity"];
 const T_VIEW_LABEL = { tasks: "Tasks", activity: "Activity", journal: "Journal", notes: "Notes", uploads: "Uploads" };
+const T_VIEW_ICON = {
+  tasks: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10.656V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.344"></path><path d="m9 11 3 3L22 4"></path></svg>`,
+  journal: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.67 19a2 2 0 0 0 1.416-.588l6.154-6.172a6 6 0 0 0-8.49-8.49L5.586 9.914A2 2 0 0 0 5 11.328V18a1 1 0 0 0 1 1z"></path><path d="M16 8 2 22"></path><path d="M17.5 15H9"></path></svg>`,
+  notes: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"></path><path d="M2 6h4"></path><path d="M2 10h4"></path><path d="M2 14h4"></path><path d="M2 18h4"></path><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"></path></svg>`,
+  uploads: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>`,
+  activity: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"></path></svg>`,
+};
 let tView = ls("tview") || "tasks";
 if (T_VIEWS.indexOf(tView) < 0) tView = "tasks";
 
@@ -257,7 +264,7 @@ function tSection(key, rows) {
 }
 
 function tTabs() {
-  return `<div class="ttabs">${T_VIEWS.map(v => `<button class="ttab${v === tView ? " on" : ""}" type="button" data-v="${v}">${T_VIEW_LABEL[v]}</button>`).join("")}</div>`;
+  return `<div class="ttabs"><div class="tind" id="tind" hidden></div>${T_VIEWS.map(v => `<button class="ttab${v === tView ? " on" : ""}" type="button" data-v="${v}" title="${T_VIEW_LABEL[v]}" aria-label="${T_VIEW_LABEL[v]}">${T_VIEW_ICON[v]}</button>`).join("")}</div>`;
 }
 
 function tHead() {
@@ -336,9 +343,10 @@ function tSetView(v) {
   if (T_VIEWS.indexOf(v) < 0) v = "tasks";
   if (tView === "journal" && v !== "journal") jrFlush();
   if (tView === "notes" && v !== "notes") ntFlush();
+  const from = tView;
   tView = v; ls("tview", v);
   const p = $("#taskspanel"); if (!p) return;
-  p.innerHTML = tHead(); tWireHead(p);
+  p.innerHTML = tHead(); tWireHead(p, from);
   if (v === "tasks") { tPaintSig = null; paintTasks(); }
   else if (v === "activity") { tLogSig = null; tPaintActivity(); tActivityRefresh(); }
   else if (v === "journal") { tPaintJournal(); }
@@ -543,14 +551,37 @@ function tDetail(t) {
 }
 
 // ---------------------------------------------------------------- wiring
-function tWireHead(p) {
+function tWireHead(p, from) {
   const s = p.querySelector("#tsearch");
   if (s) {
     s.oninput = () => { clearTimeout(tSearchT); tSearchT = setTimeout(() => { tSearch = s.value; paintTasks(); }, 80); };
     s.onkeydown = e => { if (e.key === "Escape") { e.stopPropagation(); s.value = ""; tSearch = ""; paintTasks(); s.blur(); } };
   }
   p.querySelectorAll(".ttab").forEach(b => b.onclick = () => { if (b.dataset.v !== tView) tSetView(b.dataset.v); });
+  moveTInd(p, from);
 }
+// .thead (tabs included) is rebuilt from scratch on every switch, so #tind is a brand-new node each
+// time: left to its own devices it'd render at its CSS default (translateX(0), i.e. sat under the
+// first tab) for a frame before jumping to the real target. Instead, plant it at the tab we came FROM
+// with transitions off, force a reflow, then re-enable transitions and slide to the real target.
+function moveTInd(p, from) {
+  const on = p.querySelector(".ttab.on"), ind = p.querySelector("#tind");
+  if (!on || !ind) return;
+  const fromBtn = from && p.querySelector(`.ttab[data-v="${from}"]`);
+  if (fromBtn && fromBtn !== on) {
+    ind.style.transition = "none";
+    ind.style.width = `${fromBtn.offsetWidth}px`;
+    ind.style.transform = `translateX(${fromBtn.offsetLeft - ind.offsetLeft}px)`;
+    ind.hidden = false;
+    ind.offsetHeight;          // force reflow so the line above commits before transitions come back
+    ind.style.transition = "";
+  } else {
+    ind.hidden = false;
+  }
+  ind.style.width = `${on.offsetWidth}px`;
+  ind.style.transform = `translateX(${on.offsetLeft - ind.offsetLeft}px)`;
+}
+window.addEventListener("resize", () => { const p = $("#taskspanel"); if (p && p.querySelector(".ttabs")) moveTInd(p, tView); });
 
 (function tInit() {
   const wrap = $("#taskswrap"), handle = $("#thandle"), panel = $("#taskspanel");

@@ -24,6 +24,14 @@
 let ntSel = null;                   // selected note id, or null for the homepage
 let ntNotes = [];                   // cache of the last /notes fetch
 let ntSearch = "";                  // detail sidebar search (in-memory filter)
+
+// remember what was open (a note id, or "" for the homepage) per business — see journal.js's jrKey/jrSetSel
+const ntKey = () => `nt:${state.biz}`;
+function ntSetSel(id) {
+  ntSel = id;
+  if (state.biz) ls(ntKey(), id || "");
+}
+let ntRestoredBiz = null;           // biz slug whose saved selection we've already applied this session
 let ntListOff = ls("ntlistoff") === "1";   // sidebar collapsed, persisted
 let ntEditState = null;             // { id, biz, title0, lines0[], statuses0(json), lines[], statuses{}, dirty, saving, countdown }
 let ntIdleT = null, ntTickT = null; // autosave idle/countdown timers
@@ -82,7 +90,15 @@ async function ntDeleteReq(id) {
 // called by tasks.js's tSetView(v) on tab-entry ("notes") and by its 500ms business-change interval
 function tPaintNotes() { ntOpenView(); }
 function ntOpenView() {
-  ntRender();
+  let justRestored = false;
+  if (state.biz && ntRestoredBiz !== state.biz) {
+    ntRestoredBiz = state.biz;
+    const saved = ls(ntKey());
+    // ntNotes isn't loaded yet here, so ntRender's not-found fallback would wipe an unverified id
+    // right back to null; skip the synchronous render this once and let the fetch below paint it
+    if (saved) { ntSel = saved; justRestored = true; }
+  }
+  if (!justRestored) ntRender();
   if (!state.biz) return;
   const biz = state.biz;
   ntFetch().then(() => { if (tView === "notes" && state.biz === biz) ntRender(); });
@@ -636,7 +652,7 @@ function ntDiscard() {
 async function ntSelect(id) {
   if (id === ntSel) return;
   await ntFlush();
-  ntSel = id;
+  ntSetSel(id);
   ntRender();
 }
 const ntGoHome = () => ntSelect(null);
@@ -645,7 +661,7 @@ async function ntCreateNew() {
   const r = await ntCreate({});
   if (!r) return;
   await ntFetch();
-  ntSel = r.id;
+  ntSetSel(r.id);
   ntRender();
 }
 
@@ -706,7 +722,7 @@ function ntDeleteFlow(id) {
           if (idx >= 0) nextId = (ordered[idx + 1] || ordered[idx - 1] || {}).id || null;
         }
         await ntFetch();
-        if (ntSel === id) ntSel = nextId;
+        if (ntSel === id) ntSetSel(nextId);
         ntRender();
       } },
     ],

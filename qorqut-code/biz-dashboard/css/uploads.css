@@ -4,8 +4,8 @@
 
 
 .tasks .tbody.up { padding: 0; overflow-y: auto; }
-.up .uphead { padding: 40px 32px 20px; }
-.up .uphead h1 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -.02em; color: var(--fg); line-height: 1.15; }
+.up .uphead { padding: 18px 32px 20px 28px; }
+/* h1 size/weight/spacing: shared with every other tab's headline, see css/tasks.css */
 .up .upsub { margin: 6px 0 0; font-size: 14px; color: var(--fg-2); }
 
 /* -- the paste box: one bordered card; the textarea fills it, the media strip appears under the text
