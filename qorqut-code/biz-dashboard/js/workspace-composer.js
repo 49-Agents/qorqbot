@@ -10,6 +10,12 @@ function workspaceComposerCloseTerminal() {
 }
 async function workspaceComposerRefresh() {
   const w=workspaceComposer,key=state.scope==='global'?'global':state.biz;
+  if(state.scope==='global' && state.globalTab==='agents'){
+    ++w.generation;w.scope=null;
+    workspaceComposerCloseTerminal();
+    document.querySelector('#workspace-composer')?.remove();
+    return;
+  }
   if(!key)return;
   if(w.scope===key && document.querySelector('#workspace-composer'))return;
   const generation=++w.generation;w.scope=key;
