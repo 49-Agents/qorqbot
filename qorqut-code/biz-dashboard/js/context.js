@@ -13,6 +13,9 @@ const isTopic = p => p != null && !p.endsWith(".md");           // state.ctx is 
 const ctxCount = n => (n.notes || []).length + (n.children || []).reduce((s, k) => s + ctxCount(k), 0);
 const ctxFind = (node, path) => { if (!node) return null; if ((node.path || "") === path) return node; for (const c of node.children || []) { const h = ctxFind(c, path); if (h) return h; } return null; };
 const PERSON_VIEW_RE = /^_people\/([a-z][a-z0-9-]{1,63})$/;     // "_people/<slug>" (no .md) is the person view, not a raw file
+const uploadId = p => { const m = /^_(?:inbox|dumps)\/(\d{4}-\d{2}-\d{2}-\d{4}-[0-9a-z]{4})\.md$/.exec(p || ""); return m ? m[1] : ""; };
+const ctxMapStamp = (d, id) => { const m = ((d || {}).maps || []).find(x => x.id === id); return m ? `${m.at}|${m.nodes}` : ""; };
+let _ctxMapAt = "", _ctxMapping = false;                        // the upload view's mind map state, so the watcher knows when to redraw
 const personNoteCount = p => Array.isArray(p.notes) ? p.notes.length : (p.notes || 0);
 const findPerson = slug => ((_ctxData || {}).people || []).find(p => p.slug === slug);
 const cap = (s, n = 70) => {
@@ -24,7 +27,7 @@ const cap = (s, n = 70) => {
 };
 
 async function renderContext(c) {
-  clearInterval(_ctxTimer); _ctxTimer = null;
+  clearTimeout(_ctxTimer); _ctxTimer = null;
   const d = await api(`/biz/${state.biz}/context`);
   c.innerHTML = `<div class="ctxwrap">
     <div class="ctxbar"><button class="primary" id="ctxup">Upload context</button><input type="search" id="ctxsearch" placeholder="Search context" autocomplete="off"><div class="ctxq" id="ctxq"></div></div>
@@ -77,6 +80,10 @@ async function ctxSearch(q) {
   v.querySelectorAll(".card").forEach(el => el.onclick = () => {
     const p = el.dataset.p;
     if (el.dataset.k === "person") return ctxGo(p.replace(/\.md$/, ""));
+    if (el.dataset.k === "map") {                          // a map hit opens its upload
+      const id = p.replace(/^_maps\//, "").replace(/\.md$/, "");
+      return ctxGo(((_ctxData || {}).dumps || []).some(u => u.id === id) ? `_dumps/${id}.md` : `_inbox/${id}.md`);
+    }
     if (p.endsWith("/_topic.md")) {
       const dir = p.split("/").slice(0, -1).join("/");
       ctxOpen().add(dir); ctxSaveOpen();
@@ -90,17 +97,26 @@ function ctxBusy(d) {
   const s = d.summarizing || {};
   return !!((d.filing && d.filing.current) || (d.inbox || []).some(i => !i.failed) || s.current || s.queued);
 }
+// Poll the tree while the tab is open: every 8 s while the queues are busy, every 20 s when idle (work
+// arrives from the filer sweep and from other clients too). Re-render only what changed.
+const ctxSig = (d, p) => JSON.stringify([ctxFind((d || {}).tree, p || ""), p ? null : (d || {}).people]);
+let _ctxLastSig = "";
 function ctxWatch(d) {
-  clearInterval(_ctxTimer); _ctxTimer = null;
-  if (!ctxBusy(d)) return;
-  _ctxTimer = setInterval(async () => {
-    if (state.tab !== "context" || !$("#ctxtree")) return clearInterval(_ctxTimer);
+  clearTimeout(_ctxTimer); _ctxTimer = null;
+  const tick = async () => {
+    if (state.tab !== "context" || !$("#ctxtree")) { _ctxTimer = null; return; }
     const d2 = await api(`/biz/${state.biz}/context`);
+    if (state.tab !== "context" || !$("#ctxtree")) { _ctxTimer = null; return; }
     ctxPaint(d2);
-    if (state.ctx && state.ctx.startsWith("_inbox/") && !(d2.inbox || []).some(i => `_inbox/${i.id}.md` === state.ctx)) { state.ctx = ""; ctxShow(""); }
-    else if (isTopic(state.ctx)) ctxShow(state.ctx);       // summaries land while we look
-    if (!ctxBusy(d2)) clearInterval(_ctxTimer);
-  }, 8000);
+    const uid = uploadId(state.ctx);
+    if (state.ctx && state.ctx.startsWith("_inbox/") && !(d2.inbox || []).some(i => `_inbox/${i.id}.md` === state.ctx)) {
+      ctxGo((d2.dumps || []).some(u => u.id === uid) ? `_dumps/${uid}.md` : "");     // filed while we looked: follow it
+    }
+    else if (isTopic(state.ctx)) { if (ctxSig(d2, state.ctx) !== _ctxLastSig) ctxShow(state.ctx); }   // summaries, notes, people landed
+    else if (uid && (ctxMapStamp(d2, uid) !== _ctxMapAt || (_ctxMapping && !ctxBusy(d2)))) openCtx(state.ctx);   // its map landed (or failed)
+    _ctxTimer = setTimeout(tick, ctxBusy(d2) ? 8000 : 20000);
+  };
+  _ctxTimer = setTimeout(tick, ctxBusy(d) ? 8000 : 20000);
 }
 
 function ctxPaint(d) {
@@ -113,7 +129,10 @@ function ctxPaint(d) {
   if (cur) bits.push(`<span class="run">filing ${esc(cur.id)} · ${fmtAgo(cur.started)}</span>`);
   if (waiting) bits.push(`${waiting} waiting${cur ? "" : ` · next sweep within ${Math.round((f.every || 300) / 60)} min`}`);
   if (failed) bits.push(`<span class="bad">${failed} failed</span>`);
-  if (s.current) bits.push(`<span class="run">summarising ${esc(s.current.topic)}</span>${s.queued ? ` +${s.queued}` : ""}`);
+  if (s.current) {
+    const t = String(s.current.topic || "");
+    bits.push(`<span class="run">${t.startsWith("map:") ? `mapping ${esc(t.slice(4))}` : `summarising ${esc(t)}`}</span>${s.queued ? ` +${s.queued}` : ""}`);
+  }
   // idle: nothing; the bar only speaks while something is queued, running or failed
   q.innerHTML = bits.join(`<span class="dot">·</span>`);
   ctxTree(d);
@@ -141,6 +160,14 @@ function ctxTree(d) {
   if (people.length) {
     rows.push(`<div class="h">People</div>`);
     people.forEach(p => row("p", `_people/${p.slug}`, 0, `<span class="tt">${esc(p.name)}</span><span class="cnt">${personNoteCount(p)}</span>`, esc([p.role, p.org].filter(Boolean).join(" · "))));
+  }
+  const dumps = d.dumps || [];
+  if (dumps.length) {
+    rows.push(`<div class="h">Uploads</div>`);
+    dumps.slice(0, 40).forEach(u => row("u d", `_dumps/${u.id}.md`, 0,
+      `<span class="tt">${esc(u.notes || u.topic || u.preview || u.id)}</span>${u.map ? `<span class="cnt" title="has a mind map">map</span>` : ""}`,
+      `${esc(u.id)} · ${u.chars} chars`));
+    if (dumps.length > 40) rows.push(`<div class="empty pad">${dumps.length - 40} older uploads; search finds them</div>`);
   }
   const inbox = d.inbox || [];
   if (inbox.length) {
@@ -189,11 +216,14 @@ function openTopic(p) {
   const v = $("#ctxview"), d = _ctxData || {}, root = !p;
   const node = root ? Object.assign({ title: "context", about: "", children: [], notes: [] }, d.tree || {}) : ctxFind(d.tree, p);
   if (!node) { v.innerHTML = `<div class="empty">no such topic</div>`; return; }
+  _ctxLastSig = ctxSig(d, p);
   const s = d.summarizing || {}, busy = s.current && (s.current.topic === p || (s.current.topic || "").startsWith(p + "/"));
   const kids = node.children || [], notes = node.notes || [];
+  const mappable = kids.length || notes.length || (root && (d.people || []).length);
+  const mapMode = !!mappable && ls("ctxmapmode") === "1";        // the folder as a mind map instead of cards; remembered
   const head = `${ctxCrumbs(root ? "" : p.split("/").slice(0, -1).join("/"), root ? "" : node.slug)}
     <div class="th"><h2>${esc(root ? "All context" : node.title)}</h2>
-      <div class="pa">${root ? "" : `<button class="ghost sm" id="tpedit" title="edit _topic.md">Edit description</button><button class="ghost sm" id="tpsum" ${busy ? "disabled" : ""}>${busy ? "summarising…" : "Refresh summary"}</button>`}</div></div>
+      <div class="pa">${mappable ? `<button class="ghost sm" id="tpmap" title="${mapMode ? "back to the cards" : "this folder as a mind map"}">${mapMode ? "Cards" : "Map"}</button>` : ""}${root ? "" : `<button class="ghost sm" id="tpedit" title="edit _topic.md">Edit description</button><button class="ghost sm" id="tpsum" ${busy ? "disabled" : ""}>${busy ? "summarising…" : "Refresh summary"}</button>`}</div></div>
     ${node.about ? `<p class="about">${esc(node.about)}</p>` : ""}`;
   const sum = root ? "" : node.summary ? `<div class="sec"><div class="sh">Summary <span class="stamp">${esc((node.summarized || "").replace("T", " ").replace(/:\d\dZ/, "Z"))}</span></div>${mdLines(node.summary)}</div>`
     : `<div class="sec"><div class="sh">Summary</div><div class="empty">${busy ? "being written now" : notes.length || kids.length ? "not written yet; it comes after the next filing or save, or press Refresh summary" : "empty topic"}</div></div>`;
@@ -202,9 +232,17 @@ function openTopic(p) {
   const people = root ? (d.people || []) : [];
   const ppl = people.length ? `<div class="sec"><div class="sh">People</div><div class="cards">${people.map(pn => { const n = personNoteCount(pn), path = "_people/" + pn.slug; return `<div class="card p" data-p="${esc(path)}"><div class="ct"><span class="tt">${esc(pn.name)}</span></div><div class="cb">${esc([pn.role, pn.org].filter(Boolean).join(" · "))}</div><div class="cs">${n} note${n === 1 ? "" : "s"}</div></div>`; }).join("")}</div></div>` : "";
   const nts = notes.length ? `<div class="sec"><div class="sh">Files</div><div class="cards">${notes.map(n => { const m = ctxNoteMeta(n), ft = (node.titles || {})[n] || n, body = node.summaries?.[n] || node.previews?.[n] || ""; return `<div class="card n" data-p="${esc(p)}/${esc(n)}" title="${esc(ft)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(ft))}</span></div><div class="cb">${esc(body)}</div><div class="cs">${esc(m.date)}${m.rest ? ` · ${esc(m.rest)}` : ""}</div></div>`; }).join("")}</div></div>` : root ? "" : `<div class="sec"><div class="sh">Files</div><div class="empty">none here; ${kids.length ? "they sit in the subtopics" : "nothing filed yet"}</div></div>`;
-  v.innerHTML = head + sum + pill + subs + ppl + nts;
+  if (mapMode) {
+    const tree = ctxMapTree(d, node, root);
+    v.innerHTML = head + `<div class="sec"><div class="sh">Map <span class="stamp">${mapCount(tree) - 1} nodes</span></div><div id="topicmap"></div></div>`;
+    mindmap($("#topicmap"), tree, { links: true, legend: MAP_LEGEND,
+      onOpen: n => { if (n.kind === "topic") { ctxOpen().add(n.path); ctxSaveOpen(); } ctxGo(n.path); } });
+  } else {
+    v.innerHTML = head + sum + pill + subs + ppl + nts;
+  }
   wireCrumbs(v);
   v.querySelectorAll(".card").forEach(el => el.onclick = () => { if (el.classList.contains("t")) { ctxOpen().add(el.dataset.p); ctxSaveOpen(); } ctxGo(el.dataset.p); });
+  const mp = $("#tpmap"); if (mp) mp.onclick = () => { ls("ctxmapmode", mapMode ? "0" : "1"); openTopic(p); };
   const ed = $("#tpedit"); if (ed) ed.onclick = () => ctxGo(`${p}/_topic.md`);
   const rs = $("#tpsum"); if (rs) rs.onclick = async () => { rs.disabled = true; const r = await post(`/biz/${state.biz}/context/summarize`, { topic: p }); toast(r.error || `summarising ${p}`); const d2 = await api(`/biz/${state.biz}/context`); ctxPaint(d2); openTopic(p); ctxWatch(d2); };
 }
@@ -289,10 +327,15 @@ async function openCtx(p) {
   const { meta, body } = ctxSplit(r.text);
   const dir = p.includes("/") && !p.startsWith("_") ? p.split("/").slice(0, -1).join("/") : "";
   const chips = CTX_META.filter(k => meta[k]).map(k => `<span class="chip ${k === "error" ? "bad" : ""}"><b>${esc(k)}</b>${esc(meta[k])}</span>`).join("");
-  const title = meta.title || (p.endsWith("/_topic.md") ? "description" : p.split("/").pop());
+  const uid = uploadId(p);
+  const um = uid ? await api(`/biz/${state.biz}/context/map?id=${uid}`) : null;   // its mind map and where it went
+  if (state.ctx !== p) return;                                                     // navigated away meanwhile
+  const title = meta.title || (uid ? (meta.notes || meta.topic || `Upload ${uid}`) : p.endsWith("/_topic.md") ? "description" : p.split("/").pop());
+  const text = uid ? `<div class="sec"><div class="sh">Text <span class="stamp">${body.trim().length.toLocaleString()} chars</span></div><pre class="ctxbody">${esc(body)}</pre></div>` : `<pre class="ctxbody">${esc(body)}</pre>`;
   v.innerHTML = `${ctxCrumbs(dir, p.split("/").pop())}<div class="ph"><h2>${esc(title)}</h2><div class="pa">${ro ? `<span class="ro">${p === "INDEX.md" ? "generated" : "filed upload, immutable"}</span>` : `<button class="ghost sm" id="ctxedit">Edit</button>`}</div></div>
-    ${chips ? `<div class="chips">${chips}</div>` : ""}<pre class="ctxbody">${esc(body)}</pre>`;
+    ${chips ? `<div class="chips">${chips}</div>` : ""}${uid ? uploadSections(uid, um || {}) : ""}${text}`;
   wireCrumbs(v);
+  if (uid) wireUpload(v, uid, um || {});
   if (ro) return;
   $("#ctxedit").onclick = () => {
     v.innerHTML = `${ctxCrumbs(dir, p.split("/").pop())}<div class="ph"><h2>${esc(title)}</h2><div class="pa"><span class="ro">editing</span></div></div>
@@ -311,6 +354,39 @@ async function openCtx(p) {
       openCtx(p);
     };
     ta.onkeydown = e => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") $("#ctxsave").click(); };
+  };
+}
+
+// an upload's two maps: the model-drawn mind map of its text, and where it went (notes, topics, people)
+function uploadSections(uid, um) {
+  const m = um.map, t = um.trace || {}, filed = t.where === "_dumps", notes = t.notes || [];
+  _ctxMapAt = m ? `${m.at}|${m.nodes}` : ""; _ctxMapping = !!um.mapping;
+  const stamp = m ? `<span class="stamp">${m.nodes} nodes · ${esc(String(m.at || "").slice(0, 10))}${m.model ? ` · ${esc(m.model)}` : ""}</span>` : "";
+  const btn = um.mapping ? `<button class="ghost sm" disabled>drawing…</button>` : `<button class="ghost sm" id="dumpdraw">${m ? "Redraw" : "Draw mind map"}</button>`;
+  const mapBody = m ? `<div id="dumpmap"></div>` : `<div class="empty">${um.mapping ? "being drawn now from the text below" : um.error ? esc(um.error) : "not drawn yet; it is drawn after filing, or press Draw mind map"}</div>`;
+  const cards = notes.length ? `<div class="cards">${notes.map(n => `<div class="card n" data-p="${esc(n.path)}" title="${esc(n.title)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(n.title || n.path))}</span></div>
+      <div class="cb">${esc(n.summary || "")}</div><div class="cs">${esc(n.topic)}${(n.people || []).length ? ` · ${esc(n.people.join(", "))}` : ""}</div></div>`).join("")}</div>`
+    : `<div class="empty">${filed ? `no notes were cut from it${t.result ? `: ${esc(t.result)}` : ""}` : "not filed yet; the filer splits it into notes when the queue runs"}</div>`;
+  const chip = (path, label, extra = "") => `<span class="chip go" data-p="${esc(path)}" ${extra}>${esc(label)}</span>`;
+  const topics = (t.topics || []).length || (t.also || []).length ? `<div class="row"><span class="lbl">topics</span>${(t.topics || []).map(x => chip(x, x)).join("")}${(t.also || []).map(x => chip(x, `${x} (also)`, 'title="cross-referenced, not filed into"')).join("")}</div>` : "";
+  const people = (t.people || []).length ? `<div class="row"><span class="lbl">people</span>${t.people.map(pp => chip(`_people/${pp.slug}`, pp.name)).join("")}</div>` : "";
+  return `<div class="sec"><div class="sh">Mind map ${stamp}<span class="ml">${btn}</span></div>${mapBody}</div>
+    <div class="sec trace"><div class="sh">Where it went</div>${cards}${topics}${people}</div>`;
+}
+function wireUpload(v, uid, um) {
+  if (um.map && um.map.tree) mindmap($("#dumpmap"), ctxMapIdea(um.map.tree), { legend: `<span>${esc(cap(um.map.root || "", 60))}</span>` });
+  v.querySelectorAll(".trace .card, .trace .chip.go").forEach(el => el.onclick = () => {
+    const p = el.dataset.p;
+    if (isTopic(p) && !p.startsWith("_people/")) { ctxOpen().add(p); ctxSaveOpen(); }
+    ctxGo(p);
+  });
+  const b = $("#dumpdraw");
+  if (b) b.onclick = async () => {
+    b.disabled = true;
+    const r = await post(`/biz/${state.biz}/context/map`, { id: uid });
+    toast(r.error || `drawing the mind map of ${uid}`);
+    const d = await api(`/biz/${state.biz}/context`); ctxPaint(d); ctxWatch(d);
+    if (state.ctx && uploadId(state.ctx) === uid) openCtx(state.ctx);
   };
 }
 
