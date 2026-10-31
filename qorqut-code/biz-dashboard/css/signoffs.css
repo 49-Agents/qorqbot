@@ -66,7 +66,7 @@
 .sg-attention-badge,.sg-signoff-count { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 4px; border-radius:50%; background:var(--fg-3); color:var(--bg); font-size:10px; font-weight:700; flex:none; }
 .sg-attention-badge.urgent { background:#d94b4b; color:white; }
 #thandle.sg-attention-urgent { color:#ef6666; background:rgba(217,75,75,.12); }
-.sg-signoff-count { margin-left:5px; }
+.sg-signoff-count { position:absolute; left:calc(50% + 9.5px); top:calc(50% - 9.5px); transform:translate(-50%, -50%); margin:0; pointer-events:none; }
 .sg-urgent h2 { color:#ef7777; }
 .sg-urgent-link { display:flex; flex-direction:column; width:100%; padding:12px; gap:5px; background:var(--wash); color:var(--fg); border:1px solid var(--line); border-radius:6px; text-align:left; white-space:normal; margin-bottom:8px; }
 .sg-urgent-link small { color:var(--fg-2); }
