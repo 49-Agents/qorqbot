@@ -7,13 +7,10 @@ async function renderGlobalAgents(c) {
   const current = () => generation === globalAgentsGeneration && c.isConnected
     && state.scope === 'global' && state.globalTab === 'agents';
   c.innerHTML = '<section class="pane global-content"><div class="global-eyebrow">Global</div><h1>Agents</h1><p class="muted" role="status">Loading agents…</p></section>';
-  let agents, terms;
+  let agents;
   try {
-    const [roster, terminals] = await Promise.all([loadGlobalAgentProfiles(), api('/root/terminals')]);
-    agents = roster;
+    agents = globalAgentProfiles.length ? globalAgentProfiles : await loadGlobalAgentProfiles();
     if (!Array.isArray(agents)) throw new Error('The Global agent list is unavailable.');
-    if (!Array.isArray(terminals)) throw new Error(terminals.error || 'Terminal status is unavailable.');
-    terms = terminals;
   } catch (error) {
     if (!current()) return;
     c.innerHTML = `<section class="pane global-content"><div class="global-eyebrow">Global</div><h1>Agents</h1><p role="alert">${esc(error.message)}</p><button id="global-agents-retry">Retry</button></section>`;

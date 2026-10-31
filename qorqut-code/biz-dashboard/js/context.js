@@ -33,6 +33,15 @@ const cap = (s, n = 70) => {
   return s.slice(0, cut).trimEnd() + "…";
 };
 
+let ctxFullRead = null;
+async function ctxLoadData(biz, full = !ctxIndependentPage(state.ctx)) {
+  if (!full) return coreData(await pageReadPost(`/biz/${encodeURIComponent(biz)}/operations/context_navigation_get`, {}));
+  const signal = pageReads.signal;
+  if (ctxFullRead?.biz === biz && ctxFullRead.signal === signal) return ctxFullRead.promise;
+  const read = {biz, signal, promise:pageRead(`/biz/${encodeURIComponent(biz)}/context`)};
+  ctxFullRead = read;
+  try { return await read.promise; } finally { if (ctxFullRead === read) ctxFullRead = null; }
+}
 async function renderContext(c) {
   ctxClearGraph();
   clearTimeout(_ctxTimer); _ctxTimer = null;
@@ -48,8 +57,8 @@ async function renderContext(c) {
   _ctxData = ctxPageCache.get(biz) || null;
   ctxTree(_ctxData || {loading:true});
   const current = () => generation === _ctxGeneration && state.scope !== 'global' && state.biz === biz && state.tab === 'context' && c.isConnected;
-  const treeLoad = api(`/biz/${biz}/context`).then(async d => {
-    if (!current()) return;
+  const treeLoad = ctxLoadData(biz).then(async d => {
+    if (!current() || d.navigation_only && !ctxIndependentPage(state.ctx)) return;
     const changed = !_ctxData || ctxSig(d, state.ctx) !== ctxSig(_ctxData, state.ctx);
     ctxPaint(d);
     if (changed && !ctxIndependentPage(state.ctx)) await ctxShow(state.ctx);
@@ -134,8 +143,13 @@ function ctxWatch(d) {
   const biz = state.biz, tree = $("#ctxtree");
   const tick = async () => {
     if (state.tab !== "context" || !$("#ctxtree")) { _ctxTimer = null; return; }
-    const d2 = await api(`/biz/${biz}/context`);
+    let d2;
+    try { d2 = await ctxLoadData(biz); } catch (_) {
+      if (state.tab === "context" && state.biz === biz && tree.isConnected) _ctxTimer = setTimeout(tick, 20000);
+      return;
+    }
     if (state.tab !== "context" || state.biz !== biz || !tree.isConnected) return;
+    if (d2.navigation_only && !ctxIndependentPage(state.ctx)) { _ctxTimer = setTimeout(tick, 100); return; }
     ctxPaint(d2);
     const uid = uploadId(state.ctx);
     if (state.ctx && state.ctx.startsWith("_inbox/") && !(d2.inbox || []).some(i => `_inbox/${i.id}.md` === state.ctx)) {
@@ -174,7 +188,7 @@ function ctxTree(d) {
   const isRoot = !state.ctx;                                  // "" is the Context root; "_learning" is a page of its own
   rows.push(`<div class="item ov ${state.ctx === '_learning' ? 'on' : ''}" data-p="_learning"><div class="nm">${SVG_BRAIN}<span class="tt">Learning</span></div></div>`);
   const graphNodes = d.graph?.nodes || [];
-  rows.push(`<div class="ctx-counts">${[['story','Stories','_stories'],['table','Tables','_tables'],['person','People','_people']].map(([type,label,path]) => `<button type="button" data-count-page="${path}"><b>${d.loading ? "—" : graphNodes.filter(n=>n.type===type).length}</b><span>${label}</span></button>`).join('')}</div>`);
+  rows.push(`<div class="ctx-counts">${[['story','Stories','_stories'],['table','Tables','_tables'],['person','People','_people']].map(([type,label,path]) => `<button type="button" data-count-page="${path}"><b>${d.loading ? "—" : d.counts?.[type] ?? graphNodes.filter(n=>n.type===type).length}</b><span>${label}</span></button>`).join('')}</div>`);
   rows.push(`<div class="item ov ${isRoot ? 'on' : ''}" data-p=""><div class="nm">${aicon('share-2','currentColor',15)}<span class="tt">Graph</span></div></div>`);
   for (const [key, label, icon] of [['_stories', 'Stories', `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M12 5h8M12 11h6M12 19h8"/></svg>`], ['_tables', 'Tables', aicon('database', 'currentColor', 15)]]) {
     rows.push(`<button type="button" class="item bt ${(state.ctx === key || key === '_stories' && state.ctx?.startsWith('_stories/')) ? 'on' : ''}" data-p="${key}"><div class="nm">${icon}<span class="tt">${label}</span></div></button>`);
@@ -201,7 +215,7 @@ async function ctxGo(p) {
 }
 
 const ctxIndependentPage = p => p === '_learning' || p === '_tables' || p?.startsWith('_stories');
-function ctxShow(p) {
+async function ctxShow(p) {
   if (p === "_tasks") { p = ""; state.ctx = ""; }
   ls(`ctxpage:${state.biz}`, (["_tables", "_people", "_learning", "_uploads"].includes(p) || p?.startsWith("_stories")) ? p : "");
   storyDispose();
@@ -209,6 +223,18 @@ function ctxShow(p) {
   pane?.classList.toggle('ctxembedded-view', (['_tables'].includes(p) || p?.startsWith('_stories')));
   ctxClearGraph();
   jClearTimers();
+  if ((!_ctxData || _ctxData.navigation_only) && !ctxIndependentPage(p)) {
+    const biz = state.biz;
+    pane.innerHTML = '<p class="empty pad" role="status">Loading context…</p>';
+    try {
+      const data = await ctxLoadData(biz, true);
+      if (state.biz !== biz || state.ctx !== p || !pane.isConnected) return;
+      ctxPaint(data); ctxWatch(data);
+    } catch (error) {
+      if (state.biz === biz && state.ctx === p && pane.isConnected) pane.innerHTML = '<p class="empty pad">Could not load context. Select the page to retry.</p>';
+      return;
+    }
+  }
   if (!_ctxData && !ctxIndependentPage(p)) {
     const pane = $('#ctxview');
     if (pane) pane.innerHTML = '<p class="empty pad" role="status">Loading context…</p>';

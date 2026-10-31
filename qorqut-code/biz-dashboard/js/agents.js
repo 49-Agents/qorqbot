@@ -77,17 +77,14 @@ async function renderAgents(c) {
       agpadMount(selected.name, $("#agpad"));
     }
   }
-  let agents, terms;
-  try { [agents, terms] = await Promise.all([
-    api(`/biz/${biz}/agents`),
-    api(`/biz/${biz}/terminals`),
-  ]); } catch (error) {
+  let agents;
+  try { agents = await pageRead(`/biz/${biz}/agents?summary=1`); } catch (error) {
     if (!cached && gen === agRenderGen && biz === state.biz && state.tab === "agents") $("#agentrows", c).innerHTML = `<p class="empty pad" role="alert">${esc(error.message || "Could not load agents.")}</p>`;
     return;
   }
   if (gen !== agRenderGen || biz !== state.biz || state.tab !== "agents" || !c.isConnected) return;
   state.agents = Array.isArray(agents) ? agents : [];
-  state.terms = Array.isArray(terms) ? terms : [];
+  state.terms = cached?.terms || [];
   agPageCache.set(biz, {agents:state.agents, terms:state.terms});
   paintList();
   if (cached?.agents.some(a => a.name === state.agent) && state.agents.some(a => a.name === state.agent)) return;

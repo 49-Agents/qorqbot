@@ -5,10 +5,15 @@ const LOG_N = 30;
 const _logSeen = {};      // biz -> Set of log ids already on screen, so only actions logged since the last fetch toast
 let sideT;
 function refreshSideSoon() { clearTimeout(sideT); sideT = setTimeout(refreshSide, 800); }
+let sidePending = false;
 async function refreshSide() {
-  if (!state.biz) return;
+  if (!state.biz || document.hidden || sidePending) return;
+  sidePending = true;
+  try {
   const biz = state.biz;
-  const [log, live] = await Promise.all([api(`/biz/${biz}/log?n=${LOG_N}`), api(`/biz/${biz}/live`)]);
+  const results = await Promise.allSettled([pageRead(`/biz/${biz}/log?n=${LOG_N}`), pageRead(`/biz/${biz}/live`)]);
+  if (results.some(result => result.status === "rejected")) return;
+  const [log, live] = results.map(result => result.value);
   if (state.biz !== biz) return;
   const rows = Array.isArray(log) ? log.slice(0, LOG_N) : [];
   const logEl = $("#log");                                   // no log on screen right now; the rows are parked in logHtml()
@@ -26,6 +31,7 @@ async function refreshSide() {
   const f = $("#foot");
   f.innerHTML = running.length ? `<span class="dot on"></span>` : `<span class="dot"></span>`;
   f.title = running.length ? `${running.length} session${running.length === 1 ? "" : "s"} running` : "quiet";
+  } catch (_) { /* Keep the last good sidebar snapshot. */ } finally { sidePending = false; }
 }
 
 // Shared activity rows: department stroke, summary, time/actor, and an optional related task.

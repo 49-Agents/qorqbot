@@ -37,9 +37,10 @@ function globalProgressMount(host) {
     const today=new Date().toISOString().slice(0,10);
     try {
       let entry=globalProgressCache.get('global');
-      if (!entry || entry.day!==today || Date.now()-entry.at>60000) {
-        entry={day:today,at:Date.now(),promise:post('/root/operations/global_progress_get',{days:365}).then(coreData)};
+      if (!entry || entry.signal?.aborted || entry.day!==today || Date.now()-entry.at>60000) {
+        entry={day:today,at:Date.now(),signal:pageReads.signal,promise:pageReadPost('/root/operations/global_progress_get',{days:365}).then(coreData)};
         globalProgressCache.set('global',entry);
+        entry.promise.then(()=>{entry.signal=null;},()=>{});
         entry.promise.catch(()=>{if(globalProgressCache.get('global')===entry)globalProgressCache.delete('global');});
       }
       const data=await entry.promise;
