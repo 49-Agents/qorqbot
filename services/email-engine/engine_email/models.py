@@ -250,8 +250,20 @@ class Settings:
     shared_senders: tuple[SharedSender, ...] = ()
     history: HistoryConfig | None = None
     outlook_web: OutlookWebConfig | None = None
+    admin_token: str = ""
 
     def __post_init__(self):
+        if self.admin_token and (len(self.admin_token) < 32 or not self.admin_token.isascii()
+                or self.admin_token in {self.read_token, self.send_token}):
+            raise ValueError("Use a distinct private mailbox administration token of at least 32 characters")
+        refs, folders, addresses = set(), set(), set()
+        for box in self.mailboxes:
+            owned = {box.address, *box.aliases}
+            if box.ref in refs or box.folder_id in folders or addresses & owned:
+                raise ValueError("Mailbox references, folders, and addresses must be unique")
+            refs.add(box.ref)
+            folders.add(box.folder_id)
+            addresses.update(owned)
         refs, addresses, limits = set(), set(), {}
         businesses = {box.business_id for box in self.mailboxes}
         for sender in self.shared_senders:
@@ -301,7 +313,7 @@ class Settings:
             addresses.update(owned)
         return cls(database=Path(required("EMAIL_DATABASE")).expanduser().resolve(),
             read_token=read, send_token=send, api_token=required("FASTMAIL_API_TOKEN"),
-            mailboxes=mailboxes, account_id=os.environ.get("FASTMAIL_ACCOUNT_ID", ""),
+            mailboxes=mailboxes, admin_token=os.environ.get("EMAIL_ADMIN_TOKEN", ""), account_id=os.environ.get("FASTMAIL_ACCOUNT_ID", ""),
             sync_seconds=max(30, int(os.environ.get("EMAIL_SYNC_SECONDS", "120"))),
             shared_senders=tuple(SharedSender.model_validate(item) for item in
                 json.loads(Path(os.environ["EMAIL_SHARED_SENDERS_FILE"]).read_text()))

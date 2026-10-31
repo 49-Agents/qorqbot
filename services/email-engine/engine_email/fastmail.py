@@ -384,7 +384,7 @@ class Fastmail:
             mail.add_attachment(attachment.content(), maintype=main, subtype=sub, filename=attachment.filename)
         return mail.as_bytes()
 
-    def identity(self, mailbox, sender, message=None):
+    def identity(self, mailbox, sender, message=None, *, identities=None):
         if message is not None:
             try:
                 self.settings.sender(mailbox, message)
@@ -392,7 +392,8 @@ class Fastmail:
                 raise ProviderError("sender_outside_business") from exc
         elif not mailbox.accepts_sender(sender):
             raise ProviderError("sender_outside_business")
-        identities = self.call("Identity/get")["list"]
+        if identities is None:
+            identities = self.call("Identity/get")["list"]
         matches = [item for item in identities if item.get("email", "").lower() == sender]
         if len(matches) != 1:
             raise ProviderError("fastmail_sender_identity_missing_or_ambiguous")

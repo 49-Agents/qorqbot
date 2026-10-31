@@ -32,6 +32,10 @@ class Store:
                 CREATE TABLE IF NOT EXISTS email_engine_metadata (
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL);
                 INSERT OR IGNORE INTO email_engine_metadata VALUES(1,0);
+                CREATE TABLE IF NOT EXISTS managed_mailboxes (
+                    ref TEXT PRIMARY KEY, payload TEXT NOT NULL, revision INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS mailbox_setting_requests (
+                    id TEXT PRIMARY KEY, digest TEXT NOT NULL, response TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS mailbox_bindings (
                     ref TEXT PRIMARY KEY, folder_id TEXT NOT NULL UNIQUE,
                     business_id TEXT NOT NULL, address TEXT NOT NULL);
@@ -137,22 +141,26 @@ class Store:
             db.execute("INSERT OR IGNORE INTO outlook_provider_binding VALUES(1,?,?)", values)
 
     def bind_mailboxes(self, mailboxes):
-        changed = False
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            for box in mailboxes:
-                values = (box.ref, box.folder_id, box.business_id, box.address)
-                old = db.execute("SELECT ref,folder_id,business_id,address FROM mailbox_bindings WHERE ref=? OR folder_id=?",
-                    (box.ref, box.folder_id)).fetchall()
-                if old and (len(old) != 1 or tuple(old[0]) != values):
-                    raise ValueError("Existing mailbox identity or ownership cannot be reassigned")
-                changed = changed or not old
-                db.execute("INSERT OR IGNORE INTO mailbox_bindings VALUES(?,?,?,?)", values)
-                for address in {box.address, *box.aliases}:
-                    prior = db.execute("SELECT mailbox FROM address_bindings WHERE address=?", (address,)).fetchone()
-                    if prior and prior[0] != box.ref:
-                        raise ValueError("Existing address ownership cannot be reassigned")
-                    db.execute("INSERT OR IGNORE INTO address_bindings VALUES(?,?)", (address, box.ref))
+            return self.bind_mailboxes_in(db, mailboxes)
+
+    @staticmethod
+    def bind_mailboxes_in(db, mailboxes):
+        changed = False
+        for box in mailboxes:
+            values = (box.ref, box.folder_id, box.business_id, box.address)
+            old = db.execute("SELECT ref,folder_id,business_id,address FROM mailbox_bindings WHERE ref=? OR folder_id=?",
+                (box.ref, box.folder_id)).fetchall()
+            if old and (len(old) != 1 or tuple(old[0]) != values):
+                raise ValueError("Existing mailbox identity or ownership cannot be reassigned")
+            changed = changed or not old
+            db.execute("INSERT OR IGNORE INTO mailbox_bindings VALUES(?,?,?,?)", values)
+            for address in {box.address, *box.aliases}:
+                prior = db.execute("SELECT mailbox FROM address_bindings WHERE address=?", (address,)).fetchone()
+                if prior and prior[0] != box.ref:
+                    raise ValueError("Existing address ownership cannot be reassigned")
+                db.execute("INSERT OR IGNORE INTO address_bindings VALUES(?,?)", (address, box.ref))
         return changed
 
     @contextmanager

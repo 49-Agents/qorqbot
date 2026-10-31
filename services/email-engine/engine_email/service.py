@@ -16,6 +16,9 @@ ACCOUNT_CURSOR = "@account"
 
 class EmailService:
     def __init__(self, settings, store, provider, *, outlook_provider=None):
+        from .mailbox_settings import load_settings
+        settings = load_settings(settings, store)
+        provider.settings = settings
         self.settings, self.store, self.provider = settings, store, provider
         self.history = PrivateHistory(settings.history, provider.account_id, settings.database) if settings.history else None
         if any(sender.enabled for sender in settings.shared_senders) and self.history is None:

@@ -13,6 +13,7 @@ from starlette.routing import Route
 from .fastmail import ProviderError
 from .models import MAX_HTTP_BYTES, HistoryEvent, Outgoing
 from .store import Store
+from .mailbox_settings import MailboxUpdate, configure, revisions as mailbox_revisions
 
 
 def create_app(service, *, background=True):
@@ -48,6 +49,30 @@ def create_app(service, *, background=True):
         if "token" in request.query_params or not hmac.compare_digest(supplied.encode(), ("Bearer " + expected).encode()):
             return JSONResponse({"error": "unauthenticated"}, status_code=401)
 
+    async def configure_mailbox(request):
+        token = settings.admin_token
+        if (not token or "token" in request.query_params or not hmac.compare_digest(
+                request.headers.get("Authorization", "").encode(), ("Bearer " + token).encode())):
+            return JSONResponse({"error": "unauthenticated"}, status_code=401)
+        content = bytearray()
+        async for chunk in request.stream():
+            content.extend(chunk)
+            if len(content) > 65536:
+                return JSONResponse({"error": "request_too_large"}, status_code=413)
+        try:
+            change = MailboxUpdate.model_validate_json(bytes(content))
+            result = await anyio.to_thread.run_sync(lambda: configure(service, change))
+            return JSONResponse(result)
+        except ValidationError:
+            return JSONResponse({"error": "invalid_mailbox"}, status_code=400)
+        except ValueError as exc:
+            return JSONResponse({"error": "mailbox_configuration_conflict", "message": str(exc)}, status_code=409)
+        except ProviderError as exc:
+            invalid_setup = exc.code in {"business_folder_missing_or_not_dedicated",
+                "private_history_folder_missing_or_not_dedicated", "sender_outside_business",
+                "fastmail_sender_identity_missing_or_ambiguous", "fastmail_identity_remove_auto_bcc_and_reply_to"}
+            return JSONResponse({"error": exc.code}, status_code=400 if invalid_setup else 502)
+
     async def health(request):
         return JSONResponse({"live": True, "service": "engine-email", "provider": "fastmail"})
 
@@ -58,10 +83,11 @@ def create_app(service, *, background=True):
         kind = request.path_params.get("kind", "mailboxes")
         try:
             if kind == "mailboxes":
-                return JSONResponse({"mailboxes": [box.model_dump() for box in settings.mailboxes],
+                return JSONResponse({"mailboxes": [box.model_dump() for box in service.settings.mailboxes],
+                    "mailbox_revisions": await anyio.to_thread.run_sync(lambda: mailbox_revisions(service.store)),
                     "shared_senders": service.shared_sender_metadata(),
                     "sync": await anyio.to_thread.run_sync(service.store.sync_status)})
-            mailbox = settings.mailbox(request.path_params["mailbox"])
+            mailbox = service.settings.mailbox(request.path_params["mailbox"])
             if kind == "send":
                 row = await anyio.to_thread.run_sync(lambda: service.store.send(request.query_params.get("request_id", "")))
                 if row is None or row["mailbox"] != mailbox.ref or row["business_id"] != mailbox.business_id:
@@ -142,7 +168,7 @@ def create_app(service, *, background=True):
             data = json.loads(content)
             if not isinstance(data, dict) or set(data) != {"request_id"} or not isinstance(data["request_id"], str):
                 raise ValueError("Invalid cancellation")
-            mailbox = settings.mailbox(request.path_params["mailbox"])
+            mailbox = service.settings.mailbox(request.path_params["mailbox"])
             result = await anyio.to_thread.run_sync(lambda: service.cancel(mailbox, data["request_id"]))
             return JSONResponse(result)
         except ValueError:
@@ -179,4 +205,5 @@ def create_app(service, *, background=True):
             request.path_params["kind"] = selected
             return await read(request)
         routes.append(Route("/mailboxes/{mailbox}/" + kind, endpoint))
+    routes.insert(0, Route("/mailboxes/configure", configure_mailbox, methods=["POST"]))
     return Starlette(routes=routes, lifespan=lifespan)
