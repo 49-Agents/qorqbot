@@ -250,7 +250,10 @@ class OutlookWeb:
         approved = Outgoing.model_validate_json(saved["payload"])
         normalize_body = lambda value: value.replace("\r\n", "\n").rstrip("\n")
         recipients = lambda key: sorted(value["emailAddress"]["address"] for value in result[key])
-        if (result["subject"] != approved.subject or normalize_body(result["body"]["content"]) != normalize_body(approved.body)
+        # Exchange can prefix the sent MIME Subject with one folding tab.
+        # Accept only that observed formatting difference, after sent identity proof.
+        subject_matches = result["subject"] in (approved.subject, "\t" + approved.subject)
+        if (not subject_matches or normalize_body(result["body"]["content"]) != normalize_body(approved.body)
                 or result["bodyTruncated"] or recipients("replyTo") != ([approved.reply_to] if approved.reply_to else [])
                 or any(recipients(key) != sorted(getattr(approved, field)) for key, field in
                     (("toRecipients", "to"), ("ccRecipients", "cc"), ("bccRecipients", "bcc")))):
