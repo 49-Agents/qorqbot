@@ -124,15 +124,15 @@ function upDoneHtml() {
 }
 
 // The Marketing tab's Assets view calls this from its "Upload assets" button: open the panel on the Uploads
-// tab with the destination already set to the folder the owner was looking at, then pop the file picker. One
-// upload path for the whole dashboard — Marketing owns no uploader of its own.
+// tab with the destination already set to the folder the owner was looking at. It stops there — no file
+// dialog is forced open, since a paste or a drop is the usual way in. One upload path for the whole
+// dashboard: Marketing owns no uploader of its own.
 function upStartAssets(group, topic) {
   openTasks(true);
   tSetView("uploads");                                  // renders (and resets the form if the business changed)
   if (group && UP_GROUPS.some(([k]) => k === group)) { upForm.group = group; ls("upgroup", group); }
   if (topic) upForm.topic = topic;
   upRender();
-  const pick = $("#uppick"); if (pick) pick.click();
 }
 
 // what changes while typing (hint, send label/enabled, clear visibility), patched without a rebuild
