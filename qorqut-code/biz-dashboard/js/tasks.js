@@ -66,8 +66,8 @@ let tLastBiz = null, tSoonT = null, tInside = false, tSearchT = null;
 state.tasks = [];
 
 // ---------------------------------------------------------------- view (tabs)
-const T_VIEWS = ["tasks", "journal", "notes", "activity"];
-const T_VIEW_LABEL = { tasks: "Tasks", activity: "Activity", journal: "Journal", notes: "Notes" };
+const T_VIEWS = ["tasks", "journal", "notes", "uploads", "activity"];
+const T_VIEW_LABEL = { tasks: "Tasks", activity: "Activity", journal: "Journal", notes: "Notes", uploads: "Uploads" };
 let tView = ls("tview") || "tasks";
 if (T_VIEWS.indexOf(tView) < 0) tView = "tasks";
 
@@ -79,6 +79,7 @@ let tLogLoaded = false;             // has this business's log been fetched at l
 // journal view state (jrSel/jrMemos/jrSearch/...) lives in js/journal.js, which owns the whole
 // journal tab; this file only calls into it at tab-switch/business-change points (see tSetView, tInit).
 // notes view state (ntSel/ntNotes/ntSearch/...) lives in js/notes.js the same way.
+// uploads view state (upForm/upDone/...) lives in js/uploads.js; it has no editor, so nothing to flush.
 
 const tPanelOpen = () => { const w = $("#taskswrap"); return !!w && w.classList.contains("open"); };
 const taskById = id => (state.tasks || []).find(t => t.id === id);
@@ -262,7 +263,7 @@ function tTabs() {
 function tHead() {
   // the journal/notes tabs supply their own header (homepage title/subtitle/Create, or the detail's
   // own sidebar controls) in #tbody, so the generic ttop (title + tasks-only stats/search) sits out
-  const ownHead = tView === "journal" || tView === "notes";
+  const ownHead = tView === "journal" || tView === "notes" || tView === "uploads";
   return `<div class="thead${ownHead ? " nott" : ""}">
     ${tTabs()}
     ${ownHead ? "" : `<div class="ttop">
@@ -342,6 +343,7 @@ function tSetView(v) {
   else if (v === "activity") { tLogSig = null; tPaintActivity(); tActivityRefresh(); }
   else if (v === "journal") { tPaintJournal(); }
   else if (v === "notes") { tPaintNotes(); }
+  else if (v === "uploads") { tPaintUploads(); }
 }
 
 // ---------------------------------------------------------------- activity view
@@ -608,6 +610,7 @@ function tWireHead(p) {
       if (tView === "journal") { jrFlush(); jrSel = null; jrSearch = ""; jrMemos = []; tPaintJournal(); }
       // same idea for the notes tab (see js/notes.js's ntFlush)
       if (tView === "notes") { ntFlush(); ntSel = null; ntSearch = ""; ntNotes = []; tPaintNotes(); }
+      if (tView === "uploads") tPaintUploads();   // resets its form for the new business itself
     }
   }, 500);
   setInterval(() => {

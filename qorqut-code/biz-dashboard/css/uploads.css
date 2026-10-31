@@ -1,0 +1,87 @@
+
+
+
+
+
+.tasks .tbody.up { padding: 0; overflow-y: auto; }
+.up .uphead { padding: 40px 32px 20px; }
+.up .uphead h1 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -.02em; color: var(--fg); line-height: 1.15; }
+.up .upsub { margin: 6px 0 0; font-size: 14px; color: var(--fg-2); }
+
+/* -- the paste box: one bordered card; the textarea fills it, the media strip appears under the text
+   when files are in (the textarea then reads as a readonly caption area) */
+.up .upbox {
+  margin: 0 32px; border: 1px solid var(--line-2); border-radius: var(--r-lg); background: rgba(255,255,255,.02);
+  display: flex; flex-direction: column; min-height: 200px; transition: border-color .15s ease, background .15s ease;
+}
+.up .upbox:focus-within { border-color: var(--fg-3); }
+.up .upbox.drag { border-color: var(--accent); background: rgba(245,240,232,.04); }
+.up .uptext {
+  flex: 1; min-height: 140px; resize: vertical; border: 0; outline: 0; background: none; padding: 16px 18px 8px;
+  font: 400 14px/1.55 var(--sans); color: var(--fg); caret-color: var(--accent);
+}
+.up .uptext::placeholder { color: var(--fg-3); }
+.up .upbox.media .uptext { min-height: 48px; flex: none; opacity: .5; cursor: default; }
+.up .upstrip { display: flex; flex-wrap: wrap; gap: 10px; padding: 4px 16px 12px; }
+.up .upth {
+  position: relative; width: 108px; display: flex; flex-direction: column; gap: 4px;
+}
+.up .upth img, .up .upth video, .up .upth .upext {
+  width: 108px; height: 76px; object-fit: cover; border-radius: var(--r); border: 1px solid var(--line-2); background: rgba(255,255,255,.03);
+  display: block;
+}
+.up .upth .upext { display: flex; align-items: center; justify-content: center; font: 600 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--fg-2); }
+.up .upth .upnm { font-size: 11px; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.up .upth .upsz { font: 10px var(--mono); color: var(--fg-3); }
+.up .upth .uprm {
+  position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r-full);
+  background: rgba(9,9,9,.75); color: var(--fg); font: 600 14px/20px var(--sans); cursor: pointer; opacity: 0; transition: opacity .12s ease;
+}
+.up .upth:hover .uprm { opacity: 1; }
+.up .upfoot { display: flex; align-items: center; gap: 10px; padding: 8px 14px 10px; border-top: 1px solid var(--line); }
+.up .uphint { flex: 1; min-width: 0; font-size: 12px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.up .upbtn {
+  flex: none; height: 26px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: var(--r-full); background: none;
+  color: var(--fg-2); font: 600 12px/24px var(--sans); cursor: pointer; transition: color .15s ease, border-color .15s ease;
+}
+.up .upbtn:hover { color: var(--fg); border-color: var(--fg-3); background: none; transform: none; }
+
+/* -- fields */
+.up .upfields { padding: 18px 32px 0; display: flex; flex-direction: column; gap: 14px; }
+.up .upf { display: flex; flex-direction: column; gap: 6px; }
+.up .upf.off { display: none; }
+.up .upl { font: 600 11px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--fg-2); opacity: .8; }
+.up .upl .opt { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--fg-3); margin-left: 6px; }
+.up .upinp {
+  height: 34px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: var(--r); background: rgba(255,255,255,.02);
+  font: 400 13.5px var(--sans); color: var(--fg); outline: 0; transition: border-color .15s ease;
+}
+.up .upinp:focus { border-color: var(--fg-3); }
+.up .upinp::placeholder { color: var(--fg-3); }
+.up .upgroups { display: flex; gap: 8px; }
+.up .upg {
+  height: 30px; padding: 0 14px; border: 1px solid var(--line-2); border-radius: var(--r-full); display: inline-flex; align-items: center;
+  font: 600 12px var(--sans); color: var(--fg-2); cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.up .upg:hover { color: var(--fg); border-color: var(--fg-3); }
+.up .upg.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+
+/* -- send row */
+.up .upact { display: flex; align-items: center; gap: 14px; padding: 20px 32px 8px; }
+.up .upsend {
+  height: 36px; padding: 0 18px; border: 0; border-radius: var(--r-full); background: var(--accent); color: var(--bg);
+  font: 600 13px var(--sans); cursor: pointer; transition: opacity .15s ease, transform .1s ease;
+}
+.up .upsend:hover { opacity: .92; }
+.up .upsend:disabled { opacity: .35; cursor: default; transform: none; }
+.up .uperr { font-size: 12.5px; color: var(--danger); }
+
+/* -- this session's results */
+.up .updone { padding: 28px 32px 48px; }
+.up .upeyebrow { font: 600 11px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--fg-2); opacity: .6; margin-bottom: 12px; }
+.up .updrow { display: grid; grid-template-columns: 56px minmax(0, 1fr) minmax(0, 1.2fr); gap: 12px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+.up .updrow:first-of-type { border-top: 0; }
+.up .updk { font: 600 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--fg-3); }
+.up .updl { color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.up .updr { font: 11.5px var(--mono); color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.up .updrow.bad .updr { color: var(--danger); }
