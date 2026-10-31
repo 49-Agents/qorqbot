@@ -271,7 +271,7 @@ function tTabs() {
 function tHead() {
   // the journal/notes tabs supply their own header (homepage title/subtitle/Create, or the detail's
   // own sidebar controls) in #tbody, so the generic ttop (title + tasks-only stats/search) sits out
-  const ownHead = tView === "journal" || tView === "notes" || tView === "uploads";
+  const ownHead = tView === "journal" || tView === "notes" || tView === "uploads" || tView === "routines";
   return `<div class="thead${ownHead ? " nott" : ""}">
     ${tTabs()}
     ${ownHead ? "" : `<div class="ttop">

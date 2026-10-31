@@ -1,30 +1,44 @@
-.rtwrap { padding: 20px 26px 40px; color: var(--ink); }
-.rtwrap button { border: 1px solid var(--line-2); background: transparent; color: inherit; border-radius: var(--r-full); padding: 6px 12px; cursor: pointer; font: inherit; font-size: 12px; }
-.rtwrap button:hover { background: var(--elevated); }
-.rtwrap button:disabled { opacity: .4; cursor: default; }
-.rtwrap h2 { font-size: 14px; font-weight: 600; margin: 0; }
-.rtrunner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; font-size: 13px; }
-.rtrunner > div, .rtrunner > p { flex-basis: 100%; }
-.rtcosts { margin: 12px 0 24px; font: 11px var(--mono); color: var(--ink-2); line-height: 1.7; }
-.rtheading { display: flex; justify-content: space-between; align-items: center; margin: 24px 0 12px; }
-.rtrow { padding: 16px 0; border-top: 1px solid var(--line); }
-.rtmain, .rtmeta, .rtbottom, .rtchips, .rtactions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.rtmain .rttitle { padding: 0; border: 0; font-size: 14px; text-align: left; font-weight: 500; border-radius: 0; }
-.rtmeta { margin-top: 9px; color: var(--ink-2); font: 11px var(--mono); gap: 8px 14px; line-height: 1.6; }
-.rtbottom { justify-content: space-between; margin-top: 12px; }
-.rtchip { border: 1px solid var(--line); border-radius: var(--r-full); padding: 2px 7px; font-size: 10px; color: var(--ink-2); }
-.rtmuted { font-size: 12px; color: var(--ink-2); line-height: 1.7; }
-.rtok { color: var(--ok); }.rtfail { color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }
-.rthistory { margin-top: 14px; padding: 0 12px; border-left: 2px solid var(--line-2); }
-.rtrun { padding: 10px 0; }
-.rtrun pre { font: 11px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface); padding: 12px; border-radius: var(--r-sm); max-height: 280px; overflow: auto; }
-.rtform { border: 1px solid var(--line-2); border-radius: var(--r); padding: 18px; margin-bottom: 24px; background: var(--surface); }
-.rtfields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
-.rtfields > label { display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--ink-2); }
-.rtfields input:not([type=checkbox]), .rtfields textarea, .rtfields select { width: 100%; box-sizing: border-box; background: var(--bg); color: var(--ink); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 9px; font: 12px var(--mono); }
+/* Shared journal/notes shell, learning scope glyphs and app dialogs own the look. */
+.tasks .tbody.rt { padding: 0; overflow: hidden; }
+.rtworkspace .rtnav { width: 162px; box-sizing: border-box; padding-top: 20px; }
+.rtnav .jricon { width: 100%; justify-content: flex-start; padding: 0 10px; gap: 8px; border-color: transparent; background: none; font: 500 12px var(--sans); white-space: nowrap; }
+.rtnav .jricon.on { background: var(--hover); color: var(--fg); }
+.rtcontent { flex: 1; min-width: 0; overflow-y: auto; padding: 18px 28px 64px 24px; }
+.rtcontent .jrhhead { margin-bottom: 20px; align-items: center; }
+.rtcontent .jrsub { font-size: 12px; }
+.rttoolbar { display: flex; align-items: center; gap: 10px; min-height: 28px; margin-bottom: 12px; }
+.rttoolbar .btn { height: 26px; padding: 0 8px; font-size: 11px; }
+.rtmuted, .rtpaused { color: var(--fg-3); font: 12px/1.5 var(--sans); }
+.rtpaused { margin-left: auto; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.rtlist { display: flex; flex-direction: column; gap: 2px; }
+.rtrow { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; grid-template-rows: 20px 18px; column-gap: 8px; row-gap: 2px; padding: 9px 10px; border-radius: 14px; min-width: 0; }
+.rtrow:hover { background: var(--hover); }
+.rtrow > .lnscopeico { grid-column: 1; grid-row: 1; align-self: center; }
+.rtrow .rttitle { grid-column: 2; grid-row: 1; display: block; height: auto; padding: 0; border: 0; border-radius: 0; background: none; color: var(--fg); font: 500 13px/20px var(--sans); text-align: left; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rtrow .rttitle:hover { transform: none; }
+.rtmeta { grid-column: 2; grid-row: 2; min-width: 0; font: 11px/18px var(--sans); color: var(--fg-2); opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rtmeta .sep { margin: 0 5px; }
+.rtrowactions { grid-column: 3; grid-row: 1 / 3; display: flex; align-items: center; gap: 4px; }
+.rtrowactions .jricon { width: 28px; height: 28px; border-color: transparent; background: none; }
+.rtrowactions .jricon:disabled { opacity: .35; cursor: default; }
+.rtrow .rtprice { grid-column: 3; grid-row: 1 / 3; align-self: center; padding-left: 6px; }
+.rtprice { margin-left: auto; color: var(--fg-2); font: 12px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rtrunrow { cursor: pointer; }
+.rtok { color: var(--ok); }.rtfail { color: var(--danger); }
+.rtissues { margin-top: 20px; }
+.rtscope { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; font-size: 12px; }
+.rtdetail .flds { grid-template-columns: 110px minmax(0, 1fr); }
+.rtoutput pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.6 var(--mono); max-height: 340px; overflow-y: auto; }
+.rtscopepick { display: flex; align-items: center; gap: 6px; margin-bottom: 20px; }
+.rtscopepick > span { margin-right: 6px; }
+.rtfields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.rtfields > label { display: flex; flex-direction: column; gap: 6px; font: 12px var(--sans); color: var(--fg-2); }
+.rtfields > label[hidden] { display: none; }
+.rtfields .inp { width: 100%; box-sizing: border-box; font-size: 12px; }
 .rtfields textarea { min-height: 70px; resize: vertical; }
 .rtwide { grid-column: 1 / -1; }
-.rtfields fieldset { border: 1px solid var(--line); padding: 10px; font-size: 11px; }
-.rtfields .rtcheck { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; margin: 5px 12px 5px 0; }
-.rtform [type=submit] { background: var(--accent); color: var(--bg); }
-@media (max-width: 700px) { .rtwrap { padding: 16px; } .rtfields { grid-template-columns: 1fr; } }
+.rtfields fieldset { border: 1px solid var(--line); border-radius: var(--r); font-size: 11px; color: var(--fg-2); padding: 10px; }
+.rtfields .rtcheck { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; margin: 4px 12px 4px 0; }
+.rtform #rterror { margin-bottom: 0; font-size: 12px; }
+@media (max-width: 900px) { .rtworkspace .rtnav { width: 68px; padding: 20px 12px; } .rtnav .jricon { justify-content: center; padding: 0; } .rtnav .jricon span { display: none; } .rtcontent { padding-right: 18px; padding-left: 18px; } }
+@media (max-width: 600px) { .rtfields { grid-template-columns: 1fr; } .rtcontent { padding: 18px 10px; } .rtrow { column-gap: 6px; } }
