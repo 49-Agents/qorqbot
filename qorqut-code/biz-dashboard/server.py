@@ -43,11 +43,17 @@ def cli(name):
     raise RuntimeError(f"{name} not on PATH (set {CLI_ENV[name]})")
 
 
+def owner_actor(biz):
+    """The dashboard acts as the business owner from business.yaml (human:<owner>)."""
+    owner = yaml_scalars(read(os.path.join(biz, "business.yaml"))).get("owner") or "dashboard"
+    return os.environ.get("BIZ_ACTOR") or f"human:{owner}"
+
+
 def run_json(biz, name, *args):
     try:
         r = subprocess.run(cli(name) + ["--json"] + list(args), cwd=biz, capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=60,
-                           env=dict(os.environ, BIZ_ACTOR=os.environ.get("BIZ_ACTOR", "human:dashboard")))
+                           env=dict(os.environ, BIZ_ACTOR=owner_actor(biz)))
     except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
         return {"error": str(exc)}
     if r.returncode not in (0, 1) or not r.stdout.strip():
