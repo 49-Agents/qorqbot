@@ -377,7 +377,8 @@ details[open] summary { color: var(--fg); }
   border-radius: var(--r-sm); font-size: 13px; color: var(--fg-2); cursor: pointer;
   white-space: nowrap; transition: background .12s ease, color .12s ease;
 }
-.mi .lb { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.mi .lb { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; overflow: hidden; text-overflow: ellipsis; }
+.mi .lb > .g { flex: none; }
 .mi .ck { width: 12px; flex: none; opacity: 0; line-height: 0; }
 .mi.on { color: var(--fg); }
 .mi.on .ck { opacity: 1; }

@@ -2,7 +2,6 @@
 const AG_MODEL = "deepseek-v4-flash";
 const agRates = () => (typeof RATES === "object" && RATES && RATES[AG_MODEL]) || { hit: 0.014, miss: 0.44, out: 1.32 };
 const agCost = (hit, miss, out) => { const r = agRates(); return (hit * r.hit + miss * r.miss + out * r.out) / 1e6; };
-const NEW_AGENT_PLUGIN = "biz-agents-marketing@1";
 const NAME_RE = /^[a-z][a-z0-9-]{1,31}$/;
 const SLASH = [
   { cmd: "compact", hint: "Summarize this conversation into a note the agent reads next time, then clear the view" },
@@ -206,40 +205,35 @@ async function applyMeta(a, patch) {
 }
 
 // ------------------------------------------------------------------ modals
-const shapeRow = (cur, colorHex) => SHAPES.map(s =>
-  `<button class="sbtn ${s === cur ? "on" : ""}" data-s="${s}" title="${s}">${glyph(s, colorHex, 28)}</button>`).join("");
-const colorRow = cur => Object.keys(COLORS).map(k =>
-  `<button class="cdot ${k === cur ? "on" : ""}" data-c="${k}" title="${k}" style="--dc:${COLORS[k]}"></button>`).join("");
-const deptItems = () => Object.keys(DEPTS).map(k => ({ value: k, label: DEPTS[k].label, html: `${glyph(DEPTS[k].icon, DEPTS[k].color, 8)}<span>${esc(DEPTS[k].label)}</span>` }));
-const deptBtn = k => `<span class="v">${glyph(dept(k).icon, dept(k).color, 8)}<span>${esc(dept(k).label)}</span></span>`;
+const deptItems = () => Object.keys(DEPTS).map(k => ({ value: k, label: DEPTS[k].label, html: `${glyph(DEPTS[k].icon, DEPTS[k].color, 14)}<span>${esc(DEPTS[k].label)}</span>` }));
+const deptBtn = k => `<span class="v">${glyph(dept(k).icon, dept(k).color, 14)}<span>${esc(dept(k).label)}</span></span>`;
 
-// shared wiring for the shape / colour / department trio inside a modal body
-function wirePickers(el, pick, prefix, onChange) {
-  const prev = el.querySelector(`#${prefix}prev`);
-  const repaint = () => {
-    if (prev) prev.innerHTML = glyph(pick.icon, hex(pick.color), 34);
-    el.querySelectorAll(`#${prefix}shapes .sbtn`).forEach(b => {
-      b.classList.toggle("on", b.dataset.s === pick.icon); b.innerHTML = glyph(b.dataset.s, hex(pick.color), 28);
-    });
-    el.querySelectorAll(`#${prefix}colors .cdot`).forEach(b => b.classList.toggle("on", b.dataset.c === pick.color));
-    if (onChange) onChange();
-  };
-  el.querySelectorAll(`#${prefix}shapes .sbtn`).forEach(b => b.onclick = () => { pick.icon = b.dataset.s; repaint(); });
-  el.querySelectorAll(`#${prefix}colors .cdot`).forEach(b => b.onclick = () => { pick.color = b.dataset.c; repaint(); });
-  const db = el.querySelector(`#${prefix}dept`);
-  if (db) db.onclick = () => dropdown(db, deptItems(), v => { pick.department = v; db.innerHTML = deptBtn(v); }, pick.department);
-  repaint();
+let _market = null;
+async function marketplace() {
+  if (_market) return _market;
+  try { _market = await api("/marketplace"); } catch (e) { _market = { kinds: [], error: "could not reach the server" }; }
+  if (!Array.isArray(_market.kinds)) _market.kinds = [];
+  return _market;
 }
+const kindItems = kinds => kinds.map(k => ({
+  value: k.id, label: k.label,
+  html: `${glyph(k.icon, hex(k.color), 14)}<span class="kd"><span class="kl">${esc(k.label)}${k.available ? "" : ` <em>soon</em>`}</span><span class="kb">${esc(k.blurb || "")}</span></span>`,
+}));
+const kindBtn = k => k ? `<span class="v">${glyph(k.icon, hex(k.color), 14)}<span>${esc(k.label)}</span>${k.available ? "" : `<em class="soon">soon</em>`}</span>` : `<span class="v muted">pick a kind</span>`;
 
 function lookModal(a) {
-  const pick = { icon: a.icon, color: a.color, department: DEPTS[a.department] ? a.department : "general" };
+  const pick = { department: DEPTS[a.department] ? a.department : "general" };
   const body = `<div class="prev" id="lkprev"></div>
-    <div class="fl">Shape</div><div class="shapes" id="lkshapes">${shapeRow(pick.icon, hex(pick.color))}</div>
-    <div class="fl">Colour</div><div class="swatches" id="lkcolors">${colorRow(pick.color)}</div>
-    <div class="fl">Department</div><button class="selbtn" id="lkdept">${deptBtn(pick.department)}</button>`;
+    <div class="fl">Department</div><button class="selbtn" id="lkdept">${deptBtn(pick.department)}</button>
+    <div class="fmsg">the department fixes the icon and colour, the same in every business</div>`;
   modal({
     title: "Agent look", body, width: 440,
-    onOpen: el => wirePickers(el, pick, "lk"),
+    onOpen: el => {
+      const prev = el.querySelector("#lkprev"), db = el.querySelector("#lkdept");
+      const repaint = () => { const d = dept(pick.department); prev.innerHTML = glyph(d.icon, d.color, 34); db.innerHTML = deptBtn(pick.department); };
+      db.onclick = () => dropdown(db, deptItems(), v => { pick.department = v; repaint(); }, pick.department);
+      repaint();
+    },
     actions: [
       { label: "Cancel", onClick: close => close() },
       { label: "Save", primary: true, onClick: async close => { if (await applyMeta(a, pick)) close(); } },
@@ -248,19 +242,30 @@ function lookModal(a) {
 }
 
 function newAgentModal() {
-  const pick = { icon: "circle", color: "red", department: "marketing" };
+  const pick = { kind: null, department: "general" };
   const body = `<div class="prev" id="naprev"></div>
     <div class="fl">Name</div><input class="inp" id="naname" placeholder="growth" autocomplete="off" spellcheck="false">
     <div class="fmsg" id="namsg">lowercase letters, digits and dashes, 2–32 characters</div>
-    <div class="fl">Plugin</div><input class="inp" id="naplugin" value="${esc(NEW_AGENT_PLUGIN)}" autocomplete="off" spellcheck="false">
+    <div class="fl">Kind</div><button class="selbtn" id="nakind">${kindBtn(null)}</button>
+    <div class="fmsg" id="nakmsg">from the marketplace, shared by every business</div>
     <div class="fl">Department</div><button class="selbtn" id="nadept">${deptBtn(pick.department)}</button>
-    <div class="fl">Shape</div><div class="shapes" id="nashapes">${shapeRow(pick.icon, hex(pick.color))}</div>
-    <div class="fl">Colour</div><div class="swatches" id="nacolors">${colorRow(pick.color)}</div>
     <div class="ferr" id="naerr" hidden></div>`;
   const m = modal({
     title: "New agent", body, width: 460,
-    onOpen: el => {
-      wirePickers(el, pick, "na");
+    onOpen: async el => {
+      const prev = el.querySelector("#naprev"), kb = el.querySelector("#nakind"), db = el.querySelector("#nadept"), kmsg = el.querySelector("#nakmsg");
+      const repaint = () => { const d = dept(pick.department); prev.innerHTML = glyph(d.icon, d.color, 34); db.innerHTML = deptBtn(pick.department); kb.innerHTML = kindBtn(pick.kind); };
+      db.onclick = () => dropdown(db, deptItems(), v => { pick.department = v; repaint(); }, pick.department);
+      const mk = await marketplace();
+      if (mk.error) kmsg.textContent = mk.error;
+      const first = mk.kinds.find(k => k.available) || mk.kinds[0];
+      if (first) { pick.kind = first; pick.department = first.department; }
+      kb.onclick = () => dropdown(kb, kindItems(mk.kinds), v => {
+        pick.kind = mk.kinds.find(k => k.id === v); pick.department = pick.kind.department;
+        kmsg.textContent = pick.kind.available ? pick.kind.blurb || "" : `${pick.kind.label} is listed but not built yet`;
+        repaint();
+      }, pick.kind && pick.kind.id);
+      repaint();
       const inp = el.querySelector("#naname"), msg = el.querySelector("#namsg");
       const check = () => {
         const v = inp.value.trim(), ok = NAME_RE.test(v);
@@ -280,9 +285,10 @@ function newAgentModal() {
         const fail = t => { err.hidden = false; err.textContent = t; };
         if (!NAME_RE.test(name)) return fail("that name will not do: ^[a-z][a-z0-9-]{1,31}$");
         if (state.agents.some(x => x.name === name)) return fail(`${name} already exists`);
+        if (!pick.kind) return fail("pick a kind from the marketplace");
+        if (!pick.kind.available) return fail(`${pick.kind.label} is not available yet`);
         err.hidden = true;
-        const plugin = el.querySelector("#naplugin").value.trim() || NEW_AGENT_PLUGIN;
-        let r; try { r = await post(`/biz/${state.biz}/agent`, { name, plugin, department: pick.department, icon: pick.icon, color: pick.color }); }
+        let r; try { r = await post(`/biz/${state.biz}/agent`, { name, kind: pick.kind.id, department: pick.department }); }
         catch (e) { r = { error: "could not reach the server" }; }
         if (!r || r.error) return fail((r && r.error) || "could not create the agent");
         if (!Array.isArray(r.sessions)) r.sessions = [];

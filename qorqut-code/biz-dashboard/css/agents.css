@@ -72,7 +72,12 @@
 .mbody .cdot:hover { transform: scale(1.06); box-shadow: 0 0 0 3px rgba(255, 255, 255, .1); }
 .mbody .cdot.on { box-shadow: 0 0 0 2px var(--elevated), 0 0 0 4px rgba(255, 255, 255, .5); }
 .mbody .selbtn { display: flex; align-items: center; justify-content: flex-start; width: 100%; }
-.mbody .selbtn .v { display: inline-flex; align-items: center; gap: 8px; }
+.mbody .selbtn .v { display: inline-flex; align-items: center; gap: 10px; }
+.mbody .selbtn .v.muted { color: var(--fg-3); }
+.mbody .selbtn .soon, .mi .kl em { font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--fg-3); margin-left: 6px; }
+.mi .kd { display: flex; flex-direction: column; line-height: 1.25; padding: 4px 0; }
+.mi .kb { font-size: 11.5px; color: var(--fg-3); white-space: normal; max-width: 340px; }
+.mi:has(.kd) { height: auto; min-height: 36px; }
 .mbody .inp { display: block; width: 100%; box-sizing: border-box; height: 36px; padding: 0 12px; color: var(--fg);
   background: var(--wash); border: 1px solid var(--line-2); border-radius: var(--r-sm); outline: none;
   font: 14px/34px var(--sans); transition: border-color 140ms ease, box-shadow 140ms ease; }

@@ -15,7 +15,8 @@ const TAG_DEPT = { marketing: "marketing", operations: "accounting", research: "
 const dept = k => DEPTS[k] || DEPTS.general;
 const hex = c => COLORS[c] || COLORS.ink;
 const glyph = (shape, colorHex, sizePx) => `<span class="g ${SHAPES.includes(shape) ? shape : "circle"}" style="--gs:${sizePx}px;--gc:${colorHex}"></span>`;
-const agentGlyph = (m, size) => glyph((m || {}).icon, hex((m || {}).color), size);
+// one look per department, same in every business: the agent glyph is its department glyph
+const agentGlyph = (m, size) => { const d = dept((m || {}).department); return glyph(d.icon, d.color, size); };
 
 // lazy: the render functions live in later script files
 const TABS = { agents: c => renderAgents(c), marketing: c => renderAnalytics(c), accounting: c => renderMoney(c), context: c => renderContext(c),
@@ -76,7 +77,8 @@ function modal({ title = "", body = "", actions = [], width = 520, onOpen } = {}
     document.removeEventListener("keydown", onKey, true);
     ov.remove(); if (_modal && _modal.el === el) _modal = null;
   };
-  const onKey = e => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+  // an open dropdown owns Escape (both listeners sit on document capture, so stopPropagation alone does not help)
+  const onKey = e => { if (e.key === "Escape" && !_menu) { e.stopPropagation(); close(); } };
   const foot = el.querySelector(".mfoot");
   actions.forEach(a => {
     const b = document.createElement("button");

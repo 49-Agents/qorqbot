@@ -30,6 +30,11 @@ CLI_ENV = {"bizlog": "BIZLOG_CMD", "biztask": "BIZTASK_CMD", "bizledger": "BIZLE
 ICONS = ("circle", "square", "triangle")
 COLORS = ("red", "amber", "green", "teal", "blue", "plum", "ink")
 DEPARTMENTS = ("marketing", "accounting", "data-science", "code", "general")
+# one look per department, identical in every business and screen (mirrors js/core.js DEPTS)
+DEPT_LOOK = {"marketing": ("circle", "red"), "accounting": ("square", "green"),
+             "data-science": ("triangle", "blue"), "code": ("square", "plum"), "general": ("circle", "ink")}
+PLUGINS_DIR = os.path.expanduser(os.environ.get("BIZ_PLUGINS_DIR", os.path.dirname(HERE)))
+CATALOG = os.path.join(PLUGINS_DIR, "biz-marketplace", "catalog.json")
 SET_KEYS = ("title", "owner", "status", "due", "tags")
 COMPACT_SESSIONS = 5
 COMPACT_CHARS = 30000
@@ -124,12 +129,26 @@ def yaml_set(path, updates):
 
 
 def agent_meta(biz, name):
-    """icon/color/department for one agent, defaults applied and invalid values replaced."""
+    """department (and the icon/color it fixes) for one agent; unknown departments become general."""
     y = yaml_scalars(read(os.path.join(biz, "agents", name, "agent.yaml")))
-    icon, color, dept = y.get("icon"), y.get("color"), y.get("department")
-    return {"icon": icon if icon in ICONS else "circle",
-            "color": color if color in COLORS else "ink",
-            "department": dept if dept in DEPARTMENTS else "general"}
+    dept = y.get("department")
+    dept = dept if dept in DEPARTMENTS else "general"
+    icon, color = DEPT_LOOK[dept]
+    return {"icon": icon, "color": color, "department": dept, "kind": y.get("kind") or ""}
+
+
+def marketplace():
+    """the global catalog of agent kinds; {} when the marketplace repo is not checked out."""
+    try:
+        with open(CATALOG, encoding="utf-8") as fh:
+            cat = json.load(fh)
+    except (OSError, ValueError):
+        return {"v": 0, "kinds": [], "error": f"no catalog at {CATALOG}"}
+    kinds = [k for k in cat.get("kinds", []) if isinstance(k, dict) and k.get("id")]
+    for k in kinds:
+        k["department"] = k.get("department") if k.get("department") in DEPARTMENTS else "general"
+        k["icon"], k["color"] = DEPT_LOOK[k["department"]]
+    return {"v": cat.get("v", 1), "kinds": kinds}
 
 
 def businesses():
@@ -293,6 +312,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(os.path.join(HERE, "js", parts[1]), "text/javascript; charset=utf-8")
         if len(parts) == 2 and parts[0] == "css" and re.fullmatch(r"[a-z]+\.css", parts[1]):
             return self.send_file(os.path.join(HERE, "css", parts[1]), "text/css; charset=utf-8")
+        if len(parts) == 2 and parts[0] == "mockups" and re.fullmatch(r"[a-z0-9-]+\.html", parts[1]):
+            return self.send_file(os.path.join(HERE, "mockups", parts[1]), "text/html; charset=utf-8")
+        if parts == ["api", "marketplace"]:
+            return self.send_json(marketplace())
         if parts[0] != "api":
             return self.send_json({"error": "not found"}, 404)
         try:
@@ -401,18 +424,13 @@ class Handler(BaseHTTPRequestHandler):
                 if (not re.match(r"^[\w-]+$", name) or name.startswith("_")
                         or not os.path.isdir(os.path.join(biz, "agents", name))):
                     return self.send_json({"error": "no such agent"}, 400)
-                fields = (("icon", ICONS), ("color", COLORS), ("department", DEPARTMENTS))
-                updates = {}
-                for key, allowed in fields:
-                    if key in body:
-                        val = str(body[key])
-                        if val not in allowed:
-                            return self.send_json({"error": f"bad {key}: {val}"}, 400)
-                        updates[key] = val
-                if not updates:
-                    return self.send_json({"error": "no fields given"}, 400)
-                yaml_set(os.path.join(biz, "agents", name, "agent.yaml"), updates)
-                msg = "agent(%s): set %s" % (name, ", ".join(f"{k}={v}" for k, v in updates.items()))
+                dept = str(body.get("department") or "")
+                if dept not in DEPARTMENTS:
+                    return self.send_json({"error": f"bad department: {dept}"}, 400)
+                icon, color = DEPT_LOOK[dept]
+                yaml_set(os.path.join(biz, "agents", name, "agent.yaml"),
+                         {"department": dept, "icon": icon, "color": color})
+                msg = f"agent({name}): set department={dept}"
                 rc, out = git_commit(biz, [f"agents/{name}/agent.yaml"], msg)
                 meta = agent_meta(biz, name)
                 return self.send_json(warned({"ok": True, **meta}, rc, out))
@@ -482,13 +500,18 @@ class Handler(BaseHTTPRequestHandler):
         adir = os.path.join(biz, "agents", name)
         if os.path.exists(adir):
             return self.send_json({"error": "agent exists"}, 400)
-        updates = {}
-        for key, allowed in (("icon", ICONS), ("color", COLORS), ("department", DEPARTMENTS)):
-            if body.get(key):
-                if str(body[key]) not in allowed:
-                    return self.send_json({"error": f"bad {key}: {body[key]}"}, 400)
-                updates[key] = str(body[key])
-        plugin = str(body.get("plugin") or "").strip()
+        kind_id = str(body.get("kind") or "").strip()
+        kind = next((k for k in marketplace()["kinds"] if k["id"] == kind_id), None)
+        if not kind:
+            return self.send_json({"error": f"no such kind in the marketplace: {kind_id or '(none)'}"}, 400)
+        if not kind.get("available", True):
+            return self.send_json({"error": f"{kind['label']} is not available yet"}, 400)
+        dept = str(body.get("department") or kind["department"])
+        if dept not in DEPARTMENTS:
+            return self.send_json({"error": f"bad department: {dept}"}, 400)
+        icon, color = DEPT_LOOK[dept]
+        updates = {"kind": kind_id, "department": dept, "icon": icon, "color": color}
+        plugin = str(kind.get("plugin") or "").strip()
         today = time.strftime("%Y-%m-%d")
         tpl = os.path.join(biz, "agents", "_template")
         try:
