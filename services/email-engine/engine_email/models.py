@@ -259,13 +259,6 @@ class IntentSubmission(BaseModel):
         return parsed.astimezone(timezone.utc).isoformat()
 
 
-class StopRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    workflow_owner: str = Field(pattern=r"^[A-Za-z0-9_-]{1,60}$")
-    stop_key: StopKey
-    reason: str = Field(default="caller_requested", max_length=200)
-
-
 class HandoffRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     idempotency_key: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")

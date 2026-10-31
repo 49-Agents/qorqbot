@@ -15,7 +15,7 @@ from starlette.routing import Route
 from .fastmail import ProviderError
 from .account import AccountAction, AccountMailService
 from .business import ATTACHMENT_PAGE_BYTES, BusinessMailService, parse_owned_ids
-from .models import MAX_HTTP_BYTES, HandoffRequest, HistoryEvent, IntentSubmission, Outgoing, StopRequest
+from .models import MAX_HTTP_BYTES, HandoffRequest, HistoryEvent, IntentSubmission, Outgoing
 from .service import IntentConflict
 from .store import Store
 from .mailbox_settings import MailboxUpdate, configure, revisions as mailbox_revisions
@@ -310,25 +310,6 @@ def create_app(service, *, background=True):
             return JSONResponse({"error": "intent_not_found"}, status_code=404)
         return JSONResponse(receipt)
 
-    async def integration_stops_create(request):
-        client, denied = authenticate_integration(request)
-        if denied is not None:
-            return denied
-        content = bytearray()
-        async for chunk in request.stream():
-            content.extend(chunk)
-            if len(content) > 65536:
-                return JSONResponse({"error": "request_too_large"}, status_code=413)
-        try:
-            stop = StopRequest.model_validate_json(bytes(content))
-        except ValidationError:
-            return JSONResponse({"error": "invalid_stop"}, status_code=400)
-        try:
-            result = await anyio.to_thread.run_sync(lambda: service.record_stop(client, stop))
-            return JSONResponse(result)
-        except ValueError as exc:
-            return JSONResponse({"error": "invalid_stop_request", "message": str(exc)}, status_code=400)
-
     async def integration_handoff(request):
         client, denied = authenticate_integration(request)
         if denied is not None:
@@ -471,6 +452,5 @@ def create_app(service, *, background=True):
     routes.append(Route("/integrations/intents", integration_intents_submit, methods=["POST"]))
     routes.append(Route("/integrations/intents/{intent_id}", integration_intent_get))
     routes.append(Route("/integrations/intents/{intent_id}/cancel", integration_intent_cancel, methods=["POST"]))
-    routes.append(Route("/integrations/stops", integration_stops_create, methods=["POST"]))
     routes.append(Route("/integrations/threads/{thread_or_message_id}/handoff", integration_handoff, methods=["POST"]))
     return Starlette(routes=routes, lifespan=lifespan)
