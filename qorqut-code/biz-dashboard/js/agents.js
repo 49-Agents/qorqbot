@@ -59,23 +59,37 @@ function agSetSel(name) {
 }
 
 let agRenderGen = 0;
+const agPageCache = new Map();
 async function renderAgents(c) {
   const gen = ++agRenderGen, biz = state.biz;
   c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><button class="primary" id="addagent">${ICO_PLUS}New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
   $("#addagent").onclick = newAgentModal;
   $("#agentrows", c).innerHTML = `<p class="empty pad" role="status">Loading agents…</p>`;
+  const cached = agPageCache.get(biz);
+  if (cached) {
+    state.agents = cached.agents; state.terms = cached.terms;
+    paintList();
+    const selected = state.agents.find(a => a.name === (state.agent || ls(agKey()))) || state.agents[0];
+    if (selected) {
+      agSetSel(selected.name); paintList();
+      mountTerminal(selected.name, $("#chat"), stat => markTermState(selected.name, stat));
+      agpadMount(selected.name, $("#agpad"));
+    }
+  }
   let agents, terms;
   try { [agents, terms] = await Promise.all([
     api(`/biz/${biz}/agents`),
     api(`/biz/${biz}/terminals`),
   ]); } catch (error) {
-    if (gen === agRenderGen && biz === state.biz && state.tab === "agents") $("#agentrows", c).innerHTML = `<p class="empty pad" role="alert">${esc(error.message || "Could not load agents.")}</p>`;
+    if (!cached && gen === agRenderGen && biz === state.biz && state.tab === "agents") $("#agentrows", c).innerHTML = `<p class="empty pad" role="alert">${esc(error.message || "Could not load agents.")}</p>`;
     return;
   }
   if (gen !== agRenderGen || biz !== state.biz || state.tab !== "agents" || !c.isConnected) return;
   state.agents = Array.isArray(agents) ? agents : [];
   state.terms = Array.isArray(terms) ? terms : [];
+  agPageCache.set(biz, {agents:state.agents, terms:state.terms});
   paintList();
+  if (cached?.agents.some(a => a.name === state.agent) && state.agents.some(a => a.name === state.agent)) return;
   const want = state.agent || ls(agKey());
   const a = state.agents.find(x => x.name === want) || state.agents[0];
   if (!a) { agSetSel(null); $("#chat").innerHTML = `<div class="empty" style="padding:24px">No agents yet — add one with New agent.</div>`; agpadMount(null, $("#agpad")); return; }

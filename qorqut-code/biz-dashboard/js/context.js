@@ -2,6 +2,7 @@
 // Upload originals, browse logical topic memberships, and inspect the shared relationship map.
 // Authored text and filer-maintained summaries remain separate.
 let _ctxTimer = null, _ctxData = null, _ctxGeneration = 0;
+const ctxPageCache = new Map();
 let _ctxGraph = null, _ctxNavigation = 0;
 function ctxClearGraph() { if (_ctxGraph) { _ctxGraph.destroy(); _ctxGraph = null; } }
 const SVG_FILE = `<svg class="fi" width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3 1.5h5l3 3v8h-8z"/><path d="M8 1.5v3h3"/></svg>`;
@@ -44,13 +45,14 @@ async function renderContext(c) {
     </div><div class="pane ctxview" id="ctxview"></div></div></div>`;
   wireCtxSearch();
   if (state.ctx == null) state.ctx = ls(`ctxpage:${biz}`) ?? contextTab0 ?? "_learning";
-  _ctxData = null;
-  ctxTree({loading:true});
+  _ctxData = ctxPageCache.get(biz) || null;
+  ctxTree(_ctxData || {loading:true});
   const current = () => generation === _ctxGeneration && state.scope !== 'global' && state.biz === biz && state.tab === 'context' && c.isConnected;
   const treeLoad = api(`/biz/${biz}/context`).then(async d => {
     if (!current()) return;
+    const changed = !_ctxData || ctxSig(d, state.ctx) !== ctxSig(_ctxData, state.ctx);
     ctxPaint(d);
-    if (!ctxIndependentPage(state.ctx)) await ctxShow(state.ctx);
+    if (changed && !ctxIndependentPage(state.ctx)) await ctxShow(state.ctx);
     if (current()) ctxWatch(d);
   }).catch(error => {
     if (current()) $('#ctxq', c).innerHTML = `<span class="bad" role="alert">${esc(error.message || 'Could not load context.')}</span>`;
@@ -147,6 +149,7 @@ function ctxWatch(d) {
 }
 
 function ctxPaint(d) {
+  if (!d.error) ctxPageCache.set(state.biz, d);
   _ctxData = d;
   const q = $("#ctxq"), inbox = d.inbox || [], f = d.filing || {}, s = d.summarizing || {}, cur = f.current;
   const failed = inbox.filter(i => i.failed).length, waiting = inbox.filter(i => ["queued", "running", "waiting_signoff", "cancelling"].includes(i.status)).length;
