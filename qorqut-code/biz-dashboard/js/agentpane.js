@@ -180,7 +180,7 @@ function agpadPaintInbox(p) {
   const error = p.inboxError ? '<p class="agpad-inbox-status" role="alert">Inbox unavailable. Retrying…</p>' : '';
   const agentId = p.agentId || state.agents.find(agent => agent.name === p.agent)?.agent_id;
   const card = (item, subscription = false) => `<button type="button" class="agpad-inbox-item" data-agent-id="${esc(agentId || '')}" data-inbox-source="${esc(item.source_id)}" data-source-type="${esc(item.source_type)}" data-business="${esc(item.business_slug || '')}">
-    <strong>${esc(item.summary || 'Source item')}</strong><span>${esc(({stories:'Story',tasks:'Task',signoffs:'Signoff',documents:'Document',email_conversations:'Email'})[item.source_type] || 'Update')}${subscription ? (item.include_related ? ' · Includes linked items' : ' · Item only') : ' · ' + esc(item.event_type.split(',').map(type => ({relationship_changed:'Links changed',assignment_changed:'Assignment changed',response_submitted:'Response submitted',action_outcome:'Action result',note_added:'Note added',note:'Note added',message_changed:'Message received'})[type] || type.replaceAll('_', ' ')).join(', '))}</span>
+    <strong>${esc(item.summary || 'Source item')}</strong><span>${esc(({stories:'Story',tasks:'Task',signoffs:'Signoff',documents:'Document',email_conversations:'Email',data_tables:'Table',action_logs:'Action',requests:'Request',agent_profiles:'Agent',principals:'Person',context_entities:'Reference'})[item.source_type] || 'Update')}${subscription ? (item.include_related ? ' · Includes linked items' : ' · Item only') : ' · ' + esc(item.event_type.split(',').map(type => ({relationship_changed:'Links changed',assignment_changed:'Assignment changed',response_submitted:'Response submitted',action_outcome:'Action result',note_added:'Note added',note:'Note added',message_changed:'Message received'})[type] || type.replaceAll('_', ' ')).join(', '))}</span>
     ${subscription ? '' : `<span>${esc(item.actor_name)} · ${esc(new Date(item.created_at).toLocaleString())}</span>`}</button>`;
   const html = error + (!data ? tEmptyHtml(p.inboxError ? 'No inbox data available.' : 'Loading inbox…') :
     `<div class="agpad-inbox-status"><b>${data.watcher_active ? 'Watcher connected' : data.watcher ? 'Watcher disconnected' : 'Watcher not started'}</b><span>${data.watcher ? 'Last check: ' + esc(new Date(data.watcher.last_check_at).toLocaleString()) : 'Claude must start its inbox watcher.'}</span></div>
@@ -231,6 +231,17 @@ async function agpadOpenInboxSource({ inboxSource: id, sourceType: type, busines
   }
   if (biz && (state.scope === 'global' || state.biz !== biz)) await selectBiz(biz);
   if (biz && state.biz !== biz) return;
+  if (type === 'data_tables') return tablesOpen(biz, id);
+  if (type === 'agent_profiles') {
+    const { agent } = coreData(await api(`/biz/${encodeURIComponent(biz)}/agents/${encodeURIComponent(id)}`));
+    if (agent.status !== 'active') return modal({ title: esc(agent.display_name || agent.name), body: `<p>${esc(agent.status)}</p>`, actions: [] });
+    state.agent = agent.name; return goTab('agents');
+  }
+  if (type === 'principals' || type === 'context_entities') {
+    const { item } = await storyCall(biz, 'context_items_get', { item: { type: type === 'principals' ? 'person' : 'entity', id } });
+    if (type === 'context_entities' && /^https?:\/\//.test(item.url || '')) return storyOpenLink({biz}, {resource_type:'entity',resource_id:id,current:item});
+    return modal({title:esc(item.label),body:`<p>${esc([item.role,item.org,item.about,item.summary].filter(Boolean).join(' · '))}</p>`,actions:[]});
+  }
   if (type === 'stories') { state.ctx = '_stories/' + id; return goTab('context'); }
   if (type === 'tasks') return tOpenTask(id);
   const data = await storyCall(biz, 'stories_resource_get', { resource_type: type, resource_id: id });
