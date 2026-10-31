@@ -3,6 +3,7 @@
 // server and persists (survives tab switches / reconnects); reconnecting replays scrollback.
 // No chrome: the mirror fills the pane and re-fits on resize. One floating button reconnects
 // a broken stream (which also respawns the shell if it exited); all other control is in the shell.
+// The PTY is a plain shell in agents/<name>/: the owner types `claude` to start the agent.
 
 const CELL_W = 8.4, CELL_H = 18.5; // rough xterm cell metrics at 14px mono; used to size the PTY
 

@@ -24,6 +24,21 @@ import threading
 
 RING_CAP = 256 * 1024  # bytes of scrollback kept for late joiners
 
+# Claude Code marks its own subprocesses so a nested `claude` knows it is a child session (no
+# transcript, parent's messaging socket, parent's effort). When the dashboard itself was started
+# from inside a Claude Code session those markers sit in os.environ and every agent PTY would
+# inherit them: the agent's `claude` then runs as a child of the owner's session and saves no
+# transcript. Terminals are root sessions; strip the markers. CLAUDE_CONFIG_DIR and ANTHROPIC_*
+# are legitimate user config and stay.
+_STRIP_EXACT = {"CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT", "AI_AGENT"}
+_STRIP_PREFIX = "CLAUDE_CODE_"
+
+
+def clean_env(base: dict | None = None) -> dict:
+    """`base` (default os.environ) without the Claude Code child-session markers."""
+    src = os.environ if base is None else base
+    return {k: v for k, v in src.items() if k not in _STRIP_EXACT and not k.startswith(_STRIP_PREFIX)}
+
 
 class Terminal:
     """One PTY-backed process, its scrollback, and mirror/input plumbing."""
@@ -39,7 +54,7 @@ class Terminal:
         self.master_fd, slave_fd = pty.openpty()
         self._set_winsize(rows, cols)
 
-        full_env = {**os.environ, **(env or {}), "TERM": "xterm-256color"}
+        full_env = {**clean_env(), **(env or {}), "TERM": "xterm-256color"}
         self.proc = subprocess.Popen(
             cmd,
             cwd=cwd,
