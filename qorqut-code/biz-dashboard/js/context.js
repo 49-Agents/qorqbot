@@ -8,6 +8,7 @@ const SVG_FILE = `<svg class="fi" width="13" height="13" viewBox="0 0 14 14" fil
 const SVG_PIN = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg>`;
 // bottom-of-sidebar / row icons, lucide 15px stroke 1.75
 const SVG_LIB = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>`;
+const SVG_BRAIN = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.6 6.5a3 3 0 0 0 .4-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M3.477 10.896a4 4 0 0 1 .585-.396"/><path d="M19.938 10.5a4 4 0 0 1 .585.396"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></svg>`;
 const SVG_PEOPLE = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
 const SVG_INBOX = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
 const titleCase = s => String(s || "").replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
@@ -58,6 +59,7 @@ async function renderContext(c) {
   c.innerHTML = `<div class="ctxwrap">
     <div class="split ctxsplit"><div class="listcol ctxtree" id="ctxtree">
       <div class="ctop"><button class="primary" id="ctxup">${ICO_UPLOAD}Upload context</button><input type="search" id="ctxsearch" placeholder="Search context" autocomplete="off"></div>
+      <div class="lnstatus" id="lnstatus"></div>
       <div class="crows" id="ctxrows"></div>
       <div class="cfoot" id="ctxq"></div>
     </div><div class="pane ctxview" id="ctxview"></div></div></div>`;
@@ -65,6 +67,7 @@ async function renderContext(c) {
   wireCtxSearch();
   if (state.ctx == null) state.ctx = "";
   ctxPaint(d);
+  if (typeof lnFetch === "function") lnFetch();   // fills the status pane and the rail badge; learning.js repaints itself after that
   ctxShow(state.ctx);
   ctxWatch(d);
 }
@@ -124,7 +127,8 @@ function ctxBusy(d) {
 }
 // Poll the tree while the tab is open: every 8 s while the queues are busy, every 20 s when idle (work
 // arrives from the filer sweep and from other clients too). Re-render only what changed.
-const ctxSig = (d, p) => p === "_people" ? JSON.stringify((d || {}).people || [])
+const ctxSig = (d, p) => p === "_learning" ? "_learning"      // learning.js owns that pane; nothing in the context tree changes it
+  : p === "_people" ? JSON.stringify((d || {}).people || [])
   : p === "_uploads" ? JSON.stringify([(d || {}).inbox || [], (d || {}).dumps || []])
   : JSON.stringify([ctxFind((d || {}).tree, p || ""), p ? null : (d || {}).people]);
 let _ctxLastSig = "";
@@ -165,12 +169,19 @@ function ctxPaint(d) {
   ctxTree(d);
 }
 
-// the sidebar: Overview row, then People/Uploads, then CORE pillars, then a TOPICS section with the
-// top-level topics (dot + title, no nesting — drilling into subtopics happens via the right-pane cards)
+// the sidebar: Learning, then Context with the four most recently touched topics hanging under it, then
+// People/Uploads, then CORE pillars, then a TOPICS section with every top-level topic (dot + title, no
+// nesting — drilling into subtopics happens via the right-pane cards)
 function ctxTree(d) {
   const t = $("#ctxrows"), rows = [];
-  const isRoot = !state.ctx;
-  rows.push(`<div class="item ov ${isRoot ? "on" : ""}" data-p=""><div class="nm">${SVG_LIB}<span class="tt">Overview</span></div></div>`);
+  const isRoot = !state.ctx;                                  // "" is the Context root; "_learning" is a page of its own
+  const kids = (d.tree && d.tree.children) || [];
+  rows.push(`<div class="item ov ${state.ctx === "_learning" ? "on" : ""}" data-p="_learning"><div class="nm">${SVG_BRAIN}<span class="tt">Learning</span></div></div>`);
+  rows.push(`<div class="item ov ${isRoot ? "on" : ""}" data-p=""><div class="nm">${SVG_LIB}<span class="tt">Context</span></div></div>`);
+  // a peek at what moved lately, the way the marketing column hangs the submitted pile under Queue
+  const recent = kids.map(k => [k, newestNoteDate(k)]).filter(([, dt]) => dt).sort((a, b) => a[1] < b[1] ? 1 : a[1] > b[1] ? -1 : 0).slice(0, 4);
+  rows.push(`<div class="ctxpend" id="ctxpend">${recent.map(([k]) =>
+    `<div class="ctxpi" data-p="${esc(k.path)}" title="${esc(k.title || k.slug)}">${glyph("circle", topicColor(k.slug), 8)}<span class="tt">${esc(cap(k.title || k.slug, 24))}</span></div>`).join("")}</div>`);
   const inbox0 = d.inbox || [], failed0 = inbox0.filter(i => i.failed).length, waiting0 = inbox0.length - failed0;
   const badge0 = failed0 ? `<span class="bdot bad"></span>` : waiting0 ? `<span class="bdot acc"></span>` : "";
   const peopleOn0 = state.ctx === "_people" || (state.ctx != null && PERSON_VIEW_RE.test(state.ctx));
@@ -178,7 +189,6 @@ function ctxTree(d) {
   rows.push(`<div class="item bt ${state.ctx === "_uploads" ? "on" : ""}" data-p="_uploads"><div class="nm">${SVG_INBOX}<span class="tt">Uploads</span>${badge0}</div></div>`);
   rows.push(`<div class="h">Core</div>`);
   (d.pillars || []).forEach(n => rows.push(`<div class="item pl ${n === state.ctx ? "on" : ""}" data-p="${esc(n)}"><div class="nm"><span class="tt">${esc(titleCase(n.replace(/\.md$/, "")))}</span></div></div>`));
-  const kids = (d.tree && d.tree.children) || [];
   rows.push(`<div class="h">Topics</div>`);
   if (!kids.length) rows.push(`<div class="empty pad">No topics yet. Upload something; the filer makes them.</div>`);
   else {
@@ -195,13 +205,19 @@ function ctxTree(d) {
     if (seenChanged) ctxSeenSave(seen);
   }
   t.innerHTML = rows.join("");
-  t.querySelectorAll(".item").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
+  t.querySelectorAll(".item, .ctxpi").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
 }
 
 function ctxGo(p) { state.ctx = p; if (_ctxData) ctxTree(_ctxData); ctxShow(p); }
 
 function ctxShow(p) {
   jClearTimers();
+  if (p === "_learning") {                                   // learning.js loads after this file; it may not be there at all
+    _ctxLastSig = ctxSig(_ctxData, p);                       // a constant, so the tree watcher leaves this pane alone
+    if (typeof openLearning === "function") return openLearning();
+    const v = $("#ctxview"); if (v) v.innerHTML = `<div class="empty">learning.js not loaded</div>`;
+    return;
+  }
   if (p === "_people") return openPeople();
   if (p === "_uploads") return openUploads();
   const m = p != null && PERSON_VIEW_RE.exec(p);

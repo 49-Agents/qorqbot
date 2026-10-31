@@ -10,6 +10,7 @@
 .ctxtree { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
 .ctop { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 30px 16px 12px; border-bottom: 1px solid var(--line); }
 .ctop .primary { width: 100%; }
+.ctxtree > .lnstatus:empty { display: none; }   /* learning.css dresses the pane; empty it takes no room */
 .crows { flex: 1; overflow-y: auto; min-height: 0; padding: 10px 0; }
 .cfoot { flex: none; padding: 8px 16px; border-top: 1px solid var(--line); }
 
@@ -20,6 +21,17 @@
 .ctxtree .item.tp .fresh { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 .ctxtree .item.bt .bdot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 4px; background: var(--accent); }
 .ctxtree .item.bt .bdot.bad { background: var(--danger); }
+/* the mini-queue hanging under the Context row: the marketing column's .mkpend/.mkpi look, own names.
+   Indented a hair past the item's own left edge, not all the way under its label. */
+.ctxpend { flex: none; padding: 2px 12px 8px 22px; display: flex; flex-direction: column; }
+.ctxpi {
+  display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 8px;
+  font-size: 12px; color: var(--fg-2); cursor: pointer; transition: color .12s ease, background .12s ease;
+}
+.ctxpi:hover { color: var(--fg); background: var(--hover); }
+.ctxpi svg { flex: none; }
+.ctxpi .tt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .ctxtree .empty.pad, .listcol .empty.pad { padding: 4px 24px 8px; font-size: 12.5px; }
 
 /* Filing/upload cards inside the Uploads pane view (moved out of the tree) */
