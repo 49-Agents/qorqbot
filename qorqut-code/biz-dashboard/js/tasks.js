@@ -77,7 +77,7 @@ const tBusiness = t => t.business || (t.business_id && (state.bizs || []).find(b
 const tSlug = t => tBusiness(t).slug;
 const tKey = t => JSON.stringify([t.business_id || tBusiness(t).id || tSlug(t), t.id]);
 const taskById = (id, biz = state.biz) => typeof id === 'object' ? id : [...(state.myTasks || []), ...(state.tasks || [])].find(t => tKey(t) === id || t.id === id && tSlug(t) === biz);
-const tPersonalRows = () => state.myTasks || [];
+const tPersonalRows = () => (state.myTasks || []).filter(t => state.scope === 'global' || tSlug(t) === state.biz);
 const tBiz = (biz = state.biz) => (state.bizs || []).find(x => x.slug === biz) || {};
 // the business owner, as biztask spells it: `human:<owner from business.yaml>` (server's owner_actor fallback)
 const tHuman = () => "human:" + (tBiz().owner || "dashboard");
