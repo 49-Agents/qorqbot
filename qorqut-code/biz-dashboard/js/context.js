@@ -34,11 +34,14 @@ const cap = (s, n = 70) => {
 };
 
 let ctxFullRead = null;
+const ctxDataFits = (data, page) => !!data && (ctxIndependentPage(page) ||
+  (!data.navigation_only && (!data.graph_only || page === '')));
 async function ctxLoadData(biz, full = !ctxIndependentPage(state.ctx)) {
   if (!full) return coreData(await pageReadPost(`/biz/${encodeURIComponent(biz)}/operations/context_navigation_get`, {}));
   const signal = pageReads.signal;
-  if (ctxFullRead?.biz === biz && ctxFullRead.signal === signal) return ctxFullRead.promise;
-  const read = {biz, signal, promise:pageRead(`/biz/${encodeURIComponent(biz)}/context`)};
+  const view = state.ctx === '' ? '?view=graph' : '';
+  if (ctxFullRead?.biz === biz && ctxFullRead.signal === signal && ctxFullRead.view === view) return ctxFullRead.promise;
+  const read = {biz, signal, view, promise:pageRead(`/biz/${encodeURIComponent(biz)}/context${view}`)};
   ctxFullRead = read;
   try { return await read.promise; } finally { if (ctxFullRead === read) ctxFullRead = null; }
 }
@@ -58,7 +61,7 @@ async function renderContext(c) {
   ctxTree(_ctxData || {loading:true});
   const current = () => generation === _ctxGeneration && state.scope !== 'global' && state.biz === biz && state.tab === 'context' && c.isConnected;
   const treeLoad = ctxLoadData(biz).then(async d => {
-    if (!current() || d.navigation_only && !ctxIndependentPage(state.ctx)) return;
+    if (!current() || !ctxDataFits(d, state.ctx)) return;
     const changed = !_ctxData || ctxSig(d, state.ctx) !== ctxSig(_ctxData, state.ctx);
     ctxPaint(d);
     if (changed && !ctxIndependentPage(state.ctx)) await ctxShow(state.ctx);
@@ -149,7 +152,7 @@ function ctxWatch(d) {
       return;
     }
     if (state.tab !== "context" || state.biz !== biz || !tree.isConnected) return;
-    if (d2.navigation_only && !ctxIndependentPage(state.ctx)) { _ctxTimer = setTimeout(tick, 100); return; }
+    if (!ctxDataFits(d2, state.ctx)) { _ctxTimer = setTimeout(tick, 100); return; }
     ctxPaint(d2);
     const uid = uploadId(state.ctx);
     if (state.ctx && state.ctx.startsWith("_inbox/") && !(d2.inbox || []).some(i => `_inbox/${i.id}.md` === state.ctx)) {
@@ -223,7 +226,7 @@ async function ctxShow(p) {
   pane?.classList.toggle('ctxembedded-view', (['_tables'].includes(p) || p?.startsWith('_stories')));
   ctxClearGraph();
   jClearTimers();
-  if ((!_ctxData || _ctxData.navigation_only) && !ctxIndependentPage(p)) {
+  if (!ctxDataFits(_ctxData, p) && !ctxIndependentPage(p)) {
     const biz = state.biz;
     pane.innerHTML = '<p class="empty pad" role="status">Loading context…</p>';
     try {
