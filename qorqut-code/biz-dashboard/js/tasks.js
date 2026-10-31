@@ -7,8 +7,8 @@ const T_ORDER = ["open", "doing", "waiting", "done"];          // the left-click
 const T_CLOSED = ["done", "dropped"];
 const T_STATES = ["open", "doing", "waiting", "blocked", "done", "dropped"];   // the detail's status picker
 const T_LABEL = { open: "Open", doing: "Doing", waiting: "Waiting", done: "Done", blocked: "Blocked", dropped: "Dropped" };
-const T_TAGS = ["operations", "coding", "research", "marketing", "needs-owner"];
-const T_DEPTS = ["marketing", "accounting", "data-science", "code", "general", "onbashlyk"];
+const T_TAGS = [...Object.keys(DEPTS), "needs-owner"];
+const T_DEPTS = Object.keys(DEPTS);
 // department -> the tag that files a task there (the reverse of core's TAG_DEPT); general has none
 const T_DEPT_TAG = {};
 Object.keys(TAG_DEPT).forEach(tag => { if (!T_DEPT_TAG[TAG_DEPT[tag]]) T_DEPT_TAG[TAG_DEPT[tag]] = tag; });
@@ -264,7 +264,7 @@ function tChips(task) {
 function tRow(t, detailsOnly = false) {
   const business = tBusiness(t);
   const icon = `<span class="task-business" title="${esc(business.name || business.slug || '')}" aria-label="Business: ${esc(business.name || business.slug || '')}">${esc((business.name || business.slug || '·').charAt(0).toUpperCase())}</span>`;
-  return `<div class="trow ${esc(t.status)}${tClosed(t) ? ' off' : ''}${detailsOnly ? '' : ' personal-task'}" data-id="${esc(t.id)}" data-key="${esc(tKey(t))}" data-business="${esc(business.slug || '')}">${detailsOnly ? (tDue(t) || '<span class="tdl"></span>') + tWho(t) : icon}${tBall(t, detailsOnly)}<p class="ttl">${esc(t.title)}</p>${detailsOnly ? '' : (tDue(t) || '<span class="tdl"></span>') + `<span class="task-assignee-column" title="${tWhoTip(t)}">${tAssignees(t).map(actor=>`<button type="button" class="task-chip" data-task-assignees title="Assigned to ${esc(tShort(actor))}">${esc(tChipLabel(tShort(actor)))}</button>`).join('')}</span><span class="task-department-column"><span class="task-chip" title="${esc(dept(tDept(t)).label)}">${esc(dept(tDept(t)).label)}</span></span>` + tChips(t)}</div>`;
+  return `<div class="trow ${esc(t.status)}${tClosed(t) ? ' off' : ''}${detailsOnly ? '' : ' personal-task'}" data-id="${esc(t.id)}" data-key="${esc(tKey(t))}" data-business="${esc(business.slug || '')}">${detailsOnly ? (tDue(t) || '<span class="tdl"></span>') + tWho(t) : icon}${tBall(t, detailsOnly)}<p class="ttl">${esc(t.title)}</p>${detailsOnly ? '' : (tDue(t) || '<span class="tdl"></span>') + `<span class="task-assignee-column" title="${tWhoTip(t)}">${tAssignees(t).map(actor=>`<button type="button" class="task-chip" data-task-assignees title="Assigned to ${esc(tShort(actor))}">${esc(tChipLabel(tShort(actor)))}</button>`).join('')}</span><span class="task-department-column">${departmentTag(tDept(t))}</span>` + tChips(t)}</div>`;
 }
 
 function tWireRows(body, detailsOnly = false) {

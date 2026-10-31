@@ -31,7 +31,7 @@ async function renderTables(container, filters = null) {
   container.querySelector('#data-refresh').onclick = () => renderTables(container);
   const search = container.querySelector('#data-search');
   if (_data.mode === 'tables') {
-    container.querySelector('.data-list').insertAdjacentHTML('afterbegin', `<label class="data-filter">Type<select class="inp" id="data-purpose-filter"><option value="">All types</option></select></label><label class="data-filter">Department<input class="inp" id="data-department" value="${esc(_data.department)}"></label>`);
+    container.querySelector('.data-list').insertAdjacentHTML('afterbegin', `<label class="data-filter">Type<select class="inp" id="data-purpose-filter"><option value="">All types</option></select></label><label class="data-filter">Department<select class="inp" id="data-department"><option value="">All departments</option>${departmentOptions(_data.department)}</select></label>`);
     container.querySelector('#data-new').disabled = true;
   }
   let timer, listCursor = null, listGeneration = 0;

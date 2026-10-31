@@ -245,7 +245,7 @@ function sgCreateView(options) {
         html(row.querySelector('.sg-campaign'),s.platform?.campaign_id?storyCampaignBadge(s.platform.campaign_id,s.platform.campaign_title):'');
         const proposer = s.proposer_display_name || s.proposer_principal_id || "Unknown proposer";
         const initiator = s.initiated_by_principal_id ? ` / initiated by ${s.initiated_by_display_name || s.initiated_by_principal_id}` : "";
-        html(row.querySelector(".sg-rowmeta"), `<span>${esc(proposer + initiator)}</span><time datetime="${esc(s.created_at)}" title="${esc(stamp(s.created_at))}">${esc(age(s.created_at))}</time><span class="sg-scope${s.affected_scope && s.affected_scope.kind === "global" ? " sg-global" : ""}">${esc(scopeText(s.affected_scope))}</span>`);
+        html(row.querySelector(".sg-rowmeta"), `<span>${esc(proposer + initiator)}</span>${s.proposer_department ? departmentTag(s.proposer_department) : ''}<time datetime="${esc(s.created_at)}" title="${esc(stamp(s.created_at))}">${esc(age(s.created_at))}</time><span class="sg-scope${s.affected_scope && s.affected_scope.kind === "global" ? " sg-global" : ""}">${esc(scopeText(s.affected_scope))}</span>`);
         detailPaint(row, s);
       });
       [...content.children].forEach(row => { if (!groups[name].some(s => s.id === row.dataset.id)) row.remove(); });

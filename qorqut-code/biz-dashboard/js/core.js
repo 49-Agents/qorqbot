@@ -2,18 +2,16 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const ls = (k, v) => { try { return v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v); } catch (e) { return null; } };
 // one scheme for every business
-const DEPTS = {
-  marketing: { label: "Marketing", icon: "circle", color: "#b5482b" },
-  accounting: { label: "Accounting", icon: "square", color: "#4d6b53" },
-  "data-science": { label: "Data science", icon: "triangle", color: "#3d5a80" },
-  code: { label: "Code", icon: "square", color: "#7a4f7a" },
-  general: { label: "General", icon: "circle", color: "#8a8a8a" },
-  onbashlyk: { label: "Onbashlyk", icon: "triangle", color: "#c8912a" },
-};
+const DEPTS = Object.fromEntries(DEPARTMENT_REGISTRY.departments.map(d => [d.id, d]));
+const TAG_DEPT = Object.fromEntries(DEPARTMENT_REGISTRY.departments.flatMap(d => [d.id, ...d.aliases].map(alias => [alias, d.id])));
+const departmentId = value => TAG_DEPT[value] || value;
+const dept = value => DEPTS[departmentId(value)] || {...DEPTS.general, id:value, label:value || 'Unknown'};
+const departmentIcon = (value, size=14) => { const d=dept(value); return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${d.color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d.svg}</svg>`; };
+const departmentTag = value => { const d=dept(value);return `<span class="department-tag" style="--department-color:${d.color}" title="${esc(d.label)}">${departmentIcon(value)}<span>${esc(d.label)}</span></span>`; };
+const departmentOptions = selected => Object.values(DEPTS).map(d=>`<option value="${d.id}" ${departmentId(selected)===d.id?'selected':''}>${esc(d.label)}</option>`).join('');
+const departmentLabel = value => TAG_DEPT[value] ? dept(value).label : value;
 const COLORS = { red: "#b5482b", amber: "#c8912a", green: "#4d6b53", teal: "#3f7f7a", blue: "#3d5a80", plum: "#7a4f7a", ink: "#f5f0e8" };
 const SHAPES = ["circle", "square", "triangle"];
-const TAG_DEPT = { marketing: "marketing", operations: "accounting", research: "data-science", coding: "code", onbashlyk: "onbashlyk" };
-const dept = k => DEPTS[k] || DEPTS.general;
 const hex = c => COLORS[c] || COLORS.ink;
 const glyph = (shape, colorHex, sizePx) => `<span class="g ${SHAPES.includes(shape) ? shape : "circle"}" style="--gs:${sizePx}px;--gc:${colorHex}"></span>`;
 // 24 lucide-style icons an agent can pick, keyed by kebab-case lucide name; each value is the
@@ -49,9 +47,10 @@ const AICONS = {
   shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
   wrench: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
 };
+DEPARTMENT_REGISTRY.departments.forEach(d => { AICONS[d.icon] = d.svg; });
 const aicon = (name, colorHex, sizePx) => `<svg class="ai" width="${sizePx}" height="${sizePx}" viewBox="0 0 24 24" fill="none" stroke="${colorHex}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${AICONS[name]}</svg>`;
 // one look per department, same in every business, unless the agent picked a custom icon
-const agentGlyph = (m, size) => { const d = dept((m || {}).department); return (m && m.icon && AICONS[m.icon]) ? aicon(m.icon, d.color, size) : glyph(d.icon, d.color, size); };
+const agentGlyph = (m, size) => { const d = dept((m || {}).department); return (m && m.icon && AICONS[m.icon]) ? aicon(m.icon, d.color, size) : departmentIcon(m?.department || "general", size); };
 
 // lazy: the render functions live in later script files
 const TABS = { agents: c => renderAgents(c), context: c => renderContext(c),

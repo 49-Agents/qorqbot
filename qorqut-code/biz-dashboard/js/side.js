@@ -57,7 +57,7 @@ function logHtml(rows) {
     const task = logTaskId(e);
     if (k !== day) { day = k; html += `<div class="lday" data-day="${esc(dayLabel(k))}"></div>`; }
     const title=logHeadline(e);
-    html += `<div class="le${task ? " has-task" : ""}" style="--c:${d.color}"><time class="ltime" datetime="${esc(raw)}">${esc(time)}</time><div class="ls" title="${esc(title)}">${esc(title)}</div><div class="log-tags">${e.tag?`<span class="log-tag">${esc(e.tag)}</span>`:''}</div>` +
+    html += `<div class="le${task ? " has-task" : ""}" style="--c:${d.color}"><time class="ltime" datetime="${esc(raw)}">${esc(time)}</time><div class="ls" title="${esc(title)}">${esc(title)}</div><div class="log-tags">${e.tag?(TAG_DEPT[e.tag] ? departmentTag(e.tag) : `<span class="log-tag">${esc(e.tag)}</span>`):''}</div>` +
       (task ? `<button class="ltask" type="button" title="Open related task" aria-label="Open related task">${T_VIEW_ICON.tasks}</button>` : "") + `</div>`;
   }
   return html;

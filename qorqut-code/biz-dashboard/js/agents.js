@@ -164,7 +164,7 @@ function runSlash(cmd, a, msgs) {
 
 // ------------------------------------------------------------------- org (pins, custom categories, order)
 // Per-business client-side layout: { pinned: [name,...], cats: [{name, agents:[name,...]}], loose: [name,...] }
-// Departments still carry the glyph colour; they no longer group the nav — this replaces that grouping.
+// Department grouping is the default; custom organization remains available.
 const orgKey = () => "agorg:" + state.biz;
 function orgLoad() {
   let o = null;
@@ -194,7 +194,13 @@ function orgNameRemove(o, name) {
   o.loose = o.loose.filter(n => n !== name);
 }
 // the rendered order: pinned, then each category's agents, then loose
+const agentDepartmentGroups = () => {
+  const keys = [...Object.keys(DEPTS), ...new Set(state.agents.map(a=>departmentId(a.department || 'general')).filter(k=>!DEPTS[k]))];
+  return keys.map(id=>({id,name:dept(id).label,agents:state.agents.filter(a=>departmentId(a.department || 'general')===id).map(a=>a.name).sort()})).filter(group=>group.agents.length);
+};
+const agentGrouped = () => ls('aggroup:'+state.biz) !== 'custom';
 function agentNavOrder() {
+  if (agentGrouped()) return agentDepartmentGroups().flatMap(group=>group.agents);
   const o = orgReconcile(orgLoad());
   return [].concat(o.pinned, ...o.cats.map(c => c.agents), o.loose);
 }
@@ -273,30 +279,39 @@ function paintList() {
     return;
   }
 
-  const o = orgReconcile(orgLoad()); orgSave(o);
+  const grouped = agentGrouped();
+  const o = grouped ? {pinned:[],cats:agentDepartmentGroups(),loose:[]} : orgReconcile(orgLoad());
+  if (!grouped) orgSave(o);
   const row = (name, secKind, secIdx) => {
     const a = byName[name]; if (!a) return "";
     const running = live.has(a.name);
     const pinned = o.pinned.indexOf(name) >= 0;
-    return `<div class="item agent ${a.name === state.agent ? "on" : ""}" draggable="true" data-a="${esc(a.name)}" data-sec="${esc(secKind)}" data-idx="${secIdx}" data-pinned="${pinned ? 1 : 0}">
+    return `<div class="item agent ${a.name === state.agent ? "on" : ""}" draggable="${!grouped}" data-a="${esc(a.name)}" data-sec="${esc(secKind)}" data-idx="${secIdx}" data-pinned="${pinned ? 1 : 0}">
       <div class="nm">${agentGlyph(a, 10)}<span class="tt">${esc(a.name)}</span></div>
       <span class="ldot ${running ? "live" : ""}" data-st title="${running ? "running" : "idle"}"></span>
     </div>`;
   };
 
-  let html = "";
+  let html = `<label class="agent-group-control">Group by<select id="agent-group-mode"><option value="department" ${grouped?'selected':''}>Department</option><option value="custom" ${!grouped?'selected':''}>Custom</option></select></label>`;
   if (o.pinned.length) html += `<div class="h" data-drop-sec="pinned">Pinned</div>` + o.pinned.map((n, i) => row(n, "pinned", i)).join("");
   o.cats.forEach((c, ci) => {
-    html += `<div class="h catH" data-drop-sec="cat" data-cat="${ci}"><span class="cn">${esc(c.name)}</span></div>`
+    html += `<div class="h ${grouped?'':'catH'}" data-drop-sec="cat" data-cat="${ci}"><span class="cn">${grouped?departmentIcon(c.id):''}${esc(c.name)}</span></div>`
       + c.agents.map((n, i) => row(n, "cat" + ci, i)).join("");
   });
-  html += `<div class="h" data-drop-sec="loose">Agents</div>` + o.loose.map((n, i) => row(n, "loose", i)).join("");
+  if (!grouped) html += `<div class="h" data-drop-sec="loose">Agents</div>` + o.loose.map((n, i) => row(n, "loose", i)).join("");
   html += _newCatOpen
     ? `<div class="newcatrow"><input id="newcatin" class="newcatin" placeholder="Category name…" autocomplete="off" spellcheck="false"></div>`
     : "";
   rows.innerHTML = html;
 
   rows.querySelectorAll(".agent").forEach(d => d.onclick = () => { agSetSel(d.dataset.a); renderAgents($("#content")); });
+
+  $('#agent-group-mode').onchange = event => { ls('aggroup:'+state.biz,event.target.value); paintList(); };
+  if (grouped) {
+    rows.oncontextmenu = null;
+    rows.querySelectorAll('.agent').forEach(d=>d.oncontextmenu=event=>{event.preventDefault();lookModal(byName[d.dataset.a]);});
+    return;
+  }
 
   rows.querySelectorAll(".item.agent").forEach(d => d.oncontextmenu = e => {
     e.preventDefault();
@@ -407,7 +422,7 @@ function paintHead(a) {
   const ch = $("#chat"); if (!ch) return;
   const g = $("#aglyph"); if (g) { g.innerHTML = agentGlyph(a, 18); g.title = "Change look"; g.onclick = () => lookModal(a); }
   const b = $("#deptbadge"); const d = dept(a.department);
-  if (b) b.innerHTML = `${glyph(d.icon, d.color, 8)}<span>${esc(d.label)}</span>`;
+  if (b) b.innerHTML = `${departmentIcon(a.department, 14)}<span>${esc(d.label)}</span>`;
 }
 async function applyMeta(a, patch) {
   let r; try { r = await post(`/biz/${state.biz}/agent/${a.name}/meta`, patch); } catch (e) { r = { error: "could not reach the server" }; }
@@ -420,8 +435,8 @@ async function applyMeta(a, patch) {
 }
 
 // ------------------------------------------------------------------ modals
-const deptItems = () => Object.keys(DEPTS).map(k => ({ value: k, label: DEPTS[k].label, html: `${glyph(DEPTS[k].icon, DEPTS[k].color, 14)}<span>${esc(DEPTS[k].label)}</span>` }));
-const deptBtn = k => `<span class="v">${glyph(dept(k).icon, dept(k).color, 14)}<span>${esc(dept(k).label)}</span></span>`;
+const deptItems = () => Object.keys(DEPTS).map(k => ({ value: k, label: DEPTS[k].label, html: `${departmentIcon(k, 14)}<span>${esc(DEPTS[k].label)}</span>` }));
+const deptBtn = k => `<span class="v">${departmentIcon(k, 14)}<span>${esc(dept(k).label)}</span></span>`;
 
 let _market = null;
 async function marketplace() {
@@ -437,7 +452,7 @@ const kindItems = kinds => kinds.map(k => ({
 const kindBtn = k => k ? `<span class="v">${glyph(k.icon, hex(k.color), 14)}<span>${esc(k.label)}</span>${k.available ? "" : `<em class="soon">soon</em>`}</span>` : `<span class="v muted">pick a kind</span>`;
 
 function lookModal(a) {
-  const startDept = DEPTS[a.department] ? a.department : "general";
+  const startDept = departmentId(a.department || "general");
   const pick = { department: startDept, icon: a.icon && AICONS[a.icon] ? a.icon : null };
   const igrid = `<div class="igrid" style="display:flex;flex-wrap:wrap;gap:8px">
     <button type="button" class="ibtn" data-icon="" style="width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);background:none;border-radius:var(--r-sm);cursor:pointer"></button>
@@ -446,7 +461,7 @@ function lookModal(a) {
   const body = `<div class="prev" id="lkprev"></div>
     <div class="fl">Department</div><button class="selbtn" id="lkdept">${deptBtn(pick.department)}</button>
     <div class="fl">Icon</div>${igrid}
-    <div class="fmsg">the department fixes the colour; pick an icon or leave it as the department shape</div>`;
+    <div class="fmsg">the department fixes the colour; pick an icon or leave it as the department icon</div>`;
   modal({
     title: "Agent look", body, width: 440,
     onOpen: el => {
@@ -458,7 +473,7 @@ function lookModal(a) {
         db.innerHTML = deptBtn(pick.department);
         ibtns.forEach(b => {
           const k = b.dataset.icon;
-          b.innerHTML = k ? aicon(k, d.color, 18) : glyph(d.icon, d.color, 18);
+          b.innerHTML = k ? aicon(k, d.color, 18) : departmentIcon(pick.department, 18);
           b.style.borderColor = (k || null) === (pick.icon || null) ? "rgba(255,255,255,.34)" : "var(--line)";
           b.style.background = (k || null) === (pick.icon || null) ? "var(--wash)" : "none";
         });
@@ -495,7 +510,7 @@ function newAgentModal() {
     title: "New agent", body, width: 460,
     onOpen: async el => {
       const prev = el.querySelector("#naprev"), kb = el.querySelector("#narole"), db = el.querySelector("#nadept"), kmsg = el.querySelector("#nakmsg");
-      const repaint = () => { const d = dept(pick.department); prev.innerHTML = glyph(d.icon, d.color, 34); db.innerHTML = deptBtn(pick.department); };
+      const repaint = () => { const d = dept(pick.department); prev.innerHTML = departmentIcon(pick.department, 34); db.innerHTML = deptBtn(pick.department); };
       db.onclick = () => dropdown(db, deptItems(), v => { pick.department = v; repaint(); }, pick.department);
       const mk = await marketplace();
       if (!el.isConnected || state.biz !== biz) return;

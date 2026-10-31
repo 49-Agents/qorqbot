@@ -112,7 +112,7 @@ function ctxBusy(d) {
 }
 // Poll the tree while the tab is open: every 8 s while the queues are busy, every 20 s when idle (work
 // arrives from the filer sweep and from other clients too). Re-render only what changed.
-const ctxSig = (d, p) => (["_learning", "_tables", "_tasks"].includes(p) || p?.startsWith("_stories")) ? p // These views own their refreshes.
+const ctxSig = (d, p) => (["_learning", "_tables"].includes(p) || p?.startsWith("_stories")) ? p // These views own their refreshes.
   : p === "_people" ? JSON.stringify([d?.people,d?.graph?.nodes.filter(n=>n.type==='person'),d?.graph?.edges.filter(e=>e.source.type==='person' || e.target.type==='person')])
   : p === "_uploads" ? JSON.stringify([(d || {}).inbox || [], (d || {}).dumps || []])
   : JSON.stringify([(d || {}).tree,
@@ -163,9 +163,9 @@ function ctxTree(d) {
   const isRoot = !state.ctx;                                  // "" is the Context root; "_learning" is a page of its own
   rows.push(`<div class="item ov ${state.ctx === '_learning' ? 'on' : ''}" data-p="_learning"><div class="nm">${SVG_BRAIN}<span class="tt">Learning</span></div></div>`);
   const graphNodes = d.graph?.nodes || [];
-  rows.push(`<div class="ctx-counts">${[['story','Stories','_stories'],['table','Tables','_tables'],['person','People','_people'],['task','Tasks','_tasks']].map(([type,label,path]) => `<button type="button" data-count-page="${path}"><b>${graphNodes.filter(n=>n.type===type).length}</b><span>${label}</span></button>`).join('')}</div>`);
+  rows.push(`<div class="ctx-counts">${[['story','Stories','_stories'],['table','Tables','_tables'],['person','People','_people']].map(([type,label,path]) => `<button type="button" data-count-page="${path}"><b>${graphNodes.filter(n=>n.type===type).length}</b><span>${label}</span></button>`).join('')}</div>`);
   rows.push(`<div class="item ov ${isRoot ? 'on' : ''}" data-p=""><div class="nm">${aicon('share-2','currentColor',15)}<span class="tt">Graph</span></div></div>`);
-  for (const [key, label, icon] of [['_stories', 'Stories', `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M12 5h8M12 11h6M12 19h8"/></svg>`], ['_tasks', 'Tasks', SVG_TINBOX], ['_tables', 'Tables', aicon('database', 'currentColor', 15)]]) {
+  for (const [key, label, icon] of [['_stories', 'Stories', `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M12 5h8M12 11h6M12 19h8"/></svg>`], ['_tables', 'Tables', aicon('database', 'currentColor', 15)]]) {
     rows.push(`<button type="button" class="item bt ${(state.ctx === key || key === '_stories' && state.ctx?.startsWith('_stories/')) ? 'on' : ''}" data-p="${key}"><div class="nm">${icon}<span class="tt">${label}</span></div></button>`);
   }
   const inbox0 = d.inbox || [], failed0 = inbox0.filter(i => i.failed).length, waiting0 = inbox0.filter(i => ["queued", "running", "waiting_signoff", "cancelling"].includes(i.status)).length;
@@ -190,10 +190,11 @@ async function ctxGo(p) {
 }
 
 function ctxShow(p) {
-  ls(`ctxpage:${state.biz}`, (["_tables", "_tasks", "_people", "_learning", "_uploads"].includes(p) || p?.startsWith("_stories")) ? p : "");
+  if (p === "_tasks") { p = ""; state.ctx = ""; }
+  ls(`ctxpage:${state.biz}`, (["_tables", "_people", "_learning", "_uploads"].includes(p) || p?.startsWith("_stories")) ? p : "");
   storyDispose();
   const pane = $("#ctxview");
-  pane?.classList.toggle('ctxembedded-view', (['_tables', '_tasks'].includes(p) || p?.startsWith('_stories')));
+  pane?.classList.toggle('ctxembedded-view', (['_tables'].includes(p) || p?.startsWith('_stories')));
   ctxClearGraph();
   jClearTimers();
   if (p === "_learning") {                                   // learning.js loads after this file; it may not be there at all
@@ -202,13 +203,12 @@ function ctxShow(p) {
     const v = $("#ctxview"); if (v) v.innerHTML = `<div class="empty">learning.js not loaded</div>`;
     return;
   }
-  if ((['_tables', '_tasks'].includes(p) || p?.startsWith('_stories'))) {
+  if ((['_tables'].includes(p) || p?.startsWith('_stories'))) {
     _ctxLastSig = ctxSig(_ctxData, p);
     pane.innerHTML = '<div id="ctxembedded"></div>';
     const content = pane.firstElementChild;
     if (p?.startsWith('_stories')) return renderStories(content);
     if (p === '_tables') return renderTables(content);
-    return renderAllTasks(content);
   }
   if (p === "_people") return openPeople();
   if (p === "_uploads") return openUploads();
@@ -534,42 +534,4 @@ async function editPersonDetails(biz, id, after) {
     } catch(e) {el.querySelector('.data-form-error').textContent=e.message;}
     finally {if(button.isConnected) button.disabled=false;}
   }}]});
-}
-
-// All business tasks, independent of the personal drawer's assignment filter.
-async function renderAllTasks(container) {
-  const biz = state.biz;
-  container.innerHTML = `<section class="ctx-all-tasks"><header class="data-heading"><h1>Tasks</h1><button class="btn" id="all-tasks-refresh">Refresh</button></header>
-    <div class="data-row-tools"><label>Search tasks<input class="inp" type="search" id="all-tasks-search"></label>
-    <label>Status<select class="inp" id="all-tasks-status"><option value="">All statuses</option>${T_STATES.map(s => `<option value="${s}">${T_LABEL[s]}</option>`).join('')}</select></label></div>
-    <p id="all-tasks-message" role="status">Loading tasks…</p><div class="data-grid-wrap"><table class="data-grid"><thead><tr><th>Task</th><th>Status</th><th>Assignees</th><th>Due</th><th>Tags</th></tr></thead><tbody></tbody></table></div></section>`;
-  let rows = [], request = 0;
-  const current = () => container.isConnected && state.biz === biz && state.tab === 'context' && state.ctx === '_tasks';
-  const message = container.querySelector('#all-tasks-message');
-  const search = container.querySelector('#all-tasks-search'), status = container.querySelector('#all-tasks-status');
-  const paint = () => {
-    const query = search.value.trim().toLowerCase();
-    const visible = rows.filter(t => (!status.value || t.status === status.value) &&
-      [t.title, ...(t.owners || []), ...(t.tags || [])].join(' ').toLowerCase().includes(query));
-    message.textContent = `${visible.length} ${visible.length === 1 ? 'task' : 'tasks'}`;
-    const body = container.querySelector('tbody');
-    body.innerHTML = visible.map(t => `<tr><td><button class="quiet" data-task="${esc(t.id)}">${esc(t.title)}</button></td><td>${esc(T_LABEL[t.status] || t.status)}</td><td>${esc((t.owners || []).map(tShort).join(', ') || 'Unassigned')}</td><td>${esc(t.due || '—')}</td><td>${esc((t.tags || []).join(', '))}</td></tr>`).join('');
-    body.querySelectorAll('[data-task]').forEach(button => button.onclick = async () => {
-      try { const task = await tFetchTask(biz, button.dataset.task); if (current()) tDetail(task); }
-      catch (error) { if (current()) message.textContent = error.message; }
-    });
-  };
-  const refresh = async () => {
-    const sequence = ++request;
-    try {
-      const result = await api(`/biz/${encodeURIComponent(biz)}/tasks?all=1`);
-      if (!current() || sequence !== request) return;
-      if (!Array.isArray(result)) throw new Error('Could not load tasks. Use Refresh to retry.');
-      rows = result.sort((a,b) => Number(tClosed(a)) - Number(tClosed(b)) || String(a.title).localeCompare(String(b.title)));
-      paint();
-    } catch (error) { if (current() && sequence === request) message.textContent = error.message; }
-  };
-  search.oninput = paint; status.onchange = paint;
-  container.querySelector('#all-tasks-refresh').onclick = refresh;
-  await refresh();
 }

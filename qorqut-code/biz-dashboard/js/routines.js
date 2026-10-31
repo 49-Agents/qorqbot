@@ -179,7 +179,7 @@ async function rtWrite(op, row, biz) {
 function rtDetail(row) {
   const fields = [
     ['Next scheduled',row.status === 'paused' ? 'Paused' : rtTime(row.next,row.zone)],
-    ['Program',row.program], ['Arguments',JSON.stringify(row.arguments || {})], ['Departments',(row.departments || []).join(', ')],
+    ['Program',row.program], ['Arguments',JSON.stringify(row.arguments || {})], ['Departments',(row.departments || []).map(departmentLabel).join(', ')],
     ['Timeout',row.timeout + ' seconds'], ['Target',row.target || 'business'],
     ...(row.scheduling_available === false ? [['Scheduling',row.scheduling_unavailable_reason || 'Unavailable']] : []),
   ];
@@ -208,7 +208,7 @@ function rtFormHTML(row = {}) {
     <div id="rtpreview" class="rtwide rtmuted" aria-live="polite">Checking next scheduled times…</div>
     <label id="rttarget" ${row.scope !== 'global' ? 'hidden' : ''}>Run in<select class="inp" name="target"><option value="each-business" ${row.target !== 'root' ? 'selected' : ''}>Each business</option><option value="root" ${row.target === 'root' ? 'selected' : ''}>Businesses root</option></select></label>
     ${input('timeout','Timeout (seconds)',row.timeout || 900,'type="number" min="60" max="7200" required')}
-    <fieldset class="rtwide"><legend>Departments</legend>${['marketing','accounting','data-science','code','general','onbashlyk'].map(d=>`<label class="rtcheck"><input type="checkbox" name="departments" value="${d}" ${(row.departments || ['onbashlyk']).includes(d) ? 'checked' : ''}>${d}</label>`).join('')}</fieldset>
+    <fieldset class="rtwide"><legend>Departments</legend>${Object.keys(DEPTS).map(d=>`<label class="rtcheck"><input type="checkbox" name="departments" value="${d}" ${(row.departments || ['operations']).map(departmentId).includes(d) ? 'checked' : ''}>${departmentTag(d)}</label>`).join('')}</fieldset>
     <label class="rtwide">Why<textarea class="inp" name="why" required>${esc(row.why || '')}</textarea></label></div><p id="rterror" class="rtfail" role="alert"></p></form>`;
 }
 function rtOpenForm(row = null) {

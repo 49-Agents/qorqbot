@@ -135,3 +135,7 @@
 .termhost { flex: 1; min-height: 0; width: 100%; box-sizing: border-box; padding: 12px; overflow: hidden; }
 .termtools { position: absolute; top: 8px; right: 8px; z-index: 5; display: flex; align-items: center; gap: 6px; }
 .tref.warn { color: #ff7a7a; }
+
+.agent-group-control { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 16px; font-size:11px; color:var(--fg-2); }
+.agent-group-control select { max-width:130px; background:var(--wash); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:5px; }
+#agentrows .cn { display:flex; align-items:center; gap:7px; }
