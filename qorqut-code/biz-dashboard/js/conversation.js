@@ -48,6 +48,13 @@ function conversationMount(host,source,adapter={}) {
   const panelId=`conversation-panel-${++conversationMountId}`;
   host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" title="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span></button><section id="${panelId}" class="conversation-panel" hidden><div class="conversation-participants" aria-label="Conversation participants"></div><button type="button" class="quiet conversation-older" hidden>Older messages</button><div class="conversation-feed" role="log" aria-label="Conversation"></div><label class="conversation-compose">Message<textarea class="inp" rows="3" maxlength="20000"></textarea></label><button type="button" class="btn conversation-send">Send</button><p class="ferr" role="alert" hidden></p></section>`;
   const toggle=host.querySelector('.conversation-toggle'),panel=host.querySelector('.conversation-panel'),feed=host.querySelector('.conversation-feed'),input=host.querySelector('textarea'),send=host.querySelector('.conversation-send'),older=host.querySelector('.conversation-older'),error=host.querySelector('[role="alert"]');
+  if(adapter.inlineComposer) {
+    const composer=document.createElement('div');composer.className='conversation-inline-compose';
+    const label=host.querySelector('.conversation-compose');
+    label.firstChild.textContent='';input.rows=1;input.placeholder='Leave a comment…';
+    input.setAttribute('aria-label','Leave a comment');input.title='Ctrl+Enter to send';
+    composer.append(label,send);host.append(composer,error);
+  }
   s.mounts.add(host);
   const syncDraft=sourceInput=>{for(const mount of [...s.mounts]){if(!mount.isConnected || mount.dataset.conversation!==key){s.mounts.delete(mount);continue;}const other=mount.querySelector('textarea');if(other && other!==sourceInput && other.value!==s.text)other.value=s.text;}};
   input.value=s.text;input.oninput=()=>{s.text=input.value;syncDraft(input);adapter.onInput?.();};

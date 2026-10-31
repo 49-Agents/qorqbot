@@ -130,6 +130,7 @@ function agfocusPaint(p) {
     }
     const binding=item.conversation;
     conversationMount(node.querySelector('.agfocus-conversation'),{type:binding.type,id:binding.id,biz:item.resolved_source?.business_slug || item.context_business_slug || null,revision:item.source_revision},{
+      inlineComposer:true,
       read:async pagination=>coreData(await post('/root/operations/focus_get',{scope:'global',item_id:item.id,conversation:true,...pagination})).item.thread,
       send:async request=>coreData(await post('/root/operations/focus_reply',{scope:'global',item_id:item.id,text:request.text,idempotency_key:request.idempotency_key,...(request.revision?{expected_source_revision:request.revision}:{})}))
     });
