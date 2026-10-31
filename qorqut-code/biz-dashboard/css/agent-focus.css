@@ -8,7 +8,7 @@
 .agfocus .agfocus-controls button[aria-pressed=true]{background:var(--hover);border-color:var(--fg-3);color:var(--fg)}
 .agpad .agfocus h2{font-size:12px;margin:8px 0;font-weight:500}
 .agfocus-card{padding:10px 12px;margin:8px 0}
-.agfocus-items .agfocus-card{cursor:pointer}
+.agfocus-items .agfocus-card{cursor:default}
 .agfocus-items .agfocus-card:hover{border-color:var(--line-2);background:var(--wash)}
 .agfocus-items .agfocus-card:focus-visible{outline:2px solid var(--fg-2);outline-offset:2px}
 .agfocus-card h3{font-size:12px;font-weight:600;line-height:1.4;margin:5px 0}
@@ -72,3 +72,5 @@
 .agfocus-card h3{display:flex;align-items:center;gap:7px}
 .agfocus-task-state{display:inline-flex;align-items:center;flex:none}
 .agfocus-task-state .core{width:10px;height:10px}
+
+.agfocus-card h3 .agfocus-task-state{width:22px;height:22px;min-height:22px;margin:0;padding:5px;border:0;background:transparent;justify-content:center;cursor:pointer}
