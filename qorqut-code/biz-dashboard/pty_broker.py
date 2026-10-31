@@ -25,6 +25,7 @@ import struct
 import subprocess
 import termios
 import threading
+import time
 from uuid import uuid4
 
 RING_CAP = 256 * 1024  # bytes of scrollback kept for late joiners
@@ -300,10 +301,10 @@ def session_alive(name: str) -> bool:
 
 
 def submit_input(session: str, text: str) -> None:
-    """Paste a broadcast and literal CSI-u Ctrl+Enter into an existing pane.
+    """Paste a broadcast and a separate Enter into an existing pane.
 
-    Bypass the attach client's extended-key negotiation, which can discard
-    Ctrl+Enter. Keep message content on stdin rather than in process arguments.
+    Separate paste from submission so agent clients can finish paste handling.
+    Keep message content on stdin rather than in process arguments.
     """
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", session):
         raise ValueError("Invalid terminal session")
@@ -311,10 +312,14 @@ def submit_input(session: str, text: str) -> None:
     try:
         subprocess.run([TMUX, '-L', TMUX_SOCK, '-f', _conf_path(),
                         'load-buffer', '-b', buffer, '-', ';',
-                        'paste-buffer', '-d', '-r', '-p', '-b', buffer, '-t', '=' + session + ':', ';',
-                        'send-keys', '-l', '-t', '=' + session + ':', '\x1b[13;5u'],
+                        'paste-buffer', '-d', '-r', '-p', '-b', buffer, '-t', '=' + session + ':'],
                        input=text, text=True, encoding='utf-8', capture_output=True,
                        timeout=20, check=True, env=clean_env())
+        # Codex suppresses submission during its post-paste burst window.
+        time.sleep(0.2)
+        code, _ = tmux('send-keys', '-t', '=' + session + ':', 'Enter')
+        if code:
+            raise RuntimeError('Terminal submit outcome is uncertain')
     except Exception:
         tmux('delete-buffer', '-b', buffer)
         raise
