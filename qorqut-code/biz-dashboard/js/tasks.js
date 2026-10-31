@@ -1,26 +1,7 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// Personal task drawer aggregates the current human's business tasks.
+// Agent panes retain state.tasks, the selected business cache. Every personal row
+// and mutation carries its owning business; IDs alone are not globally unique.
+// Completion holds the row briefly, and keeps its business even during navigation.
 
 const T_ORDER = ["open", "doing", "waiting", "done"];          // the left-click cycle
 const T_CLOSED = ["done", "dropped"];
@@ -47,7 +28,7 @@ const tToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.ge
 const tDays = due => Math.round((tDay(due) - tToday()) / T_DAY);
 const tClosed = t => T_CLOSED.indexOf(t.status) >= 0;
 // a closed row sinks to the bottom of its section, except while its completion is still being held in place
-const tSunk = t => tClosed(t) && !tCompleting.has(t.id);
+const tSunk = t => tClosed(t) && !tCompleting.has(tKey(t));
 const tNext = s => { const i = T_ORDER.indexOf(s); return i < 0 ? "open" : T_ORDER[(i + 1) % T_ORDER.length]; };
 function tDept(t) {
   for (const x of (t.tags || [])) if (TAG_DEPT[x]) return TAG_DEPT[x];
@@ -64,6 +45,8 @@ const tDoneT = new Map();           // id -> the timer that sends the done write
 let tGen = 0;                       // bumped when a write starts; a refresh that began before it is stale when it lands
 let tLastBiz = null, tSoonT = null, tInside = false, tSearchT = null;
 state.tasks = [];
+state.myTasks = [];
+let tPersonalLoaded = false, tPersonalError = null, tFetch = 0;
 
 // ---------------------------------------------------------------- view (tabs)
 const T_VIEWS = ["tasks", "notes", "signoffs", "uploads", "routines", "activity"];
@@ -89,8 +72,12 @@ let tLogLoaded = false;             // has this business's log been fetched at l
 // uploads view state (upForm/upDone/...) lives in js/uploads.js; it has no editor, so nothing to flush.
 
 const tPanelOpen = () => { const w = $("#taskswrap"); return !!w && w.classList.contains("open"); };
-const taskById = id => (state.tasks || []).find(t => t.id === id);
-const tBiz = () => (state.bizs || []).find(x => x.slug === state.biz) || {};
+const tBusiness = t => t.business || (t.business_id && (state.bizs || []).find(b => b.id === t.business_id || b.business_id === t.business_id)) || tBiz();
+const tSlug = t => tBusiness(t).slug;
+const tKey = t => JSON.stringify([t.business_id || tBusiness(t).id || tSlug(t), t.id]);
+const taskById = (id, biz = state.biz) => typeof id === 'object' ? id : [...(state.myTasks || []), ...(state.tasks || [])].find(t => tKey(t) === id || t.id === id && tSlug(t) === biz);
+const tPersonalRows = () => state.myTasks || [];
+const tBiz = (biz = state.biz) => (state.bizs || []).find(x => x.slug === biz) || {};
 // the business owner, as biztask spells it: `human:<owner from business.yaml>` (server's owner_actor fallback)
 const tHuman = () => "human:" + (tBiz().owner || "dashboard");
 const tAgents = () => (tBiz().agents || []).map(a => "agent:" + a);
@@ -100,7 +87,6 @@ const tMeta = o => (tBiz().agent_meta || {})[tShort(o)];
 function tEditingNow() { return !!document.querySelector(".menu"); }
 
 function openTasks(on) {
-  if (state.scope === "global") return;
   const w = $("#taskswrap"); if (!w) return;
   w.classList.toggle("open", !!on);
   ls("tasks", on ? "1" : "0");
@@ -115,22 +101,31 @@ function refreshTasksSoon() { clearTimeout(tSoonT); tSoonT = setTimeout(refreshT
 
 
 async function refreshTasks() {
-  if (!state.biz) return;
-  const gen = tGen, biz = state.biz;
-  const r = await api(`/biz/${biz}/tasks?all=1`);
-  if (gen !== tGen || biz !== state.biz) return;
-  if (Array.isArray(r)) {
-    state.tasks = r;
-    // a row mid-completion keeps its local done look until the write lands
-    r.forEach(t => { if (tCompleting.has(t.id)) t.status = "done"; });
-  } else if (r && r.error) toast(r.error);
-  // the click that caused this refresh already patched its row in place: if the server agrees with
-  // what's already on screen, tearing the whole list down and rebuilding it would only flicker for nothing
-  if (tVisSig() === tPaintSig) return;
-  paintTasks();
+  const gen = tGen, biz = state.biz, request = ++tFetch;
+  const [personal, local] = await Promise.allSettled([
+    api('/me/tasks'), biz ? api(`/biz/${encodeURIComponent(biz)}/tasks?all=1`) : Promise.resolve([]),
+  ]);
+  if (gen !== tGen || request !== tFetch) return;
+  if (personal.status === 'fulfilled' && Array.isArray(personal.value?.tasks)) {
+    state.myTasks = personal.value.tasks;
+    tPersonalLoaded = true; tPersonalError = null;
+    state.myTasks.forEach(t => { if (tCompleting.has(tKey(t))) t.status = 'done'; });
+  } else {
+    tPersonalError = 'Could not refresh your tasks. Retry before making changes.';
+  }
+  if (biz === state.biz && local.status === 'fulfilled' && Array.isArray(local.value)) {
+    state.tasks = local.value;
+    state.tasks.forEach(t => { if (tCompleting.has(tKey(t))) t.status = 'done'; });
+  }
+  if (tVisSig() !== tPaintSig) paintTasks();
+}
+async function tFetchTask(biz, id) {
+  const result = await api(`/biz/${encodeURIComponent(biz)}/task/${encodeURIComponent(id)}`);
+  if (!result?.task) throw new Error('Task is no longer available.');
+  return {...result.task, business: tBiz(biz)};
 }
 
-function tCount() { return (state.tasks || []).filter(t => !tClosed(t)).length; }
+function tCount() { return tPersonalRows().filter(t => !tClosed(t)).length; }
 
 // a write always repaints, so let go of whatever row control is focused first
 function tRelease() {
@@ -138,30 +133,25 @@ function tRelease() {
   if (a && a.closest && a.closest("#taskspanel") && a.id !== "taddin" && a.id !== "tsearch") try { a.blur(); } catch (e) {}
 }
 
-async function twrite(id, body, onError) {
+async function twrite(identity, body, onError) {
+  const task = taskById(identity); if (!task) return null;
   tGen++;
-  const task = taskById(id);
-  const r = await post(`/biz/${state.biz}/task/${encodeURIComponent(id)}`, { expected_revision: task && task.revision, ...body });
-  if (r && r.error) { toast(r.error); if (onError) onError(r.error); await refreshTasks(); return null; }
-  tRelease();
-  await refreshTasks();
-  if (typeof refreshSideSoon === "function") refreshSideSoon();
-  return r;
+  try {
+    const r = await post(`/biz/${encodeURIComponent(tSlug(task))}/task/${encodeURIComponent(task.id)}`, {expected_revision: task.revision, ...body});
+    if (r?.error) throw new Error(typeof r.error === 'string' ? r.error : r.error.message);
+    if (r?.status === 'signoff_required') { toast('Submitted for business approval.'); await refreshTasks(); return null; }
+    tRelease(); await refreshTasks();
+    if (typeof refreshSideSoon === 'function' && state.biz === tSlug(task)) refreshSideSoon();
+    return r;
+  } catch (error) { toast(error.message); onError?.(error.message); await refreshTasks(); return null; }
 }
-
-async function tdone(id, revision = (taskById(id) || {}).revision) {
-  tGen++;
-  const r = await post(`/biz/${state.biz}/task/${encodeURIComponent(id)}/done`, { expected_revision: revision });
-  if (r && r.error) { toast(r.error); await refreshTasks(); return null; }
-  tRelease();
-  await refreshTasks();
-  if (typeof refreshSideSoon === "function") refreshSideSoon();
-  return r;
+async function tdone(identity, revision) {
+  return twrite(identity, {set: {status: 'done'}, ...(revision ? {expected_revision: revision} : {})});
 }
 
 async function tadd(fields) {
   tGen++;
-  const r = await post(`/biz/${state.biz}/task`, fields);
+  const r = await post(`/biz/${state.biz}/task`, {owner: tHuman(), ...fields});
   if (r && r.error) { toast(r.error); return null; }
   await refreshTasks();
   if (typeof refreshSideSoon === "function") refreshSideSoon();
@@ -182,8 +172,8 @@ const tDotHtml = s => `<span class="sdot ${esc(s)}"></span>`;
 // check, since a sunk task lands in a different spot than an open one). `state.biz` is part of it too:
 // two empty task lists (no business picked vs. a business with nothing in it) render different copy.
 function tVisSig() {
-  return JSON.stringify([state.biz, (state.tasks || []).filter(tMatch).map(t =>
-    [t.id, t.status, t.owner || "", t.title, t.due || "", (t.tags || []).join(","), tSunk(t)])]);
+  return JSON.stringify([state.scope, state.biz, tPersonalLoaded, tPersonalError, tPersonalRows().filter(tMatch).map(t =>
+    [tKey(t), t.status, t.owner || "", t.title, t.due || "", (t.tags || []).join(","), tSunk(t)])]);
 }
 
 // ---------------------------------------------------------------- assignee
@@ -224,10 +214,11 @@ function tWhoTip(t, detailsOnly = false) {
     `right-click: ${k === "human" ? "unassign" : tShort(tHuman())}`];
   return `${who}<br><span class="k">${hints.join(" · ")}</span>`;
 }
-function tWhoItems() {
+function tWhoItems(biz = state.biz) {
   const items = [{ value: "", label: "Unassigned", html: `<span class="towner">${tWhoInner("")}<span class="tn">Unassigned</span></span>` }];
-  tAgents().forEach(o => items.push({ value: o, label: o, html: `<span class="towner">${tWhoInner(o)}<span class="tn">${esc(tShort(o))}</span><span class="tsub">agent</span></span>` }));
-  if (tBiz().owner) items.push({ value: tHuman(), label: tHuman(), html: `<span class="towner">${tWhoInner(tHuman())}<span class="tn">${esc(tShort(tHuman()))}</span><span class="tsub">owner</span></span>` });
+  (tBiz(biz).agents || []).map(a => "agent:" + a).forEach(o => items.push({ value: o, label: o, html: `<span class="towner">${tWhoInner(o)}<span class="tn">${esc(tShort(o))}</span><span class="tsub">agent</span></span>` }));
+  const human = "human:" + (tBiz(biz).owner || "dashboard");
+  if (tBiz(biz).owner) items.push({ value: human, label: human, html: `<span class="towner">${tWhoInner(human)}<span class="tn">${esc(tShort(human))}</span><span class="tsub">owner</span></span>` });
   return items;
 }
 
@@ -250,12 +241,14 @@ function tBall(t, detailsOnly = false) {
 // the deadline slot is reserved on every row in every section, whether or not any task anywhere has a
 // due date, so assignee/status balls line up identically across sections
 function tRow(t, detailsOnly = false) {
-  return `<div class="trow ${esc(t.status)}${tClosed(t) ? " off" : ""}" data-id="${esc(t.id)}">${tDue(t) || `<span class="tdl"></span>`}${tWho(t)}${tBall(t, detailsOnly)}<p class="ttl">${esc(t.title)}</p><button class="tmore" type="button" title="Details" aria-label="Task details">${SVG_TMORE}</button></div>`;
+  const business = tBusiness(t);
+  const icon = `<span class="task-business" title="${esc(business.name || business.slug || '')}" aria-label="Business: ${esc(business.name || business.slug || '')}">${esc((business.name || business.slug || '·').charAt(0).toUpperCase())}</span>`;
+  return `<div class="trow ${esc(t.status)}${tClosed(t) ? ' off' : ''}${detailsOnly ? '' : ' personal-task'}" data-id="${esc(t.id)}" data-key="${esc(tKey(t))}" data-business="${esc(business.slug || '')}">${detailsOnly ? (tDue(t) || '<span class="tdl"></span>') + tWho(t) : icon}${tBall(t, detailsOnly)}<p class="ttl">${esc(t.title)}</p>${detailsOnly ? '' : tDue(t)}<button class="tmore" type="button" title="Details" aria-label="Task details">${SVG_TMORE}</button></div>`;
 }
 
 function tWireRows(body, detailsOnly = false) {
   body.querySelectorAll(".trow").forEach(row => {
-    const t = taskById(row.dataset.id); if (!t) return;
+    const t = taskById(row.dataset.key || row.dataset.id); if (!t) return;
     const who = row.querySelector(".who");
     if (who && typeof tip === "function") tip(who, () => tWhoTip(t, detailsOnly));
   });
@@ -281,13 +274,13 @@ function tTabs(views = T_VIEWS, active = tView, bodyId = "tbody") {
   return `<div class="ttabs" role="tablist" aria-label="${bodyId === "tbody" ? "Business panel" : "Agent pane"}"><div class="tind" hidden></div>${views.map(v => `<button class="ttab${v === active ? " on" : ""}" id="${esc(tTabId(v, bodyId))}" role="tab" aria-selected="${v === active}" aria-controls="${esc(bodyId)}" type="button" data-v="${v}" title="${T_VIEW_LABEL[v]}" aria-label="${T_VIEW_LABEL[v]}">${T_VIEW_ICON[v]}</button>`).join("")}</div>`;
 }
 
-function tHead({ view = tView, views = T_VIEWS, title = T_VIEW_LABEL[view], bodyId = "tbody", taskTools = true } = {}) {
+function tHead({ view = tView, views = T_VIEWS, bodyId = "tbody", title = view === "tasks" && bodyId === "tbody" ? "My tasks" : T_VIEW_LABEL[view], taskTools = true } = {}) {
   // the journal/notes tabs supply their own header (homepage title/subtitle/Create, or the detail's
   // own sidebar controls) in #tbody, so the generic ttop (title + tasks-only stats/search) sits out
   const ownHead = view === "notes" || view === "signoffs" || view === "uploads" || view === "routines";
   const tools = view === "tasks" && taskTools;
   return `<div class="thead${ownHead ? " nott" : ""}">
-    ${tTabs(views, view, bodyId)}
+    ${tTabs(state.scope === "global" && bodyId === "tbody" ? ["tasks"] : views, view, bodyId)}
     ${ownHead ? "" : `<div class="ttop">
       <div><h1>${esc(title)}</h1>${tools ? `<div class="tstats" id="tstats"></div>` : ""}</div>
       ${tools ? `<label class="tsearch">${SVG_TSEARCH}<input id="tsearch" type="text" placeholder="Search by title, tag or content..." autocomplete="off" spellcheck="false"></label>` : ""}
@@ -302,7 +295,7 @@ function tEmptyHtml(title, { sub = "", create = false } = {}) {
 }
 
 function tStats() {
-  const all = state.tasks || [], today = tToday();
+  const all = tPersonalRows(), today = tToday();
   const doing = all.filter(t => t.status === "doing").length;
   const over = all.filter(t => t.due && !tClosed(t) && tDay(t.due) < today).length;
   return `<span><b>${all.length}</b> ${all.length === 1 ? "task" : "tasks"}</span><i>·</i><span><b class="blue">${doing}</b> in progress</span>`
@@ -323,20 +316,14 @@ function paintTasks() {
   const keep = prev ? prev.value : "";
   const hadFocus = prev && document.activeElement === prev;
 
-  const groups = {};
-  (state.tasks || []).filter(tMatch).forEach(t => { const k = tDept(t); (groups[k] = groups[k] || []).push(t); });
-  let html = "";
-  T_DEPTS.forEach(key => {
-    const rows = groups[key] || [];
-    if (rows.length || tAdding === key) html += tSection(key, rows);   // an empty section shows only while its add row is open
-  });
-  if (!html) {
-    html = tEmptyHtml(!state.biz ? "Pick a business first." : (state.tasks || []).length ? "Nothing here." : "Nothing scheduled.", {
-      sub: (state.tasks || []).length ? "No task matches this search." : "Create your first task to start organizing what matters.",
-      create: !!state.biz,
-    });
-  } else if (!tAdding) {
-    html += `<button class="taddbtn" id="taddbottom" type="button">${SVG_TPLUS}Add task</button>`;
+  const rows = tPersonalRows().filter(tMatch).sort((a,b) => Number(tSunk(a))-Number(tSunk(b)) || String(a.due || '9999').localeCompare(b.due || '9999') || a.title.localeCompare(b.title) || tKey(a).localeCompare(tKey(b)));
+  const open = rows.filter(t => !tSunk(t)), closed = rows.filter(tSunk);
+  let html = tPersonalError ? `<p class="personal-task-error" role="alert">${esc(tPersonalError)} <button class="ghost" id="tasks-retry">Retry</button></p>` : '';
+  if (!tPersonalLoaded && !tPersonalError) html += tEmptyHtml('Loading your tasks…');
+  else {
+    html += open.length ? `<div class="personal-task-list">${open.map(t => tRow(t)).join('')}</div>` : tEmptyHtml(tSearch ? 'No matching tasks.' : 'Nothing waiting on you.');
+    if (closed.length) html += `<details class="personal-completed"><summary>Completed · ${closed.length}</summary>${closed.map(t => tRow(t)).join('')}</details>`;
+    if (state.biz) html += tAdding ? tAddRow(tAdding) : `<button class="taddbtn" id="taddbottom" type="button">${SVG_TPLUS}Add task in ${esc(tBiz().name || state.biz)}</button>`;
   }
   const body = $("#tbody"); if (!body) return;
   // Chrome fires blur on the focused add input before detaching it (isConnected is still true then)
@@ -345,6 +332,8 @@ function paintTasks() {
   tPaintSig = tVisSig();   // record what's now on screen so a later background refresh can skip a no-op rebuild
 
   tWireRows(body);
+  body.querySelector("#tasks-retry")?.addEventListener("click", refreshTasks);
+  if (tPersonalError) body.querySelectorAll(".ball, .tmore").forEach(b => b.disabled = true);
   const add = $("#taddin");
   if (add) {
     if (keep && prev && prev.closest(".tadd") && prev.closest(".tadd").dataset.b === tAdding) add.value = keep;
@@ -358,8 +347,7 @@ function paintTasks() {
 // tabs themselves) and then paints #tbody for the view landed on. Only a tab switch does this — the
 // intervals below only ever touch the view that's currently active.
 function tSetView(v) {
-  if (state.scope === "global") return;
-  if (T_VIEWS.indexOf(v) < 0) v = "tasks";
+  if (T_VIEWS.indexOf(v) < 0 || state.scope === "global" && v !== "tasks") v = "tasks";
   if (tView === "notes" && v !== "notes" && ntEditState) { ntFlush().then(saved=>{if(saved)tSetView(v);}); return; }
   const from = tView;
   const tabFocused = document.activeElement && document.activeElement.closest(".ttabs");
@@ -424,7 +412,7 @@ function tWireAdd(inp) {
     if (!title) return paintTasks();
     inp.disabled = true;
     const tag = T_DEPT_TAG[key];
-    await tadd({ title, owner: "", tags: tag ? [tag] : [] });
+    await tadd({ title, tags: tag ? [tag] : [] });
     paintTasks();
   };
   inp.onkeydown = e => {
@@ -443,10 +431,10 @@ function tWireAdd(inp) {
 function tPatchRow(t) {
   // The agent pane shares these rows; edits patch the drawer that owns the controls.
   const panel = $("#taskspanel");
-  const row = panel && [...panel.querySelectorAll(".trow")].find(r => r.dataset.id === t.id);
+  const row = panel && [...panel.querySelectorAll(".trow")].find(r => r.dataset.key === tKey(t));
   if (!row) { paintTasks(); return; }
   const closed = tClosed(t);
-  row.className = `trow ${t.status}${closed ? " off" : ""}`;
+  row.className = `trow personal-task ${t.status}${closed ? " off" : ""}`;
   const ball = row.querySelector(".ball");
   if (ball) {
     const label = T_LABEL[t.status] || t.status;
@@ -470,7 +458,8 @@ function tPatchRow(t) {
 // optimistic: the ball changes at once, in place, the write follows; a failed write refreshes
 function tSetStatus(t, next) {
   if (!next || next === t.status) return;
-  const id = t.id, biz = state.biz;
+  if (tPersonalError) return;
+  const id = tKey(t);
   // another change during the completion hold cancels the pending done write
   if (tDoneT.has(id)) { clearTimeout(tDoneT.get(id)); tDoneT.delete(id); tCompleting.delete(id); }
   t.status = next;
@@ -482,11 +471,11 @@ function tSetStatus(t, next) {
     tDoneT.set(id, setTimeout(() => {
       tDoneT.delete(id); tCompleting.delete(id);
       paintTasks();
-      if (state.biz === biz) tdone(id, t.revision);
+      tdone(t, t.revision);
     }, T_DONE_HOLD));
   } else {
     tPatchRow(t);
-    twrite(id, { set: { status: next }, expected_revision: t.revision });
+    twrite(t, { set: { status: next }, expected_revision: t.revision });
   }
 }
 
@@ -494,7 +483,7 @@ function tSetOwner(t, o) {
   if (o == null || o === (t.owner || "")) return;
   t.owner = o;
   tPatchRow(t);
-  twrite(t.id, { set: { owner: o }, expected_revision: t.revision });
+  twrite(t, { set: { owner: o }, expected_revision: t.revision });
 }
 
 function tTagItems(t) {
@@ -506,28 +495,25 @@ function tTagItems(t) {
 async function tOpenTask(id) {
   const biz = state.biz;
   if (!biz) return;
-  let t = taskById(id);
-  // Activity can arrive before the shared task cache, including links to completed tasks.
+  let t = taskById(id, biz);
   if (!t) {
-    try { await refreshTasks(); }
-    catch (e) { if (state.biz === biz) toast("Could not load task."); return; }
+    try { t = await tFetchTask(biz, id); }
+    catch (error) { toast(error.httpStatus === 404 || error.message === 'Task is no longer available.' ? 'Task is no longer available.' : 'Could not load task.'); return; }
     if (state.biz !== biz) return;
-    t = taskById(id);
   }
-  if (!t) { toast("Task is no longer available."); return; }
   clearTimeout(tSearchT); tSearch = "";
   // Cross-pane navigation belongs to this click, even though it began outside the drawer.
   tInside = true;
   openTasks(true);
   tSetView("tasks");
-  const row = [...$("#taskspanel").querySelectorAll(".trow")].find(r => r.dataset.id === id);
+  const row = [...$("#taskspanel").querySelectorAll(".trow")].find(r => r.dataset.key === tKey(t));
   if (row) row.scrollIntoView({ block: "nearest" });
   tDetail(t);
 }
 
 function tDetail(t) {
   if (typeof modal !== "function") return toast("details need core modal()");
-  const biz = state.biz;
+  const biz = tSlug(t);
   const closed = tClosed(t);
   const fld = (k, v, mono) => `<div class="k">${esc(k)}</div><div class="v${mono ? " mono" : ""}">${v}</div>`;
   const none = s => `<span class="none">${esc(s)}</span>`;
@@ -562,8 +548,8 @@ function tDetail(t) {
   </div>`;
   // a write repaints the detail with the fresh task; not if the user closed it while the write was in flight
   const again = async (id, body) => {
-    if (state.biz !== biz) return;
-    const r = await twrite(id, {...body,expected_revision:t.revision}, message=>{
+    if (!m.el.isConnected) return;
+    const r = await twrite(t, {...body,expected_revision:t.revision}, message=>{
       if (!m.el.isConnected) return;
       const error=m.el.querySelector('#td-error');error.textContent=message;error.hidden=false;
       m.el.querySelector('#td-reload').hidden=false;
@@ -572,10 +558,11 @@ function tDetail(t) {
     if (!m || !m.el || !m.el.isConnected) return;
     if (!r) return;
     m.close();
-    const fresh = taskById(id); if (r && fresh) tDetail(fresh);
+    const fresh = r.task ? {...r.task, business: tBusiness(t)} : await tFetchTask(biz, id);
+    if (fresh) tDetail(fresh);
   };
   const m = modal({
-    title: "Task", width: 620, body,
+    title: `Task · ${tBusiness(t).name || biz}`, width: 620, body,
     actions: [
       { label: "Close", onClick: close => close() },
       { label: closed ? "Reopen" : "Mark done", primary: true, onClick: () => again(t.id, {set:{status:closed ? 'open' : 'done'}}) },
@@ -583,7 +570,7 @@ function tDetail(t) {
     onOpen(el) {
       if (typeof storyRelatedChips === 'function') storyRelatedChips(el.querySelector('#td-stories'), biz, 'tasks', t.id, () => m.close());
       else el.querySelector('#td-stories').textContent = 'No linked stories.';
-      el.querySelector('#td-reload').onclick = async()=>{await refreshTasks();if(state.biz!==biz||!m.el.isConnected)return;const fresh=taskById(t.id);m.close();if(fresh)tDetail(fresh);};
+      el.querySelector('#td-reload').onclick = async()=>{try {const fresh=await tFetchTask(biz,t.id);if(!m.el.isConnected)return;m.close();tDetail(fresh);}catch(error){toast(error.message);}};
       const title = el.querySelector(".dtitle");
       title.onclick = () => {
         const inp = document.createElement("input"); inp.type = "text"; inp.className = "dtitle-in"; inp.value = t.title;
@@ -597,7 +584,7 @@ function tDetail(t) {
       sb.onclick = () => dropdown(sb, T_STATES.map(s => ({ value: s, label: T_LABEL[s], html: `<span class="towner">${tDotHtml(s)}<span class="tn">${T_LABEL[s]}</span></span>` })),
         v => { if (v !== t.status) again(t.id, { set: { status: v } }); }, t.status);
       const wb = el.querySelector("#td-who");
-      wb.onclick = () => dropdown(wb, tWhoItems(), v => { if (v !== o) again(t.id, { set: { owner: v } }); }, o);
+      wb.onclick = () => dropdown(wb, tWhoItems(biz), v => { if (v !== o) again(t.id, { set: { owner: v } }); }, o);
       el.querySelector("#td-due").onchange = e => again(t.id, { set: { due: e.target.value || "" } });
       el.querySelectorAll(".chip").forEach(ch => ch.onclick = () => dropdown(ch, tTagItems(t), v => {
         const have = t.tags || [];
@@ -673,7 +660,7 @@ window.addEventListener("resize", () => { const p = $("#taskspanel"); if (p && p
     if (e.target.closest("#taddbottom") || e.target.closest(".tempty .create")) return void tOpenAdd("general");
     if (e.target.closest(".tadd")) return;
     const row = e.target.closest(".trow"); if (!row) return;
-    const t = taskById(row.dataset.id); if (!t) return;
+    const t = taskById(row.dataset.key || row.dataset.id); if (!t || tPersonalError) return;
     if (e.target.closest(".ball")) return void tSetStatus(t, tNext(t.status));
     const who = e.target.closest(".who");
     if (who) { const nx = tWhoLeft(t.owner || ""); if (nx == null) return toast("no agents in this business"); return void tSetOwner(t, nx); }
@@ -683,7 +670,7 @@ window.addEventListener("resize", () => { const p = $("#taskspanel"); if (p && p
   // right click: blocked on the ball, the human owner on the assignee
   panel.addEventListener("contextmenu", e => {
     const row = e.target.closest(".trow"); if (!row) return;
-    const t = taskById(row.dataset.id); if (!t) return;
+    const t = taskById(row.dataset.key || row.dataset.id); if (!t || tPersonalError) return;
     if (e.target.closest(".ball")) { e.preventDefault(); return void tSetStatus(t, t.status === "blocked" ? "open" : "blocked"); }
     if (e.target.closest(".who")) { e.preventDefault(); return void tSetOwner(t, tWhoRight(t.owner || "")); }
   });
@@ -705,10 +692,12 @@ window.addEventListener("resize", () => { const p = $("#taskspanel"); if (p && p
   });
 
   tSetView(tView);
+  refreshTasks();
   setInterval(() => {
     if (state.biz && state.biz !== tLastBiz) {
       tLastBiz = state.biz;
-      tDoneT.forEach(clearTimeout); tDoneT.clear(); tCompleting.clear();   // holds belong to the business they started in
+      // Completion timers retain the originating task and business across navigation.
+      //
       refreshTasks();
       if (tView === "activity") { tLog = []; tLogSig = null; tActivityRefresh(); }
       // Flush the old business draft before opening the next Notes view.
@@ -719,8 +708,8 @@ window.addEventListener("resize", () => { const p = $("#taskspanel"); if (p && p
     }
   }, 500);
   setInterval(() => {
-    if (!state.biz) return;
-    refreshTasks();                                    // keeps #tcount live in every view
+    refreshTasks();
+    if (!state.biz) return;                                    // keeps #tcount live in every view
     if (tView === "activity") tActivityRefresh();
     if (tView === "routines") rtRefresh();
     if (tView === "signoffs" && tPanelOpen()) sgRefresh();

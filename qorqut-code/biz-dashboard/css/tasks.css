@@ -297,3 +297,11 @@
 .tlog { padding: 4px 0 0; }
 
 @media (max-width: 860px) { .taskswrap > .tasks { width: 100vw; min-width: 0; } }
+
+.personal-task .task-business { display:inline-flex; align-items:center; justify-content:center; flex:0 0 23px; width:23px; height:23px; border:1px solid var(--line); border-radius:6px; font:600 10px/1 var(--mono); color:var(--fg-2); background:var(--surface); }
+.tasks .personal-task { display:flex; align-items:center; gap:10px; }
+.personal-task .ttl { flex:1; min-width:0; }
+.personal-task .tdl { flex:none; }
+.personal-completed { margin-top:20px; }
+.personal-completed > summary { cursor:pointer; color:var(--fg-3); font-size:12px; margin-bottom:10px; }
+.personal-task-error { color:var(--danger); font-size:12px; }

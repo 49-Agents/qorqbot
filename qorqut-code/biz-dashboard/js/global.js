@@ -33,8 +33,10 @@ function syncWorkspaceNav() {
     el.classList.toggle('on', selected);
     if (selected) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
   });
-  $('#taskswrap').hidden = global;
-  $('#toasts').hidden = global && state.globalTab !== 'routines';
+  $('#taskswrap').hidden = false;
+  if (global || tView === 'tasks') tSetView('tasks');
+  tPaintSig = null; paintTasks();
+  $('#toasts').hidden = false;
   if (global) {
     $('#foot').innerHTML = ''; $('#foot').title = '';
   }
