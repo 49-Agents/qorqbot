@@ -81,6 +81,7 @@ class Terminal:
         self.done = False
         self.exit_code: int | None = None
         self._lock = threading.Lock()
+        self._output = threading.Condition(self._lock)  # notified on every appended chunk and at exit
 
         self._reader = threading.Thread(target=self._pump, daemon=True)
         self._reader.start()
@@ -125,6 +126,7 @@ class Terminal:
                     self.seq += 1
                     while self._nbytes > RING_CAP and len(self._chunks) > 1:
                         self._nbytes -= len(self._chunks.pop(0))
+                    self._output.notify_all()
             elif self.proc.poll() is not None:
                 break
         # Only the reader closes the descriptor, after its last possible read.
@@ -141,7 +143,9 @@ class Terminal:
         except subprocess.TimeoutExpired:
             pass
         self.exit_code = self.proc.returncode
-        self.done = True
+        with self._lock:
+            self.done = True
+            self._output.notify_all()
 
     # ---- input ----
     def write(self, data: bytes) -> None:
@@ -154,6 +158,20 @@ class Terminal:
                 pass
 
     # ---- mirror reads ----
+    def wait_output(self, cursor: int, timeout: float = 0.5) -> None:
+        """Block until output past `cursor` exists, the terminal ends, or `timeout` elapses.
+
+        Mirrors idle on this instead of polling tail_from: echoed bytes reach the
+        stream as soon as the reader appends them, not on the next poll tick.
+        """
+        deadline = time.monotonic() + timeout
+        with self._output:
+            while self.seq <= cursor and not self.done:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return
+                self._output.wait(remaining)
+
     def snapshot(self) -> tuple[bytes, int]:
         """Current scrollback as one blob + the seq cursor it ends at."""
         with self._lock:

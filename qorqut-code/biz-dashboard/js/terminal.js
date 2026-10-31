@@ -1,5 +1,5 @@
 // Terminal mirror: one live xterm bound to an agent's background PTY on the server.
-// Output = base64 SSE frames -> xterm; keystrokes -> POST input. The PTY lives on the
+// Output = base64 SSE frames -> xterm; keystrokes -> POST input (coalesced per flight). The PTY lives on the
 // server and persists (survives tab switches / reconnects); reconnecting replays scrollback.
 // The mirror fills the pane and re-fits on resize. Floating controls reconnect a broken
 // stream and toggle the agent overview; all agent execution control stays in the shell.
@@ -142,17 +142,43 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
   es.addEventListener("done", () => setStat("ended"));
   es.onerror = () => { es.close(); if (session.es === es) session.es = null; setStat("disconnected"); };
 
-  // input: keystrokes -> POST (the PTY echoes back over the stream)
-  let inputQueue = Promise.resolve(), inputFailed = false;
+  // input: keystrokes -> POST (the PTY echoes back over the stream). Bytes arriving
+  // while a POST is in flight coalesce into the next request, so fast typing costs
+  // one round-trip per flight, not one per keystroke. A caller's promise resolves
+  // true only once everything up to and including its bytes was delivered.
+  let inputBuffer = '', inputWaiters = [], inputFlushing = false, inputFailed = false;
+  const flushInput = async () => {
+    if (inputFlushing) return;
+    inputFlushing = true;
+    try {
+      while (!inputFailed && session.term === term && (inputBuffer || inputWaiters.length)) {
+        // Stay under the server's per-request input bound; a rare oversized
+        // paste drains in order across requests.
+        const data = inputBuffer.slice(0, 57344);
+        inputBuffer = inputBuffer.slice(data.length);
+        const waiters = inputBuffer ? [] : inputWaiters.splice(0, inputWaiters.length);
+        let delivered = !data;
+        if (data) {
+          try { delivered = !(await post(`${terminalBase}/input`, { data })).error; }
+          catch (_) { delivered = false; }
+        }
+        if (!delivered) { inputFailed = true; setStat('disconnected'); }
+        waiters.forEach(resolve => resolve(delivered));
+      }
+    } finally {
+      inputFlushing = false;
+      if (inputFailed || session.term !== term) {
+        inputBuffer = '';
+        inputWaiters.splice(0, inputWaiters.length).forEach(resolve => resolve(false));
+      }
+    }
+  };
   const sendInput = d => {
-    const pending = inputQueue.then(async () => {
-      if (session.term !== term || inputFailed) return false;
-      const result = await post(`${terminalBase}/input`, { data: d });
-      if (result.error) throw new Error('Terminal input failed');
-      return true;
-    }).catch(() => { inputFailed = true; setStat('disconnected'); return false; });
-    inputQueue = pending;
-    return pending;
+    if (inputFailed || session.term !== term) return Promise.resolve(false);
+    inputBuffer += d;
+    const delivered = new Promise(resolve => inputWaiters.push(resolve));
+    flushInput();
+    return delivered;
   };
   term.onData(d => {
     // Replaying old terminal queries must not type their generated replies into
