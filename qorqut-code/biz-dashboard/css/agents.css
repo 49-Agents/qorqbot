@@ -1,1 +1,87 @@
-/* agents */
+/* agents: chat header, usage readout, agent list header, slash popover, compose, look/new modals */
+
+/* ---------------------------------------------------------------- header */
+.chat .top .aglyph { width: 28px; height: 28px; padding: 0; border: 1px solid transparent; background: none;
+  border-radius: var(--r-sm); display: inline-flex; align-items: center; justify-content: center; line-height: 0; cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease; }
+.chat .top .aglyph:hover { background: var(--hover); border-color: var(--line); }
+.chat .top .name { font-weight: 500; letter-spacing: -.011em; }
+.chat .top .badge { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 11px; margin-left: 2px;
+  border: 1px solid var(--line); background: none; border-radius: var(--r-full); color: var(--fg-2); font-size: 12px;
+  cursor: pointer; white-space: nowrap; transition: background 140ms ease, border-color 140ms ease, color 140ms ease; }
+.chat .top .badge:hover { background: var(--hover); border-color: var(--line-2); color: var(--fg); }
+.chat .top .sp { flex: 1; }
+
+/* tokens and cost */
+.usage { display: inline-flex; align-items: baseline; gap: 14px; margin-right: 18px; white-space: nowrap; }
+.usage .uf { display: inline-flex; align-items: baseline; gap: 5px; }
+.usage .ul { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--fg-3); }
+.usage .un { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--fg-2); }
+.usage .uf.money .un { color: var(--fg); font-size: 12.5px; }
+@media (max-width: 1280px) { .usage { gap: 10px; margin-right: 12px; } .usage .ul { letter-spacing: .08em; } }
+
+/* ---------------------------------------------------- agent list + plus */
+.listcol .lhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 16px 10px 24px; }
+.listcol .lhead .h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--fg-3); }
+.listcol .plus { width: 24px; height: 24px; padding: 0; border: 0; background: none; color: var(--fg-2); border-radius: var(--r-full);
+  font-size: 17px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease; }
+.listcol .plus:hover { background: var(--hover); color: var(--fg); transform: scale(1.06); }
+.listcol .plus:active { transform: scale(.94); }
+
+/* -------------------------------------------------------------- compose */
+.compose { position: relative; }
+.compose textarea { flex: 1; resize: none; overflow-y: hidden; box-sizing: border-box; min-height: 0; max-height: 160px;
+  border: 1px solid var(--line-2); background: var(--wash); color: var(--fg); border-radius: var(--r-sm);
+  padding: 9px 13px; font: 14px/20px var(--sans); outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease; }
+.compose textarea::placeholder { color: var(--fg-3); }
+.compose textarea:focus { border-color: rgba(255, 255, 255, .3); box-shadow: 0 0 0 4px rgba(255, 255, 255, .025); }
+
+/* slash commands */
+.slash { position: absolute; left: 28px; right: 28px; bottom: calc(100% - 8px); max-width: 560px; z-index: 6;
+  background: var(--elevated); border: 1px solid var(--line-2); border-radius: var(--r); box-shadow: var(--shadow-float);
+  padding: 4px; overflow: hidden; }
+.slash[hidden] { display: none; }
+.slash .si { display: flex; align-items: baseline; gap: 10px; padding: 8px 10px; border-radius: var(--r-sm); cursor: pointer; }
+.slash .si.on { background: var(--hover); }
+.slash .si .c { font: 13px/1.4 var(--mono); color: var(--fg); flex: none; }
+.slash .si .d { font-size: 12px; line-height: 1.45; color: var(--fg-2); }
+
+/* the "cleared" note survives quiet mode */
+.msgs.quiet .m.sys.note { display: block; }
+
+/* compact summary bubble */
+.m.agent.compact .tag { display: block; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--fg-3); margin-bottom: 6px; }
+
+/* --------------------------------------------------------- modal bodies */
+.mbody .fl { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-3); margin: 18px 0 8px; }
+.mbody .fl:first-child { margin-top: 0; }
+.mbody .prev { display: flex; align-items: center; justify-content: center; height: 48px; margin-bottom: 4px; }
+.mbody .shapes { display: flex; gap: 10px; }
+.mbody .sbtn { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); background: none; border-radius: var(--r-sm); cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease; }
+.mbody .sbtn:hover { background: var(--hover); transform: scale(1.02); }
+.mbody .sbtn:active { transform: scale(.98); }
+.mbody .sbtn.on { border-color: rgba(255, 255, 255, .34); background: var(--wash); }
+.mbody .swatches { display: flex; gap: 12px; flex-wrap: wrap; }
+.mbody .cdot { width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--r-full); background: var(--dc); cursor: pointer;
+  transition: box-shadow 140ms ease, transform 140ms ease; }
+.mbody .cdot:hover { transform: scale(1.06); box-shadow: 0 0 0 3px rgba(255, 255, 255, .1); }
+.mbody .cdot.on { box-shadow: 0 0 0 2px var(--elevated), 0 0 0 4px rgba(255, 255, 255, .5); }
+.mbody .selbtn { display: flex; align-items: center; justify-content: flex-start; width: 100%; }
+.mbody .selbtn .v { display: inline-flex; align-items: center; gap: 8px; }
+.mbody .inp { display: block; width: 100%; box-sizing: border-box; height: 36px; padding: 0 12px; color: var(--fg);
+  background: var(--wash); border: 1px solid var(--line-2); border-radius: var(--r-sm); outline: none;
+  font: 14px/34px var(--sans); transition: border-color 140ms ease, box-shadow 140ms ease; }
+.mbody .inp:focus { border-color: rgba(255, 255, 255, .3); box-shadow: 0 0 0 4px rgba(255, 255, 255, .025); }
+.mbody .inp.bad { border-color: rgba(213, 90, 90, .55); }
+.mbody .inp::placeholder { color: var(--fg-3); }
+.mbody .fmsg { font-size: 12px; color: var(--fg-3); margin-top: 7px; }
+.mbody .fmsg.ok { color: var(--ok); }
+.mbody .fmsg.bad { color: var(--danger); }
+.mbody .ferr { margin-top: 16px; padding: 9px 12px; font-size: 13px; border-radius: var(--r-sm);
+  color: #e7a3a3; background: rgba(213, 90, 90, .1); border: 1px solid rgba(213, 90, 90, .32); }
+.mbody .ferr[hidden] { display: none; }

@@ -1,1 +1,238 @@
-/* tasks */
+ 
+
+/* ---------------------------------------------------------------- shell */
+.taskswrap { position: fixed; top: 0; right: 0; z-index: 22; }
+.thandle {
+  position: absolute; top: 16px; right: 18px; width: 34px; height: 34px;
+  border: 0; padding: 0; border-radius: var(--r-sm); background: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; z-index: 3;
+  color: var(--fg-2); transition: background .15s ease, color .15s ease;
+}
+.thandle:hover { background: var(--hover); color: var(--fg); }
+.taskswrap.open .thandle { color: var(--fg); }
+.thandle .n {
+  font: 600 12px/1 var(--mono); font-variant-numeric: tabular-nums;
+  letter-spacing: .02em; color: inherit;
+}
+.thandle .n:empty::before { content: "·"; opacity: .5; }
+
+.tasks {
+  position: fixed; top: 0; right: 0; z-index: 1; height: 100vh; width: 50vw; min-width: 560px; max-width: 100vw;
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--surface); border-left: 1px solid var(--line);
+  box-shadow: var(--shadow-float);
+  transform: translateX(100%); opacity: 0; visibility: hidden;
+  transition: transform 280ms cubic-bezier(.4,0,.2,1), opacity 180ms ease, visibility 0s linear 280ms;
+  color-scheme: dark;
+}
+.taskswrap.open .tasks {
+  transform: none; opacity: 1; visibility: visible; transition-delay: 0s;
+}
+
+/* ---------------------------------------------------------------- header */
+.tasks .thead {
+  flex: none; display: flex; align-items: center; gap: 12px;
+  padding: 22px 64px 14px 24px; border-bottom: 1px solid var(--line);
+}
+.tasks .thead .lbl {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em;
+  color: var(--fg-2); opacity: .6; margin: 0;
+}
+.tasks .thead .sp { flex: 1; }
+
+.seg { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: var(--r-full); background: var(--wash); border: 1px solid var(--line); }
+.seg button {
+  border: 0; background: none; cursor: pointer; height: 26px; padding: 0 12px;
+  border-radius: var(--r-full); font-size: 12px; font-weight: 500; color: var(--fg-2);
+  transition: background .15s ease, color .15s ease;
+}
+.seg button:hover { background: var(--hover); color: var(--fg); }
+.seg button.on { background: var(--elevated); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.35); }
+
+.tasks .pill {
+  height: 30px; padding: 0 14px; border: 0; border-radius: var(--r-full);
+  background: var(--accent); color: var(--accent-fg); font-weight: 600; font-size: 12.5px; cursor: pointer;
+  transition: transform .12s ease, opacity .12s ease;
+}
+.tasks .pill:hover { transform: scale(1.02); }
+.tasks .pill:active { transform: scale(.98); }
+
+/* ---------------------------------------------------------------- body */
+.tasks .tbody { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 40px; font-size: 13px; }
+.tasks .tbody::-webkit-scrollbar { width: 6px; }
+.tasks .tbody::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 3px; }
+.tasks .tbody::-webkit-scrollbar-track { background: transparent; }
+
+.tasks .tempty { color: var(--fg-3); padding: 28px 24px; font-size: 13px; }
+
+/* add row */
+.tadd {
+  display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+}
+.tadd input {
+  flex: 1; min-width: 0; border: 0; background: none; outline: none;
+  font: 13px/1.4 var(--sans); color: var(--fg); padding: 0;
+}
+.tadd input::placeholder { color: var(--fg-3); }
+.tadd .hint { font: 11px var(--mono); color: var(--fg-3); opacity: 0; transition: opacity .15s ease; white-space: nowrap; }
+.tadd:focus-within .hint { opacity: 1; }
+
+/* group headers */
+.tgroup { border-bottom: 1px solid var(--line); }
+.tgroup:last-child { border-bottom: 0; }
+.tgh {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 18px 24px 8px; border: 0; background: none; text-align: left; cursor: default;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--fg-2);
+}
+.tgroup.foldable .tgh { cursor: pointer; }
+.tgroup.foldable .tgh:hover { color: var(--fg); }
+.tgh .c { font: 500 11px/1 var(--mono); letter-spacing: .02em; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.tgh .chev {
+  width: 10px; height: 10px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg); margin-left: 2px; opacity: .55; transition: transform .18s ease;
+}
+.tgroup.closed .tgh .chev { transform: rotate(-45deg); }
+.tgroup.closed .trow { display: none; }
+
+/* ---------------------------------------------------------------- rows */
+.trow {
+  display: flex; align-items: center; gap: 9px; min-height: 48px; padding: 0 20px 0 24px;
+  transition: background .12s ease;
+}
+.trow:hover { background: var(--hover); }
+.trow .ttl {
+  flex: 1 1 0; min-width: 96px; color: var(--fg); cursor: text;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-radius: var(--r-sm); padding: 4px 6px; margin-left: -6px;
+}
+.trow .ttl:hover { background: var(--wash); }
+.trow input.tedit {
+  flex: 1; min-width: 0; font: 13px/1.4 var(--sans); color: var(--fg);
+  background: var(--elevated); border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  padding: 5px 6px; outline: none;
+}
+.trow input.tedit:focus { border-color: rgba(255,255,255,.3); box-shadow: 0 0 0 4px rgba(255,255,255,.025); }
+.trow.done .ttl { color: var(--fg-2); text-decoration: line-through; text-decoration-color: var(--fg-3); }
+.trow.dropped .ttl { color: var(--fg-3); text-decoration: line-through; text-decoration-color: var(--fg-3); }
+
+/* status ball */
+.ball {
+  flex: none; width: 18px; height: 18px; border-radius: var(--r-full); padding: 0;
+  border: 1.5px solid var(--fg-3); background: none; cursor: pointer; position: relative;
+  transition: border-color .15s ease, background .15s ease, transform .12s ease;
+}
+.ball:hover { transform: scale(1.12); border-color: var(--fg-2); }
+.ball.doing { border-color: var(--warn); background: var(--warn); }
+.ball.blocked { border-color: var(--danger); background: none; }
+.ball.blocked::after {
+  content: ""; position: absolute; inset: 3px; border-radius: var(--r-full); background: var(--danger); opacity: .45;
+}
+.ball.done { border-color: transparent; background: rgba(107,170,130,.4); background: color-mix(in srgb, var(--ok) 40%, transparent); }
+.ball.done::after {
+  content: ""; position: absolute; left: 5px; top: 3.5px; width: 4px; height: 7.5px;
+  border-right: 1.6px solid var(--fg); border-bottom: 1.6px solid var(--fg); transform: rotate(42deg); opacity: .9;
+}
+.ball.dropped { border-style: dashed; border-color: var(--fg-3); }
+.tadd .ball { cursor: default; opacity: .5; }
+.tadd .ball:hover { transform: none; border-color: var(--fg-3); }
+
+/* owner — narrows core's .selbtn for row use, keeps its chevron image */
+/* the meta columns are fixed width so every title truncates on the same line */
+.trow .selbtn {
+  flex: 0 0 104px; justify-content: flex-start; gap: 6px;
+  height: 26px; min-width: 0; max-width: none; padding: 0 20px 0 8px;
+  background-color: transparent; color: var(--fg-2); font-size: 12px;
+  border-color: transparent; background-position: right 5px center; background-size: 11px 11px;
+}
+.trow:hover .selbtn { border-color: var(--line); }
+.trow .selbtn:hover { border-color: var(--line-2); color: var(--fg); background-color: var(--wash); }
+.trow .selbtn .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* due date */
+.trow .due {
+  flex: 0 0 auto; width: 100px; height: 26px; padding: 0 4px;
+  border: 1px solid transparent; border-radius: var(--r-sm); background: none;
+  font: 12px var(--mono); font-variant-numeric: tabular-nums; color: var(--fg-2);
+  outline: none; cursor: pointer; color-scheme: dark;
+}
+.trow .due:hover { border-color: var(--line); background: var(--wash); }
+.trow .due:focus { border-color: rgba(255,255,255,.3); box-shadow: 0 0 0 4px rgba(255,255,255,.025); color: var(--fg); }
+.trow .due:invalid, .trow .due:not(:hover):not(:focus)[data-empty="1"] { color: var(--fg-3); }
+/* an empty date is just "mm/dd/yyyy" noise on every row — keep the column, hide the text */
+.trow:not(:hover) .due[data-empty="1"]:not(:focus) { opacity: 0; }
+.trow .due::-webkit-calendar-picker-indicator { filter: invert(.6); opacity: .45; cursor: pointer; }
+.trow .due:hover::-webkit-calendar-picker-indicator { opacity: .8; }
+
+/* tags */
+.trow .tags { flex: 0 0 152px; min-width: 0; display: flex; align-items: center; gap: 5px; overflow: hidden; }
+.chip {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: var(--r-full);
+  border: 1px solid var(--line); background: var(--wash); color: var(--fg-2);
+  font-size: 11px; letter-spacing: .01em; cursor: pointer; white-space: nowrap;
+  transition: border-color .15s ease, color .15s ease, background .15s ease;
+}
+.chip:hover { border-color: var(--danger); color: var(--danger); }
+.chip.add {
+  width: 22px; padding: 0; justify-content: center; color: var(--fg-3); font-size: 13px; line-height: 1;
+  transition: width .14s ease, opacity .14s ease, margin .14s ease, border-color .15s ease, color .15s ease, background .15s ease;
+}
+.chip.add:hover { border-color: var(--line-2); color: var(--fg); background: var(--hover); }
+/* the + only claims width while the row is hovered, so titles keep the space */
+.trow:not(:hover) .chip.add { width: 0; opacity: 0; border-width: 0; margin-left: -5px; overflow: hidden; }
+
+/* id + more */
+.trow .tid {
+  flex: 0 0 92px; min-width: 0; font: 11px var(--mono); color: var(--fg-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right;
+}
+.trow .more {
+  flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--r-sm);
+  background: none; color: var(--fg-3); font-size: 15px; line-height: 1; cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.trow .more:hover { background: var(--hover); color: var(--fg); }
+
+/* owner popover rows (markup emitted by tOwnerItems, lives inside core's .menu .mi) */
+.towner { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.towner .tn { overflow: hidden; text-overflow: ellipsis; }
+.towner .tsub {
+  font: 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--fg-3); padding-left: 2px;
+}
+.towner .tdot { width: 8px; height: 8px; border-radius: var(--r-full); border: 1.5px solid var(--fg-3); flex: none; }
+
+/* ---------------------------------------------------------------- detail modal */
+.tdetail { font-size: 13px; }
+.tdetail .dtitle { font-size: 16px; font-weight: 600; color: var(--fg); margin-bottom: 4px; line-height: 1.35; }
+.tdetail .did { font: 11px var(--mono); color: var(--fg-3); margin-bottom: 16px; }
+.tdetail .flds { display: grid; grid-template-columns: 92px 1fr; gap: 6px 14px; margin-bottom: 18px; }
+.tdetail .k { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-2); opacity: .7; padding-top: 3px; }
+.tdetail .v { color: var(--fg); min-width: 0; word-break: break-word; font-variant-numeric: tabular-nums; }
+.tdetail .v.mono { font: 12px var(--mono); }
+.tdetail .v .none { color: var(--fg-3); }
+.tdetail h4 {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em;
+  color: var(--fg-2); opacity: .6; margin: 20px 0 8px;
+}
+.tnote { padding: 10px 0; border-top: 1px solid var(--line); }
+.tnote .nh { display: flex; gap: 10px; align-items: baseline; margin-bottom: 3px; }
+.tnote .nh .by { font-size: 12px; color: var(--fg-2); }
+.tnote .nh .ts { font: 11px var(--mono); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.tnote .tx { color: var(--fg); white-space: pre-wrap; word-break: break-word; line-height: 1.55; }
+.tdetail textarea {
+  width: 100%; min-height: 62px; resize: vertical; margin-top: 8px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm);
+  color: var(--fg); font: 13px/1.5 var(--sans); padding: 9px 11px; outline: none;
+}
+.tdetail textarea:focus { border-color: rgba(255,255,255,.3); box-shadow: 0 0 0 4px rgba(255,255,255,.025); }
+.tdetail .drow { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.tdetail .ghost {
+  height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: none; color: var(--fg-2); font-size: 12.5px; cursor: pointer;
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.tdetail .ghost:hover { background: var(--hover); color: var(--fg); border-color: var(--line-2); }
+
+@media (max-width: 1120px) { .tasks { width: 100vw; min-width: 0; } }
