@@ -497,8 +497,18 @@ function tTagItems(t) {
 }
 
 
-function tOpenTask(id) {
-  const t = taskById(id); if (!t) return;
+async function tOpenTask(id) {
+  const biz = state.biz;
+  if (!biz) return;
+  let t = taskById(id);
+  // Activity can arrive before the shared task cache, including links to completed tasks.
+  if (!t) {
+    try { await refreshTasks(); }
+    catch (e) { if (state.biz === biz) toast("Could not load task."); return; }
+    if (state.biz !== biz) return;
+    t = taskById(id);
+  }
+  if (!t) { toast("Task is no longer available."); return; }
   clearTimeout(tSearchT); tSearch = "";
   // Cross-pane navigation belongs to this click, even though it began outside the drawer.
   tInside = true;

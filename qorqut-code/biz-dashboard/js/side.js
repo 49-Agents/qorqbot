@@ -25,8 +25,13 @@ async function refreshSide() {
   f.title = running.length ? `${running.length} session${running.length === 1 ? "" : "s"} running` : "quiet";
 }
 
-// The log rows (stroke look): a department-coloured stroke, the summary in one line, time + actor under it,
-// days as labelled gaps. Not on screen at the moment (the right rail is gone); kept for the log's next home.
+// Shared activity rows: department stroke, summary, time/actor, and an optional related task.
+// Only the log's explicit task reference establishes a relationship; prose is never matched.
+function logTaskId(entry) {
+  const ref = entry.refs && entry.refs.task;
+  return typeof ref === "string" ? ref.trim() : "";
+}
+
 function logHtml(rows) {
   const today = new Date().toISOString().slice(0, 10), yday = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
   const dayLabel = k => k === today ? "today" : k === yday ? "yesterday"
@@ -35,16 +40,26 @@ function logHtml(rows) {
   for (const e of rows) {
     const d = dept(TAG_DEPT[e.tag]), who = String(e.actor || "").replace(/^(agent|human|system):/, "");
     const raw = String(e.ts || ""), k = raw.slice(0, 10), time = raw.slice(11, 16);
+    const task = logTaskId(e);
     if (k !== day) { day = k; html += `<div class="lday" data-day="${esc(dayLabel(k))}"></div>`; }
-    html += `<div class="le" style="--c:${d.color}"><div class="ls">${esc(e.summary || "")}</div>` +
-      `<div class="lm"><span>${esc(time)}</span><span class="la">${esc(who)}</span></div></div>`;
+    html += `<div class="le${task ? " has-task" : ""}" style="--c:${d.color}"><div class="ls">${esc(e.summary || "")}</div>` +
+      `<div class="lm"><span>${esc(time)}</span><span class="la">${esc(who)}</span></div>` +
+      (task ? `<button class="ltask" type="button" title="Open related task" aria-label="Open related task">${T_VIEW_ICON.tasks}</button>` : "") + `</div>`;
   }
   return html;
 }
 function logTips(el, rows) {
-  if (typeof tip !== "function") return;
+  const biz = state.biz;
   el.querySelectorAll(".le").forEach((row, i) => {
     const e = rows[i];
+    const button = row.querySelector(".ltask"), task = logTaskId(e);
+    if (button && task) button.onclick = async () => {
+      if (state.biz !== biz || !button.isConnected || button.disabled) return;
+      button.disabled = true;
+      try { await tOpenTask(task); }
+      finally { button.disabled = false; }
+    };
+    if (typeof tip !== "function") return;
     tip(row, () => {
       const who = String(e.actor || "").replace(/^(agent|human|system):/, "");
       const det = e.detail ? String(e.detail).slice(0, 600) : "";
