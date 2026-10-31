@@ -35,9 +35,11 @@ async function renderGlobalAgents(c) {
     <span class="agent-presence" data-agent-presence="${esc(agent.agent_id)}" role="img"></span>
   </button>`).join('');
   agentNavPaint(); agentNavRefresh();
-  const linkedFocus=new URLSearchParams(location.search).has('focus_item');
+  const params = new URLSearchParams(location.search);
+  const linkedFocus = params.has('focus_item');
+  const linkedWorkspace = agTakeLinkedWorkspace('#/global/agents');
   let selected;
-  const select = agent => {
+  const select = (agent, requestedView = null) => {
     if (!current()) return;
     const workspace = agent === GLOBAL_WORKSPACE_TERMINAL;
     selected = workspace ? GLOBAL_WORKSPACE_TERMINAL : agent.agent_id;
@@ -58,7 +60,8 @@ async function renderGlobalAgents(c) {
     agpadMount(workspace ? '' : (agent.display_name || agent.name), $('#agpad', c), workspace ? {
       biz: null, open: false, isCurrent: () => false,
     } : {
-      biz: null, agentId: agent.agent_id, views: agent.role?.id === 'ordubashy' ? ['focus', 'inbox', 'globalTasks'] : ['inbox', 'globalTasks'], open: linkedFocus || ls('agpad:null') !== 'off',
+      biz: null, agentId: agent.agent_id, workspaceScope: 'global', workspaceRole: agent.role?.id || null,
+      initialView: requestedView, open: linkedFocus || ls('agpad:null') !== 'off',
       isCurrent: () => current() && selected === agent.agent_id,
     });
   };
@@ -69,9 +72,9 @@ async function renderGlobalAgents(c) {
         ? GLOBAL_WORKSPACE_TERMINAL : agents.find(a => a.agent_id === button.dataset.globalAgent));
     };
   });
-  const linkedAgent=new URLSearchParams(location.search).get('agent');
+  const linkedAgent=params.get('agent');
   if(linkedAgent){const url=new URL(location.href);url.searchParams.delete('agent');history.replaceState(null,'',url);}
   const remembered = linkedAgent || (linkedFocus ? agents.find(a=>a.role?.id==='ordubashy')?.agent_id : ls('ag:scope:global'));
   select(remembered === GLOBAL_WORKSPACE_TERMINAL ? GLOBAL_WORKSPACE_TERMINAL
-    : agents.find(a => a.agent_id === remembered) || agents.find(a => a.role?.id === 'ordubashy') || agents[0] || GLOBAL_WORKSPACE_TERMINAL);
+    : agents.find(a => a.agent_id === remembered) || agents.find(a => a.role?.id === 'ordubashy') || agents[0] || GLOBAL_WORKSPACE_TERMINAL, linkedWorkspace);
 }

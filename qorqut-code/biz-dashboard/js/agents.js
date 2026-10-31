@@ -83,8 +83,15 @@ function agSetSel(name) {
 
 let agRenderGen = 0;
 const agPageCache = new Map();
+// The pane's views come from the workspace registry: its base views plus the
+// workspace types the agent's role supports.
+function agpadOptions(agent, extra = {}) {
+  return { workspaceScope: 'business', workspaceRole: agent?.role?.id || agent?.role_id || null,
+    agentId: agent?.agent_id || null, ...extra };
+}
 async function renderAgents(c) {
   const gen = ++agRenderGen, biz = state.biz;
+  const linkedWorkspace = agTakeLinkedWorkspace('#' + biz);
   c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><div class="agent-nav-heading"><h2>Agents</h2><span class="agent-nav-actions">${broadcastButton()}${agentNavButton()}</span></div><button class="primary" id="addagent">${ICO_PLUS}New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><div class="agent-pane-divider" data-agent-pane-divider role="separator" aria-label="Terminal and agent pane divider" aria-orientation="vertical" tabindex="0"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
   wireBroadcastButton(c, {scope:'business',biz});
   wireAgentNavToggle(c, biz);
@@ -98,7 +105,7 @@ async function renderAgents(c) {
     if (selected) {
       agSetSel(selected.name); paintList();
       mountTerminal(selected.name, $("#chat"), stat => markTermState(selected.name, stat));
-      agpadMount(selected.name, $("#agpad"));
+      agpadMount(selected.name, $("#agpad"), agpadOptions(selected, {initialView: linkedWorkspace}));
     }
   }
   let agents;
@@ -118,7 +125,7 @@ async function renderAgents(c) {
   agSetSel(a.name);
   paintList();
   mountTerminal(a.name, $("#chat"), stat => markTermState(a.name, stat));
-  agpadMount(a.name, $("#agpad"));
+  agpadMount(a.name, $("#agpad"), agpadOptions(a, {initialView: linkedWorkspace}));
 }
 
 function selectAgent(name) {
@@ -130,7 +137,7 @@ function selectAgent(name) {
   agSetSel(name);
   document.querySelectorAll('#agentrows .agent').forEach(row => row.classList.toggle('on', row.dataset.a === name));
   mountTerminal(name, chat, status => markTermState(name, status));
-  agpadMount(name, pane);
+  agpadMount(name, pane, agpadOptions(agent));
 }
 
 // reflect a terminal's live/ended state on its row in the agent list, without a refetch
