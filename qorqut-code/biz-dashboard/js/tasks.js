@@ -380,8 +380,13 @@ async function tActivityRefresh() {
 
 
 
+
+
+
 const JR_ICO_PANELLEFT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>`;
-const JR_ICO_BOOK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>`;
+const JR_ICO_PANELLEFTCLOSE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></svg>`;
+
+const JR_ICO_HOME = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
 const JR_ICO_ARROWUP = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/></svg>`;
 const JR_ICO_ARROWUP_SM = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/></svg>`;
 const JR_ICO_CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
@@ -624,8 +629,8 @@ function jrDetailHtml(m) {
     <div class="jreditor" id="jreditor">
       <div class="jredinner">
         <div class="jrtopbar">
-          <button id="jrtoggle" class="jricon" type="button" title="${jrListOff ? "Show memo list" : "Hide memo list"}">${JR_ICO_PANELLEFT}</button>
-          <button id="jrhomebtn" class="jrback" type="button" title="Journal home">${JR_ICO_BOOK}<span>Journal</span></button>
+          <button id="jrtoggle" class="jricon" type="button" aria-label="${jrListOff ? "Show memo list" : "Hide memo list"}" title="${jrListOff ? "Show memo list" : "Hide memo list"}">${jrListOff ? JR_ICO_PANELLEFT : JR_ICO_PANELLEFTCLOSE}</button>
+          <button id="jrhomebtn" class="jricon" type="button" aria-label="Journal home" title="Journal home">${JR_ICO_HOME}</button>
         </div>
         <div class="jredhead">
           <textarea id="jrtitle" class="jrtitlein" rows="1" placeholder="Untitled"></textarea>
@@ -672,7 +677,9 @@ function jrWireDetail(root, m) {
   toggleBtn.onclick = () => {
     jrListOff = !jrListOff; ls("jrlistoff", jrListOff ? "1" : "0");
     const side = root.querySelector("#jrside"); if (side) side.classList.toggle("off", jrListOff);
-    toggleBtn.title = jrListOff ? "Show memo list" : "Hide memo list";
+    const label = jrListOff ? "Show memo list" : "Hide memo list";
+    toggleBtn.title = label; toggleBtn.setAttribute("aria-label", label);
+    toggleBtn.innerHTML = jrListOff ? JR_ICO_PANELLEFT : JR_ICO_PANELLEFTCLOSE;
   };
   // Both controls live in the editor header (outside .jrside), so they still work — and stay
   // reachable — whether or not the sidebar is collapsed.
