@@ -11,7 +11,7 @@
 .agfocus-items .agfocus-card{cursor:default}
 .agfocus-items .agfocus-card:hover{border-color:var(--line-2);background:var(--wash)}
 .agfocus-items .agfocus-card:focus-visible{outline:2px solid var(--fg-2);outline-offset:2px}
-.agfocus-card h3{font-size:14px;font-weight:300;line-height:1.4;margin:5px 0}
+.agfocus-card h3{font-size:14px;font-weight:200;line-height:1.4;margin:5px 0}
 .agfocus-card .agfocus-reason{color:var(--fg-2);font-size:11px;line-height:1.5}
 .agfocus-framing{display:grid;gap:8px;margin:9px 0}
 .agfocus-framing section{border-left:2px solid var(--line-2);padding-left:8px}
@@ -72,7 +72,7 @@
 .agfocus-global-chip{padding:3px 6px}
 .agfocus-card .agfocus-meta .department-tag{font-size:10px;min-height:23px;padding:2px 7px}
 .agfocus-kind{font-size:10px}
-.agfocus-card h3{display:flex;align-items:center;gap:7px}
+.agfocus-card h3{display:flex;align-items:center;gap:7px;padding-top:2px}
 .agfocus-task-state{display:inline-flex;align-items:center;flex:none}
 .agfocus-task-state .core{width:10px;height:10px}
 
