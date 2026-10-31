@@ -5,7 +5,8 @@ function workspaceComposerCloseTerminal() {
   const root=document.querySelector('#workspace-composer');if(!root)return;
   root.querySelector('.workspace-terminal').replaceChildren();
   root.querySelector('.workspace-terminal').hidden=true;
-  const toggle=root.querySelector('[data-terminal]');toggle.setAttribute('aria-expanded','false');toggle.textContent='Show terminal';
+  root.querySelector('[data-terminal-resize]').hidden=true;
+  const toggle=root.querySelector('[data-terminal]');toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-label','Show terminal');
 }
 async function workspaceComposerRefresh() {
   const w=workspaceComposer,key=state.scope==='global'?'global':state.biz;
@@ -15,10 +16,29 @@ async function workspaceComposerRefresh() {
   workspaceComposerCloseTerminal();
   document.querySelector('#workspace-composer')?.remove();
   const root=document.createElement('section');root.id='workspace-composer';root.setAttribute('aria-label','Message an agent');
-  root.innerHTML='<div class="workspace-terminal" hidden></div><form><input class="inp" aria-label="Message agent" placeholder="Message an agent…" maxlength="16000" autocomplete="off"><button type="submit">Send</button><button type="button" data-recipient aria-label="Choose agent" disabled>…</button><button type="button" data-terminal aria-expanded="false" disabled>Show terminal</button></form><p role="status" class="workspace-composer-status"></p>';
+  root.innerHTML='<div data-terminal-resize role="separator" aria-label="Terminal height" aria-orientation="horizontal" tabindex="0" hidden></div><div class="workspace-terminal" hidden></div><form><input class="inp" aria-label="Message agent" placeholder="Message an agent…" maxlength="16000" autocomplete="off"><button type="submit">Send</button><button type="button" data-recipient aria-label="Choose agent" disabled>…</button><button type="button" data-terminal aria-label="Show terminal" aria-expanded="false" disabled><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg></button></form><p role="status" class="workspace-composer-status"></p>';
   document.body.appendChild(root);
   const input=root.querySelector('input'),send=root.querySelector('[type=submit]'),picker=root.querySelector('[data-recipient]'),toggle=root.querySelector('[data-terminal]'),status=root.querySelector('[role=status]');
   send.disabled=true;
+  const resize=root.querySelector('[data-terminal-resize]'),terminal=root.querySelector('.workspace-terminal');
+  const setHeight=value=>{
+    w.terminalHeight=Math.round(Math.max(120,Math.min(value,window.innerHeight-140)));
+    terminal.style.height=w.terminalHeight+'px';
+    resize.setAttribute('aria-valuenow',String(w.terminalHeight));
+    resize.setAttribute('aria-valuemin','120');resize.setAttribute('aria-valuemax',String(Math.max(120,window.innerHeight-140)));
+  };
+  let drag;
+  resize.onpointerdown=event=>{
+    if(event.button!==0)return;
+    event.preventDefault();drag={y:event.clientY,height:terminal.getBoundingClientRect().height};
+    resize.setPointerCapture(event.pointerId);
+  };
+  resize.onpointermove=event=>{if(drag)setHeight(drag.height+drag.y-event.clientY);};
+  resize.onpointerup=resize.onpointercancel=resize.onlostpointercapture=()=>{drag=null;};
+  resize.onkeydown=event=>{
+    if(!['ArrowUp','ArrowDown'].includes(event.key))return;
+    event.preventDefault();setHeight(terminal.getBoundingClientRect().height+(event.key==='ArrowUp'?20:-20));
+  };
   const current=()=>w.generation===generation && root.isConnected;
   let agents,selected,draft;
   const icon=agent=>identityAvatar('agent',agent.display_name || agent.name,{...agent,...agent.presentation,role:agent.role || {id:agent.role_id}});
@@ -42,10 +62,11 @@ async function workspaceComposerRefresh() {
   picker.onclick=()=>dropdown(picker,agents.map(agent=>({value:agent.agent_id,label:agent.display_name || agent.name,html:`<span class="workspace-agent-option">${icon(agent)}<span>${esc(agent.display_name || agent.name)}</span></span>`})),choose,selected.agent_id,{noCheck:true});
   toggle.onclick=()=>{
     if(w.dispose){workspaceComposerCloseTerminal();return;}
-    const host=root.querySelector('.workspace-terminal');host.hidden=false;
+    const host=root.querySelector('.workspace-terminal');host.hidden=false;resize.hidden=false;
+    setHeight(w.terminalHeight || (window.innerWidth<=600?200:240));
     const base=selected.business_slug?`/biz/${encodeURIComponent(selected.business_slug)}/terminal/${encodeURIComponent(selected.name)}`:`/root/terminal/${encodeURIComponent(selected.agent_id)}`;
     w.dispose=mountTerminal(selected.name,host,null,base,{});
-    toggle.setAttribute('aria-expanded','true');toggle.textContent='Hide terminal';
+    toggle.setAttribute('aria-expanded','true');toggle.setAttribute('aria-label','Hide terminal');
   };
   root.querySelector('form').onsubmit=async event=>{
     event.preventDefault();if(!selected || !draft || draft.sending || !draft.text.trim())return;
