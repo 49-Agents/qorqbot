@@ -89,7 +89,12 @@
 .tasks .jrhome .jrcard{min-height:102px;padding-left:24px;padding-right:24px;justify-content:space-between}
 
 .notes-home .jrcard { padding-top:13px; padding-bottom:13px; }
-.person-card { min-height:132px; min-width:0; }
+.person-card { min-height:156px; min-width:0; padding:20px 24px; }
 .person-card .jrctitle,.person-role,.person-org { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
 .person-role,.person-org { font-size:12px; color:var(--fg-2); min-height:17px; }
 .person-card .jrcfoot { white-space:nowrap; }
+
+.writing-large .jrgrid { grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr)); gap:16px; }
+.writing-large .jrcard { min-height:136px; padding:24px; justify-content:space-between; }
+.writing-large .jrctitle { font-size:16px; }
+.jrcsummary { margin:0; font-size:13px; line-height:1.6; color:var(--fg-2); overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }

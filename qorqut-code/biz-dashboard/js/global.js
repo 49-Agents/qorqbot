@@ -92,7 +92,7 @@ function renderGlobal(c) {
     c.innerHTML='<section class="pane tasks global-notes" aria-label="Global Notes"><div id="global-notes-body" class="tbody"></div></section>';
     ntOpenView();return;
   }
-  if (state.globalTab === 'learning') { c.innerHTML = '<section class="pane"><div id="ctxview"></div></section>'; return openLearning(); }
+  if (state.globalTab === 'learning') { c.innerHTML = '<section class="pane ctxview global-learning" id="ctxview" aria-label="Global Learning"></section>'; return openLearning(); }
   if (state.globalTab === 'settings') return renderSettings(c);
   if (state.globalTab === 'agents') return renderGlobalAgents(c);
   const generation = ++globalRender, page = GLOBAL_PAGES[state.globalTab];
