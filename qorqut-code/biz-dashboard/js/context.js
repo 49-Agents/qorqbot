@@ -165,12 +165,17 @@ function ctxPaint(d) {
   ctxTree(d);
 }
 
-// the sidebar: Overview row, CORE pillars, a flat list of top-level topics (dot + title, no nesting —
-// drilling into subtopics happens via the cards in the right pane), then People/Uploads at the bottom
+// the sidebar: Overview row, then People/Uploads, then CORE pillars, then a flat list of top-level
+// topics (dot + title, no nesting — drilling into subtopics happens via the cards in the right pane)
 function ctxTree(d) {
   const t = $("#ctxrows"), rows = [];
   const isRoot = !state.ctx;
   rows.push(`<div class="item ov ${isRoot ? "on" : ""}" data-p=""><div class="nm">${SVG_LIB}<span class="tt">Overview</span></div></div>`);
+  const inbox0 = d.inbox || [], failed0 = inbox0.filter(i => i.failed).length, waiting0 = inbox0.length - failed0;
+  const badge0 = failed0 ? `<span class="bdot bad"></span>` : waiting0 ? `<span class="bdot acc"></span>` : "";
+  const peopleOn0 = state.ctx === "_people" || (state.ctx != null && PERSON_VIEW_RE.test(state.ctx));
+  rows.push(`<div class="item bt ${peopleOn0 ? "on" : ""}" data-p="_people"><div class="nm">${SVG_PEOPLE}<span class="tt">People</span></div></div>`);
+  rows.push(`<div class="item bt ${state.ctx === "_uploads" ? "on" : ""}" data-p="_uploads"><div class="nm">${SVG_INBOX}<span class="tt">Uploads</span>${badge0}</div></div>`);
   rows.push(`<div class="h">Core</div>`);
   (d.pillars || []).forEach(n => rows.push(`<div class="item pl ${n === state.ctx ? "on" : ""}" data-p="${esc(n)}"><div class="nm"><span class="tt">${esc(titleCase(n.replace(/\.md$/, "")))}</span></div></div>`));
   const kids = (d.tree && d.tree.children) || [];
@@ -188,12 +193,6 @@ function ctxTree(d) {
     });
     if (seenChanged) ctxSeenSave(seen);
   }
-  rows.push(`<div class="cdiv"></div>`);
-  const inbox = d.inbox || [], failed = inbox.filter(i => i.failed).length, waiting = inbox.length - failed;
-  const badge = failed ? `<span class="bdot bad"></span>` : waiting ? `<span class="bdot acc"></span>` : "";
-  const peopleOn = state.ctx === "_people" || (state.ctx != null && PERSON_VIEW_RE.test(state.ctx));
-  rows.push(`<div class="item bt ${peopleOn ? "on" : ""}" data-p="_people"><div class="nm">${SVG_PEOPLE}<span class="tt">People</span></div></div>`);
-  rows.push(`<div class="item bt ${state.ctx === "_uploads" ? "on" : ""}" data-p="_uploads"><div class="nm">${SVG_INBOX}<span class="tt">Uploads</span>${badge}</div></div>`);
   t.innerHTML = rows.join("");
   t.querySelectorAll(".item").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
 }

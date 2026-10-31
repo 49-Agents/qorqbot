@@ -20,7 +20,6 @@
 .ctxtree .item.tp .fresh { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 .ctxtree .item.bt .bdot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 4px; background: var(--accent); }
 .ctxtree .item.bt .bdot.bad { background: var(--danger); }
-.cdiv { height: 1px; background: var(--line); margin: 10px 16px; }
 .ctxtree .empty.pad { padding: 4px 24px 8px; font-size: 12.5px; }
 
 /* Filing/upload cards inside the Uploads pane view (moved out of the tree) */
