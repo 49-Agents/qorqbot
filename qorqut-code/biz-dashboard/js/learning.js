@@ -158,7 +158,9 @@ function lnPaintCols(loading) {
   const all = lnSplit(_ln.items), q = _ln.q.trim();
   const open = all.open.filter(it => lnMatch(it, q, people, _ln.notes[it.id]));
   const decided = all.decided.filter(it => lnMatch(it, q, people));
-  const cards = list => `<div class="mkcards">${list.map(it => lnCardHtml(it, people)).join("")}</div>`;
+  const cards = list => `<div class="mkcards">${lnRelatedGroups(list).map(group => group.length > 1
+    ? `<section class="lnrelatedgroup"><p class="lnpending">Related statements — review together</p>${group.map(it => lnCardHtml(it, people)).join('')}</section>`
+    : lnCardHtml(group[0], people)).join('')}</div>`;
   const left = loading ? `<div class="empty">loading…</div>`
     : open.length ? cards(open)
     : q ? `<div class="empty">No open card matches.</div>` : `<div class="empty">Nothing waiting on you.</div>`;
@@ -176,6 +178,47 @@ function lnPaintCols(loading) {
 // chips, who, votes, age), the text, the
 // evidence, the passes, then the notes box (closed until the card takes focus) and Reject / Approve —
 // decided cards carry their note instead, and a Revert that puts them back on the left
+function lnRelatedGroups(items) {
+  const byId = new Map(items.map(it => [it.id, it])), links = new Map(items.map(it => [it.id, new Set()]));
+  for (const it of items) {
+    const related = [...(it.contradicts || []), ...(it.reconciliations || []).filter(r => !r.kept_both).map(r => r.earlier?.id)];
+    for (const id of related) if (byId.has(id) && id !== it.id) { links.get(it.id).add(id); links.get(id).add(it.id); }
+  }
+  const seen = new Set(), groups = [];
+  for (const it of items) {
+    if (seen.has(it.id)) continue;
+    const stack = [it.id], group = []; seen.add(it.id);
+    while (stack.length) {
+      const id = stack.pop(); group.push(byId.get(id));
+      for (const other of links.get(id)) if (!seen.has(other)) { seen.add(other); stack.push(other); }
+    }
+    groups.push(group);
+  }
+  return groups;
+}
+
+function lnReconciliationHtml(it) {
+  const labels = {answered: 'Question answered', updated: 'Later update', duplicate: 'Duplicate combined'};
+  return (it.reconciliations || []).map(r => {
+    const old = r.earlier || {};
+    const label = r.kept_both ? 'Kept separately' : r.automatic ? (labels[r.kind] || 'Related evidence') : 'Proposed update — review both';
+    return `<details class="lnreconciliation"><summary>${esc(label)}</summary><p><strong>Earlier:</strong> ${esc(old.text || '')}</p>
+      <p>${esc(old.evidence?.source_at || old.evidence?.source?.at || '')}</p>
+      <blockquote>${esc(old.evidence?.owner_quote || '')}</blockquote><p>${esc(r.reason || '')}</p>
+      ${r.automatic && !r.kept_both ? '<button type="button" class="mka" data-act="keep-both">Keep both separately</button>' : ''}</details>`;
+  }).join('');
+}
+
+async function lnKeepBoth(it) {
+  const workspace = lnWorkspace();
+  try {
+    const r = await post(`${lnBase()}/${encodeURIComponent(it.id)}/keep-both`, {expected_revision: it.revision});
+    if (workspace !== lnWorkspace()) return;
+    if (r.error) { toast(r.error.message || 'Could not restore earlier learning'); return; }
+    await lnRefetch();
+  } catch (error) { if (workspace === lnWorkspace()) toast(error.message); }
+}
+
 function lnCardHtml(item, people) {
   const it = item || {}, t = lnTag(it.tag), obs = it.observed || {}, ev = it.evidence || {};
   const locked = lnScopeLocked(it);
@@ -190,8 +233,8 @@ function lnCardHtml(item, people) {
   const bucketIco = bk ? `<span class="lnbucket" data-bucket="${esc(it.bucket)}" title="${esc(bk.label)}">${bk.ico}</span>` : "";
   const source = ev.source;
   const stamp = source ? [String(source.kind).replaceAll('_', ' '), source.actor_name, source.at].filter(Boolean).join(' · ') : [(ev.turns || []).join(" "), lnWho(obs.agent), String(ev.session || "").slice(0, 8)].filter(Boolean).join(" · ");
-  const conflict = it.contradicts?.length ? `<p class="lnpending">Possible conflict with ${it.contradicts.length} earlier learning${it.contradicts.length === 1 ? '' : 's'}.</p>` : '';
-  const sourceButton = `${conflict}<button type="button" class="mka" data-act="source">View source${it.contradicts?.length ? ' and conflicting lessons' : ''}</button>`;
+  const conflict = it.contradicts?.length ? `<p class="lnpending">Possible conflict with ${it.contradicts.length} related learning${it.contradicts.length === 1 ? '' : 's'}.</p>` : '';
+  const sourceButton = `${lnReconciliationHtml(it)}${conflict}<button type="button" class="mka" data-act="source">View source${it.contradicts?.length ? ' and conflicting lessons' : ''}</button>`;
   const quote = ev.owner_quote ? `<div class="lnquote">“${esc(ev.owner_quote)}”<span class="src">${esc(stamp)}</span></div>` : "";
   const more = Array.isArray(it.evidence_more) ? it.evidence_more.filter(e => e && e.owner_quote) : [];
   const moreEv = more.length ? `<details class="mkchain"><summary>seen ${more.length} more time${more.length === 1 ? "" : "s"}</summary>${more.map(e =>
@@ -254,7 +297,7 @@ function lnWire(root) {
     e.stopPropagation();
     const card = b.closest(".lncard"), it = card && lnFind(card.dataset.id);
     if (!it) return;
-    ({ source: lnShowSource, approve: lnApprove, reject: lnReject, reopen: lnReopen, "save-note": lnSaveOwnerNote, "resume-intake": lnResumeIntake }[b.dataset.act] || (() => {}))(it);
+    ({ "keep-both": lnKeepBoth, source: lnShowSource, approve: lnApprove, reject: lnReject, reopen: lnReopen, "save-note": lnSaveOwnerNote, "resume-intake": lnResumeIntake }[b.dataset.act] || (() => {}))(it);
   });
 }
 // Keep drafts and the current card until the service confirms the durable change.
