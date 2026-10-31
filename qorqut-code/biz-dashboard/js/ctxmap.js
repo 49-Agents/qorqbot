@@ -235,5 +235,3 @@ function ctxMapTree(d, node, isRoot) {
 
 // an upload's model-drawn mind map ({text, children} from bizctx map show --json) as renderer input
 const ctxMapIdea = (t, depth = 0) => ({ label: t.text, kind: depth ? "idea" : "root", children: (t.children || []).map(c => ctxMapIdea(c, depth + 1)) });
-
-const MAP_LEGEND = `<span><i class="t" style="background:#f5f0e8"></i>root</span><span><i class="t"></i>topic</span><span><i></i>note</span><span><i class="p"></i>person</span>`;

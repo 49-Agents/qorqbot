@@ -165,8 +165,8 @@ function ctxPaint(d) {
   ctxTree(d);
 }
 
-// the sidebar: Overview row, then People/Uploads, then CORE pillars, then a flat list of top-level
-// topics (dot + title, no nesting — drilling into subtopics happens via the cards in the right pane)
+// the sidebar: Overview row, then People/Uploads, then CORE pillars, then a TOPICS section with the
+// top-level topics (dot + title, no nesting — drilling into subtopics happens via the right-pane cards)
 function ctxTree(d) {
   const t = $("#ctxrows"), rows = [];
   const isRoot = !state.ctx;
@@ -179,6 +179,7 @@ function ctxTree(d) {
   rows.push(`<div class="h">Core</div>`);
   (d.pillars || []).forEach(n => rows.push(`<div class="item pl ${n === state.ctx ? "on" : ""}" data-p="${esc(n)}"><div class="nm"><span class="tt">${esc(titleCase(n.replace(/\.md$/, "")))}</span></div></div>`));
   const kids = (d.tree && d.tree.children) || [];
+  rows.push(`<div class="h">Topics</div>`);
   if (!kids.length) rows.push(`<div class="empty pad">No topics yet. Upload something; the filer makes them.</div>`);
   else {
     const seen = ctxSeenGet();
@@ -246,7 +247,7 @@ function openTopic(p) {
   if (mapMode) {
     const tree = ctxMapTree(d, node, root);
     v.innerHTML = head + `<div class="sec"><div class="sh">Map <span class="stamp">${mapCount(tree) - 1} nodes</span></div><div id="topicmap"></div></div>`;
-    mindmap($("#topicmap"), tree, { links: true, legend: MAP_LEGEND, onOpen: n => ctxGo(n.path) });
+    mindmap($("#topicmap"), tree, { links: true, onOpen: n => ctxGo(n.path) });
   } else {
     v.innerHTML = head + sum + pill + subs + nts;
   }
@@ -461,7 +462,7 @@ function uploadSections(uid, um) {
     <div class="sec trace"><div class="sh">Where it went</div>${cards}${topics}${people}</div>`;
 }
 function wireUpload(v, uid, um) {
-  if (um.map && um.map.tree) mindmap($("#dumpmap"), ctxMapIdea(um.map.tree), { legend: `<span>${esc(cap(um.map.root || "", 60))}</span>` });
+  if (um.map && um.map.tree) mindmap($("#dumpmap"), ctxMapIdea(um.map.tree));
   v.querySelectorAll(".trace .card, .trace .chip.go").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
   const b = $("#dumpdraw");
   if (b) b.onclick = async () => {
