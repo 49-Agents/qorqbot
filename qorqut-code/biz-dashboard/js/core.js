@@ -21,7 +21,6 @@ const agentGlyph = (m, size) => { const d = dept((m || {}).department); return g
 // lazy: the render functions live in later script files
 const TABS = { agents: c => renderAgents(c), context: c => renderContext(c),
   marketing: c => soon(c, "Channels, posts and weekly metrics."), accounting: c => soon(c, "The cash ledger and what recurs."),
-  terminal: c => renderTerminals(c),
   datascience: c => soon(c, "Experiments and metric deep-dives."),
   progress: c => soon(c, "Tasks, milestones and what shipped."),
   code: c => soon(c, "Repos, commits and deploys.") };
