@@ -10,7 +10,7 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from .graph import ProviderError
+from .fastmail import ProviderError
 from .models import MAX_HTTP_BYTES, Outgoing
 from .store import Store
 
@@ -40,7 +40,7 @@ def create_app(service, *, background=True):
                     await task
                 except asyncio.CancelledError:
                     pass
-            service.graph.close()
+            service.provider.close()
 
     def authenticate(request, *, send=False):
         supplied = request.headers.get("Authorization", "")
@@ -49,7 +49,7 @@ def create_app(service, *, background=True):
             return JSONResponse({"error": "unauthenticated"}, status_code=401)
 
     async def health(request):
-        return JSONResponse({"live": True, "service": "engine-email", "provider": "microsoft365"})
+        return JSONResponse({"live": True, "service": "engine-email", "provider": "fastmail"})
 
     async def read(request):
         denied = authenticate(request)
@@ -78,14 +78,14 @@ def create_app(service, *, background=True):
                 return JSONResponse({"error": "message_not_found"}, status_code=404)
             if kind == "message":
                 return JSONResponse({"message": message})
-            attachments = await anyio.to_thread.run_sync(lambda: service.graph.attachments(mailbox, identity))
+            attachments = await anyio.to_thread.run_sync(lambda: service.provider.attachments(mailbox, identity))
             if kind == "attachments":
                 return JSONResponse({"attachments": attachments})
             attachment_id = request.query_params.get("attachment_id", "")
             selected = next((item for item in attachments if item["id"] == attachment_id), None)
             if selected is None:
                 return JSONResponse({"error": "attachment_not_found"}, status_code=404)
-            content = await anyio.to_thread.run_sync(lambda: service.graph.attachment(mailbox, identity, attachment_id))
+            content = await anyio.to_thread.run_sync(lambda: service.provider.attachment(mailbox, identity, attachment_id))
             return Response(content, media_type="application/octet-stream", headers={"X-Content-Type-Options": "nosniff",
                 "Cache-Control": "no-store"})
         except ValueError:

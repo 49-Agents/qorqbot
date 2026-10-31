@@ -8,7 +8,6 @@ import re
 from dataclasses import dataclass
 from email.headerregistry import Address
 from pathlib import Path
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -108,17 +107,12 @@ class Outgoing(BaseModel):
 class Mailbox(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     ref: str = Field(pattern=r"^[A-Za-z0-9_-]{1,100}$")
-    object_id: str
+    folder_id: str = Field(min_length=1, max_length=255)
     address: str
     business_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
     aliases: list[str] = Field(default_factory=list, max_length=100)
 
     _address = field_validator("address")(address)
-
-    @field_validator("object_id")
-    @classmethod
-    def object_uuid(cls, value):
-        return str(UUID(value))
 
     @field_validator("aliases")
     @classmethod
@@ -134,10 +128,9 @@ class Settings:
     database: Path
     read_token: str
     send_token: str
-    tenant_id: str
-    client_id: str
-    client_secret: str
+    api_token: str
     mailboxes: tuple[Mailbox, ...]
+    account_id: str = ""
     sync_seconds: int = 120
     timeout: int = 30
 
@@ -155,18 +148,17 @@ class Settings:
         if not isinstance(raw, list) or not raw:
             raise ValueError("EMAIL_MAILBOXES_FILE must contain a nonempty array")
         mailboxes = tuple(Mailbox.model_validate(item) for item in raw)
-        refs, objects, addresses = set(), set(), set()
+        refs, folders, addresses = set(), set(), set()
         for mailbox in mailboxes:
             owned = {mailbox.address, *mailbox.aliases}
-            if mailbox.ref in refs or mailbox.object_id in objects or addresses & owned:
-                raise ValueError("Mailbox references, objects, and addresses must be unique")
+            if mailbox.ref in refs or mailbox.folder_id in folders or addresses & owned:
+                raise ValueError("Mailbox references, folders, and addresses must be unique")
             refs.add(mailbox.ref)
-            objects.add(mailbox.object_id)
+            folders.add(mailbox.folder_id)
             addresses.update(owned)
         return cls(database=Path(required("EMAIL_DATABASE")).expanduser().resolve(),
-            read_token=read, send_token=send, tenant_id=str(UUID(required("EMAIL_TENANT_ID"))),
-            client_id=str(UUID(required("EMAIL_CLIENT_ID"))), client_secret=required("EMAIL_CLIENT_SECRET"),
-            mailboxes=mailboxes,
+            read_token=read, send_token=send, api_token=required("FASTMAIL_API_TOKEN"),
+            mailboxes=mailboxes, account_id=os.environ.get("FASTMAIL_ACCOUNT_ID", ""),
             sync_seconds=max(30, int(os.environ.get("EMAIL_SYNC_SECONDS", "120"))))
 
     def mailbox(self, ref):

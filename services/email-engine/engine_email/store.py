@@ -21,13 +21,19 @@ class Store:
             tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             if tables and "email_engine_metadata" not in tables:
                 raise ValueError("Refusing to adopt an unrelated database")
+            if "mailbox_bindings" in tables and "folder_id" not in {row[1] for row in db.execute("PRAGMA table_info(mailbox_bindings)")}:
+                raise ValueError("Use a fresh Fastmail database; preserve the prior provider ledger separately")
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS email_engine_metadata (
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL);
                 INSERT OR IGNORE INTO email_engine_metadata VALUES(1,0);
                 CREATE TABLE IF NOT EXISTS mailbox_bindings (
-                    ref TEXT PRIMARY KEY, object_id TEXT NOT NULL UNIQUE,
+                    ref TEXT PRIMARY KEY, folder_id TEXT NOT NULL UNIQUE,
                     business_id TEXT NOT NULL, address TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS provider_binding (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton=1), account_id TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS address_bindings (
+                    address TEXT PRIMARY KEY, mailbox TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS messages (
                     mailbox TEXT NOT NULL, id TEXT NOT NULL, folder TEXT NOT NULL,
                     content TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
@@ -48,16 +54,32 @@ class Store:
             """)
         os.chmod(self.path, 0o600)
 
+    def bind_provider(self, account_id):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            old = db.execute("SELECT account_id FROM provider_binding WHERE singleton=1").fetchone()
+            if old and old[0] != account_id:
+                raise ValueError("Fastmail account identity cannot be reassigned")
+            db.execute("INSERT OR IGNORE INTO provider_binding VALUES(1,?)", (account_id,))
+
     def bind_mailboxes(self, mailboxes):
+        changed = False
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             for box in mailboxes:
-                values = (box.ref, box.object_id, box.business_id, box.address)
-                old = db.execute("SELECT ref,object_id,business_id,address FROM mailbox_bindings WHERE ref=? OR object_id=?",
-                    (box.ref, box.object_id)).fetchall()
+                values = (box.ref, box.folder_id, box.business_id, box.address)
+                old = db.execute("SELECT ref,folder_id,business_id,address FROM mailbox_bindings WHERE ref=? OR folder_id=?",
+                    (box.ref, box.folder_id)).fetchall()
                 if old and (len(old) != 1 or tuple(old[0]) != values):
                     raise ValueError("Existing mailbox identity or ownership cannot be reassigned")
+                changed = changed or not old
                 db.execute("INSERT OR IGNORE INTO mailbox_bindings VALUES(?,?,?,?)", values)
+                for address in {box.address, *box.aliases}:
+                    prior = db.execute("SELECT mailbox FROM address_bindings WHERE address=?", (address,)).fetchone()
+                    if prior and prior[0] != box.ref:
+                        raise ValueError("Existing address ownership cannot be reassigned")
+                    db.execute("INSERT OR IGNORE INTO address_bindings VALUES(?,?)", (address, box.ref))
+        return changed
 
     @contextmanager
     def connect(self):
@@ -82,6 +104,8 @@ class Store:
                 identity = item["id"]
                 prior = db.execute("SELECT * FROM messages WHERE mailbox=? AND id=?", (mailbox, identity)).fetchone()
                 deleted = "@removed" in item
+                if deleted and prior is None:
+                    continue
                 # A move can appear first in the destination, then as a removal in the old folder.
                 if deleted and prior is not None and prior["folder"] != folder:
                     continue
@@ -113,22 +137,10 @@ class Store:
             db.execute("UPDATE messages SET deleted=1,content=?,revision=? WHERE mailbox=? AND id=?",
                 (json.dumps({"id": row["id"]}), self.revision(db), mailbox, row["id"]))
 
-    def retain_folders(self, mailbox, identities):
-        with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            for row in db.execute("SELECT id FROM folders WHERE mailbox=?", (mailbox,)).fetchall():
-                if row["id"] not in identities:
-                    self._clear_folder(db, mailbox, row["id"])
-                    db.execute("DELETE FROM folders WHERE mailbox=? AND id=?", (mailbox, row["id"]))
-
     def mailbox_status(self, mailbox, state, error=None):
         with self.connect() as db:
             db.execute("INSERT INTO mailbox_sync VALUES(?,?,?,?) ON CONFLICT(mailbox) DO UPDATE SET state=excluded.state,synced_at=COALESCE(excluded.synced_at,mailbox_sync.synced_at),error=excluded.error",
                 (mailbox, state, now() if state == "synced" else None, error))
-
-    def sync_error(self, mailbox, folder, code):
-        with self.connect() as db:
-            db.execute("INSERT INTO folders(mailbox,id,error) VALUES(?,?,?) ON CONFLICT(mailbox,id) DO UPDATE SET error=excluded.error", (mailbox, folder, code))
 
     def messages(self, mailbox, *, after=0, limit=100):
         with self.connect() as db:

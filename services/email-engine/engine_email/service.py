@@ -1,70 +1,62 @@
-"""Mailbox synchronization and the approved-send lifecycle."""
+"""Business-folder synchronization and the approved-send lifecycle."""
 
 import hashlib
 import threading
 
-from .graph import CORRELATION, ProviderError
+from .fastmail import ProviderError
 from .models import Outgoing
 from .store import Store
 
+ACCOUNT_CURSOR = "@account"
+
 
 class EmailService:
-    def __init__(self, settings, store, graph):
-        self.settings, self.store, self.graph = settings, store, graph
-        store.bind_mailboxes(settings.mailboxes)
+    def __init__(self, settings, store, provider):
+        self.settings, self.store, self.provider = settings, store, provider
+        store.bind_provider(provider.account_id)
+        if store.bind_mailboxes(settings.mailboxes):
+            self.reset_sync()
         self.send_lock, self.sync_lock = threading.Lock(), threading.Lock()
+
+    def reset_sync(self):
+        for mailbox in self.settings.mailboxes:
+            self.store.reset_folder(mailbox.ref, mailbox.folder_id)
+        self.store.reset_folder(ACCOUNT_CURSOR, "all")
 
     def sync(self):
         if not self.sync_lock.acquire(blocking=False):
             return {"state": "running"}
-        failures = []
-        pending = False
         try:
             for mailbox in self.settings.mailboxes:
                 self.store.mailbox_status(mailbox.ref, "syncing")
-                mailbox_errors, incomplete = [], False
-                try:
-                    folders = self.graph.folders(mailbox)
-                except ProviderError as exc:
-                    self.store.mailbox_status(mailbox.ref, "partial", exc.code)
-                    failures.append({"mailbox": mailbox.ref, "error": exc.code})
-                    continue
-                self.store.retain_folders(mailbox.ref, {folder["id"] for folder in folders})
-                for folder in folders:
-                    identity = folder["id"]
-                    saved = self.store.folder(mailbox.ref, identity)
-                    cursor = saved["cursor"] if saved else None
-                    seen = set()
-                    try:
-                        # Bound one pass; a saved nextLink continues on the next pass.
-                        for _ in range(20):
-                            if cursor and cursor in seen:
-                                raise ProviderError("repeated_graph_continuation")
-                            if cursor:
-                                seen.add(cursor)
-                            data = self.graph.delta(mailbox, identity, cursor)
-                            next_link, delta_link = data.get("@odata.nextLink"), data.get("@odata.deltaLink")
-                            if bool(next_link) == bool(delta_link):
-                                raise ProviderError("invalid_graph_delta_page")
-                            cursor = next_link or delta_link
-                            self.graph.validate_url(mailbox, cursor)
-                            for item in data["value"]:
-                                if "@removed" not in item and item.get("hasAttachments"):
-                                    item["attachments"] = self.graph.attachments(mailbox, item["id"])
-                            self.store.sync_page(mailbox.ref, identity, data["value"], cursor, complete=not next_link)
-                            if not next_link:
-                                break
-                        else:
-                            incomplete = pending = True
-                    except ProviderError as exc:
-                        if exc.status == 410:
-                            self.store.reset_folder(mailbox.ref, identity)
-                        self.store.sync_error(mailbox.ref, identity, exc.code)
-                        mailbox_errors.append(exc.code)
-                        failures.append({"mailbox": mailbox.ref, "folder": identity, "error": exc.code})
-                self.store.mailbox_status(mailbox.ref, "partial" if mailbox_errors else "syncing" if incomplete else "synced",
-                    mailbox_errors[0] if mailbox_errors else None)
-            return {"state": "partial" if failures else "syncing" if pending else "synced", "errors": failures}
+            self.provider.folders()
+            saved = self.store.folder(ACCOUNT_CURSOR, "all")
+            cursor = saved["cursor"] if saved else None
+            seen = set()
+            for _ in range(20):
+                if cursor and cursor in seen:
+                    raise ProviderError("repeated_jmap_continuation")
+                seen.add(cursor)
+                data = self.provider.delta(cursor)
+                touched = {item["id"] for item in data["items"]} | set(data["destroyed"])
+                for mailbox in self.settings.mailboxes:
+                    owned = {item["id"]: item for item in data["items"] if self.provider.owner(item) == mailbox}
+                    items = [owned.get(identity, {"id": identity, "@removed": {}}) for identity in sorted(touched)]
+                    self.store.sync_page(mailbox.ref, mailbox.folder_id, items, data["cursor"], complete=data["complete"])
+                # Advance only after all business caches commit; replay is harmless if interrupted.
+                self.store.sync_page(ACCOUNT_CURSOR, "all", [], data["cursor"], complete=data["complete"])
+                cursor = data["cursor"]
+                if data["complete"]:
+                    for mailbox in self.settings.mailboxes:
+                        self.store.mailbox_status(mailbox.ref, "synced")
+                    return {"state": "synced", "errors": []}
+            return {"state": "syncing", "errors": []}
+        except ProviderError as exc:
+            if exc.status == 410:
+                self.reset_sync()
+            for mailbox in self.settings.mailboxes:
+                self.store.mailbox_status(mailbox.ref, "partial", exc.code)
+            return {"state": "partial", "errors": [{"error": exc.code}]}
         finally:
             self.sync_lock.release()
 
@@ -72,33 +64,29 @@ class EmailService:
     def _recipients(data, name):
         return sorted(item["emailAddress"]["address"].lower() for item in data.get(name, []))
 
-    def verify_content(self, message, draft):
+    def verify_draft(self, mailbox, message, draft):
         normalize = lambda value: value.replace("\r\n", "\n").rstrip("\n")
-        properties = {item["id"]: item["value"] for item in draft.get("singleValueExtendedProperties", [])}
         if (draft.get("isDraft") is not True or draft.get("subject") != message.subject
                 or draft.get("from", {}).get("emailAddress", {}).get("address", "").lower() != message.from_address
                 or message.from_name and draft.get("from", {}).get("emailAddress", {}).get("name", "") != message.from_name
                 or normalize(draft.get("body", {}).get("content", "")) != normalize(message.body)
-                or properties.get(CORRELATION) != message.request_id
+                or draft.get("bodyTruncated") or draft.get("requestId") != message.request_id or draft.get("replyTo")
                 or any(self._recipients(draft, key) != sorted(getattr(message, field)) for key, field in
                     (("toRecipients", "to"), ("ccRecipients", "cc"), ("bccRecipients", "bcc")))):
             raise ProviderError("provider_draft_changed")
-
-    def attachment_signatures(self, mailbox, draft_id):
-        actual_values = []
-        for item in self.graph.attachments(mailbox, draft_id):
-            content = self.graph.attachment(mailbox, draft_id, item["id"])
-            actual_values.append((item["name"], item["contentType"].lower(), hashlib.sha256(content).hexdigest()))
-        return actual_values
-
-    def verify_draft(self, mailbox, message, draft):
-        self.verify_content(message, draft)
-        actual = self.graph.attachments(mailbox, draft["id"])
-        if len(actual) != len(message.attachments):
-            raise ProviderError("provider_attachments_changed")
-        expected = sorted((item.filename, item.content_type, item.sha256) for item in message.attachments)
-        actual_values = self.attachment_signatures(mailbox, draft["id"])
-        if sorted(actual_values) != expected:
+        if message.reply_message_id:
+            parent = self.provider.get_message(mailbox, message.reply_message_id)
+            expected = (parent.get("internetMessageId") or "").strip("<>")
+            if not expected or draft.get("inReplyTo") != [expected]:
+                raise ProviderError("provider_reply_changed")
+        elif draft.get("inReplyTo"):
+            raise ProviderError("provider_reply_changed")
+        actual = []
+        for item in self.provider.attachments(mailbox, draft["id"]):
+            content = self.provider.attachment(mailbox, draft["id"], item["id"])
+            actual.append((item["name"], item["contentType"].lower(), hashlib.sha256(content).hexdigest()))
+        expected = [(item.filename, item.content_type, item.sha256) for item in message.attachments]
+        if sorted(actual) != sorted(expected):
             raise ProviderError("provider_attachments_changed")
 
     def submit(self, message):
@@ -110,7 +98,7 @@ class EmailService:
             if not created:
                 return self.reconcile(row)
             try:
-                draft = self.graph.create_draft(mailbox, message)
+                draft = self.provider.create_draft(mailbox, message)
                 identity = draft.get("id")
                 if not isinstance(identity, str) or not identity:
                     raise ProviderError("missing_provider_draft", uncertain=True)
@@ -122,24 +110,15 @@ class EmailService:
     def prepare_and_send(self, mailbox, message, identity):
         if mailbox.business_id != message.business_id or not mailbox.accepts_sender(message.from_address):
             raise ProviderError("mailbox_configuration_changed")
-        self.verify_content(message, self.graph.get_message(mailbox, identity))
-        missing = list(message.attachments)
-        for signature in self.attachment_signatures(mailbox, identity):
-            match = next((item for item in missing if (item.filename, item.content_type, item.sha256) == signature), None)
-            if match is None:
-                raise ProviderError("provider_attachments_changed")
-            missing.remove(match)
-        for attachment in missing:
-            self.graph.add_attachment(mailbox, identity, attachment)
-        self.verify_draft(mailbox, message, self.graph.get_message(mailbox, identity))
-        # Persist before the network call. No recovery path sends again after this point.
+        self.verify_draft(mailbox, message, self.provider.get_message(mailbox, identity))
+        # No recovery path resubmits after this durable boundary.
         self.store.save_send(message.request_id, "sending")
-        self.graph.send_draft(mailbox, identity)
+        self.provider.send_draft(mailbox, identity, message)
         return self.reconcile(self.store.save_send(message.request_id, "accepted"))
 
     def record_error(self, request_id, exc):
         row = self.store.send(request_id)
-        transient = exc.uncertain or exc.status == 429 or exc.status is not None and exc.status >= 500 or exc.code == "graph_connection_failed"
+        transient = exc.uncertain or exc.status == 429 or exc.status is not None and exc.status >= 500 or exc.code == "fastmail_connection_failed"
         if row["state"] in {"sending", "accepted"} and (transient or exc.status is None):
             state = "uncertain"
         elif row["state"] in {"creating", "draft"} and transient:
@@ -154,28 +133,28 @@ class EmailService:
             return Store.receipt(row)
         try:
             mailbox = self.settings.mailbox(row["mailbox"])
-        except ValueError:
-            return Store.receipt(row)
-        try:
+            original = Outgoing.model_validate_json(row["payload"])
             if not row["draft_id"]:
-                draft = self.graph.find_draft(mailbox, row["request_id"])
+                draft = self.provider.find_draft(mailbox, row["request_id"])
                 if draft is None:
                     return Store.receipt(row)
                 row = self.store.save_send(row["request_id"], "draft" if row["state"] == "creating" else "uncertain", draft_id=draft["id"])
             if row["state"] == "draft":
                 try:
-                    return self.prepare_and_send(mailbox, Outgoing.model_validate_json(row["payload"]), row["draft_id"])
+                    return self.prepare_and_send(mailbox, original, row["draft_id"])
                 except ProviderError as exc:
                     return self.record_error(row["request_id"], exc)
-            message = self.graph.get_message(mailbox, row["draft_id"])
-            if message.get("isDraft") is False and message.get("parentFolderId") == self.graph.sent_folder(mailbox):
+            submission = self.provider.submission(mailbox, row["draft_id"], original)
+            if submission and submission.get("undoStatus") == "final":
+                message = self.provider.get_message(mailbox, row["draft_id"])
                 row = self.store.save_send(row["request_id"], "sent", result={
                     "message_id": message["id"], "internet_message_id": message.get("internetMessageId"),
-                    "conversation_id": message.get("conversationId"), "sent_at": message.get("sentDateTime"),
-                    "url": message.get("webLink"), "delivery": "sent_items_confirmed"})
-            # A remaining draft after a send timeout is not proof that sending never started.
+                    "conversation_id": message.get("conversationId"), "sent_at": submission.get("sendAt"),
+                    "submission_id": submission["id"], "url": message.get("webLink"), "delivery": "submission_confirmed"})
+            elif submission and submission.get("undoStatus") == "canceled":
+                row = self.store.save_send(row["request_id"], "failed", result={"error": "provider_submission_canceled"})
             return Store.receipt(row)
-        except ProviderError:
+        except (ProviderError, ValueError):
             return Store.receipt(row)
 
     def reconcile_pending(self):
