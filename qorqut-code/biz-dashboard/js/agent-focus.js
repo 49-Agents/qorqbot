@@ -59,11 +59,12 @@ function agfocusPaint(p) {
   const signature = JSON.stringify(data.items);
   if (list.dataset.signature !== signature) {
     list.dataset.signature = signature;
-    list.innerHTML = data.items.map((item, i) => item.unavailable
+    const ordered = data.items.map((item, i) => ({item, i})).sort((a,b) => Number(!!b.item.needs_input)-Number(!!a.item.needs_input));
+    list.innerHTML = ordered.map(({item, i}) => item.unavailable
       ? '<article class="agfocus-card muted">This item is no longer available.</article>'
       : `<article class="agfocus-card"><div class="agfocus-card-top"><div class="agfocus-meta">${esc(item.business_name)} · ${esc(item.type)}${item.state ? ' · ' + esc(item.state) : ''}</div>${item.needs_input ? '<span class="agfocus-input-tag">Your input</span>' : ''}</div>
           <h3>${esc(item.label)}</h3>
-          <p>${esc(item.reason)}</p><button class="quiet" data-focus-item="${i}">Open ${esc(item.type)}</button></article>`).join('');
+          <p>${esc(item.reason)}</p><button class="quiet" data-focus-item="${i}">${item.needs_input ? (item.type === 'signoff' ? 'Review request' : 'View and respond') : 'Open '+esc(item.type)}</button></article>`).join('');
     list.querySelectorAll('[data-focus-item]').forEach(button => {
       const item = data.items[Number(button.dataset.focusItem)];
       button.onclick = () => agfocusOpenItem(p, item).catch(error => toast(error.message));

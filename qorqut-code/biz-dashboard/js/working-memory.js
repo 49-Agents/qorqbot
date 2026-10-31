@@ -1,6 +1,14 @@
 // Owner-only inspection of the same scoped handoff agents read. Drafts stay in RAM.
 const workingMemoryDrafts = new Map();
 let workingMemoryGeneration = 0;
+function workingMemoryChanges(previous, current) {
+  const a = (previous || '').split('\n'), b = (current || '').split('\n');
+  let start = 0, end = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  while (end < a.length-start && end < b.length-start && a[a.length-1-end] === b[b.length-1-end]) end++;
+  const removed = a.slice(start,a.length-end).join('\n'), added = b.slice(start,b.length-end).join('\n');
+  return !removed && !added ? '<p>Text unchanged.</p>' : `<div class="wm-diff">${removed ? `<section><h4>Previous text</h4><pre><del>${esc(removed)}</del></pre></section>` : ''}${added ? `<section><h4>Current text</h4><pre><ins>${esc(added)}</ins></pre></section>` : ''}</div>`;
+}
 window.addEventListener('beforeunload', event => {
   if ([...workingMemoryDrafts.values()].some(d => d.dirty || d.pending || d.saving)) {
     event.preventDefault(); event.returnValue = '';
@@ -42,6 +50,7 @@ async function workingMemoryMount(host, agentId, business, {globalAgent = false}
       <p class="wm-count"></p><p class="wm-evidence">${esc(draft.sources.length)} evidence links retained. Correction does not mark sources reviewed.</p>
       <div class="wm-actions"><button class="wm-save primary">Save correction</button><button class="wm-reload">Discard draft and reload</button></div>` : ''}
     <p class="wm-status" role="status"></p><p class="wm-error" role="alert"></p>
+    ${latest?.revision > 1 && !data.unavailable ? '<details class="wm-changes"><summary>Changes since previous version</summary><div class="wm-change-body"></div></details>' : ''}
     <details class="wm-history"><summary>Version history</summary><div class="wm-versions"></div><button class="wm-more" hidden>Older versions</button><pre class="wm-preview"></pre><button class="wm-restore" hidden>Use this version as a draft</button></details>
     ${latest ? '<button class="wm-legacy">Inspect original imported plan</button><pre class="wm-legacy-body"></pre>' : ''}
   </section>`;
@@ -51,6 +60,21 @@ async function workingMemoryMount(host, agentId, business, {globalAgent = false}
     scope.onchange = () => workingMemoryMount(host, agentId, scope.value || null, {globalAgent: true});
   }
   const body = host.querySelector('.wm-body'), saveButton = host.querySelector('.wm-save');
+  const changes = host.querySelector('.wm-changes');
+  if (changes) changes.ontoggle = async () => {
+    if (!changes.open || changes.dataset.loaded) return;
+    changes.dataset.loaded = 'pending';
+    const content = changes.querySelector('.wm-change-body'); content.textContent = 'Loading comparison…';
+    try {
+      const previous = await call('get', {version:latest.revision-1});
+      if (!active()) return;
+      content.innerHTML = workingMemoryChanges(previous.document.body,latest.body) +
+        (JSON.stringify(previous.document.sources) !== JSON.stringify(latest.sources) ? '<p>Evidence links also changed.</p>' : '');
+      changes.dataset.loaded = 'yes';
+    } catch (error) {
+      if (active()) { content.textContent = error.message || 'Comparison unavailable. Close and reopen to retry.'; delete changes.dataset.loaded; }
+    }
+  };
   const sync = () => {
     if (!active()) return;
     const locked = draft.saving || Boolean(draft.pending);

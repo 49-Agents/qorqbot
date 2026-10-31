@@ -103,3 +103,6 @@
 .sg-rowhead .sg-state { flex-direction:column; align-items:flex-end; gap:6px; }
 .sg-state-tags { display:flex; width:max-content; max-width:100%; gap:5px; }
 .sg-state time { font:400 11px/1.5 var(--sans); color:var(--fg-3); white-space:nowrap; }
+.sg-progress-counts { display:flex; flex-wrap:wrap; gap:6px; }
+.sg-progress-counts span { padding:3px 7px; border:1px solid var(--line-2); border-radius:999px; font:11px/1.4 var(--sans); }
+.sg-priority-help { color:var(--fg-3); font-size:11px; }

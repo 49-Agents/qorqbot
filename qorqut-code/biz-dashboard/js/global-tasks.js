@@ -7,20 +7,21 @@ function globalTasksMount(host, {agentId = null} = {}) {
   const current = () => host.isConnected && host._globalTasks === token;
   let config, assignees, rows = [], cursor = null, selected = null;
   let search = '', snoozeFilter = 'active', includeClosed = false, busy = false, attempt = null;
+  let ownerFilter = 'all';
   const invoke = async (name, args = {}) => coreData(await post(`/root/operations/${name}`, {scope: 'global', ...args}));
   const label = id => assignees.find(a => a.id === id)?.display_name || id;
   const message = text => { if (current()) host.querySelector('[role="status"]').textContent = text; };
 
   function shell(content) {
     host.innerHTML = `<section class="global-task-space" aria-label="Global tasks">
-      <p class="muted">Global-only work · not visible to business agents${agentId ? ' · assigned to this agent' : ''}</p>
+      <p class="global-task-heading">${agentId ? 'Assigned tasks' : 'Global tasks'}</p>
       <div class="global-task-content">${content}</div><p role="status" aria-live="polite"></p></section>`;
   }
 
   function list() {
     if (!current()) return;
     selected = null;
-    shell(`<div class="global-task-tools"><button type="button" data-new>New Global task</button><button type="button" data-refresh>Refresh</button></div>
+    shell(`<div class="global-task-tools">${agentId ? '' : `<div class="global-task-filters" role="group" aria-label="Assigned to">${[['mine','Mine'],['agents','Agents'],['all','All']].map(([v,label])=>`<button type="button" data-owner-filter="${v}" aria-pressed="${ownerFilter===v}">${label}</button>`).join('')}</div>`}<button type="button" data-new>New task</button><button type="button" data-refresh aria-label="Refresh tasks">Refresh</button></div>
       <form data-search><label>Search Global tasks<input name="search" type="search" maxlength="500" value="${esc(search)}"></label>
       <label>Task visibility<select name="snooze_filter">${['active','snoozed','all'].map(v=>`<option value="${v}" ${snoozeFilter===v?'selected':''}>${v[0].toUpperCase()+v.slice(1)}</option>`).join('')}</select></label>
       <label><input type="checkbox" name="closed" ${includeClosed ? 'checked' : ''}>Include closed and archived</label><button>Search</button></form>
@@ -30,6 +31,7 @@ function globalTasksMount(host, {agentId = null} = {}) {
         <small>${esc(t.assignee_ids.map(label).join(', ') || 'Unassigned')}</small></button>`).join('') : '<p>No Global tasks found.</p>'}</div>
       ${cursor ? '<button type="button" data-more>Load more</button>' : ''}`);
     host.querySelector('[data-new]').onclick = () => edit(null);
+    host.querySelectorAll('[data-owner-filter]').forEach(button => button.onclick = () => { ownerFilter = button.dataset.ownerFilter; load(); });
     host.querySelector('[data-refresh]').onclick = () => load();
     host.querySelector('[data-search]').onsubmit = e => {
       e.preventDefault(); const form = e.currentTarget;
@@ -45,8 +47,17 @@ function globalTasksMount(host, {agentId = null} = {}) {
     busy = true; message('Loading…');
     host.querySelectorAll('input,select,button').forEach(b => b.disabled = true);
     try {
-      const data = await invoke('tasks_list', {search, snooze_filter: snoozeFilter, include_closed: includeClosed, include_archived: includeClosed,
-        ...(agentId ? {assignee_id: agentId} : {}), ...(more && cursor ? {cursor} : {}), limit: 50});
+      const assignee = agentId || (ownerFilter === 'mine' ? assignees.find(a => a.is_owner)?.id : null);
+      if (ownerFilter === 'mine' && !assignee) throw new Error('Your task identity is unavailable. Refresh to retry.');
+      let next = more ? cursor : null, data;
+      const agents = new Set(assignees.filter(a => a.kind === 'agent').map(a => a.id));
+      do {
+        data = await invoke('tasks_list', {search, snooze_filter: snoozeFilter, include_closed: includeClosed, include_archived: includeClosed,
+          ...(assignee ? {assignee_id: assignee} : {}), ...(next ? {cursor:next} : {}), limit:50});
+        if (!current()) return;
+        if (!agentId && ownerFilter === 'agents') data.tasks = data.tasks.filter(t => t.assignee_ids.some(id => agents.has(id)));
+        next = data.next_cursor;
+      } while (!data.tasks.length && next);
       if (!current()) return;
       rows = more ? [...rows, ...data.tasks] : data.tasks; cursor = data.next_cursor; list();
     } catch (error) { message(error.message || 'Tasks unavailable. Use Refresh to retry.'); }

@@ -333,3 +333,5 @@
 
 .task-headline { display:flex; align-items:center; flex:1; min-width:0; }
 .trow .ball .core { width:12px; height:12px; }
+.task-snooze-shortcuts { display:flex; flex-wrap:wrap; gap:6px; }
+.task-snooze-shortcuts button { padding:5px 8px; font-size:11px; background:var(--surface); border:1px solid var(--line-2); color:var(--fg-2); }
