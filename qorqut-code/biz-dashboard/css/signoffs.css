@@ -60,7 +60,7 @@
 .sg-response-notes { white-space:pre-wrap; }
 @media(max-width:520px) { .sg .sg-choice { grid-template-columns:18px minmax(55px,85px) 8px minmax(0,1fr); gap:5px; } }
 .sg-attention-badge,.sg-signoff-count { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 4px; border-radius:50%; background:var(--fg-3); color:var(--bg); font-size:10px; font-weight:700; flex:none; }
-.sg-attention-badge.urgent { background:#d94b4b; color:white; }
+.sg-attention-badge.urgent,.sg-signoff-count.urgent { background:#FF453A; color:white; }
 #thandle.sg-attention-urgent { color:#ef6666; background:rgba(217,75,75,.12); }
 .sg-signoff-count { position:absolute; left:calc(50% + 9.5px); top:calc(50% - 9.5px); transform:translate(-50%, -50%); margin:0; pointer-events:none; }
 .sg-urgent h2 { color:#ef7777; }

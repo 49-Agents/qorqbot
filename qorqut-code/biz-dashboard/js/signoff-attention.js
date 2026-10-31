@@ -33,7 +33,8 @@ function sgAttentionPaint() {
   if (tab) {
     tab.querySelector('.sg-signoff-count')?.remove();
     const b = sgAttention.businesses.find(b => b.slug === (state.scope === 'global' ? null : state.biz));
-    if (b?.signoffs) tab.insertAdjacentHTML('beforeend', `<span class="sg-signoff-count">${b.signoffs}</span>`);
+    const count = b?.signoffs || sgAttention.urgent.length;
+    if (count) tab.insertAdjacentHTML('beforeend', `<span class="sg-signoff-count${urgent ? ' urgent' : ''}" aria-label="${count} waiting signoffs${urgent ? ', urgent or blocking signoffs' : ''}">${count}</span>`);
   }
   let host = document.querySelector('#sg-toast-host');
   if (!host) {
