@@ -13,6 +13,12 @@
 .split.global-agents.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
 .split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
 .split.global-agents.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
+/* Global and per-business agents share one navigation column; it is wider where the screen has room.
+   The nav-off rules above still win (higher specificity), and narrower screens keep 240px. */
+@media (min-width: 1000px) {
+  .split.global-agents.agsplit { grid-template-columns: 280px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
+  .split.global-agents.agsplit.pad-off { grid-template-columns: 280px minmax(0, 1fr) 0; }
+}
 .agsplit:not(.pad-off) > .chat.termmode { padding-left: 24px; padding-right: 24px; }
 .agsplit.pad-off > .agent-pane-divider { display: none; }
 

@@ -42,8 +42,7 @@ async function renderGlobalAgents(c) {
   c.innerHTML = `<div class="split global-agents agsplit">
     <div class="listcol"><div class="ctop"><div class="global-eyebrow">Global</div><div class="agent-nav-heading"><h1>Agents</h1><span class="agent-nav-actions">${broadcastButton()}${agentNavButton()}</span></div></div>
       <div class="crows global-roster" id="global-agent-list"></div>
-      <section class="global-biz-nav" aria-labelledby="global-biz-heading">
-        <h2 class="h global-biz-heading" id="global-biz-heading">Per-biz agents</h2>
+      <section class="global-biz-nav" aria-label="Business agents">
         <input type="search" class="global-biz-search" id="global-biz-search" aria-label="Search business agents" placeholder="Search agents…" autocomplete="off" spellcheck="false">
         <div class="global-biz-status" id="global-biz-status" role="status" hidden></div>
         <div class="crows global-biz-list" id="global-biz-agent-list"></div>
