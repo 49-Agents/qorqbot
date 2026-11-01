@@ -19,6 +19,7 @@ from .models import MAX_HTTP_BYTES, HandoffRequest, HistoryEvent, IntentSubmissi
 from .service import IntentCancelled, IntentConflict
 from .store import HandoffTargetForbidden, HandoffTargetNotFound, Store
 from .mailbox_settings import MailboxUpdate, configure, revisions as mailbox_revisions
+from . import routes as managed_routes
 
 
 def create_app(service, *, background=True):
@@ -168,6 +169,7 @@ def create_app(service, *, background=True):
         try:
             change = MailboxUpdate.model_validate_json(bytes(content))
             result = await anyio.to_thread.run_sync(lambda: configure(service, change))
+            refresh_views()
             return JSONResponse(result)
         except ValidationError:
             return JSONResponse({"error": "invalid_mailbox"}, status_code=400)
@@ -178,6 +180,57 @@ def create_app(service, *, background=True):
                 "private_history_folder_missing_or_not_dedicated", "sender_outside_business",
                 "fastmail_sender_identity_missing_or_ambiguous", "fastmail_identity_remove_auto_bcc_and_reply_to"}
             return JSONResponse({"error": exc.code}, status_code=400 if invalid_setup else 502)
+
+    async def admin_body(request, limit=65536):
+        content = bytearray()
+        async for chunk in request.stream():
+            content.extend(chunk)
+            if len(content) > limit:
+                raise ValueError("request_too_large")
+        return bytes(content)
+
+    def refresh_views():
+        business.settings = account.settings = service.settings
+
+    async def route_ensure(request):
+        denied = authenticate_account(request)
+        if denied is not None:
+            return denied
+        if request.path_params.get("action") not in {"ensure", "deactivate"}:
+            return JSONResponse({"error": "not_found"}, status_code=404)
+        try:
+            body = await admin_body(request)
+            model = managed_routes.RouteDeactivate if request.path_params.get("action") == "deactivate" else managed_routes.RouteEnsure
+            change = model.model_validate_json(body)
+            action = managed_routes.deactivate if model is managed_routes.RouteDeactivate else managed_routes.ensure
+            result = await anyio.to_thread.run_sync(lambda: action(service, change))
+            refresh_views()
+            return JSONResponse(result)
+        except ValidationError:
+            return JSONResponse({"error": "invalid_route_request"}, status_code=400)
+        except managed_routes.RouteConflict as exc:
+            return JSONResponse({"error": exc.code, "message": str(exc)}, status_code=409)
+        except managed_routes.RouteRejected as exc:
+            return JSONResponse({"error": exc.code, "message": str(exc)}, status_code=400)
+        except ValueError:
+            return JSONResponse({"error": "invalid_route_request"}, status_code=400)
+
+    async def route_status(request):
+        denied = authenticate_account(request)
+        if denied is not None:
+            return denied
+        client_id = request.query_params.get("client_id", "")
+        try:
+            managed_routes.client_for(service, client_id)
+        except managed_routes.RouteRejected as exc:
+            return JSONResponse({"error": exc.code}, status_code=404)
+        business_id = request.path_params.get("business_id")
+        if business_id is None:
+            return JSONResponse(await anyio.to_thread.run_sync(lambda: managed_routes.listing(service, client_id)))
+        row = await anyio.to_thread.run_sync(lambda: managed_routes.route(service.store, client_id, business_id))
+        if row is None:
+            return JSONResponse({"error": "route_not_found"}, status_code=404)
+        return JSONResponse(managed_routes.view(service, row))
 
     async def health(request):
         return JSONResponse({"live": True, "service": "engine-email", "provider": "fastmail"})
@@ -254,14 +307,19 @@ def create_app(service, *, background=True):
                 return denied
         try:
             mailbox_ref = request.path_params["mailbox"]
-            if client is not None and mailbox_ref not in client.allowed_mailboxes:
-                return JSONResponse({"error": "mailbox_not_allowed_for_client"}, status_code=403)
+            access = None
+            if client is not None:
+                access = await anyio.to_thread.run_sync(lambda: managed_routes.mailbox_access(service, client, mailbox_ref))
+                if access is None:
+                    return JSONResponse({"error": "mailbox_not_allowed_for_client"}, status_code=403)
             mailbox = service.settings.mailbox(mailbox_ref)
             after, limit = int(request.query_params.get("after", "0")), int(request.query_params.get("limit", "100"))
             if after < 0 or not 1 <= limit <= 500:
                 raise ValueError("Invalid page")
+            # A revoked route stays readable only for this client's own correlated replies.
+            owner = client.workflow_owner if access == "correlated" else None
             result = await anyio.to_thread.run_sync(lambda: service.store.messages(mailbox.ref, after=after,
-                limit=limit, exclude_sent_copies=client is not None))
+                limit=limit, exclude_sent_copies=client is not None, correlated_owner=owner))
             return JSONResponse(result)
         except ValueError:
             return JSONResponse({"error": "invalid_request"}, status_code=400)
@@ -459,4 +517,7 @@ def create_app(service, *, background=True):
     routes.append(Route("/integrations/intents/{intent_id}", integration_intent_get))
     routes.append(Route("/integrations/intents/{intent_id}/cancel", integration_intent_cancel, methods=["POST"]))
     routes.append(Route("/integrations/threads/{thread_or_message_id}/handoff", integration_handoff, methods=["POST"]))
+    routes.append(Route("/integrations/routes/{action:str}", route_ensure, methods=["POST"]))
+    routes.append(Route("/integrations/routes", route_status, methods=["GET"]))
+    routes.append(Route("/integrations/routes/{business_id:str}", route_status, methods=["GET"]))
     return Starlette(routes=routes, lifespan=lifespan)

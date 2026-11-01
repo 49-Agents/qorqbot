@@ -50,7 +50,9 @@ class OutlookCollection:
                  mailboxes, account_ref, retrieve=None, clock=now):
         self.store, self.capture, self.archive, self.fastmail = store, capture, archive, fastmail
         self.account_address, self.start_at = address(account_address), timestamp(start_at)
-        self.account_ref, self.mailboxes, self.clock = account_ref, tuple(mailboxes), clock
+        # A callable keeps managed routes visible without a restart.
+        self._mailboxes = mailboxes if callable(mailboxes) else tuple(mailboxes)
+        self.account_ref, self.clock = account_ref, clock
         self.retrieve = retrieve
         if archive is None or not account_ref:
             raise ValueError("Outlook collection requires private history and a registered account")
@@ -89,6 +91,14 @@ class OutlookCollection:
                 raise ValueError("Outlook collector state is missing; recover its cursor without rebaselining")
             archive.external_binding(PROVIDER, self.account_address, self.start_at)
             db.execute("INSERT OR IGNORE INTO outlook_collection_binding(singleton,account_address,account_ref,start_at,state) VALUES(1,?,?,?,'pending')", binding)
+
+    @property
+    def mailboxes(self):
+        return tuple(self._mailboxes()) if callable(self._mailboxes) else self._mailboxes
+
+    @mailboxes.setter
+    def mailboxes(self, value):
+        self._mailboxes = value if callable(value) else tuple(value)
 
     def status(self):
         with self.store.connect() as db:

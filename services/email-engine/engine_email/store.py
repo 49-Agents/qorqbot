@@ -63,8 +63,21 @@ class Store:
                 CREATE TABLE IF NOT EXISTS mailbox_setting_requests (
                     id TEXT PRIMARY KEY, digest TEXT NOT NULL, response TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS mailbox_bindings (
-                    ref TEXT PRIMARY KEY, folder_id TEXT NOT NULL UNIQUE,
-                    business_id TEXT NOT NULL, address TEXT NOT NULL);
+                    ref TEXT PRIMARY KEY, folder_id TEXT NOT NULL UNIQUE, business_id TEXT NOT NULL,
+                    address TEXT, purpose TEXT NOT NULL DEFAULT 'business_mail', sender_ref TEXT,
+                    CHECK((purpose='business_mail' AND address IS NOT NULL AND sender_ref IS NULL)
+                        OR (purpose='outreach_archive' AND address IS NULL AND sender_ref IS NOT NULL)));
+                CREATE TABLE IF NOT EXISTS outreach_routes (
+                    route_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, business_id TEXT NOT NULL,
+                    sender_ref TEXT, mailbox_ref TEXT, purpose TEXT, folder_name TEXT,
+                    folder_id TEXT, folder_attempts INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL,
+                    generation INTEGER NOT NULL, state TEXT NOT NULL CHECK(state IN
+                    ('provisioning','ready','uncertain','failed','disabled')), blocker TEXT,
+                    revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                    UNIQUE(client_id, business_id));
+                CREATE TABLE IF NOT EXISTS outreach_route_requests (
+                    request_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, digest TEXT NOT NULL,
+                    response TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS provider_binding (
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1), account_id TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS outlook_provider_binding (
@@ -150,6 +163,17 @@ class Store:
                     "reason,source_kind,source_id,created_at) SELECT contact_key,business_id,workflow_owner,"
                     "reason,source_kind,source_id,created_at FROM integration_stops_pre_scope ORDER BY rowid")
                 db.execute("DROP TABLE integration_stops_pre_scope")
+            # Archive-only routes have no address; legacy rows stay business mailboxes.
+            if "purpose" not in {row[1] for row in db.execute("PRAGMA table_info(mailbox_bindings)")}:
+                db.execute("ALTER TABLE mailbox_bindings RENAME TO mailbox_bindings_pre_purpose")
+                db.execute("""CREATE TABLE mailbox_bindings (
+                    ref TEXT PRIMARY KEY, folder_id TEXT NOT NULL UNIQUE, business_id TEXT NOT NULL,
+                    address TEXT, purpose TEXT NOT NULL DEFAULT 'business_mail', sender_ref TEXT,
+                    CHECK((purpose='business_mail' AND address IS NOT NULL AND sender_ref IS NULL)
+                        OR (purpose='outreach_archive' AND address IS NULL AND sender_ref IS NOT NULL)))""")
+                db.execute("INSERT INTO mailbox_bindings(ref,folder_id,business_id,address) "
+                    "SELECT ref,folder_id,business_id,address FROM mailbox_bindings_pre_purpose ORDER BY rowid")
+                db.execute("DROP TABLE mailbox_bindings_pre_purpose")
             # Handoffs once stored a single workflow_owner; split into source/destination.
             handoffs = [row[1] for row in db.execute("PRAGMA table_info(integration_handoffs)")]
             if "workflow_owner" in handoffs and "destination_owner" not in handoffs:
@@ -232,14 +256,16 @@ class Store:
     def bind_mailboxes_in(db, mailboxes):
         changed = False
         for box in mailboxes:
-            values = (box.ref, box.folder_id, box.business_id, box.address)
-            old = db.execute("SELECT ref,folder_id,business_id,address FROM mailbox_bindings WHERE ref=? OR folder_id=?",
-                (box.ref, box.folder_id)).fetchall()
+            values = (box.ref, box.folder_id, box.business_id, box.address, box.purpose, box.sender_ref)
+            old = db.execute("SELECT ref,folder_id,business_id,address,purpose,sender_ref FROM mailbox_bindings "
+                "WHERE ref=? OR folder_id=?", (box.ref, box.folder_id)).fetchall()
+            # Purpose and archive sender are part of ownership; never reinterpret a mailbox.
             if old and (len(old) != 1 or tuple(old[0]) != values):
                 raise ValueError("Existing mailbox identity or ownership cannot be reassigned")
             changed = changed or not old
-            db.execute("INSERT OR IGNORE INTO mailbox_bindings VALUES(?,?,?,?)", values)
-            for address in {box.address, *box.aliases}:
+            db.execute("INSERT OR IGNORE INTO mailbox_bindings(ref,folder_id,business_id,address,purpose,sender_ref) "
+                "VALUES(?,?,?,?,?,?)", values)
+            for address in box.owned_addresses():
                 prior = db.execute("SELECT mailbox FROM address_bindings WHERE address=?", (address,)).fetchone()
                 if prior and prior[0] != box.ref:
                     raise ValueError("Existing address ownership cannot be reassigned")
@@ -307,9 +333,9 @@ class Store:
             db.execute("INSERT INTO mailbox_sync VALUES(?,?,?,?) ON CONFLICT(mailbox) DO UPDATE SET state=excluded.state,synced_at=COALESCE(excluded.synced_at,mailbox_sync.synced_at),error=excluded.error",
                 (mailbox, state, now() if state == "synced" else None, error))
 
-    def messages(self, mailbox, *, after=0, limit=100, exclude_sent_copies=False):
+    def messages(self, mailbox, *, after=0, limit=100, exclude_sent_copies=False, correlated_owner=None):
         """``correlation``/``is_sent_copy`` are additive annotations; the cursor
-        always advances past filtered rows even when ``exclude_sent_copies``."""
+        always advances past filtered rows, including ``correlated_owner`` filtering."""
         with self.connect() as db:
             rows = db.execute(
                 "SELECT m.*, c.is_sent_copy AS c_sent, c.workflow_owner AS c_owner, c.intent_id AS c_intent, "
@@ -321,7 +347,7 @@ class Store:
             for row in rows:
                 cursor = row["revision"]
                 sent_copy = bool(row["c_sent"])
-                if exclude_sent_copies and sent_copy:
+                if exclude_sent_copies and sent_copy or correlated_owner is not None and row["c_owner"] != correlated_owner:
                     continue
                 item = {"mailbox": mailbox, "revision": row["revision"], "deleted": bool(row["deleted"]),
                     "message": json.loads(row["content"]), "is_sent_copy": sent_copy}

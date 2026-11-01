@@ -113,7 +113,7 @@ class OutlookWeb:
                 copy_state TEXT NOT NULL, fastmail_id TEXT, fastmail_thread_id TEXT)""")
         self.collector = OutlookCollection(store, account_address=config.address, start_at=config.start_at,
             account_ref=config.account_ref, capture=lambda cursor: self._call("capture", cursor=cursor),
-            retrieve=self._retrieve, archive=history, fastmail=fastmail, mailboxes=fastmail.settings.mailboxes)
+            retrieve=self._retrieve, archive=history, fastmail=fastmail, mailboxes=lambda: fastmail.settings.mailboxes)
 
     def close(self):
         self._cache.clear()

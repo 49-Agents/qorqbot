@@ -166,19 +166,43 @@ class Mailbox(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     ref: str = Field(pattern=r"^[A-Za-z0-9_-]{1,100}$")
     folder_id: str = Field(min_length=1, max_length=255)
-    address: str
+    address: str | None = None
     business_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
     aliases: list[str] = Field(default_factory=list, max_length=100)
+    # Archive-only routes have no public address; defaults keep legacy dumps unchanged.
+    purpose: Literal["business_mail", "outreach_archive"] = Field(
+        default="business_mail", exclude_if=lambda value: value == "business_mail")
+    sender_ref: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,100}$",
+        exclude_if=lambda value: value is None)
 
-    _address = field_validator("address")(address)
+    @field_validator("address")
+    @classmethod
+    def mailbox_address(cls, value):
+        return address(value) if value is not None else None
 
     @field_validator("aliases")
     @classmethod
     def alias_addresses(cls, values):
         return list(dict.fromkeys(address(value) for value in values))
 
+    @model_validator(mode="after")
+    def purpose_shape(self):
+        if self.purpose == "business_mail":
+            if self.address is None or self.sender_ref is not None:
+                raise ValueError("A business mailbox requires an address and no bound sender")
+        elif self.address is not None or self.aliases or self.sender_ref is None:
+            raise ValueError("An archive mailbox has no address or aliases and one bound shared sender")
+        return self
+
+    @property
+    def archive_only(self):
+        return self.purpose == "outreach_archive"
+
+    def owned_addresses(self):
+        return set() if self.address is None else {self.address, *self.aliases}
+
     def accepts_sender(self, value):
-        return value in [self.address, *self.aliases]
+        return not self.archive_only and value in [self.address, *self.aliases]
 
 
 class SharedSender(BaseModel):
@@ -220,9 +244,11 @@ class IntegrationClient(BaseModel):
     client_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,60}$")
     secret: str = Field(min_length=32, max_length=200)
     workflow_owner: str = Field(pattern=r"^[A-Za-z0-9_-]{1,60}$")
-    allowed_mailboxes: list[str] = Field(min_length=1, max_length=100)
+    allowed_mailboxes: list[str] = Field(default_factory=list, max_length=100)
     business_ids: list[str] = Field(default_factory=list, max_length=200)
     handoff_destinations: list[str] = Field(default_factory=list, max_length=100)
+    # Opt-in: trusted-admin managed routes may extend this client's static scope.
+    managed_routes: bool = Field(default=False, exclude_if=lambda value: value is False)
 
     @field_validator("secret")
     @classmethod
@@ -234,9 +260,15 @@ class IntegrationClient(BaseModel):
     @field_validator("allowed_mailboxes")
     @classmethod
     def mailbox_refs(cls, values):
-        if not values or any(not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", value) for value in values):
+        if any(not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", value) for value in values):
             raise ValueError("Invalid mailbox reference")
         return list(dict.fromkeys(values))
+
+    @model_validator(mode="after")
+    def some_scope(self):
+        if not self.allowed_mailboxes and not self.managed_routes:
+            raise ValueError("An integration client needs static mailboxes or managed routes")
+        return self
 
     @field_validator("business_ids")
     @classmethod
@@ -366,7 +398,7 @@ class Settings:
             raise ValueError("Use a distinct private mailbox administration token of at least 32 characters")
         refs, folders, addresses = set(), set(), set()
         for box in self.mailboxes:
-            owned = {box.address, *box.aliases}
+            owned = box.owned_addresses()
             if box.ref in refs or box.folder_id in folders or addresses & owned:
                 raise ValueError("Mailbox references, folders, and addresses must be unique")
             refs.add(box.ref)
@@ -407,7 +439,7 @@ class Settings:
             if not set(client.allowed_mailboxes) <= mailbox_refs:
                 raise ValueError("Integration client mailboxes must be registered")
             allowed_businesses = {box.business_id for box in self.mailboxes if box.ref in client.allowed_mailboxes}
-            if client.business_ids and not set(client.business_ids) <= allowed_businesses:
+            if client.business_ids and not client.managed_routes and not set(client.business_ids) <= allowed_businesses:
                 raise ValueError("Integration client business IDs must match its allowed mailboxes")
             client_ids.add(client.client_id)
             secrets.add(client.secret)
@@ -428,7 +460,7 @@ class Settings:
         mailboxes = tuple(Mailbox.model_validate(item) for item in raw)
         refs, folders, addresses = set(), set(), set()
         for mailbox in mailboxes:
-            owned = {mailbox.address, *mailbox.aliases}
+            owned = mailbox.owned_addresses()
             if mailbox.ref in refs or mailbox.folder_id in folders or addresses & owned:
                 raise ValueError("Mailbox references, folders, and addresses must be unique")
             refs.add(mailbox.ref)
@@ -468,9 +500,11 @@ class Settings:
     def sender(self, mailbox, message):
         if mailbox.business_id != message.business_id:
             raise ValueError("Business is outside the registered mailbox")
-        if message.reply_to is not None and message.reply_to != mailbox.address:
+        if message.reply_to is not None and (mailbox.archive_only or message.reply_to != mailbox.address):
             raise ValueError("Reply-To must be the registered business address")
         configured = next((s for s in self.shared_senders if s.address == message.from_address), None)
+        if mailbox.archive_only and (message.sender_ref is None or message.sender_ref != mailbox.sender_ref):
+            raise ValueError("An archive mailbox sends only through its bound shared sender")
         if message.sender_ref is not None:
             if configured is None or configured.ref != message.sender_ref:
                 raise ValueError("Shared sender does not match From")
