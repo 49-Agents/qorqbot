@@ -2,8 +2,10 @@
 
 One value names every location the host derives from the instance root and from the code/role components it was
 given. There is no working-directory default, no probing of installed copies or sibling checkouts, and no
-configuration read. Properties are pure string derivations. Construction and the folder and role-source methods
-only resolve symlinks of existing path parts so they can refuse them; nothing here creates, writes or reads a file.
+configuration read. Construction and every derived location (the operations-side properties, the folder methods and
+``role_source``) only resolve symlinks of existing path parts so they can refuse them, at construction and again
+whenever a location is selected; nothing here creates, writes or reads a file. This is path validation, not a
+guard against a same-user filesystem race.
 
 Layout under ``instance_root``::
 
@@ -19,7 +21,8 @@ Layout under ``instance_root``::
     qorqut-roles/                         the separate role-source repositories
 
 Components (``app``, ``operations_engine``, ``context_engine``, ``dashboard``, ``template``, ``roles``) are
-explicitly supplied source or installed-artifact roots; they are never inferred from this instance root.
+explicitly supplied source or installed-artifact roots; they are never inferred from this instance root. The
+``roles`` component is the reusable role source and must stay separate from every code component.
 """
 
 from __future__ import annotations
@@ -96,6 +99,10 @@ class InstancePaths:
                 raise InstancePathError(f"instance_root must not be a component location or inside component {name}")
             if name != "roles" and _overlaps(path, roles):
                 raise InstancePathError(f"component {name} must be separate from the qorqut-roles root")
+        if "roles" in resolved:
+            for name, path in resolved.items():
+                if name != "roles" and _overlaps(path, resolved["roles"]):
+                    raise InstancePathError(f"component {name} must be separate from the roles component")
         object.__setattr__(self, "_root", root)
         object.__setattr__(self, "_components", MappingProxyType(resolved))
         object.__setattr__(self, "_operations", operations)
@@ -126,31 +133,31 @@ class InstancePaths:
 
     @property
     def operations(self) -> Path:
-        return self._operations
+        return self._checked(self._operations)
 
     @property
     def database(self) -> Path:
-        return self._operations / ".runtime" / "operations.sqlite3"
+        return self._checked(self._operations / ".runtime" / "operations.sqlite3")
 
     @property
     def context(self) -> Path:
-        return self._operations / "context"
+        return self._checked(self._operations / "context")
 
     @property
     def context_runtime(self) -> Path:
-        return self._operations / ".runtime" / "context"
+        return self._checked(self._operations / ".runtime" / "context")
 
     @property
     def history(self) -> Path:
-        return self._operations / ".runtime" / "history.git"
+        return self._checked(self._operations / ".runtime" / "history.git")
 
     @property
     def files(self) -> Path:
-        return self._operations / "files"
+        return self._checked(self._operations / "files")
 
     @property
     def roles(self) -> Path:
-        return self._roles
+        return self._checked(self._roles)
 
     def component(self, name: str) -> Path:
         if name not in COMPONENTS:
@@ -190,7 +197,9 @@ class InstancePaths:
         return self._checked(self.agent_workspace(agent_id, business_folder=business_folder) / "transcripts")
 
     def _checked(self, path: Path) -> Path:
-        """Refuse a derived path whose existing parts include a symlink; unwritten paths cannot escape."""
+        """Refuse a derived path whose existing parts include a symlink; unwritten paths cannot escape.
+
+        Evaluated on every selection, so a link created after construction is refused too."""
         if Path(os.path.realpath(path)) != path:
             raise InstancePathError(f"path leaves the instance through a symlink: {path}")
         return path
