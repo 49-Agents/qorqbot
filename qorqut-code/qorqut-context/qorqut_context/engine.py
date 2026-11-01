@@ -141,7 +141,12 @@ class Context:
         return Snapshot(self.git, self.git.resolve(revision))
 
     def _job(self):
-        return json.loads(self.job_path.read_bytes()) if self.job_path.exists() else None
+        """The pending job, validated as current-format before any reader or writer sees it."""
+        if not self.job_path.exists():
+            return None
+        job = json.loads(self.job_path.read_bytes())
+        self._require_current_format(job)
+        return job
 
     def pending(self):
         with self._lock():
@@ -178,7 +183,6 @@ class Context:
             identifier(event_id)
         with self._lock():
             snapshot, pending = self.snapshot(), self._job()
-            self._require_current_format(pending)
             previous = next((event for event in snapshot.sources.values()
                              if event["source"]["path"] == path and event["operation"] != "remove"), None)
             existing = snapshot.events.get(event_id)
@@ -222,8 +226,9 @@ class Context:
 
     @staticmethod
     def _require_current_format(job):
-        if job and job.get("format_version") != FORMAT_VERSION:
-            raise Conflict(f"Unsupported pending event format version {job.get('format_version')!r}; "
+        version = job.get("format_version") if isinstance(job, dict) else None
+        if version != FORMAT_VERSION:
+            raise Conflict(f"Unsupported pending event format version {version!r}; "
                            f"this engine supports format {FORMAT_VERSION} only")
 
     @staticmethod
@@ -296,7 +301,6 @@ class Context:
             "action": action, "submitted_by": submitted_by})
         with self._lock():
             snapshot, pending = self.snapshot(), self._job()
-            self._require_current_format(pending)
             existing = snapshot.events.get(event_id)
             if existing:
                 if existing["submission_digest"] != request_digest:
@@ -380,7 +384,6 @@ class Context:
         if job is None or job["id"] != event_id:
             raise Conflict("No matching pending event")
         snapshot = self.snapshot()
-        self._require_current_format(job)
         if event_id in snapshot.events:
             raise Conflict("This event is already published; recover it instead of editing")
         if self.git.head() != job["base_revision"]:
@@ -442,7 +445,6 @@ class Context:
         return self._remove(event_id, "edge", object_id, **details)
 
     def _prepare_publication(self, snapshot, job):
-        self._require_current_format(job)
         objects = {"node": dict(snapshot.nodes), "edge": dict(snapshot.edges)}
         support = dict(snapshot.support)
         catalogs = json.loads(json.dumps(snapshot.catalogs))
@@ -654,8 +656,6 @@ class Context:
                 return existing
             if job is None or job["id"] != event_id:
                 raise Conflict("No matching pending event")
-            if not existing:
-                self._require_current_format(job)
             try:
                 if existing:
                     return self._finish(job, existing)
@@ -695,7 +695,6 @@ class Context:
                     job["error"] = str(error)
                     self._save(job)
                     raise
-            self._require_current_format(job)
             if job["phase"] == "discarding":
                 self._cleanup(job)
                 return {"status": "discarded", "event_id": job["id"]}
@@ -710,7 +709,6 @@ class Context:
             if job is None or job["id"] != event_id:
                 raise Conflict("No matching pending event")
             snapshot = self.snapshot()
-            self._require_current_format(job)
             if event_id in snapshot.events:
                 raise Conflict("A published event must be recovered, not discarded")
             job.update(phase="discarding", error=None)
