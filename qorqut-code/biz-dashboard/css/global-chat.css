@@ -1,22 +1,13 @@
 /* Global agent chat (js/global-chat.js). Uses the dashboard's existing tokens; no new colours or layout system. */
 .gchat { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; width: 100%; color: var(--fg); }
-.gchat-top { display: flex; align-items: center; gap: 10px; padding: 0 0 10px; border-bottom: 1px solid var(--line); flex: none; }
+.gchat-top { position:absolute; top:4px; left:4px; z-index:2; display:flex; align-items:center; gap:8px; max-width:calc(100% - 8px); padding:5px 9px; border:0; border-radius:6px; background:color-mix(in srgb, var(--bg) 68%, transparent); backdrop-filter:blur(8px); pointer-events:none; font-size:12px; }
 .gchat-name { font-weight: 500; letter-spacing: -.011em; }
-.gchat-status { font-size: 12px; color: var(--fg-2); }
+.gchat-status { font-size: 11px; color: var(--fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gchat-status[data-state="error"] { color: var(--danger); }
 .gchat-status[data-state="ready"] { color: var(--fg); }
-.gchat-spacer { flex: 1; }
-.gchat-menu { position: relative; }
-.gchat-menu > summary { list-style: none; cursor: pointer; width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--r-sm, 6px); color: var(--fg-2); }
-.gchat-menu > summary::-webkit-details-marker { display: none; }
-.gchat-menu > summary:hover, .gchat-menu[open] > summary { background: var(--hover); color: var(--fg); }
-.gchat-menu-list { position: absolute; right: 0; top: 32px; z-index: 5; min-width: 220px; display: flex; flex-direction: column; gap: 2px; padding: 6px;
-  background: var(--surface, var(--bg)); border: 1px solid var(--line-2); border-radius: 10px; }
-.gchat-menu-list button { text-align: left; background: none; color: var(--fg); border: 0; padding: 7px 10px; border-radius: 6px; transform: none; }
-.gchat-menu-list button:hover { background: var(--hover); color: var(--fg); transform: none; }
 .gchat-banner { margin: 8px 0 0; padding: 8px 12px; font-size: 12px; border: 1px solid var(--line-2); border-radius: 8px; color: var(--fg-2); flex: none; }
 .gchat-banner[hidden], .gchat-older[hidden], .gchat-jump[hidden], .gchat-empty[hidden] { display: none; }
-.gchat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 2px; overscroll-behavior: contain; }
+.gchat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 38px 2px 14px; overscroll-behavior: contain; }
 .gchat-older { display: block; margin: 0 auto 12px; }
 .gchat-log { display: flex; flex-direction: column; gap: 10px; }
 .gchat-msg { display: flex; flex-direction: column; gap: 4px; max-width: min(760px, 88%); }
@@ -52,7 +43,7 @@
 .gchat-composer { display: flex; align-items: flex-end; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); flex: none; }
 .gchat-composer textarea { flex: 1; min-width: 0; min-height: 44px; max-height: 220px; resize: vertical; padding: 9px 11px; font: inherit; line-height: 1.45; }
 .gchat-send { flex: none; min-height: 40px; padding: 7px 16px; }
-.gchat-diagnostic { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
+.gchat-diagnostic { position:relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
 .gchat-diagnostic-bar { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; font-size: 12px; flex: none; }
 .gchat-diagnostic-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* Unread marker for a global agent's main chat: the navigation tab and the agent's roster row. */

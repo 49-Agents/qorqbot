@@ -141,7 +141,7 @@ async function renderGlobalAgents(c) {
   const businessRow = ({id, biz, agent}, pinned) => {
     const name = agent.display_name || agent.name, business = biz.name || biz.slug, department = dept(agent.department);
     return `<div class="global-biz-row"><button class="item agent global-biz-agent" type="button" data-business-agent="${esc(id)}" aria-pressed="false" aria-label="${esc(`${name}, ${business}, ${department.label}`)}">
-        <span class="nm"><span class="global-biz-icons" aria-hidden="true">${identityAvatar('business', business, {}, business)}<span class="identity-avatar identity-department" style="--department-color:${department.color}">${departmentIcon(agent.department, 11)}</span></span>
+        <span class="nm"><span class="global-biz-icons${pinned ? ' pinned' : ''}" aria-hidden="true">${pinned ? '' : identityAvatar('business', business, {}, business)}<span class="identity-avatar identity-department" style="--department-color:${department.color}">${departmentIcon(agent.department, 11)}</span></span>
           <span class="global-biz-text"><span class="tt">${esc(name)}</span><span class="global-biz-name">${esc(business)}</span></span></span>
         <span class="agent-presence" data-agent-presence="${esc(id)}" role="img"></span>
       </button>${pinControl(id, `${name}, ${business}`, pinned)}</div>`;
@@ -240,8 +240,7 @@ async function renderGlobalAgents(c) {
   paintBusinessAgents();
 
   // ---- selection
-  // An actual global agent is a persistent chat served by the supervised runner; the workspace terminal and every business agent
-  // keep the terminal. The view toggle detaches only the UI; the chat runner and tmux shell keep running independently.
+  // Global Chat displays the same native conversation as Terminal. Switching views only changes the UI.
   let chatMount = null;
   const disposeChat = () => { chatMount?.dispose(); chatMount = null; };
   const mountAgentSession = agent => {
@@ -253,10 +252,9 @@ async function renderGlobalAgents(c) {
   };
   const mountAgentShell = agent => {
     disposeChat();
-    pane.innerHTML = `<div class="gchat-diagnostic"><div class="gchat-diagnostic-bar">${globalChatViewToggle(true)}
-      <span class="muted">Interactive shell · agent conversation stays in Chat.</span></div><div class="gchat-diagnostic-host"></div></div>`;
-    pane.querySelector('[data-chat-return]').onclick = () => { if (current() && selected === agent.agent_id) mountAgentSession(agent); };
-    mountTerminal(agent.agent_id, pane.querySelector('.gchat-diagnostic-host'), () => {}, `/root/terminal/${encodeURIComponent(agent.agent_id)}`);
+    pane.innerHTML = `<div class="gchat-diagnostic"><div class="gchat-top"><span class="gchat-name">${esc(agent.display_name || agent.name)}</span><span class="gchat-status">Terminal</span></div><div class="gchat-diagnostic-host"></div></div>`;
+    const shellStatus = pane.querySelector('.gchat-status');
+    mountTerminal(agent.agent_id, pane.querySelector('.gchat-diagnostic-host'), status => { shellStatus.textContent = status === 'live' ? 'Terminal connected' : status === 'ended' ? 'Terminal exited' : 'Terminal disconnected'; }, `/root/terminal/${encodeURIComponent(agent.agent_id)}`);
   };
   const select = (agent, requestedView = null, remember = true) => {
     if (!current()) return;
@@ -280,7 +278,8 @@ async function renderGlobalAgents(c) {
     } : {
       biz: null, agentId: agent.agent_id, workspaceScope: 'global', workspaceRole: agent.role?.id || null,
       businessGrants: agent.scope?.allowed_business_ids || [],
-      initialView: requestedView, open: linkedFocus || ls('agpad:null') !== 'off',
+      initialView: requestedView, open: true, sessionView: 'chat',
+      onSessionViewChange: view => { if (current() && selected === agent.agent_id) (view === 'terminal' ? mountAgentShell : mountAgentSession)(agent); },
       isCurrent: () => current() && selected === agent.agent_id,
     });
   };

@@ -34,7 +34,6 @@ function teardownTerm() {
 // The main view uses the shared session; compact viewers pass an independent session.
 // Closing a viewer leaves the server PTY running.
 function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComponent(state.biz)}/terminal/${encodeURIComponent(agent)}`, session = null) {
-  const paneToggle = pane.querySelector("#agpad-toggle");
   const isolated=!!session;
   session ||= {
     get term(){return _term;},set term(value){_term=value;},
@@ -67,7 +66,6 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
   terminalDrafts.set(terminalBase, draft);
   input.value = draft.text;
   input.oninput = () => { draft.text = input.value; };
-  if (pane.closest(".agsplit") && pane.dataset.agentPane !== "off") agpadTerminalButton($(".termtools", pane), paneToggle);
 
   const term = new Terminal({
     fontFamily: "var(--mono, ui-monospace, monospace)",

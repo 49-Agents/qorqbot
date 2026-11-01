@@ -488,6 +488,7 @@ function agfocusPaint(p) {
       toggle.onclick=event=>{event.stopPropagation();agfocusToggleStory(p,item);};
     } else agfocusHtml(marker,`<span class="sdot ${T_STATES.includes(item.state)?esc(item.state):''}" aria-hidden="true"></span>`);
     agfocusText(node.querySelector('.ttl'),name);
+    node.querySelector('.ttl').title=name;
     agfocusContext(node,item);
     const flag=node.querySelector('.agfocus-flag');
     const snoozed=agfocusSnoozed(item);

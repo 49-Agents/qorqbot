@@ -252,17 +252,6 @@ function agpadDispose() {
   _agpad = null;
 }
 
-function agpadTerminalButton(tools, old) {
-  if (old) { tools.appendChild(old); return; }
-  const button = document.createElement("button");
-  button.className = "ttab agpad-toggle"; button.id = "agpad-toggle";
-  button.setAttribute("aria-label", "Agent pane");
-  button.setAttribute("aria-controls", "agpad");
-  button.setAttribute("aria-expanded", "true");
-  button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>';
-  tools.appendChild(button);
-}
-
 function agpadGroups(tasks, name) {
   const actor = `agent:${name}`;
   const created = t => t.created_by ? t.created_by_kind === 'agent' && String(t.created_by_name || '').toLowerCase() === name.toLowerCase() : t.notes?.[0]?.by === actor;
@@ -299,6 +288,7 @@ function agpadMount(name, el, options = {}) {
     views: ["inbox"], ...options,
     workspaceScope, workspaceBase, workspaceRole: options.workspaceRole || null,
   };
+  p.open = !!name; // The pane stays available without a hide/show control.
   // Links to the retired Marketing "desktop" tab land in the agent's Browser view.
   let initialView = options.initialView || agpadRememberedView(p);
   if (initialView === "desktop" && p.workspaceRole !== "ordubashy" && workspaceScope === "global") initialView = "browser";
@@ -307,18 +297,6 @@ function agpadMount(name, el, options = {}) {
   if (p.workspaceRole) workspaceTypesLoad();
   if (typeof agbrowserDiscover === "function") agbrowserDiscover(p);
   p.dividerDispose = agentPaneDividerMount(el.closest?.(".agsplit"));
-  const button = $("#agpad-toggle");
-  if (button) {
-    button.disabled = !name;
-    button.onclick = () => {
-      if (_agpad !== p || !p.agent) return;
-      p.open = !p.open;
-      ls(`agpad:${p.biz}`, p.open ? "on" : "off");
-      p.nextLog = 0;
-      agpadVisibility(p);
-      agpadTick();
-    };
-  }
   agpadVisibility(p);
   if (!name) { el.innerHTML = ""; return; }
   el.onclick = e => {
@@ -361,6 +339,7 @@ function agpadSetView(p, view) {
   agpadRememberView(p, view);
   p.bodyHtml = null;
   p.el.innerHTML = tHead({ view: agpadHeadActive(p, view), views: agpadHeadViews(p), bodyId: "agpad-body", taskTools: false });
+  if (typeof globalChatPaneToggle === 'function') globalChatPaneToggle(p);
   if (view === 'status') agentCurrentWorkMount(p);
   tWireHead(p.el, agpadHeadActive(p, from), next => agpadSetView(p, agpadTabView(p, next)));
   if(typeof agentPaneIndicators==='function')agentPaneIndicators(p);
@@ -490,11 +469,6 @@ function agpadVisibility(p) {
   p.el.closest(".agsplit").classList.toggle("pad-off", !p.open);
   p.el.hidden = !p.open;
   p.el.closest(".agsplit")._agentPaneDividerRefresh?.();
-  const button = $("#agpad-toggle");
-  if (button) {
-    button.setAttribute("aria-expanded", String(p.open));
-    button.removeAttribute("title");
-  }
   if (p.open) moveTInd(p.el, p.view);
 }
 

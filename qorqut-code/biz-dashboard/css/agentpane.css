@@ -3,21 +3,21 @@
   --ag-terminal-fr: 1fr;
   --ag-pane-fr: 1.15fr;
   --ag-divider-width: 12px;
-  grid-template-columns: 240px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr));
+  grid-template-columns: 228px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr));
   min-width: 0;
 }
-.split.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
+.split.agsplit.pad-off { grid-template-columns: 228px minmax(0, 1fr) 0; }
 .split.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
 .split.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
-.split.global-agents.agsplit { grid-template-columns: 240px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
-.split.global-agents.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
+.split.global-agents.agsplit { grid-template-columns: 228px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
+.split.global-agents.agsplit.pad-off { grid-template-columns: 228px minmax(0, 1fr) 0; }
 .split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
 .split.global-agents.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
 /* Global and per-business agents share one navigation column; it is wider where the screen has room.
-   The nav-off rules above still win (higher specificity), and narrower screens keep 240px. */
+   The nav-off rules above still win (higher specificity), and narrower screens keep 228px. */
 @media (min-width: 1000px) {
-  .split.global-agents.agsplit { grid-template-columns: 280px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
-  .split.global-agents.agsplit.pad-off { grid-template-columns: 280px minmax(0, 1fr) 0; }
+  .split.global-agents.agsplit { grid-template-columns: 268px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
+  .split.global-agents.agsplit.pad-off { grid-template-columns: 268px minmax(0, 1fr) 0; }
 }
 .agsplit:not(.pad-off) > .chat.termmode { padding-left: 24px; padding-right: 24px; }
 .agsplit.pad-off > .agent-pane-divider { display: none; }
@@ -67,11 +67,11 @@
   /* The divider disappears from the grid at mobile widths, retaining the
      pre-divider three-column behavior for both agent layouts. */
   .split.agsplit,
-  .split.global-agents.agsplit { grid-template-columns: 240px minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
+  .split.global-agents.agsplit { grid-template-columns: 228px minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
   .split.agsplit.nav-off,
   .split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
   .split.agsplit.pad-off,
-  .split.global-agents.agsplit.pad-off { grid-template-columns: 240px minmax(0, 1fr) 0; }
+  .split.global-agents.agsplit.pad-off { grid-template-columns: 228px minmax(0, 1fr) 0; }
   .split.agsplit.nav-off.pad-off,
   .split.global-agents.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
 }
@@ -88,8 +88,6 @@
 .agsplit.nav-off > .listcol .agent-nav-heading h1, .agsplit.nav-off > .listcol .agent-nav-heading h2 { display: none; }
 
 
-.agpad-toggle[aria-expanded="true"] { color: var(--fg); background: var(--wash); }
-.agpad-toggle:disabled { opacity: .4; cursor: default; }
 
 /* Content uses the shared .tasks surface, header, tabs, rows, and scrolling body. */
 .agpad { min-width: 0; }
@@ -112,7 +110,6 @@
   font-size:11px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
   color:var(--fg-2); opacity:.6; line-height:1;
 }
-.agpad-toggle { position:relative; overflow:visible; }
 
 .agpad-inbox-top { display:flex; align-items:center; gap:16px; margin:20px 16px 8px; }
 .agpad-inbox-top .agpad-inbox-heading { margin:0; flex:none; }
@@ -141,3 +138,6 @@
 .agpad-ping.switch:disabled { opacity:.5; }
 .agpad-ping-next { color:var(--fg-3); font-variant-numeric:tabular-nums; }
 .agpad-ping-next[hidden] { display:none; }
+
+.agsplit .agpad, .agsplit .agpad .thead, .agsplit .agpad .tbody { background: var(--bg); }
+.agpad-session-view { display:flex; justify-content:flex-end; margin-top:8px; }

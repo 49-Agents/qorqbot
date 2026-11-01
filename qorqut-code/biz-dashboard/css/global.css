@@ -108,7 +108,7 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-agents .global-biz-pin { position: absolute; top: 50%; right: 16px; width: 24px; height: 24px; padding: 0; transform: translateY(-50%); display: inline-flex; align-items: center; justify-content: center;
   opacity: 0; color: var(--fg-3); background: none; border: 0; border-radius: var(--r-sm); }
 .global-agents .global-biz-pin svg { width: 13px; height: 13px; }
-.global-agents .global-biz-row:hover .global-biz-pin, .global-agents .global-biz-row:focus-within .global-biz-pin, .global-agents .global-biz-pin[aria-pressed="true"] { opacity: 1; }
+.global-agents .global-biz-row:hover .global-biz-pin, .global-agents .global-biz-row:focus-within .global-biz-pin { opacity: 1; }
 .global-agents .global-biz-pin:hover, .global-agents .global-biz-pin:focus-visible { color: var(--fg); background: var(--hover); transform: translateY(-50%); }
 .global-agents .global-biz-pin[aria-pressed="true"] { color: var(--fg); }
 .global-agents .global-biz-pin[aria-pressed="true"] svg { fill: currentColor; }
@@ -132,3 +132,8 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-summary > .global-summary-note { grid-column: 1 / -1; }
 
 .workspace-choice .sg-attention-badge { grid-column:4; grid-row:1; justify-self:end; }
+
+.global-agents .global-biz-icons .identity-avatar { border:0; box-shadow:none; background:none; }
+.global-agents .global-biz-icons.pinned { width:24px; }
+.global-agents .global-biz-icons.pinned .identity-department { width:24px; height:24px; margin-left:0; }
+.global-agents .global-biz-icons.pinned .identity-department svg { width:16px; height:16px; }

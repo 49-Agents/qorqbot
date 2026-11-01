@@ -1,5 +1,5 @@
 // Persistent chat for actual global agents (biz-core docs/GLOBAL-AGENT-CHAT.md). It replaces the terminal pane for those
-// agents only; the server-side runner owns the native agent session, so closing this view or the browser stops nothing.
+// agents only; Terminal owns the native session and this view displays its saved conversation.
 // One mount owns one SSE stream, its timers and listeners, and releases all of them in dispose().
 const GLOBAL_CHAT_DRAFTS = new Map();           // agent id -> unsent composer text, kept while switching agents
 const GLOBAL_CHAT_SENDS = new Map();            // retain retry identity across mounts
@@ -14,7 +14,7 @@ function globalChatReadable(agentId) {
 const GLOBAL_CHAT_PAGE = 50;
 const GLOBAL_CHAT_MAX = 17000;
 const GLOBAL_CHAT_STATE_TEXT = {
-  queued: 'Queued', running: 'Working…', failed: 'Failed', interrupted: 'Stopped',
+  queued: 'Queued', running: 'Sent to terminal', failed: 'Failed', interrupted: 'Stopped',
   uncertain: 'Delivery not confirmed. It was not sent again; check the agent before resending.',
 };
 const globalChatBase = id => `/root/agents/${encodeURIComponent(id)}/chat`;
@@ -77,6 +77,23 @@ function globalChatViewToggle(terminal = false) {
   </div>`;
 }
 
+function globalChatPaneToggle(p) {
+  if (p.onSessionViewChange) {
+    const control = document.createElement('div');
+    control.className = 'agpad-session-view';
+    const paint = () => { control.innerHTML = globalChatViewToggle(p.sessionView === 'terminal'); };
+    paint();
+    control.onclick = event => {
+      const button = event.target.closest('button');
+      if (!button || button.disabled) return;
+      p.sessionView = button.hasAttribute('data-terminal') ? 'terminal' : 'chat';
+      p.onSessionViewChange(p.sessionView);
+      paint();
+    };
+    p.el.querySelector('.thead').appendChild(control);
+  }
+}
+
 function mountGlobalChat(pane, agent, options = {}) {
   const agentId = agent.agent_id, base = globalChatBase(agentId), label = agent.display_name || agent.name || 'Agent';
   const messages = new Map();                    // id -> message view
@@ -90,10 +107,6 @@ function mountGlobalChat(pane, agent, options = {}) {
     <header class="gchat-top">
       <span class="gchat-name">${esc(label)}</span>
       <span class="gchat-status" role="status" aria-live="polite"></span>
-      <span class="gchat-spacer"></span>
-      ${options.openTerminal ? globalChatViewToggle() : ''}
-      <span class="gchat-tools termtools"></span>
-      <details class="gchat-menu"><summary aria-label="Chat options" title="Chat options">⋯</summary><div class="gchat-menu-list" role="menu"></div></details>
     </header>
     <div class="gchat-banner" role="status" hidden></div>
     <div class="gchat-scroll" tabindex="-1"><button type="button" class="quiet gchat-older" hidden>Load older messages</button>
@@ -108,15 +121,11 @@ function mountGlobalChat(pane, agent, options = {}) {
   </div>`;
   const root = pane.firstElementChild;
   const $q = selector => root.querySelector(selector);
-  const status = $q('.gchat-status'), menu = $q('.gchat-menu-list'), banner = $q('.gchat-banner');
+  const status = $q('.gchat-status'), banner = $q('.gchat-banner');
   const scroller = $q('.gchat-scroll'), log = $q('.gchat-log'), actionHost = $q('.gchat-actions'), emptyNote = $q('.gchat-empty');
   const olderButton = $q('.gchat-older'), jump = $q('.gchat-jump'), form = $q('.gchat-composer');
   const input = form.querySelector('textarea'), send = form.querySelector('.gchat-send');
   input.value = GLOBAL_CHAT_DRAFTS.get(agentId) || '';
-  // The agent-pane toggle normally lives in the terminal toolbar; the chat header hosts it so the pane stays reachable.
-  if (pane.closest('.agsplit') && pane.dataset.agentPane !== 'off' && typeof agpadTerminalButton === 'function') {
-    agpadTerminalButton($q('.gchat-tools'), null);
-  }
 
   const live = () => !disposed && root.isConnected;
   const listen = (target, type, handler, opts) => { target.addEventListener(type, handler, opts); cleanups.push(() => target.removeEventListener(type, handler, opts)); };
@@ -261,52 +270,23 @@ function mountGlobalChat(pane, agent, options = {}) {
     answer(card, {answers});
   });
 
-  // ---- runtime status, header controls and the empty state
-  const runtimeText = () => {
-    if (!runtime) return 'Loading…';
-    if (!runtime.enabled) return 'Chat not enabled';
-    if (runtime.runner_state === 'error') return runtime.detail ? `Error: ${runtime.detail}` : 'Error';
-    if (runtime.desired_state !== 'running') return 'Stopped';
-    if (runtime.detail) return runtime.detail;
-    if (runtime.active_turn) return 'Working…';
-    if (runtime.runner_state === 'starting') return 'Starting…';
-    if (runtime.runner_state === 'ready') return runtime.queued ? `Ready · ${runtime.queued} queued` : 'Ready';
-    return 'Waiting for the chat runner';
-  };
+  // Terminal owns lifecycle, configuration and native approval prompts.
   function paintRuntime() {
-    status.textContent = runtimeText();
-    status.dataset.state = !runtime ? 'loading' : !runtime.enabled ? 'off' : runtime.runner_state === 'error' ? 'error' : runtime.desired_state !== 'running' ? 'stopped' : runtime.runner_state;
-    const enabled = !!(runtime && runtime.enabled), running = enabled && runtime.desired_state === 'running';
-    menu.innerHTML = [
-      !enabled ? '<button type="button" role="menuitem" data-runtime="enable">Enable chat</button>' : '',
-      enabled && !running ? '<button type="button" role="menuitem" data-runtime="start">Start agent</button>' : '',
-      enabled ? '<button type="button" role="menuitem" data-runtime="disable">Disable chat</button>' : '',
-    ].join('');
+    const connected = !!runtime?.can_send;
+    status.textContent = !runtime ? 'Loading…' : connected ? 'Terminal connected' : 'Terminal offline';
+    status.dataset.state = !runtime ? 'loading' : connected ? 'ready' : 'stopped';
     emptyNote.hidden = messages.size > 0 || !runtime;
-    if (runtime && !runtime.enabled) {
-      emptyNote.innerHTML = `<p><strong>Chat is not enabled for ${esc(label)}.</strong></p>
-        <p>The agent keeps running in its terminal until you switch. If it is running there now, exit it first; nothing is stopped for you.</p>
-        <p><button type="button" data-runtime="enable">Enable chat</button>${options.openTerminal ? ' <button type="button" class="quiet" data-terminal>Open terminal</button>' : ''}</p>`;
-    } else if (!messages.size) emptyNote.textContent = 'No messages yet. Sending one starts the agent.';
-    const usable = !!(runtime && runtime.enabled);
-    input.disabled = !usable; send.disabled = !usable || sending;
-    input.placeholder = usable ? (running ? `Message ${label}…` : `Message ${label}… (sending starts the agent)`) : 'Enable chat to send messages';
+    if (!messages.size && runtime) {
+      emptyNote.innerHTML = connected ? '<p>Your terminal conversation appears here.</p>'
+        : `<p>Start or resume ${esc(label)} in Terminal. Its conversation will appear here.</p>${options.openTerminal ? '<button type="button" class="quiet" data-terminal>Open terminal</button>' : ''}`;
+    }
+    input.disabled = !connected;
+    send.disabled = !connected || sending;
+    input.placeholder = connected ? `Message ${label}…` : 'Start the agent in Terminal';
   }
   const showBanner = text => { banner.hidden = !text; banner.textContent = text || ''; delete banner.dataset.reconnect; };
-  async function runtimeAction(action) {
-    menu.closest('details').open = false;
-    try {
-      runtime = coreData(await post(`${base}/runtime`, {action}));
-      if (!live()) return;
-      showBanner(''); paintRuntime(); if (action === 'enable') void loadState();
-    } catch (problem) {
-      if (live()) showBanner(problem.code === 'transition_required' ? failure(problem) : `Could not ${action.replace('_', ' ')}: ${failure(problem)}`);
-    }
-  }
   listen(root, 'click', event => {
-    const control = event.target.closest('[data-runtime]');
-    if (control) { event.preventDefault(); void runtimeAction(control.dataset.runtime); return; }
-    if (event.target.closest('[data-terminal]')) { menu.closest('details').open = false; options.openTerminal?.(); }
+    if (event.target.closest('[data-terminal]')) options.openTerminal?.();
   });
 
   // ---- composer
@@ -321,7 +301,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   form.onsubmit = async event => {
     event.preventDefault();
     const text = input.value;
-    if (sending || !text.trim() || !runtime?.enabled) return;
+    if (sending || !text.trim() || !runtime?.can_send) return;
     sending = true; send.disabled = true;
     // A retry of the same text reuses its key, so a lost response can never become a second message.
     if (!pendingSend || pendingSend.text !== text) pendingSend = {text, key: newRequestId()};
@@ -339,7 +319,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (result.message) { upsert(result.message); atBottom = true; toBottom(); }
       void refreshRuntime();
     } catch (problem) {
-      if (live()) showBanner(problem.code === 'transition_required' || problem.code === 'chat_not_enabled' ? failure(problem) : `Delivery unconfirmed: ${failure(problem)} Press Send to check or retry this same message.`);
+      if (live()) showBanner(['transition_required', 'terminal_offline', 'terminal_not_ready', 'terminal_unavailable'].includes(problem.code) ? failure(problem) : `Delivery unconfirmed: ${failure(problem)} Press Send to check or retry this same message.`);
     } finally { sending = false; if (live()) paintRuntime(); }
   };
 
