@@ -4,7 +4,7 @@ Every port below is a typed seam the trusted host composes: the engine imports n
 absent port fails closed (a delegated call without a ``DelegationProvider`` is forbidden, a protected mutation
 without a ``SignoffStager`` is unavailable)."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
 from qorqut_operations.contracts import ArtifactRef, ChangeSet, InvocationContext, InvocationOptions, OperationResult, PolicyDecision
@@ -35,6 +35,8 @@ class FileExecutor(Protocol):
 
     def execute(self, application, context: InvocationContext, operation: OperationDescriptor,
                 change_set: ChangeSet, options: InvocationOptions, input_hash: str) -> OperationResult: ...
+
+    def recover_pending(self, application, *, limit: int = 50) -> Sequence: ...
 
 
 class DelegationProvider(Protocol):

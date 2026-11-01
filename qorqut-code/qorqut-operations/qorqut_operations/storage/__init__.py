@@ -5,14 +5,18 @@ isolated empty instance or a test, and ``Database.open_existing`` only validates
 
 from .assembly import (Assembly, AssemblyBuilder, AssemblyError, FileEffectContribution, RecordEffectContribution,
                        SchemaTarget, StorageContribution, TransactionContribution)
+from .admission import InstallationRecoveryLock, RecoveryAdmission
 from .database import Database, UnitOfWork
 from .files import FileApplier, RegisteredFileTarget, file_values
 from .locks import LockPaths
+from .quiescence import BoundedWriter, KnownZeroWriters, QuiescenceProof, RecoveryQuiescer
 from .receipts import ApplyReceipts, IdempotencyReceipts
+from .recovery_gate import DatabaseMaintenanceGate, GateClosure
 from .repositories import Repository
 from .specs import TableSpec
 
-__all__ = ["Assembly", "AssemblyBuilder", "AssemblyError", "ApplyReceipts", "Database", "FileApplier",
-           "FileEffectContribution", "IdempotencyReceipts", "LockPaths", "RecordEffectContribution",
-           "RegisteredFileTarget", "Repository", "SchemaTarget", "StorageContribution", "TableSpec",
-           "TransactionContribution", "UnitOfWork", "file_values"]
+__all__ = ["Assembly", "AssemblyBuilder", "AssemblyError", "ApplyReceipts", "BoundedWriter", "Database",
+           "DatabaseMaintenanceGate", "FileApplier", "FileEffectContribution", "GateClosure", "IdempotencyReceipts",
+           "InstallationRecoveryLock", "KnownZeroWriters", "LockPaths", "QuiescenceProof", "RecoveryAdmission",
+           "RecoveryQuiescer", "RecordEffectContribution", "RegisteredFileTarget", "Repository", "SchemaTarget",
+           "StorageContribution", "TableSpec", "TransactionContribution", "UnitOfWork", "file_values"]
