@@ -54,6 +54,17 @@ function agbrowserToggle(label, items) {
     `<button type="button" class="quiet agbrowser-seg" ${item.attr}="${esc(item.value)}" aria-pressed="${item.pressed}" aria-label="${esc(item.label)}" title="${esc(item.label)}">${item.icon}</button>`).join('')}</div>`;
 }
 
+function agbrowserSurfaceIcon(p, surface) {
+  if (p.workspaceRole !== 'ordubashy') return /outlook|mail/i.test(surface.id + ' ' + surface.label) ? AGBROWSER_ICON_MAIL : agbrowserIcon('browser');
+  if (surface.id === 'ordubashy-browser') return identityAvatar('agent', surface.label, {role: {id: 'ordubashy'}});
+  // Business bindings use their business name as the label. Reuse its Onbashy's
+  // look when the roster identifies it; otherwise keep the shared business initial.
+  const matches = (typeof state === 'undefined' ? [] : state.bizs || []).filter(b => b.name === surface.label || b.slug === surface.label);
+  const business = matches.length === 1 ? matches[0] : null;
+  const onbashy = Object.values(business?.agent_meta || {}).find(agent => (agent.role?.id || agent.kind) === 'business-agent');
+  return identityAvatar('agent', surface.label, {...onbashy, role: {id: 'business-agent'}, business_name: business?.name || surface.label});
+}
+
 // Ordubashy alone can switch between its Browser and its full Desktop.
 function agbrowserModeToggle(p, mode) {
   if (p.workspaceRole !== 'ordubashy') return '';
@@ -107,10 +118,9 @@ function agbrowserFrame(p, host, surface, fit) {
 
 function agbrowserShow(p, body, surfaces, selected) {
   const several = surfaces.browsers.length > 1;
-  const icon = item => /outlook|mail/i.test(item.id + ' ' + item.label) ? AGBROWSER_ICON_MAIL : agbrowserIcon('browser');
   body.innerHTML = `<section class="agfocus-desktop-view agbrowser"><div class="agfocus-desktop-help agbrowser-bar">
     ${agbrowserModeToggle(p, 'browser')}
-    ${several ? agbrowserToggle('Browser', surfaces.browsers.map(item => ({attr: 'data-browser-surface', value: item.id, label: item.label, icon: icon(item), pressed: false}))) : ''}
+    ${several ? agbrowserToggle('Browser', surfaces.browsers.map(item => ({attr: 'data-browser-surface', value: item.id, label: item.label, icon: agbrowserSurfaceIcon(p, item), pressed: false}))) : ''}
     <span class="agbrowser-actions">${agbrowserReconnectButton('data-browser-reconnect')}</span></div>
     <div class="agbrowser-stage"></div></section>`;
   const host = $('.agbrowser', body);
