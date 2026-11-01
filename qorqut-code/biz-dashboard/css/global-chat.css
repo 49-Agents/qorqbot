@@ -15,7 +15,7 @@
 .gchat-agent { align-self: flex-start; }
 .gchat-notice { align-self: center; max-width: 80%; font-size: 12px; color: var(--fg-2); }
 .gchat-body { font-size: 15.75px; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: 12px; overflow-wrap: anywhere; line-height: 1.5; }
-.gchat-owner .gchat-body { background: var(--hover); white-space: pre-wrap; }
+.gchat-owner .gchat-body { background: rgba(255,255,255,.08); white-space: pre-wrap; }
 .gchat-owner .gchat-body, .gchat-agent .gchat-body { border: 0; }
 .gchat-agent .gchat-body { background: none; text-align: left; }
 .gchat-notice .gchat-body { border-style: dashed; background: none; white-space: pre-wrap; }
