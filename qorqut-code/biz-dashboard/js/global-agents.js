@@ -7,6 +7,9 @@ const GLOBAL_WORKSPACE_TERMINAL = '__qorqut_workspace_terminal__';
 const globalWorkspaceTerminal = id => /^__qorqut_workspace_terminal(?:_[23])?__$/.test(id || '')
   ? {id: GLOBAL_WORKSPACE_TERMINAL, label: 'Terminal', base: '/root/workspace-terminal'} : null;
 const GLOBAL_PINS_KEY = 'ag:global-pins:v1';
+// The lookup panel (business agents and Terminal) collapses on its own, and starts collapsed until the owner
+// chooses otherwise; this is neither the whole-navigation toggle nor pane state.
+const GLOBAL_BIZ_COLLAPSED_KEY = 'ag:global-biz-collapsed:v1';
 const globalPinnedAgents = () => {
   try { const ids = JSON.parse(ls(GLOBAL_PINS_KEY) || '[]'); return new Set(Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : []); }
   catch (_) { return new Set(); }
@@ -22,6 +25,10 @@ function globalBusinessHaystack(biz, agent) {
   return globalNormalize([biz.name, biz.slug, ...globalTextParts(biz.aliases), agent.name, agent.display_name, agent.role?.id, agent.kind,
     ...globalTextParts(agent.aliases), agent.department, department?.id, department?.label, ...globalTextParts(department?.aliases)].join(' '));
 }
+const GLOBAL_LOOKUP_LABEL = 'Find agent or terminal';
+const GLOBAL_TERMINAL_HAYSTACK = 'terminal shell workspace qorqut';
+const GLOBAL_LOOKUP_ICON = '<svg class="global-biz-find" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
+const GLOBAL_BIZ_CHEVRON = '<svg class="global-biz-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const GLOBAL_TERMINAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>';
 async function renderGlobalAgents(c) {
   const generation = ++globalAgentsGeneration;
@@ -41,16 +48,22 @@ async function renderGlobalAgents(c) {
   if (!current()) return;
   c.innerHTML = `<div class="split global-agents agsplit">
     <div class="listcol"><div class="ctop"><div class="global-eyebrow">Global</div><div class="agent-nav-heading"><h1>Agents</h1><span class="agent-nav-actions">${broadcastButton()}${agentNavButton()}</span></div></div>
-      <div class="crows global-roster" id="global-agent-list"></div>
-      <section class="global-biz-nav" aria-label="Business agents">
-        <input type="search" class="global-biz-search" id="global-biz-search" aria-label="Search business agents" placeholder="Search agents…" autocomplete="off" spellcheck="false">
-        <div class="global-biz-status" id="global-biz-status" role="status" hidden></div>
-        <div class="crows global-biz-list" id="global-biz-agent-list"></div>
-        <div class="global-workspace-terminals"><button class="item agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}">
-          <span class="nm">${GLOBAL_TERMINAL_ICON}<span class="tt">Terminal</span></span>
-          <span class="ldot" data-global-agent-status title="Terminal not connected"></span>
-        </button></div>
-      </section></div>
+      <div class="global-nav-body">
+        <div class="crows global-primary" id="global-primary-roster">
+          <div class="global-roster" id="global-agent-list"></div>
+          <div class="global-pinned-list" id="global-pinned-agent-list"></div>
+        </div>
+        <section class="global-biz-nav" aria-label="Agent and terminal lookup">
+          <div class="global-biz-tools">
+            <button type="button" class="quiet global-biz-toggle" id="global-biz-toggle" aria-expanded="false" aria-controls="global-biz-region" aria-label="${GLOBAL_LOOKUP_LABEL}" title="${GLOBAL_LOOKUP_LABEL}">${GLOBAL_LOOKUP_ICON}<span class="global-biz-find global-biz-find-text">${GLOBAL_LOOKUP_LABEL}</span>${GLOBAL_BIZ_CHEVRON}</button>
+            <input type="search" class="global-biz-search" id="global-biz-search" aria-label="${GLOBAL_LOOKUP_LABEL}" placeholder="${GLOBAL_LOOKUP_LABEL}…" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="global-biz-region" id="global-biz-region">
+            <div class="global-biz-status" id="global-biz-status" role="status" hidden></div>
+            <div class="crows global-biz-list" id="global-biz-agent-list"></div>
+          </div>
+        </section>
+      </div></div>
     <section class="global-agent-session" aria-label="Agent session"><div class="chat termmode" id="global-agent-terminal"></div></section>
     <div class="agent-pane-divider" data-agent-pane-divider role="separator" aria-label="Terminal and agent pane divider" aria-orientation="vertical" tabindex="0"></div>
     <aside class="tasks agpad" id="agpad" aria-label="Agent pane"></aside>
@@ -59,6 +72,7 @@ async function renderGlobalAgents(c) {
   wireAgentNavToggle(c, 'global');
   const list = $('#global-agent-list', c), pane = $('#global-agent-terminal', c), nav = $('.listcol', c);
   const bizList = $('#global-biz-agent-list', c), search = $('#global-biz-search', c), bizStatus = $('#global-biz-status', c);
+  const pinnedList = $('#global-pinned-agent-list', c), bizRegion = $('#global-biz-region', c), bizToggle = $('#global-biz-toggle', c);
   list.innerHTML = agents.map(agent => `<button class="item agent" type="button" data-global-agent="${esc(agent.agent_id)}">
     <span class="nm">${identityAvatar("agent", agent.display_name || agent.name, {...agent, ...agent.presentation})}<span class="tt">${esc(agent.display_name || agent.name)}</span></span>
     <span class="agent-presence" data-agent-presence="${esc(agent.agent_id)}" role="img"></span>
@@ -99,27 +113,64 @@ async function renderGlobalAgents(c) {
       button.classList.toggle('on', on); button.setAttribute('aria-pressed', String(on));
     });
   };
-  const paintBusinessAgents = () => {
-    const tokens = globalNormalize(search.value).split(' ').filter(Boolean), pins = globalPinnedAgents();
-    const all = businessItems();
-    const rows = all.filter(item => tokens.every(token => item.haystack.includes(token)))
-      .sort((a, b) => (pins.has(b.id) - pins.has(a.id)) || compare(a.biz.name || a.biz.slug, b.biz.name || b.biz.slug)
-        || compare(a.agent.display_name || a.agent.name, b.agent.display_name || b.agent.name) || compare(a.id, b.id));
-    const failed = [...rosters.values()].filter(roster => roster.error);
-    bizStatus.hidden = !failed.length;
-    bizStatus.innerHTML = failed.length ? `<span>Could not load agents for ${failed.map(roster => esc(roster.biz.name || roster.biz.slug)).join(', ')}.</span><button type="button" class="quiet" data-global-biz-retry>Retry</button>` : '';
-    const scroll = bizList.scrollTop;
-    bizList.innerHTML = rows.map(({id, biz, agent}) => {
-      const name = agent.display_name || agent.name, business = biz.name || biz.slug, department = dept(agent.department);
-      const pinned = pins.has(id);
-      return `<div class="global-biz-row"><button class="item agent global-biz-agent" type="button" data-business-agent="${esc(id)}" aria-pressed="false" aria-label="${esc(`${name}, ${business}, ${department.label}`)}">
+  // One row renderer for promoted pins and lookup results, so both stay identical.
+  const pinControl = (id, label, pinned) => `<button type="button" class="quiet global-biz-pin" data-pin-agent="${esc(id)}" aria-pressed="${pinned}" aria-label="${pinned ? 'Unpin' : 'Pin'} ${esc(label)}" title="${pinned ? 'Unpin' : 'Pin'}">${ICO_PIN}</button>`;
+  const businessRow = ({id, biz, agent}, pinned) => {
+    const name = agent.display_name || agent.name, business = biz.name || biz.slug, department = dept(agent.department);
+    return `<div class="global-biz-row"><button class="item agent global-biz-agent" type="button" data-business-agent="${esc(id)}" aria-pressed="false" aria-label="${esc(`${name}, ${business}, ${department.label}`)}">
         <span class="nm"><span class="global-biz-icons" aria-hidden="true">${identityAvatar('business', business, {}, business)}<span class="identity-avatar identity-department" style="--department-color:${department.color}">${departmentIcon(agent.department, 11)}</span></span>
           <span class="global-biz-text"><span class="tt">${esc(name)}</span><span class="global-biz-name">${esc(business)}</span></span></span>
         <span class="agent-presence" data-agent-presence="${esc(id)}" role="img"></span>
-      </button><button type="button" class="quiet global-biz-pin" data-pin-agent="${esc(id)}" aria-pressed="${pinned}" aria-label="${pinned ? 'Unpin' : 'Pin'} ${esc(name)}, ${esc(business)}" title="${pinned ? 'Unpin' : 'Pin'}">${ICO_PIN}</button></div>`;
-    }).join('') || `<p class="empty pad" role="status">${!rosterLoaded ? 'Loading business agents…' : all.length ? 'No matching agents' : failed.length ? '' : 'No active business agents.'}</p>`;
-    bizList.scrollTop = scroll;
+      </button>${pinControl(id, `${name}, ${business}`, pinned)}</div>`;
+  };
+  // The owner's one shell is an ordinary lookup result: same identity, route and session, selectable and pinnable.
+  // Its connection dot is kept here because the row is repainted whenever the list changes.
+  let terminalStatus = {live: false, title: 'Terminal not connected'};
+  const terminalRow = pinned => `<div class="global-biz-row"><button class="item agent global-biz-agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}" aria-pressed="false">
+      <span class="nm">${GLOBAL_TERMINAL_ICON}<span class="tt">Terminal</span></span>
+      <span class="ldot${terminalStatus.live ? ' live' : ''}" data-global-agent-status title="${esc(terminalStatus.title)}"></span>
+    </button>${pinControl(GLOBAL_WORKSPACE_TERMINAL, 'Terminal', pinned)}</div>`;
+  const byBusinessThenName = (a, b) => compare(a.biz.name || a.biz.slug, b.biz.name || b.biz.slug)
+    || compare(a.agent.display_name || a.agent.name, b.agent.display_name || b.agent.name) || compare(a.id, b.id);
+  // The collapsed list keeps its scroll offset: a hidden scroller reports none.
+  let bizScroll = 0;
+  const paintBusinessAgents = () => {
+    const tokens = globalNormalize(search.value).split(' ').filter(Boolean), pins = globalPinnedAgents();
+    const all = businessItems();
+    // Pins lead the navigation whatever the lookup says; only the lookup results are filtered.
+    const promoted = all.filter(item => pins.has(item.id)).sort(byBusinessThenName), terminalPinned = pins.has(GLOBAL_WORKSPACE_TERMINAL);
+    const rows = all.filter(item => !pins.has(item.id) && tokens.every(token => item.haystack.includes(token))).sort(byBusinessThenName);
+    const terminalFound = !terminalPinned && tokens.every(token => GLOBAL_TERMINAL_HAYSTACK.includes(token));
+    const failed = [...rosters.values()].filter(roster => roster.error);
+    bizStatus.hidden = !failed.length;
+    bizStatus.innerHTML = failed.length ? `<span>Could not load agents for ${failed.map(roster => esc(roster.biz.name || roster.biz.slug)).join(', ')}.</span><button type="button" class="quiet" data-global-biz-retry>Retry</button>` : '';
+    const note = rows.length ? '' : !rosterLoaded ? 'Loading business agents…'
+      : tokens.length && !terminalFound ? 'No matching agents'
+      : !all.length ? (failed.length ? '' : 'No active business agents.')
+      : !tokens.length && !terminalFound ? 'Everything is pinned.' : '';
+    const scroll = bizRegion.hidden ? bizScroll : bizList.scrollTop;
+    pinnedList.innerHTML = promoted.map(item => businessRow(item, true)).join('') + (terminalPinned ? terminalRow(true) : '');
+    bizList.innerHTML = (terminalFound ? terminalRow(false) : '') + rows.map(item => businessRow(item, false)).join('')
+      + (note ? `<p class="empty pad" role="status">${note}</p>` : '');
+    if (bizRegion.hidden) bizScroll = scroll; else bizList.scrollTop = scroll;
     agentNavPaint(); paintSelection();
+  };
+  const setBizCollapsed = (collapsed, remember = true) => {
+    if (collapsed && !bizRegion.hidden) bizScroll = bizList.scrollTop;
+    nav.classList.toggle('biz-collapsed', collapsed);
+    bizRegion.hidden = search.hidden = collapsed;
+    const label = collapsed ? GLOBAL_LOOKUP_LABEL : 'Collapse agent lookup';
+    bizToggle.setAttribute('aria-expanded', String(!collapsed));
+    bizToggle.setAttribute('aria-label', label); bizToggle.title = label;
+    if (!collapsed) bizList.scrollTop = bizScroll;
+    if (remember) ls(GLOBAL_BIZ_COLLAPSED_KEY, collapsed ? '1' : '0');
+  };
+  // Collapsed until the owner says otherwise; opening goes straight to typing, closing returns to the control.
+  setBizCollapsed(ls(GLOBAL_BIZ_COLLAPSED_KEY) !== '0', false);
+  bizToggle.onclick = () => {
+    const collapse = !bizRegion.hidden;
+    setBizCollapsed(collapse);
+    (collapse ? bizToggle : search).focus();
   };
   search.oninput = paintBusinessAgents;
   search.onkeydown = event => { if (event.key === 'Escape' && search.value) { event.stopPropagation(); search.value = ''; paintBusinessAgents(); } };
@@ -129,14 +180,25 @@ async function renderGlobalAgents(c) {
     retry.forEach(slug => rosters.delete(slug)); rosterLoaded = false;
     paintBusinessAgents(); loadBusinesses(retry);
   };
-  bizList.onclick = event => {
+  // Pinned and lookup rows share one handler. Pinning only moves a row: it never selects or remounts anything.
+  const pinBusinessAgent = id => {
+    const pins = globalPinnedAgents(), wasPinned = pins.delete(id);
+    if (!wasPinned) pins.add(id);
+    ls(GLOBAL_PINS_KEY, JSON.stringify([...pins]));
+    paintBusinessAgents();
+    const control = root => root.querySelector(`[data-pin-agent="${CSS.escape(id)}"]`);
+    // Focus follows the moved control. A result hidden by collapse or by the query hands it to the nearest control.
+    if (!wasPinned) control(pinnedList)?.focus();
+    else if (bizRegion.hidden) bizToggle.focus();
+    else (control(bizList) || search).focus();
+  };
+  const businessClick = event => {
     const pin = event.target.closest('[data-pin-agent]');
-    if (pin) {
-      const pins = globalPinnedAgents(), id = pin.dataset.pinAgent;
-      if (!pins.delete(id)) pins.add(id);
-      ls(GLOBAL_PINS_KEY, JSON.stringify([...pins]));
-      paintBusinessAgents();
-      bizList.querySelector(`[data-pin-agent="${CSS.escape(id)}"]`)?.focus();
+    if (pin) { pinBusinessAgent(pin.dataset.pinAgent); return; }
+    const terminal = event.target.closest('[data-global-agent]');
+    if (terminal) {
+      if (event.ctrlKey || event.metaKey) { event.preventDefault(); agentOpenTab(GLOBAL_WORKSPACE_TERMINAL); return; }
+      select(GLOBAL_WORKSPACE_TERMINAL);
       return;
     }
     const button = event.target.closest('[data-business-agent]');
@@ -145,6 +207,7 @@ async function renderGlobalAgents(c) {
     const item = businessItems().find(candidate => candidate.id === button.dataset.businessAgent);
     if (item) selectBusiness(item);
   };
+  bizList.onclick = pinnedList.onclick = businessClick;
   paintBusinessAgents();
 
   // ---- selection
@@ -156,12 +219,12 @@ async function renderGlobalAgents(c) {
     paintSelection();
     pane.dataset.agentPane = workspace ? 'off' : 'on';
     mountTerminal(selected, pane, status => {
-      if (!current() || selected !== (workspace ? workspace.id : agent.agent_id)) return;
-      const button = [...list.querySelectorAll('[data-global-agent]')].find(b => b.dataset.globalAgent === selected) || $('.global-workspace-terminal', c);
-      const dot = $('[data-global-agent-status]', button);
+      if (!current() || selected !== (workspace ? workspace.id : agent.agent_id) || !workspace) return;
+      terminalStatus = {live: status === 'live', title: status === 'live' ? 'Terminal connected' : status === 'ended' ? 'Terminal exited' : 'Terminal disconnected'};
+      const dot = $('[data-global-agent-status]', nav);
       if (!dot) return;
-      dot.classList.toggle('live', status === 'live');
-      dot.title = status === 'live' ? 'Terminal connected' : status === 'ended' ? 'Terminal exited' : 'Terminal disconnected';
+      dot.classList.toggle('live', terminalStatus.live);
+      dot.title = terminalStatus.title;
     }, workspace ? workspace.base : `/root/terminal/${encodeURIComponent(agent.agent_id)}`);
     agpadMount(workspace ? '' : (agent.display_name || agent.name), $('#agpad', c), workspace ? {
       biz: null, open: false, isCurrent: () => false,
@@ -191,10 +254,6 @@ async function renderGlobalAgents(c) {
     if (!button) return;
     if (event.ctrlKey || event.metaKey) { event.preventDefault(); agentOpenTab(button.dataset.globalAgent); return; }
     select(agents.find(a => a.agent_id === button.dataset.globalAgent));
-  };
-  $('.global-workspace-terminal', c).onclick = event => {
-    if (event.ctrlKey || event.metaKey) { event.preventDefault(); agentOpenTab(GLOBAL_WORKSPACE_TERMINAL); return; }
-    select(GLOBAL_WORKSPACE_TERMINAL);
   };
   const linkedAgent = params.get('agent');
   if (linkedAgent) { const url = new URL(location.href); url.searchParams.delete('agent'); history.replaceState(null, '', url); }

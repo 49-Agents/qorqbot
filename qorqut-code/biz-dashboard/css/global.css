@@ -68,10 +68,26 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-agents .item.agent { width: calc(100% - 20px); text-align: left; height: auto; background: none; color: var(--fg-2); font-weight: 400; transform: none; }
 .global-agents .item.agent:hover { background: var(--hover); color: var(--fg); }
 .global-agents .item.agent.on { background: rgba(247,247,247,.06); color: var(--fg); }
-.global-agents .listcol .global-roster { flex: none; overflow: visible; display: flex; flex-direction: column; }
-/* Business agents fill the height under the Global roster; only their list scrolls and Terminal stays reachable below it. */
-.global-agents .global-biz-nav { flex: 1 1 auto; min-height: 176px; display: flex; flex-direction: column; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
-.global-agents .global-biz-search { flex: none; box-sizing: border-box; width: calc(100% - 20px); height: 30px; margin: 0 10px 4px; padding: 0 10px; color: var(--fg); background: transparent;
+/* Global agents and pinned agents are one roster: no heading, divider or gap between them. It takes the height it needs and
+   scrolls when the navigation body is short. Below it a compact lookup (business agents and Terminal) sits collapsed by default;
+   expanded it is capped at half the body, and never more than 240px, so the roster stays dominant. */
+.global-agents .global-nav-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+.global-agents .listcol .global-primary { flex: 0 1 auto; min-height: 64px; overflow-y: auto; }
+.global-agents .global-roster { display: flex; flex-direction: column; }
+.global-agents .global-biz-nav { flex: none; box-sizing: border-box; max-height: min(240px, 50%); display: flex; flex-direction: column; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.global-agents .global-biz-tools { flex: none; display: flex; align-items: center; gap: 6px; margin: 0 10px 4px; }
+.global-agents .global-biz-toggle { flex: none; height: 30px; min-width: 30px; padding: 0 8px; gap: 7px; color: var(--fg-3); border-color: var(--line); border-radius: var(--r-sm); font: 400 12.5px var(--sans); transform: none; }
+.global-agents .global-biz-toggle:hover { color: var(--fg); transform: none; }
+.global-agents .global-biz-toggle:active { transform: none; }
+.global-agents .global-biz-toggle svg { width: 15px; height: 15px; }
+.global-agents .global-biz-toggle .global-biz-chevron { width: 14px; height: 14px; transition: transform .14s ease; }
+.global-agents .global-biz-find-text { white-space: nowrap; }
+/* Expanded, the control shrinks to a chevron (pointing up to collapse) beside the search field. */
+.global-agents .listcol:not(.biz-collapsed) .global-biz-toggle { width: 30px; padding: 0; }
+.global-agents .listcol:not(.biz-collapsed) .global-biz-find { display: none; }
+.global-agents .listcol:not(.biz-collapsed) .global-biz-toggle .global-biz-chevron { transform: rotate(180deg); }
+.global-agents .global-biz-region { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.global-agents .global-biz-search { flex: 1 1 auto; min-width: 0; box-sizing: border-box; width: auto; height: 30px; margin: 0; padding: 0 10px; color: var(--fg); background: transparent;
   border: 1px solid var(--line); border-radius: var(--r-sm); font: 12.5px var(--sans); outline: none; }
 .global-agents .global-biz-search::placeholder { color: var(--fg-3); }
 .global-agents .global-biz-search:focus { border-color: var(--line-2); background: var(--wash); }
@@ -79,7 +95,7 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-agents .global-biz-status[hidden] { display: none; }
 .global-agents .global-biz-status span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .global-agents .global-biz-status button { flex: none; height: 24px; padding: 0 8px; font-size: 11.5px; }
-.global-agents .listcol .global-biz-list { flex: 1 1 0; min-height: 0; overflow-y: auto; display: block; }
+.global-agents .listcol .global-biz-list { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: block; padding: 4px 0 6px; }
 .global-agents .global-biz-row { position: relative; }
 .global-agents .item.global-biz-agent { min-height: 46px; padding-right: 34px; }
 .global-agents .global-biz-icons { display: inline-flex; align-items: center; flex: none; width: 36px; }
@@ -97,9 +113,8 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-agents .global-biz-pin[aria-pressed="true"] { color: var(--fg); }
 .global-agents .global-biz-pin[aria-pressed="true"] svg { fill: currentColor; }
 @media (hover: none) { .global-agents .global-biz-pin { opacity: .7; } }
-.global-agents .global-workspace-terminals { flex: none; padding: 6px 0 8px; border-top: 1px solid var(--line); }
 .global-agents .global-workspace-terminal svg { width: 20px; height: 20px; flex: none; }
-.agsplit.nav-off > .listcol .global-biz-nav { display: none; }
+.agsplit.nav-off > .listcol .global-nav-body { display: none; }
 .global-agent-session { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .global-agent-session .chat.termmode { flex: 1; min-height: 180px; padding: 24px; }
 @media (max-width: 800px) {
@@ -107,7 +122,6 @@ button.global-metric:hover { transform: none; color: var(--fg); }
      so the navigation (roster, search, list, Terminal) has the whole column instead of a 145px strip. */
   .split.global-agents { grid-template-rows: minmax(0, 1fr); }
   .global-agents .ctop { padding: 10px 16px 4px; }
-  .global-agents .global-biz-nav { min-height: 168px; }
   .global-agent-session .chat.termmode { padding: 8px 12px 12px; }
 }
 
