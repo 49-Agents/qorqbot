@@ -72,7 +72,7 @@
 .agfocus-card{margin:0;padding:0;border:0;border-radius:14px;background:none;min-width:0}
 .agfocus-card:focus-visible{outline:0}
 .agfocus-card:focus-visible > .agfocus-row{outline:2px solid var(--fg-2);outline-offset:-2px}
-.agfocus-row{padding-top:0;padding-bottom:0;min-height:36px;display:grid;grid-template-columns:30px clamp(70px,22%,132px) minmax(0,1fr) auto;gap:8px;min-width:0}
+.agfocus-row{padding-top:0;padding-bottom:0;min-height:32px;display:grid;grid-template-columns:30px clamp(70px,22%,132px) minmax(0,1fr) auto;gap:8px;min-width:0}
 .agfocus-card:not(.agfocus-collapsed) > .agfocus-row{background:rgba(255,255,255,.03)}
 .agfocus-row .task-business-column{flex:0 0 clamp(76px,22%,132px);width:auto}
 .agfocus-row .agfocus-scope{min-width:0}
@@ -80,7 +80,7 @@
 .agfocus-global-chip{padding:3px 6px}
 .agfocus-row .agfocus-scope-chip:not(.agfocus-global-chip){display:block;max-width:100%;box-sizing:border-box;min-height:0;padding:1px 7px;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agfocus-row .task-headline{display:flex;align-items:center;gap:4px;min-width:0}
-.agfocus-row .ttl{flex:1;min-width:0;font-size:11px}
+.agfocus-row .ttl{flex:1;min-width:0;font-size:12px}
 .agfocus-marker{display:inline-flex;align-items:center;justify-content:center;flex:none;width:26px;height:26px}
 .agfocus-marker .sdot{width:12px;height:12px}
 /* app.css styles every .agfocus button as a pill; the shared Tasks ball opts back out. */
@@ -134,7 +134,7 @@
 @media(max-width:600px){.agfocus-detail{padding:10px}}
 /* The pane, not the window, sets the width: narrow panes tighten the row and let a collapsed title take two lines. */
 @container agfocus-rows (max-width:460px){
-  .agfocus-row{grid-template-columns:30px clamp(28px,20%,88px) minmax(0,1fr) auto;gap:2px;padding:2px 4px}
+  .agfocus-row{grid-template-columns:30px clamp(28px,20%,88px) minmax(0,1fr) auto;gap:2px;padding:0 4px}
   .agfocus-row .task-business-column{width:100%;min-width:0}
   .agfocus-row .agfocus-scope-chip:not(.agfocus-global-chip){padding:1px 3px;font-size:7px}
   .agfocus .agfocus-row .agfocus-actions{gap:0}

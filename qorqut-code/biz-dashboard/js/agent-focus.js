@@ -201,6 +201,7 @@ function agfocusMount(p) {
     <p class="agfocus-activity muted" hidden></p><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected conversation" hidden><header class="agfocus-thread-heading"><span data-focus-thread-title></span><button type="button" class="quiet" data-focus-thread-close aria-label="Close thread"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Thread height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Focus pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
   p.focusDrafts ||= new Map();
   p.focusCards = new Map();
+  p.focusStories=agfocusRestoreStories();
   p.focusSelected = null;
   const board = $('.agfocus', body);
   p.focusMount = board;
@@ -269,7 +270,13 @@ async function agfocusRefresh(p) {
       for(const [id,seq] of p.focusPrivateUnread || [])
         if(requestSeq>seq && !data.items.some(item=>item.id===id && item.private_unread))p.focusPrivateUnread.delete(id);
       p.focusRefreshThreads=true;
-      await Promise.all(agfocusVisibleItems(p,data.items).filter(item=>item.source?.type==='story' && !item.unavailable && p.focusStories?.get(item.id)?.expanded).map(item=>agfocusToggleStory(p,item,true)));
+      const restored=new Set();
+      while(true){
+        const stories=agfocusVisibleItems(p,data.items).filter(item=>item.source?.type==='story' && !item.unavailable && p.focusStories?.get(item.id)?.expanded && !restored.has(item.id));
+        if(!stories.length)break;
+        stories.forEach(item=>restored.add(item.id));
+        await Promise.all(stories.map(item=>agfocusToggleStory(p,item,true)));
+      }
     } catch (error) {
       if (agpadActive(p) && (!focusMount || p.focusMount===focusMount)) p.focusError = 'Could not refresh Focus. ' + error.message;
       else if(agpadActive(p) && p.view==='focus')p.focusRefreshAgain=true;
@@ -280,6 +287,17 @@ async function agfocusRefresh(p) {
     }
   })();
   return p.focusRequest;
+}
+
+const AGFOCUS_STORIES_KEY='agfocus:expanded-stories:v1';
+function agfocusRestoreStories(){
+  try {
+    const ids=JSON.parse(ls(AGFOCUS_STORIES_KEY) || '[]');
+    return new Map((Array.isArray(ids)?ids:[]).filter(id=>typeof id==='string').slice(0,500).map(id=>[id,{expanded:true,items:[],references:[]}]));
+  } catch(_){return new Map();}
+}
+function agfocusSaveStories(p){
+  try {ls(AGFOCUS_STORIES_KEY,JSON.stringify([...p.focusStories].filter(([,branch])=>branch.expanded).map(([id])=>id).slice(-500)));}catch(_){}
 }
 
 function agfocusVisibleItems(p,items) {
@@ -298,8 +316,9 @@ function agfocusVisibleItems(p,items) {
 async function agfocusToggleStory(p,item,refresh=false) {
   p.focusStories ||= new Map();
   let branch=p.focusStories.get(item.id);
-  if(branch?.expanded && !refresh){branch.expanded=false;agfocusPaint(p);return;}
+  if(branch?.expanded && !refresh){branch.expanded=false;agfocusSaveStories(p);agfocusPaint(p);return;}
   branch={expanded:true,items:refresh?(branch?.items || []):[],references:refresh?(branch?.references || []):[],showReferences:branch?.showReferences || false,pending:true};p.focusStories.set(item.id,branch);
+  if(!refresh)agfocusSaveStories(p);
   agfocusPaint(p);agfocusAnnounce(p,'Loading Story items…');
   const source=item.resolved_source || item.source,biz=source.business_slug,mount=p.focusMount;
   try {
