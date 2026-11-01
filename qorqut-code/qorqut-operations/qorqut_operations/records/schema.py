@@ -1,5 +1,7 @@
 """Record extensions composed with the shared Operations foundation schema."""
 
+from qorqut_operations.context_queue.schema import SCHEMA_SQL as CONTEXT_QUEUE_SQL
+
 SCHEMA_SQL = """
 CREATE TABLE tasks (
     item_id TEXT PRIMARY KEY REFERENCES items(id),
@@ -31,28 +33,7 @@ CREATE TABLE actions (
     provenance_json TEXT NOT NULL,
     withdrawn INTEGER NOT NULL DEFAULT 0 CHECK (withdrawn IN (0,1))
 );
-CREATE TABLE action_context_queue (
-    item_id TEXT NOT NULL,
-    revision INTEGER NOT NULL,
-    operation TEXT NOT NULL CHECK (operation IN ('add','edit','remove')),
-    payload_json TEXT NOT NULL,
-    state TEXT NOT NULL DEFAULT 'queued',
-    context_event_id TEXT,
-    error_json TEXT,
-    PRIMARY KEY (item_id, revision),
-    FOREIGN KEY (item_id, revision) REFERENCES item_revisions(item_id, revision)
-);
-CREATE TRIGGER action_queue_immutable_input
-BEFORE UPDATE OF item_id, revision, operation, payload_json ON action_context_queue
-BEGIN
-    SELECT RAISE(ABORT, 'Action context input is immutable');
-END;
-CREATE TRIGGER action_queue_keep_history
-BEFORE DELETE ON action_context_queue
-BEGIN
-    SELECT RAISE(ABORT, 'Action context input history is retained');
-END;
-CREATE TABLE signoffs (
+""" + CONTEXT_QUEUE_SQL + """CREATE TABLE signoffs (
     item_id TEXT PRIMARY KEY REFERENCES items(id),
     request_kind TEXT NOT NULL CHECK (request_kind IN ('permission','decision','input')),
     requester_id TEXT NOT NULL REFERENCES principals(id),
