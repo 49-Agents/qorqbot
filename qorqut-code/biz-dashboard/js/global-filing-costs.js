@@ -46,11 +46,11 @@ function filingCostBasisLabel(value, bases) {
   return value ? String(value) : '';
 }
 
-// Compact UTC timestamp for a filing row; unparsable values pass through.
+// Compact San Juan timestamp for a filing row; unparsable values pass through.
 function filingCostWhen(value) {
   const date = value ? new Date(value) : null;
   if (!date || Number.isNaN(date.getTime())) return value || 'Date unavailable';
-  return date.toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hourCycle:'h23', timeZone:'UTC'}) + ' UTC';
+  return sjDateTime(date, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hourCycle:'h23'}) + ' San Juan';
 }
 
 function filingCostRowBases(item) {

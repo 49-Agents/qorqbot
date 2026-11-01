@@ -6,7 +6,7 @@ function globalProgressMount(host) {
   host.innerHTML = `<section class="global-progress" aria-label="Business activity"><header><div class="global-progress-periods" role="group" aria-label="Chart period">${[30,120,365].map(n=>`<button type="button" data-days="${n}" aria-pressed="${n===days}">${n} days</button>`).join('')}</div><div class="global-progress-legend">${metrics.map(([,label,cls])=>`<span class="${cls}">${label}</span>`).join('')}</div></header><div class="global-progress-plot" role="status">Loading activity…</div></section>`;
   const plot = host.querySelector('.global-progress-plot');
   const current = () => host.isConnected;
-  const dateLabel = date => new Date(date+'T00:00:00Z').toLocaleDateString(undefined,{month:'short',day:'numeric',timeZone:'UTC'});
+  const dateLabel = date => sjDayLabel(date);   // server dates are San Juan calendar days
   function draw() {
     if (!current() || !rows) return;
     const values = rows.slice(-days), width=Math.max(280,plot.clientWidth), height=width<550?260:Math.min(420,Math.max(300,width*.3)), left=36, right=18, top=20, bottom=34;
@@ -23,7 +23,7 @@ function globalProgressMount(host) {
     const points=(key,list)=>list.map((r,i)=>`${x(i)},${y(key,r[key])}`).join(' ');
     const emailScale=scales.emails_sent;
     plot.removeAttribute('role');
-    plot.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Daily tasks, emails, inbox messages, accepted learnings, new tickets and cold outreach sent across workspaces, last ${days} days, UTC. Each series uses its own scale; the visible axis is Emails sent. Today is incomplete." tabindex="0">${[0,1,2,3,4].map(i=>`<line class="gp-grid" x1="${left}" x2="${width-right}" y1="${y('emails_sent',i*emailScale.step)}" y2="${y('emails_sent',i*emailScale.step)}"/><text class="gp-axis-label" x="${left-12}" y="${y('emails_sent',i*emailScale.step)+4}" text-anchor="end">${i*emailScale.step}</text>`).join('')}<text class="gp-axis-title" x="${-(height-top-bottom)/2-top}" y="14" text-anchor="middle" transform="rotate(-90)">Emails sent</text>${metrics.map(([key,,cls])=>`<g class="${cls}" data-scale-ceiling="${scales[key].ceiling}"><polyline class="gp-line" points="${points(key,values.slice(0,-1))}"/><line class="gp-line gp-today" x1="${x(values.length-2)}" y1="${y(key,values.at(-2)[key])}" x2="${x(values.length-1)}" y2="${y(key,values.at(-1)[key])}"/><circle cx="${x(values.length-1)}" cy="${y(key,values.at(-1)[key])}" r="3" fill="currentColor"/></g>`).join('')}${[0,Math.floor((values.length-1)/2),values.length-1].map((i,j)=>`<text x="${x(i)}" y="${height-8}" text-anchor="${['start','middle','end'][j]}">${esc(dateLabel(values[i].date))}${j===2?' · today':''}</text>`).join('')}<line class="gp-cursor" y1="${top}" y2="${height-bottom}" hidden/></svg><output class="gp-readout" hidden></output>`;
+    plot.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Daily tasks, emails, inbox messages, accepted learnings, new tickets and cold outreach sent across workspaces, last ${days} days, San Juan time. Each series uses its own scale; the visible axis is Emails sent. Today is incomplete." tabindex="0">${[0,1,2,3,4].map(i=>`<line class="gp-grid" x1="${left}" x2="${width-right}" y1="${y('emails_sent',i*emailScale.step)}" y2="${y('emails_sent',i*emailScale.step)}"/><text class="gp-axis-label" x="${left-12}" y="${y('emails_sent',i*emailScale.step)+4}" text-anchor="end">${i*emailScale.step}</text>`).join('')}<text class="gp-axis-title" x="${-(height-top-bottom)/2-top}" y="14" text-anchor="middle" transform="rotate(-90)">Emails sent</text>${metrics.map(([key,,cls])=>`<g class="${cls}" data-scale-ceiling="${scales[key].ceiling}"><polyline class="gp-line" points="${points(key,values.slice(0,-1))}"/><line class="gp-line gp-today" x1="${x(values.length-2)}" y1="${y(key,values.at(-2)[key])}" x2="${x(values.length-1)}" y2="${y(key,values.at(-1)[key])}"/><circle cx="${x(values.length-1)}" cy="${y(key,values.at(-1)[key])}" r="3" fill="currentColor"/></g>`).join('')}${[0,Math.floor((values.length-1)/2),values.length-1].map((i,j)=>`<text x="${x(i)}" y="${height-8}" text-anchor="${['start','middle','end'][j]}">${esc(dateLabel(values[i].date))}${j===2?' · today':''}</text>`).join('')}<line class="gp-cursor" y1="${top}" y2="${height-bottom}" hidden/></svg><output class="gp-readout" hidden></output>`;
     const svg=plot.querySelector('svg'), cursor=plot.querySelector('.gp-cursor'), readout=plot.querySelector('output');
     let selected=values.length-1;
     function inspect(i) {
@@ -42,7 +42,7 @@ function globalProgressMount(host) {
   });
   async function load() {
     plot.textContent='Loading activity…';
-    const today=new Date().toISOString().slice(0,10);
+    const today=sjToday();
     try {
       let entry=globalProgressCache.get('global');
       if (!entry || entry.signal?.aborted || entry.day!==today || Date.now()-entry.at>60000) {

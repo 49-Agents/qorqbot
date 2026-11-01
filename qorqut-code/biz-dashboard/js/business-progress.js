@@ -11,8 +11,7 @@ function renderProgressWorkspace(c) {
 // Read-only business milestones and evidence-based progress; no background polling.
 const PROGRESS_METRICS = [['emails_sent','Emails sent'],['tasks_done','Tasks done'],['actions','Actions'],['signoffs_approved','Signoffs approved']];
 function milestoneTime(value) {
-  const date = new Date(value);
-  return value && Number.isFinite(date.getTime()) ? date.toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}) : 'Date not recorded';
+  return sjDateTime(value) || 'Date not recorded';
 }
 async function renderMilestones(container) {
   const biz = state.biz, token = {};
@@ -47,7 +46,7 @@ async function renderBusinessProgress(container, days=30) {
   try {
     const data = coreData(await post(`/biz/${encodeURIComponent(biz)}/operations/business_progress_get`, {days}));
     if (!active()) return;
-    container.querySelector('.business-progress-results').innerHTML = `<div class="business-progress-grid">${PROGRESS_METRICS.map(([key,label]) => `<article class="business-progress-metric"><h2>${label}</h2><strong>${Number(data.totals[key]).toLocaleString()}</strong><span class="muted"> recorded total</span>${progressChart(data.series,key)}<div class="business-progress-axis"><span>${esc(data.series[0].date)}</span><span>${esc(data.series.at(-1).date)}</span></div>${data.undated[key] ? `<p class="muted">${data.undated[key]} without a recorded date, included in the total.</p>` : ''}</article>`).join('')}</div><p class="business-progress-coverage">Daily counts · UTC. ${esc(data.coverage)}</p>`;
+    container.querySelector('.business-progress-results').innerHTML = `<div class="business-progress-grid">${PROGRESS_METRICS.map(([key,label]) => `<article class="business-progress-metric"><h2>${label}</h2><strong>${Number(data.totals[key]).toLocaleString()}</strong><span class="muted"> recorded total</span>${progressChart(data.series,key)}<div class="business-progress-axis"><span>${esc(data.series[0].date)}</span><span>${esc(data.series.at(-1).date)}</span></div>${data.undated[key] ? `<p class="muted">${data.undated[key]} without a recorded date, included in the total.</p>` : ''}</article>`).join('')}</div><p class="business-progress-coverage">Daily counts · San Juan time. ${esc(data.coverage)}</p>`;
   } catch (error) {
     if (!active()) return;
     container.querySelector('[role=status]').textContent = error.message || 'Progress unavailable.';

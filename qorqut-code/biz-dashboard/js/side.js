@@ -51,14 +51,24 @@ function logHeadline(entry){
   text=text.replace(/^\s*[:—-]+\s*/,'').replace(/\s+/g,' ').trim();
   return Array.from(text).length>100?Array.from(text).slice(0,97).join('')+'...':text;
 }
+// When an entry happened, precision-aware: a backfilled day has no time, an hour shows HH:00, and the
+// stored anchor of either is never shown as an exact time. Dates are San Juan dates.
+function logWhen(e) {
+  const raw = String(e.ts || ""), precision = e.time_precision || "instant";
+  const day = e.occurred_date || sjDate(raw);
+  if (precision === "day") return { day, time: "", full: day ? `${day}, time unknown` : "" };
+  if (precision === "hour") { const time = `${String(e.occurred_hour).padStart(2, "0")}:00`; return { day, time, full: `${day} ${time}` }; }
+  return { day, time: sjTime(raw), full: sjDateTime(raw) || raw };
+}
 function logHtml(rows) {
-  const today = new Date().toISOString().slice(0, 10), yday = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
-  const dayLabel = k => k === today ? "today" : k === yday ? "yesterday"
-    : new Date(k + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  // Day groups and times are San Juan time (sjDate/sjTime), never the browser's zone or raw UTC.
+  const today = sjToday(), yday = sjAddDays(today, -1);
+  const dayLabel = k => !k ? "undated" : k === today ? "today" : k === yday ? "yesterday"
+    : new Date(k + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
   let day = null, html = "";
   for (const e of rows) {
     const d = dept(TAG_DEPT[e.tag]), who = String(e.actor || "").replace(/^(agent|human|system):/, "");
-    const raw = String(e.ts || ""), k = raw.slice(0, 10), time = raw.slice(11, 16);
+    const raw = String(e.ts || ""), { day: k, time } = logWhen(e);
     const task = logTaskId(e);
     if (k !== day) { day = k; html += `<div class="lday" data-day="${esc(dayLabel(k))}"></div>`; }
     const title=logHeadline(e);
@@ -70,12 +80,12 @@ function logHtml(rows) {
 function logTips(el, rows) {
   const biz = state.biz;
   el.querySelectorAll(".le").forEach((row, i) => {
-    const e = rows[i];
+    const e = rows[i], ids = [e.id, e.action_id].filter(Boolean);
     logGraph(biz).then(graph=>{
       if(!row.isConnected || state.biz!==biz)return;
       const stories=graph.nodes.filter(n=>n.type==='story' && graph.edges.some(edge=>
-        (edge.source.type==='action' && edge.source.id===e.id && edge.target.type==='story' && edge.target.id===n.id) ||
-        (edge.target.type==='action' && edge.target.id===e.id && edge.source.type==='story' && edge.source.id===n.id)));
+        (edge.source.type==='action' && ids.includes(edge.source.id) && edge.target.type==='story' && edge.target.id===n.id) ||
+        (edge.target.type==='action' && ids.includes(edge.target.id) && edge.source.type==='story' && edge.source.id===n.id)));
       const tags=row.querySelector('.log-tags');
       for(const story of stories){const button=document.createElement('button');button.className='log-tag';button.textContent=tChipLabel(story.label);button.title=story.label;button.onclick=()=>contextOpenItem(biz,story);tags.prepend(button);}
     }).catch(()=>{});
@@ -83,14 +93,15 @@ function logTips(el, rows) {
     if (button && task) button.onclick = async () => {
       if (state.biz !== biz || !button.isConnected || button.disabled) return;
       button.disabled = true;
-      try { await tOpenTask(task); }
+      // A shared action stored in Global links a Global task; it never opens in this business.
+      try { await (e.business_id === null ? taskProgressOpenReference(null, { type: "task", id: task }) : tOpenTask(task)); }
       finally { button.disabled = false; }
     };
     if (typeof tip !== "function") return;
     tip(row, () => {
       const who = String(e.actor || "").replace(/^(agent|human|system):/, "");
       const det = e.detail ? String(e.detail).slice(0, 600) : "";
-      return `<div class="tip-le"><div class="tlab">${esc(e.tag || "")} · ${esc(who)} · ${esc(e.ts || "")}</div>` +
+      return `<div class="tip-le"><div class="tlab">${esc(e.tag || "")} · ${esc(who)} · ${esc(logWhen(e).full)} ${esc(SJ_LABEL)}</div>` +
         `<div class="tsum">${esc(e.summary || "")}</div>` + (det ? `<div class="tdet">${esc(det)}</div>` : "") + `</div>`;
     });
   });
@@ -104,6 +115,6 @@ function logToasts(biz, rows) {
   rows.filter(e => !seen.has(key(e))).reverse().forEach(e => {
     seen.add(key(e));
     const d = dept(TAG_DEPT[e.tag]), who = String(e.actor || "").replace(/^(agent|human|system):/, "");
-    if (typeof notify === "function") notify({ text: e.summary || e.tag || "action", sub: `${String(e.ts || "").slice(11, 16)} · ${who}`, color: d.color });
+    if (typeof notify === "function") notify({ text: e.summary || e.tag || "action", sub: `${logWhen(e).time || logWhen(e).day} · ${who}`, color: d.color });
   });
 }

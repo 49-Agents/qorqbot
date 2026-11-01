@@ -1,23 +1,23 @@
-// Shared by business and Global tasks. Stored timestamps are UTC; inputs use local time.
+// Shared by business and Global tasks. Stored timestamps are UTC; inputs and labels use San Juan time.
 function taskSnoozed(task, now = Date.now()) {
   return task.snooze?.indefinite === true || Boolean(task.snooze?.until && Date.parse(task.snooze.until) > now);
 }
 function taskSnoozeLabel(task) {
   if (!taskSnoozed(task)) return '';
   return task.snooze.indefinite ? 'Snoozed until further notice' : 'Snoozed until ' +
-    new Date(task.snooze.until).toLocaleString(undefined, {dateStyle:'medium',timeStyle:'short'});
+    sjDateTime(task.snooze.until);
 }
 function taskSnoozeLocal(until) {
   if (!until) return '';
-  const d = new Date(until), pad = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const parts = sjParts(until);
+  return parts ? `${parts.date}T${parts.time}` : '';
 }
 function taskSnoozePicker(task = {}) {
   const mode = taskSnoozed(task) ? task.snooze.indefinite ? 'indefinite' : 'until' : 'none';
   return `<div class="task-snooze-picker"><label>Snooze<select data-snooze-mode data-initial="${mode}" aria-label="Snooze">
     ${[['none','Not snoozed'],['until','Until a date/time'],['indefinite','Until further notice']].map(([value,label])=>`<option value="${value}" ${value===mode?'selected':''}>${label}</option>`).join('')}</select></label>
     <div class="task-snooze-shortcuts">${[['1','Tomorrow'],['7','Next week'],['pick','Pick date'],['indefinite','Until further notice']].map(([value,label])=>`<button type="button" class="quiet" data-snooze-shortcut="${value}">${label}</button>`).join('')}</div>
-    <label data-snooze-date ${mode==='until'?'':'hidden'}>Until (your local time)<input data-snooze-until aria-label="Snooze until" type="datetime-local" value="${esc(taskSnoozeLocal(task.snooze?.until))}" ${mode==='until'?'required':''}></label></div>`;
+    <label data-snooze-date ${mode==='until'?'':'hidden'}>Until (San Juan time)<input data-snooze-until aria-label="Snooze until" type="datetime-local" value="${esc(taskSnoozeLocal(task.snooze?.until))}" ${mode==='until'?'required':''}></label></div>`;
 }
 function taskSnoozeWire(host) {
   const mode = host.querySelector('[data-snooze-mode]'), date = host.querySelector('[data-snooze-date]'), input = host.querySelector('[data-snooze-until]');
@@ -27,8 +27,7 @@ function taskSnoozeWire(host) {
     mode.value = choice === 'indefinite' ? 'indefinite' : 'until'; mode.onchange();
     if (choice === 'pick') { input.focus(); return; }
     if (choice !== 'indefinite') {
-      const next = new Date(Date.now()); next.setDate(next.getDate() + Number(choice)); next.setHours(9,0,0,0);
-      input.value = taskSnoozeLocal(next.toISOString());
+      input.value = `${sjAddDays(sjToday(), Number(choice))}T09:00`;
     }
   });
 }
@@ -41,7 +40,8 @@ function taskSnoozeChange(host, task = {}) {
   if (mode === initial && (mode !== 'until' || input.value === taskSnoozeLocal(task.snooze?.until))) return undefined;
   if (mode === 'none') return null;
   if (mode === 'indefinite') return {indefinite:true};
-  const until = new Date(input.value);
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(input.value);
+  const until = match ? sjInstant(match[1], Number(match[2]), Number(match[3])) : new Date(NaN);
   if (!input.value || !Number.isFinite(until.getTime()) || until.getTime() <= Date.now()) throw new Error('Choose a future snooze date and time.');
   return {until:until.toISOString()};
 }
