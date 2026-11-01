@@ -24,10 +24,11 @@ function renderGlobalContextBase(host, page) {
 
 function renderGlobalContextGraph(host) {
   const generation = ++globalContextBaseGeneration, route = location.hash, signal = pageReads.signal;
-  host.innerHTML = `<section class="global-context-base"><header class="global-context-base-head"><h2>Graph</h2><p>Objects and their stored relationships across Global context.</p></header>
-    <div class="global-context-base-status" role="status">Loading the Global context graph…</div>
-    <button type="button" class="bt global-context-base-reload" hidden>Reload graph</button><div class="global-context-graph-host"></div></section>`;
-  const status = host.querySelector('.global-context-base-status'), reload = host.querySelector('.global-context-base-reload');
+  host.innerHTML = `<section class="global-context-base global-context-graph" aria-label="Global context graph">
+    <div class="global-context-graph-status"><div class="global-context-base-status" role="status">Loading the Global context graph…</div>
+      <button type="button" class="bt global-context-base-reload" hidden>Reload graph</button></div>
+    <div class="global-context-graph-host"></div></section>`;
+  const statusRow = host.querySelector('.global-context-graph-status'), status = host.querySelector('.global-context-base-status'), reload = host.querySelector('.global-context-base-reload');
   const graphHost = host.querySelector('.global-context-graph-host');
   const current = () => globalContextBaseCurrent(generation, host, route, signal);
   async function load() {
@@ -35,16 +36,16 @@ function renderGlobalContextGraph(host) {
     try {
       const page = await ctxReadFindAll({kind:'root'}, '', signal);
       if (!current()) return;
-      const graph = ctxFindGraphData(page.items);
-      if (!graph.nodes.length) {
-        status.textContent = 'No objects in Global context yet.';
+      const knowledgeGraph = globalContextGraphProject(page.items);
+      const graph = knowledgeGraph.graph;
+      statusRow.hidden = page.items.length > 0;
+      if (!page.items.length) {
+        status.textContent = 'No stored Global context records were returned.';
         reload.hidden = false;
-        return;
       }
-      status.textContent = `${graph.counts.objects} objects · ${graph.counts.relationships} relationships · ${graph.counts.endpointLinks} endpoint links`;
       ctxClearGraph();
-      const knownEndpointRefs = new Set(graph.nodes.map(node => node.item?.ref).filter(ref => typeof ref === 'string'));
-      _ctxGraph = contextGraph(graphHost, graph, {storageKey:'ctxgraph:global-context:v1',
+      const knownEndpointRefs = new Set(knowledgeGraph.canonical.map(node => node.item?.ref).filter(ref => typeof ref === 'string'));
+      _ctxGraph = contextGraph(graphHost, graph, {knowledgeGraph,storageKey:'ctxgraph:global-relationship-explorer:v1',
         onOpen:node => {
           const ref = node.item?.ref || node.item?.id;
           if (ref) {

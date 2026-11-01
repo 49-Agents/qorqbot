@@ -201,6 +201,8 @@ function ctxGraphMermaid(graph) {
 }
 
 function contextGraph(el, graph, opts = {}) {
+  if (opts.knowledgeGraph && typeof contextGlobalKnowledgeGraph === "function")
+    return contextGlobalKnowledgeGraph(el, graph, opts);
   const abort = new AbortController(), listen = (el, name, fn, options = {}) => el.addEventListener(name, fn, { ...options, signal: abort.signal });
   let saved = {};
   try { saved = JSON.parse(ls(opts.storageKey) || "{}") || {}; } catch (_) { /* absent or invalid local view */ }
