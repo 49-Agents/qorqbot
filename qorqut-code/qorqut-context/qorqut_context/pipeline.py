@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import uuid
 
-from . import bootstrap, usage
+from . import bootstrap, graph_edits, usage
 from .engine import atomic_write, file_lock
 from .runner import AppServerRunner, RunnerConfig
 from .schema import Conflict, ContextError, digest, encode, identifier
@@ -86,6 +86,19 @@ class Pipeline:
                 self.on_event(submission.event_id)
             return self._run(submission.event_id)
 
+    def submit_edit(self, plan, *, submitted_by, event_id, record_context=None):
+        """Execute a fixed ``qorqut-graph-edit-v1`` plan as one controlled GENERAL event; trusted callers only.
+
+        No model, bootstrap, attempt or usage receipt is involved in admission, retry or recovery; the
+        published receipt carries the deterministic execution marker instead (see CORE_CONTRACTS.md).
+        """
+        with self._lock():
+            submission = self.context.begin_edit(plan, submitted_by=submitted_by, event_id=event_id,
+                source_bytes=self.config.source_bytes, record_context=record_context)
+            if self.on_event:
+                self.on_event(submission.event_id)
+            return self._run(submission.event_id)
+
     def submit_action(self, operation, action_ref, *, text=None, revision_ref=None,
                       related_objects=None, tags=None, submitted_by, event_id=None,
                       expected_previous_commit=None, record_context=None):
@@ -149,7 +162,8 @@ class Pipeline:
     def _receipt(self, event_id, *, directory=None, recovered=False):
         snapshot = self.context.snapshot()
         event = snapshot.event(event_id)
-        attempts = self._attempts(event_id)
+        # Deterministic work has no model attempt; stray attempt data must not label it as model work.
+        attempts = [] if "execution" in event else self._attempts(event_id)
         if directory is None and attempts:
             directory = attempts[-1][0]
         counts = {kind: {op: 0 for op in ("add", "edit", "remove")} for kind in ("node", "edge")}
@@ -161,6 +175,7 @@ class Pipeline:
                    **({"handoff_disposition": event["handoff_note"]["disposition"]} if "handoff_note" in event else {}),
                    **({"action_ref": event["action"]["action_ref"],
                        "association_count": len(event["action_associations"]["associations"])} if "action" in event else {}),
+                   **({"execution": event["execution"]} if "execution" in event else {}),
                    "result_counts": counts, "model": attempts[-1][1]["model"] if attempts else None,
                    "diagnostics": str(directory) if directory else None, "recovered": recovered}
         if attempts:
@@ -196,6 +211,32 @@ class Pipeline:
     def _checkpoint(self, phase):
         """Fault-injection seam; never alters execution policy."""
 
+    def _run_edit(self, event_id, plan, mark):
+        """Stage, validate and publish a validated graph plan with the ordinary primitives; never a model.
+
+        Entered only from the pending job's validated execution marker. A partial draft left by an
+        interruption is completed for the same plan; any draft content outside the plan is refused.
+        """
+        mark("edit_staging")
+        if self._attempts(event_id):
+            raise Conflict("A deterministic graph edit has no model attempt; the unexpected evidence was retained")
+        expected = graph_edits.draft(plan)
+        staged = self.context.inspect_draft(event_id)["draft"]
+        for key, entry in staged.items():
+            if key not in expected or encode(entry) != encode(expected[key]):
+                raise Conflict("The pending draft has content outside its bound graph edit; it was retained")
+        for operation in plan["operations"]:
+            if f"{graph_edits.kind(operation['op'])}:{graph_edits.object_id(operation)}" not in staged:
+                graph_edits.stage(self.context, event_id, operation)
+                self._checkpoint("edit_staged")
+        self.context.stage_handoff_note(event_id, "")
+        mark("edit_validation")
+        current = self.context.inspect_draft(event_id, validate=True)
+        mark("publication")
+        self.context.publish(event_id, expected_draft_digest=current["digest"])
+        self._checkpoint("after_publication")
+        return self._receipt(event_id)
+
     def _run(self, event_id):
         phase, directory, attempt = "recovery", None, None
         try:
@@ -210,6 +251,12 @@ class Pipeline:
             if recovered["status"] == "discarded":
                 raise Conflict("This event was explicitly discarded")
             draft = self.context.inspect_draft(event_id)
+            plan = self.context.pending_edit(event_id)
+            if plan is not None:
+                def mark(value):
+                    nonlocal phase
+                    phase = value
+                return self._run_edit(event_id, plan, mark)
             previous = self._attempts(event_id)
             # Any ready record is a publication gate, even if the caller changed model config.
             for saved_directory, saved in reversed(previous):

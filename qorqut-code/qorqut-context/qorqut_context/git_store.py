@@ -10,6 +10,7 @@ import stat
 import subprocess
 import tempfile
 
+from . import graph_edits
 from .input_modes import ACTION, GENERAL
 from .schema import Conflict, ContextError, identifier
 
@@ -279,6 +280,7 @@ class Snapshot:
             original = git.run("cat-file", "blob", f"{commit}:{path}")
             if original != self.files[path]:
                 raise ContextError("An immutable event was modified")
+            graph_edits.check_event(event, self.files)
             self.events[event_id], self.by_commit[commit] = event, event
             self.used_ids.add(event_id)
             self.used_ids.add(event["source"]["id"])
@@ -354,7 +356,7 @@ class Snapshot:
                                "input_mode": self.input_mode(event),
                                "recorded_at": self.git.recorded_at(commit),
                                "operation": event["operation"], "source": event["source"],
-                               **({"record_context": event["record_context"]} if "record_context" in event else {})})
+                               **{key: event[key] for key in ("record_context", "execution") if key in event}})
                 continue
             for change in event["changes"]:
                 if change["id"] != object_id or (kind and change["kind"] != kind):
