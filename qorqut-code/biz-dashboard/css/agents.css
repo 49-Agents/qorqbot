@@ -36,7 +36,7 @@
 /* ------------------------------------------------------------ context menu */
 .cmenu { position: fixed; z-index: 80; min-width: 170px; overflow: hidden; border-radius: 14px;
   border: 1px solid rgba(255,255,255,.09); background: var(--elevated); padding: 4px; box-shadow: var(--shadow-float); }
-.cmenu .ci { display: flex; align-items: center; gap: 10px; width: 100%; border-radius: 8px; padding: 8px 10px;
+.cmenu .ci { display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; border-radius: 8px; padding: 8px 10px;
   font: 13px var(--sans); color: var(--fg); background: none; border: 0; cursor: pointer; text-align: left;
   transition: background .12s ease; }
 .cmenu .ci:hover { background: var(--hover); }
