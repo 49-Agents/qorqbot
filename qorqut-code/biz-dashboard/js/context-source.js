@@ -11,7 +11,10 @@ const SRC_REFRESH_MS = 20000, SRC_REFRESH_MAX = 30;
 const SRC_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const srcScopeKey = scope => scope.kind === 'root' ? 'root' : `biz:${scope.id}`;
 const srcOpPath = (scope, op) => scope.kind === 'root' ? `/root/operations/${op}` : `/biz/${encodeURIComponent(scope.id)}/operations/${op}`;
-const srcRead = (scope, op, args, signal = pageReads.signal) => pageReadPost(srcOpPath(scope, op), args, signal).then(coreData);
+// Only the three raw-document reads select the bounded library, by naming their one owning namespace; no other operation takes `scope`.
+const SRC_RAW_READS = new Set(['context_get', 'context_list', 'context_search']);
+const srcRead = (scope, op, args, signal = pageReads.signal) =>
+  pageReadPost(srcOpPath(scope, op), SRC_RAW_READS.has(op) ? {scope: scope.kind === 'root' ? 'shared' : 'business', ...args} : args, signal).then(coreData);
 const srcSourceRoute = (scope, id) => scope.kind === 'root' ? `#/global/context/library/${encodeURIComponent(id)}` : `_source/${id}`;
 
 // ------------------------------------------------------------- filing presentation
@@ -26,14 +29,14 @@ function srcFilingLabel(filing) {
     if (filing.completion_state === 'conflict') return {key: 'completion_conflict', label: 'Published—completion conflict', tone: 'bad'};
     if (filing.completion_state === 'applied') return filing.operation === 'remove'
       ? {key: 'withdrawn', label: 'Withdrawn', tone: 'ok'} : {key: 'filed', label: 'Filed', tone: 'ok'};
-    if (filing.completion_state === 'pending') return {key: 'completion_pending', label: 'Published—completion pending', tone: 'run'};
+    if (filing.completion_state === 'pending' || filing.completion_state == null) return {key: 'completion_pending', label: 'Published—completion pending', tone: 'run'};
     return {key: 'completion_unknown', label: 'Published—completion status unavailable', tone: 'warn'};
   }
   return {key: 'unavailable', label: 'Status unavailable', tone: 'warn'};
 }
 // States that can still change without anyone acting: worth a bounded view-only refresh.
 const srcActive = filing => ['queued', 'processing', 'discard_requested'].includes(filing?.state) ||
-  (filing?.state === 'published' && filing.completion_state === 'pending');
+  (filing?.state === 'published' && (filing.completion_state === 'pending' || filing.completion_state == null));
 function srcFilingChip(filing, extra = '') {
   const l = srcFilingLabel(filing);
   return `<span class="cnt src-state is-${esc(l.tone)}" data-src-state="${esc(l.key)}" title="${esc(l.label)}">${esc(l.label)}${extra}</span>`;
@@ -91,8 +94,9 @@ async function srcAct({scope, op, target, inspect, report, refresh, live, succes
       srcAttempts.set(id, attempt);
     }
     if (live()) report('Sending…', 'info');
+    let result;
     try {
-      await srcInvoke(scope, op, attempt.args, {...attempt.options, idempotency_key: attempt.key});
+      result = await srcInvoke(scope, op, attempt.args, {...attempt.options, idempotency_key: attempt.key});
     } catch (error) {
       if (srcUncertain(error)) { if (live()) report(`The outcome is not confirmed (${error.message}). Pressing the button again repeats the same request.`, 'warn'); return; }
       srcAttempts.delete(id);
@@ -101,22 +105,29 @@ async function srcAct({scope, op, target, inspect, report, refresh, live, succes
       return;
     }
     srcAttempts.delete(id);
-    if (live()) { report(success, 'ok'); await refresh(); }
+    if (live()) { report(typeof success === 'function' ? success(result) : success, 'ok'); await refresh(); }
   } finally { srcBusy.delete(id); if (live()) await refresh(true); }
 }
-const srcRevisionInspect = (scope, docId, field = 'document_revision') => async () => {
+// The decision is bound to the revision the owner was shown (`shown`). A preflight that sees another revision sends nothing:
+// the display is refreshed and the owner must decide again.
+const srcRevisionInspect = (scope, docId, shown) => async () => {
+  if (!Number.isSafeInteger(shown)) return {suppress: 'The displayed document revision is unknown. Refresh the status first.'};
   const doc = (await srcRead(scope, 'context_get', {document_id: docId, max_chars: 100})).document;
-  const revision = doc?.filing?.[field] ?? doc?.revision;
-  if (!Number.isSafeInteger(revision)) throw new Error('The current document revision was not returned.');
-  return {args: {upload_id: docId}, options: {expected_revision: revision}};
+  const current = doc?.filing?.document_revision;
+  if (!Number.isSafeInteger(current)) throw new Error('The current document revision was not returned.');
+  if (current !== shown) return {suppress: 'The source changed after it was displayed. The display was refreshed; review it and decide again.'};
+  return {args: {upload_id: docId}, options: {expected_revision: shown}};
 };
-// Exact-input controls: read the input first, send only what it is currently eligible for.
-const srcInputInspect = (scope, docId, inputId, allowed, label) => async () => {
-  const map = await srcRead(scope, 'context_upload_map', {upload_id: docId});
-  const input = (map.versions || []).map(v => v.input).find(i => i?.id === inputId);
-  if (!input) return {suppress: 'That input is no longer recorded for this source.'};
-  if (!allowed.includes(input.state)) return {suppress: `The input is ${input.state.replace(/_/g, ' ')}; ${label} is not available.`};
-  return {args: {input_id: inputId}, options: {expected_state: input.state}};
+// Exact-input controls: read the input itself (identity, namespace, state, controls; never its payload) and offer only what it is eligible for.
+const srcInputEligible = (input, intent) => intent === 'retry' ? input.state === 'blocked'
+  : input.state === 'blocked' || (input.state === 'queued' && input.attempt === 0 && !input.context_event_id);
+const srcInputInspect = (scope, inputId, intent) => async () => {
+  const input = (await srcRead(scope, 'context_queue_get', {input_id: inputId})).input;
+  if (!input || input.id !== inputId) return {suppress: 'That input is no longer available.'};
+  if (input.scope?.kind !== (scope.kind === 'root' ? 'global' : 'business')) return {suppress: 'That input belongs to a different namespace.'};
+  if ((input.controls || []).some(c => c.status === 'pending')) return {suppress: `A control request is already pending for this input; wait for the driver.`};
+  if (!srcInputEligible(input, intent)) return {suppress: `The input is ${String(input.state).replace(/_/g, ' ')}; ${intent} is not available.`};
+  return {args: {input_id: inputId, expected_state: input.state}, options: {}};
 };
 
 // ------------------------------------------------------------- recorded diagnostics
@@ -159,13 +170,15 @@ async function srcPaintDiagnostics(host, scope, docId, ctx) {
     <p class="src-note" data-src-bound>${bounded ? `Showing the ${SRC_DIAGNOSTIC_LIMIT} most recent recorded revisions. Earlier history may exist and cannot be paged; this is not the complete history.`
       : `${versions.length} recorded revision${versions.length === 1 ? '' : 's'} returned (limit ${SRC_DIAGNOSTIC_LIMIT}). This is a record of filings, not an outline or a publication feed.`}</p>
     ${versions.length ? `<div class="src-versions">${versions.map(v => srcVersionCard(v, ctx)).join('')}</div>` : '<p class="src-note" data-src-diagnostic="empty">No filing is recorded for this source.</p>'}`;
-  const act = (selector, key, op, allowed, label, success) => host.querySelectorAll(selector).forEach(button => button.onclick = () => {
+  const act = (selector, key, op, intent, success) => host.querySelectorAll(selector).forEach(button => button.onclick = () => {
     const inputId = button.dataset[key];
     srcAct({scope, op, target: inputId, live: ctx.live, report: ctx.report, refresh: ctx.refresh, success,
-      inspect: srcInputInspect(scope, docId, inputId, allowed, label)});
+      inspect: srcInputInspect(scope, inputId, intent)});
   });
-  act('[data-src-input-retry]', 'srcInputRetry', 'context_queue_retry', ['blocked'], 'retry', 'Input retry accepted. It is queued again; nothing is published yet.');
-  act('[data-src-input-discard]', 'srcInputDiscard', 'context_queue_discard', ['queued', 'blocked'], 'discard', 'Discard requested. This does not withdraw anything already published.');
+  act('[data-src-input-retry]', 'srcInputRetry', 'context_queue_retry', 'retry', () => 'Retry requested. The input stays blocked until the driver starts the attempt; nothing is published yet.');
+  act('[data-src-input-discard]', 'srcInputDiscard', 'context_queue_discard', 'discard', result => result?.status === 'applied'
+    ? 'The input had not started and is discarded. This does not withdraw anything already published.'
+    : 'Discard requested. It completes after the driver finishes the mechanical Context discard; nothing already published is withdrawn.');
 }
 
 // ------------------------------------------------------------- source reader
@@ -182,7 +195,7 @@ function srcMountSource(host, scope, docId, opts = {}) {
   opts.wireCrumbs?.(host);
   const q = name => host.querySelector(`[data-src-section="${name}"]`);
   const title = host.querySelector('.src-title');
-  const state = {doc: null, parts: [], loaded: new Set(), expected: 0, hash: null, cursor: null, loading: false, bodyError: '', refreshes: 0, timer: null, message: null, version: 0};
+  const state = {doc: null, parts: [], loaded: new Set(), expected: 0, restart: false, cursor: null, loading: false, bodyError: '', refreshes: 0, timer: null, message: null, version: 0};
   const report = (text, tone = 'info') => { state.message = {text, tone}; const el = q('filing')?.querySelector('[data-src-message]'); if (el) { el.textContent = text; el.dataset.tone = tone; } };
 
   // Only what the document itself returns: kind, origin, type, tags and (when present) the recorded encounter.
@@ -207,19 +220,20 @@ function srcMountSource(host, scope, docId, opts = {}) {
       </div>
       <p class="src-note" data-src-message role="status" data-tone="${esc(state.message?.tone || '')}">${esc(state.message?.text || '')}</p>
       <p class="src-note" data-src-refresh-note></p>`;
-    const send = (op, success) => srcAct({scope, op, target: docId, live: alive, report, refresh: refreshStatus, success,
-      inspect: srcRevisionInspect(scope, docId)});
+    const send = (op, success, shown) => srcAct({scope, op, target: docId, live: alive, report, refresh: refreshStatus, success,
+      inspect: srcRevisionInspect(scope, docId, shown)});
     const retry = q('filing').querySelector('[data-src-retry]');
-    if (retry) retry.onclick = () => send('context_retry', 'Retry accepted and queued for filing. Nothing is published yet.');
+    if (retry) retry.onclick = () => send('context_retry', 'Retry requested. Nothing is published yet.', filing.document_revision);
     const retract = q('filing').querySelector('[data-src-retract]');
     if (retract) retract.onclick = () => {
+      const shown = filing.document_revision;   // the decision is bound to what was displayed when it was made
       retract.hidden = true;
       const confirm = document.createElement('span');
       confirm.className = 'src-confirm';
       confirm.innerHTML = 'Withdraw this source from Context? <button type="button" class="ghost sm" data-src-retract-confirm>Confirm withdrawal</button> <button type="button" class="ghost sm" data-src-retract-cancel>Cancel</button>';
       retract.after(confirm);
       confirm.querySelector('[data-src-retract-cancel]').onclick = () => { confirm.remove(); retract.hidden = false; };
-      confirm.querySelector('[data-src-retract-confirm]').onclick = () => { confirm.remove(); retract.hidden = false; send('context_retract', 'Withdrawal accepted and queued. It is not complete until the queue publishes it.'); };
+      confirm.querySelector('[data-src-retract-confirm]').onclick = () => { confirm.remove(); retract.hidden = false; send('context_retract', 'Withdrawal requested. It is not complete until the queue publishes it.', shown); };
     };
     q('filing').querySelector('[data-src-refresh]').onclick = () => refreshStatus();
     const obj = q('filing').querySelector('[data-src-object]');
@@ -231,10 +245,13 @@ function srcMountSource(host, scope, docId, opts = {}) {
     el.innerHTML = `<div class="sh">Body <span class="stamp" data-src-count>${[...text].length} characters shown${state.cursor ? ' · more available' : ' · complete'}</span></div>
       <pre class="src-body" data-src-body></pre>
       ${state.bodyError ? `<p class="bad" role="alert" data-src-body-error>${esc(state.bodyError)}</p>` : ''}
-      ${state.cursor ? `<button type="button" class="ghost" data-src-more ${state.loading ? 'disabled' : ''}>${state.bodyError ? 'Retry' : 'Load more'}</button>` : ''}`;
+      ${state.cursor ? `<button type="button" class="ghost" ${state.restart ? 'data-src-restart' : 'data-src-more'} ${state.loading ? 'disabled' : ''}>${state.restart ? 'Restart reading from the beginning' : state.bodyError ? 'Retry' : 'Load more'}</button>` : ''}`;
     el.querySelector('[data-src-body]').textContent = text;
     const more = el.querySelector('[data-src-more]');
     if (more) more.onclick = () => loadBody();
+    const restart = el.querySelector('[data-src-restart]');
+    // The server refused the cursor (the body changed): never append; read again from the start.
+    if (restart) restart.onclick = () => { state.version++; state.parts = []; state.loaded = new Set(); state.expected = 0; state.cursor = null; state.bodyError = ''; state.restart = false; state.loading = false; loadBody(true); };
   };
   // One page at a time; a page is refused unless it continues exactly where the last one ended, on the same content.
   const loadBody = async first => {
@@ -246,16 +263,17 @@ function srcMountSource(host, scope, docId, opts = {}) {
       if (!alive() || version !== state.version) return;
       const doc = data.document || {};
       if (doc.id !== docId) throw new Error('The page belongs to a different document and was refused.');
-      if (requested) {
-        if (doc.content_hash !== state.hash) throw new Error('The source changed while reading. Reload it to read the new content.');
-        if (state.loaded.has(doc.character_offset) || doc.character_offset !== offset) throw new Error('The page does not continue the text already shown and was refused.');
-      } else { state.hash = doc.content_hash; state.doc = {...doc}; }
-      const part = String(doc.body ?? '');
+      if (typeof doc.body !== 'string' || !Number.isSafeInteger(doc.character_offset)) throw new Error('The page is malformed and was refused.');
+      // The server validates the opaque cursor against the document, scope and body; the file hash is not a second authority
+      // (completion rewrites it without changing the body). Only the exact expected offset is accepted.
+      if (requested && (state.loaded.has(doc.character_offset) || doc.character_offset !== offset)) throw new Error('The page does not continue the text already shown and was refused.');
+      if (!requested) state.doc = {...doc};
+      const part = doc.body;
       state.loaded.add(doc.character_offset ?? 0);
       state.parts.push(part); state.expected = (doc.character_offset ?? 0) + [...part].length;
       state.cursor = data.next_cursor || null;
       if (!requested) { title.textContent = doc.title || 'Source'; paintMeta(doc); }
-    } catch (error) { if (alive() && version === state.version) state.bodyError = error.message; }
+    } catch (error) { if (alive() && version === state.version) { state.bodyError = error.message; state.restart = !!error.code && !srcUncertain(error); } }
     finally { if (alive() && version === state.version) { state.loading = false; paintBody(); if (!requested) paintFiling(); } else state.loading = false; }
   };
   // Status-only refresh: never touches the body pages or their cursor.
