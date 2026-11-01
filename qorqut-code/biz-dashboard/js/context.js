@@ -312,12 +312,12 @@ function ctxHomeHtml(pack) {
   const brief = `<div class="sec"><div class="sh">Living brief</div>${(pack.A_brief || "").trim() ? mdLines(pack.A_brief) : `<div class="empty">No brief yet.</div>`}</div>`;
   const roomRows = room.map(r => {
     const others = (r.with || []).map(w => objChip(w.ref, w.name)).join("");
-    const last = r.last_impact ? `<div class="cs">${day(r.last_impact.created_at)} · ${esc(cap(r.last_impact.substance || r.last_impact.headline || "", 120))}</div>` : "";
+    const last = r.last_impact ? `<div class="cs">${day(r.last_impact.at || r.last_impact.created_at)} · ${esc(cap(r.last_impact.substance || r.last_impact.headline || "", 120))}</div>` : "";
     return `<div class="card n" data-ref="${esc(r.relationship)}"><div class="ct"><span class="kd">${esc((r.tags || []).join(", ") || "related")}</span><span class="tt">${others || esc(refName(r.relationship))}</span></div>${last}</div>`;
   }).join("");
   const roomSec = `<div class="sec"><div class="sh">Room <span class="stamp">${room.length}${pack.room_total > room.length ? ` of ${pack.room_total}` : ""} by salience</span></div>${roomRows ? `<div class="cards">${roomRows}</div>` : `<div class="empty">Nothing in the room yet.</div>`}</div>`;
   const recentRows = recent.map(i => `<div class="card n"${i.object_ref ? ` data-ref="${esc(i.object_ref)}"` : ""}><div class="ct"><span class="kd">${day(i.created_at)}</span><span class="tt">${esc(cap(i.headline || "", 90))}</span></div><div class="cb">${esc(i.substance || i.summary || "")}</div></div>`).join("");
-  const recentSec = `<div class="sec"><div class="sh">Recent impacts</div>${recentRows ? `<div class="cards">${recentRows}</div>` : `<div class="empty">Nothing filed yet.</div>`}</div>`;
+  const recentSec = pack.recent_impacts ? `<div class="sec"><div class="sh">Recent impacts</div>${recentRows ? `<div class="cards">${recentRows}</div>` : `<div class="empty">Nothing filed yet.</div>`}</div>` : `<div class="sec">${objChip(home.ref, "View history and actions")}</div>`;
   const actionRows = actions.map(a => `<div class="card n"${a.object_ref ? ` data-ref="${esc(a.object_ref)}"` : ""}><div class="ct"><span class="kd">${esc(a.status || "open")}</span><span class="tt">${esc(cap(a.text || a.title || a.summary || a.id || "", 110))}</span></div>${a.due ? `<div class="cs">due ${day(a.due)}</div>` : ""}</div>`).join("");
   const actionSec = actions.length ? `<div class="sec"><div class="sh">Open actions</div><div class="cards">${actionRows}</div></div>` : "";
   return head + brief + roomSec + recentSec + actionSec;
