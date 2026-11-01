@@ -9,6 +9,7 @@ from ._store import (
     EventPage,
     HistoryError,
     HistoryStore,
+    ImportConflict,
     NotFound,
     TransactionRequired,
     VersionConflict,
@@ -16,7 +17,7 @@ from ._store import (
     initialize_schema,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "MAX_PAGE_LIMIT",
@@ -27,6 +28,7 @@ __all__ = [
     "EventPage",
     "HistoryError",
     "HistoryStore",
+    "ImportConflict",
     "NotFound",
     "TransactionRequired",
     "VersionConflict",

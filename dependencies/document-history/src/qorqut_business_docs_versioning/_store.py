@@ -108,6 +108,23 @@ class VersionConflict(HistoryError):
         )
 
 
+class ImportConflict(HistoryError):
+    """An imported version would leave a gap or differs from the stored version with that number."""
+
+    def __init__(self, namespace: str, document_id: str, version: int, current_version: int,
+                 existing: DocumentVersion | None):
+        self.namespace = namespace
+        self.document_id = document_id
+        self.version = version
+        self.current_version = current_version
+        self.existing = existing
+        problem = ("differs from the stored version" if existing is not None
+                   else f"is not the next version after {current_version}")
+        super().__init__(
+            f"imported version {version} of document {document_id!r} in namespace {namespace!r} {problem}"
+        )
+
+
 class EventConflict(HistoryError):
     """An event with this (business_id, event_id) already exists with different contents."""
 
@@ -260,6 +277,55 @@ class HistoryStore:
             namespace, document_id, current + 1, source.content, author_id, reason, source_version
         )
 
+    def import_document_version(
+        self,
+        namespace: str,
+        document_id: str,
+        version: int,
+        content: str,
+        author_id: str,
+        *,
+        created_at: str,
+        reason: str = "",
+        restored_from_version: int | None = None,
+    ) -> DocumentVersion:
+        """Trusted maintenance: append an existing version with its original author and time.
+
+        The version must be the next contiguous one (1 for an empty document).
+        Re-importing an identical stored version returns it unchanged; a different
+        stored version or a gap raises ImportConflict. History is never replaced.
+        """
+        _require_transaction(self._connection)
+        _require_name("namespace", namespace)
+        _require_name("document_id", document_id)
+        _require_version_number("version", version, minimum=1)
+        _require_text("content", content)
+        _require_name("author_id", author_id)
+        created = _normalize_timestamp(created_at, "created_at")
+        _require_text("reason", reason)
+        if restored_from_version is not None:
+            _require_version_number("restored_from_version", restored_from_version, minimum=1)
+            if restored_from_version >= version:
+                raise ValueError("restored_from_version must be an earlier version")
+        current = self._current_version(namespace, document_id)
+        if version <= current:
+            existing = self.get_document(namespace, document_id, version=version)
+            same = (
+                existing.content == content
+                and existing.author_id == author_id
+                and existing.created_at == created
+                and existing.reason == reason
+                and existing.restored_from_version == restored_from_version
+            )
+            if not same:
+                raise ImportConflict(namespace, document_id, version, current, existing)
+            return existing
+        if version != current + 1:
+            raise ImportConflict(namespace, document_id, version, current, None)
+        return self._append_version(
+            namespace, document_id, version, content, author_id, reason, restored_from_version, created_at=created
+        )
+
     def get_document(self, namespace: str, document_id: str, *, version: int | None = None) -> DocumentVersion:
         """Return the latest version, or the selected version when given."""
         _require_name("namespace", namespace)
@@ -363,7 +429,7 @@ class HistoryStore:
         _require_text("summary", summary)
         _require_name("subject_type", subject_type)
         _require_name("subject_id", subject_id)
-        occurred = _normalize_timestamp(occurred_at)
+        occurred = _normalize_timestamp(occurred_at, "occurred_at")
         data_json = _canonical_json(data)
         try:
             existing = self.get_event(business_id, event_id)
@@ -451,6 +517,8 @@ class HistoryStore:
         author_id: str,
         reason: str,
         restored_from_version: int | None,
+        *,
+        created_at: str | None = None,
     ) -> DocumentVersion:
         record = DocumentVersion(
             namespace=namespace,
@@ -459,7 +527,7 @@ class HistoryStore:
             content=content,
             content_sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
             author_id=author_id,
-            created_at=_utc_now(),
+            created_at=created_at or _utc_now(),
             reason=reason,
             restored_from_version=restored_from_version,
         )
@@ -545,15 +613,15 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
-def _normalize_timestamp(value: object) -> str:
+def _normalize_timestamp(value: object, field: str) -> str:
     if not isinstance(value, str):
-        raise TypeError("occurred_at must be an ISO-8601 string")
+        raise TypeError(f"{field} must be an ISO-8601 string")
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError:
-        raise ValueError(f"occurred_at is not an ISO-8601 timestamp: {value!r}") from None
+        raise ValueError(f"{field} is not an ISO-8601 timestamp: {value!r}") from None
     if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise ValueError("occurred_at must include a timezone")
+        raise ValueError(f"{field} must include a timezone")
     return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds")
 
 
