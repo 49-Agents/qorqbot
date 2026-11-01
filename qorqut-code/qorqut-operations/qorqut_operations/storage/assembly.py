@@ -109,7 +109,12 @@ class StorageContribution:
     sequence seeds). ``validators`` receive a read-only connection when an existing store is opened.
 
     ``required_lifecycles`` names resource types whose availability bookkeeping this contribution cannot do
-    without (v1: ``documents``); the assembly refuses to freeze unless a lifecycle provider is registered for each."""
+    without (v1: ``documents``); the assembly refuses to freeze unless a lifecycle provider is registered for each.
+
+    ``required_tables`` names host-created tables the contribution's code reads or writes without owning them
+    (for the engine's Signoffs: ``inbox_changes``, ``management_routing``, ``tasks``, ``relationships`` ...). They
+    are checked against the compiled target at initialization and validation, so a composition that forgot one
+    fails there instead of at the first request."""
 
     owner: str
     tables: Mapping[str, TableSpec] = field(default_factory=dict)
@@ -117,6 +122,7 @@ class StorageContribution:
     schema: tuple[str, ...] = ()
     validators: tuple[Callable[[Any], None], ...] = ()
     required_lifecycles: frozenset[str] = frozenset()
+    required_tables: frozenset[str] = frozenset()
 
     def __post_init__(self):
         _owner(self.owner)
@@ -131,6 +137,13 @@ class StorageContribution:
                 not isinstance(name, str) or not TABLE_NAME.fullmatch(name) for name in required):
             raise AssemblyError("Required lifecycles are resource type names")
         object.__setattr__(self, "required_lifecycles", required)
+        needed = frozenset(self.required_tables)
+        if isinstance(self.required_tables, str) or any(
+                not isinstance(name, str) or not TABLE_NAME.fullmatch(name) for name in needed):
+            raise AssemblyError("Required tables are plain table names")
+        if needed & set(tables):
+            raise AssemblyError("A contribution cannot require a table it owns")
+        object.__setattr__(self, "required_tables", needed)
         immutable = {name: frozenset(fields) for name, fields in dict(self.immutable_fields).items()}
         if set(immutable) - set(tables):
             raise AssemblyError("Immutable columns can only be declared by the table's own contribution")
@@ -233,6 +246,7 @@ class Assembly:
     change_publisher: ChangePublisher | None
     lifecycles: Mapping[str, ResourceLifecycle]
     required_lifecycles: frozenset[str]
+    required_tables: Mapping[str, tuple[str, ...]]
     receipt_history: ReceiptHistory
     record_hooks: RecordEffectHooks
     _origin: object = field(default=None, repr=False, compare=False)
@@ -317,6 +331,10 @@ class AssemblyBuilder:
         for item in self._storage:
             tables.update(item.tables)
             immutable.update(item.immutable_fields)
+        needed: dict[str, list[str]] = {}
+        for item in self._storage:
+            for name in sorted(item.required_tables):
+                needed.setdefault(name, []).append(item.owner)
         publishers = [item.change_publisher for item in self._transactions if item.change_publisher is not None]
         payload = {"name": self._target_name, "version": self._target_version, "owners": [
             {"owner": item.owner, "schema": list(item.schema)} for item in self._storage],
@@ -336,4 +354,6 @@ class AssemblyBuilder:
             change_publisher=publishers[0] if publishers else None,
             lifecycles=MappingProxyType({name: lifecycle for item in self._files
                                          for name, lifecycle in item.lifecycles.items()}),
-            required_lifecycles=required, receipt_history=histories[0], record_hooks=self._records[0].hooks, _origin=_FREEZE_TOKEN)
+            required_lifecycles=required,
+            required_tables=MappingProxyType({name: tuple(owners) for name, owners in sorted(needed.items())}),
+            receipt_history=histories[0], record_hooks=self._records[0].hooks, _origin=_FREEZE_TOKEN)

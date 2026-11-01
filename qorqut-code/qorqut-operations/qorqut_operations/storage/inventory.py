@@ -62,6 +62,10 @@ def compile_target(assembly: Assembly) -> CompiledTarget:
                     *assembly.immutable_fields.get(table, ())}
         if required - set(columns[table]):
             raise AssemblyError(f"Table {table} lacks declared columns: {', '.join(sorted(required - set(columns[table])))}")
+    missing = {table: owners for table, owners in assembly.required_tables.items() if table not in columns}
+    if missing:
+        raise AssemblyError("The composed schema lacks tables its contributions require: " + "; ".join(
+            f"{table} (needed by {', '.join(owners)})" for table, owners in sorted(missing.items())))
     return CompiledTarget(MappingProxyType(objects), MappingProxyType(columns))
 
 

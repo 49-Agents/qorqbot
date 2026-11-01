@@ -130,6 +130,44 @@ BEGIN SELECT RAISE(ABORT, 'signoff request key is immutable'); END""",
     """CREATE TRIGGER signoffs_immutable_response BEFORE UPDATE OF decision_json ON signoffs
 WHEN OLD.decision_json IS NOT NULL AND NEW.decision_json IS NOT OLD.decision_json
 BEGIN SELECT RAISE(ABORT, 'submitted owner response is immutable'); END""",
+    """CREATE TABLE signoff_notes (
+ sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+ id TEXT NOT NULL UNIQUE,
+ signoff_id TEXT NOT NULL REFERENCES signoffs(id),
+ body TEXT NOT NULL CHECK(length(trim(body))>0 AND length(body)<=20000),
+ created_by TEXT NOT NULL REFERENCES principals(id),
+ created_at TEXT NOT NULL,
+ refs_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(refs_json))
+, summary TEXT)""",
+    """CREATE INDEX signoff_notes_thread ON signoff_notes(signoff_id,sequence)""",
+    """CREATE TRIGGER signoff_notes_no_delete BEFORE DELETE ON signoff_notes BEGIN SELECT RAISE(ABORT,'Notes are immutable'); END""",
+    """CREATE TRIGGER signoff_notes_no_update BEFORE UPDATE ON signoff_notes BEGIN SELECT RAISE(ABORT,'Notes are immutable'); END""",
+    """CREATE TABLE signoff_attention (
+    signoff_id TEXT PRIMARY KEY REFERENCES signoffs(id),
+    notify INTEGER NOT NULL DEFAULT 0 CHECK(notify IN (0,1)),
+    urgent INTEGER NOT NULL DEFAULT 0 CHECK(urgent IN (0,1)),
+    blocking INTEGER NOT NULL DEFAULT 0 CHECK(blocking IN (0,1)),
+    reason TEXT NOT NULL DEFAULT '',
+    deadline TEXT,
+    next_notify_at TEXT,
+    snoozed_until TEXT,
+    revision INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL
+, priority_updated_by TEXT REFERENCES principals(id), priority_updated_at TEXT)""",
+    """CREATE TABLE signoff_notifications (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL REFERENCES principals(id),
+    delivery_key TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL CHECK(kind IN ('individual','summary')),
+    signoff_ids_json TEXT NOT NULL CHECK(json_valid(signoff_ids_json)),
+    created_at TEXT NOT NULL,
+    dismissed_at TEXT
+)""",
+    """CREATE INDEX signoff_notifications_owner ON signoff_notifications(owner_id, dismissed_at, created_at)""",
+    """CREATE TABLE signoff_notification_schedule (
+    owner_id TEXT PRIMARY KEY REFERENCES principals(id),
+    last_summary_date TEXT NOT NULL
+)""",
     """CREATE TABLE idempotency_receipts (
     principal_id TEXT NOT NULL REFERENCES principals(id),
     target_namespace TEXT NOT NULL,
@@ -185,6 +223,109 @@ END""",
     """CREATE TABLE change_sequences (
     name TEXT PRIMARY KEY,
     value INTEGER NOT NULL DEFAULT 0 CHECK (value >= 0)
+)""",
+    """CREATE TABLE jobs (
+    id TEXT PRIMARY KEY,
+    business_id TEXT REFERENCES businesses(id),
+    target_namespace TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    principal_id TEXT NOT NULL REFERENCES principals(id),
+    initiated_by_principal_id TEXT REFERENCES principals(id),
+    arguments_json TEXT NOT NULL CHECK (json_valid(arguments_json)),
+    definition_ref_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(definition_ref_json)),
+    dedupe_key TEXT NOT NULL,
+    state TEXT NOT NULL,
+    claimed_by TEXT,
+    lease_until TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_retry_at TEXT,
+    result_json TEXT CHECK (result_json IS NULL OR json_valid(result_json)),
+    error_json TEXT CHECK (error_json IS NULL OR json_valid(error_json)),
+    logs_path TEXT,
+    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (target_namespace, kind, dedupe_key)
+)""",
+    """CREATE INDEX jobs_business_kind_created ON jobs(business_id, kind, created_at)""",
+    """CREATE INDEX jobs_ready ON jobs(state, next_retry_at, created_at, id)""",
+    """CREATE TRIGGER jobs_immutable_bindings BEFORE UPDATE ON jobs
+WHEN NEW.id IS NOT OLD.id OR NEW.business_id IS NOT OLD.business_id
+ OR NEW.target_namespace IS NOT OLD.target_namespace OR NEW.kind IS NOT OLD.kind
+ OR NEW.principal_id IS NOT OLD.principal_id OR NEW.initiated_by_principal_id IS NOT OLD.initiated_by_principal_id
+ OR NEW.arguments_json IS NOT OLD.arguments_json OR NEW.definition_ref_json IS NOT OLD.definition_ref_json
+ OR NEW.dedupe_key IS NOT OLD.dedupe_key OR NEW.created_at IS NOT OLD.created_at
+BEGIN SELECT RAISE(ABORT, 'immutable job binding'); END""",
+    """CREATE TRIGGER jobs_immutable_dispatch_intent BEFORE UPDATE OF result_json ON jobs
+WHEN json_type(OLD.result_json, '$.dispatch_intent') IS NOT NULL
+ AND json_type(OLD.result_json, '$.dispatch_intent') != 'null'
+ AND json_extract(NEW.result_json, '$.dispatch_intent') IS NOT json_extract(OLD.result_json, '$.dispatch_intent')
+BEGIN SELECT RAISE(ABORT, 'immutable dispatch intent'); END""",
+    """CREATE TRIGGER jobs_immutable_external_receipt BEFORE UPDATE OF result_json ON jobs
+WHEN json_type(OLD.result_json, '$.external_receipt') IS NOT NULL
+ AND json_type(OLD.result_json, '$.external_receipt') != 'null'
+ AND json_extract(NEW.result_json, '$.external_receipt') IS NOT json_extract(OLD.result_json, '$.external_receipt')
+BEGIN SELECT RAISE(ABORT, 'immutable external receipt'); END""",
+    """CREATE TRIGGER jobs_immutable_outputs BEFORE UPDATE OF result_json ON jobs
+WHEN json_type(OLD.result_json, '$.outputs') IS NOT NULL
+ AND (json_extract(NEW.result_json, '$.outputs') IS NOT json_extract(OLD.result_json, '$.outputs')
+      OR json_extract(NEW.result_json, '$.outputs_hash') IS NOT json_extract(OLD.result_json, '$.outputs_hash'))
+BEGIN SELECT RAISE(ABORT, 'immutable job outputs'); END""",
+    """CREATE TABLE routines (
+    namespace TEXT NOT NULL,
+    business_id TEXT REFERENCES businesses(id),
+    id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    scope TEXT NOT NULL CHECK (scope IN ('business','global')),
+    target TEXT NOT NULL,
+    schedule TEXT NOT NULL,
+    timezone TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('active','paused')),
+    job_kind TEXT NOT NULL,
+    arguments_json TEXT NOT NULL CHECK (json_valid(arguments_json)),
+    departments_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(departments_json)),
+    timeout_seconds INTEGER NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json)),
+    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (namespace, id),
+    CHECK ((scope = 'business' AND business_id IS NOT NULL AND namespace = business_id)
+        OR (scope = 'global' AND business_id IS NULL))
+)""",
+    """CREATE TABLE routine_runs (
+    id TEXT PRIMARY KEY,
+    namespace TEXT NOT NULL,
+    routine_id TEXT NOT NULL,
+    business_id TEXT REFERENCES businesses(id),
+    trigger TEXT NOT NULL,
+    slot TEXT,
+    state TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    result_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(result_json)),
+    cost_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(cost_json)),
+    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (namespace, routine_id) REFERENCES routines(namespace, id)
+)""",
+    """CREATE INDEX routine_runs_business_started ON routine_runs(business_id, started_at)""",
+    """CREATE INDEX routine_runs_namespace_started ON routine_runs(namespace, started_at)""",
+    """CREATE INDEX routine_runs_state_started ON routine_runs(state, started_at)""",
+    """CREATE TABLE routine_slots (
+    namespace TEXT NOT NULL,
+    routine_id TEXT NOT NULL,
+    target_namespace TEXT NOT NULL,
+    schedule_revision INTEGER NOT NULL,
+    slot TEXT NOT NULL,
+    wall_slot TEXT NOT NULL,
+    state_json TEXT NOT NULL CHECK (json_valid(state_json)),
+    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (namespace, routine_id, target_namespace),
+    FOREIGN KEY (namespace, routine_id) REFERENCES routines(namespace, id)
 )""",
     """INSERT INTO change_sequences(name, value) VALUES ('signoffs', 0)""",
 )

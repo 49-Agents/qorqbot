@@ -28,6 +28,10 @@ CORE_TABLES = {
     "apply_receipts": TableSpec(("id",)),
     "resource_claims": TableSpec(("target_namespace", "resource_type", "resource_id"), revision_column=None),
     "maintenance_state": TableSpec(("id",)),
+    "routines": TableSpec(("namespace", "id"), "business_id"),
+    "routine_runs": TableSpec(("id",), "business_id"),
+    "routine_slots": TableSpec(("namespace", "routine_id", "target_namespace")),
+    "jobs": TableSpec(("id",), "business_id"),
 }
 
 CORE_IMMUTABLE_FIELDS = {
@@ -37,4 +41,6 @@ CORE_IMMUTABLE_FIELDS = {
         "affected_scope_json", "supersedes_id", "request_key", "category", "execution_job_id", "legacy_evidence_json"}),
     "apply_receipts": frozenset({"principal_id", "target_namespace", "operation_name", "payload_hash",
                                   "change_set", "signoff_id"}),
+    "jobs": frozenset({"business_id", "target_namespace", "kind", "principal_id", "initiated_by_principal_id",
+                        "arguments_json", "definition_ref_json", "dedupe_key"}),
 }
