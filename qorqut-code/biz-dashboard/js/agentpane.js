@@ -14,7 +14,7 @@ const WORKSPACE_SEED = [
   { key: "focus", display_name: "Focus", supported_roles: ["ordubashy"], renderer: "focus_board",
     presentation_actions: ["focus_show", "focus_clear", "focus_browser_input", "focus_present", "focus_edit",
       "focus_move", "focus_set_archived", "focus_reply"] },
-  { key: "campaign_review", display_name: "Campaign creation", supported_roles: ["marketing", "outreach-specialist"], renderer: "campaign_review",
+  { key: "campaign_review", display_name: "Campaign creation", supported_roles: ["business-agent", "global-marketing"], renderer: "campaign_review",
     presentation_actions: ["workspace_present", "workspace_select", "workspace_attention"] },
 ];
 // Campaign creation and Focus are task-specific workspaces, so keep them at
@@ -433,15 +433,30 @@ function agpadWatcherAge(at) {
   return age ? `Last check: ${age}` : 'Last check unavailable';
 }
 
+// Current participants route replies; originals attribute authorship (core C7).
+function messageParticipant(message, side) {
+  return message['current_' + side + '_name'] || message[side + '_name'] || 'Unavailable';
+}
+function messageOriginally(message, side) {
+  const current = message['current_' + side + '_id'];
+  if (!current || current === message[side + '_id']) return '';
+  return `<span class="agpad-message-original">Originally ${side === 'sender' ? 'from' : 'to'} ${esc(message[side + '_name'] || 'Unavailable')}</span>`;
+}
+// Two original participants now one principal: history only, never a reply.
+function messageCollapsed(message) {
+  return !!message.current_sender_id && message.current_sender_id === message.current_recipient_id
+    && message.sender_id !== message.recipient_id;
+}
+
 function agpadPaintInbox(p) {
   const body = $('#agpad-body', p.el), data = p.inbox;
   if (!body) return;
   const error = p.inboxError ? '<p class="agpad-inbox-status" role="alert">Inbox unavailable. Retrying…</p>' : '';
   const agentId = p.agentId || state.agents.find(agent => agent.name === p.agent)?.agent_id;
-  const card = (item, subscription = false) => item.message ? `<details class="agpad-inbox-item agpad-message" data-message-id="${esc(item.message.id)}">
-    <summary><strong>Message from ${esc(item.message.sender_name)}</strong><span>${esc(agpadInboxAge(item.created_at))}${item.message.reply_to ? ' · Reply' : ''}</span><span>${esc(messagePreview(item.message.body,item.message.summary))}</span></summary>
+  const card = (item, subscription = false) => item.message ? `<details class="agpad-inbox-item agpad-message" data-message-id="${esc(item.message.id)}"${messageCollapsed(item.message) ? ' data-read-only="true"' : ''}>
+    <summary><strong>Message from ${esc(messageParticipant(item.message, 'sender'))}</strong><span>${esc(agpadInboxAge(item.created_at))}${item.message.reply_to ? ' · Reply' : ''}${messageCollapsed(item.message) ? ' · Read-only history' : ''}</span>${messageOriginally(item.message, 'sender')}<span>${esc(messagePreview(item.message.body,item.message.summary))}</span></summary>
     <div class="agpad-message-body">${esc(item.message.body)}</div>
-    <span>To ${esc(item.message.recipient_name)}</span></details>` : `<button type="button" class="agpad-inbox-item" data-agent-id="${esc(agentId || '')}" data-inbox-source="${esc(item.source_id)}" data-source-type="${esc(item.source_type)}" data-business="${esc(item.business_slug || '')}">
+    <span>To ${esc(messageParticipant(item.message, 'recipient'))}</span>${messageOriginally(item.message, 'recipient')}</details>` : `<button type="button" class="agpad-inbox-item" data-agent-id="${esc(agentId || '')}" data-inbox-source="${esc(item.source_id)}" data-source-type="${esc(item.source_type)}" data-business="${esc(item.business_slug || '')}">
     <strong>${esc(item.summary || 'Source item')}</strong><span>${esc(({focus_cards:'Focus Reference',stories:'Story',tasks:'Task',signoffs:'Signoff',documents:'Document',email_conversations:'Email',data_tables:'Table',action_logs:'Action',requests:'Request',agent_profiles:'Agent',principals:'Person',context_entities:'Reference'})[item.source_type] || 'Update')}${subscription ? (item.include_related ? ' · Includes linked items' : ' · Item only') : ' · ' + esc(item.event_type.split(',').map(type => ({relationship_changed:'Links changed',assignment_changed:'Assignment changed',response_submitted:'Response submitted',action_outcome:'Action result',note_added:'Note added',note:'Note added',message_changed:'Message received'})[type] || type.replaceAll('_', ' ')).join(', '))}</span>
     ${subscription ? '' : `<span>${esc(item.actor_name)} · ${esc(agpadInboxAge(item.created_at))}</span>`}</button>`;
   const html = error + (!data ? tEmptyHtml(p.inboxError ? 'No inbox data available.' : 'Loading inbox…') :

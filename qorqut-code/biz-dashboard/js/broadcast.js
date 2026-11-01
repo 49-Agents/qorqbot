@@ -35,10 +35,13 @@ function readBroadcastDraft(context) {
     selected: null,
   };
   try {
-    return {
+    const saved = {
       ...blank,
       ...(JSON.parse(ls(broadcastDraftKey(context)) || "null") || {}),
     };
+    // Drafts saved before the one-agent model kept the retired role filter.
+    if (saved.filter !== "all") saved.filter = "business-agent";
+    return saved;
   } catch (_) {
     return blank;
   }
@@ -175,7 +178,7 @@ async function renderBroadcast(c, context) {
     recipients.filter(
       (r) =>
         r.business_id != null &&
-        (draft.filter === "all" || r.role_id === "onbashy"),
+        (draft.filter === "all" || r.role_id === "business-agent"),
     );
   const groups = () =>
     Object.values(
@@ -204,11 +207,11 @@ async function renderBroadcast(c, context) {
         : draft.timing === "interval"
           ? `<div class="broadcast-inline"><label>Every<input id="broadcast-every" class="inp" type="number" min="1" value="${esc(draft.every)}"></label><label>Unit<select id="broadcast-unit" class="inp"><option value="minutes" ${draft.unit === "minutes" ? "selected" : ""}>Minutes</option><option value="hours" ${draft.unit === "hours" ? "selected" : ""}>Hours</option><option value="days" ${draft.unit === "days" ? "selected" : ""}>Days</option></select></label><label>Optional start<input id="broadcast-at" class="inp" type="datetime-local" value="${esc(draft.at)}"></label><small class="muted">Without a start, the first delivery is one interval from now.</small></div>`
           : `<div class="broadcast-inline"><label>Cron expression<input id="broadcast-cron" class="inp" value="${esc(draft.cron)}" placeholder="0 9 * * 1-5"></label><label>Timezone<input id="broadcast-timezone" class="inp" value="${esc(draft.timezone)}" placeholder="UTC"></label></div>`;
-  const recipientCount=()=>[...selected].filter(id=>{const r=recipients.find(r=>r.agent_id===id);return r&&(draft.filter!=='onbashy'||r.business_id==null||r.role_id==='onbashy');}).length;
+  const recipientCount=()=>[...selected].filter(id=>{const r=recipients.find(r=>r.agent_id===id);return r&&(draft.filter!=='business-agent'||r.business_id==null||r.role_id==='business-agent');}).length;
   const paintCompose = () => {
     const globalRows = recipients.filter((r) => r.business_id == null),
       businessGroups = groups();
-    body.innerHTML = `<form id="broadcast-form" novalidate><section class="broadcast-delivery"><span>Delivery</span><div role="group" aria-label="Delivery"><button type="button" class="btn ${draft.delivery === "inbox" ? "on" : ""}" data-delivery="inbox" aria-pressed="${draft.delivery === "inbox"}">Inbox</button><button type="button" class="btn ${draft.delivery === "input" ? "on" : ""}" data-delivery="input" aria-pressed="${draft.delivery === "input"}">Terminal input</button></div></section>${context.scope === "global" ? `<section class="broadcast-recipient-section"><h2>${globalIcon("globe")} Global</h2><div class="broadcast-recipient-grid">${globalRows.map(agentTile).join("") || '<p class="muted">No Global agents are available.</p>'}</div></section><section class="broadcast-recipient-section"><div class="broadcast-section-heading"><h2>Businesses</h2><label>Show <select id="broadcast-filter" class="inp"><option value="all">All business agents</option><option value="onbashy">Onbashys</option></select></label><button class="btn quiet" type="button" id="broadcast-select-all">Select all</button><button class="btn quiet" type="button" id="broadcast-clear-all">Clear all</button></div><div class="broadcast-business-grid">${businessGroups.map(businessTile).join("") || '<p class="muted">No matching businesses are available.</p>'}</div></section>` : `<section class="broadcast-recipient-section"><div class="broadcast-section-heading"><h2>Recipients</h2><button class="btn quiet" type="button" id="broadcast-select-all">Select all</button><button class="btn quiet" type="button" id="broadcast-clear-all">Clear all</button></div><div class="broadcast-recipient-grid">${recipients.map(agentTile).join("") || '<p class="muted">No agents are available.</p>'}</div></section>`}<label class="broadcast-message-label">Message<textarea id="broadcast-message" class="inp" maxlength="16000" required>${esc(draft.message)}</textarea></label><fieldset><legend>When</legend><label><input type="radio" name="broadcast-timing" value="now" ${draft.timing === "now" ? "checked" : ""}> Send now</label><label><input type="radio" name="broadcast-timing" value="once" ${draft.timing === "once" ? "checked" : ""}> Once</label><label><input type="radio" name="broadcast-timing" value="interval" ${draft.timing === "interval" ? "checked" : ""}> Repeat</label><label><input type="radio" name="broadcast-timing" value="cron" ${draft.timing === "cron" ? "checked" : ""}> Cron</label></fieldset><div class="broadcast-timing-fields">${timingFields()}</div>${["interval", "cron"].includes(draft.timing) ? `<label class="broadcast-max-label">Maximum occurrences (optional)<input id="broadcast-max" class="inp" type="number" min="1" value="${esc(draft.max)}"></label>` : ""}<p id="broadcast-error" class="broadcast-error" role="alert"></p><div class="broadcast-actions"><span class="muted" data-recipient-count>${recipientCount()} recipients</span><button class="primary" type="submit">${editing ? "Save changes" : draft.timing === "now" ? "Send now" : "Schedule"}</button>${editing ? '<button class="btn" type="button" id="broadcast-cancel-edit">Cancel edit</button>' : ""}</div></form>`;
+    body.innerHTML = `<form id="broadcast-form" novalidate><section class="broadcast-delivery"><span>Delivery</span><div role="group" aria-label="Delivery"><button type="button" class="btn ${draft.delivery === "inbox" ? "on" : ""}" data-delivery="inbox" aria-pressed="${draft.delivery === "inbox"}">Inbox</button><button type="button" class="btn ${draft.delivery === "input" ? "on" : ""}" data-delivery="input" aria-pressed="${draft.delivery === "input"}">Terminal input</button></div></section>${context.scope === "global" ? `<section class="broadcast-recipient-section"><h2>${globalIcon("globe")} Global</h2><div class="broadcast-recipient-grid">${globalRows.map(agentTile).join("") || '<p class="muted">No Global agents are available.</p>'}</div></section><section class="broadcast-recipient-section"><div class="broadcast-section-heading"><h2>Businesses</h2><label>Show <select id="broadcast-filter" class="inp"><option value="all">All agents</option><option value="business-agent">Business agents</option></select></label><button class="btn quiet" type="button" id="broadcast-select-all">Select all</button><button class="btn quiet" type="button" id="broadcast-clear-all">Clear all</button></div><div class="broadcast-business-grid">${businessGroups.map(businessTile).join("") || '<p class="muted">No matching businesses are available.</p>'}</div></section>` : `<section class="broadcast-recipient-section"><div class="broadcast-section-heading"><h2>Recipients</h2><button class="btn quiet" type="button" id="broadcast-select-all">Select all</button><button class="btn quiet" type="button" id="broadcast-clear-all">Clear all</button></div><div class="broadcast-recipient-grid">${recipients.map(agentTile).join("") || '<p class="muted">No agents are available.</p>'}</div></section>`}<label class="broadcast-message-label">Message<textarea id="broadcast-message" class="inp" maxlength="16000" required>${esc(draft.message)}</textarea></label><fieldset><legend>When</legend><label><input type="radio" name="broadcast-timing" value="now" ${draft.timing === "now" ? "checked" : ""}> Send now</label><label><input type="radio" name="broadcast-timing" value="once" ${draft.timing === "once" ? "checked" : ""}> Once</label><label><input type="radio" name="broadcast-timing" value="interval" ${draft.timing === "interval" ? "checked" : ""}> Repeat</label><label><input type="radio" name="broadcast-timing" value="cron" ${draft.timing === "cron" ? "checked" : ""}> Cron</label></fieldset><div class="broadcast-timing-fields">${timingFields()}</div>${["interval", "cron"].includes(draft.timing) ? `<label class="broadcast-max-label">Maximum occurrences (optional)<input id="broadcast-max" class="inp" type="number" min="1" value="${esc(draft.max)}"></label>` : ""}<p id="broadcast-error" class="broadcast-error" role="alert"></p><div class="broadcast-actions"><span class="muted" data-recipient-count>${recipientCount()} recipients</span><button class="primary" type="submit">${editing ? "Save changes" : draft.timing === "now" ? "Send now" : "Schedule"}</button>${editing ? '<button class="btn" type="button" id="broadcast-cancel-edit">Cancel edit</button>' : ""}</div></form>`;
     const filter = $("#broadcast-filter", body);
     if (filter) {
       filter.value = draft.filter;
@@ -291,12 +294,12 @@ async function renderBroadcast(c, context) {
       capture();
       const error = $("#broadcast-error", body);
       const outbound =
-        draft.filter === "onbashy"
+        draft.filter === "business-agent"
           ? new Set(
               [...selected].filter((id) => {
                 const row = recipients.find((r) => r.agent_id === id);
                 return (
-                  !row || row.business_id == null || row.role_id === "onbashy"
+                  !row || row.business_id == null || row.role_id === "business-agent"
                 );
               }),
             )

@@ -85,7 +85,7 @@
 .nttitlein:focus, .jrtitlein:focus { border: 0; box-shadow: none; background: none; }
 .ntedctrls, .jredctrls { flex: none; display: flex; align-items: center; gap: 8px; padding-top: 5px; }
 /* every button in this header (Upload to context, Discard, Save) is app.css's one pill — the same
-   `.btn`/`button.primary` the Agents tab's "New agent" uses. Nothing is restyled here. */
+   `.btn`/`button.primary` used elsewhere. Nothing is restyled here. */
 .ntedctrls .btn, .jredctrls .btn { flex: none; }
 .ntsavewrap, .jrsavewrap { display: inline-flex; align-items: center; }
 .ntsavepill.busy, .jrsavepill.busy { cursor: default; }
@@ -168,3 +168,11 @@
 .ntvisibility.on { opacity: 1; filter: none; border-color: currentColor; }
 .ntvisibility:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 .ntvisibility:disabled { cursor: wait; }
+
+/* business-owned note categories (Strategy / Marketing) */
+.ntcats { display: flex; gap: 4px; margin-bottom: 8px; }
+.ntcats .btn.on { background: var(--hover); color: var(--fg); }
+.ntsidecats { flex: none; padding: 16px 16px 0; }
+.ntsidecats .ntcats { margin-bottom: 0; }
+.ntcathint { margin: 6px 0 0; }
+.ntmeta-category { color: var(--fg-2); }

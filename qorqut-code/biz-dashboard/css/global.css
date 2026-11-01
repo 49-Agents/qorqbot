@@ -41,6 +41,11 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-metric-icon svg { width: 15px; height: 15px; }
 .global-metric[aria-disabled] { cursor: default; }
 .global-summary-note { color: var(--fg-2); font-size: 12px; margin: 12px 0 0; }
+.global-archived { margin: 28px 0 72px; max-width: 866px; }
+.global-archived-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line-2); border-radius: 16px; }
+.global-archived-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; }
+.global-archived-list li + li { border-top: 1px solid var(--line); }
+.global-archived-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .global-placeholder { border: 1px solid var(--line-2); border-radius: 16px; padding: 70px 24px; max-width: 960px; text-align: center; }
 .global-placeholder-icon { display: inline-flex; padding: 16px; border-radius: 16px; background: var(--hover); color: var(--fg-2); }
 .global-content .global-placeholder h2 { color: var(--fg); text-transform: none; letter-spacing: -.01em; font-size: 18px; font-weight: 500; margin: 22px 0 8px; }

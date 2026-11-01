@@ -2,7 +2,6 @@
 const AG_MODEL = "deepseek-v4-flash";
 const agRates = () => (typeof RATES === "object" && RATES && RATES[AG_MODEL]) || { hit: 0.014, miss: 0.44, out: 1.32 };
 const agCost = (hit, miss, out) => { const r = agRates(); return (hit * r.hit + miss * r.miss + out * r.out) / 1e6; };
-const NAME_RE = /^[a-z][a-z0-9-]{1,31}$/;
 const SLASH = [
   { cmd: "clear", hint: "Clear the view; sessions stay on disk" },
 ];
@@ -92,10 +91,9 @@ function agpadOptions(agent, extra = {}) {
 async function renderAgents(c) {
   const gen = ++agRenderGen, biz = state.biz;
   const linkedWorkspace = agTakeLinkedWorkspace('#' + biz);
-  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><div class="agent-nav-heading"><h2>Agents</h2><span class="agent-nav-actions">${broadcastButton()}${agentNavButton()}</span></div><button class="primary" id="addagent">${ICO_PLUS}New agent</button></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><div class="agent-pane-divider" data-agent-pane-divider role="separator" aria-label="Terminal and agent pane divider" aria-orientation="vertical" tabindex="0"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
+  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><div class="agent-nav-heading"><h2>Agents</h2><span class="agent-nav-actions">${broadcastButton()}${agentNavButton()}</span></div></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><div class="agent-pane-divider" data-agent-pane-divider role="separator" aria-label="Terminal and agent pane divider" aria-orientation="vertical" tabindex="0"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
   wireBroadcastButton(c, {scope:'business',biz});
   wireAgentNavToggle(c, biz);
-  $("#addagent").onclick = newAgentModal;
   $("#agentrows", c).innerHTML = `<p class="empty pad" role="status">Loading agents…</p>`;
   const cached = agPageCache.get(biz);
   if (cached) {
@@ -121,7 +119,7 @@ async function renderAgents(c) {
   if (cached?.agents.some(a => a.name === state.agent) && state.agents.some(a => a.name === state.agent)) return;
   const want = state.agent || ls(agKey());
   const a = state.agents.find(x => x.name === want) || state.agents[0];
-  if (!a) { agSetSel(null); $("#chat").innerHTML = `<div class="empty" style="padding:24px">No agents yet — add one with New agent.</div>`; agpadMount(null, $("#agpad")); return; }
+  if (!a) { agSetSel(null); $("#chat").innerHTML = `<div class="empty" style="padding:24px">This business has no active agent.</div>`; agpadMount(null, $("#agpad")); return; }
   agSetSel(a.name);
   paintList();
   mountTerminal(a.name, $("#chat"), stat => markTermState(a.name, stat));
@@ -227,7 +225,7 @@ function agentDepartmentGroups() {
     ...Object.keys(DEPTS), ...state.agents.map(a => departmentId(a.department || 'general'))])];
   return ids.map(id => ({id, label:dept(id).label,
     agents:state.agents.filter(a => departmentId(a.department || 'general') === id)
-      .sort((a,b) => (a.role?.id === 'onbashy' ? -1 : 0) - (b.role?.id === 'onbashy' ? -1 : 0) || a.name.localeCompare(b.name))
+      .sort((a,b) => (a.display_name || a.name).localeCompare(b.display_name || b.name))
   })).filter(group => group.agents.length);
 }
 
@@ -277,7 +275,7 @@ function paintList() {
   const rows=$('#agentrows'); if(!rows)return;
   rows.innerHTML=agentDepartmentGroups().map(group =>
     `<section class="agent-department" aria-label="${esc(group.label)}"><h3>${esc(group.label)}</h3>` +
-    group.agents.map(a => `<button type="button" class="item agent ${a.name===state.agent?'on':''}" data-a="${esc(a.name)}"><span class="nm">${identityAvatar('agent',a.name,a)}<span class="tt">${esc(a.name)}</span></span><span class="agent-presence" data-agent-presence="${esc(a.agent_id || '')}" role="img"></span></button>`).join('') + '</section>'
+    group.agents.map(a => `<button type="button" class="item agent ${a.name===state.agent?'on':''}" data-a="${esc(a.name)}"><span class="nm">${identityAvatar('agent',a.display_name || a.name,a)}<span class="tt">${esc(a.display_name || a.name)}</span></span><span class="agent-presence" data-agent-presence="${esc(a.agent_id || '')}" role="img"></span></button>`).join('') + '</section>'
   ).join('') || '<p class="empty pad">No agents yet.</p>';
   agentNavPaint(); agentNavRefresh();
   rows.querySelectorAll('[data-a]').forEach(b=>{b.onclick=event=>{if(event.ctrlKey || event.metaKey){event.preventDefault();agentOpenTab(b.dataset.a,state.biz);}else selectAgent(b.dataset.a);};b.oncontextmenu=e=>{e.preventDefault();lookModal(state.agents.find(a=>a.name===b.dataset.a));};});
@@ -301,19 +299,6 @@ async function applyMeta(a, patch) {
 // ------------------------------------------------------------------ modals
 const deptItems = () => Object.keys(DEPTS).map(k => ({ value: k, label: DEPTS[k].label, html: `${departmentIcon(k, 14)}<span>${esc(DEPTS[k].label)}</span>` }));
 const deptBtn = k => `<span class="v">${departmentIcon(k, 14)}<span>${esc(dept(k).label)}</span></span>`;
-
-let _market = null;
-async function marketplace() {
-  if (_market) return _market;
-  try { _market = await api("/marketplace"); } catch (e) { _market = { kinds: [], error: "could not reach the server" }; }
-  if (!Array.isArray(_market.kinds)) _market.kinds = [];
-  return _market;
-}
-const kindItems = kinds => kinds.map(k => ({
-  value: k.id, label: k.label,
-  html: `${departmentIcon(k.department || "general", 14)}<span class="kd"><span class="kl">${esc(k.label)}${k.available ? "" : ` <em>soon</em>`}</span><span class="kb">${esc(k.blurb || "")}</span></span>`,
-}));
-const kindBtn = k => k ? `<span class="v">${departmentIcon(k.department || "general", 14)}<span>${esc(k.label)}</span>${k.available ? "" : `<em class="soon">soon</em>`}</span>` : `<span class="v muted">pick a kind</span>`;
 
 function lookModal(a) {
   const startDept = departmentId(a.department || "general");
@@ -358,70 +343,6 @@ function lookModal(a) {
       } },
     ],
   });
-}
-
-function newAgentModal() {
-  const biz = state.biz, pick = { kind: null, department: "general" };
-  const body = `<div class="prev" id="naprev"></div>
-    <div class="fl">Name</div><input class="inp" id="naname" placeholder="growth" autocomplete="off" spellcheck="false">
-    <div class="fmsg" id="namsg">lowercase letters, digits and dashes, 2–32 characters</div>
-    <div class="fl">Role</div><select class="inp" id="narole" aria-label="Role" required><option value="">Loading roles...</option></select>
-    <div class="fmsg" id="nakmsg"></div>
-    <label class="fl" for="nabrief">Assignment</label><textarea class="inp ta" id="nabrief" rows="4" required></textarea>
-    <div class="fl">Department</div><button class="selbtn" id="nadept">${deptBtn(pick.department)}</button>
-    <div class="ferr" id="naerr" hidden></div>`;
-  const m = modal({
-    title: "New agent", body, width: 460,
-    onOpen: async el => {
-      const prev = el.querySelector("#naprev"), kb = el.querySelector("#narole"), db = el.querySelector("#nadept"), kmsg = el.querySelector("#nakmsg");
-      const repaint = () => { const d = dept(pick.department); prev.innerHTML = agentGlyph({ department: pick.department }, 34); db.innerHTML = deptBtn(pick.department); };
-      db.onclick = () => dropdown(db, deptItems(), v => { pick.department = v; repaint(); }, pick.department);
-      const mk = await marketplace();
-      if (!el.isConnected || state.biz !== biz) return;
-      if (mk.error) kmsg.textContent = mk.error;
-      const roles = mk.kinds.filter(k => k.available && k.role && k.role.digest && k.role.version);
-      kb.innerHTML = '<option value="">Select a role</option>' + roles.map((k, i) => `<option value="${i}">${esc(k.label)} · ${esc(k.role.version)}</option>`).join("");
-      kb.onchange = () => {
-        pick.kind = kb.value === "" ? null : roles[Number(kb.value)];
-        kmsg.textContent = pick.kind ? `${pick.kind.role.id} · ${pick.kind.role.version}` : "";
-        repaint();
-      };
-      repaint();
-      const inp = el.querySelector("#naname"), msg = el.querySelector("#namsg");
-      const check = () => {
-        const v = inp.value.trim(), ok = NAME_RE.test(v);
-        inp.classList.toggle("bad", !!v && !ok);
-        msg.textContent = !v ? "lowercase letters, digits and dashes, 2–32 characters"
-          : ok ? "looks good" : "must start with a letter: lowercase, digits and dashes, 2–32 characters";
-        msg.classList.toggle("ok", !!v && ok); msg.classList.toggle("bad", !!v && !ok);
-        return ok;
-      };
-      inp.oninput = check; inp.focus();
-    },
-    actions: [
-      { label: "Cancel", onClick: close => close() },
-      { label: "Create", primary: true, onClick: async (close, el) => {
-        const err = el.querySelector("#naerr"), inp = el.querySelector("#naname");
-        const name = inp.value.trim();
-        const fail = t => { err.hidden = false; err.textContent = t; };
-        if (!NAME_RE.test(name)) return fail("that name will not do: ^[a-z][a-z0-9-]{1,31}$");
-        if (state.agents.some(x => x.name === name)) return fail(`${name} already exists`);
-        if (state.biz !== biz) return fail("The selected business changed. Reopen this form.");
-        if (!pick.kind || !pick.kind.role) return fail("Select a published role.");
-        const brief = el.querySelector("#nabrief").value;
-        if (!brief.trim()) return fail("Enter this agent's assignment.");
-        err.hidden = true;
-        const button = el.querySelector(".mfoot .primary"); button.disabled = true;
-        try {
-          coreData(await post(`/biz/${encodeURIComponent(biz)}/agent`, { name, role: pick.kind.role, assignment_brief: brief, department: pick.department }));
-          close(); toast(`${name} created`);
-          if (state.biz === biz) { agSetSel(name); await loadBiz(); if (state.tab === "agents") renderAgents($("#content")); }
-        } catch (e) { fail(e.message || "Could not create the agent."); }
-        finally { button.disabled = false; }
-      } },
-    ],
-  });
-  return m;
 }
 
 // ---------------------------------------------------------------- messages

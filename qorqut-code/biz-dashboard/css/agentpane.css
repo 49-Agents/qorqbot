@@ -76,7 +76,7 @@
 .agent-nav-toggle .agent-nav-show { display: none; }
 .agsplit.nav-off .agent-nav-toggle .agent-nav-hide { display: none; }
 .agsplit.nav-off .agent-nav-toggle .agent-nav-show { display: block; }
-.agsplit.nav-off > .listcol .crows, .agsplit.nav-off > .listcol #addagent { display: none; }
+.agsplit.nav-off > .listcol .crows { display: none; }
 .agsplit.nav-off > .listcol .ctop { padding-left: 11px; padding-right: 11px; }
 .agsplit.nav-off > .listcol .agent-nav-heading { justify-content: center; }
 .agsplit.nav-off > .listcol .agent-nav-heading h1, .agsplit.nav-off > .listcol .agent-nav-heading h2 { display: none; }
@@ -99,6 +99,7 @@
 
 .agpad-message summary { cursor: pointer; }
 .agpad-message-body { white-space: pre-wrap; margin-top: 10px; cursor: text; user-select: text; }
+.agpad-inbox-item .agpad-message-original { font-style: italic; color: var(--fg-3); }
 
 /* Match the task section headings throughout the agent pane. */
 .agpad .agpad-inbox-heading, .agpad .sg h2, .agpad .sg h3, .agpad .sg h4 {
