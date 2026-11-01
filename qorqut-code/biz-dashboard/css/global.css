@@ -1,13 +1,14 @@
-.workspace-choice { display: grid; grid-template-columns: 30px minmax(0, 1fr) 21px auto; align-items: center; gap: 15px; width: 100%; }
+.workspace-choice { display: grid; grid-template-columns: 25px minmax(0, 1fr) 17.5px auto; align-items: center; gap: 12.5px; width: 100%; }
 .workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-business-icon { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--line-2); border-radius: 9px; font-size: 15px; }
-.workspace-menu { max-height: min(640px, calc(100vh - 24px)); max-width: calc(100vw - 24px); }
-.workspace-menu .mi { height: 72px; gap: 12px; padding: 0 20px; font-size: 19.5px; }
-.workspace-menu .mi:has(.workspace-global) { height: 88px; margin-bottom: 16px; }
-.workspace-menu .identity-avatar { width: 36px; height: 36px; font-size: 16.5px; }
-.workspace-menu .identity-avatar svg, .workspace-menu .workspace-choice > svg { width: 30px; height: 30px; }
-.workspace-menu .workspace-drag svg { width: 21px; height: 27px; }
-.workspace-menu .sg-attention-badge { min-width: 27px; height: 27px; padding: 0 6px; font-size: 15px; }
+.workspace-business-icon { width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid var(--line-2); border-radius: 7.5px; font-size: 12.5px; }
+.workspace-menu { max-height: min(480px, calc(100vh - 24px)); max-width: calc(100vw - 24px); }
+.workspace-menu .mi { height: 54px; gap: 10px; padding: 0 15px; font-size: 16.25px; }
+.workspace-menu .mi:has(.workspace-global) { height: 66px; margin-bottom: 12px; }
+.workspace-menu .identity-avatar { width: 30px; height: 30px; font-size: 13.75px; }
+.workspace-menu .identity-avatar svg { width: 22px; height: 22px; }
+.workspace-menu .workspace-choice > svg { width: 25px; height: 25px; }
+.workspace-menu .workspace-drag svg { width: 17.5px; height: 22.5px; }
+.workspace-menu .sg-attention-badge { min-width: 22.5px; height: 22.5px; padding: 0 5px; font-size: 12.5px; }
 .workspace-menu .mi.on { background: var(--line-2); color: var(--fg); }
 .workspace-drag { grid-column:3; grid-row:1; display: flex; opacity: 0; cursor: grab; }
 .workspace-menu .mi:hover .workspace-drag { opacity: 1; }
