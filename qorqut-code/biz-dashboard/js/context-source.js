@@ -79,7 +79,7 @@ const srcInvoke = async (scope, op, args, options) => {
   return coreData(result);
 };
 // inspect() -> {args, options} | {suppress: message}. It runs once per decision; an uncertain outcome repeats the stored request.
-async function srcAct({scope, op, target, inspect, report, refresh, live, success}) {
+async function srcAct({scope, op, target, inspect, report, refresh, live, success, validate}) {
   const id = `${srcScopeKey(scope)}|${op}|${target}`;
   if (srcBusy.has(id)) return;
   srcBusy.add(id);
@@ -104,6 +104,10 @@ async function srcAct({scope, op, target, inspect, report, refresh, live, succes
       if (srcConflict(error)) await refresh();
       return;
     }
+    if (validate && !validate(result)) {   // sent, but the answer is not a recognizable result: unconfirmed, the same request may be repeated
+      if (live()) report('The request was sent but its result was not recognized, so it is not confirmed. Pressing the button again repeats the same request.', 'warn');
+      return;
+    }
     srcAttempts.delete(id);
     if (live()) { report(typeof success === 'function' ? success(result) : success, 'ok'); await refresh(); }
   } finally { srcBusy.delete(id); if (live()) await refresh(true); }
@@ -117,6 +121,11 @@ const srcRevisionInspect = (scope, docId, shown) => async () => {
   if (!Number.isSafeInteger(current)) throw new Error('The current document revision was not returned.');
   if (current !== shown) return {suppress: 'The source changed after it was displayed. The display was refreshed; review it and decide again.'};
   return {args: {upload_id: docId}, options: {expected_revision: shown}};
+};
+// The queue controls answer data: {result: {input_id, control_id, intent, status: 'pending'|'applied', state}}.
+const srcControlResult = (inputId, intent) => response => {
+  const r = response?.result;
+  return !!r && typeof r === 'object' && r.input_id === inputId && r.intent === intent && typeof r.control_id === 'string' && ['pending', 'applied'].includes(r.status) && typeof r.state === 'string';
 };
 // Exact-input controls: read the input itself (identity, namespace, state, controls; never its payload) and offer only what it is eligible for.
 const srcInputEligible = (input, intent) => intent === 'retry' ? input.state === 'blocked'
@@ -172,11 +181,11 @@ async function srcPaintDiagnostics(host, scope, docId, ctx) {
     ${versions.length ? `<div class="src-versions">${versions.map(v => srcVersionCard(v, ctx)).join('')}</div>` : '<p class="src-note" data-src-diagnostic="empty">No filing is recorded for this source.</p>'}`;
   const act = (selector, key, op, intent, success) => host.querySelectorAll(selector).forEach(button => button.onclick = () => {
     const inputId = button.dataset[key];
-    srcAct({scope, op, target: inputId, live: ctx.live, report: ctx.report, refresh: ctx.refresh, success,
+    srcAct({scope, op, target: inputId, live: ctx.live, report: ctx.report, refresh: ctx.refresh, success, validate: srcControlResult(inputId, intent),
       inspect: srcInputInspect(scope, inputId, intent)});
   });
   act('[data-src-input-retry]', 'srcInputRetry', 'context_queue_retry', 'retry', () => 'Retry requested. The input stays blocked until the driver starts the attempt; nothing is published yet.');
-  act('[data-src-input-discard]', 'srcInputDiscard', 'context_queue_discard', 'discard', result => result?.status === 'applied'
+  act('[data-src-input-discard]', 'srcInputDiscard', 'context_queue_discard', 'discard', response => response.result.status === 'applied'
     ? 'The input had not started and is discarded. This does not withdraw anything already published.'
     : 'Discard requested. It completes after the driver finishes the mechanical Context discard; nothing already published is withdrawn.');
 }
@@ -241,6 +250,7 @@ function srcMountSource(host, scope, docId, opts = {}) {
   };
   const paintBody = () => {
     const el = q('body'); if (!el) return;
+    if (!state.doc) { el.innerHTML = state.bodyError ? `<p class="bad" role="alert" data-src-body-error>${esc(state.bodyError)}</p>` : ''; return; }   // nothing was read: never label it complete
     const text = state.parts.join('');
     el.innerHTML = `<div class="sh">Body <span class="stamp" data-src-count>${[...text].length} characters shown${state.cursor ? ' · more available' : ' · complete'}</span></div>
       <pre class="src-body" data-src-body></pre>
@@ -263,15 +273,17 @@ function srcMountSource(host, scope, docId, opts = {}) {
       if (!alive() || version !== state.version) return;
       const doc = data.document || {};
       if (doc.id !== docId) throw new Error('The page belongs to a different document and was refused.');
-      if (typeof doc.body !== 'string' || !Number.isSafeInteger(doc.character_offset)) throw new Error('The page is malformed and was refused.');
+      const cursor = data.next_cursor ?? null;
+      if (typeof doc.body !== 'string' || !Number.isSafeInteger(doc.character_offset) || doc.character_offset < 0 || typeof data.complete !== 'boolean'
+        || !(cursor === null || (typeof cursor === 'string' && cursor !== '')) || data.complete !== (cursor === null) || (cursor !== null && doc.body === '')) throw new Error('The page is malformed and was refused.');
       // The server validates the opaque cursor against the document, scope and body; the file hash is not a second authority
       // (completion rewrites it without changing the body). Only the exact expected offset is accepted.
-      if (requested && (state.loaded.has(doc.character_offset) || doc.character_offset !== offset)) throw new Error('The page does not continue the text already shown and was refused.');
+      if (state.loaded.has(doc.character_offset) || doc.character_offset !== offset) throw new Error('The page does not continue the text already shown and was refused.');
       if (!requested) state.doc = {...doc};
       const part = doc.body;
       state.loaded.add(doc.character_offset ?? 0);
       state.parts.push(part); state.expected = (doc.character_offset ?? 0) + [...part].length;
-      state.cursor = data.next_cursor || null;
+      state.cursor = cursor;
       if (!requested) { title.textContent = doc.title || 'Source'; paintMeta(doc); }
     } catch (error) { if (alive() && version === state.version) { state.bodyError = error.message; state.restart = !!error.code && !srcUncertain(error); } }
     finally { if (alive() && version === state.version) { state.loading = false; paintBody(); if (!requested) paintFiling(); } else state.loading = false; }
