@@ -219,15 +219,8 @@ function runSlash(cmd, a, msgs) {
   if (cmd === "clear") clearView(a, msgs);
 }
 
-// Fixed department sections follow the business navigation; no layout selector.
-function agentDepartmentGroups() {
-  const ids = [...new Set(['operations', 'marketing', 'accounting', 'data-science',
-    ...Object.keys(DEPTS), ...state.agents.map(a => departmentId(a.department || 'general'))])];
-  return ids.map(id => ({id, label:dept(id).label,
-    agents:state.agents.filter(a => departmentId(a.department || 'general') === id)
-      .sort((a,b) => (a.display_name || a.name).localeCompare(b.display_name || b.name))
-  })).filter(group => group.agents.length);
-}
+// One flat agent list; departments are not navigation.
+const agentNavOrder = () => [...state.agents].sort((a,b) => (a.display_name || a.name).localeCompare(b.display_name || b.name));
 
 // ------------------------------------------------------------------ context menu
 // A hand-rolled right-click menu, one at a time: fixed div in document.body, clamped to the
@@ -273,10 +266,7 @@ const ICO_PLUS = `<svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="
 
 function paintList() {
   const rows=$('#agentrows'); if(!rows)return;
-  rows.innerHTML=agentDepartmentGroups().map(group =>
-    `<section class="agent-department" aria-label="${esc(group.label)}"><h3>${esc(group.label)}</h3>` +
-    group.agents.map(a => `<button type="button" class="item agent ${a.name===state.agent?'on':''}" data-a="${esc(a.name)}"><span class="nm">${identityAvatar('agent',a.display_name || a.name,a)}<span class="tt">${esc(a.display_name || a.name)}</span></span><span class="agent-presence" data-agent-presence="${esc(a.agent_id || '')}" role="img"></span></button>`).join('') + '</section>'
-  ).join('') || '<p class="empty pad">No agents yet.</p>';
+  rows.innerHTML=agentNavOrder().map(a => `<button type="button" class="item agent ${a.name===state.agent?'on':''}" data-a="${esc(a.name)}"><span class="nm">${identityAvatar('agent',a.display_name || a.name,a)}<span class="tt">${esc(a.display_name || a.name)}</span></span><span class="agent-presence" data-agent-presence="${esc(a.agent_id || '')}" role="img"></span></button>`).join('') || '<p class="empty pad">No agents yet.</p>';
   agentNavPaint(); agentNavRefresh();
   rows.querySelectorAll('[data-a]').forEach(b=>{b.onclick=event=>{if(event.ctrlKey || event.metaKey){event.preventDefault();agentOpenTab(b.dataset.a,state.biz);}else selectAgent(b.dataset.a);};b.oncontextmenu=e=>{e.preventDefault();lookModal(state.agents.find(a=>a.name===b.dataset.a));};});
 }
@@ -303,6 +293,7 @@ const deptBtn = k => `<span class="v">${departmentIcon(k, 14)}<span>${esc(dept(k
 function lookModal(a) {
   const startDept = departmentId(a.department || "general");
   const pick = { department: startDept, icon: a.icon && AICONS[a.icon] ? a.icon : null };
+  const business = (a.role?.id || a.kind) === 'business-agent';
   const igrid = `<div class="igrid" style="display:flex;flex-wrap:wrap;gap:8px">
     <button type="button" class="ibtn" data-icon="" style="width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);background:none;border-radius:var(--r-sm);cursor:pointer"></button>
     ${Object.keys(AICONS).map(k => `<button type="button" class="ibtn" data-icon="${k}" style="width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);background:none;border-radius:var(--r-sm);cursor:pointer"></button>`).join("")}
@@ -310,7 +301,7 @@ function lookModal(a) {
   const body = `<div class="prev" id="lkprev"></div>
     <div class="fl">Department</div><button class="selbtn" id="lkdept">${deptBtn(pick.department)}</button>
     <div class="fl">Icon</div>${igrid}
-    <div class="fmsg">the department fixes the colour; pick an icon or leave it as the department icon</div>`;
+    <div class="fmsg">the department fixes the colour; pick an icon or leave it as the ${business ? "business" : "department"} icon</div>`;
   modal({
     title: "Agent look", body, width: 440,
     onOpen: el => {
@@ -322,7 +313,7 @@ function lookModal(a) {
         db.innerHTML = deptBtn(pick.department);
         ibtns.forEach(b => {
           const k = b.dataset.icon;
-          b.innerHTML = k ? aicon(k, d.color, 18) : departmentIcon(pick.department, 18);
+          b.innerHTML = k ? aicon(k, d.color, 18) : business ? agentGlyph({ ...a, icon: null }, 18) : departmentIcon(pick.department, 18);
           b.style.borderColor = (k || null) === (pick.icon || null) ? "rgba(255,255,255,.34)" : "var(--line)";
           b.style.background = (k || null) === (pick.icon || null) ? "var(--wash)" : "none";
         });
@@ -337,7 +328,7 @@ function lookModal(a) {
         const patch = {};
         if (pick.department !== startDept) patch.department = pick.department;
         const startIcon = a.icon && AICONS[a.icon] ? a.icon : null;
-        if (pick.icon !== startIcon) patch.icon = pick.icon || dept(pick.department).icon;
+        if (pick.icon !== startIcon) patch.icon = pick.icon || (business ? "business" : dept(pick.department).icon);
         if (!Object.keys(patch).length) return close();
         if (await applyMeta(a, patch)) close();
       } },
