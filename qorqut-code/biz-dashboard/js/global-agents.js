@@ -252,7 +252,8 @@ async function renderGlobalAgents(c) {
   };
   const mountAgentShell = agent => {
     disposeChat();
-    pane.innerHTML = `<div class="gchat-diagnostic"><div class="gchat-top"><span class="gchat-name">${esc(agent.display_name || agent.name)}</span><span class="gchat-status">Terminal</span></div><div class="gchat-diagnostic-host"></div></div>`;
+    pane.innerHTML = `<div class="gchat-diagnostic"><div class="gchat-top"><span class="gchat-name">${esc(agent.display_name || agent.name)}</span><span class="gchat-status">Terminal</span></div><div class="gchat-session-switch">${globalChatViewToggle(true)}</div><div class="gchat-diagnostic-host"></div></div>`;
+    pane.querySelector('[data-chat-return]').onclick = () => { if (current() && selected === agent.agent_id) mountAgentSession(agent); };
     const shellStatus = pane.querySelector('.gchat-status');
     mountTerminal(agent.agent_id, pane.querySelector('.gchat-diagnostic-host'), status => { shellStatus.textContent = status === 'live' ? 'Terminal connected' : status === 'ended' ? 'Terminal exited' : 'Terminal disconnected'; }, `/root/terminal/${encodeURIComponent(agent.agent_id)}`);
   };
@@ -278,8 +279,7 @@ async function renderGlobalAgents(c) {
     } : {
       biz: null, agentId: agent.agent_id, workspaceScope: 'global', workspaceRole: agent.role?.id || null,
       businessGrants: agent.scope?.allowed_business_ids || [],
-      initialView: requestedView, open: true, sessionView: 'chat',
-      onSessionViewChange: view => { if (current() && selected === agent.agent_id) (view === 'terminal' ? mountAgentShell : mountAgentSession)(agent); },
+      initialView: requestedView, open: true,
       isCurrent: () => current() && selected === agent.agent_id,
     });
   };

@@ -339,7 +339,6 @@ function agpadSetView(p, view) {
   agpadRememberView(p, view);
   p.bodyHtml = null;
   p.el.innerHTML = tHead({ view: agpadHeadActive(p, view), views: agpadHeadViews(p), bodyId: "agpad-body", taskTools: false });
-  if (typeof globalChatPaneToggle === 'function') globalChatPaneToggle(p);
   if (view === 'status') agentCurrentWorkMount(p);
   tWireHead(p.el, agpadHeadActive(p, from), next => agpadSetView(p, agpadTabView(p, next)));
   if(typeof agentPaneIndicators==='function')agentPaneIndicators(p);

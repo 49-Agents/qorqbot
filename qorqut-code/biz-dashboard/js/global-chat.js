@@ -77,23 +77,6 @@ function globalChatViewToggle(terminal = false) {
   </div>`;
 }
 
-function globalChatPaneToggle(p) {
-  if (p.onSessionViewChange) {
-    const control = document.createElement('div');
-    control.className = 'agpad-session-view';
-    const paint = () => { control.innerHTML = globalChatViewToggle(p.sessionView === 'terminal'); };
-    paint();
-    control.onclick = event => {
-      const button = event.target.closest('button');
-      if (!button || button.disabled) return;
-      p.sessionView = button.hasAttribute('data-terminal') ? 'terminal' : 'chat';
-      p.onSessionViewChange(p.sessionView);
-      paint();
-    };
-    p.el.querySelector('.thead').appendChild(control);
-  }
-}
-
 function mountGlobalChat(pane, agent, options = {}) {
   const agentId = agent.agent_id, base = globalChatBase(agentId), label = agent.display_name || agent.name || 'Agent';
   const messages = new Map();                    // id -> message view
@@ -108,6 +91,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       <span class="gchat-name">${esc(label)}</span>
       <span class="gchat-status" role="status" aria-live="polite"></span>
     </header>
+    ${options.openTerminal ? `<div class="gchat-session-switch">${globalChatViewToggle()}</div>` : ''}
     <div class="gchat-banner" role="status" hidden></div>
     <div class="gchat-scroll" tabindex="-1"><button type="button" class="quiet gchat-older" hidden>Load older messages</button>
       <div class="gchat-log" role="log" aria-live="polite" aria-label="Conversation with ${esc(label)}"></div>

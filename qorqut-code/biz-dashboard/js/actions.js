@@ -1,4 +1,4 @@
-// Completed actions: the owner's capture popover (header button in the Tasks and agent panes) and the
+// Completed actions: the owner's capture popover (floating bottom-right button) and the
 // Actions list inside the Activity view. Both use the shared core's native actions_* operations through
 // the owner's root route. Nothing here infers a category from the page that is open: the owner chooses.
 // Times are San Juan time (js/san-juan-time.js); the server owns the recording instant.
@@ -26,18 +26,26 @@ function acNewDraft() {
 }
 function acDraft() { return ac.draft || (ac.draft = acNewDraft()); }
 
-// ---------------------------------------------------------------- header button
-function acHeadButton() {
-  return `<button type="button" class="ac-capture" data-ac-capture aria-label="Record completed action" title="Record completed action" aria-haspopup="dialog" aria-expanded="false"${acOwner() ? "" : " hidden"}>${AC_ICON}</button>`;
+// ---------------------------------------------------------------- global capture button
+function acMountButton() {
+  let button = document.querySelector("[data-ac-capture]");
+  if (!button) {
+    button = document.createElement("button");
+    button.type = "button"; button.className = "ac-capture";
+    button.setAttribute("data-ac-capture", "");
+    button.setAttribute("aria-label", "Record completed action");
+    button.title = "Record completed action";
+    button.setAttribute("aria-haspopup", "dialog");
+    button.setAttribute("aria-expanded", "false");
+    button.innerHTML = AC_ICON;
+    button.onclick = event => { event.stopPropagation(); ac.open ? acClose() : acOpen(button); };
+    document.body.appendChild(button);
+  }
+  button.hidden = !acOwner();
 }
-function acWireHeads(root = document) {
-  root.querySelectorAll("[data-ac-capture]").forEach(button => {
-    button.hidden = !acOwner();
-    button.onclick = event => { event.stopPropagation(); ac.open && ac.opener === button ? acClose() : acOpen(button); };
-  });
-}
-// Owner identity may land after the first paint.
-if (typeof loadSession === "function") loadSession().then(() => acWireHeads()).catch(() => {});
+// Owner identity may land after the first paint; keep one button across navigation.
+acMountButton();
+if (typeof loadSession === "function") loadSession().then(acMountButton).catch(() => {});
 
 // ---------------------------------------------------------------- saved state and payloads
 function acRealTime(draft) {
@@ -171,7 +179,7 @@ function acPlace() {
   pop.style.left = `${Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8))}px`;
   // The panel grows with its content; measured at its final width, it shifts up to stay in view, and
   // when it is taller than the window it sits at the top margin rather than being capped or scrolled.
-  pop.style.top = `${Math.max(8, Math.min(r.bottom + 6, window.innerHeight - pop.offsetHeight - 8))}px`;
+  pop.style.top = `${Math.max(8, Math.min(r.top - pop.offsetHeight - 6, window.innerHeight - pop.offsetHeight - 8))}px`;
 }
 function acOutside(event) {
   const pop = $("#ac-pop");

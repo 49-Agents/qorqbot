@@ -1,12 +1,12 @@
 /* Completed actions: the owner's capture button and popover, and the Actions list in the Activity view. */
 
-/* The capture button shares the tab row: tabs flex, the button stays at the top right. */
-.thead.ac-head { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 8px; }
-.thead.ac-head > .ttabs { flex: 1 1 auto; min-width: 0; }
-.thead.ac-head > :not(.ttabs):not(.ac-capture):not(.agpad-ping) { flex: 1 0 100%; }
+/* Body-level control stays above panes, menus and overlays. */
 .ac-capture {
-  flex: none; order: 2; width: 44px; height: 44px; padding: 0; border-radius: 12px;
-  background: none; color: var(--fg-2); font-weight: 400;
+  position: fixed; right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom)); z-index: 2147483646;
+  width: 44px; height: 44px; padding: 0; border-radius: 12px;
+  background: var(--elevated); color: var(--fg-2); font-weight: 400;
+  box-shadow: var(--shadow-float);
 }
 .ac-capture[hidden] { display: none; }
 .ac-capture svg { width: 18px; height: 18px; }
@@ -15,7 +15,7 @@
 .ac-capture:focus-visible { outline: 2px solid var(--fg-2); outline-offset: -2px; }
 
 .ac-pop {
-  position: fixed; z-index: 60; display: flex; flex-direction: column; gap: 10px; padding: 14px;
+  position: fixed; z-index: 2147483647; display: flex; flex-direction: column; gap: 10px; padding: 14px;
   background: var(--elevated); border: 1px solid var(--line-2); border-radius: var(--r);
   box-shadow: var(--shadow-float); color: var(--fg); font-size: 13px;
 }

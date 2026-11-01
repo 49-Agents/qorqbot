@@ -140,4 +140,3 @@
 .agpad-ping-next[hidden] { display:none; }
 
 .agsplit .agpad, .agsplit .agpad .thead, .agsplit .agpad .tbody { background: var(--bg); }
-.agpad-session-view { display:flex; justify-content:flex-end; margin-top:8px; }
