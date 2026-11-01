@@ -8,7 +8,7 @@ from collections import namedtuple
 from pathlib import Path
 from uuid import uuid4
 from bazarlyk.agents import roles
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 from bazarlyk.transport import terminal_composer
 
 SHELLS = frozenset({'bash','zsh','sh','fish'})

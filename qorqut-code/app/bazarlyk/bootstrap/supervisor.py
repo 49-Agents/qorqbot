@@ -12,7 +12,7 @@ import time
 import socket
 from concurrent.futures import ThreadPoolExecutor
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 from bazarlyk.installation import installation_config, helper_launcher
 from bazarlyk.release_worker.lifetime import atomic_json, exclusion, pin, identity
 from .client import (BOOTSTRAP_TIMEOUT, REQUEST_TIMEOUT, BootstrapClient,

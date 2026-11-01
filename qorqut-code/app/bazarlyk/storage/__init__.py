@@ -1,9 +1,4 @@
-"""Single-host operational storage. Initialization and migration are explicit."""
+"""Host-owned storage services: shared history, exports, recovery and versioning.
 
-from .database import Database, UnitOfWork
-from .repositories import Repository, TABLES, TableSpec
-from .receipts import ApplyReceipts, IdempotencyReceipts
-from .files import FileApplier, RegisteredFileTarget, file_values
-
-__all__ = ["Database", "UnitOfWork", "Repository", "TABLES", "TableSpec", "ApplyReceipts",
-           "IdempotencyReceipts", "FileApplier", "RegisteredFileTarget", "file_values"]
+The database, repositories, receipts and file application are the Operations engine's
+(``qorqut_operations.storage``); nothing is re-exported from here."""

@@ -1,12 +1,12 @@
 """Small authoritative completion checks; never execute the agent's business work."""
 import hashlib
 import json
-from pathlib import Path
 import uuid
 
-from bazarlyk.contracts import DomainError
-from bazarlyk.domains.common import timestamp, utc_clock
+from qorqut_operations.contracts import DomainError
+from qorqut_operations.application.plans import timestamp, utc_clock
 from bazarlyk.bootstrap.activity_hook import safe_path
+from bazarlyk.composition.locations import agent_workspace_of
 
 RUNTIMES = frozenset({'claude-code', 'codex'})
 REVIEW = 'work-review'
@@ -24,12 +24,11 @@ REMINDER = ('Before reporting verified completion, persist the task\'s actual st
 def native_checkpoint(runtime, agent_id, session_id, registration_id=None):
     """Read only the registered session's protected native observation."""
     with runtime.database.read() as uow:
-        profile = uow.connection.execute('SELECT workspace FROM agent_profiles WHERE agent_id=?',(agent_id,)).fetchone()
+        profile = uow.connection.execute('SELECT p.home_business_id,b.slug FROM agent_profiles p '
+            'LEFT JOIN businesses b ON b.id=p.home_business_id WHERE p.agent_id=?',(agent_id,)).fetchone()
         if not profile:
             return None
-    workspace = Path(profile['workspace'])
-    if not workspace.is_absolute():
-        workspace = runtime.root / workspace
+    workspace = agent_workspace_of(runtime.paths, agent_id, profile['home_business_id'], profile['slug'])
     path = workspace / '.bazarlyk/activity' / (str(uuid.UUID(session_id)) + '.json')
     try:
         if not safe_path(path) or not path.is_file() or path.stat().st_size > 8192:

@@ -11,7 +11,7 @@ import hmac
 import re
 import secrets
 
-from bazarlyk.contracts import DomainError, canonical_bytes
+from qorqut_operations.contracts import DomainError, canonical_bytes
 
 # Keep this deliberately small. Focus supports board lists only: its item view
 # can contain approval evidence or private conversations, which stay complete.

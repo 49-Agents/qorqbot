@@ -5,8 +5,8 @@ import hashlib
 from pathlib import Path
 
 from bazarlyk.catalog.packages import content_hash, files_digest, relative_path
-from bazarlyk.contracts import DomainError
-from bazarlyk.storage import safe_io
+from qorqut_operations.contracts import DomainError
+from qorqut_operations.storage import safe_io
 from .client import path_has_symlink
 
 REPAIRABLE = {"selected_skills_changed", "tool_configuration_changed"}
@@ -17,8 +17,8 @@ def refresh(resolver, principal, config, registration_id, runtime):
 
     The caller holds preparation_lock. Pins, credential, settings and sessions are unchanged.
     """
-    from bazarlyk.application import Application
-    from bazarlyk.sandbox.quiescence import InstallationRecoveryLock
+    from qorqut_operations.application import Application
+    from qorqut_operations.storage.admission import InstallationRecoveryLock
     from .preparation import managed_skill_file, skill_projection
 
     data = config.to_dict()
@@ -28,7 +28,7 @@ def refresh(resolver, principal, config, registration_id, runtime):
         return False
     if not status.get("compatibility", {}).get("supported"):
         return False
-    with InstallationRecoveryLock(resolver.root).writer():
+    with InstallationRecoveryLock(resolver.locks.recovery).writer():
         changed = []
         try:
             with resolver.database.transaction() as uow:

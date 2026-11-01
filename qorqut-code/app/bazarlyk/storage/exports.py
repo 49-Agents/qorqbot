@@ -5,12 +5,16 @@ import hashlib
 from pathlib import Path
 import sqlite3
 
-from bazarlyk.contracts import DomainError, canonical_bytes, canonical_hash
-from .files import RegisteredFileTarget
-from .repositories import TABLES, decode_row
-from .safe_io import atomic_write
+from qorqut_operations.contracts import DomainError, canonical_bytes, canonical_hash
+from qorqut_operations.storage.files import RegisteredFileTarget
+from qorqut_operations.storage.specs import CORE_TABLES
+from bazarlyk.composition.tables import TABLE_SPECS
+from qorqut_operations.storage.repositories import decode_row
+from qorqut_operations.storage.safe_io import atomic_write
+from bazarlyk.composition.locations import business_hq
 
-
+# Every table exists in a target store: the version-gated skips of the migrated v1 databases are gone.
+TABLES = {**CORE_TABLES, **TABLE_SPECS}
 EXPORT_VERSION = 1
 BUSINESS_TABLES = ("relationships", "context_reviews", "context_review_states", "context_entities", "data_tables", "data_rows", "table_versions", "stories", "story_events", "story_drafts", "products", "business_configs", "agent_profiles", "tasks", "task_notes",
     "documents", "action_logs", "action_log_labels", "requests",
@@ -35,7 +39,7 @@ def registered_path(root, value):
         try:
             path = path.relative_to(root)
         except ValueError as exc:
-            raise DomainError("invalid_configuration", "Registered data path is outside the businesses root") from exc
+            raise DomainError("invalid_configuration", "Registered data path is outside the operations root") from exc
     return RegisteredFileTarget(root, path.as_posix()).resolve()
 
 
@@ -49,22 +53,6 @@ def snapshot_connection(path):
 def export_rows(connection, table, business_id=...):
     if table not in (*BUSINESS_TABLES, *GLOBAL_TABLES, "businesses", "principals", "artifacts"):
         raise ValueError("Table is not in the operational export catalog")
-    if table == "dev_tickets" and connection.execute("PRAGMA user_version").fetchone()[0] < 58:
-        return []
-    if table == "dev_ticket_events" and connection.execute("PRAGMA user_version").fetchone()[0] < 60:
-        return []
-    if table in {"ideas", "founder_focus"} and connection.execute("PRAGMA user_version").fetchone()[0] < 38:
-        return []
-    if table in {"data_tables", "data_rows", "table_versions"} and connection.execute("PRAGMA user_version").fetchone()[0] < 12:
-        return []
-    if table == "products" and connection.execute("PRAGMA user_version").fetchone()[0] < 99:
-        return []
-    if table == "action_businesses" and connection.execute("PRAGMA user_version").fetchone()[0] < 101:
-        return []
-    if table.startswith(("learning_issue", "learning_engine_")) and connection.execute("PRAGMA user_version").fetchone()[0] < 103:
-        return []
-    if table in {"relationships", "context_reviews", "context_review_states", "context_entities"} and not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
-        return []
     spec = TABLES[table]
     where, parameters = "", ()
     if business_id is not ...:
@@ -90,9 +78,9 @@ class ExportBundle:
     fingerprint: str
 
 
-def build_exports(snapshot, businesses_root):
+def build_exports(snapshot, paths):
     """Build from one immutable SQLite snapshot; no live multi-transaction reads."""
-    root, files, counts = Path(businesses_root).resolve(strict=True), {}, {}
+    root, files, counts = paths.operations, {}, {}
 
     def add(directory, table, rows, scope):
         filename = f"{directory}/{table}.json"
@@ -112,7 +100,7 @@ def build_exports(snapshot, businesses_root):
         for table in GLOBAL_TABLES:
             add("exports", table, export_rows(connection, table, None if TABLES[table].scope_column else ...), "global")
         for business in businesses:
-            hq = registered_path(root, business["hq_path"])
+            hq = business_hq(paths, business)
             directory = hq.relative_to(root).as_posix() + "/exports"
             add(directory, "businesses", [business], business["id"])
             for table in BUSINESS_TABLES:
@@ -131,11 +119,11 @@ def build_exports(snapshot, businesses_root):
     return ExportBundle(files, counts, fingerprint)
 
 
-def publish_exports(bundle, businesses_root):
+def publish_exports(bundle, paths):
     """Replace only known projection filenames, publishing each scope manifest last."""
     changed = []
     for name in sorted(bundle.files, key=lambda name: (name.endswith("/manifest.json"), name)):
-        path = RegisteredFileTarget(Path(businesses_root), name).resolve()
+        path = RegisteredFileTarget(paths.operations, name).resolve()
         if atomic_write(path, bundle.files[name]):
             changed.append(name)
     return {"fingerprint": bundle.fingerprint, "record_counts": bundle.counts, "changed": changed}

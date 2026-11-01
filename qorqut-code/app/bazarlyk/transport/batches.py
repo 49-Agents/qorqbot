@@ -3,8 +3,8 @@
 import logging
 import time
 
-from bazarlyk.application.batches import NAME
-from bazarlyk.contracts import DomainError, OperationResult, new_id
+from qorqut_operations.application.batches import NAME
+from qorqut_operations.contracts import DomainError, OperationResult, new_id
 
 START_BUDGET_SECONDS = 30
 logger = logging.getLogger(__name__)

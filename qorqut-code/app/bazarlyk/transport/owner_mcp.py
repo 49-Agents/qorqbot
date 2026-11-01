@@ -10,8 +10,8 @@ the catalog, business binding and shared-discussion boundary.
 from dataclasses import replace
 
 from bazarlyk import owner_sessions
-from bazarlyk.application.batches import NAME as BATCH_NAME
-from bazarlyk.contracts import DomainError
+from qorqut_operations.application.batches import NAME as BATCH_NAME
+from qorqut_operations.contracts import DomainError
 
 
 class OwnerSessionCaller:

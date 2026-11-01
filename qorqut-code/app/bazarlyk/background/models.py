@@ -2,7 +2,7 @@
 
 import json
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 from .providers import ProviderError, call_cost, usage_of
 
 

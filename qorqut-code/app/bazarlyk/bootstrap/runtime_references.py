@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import re
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 from bazarlyk.release_worker.lifetime import atomic_json, exclusion, identity, local_instance, reference_lock, process_state
 
 

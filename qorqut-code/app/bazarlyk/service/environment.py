@@ -1,8 +1,8 @@
 """Scoped Settings metadata and separately permissioned private-value reads."""
 
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError, canonical_bytes
-from bazarlyk.domains.common import PAGE, page, schema
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError, canonical_bytes
+from qorqut_operations.application.plans import PAGE, page, schema
 from .local import IDENTITY_KEYS, LocalFiles
 
 

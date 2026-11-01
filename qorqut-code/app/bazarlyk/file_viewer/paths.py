@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import re
 from urllib.parse import quote
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 
 VIEWER_PATH = "/files/view"
 MAX_PATH_CHARS = 4096

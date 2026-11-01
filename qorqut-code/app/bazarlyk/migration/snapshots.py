@@ -12,7 +12,7 @@ import subprocess
 import tarfile
 from typing import Any
 
-from bazarlyk.contracts import canonical_bytes, canonical_hash, freeze, plain
+from qorqut_operations.contracts import canonical_bytes, canonical_hash, freeze, plain
 from .authority import AuthorityError
 
 

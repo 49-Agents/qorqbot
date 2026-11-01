@@ -3,7 +3,7 @@
 A business routine runs `backups.pull` with the names of two business secrets: an HTTPS endpoint
 that returns a gzipped SQLite database, and a bearer token for it. The copy must decompress and
 pass SQLite's quick check before it is kept, privately, under
-`<businesses root>/.bazarlyk/business-backups/<business id>/`, outside Git, the agents' workspace
+`<instance runtime>/business-backups/<business id>/`, outside Git, the agents' workspace
 and the nightly authored backup. The newest `keep` copies are retained.
 """
 from datetime import datetime
@@ -17,8 +17,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from bazarlyk.contracts import DomainError
-from bazarlyk.domains.common import schema
+from qorqut_operations.contracts import DomainError
+from qorqut_operations.application.plans import schema
 from .programs import ProgramResult
 
 ENV = {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,99}$"}
@@ -81,8 +81,8 @@ def verify(path, scratch):
         raise DomainError("invalid_backup", "Downloaded backup is not a readable SQLite database")
 
 
-def private_folder(root, business_id):
-    folder = Path(root)/".bazarlyk"/"business-backups"/business_id
+def private_folder(runtime_directory, business_id):
+    folder = Path(runtime_directory)/"business-backups"/business_id
     for path in (folder.parent.parent, folder.parent, folder):
         if path.is_symlink():
             raise DomainError("invalid_configuration", "Business backups must not pass through a symlink")
@@ -98,7 +98,7 @@ class BackupPullProgram:
         control.check()
         if self.downloader is None:
             raise DomainError("operation_unavailable", "Backup downloader is not configured")
-        folder = private_folder(control.service.businesses_root, control.business_id)
+        folder = private_folder(control.service.paths.runtime, control.business_id)
         job = control.job["id"]
         created = datetime.fromisoformat(control.job["created_at"].replace("Z", "+00:00"))
         name = created.strftime("%Y%m%dT%H%M%SZ") + "-" + job[:8] + SUFFIX

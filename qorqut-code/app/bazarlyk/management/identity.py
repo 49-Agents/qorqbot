@@ -8,7 +8,7 @@ names are delivery details: they never widen or narrow who a principal is.
 
 import json
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 
 
 def installation_owner(uow):

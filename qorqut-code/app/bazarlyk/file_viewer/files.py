@@ -18,7 +18,7 @@ import os
 import stat
 from datetime import datetime, timezone
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 
 CHUNK = 64 * 1024
 _DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC

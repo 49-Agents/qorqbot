@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 from .packages import ID, relative_path, validate_schema
 
 

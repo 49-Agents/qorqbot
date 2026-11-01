@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import sys
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 from .client import auth_headers, load_registration
 
 

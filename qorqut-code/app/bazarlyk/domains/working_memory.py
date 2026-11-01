@@ -5,9 +5,9 @@ import json
 from uuid import NAMESPACE_URL, uuid5
 
 from bazarlyk.agents import roles
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError, Principal, canonical_hash, plain
-from .common import PlanBuilder, apply_records, schema, UUID, ref, timestamp, utc_clock
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError, Principal, canonical_hash, plain
+from qorqut_operations.application.plans import PlanBuilder, apply_records, schema, UUID, ref, timestamp, utc_clock
 from .documents.store import HASH, split_document
 from .memory_sources import MemorySources, SOURCE_TYPES
 from bazarlyk.storage import history
@@ -101,7 +101,7 @@ class WorkingMemory:
         return uow.repository('documents', business_id=business_id).get(memory_id(identity, business_id))
 
     def legacy(self, identity, business_id, uow):
-        from bazarlyk.storage.repositories import decode_row
+        from qorqut_operations.storage.repositories import decode_row
         rows = uow.connection.execute("SELECT * FROM documents WHERE kind='plan' AND owning_agent_id=? AND business_id IS ? LIMIT 2",
                                       (identity, business_id)).fetchall()
         if len(rows) > 1:
@@ -212,7 +212,7 @@ class WorkingMemory:
                     {'metadata_json': {**plain(legacy['metadata_json']), 'working_memory_id': memory_id(identity, ctx.business_id)}},
                     namespace=namespace)
                 resource = self.store.file_ref(legacy['id'], legacy['path'], ctx.business_id, namespace=namespace)
-                from bazarlyk.contracts import ExpectedTarget
+                from qorqut_operations.contracts import ExpectedTarget
                 builder.targets[resource] = ExpectedTarget(resource, content_hash=digest, exists=True)
         refs = args['sources']
         if legacy_snapshot and any(source['type'] == 'document' and source['id'] == legacy_snapshot['id'] for source in refs):
@@ -356,7 +356,7 @@ class WorkingMemory:
             result['notices'].append(f'{len(omitted)} additional attention items omitted; read source tools for full queues.')
         if ctx.business_id is None:
             profile, _ = self.resolver.profile(Principal(identity, 'agent'), connection=uow.connection)
-            from bazarlyk.business_lifecycle import active_business_ids
+            from qorqut_operations.business_lifecycle import active_business_ids
             allowed = sorted(profile.scope.businesses & active_business_ids(uow.connection))
             after = args.get('business_after', '')
             selected = [i for i in allowed if i > after][:21]

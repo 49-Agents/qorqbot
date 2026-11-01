@@ -97,7 +97,7 @@ def snapshot(hook: dict, registration_path: Path, *, runtime="claude-code") -> b
         bool(re.fullmatch(r"rollout-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-" + re.escape(session_id) + r"\.jsonl", source.name)))
     if not source.is_absolute() or ".." in source.parts or not filename_matches:
         raise ValueError("Transcript filename does not match its session")
-    destination = workspace / "sessions" / (("codex-" if runtime == "codex" else "") + session_id + ".jsonl")
+    destination = workspace / "transcripts" / (("codex-" if runtime == "codex" else "") + session_id + ".jsonl")
     if path_has_symlink(source) or path_has_symlink(destination):
         raise ValueError("Transcript snapshots cannot follow symlinks")
     descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)

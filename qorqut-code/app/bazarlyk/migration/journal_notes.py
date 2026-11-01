@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 
-from bazarlyk.contracts import DomainError, InvocationContext, canonical_hash, plain
+from qorqut_operations.contracts import DomainError, InvocationContext, canonical_hash, plain
 from bazarlyk.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from bazarlyk.service.runtime import build_runtime
 from bazarlyk.transport.auth import Authentication

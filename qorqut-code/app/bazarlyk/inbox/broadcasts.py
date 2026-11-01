@@ -4,9 +4,9 @@ from datetime import datetime, timedelta, timezone
 import json
 from threading import Event, Thread
 
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError, new_id, plain, utc_now
-from bazarlyk.domains.common import PlanBuilder, apply_records, page, require_revision, schema
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError, new_id, plain, utc_now
+from qorqut_operations.application.plans import PlanBuilder, apply_records, page, require_revision, schema
 from bazarlyk.background.schedule import next_slot, zone, parse_cron, RoutineError
 from bazarlyk.agents.contact import owner_directed_target
 from bazarlyk.agents import roles

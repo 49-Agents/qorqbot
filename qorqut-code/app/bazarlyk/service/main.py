@@ -9,9 +9,7 @@ from pathlib import Path
 import sys
 
 from bazarlyk.background.providers import BackgroundModelClient, ProviderConfig
-from bazarlyk.contracts import DomainError
-from bazarlyk.migration.authority import find_authority, read_authority
-from bazarlyk.storage import Database
+from qorqut_operations.contracts import DomainError
 from bazarlyk.transport.auth import Authentication
 from bazarlyk.transport.compatibility import DashboardCompatibility
 from bazarlyk.transport.terminals import TerminalService
@@ -65,7 +63,7 @@ def load_terminal_broker(paths):
     return module
 
 
-def assemble(businesses_root, workspace, *, paths, origins, endpoint, bootstrap_token="", shell="/bin/bash",
+def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="/bin/bash",
              model_client_factory=None, broker=None, database=None, signing_key=None, reddit_adapter=None,
              nightly_maintenance=_DEFAULT_MAINTENANCE, capture_transcripts=None, terminal_workspace=None,
              execution_provider=None, sandbox_factory=None, recovery_config=None, github_app_config=None,
@@ -79,7 +77,7 @@ def assemble(businesses_root, workspace, *, paths, origins, endpoint, bootstrap_
 
     capture_transcripts = transcript_capture_configuration(capture_transcripts)
     programs = ProgramRegistry()
-    runtime = build_runtime(businesses_root, workspace, paths=paths, database=database, job_programs=programs)
+    runtime = build_runtime(workspace, paths=paths, database=database, job_programs=programs)
     if integrations is not None:
         # Post-commit Outreach registration of new businesses; started with the runtime.
         from bazarlyk.bootstrap.preparation import OUTREACH_TOKEN_ROOT
@@ -89,11 +87,11 @@ def assemble(businesses_root, workspace, *, paths, origins, endpoint, bootstrap_
     if github_app_config is not None:
         from bazarlyk.sandbox.github_app import GitHubAppConfig, GitHubAppTokenProvider
         from bazarlyk.sandbox.provider_tokens import BusinessProviderTokens
-        selected = GitHubAppConfig.read(github_app_config, businesses_root=runtime.root)
+        selected = GitHubAppConfig.read(github_app_config, operations_root=paths.operations)
         runtime.provider_tokens = BusinessProviderTokens(runtime, GitHubAppTokenProvider(selected))
     if nightly_maintenance is _DEFAULT_MAINTENANCE:
         from bazarlyk.storage.versioning import NightlyMaintenance
-        nightly_maintenance = NightlyMaintenance(runtime.database, runtime.root, git_enabled=True)
+        nightly_maintenance = NightlyMaintenance(runtime.database, runtime.paths, locks=runtime.locks, git_enabled=True)
     local = LocalFiles(runtime)
     from bazarlyk.domains.contextbase.service import SETTING_KEYS, ContextBaseService
     base_defaults = {key: os.environ[key] for key in (*SETTING_KEYS, "OPENROUTER_API_KEY", "DASHSCOPE_API_KEY", "QWEN_API_KEY",
@@ -129,7 +127,7 @@ def assemble(businesses_root, workspace, *, paths, origins, endpoint, bootstrap_
     # own bounded service thread and must drain before container capture.
     runtime.recovery_quiescer.browser_writers = BoundedWriter(runtime.previews, "private_previews")
     host_terminals = HostTerminalWriters(getattr(broker, "TMUX", None) or "/usr/bin/tmux")
-    host_browsers = LegacyBrowserWriters(runtime.database, runtime.root,
+    host_browsers = LegacyBrowserWriters(runtime.database, runtime.paths,
         owns_sandbox_lock=lambda identity: runtime.sandbox.owns_browser_lock(identity))
     host_writers = LegacyHostWriters(host_terminals, host_browsers)
     runtime.recovery_quiescer.host_writers = host_writers
@@ -143,7 +141,7 @@ def assemble(businesses_root, workspace, *, paths, origins, endpoint, bootstrap_
                                            session_prefix=session_prefix(business["slug"]))
         runtime.sandbox.lifecycle.set_adoption_inventory(adoption_inventory)
     if execution_provider is None:
-        execution_provider = SandboxTerminalProvider(runtime.database, runtime.root, runtime.sandbox.docker, broker,
+        execution_provider = SandboxTerminalProvider(runtime.database, runtime.paths, runtime.sandbox.docker, broker,
             local_files=local)
     terminals = TerminalService(runtime, broker, service_url=endpoint, shell=shell,
         environment=local.environment, global_environment=local.environment,
@@ -173,21 +171,22 @@ def assemble(businesses_root, workspace, *, paths, origins, endpoint, bootstrap_
         stripe_revenue=StripeRevenueProgram(StripeRevenueKey(workspace, runtime.root), local), learning_engine=learning_engine)
     if recovery_config is not None:
         from bazarlyk.sandbox.recovery_admin import RecoveryAdminConfig, RecoveryAdministration
-        selected = RecoveryAdminConfig.load(recovery_config, businesses_root=runtime.root)
+        selected = RecoveryAdminConfig.load(recovery_config, paths=paths)
         runtime.recovery_admin = RecoveryAdministration(runtime.database, selected,
             lambda: runtime.recovery_quiescence(timeout=60), background_worker=runtime.background)
     runtime.domains.archive.reset_terminals = terminals.reset_business_for_archive
     runtime.domains.archive.prepare_agent = terminals.prepare_restored_agent
     compatibility = DashboardCompatibility(runtime, terminals=terminals, background=runtime.background, local_files=local)
-    authentication = Authentication(runtime.database, runtime.root, bootstrap_token=bootstrap_token, signing_key=signing_key)
+    authentication = Authentication(runtime.database, runtime.paths, bootstrap_token=bootstrap_token, signing_key=signing_key)
     from bazarlyk.installation import component
+    # Trusted registration is complete: nothing can declare or install an operation once traffic is served.
+    runtime.freeze_registry()
     return create_app(runtime, dashboard_root=component(paths, 'dashboard'), authentication=authentication, origins=origins,
         compatibility=compatibility, terminals=terminals, integrations=integrations)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Shared Qorqut dashboard and HTTP MCP service")
-    parser.add_argument("--root", type=Path, default=os.environ.get("BIZ_ROOT"))
     parser.add_argument("--workspace", type=Path, default=None)
     add_instance_arguments(parser)
     parser.add_argument("--terminal-workspace", type=Path, default=os.environ.get("QORQUT_TERMINAL_WORKSPACE"))
@@ -206,22 +205,13 @@ def main(argv=None):
                         help="Private external host configuration for business GitHub access (or QORQUT_GITHUB_APP_CONFIG)")
     args = parser.parse_args(argv)
     try:
-        if args.root is None:
-            raise DomainError("invalid_configuration", "Set one explicit businesses root with --root or BIZ_ROOT")
         if args.workspace is None:
             raise DomainError("invalid_configuration", "Set the explicit engine workspace with --workspace")
         paths = instance_paths_from_arguments(args, required=("app", "dashboard", "template"))
-        root = Path(args.root).expanduser().resolve()
-        marker = find_authority(root)
-        if marker is None or marker.parent.parent.resolve() != root:
-            raise DomainError("authority_not_ready", "Run the reviewed installation migration before starting the shared service")
-        authority = read_authority(marker)
-        if authority["state"] != "database":
-            raise DomainError("authority_not_ready", "Storage authority must be database before the shared service starts")
-        path = root / authority["database_path"]
-        if not path.is_file():
-            raise DomainError("authority_invalid", "Registered operational database is missing")
-        database = Database(path).open_existing()
+        # The one operational database of the instance; the engine validates its stored target identity and exact schema.
+        from bazarlyk.composition.assembly import host_assembly, open_database
+        from bazarlyk.service.changes import ChangeFeed
+        database = open_database(paths, host_assembly(ChangeFeed()))
         if args.biz:
             with database.read() as uow:
                 registered = {str(Path(row["workspace"]).resolve()) for row in uow.repository("businesses").list()}
@@ -233,7 +223,7 @@ def main(argv=None):
         origins = args.origin + [value for value in os.environ.get("BIZ_SERVICE_ORIGINS", "").split(",") if value]
         origins += [f"http://{local_host}:{args.port}", f"http://localhost:{args.port}"]
         endpoint = args.service_url or f"http://127.0.0.1:{args.port}/mcp"
-        app = assemble(root, args.workspace, paths=paths, origins=origins, endpoint=endpoint, bootstrap_token=args.token,
+        app = assemble(args.workspace, paths=paths, origins=origins, endpoint=endpoint, bootstrap_token=args.token,
             shell=os.environ.get("SHELL", "/bin/bash"), database=database, terminal_workspace=args.terminal_workspace,
             recovery_config=args.recovery_config, github_app_config=args.github_app_config)
         if args.prepare_agent:
@@ -243,7 +233,7 @@ def main(argv=None):
             from bazarlyk.transport.auth import AuthenticatedPrincipal
             context, business = app.state.http_api.context(AuthenticatedPrincipal(actor), slug, owner=True)
             profile, _ = app.state.http_api.terminals.agent(context, selector)
-            from bazarlyk.contracts import Principal
+            from qorqut_operations.contracts import Principal
             terminals = app.state.http_api.terminals
             execution = terminals.execution(business)
             versions = execution.version_provider()

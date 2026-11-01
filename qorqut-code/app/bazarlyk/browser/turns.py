@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import re
 
-from bazarlyk.contracts import DomainError, new_id, utc_now
+from qorqut_operations.contracts import DomainError, new_id, utc_now
 
 
 _BROWSER_KEY = re.compile(r"^[A-Za-z0-9:_-]{1,200}$")
@@ -71,10 +71,12 @@ def _decoded_object(value, name):
 class BrowserTurnQueue:
     """Storage-backed browser ownership with bounded leases and promotion."""
 
-    def __init__(self, *, clock=utc_now, lease_seconds=300):
+    def __init__(self, *, clock=utc_now, lease_seconds=300, delegation=None):
         if type(lease_seconds) is not int or not 30 <= lease_seconds <= 900:
             raise ValueError("lease_seconds must be between 30 and 900")
         self.clock, self.lease_seconds = clock, lease_seconds
+        # The assembly's OperationalDelegation store; a default one serves a queue built without it.
+        self.delegation = delegation
 
     @staticmethod
     def _key(browser_key):
@@ -159,7 +161,7 @@ class BrowserTurnQueue:
                 if assignment["state"] == "waiting" and wake.get("kind") == "browser_turn" \
                         and wake.get("turn_id") == candidate["id"]:
                     from bazarlyk.agents.operational_delegation import OperationalDelegation
-                    delegation = getattr(uow.database, "delegation", None) or OperationalDelegation()
+                    delegation = self.delegation or OperationalDelegation()
                     delegation._wake_browser_turn(uow, assignment, now_text, turn_id=candidate["id"])
                     return None
                 if reserved:
@@ -250,7 +252,7 @@ class BrowserTurnQueue:
         if assignment is None or assignment["state"] != "running" or assignment["execution_generation"] != generation:
             raise DomainError("stale_worker", "Browser turn assignment is no longer current")
         from bazarlyk.agents.operational_delegation import OperationalDelegation
-        delegation = getattr(uow.database, "delegation", None) or OperationalDelegation()
+        delegation = self.delegation or OperationalDelegation()
         saved_checkpoint = _decoded_object(assignment["checkpoint_json"], "assignment.checkpoint_json")
         updated = delegation.checkpoint(uow, row["assignment_id"], actor_principal_id=parent_principal_id,
             generation=generation, lease_id=assignment["lease_id"], expected_revision=assignment["revision"],

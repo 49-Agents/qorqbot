@@ -6,7 +6,7 @@ an exception rolls back the source write and its notifications together.
 import json
 
 from bazarlyk.agents.roles import BUSINESS_AGENT_ROLE
-from bazarlyk.contracts import utc_now
+from qorqut_operations.contracts import utc_now
 
 ITEM_TYPES = {'stories': 'story', 'tasks': 'task', 'signoffs': 'signoff',
               'email_conversations': 'material', 'documents': 'material',

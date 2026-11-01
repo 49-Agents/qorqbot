@@ -20,7 +20,7 @@ from .tables.uploads import DataUploadOperations
 from .stories import StoryOperations
 from .products import ProductOperations
 from .relationships import RelationshipOperations
-from .common import utc_clock
+from qorqut_operations.application.plans import utc_clock
 from .ideas import IdeaOperations
 from .personal_context import PersonalContextOperations
 from .subscriptions import SubscriptionOperations
@@ -64,13 +64,13 @@ class BusinessDomains:
         return self.documents.store.resolve_file_target(resource)
 
 
-def register_business_domains(registry, application, businesses_root, *, catalog, agent_resolver, clock=utc_clock, job_programs=None):
+def register_business_domains(registry, application, paths, *, catalog, agent_resolver, clock=utc_clock, job_programs=None):
     tasks = TaskOperations(clock=clock)
-    tables = TableOperations(application.database, businesses_root, clock=clock, job_programs=job_programs)
+    tables = TableOperations(application.database, paths, clock=clock, job_programs=job_programs)
     ledger = LedgerOperations(tables=tables, clock=clock, job_programs=job_programs)
     metrics = MetricOperations(tables=tables, clock=clock, job_programs=job_programs)
     activity = ActivityOperations(ledger=ledger, clock=clock)
-    documents = DocumentOperations(application.database, businesses_root, tasks=tasks, activity=activity, clock=clock, job_programs=job_programs)
+    documents = DocumentOperations(application.database, paths, tasks=tasks, activity=activity, clock=clock, job_programs=job_programs)
     assets = AssetOperations(documents.store, clock=clock)
     data_uploads = DataUploadOperations(documents.store, clock=clock)
     email = EmailOperations(application=application, resolver=agent_resolver, documents=documents, clock=clock, programs=job_programs)
@@ -91,7 +91,7 @@ def register_business_domains(registry, application, businesses_root, *, catalog
     context_base = ContextBaseOperations(documents, job_programs=job_programs).register(registry)
     documents.context_base = context_base
     DocumentHistory(documents).register(registry)
-    FileLinks(documents, businesses_root).register(registry)
+    FileLinks(documents, paths).register(registry)
     from .documents.journal import JournalOperations
     documents.journal = JournalOperations(documents).register(registry)
     assets.register(registry)
@@ -104,7 +104,7 @@ def register_business_domains(registry, application, businesses_root, *, catalog
                            resolver=agent_resolver).register(registry)
     stories = StoryOperations(documents=documents, tasks=tasks, clock=clock)
     stories.register(registry, application)
-    OwnerActions(businesses_root, stories, clock=clock).register(registry)
+    OwnerActions(paths, stories, clock=clock).register(registry)
     tasks.stories = stories
     documents.stories = stories
     assets.stories = stories

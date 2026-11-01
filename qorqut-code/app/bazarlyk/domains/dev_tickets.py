@@ -3,9 +3,9 @@
 import json
 
 from bazarlyk.agents import roles
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError, new_id
-from bazarlyk.domains.common import PlanBuilder, apply_records, require_revision, schema, timestamp, utc_clock
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError, new_id
+from qorqut_operations.application.plans import PlanBuilder, apply_records, require_revision, schema, timestamp, utc_clock
 
 TITLE = {"type": "string", "minLength": 1, "maxLength": 200, "pattern": r"\S"}
 DETAILS = {"type": "string", "maxLength": 12000}

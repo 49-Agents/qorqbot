@@ -12,9 +12,9 @@ from pathlib import Path
 import re
 import sqlite3
 
-from bazarlyk.contracts import DomainError, canonical_hash, utc_now
-from .database import Database
-from .repositories import decode_row
+from qorqut_operations.contracts import DomainError, canonical_hash, utc_now
+from qorqut_operations.storage.database import Database
+from qorqut_operations.storage.repositories import decode_row
 
 
 def _plan(connection):

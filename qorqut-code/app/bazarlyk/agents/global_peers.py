@@ -1,6 +1,6 @@
 """Explicit global peer authority, independent of private account-mail authority."""
 import json
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 
 CAPABILITY = "coordinate_businesses"
 PEER_ROLES = frozenset({"ordubashy", "global-marketing"})

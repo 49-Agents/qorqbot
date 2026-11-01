@@ -105,7 +105,7 @@ def collect(repo):
                 descriptors = {}
                 for name in ("focus_get", "agents_activity_list", "agent_config_get"):
                     descriptor = service.runtime.registry.get(name)
-                    from bazarlyk.contracts import plain
+                    from qorqut_operations.contracts import plain
                     descriptors[name] = {"name": name, "input_schema": plain(descriptor.input_schema),
                         "transport_only": descriptor.transport_only, "effect_kind": descriptor.effect_kind,
                         "alias_bindings": plain(descriptor.alias_bindings), "description": descriptor.description}

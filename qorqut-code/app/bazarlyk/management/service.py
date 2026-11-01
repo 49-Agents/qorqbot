@@ -2,12 +2,12 @@
 import json
 
 from bazarlyk.domains.conversations import SUMMARY, normalize_summary
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError, new_id, plain
-from bazarlyk.domains.common import PlanBuilder, schema, timestamp, utc_clock, ref, require_revision
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError, new_id, plain
+from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock, ref, require_revision
 from bazarlyk.domains.tasks.operations import task_namespace
 from .identity import installation_owner, ordubashy_profile, require_coordinator
-from bazarlyk.storage.repositories import decode_row
+from qorqut_operations.storage.repositories import decode_row
 from dataclasses import replace
 from datetime import datetime
 import uuid

@@ -1,6 +1,6 @@
 """Permission-checked, bounded observation tokens; never a content/search index."""
-from bazarlyk.contracts import DomainError, canonical_hash
-from .common import timestamp, utc_clock
+from qorqut_operations.contracts import DomainError, canonical_hash
+from qorqut_operations.application.plans import timestamp, utc_clock
 
 MAX_CHILDREN = 200
 SOURCE_TYPES = ("task", "story", "document", "signoff", "email")

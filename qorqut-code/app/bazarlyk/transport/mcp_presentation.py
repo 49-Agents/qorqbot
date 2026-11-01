@@ -11,7 +11,7 @@ import re
 
 import yaml
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 
 
 TASK_WRITES = frozenset({"tasks_create", "tasks_update", "tasks_assign", "tasks_complete", "tasks_comment"})

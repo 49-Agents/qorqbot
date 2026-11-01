@@ -7,10 +7,10 @@ import json
 from pathlib import Path
 
 from bazarlyk.agents.roles import RETIRED_ROLE_IDS
-from bazarlyk.application.registry import OperationDescriptor
-from bazarlyk.contracts import (ChangePreview, ChangeSet, DomainError, ExpectedTarget, PreparedChange,
-    PreviewResource, ResourceRef, TextPreview, canonical_bytes)
-from bazarlyk.storage.files import RegisteredFileTarget, file_hash, file_values
+from qorqut_operations.application.registry import OperationDescriptor
+from qorqut_operations.contracts import (ChangePreview, ChangeSet, DomainError, ExpectedTarget, PreparedChange,
+                                         PreviewResource, ResourceRef, TextPreview, canonical_bytes)
+from qorqut_operations.storage.files import RegisteredFileTarget, file_hash, file_values
 from .packages import Catalog, load_package, relative_path
 
 
@@ -52,7 +52,7 @@ class CatalogOperations:
             validate_schema(version, VERSION, "artifact version")
             if not isinstance(digest, str) or len(digest) != 71 or not digest.startswith("sha256:") or any(char not in "0123456789abcdef" for char in digest[7:]):
                 raise ValueError
-            relative = f".bazarlyk/artifacts/{kind}s/{identity}/{version}/{digest[7:]}/{relative_path(path)}"
+            relative = f"artifacts/{kind}s/{identity}/{version}/{digest[7:]}/{relative_path(path)}"
         except (ValueError, TypeError) as exc:
             raise DomainError("invalid_plan", "Invalid artifact file reference") from exc
         return RegisteredFileTarget(self.catalog.root, relative)
@@ -95,7 +95,7 @@ class CatalogOperations:
                 previews.append(TextPreview(preview_resource, before_text, after_text,
                     "".join(difflib.unified_diff(before_text.splitlines(keepends=True), after_text.splitlines(keepends=True), fromfile=path, tofile=path))))
             except UnicodeDecodeError:
-                from bazarlyk.contracts import FieldChange, StructuredPreview
+                from qorqut_operations.contracts import FieldChange, StructuredPreview
                 previews.append(StructuredPreview(preview_resource, (FieldChange("content_hash", before, after["after_hash"]), FieldChange("bytes", 0 if before is None else target.stat().st_size, len(content)))))
         values = {"kind": kind, "artifact_id": package.id, "version": package.version, "digest": package.digest,
                   "manifest_schema_version": 1, "stored_path": str(self.catalog.artifact_path(package)),

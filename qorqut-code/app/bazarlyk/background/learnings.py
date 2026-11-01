@@ -5,10 +5,11 @@ import hashlib
 import json
 from uuid import UUID
 
-from bazarlyk.contracts import DomainError, new_id, utc_now
+from qorqut_operations.contracts import DomainError, new_id, utc_now
 from bazarlyk.domains.learnings import analysis, sources, verification
 from bazarlyk.domains.learnings.issues import enrolled_ids
-from bazarlyk.domains.common import rows
+from qorqut_operations.application.plans import rows
+from bazarlyk.composition.locations import business_hq
 from .programs import ProgramResult
 from .providers import ProviderError
 
@@ -19,13 +20,12 @@ MAX_PASS_BYTES = 64 * 1024 * 1024    # The most saved-session content one pass o
 class BusinessBrief:
     row: dict
     profiles: list
+    root: str = ""  # the business's registered HQ, which transcript-relative paths are shown against
 
     @property
     def id(self): return self.row["id"]
     @property
     def slug(self): return self.row["slug"]
-    @property
-    def root(self): return self.row["hq_path"]
 
     def header(self):
         config = self.row["config_json"]
@@ -114,9 +114,10 @@ class LearningProgram:
 
     def run(self, control, args):
         with control.service.database.read() as uow:
-            biz = BusinessBrief(uow.repository("businesses").get(control.business_id, required=True) if control.business_id else
-                {"id": None, "slug": "Global", "hq_path": "", "name": "Global", "stage": "", "config_json": {}},
-                rows(uow, "agent_profiles", control.business_id))
+            business = (uow.repository("businesses").get(control.business_id, required=True) if control.business_id else
+                {"id": None, "slug": "Global", "name": "Global", "stage": "", "config_json": {}})
+            biz = BusinessBrief(business, rows(uow, "agent_profiles", control.business_id),
+                                str(business_hq(control.service.paths, business)) if control.business_id else "")
             scan = {row['session_id']: row for row in rows(uow, 'learning_scan_state', control.business_id)}
             seen = {key: row['transcript_hash'] for key, row in scan.items()
                     if row['state_json'].get('status') != 'retry'

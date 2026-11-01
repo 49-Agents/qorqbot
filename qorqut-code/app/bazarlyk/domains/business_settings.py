@@ -3,7 +3,7 @@
 from copy import deepcopy
 
 from bazarlyk.agents.engineering import has_ordubashy_settings_authority
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 
 
 def require_settings_authority(ctx, uow):

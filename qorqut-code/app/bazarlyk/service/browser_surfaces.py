@@ -1,20 +1,19 @@
 """Operator-controlled owner viewer bindings for dedicated browser desktops.
 
-`<businesses-root>/.bazarlyk/browser-surfaces.json` is deployment configuration,
+`<operations>/.runtime/browser-surfaces.json` is deployment configuration,
 like each workspace's browser.json. It only selects which exact viewer URL the
 owner's agent pane shows. It grants no automation rights, and it never carries
 cookies, profile data, passwords, CDP endpoints or executable hooks.
 """
 
 import json
-from pathlib import Path
 import re
 import uuid
 
-from bazarlyk.contracts import DomainError
-from bazarlyk.storage import safe_io
+from qorqut_operations.contracts import DomainError
+from qorqut_operations.storage import safe_io
 
-RELATIVE_PATH = ".bazarlyk/browser-surfaces.json"
+FILENAME = "browser-surfaces.json"
 SURFACE_ID = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 KINDS = frozenset({"browser", "desktop"})
 MAX_BYTES = 65536
@@ -95,10 +94,14 @@ def parse(value):
     return {"surfaces": parsed, "agents": bindings}
 
 
-def read(root):
+def surfaces_path(paths):
+    return paths.runtime / FILENAME
+
+
+def read(paths):
     """The parsed registry, or None when the operator has not configured one."""
     try:
-        content = safe_io.read_bytes(Path(root) / RELATIVE_PATH, limit=MAX_BYTES, private=True)
+        content = safe_io.read_bytes(surfaces_path(paths), limit=MAX_BYTES, private=True)
     except FileNotFoundError:
         return None
     except DomainError as error:

@@ -8,7 +8,7 @@ import json
 import os
 import re
 from datetime import datetime, timezone
-from bazarlyk.contracts import new_id
+from qorqut_operations.contracts import new_id
 
 class LearnError(Exception):
     pass

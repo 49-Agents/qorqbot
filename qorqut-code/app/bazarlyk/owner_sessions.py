@@ -14,7 +14,7 @@ import hashlib
 import json
 import secrets
 
-from bazarlyk.contracts import DomainError, new_id, utc_now
+from qorqut_operations.contracts import DomainError, new_id, utc_now
 
 PURPOSE = "owner_session"
 METADATA_VERSION = 1
@@ -157,7 +157,7 @@ def issue_credential(database, *, business_id, label, endpoint=None, roots=None)
     ``roots`` record that machine's prepared service URL and local code-root
     mapping as installation metadata; they are diagnostics, never authority.
     """
-    from bazarlyk.application.engine import Application
+    from qorqut_operations.application.engine import Application
 
     if not isinstance(label, str) or not label.strip() or len(label) > 200 or "\n" in label:
         raise DomainError("validation_error", "A short machine label is required")

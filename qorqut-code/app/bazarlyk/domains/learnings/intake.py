@@ -2,7 +2,7 @@
 
 from xml.sax.saxutils import escape, quoteattr
 
-from bazarlyk.contracts import DomainError, canonical_hash
+from qorqut_operations.contracts import DomainError, canonical_hash
 
 
 def snapshot(item):

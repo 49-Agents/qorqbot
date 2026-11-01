@@ -6,7 +6,7 @@ has a default, consults the environment or working directory, or touches the fil
 
 from pathlib import Path
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 from bazarlyk.instance_paths import COMPONENTS, InstancePathError, InstancePaths
 
 

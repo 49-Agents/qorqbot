@@ -8,7 +8,7 @@ from uuid import UUID
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from bazarlyk.contracts import ArtifactRef, DomainError, freeze, plain
+from qorqut_operations.contracts import ArtifactRef, DomainError, freeze, plain
 from bazarlyk.catalog.packages import ID, VERSION, validate_policy
 from .roles import RETIRED_ROLE_IDS
 

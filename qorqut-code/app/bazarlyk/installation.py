@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 from bazarlyk.instance_paths import InstancePaths
 
 

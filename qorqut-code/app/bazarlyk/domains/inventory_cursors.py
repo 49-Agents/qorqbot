@@ -8,7 +8,7 @@ import secrets
 import threading
 import time
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 
 
 _HANDLE = re.compile(r"^i[A-Za-z0-9_-]{15}$")

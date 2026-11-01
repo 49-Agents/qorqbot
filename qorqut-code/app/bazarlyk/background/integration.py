@@ -1,9 +1,9 @@
 """Fixed program registration and the shared service lifecycle assembly."""
 
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError
 from bazarlyk.sandbox.quiescence import BoundedWriter
-from bazarlyk.domains.common import IDENTITY, UUID, schema
+from qorqut_operations.application.plans import IDENTITY, UUID, schema
 from bazarlyk.domains.learnings.operations import EXTRACT_ARGUMENTS, LearningOperations
 from bazarlyk.domains.routines.operations import RoutineOperations
 from bazarlyk.reports.service import DailyReportOperations, DailyReportProgram
@@ -74,7 +74,7 @@ def register_programs(programs, *, models=None, context_reader=None, transcript_
     add(engine.PROGRAM, engine.ARGUMENTS, engine.EngineProgram(learning, learning_engine).run if learning_engine is not None else None,
         (engine.OPERATION,), engine.RESOURCES, timeout_seconds=7200, scope_kinds=("business", "global"),
         global_capabilities=("read_global_context",), unavailable_reason=None if learning_engine is not None else engine.UNAVAILABLE)
-    from bazarlyk.domains.common import DATE
+    from qorqut_operations.application.plans import DATE
     add("metrics.sync", schema({"source_id": IDENTITY, "date": DATE}, ("source_id",)), MetricCollectionProgram(metric_collector).run,
         ("metrics_collection_apply",), ("business_configs", "data_tables", "data_rows", "table_versions", "jobs"), timeout_seconds=120)
     from .backups import ARGUMENTS as BACKUP_ARGUMENTS, BackupPullProgram
@@ -178,7 +178,7 @@ def register_operations(runtime, programs, authority=None, *, clock=None):
 
     from .owner_email import register_record
     register_record(runtime.registry)
-    DailyReportOperations(programs, root=lambda: runtime.root).register(runtime.registry)
+    DailyReportOperations(programs, paths=lambda: runtime.paths).register(runtime.registry)
     runtime.registry.register(OperationDescriptor("jobs_get", schema({"job_id": UUID, "scope": {"enum": ["business", "global"]}}, ["job_id"]),
         effect_kind="read", supports_signoff=False, scope_kinds={"business", "global"},
         resolve_namespace=lambda c,a: "global" if a.get("scope") == "global" else "business:" + c.business_id,
@@ -202,7 +202,7 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
         maintenance=maintenance, email=runtime.domains.email, tables=runtime.domains.tables, metric_collector=metric_collector,
         context_base=lambda: getattr(runtime, "context_base", None), documents=runtime.domains.documents,
         backup_downloader=backup_downloader, stripe_revenue=stripe_revenue,
-        daily_reports=daily_reports or DailyReportProgram(root=lambda: runtime.root, on_completed=lambda row: _report_completed(runtime, row)),
+        daily_reports=daily_reports or DailyReportProgram(paths=lambda: runtime.paths, on_completed=lambda row: _report_completed(runtime, row)),
         learning_engine=learning_engine)
     authority = BackgroundAuthority(runtime.database, programs)
     if getattr(runtime.domains, "ideas", None):
@@ -210,8 +210,8 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
     runtime.policy.worker_profiles = authority.worker_profiles
     runtime.policy.job_consequence_verifier = authority.verify_consequence
     runtime.policy.job_plan_validator = authority.validate_plan
-    background = BackgroundService(runtime.application, programs, authority, clock=clock)
-    background.businesses_root = runtime.root
+    background = BackgroundService(runtime.application, programs, authority, locks=runtime.locks, clock=clock)
+    background.paths = runtime.paths
     background.routines, background.learnings = register_operations(runtime, programs, authority, clock=clock)
     background.scheduler = RoutineScheduler(background.routines)
 

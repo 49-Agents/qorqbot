@@ -13,17 +13,19 @@ import tempfile
 from uuid import UUID
 
 from bazarlyk.catalog.packages import content_hash, files_digest
-from bazarlyk.contracts import DomainError, canonical_bytes, canonical_hash, utc_now
+from qorqut_operations.contracts import DomainError, canonical_bytes, canonical_hash, utc_now
 from bazarlyk.migration.snapshots import (SourceManifest, _digest, _fsync_directory,
     restore_snapshot, verify_snapshot)
-from .database import Database
+from qorqut_operations.storage.safe_io import TEMPORARY_PREFIX
+from bazarlyk.composition.locations import business_hq, business_root, document_root
 from .exports import atomic_write, build_exports, registered_path, snapshot_connection
-from .repositories import decode_row
+from qorqut_operations.storage.repositories import decode_row
 
 
-ROOT_AUTHORED = ("CLAUDE.md", "README.md", ".gitignore", ".gitattributes", "context", "agents", "learnings", "routines")
-SKIP_DIRECTORIES = frozenset({".git", ".bazarlyk", ".contextbase", "__pycache__", ".pytest_cache", "node_modules", ".venv", "venv", "exports"})
-PRIVATE_RUNTIME_FILES = (".bazarlyk/authority.json", ".bazarlyk/browser-session.key", ".bazarlyk/maintenance", ".env")
+ROOT_AUTHORED = ("CLAUDE.md", "README.md", ".gitignore", ".gitattributes", "context", "files", "agents", "learnings", "routines")
+# ``.bazarlyk`` is the per-agent private directory inside an agent workspace; ``.runtime`` the instance runtime state.
+SKIP_DIRECTORIES = frozenset({".git", ".bazarlyk", ".runtime", ".contextbase", "__pycache__", ".pytest_cache", "node_modules", ".venv", "venv", "exports"})
+PRIVATE_RUNTIME_FILES = (".runtime/browser-session.key", ".runtime/maintenance", ".env")
 
 
 def _identity(value):
@@ -57,7 +59,7 @@ def _walk(path, *, skip=SKIP_DIRECTORIES, top_skip=frozenset()):
             child = Path(parent) / name
             if child.is_symlink() or not (child.is_file() or child.is_dir()):
                 raise DomainError("backup_incomplete", "Authored backup sources contain a link or special file")
-            if child.is_file() and not name.startswith(".bazarlyk-"):
+            if child.is_file() and not name.startswith(TEMPORARY_PREFIX):
                 yield child
 
 
@@ -66,9 +68,9 @@ def external_worker(root, row) -> bool:
     return not row["credential_id"] and Path(row["workspace"]).is_absolute() and not Path(row["workspace"]).is_relative_to(root)
 
 
-def authored_inventory(snapshot, businesses_root, *, skip_external_workers=False):
+def authored_inventory(snapshot, instance, *, skip_external_workers=False):
     """Bind registered hashes to one DB snapshot; unrelated code roots are not walked."""
-    root, paths = Path(businesses_root).resolve(strict=True), set()
+    root, paths = instance.operations, set()
     connection = snapshot_connection(snapshot)
     try:
         if connection.execute("SELECT 1 FROM resource_claims LIMIT 1").fetchone():
@@ -76,18 +78,19 @@ def authored_inventory(snapshot, businesses_root, *, skip_external_workers=False
         businesses = {row["id"]: decode_row(row) for row in connection.execute("SELECT * FROM businesses ORDER BY id")}
         business_manifest = []
         for business in businesses.values():
-            hq = registered_path(root, business["hq_path"])
+            hq = business_hq(instance, business)
             if not hq.is_dir():
                 raise DomainError("backup_incomplete", "Registered business data folder is missing")
-            business_manifest.append({"slug": business["slug"], "hq": hq.relative_to(root).as_posix()})
+            business_manifest.append({"slug": business["slug"], "hq": hq.relative_to(root).as_posix(),
+                                      "root": business_root(instance, business).relative_to(root).as_posix()})
             paths.update(_walk(hq, top_skip=PRIVATE_HQ_DIRECTORIES))
-            paths.update(_walk(registered_path(root, hq / ".bazarlyk/legacy"), skip=frozenset()))
+            # The agents of a business sit beside its HQ and are authored material of the same business.
+            paths.update(_walk(business_root(instance, business) / "agents"))
         for name in (*ROOT_AUTHORED, *PRIVATE_RUNTIME_FILES):
             paths.update(_walk(registered_path(root, name)))
-        paths.update(_walk(registered_path(root, ".bazarlyk/legacy"), skip=frozenset()))
         for row in connection.execute("SELECT * FROM documents ORDER BY id"):
-            base = root if row["business_id"] is None else registered_path(root, businesses[row["business_id"]]["hq_path"])
-            path = registered_path(root, base / row["path"])
+            business = None if row["business_id"] is None else businesses[row["business_id"]]
+            path = registered_path(root, document_root(instance, business, row["path"]) / row["path"])
             expected = row["content_hash"]
             if (row["availability"] != "ready" or not expected or not path.is_file()
                     or _digest(path) != expected.removeprefix("sha256:")):
@@ -97,7 +100,7 @@ def authored_inventory(snapshot, businesses_root, *, skip_external_workers=False
         artifact_digests = []
         for row in connection.execute("SELECT * FROM artifacts ORDER BY kind, artifact_id, version"):
             directory = registered_path(root, row["stored_path"])
-            if not directory.is_relative_to(root / ".bazarlyk/artifacts") or not directory.is_dir():
+            if not directory.is_relative_to(instance.runtime / "artifacts") or not directory.is_dir():
                 raise DomainError("backup_incomplete", "Published artifact directory is missing or outside its store")
             artifact_files = {path.relative_to(directory).as_posix(): path.read_bytes() for path in _walk(directory, skip=frozenset())}
             if files_digest(artifact_files) != row["digest"]:
@@ -156,13 +159,14 @@ def _capture_authored(manifest, destination, check):
 
 
 class BackupStore:
-    def __init__(self, database, businesses_root, destination=None, *, clock=utc_now):
-        self.database, self.root = database, Path(businesses_root).resolve(strict=True)
-        self.destination = Path(destination).absolute() if destination else self.root / ".bazarlyk/backups"
+    def __init__(self, database, paths, destination=None, *, clock=utc_now):
+        self.database, self.paths, self.root = database, paths, paths.operations
+        self.private = paths.runtime / "backups"
+        self.destination = Path(destination).absolute() if destination else self.private
         if any(path.is_symlink() for path in (self.destination, *self.destination.parents)):
             raise DomainError("invalid_configuration", "Backup destination cannot cross symbolic links")
-        if self.destination.is_relative_to(self.root) and not self.destination.is_relative_to(self.root / ".bazarlyk/backups"):
-            raise DomainError("invalid_configuration", "Local backups must stay in the private .bazarlyk/backups tree")
+        if self.destination.is_relative_to(self.root) and not self.destination.is_relative_to(self.private):
+            raise DomainError("invalid_configuration", "Local backups must stay in the private runtime backups tree")
         self.clock = clock
         self.database_relative = registered_path(self.root, database.path).relative_to(self.root).as_posix()
 
@@ -171,7 +175,7 @@ class BackupStore:
             repo, now = uow.repository("backup_runs"), self.clock()
             old = repo.get(generation)
             values = {"path": str(self.destination / generation), "state": state,
-                "schema_version": (metadata or {}).get("database", {}).get("schema_version", len(Database.migrations())),
+                "schema_version": (metadata or {}).get("database", {}).get("schema_version", self.database.assembly.target.version),
                 "checksum": (metadata or {}).get("database", {}).get("checksum"),
                 "manifest_json": metadata or {}, "error_json": error.to_dict() if error else None, "updated_at": now}
             if old:
@@ -245,11 +249,11 @@ class BackupStore:
             db = self.database.backup(temporary / "state.sqlite3", timeout=timeout)
             base_meta = self._capture_context_base(temporary / "contextbase.sqlite3")
             costs_meta = self._capture_context_costs(temporary / "costs.sqlite3")
-            source = authored_inventory(temporary / "state.sqlite3", self.root)
+            source = authored_inventory(temporary / "state.sqlite3", self.paths)
             _capture_authored(source, temporary / "authored", check)
-            if authored_inventory(temporary / "state.sqlite3", self.root).fingerprint != source.fingerprint:
+            if authored_inventory(temporary / "state.sqlite3", self.paths).fingerprint != source.fingerprint:
                 raise DomainError("backup_incomplete", "Authored sources changed during capture", retryable=True)
-            exports = build_exports(temporary / "state.sqlite3", self.root)
+            exports = build_exports(temporary / "state.sqlite3", self.paths)
             metadata = {"schema_version": 1, "generation_id": generation_id, "state": "complete",
                 "created_at": self.clock(), "source_root": str(self.root), "database_relative_path": self.database_relative,
                 "database": {key: value for key, value in db.items() if key != "path"},
@@ -292,7 +296,7 @@ class BackupStore:
             database = directory / "state.sqlite3"
             if database.is_symlink() or _digest(database) != metadata["database"]["checksum"]:
                 raise ValueError
-            db = Database.validate_snapshot(database)
+            db = self.database.validate_snapshot(database)
             if db != {key: metadata["database"][key] for key in ("schema_version", "record_counts")}:
                 raise ValueError
             authored = verify_snapshot(directory / "authored")
@@ -352,8 +356,8 @@ class BackupStore:
                 finally:
                     origin.close()
                 os.chmod(destination_costs, 0o600)
-            restored = Database.restore(directory / "state.sqlite3", registered_path(temporary, self.database_relative),
-                                        expected_checksum=metadata["database"]["checksum"])
+            restored = self.database.restore(directory / "state.sqlite3", registered_path(temporary, self.database_relative),
+                                             expected_checksum=metadata["database"]["checksum"])
             with restored.transaction() as uow:
                 repo, row = uow.repository("maintenance_state"), uow.repository("maintenance_state").get("service")
                 values = {"state": "closed", "message": "Isolated restore rehearsal; original root bindings retained. Do not activate here."}
@@ -361,10 +365,7 @@ class BackupStore:
                     repo.update("service", values, expected_revision=row["revision"])
                 else:
                     repo.insert({"id": "service", **values})
-            marker = {"schema_version": 1, "state": "maintenance", "migration_id": generation_id,
-                      "database_path": self.database_relative}
-            atomic_write(temporary / ".bazarlyk/authority.json", canonical_bytes(marker) + b"\n")
-            parity = Database.validate_snapshot(restored.path)
+            parity = self.database.validate_snapshot(restored.path)
             expected = dict(metadata["database"]["record_counts"])
             expected["maintenance_state"] = max(1, expected["maintenance_state"])
             if parity["record_counts"] != expected:

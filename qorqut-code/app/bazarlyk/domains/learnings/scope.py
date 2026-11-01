@@ -1,5 +1,5 @@
 """Explicit workspace ownership for learning operations."""
-from bazarlyk.domains.common import PlanBuilder as BaseBuilder
+from qorqut_operations.application.plans import PlanBuilder as BaseBuilder
 
 
 def namespace(ctx, args=None):

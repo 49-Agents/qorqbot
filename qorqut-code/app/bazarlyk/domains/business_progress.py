@@ -2,11 +2,11 @@
 from dataclasses import replace
 from datetime import timedelta
 
-from bazarlyk import local_time
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError
-from bazarlyk.storage.repositories import decode_row
-from .common import schema, utc_clock
+from qorqut_operations import local_time
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError
+from qorqut_operations.storage.repositories import decode_row
+from qorqut_operations.application.plans import schema, utc_clock
 from .email.attribution import outgoing
 
 KEYS = ("emails_sent", "cold_outreach_emails_sent", "tasks_done", "actions", "signoffs_approved")

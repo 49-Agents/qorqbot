@@ -16,8 +16,8 @@ import sys
 from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, build_opener
 
-from bazarlyk.contracts import DomainError, new_id
-from bazarlyk.storage import safe_io
+from qorqut_operations.contracts import DomainError, new_id
+from qorqut_operations.storage import safe_io
 from .client import BootstrapClient, load_registration, path_has_symlink, write_json_private
 
 from . import agent_browser

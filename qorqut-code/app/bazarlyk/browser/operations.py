@@ -1,6 +1,6 @@
 """MCP registration for the restricted assignment-bound browser surface."""
 
-from bazarlyk.application import OperationDescriptor
+from qorqut_operations.application import OperationDescriptor
 
 
 BROWSER_OPERATION = "browser_turn"

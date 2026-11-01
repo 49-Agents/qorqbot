@@ -7,15 +7,17 @@ from bazarlyk.departments import department_id, profile_department
 import base64
 import difflib
 import json
-from pathlib import Path
+from uuid import UUID
 
-from bazarlyk.application.registry import OperationDescriptor
-from bazarlyk.contracts import (ChangePreview, ChangeSet, DomainError, ExpectedTarget, FieldChange,
-    PreparedChange, PreviewResource, Principal, ResourceRef, StructuredPreview, TextPreview, canonical_bytes, new_id, plain, utc_now)
+from qorqut_operations.application.registry import OperationDescriptor
+from qorqut_operations.contracts import (ChangePreview, ChangeSet, DomainError, ExpectedTarget, FieldChange,
+                                         PreparedChange, PreviewResource, Principal, ResourceRef, StructuredPreview,
+                                         TextPreview, canonical_bytes, new_id, plain, utc_now)
+from bazarlyk.composition.locations import agent_workspace, document_root
 from . import marketing_plugins, roles
 from .models import AgentProfile, PLUGIN_GRANT_SCHEMA, PROFILE_SCHEMA, REFERENCE_SCHEMA, RETIRED_ROLE_IDS, SCOPE_SCHEMA
 from bazarlyk.storage import history
-from bazarlyk.storage.files import RegisteredFileTarget, file_hash, file_values
+from qorqut_operations.storage.files import RegisteredFileTarget, file_hash, file_values
 from bazarlyk.management.identity import require_protected_control
 from .global_peers import protect_peer_control
 from .resolver import effective_tool_policy
@@ -243,22 +245,20 @@ class AgentOperations:
         if resource.resource_type != "agent_bootstrap_files":
             raise DomainError("invalid_plan", "Not a registered agent bootstrap file")
         try:
-            name, leaf = json.loads(resource.resource_id)
-            from bazarlyk.catalog.packages import ID, validate_schema
-            validate_schema(name, ID, "agent name")
-            if leaf != "PLAN.md":
+            agent_id, leaf = json.loads(resource.resource_id)
+            if str(UUID(agent_id)) != agent_id or leaf != "PLAN.md":
                 raise ValueError
-        except (ValueError, TypeError) as exc:
+        except (ValueError, TypeError, AttributeError) as exc:
             raise DomainError("invalid_plan", "Invalid initial agent document reference") from exc
+        path = f"agents/{agent_id}/{leaf}"
         if resource.business_id:
             with self.resolver.database.read() as uow:
-                row = uow.connection.execute("SELECT hq_path FROM businesses WHERE id=?", (resource.business_id,)).fetchone()
+                row = uow.connection.execute("SELECT slug FROM businesses WHERE id=?", (resource.business_id,)).fetchone()
             if row is None:
                 raise DomainError("invalid_scope", "Initial document business is not registered")
-            base = Path(row["hq_path"])
         else:
-            base = self.resolver.root
-        return RegisteredFileTarget(base, f"agents/{name}/{leaf}")
+            row = None
+        return RegisteredFileTarget(document_root(self.resolver.paths, row, path), path)
 
     def resolve_file_snapshot(self, ctx, resource, uow):
         digest = file_hash(self.resolve_file_target(resource).resolve())
@@ -286,8 +286,7 @@ class AgentOperations:
                     raise DomainError("validation_error", f"This business agent's name is {roles.role_name(role_id)}; its display name is {roles.role_display_name(role_id)}")
                 if roles.business_role_agent(uow.connection, scope["business_id"], role_id) is not None:
                     raise DomainError("roster_conflict", f"This business already has its {roles.role_display_name(role_id)} agent")
-                business = uow.connection.execute("SELECT hq_path FROM businesses WHERE id=?", (scope["business_id"],)).fetchone()
-                workspace = roles.role_workspace(business["hq_path"], role_id)
+                home = uow.connection.execute("SELECT slug FROM businesses WHERE id=?", (scope["business_id"],)).fetchone()
                 name, display_name = roles.role_name(role_id), roles.role_display_name(role_id)
                 assignment = args.get("assignment_brief", roles.role_assignment(role_id))
                 presentation = args.get("presentation", {"department": roles.role_department(role_id)})
@@ -296,7 +295,7 @@ class AgentOperations:
                     raise DomainError("validation_error", "A Global agent requires name, display_name and assignment_brief")
                 if ctx.home_business_id is not None or not set(scope["allowed_business_ids"]).issubset(ctx.allowed_business_ids) or not set(scope["global_capabilities"]).issubset(ctx.global_capabilities):
                     raise DomainError("forbidden", "New ecosystem profile cannot exceed current granted scope")
-                workspace = self.resolver.root / "agents" / args["name"]
+                home = None
                 name, display_name, assignment = args["name"], args["display_name"], args["assignment_brief"]
                 presentation = args.get("presentation", {})
             # Omitted plugins select the defaults; an explicit list, even empty, replaces them.
@@ -305,6 +304,8 @@ class AgentOperations:
                 default_grants = self._default_grants(args["role"]["id"], scope, uow)
             plugins = args.get("plugins", json.loads(json.dumps(default_grants)))
             identity = new_id()
+            # The registered identity and home scope select the workspace; the name never does.
+            workspace = agent_workspace(self.resolver.paths, identity, home)
             values = {"schema_version": 2, "agent_id": identity, "profile_revision": 1, "name": name,
                       "display_name": display_name, "status": "active", "runtime": args.get("runtime", "codex" if args['role']['id'] == roles.ORDUBASHY_ROLE else "claude-code"), "role": args["role"],
                       "scope": scope, "assignment_brief": assignment, "plugins": plugins,
@@ -325,7 +326,9 @@ class AgentOperations:
                 raise DomainError("inactive_agent", "Inactive profiles cannot be edited through active agent operations")
             values = before.to_dict()
             values["profile_revision"] += 1
-            workspace = Path(old["workspace"])
+            home = (uow.connection.execute("SELECT slug FROM businesses WHERE id=?", (old["home_business_id"],)).fetchone()
+                    if old["home_business_id"] else None)
+            workspace = agent_workspace(self.resolver.paths, identity, home)
             if operation == "agents_update":
                 values.update(args["changes"])
             elif operation == "permissions_set":
@@ -398,7 +401,7 @@ class AgentOperations:
                     expected.append(ExpectedTarget(credential_ref, revision=credential["revision"]))
                     changes.append(PreparedChange("record", credential_ref, "revoke_credential", {"revoked_at": utc_now()}))
         if creating:
-            plan_ref = ResourceRef("agent_bootstrap_files", canonical_bytes([profile.data["name"], "PLAN.md"]).decode(), business_id, namespace)
+            plan_ref = ResourceRef("agent_bootstrap_files", canonical_bytes([identity, "PLAN.md"]).decode(), business_id, namespace)
             target = self.resolve_file_target(plan_ref).resolve()
             if target.exists() or workspace.exists():
                 raise DomainError("workspace_conflict", "A new agent requires an unused registered folder")
@@ -408,7 +411,7 @@ class AgentOperations:
             changes += [PreparedChange("file", plan_ref, "write", file_values(plan_bytes, before_hash=None)),
                 PreparedChange("record", ResourceRef("documents", document_id, business_id, namespace), "register_plan",
                     {"id": document_id, "business_id": business_id, "namespace": namespace, "owning_agent_id": identity,
-                     "kind": "plan", "path": f"agents/{profile.data['name']}/PLAN.md", "content_hash": file_values(plan_bytes, before_hash=None)["after_hash"],
+                     "kind": "plan", "path": f"agents/{identity}/PLAN.md", "content_hash": file_values(plan_bytes, before_hash=None)["after_hash"],
                      "metadata_json": {"authored": True}})]
         old_data = before.to_dict() if before else {}
         previous_plugins = {item["id"]: item for item in old_data.get("plugins", [])}
@@ -471,16 +474,13 @@ class AgentOperations:
             if resource.resource_type != "documents" or not expectation.exists:
                 continue
             row = uow.repository("documents", business_id=resource.business_id).get(resource.resource_id, required=True)
-            if resource.business_id:
-                business = uow.repository("businesses").get(resource.business_id, required=True)
-                base = Path(business["hq_path"])
-            else:
-                base = self.resolver.root
+            business = uow.repository("businesses").get(resource.business_id, required=True) if resource.business_id else None
+            base = document_root(self.resolver.paths, business, row["path"])
             path = base / relative_path(row["path"])
-            if row["availability"] != "ready" or path.is_symlink() or not base.resolve().is_relative_to(self.resolver.root) or not path.resolve().is_relative_to(base.resolve()):
+            if row["availability"] != "ready" or path.is_symlink() or not base.resolve().is_relative_to(self.resolver.paths.operations) or not path.resolve().is_relative_to(base.resolve()):
                 raise DomainError("document_conflict", "Reviewed mandatory source is no longer available at its registered path")
             try:
-                from bazarlyk.storage.safe_io import read_bytes
+                from qorqut_operations.storage.safe_io import read_bytes
                 digest = content_hash(read_bytes(path))
             except OSError as exc:
                 raise DomainError("document_conflict", "Reviewed mandatory source is no longer readable") from exc

@@ -1,6 +1,6 @@
 """One bounded error/result translation for both transports."""
 
-from bazarlyk.contracts import DomainError, OperationResult, new_id
+from qorqut_operations.contracts import DomainError, OperationResult, new_id
 from starlette.responses import JSONResponse
 
 

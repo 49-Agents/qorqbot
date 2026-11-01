@@ -12,7 +12,7 @@ from starlette.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from bazarlyk.contracts import DomainError, OperationResult, new_id
+from qorqut_operations.contracts import DomainError, OperationResult, new_id
 from bazarlyk.integrations.proxy import OutreachProxy
 from bazarlyk.transport.auth import Authentication, OriginPolicy
 from bazarlyk.transport.http import HTTPAPI
@@ -155,7 +155,7 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
     viewbox = getattr(getattr(runtime, "domains", None), "viewbox", None)
     if viewbox is not None:
         viewbox.configure_origins(origins.origins)
-    authentication = authentication or Authentication(runtime.database, runtime.root, bootstrap_token=bootstrap_token)
+    authentication = authentication or Authentication(runtime.database, runtime.paths, bootstrap_token=bootstrap_token)
     api = HTTPAPI(runtime, authentication, origins, compatibility=compatibility, terminals=terminals,
                   integrations=integrations)
     proxy = OutreachProxy(integrations, client=integration_client) if integrations is not None else None

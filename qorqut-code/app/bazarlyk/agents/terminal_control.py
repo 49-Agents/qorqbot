@@ -5,9 +5,9 @@ import json
 import logging
 from threading import Event, Thread
 
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError, new_id, utc_now, plain
-from bazarlyk.domains.common import PlanBuilder, UUID, TEXT, schema, apply_records, ref
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError, new_id, utc_now, plain
+from qorqut_operations.application.plans import PlanBuilder, UUID, TEXT, schema, apply_records, ref
 from bazarlyk.management.identity import require_protected_control
 
 PLUGIN = 'agent-terminal-control'

@@ -11,9 +11,9 @@ import re
 import unicodedata
 from urllib.parse import parse_qsl, urlsplit
 
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError, new_id
-from bazarlyk.domains.common import PlanBuilder, ref, schema, timestamp, utc_clock
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError, new_id
+from qorqut_operations.application.plans import PlanBuilder, ref, schema, timestamp, utc_clock
 
 MAX_LINK = 4096
 MAX_TITLE = 80

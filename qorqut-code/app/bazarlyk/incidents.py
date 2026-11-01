@@ -27,8 +27,8 @@ import time
 import tempfile
 from bazarlyk.bootstrap.activity_hook import safe_path
 
-from bazarlyk.contracts import canonical_bytes, utc_now
-from bazarlyk.application import OperationDescriptor
+from qorqut_operations.contracts import canonical_bytes, utc_now
+from qorqut_operations.application import OperationDescriptor
 
 
 def schema(properties=None, required=()):
@@ -160,7 +160,7 @@ class IncidentReporter:
 
     def boundary(self, context, component, operation, call, *, readiness=False):
         """Observe a trusted service boundary without changing its return/exception."""
-        from bazarlyk.contracts import DomainError
+        from qorqut_operations.contracts import DomainError
         def record(error=None):
             try:
                 code = error.code if error else 'success'
@@ -768,7 +768,7 @@ class IncidentOperations:
     def _owner(ctx, uow):
         row = uow.repository("installation").get("service")
         if ctx.principal_kind != "human" or not row or row["owner_principal_id"] != ctx.principal_id:
-            from bazarlyk.contracts import DomainError
+            from qorqut_operations.contracts import DomainError
             raise DomainError("forbidden", "Only the installation owner can review incidents")
 
     def _dto(self, uow, row, *, details=True, ctx=None):
@@ -786,7 +786,7 @@ class IncidentOperations:
             query += ' AND ('+clause+')'; params.extend(scope_params)
         impacts = [dict(x) for x in uow.connection.execute(query + " ORDER BY first_seen LIMIT 101", params)]
         if ctx is not None and ctx.principal_kind == 'agent':
-            from bazarlyk.contracts import DomainError
+            from qorqut_operations.contracts import DomainError
             for index, impact in enumerate(impacts):
                 if not impact['task_id']:
                     continue
@@ -841,14 +841,14 @@ class IncidentOperations:
         self._owner(ctx, uow)
         row = uow.connection.execute("SELECT * FROM system_incidents WHERE id=?", (args["incident_id"],)).fetchone()
         if row is None:
-            from bazarlyk.contracts import DomainError
+            from qorqut_operations.contracts import DomainError
             raise DomainError("not_found", "Incident was not found")
         return self._dto(uow, row, ctx=ctx)
 
     @staticmethod
     def impact_scope(ctx, uow):
         if ctx.principal_kind != "agent":
-            from bazarlyk.contracts import DomainError
+            from qorqut_operations.contracts import DomainError
             raise DomainError("forbidden", "Incident reads require an authenticated agent")
         scopes=[r[0] for r in uow.connection.execute('SELECT m.business_id FROM business_memberships m '
             'JOIN businesses b ON b.id=m.business_id WHERE m.principal_id=? AND m.active=1 AND b.archived_at IS NULL',
@@ -883,11 +883,11 @@ class IncidentOperations:
 
     def agent_get(self, ctx, args, opts, uow):
         if not self.visible(ctx,args['incident_id'],uow):
-            from bazarlyk.contracts import DomainError
+            from qorqut_operations.contracts import DomainError
             raise DomainError("forbidden", "Incident is outside your authorized scope")
         row = uow.connection.execute("SELECT * FROM system_incidents WHERE id=?", (args["incident_id"],)).fetchone()
         if row is None:
-            from bazarlyk.contracts import DomainError
+            from qorqut_operations.contracts import DomainError
             raise DomainError("not_found", "Incident was not found")
         return self._dto(uow, row, ctx=ctx)
 
@@ -937,7 +937,7 @@ def drain_spool(reporter: IncidentReporter, database, *, reporter_id: str,
                 limit=MAX_DRAIN):
     """Flush one bounded batch behind the normal storage write-admission barrier."""
     with database.transaction(operation="system_incident_drain") as uow:
-        from bazarlyk.application.engine import Application
+        from qorqut_operations.application.engine import Application
         from bazarlyk.background.authority import BackgroundAuthority
         Application.ensure_writes_open(uow)
         BackgroundAuthority.require_worker(reporter_id,None,uow)
@@ -959,7 +959,7 @@ class IncidentDrain:
     def drain_once(self):
         try:
             from contextlib import nullcontext
-            from bazarlyk.application.engine import Application
+            from qorqut_operations.application.engine import Application
             path = self.reporter.spool_dir / 'system-incidents.jsonl'
             if self.reporter_id is not None and safe_path(path) and (not path.exists() or path.stat().st_size == 0):
                 # Healthy idle reporting needs no periodic SQLite writer slot.

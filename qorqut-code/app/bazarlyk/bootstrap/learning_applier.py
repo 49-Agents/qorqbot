@@ -1,6 +1,6 @@
 """Explicit standalone learning-applier provisioning; never launches a session."""
 
-from bazarlyk.contracts import DomainError, InvocationOptions, Principal, canonical_hash, plain
+from qorqut_operations.contracts import DomainError, InvocationOptions, Principal, canonical_hash, plain
 from .preparation import prepare_agent
 
 CAPABILITIES = ("read_global_context", "manage_shared_instructions", "publish_roles", "publish_plugins")
@@ -28,7 +28,7 @@ def prepare_learning_applier(runtime, owner_context, *, role_ref, allowed_busine
         runtime.application.authorize(ctx, descriptor, (), uow, namespace=namespace)
         existing = uow.connection.execute("SELECT * FROM agent_profiles WHERE home_business_id IS NULL AND name='learning-applier'").fetchone()
     if existing:
-        from bazarlyk.storage.repositories import decode_row
+        from qorqut_operations.storage.repositories import decode_row
         row = decode_row(existing)
         profile = row["profile_json"]
         if (row["status"] != "active" or profile["role"] != plain(role_ref)

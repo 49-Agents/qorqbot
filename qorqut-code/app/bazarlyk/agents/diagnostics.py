@@ -2,10 +2,10 @@
 import json
 
 from bazarlyk import owner_sessions
-from bazarlyk.application import OperationDescriptor
+from qorqut_operations.application import OperationDescriptor
 from bazarlyk.catalog.packages import parse_yaml
-from bazarlyk.contracts import DomainError, plain
-from bazarlyk.domains.common import schema
+from qorqut_operations.contracts import DomainError, plain
+from qorqut_operations.application.plans import schema
 from .models import REFERENCE_SCHEMA
 
 DIAGNOSTIC_OPERATIONS = frozenset({'agent_runtime_get', 'operations_describe', 'dev_tickets_create',

@@ -120,7 +120,7 @@ def reconcile(config, *, adapters=None):
                 'references':response.get('additional_references',[])}
         except Exception as error:
             entries = {}
-            from bazarlyk.contracts import DomainError
+            from qorqut_operations.contracts import DomainError
             failure = ('target_probe_'+error.code if isinstance(error,DomainError) else
                        'target_probe_missing_helper' if isinstance(error,FileNotFoundError) else
                        'target_probe_invalid_response' if isinstance(error,(ValueError,KeyError,TypeError)) else

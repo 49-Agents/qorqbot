@@ -7,10 +7,10 @@ select evidence, never permissions or implicit responsibility.
 from dataclasses import replace
 import json
 
-from bazarlyk import local_time
+from qorqut_operations import local_time
 
 from bazarlyk.agents.roles import BUSINESS_AGENT_ROLE, DEV_ROLE, ORDUBASHY_ROLE
-from bazarlyk.contracts import DomainError, InvocationOptions, utc_now
+from qorqut_operations.contracts import DomainError, InvocationOptions, utc_now
 from bazarlyk.catalog.packages import content_hash
 from .context import MAX_CONTEXT_CHARACTERS
 

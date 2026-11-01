@@ -16,7 +16,7 @@ import random
 
 import httpx
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 from .client import auth_headers, load_registration
 
 # Keep the original request alive across an ordinary 15–17s app restart.

@@ -13,8 +13,8 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import McpError
 from starlette.requests import Request
 
-from bazarlyk.contracts import DomainError, InvocationOptions, OperationResult, new_id, plain
-from bazarlyk.application.batches import NAME as BATCH_NAME
+from qorqut_operations.contracts import DomainError, InvocationOptions, OperationResult, new_id, plain
+from qorqut_operations.application.batches import NAME as BATCH_NAME
 from bazarlyk.agents.diagnostics import DIAGNOSTIC_OPERATIONS
 from bazarlyk.browser.operations import BROWSER_OPERATION
 from .results import failure

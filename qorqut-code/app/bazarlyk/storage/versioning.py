@@ -9,8 +9,8 @@ import tarfile
 import tempfile
 
 from bazarlyk.background.programs import ProgramResult
-from bazarlyk.contracts import DomainError, canonical_bytes, utc_now
-from bazarlyk.signoffs.execution import application_claim
+from qorqut_operations.contracts import DomainError, canonical_bytes, utc_now
+from qorqut_operations.storage.executor import application_claim
 from .exports import atomic_write, build_exports, publish_exports, registered_path
 from .recovery import BackupStore, ROOT_AUTHORED, SKIP_DIRECTORIES, _identity
 
@@ -19,7 +19,7 @@ HISTORY_REF = "refs/heads/bazarlyk-history"
 HQ_ENTRIES = frozenset({"business.yaml", "CLAUDE.md", "README.md", ".gitignore", ".gitattributes",
     "context", "assets", "marketing-content", "agents", "notes", "journal", "tasks", "requests",
     "log", "finance", "analytics", "learnings", "routines", "exports", "tables"})
-PRIVATE_PARTS = SKIP_DIRECTORIES - {"exports"} | {"sessions", "logs", "cache", ".cache", "work", "code"}
+PRIVATE_PARTS = SKIP_DIRECTORIES - {"exports"} | {"sessions", "transcripts", "logs", "cache", ".cache", "work", "code"}
 OBJECT_ID = re.compile(r"^[a-f0-9]{40}(?:[a-f0-9]{24})?$")
 
 
@@ -36,6 +36,10 @@ def public_path(name, businesses):
         if parts[position + 1:position + 2] != ("skills",):
             return False
     for business in businesses:
+        agents = (*Path(business["root"]).parts, "agents")
+        if parts[:len(agents)] == agents:
+            # A business's registered agents sit beside its HQ; the same exclusions above apply to them.
+            return len(parts) > len(agents)
         hq = Path(business["hq"]).parts
         if parts[:len(hq)] == hq:
             if parts[len(hq):len(hq) + 2] == ("context", "email"):
@@ -77,7 +81,7 @@ class GitVersioner:
             return value
 
         if Path(git("rev-parse", "--show-toplevel")[0]) != self.root:
-            raise DomainError("versioning_unavailable", "Nightly versioning requires the businesses root's existing Git repository")
+            raise DomainError("versioning_unavailable", "Nightly versioning requires the operations root's existing Git repository")
         if "branch " + HISTORY_REF in git("worktree", "list", "--porcelain", "-z", strip=False)[0].split("\0"):
             raise DomainError("versioning_unavailable", "Nightly history must not be checked out in a working tree")
         current, code = git("rev-parse", "--verify", HISTORY_REF, allowed=(0, 128))
@@ -127,12 +131,13 @@ class GitVersioner:
 
 
 class NightlyMaintenance:
-    def __init__(self, database, businesses_root, *, backup_destination=None, git_enabled=False,
+    def __init__(self, database, paths, *, locks, backup_destination=None, git_enabled=False,
                  git_runner=None, clock=utc_now):
         if type(git_enabled) is not bool:
             raise ValueError("Git versioning must be explicitly enabled or disabled")
-        self.database, self.root = database, Path(businesses_root).resolve(strict=True)
-        self.backups = BackupStore(database, self.root, backup_destination, clock=clock)
+        self.database, self.paths, self.root = database, paths, paths.operations
+        self.locks = locks
+        self.backups = BackupStore(database, paths, backup_destination, clock=clock)
         self.git_enabled = git_enabled
         self.versioner = GitVersioner(self.root, runner=git_runner)
 
@@ -140,8 +145,8 @@ class NightlyMaintenance:
         if arguments != {} or control.business_id is not None:
             raise DomainError("validation_error", "Nightly maintenance takes no arguments and runs only at installation scope")
         generation = _identity(control.job["id"])
-        with application_claim(self.database, generation):
-            directory = registered_path(self.root, ".bazarlyk/maintenance")
+        with application_claim(self.locks, generation):
+            directory = registered_path(self.root, ".runtime/maintenance")
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
             receipt = registered_path(self.root, directory / (generation + ".json"))
             configuration = {"root": str(self.root), "backup_destination": str(self.backups.destination),
@@ -162,11 +167,11 @@ class NightlyMaintenance:
             control.check()
             metadata = self.backups.create(generation, check=control.check, timeout=min(60, control.remaining_seconds()))
             saved = self.backups.destination / generation
-            bundle = build_exports(saved / "state.sqlite3", self.root)
+            bundle = build_exports(saved / "state.sqlite3", self.paths)
             if bundle.fingerprint != metadata["exports"]["fingerprint"]:
                 raise DomainError("invalid_backup", "Saved operational exports do not match their generation")
             control.check()
-            exports = publish_exports(bundle, self.root)
+            exports = publish_exports(bundle, self.paths)
             versioning = (self.versioner.version(saved, metadata, bundle, state["versioning"], save, control)
                           if self.git_enabled else {"enabled": False})
             control.check()

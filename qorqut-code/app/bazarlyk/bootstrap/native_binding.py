@@ -7,7 +7,7 @@ import socket
 import subprocess
 import sys
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 from .client import load_registration, write_json_private
 from bazarlyk.release_worker.lifetime import local_instance
 

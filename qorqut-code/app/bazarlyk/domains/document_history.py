@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from qorqut_business_docs_versioning import HistoryStore, NotFound
 
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError
 from bazarlyk.storage import history
 
-from .common import schema
+from qorqut_operations.application.plans import schema
 
 SOURCE_KINDS = ("document", "story", "story_draft", "learning_candidate", "learning_decision",
                 "context_object", "context_brief")

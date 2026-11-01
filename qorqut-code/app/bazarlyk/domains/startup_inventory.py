@@ -1,5 +1,5 @@
 """Paginated own work indexes, using canonical visibility without consuming inbox."""
-from bazarlyk.contracts import DomainError, InvocationOptions, Principal, canonical_hash
+from qorqut_operations.contracts import DomainError, InvocationOptions, Principal, canonical_hash
 from .inventory_cursors import inventory_cursors, is_handle
 
 

@@ -9,10 +9,10 @@ from dataclasses import replace
 import json
 
 from bazarlyk.agents.engineering import validate_authority
-from bazarlyk.application import OperationDescriptor
+from qorqut_operations.application import OperationDescriptor
 from bazarlyk.browser.config import prepare_settings, validate_applied
-from bazarlyk.contracts import DomainError, plain
-from .common import PlanBuilder, apply_records, require_revision, schema, utc_clock
+from qorqut_operations.contracts import DomainError, plain
+from qorqut_operations.application.plans import PlanBuilder, apply_records, require_revision, schema, utc_clock
 
 OPERATION = "owner_action_propose"
 ENGINEERING = "engineering_update"
@@ -23,8 +23,8 @@ NAMES = {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength
 
 
 class OwnerActions:
-    def __init__(self, root, stories, *, clock=utc_clock):
-        self.root, self.stories, self.clock = root, stories, clock
+    def __init__(self, paths, stories, *, clock=utc_clock):
+        self.paths, self.stories, self.clock = paths, stories, clock
 
     def register(self, registry):
         actions = {
@@ -65,7 +65,7 @@ class OwnerActions:
             before = uow.repository("businesses").get(ctx.business_id, required=True)["config_json"]
             proposed = next((plain(change.values["config_json"]).get("browser") for change in plan.changes
                              if change.resource.resource_type == "businesses"), None)
-            validate_applied(proposed, before.get("browser"), root=self.root, business_id=ctx.business_id, uow=uow)
+            validate_applied(proposed, before.get("browser"), paths=self.paths, business_id=ctx.business_id, uow=uow)
 
     def prepare(self, ctx, args, options, uow):
         self.guard(ctx, None, uow)
@@ -95,7 +95,7 @@ class OwnerActions:
                        "Repository entries authorize those explicit repositories. Empty deployment targets grant no standing deployment authority."]
         elif action == BROWSER:
             key = "browser"
-            updated = prepare_settings(parameters, config.get(key), root=self.root, business_id=ctx.business_id, uow=uow)
+            updated = prepare_settings(parameters, config.get(key), paths=self.paths, business_id=ctx.business_id, uow=uow)
             effects = ["Updates only saved browser settings. Ports and persona paths are assigned by the service. "
                        "Does not launch/restart Chrome, provision proxy credentials, or authorize browser use."]
             if updated.get("mode") == "isolated-desktop-v1":

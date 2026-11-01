@@ -9,8 +9,8 @@ from pathlib import Path
 import time
 
 from bazarlyk.catalog.packages import content_hash, files_digest
-from bazarlyk.contracts import DomainError, canonical_hash
-from bazarlyk.storage import safe_io
+from qorqut_operations.contracts import DomainError, canonical_hash
+from qorqut_operations.storage import safe_io
 
 PREFIX = "mcp__bazarlyk__"
 SETTINGS = ".claude/settings.json"
@@ -57,10 +57,10 @@ def changed(workspace, projection, tools):
 
 
 @contextmanager
-def preparation_lock(root, principal_id):
+def preparation_lock(paths, principal_id):
     """Serialize bootstrap repair with full preparation across host processes."""
     name = hashlib.sha256(principal_id.encode()).hexdigest() + ".lock"
-    with safe_io.directory(Path(root) / ".bazarlyk/preparation-locks", create=True) as parent:
+    with safe_io.directory(paths.locks / "preparation", create=True) as parent:
         descriptor = os.open(name, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=parent)
     try:
         deadline = time.monotonic() + 5
@@ -84,8 +84,8 @@ def refresh(resolver, principal, config, registration_id):
     skill, terminal, or session is changed. Ordinary configuration reads never
     call this writer.
     """
-    from bazarlyk.application import Application
-    from bazarlyk.sandbox.quiescence import InstallationRecoveryLock
+    from qorqut_operations.application import Application
+    from qorqut_operations.storage.admission import InstallationRecoveryLock
 
     data = config.to_dict()
     status = data["preparation"].get("runtimes", {}).get("claude-code", {})
@@ -93,7 +93,7 @@ def refresh(resolver, principal, config, registration_id):
         return False
     if not status.get("compatibility", {}).get("supported"):
         return False
-    with InstallationRecoveryLock(resolver.root).writer():
+    with InstallationRecoveryLock(resolver.locks.recovery).writer():
         replacement = None
         try:
             with resolver.database.transaction() as uow:

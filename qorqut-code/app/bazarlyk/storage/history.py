@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 
 from qorqut_business_docs_versioning import HistoryStore, ImportConflict, NotFound, initialize_schema
 
-from bazarlyk.contracts import DomainError, plain, utc_now
+from qorqut_operations.contracts import DomainError, plain, utc_now
 
 HISTORY_TABLES = ("qbdv_document_versions", "qbdv_business_events")
 BASELINE_AUTHOR = "system:history-baseline"

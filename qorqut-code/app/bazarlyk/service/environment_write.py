@@ -2,11 +2,11 @@
 import hashlib
 import json
 
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError, ExpectedTarget, PreparedChange, ResourceRef
-from bazarlyk.domains.common import PlanBuilder, schema
-from bazarlyk.storage import safe_io
-from bazarlyk.storage.files import RegisteredFileTarget, file_values, file_hash
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError, ExpectedTarget, PreparedChange, ResourceRef
+from qorqut_operations.application.plans import PlanBuilder, schema
+from qorqut_operations.storage import safe_io
+from qorqut_operations.storage.files import RegisteredFileTarget, file_values, file_hash
 from .local import IDENTITY_KEYS, LocalFiles
 
 RESOURCE = "business_environment_files"

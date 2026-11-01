@@ -10,9 +10,10 @@ import threading
 import uuid
 
 from bazarlyk.agents import roles
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError, plain
-from bazarlyk.domains.common import PAGE, UUID, PlanBuilder, apply_records, page, schema, timestamp, utc_clock
+from bazarlyk.composition.locations import agent_workspace_of
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError, plain
+from qorqut_operations.application.plans import PAGE, UUID, PlanBuilder, apply_records, page, schema, timestamp, utc_clock
 from bazarlyk.domains.tasks.operations import task_context, task_namespace
 
 STALE_SECONDS = 180
@@ -204,7 +205,7 @@ class AgentActivity:
             self.allowed(ctx, item['business_id'], 'tasks_get', uow)
             task = uow.repository('tasks', business_id=item['business_id']).get(item['task_id'], required=True)
             if builder:
-                from bazarlyk.domains.common import ref
+                from qorqut_operations.application.plans import ref
                 builder.expect(ref('tasks', task['id'], item['business_id']), task)
 
     def start(self):
@@ -228,7 +229,7 @@ class AgentActivity:
     def sample(self):
         from bazarlyk.bootstrap.activity_hook import safe_path, owner_alive, write_state
         with self.app.database.read() as u:
-            rows=u.connection.execute('SELECT s.*,a.workspace FROM agent_activity s JOIN agent_profiles a '
+            rows=u.connection.execute('SELECT s.*,a.home_business_id,b.slug AS business_slug FROM agent_activity s JOIN agent_profiles a '
                 'ON a.agent_id=s.agent_id LEFT JOIN businesses b ON b.id=a.home_business_id '
                 "WHERE a.status='active' AND (b.id IS NULL OR b.archived_at IS NULL)").fetchall()
         boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
@@ -237,8 +238,7 @@ class AgentActivity:
         namespace_pids=None
         now=timestamp(self.clock)
         for row in rows:
-            workspace=Path(row['workspace'])
-            if not workspace.is_absolute(): workspace=self.runtime.root/workspace
+            workspace=agent_workspace_of(self.runtime.paths,row['agent_id'],row['home_business_id'],row['business_slug'])
             path=workspace/'.bazarlyk/activity'/(row['session_id']+'.json')
             try:
                 if not safe_path(path) or not path.is_file() or path.stat().st_size>8192: continue

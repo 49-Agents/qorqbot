@@ -12,14 +12,13 @@ origin the owner uses.
 from __future__ import annotations
 
 import posixpath
-from pathlib import Path
 from uuid import UUID as _UUID
 
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError
 from bazarlyk.file_viewer.paths import MAX_LABEL_CHARS, MAX_PATH_CHARS, markdown_link, normalize_path, viewer_url
 
-from .common import UUID, schema
+from qorqut_operations.application.plans import UUID, schema
 
 DESCRIPTION = (
     "Build an ordinary link the owner can click to read a file in the Qorqut file viewer. Give exactly one of path "
@@ -43,9 +42,9 @@ def namespace(ctx, _arguments):
 
 
 class FileLinks:
-    def __init__(self, documents, businesses_root):
+    def __init__(self, documents, paths):
         self.documents = documents
-        root = Path(businesses_root)
+        root = paths.operations
         self.roots = tuple(dict.fromkeys((str(root), str(root.resolve()))))
 
     def register(self, registry):

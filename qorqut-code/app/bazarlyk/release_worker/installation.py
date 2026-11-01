@@ -28,7 +28,7 @@ def validate_config(config):
     if errors:
         raise ReleaseError('Invalid installation field: '+'.'.join(map(str,errors[0].path)))
     from bazarlyk.content_sessions.config import validate as validate_content
-    from bazarlyk.contracts import DomainError
+    from qorqut_operations.contracts import DomainError
     try:
         content = validate_content(config.get('content_sessions'))
     except DomainError as exc:

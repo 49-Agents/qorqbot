@@ -14,10 +14,11 @@ from markdown_it import MarkdownIt
 from starlette.responses import JSONResponse, Response
 import yaml
 
+from bazarlyk.composition.locations import business_hq
 from bazarlyk.agents.roles import BUSINESS_AGENT_ROLE, FOUNDER_ROLE
 from bazarlyk.departments import department as department_info, profile_department, department_id, BY_ID
-from bazarlyk.contracts import DomainError, InvocationOptions, new_id, plain
-from bazarlyk.storage.repositories import decode_row
+from qorqut_operations.contracts import DomainError, InvocationOptions, new_id, plain
+from qorqut_operations.storage.repositories import decode_row
 from .http import check_body_length, checked_fields, read_json, revalidated
 from .results import response
 from .routine_views import recent_runs, run_view, hourly_runs
@@ -207,7 +208,7 @@ class DashboardCompatibility:
                     link = viewer.link(row["id"])
                     if link is not None:
                         environment = {**environment, "browser_viewer_url": link}
-                businesses.append({"slug": row["slug"], "path": row["hq_path"], "name": row["name"], "id": row["id"], "business_id": row["id"],
+                businesses.append({"slug": row["slug"], "path": str(business_hq(self.runtime.paths, row)), "name": row["name"], "id": row["id"], "business_id": row["id"],
                     "environment": environment,
                     "one_liner": metadata.get("one_liner", metadata.get("description", "")), "stage": row["stage"], "website": metadata.get("website"),
                     "owner": context.principal.display_name, "agents": [profile["name"] for profile in profiles],
@@ -438,7 +439,7 @@ class DashboardCompatibility:
         def submissions(uow):
             if document.get("kind") not in JOURNAL_KINDS:
                 return []
-            from bazarlyk.storage.repositories import decode_row
+            from qorqut_operations.storage.repositories import decode_row
             found = uow.connection.execute(
                 "SELECT * FROM documents WHERE kind='context_upload' "
                 "AND json_extract(metadata_json, '$.journal_source_id')=? ORDER BY created_at, id",

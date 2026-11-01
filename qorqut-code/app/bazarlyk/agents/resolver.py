@@ -13,9 +13,14 @@ from typing import Any, Mapping
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from bazarlyk.catalog.packages import Catalog, content_hash, parse_yaml, relative_path, visible_plugin_tools
-from bazarlyk.contracts import ArtifactRef, DomainError, InvocationContext, Principal, canonical_hash, new_id, plain, utc_now
+from bazarlyk.catalog.packages import (Catalog, content_hash, declared_plugin_tools, parse_yaml, relative_path,
+                                       visible_plugin_tools)
+from qorqut_operations.contracts import ArtifactRef, DomainError, InvocationContext, Principal, canonical_hash, new_id, plain, utc_now
+from qorqut_operations.policy import AgentPolicyBasis
+from bazarlyk.composition.files import lock_paths
+from bazarlyk.composition.locations import agent_workspace, business_hq
 from bazarlyk.inbox.defaults import INBOX_INSTRUCTIONS, legacy_inbox_skill
+from bazarlyk.instance_paths import InstancePaths
 from . import role_workflow
 from . import cleanup_workflow
 from .context import MAX_CONTEXT_CHARACTERS, PRODUCT_STARTUP_LIMIT, ContextSource, compose_context
@@ -25,8 +30,7 @@ from .ordubashy import require_complete_scope
 
 
 def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, packages=()) -> list[dict]:
-    from bazarlyk.policy import resolve_operation_policy
-    from bazarlyk.policy.resolver import GLOBAL_TABLE_OPERATIONS
+    from bazarlyk.composition.policy import GLOBAL_TABLE_OPERATIONS, resolve_operation_policy
     overrides = profile.data["tool_policy"]["overrides"]
     defaults = role.manifest["default_tool_policy"]
     granted = {item["id"] for item in profile.data["plugins"]}
@@ -113,12 +117,14 @@ def _stat(path: Path) -> tuple:
 
 
 class AgentConfigResolver:
-    def __init__(self, database: Any, businesses_root: Path, registry: Any, *, catalog: Catalog | None = None,
+    def __init__(self, database: Any, paths: InstancePaths, registry: Any, *, catalog: Catalog | None = None,
                  plugin_handlers: Mapping[str, Any] | None = None):
         self.database = database
-        self.root = Path(businesses_root).resolve()
+        self.paths = paths
+        self.root = paths.operations
+        self.locks = lock_paths(paths)
         self.registry = registry
-        self.catalog = catalog or Catalog(database, self.root, registry)
+        self.catalog = catalog or Catalog(database, paths.runtime, registry)
         # Trusted domain callbacks have signature validate(package: ArtifactPackage) -> None.
         self.plugin_handlers = dict(plugin_handlers or {})
         self._cache: OrderedDict[str, EffectiveAgentConfig] = OrderedDict()
@@ -134,7 +140,7 @@ class AgentConfigResolver:
         row = connection.execute("SELECT * FROM agent_profiles WHERE agent_id=?", (principal.id,)).fetchone()
         if actor is None or actor["kind"] != "agent" or not actor["active"] or row is None or row["status"] != "active":
             raise DomainError("inactive_agent", "Agent identity is missing or inactive; read current configuration after preparation")
-        from bazarlyk.business_lifecycle import require_active_business
+        from qorqut_operations.business_lifecycle import require_active_business
         require_active_business(connection, row["home_business_id"])
         profile = AgentProfile.from_dict(json.loads(row["profile_json"]), self.registry)
         if profile.role.id in RETIRED_ROLE_IDS:
@@ -144,10 +150,31 @@ class AgentConfigResolver:
             or profile.data["name"] != row["name"] or profile.scope.business_id != row["home_business_id"]
             or row["namespace"] != (profile.scope.business_id or "ecosystem")):
             raise DomainError("profile_conflict", "Indexed identity and canonical profile disagree")
-        workspace = Path(row["workspace"])
-        if not workspace.is_absolute() or not workspace.resolve().is_relative_to(self.root):
-            raise DomainError("registration_conflict", "Agent workspace is outside the registered businesses root")
+        business = (None if row["home_business_id"] is None else
+                    connection.execute("SELECT slug FROM businesses WHERE id=?", (row["home_business_id"],)).fetchone())
+        # The registered identity and home scope select the workspace; the stored column must agree, never choose.
+        if Path(row["workspace"]) != agent_workspace(self.paths, row["agent_id"], business):
+            raise DomainError("registration_conflict", "Agent workspace is not the registered identity's workspace")
         return profile, dict(row)
+
+    # -- AgentAuthority: what the Operations policy resolver asks of the agent registry -------------------------
+
+    def policy_basis(self, context: InvocationContext, uow) -> AgentPolicyBasis:
+        """The agent's current profile overrides and pinned role defaults, read in the caller's transaction."""
+        profile, _ = self.profile(context.principal, connection=uow.connection)
+        role = self.catalog.get("role", plain(profile.data["role"]), connection=uow.connection)
+        return AgentPolicyBasis(defaults=role.manifest["default_tool_policy"],
+                                overrides=profile.data["tool_policy"]["overrides"],
+                                role=profile.data["role"], revision=profile.revision)
+
+    def plugin_declares(self, context: InvocationContext, basis: AgentPolicyBasis, descriptor, uow) -> bool:
+        """The profile holds the descriptor's plugin grant and that pinned plugin package declares this tool."""
+        profile, _ = self.profile(context.principal, connection=uow.connection)
+        grant = next((x for x in profile.data["plugins"] if x["id"] == descriptor.plugin_requirement), None)
+        if grant is None:
+            return False
+        package = self.catalog.get("plugin", grant, connection=uow.connection)
+        return descriptor.name in declared_plugin_tools(package)
 
     def invocation_context(self, principal: Principal, *, business_id: str | None = None,
                            source: str = "mcp", session_registration_id: str | None = None,
@@ -187,7 +214,7 @@ class AgentConfigResolver:
         if ctx.agent_id is None:
             return ctx
         profile, _ = self.profile(ctx.principal, connection=uow.connection)
-        from bazarlyk.business_lifecycle import active_business_ids, require_active_business
+        from qorqut_operations.business_lifecycle import active_business_ids, require_active_business
         target = ctx.business_id or profile.scope.business_id
         require_active_business(uow.connection, target)
         if target is not None and target not in profile.scope.businesses:
@@ -204,7 +231,7 @@ class AgentConfigResolver:
         with self.database.read() as uow:
             connection = uow.connection
             profile, row = proposed or self.profile(principal, connection=connection)
-            from bazarlyk.business_lifecycle import require_active_business
+            from qorqut_operations.business_lifecycle import require_active_business
             target = business_id or profile.scope.business_id
             require_active_business(connection, target)
             if target is not None and target not in profile.scope.businesses:
@@ -238,7 +265,7 @@ class AgentConfigResolver:
             def allowed(reads):
                 if not reads <= installed_reads:
                     return False
-                from bazarlyk.policy import resolve_operation_policy
+                from bazarlyk.composition.policy import resolve_operation_policy
                 role = self.catalog.get("role", profile.data["role"], connection=connection)
                 return all(resolve_operation_policy(
                     name, role.manifest["default_tool_policy"], profile.data["tool_policy"]["overrides"],
@@ -287,8 +314,8 @@ class AgentConfigResolver:
                 raise DomainError("context_scope_conflict", f"Mandatory source has the wrong registered scope: {key}")
             if key in selected_docs:
                 raise DomainError("context_scope_conflict", f"Multiple mandatory sources registered for: {key}")
-            selected_docs[key] = located(self.root if global_source else Path(selected["hq_path"]), doc, key)
-        strategy = [located(Path(selected["hq_path"]), doc, "strategy-note:" + doc["id"]) for doc in strategy]
+            selected_docs[key] = located(self.root if global_source else business_hq(self.paths, selected), doc, key)
+        strategy = [located(business_hq(self.paths, selected), doc, "strategy-note:" + doc["id"]) for doc in strategy]
         for artifact in artifacts:
             path = Path(artifact["stored_path"])
             signatures.append((artifact["kind"], artifact["digest"], str(path),
@@ -355,7 +382,7 @@ class AgentConfigResolver:
             if doc["availability"] != "ready":
                 raise DomainError("context_unavailable", f"Mandatory source is {doc['availability']}: {doc['id']}")
             try:
-                from bazarlyk.storage.safe_io import read_bytes
+                from qorqut_operations.storage.safe_io import read_bytes
                 data = read_bytes(doc["absolute_path"])
             except OSError as exc:
                 raise DomainError("missing_context", f"Missing mandatory document: {doc['id']}") from exc
@@ -504,7 +531,7 @@ class AgentConfigResolver:
     def bootstrap(self, principal: Principal, *, registration_id: str, session_id: str, event: str,
                   last_effective_config_id: str | None = None, runtime: str = "claude-code") -> dict:
         from bazarlyk.bootstrap.tool_permissions import preparation_lock
-        with preparation_lock(self.root, principal.id):
+        with preparation_lock(self.paths, principal.id):
             return self._bootstrap(principal, registration_id=registration_id, session_id=session_id,
                 event=event, last_effective_config_id=last_effective_config_id, runtime=runtime)
 
@@ -610,7 +637,7 @@ class AgentConfigResolver:
     def record_delivery(self, principal: Principal, *, registration_id: str, session_id: str,
                         effective_config_id: str, bundle_hash: str, event: str, emitted_at: str,
                         briefing_hash: str | None = None) -> dict:
-        from bazarlyk.application import Application
+        from qorqut_operations.application import Application
         try:
             if datetime.fromisoformat(emitted_at).utcoffset() is None:
                 raise ValueError

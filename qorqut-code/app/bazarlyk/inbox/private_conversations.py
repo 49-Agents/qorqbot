@@ -8,9 +8,9 @@ participant is reauthorized. Team notes and private account mail are unchanged.
 
 import json
 
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError, new_id, plain
-from bazarlyk.domains.common import PlanBuilder, schema, timestamp, utc_clock
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError, new_id, plain
+from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock
 from bazarlyk.domains.conversations import SUMMARY, author, normalize_summary, participants
 from bazarlyk.management.identity import installation_owner, private_participants
 

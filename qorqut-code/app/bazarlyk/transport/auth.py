@@ -9,14 +9,13 @@ import hmac
 import ipaddress
 import json
 import os
-from pathlib import Path
 import secrets
 import time
 from urllib.parse import urlsplit
 
 from bazarlyk.agents.models import GLOBAL_CAPABILITIES
 from bazarlyk.bootstrap.client import path_has_symlink
-from bazarlyk.contracts import DomainError, Principal, canonical_bytes
+from qorqut_operations.contracts import DomainError, Principal, canonical_bytes
 
 COOKIE_NAME = "bazarlyk_session"
 SESSION_SECONDS = 12 * 60 * 60
@@ -49,16 +48,16 @@ class AuthenticatedPrincipal:
 
 
 class Authentication:
-    def __init__(self, database, businesses_root, *, bootstrap_token="", signing_key=None, clock=time.time):
+    def __init__(self, database, paths, *, bootstrap_token="", signing_key=None, clock=time.time):
         self.database = database
-        self.root = Path(businesses_root).resolve()
+        self.paths = paths
         self.bootstrap_token = bootstrap_token
         self._key = signing_key
         self.clock = clock
 
     def _signing_key(self):
         if self._key is None:
-            path = self.root / ".bazarlyk/browser-session.key"
+            path = self.paths.runtime / "browser-session.key"
             if path_has_symlink(path):
                 raise DomainError("authority_invalid", "Session signing material is not at its registered path")
             path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)

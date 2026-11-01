@@ -6,7 +6,7 @@ ownership authority; a handle never looks up or adopts a newer lease.
 import json
 import secrets
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 
 
 _PRIVATE = {"turn_id", "lease_id", "turn_token"}

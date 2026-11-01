@@ -16,8 +16,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from bazarlyk.contracts import (ChangeSet, DomainError, ExpectedTarget, PreparedChange, ResourceRef,
-    canonical_bytes, new_id, plain, utc_now)
+from qorqut_operations.contracts import (ChangeSet, DomainError, ExpectedTarget, PreparedChange, ResourceRef,
+                                         canonical_bytes, new_id, plain, utc_now)
 
 from .worker_models import LUNA_MODEL, LEGACY_LUNA_MODEL, WORKER_MODEL, worker_effort
 
@@ -1169,7 +1169,7 @@ class OperationalDelegationOperations:
             {"title": operation.replace("_", " ").title(), "rationale": "Approved delegated-work control"})
 
     def register(self, registry, application):
-        from bazarlyk.application.registry import OperationDescriptor
+        from qorqut_operations.application.registry import OperationDescriptor
         self.registry = registry
         self.application = application
 
@@ -1512,7 +1512,7 @@ class OperationalDelegationOperations:
         return selected
 
     def _register_mutation(self, registry, name, properties, required, prepare):
-        from bazarlyk.application.registry import OperationDescriptor
+        from qorqut_operations.application.registry import OperationDescriptor
         registry.register(OperationDescriptor(name,
             {"type": "object", "properties": properties, "required": required},
             effect_kind="records", scope_kinds=frozenset({"global"}),

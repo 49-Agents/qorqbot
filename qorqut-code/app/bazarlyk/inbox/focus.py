@@ -3,9 +3,9 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError, InvocationOptions, new_id, plain
-from bazarlyk.domains.common import PlanBuilder, schema, timestamp
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError, InvocationOptions, new_id, plain
+from qorqut_operations.application.plans import PlanBuilder, schema, timestamp
 from bazarlyk.domains.relationships.items import ITEM_TYPES, UNAVAILABLE
 
 UUID = {'type': 'string', 'format': 'uuid'}

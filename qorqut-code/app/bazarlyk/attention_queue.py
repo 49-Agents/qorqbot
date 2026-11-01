@@ -6,7 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 from bazarlyk.management.identity import installation_owner
 from bazarlyk.reply_notifications import replies
 from bazarlyk.domains.viewbox import BOARD_LIMIT, attention_key
@@ -16,8 +16,8 @@ def signoff_key(row):
     return f"signoff:{row['id']}:{row['proposal_revision']}:{row['payload_hash']}"
 
 
-def viewed(root, owner, ids=()):
-    directory = Path(root) / '.bazarlyk' / 'dashboard-preferences'
+def viewed(runtime_directory, owner, ids=()):
+    directory = Path(runtime_directory) / 'dashboard-preferences'
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / (hashlib.sha256(owner.encode()).hexdigest() + '.attention.json')
     with path.with_suffix('.lock').open('a') as lock:
@@ -83,7 +83,7 @@ def queue(runtime, ctx, change=None):
             'created_at': row['created_at']})
     # Only acknowledge exact versions the owner could see; a newer reply remains new.
     allowed = {item['id'] for item in candidates}
-    seen = viewed(runtime.root, ctx.principal_id, [x for x in (change or {}).get('viewed', []) if x in allowed])
+    seen = viewed(runtime.paths.runtime, ctx.principal_id, [x for x in (change or {}).get('viewed', []) if x in allowed])
     groups = {}
     order = lambda item: (item['created_at'] or '', item.get('placement_sequence', 0), item['id'])
     for item in sorted(candidates, key=order):

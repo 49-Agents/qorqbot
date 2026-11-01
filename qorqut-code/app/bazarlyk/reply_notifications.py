@@ -1,18 +1,18 @@
 """Read-only owner reply indicators. Uses stored private cursors and captured sessions."""
 import hashlib
 import json
-from pathlib import Path
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 from bazarlyk.management.identity import installation_owner, private_participants
 from bazarlyk.bootstrap.client import path_has_symlink
+from bazarlyk.composition.locations import agent_workspace
 
 _CAPTURES = {}
 
 
 def snapshot_replies(workspace, agent_id, name):
     """Only prepared agent-owned captures; never inspect personal CLI transcripts."""
-    directory = workspace / 'sessions'
+    directory = workspace / 'transcripts'
     if path_has_symlink(directory) or not directory.is_dir():
         return []
     result = []
@@ -102,11 +102,7 @@ def replies(runtime, ctx):
                 continue
             profile = json.loads(row['profile_json'])
             name = profile.get('display_name') or profile.get('name') or 'Agent'
-            workspace = Path(row['workspace'])
-            if not workspace.is_absolute():
-                workspace = runtime.root / workspace
-            if workspace.resolve().is_relative_to(runtime.root.resolve()):
-                globals_.append((workspace, row['agent_id'], name))
+            globals_.append((agent_workspace(runtime.paths, row['agent_id']), row['agent_id'], name))
         for row in uow.connection.execute("""SELECT m.* FROM telegram_messages m JOIN agent_profiles a ON a.agent_id=m.agent_id
             WHERE m.direction='outbound' AND m.purpose='reply' AND a.home_business_id IS NULL
             AND a.status='active' AND m.sensitive=0 AND m.body_redacted=0 ORDER BY m.created_at DESC LIMIT 30"""):

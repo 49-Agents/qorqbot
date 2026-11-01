@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 import json
 
-from bazarlyk.contracts import canonical_hash
+from qorqut_operations.contracts import canonical_hash
 
 PENDING = frozenset({"queued", "running", "applying", "waiting_signoff", "cancel_requested"})
 

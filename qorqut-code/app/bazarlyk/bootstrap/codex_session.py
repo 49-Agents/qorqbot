@@ -11,7 +11,7 @@ import sys
 import time
 import uuid
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 from bazarlyk.inbox.watcher import watch
 from .client import BootstrapClient, load_registration, path_has_symlink
 from .transcript_snapshot import run as snapshot_transcript

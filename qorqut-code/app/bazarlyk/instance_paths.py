@@ -16,6 +16,7 @@ Layout under ``instance_root``::
       businesses/{folder}/{hq,code}       business notes/documents and business source projects
       businesses/{folder}/agents/{id}/    per-business agent workspace
       .runtime/operations.sqlite3         the one operational database
+      .runtime/locks/                     application claims, apply locks and the recovery lock
       .runtime/context/                   Context-owned execution and index state
       .runtime/history.git/               private operational Git snapshots
     qorqut-roles/                         the separate role-source repositories
@@ -134,6 +135,16 @@ class InstancePaths:
     @property
     def operations(self) -> Path:
         return self._checked(self._operations)
+
+    @property
+    def runtime(self) -> Path:
+        """Runtime metadata of this instance (never authored working material)."""
+        return self._checked(self._operations / ".runtime")
+
+    @property
+    def locks(self) -> Path:
+        """Prepared-application claims, per-receipt file locks and the installation recovery lock."""
+        return self._checked(self._operations / ".runtime" / "locks")
 
     @property
     def database(self) -> Path:

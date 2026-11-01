@@ -13,7 +13,7 @@ import uuid
 from typing import Callable
 
 from bazarlyk.catalog.packages import content_hash
-from bazarlyk.contracts import DomainError, utc_now
+from qorqut_operations.contracts import DomainError, utc_now
 from bazarlyk.agents.context import MAX_CONTEXT_CHARACTERS
 from bazarlyk.inbox.defaults import CLAUDE_INBOX_SETUP, INBOX_RECOVERY_REMINDER
 from .client import (BOOTSTRAP_TIMEOUT, REQUEST_TIMEOUT, BootstrapClient,

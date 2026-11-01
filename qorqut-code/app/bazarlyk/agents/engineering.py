@@ -3,7 +3,7 @@
 import re
 from copy import deepcopy
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 
 
 def has_ordubashy_settings_authority(ctx, uow):

@@ -2,10 +2,10 @@
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
-from bazarlyk import local_time
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError
-from .common import schema, timestamp
+from qorqut_operations import local_time
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError
+from qorqut_operations.application.plans import schema, timestamp
 from .tasks.operations import TaskOperations
 from .tasks.snooze import ACTIVE_SQL
 

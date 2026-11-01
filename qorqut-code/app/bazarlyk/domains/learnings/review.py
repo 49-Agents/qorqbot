@@ -3,9 +3,9 @@
 import base64
 import json
 
-from bazarlyk.application.registry import OperationDescriptor
-from bazarlyk.contracts import DomainError, canonical_bytes, canonical_hash
-from bazarlyk.domains.common import IDENTITY, PAGE, schema
+from qorqut_operations.application.registry import OperationDescriptor
+from qorqut_operations.contracts import DomainError, canonical_bytes, canonical_hash
+from qorqut_operations.application.plans import IDENTITY, PAGE, schema
 
 from .analysis import BUCKETS, SCOPES, TAGS
 from .issue_reads import VIEW

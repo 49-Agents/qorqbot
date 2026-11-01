@@ -6,7 +6,7 @@ and contribution hashes; existing transcript cursors remain untouched.
 """
 import json
 
-from bazarlyk.contracts import DomainError, canonical_hash
+from qorqut_operations.contracts import DomainError, canonical_hash
 
 KINDS = ('signoff_response', 'task_note', 'story_note')
 MAX_SOURCE_CHARS = 160000

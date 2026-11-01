@@ -20,7 +20,7 @@ from scripts.measure_mcp_tool_read_efficiency import packed, tokens, source_iden
 
 def measure(service):
     from starlette.testclient import TestClient
-    from bazarlyk.contracts import new_id
+    from qorqut_operations.contracts import new_id
     from bazarlyk.transport.mcp_reads import OPERATIONS
     from mcp_efficiency_support import seed_reads
 

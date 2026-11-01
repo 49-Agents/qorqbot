@@ -12,7 +12,8 @@ from starlette.responses import JSONResponse, StreamingResponse
 
 from bazarlyk.bootstrap import prepare_agent
 from bazarlyk.bootstrap.preparation import installed_versions
-from bazarlyk.contracts import DomainError, Principal
+from bazarlyk.composition.locations import agent_workspace, business_hq
+from qorqut_operations.contracts import DomainError, Principal
 from bazarlyk.management.identity import require_protected_control
 from .http import checked_fields, read_json
 
@@ -117,26 +118,19 @@ class TerminalService:
 
     def binding(self, business, row, broker=None):
         broker = self.broker if broker is None else broker
-        workspace = Path(row["workspace"])
+        # The registered identity and home scope select the workspace; the stored column and the name never do.
+        workspace = agent_workspace(self.runtime.paths, row["agent_id"], business)
         if business is None:
-            if not workspace.is_absolute():
-                workspace = self.runtime.root / workspace
-            base = self.runtime.root / "agents"
-            if (row["home_business_id"] is not None or workspace.parent != base
-                    or workspace.name != row["name"] or workspace.resolve() != base.resolve() / row["name"]
-                    or not workspace.resolve().is_relative_to(self.runtime.root.resolve())):
-                raise DomainError("registration_conflict", "Global terminal workspace must be registered under root agents")
+            if row["home_business_id"] is not None:
+                raise DomainError("registration_conflict", "Global terminal workspace must belong to a Global agent")
             # An extra underscore cannot occur in a business agent's validated name.
             session = broker.session_name("global", "_" + row["agent_id"])
             return str(self.runtime.root) + "\0global\0" + row["agent_id"], session, str(workspace)
-        hq = Path(business["hq_path"])
-        if not workspace.is_absolute():
-            workspace = self.runtime.root / workspace
-        if not hq.is_absolute():
-            hq = self.runtime.root / hq
-        if workspace.parent != hq / "agents" or not workspace.resolve().is_relative_to(self.runtime.root):
+        if row["home_business_id"] != business["id"]:
             raise DomainError("registration_conflict", "Terminal workspace is not registered under this business")
-        stable_name = workspace.name
+        hq = business_hq(self.runtime.paths, business)
+        # Session names stay derived from the registered agent name, as before.
+        stable_name = row["name"]
         return str(hq) + "\0" + stable_name, broker.session_name(business["slug"], stable_name), str(workspace)
 
     def workspace_binding(self, context, slot=1):

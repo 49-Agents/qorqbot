@@ -25,7 +25,7 @@ from typing import Any, Callable, Protocol
 
 from bazarlyk.catalog.packages import validate_schema as validate_catalog_schema
 from bazarlyk.catalog.sources import SOURCE_SCHEMA, load_sources
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 
 from . import entry_verifier
 from .errors import ReleaseError, UncertainRemoteEffect, UnsupportedAdapter

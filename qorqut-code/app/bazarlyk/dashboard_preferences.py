@@ -5,16 +5,16 @@ import os
 import tempfile
 from pathlib import Path
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 
-def pins(root, owner_id, change=None):
+def pins(runtime_directory, owner_id, change=None):
     """Read, initialize once, or set one pin under a cross-process lock.
 
     Per-item writes avoid clobbering changes made in another browser. Retried
     writes set a desired value rather than toggling it. An empty saved list is
     authoritative, so stale browser caches never resurrect removed pins.
     """
-    directory = Path(root) / '.bazarlyk' / 'dashboard-preferences'
+    directory = Path(runtime_directory) / 'dashboard-preferences'
     directory.mkdir(parents=True, exist_ok=True)
     # Owner identity comes from the authenticated installation, never the URL.
     import hashlib

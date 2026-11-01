@@ -20,8 +20,8 @@ import threading
 import time
 import uuid
 
-from bazarlyk.contracts import DomainError
-from bazarlyk.storage import safe_io
+from qorqut_operations.contracts import DomainError
+from qorqut_operations.storage import safe_io
 from .client import BootstrapClient, load_registration, path_has_symlink
 
 MAX_WORKERS = 3

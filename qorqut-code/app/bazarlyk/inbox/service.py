@@ -3,9 +3,9 @@ import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
-from bazarlyk.application import OperationDescriptor
-from bazarlyk.contracts import DomainError, Principal, new_id, plain
-from bazarlyk.domains.common import PlanBuilder, schema, utc_clock, timestamp
+from qorqut_operations.application import OperationDescriptor
+from qorqut_operations.contracts import DomainError, Principal, new_id, plain
+from qorqut_operations.application.plans import PlanBuilder, schema, utc_clock, timestamp
 from .events import ITEM_TYPES
 from .messages import Messages
 
@@ -834,7 +834,7 @@ class InboxService:
                     raise DomainError('inbox_generation_stale','Native identity changed before recovery notice')
         try:
             if runtime == 'claude-code':
-                outcome = backend.service_notice(profile,text,workdir=self.resolver.root/'.bazarlyk/inbox-paste',checkpoint=checkpoint)
+                outcome = backend.service_notice(profile,text,workdir=self.resolver.paths.runtime/'inbox-paste',checkpoint=checkpoint)
                 state = 'queued' if outcome.status == 'deferred' else outcome.status
                 receipt = {'reason':outcome.reason, **(outcome.receipt or {})}
             else:

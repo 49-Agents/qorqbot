@@ -11,8 +11,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from bazarlyk.contracts import DomainError
-from bazarlyk.storage.safe_io import read_bytes
+from qorqut_operations.contracts import DomainError
+from qorqut_operations.storage.safe_io import read_bytes
 
 
 # These budgets cover actual service work, including configuration resolution

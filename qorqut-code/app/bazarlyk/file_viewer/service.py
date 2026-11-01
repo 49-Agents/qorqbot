@@ -10,11 +10,11 @@ records no history and creates no document ID.
 from __future__ import annotations
 
 from pathlib import Path
-import os
 import posixpath
 from urllib.parse import quote, urlsplit
 
-from bazarlyk.contracts import DomainError, InvocationContext, plain
+from qorqut_operations.contracts import DomainError, InvocationContext, plain
+from bazarlyk.composition.locations import document_location, document_path_at, document_path_at_global
 from bazarlyk.storage import history
 
 from . import files, previews
@@ -85,26 +85,20 @@ class FileViewer:
             raise DomainError("operation_unavailable", "Registered documents are not available in this configuration")
         return domains.documents.store
 
-    def hq_relative(self, hq_path):
-        """A business's HQ folder relative to the root, or None when its registered location is outside it."""
-        base = Path(hq_path)
-        normal = os.path.normpath(base if base.is_absolute() else self.root / base)
-        for root in (str(self.root), os.path.normpath(self.roots[-1])):
-            if normal == root:
-                return ""
-            if normal.startswith(root + "/"):
-                return normal[len(root) + 1:]
-        return None
+    def _paths(self):
+        paths = getattr(self.runtime, "paths", None)
+        if paths is None:
+            raise DomainError("invalid_configuration", "The file viewer requires the explicit instance paths")
+        return paths
 
     def location(self, row, uow):
         """The registered document's present root-relative location."""
         if row["business_id"] is None:
-            return normalize_path(row["path"], ())
-        business = uow.connection.execute("SELECT hq_path FROM businesses WHERE id=?", (row["business_id"],)).fetchone()
-        base = self.hq_relative(business["hq_path"]) if business else None
-        if base is None:
-            raise DomainError("forbidden", "The registered document is outside the businesses root")
-        return normalize_path(posixpath.join(base, row["path"]), ())
+            return normalize_path(document_location(self._paths(), None, row["path"]), ())
+        business = uow.connection.execute("SELECT slug FROM businesses WHERE id=?", (row["business_id"],)).fetchone()
+        if business is None:
+            raise DomainError("forbidden", "The registered document is outside the operations root")
+        return normalize_path(document_location(self._paths(), business, row["path"]), ())
 
     def document(self, selector):
         """``(row, scope context, location)`` for a document selector, through the existing document rules."""
@@ -118,16 +112,13 @@ class FileViewer:
 
     def managed_for_path(self, relative):
         """The one registered document at this location, or None (none, or more than one)."""
+        paths = self._paths()
         with self.runtime.database.read() as uow:
             connection = uow.connection
-            candidates = [(None, relative)]
-            for business in connection.execute("SELECT id, hq_path FROM businesses"):
-                base = self.hq_relative(business["hq_path"])
-                if base and relative.startswith(base + "/"):
-                    candidates.append((business["id"], relative[len(base) + 1:]))
-                elif base == "":
-                    candidates.append((business["id"], relative))
-            found = [row for business_id, path in candidates for row in connection.execute(
+            candidates = [(None, document_path_at_global(paths, relative))]
+            for business in connection.execute("SELECT id, slug FROM businesses"):
+                candidates.append((business["id"], document_path_at(paths, business, relative)))
+            found = [row for business_id, path in candidates if path is not None for row in connection.execute(
                 "SELECT id, business_id, kind, revision FROM documents WHERE business_id IS ? AND path = ?",
                 (business_id, path))]
         return dict(found[0]) if len(found) == 1 else None

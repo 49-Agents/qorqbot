@@ -1,23 +1,21 @@
 """The existing fixed repository-status routine, without an argv interface."""
 
 import os
-from pathlib import Path
 import subprocess
 
-from bazarlyk.contracts import DomainError
+from bazarlyk.composition.locations import business_hq
+from qorqut_operations.contracts import DomainError
 from .programs import ProgramResult
 
 
 def repository_status(control, arguments):
     with control.service.database.read() as uow:
         business = uow.repository("businesses").get(control.business_id, required=True)
-    root = Path(control.service.businesses_root).resolve(strict=True)
-    path = Path(business["hq_path"])
-    if not path.is_absolute():
-        path = root / path
-    path = path.resolve(strict=True)
+    paths = control.service.paths
+    root = paths.operations.resolve(strict=True)
+    path = business_hq(paths, business).resolve(strict=True)
     if not path.is_relative_to(root):
-        raise DomainError("invalid_configuration", "Registered repository is outside the business root")
+        raise DomainError("invalid_configuration", "Registered repository is outside the operations root")
     environment = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_OPTIONAL_LOCKS": "0"}
     for key in tuple(environment):
         if key.startswith("GIT_CONFIG_COUNT") or key.startswith("GIT_CONFIG_KEY_") or key.startswith("GIT_CONFIG_VALUE_") or key in {

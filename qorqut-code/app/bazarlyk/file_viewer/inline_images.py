@@ -14,7 +14,7 @@ from html.parser import HTMLParser
 import posixpath
 from urllib.parse import unquote, urlsplit
 
-from bazarlyk.contracts import DomainError
+from qorqut_operations.contracts import DomainError
 
 from . import previews
 from .paths import normalize_path

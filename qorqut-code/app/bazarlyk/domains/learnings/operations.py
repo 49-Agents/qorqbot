@@ -2,10 +2,9 @@
 
 from dataclasses import replace
 
-from bazarlyk.application.registry import OperationDescriptor
-from bazarlyk.contracts import DomainError, plain
-from bazarlyk.domains.common import (IDENTITY, PAGE, TEXT, UUID, apply_records, page,
-    prepare_job, require_revision, rows, schema)
+from qorqut_operations.application.registry import OperationDescriptor
+from qorqut_operations.contracts import DomainError, plain
+from qorqut_operations.application.plans import IDENTITY, PAGE, TEXT, UUID, apply_records, page, prepare_job, require_revision, rows, schema
 from .analysis import BUCKETS, SCOPES, TAGS, LearnError, validate_edit, validate_item
 from .scope import PlanBuilder, SCOPE, namespace
 from .work import LearningWork, STATES, record_history
