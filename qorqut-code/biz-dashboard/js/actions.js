@@ -260,7 +260,7 @@ function acPaint() {
     <div class="ac-chips" role="group" aria-label="Category (none selected is Unclassified)">${AC_CATEGORIES.map(([id]) =>
       `<button type="button" class="ac-chip ac-scope" data-ac-category="${id}" aria-pressed="${draft.category === id}" aria-label="Scope: ${id}" title="${id}">${acCategoryIcon(id)}</button>`).join("")}</div>
     <fieldset class="ac-businesses" ${draft.category === "business-operational" ? "" : "hidden"}><legend>Businesses</legend>
-      ${businesses.length ? businesses.map(b => `<button type="button" class="ac-chip ac-biz" data-ac-business="${esc(b.id)}" aria-pressed="${draft.businesses.includes(b.id)}">${esc(b.name || b.slug || b.id)}</button>`).join("") : '<p class="muted">No businesses available.</p>'}
+      ${businesses.length ? businesses.map(b => `<button type="button" class="ac-chip ac-biz" data-ac-business="${esc(b.id)}" aria-pressed="${draft.businesses.includes(b.id)}">${esc(b.name || b.slug || "Business")}</button>`).join("") : '<p class="muted">No businesses available.</p>'}
     </fieldset>
     <div class="ac-tags" id="ac-tags"></div>
     <div class="ac-time"><input type="date" id="ac-date" class="inp" aria-label="Action date" max="${today}" value="${esc(draft.date)}">
@@ -350,7 +350,7 @@ function acRowHtml(action, i) {
       ${task ? `<button class="ltask" type="button" data-ac-task title="Open related task" aria-label="Open related task">${T_VIEW_ICON.tasks}</button>` : ""}
       ${action.withdrawn ? '<span class="ac-withdrawn">Withdrawn</span>' : ""}
       ${action.can_change ? `<button type="button" class="ghost ac-edit" data-ac-edit aria-label="Correct action">Correct</button>` : ""}</div>
-    <div class="ac-row-meta"><time>${esc(acOccurred(action))}</time><span>${esc(acPerson(action))}</span><span>${esc(action.category || "Unclassified")}</span>${businesses.length ? `<span>${businesses.map(b => esc(b.name || b.slug || b.id)).join(", ")}</span>` : ""}${action.origin && action.origin !== "manual" ? `<span>${esc(action.origin)}</span>` : ""}${(action.tags || []).map(tag => `<span class="ac-tag">${esc(tag)}</span>`).join("")}<span>Revision ${esc(String(action.revision))}</span></div>
+    <div class="ac-row-meta"><time>${esc(acOccurred(action))}</time><span>${esc(acPerson(action))}</span><span>${esc(action.category || "Unclassified")}</span>${businesses.length ? `<span>${businesses.map(b => esc(b.name || b.slug || "Business")).join(", ")}</span>` : ""}${(action.tags || []).map(tag => `<span class="ac-tag">${esc(tag)}</span>`).join("")}</div>
     ${refs.length || action.detail ? `<details class="ac-row-details"><summary>Details</summary>${action.detail ? `<p>${esc(action.detail)}</p>` : ""}${refs.map(([key, value]) => `<div><span class="muted">${esc(key)}</span> ${/^https?:\/\//.test(value) ? `<a href="${esc(value)}" target="_blank" rel="noopener">${esc(value)}</a>` : esc(value)}</div>`).join("")}</details>` : ""}
     <details class="ac-row-discussion" data-ac-discussion><summary>Discussion and earlier versions</summary><div class="ac-discussion-body"></div></details>
   </article>`;
@@ -397,7 +397,7 @@ function acDiscussionMount(host, action) {
     const out = host.querySelector(".ac-revision-text"), revision = Number(event.target.value);
     try {
       const data = await acOp("actions_get", { action_id: action.action_id, revision });
-      out.textContent = `${data.action.operation ? data.action.operation + " · " : ""}${data.action.text}`;
+      out.textContent = data.action.text;
     } catch (e) { out.textContent = ""; fail(e, true); }
   };
   host.querySelectorAll("[data-follow]").forEach(button => button.onclick = async () => {
@@ -414,7 +414,7 @@ function acListPaint() {
   const global = state.scope === "global";
   const filters = `<div class="ac-filters"><div class="ttabs ac-filter" role="group" aria-label="Category filter">${[["all", "All"], ...AC_CATEGORIES.map(([id]) => [id, id]), ["unclassified", "Unclassified"]].map(([id, label]) =>
       `<button type="button" class="ttab ac-filter-btn${acList.filter === id ? " on" : ""}" data-ac-filter="${id}" aria-pressed="${acList.filter === id}">${esc(label)}</button>`).join("")}</div>
-    ${global ? `<select class="inp" id="ac-filter-business" aria-label="Business filter"><option value="">All businesses</option>${acBusinesses().map(b => `<option value="${esc(b.id)}" ${acList.business === b.id ? "selected" : ""}>${esc(b.name || b.slug || b.id)}</option>`).join("")}</select>` : ""}
+    ${global ? `<select class="inp" id="ac-filter-business" aria-label="Business filter"><option value="">All businesses</option>${acBusinesses().map(b => `<option value="${esc(b.id)}" ${acList.business === b.id ? "selected" : ""}>${esc(b.name || b.slug || "Business")}</option>`).join("")}</select>` : ""}
     <label class="ac-withdrawn-toggle"><input type="checkbox" id="ac-show-withdrawn" ${acList.withdrawn ? "checked" : ""}> Show withdrawn</label>
     <span class="muted ac-zone">${esc(SJ_LABEL)}</span></div>`;
   let list;

@@ -26,24 +26,24 @@ const GLOBAL_CHAT_MAX = 17000;
 const GLOBAL_CHAT_REFUSALS = new Set(['terminal_offline', 'capture_disabled', 'capture_not_ready', 'binding_not_ready', 'operation_unavailable',
   'unsupported_runtime', 'terminal_changed', 'validation_error', 'not_found', 'forbidden', 'idempotency_conflict']);
 const GLOBAL_CHAT_REFUSAL_TEXT = {
-  terminal_offline: 'The agent is not running in its terminal. Start or resume it manually in Terminal, then send again.',
-  capture_disabled: 'Transcript capture is off for this agent, so Chat cannot send to it.',
-  capture_not_ready: 'The session has not published its conversation yet. Try again in a moment.',
-  binding_not_ready: 'The live session is still connecting. Try again in a moment.',
-  terminal_changed: 'The terminal changed before the message was admitted. Nothing was sent; check the agent and try again.',
+  terminal_offline: 'Not running. Start or resume it in Terminal, then send again.',
+  capture_disabled: 'Chat unavailable.',
+  capture_not_ready: 'Connecting. Try again in a moment.',
+  binding_not_ready: 'Connecting. Try again in a moment.',
+  terminal_changed: 'Not delivered. Check the agent and try again.',
 };
 const GLOBAL_CHAT_INPUT_LABEL = {inbox_nudge: 'Inbox nudge', bootstrap_recovery: 'Session recovery', telegram: 'Telegram', broadcast: 'Broadcast', direct_message: 'Direct message'};
 const GLOBAL_CHAT_INPUT_STATE = {
-  waiting: 'Waiting for the agent to take it. Not typed yet.',
+  waiting: 'Waiting',
   submitting: 'Sending…',
-  uncertain: 'May not have been delivered; check the conversation. It will not be sent again automatically.',
-  failed: 'Not delivered. Nothing was typed.',
-  undelivered: 'Not delivered: the session ended or a different conversation took over. Nothing was typed.',
+  uncertain: 'Delivery unconfirmed',
+  failed: 'Not delivered',
+  undelivered: 'Not delivered',
 };
 // The expanded text of an inbox nudge is system-generated and technical: the timeline shows only its compact marker.
 const globalChatMarkerOnly = type => type === 'inbox_nudge';
 const globalChatNoticeLabel = system => !system ? 'System notice'
-  : system.verified ? GLOBAL_CHAT_INPUT_LABEL[system.input_type] || String(system.input_type || 'system notice').replace(/_/g, ' ')
+  : system.verified ? GLOBAL_CHAT_INPUT_LABEL[system.input_type] || 'System notice'
   : 'Unverified notice';
 const GLOBAL_CHAT_TIME = new Intl.DateTimeFormat(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
 const GLOBAL_CHAT_FULL_TIME = new Intl.DateTimeFormat(undefined, {dateStyle:'full', timeStyle:'long'});
@@ -428,7 +428,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     for (const item of shownInputs) {
       let node = inputNodes.get(item.id);
       if (!node) { node = document.createElement('div'); inputNodes.set(item.id, node); }
-      const system = item.origin === 'system', kind = GLOBAL_CHAT_INPUT_LABEL[item.input_type];
+      const system = item.origin === 'system', kind = GLOBAL_CHAT_INPUT_LABEL[item.input_type] || (system ? 'System notice' : '');
       node.className = `gchat-msg gchat-pending ${system ? 'gchat-notice' : 'gchat-user'}`;
       node.dataset.inputId = item.id; node.dataset.state = item.state; node.dataset.inputType = item.input_type;
       const definite = ownerChat(item) && ['failed', 'undelivered'].includes(item.state) && !!item.body;
@@ -454,19 +454,19 @@ function mountGlobalChat(pane, agent, options = {}) {
   // ---- session status, composer enablement and the empty state
   const canSend = () => !!session?.can_send && viewingLive() && !switching && !finished;
   function sessionSummary() {
-    if (!session) return {key: 'loading', short: 'Loading…', line: 'Loading…'};
-    if (switching) return {key: 'loading', short: 'Loading…', line: 'Loading…'};
-    if (selected || (session.state === 'live' && session.can_send && !viewingLive())) return {key: 'archive', short: 'Earlier conversation', line: 'Viewing a conversation that is not the live session. Messages go only to the live session.'};
+    if (!session) return {key: 'loading', short: 'Loading…', line: ''};
+    if (switching) return {key: 'loading', short: 'Loading…', line: ''};
+    if (selected || (session.state === 'live' && session.can_send && !viewingLive())) return {key: 'archive', short: 'Earlier conversation', line: 'Messages go only to the live session.'};
     if (session.state === 'live') {
-      if (session.reason === 'capture_disabled') return {key: 'disabled', short: 'Capture disabled', line: 'Transcript capture is off for this agent, so Chat cannot show or send messages.'};
-      if (session.reason === 'binding_not_ready') return {key: 'starting', short: 'Connecting', line: 'Connecting to the live session. You can send once it is ready.'};
-      if (session.reason === 'capture_not_ready') return {key: 'starting', short: 'Starting capture', line: 'The conversation is starting. You can send once the session publishes it.'};
-      return session.working ? {key: 'working', short: 'Working', line: 'Working…'} : {key: 'live', short: 'Live', line: 'Live'};
+      if (session.reason === 'capture_disabled') return {key: 'disabled', short: 'Chat unavailable', line: ''};
+      if (session.reason === 'binding_not_ready') return {key: 'starting', short: 'Connecting', line: ''};
+      if (session.reason === 'capture_not_ready') return {key: 'starting', short: 'Connecting', line: ''};
+      return session.working ? {key: 'working', short: 'Working', line: ''} : {key: 'live', short: 'Live', line: ''};
     }
-    const direction = `Start or resume ${label} manually in Terminal to send.`;
-    if (session.reason === 'capture_disabled') return {key: 'disabled', short: 'Capture disabled', line: 'Transcript capture is off for this agent, so Chat cannot show or send messages.'};
-    if (session.reason === 'unsupported_runtime') return {key: 'offline', short: 'Unsupported', line: 'Chat does not support this agent’s runtime.'};
-    return {key: 'offline', short: 'Offline', line: `Not running. ${direction}`};
+    const direction = `Start or resume ${label} in Terminal to send.`;
+    if (session.reason === 'capture_disabled') return {key: 'disabled', short: 'Chat unavailable', line: ''};
+    if (session.reason === 'unsupported_runtime') return {key: 'offline', short: 'Chat unavailable', line: ''};
+    return {key: 'offline', short: 'Offline', line: direction};
   }
   function paintEmpty() {
     const empty = !nodes.size && !inputNodes.size && !!session;
@@ -474,8 +474,8 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (!empty) return;
     const key = sessionSummary().key;
     emptyNote.innerHTML = key === 'live' || key === 'working' ? '<p>Your agent conversation appears here.</p>'
-      : key === 'starting' ? '<p>The conversation appears once the session publishes its first turn.</p>'
-      : key === 'disabled' ? '<p>Transcript capture is off for this agent, so there is no conversation to show.</p>'
+      : key === 'starting' ? '<p>Connecting…</p>'
+      : key === 'disabled' ? '<p>Chat unavailable.</p>'
       : `<p>Start or resume ${esc(label)} in Terminal. Its conversation will appear here.</p>${options.openTerminal ? '<button type="button" class="quiet" data-terminal>Open terminal</button>' : ''}`;
   }
   function paintSession() {
@@ -483,7 +483,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     sessionLine.dataset.state = streamDown && summary.key === 'working' ? 'live' : summary.key;
     sessionLine.classList.toggle('gchat-session-working', working);
     sessionText.textContent = finished ? 'This chat is no longer available.' : summary.line;
-    sessionLine.title = session?.detail || '';
+    sessionLine.hidden = !sessionText.textContent;
     status.textContent = finished ? 'Unavailable' : summary.short;
     status.dataset.state = !session ? 'loading' : ['live', 'working'].includes(summary.key) ? 'ready' : 'stopped';
     const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope);

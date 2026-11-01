@@ -52,19 +52,25 @@ function filingCostRow(call) {
   </div>`;
 }
 
-function filingCostAggregates(aggregates, period) {
+// Missing or malformed required evidence is never proof of completeness: anything that is not a plain zero counts as a gap.
+function filingCostIncomplete(aggregates, coverage) {
+  const gap = (source, key) => !source || !Number.isSafeInteger(source[key]) || source[key] > 0;
+  return ['unknown_cost_calls', 'unfinished_calls', 'events_not_ready'].some(key => gap(aggregates, key))
+    || ['partial_events', 'unavailable_events', 'unscanned_events', 'ready_events_without_calls'].some(key => gap(coverage, key));
+}
+
+function filingCostAggregates(aggregates, coverage, period) {
   const label = period === 'all' ? 'All time' : 'This month';
-  const missing = key => !Number.isSafeInteger(aggregates[key]) || aggregates[key] > 0;
-  return `<div class="filing-cost-subtotal"><span class="filing-cost-label">${label}</span>
-      <strong>${esc(filingCostMoney(aggregates.known_cost_usd))}</strong></div>
-    ${missing('unknown_cost_calls') || missing('unfinished_calls') ? '<p class="filing-cost-caveat">Some costs unavailable</p>' : ''}`;
+  return `<div class="filing-cost-subtotal"><span class="filing-cost-label">Recorded cost</span>
+      <strong>${esc(filingCostMoney(aggregates.known_cost_usd))}</strong><small class="filing-cost-period">${label}</small></div>
+    ${filingCostIncomplete(aggregates, coverage) ? '<p class="filing-cost-caveat">Some costs unavailable</p>' : ''}`;
 }
 
 // The Costs page's Context usage section.
 async function filingCostsMount(c) {
   const generation = ++globalFilingCostsGeneration;
   let cursor = null, selection = 0, requestSequence = 0, loading = false, range = {};
-  let calls = new Map(), aggregates = null;
+  let calls = new Map(), aggregates = null, coverage = null;
   const current = () => generation === globalFilingCostsGeneration && c.isConnected
     && state.scope === 'global' && state.globalTab === 'costs';
   c.innerHTML = `<header class="costs-subhead filing-costs-heading"><div><h2>Context usage</h2></div>
@@ -78,7 +84,7 @@ async function filingCostsMount(c) {
   const total = $('#filing-cost-total', c), more = $('#filing-cost-more', c);
 
   const paintFacts = () => {
-    total.innerHTML = aggregates ? filingCostAggregates(aggregates, period.value) : '<span class="muted">Loading…</span>';
+    total.innerHTML = aggregates ? filingCostAggregates(aggregates, coverage, period.value) : '<span class="muted">Loading…</span>';
   };
   const paintRows = () => {
     if (!aggregates) { body.innerHTML = ''; return; }
@@ -99,7 +105,7 @@ async function filingCostsMount(c) {
     const mine = ++requestSequence, mySelection = reset ? ++selection : selection;
     loading = true; status.textContent = '';
     if (reset) {
-      cursor = null; calls = new Map(); aggregates = null;
+      cursor = null; calls = new Map(); aggregates = null; coverage = null;
       more.hidden = true; paintFacts(); body.innerHTML = '<p class="muted" role="status">Loading…</p>';
     }
     more.disabled = true;
@@ -110,7 +116,7 @@ async function filingCostsMount(c) {
       if (!filingCostIsPage(result)) throw new Error('The Context usage response is not in the expected format');
       // A later page can repeat a call with a newer cumulative snapshot: it replaces the earlier row, never adds to it.
       for (const call of result.calls) calls.set(call.call_id, call);
-      cursor = result.next_cursor || null; aggregates = result.aggregates;
+      cursor = result.next_cursor || null; aggregates = result.aggregates; coverage = result.coverage;
       paintFacts(); paintRows();
       more.hidden = !cursor;
     } catch (error) {

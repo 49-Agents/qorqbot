@@ -6,7 +6,7 @@
 .gchat-status[data-state="error"] { color: var(--danger); }
 .gchat-status[data-state="ready"] { color: var(--fg); }
 .gchat-banner { margin: 8px 0 0; padding: 8px 12px; font-size: 12px; border: 1px solid var(--line-2); border-radius: 8px; color: var(--fg-2); flex: none; }
-.gchat-banner[hidden], .gchat-older[hidden], .gchat-jump[hidden], .gchat-empty[hidden] { display: none; }
+.gchat-banner[hidden], .gchat-session[hidden], .gchat-older[hidden], .gchat-jump[hidden], .gchat-empty[hidden] { display: none; }
 .gchat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 38px 2px 14px; overscroll-behavior: contain; }
 .gchat-older { display: block; margin: 0 auto 12px; }
 .gchat-log { display: flex; flex-direction: column; gap: 10px; }

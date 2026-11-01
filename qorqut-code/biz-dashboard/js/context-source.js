@@ -23,7 +23,8 @@ const SRC_COPY = {loadFailed: "Couldn't load. Retry", saveFailed: "Couldn't save
 // A pending, missing or conflicting completion is never shown as complete.
 function srcFilingLabel(filing) {
   if (!filing || typeof filing !== 'object') return {key: 'unavailable', label: 'Unavailable', tone: 'warn'};
-  const state = filing.state || 'unfiled';
+  const state = filing.state;
+  if (typeof state !== 'string' || !state) return {key: 'unavailable', label: 'Unavailable', tone: 'warn'};
   const table = {unfiled: ['Not added', 'idle'], queued: ['Waiting', 'run'], processing: ['Processing', 'run'], blocked: ["Couldn't process", 'bad'],
     discard_requested: ['Cancelling', 'warn'], discarded: ['Cancelled', 'bad']};
   if (table[state]) return {key: state, label: table[state][0], tone: table[state][1]};

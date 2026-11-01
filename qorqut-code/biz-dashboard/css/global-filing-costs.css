@@ -8,6 +8,7 @@
 .filing-cost-subtotal { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
 .filing-cost-subtotal strong { font-size:24px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
 .filing-cost-label { color:var(--fg-2); }
+.filing-cost-period { color:var(--fg-2); }
 .filing-cost-caveat { margin:6px 0 0; color:var(--fg-2); font-size:12px; }
 .filing-cost-table { max-width:1200px; border:1px solid var(--line-2); border-radius:14px; overflow:hidden; }
 .filing-cost-row { display:grid; grid-template-columns:minmax(130px,1.1fr) minmax(120px,1.5fr) minmax(110px,.9fr); gap:10px; align-items:center; min-height:56px; padding:9px 12px; border-top:1px solid var(--line); font-size:13px; font-variant-numeric:tabular-nums; }

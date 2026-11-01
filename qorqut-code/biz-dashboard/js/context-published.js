@@ -323,12 +323,21 @@ function pubMountGraph(host, scope, nav, {storageKey, caption}) {
 // A stored record in the history, shown as content only: its text, attributes and endpoint names.
 function pubStoredHtml(label, stored) {
   if (stored === null) return `<div class="pub-stored" data-pub-stored="${label}"><b>${label}:</b> <span class="pub-none">None</span></div>`;
-  return `<div class="pub-stored" data-pub-stored="${label}"><b>${label}:</b> ${esc(stored.summary)}${pubAttributes(stored.attributes)}</div>`;
+  // Relationship endpoints are neutral links to the exact returned item; the identifier is only the navigation target.
+  const end = (name, id) => typeof id === 'string' && id ? `<div class="cs pub-end">${name}: ${pubRefButton('node:' + id, pubNeutral.node)}</div>` : '';
+  return `<div class="pub-stored" data-pub-stored="${label}"><b>${label}:</b> ${esc(stored.summary)}${pubAttributes(stored.attributes)}${end('From', stored.from_id)}${end('To', stored.to_id)}</div>`;
+}
+// Which relationship endpoints differ between the stored before and after records.
+function pubEndpointChanges(entry) {
+  if (!entry.before || !entry.after) return [];
+  return [['Source changed', 'from_id'], ['Destination changed', 'to_id']]
+    .filter(([, key]) => (entry.before[key] ?? null) !== (entry.after[key] ?? null)).map(([text]) => text);
 }
 function pubHistoryDetails(entry) {
   const sameSummary = entry.before && entry.after && entry.before.summary === entry.after.summary;
   return `<details class="pub-history-details"><summary>What changed</summary>
-    ${sameSummary ? '<div class="cs pub-unchanged">The text is unchanged; see the details below.</div>' : ''}
+    ${pubEndpointChanges(entry).map(text => `<div class="cs pub-unchanged">${text}</div>`).join('')}
+    ${sameSummary && !pubEndpointChanges(entry).length ? '<div class="cs pub-unchanged">The text is unchanged; see the details below.</div>' : ''}
     ${pubStoredHtml('Before', entry.before)}${pubStoredHtml('After', entry.after)}
     ${entry.developments.map(d => `<div class="cs pub-development">${esc(String(d.date))}: ${esc(d.description)}</div>`).join('')}</details>`;
 }
