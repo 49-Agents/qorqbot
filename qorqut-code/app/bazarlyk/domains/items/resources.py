@@ -1,8 +1,8 @@
 """The host's related-resource resolver: authorized reads of the retained domains' resources by table.
 
 This is the shared resource lookup that deployed v1 kept inside ``StoryOperations.related``. It is constructed from the
-actual ``Application`` and document service and nothing else, so item lookups, Tasks, documents, Focus and Stories all
-read through it without any of them constructing the Story service. Every read keeps the domain's own checks: document
+actual ``Application`` and document service and nothing else, so item lookups, Tasks, campaigns, documents and Focus all
+read through it without any of them constructing another domain's service. Every read keeps the domain's own checks: document
 availability (``allow_busy`` then reads the last committed metadata only), the email and Signoff domains' read
 handlers, the canonical read-only global Action reference, active-agent membership, and the resource's own read
 operation policy. Resolving a resource grants nothing the caller's policy would not."""
@@ -13,12 +13,12 @@ from qorqut_operations.application.plans import ref
 from qorqut_operations.contracts import DomainError, InvocationOptions
 from qorqut_operations.items import authorize_item_read
 
-from ..activity.operations import linked_action
+from ..activity import linked_action
 
 DOCUMENT_TYPES = {"notes": {"business_note", "agent_note", "journal", "business_owned_note"},
                   "uploads": {"context_upload", "context_dump", "asset", "data_upload"}}
 # The read operation that authorizes each resource table (documents are chosen by their stored kind below).
-READ_OPERATIONS = {"tasks": "tasks_get", "action_logs": "logs_get", "agent_profiles": "agents_get",
+READ_OPERATIONS = {"tasks": "tasks_get", "action_logs": "actions_get", "agent_profiles": "agents_get",
                    "documents": "context_get", "signoffs": "signoffs_get", "email_conversations": "email_conversation_get",
                    "email_messages": "email_attachments_list", "data_tables": "tables_get", "products": "products_get"}
 DOCUMENT_READS = {"business_note": "notes_get", "agent_note": "notes_get", "journal": "notes_get",

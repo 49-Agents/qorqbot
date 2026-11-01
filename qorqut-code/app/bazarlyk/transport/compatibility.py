@@ -287,7 +287,7 @@ class DashboardCompatibility:
             except ValueError:
                 raise DomainError("validation_error", "Log limit must be an integer") from None
             def produce():
-                entries = self.collection(context, "logs_list", key="entries") if limit == 0 else self.data(context, "logs_list", {"limit": limit})["entries"]
+                entries = self.collection(context, "actions_list", key="actions") if limit == 0 else self.data(context, "actions_list", {"limit": limit})["actions"]
                 return JSONResponse([self.log_view(row) for row in entries])
             return revalidated(request, self.runtime.changes, {"action_logs"}, context.business_id, produce)
         if tail == ["live"]:
@@ -676,9 +676,9 @@ class DashboardCompatibility:
     @staticmethod
     def context_upload_args(body):
         """The context_upload field mapping shared by the business and Global routes."""
-        checked_fields(body, {"text", "notes", "topic", "story_ids", "origin", "occurred_on", "participants"} | OPTIONS, {"text"})
+        checked_fields(body, {"text", "notes", "topic", "task_ids", "origin", "occurred_on", "participants"} | OPTIONS, {"text"})
         args = {"body": body["text"], "title": body.get("topic") or body.get("notes") or "Context upload",
-                "source": "dashboard", "story_ids": body.get("story_ids", [])}
+                "source": "dashboard", "task_ids": body.get("task_ids", [])}
         args.update({key: body[key] for key in ("origin", "occurred_on", "participants") if key in body})
         return args
 
@@ -694,12 +694,12 @@ class DashboardCompatibility:
     def document_post(self, request, context, business, tail, body):
         if tail[:1] == ["notes"]:
             domain = tail[0]
-            checked_fields(body, {"title", "content", "pinned", "date", "statuses", "ordubashy_visible", "expected_content_hash", "story_ids", "category"} | OPTIONS)
+            checked_fields(body, {"title", "content", "pinned", "date", "statuses", "ordubashy_visible", "expected_content_hash", "task_ids", "category"} | OPTIONS)
             # The business in the route is the explicit target of a business-owned note.
             target = {"target_business_id": context.business_id} if context.business_id else {}
             if len(tail) == 1:
                 args = {"title": body.get("title") or "Daily", "body": body.get("content", "")}
-                args.update({key: body[key] for key in ("pinned", "date", "story_ids", "category") if key in body})
+                args.update({key: body[key] for key in ("pinned", "date", "task_ids", "category") if key in body})
                 if "category" in body:
                     args.update(target)
                 operation, revision = domain + "_create", None
@@ -720,10 +720,10 @@ class DashboardCompatibility:
                                  else domain + "_" + tail[2])
                 else:
                     raise DomainError("not_found", "Document action is not registered")
-            if "story_ids" in body and operation == "notes_upload":
-                args["story_ids"] = body["story_ids"]
-            elif "story_ids" in body and operation != "notes_create":
-                raise DomainError("validation_error", "Use story link operations to change associations on an existing note")
+            if "task_ids" in body and operation == "notes_upload":
+                args["task_ids"] = body["task_ids"]
+            elif "task_ids" in body and operation != "notes_create":
+                raise DomainError("validation_error", "Use relationship operations to change associations on an existing note")
             result = self.invoke(context, operation, args, self.options(body, revision=revision))
             if result.status != "ok":
                 return response(result)
@@ -755,8 +755,11 @@ class DashboardCompatibility:
             return JSONResponse({"ok": True, **data, "id": (data.get("document") or {}).get("id", args.get("upload_id", args.get("document_id")))})
         if len(tail) == 3 and tail[0] == "log" and tail[2] == "labels":
             checked_fields(body, {"add", "remove"} | OPTIONS)
-            current = self.data(context, "logs_get", {"log_id": tail[1]})["entry"]
-            return response(self.invoke(context, "logs_labels_update", {"log_id": tail[1], "add": body.get("add", []), "remove": body.get("remove", [])}, self.options(body, revision=current.get("revision"))))
+            current = self.data(context, "actions_get", {"action_id": tail[1]})["action"]
+            removed = {label.casefold() for label in body.get("remove", [])}
+            kept = [label for label in current["tags"] if label.casefold() not in removed]
+            tags = kept + [label for label in body.get("add", []) if label.casefold() not in {kept_label.casefold() for kept_label in kept}]
+            return response(self.invoke(context, "actions_correct", {"action_id": tail[1], "tags": tags}, self.options(body, revision=current.get("revision"))))
         raise DomainError("not_found", "Endpoint is not registered")
 
     async def asset_upload(self, request, context):
@@ -781,9 +784,9 @@ class DashboardCompatibility:
                 raise DomainError("invalid_request", "Malformed multipart field")
             if name == "file" and file is None and part.get_filename():
                 file = {"filename": part.get_filename(), "content_b64": base64.b64encode(payload).decode(), "media_type": part.get_content_type()}
-            elif name in {"group", "topic", "notes", "batch", "story_ids"} and name not in fields and len(payload) <= (16384 if name == "story_ids" else 4096):
+            elif name in {"group", "topic", "notes", "batch", "task_ids"} and name not in fields and len(payload) <= (16384 if name == "task_ids" else 4096):
                 try:
-                    fields[name] = json.loads(payload) if name == "story_ids" else payload.decode("utf-8")
+                    fields[name] = json.loads(payload) if name == "task_ids" else payload.decode("utf-8")
                 except (UnicodeError, ValueError):
                     raise DomainError("invalid_request", "Upload metadata must be UTF-8") from None
             else:
@@ -799,12 +802,17 @@ class DashboardCompatibility:
 
     @staticmethod
     def log_view(row):
-        return {**row, "ts": row.get("occurred_at", row.get("created_at", "")),
-            "refs": row.get("refs_json", {}), "actor": row.get("actor_id", "")}
+        """The dashboard's log entry over an Action view: the Action's one text is the summary, its tags the labels."""
+        occurred = row["occurred"]
+        instant = occurred.get("instant") or occurred.get("date") or ""
+        actor = (row.get("performed_by") or row.get("recorded_by") or {}).get("id", "")
+        return {**row, "id": row["action_id"], "detail": "" if row["text"] == row["summary"] else row["text"], "labels": row["tags"],
+            "occurred_at": instant, "occurred_date": occurred.get("date"), "ts": instant, "refs_json": row["refs"],
+            "refs": row["refs"], "actor_id": actor, "actor": actor}
 
     def content_view(self, context, query):
         documents = self.collection(context, "content_list")
-        logs = self.collection(context, "logs_list", {"tags": ["marketing"]}, key="entries")
+        logs = [self.log_view(row) for row in self.collection(context, "actions_list", {"tags": ["marketing"]}, key="actions")]
         items, by_path = [], {}
         for document in documents:
             meta = document["metadata"]

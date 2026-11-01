@@ -20,10 +20,10 @@ from qorqut_operations.storage.assembly import AssemblyError
 from bazarlyk.agents.global_peers import marketing_peer
 from bazarlyk.domains.email.decisions import email_context
 from bazarlyk.domains.platform_actions.proposals import EXECUTION_STATES, execution_sql, execution_state
-from bazarlyk.domains.stories.attribution import campaign
-from bazarlyk.domains.tasks.models import DEFAULT_CONFIG
-from bazarlyk.domains.tasks.operations import task_namespace
-from bazarlyk.domains.tasks.snooze import ACTIVE_SQL
+from bazarlyk.domains.campaigns.attribution import campaign
+from bazarlyk.domains.tasks import ACTIVE_SQL
+from qorqut_operations.tasks import CLOSED_STATES
+from qorqut_operations.tasks.scope import task_namespace
 from bazarlyk.inbox.attention import FIELDS as FOCUS_FIELDS, creation_access, present_created
 from bazarlyk.management.identity import configured_ordubashy
 from bazarlyk.management.service import MANAGED_INPUT_SQL
@@ -91,13 +91,11 @@ class HostPeers:
 
 
 class HostTasks:
-    """The owner attention overview's open-task count: the retained Tasks state configuration and snooze rule."""
+    """The owner attention overview's open-task count: the fixed Task states and the shared snooze rule."""
 
     @staticmethod
     def open_assigned_count(uow, business_id, principal_id, now):
-        config = uow.repository('business_configs', business_id=business_id).get('tasks')
-        states = (config['config_json'] if config else DEFAULT_CONFIG)['states']
-        closed = {state['name'] for state in states if state['kind'] == 'closed'}
+        closed = set(CLOSED_STATES)
         return sum(task['status'] not in closed for task in uow.connection.execute('''SELECT t.status FROM tasks t
             WHERE t.business_id IS ? AND t.archived=0 AND EXISTS(SELECT 1 FROM relationships r
             WHERE r.business_id IS t.business_id AND r.from_type='task' AND r.from_id=t.id
@@ -110,7 +108,6 @@ class HostReferences:
     order. The engine reads each reference through the named operation as the actor, never directly."""
 
     targets = {'signoff': ReferenceTarget('signoffs_get', 'signoff_id'),
-               'story': ReferenceTarget('stories_get', 'story_id'),
                'task': ReferenceTarget('tasks_get', 'task_id'),
                'dev_ticket': ReferenceTarget('dev_tickets_get', 'ticket_id')}
 
@@ -162,17 +159,18 @@ class HostEmailDecisions:
 
 
 class HostCampaigns:
-    """Campaign filtering of ``signoffs_list``: the campaign Story must exist and the Signoff must be attributed to
-    it. The engine first authorizes ``stories_get`` for the caller and wraps this predicate in its own parentheses."""
+    """Campaign filtering of ``signoffs_list``: the campaign grouping Task must exist and carry the campaign label, and the
+    Signoff must be attributed to it. The engine first authorizes ``tasks_get`` for the caller and wraps this predicate in
+    its own parentheses."""
 
-    authorizing_operation = 'stories_get'
+    authorizing_operation = 'tasks_get'
 
     @staticmethod
     def narrow(context, campaign_id, uow):
         campaign(context, campaign_id, uow)
         return ("s.category='platform_action' AND EXISTS (SELECT 1 FROM relationships r "
                 "WHERE r.business_id=s.review_business_id AND r.from_type='signoff' AND r.from_id=s.id "
-                "AND r.role='campaign_content_of' AND r.to_type='story' AND r.to_id=?)", [campaign_id])
+                "AND r.role='campaign_content_of' AND r.to_type='task' AND r.to_id=?)", [campaign_id])
 
 
 class HostManagement:

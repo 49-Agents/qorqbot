@@ -110,9 +110,9 @@ def _operations(value):
 
 def _links(value):
     value = _json_value(value or {}, "links", kind=dict, max_bytes=16_000)
-    allowed = {"tasks", "stories", "documents", "message_threads"}
+    allowed = {"tasks", "documents", "message_threads"}
     if set(value) - allowed:
-        raise DomainError("validation_error", "links may contain tasks, stories, documents, and message_threads only")
+        raise DomainError("validation_error", "links may contain tasks, documents, and message_threads only")
     result = {}
     for kind in sorted(allowed):
         ids = value.get(kind, [])
@@ -309,7 +309,7 @@ class OperationalDelegation:
 
         Business scope alone is deliberately not a routing rule. Explicit
         worker attribution wins; otherwise a message thread or a linked
-        canonical task/Story/document must match exactly.
+        canonical task/document must match exactly.
         """
         source_type, source_id = event["source_type"], event["source_id"]
         message = None
@@ -336,7 +336,7 @@ class OperationalDelegation:
                          "WHERE value=?)")
             match_parameter = message["thread_id"]
         else:
-            key = {"tasks": "tasks", "stories": "stories", "documents": "documents"}.get(source_type)
+            key = {"tasks": "tasks", "documents": "documents"}.get(source_type)
             if key is None:
                 return []
             match_sql = ("(EXISTS (SELECT 1 FROM json_each(links_json,'$." + key + "') WHERE value=?) "

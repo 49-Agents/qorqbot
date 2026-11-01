@@ -1,4 +1,4 @@
-"""Isolated owner conversations with global peers and task/Story business agents.
+"""Isolated owner conversations with global peers and Task business agents.
 
 The default preserves the original owner/Ordubashy source key. Marketing threads
 bind an exact peer_agent_id and use a separate key, delivery, cursor and history.
@@ -17,8 +17,8 @@ from bazarlyk.management.identity import installation_owner, private_participant
 AUDIENCE = 'owner_ordubashy'
 EVENT_SOURCE = 'owner_conversations'
 EVENT_SUMMARY = 'Private message from the owner'
-BUSINESS_ONLY = {'story', 'email'}
-SOURCE = schema({'type': {'enum': ['task', 'story', 'signoff', 'email', 'reference']},
+BUSINESS_ONLY = {'email'}
+SOURCE = schema({'type': {'enum': ['task', 'signoff', 'email', 'reference']},
                  'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
                  'business_id': {'type': ['string', 'null']}}, ('type', 'id'))
 FIELDS = {'agent_id': {'type': 'string', 'format': 'uuid'}, 'peer_role': {'enum': ['ordubashy', 'global-marketing']}, 'scope': {'enum': ['business', 'global']}, 'source': SOURCE}
@@ -89,13 +89,13 @@ def private_index(ctx, bindings, uow, service=None):
     # A Marketing agent that lost its peer authority must not read the legacy channel's counts instead.
     if reader or ctx.principal_id == private_participants(uow)[1]:
         mapping.update({key: (key, None) for key in canonical})
-    peers = [ctx.principal_id] if marketing_peer(uow, ctx.principal_id) or any(b.get('type') in {'task','story'} and business_peer(uow,ctx.principal_id,b.get('business_id')) for b in bindings) else []
+    peers = [ctx.principal_id] if marketing_peer(uow, ctx.principal_id) or any(b.get('type') == 'task' and business_peer(uow,ctx.principal_id,b.get('business_id')) for b in bindings) else []
     if reader:
         # A revoked or inactive peer's channel is unreadable, so it cannot leave
         # an unread marker the owner has no way to clear.
         peers = [r[0] for r in uow.connection.execute(
             "SELECT DISTINCT peer_agent_id FROM owner_conversations WHERE peer_agent_id IS NOT NULL")
-            if marketing_peer(uow, r[0]) or any(b.get('type') in {'task','story'} and business_peer(uow,r[0],b.get('business_id')) for b in bindings)]
+            if marketing_peer(uow, r[0]) or any(b.get('type') == 'task' and business_peer(uow,r[0],b.get('business_id')) for b in bindings)]
     for peer in peers:
         mapping.update({'peer:' + peer + ':' + key: (key, peer) for key in canonical})
     if not mapping:
@@ -151,7 +151,7 @@ class PrivateConversations:
         registry.register(OperationDescriptor('owner_conversation_peers', schema(FIELDS, ('source',)),
             **common, owner_only=True, exposure=frozenset({'dashboard', 'worker'}), effect_kind='read',
             read=lambda c, a, o, u: self.peers(c, a, u),
-            description='List available private task/story peers and unread state for the owner. Does not mark messages read.'))
+            description='List available private Task peers and unread state for the owner. Does not mark messages read.'))
         registry.register(OperationDescriptor('owner_conversation_get', schema({**FIELDS,
             'before': {'type': 'integer', 'minimum': 1}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, ('source',)),
             **common, effect_kind='read', read=lambda c, a, o, u: self.read(c, a, u),
@@ -181,7 +181,7 @@ class PrivateConversations:
         selected = args.get('agent_id')
         source = args.get('source', {})
         business = (ctx.business_id or source.get('business_id')) if ctx and source else None
-        local = source.get('type') in {'task', 'story'}
+        local = source.get('type') == 'task'
         if selected is None and not args.get('peer_role') and ctx and ctx.principal_kind == 'agent' and local and business_peer(uow, ctx.principal_id, business):
             selected = ctx.principal_id
         if args.get('peer_role') == 'global-marketing' and not selected and ctx and ctx.principal_kind == 'agent' \
@@ -233,7 +233,7 @@ class PrivateConversations:
                 raise DomainError('validation_error', 'Source business must match the selected business')
             business = ctx.business_id
         if kind in BUSINESS_ONLY and business is None:
-            raise DomainError('validation_error', 'Stories and email threads belong to one business')
+            raise DomainError('validation_error', 'Email threads belong to one business')
         if kind == 'reference' and business is not None:
             raise DomainError('validation_error', 'Focus References are Global; do not name a business')
         return business
@@ -255,16 +255,11 @@ class PrivateConversations:
     def source_check(self, selected, kind, identity, uow, role='owner'):
         """Authorize the caller's canonical read of the bound object."""
         if kind == 'task':
-            from bazarlyk.domains.tasks.operations import task_context
+            from qorqut_operations.tasks.scope import task_context
             scoped = task_context(selected, {'scope': 'global'} if selected.business_id is None else {}, uow)
             self.app.authorize(scoped, self.app.registry.get('tasks_get'), (), uow, namespace=self.namespace(scoped))
             if not uow.repository('tasks', business_id=scoped.business_id).get(identity):
                 raise DomainError('not_found', 'Task does not exist in this scope')
-            return
-        if kind == 'story':
-            self.app.authorize(selected, self.app.registry.get('stories_get'), (), uow, namespace=self.namespace(selected))
-            if not uow.repository('stories', business_id=selected.business_id).get(identity):
-                raise DomainError('not_found', 'Story does not exist in this business')
             return
         if kind == 'signoff':
             service = getattr(self.app, 'signoffs', None)
@@ -342,7 +337,7 @@ class PrivateConversations:
         _, coordinator = private_participants(uow)
         coordinator = row['peer_agent_id'] or coordinator
         from bazarlyk.agents.global_peers import marketing_peer
-        if row['peer_agent_id'] and not marketing_peer(uow, coordinator) and not (row['source_type'] in {'task','story'} and business_peer(uow, coordinator, row['business_id'])):
+        if row['peer_agent_id'] and not marketing_peer(uow, coordinator) and not (row['source_type'] == 'task' and business_peer(uow, coordinator, row['business_id'])):
             return False
         if not coordinator or ctx.principal_kind != 'agent' or ctx.principal_id != coordinator:
             return False
@@ -395,7 +390,7 @@ class PrivateConversations:
         result = []
         for row in uow.connection.execute("SELECT agent_id,profile_json FROM agent_profiles WHERE status='active'"):
             identity = row['agent_id']
-            if identity != coordinator and not marketing_peer(uow,identity) and not (source['type'] in {'task','story'} and business_peer(uow,identity,business)):
+            if identity != coordinator and not marketing_peer(uow,identity) and not (source['type'] == 'task' and business_peer(uow,identity,business)):
                 continue
             if not self.channel_available(ctx, source, identity, uow):
                 continue

@@ -4,6 +4,7 @@ import json
 import uuid
 
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.tasks import CLOSED_STATES
 from qorqut_operations.application.plans import timestamp, utc_clock
 from bazarlyk.bootstrap.activity_hook import safe_path
 from bazarlyk.composition.locations import agent_workspace_of
@@ -12,7 +13,7 @@ RUNTIMES = frozenset({'claude-code', 'codex'})
 REVIEW = 'work-review'
 REMINDER = ('Before reporting verified completion, persist the task\'s actual state and one short evidence/result note; '
             'use tasks_complete(note=...) or tasks_update(note=...) when appropriate instead of a duplicate comment. '
-            'Do not record proposals as approved. Update linked Story situation/next_step/state only if the outcome or '
+            'Do not record proposals as approved. Update the related parent or group Task only if the outcome or '
             'blocker changed. Global peers with Focus rights archive or reframe the card for remaining owner action, '
             'preserving owner questions and required review. Clear finished current-work items and obsolete blockers; '
             'save only meaningful working-memory changes. Read receipts and reread on revision conflict. For recurring '
@@ -84,9 +85,7 @@ class AgentCheckpoints:
             try:
                 selected = self.runtime.activity.allowed(ctx, business, 'tasks_get', uow)
                 task = uow.repository('tasks', business_id=business).get(task_id, required=True)
-                config, _ = self.runtime.domains.tasks.configuration(selected, uow)
-                states = {entry['name']: entry for entry in config['states']}
-                if task['archived'] or states[task['status']]['kind'] == 'closed':
+                if task['archived'] or task['status'] in CLOSED_STATES:
                     code = 'finished_work_listed'
                     message = f'Remove completed or archived task {task_id} from current work, or record its actual follow-up.'
             except DomainError as exc:

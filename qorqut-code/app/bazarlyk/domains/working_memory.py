@@ -260,7 +260,7 @@ class WorkingMemory:
         args = args or {}
         result = {'agent_id': identity, 'business_id': ctx.business_id, 'memory': None,
                   'attention': [], 'notices': [], 'read_only': True}
-        task_attention, decision_attention, story_attention = [], [], []
+        task_attention, decision_attention = [], []
         try:
             self.sources.authorize(ctx, 'working_memory_get', uow)
             row = self.row(identity, ctx.business_id, uow)
@@ -287,8 +287,8 @@ class WorkingMemory:
                 result['notices'].append('Legacy plan has not been imported; use plans_get before establishing working memory.')
         try:
             self.sources.authorize(ctx, 'tasks_list', uow)
-            from .tasks.operations import TaskOperations
-            from .tasks.snooze import ACTIVE_SQL
+            from qorqut_operations.tasks import TaskOperations
+            from .tasks import ACTIVE_SQL
             configuration, _ = TaskOperations.configuration(ctx, uow)
             closed = [s['name'] for s in configuration['states'] if s['kind'] == 'closed']
             role = ctx.role_artifact_ref.id if ctx.role_artifact_ref else None
@@ -299,7 +299,7 @@ class WorkingMemory:
                 query += ' AND t.status NOT IN (' + ','.join('?' for _ in closed) + ')'
                 params += closed
             if not manager:
-                query += " AND EXISTS (SELECT 1 FROM relationships r WHERE r.business_id IS t.business_id AND r.from_type='task' AND r.from_id=t.id AND r.role='assigned_to' AND r.to_id=?)"
+                query += " AND EXISTS (SELECT 1 FROM relationships r WHERE r.business_id IS t.business_id AND r.from_type='task' AND r.from_id=t.id AND r.role IN ('assigned_to','campaign_responsible') AND r.to_id=?)"
                 params.append(identity)
             candidates = uow.connection.execute(query + ' ORDER BY t.updated_at DESC,t.id LIMIT 11', params).fetchall()
             for task in candidates[:10]:
@@ -309,23 +309,6 @@ class WorkingMemory:
                 result['notices'].append('More active work exists; follow tasks_list pagination.')
         except DomainError as error:
             result['notices'].append('Task attention unavailable: ' + error.code)
-        if ctx.business_id is not None:
-            try:
-                self.sources.authorize(ctx, 'stories_list', uow)
-                role = ctx.role_artifact_ref.id if ctx.role_artifact_ref else None
-                query = "SELECT s.id,s.title,s.state,s.revision,s.sequence FROM stories s WHERE s.business_id=? AND s.archived=0 AND s.state!='closed'"
-                params = [ctx.business_id]
-                if role not in {roles.BUSINESS_AGENT_ROLE, roles.ORDUBASHY_ROLE}:
-                    query += " AND EXISTS (SELECT 1 FROM relationships r WHERE r.business_id=s.business_id AND r.from_type='story' AND r.from_id=s.id AND r.role IN ('assigned_to','campaign_responsible') AND r.to_type='agent' AND r.to_id=?)"
-                    params.append(identity)
-                candidates = uow.connection.execute(query + ' ORDER BY s.updated_at DESC,s.id LIMIT 11', params).fetchall()
-                story_attention = [{'type': 'story', 'id': row['id'], 'title': row['title'][:200], 'state': row['state'],
-                                    'revision': row['revision'], 'sequence': row['sequence'], 'reason': 'current_work'}
-                                   for row in candidates[:10]]
-                if len(candidates) > 10:
-                    result['notices'].append('More active Stories exist; follow stories_list pagination.')
-            except DomainError as error:
-                result['notices'].append('Story attention unavailable: ' + error.code)
         try:
             self.sources.authorize(ctx, 'signoffs_list', uow)
             clause, params = self.app.signoffs._visibility(self.app.signoffs._context(ctx, uow),uow)
@@ -341,7 +324,7 @@ class WorkingMemory:
             result['notices'].append('Signoff attention unavailable: ' + error.code)
         # Interleave evidence changes, decisions and tasks so a busy task queue
         # cannot silently crowd every owner outcome out of the brief.
-        groups, chosen, seen = [result['attention'], decision_attention, task_attention, story_attention], [], set()
+        groups, chosen, seen = [result['attention'], decision_attention, task_attention], [], set()
         while any(groups) and len(chosen) < 10:
             for group in groups:
                 while group and (group[0]['type'], group[0]['id']) in seen:
@@ -371,7 +354,7 @@ class WorkingMemory:
                                   'memory_updated_at': memory['updated_at'] if memory else None})
             result['businesses'] = directory
             result['business_after'] = selected[19] if len(selected) > 20 else None
-        result['notices'].append('Not a full work inventory. Read scoped tasks, Stories, signoffs and your current inbox; nothing was acknowledged.')
+        result['notices'].append('Not a full work inventory. Read scoped tasks, signoffs and your current inbox; nothing was acknowledged.')
         result['omitted_for_budget'] = 0
         while len(json.dumps({k: v for k, v in result.items() if k != 'memory'}, ensure_ascii=False)) > 4000:
             if result.get('businesses'):

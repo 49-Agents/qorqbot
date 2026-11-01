@@ -5,7 +5,7 @@ from qorqut_operations.conversations import SUMMARY, normalize_summary
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock, ref, require_revision
-from bazarlyk.domains.tasks.operations import task_namespace
+from qorqut_operations.tasks.scope import task_namespace
 from .identity import installation_owner, ordubashy_profile, require_coordinator
 from qorqut_operations.storage.repositories import decode_row
 from dataclasses import replace

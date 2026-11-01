@@ -5,7 +5,6 @@ Existing human-only APIs retain their checks. Adding an action requires review
 of its frozen effects, validation, attribution and approval-time scope checks.
 """
 
-from dataclasses import replace
 import json
 
 from bazarlyk.agents.engineering import validate_authority
@@ -17,14 +16,13 @@ from qorqut_operations.application.plans import PlanBuilder, apply_records, requ
 OPERATION = "owner_action_propose"
 ENGINEERING = "engineering_update"
 BROWSER = "browser_update"
-STORIES = {"story_close": "stories_close", "story_reopen": "stories_reopen"}
 NAMES = {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 300},
          "maxItems": 100, "uniqueItems": True}
 
 
 class OwnerActions:
-    def __init__(self, paths, stories, *, clock=utc_clock):
-        self.paths, self.stories, self.clock = paths, stories, clock
+    def __init__(self, paths, *, clock=utc_clock):
+        self.paths, self.clock = paths, clock
 
     def register(self, registry):
         actions = {
@@ -34,7 +32,6 @@ class OwnerActions:
                              "mode": {"enum": ["isolated-desktop-v1", "legacy"]},
                              "expected_exit_ip": {"type": "string", "maxLength": 45}},
                             ("enabled", "proxy_server")),
-            **{action: plain(registry.get(operation).input_schema) for action, operation in STORIES.items()},
         }
         arguments = schema({"action": {"enum": list(actions)}, "parameters": {"type": "object"},
                             "rationale": {"type": "string", "minLength": 1, "maxLength": 4000}},
@@ -42,8 +39,8 @@ class OwnerActions:
         arguments["oneOf"] = [{"properties": {"action": {"const": action}, "parameters": fields}}
                               for action, fields in actions.items()]
         registry.register(OperationDescriptor(OPERATION, arguments,
-            description="Ordubashy only: propose engineering_update, browser_update, story_close or story_reopen "
-                "in an authorized business. Supply expected_revision of the business config or Story, parameters "
+            description="Ordubashy only: propose engineering_update or browser_update "
+                "in an authorized business. Supply expected_revision of the business config, parameters "
                 "and rationale. browser_update takes enabled and proxy_server; the explicit isolated desktop mode "
                 "adds mode 'isolated-desktop-v1' and a required expected_exit_ip (an IPv4 proxy already assigned to "
                 "another business is refused; a mode change needs the browser stopped and unleased). "
@@ -72,19 +69,6 @@ class OwnerActions:
         if not args["rationale"].strip():
             raise DomainError("validation_error", "Explain the requested owner action")
         action, parameters = args["action"], plain(args["parameters"])
-        if action in STORIES:
-            plan = self.stories.prepare(STORIES[action], ctx, parameters, options, uow)
-            story = self.stories.get(uow, ctx, parameters["story_id"])
-            effects = ["State: " + story["state"] + " → " + ("closed" if action == "story_close" else parameters["state"])]
-            if action == "story_close":
-                effects.append("Outcome: " + parameters["outcome"])
-            if parameters.get("state_reason"):
-                effects.append("State reason: " + parameters["state_reason"])
-            if parameters.get("note"):
-                effects.append("Append note: " + parameters["note"])
-            preview = {**plain(plan.preview), "title": ("Close" if action == "story_close" else "Reopen") + " Story: " + story["title"],
-                       "rationale": args["rationale"], "effects": effects}
-            return replace(plan, operation_name=OPERATION, arguments=args, preview=preview)
         before = uow.repository("businesses").get(ctx.business_id, required=True)
         require_revision(before, options.expected_revision)
         config = plain(before["config_json"])
@@ -120,9 +104,6 @@ class OwnerActions:
         self.guard(ctx, plan, uow)
         apply_records(ctx, plan, uow)
         action = plan.arguments["action"]
-        if action in STORIES:
-            story = self.stories.get(uow, ctx, plan.arguments["parameters"]["story_id"])
-            return {"action": action, "story_id": story["id"], "state": story["state"], "revision": story["revision"]}
         business = uow.repository("businesses").get(ctx.business_id, required=True)
         key = "engineering" if action == ENGINEERING else "browser"
         return {"action": action, "business_id": ctx.business_id, "revision": business["revision"], key: business["config_json"][key]}

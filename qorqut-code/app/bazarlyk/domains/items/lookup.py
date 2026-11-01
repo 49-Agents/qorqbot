@@ -4,19 +4,24 @@ and enumerated, with each domain's private-source, availability and membership r
 Registering these kinds with the Operations ``ItemResolver`` grants nothing: ``resource`` keeps the owner-only journal,
 excluded working-memory, Global-mailbox discussion, active-member and active-agent guards, ``resolve`` authorizes the
 domain's own read operation (``authorize_item_read``) at the original read-check points, and ``fingerprint`` first
-performs that same authorized read. The dependencies are explicit; nothing here constructs or reaches the Story
+performs that same authorized read. The dependencies are explicit; nothing here constructs or reaches the Task
 service, and published shared Context readability grants none of these private operational reads."""
 
 from qorqut_operations.application.plans import ref, rows
 from qorqut_operations.contracts import DomainError, ExpectedTarget, canonical_hash
 from qorqut_operations.departments import ALIASES, normalize_departments, profile_department
 from qorqut_operations.items import authorize_item_read, item_revision
+from qorqut_operations.tags import item_labels
 
-from ..activity.operations import linked_action, linked_action_items
+from ..activity import linked_action, linked_action_items
 from ..documents.journal_access import JOURNAL_KINDS, is_owner
 from ..documents.materials import classification
 from ..documents.people import details
 from .vocabulary import NOT_CANDIDATES, RAW_KINDS, RESOURCE_TYPES, document_type
+
+# The resource tables whose labels live in the shared tag catalog, with the catalog's item type for each.
+LABELLED = {"tasks": "task", "action_logs": "action"}
+
 
 class HostItems:
     """``ItemLookup`` over the retained domains. ``related`` is the host's related-resource resolver, ``documents``
@@ -68,11 +73,6 @@ class HostItems:
         elif table == "context_entities":
             self.authorize(ctx, "context_items_get", uow)
             view = {"label": row["label"], "url": row["url"], "revision": row["revision"]}
-        elif table == "stories":
-            self.authorize(ctx, "stories_get", uow)
-            from ..stories.campaigns import responsible
-            view = {"label": row["title"], "state": row["state"], "revision": row["revision"], "tags": row["tags_json"],
-                "responsible_agent_id": responsible(row, uow)}
         elif table == "products":
             self.authorize(ctx, "products_get", uow)
             view = {"label": row["name"], "revision": row["revision"]}
@@ -105,9 +105,11 @@ class HostItems:
             person.update({key: metadata.get(key, "") for key in ("name", "role", "org", "about")})
             person["aka"] = metadata.get("aka", [])
         tags = row.get("tags_json", [])
+        if table in LABELLED:
+            # Task and Action labels are the shared catalog's, stored apart from the row.
+            tags = item_labels(uow, row["business_id"], LABELLED[table], row["id"])
         departments = normalize_departments(tags.get("departments", [])) if isinstance(tags, dict) else normalize_departments([tag for tag in tags if tag in ALIASES])
         if table == "agent_profiles": departments = [profile_department(row["profile_json"])]
-        if table == "action_logs" and row.get("tag") in ALIASES: departments = normalize_departments([row["tag"]])
         return {**view, **item, **material, "departments": departments, "revision": revision, "resource_type": table, "resource_id": item["id"], "subtype": subtype,
                 "archived": archived, "raw_source": bool(metadata.get("raw_source") or row.get("kind") in RAW_KINDS),
                 "summary": row["attributes_json"].get("one_liner", "") if table == "products" else metadata.get("filer_summary") or metadata.get("summary", ""), "created_at": row.get("created_at"), "updated_at": row.get("updated_at"), **person}
@@ -147,14 +149,13 @@ class HostItems:
         elif table == "principals":
             content["person"] = details(row, uow, business_id=ctx.business_id)
         elif table == "tasks":
-            content["notes"] = rows(uow, "task_notes", ctx.business_id, where="task_id=?", parameters=(row["id"],))
+            content["notes"] = rows(uow, "thread_messages", ctx.business_id, where="item_type='task' AND item_id=?", parameters=(row["id"],))
             content["responsibility"] = sorted((edge["role"], edge["to_type"], edge["to_id"]) for edge in rows(uow, "relationships", ctx.business_id,
                 where="from_type='task' AND from_id=? AND role IN ('assigned_to','blocked_by')", parameters=(row["id"],)))
-        elif table == "stories":
-            content["contributions"] = [{key: event[key] for key in ("id", "kind", "title", "body", "statuses_json", "data_json")}
-                for event in sorted(rows(uow, "story_events", ctx.business_id, where="story_id=?", parameters=(row["id"],)), key=lambda value: value["sequence"])]
         elif table == "data_tables":
             content["rows"] = rows(uow, "data_rows", ctx.business_id, where="table_id=?", parameters=(row["id"],))
+        if table in LABELLED:
+            content["tags"] = item_labels(uow, row["business_id"], LABELLED[table], row["id"])
         return canonical_hash(content)
 
 

@@ -488,13 +488,10 @@ class AgentOperations:
                 raise DomainError("document_conflict", "Reviewed mandatory source changed outside the canonical document path")
 
     def _retirement_ready(self, identity, profile, uow):
-        from bazarlyk.domains.tasks.models import DEFAULT_CONFIG, validate_config
+        from qorqut_operations.tasks import CLOSED_STATES
 
+        closed = set(CLOSED_STATES)
         for business_id in profile.scope.businesses:
-            task_config = uow.connection.execute("SELECT config_json FROM business_configs WHERE business_id=? AND domain='tasks'", (business_id,)).fetchone()
-            config = json.loads(task_config[0]) if task_config else DEFAULT_CONFIG
-            validate_config(config)
-            closed = {state["name"] for state in config["states"] if state["kind"] == "closed"}
             open_tasks = [row["id"] for row in uow.connection.execute("SELECT t.id,t.status FROM tasks t WHERE t.business_id=? AND t.archived=0 AND EXISTS (SELECT 1 FROM relationships e WHERE e.business_id=t.business_id AND e.from_type='task' AND e.from_id=t.id AND e.role='assigned_to' AND e.to_type='agent' AND e.to_id=?)", (business_id, identity)) if row["status"] not in closed]
             if open_tasks:
                 raise DomainError("agent_has_open_tasks", "Reassign or complete outstanding tasks before retiring this agent", details={"business_id": business_id, "task_ids": open_tasks})

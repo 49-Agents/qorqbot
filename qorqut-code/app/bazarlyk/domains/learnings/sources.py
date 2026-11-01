@@ -8,7 +8,7 @@ import json
 
 from qorqut_operations.contracts import DomainError, canonical_hash
 
-KINDS = ('signoff_response', 'task_note', 'story_note')
+KINDS = ('signoff_response', 'task_note')
 MAX_SOURCE_CHARS = 160000
 
 
@@ -31,7 +31,7 @@ def contribution(kind, identity, business_id, actor, at, blocks, context, *, res
     source = {'kind': kind, 'id': identity, 'resource_id': resource_id or identity,
               'business_id': business_id, 'actor_id': actor['id'], 'actor_name': actor['name'],
               'actor_role': actor['role'], 'at': at}
-    # Parent task/story edits and reminder activity must not replay a contribution.
+    # Parent task edits and reminder activity must not replay a contribution.
     digest = canonical_hash({'kind': kind, 'id': identity, 'business_id': business_id,
                              'actor_id': actor['id'], 'at': at, 'blocks': blocks})
     source['hash'] = digest
@@ -66,11 +66,10 @@ def snapshots(uow, business_id, seen, *, limit=100):
     sql = '''SELECT 'signoff_response' kind, s.id, json_extract(s.decision_json,'$.at') at
         FROM signoffs s WHERE s.review_business_id IS ? AND s.decision_json IS NOT NULL
         AND s.legacy_evidence_json IS NULL
-        UNION ALL SELECT 'task_note', n.id, n.created_at FROM task_notes n WHERE n.business_id IS ?
-        UNION ALL SELECT 'story_note', e.id, e.created_at FROM story_events e
-        WHERE e.business_id IS ? AND e.kind='note'
+        UNION ALL SELECT 'task_note', n.id, n.created_at FROM thread_messages n
+        WHERE n.business_id IS ? AND n.item_type='task' AND n.kind='comment'
         ORDER BY at, kind, id'''
-    for entry in uow.connection.execute(sql, [business_id] * 3):
+    for entry in uow.connection.execute(sql, [business_id] * 2):
         kind, identity, at = entry
         key = kind + ':' + identity
         if key in seen:
@@ -96,25 +95,23 @@ def snapshots(uow, business_id, seen, *, limit=100):
             context = {**_signoff_context(row), 'decision': decision['kind']}
             packet = contribution(kind, identity, business_id, actor, at, blocks, context)
         else:
-            table = 'task_notes' if kind == 'task_note' else 'story_events'
-            note = uow.repository(table, business_id=business_id).get(identity, required=True)
-            actor = human(uow, note.get('created_by') if kind == 'task_note' else note.get('actor_id'), business_id, owner_only=True)
+            note = uow.repository('thread_messages', business_id=business_id).get(identity, required=True)
+            actor = human(uow, note.get('author_id'), business_id, owner_only=True)
             if not actor or not note['body'].strip():
                 continue
-            parent_table, field = ('tasks', 'task_id') if kind == 'task_note' else ('stories', 'story_id')
-            parent = uow.repository(parent_table, business_id=business_id).get(note[field], required=True)
-            context = {k: parent[k] for k in ('id', 'title', 'purpose', 'description', 'status') if k in parent}
-            if kind == 'task_note':
-                context['preceding_notes'] = [dict(r) for r in uow.connection.execute(
-                    'SELECT id,body,created_by,created_at FROM task_notes WHERE business_id=? AND task_id=? '
-                    'AND (created_at < ? OR (created_at=? AND id<?)) ORDER BY created_at DESC,id DESC LIMIT 3',
-                    (business_id, parent['id'], note['created_at'], note['created_at'], identity))]
-            if kind == 'story_note' and note.get('parent_event_id'):
-                preceding = uow.repository('story_events', business_id=business_id).get(note['parent_event_id'])
-                if preceding and preceding['story_id'] == parent['id']:
-                    context['reply_to'] = {k: preceding[k] for k in ('id', 'actor_id', 'title', 'body')}
+            parent = uow.repository('tasks', business_id=business_id).get(note['item_id'], required=True)
+            context = {k: parent[k] for k in ('id', 'title', 'description', 'status') if k in parent}
+            if parent.get('parent_id'):
+                group = uow.repository('tasks', business_id=business_id).get(parent['parent_id'])
+                if group:
+                    context['group'] = {k: group[k] for k in ('id', 'title', 'status')}
+            context['preceding_notes'] = [dict(r) for r in uow.connection.execute(
+                "SELECT id,body,author_id created_by,created_at FROM thread_messages WHERE business_id IS ? AND item_type='task' "
+                "AND item_id=? AND kind='comment' "
+                'AND (created_at < ? OR (created_at=? AND id<?)) ORDER BY created_at DESC,id DESC LIMIT 3',
+                (business_id, parent['id'], note['created_at'], note['created_at'], identity))]
             packet = contribution(kind, identity, business_id, actor, at, _blocks(note['body'], actor), context,
-                                  resource_id=note[field])
+                                  resource_id=note['item_id'])
         selected.append(packet)
         if len(selected) >= limit:
             break
@@ -136,7 +133,7 @@ def core(packet, brief):
 
 
 SOURCE_SYSTEM = '''\nThis input is a submitted human contribution, not a conversation transcript.
-The JSON context_only field explains the question/proposal/task/story/outcome. It is NOT evidence.
+The JSON context_only field explains the question/proposal/task/outcome. It is NOT evidence.
 Only contributions.T<n>.text is eligible evidence. Preserve the identified author's role:
 use said_by=owner for owner text, human for other human observations (context only, never owner behavior rules), owner_selected for an
 explicitly selected choice. A choice is an endorsement of that exact answer to that exact

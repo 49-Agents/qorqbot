@@ -34,16 +34,13 @@ READ_OPERATIONS = GLOBAL_CONTEXT_OPERATIONS | frozenset({
     "relationships_list", "relationships_get", "tables_list", "tables_get", "tables_rows_list",
     "tables_history", "data_uploads_list", "data_uploads_get",
     "content_list", "content_get", "notes_list", "notes_get",
-    "assets_list", "assets_get", "logs_list", "logs_get", "actions_list", "actions_get", "actions_config_get",
+    "assets_list", "assets_get", "actions_list", "actions_get", "actions_config_get", "tags_list",
     "metrics_list", "metrics_report", "metrics_channels", "metrics_posts", "metrics_config_get",
     "metrics_kpis", "metrics_series", "ledger_list", "ledger_get", "ledger_report",
     "ledger_recurring_list", "milestones_list", "business_progress_get",
     "environment_list", "environment_get", "business_config_get",
     "tasks_list", "tasks_get", "tasks_notes_list", "tasks_thread_get",
     "tasks_config_get", "assignees_list",
-    "stories_list", "stories_get",
-    "stories_timeline", "stories_event_get", "stories_drafts_list", "stories_related_search",
-    "stories_resource_get", "stories_context_list", "stories_context_history",
     "products_list", "products_get",
     "signoffs_list", "signoffs_get", "signoffs_notes_list",
     "owner_conversation_get", "agents_messages_list", "agents_message_recipients",
@@ -51,23 +48,20 @@ READ_OPERATIONS = GLOBAL_CONTEXT_OPERATIONS | frozenset({
 
 # Owner-requested saves: a specific owner instruction authorizes the write, so
 # these use the ordinary human-owner policy without Signoff.
-# Shared-discussion notes stay excluded: stories_note_add (and task note
-# fields) already refuse the installation owner with channel_required, and the
-# transport additionally rejects stories_update note/summary arguments.
+# Shared-discussion notes stay excluded: the Task note fields already refuse the
+# installation owner with channel_required.
 WRITE_OPERATIONS = frozenset({
     "owner_conversation_send",
     "tasks_create", "tasks_update", "tasks_assign", "tasks_complete", "tasks_config_update",
     "context_edit", "context_instruct", "context_upload",
     "context_items_archive", "materials_update", "context_review",
-    "context_review_reopen", "stories_context_review", "stories_context_reopen",
-    "stories_campaign_responsible_set", "stories_link_add", "stories_link_remove",
-    "stories_create", "stories_update", "stories_close", "stories_reopen",
+    "context_review_reopen", "campaign_responsible_set",
     "products_create", "products_update", "products_archive",
     "relationships_create", "relationships_update", "relationships_remove",
     "tables_create", "tables_update", "tables_rows_write", "tables_history_retry",
     "data_uploads_upload", "assets_upload", "assets_update", "assets_delete",
     "notes_create", "notes_update", "notes_delete", "notes_upload",
-    "logs_add", "logs_labels_update", "actions_record", "metrics_add", "metrics_import", "metrics_config_update",
+    "actions_record", "metrics_add", "metrics_import", "metrics_config_update",
     "ledger_add", "ledger_reverse", "ledger_config_update", "ledger_recurring_update",
     "ledger_recurring_post", "ledger_reconcile", "milestones_create", "milestones_update",
     "milestones_status_set", "business_config_update", "business_config_patch", "environment_set",
@@ -76,7 +70,7 @@ WRITE_OPERATIONS = frozenset({
 
 # These are owner-only in the normal registry. They are deliberately listed
 # here so the owner route can expose only this small, audited exception set.
-OWNER_ROUTE_OPERATIONS = frozenset({"context_instruct", "stories_close", "stories_reopen"})
+OWNER_ROUTE_OPERATIONS = frozenset({"context_instruct"})
 CATALOG = READ_OPERATIONS | WRITE_OPERATIONS | OWNER_ROUTE_OPERATIONS | frozenset({"operations_batch", "operations_describe"})
 
 

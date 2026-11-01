@@ -41,10 +41,10 @@ REMINDER = ('Update agent_work_update if your current tasks or action changed. K
     'handoff or completion; do not repeat unchanged waiting. Use note_refs for directly related signoffs.')
 ACTIONS = frozenset({'PreToolUse', 'PostToolUse', 'PostToolUseFailure'})
 # Record saves that answer a completion reminder never make the turn dirty again,
-# including action recording and label bookkeeping.
+# including action recording, correction and withdrawal.
 BOOKKEEPING = frozenset({'agent_work_update', 'inbox_acknowledge', 'tasks_comment', 'tasks_update',
     'working_memory_update', 'notes_create', 'notes_update', 'operations_describe', 'agents_message_recipients',
-    'actions_record', 'logs_add', 'logs_labels_update'})
+    'actions_record', 'actions_correct', 'actions_withdraw'})
 # Claude native tools that neither edit files nor run commands; subagent tools report their own hooks.
 CLAUDE_READS = frozenset({'Read', 'Glob', 'Grep', 'LS', 'NotebookRead', 'WebFetch', 'WebSearch', 'ToolSearch',
     'TodoWrite', 'Skill', 'Monitor', 'Agent', 'Task', 'TaskOutput', 'BashOutput', 'KillShell', 'TaskStop',

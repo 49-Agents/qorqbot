@@ -14,10 +14,8 @@ import yaml
 from qorqut_operations.contracts import DomainError
 
 
-TASK_WRITES = frozenset({"tasks_create", "tasks_update", "tasks_assign", "tasks_complete", "tasks_comment"})
-STORY_WRITES = frozenset({"stories_create", "stories_update", "stories_note_add", "stories_draft_commit",
-    "stories_link_add", "stories_link_remove", "stories_campaign_responsible_set",
-    "stories_context_review", "stories_context_reopen"})
+TASK_WRITES = frozenset({"tasks_create", "tasks_update", "tasks_assign", "tasks_complete", "tasks_comment",
+    "campaign_responsible_set"})
 IDEA_WRITES = frozenset({"ideas_create", "ideas_update"})
 # Card writes return the touched card's identity/revision; focus_reply keeps its
 # note-thread payload because the new note is the receipt. The legacy
@@ -29,10 +27,10 @@ SIGNOFF_COMPLETION_WRITES = frozenset({"signoffs_reddit_approve", "signoffs_emai
 RECEIPT_WRITES = frozenset({"agents_message_send", "signoffs_input_create"}) | FOCUS_CARD_WRITES
 INDEX_READS = frozenset({"signoffs_list", "signoffs_get", "inbox_list", "agents_activity_list",
     "agents_messages_list", "agents_message_recipients", "broadcast_recipients", "tables_rows_list",
-    "stories_list", "tasks_get", "tasks_notes_list", "operations_describe"})
+    "tasks_get", "tasks_notes_list", "operations_describe"})
 # Already-lean reads gain default elision and the full-detail escape hatch only.
 ELIDE_ONLY_READS = frozenset({"tasks_overview", "focus_get", "assignees_list", "tables_list"})
-COMPACT_OPERATIONS = (TASK_WRITES | STORY_WRITES | IDEA_WRITES | RECEIPT_WRITES | INDEX_READS | SIGNOFF_COMPLETION_WRITES
+COMPACT_OPERATIONS = (TASK_WRITES | IDEA_WRITES | RECEIPT_WRITES | INDEX_READS | SIGNOFF_COMPLETION_WRITES
     | ELIDE_ONLY_READS | {"tasks_list", "tables_rows_write", "agent_config_get"})
 SUMMARY_OPERATIONS = frozenset({"focus_get", "agents_activity_list"})
 DETAIL_SCHEMA = {"enum": ["compact", "full", "text"], "default": "compact",
@@ -64,12 +62,8 @@ TOOL_NAMES_SCHEMA = {"type": "array", "minItems": 1, "maxItems": 20, "uniqueItem
 SECTIONS_SCHEMA = {"type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": True,
     "items": {"type": "string", "minLength": 1, "maxLength": 120},
     "description": "context only: return exactly these '## ' sections of the mandatory rules, with a hash manifest of every omitted section. Omit for the full rendered bundle."}
-TASK_FIELDS = ("id", "revision", "title", "status", "due", "follow_up", "snooze", "snoozed", "assignee_ids", "blocked_by",
-    "unresolved_blockers", "blocks", "closed", "paused", "archived", "tags", "created_by", "updated_at")
-STORY_FIELDS = ("id", "revision", "sequence", "title", "state", "state_reason", "next_step", "due",
-    "follow_up", "closed", "archived", "outcome", "tags", "responsible_agent_id",
-    "pending_context_count", "updated_at")
-EVENT_FIELDS = ("id", "story_id", "sequence", "kind", "parent_event_id", "actor_id", "created_at", "created_by", "prepared_at")
+TASK_FIELDS = ("id", "revision", "title", "status", "due", "follow_up", "snoozed_until", "snoozed", "assignee_ids", "blocked_by",
+    "unresolved_blockers", "blocks", "parent", "kind", "closed", "paused", "archived", "tags", "campaign", "created_by", "updated_at")
 SIGNOFF_FIELDS = ("id", "review_business_id", "review_scope", "proposal_revision", "payload_hash", "status_revision",
     "state", "decision_state", "actionable", "execution_state", "category", "operation_name", "operation_version",
     "title", "proposer_principal_id", "proposer_agent_id", "proposer_display_name", "proposer_department",
@@ -291,8 +285,6 @@ def sectioned_context(mandatory, requested):
 def description(name):
     if name in TASK_WRITES or name == "tasks_list":
         return " Returns a compact task index/receipt; tasks_get reads fields and recent notes; tasks_notes_list pages older notes."
-    if name in STORY_WRITES:
-        return " Returns a compact Story/event receipt; stories_get and stories_event_get read details, or request response_detail=full."
     if name == "tables_rows_write":
         return " Returns row IDs/revisions, not echoed cells; tables_rows_list reads values, or request response_detail=full."
     if name == "agent_config_get":
@@ -580,9 +572,6 @@ def present(name, value, detail="compact", *, tool_names=None, sections=None, ar
     elif name == "tables_rows_list":
         rows("items", TABLE_ROW_FIELDS)
         rows("rows", TABLE_ROW_FIELDS)
-    elif name == "stories_list":
-        rows("items", STORY_FIELDS)
-        rows("stories", STORY_FIELDS)
     elif name == "tasks_get" and isinstance(data.get("task"), dict):
         data["task"] = {**data["task"], **note_views(data["task"])}
     elif name == "tasks_notes_list":
@@ -603,18 +592,6 @@ def present(name, value, detail="compact", *, tool_names=None, sections=None, ar
     elif name == "tasks_list" and isinstance(data.get("tasks"), list):
         data["tasks"] = [{**select(task, TASK_FIELDS), "note_count": task.get("note_count", len(task.get("notes", [])))}
                          for task in data["tasks"]]
-    elif name in STORY_WRITES and isinstance(data.get("story"), dict):
-        story = data["story"]
-        data["story"] = select(story, STORY_FIELDS)
-        if isinstance(data.get("event"), dict):
-            event = data["event"]
-            data["event"] = select(event, EVENT_FIELDS)
-            event_data = event.get("data_json", {})
-            identifiers = select(event_data, ("link_id", "resource_id", "resource_type"))
-            if isinstance(event_data.get("link"), dict):
-                identifiers["link"] = select(event_data["link"], ("id", "revision", "resource_id", "resource_type"))
-            if identifiers:
-                data["event"]["data_json"] = identifiers
     elif name == "agents_message_send" and isinstance(data.get("message"), dict):
         data["message"] = select(data["message"], MESSAGE_RECEIPT_FIELDS)
     elif name == "signoffs_input_create" and isinstance(data.get("signoff"), dict):

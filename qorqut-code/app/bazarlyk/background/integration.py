@@ -25,6 +25,7 @@ from .platform_actions import PlatformPrograms
 from qorqut_operations.background.routines import RoutineScheduler
 from qorqut_operations.background.service import BackgroundService
 
+
 def _report_completed(runtime, row):
     """Wake the Telegram bridge after a report's artifacts and completed state are committed (no I/O, no write)."""
     from bazarlyk.telegram.reports import notify_completed

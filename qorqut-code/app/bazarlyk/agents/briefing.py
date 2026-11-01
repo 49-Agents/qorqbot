@@ -21,7 +21,7 @@ UNAVAILABLE = {"forbidden", "policy_denied", "not_found", "operation_unavailable
 
 GUIDANCE = (
     ("Tasks", ("tasks_list", "tasks_get", "tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete")),
-    ("Stories and campaigns", ("stories_list", "stories_get", "stories_create", "stories_update", "stories_note_add", "stories_timeline")),
+    ("Campaigns", ("campaign_responsible_set", "campaign_attribution_set")),
     ("Shared Context", ("context_home", "context_object", "context_expand", "context_find")),
     ("Materials", ("context_items_list", "context_items_get", "materials_update", "context_upload", "content_list", "content_get", "context_items_archive")),
     ("Tables", ("tables_list", "tables_get", "tables_rows_list", "tables_create", "tables_update", "tables_rows_write")),
@@ -97,20 +97,20 @@ class _Briefing:
             + (f"Read: {read}\n" if read else "") + "```text\n" + body + "\n```"))
 
     def active(self, kind, row):
-        return not (row.get("archived") or row.get("closed") or (kind == "story" and row.get("state") == "closed"))
+        return not (row.get("archived") or row.get("closed"))
 
     def load_work(self, kind, identity, reason):
         key = (kind, identity)
         if key in self.seen_items:
             return
         self.seen_items.add(key)
-        operation = "stories_get" if kind == "story" else "tasks_get"
+        operation = "tasks_get"
         row = self.read(operation, {kind + "_id": identity}).get(kind)
         if not row or not self.active(kind, row):
             return
         fields = ("id", "title", "revision", "updated_at", "status", "state", "closed", "archived",
-                  "story_context", "story_context_has_more", "description", "instructions", "purpose", "details", "background", "situation", "next_step",
-                  "state_reason", "due", "follow_up", "assignee_ids", "blocked_by", "unresolved_blockers", "tags", "fields", "notes")
+                  "description", "instructions", "details", "parent", "campaign",
+                  "due", "follow_up", "assignee_ids", "blocked_by", "unresolved_blockers", "tags", "fields", "notes")
         self.add("Current Work", kind.title() + ": " + row["title"], select(row, fields),
                  reason=reason, read=f"{operation}({kind}_id={identity})")
         self.work[key] = row
@@ -134,7 +134,7 @@ class _Briefing:
         key = (item["type"], item["id"])
         if key in self.seen_items or item.get("raw_source") or item.get("archived"):
             return
-        if item["type"] in {"task", "story"}:
+        if item["type"] == "task":
             self.load_work(*key, reason)
             return
         self.seen_items.add(key)
@@ -188,11 +188,9 @@ class _Briefing:
             for item in direct:
                 self.evidence(item, "direct association with you; the edge role defines its meaning, not automatic ownership")
             if self.config["role"]["id"] in {BUSINESS_AGENT_ROLE, ORDUBASHY_ROLE}:
-                for row in self.listing("stories_list", "stories", limit=25):
-                    self.load_work("story", row["id"], "business overview for your manager role, not necessarily assigned to you")
                 for row in self.listing("tasks_list", "tasks", {"include_closed": False}, limit=30):
                     self.load_work("task", row["id"], "business overview for your manager role; check assignee_ids")
-            # Task -> Story -> nearby context, bounded to two expansions, never recursive.
+            # Task -> related work -> nearby context, bounded to two expansions, never recursive.
             expanded = set()
             for _ in range(2):
                 frontier = [key for key in self.work if key not in expanded]

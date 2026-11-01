@@ -177,7 +177,7 @@ def _prompt(assignment, events, *, continuation=False):
         if continuation else "Execute this saved assignment autonomously within its approved plan and exact scope.")
     instructions = (
         "\nUse only the required Bazarlyk MCP connection and the operations granted by this assignment. "
-        "Use canonical task/Story/message operations; do not edit local files, access other MCP servers, "
+        "Use canonical task/message operations; do not edit local files, access other MCP servers, "
         "contact the owner, send externally, decide Signoffs, start a watcher or CLI, or spawn helpers. "
         "Continue routine work without asking the parent agent for approval at each step. Before yielding, persist "
         "a checkpoint and set state to completed, waiting with a wake condition, or blocked with a useful "

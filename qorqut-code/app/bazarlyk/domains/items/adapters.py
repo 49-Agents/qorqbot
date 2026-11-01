@@ -32,11 +32,10 @@ ROLES = {
 ROLES["campaign_responsible"] = ("Campaign responsible agent", "Responsible for campaign")
 ROLES["campaign_content_of"] = ("Campaign output of", "Campaign output")
 WORKFLOW_ROLES = {"assigned_to": "tasks_assign or email assignment tools", "blocked_by": "tasks_update",
-    "campaign_responsible": "stories_campaign_responsible_set", "campaign_content_of": "campaign_attribution_set"}
+    "campaign_responsible": "campaign_responsible_set", "campaign_content_of": "campaign_attribution_set"}
 # The operations a review may compose with its decision, keyed by operation: the edited item must be the reviewed one.
 REVIEW_EDITS = {
     "tasks_update": ReviewEdit("task", "task_id"),
-    "stories_update": ReviewEdit("story", "story_id"),
     "tables_update": ReviewEdit("table", "table_id", apply_through_domain=True),
     "tables_rows_write": ReviewEdit("table", "table_id", apply_through_domain=True),
     "context_document_update": ReviewEdit(None, "document_id", resource_type="documents"),
@@ -96,7 +95,7 @@ class HostArchive:
         self.items.resolve(ctx, args["item"], uow)
         table, row = self.items.resource(ctx, args["item"], uow)
         require_revision(row, options.expected_revision)
-        adapters = {"tasks": ("tasks_update", "task_id"), "stories": ("stories_update", "story_id"), "data_tables": ("tables_update", "table_id"),
+        adapters = {"tasks": ("tasks_update", "task_id"), "data_tables": ("tables_update", "table_id"),
                     "products": ("products_archive", "product_id")}
         if table in adapters:
             operation, key = adapters[table]
@@ -129,14 +128,14 @@ class HostArchive:
 
 
 class HostNavigation:
-    """``context_navigation_get``: authorized story, table and product counts plus the shared Context's person count.
+    """``context_navigation_get``: authorized table and product counts plus the shared Context's person count.
 
     The person count comes only from the published graph's ``basic_entity_type=["person"]`` nodes; the graph is one shared
     set, so it does not depend on the business. There is no fallback to the operational people items or the old document
     store: when the graph cannot be read ``counts.person`` is ``null`` (unknown) and ``context`` says why. ``count=0`` is
     reserved for a ready graph that genuinely has no matching node. The result is::
 
-        {"navigation_only": true, "counts": {story, table, product: int, person: int | null},
+        {"navigation_only": true, "counts": {table, product: int, person: int | null},
          "context": {"status": "ready" | "not_initialized" | "unavailable", "reason": null | {code, message},
                      "revision": <published revision read> | null}}
 
@@ -147,7 +146,7 @@ class HostNavigation:
 
     def read(self, ctx, args, uow):
         counts = {}
-        for kind in ('story', 'table', 'product'):
+        for kind in ('table', 'product'):
             count = 0
             for item in self.items.candidates(ctx, uow, kind=kind):
                 try: value = self.items.resolve(ctx, item, uow)

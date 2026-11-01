@@ -732,7 +732,7 @@ class IncidentOperations:
         self.app=application
 
     def register(self, registry):
-        from bazarlyk.domains.tasks.operations import task_namespace
+        from qorqut_operations.tasks.scope import task_namespace
         registry.register(OperationDescriptor("system_incidents_list", schema({
             "status": {"enum": ["active", "open", "recovering", "closed", "all"]},
             "limit": {"type": "integer", "minimum": 1, "maximum": 200},

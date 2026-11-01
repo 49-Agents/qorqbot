@@ -80,7 +80,7 @@ class StartupInventory:
                     # Global Signoff reads can include accessible business reviews;
                     # only consume Global rows here; business pages follow separately.
                     rows = [row for row in rows if kind != 'signoffs' or row.get('review_business_id') == business]
-                    fields = ('id', 'title', 'status', 'revision', 'due', 'snooze', 'snoozed') if kind == 'tasks' else (
+                    fields = ('id', 'title', 'status', 'revision', 'due', 'snoozed_until', 'snoozed') if kind == 'tasks' else (
                         'id', 'title', 'state', 'decision_state', 'execution_state', 'status_revision',
                         'proposal_revision', 'updated_sequence', 'updated_at', 'actionable', 'superseded_by_id')
                     for row in rows:

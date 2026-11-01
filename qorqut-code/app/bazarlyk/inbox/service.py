@@ -3,13 +3,20 @@ import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
+from qorqut_operations.actions import action_key, one_line
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, Principal, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, utc_clock, timestamp
+from qorqut_operations.discussion import ThreadItem, set_follow
+from qorqut_operations.tasks.scope import task_context
 from .events import ITEM_TYPES
 from .messages import Messages
 
-SOURCES = ('stories', 'tasks', 'signoffs', 'documents', 'email_conversations', 'outreach_events')
+SOURCES = ('tasks', 'actions', 'signoffs', 'documents', 'email_conversations', 'outreach_events')
+# Tasks and Actions are followed through the discussion's follow state (a personal, sticky preference), not through
+# a subscription row; every other source keeps its subscription.
+THREAD_SOURCES = {'tasks': 'task', 'actions': 'action'}
+VISIBLE_TYPES = {**ITEM_TYPES, 'tasks': 'task', 'actions': 'action'}
 CONSUMER = {'type': 'string', 'format': 'uuid'}
 SCOPE = {'scope': {'enum': ['business', 'global']}}
 TARGET = {'source_type': {'enum': list(SOURCES)}, 'source_id': {'type': 'string', 'minLength': 1, 'maxLength': 200}}
@@ -78,9 +85,9 @@ class InboxService:
                 'uniqueItems': True, 'items': {'type': 'integer', 'minimum': 1}}, 'outcome': {'type': 'string', 'maxLength': 2000}},
                 ('event_ids',), 'Acknowledge exact handled events; a read or a nudge never clears them.'),
             'inbox_subscribe': ({**TARGET, 'include_related': {'type': 'boolean'}}, ('source_type', 'source_id'),
-                'Follow an authorized item. Only Stories can include directly related items; no recursive following or time expiry.'),
+                'Follow an authorized item. A Task or Action follow is the same preference as tasks_follow/actions_follow and is removed the same way. Only a Task follow can include its directly related work (its child Tasks and the items it is linked to, one hop); that routing lasts while the Task is followed, with no recursive following or time expiry. Remove it with inbox_unsubscribe.'),
             'inbox_unsubscribe': ({'subscription_id': {'type': 'string', 'format': 'uuid'}}, ('subscription_id',),
-                'Remove your explicit subscription. Automatic owner-task following is independent. Already delivered updates remain pending until acknowledged.'),
+                'Remove your explicit subscription. A Task or Action follow is removed with tasks_follow/actions_follow instead; automatic owner-task following is independent. Already delivered updates remain pending until acknowledged.'),
         }
         for name, (fields, required, description) in operations.items():
             args = schema({**SCOPE, **fields}, required)
@@ -113,7 +120,7 @@ class InboxService:
         if source_type == 'outreach_events':
             # A subscription names the campaign and can precede the first event.
             return business is not None and self.business_member(ctx, business, uow)
-        if source_type not in ITEM_TYPES: return False
+        if source_type not in VISIBLE_TYPES: return False
         # Request records are historical only; current canonical source reads
         # use Signoffs and no longer accept the retired requests table.
         if source_type == 'requests': return False
@@ -124,7 +131,6 @@ class InboxService:
             if business is None and 'read_global_context' not in selected.global_capabilities:
                 return False
             if business is None and source_type == 'tasks':
-                from bazarlyk.domains.tasks.operations import task_context
                 selected = task_context(replace(selected, business_id=None), {'scope': 'global'}, uow)
                 descriptor = self.app.registry.get('tasks_get')
                 self.app.authorize(selected, descriptor, (), uow, namespace='global')
@@ -143,12 +149,7 @@ class InboxService:
                 self.app.authorize(selected, self.app.registry.get(self.domains.email.read_operation(selected)), (), uow, namespace='business:'+business)
                 self.domains.email.discussion_access(selected, uow)
                 return bool(self.domains.email.conversation(uow, business, identity))
-            if source_type == 'stories':
-                descriptor = self.app.registry.get('stories_get')
-                self.app.authorize(selected, descriptor, (), uow,
-                    namespace='global' if business is None else 'business:'+business)
-                return bool(uow.repository('stories', business_id=business).get(identity))
-            self.domains.related.get(selected, uow, source_type, identity, allow_busy=True)
+            self.domains.related.get(selected, uow, 'action_logs' if source_type == 'actions' else source_type, identity, allow_busy=True)
             return True
         except DomainError as error:
             if error.code in {'not_found', 'forbidden', 'policy_denied', 'busy', 'document_unavailable', 'operation_unavailable', 'invalid_assignee'}:
@@ -341,9 +342,14 @@ class InboxService:
             # Deliveries follow the current recipient; read-only collapsed history never notifies.
             return bool(message and message["current_recipient_id"] == ctx.principal_id
                         and not self.messages.collapsed(message) and self.messages.visible(ctx, message))
+        if row['source_type'] == 'context_inputs':
+            # A Context input notice goes to the registered coordinator alone; the input must still exist.
+            installation = uow.repository('installation').get('service')
+            return bool(installation and installation['management_coordinator_id'] == ctx.principal_id
+                        and uow.connection.execute('SELECT 1 FROM context_inputs WHERE id=?', (row['source_id'],)).fetchone())
         if self.visible(ctx, row['source_type'], row['source_id'], row['business_id'], uow):
             return True
-        if row['event_type'] != 'deleted' or row['source_type'] not in {'stories', 'tasks', 'documents'}:
+        if row['event_type'] != 'deleted' or row['source_type'] not in {'tasks', 'documents'}:
             return False
         if row['business_id'] is not None and not self.business_member(ctx, row['business_id'], uow):
             return False
@@ -354,7 +360,7 @@ class InboxService:
             selected = ctx.select_business(row['business_id'])
             if selected.business_id is None and 'read_global_context' not in selected.global_capabilities:
                 return False
-            operation = {'stories': 'stories_get', 'tasks': 'tasks_get', 'documents': 'context_get'}[row['source_type']]
+            operation = {'tasks': 'tasks_get', 'documents': 'context_get'}[row['source_type']]
             if row['source_type'] == 'documents':
                 kind = json.loads(row['visibility_json']).get('kind')
                 operation = {'business_note': 'notes_get', 'agent_note': 'notes_get', 'journal': 'notes_get', 'business_owned_note': 'notes_get',
@@ -484,12 +490,36 @@ class InboxService:
         from .owner_tasks import ordubashies, tasks
         result = []
         for row in uow.connection.execute('SELECT * FROM inbox_subscriptions WHERE agent_id=? ORDER BY created_at,id', (ctx.principal_id,)):
-            if not self.visible(ctx, row['source_type'], row['source_id'], row['business_id'], uow):
+            if row['source_type'] == 'actions' or (row['source_type'] == 'tasks' and not row['include_related']) \
+                    or not self.visible(ctx, row['source_type'], row['source_id'], row['business_id'], uow):
                 continue
             source = row_for(uow, row['source_type'], row['business_id'], row['source_id'])
             business = uow.repository('businesses').get(row['business_id']) if row['business_id'] else None
             result.append({**dict(row), 'business_slug': business['slug'] if business else None,
+                **({'managed_by': 'related_work'} if row['source_type'] == 'tasks' else {}),
                 'summary': source_summary(source, row['source_type'])})
+        for follow in uow.connection.execute(
+                'SELECT * FROM thread_follows WHERE principal_id=? AND following=1 ORDER BY created_at,item_type,item_id', (ctx.principal_id,)):
+            table = 'tasks' if follow['item_type'] == 'task' else 'actions'
+            if table == 'tasks':
+                identity, source = follow['item_id'], row_for(uow, 'tasks', follow['business_id'], follow['item_id'])
+                summary = source_summary(source, 'tasks')
+            else:
+                identity = action_key(follow['business_id'], follow['item_id'])
+                source = row_for(uow, 'action_logs', follow['business_id'], follow['item_id'])
+                summary = one_line(source['action_text']) if source else ''
+            if source is None or not self.visible(ctx, table, identity, follow['business_id'], uow):
+                continue
+            related_row = next((item for item in result if item['source_type'] == table and item['source_id'] == identity
+                                and item['business_id'] == follow['business_id']), None)
+            if related_row is not None:
+                # A related-work row is the same Task follow with its removable subscription id.
+                related_row.update(managed_by='thread_follow', follow_reason=follow['reason'])
+                continue
+            business = uow.repository('businesses').get(follow['business_id']) if follow['business_id'] else None
+            result.append({'id': None, 'agent_id': ctx.principal_id, 'business_id': follow['business_id'],
+                'business_slug': business['slug'] if business else None, 'source_type': table, 'source_id': identity,
+                'include_related': False, 'managed_by': 'thread_follow', 'follow_reason': follow['reason'], 'summary': summary})
         manual = {(item['business_id'], item['source_type'], item['source_id']): item for item in result}
         if ctx.principal_id in ordubashies(uow):
             for raw in tasks(uow):
@@ -519,8 +549,8 @@ class InboxService:
         if operation == 'inbox_subscribe':
             # `owner_conversations` is not in the TARGET enum above, so a private
             # conversation is refused by argument validation before this runs.
-            if args.get('include_related') and args['source_type'] != 'stories':
-                raise DomainError('validation_error', 'Only Story subscriptions can include related items')
+            if args.get('include_related') and args['source_type'] != 'tasks':
+                raise DomainError('validation_error', 'Only Task follows can include related work')
             if not self.visible(ctx, args['source_type'], args['source_id'], ctx.business_id, uow):
                 raise DomainError('not_found', 'Subscription target is unavailable')
         elif operation == 'inbox_acknowledge':
@@ -557,6 +587,8 @@ class InboxService:
         if plan.operation_name == 'inbox_unsubscribe':
             uow.connection.execute('DELETE FROM inbox_subscriptions WHERE id=? AND agent_id=?', (args['subscription_id'], ctx.principal_id))
             return {'unsubscribed': args['subscription_id']}
+        if args['source_type'] in THREAD_SOURCES:
+            return self.follow(ctx, args, uow)
         row = uow.connection.execute('SELECT * FROM inbox_subscriptions WHERE agent_id=? AND business_id IS ? AND source_type=? AND source_id=?',
             (ctx.principal_id, ctx.business_id, args['source_type'], args['source_id'])).fetchone()
         identity = row['id'] if row else new_id()
@@ -564,6 +596,36 @@ class InboxService:
             'ON CONFLICT(id) DO UPDATE SET include_related=excluded.include_related',
             (identity, ctx.principal_id, ctx.business_id, args['source_type'], args['source_id'], int(args.get('include_related', False)), timestamp(self.clock)))
         return {'subscription_id': identity}
+
+    def follow(self, ctx, args, uow):
+        """Following a Task or an Action is the discussion's own follow state: personal, explicit and sticky."""
+        from bazarlyk.domains.activity import linked_action
+        if args['source_type'] == 'tasks':
+            item = ThreadItem(ctx.business_id, 'task', args['source_id'])
+        else:
+            action = linked_action(ctx, uow, args['source_id'])
+            if action is None:
+                raise DomainError('not_found', 'Subscription target is unavailable')
+            item = ThreadItem(action['business_id'], 'action', action['id'])
+        state = set_follow(uow, item, ctx.principal_id, True)
+        result = {'following': state['following'], 'source_type': args['source_type'], 'source_id': args['source_id']}
+        if args['source_type'] == 'tasks' and 'include_related' in args:
+            result['subscription_id'] = self.related_work(ctx, args, bool(args['include_related']), uow)
+        return result
+
+    def related_work(self, ctx, args, wanted, uow):
+        """The Task follow's related-work subscription row (one per agent and Task), or None once it is turned off."""
+        row = uow.connection.execute('SELECT * FROM inbox_subscriptions WHERE agent_id=? AND business_id IS ? AND source_type=? AND source_id=?',
+            (ctx.principal_id, ctx.business_id, 'tasks', args['source_id'])).fetchone()
+        if not wanted:
+            if row:
+                uow.connection.execute('DELETE FROM inbox_subscriptions WHERE id=?', (row['id'],))
+            return None
+        identity = row['id'] if row else new_id()
+        uow.connection.execute('INSERT INTO inbox_subscriptions(id,agent_id,business_id,source_type,source_id,include_related,created_at) VALUES(?,?,?,?,?,1,?) '
+            'ON CONFLICT(id) DO UPDATE SET include_related=1',
+            (identity, ctx.principal_id, ctx.business_id, 'tasks', args['source_id'], timestamp(self.clock)))
+        return identity
 
     def status(self,ctx,consumer):
         from bazarlyk.installation import app_manifest

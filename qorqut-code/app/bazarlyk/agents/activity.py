@@ -14,7 +14,7 @@ from bazarlyk.composition.locations import agent_workspace_of
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.application.plans import PAGE, UUID, PlanBuilder, apply_records, page, schema, timestamp, utc_clock
-from bazarlyk.domains.tasks.operations import task_context, task_namespace
+from qorqut_operations.tasks.scope import task_context, task_namespace
 
 STALE_SECONDS = 180
 WORK_ITEM = schema({'business_id': {'anyOf': [UUID, {'type': 'null'}]},

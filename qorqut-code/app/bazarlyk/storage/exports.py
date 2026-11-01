@@ -8,25 +8,27 @@ import sqlite3
 from qorqut_operations.contracts import DomainError, canonical_bytes, canonical_hash
 from qorqut_operations.storage.files import RegisteredFileTarget
 from qorqut_operations.storage.specs import CORE_TABLES
+from bazarlyk.composition.schema import record_contributions
 from bazarlyk.composition.tables import TABLE_SPECS
 from qorqut_operations.storage.repositories import decode_row
 from qorqut_operations.storage.safe_io import atomic_write
 from bazarlyk.composition.locations import business_hq
 
 # Every table exists in a target store: the version-gated skips of the migrated v1 databases are gone.
-TABLES = {**CORE_TABLES, **TABLE_SPECS}
+# The engine's operational-record tables (Tasks, threads, tags, Actions, the Context queue) are specified by their owners.
+TABLES = {**CORE_TABLES, **TABLE_SPECS, **{name: spec for part in record_contributions() for name, spec in part.tables.items()}}
 EXPORT_VERSION = 1
-BUSINESS_TABLES = ("relationships", "context_reviews", "context_review_states", "context_entities", "data_tables", "data_rows", "table_versions", "stories", "story_events", "story_drafts", "products", "business_configs", "agent_profiles", "tasks", "task_notes",
-    "documents", "action_logs", "action_log_labels", "requests",
+BUSINESS_TABLES = ("relationships", "context_reviews", "context_review_states", "context_entities", "data_tables", "data_rows", "table_versions", "products", "business_configs", "agent_profiles", "tasks", "thread_messages", "item_tags",
+    "documents", "action_logs", "action_revisions", "requests",
     "learning_candidates", "learning_decisions", "learning_history", "learning_runs",
     "learning_issues", "learning_issue_candidates", "learning_issue_actions", "learning_issue_links", "learning_engine_packages",
     "routines", "routine_runs", "email_mailboxes", "email_conversations")
-GLOBAL_TABLES = ("stories", "story_events", "story_drafts", "dev_tickets", "dev_ticket_events", "tasks", "task_notes", "relationships", "business_configs", "global_subscriptions", "ideas", "founder_focus", "agent_profiles", "documents", "routines", "routine_runs",
+GLOBAL_TABLES = ("dev_tickets", "dev_ticket_events", "tasks", "thread_messages", "item_tags", "relationships", "business_configs", "global_subscriptions", "ideas", "founder_focus", "agent_profiles", "documents", "routines", "routine_runs",
                  "learning_candidates", "learning_decisions", "learning_history", "learning_runs",
                  "learning_issues", "learning_issue_candidates", "learning_issue_actions", "learning_issue_links",
                  "learning_engine_packages",
                  # Global-stored actions and every action's business memberships (the action scope).
-                 "action_logs", "action_businesses",
+                 "action_logs", "action_revisions", "action_businesses", "tags",
                  # Global general tables share the business table stores under a NULL business.
                  "data_tables", "data_rows", "table_versions")
 PROJECTION_NOTICE = "Generated from SQLite. Read-only history/recovery projection; edits are not imported."

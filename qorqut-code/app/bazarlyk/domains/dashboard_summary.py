@@ -6,8 +6,8 @@ from qorqut_operations import local_time
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.application.plans import schema, timestamp
-from .tasks.operations import TaskOperations
-from .tasks.snooze import ACTIVE_SQL
+from qorqut_operations.tasks import TaskOperations
+from .tasks import ACTIVE_SQL
 
 
 def register(registry, clock):

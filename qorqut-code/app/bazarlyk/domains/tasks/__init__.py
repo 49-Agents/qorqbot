@@ -1,3 +1,10 @@
-from .operations import TaskOperations
+"""Host side of the engine's Tasks: the retained v1 rules the Operations engine asks through its typed ports."""
 
-__all__ = ["TaskOperations"]
+from .ports import HostSetupGuards, NOTE_REFS, task_ports
+from .writes import TaskWrites
+
+# Tasks whose snooze has not (yet) deferred them: one shared ``snoozed_until`` timestamp, expiry is a read. Bind the
+# current UTC timestamp for the single placeholder; the Task row is aliased ``t``.
+ACTIVE_SQL = "(t.snoozed_until IS NULL OR t.snoozed_until<=?)"
+
+__all__ = ["ACTIVE_SQL", "HostSetupGuards", "NOTE_REFS", "TaskWrites", "task_ports"]

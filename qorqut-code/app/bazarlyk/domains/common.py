@@ -5,10 +5,7 @@ callers import those names from there."""
 
 from __future__ import annotations
 
-from qorqut_operations.application.plans import UUID
 from qorqut_operations.contracts import plain
-
-STORY_IDS = {"type": "array", "items": UUID, "uniqueItems": True, "maxItems": 200}
 
 
 def config(uow, business_id, domain, default):

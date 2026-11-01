@@ -87,14 +87,6 @@ class OwnerSessionCaller:
                 return True
             if not in_business(args["focus"]):
                 raise DomainError("forbidden", "Task focus must remain inside the owner-session business")
-        # Story note/summary fields ride on shared timeline events. The domain
-        # deliberately keeps state-change reasons shared, so this route refuses
-        # them the same way stories_note_add refuses the owner: freeform
-        # commentary belongs to the private Ordubashy conversation.
-        if canonical_name in {"stories_update", "stories_close", "stories_reopen"} and (
-                args.get("note") or args.get("summary")):
-            from qorqut_operations.team_channel import channel_required
-            raise channel_required(canonical_name)
 
     def validate_options(self, actor, canonical_name, options):
         if canonical_name in owner_sessions.GLOBAL_CONTEXT_OPERATIONS:

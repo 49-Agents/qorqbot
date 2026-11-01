@@ -17,11 +17,10 @@ from bazarlyk.storage import history
 
 from qorqut_operations.application.plans import schema
 
-SOURCE_KINDS = ("document", "story", "story_draft", "learning_candidate", "learning_decision")
+SOURCE_KINDS = ("document", "learning_candidate", "learning_decision")
 VERSION = {"type": "integer", "minimum": 1}
 LIMIT = {"type": "integer", "minimum": 1, "maximum": 200}
-SQL_SOURCES = {"story": "stories", "story_draft": "story_drafts", "learning_candidate": "learning_candidates",
-               "learning_decision": "learning_decisions"}
+SQL_SOURCES = {"learning_candidate": "learning_candidates", "learning_decision": "learning_decisions"}
 
 
 def _version(value, *, content):

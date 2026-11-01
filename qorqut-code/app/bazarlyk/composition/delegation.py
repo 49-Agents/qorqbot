@@ -22,7 +22,7 @@ from bazarlyk.agents.operational_delegation import (OperationalDelegation, WORKE
                                                     supports_durable_delegation_version)
 
 # Record selector argument names a delegated read or write may carry, and the assignment boundary each is checked against.
-SELECTORS = {"task_id": "tasks", "story_id": "stories", "document_id": "documents", "thread_id": "message_threads"}
+SELECTORS = {"task_id": "tasks", "document_id": "documents", "thread_id": "message_threads"}
 CONTEXT_SCOPED_READS = frozenset({"agent_config_get", "tasks_config_get"})
 
 

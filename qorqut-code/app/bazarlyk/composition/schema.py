@@ -7,13 +7,22 @@ checks before it hands the contributions over that the generated ownership and t
 
 from __future__ import annotations
 
+from qorqut_operations import actions, context_queue, discussion, tags, tasks
 from qorqut_operations.storage.assembly import AssemblyError, StorageContribution
 
-from . import schema_ddl, tables
+from . import campaigns, capture, schema_ddl, tables
 from .documents import RESOURCE_TYPE as DOCUMENTS
 
 # Document availability is tracked beside every file receipt (v1), so the documents owner requires its lifecycle.
 REQUIRED_LIFECYCLES = {"documents": frozenset({DOCUMENTS})}
+
+
+def record_contributions() -> tuple[StorageContribution, ...]:
+    """The engine's operational-record storage, first and in the order its DDL needs: the tag catalog and the discussion,
+    Tasks on both, Actions on those, and the Context queue on the Action revisions. The host objects that sit on these
+    tables (the content-session event index) and the host tables that reference them are created after them."""
+    return (tags.storage_contribution(), discussion.storage_contribution(), tasks.storage_contribution(),
+            actions.storage_contribution(), context_queue.storage_contribution())
 
 
 def storage_contributions() -> tuple[StorageContribution, ...]:
@@ -37,4 +46,5 @@ def storage_contributions() -> tuple[StorageContribution, ...]:
         contributions.append(StorageContribution(
             owner, specs, {name: fields for name, fields in tables.IMMUTABLE_FIELDS.items() if name in specs},
             schema_ddl.OWNER_SCHEMA[owner], required_lifecycles=REQUIRED_LIFECYCLES.get(owner, frozenset())))
-    return tuple(contributions)
+    # The change-feed capture for the engine's record tables comes last: its triggers write into the host's ``inbox_changes``.
+    return (*record_contributions(), *contributions, capture.capture_contribution(), campaigns.campaign_contribution())

@@ -3,7 +3,7 @@ from qorqut_operations.contracts import DomainError, canonical_hash
 from qorqut_operations.application.plans import timestamp, utc_clock
 
 MAX_CHILDREN = 200
-SOURCE_TYPES = ("task", "story", "document", "signoff", "email")
+SOURCE_TYPES = ("task", "document", "signoff", "email")
 
 
 class MemorySources:
@@ -16,7 +16,7 @@ class MemorySources:
         args = {'scope': 'global'} if ctx.business_id is None and operation.startswith(('signoffs_', 'email_')) else {}
         self.app.authorize(ctx, descriptor, (), uow, namespace=self.app.namespace(ctx, descriptor, args))
         if operation.startswith('tasks_'):
-            from .tasks.operations import task_context
+            from qorqut_operations.tasks.scope import task_context
             task_context(ctx, args, uow)
 
     def bounded(self, uow, sql, params):
@@ -27,9 +27,9 @@ class MemorySources:
 
     def observe(self, ctx, source, uow):
         kind, identity = source['type'], source['id']
-        tables = {'task': 'tasks', 'story': 'stories', 'document': 'documents',
+        tables = {'task': 'tasks', 'document': 'documents',
                   'signoff': 'signoffs', 'email': 'email_conversations'}
-        operations = {'task': 'tasks_get', 'story': 'stories_get', 'signoff': 'signoffs_get',
+        operations = {'task': 'tasks_get', 'signoff': 'signoffs_get',
                       'email': 'email_conversation_get'}
         if kind not in tables:
             raise DomainError('validation_error', 'Unsupported working-memory source type')
@@ -82,26 +82,24 @@ class MemorySources:
                 raise DomainError('observation_unavailable', 'Source has uncommitted file changes')
             token['content_hash'] = row['content_hash']
             summary['title'] = str(row['metadata_json'].get('title', 'Document'))[:200]
-        elif kind in {'task', 'story'}:
-            summary.update(title=row['title'][:200], state=row.get('status', row.get('state')))
+        elif kind == 'task':
+            summary.update(title=row['title'][:200], state=row['status'])
             token['relationships'] = self.bounded(uow,
                 "SELECT id,revision,role,to_type,to_id FROM relationships WHERE business_id IS ? AND from_type=? AND from_id=? ORDER BY id",
                 (ctx.business_id, kind, identity))
-            if kind == 'story':
-                token['sequence'] = row['sequence']
-            else:
-                from .tasks.snooze import snooze_view
-                summary.update(snooze_view(row, timestamp(self.clock)))
-                if summary['snooze'] is not None:
-                    # Expiry changes freshness without a write or a clock-dependent token.
-                    token['snoozed'] = summary['snoozed']
-                # Canonical task comments already advance the task revision.
-                # Do not scan its entire note history on every bootstrap.
-                token['blockers'] = self.bounded(uow,
-                    "SELECT t.id,t.revision,t.status FROM relationships r JOIN tasks t ON t.business_id IS r.business_id AND t.id=r.to_id WHERE r.business_id IS ? AND r.from_type='task' AND r.from_id=? AND r.role='blocked_by' ORDER BY t.id",
-                    (ctx.business_id, identity))
-                cfg = uow.repository('business_configs', business_id=ctx.business_id).get('tasks')
-                token['task_config_revision'] = cfg['revision'] if cfg else None
+            token['parent_id'] = row.get('parent_id')
+            from qorqut_operations.tasks import snooze_view
+            summary.update(snooze_view(row, timestamp(self.clock)))
+            if summary['snoozed_until'] is not None:
+                # Expiry changes freshness without a write or a clock-dependent token.
+                token['snoozed'] = summary['snoozed']
+            # Canonical task comments already advance the task revision.
+            # Do not scan its entire note history on every bootstrap.
+            token['blockers'] = self.bounded(uow,
+                "SELECT t.id,t.revision,t.status FROM relationships r JOIN tasks t ON t.business_id IS r.business_id AND t.id=r.to_id WHERE r.business_id IS ? AND r.from_type='task' AND r.from_id=? AND r.role='blocked_by' ORDER BY t.id",
+                (ctx.business_id, identity))
+            cfg = uow.repository('business_configs', business_id=ctx.business_id).get('tasks')
+            token['task_config_revision'] = cfg['revision'] if cfg else None
         elif kind == 'email':
             self.email.access(ctx, uow)
             token['messages'] = self.bounded(uow,

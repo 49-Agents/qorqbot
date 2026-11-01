@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 
 from qorqut_business_docs_versioning import HistoryStore, ImportConflict, NotFound, initialize_schema
 
+from qorqut_operations.actions import one_line
 from qorqut_operations.contracts import DomainError, plain, utc_now
 
 HISTORY_TABLES = ("qbdv_document_versions", "qbdv_business_events")
@@ -33,17 +34,14 @@ UNTRACKED_KINDS = frozenset({"asset", "data_upload", "email_message"})
 # SQL-authored documents: exact text fields rendered as deterministic JSON.
 # Revisions, timestamps and counters are deliberately excluded.
 SQL_DOCUMENTS = {
-    "stories": ("story", "id", ("title", "purpose", "situation", "state_reason", "next_step")),
-    "story_drafts": ("story-draft", "id", ("title", "body", "statuses_json")),
     "learning_candidates": ("learning-candidate", "id", ("candidate_json", "agent_note")),
     "learning_decisions": ("learning-decision", "candidate_id", ("feedback", "changes_json")),
 }
 # Tables whose committed changes record history or business activity.
 # Append-only source facts summarised as business activity.
-FACT_TABLES = ("action_logs", "story_events", "milestone_events", "learning_history")
+FACT_TABLES = ("action_logs", "milestone_events", "learning_history")
 TRACKED_TABLES = frozenset({*SQL_DOCUMENTS, *FACT_TABLES, "documents", "tasks"})
-SOURCE_KINDS = {"story": "stories", "story_draft": "story_drafts", "learning_candidate": "learning_candidates",
-                "learning_decision": "learning_decisions"}
+SOURCE_KINDS = {"learning_candidate": "learning_candidates", "learning_decision": "learning_decisions"}
 
 
 def namespace(business_id):
@@ -477,11 +475,8 @@ def verify_working_memory(connection):
 
 
 def closed_states(connection, business_id):
-    from bazarlyk.domains.tasks.models import DEFAULT_CONFIG
-    row = connection.execute("SELECT config_json FROM business_configs WHERE business_id IS ? AND domain='tasks'",
-                             (business_id,)).fetchone()
-    value = json.loads(row[0]) if row else DEFAULT_CONFIG
-    return {state["name"] for state in value["states"] if state["kind"] == "closed"}
+    from qorqut_operations.tasks import CLOSED_STATES
+    return set(CLOSED_STATES)
 
 
 def _json(value):
@@ -560,14 +555,9 @@ def fact_event(table, row, *, operation):
     """The summary event for one committed append-only source fact; its ID is the source row's."""
     if table == "action_logs":
         return {"business_id": row["business_id"], "event_id": f"action:{row['id']}", "kind": "action.recorded",
-                "actor_id": row["actor_id"], "summary": row["summary"], "subject_type": "action", "subject_id": row["id"],
-                "occurred_at": row["occurred_at"], "data": {"log_id": row["id"], "tag": row["tag"],
+                "actor_id": row["recorded_by"], "summary": one_line(row["action_text"]), "subject_type": "action",
+                "subject_id": row["id"], "occurred_at": row["occurred_at"], "data": {"log_id": row["id"], "action_key": row["action_key"],
                 "refs": _bounded(_json(row.get("refs_json"))), "operation": operation}}
-    if table == "story_events":
-        return {"business_id": row["business_id"], "event_id": f"story-event:{row['id']}", "kind": "story.event_recorded",
-                "actor_id": row["actor_id"], "summary": "Story event recorded", "subject_type": "story",
-                "subject_id": row["story_id"], "occurred_at": row["created_at"], "data": {"story_id": row["story_id"],
-                "story_event_id": row["id"], "event_kind": row["kind"], "sequence": row["sequence"], "operation": operation}}
     if table == "learning_history":
         return {"business_id": row["business_id"], "event_id": f"learning-history:{row['id']}", "kind": "learning.changed",
                 "actor_id": row["actor_id"], "summary": "Learning changed", "subject_type": "learning",

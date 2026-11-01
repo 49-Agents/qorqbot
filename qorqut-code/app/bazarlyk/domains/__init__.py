@@ -1,7 +1,7 @@
 """Business operations implemented against the shared application contracts."""
 
 from dataclasses import dataclass
-from .activity import ActivityOperations
+from .activity import ActionWriteback
 from .dev_tickets import DevTickets
 from .viewbox import AgentViewbox
 from .document_history import DocumentHistory
@@ -14,12 +14,18 @@ from .account_email import AccountEmailOperations
 from .ledger import LedgerOperations
 from .metrics import MetricOperations
 from .platform_actions.operations import PlatformActions
-from .tasks import TaskOperations
+from .tasks import HostSetupGuards, task_ports
 from .tables import TableOperations
 from .tables.uploads import DataUploadOperations
-from .stories import StoryOperations
+from .campaigns import CampaignResponsibility, CampaignRules
 from .products import ProductOperations
+from qorqut_operations.actions import ActionOperations
+from qorqut_operations.context_filing import FilingOutcomes
+from qorqut_operations.context_graph_edits import ExecutionFacts
+from qorqut_operations.context_queue import ContextQueueOperations
 from qorqut_operations.items import ItemResolver
+from qorqut_operations.tags import TagOperations
+from qorqut_operations.tasks import TaskOperations
 from qorqut_operations.relationships import ContextReviews, RelationshipOperations
 from .items.compose import build_neutral_items
 from .items.resources import RelatedResources
@@ -30,6 +36,7 @@ from .ideas import IdeaOperations
 from .personal_context import PersonalContextOperations
 from .subscriptions import SubscriptionOperations
 from .costs import CostOperations
+from bazarlyk.context_usage import ContextUsageOperations
 from .working_memory import WorkingMemory
 from .owner_actions import OwnerActions
 from .milestones import MilestoneOperations
@@ -45,12 +52,11 @@ class BusinessDomains:
     tasks: TaskOperations
     ledger: LedgerOperations
     metrics: MetricOperations
-    activity: ActivityOperations
+    activity: ActionWriteback
     documents: DocumentOperations
     assets: AssetOperations
     platform_actions: PlatformActions
     email: EmailOperations
-    stories: StoryOperations
     tables: TableOperations
     data_uploads: DataUploadOperations
     relationships: RelationshipOperations
@@ -66,6 +72,9 @@ class BusinessDomains:
     shared_context: SharedContextReader = None
     business_setup: BusinessSetupOperations = None
     viewbox: AgentViewbox = None
+    actions: ActionOperations = None
+    tags: TagOperations = None
+    queue: ContextQueueOperations = None
 
     def resolve_file_target(self, resource):
         if resource.resource_type == "idea_creation_files":
@@ -74,31 +83,30 @@ class BusinessDomains:
 
 
 def register_business_domains(registry, application, paths, *, catalog, agent_resolver, clock=utc_clock, job_programs=None, filing=None,
-                              graph_edits=None):
-    tasks = TaskOperations(clock=clock)
+                              graph_edits=None, queue=None):
     tables = TableOperations(application.database, paths, clock=clock, job_programs=job_programs)
     ledger = LedgerOperations(tables=tables, clock=clock, job_programs=job_programs)
     metrics = MetricOperations(tables=tables, clock=clock, job_programs=job_programs)
-    activity = ActivityOperations(ledger=ledger, clock=clock)
-    documents = DocumentOperations(application.database, paths, tasks=tasks, activity=activity, clock=clock, job_programs=job_programs, filing=filing)
+    activity = ActionWriteback(ledger=ledger, clock=clock)
+    documents = DocumentOperations(application.database, paths, clock=clock, job_programs=job_programs, filing=filing)
     assets = AssetOperations(documents.store, clock=clock)
     data_uploads = DataUploadOperations(documents.store, clock=clock)
     email = EmailOperations(application=application, resolver=agent_resolver, documents=documents, clock=clock, programs=job_programs)
     account_email = AccountEmailOperations(email, job_programs)
-    platform_actions = PlatformActions(application=application, catalog=catalog, agent_resolver=agent_resolver, documents=documents, tasks=tasks, activity=activity, clock=clock, job_programs=job_programs, email=email)
+    # The Task service is built once the neutral items exist; reply routing is handed it below.
+    platform_actions = PlatformActions(application=application, catalog=catalog, agent_resolver=agent_resolver, documents=documents, tasks=None, activity=activity, clock=clock, job_programs=job_programs, email=email)
     DevTickets().register(registry)
     viewbox = AgentViewbox(application, clock=clock).register(registry)
     IncidentOperations(application).register(registry)
-    tasks.register(registry, application)
     MilestoneOperations(clock=clock).register(registry)
     BusinessProgress(clock=clock).register(registry)
     BusinessBriefing(application, clock=clock).register(registry)
     tables.register(registry, application)
     ledger.register(registry)
     metrics.register(registry)
-    activity.register(registry)
     documents.register(registry, application)
     context_base = ContextBaseOperations(documents, job_programs=job_programs, graph_edits=graph_edits).register(registry)
+    ContextUsageOperations().register(registry)
     documents.context_base = context_base
     # The one published Context read engine: registered directly over the instance's graph locations, with no
     # per-business reads beside it. ``documents.shared_context`` is the reader the other host read consumers use.
@@ -119,18 +127,26 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
                            resolver=agent_resolver).register(registry)
     # Business setup is constructed first only because its edge guard is the neutral relationships' protected-edge port;
     # its operations are registered below, in their v1 position.
-    business_setup = BusinessSetupOperations(application, tasks, clock=clock)
+    business_setup = BusinessSetupOperations(application, None, clock=clock)
     neutral = build_neutral_items(application, documents=documents, email=email, business_setup=business_setup, clock=clock)
-    tasks.items = neutral.items
-    stories = StoryOperations(documents=documents, tasks=tasks, items=neutral.items, related=neutral.related,
-                              relationships=neutral.relationships, reviews=neutral.reviews, clock=clock)
-    stories.register(registry, application)
-    OwnerActions(paths, stories, clock=clock).register(registry)
-    tasks.stories = stories
-    documents.stories = stories
-    assets.stories = stories
-    tables.stories = stories
-    data_uploads.stories = stories
+    # The engine's operational records: the shared tag catalog, Tasks (over the neutral items and the host's ports),
+    # Actions and the Context input queue. Their handlers install here; the host's setup rules answer through ports.
+    setup_guards = HostSetupGuards()
+    campaign_rules = CampaignRules()
+    tags = TagOperations(clock=clock)
+    tasks = TaskOperations(application, neutral.items, task_ports(application, setup_guards, campaign_rules), clock=clock)
+    actions = ActionOperations(application, tasks.note_references(), clock=clock)
+    # The caller that wires ``filing`` or ``graph_edits`` hands in the one queue those ports and the driver share; otherwise a
+    # queue with its own outcome and execution facts is built here.
+    if queue is None:
+        queue = ContextQueueOperations(outcomes=FilingOutcomes(), clock=clock, executions=ExecutionFacts())
+    for contribution in (tags.contribution(), tasks.contribution(), actions.contribution(), queue.contribution()):
+        install_contribution(registry, contribution)
+    business_setup.tasks = platform_actions.tasks = tasks
+    setup_guards.bind(business_setup)
+    campaign_rules.bind(tasks, neutral.related)
+    CampaignResponsibility(tasks, neutral.related, clock=clock).register(registry)
+    OwnerActions(paths, clock=clock).register(registry)
     ProductOperations(application, clock=clock).register(registry)
     install_contribution(registry, neutral.relationships.contribution())
     business_setup.register(registry)
@@ -144,10 +160,10 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     personal_context.register(registry)
     subscriptions = SubscriptionOperations()
     subscriptions.register(registry)
-    CostOperations(context_base, clock=clock).register(registry)
+    CostOperations(clock=clock).register(registry)
     memory = WorkingMemory(application, documents, email, agent_resolver, clock=clock)
     memory.register(registry)
     if agent_resolver is not None:
         agent_resolver.working_memory = memory
     documents.working_memory = memory
-    return BusinessDomains(tasks, ledger, metrics, activity, documents, assets, platform_actions, email, stories, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, ideas, personal_context, subscriptions, memory, archive, context_base=context_base, shared_context=shared_context, business_setup=business_setup, viewbox=viewbox)
+    return BusinessDomains(tasks, ledger, metrics, activity, documents, assets, platform_actions, email, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, ideas, personal_context, subscriptions, memory, archive, context_base=context_base, shared_context=shared_context, business_setup=business_setup, viewbox=viewbox, actions=actions, tags=tags, queue=queue)
