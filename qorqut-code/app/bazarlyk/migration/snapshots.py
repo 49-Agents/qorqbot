@@ -95,15 +95,21 @@ class SourceManifest:
                     or any(char not in "0123456789abcdef" for char in item["sha256"])):
                 raise AuthorityError("snapshot_invalid", "Invalid or duplicate source manifest entry.")
             names.add(name)
-        businesses = set()
+        businesses, shapes = set(), set()
         for business in data["businesses"]:
             if not isinstance(business, dict) or not isinstance(business.get("slug"), str):
                 raise AuthorityError("snapshot_invalid", "Invalid business discovery metadata.")
             slug = business["slug"]
             hq = _relative(business.get("hq"))
-            if len(hq.parts) != 2 or hq.parts != (slug, "hq") or slug in businesses:
+            # Exactly two archive shapes: an offline v1 source archive (<slug>/hq) and a target-instance archive
+            # (businesses/<slug>/hq). Neither is translated into the other, and one archive uses one shape.
+            shape = {(slug, "hq"): "source", ("businesses", slug, "hq"): "target"}.get(hq.parts)
+            if shape is None or slug in businesses:
                 raise AuthorityError("snapshot_invalid", "Duplicate or invalid business discovery metadata.")
             businesses.add(slug)
+            shapes.add(shape)
+        if len(shapes) > 1:
+            raise AuthorityError("snapshot_invalid", "Business discovery metadata mixes source and target path shapes.")
         data["files"].sort(key=lambda item: item["path"])
         object.__setattr__(self, "data", freeze(data))
 

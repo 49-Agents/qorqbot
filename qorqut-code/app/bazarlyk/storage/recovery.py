@@ -18,6 +18,7 @@ from bazarlyk.migration.snapshots import (SourceManifest, _digest, _fsync_direct
     restore_snapshot, verify_snapshot)
 from qorqut_operations.storage.safe_io import TEMPORARY_PREFIX
 from bazarlyk.composition.locations import business_hq, business_root, document_root
+from .context_recovery import CAPTURE_DIRECTORY, ContextRecovery
 from .exports import atomic_write, build_exports, registered_path, snapshot_connection
 from qorqut_operations.storage.repositories import decode_row
 
@@ -40,6 +41,10 @@ def _identity(value):
 # A business's isolated browser keeps its live Chrome profile, downloads and setup projection here. They are
 # private runtime state: not authored context, and full of sockets, links and cookies a backup must never read.
 PRIVATE_HQ_DIRECTORIES = frozenset({"browser"})
+
+
+def _inside(path, base):
+    return path == base or base in path.parents
 
 
 def _walk(path, *, skip=SKIP_DIRECTORIES, top_skip=frozenset()):
@@ -68,6 +73,31 @@ def external_worker(root, row) -> bool:
     return not row["credential_id"] and Path(row["workspace"]).is_absolute() and not Path(row["workspace"]).is_relative_to(root)
 
 
+def business_entries(connection, instance):
+    """The registered businesses as the authored manifest records them, from the instance's own path contract.
+
+    Pure derivation from the registered rows and ``InstancePaths``: a business's folder, HQ and root are
+    ``businesses/<slug>``-relative, exactly the shape a target backup emits and verification demands."""
+    root = instance.operations
+    return [{"slug": business["slug"], "hq": business_hq(instance, business).relative_to(root).as_posix(),
+             "root": business_root(instance, business).relative_to(root).as_posix()}
+            for business in connection.execute("SELECT * FROM businesses ORDER BY id")]
+
+
+def require_target_businesses(manifest, database_path, instance):
+    """Raise ``ValueError`` unless the authored manifest's businesses are exactly this database's, in the target layout.
+
+    ``SourceManifest`` also parses historical source archives; recognizing a shape is not enough to certify a
+    generation, so a current backup's businesses must equal what its captured database and the instance paths derive."""
+    connection = snapshot_connection(database_path)
+    try:
+        expected = business_entries(connection, instance)
+    finally:
+        connection.close()
+    if [dict(item) for item in manifest.data["businesses"]] != expected:
+        raise ValueError("The authored businesses differ from the captured database and the instance layout")
+
+
 def authored_inventory(snapshot, instance, *, skip_external_workers=False):
     """Bind registered hashes to one DB snapshot; unrelated code roots are not walked."""
     root, paths = instance.operations, set()
@@ -76,18 +106,19 @@ def authored_inventory(snapshot, instance, *, skip_external_workers=False):
         if connection.execute("SELECT 1 FROM resource_claims LIMIT 1").fetchone():
             raise DomainError("backup_incomplete", "Finish or recover claimed file applications before backing up", retryable=True)
         businesses = {row["id"]: decode_row(row) for row in connection.execute("SELECT * FROM businesses ORDER BY id")}
-        business_manifest = []
+        business_manifest = business_entries(connection, instance)
         for business in businesses.values():
             hq = business_hq(instance, business)
             if not hq.is_dir():
                 raise DomainError("backup_incomplete", "Registered business data folder is missing")
-            business_manifest.append({"slug": business["slug"], "hq": hq.relative_to(root).as_posix(),
-                                      "root": business_root(instance, business).relative_to(root).as_posix()})
             paths.update(_walk(hq, top_skip=PRIVATE_HQ_DIRECTORIES))
             # The agents of a business sit beside its HQ and are authored material of the same business.
             paths.update(_walk(business_root(instance, business) / "agents"))
+        graph = instance.context
         for name in (*ROOT_AUTHORED, *PRIVATE_RUNTIME_FILES):
-            paths.update(_walk(registered_path(root, name)))
+            # The Context repository's authority is the generation's required Context component (Git objects, refs and
+            # the separate runtime), never a walk of its checkout, wherever the instance places it.
+            paths.update(path for path in _walk(registered_path(root, name)) if not _inside(path, graph))
         for row in connection.execute("SELECT * FROM documents ORDER BY id"):
             business = None if row["business_id"] is None else businesses[row["business_id"]]
             path = registered_path(root, document_root(instance, business, row["path"]) / row["path"])
@@ -169,6 +200,7 @@ class BackupStore:
             raise DomainError("invalid_configuration", "Local backups must stay in the private runtime backups tree")
         self.clock = clock
         self.database_relative = registered_path(self.root, database.path).relative_to(self.root).as_posix()
+        self.context = ContextRecovery(paths)
 
     def _remember(self, generation, state, *, metadata=None, error=None):
         with self.database.transaction() as uow:
@@ -183,59 +215,19 @@ class BackupStore:
             else:
                 repo.insert({"id": generation, "created_at": now, **values})
 
-    # ContextBase's graph database and incurred-cost sidecar are separately captured SQLite files;
-    # the git projection is derived data and is not a backup input. Set by service assembly.
-    context_base_path = None
+    def create(self, generation_id, *, barrier, check=lambda: None, timeout=60):
+        """Save one generation: the operational database, authored files and the Context pair, all under ``barrier``.
 
-    def _capture_context_base(self, destination):
-        source = self.context_base_path
-        if source is None or not Path(source).is_file():
-            return None
-        origin = sqlite3.connect(f"file:{Path(source)}?mode=ro", uri=True)
-        try:
-            copy = sqlite3.connect(destination)
-            try:
-                origin.backup(copy)
-            finally:
-                copy.close()
-        finally:
-            origin.close()
-        os.chmod(destination, 0o600)
-        return {"schema_version": 1, "source": str(source), "checksum": _digest(destination), "bytes": destination.stat().st_size}
-
-    def _capture_context_costs(self, destination):
-        """Snapshot incurred package API costs independently of the graph database."""
-        graph = self.context_base_path
-        if graph is None:
-            return None
-        source = Path(graph).parent / "costs.sqlite3"
-        if source.is_symlink():
-            raise DomainError("backup_incomplete", "Context base cost sidecar is not an ordinary file")
-        if not source.exists():
-            return None
-        if not source.is_file():
-            raise DomainError("backup_incomplete", "Context base cost sidecar is not an ordinary file")
-        try:
-            origin = sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)
-            try:
-                copy = sqlite3.connect(destination)
-                try:
-                    origin.backup(copy)
-                    check = copy.execute("PRAGMA quick_check").fetchone()
-                    if not check or check[0] != "ok":
-                        raise DomainError("backup_incomplete", "Context base cost sidecar failed SQLite integrity validation")
-                finally:
-                    copy.close()
-            finally:
-                origin.close()
-        except sqlite3.DatabaseError as exc:
-            raise DomainError("backup_incomplete", "Context base cost sidecar could not be backed up") from exc
-        os.chmod(destination, 0o600)
-        return {"schema_version": 1, "source": str(source), "checksum": _digest(destination),
-                "bytes": destination.stat().st_size}
-
-    def create(self, generation_id, *, check=lambda: None, timeout=60):
+        ``barrier`` is the actual ``RecoveryBarrierProof`` yielded by the installation's quiescence. It is checked
+        first of all, before any file or database effect (so an ended, foreign or substitute proof leaves the
+        generation and ``backup_runs`` untouched, also for an already sealed generation), then again around the
+        capture, by the Context capture around its own copy, after every component is captured and immediately
+        before a complete generation is sealed; a proof that stops or covers another database mid-capture fails
+        the generation. An already sealed generation is only re-verified, under the same proof.
+        """
         generation_id = _identity(generation_id)
+        proof = self.context.barrier(barrier, self.database)
+        proof.verify_active()
         destination = self.destination / generation_id
         if destination.exists():
             metadata = self.verify(generation_id)
@@ -246,25 +238,26 @@ class BackupStore:
         temporary = Path(tempfile.mkdtemp(prefix=".incomplete-", dir=self.destination))
         try:
             check()
+            proof.verify_active()
             db = self.database.backup(temporary / "state.sqlite3", timeout=timeout)
-            base_meta = self._capture_context_base(temporary / "contextbase.sqlite3")
-            costs_meta = self._capture_context_costs(temporary / "costs.sqlite3")
+            context = self.context.capture(temporary / CAPTURE_DIRECTORY, proof)
             source = authored_inventory(temporary / "state.sqlite3", self.paths)
             _capture_authored(source, temporary / "authored", check)
             if authored_inventory(temporary / "state.sqlite3", self.paths).fingerprint != source.fingerprint:
                 raise DomainError("backup_incomplete", "Authored sources changed during capture", retryable=True)
             exports = build_exports(temporary / "state.sqlite3", self.paths)
-            metadata = {"schema_version": 1, "generation_id": generation_id, "state": "complete",
+            proof.verify_active()
+            metadata = {"schema_version": 2, "generation_id": generation_id, "state": "complete",
                 "created_at": self.clock(), "source_root": str(self.root), "database_relative_path": self.database_relative,
                 "database": {key: value for key, value in db.items() if key != "path"},
                 "authored": {"fingerprint": source.fingerprint, "archive_sha256": _digest(temporary / "authored/sources.tar"),
                             "files": len(source.data["files"]), "artifact_digests": list(source.data["artifact_digests"])},
                 "exports": {"schema_version": 1, "fingerprint": exports.fingerprint, "record_counts": exports.counts},
-                **({"context_base": base_meta} if base_meta else {}),
-                **({"context_costs": costs_meta} if costs_meta else {})}
+                "context": context}
             atomic_write(temporary / "generation.json", canonical_bytes(metadata) + b"\n")
             self._verify_directory(temporary)
             check()
+            proof.verify_active()
             os.rename(temporary, destination)
             _fsync_directory(self.destination)
             self._remember(generation_id, "complete", metadata=metadata)
@@ -288,7 +281,7 @@ class BackupStore:
             if metadata_path.is_symlink():
                 raise ValueError
             metadata = json.loads(metadata_path.read_text())
-            if metadata["schema_version"] != 1 or metadata["state"] != "complete" or metadata["source_root"] != str(self.root):
+            if metadata["schema_version"] != 2 or metadata["state"] != "complete" or metadata["source_root"] != str(self.root):
                 raise ValueError
             _identity(metadata["generation_id"])
             if metadata["database_relative_path"] != self.database_relative:
@@ -303,23 +296,13 @@ class BackupStore:
             if (authored.fingerprint != metadata["authored"]["fingerprint"] or authored.root != self.root
                     or _digest(directory / "authored/sources.tar") != metadata["authored"]["archive_sha256"]):
                 raise ValueError
-            if metadata.get("context_base"):
-                base = directory / "contextbase.sqlite3"
-                if base.is_symlink() or _digest(base) != metadata["context_base"]["checksum"]:
-                    raise ValueError
-            if metadata.get("context_costs"):
-                costs = directory / "costs.sqlite3"
-                if costs.is_symlink() or _digest(costs) != metadata["context_costs"]["checksum"]:
-                    raise ValueError
-                check = sqlite3.connect(costs.resolve().as_uri() + "?mode=ro", uri=True)
-                try:
-                    if check.execute("PRAGMA quick_check").fetchone()[0] != "ok":
-                        raise ValueError
-                finally:
-                    check.close()
-            return metadata
+            require_target_businesses(authored, database, self.paths)
+            context = metadata["context"]
         except (OSError, ValueError, KeyError, TypeError, sqlite3.DatabaseError) as exc:
             raise DomainError("invalid_backup", "Backup generation failed manifest, database, or authored-file verification") from exc
+        # The Context pair is a required component: a missing, altered or foreign capture makes the generation invalid.
+        self.context.verify(directory / CAPTURE_DIRECTORY, context)
+        return metadata
 
     def verify(self, generation_id):
         directory = self.destination / _identity(generation_id)
@@ -329,7 +312,13 @@ class BackupStore:
         return result
 
     def restore(self, generation_id, destination):
-        """Rehearse into an empty folder; retain original bindings and close both gates."""
+        """Rehearse into an empty folder; retain original bindings and close both gates.
+
+        The Context pair is restored last, at its final locations under ``destination`` (its ownership markers
+        name the paths it is restored to), after the operational rehearsal is in place. Until it has passed the
+        library's ownership and event-integrity checks, ``.runtime/restore-incomplete.json`` marks the rehearsal
+        incomplete; a failure leaves that marker and the Context restore journal and starts nothing.
+        """
         metadata = self.verify(generation_id)
         directory, destination = self.destination / generation_id, Path(destination).absolute()
         if (destination == self.root or destination.is_relative_to(self.root) or self.root.is_relative_to(destination)
@@ -340,22 +329,6 @@ class BackupStore:
         temporary = Path(tempfile.mkdtemp(prefix=".restore-", dir=destination.parent))
         try:
             restore_snapshot(directory / "authored", temporary)
-            if metadata.get("context_costs"):
-                # Keep the event ledger as a separate recovery artifact. Graph-only
-                # recovery must retain the live sidecar and never replace it with an
-                # older generation's costs snapshot.
-                source = directory / "costs.sqlite3"
-                destination_costs = temporary / "costs.sqlite3"
-                origin = sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)
-                try:
-                    copy = sqlite3.connect(destination_costs)
-                    try:
-                        origin.backup(copy)
-                    finally:
-                        copy.close()
-                finally:
-                    origin.close()
-                os.chmod(destination_costs, 0o600)
             restored = self.database.restore(directory / "state.sqlite3", registered_path(temporary, self.database_relative),
                                              expected_checksum=metadata["database"]["checksum"])
             with restored.transaction() as uow:
@@ -370,14 +343,17 @@ class BackupStore:
             expected["maintenance_state"] = max(1, expected["maintenance_state"])
             if parity["record_counts"] != expected:
                 raise DomainError("invalid_restore", "Restored operational row counts differ from the saved snapshot")
+            marker = self.context.mark_incomplete(temporary, generation_id)
             os.rename(temporary, destination)
             _fsync_directory(destination.parent)
         finally:
             if temporary.exists():
                 shutil.rmtree(temporary)
+        context = self.context.restore(directory / CAPTURE_DIRECTORY, metadata["context"], destination,
+                                       marker=destination / marker.relative_to(temporary))
         return {"generation_id": generation_id, "destination": str(destination), "database": str(destination / self.database_relative),
                 "state": "closed", "record_counts": parity["record_counts"], "authored_files": metadata["authored"]["files"],
-                "activation_root": str(self.root)}
+                "context": context, "activation_root": str(self.root)}
 
     def prune(self, *, daily=7, weekly=4):
         if type(daily) is not int or type(weekly) is not int or daily < 1 or weekly < 1:

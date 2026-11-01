@@ -1,4 +1,12 @@
-"""One fixed nightly program: verified backup, exports, then optional Git history."""
+"""One fixed nightly program: verified backup, exports, then optional Git history.
+
+The backup needs a proven writer barrier that a background job cannot hold while it is itself a running
+writer. ``run`` therefore durably requests the capture in its private receipt and yields with the existing
+``ProgramPending``; ``maintenance_capture.MaintenanceCaptureService`` takes that request, captures the same
+job's generation under ``runtime.recovery_quiescence()`` and records the verified result or its exact failure.
+A later invocation of ``run`` verifies the sealed generation and continues exports, Git history and
+retention, and returns the one final result. Nothing succeeds on enqueue.
+"""
 
 import json
 import os
@@ -7,8 +15,9 @@ import re
 import subprocess
 import tarfile
 import tempfile
+import time
 
-from qorqut_operations.background.programs import ProgramResult
+from qorqut_operations.background.programs import ProgramPending, ProgramResult
 from qorqut_operations.contracts import DomainError, canonical_bytes, utc_now
 from qorqut_operations.storage.executor import application_claim
 from .exports import atomic_write, build_exports, publish_exports, registered_path
@@ -16,6 +25,8 @@ from .recovery import BackupStore, ROOT_AUTHORED, SKIP_DIRECTORIES, _identity
 
 
 HISTORY_REF = "refs/heads/bazarlyk-history"
+PROGRAM = "maintenance.nightly"
+PENDING_SECONDS = 5  # how soon a yielded nightly job looks again for its capture
 HQ_ENTRIES = frozenset({"business.yaml", "CLAUDE.md", "README.md", ".gitignore", ".gitattributes",
     "context", "assets", "marketing-content", "agents", "notes", "journal", "tasks", "requests",
     "log", "finance", "analytics", "learnings", "routines", "exports", "tables"})
@@ -132,7 +143,7 @@ class GitVersioner:
 
 class NightlyMaintenance:
     def __init__(self, database, paths, *, locks, backup_destination=None, git_enabled=False,
-                 git_runner=None, clock=utc_now):
+                 git_runner=None, clock=utc_now, wall_clock=time.time):
         if type(git_enabled) is not bool:
             raise ValueError("Git versioning must be explicitly enabled or disabled")
         self.database, self.paths, self.root = database, paths, paths.operations
@@ -140,32 +151,101 @@ class NightlyMaintenance:
         self.backups = BackupStore(database, paths, backup_destination, clock=clock)
         self.git_enabled = git_enabled
         self.versioner = GitVersioner(self.root, runner=git_runner)
+        self.wall_clock = wall_clock
+        self.maintenance_capture = None
+
+    def bind_runtime(self, runtime):
+        """The capture service for ``runtime``; inert (no thread, no I/O) until its owner starts it."""
+        from .maintenance_capture import MaintenanceCaptureService
+        if self.maintenance_capture is not None:
+            if self.maintenance_capture.runtime is not runtime:
+                raise ValueError("Nightly maintenance is already bound to a different runtime")
+            return self.maintenance_capture
+        self.maintenance_capture = MaintenanceCaptureService(self, runtime)
+        return self.maintenance_capture
+
+    def configuration(self):
+        return {"root": str(self.root), "backup_destination": str(self.backups.destination), "git_enabled": self.git_enabled}
+
+    def receipt_directory(self):
+        directory = registered_path(self.root, ".runtime/maintenance")
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        return directory
+
+    def receipt_path(self, generation):
+        return registered_path(self.root, self.receipt_directory() / (_identity(generation) + ".json"))
+
+    def read_receipt(self, generation):
+        """The saved receipt of one job's generation, or ``None``; its identity and format must match."""
+        receipt = self.receipt_path(generation)
+        if not receipt.exists():
+            return None
+        state = json.loads(receipt.read_text())
+        if state.get("schema_version") != 1 or state.get("generation_id") != generation:
+            raise DomainError("invalid_backup", "Nightly recovery receipt has a different identity")
+        return state
+
+    def write_receipt(self, generation, state):
+        atomic_write(self.receipt_path(generation), canonical_bytes(state) + b"\n")
+
+    def _request(self, control):
+        """The bounded capture request for this job: its authority bindings and one fixed deadline."""
+        job, now = control.job, self.wall_clock()
+        with control.service.database.read() as uow:
+            installation = control.service.authority.installation(uow)
+        return {"schema_version": 1, "job_id": job["id"], "kind": job["kind"], "installation": installation,
+                "definition_digest": job["definition_ref_json"]["digest"], "principal_id": job["principal_id"],
+                "arguments": {}, "requested_at": now, "deadline_at": now + control.remaining_seconds()}
+
+    def _generation(self, generation, state, control, save):
+        """The verified sealed generation, or ``ProgramPending`` while its requested capture has not completed."""
+        capture = state.get("capture")
+        if (self.backups.destination / generation).exists():
+            metadata = self.backups.verify(generation)
+            if capture is not None and capture["state"] != "complete":
+                capture.update(state="complete", result={"checksum": metadata["database"]["checksum"],
+                                                         "context": metadata["context"]["manifest_sha256"]})
+                save()
+            return metadata
+        if capture is None:
+            state["capture"] = {"state": "requested", "attempts": 0, "request": self._request(control)}
+            save()
+            if self.maintenance_capture is not None:
+                self.maintenance_capture.wake()
+            return ProgramPending(retry_after=PENDING_SECONDS)
+        if capture["state"] == "failed":
+            error = capture["error"]
+            raise DomainError(error["code"], error["message"], retryable=bool(error.get("retryable")), details=error.get("details"))
+        if capture["state"] == "complete":
+            raise DomainError("invalid_backup", "The captured nightly generation is missing")
+        if self.wall_clock() >= capture["request"]["deadline_at"]:
+            error = DomainError("timeout", "The nightly backup capture did not complete within its time limit")
+            capture.update(state="failed", error=error.to_dict())
+            save()
+            raise error
+        return ProgramPending(retry_after=PENDING_SECONDS)
 
     def run(self, control, arguments):
         if arguments != {} or control.business_id is not None:
             raise DomainError("validation_error", "Nightly maintenance takes no arguments and runs only at installation scope")
         generation = _identity(control.job["id"])
         with application_claim(self.locks, generation):
-            directory = registered_path(self.root, ".runtime/maintenance")
-            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-            receipt = registered_path(self.root, directory / (generation + ".json"))
-            configuration = {"root": str(self.root), "backup_destination": str(self.backups.destination),
-                             "git_enabled": self.git_enabled}
-            state = json.loads(receipt.read_text()) if receipt.exists() else {"schema_version": 1,
-                "generation_id": generation, "configuration": configuration, "versioning": {}}
-            if state.get("schema_version") != 1 or state.get("generation_id") != generation:
-                raise DomainError("invalid_backup", "Nightly recovery receipt has a different identity")
+            configuration = self.configuration()
+            state = self.read_receipt(generation) or {"schema_version": 1, "generation_id": generation,
+                "configuration": configuration, "versioning": {}}
             if "result" in state:
                 return ProgramResult(data=state["result"])
             if state["configuration"] != configuration:
                 raise DomainError("configuration_changed", "Resume this nightly job with its original configuration; new settings cannot expand its effects")
 
             def save():
-                atomic_write(receipt, canonical_bytes(state) + b"\n")
+                self.write_receipt(generation, state)
 
             save()
             control.check()
-            metadata = self.backups.create(generation, check=control.check, timeout=min(60, control.remaining_seconds()))
+            metadata = self._generation(generation, state, control, save)
+            if isinstance(metadata, ProgramPending):
+                return metadata
             saved = self.backups.destination / generation
             bundle = build_exports(saved / "state.sqlite3", self.paths)
             if bundle.fingerprint != metadata["exports"]["fingerprint"]:
