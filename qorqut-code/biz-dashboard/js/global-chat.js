@@ -20,6 +20,11 @@ const GLOBAL_CHAT_STATE_TEXT = {
 // Internal notices (e.g. <task-notification>) are saved as chat turns; a message that starts with an opening tag is never shown.
 // Same rule as bazarlyk/global_chat/store.py internal_notification.
 const globalChatHidden = message => /^[ \t\n\r\v\f]*<[A-Za-z][\s\S]*>/.test(message.body || '');
+// Native time controls presentation; sequence remains the delivery/read/event identity.
+function globalChatOrder(a, b) {
+  const time = Date.parse(a.created_at) - Date.parse(b.created_at);
+  return (Number.isFinite(time) && time) || a.sequence - b.sequence;
+}
 const globalChatBase = id => `/root/agents/${encodeURIComponent(id)}/chat`;
 
 // ---- Markdown (headings, lists, quotes, fenced and inline code, bold, italic, and the shared safe links)
@@ -84,7 +89,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   const agentId = agent.agent_id, base = globalChatBase(agentId), label = agent.display_name || agent.name || 'Agent';
   const messages = new Map();                    // id -> message view
   const nodes = new Map();                       // id -> element
-  let runtime = null, actions = [], older = false, cursor = 0, lastRead = 0;
+  let runtime = null, actions = [], older = false, historyBefore = null, cursor = 0, lastRead = 0;
   let stream = null, retryTimer = null, retryDelay = 1000, flushTimer = null, readTimer = null;
   let disposed = false, loading = false, generation = 0, atBottom = true, unseen = 0, sending = false, pendingSend = GLOBAL_CHAT_SENDS.get(agentId) || null;
   const cleanups = [];
@@ -184,8 +189,8 @@ function mountGlobalChat(pane, agent, options = {}) {
   function place(message) {
     const {node, isNew} = paintMessage(message);
     if (!isNew) return false;
-    // Keep sequence order, whether this is the newest message or one prepended by "load older".
-    const after = [...log.children].find(child => Number(child.dataset.sequence) > message.sequence);
+    // Backfilled native messages belong at their original time, including live SSE imports.
+    const after = [...log.children].find(child => globalChatOrder(messages.get(child.dataset.id), message) > 0);
     log.insertBefore(node, after || null);
     return !after;
   }
@@ -327,7 +332,8 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (!live() || mine !== generation) return;
       messages.clear(); nodes.clear(); log.innerHTML = '';
       runtime = data.runtime; older = !!data.older; cursor = data.cursor || 0; lastRead = data.last_read_sequence || 0; actions = data.actions || [];
-      data.messages.forEach(message => { messages.set(message.id, message); const {node} = paintMessage(message); if (node) log.appendChild(node); });
+      historyBefore = data.messages[0]?.sequence ?? null;
+      data.messages.forEach(message => { messages.set(message.id, message); place(message); });
       olderButton.hidden = !older;
       paintRuntime(); paintActions(); showBanner('');
       toBottom();
@@ -337,13 +343,16 @@ function mountGlobalChat(pane, agent, options = {}) {
     } finally { loading = false; }
   }
   olderButton.onclick = async () => {
-    const first = Math.min(...[...messages.values()].map(message => message.sequence));
+    // Only history responses advance this cursor. An old SSE backfill must not skip intervening pages.
+    const first = historyBefore;
+    if (first == null) return;
     olderButton.disabled = true;
     try {
       const data = coreData(await api(`${base}/history?before=${first}&limit=${GLOBAL_CHAT_PAGE}`));
       if (!live()) return;
       const height = scroller.scrollHeight, top = scroller.scrollTop;
       data.messages.forEach(message => { if (!messages.has(message.id)) { messages.set(message.id, message); place(message); } });
+      historyBefore = data.messages[0]?.sequence ?? historyBefore;
       older = !!data.older; olderButton.hidden = !older;
       scroller.scrollTop = top + (scroller.scrollHeight - height);          // keep the reader's place
       atBottom = nearBottom();
