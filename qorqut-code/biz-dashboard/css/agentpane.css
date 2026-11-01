@@ -133,3 +133,5 @@
 .agpad-ping.switch.on { color:var(--fg); }
 .agpad-ping.switch:focus-visible { outline:2px solid var(--fg-2); outline-offset:-2px; }
 .agpad-ping.switch:disabled { opacity:.5; }
+.agpad-ping-next { color:var(--fg-3); font-variant-numeric:tabular-nums; }
+.agpad-ping-next[hidden] { display:none; }
