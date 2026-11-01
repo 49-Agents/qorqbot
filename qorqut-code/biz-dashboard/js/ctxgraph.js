@@ -1,6 +1,92 @@
 // Context Map uses only stored directional relationships. Upload outlines use ctxmap.js.
 const ctxGraphHash = s => Array.from(String(s)).reduce((h, c) => ((h * 31) + c.codePointAt(0)) >>> 0, 0);
 
+// context_find cursors bind both the query and scope snapshot. Keep each list in
+// a private accumulator and return it only after the server confirms completion;
+// callers never render a partial first page as if it were the whole graph.
+async function ctxFindAllPages(readPage, {query = "", limit = 500} = {}) {
+  if (typeof readPage !== "function" || !Number.isInteger(limit) || limit < 1 || limit > 500)
+    throw new Error("Invalid context page reader");
+  const items = [], cursors = new Set(), refs = new Set();
+  let cursor = null, total = null, pages = 0;
+  for (;;) {
+    const page = await readPage({query, limit, ...(cursor ? {cursor} : {})});
+    if (!page || !Array.isArray(page.items) || !Number.isSafeInteger(page.total) || page.total < 0 ||
+        typeof page.complete !== "boolean" || !(page.next_cursor === null || typeof page.next_cursor === "string"))
+      throw new Error("Context search returned an incomplete page response");
+    if (total !== null && page.total !== total)
+      throw new Error("Context search snapshot changed while loading; reload to try again");
+    total = page.total;
+    for (const item of page.items) {
+      const ref = item && typeof item === "object" && !Array.isArray(item) ? item.ref : null;
+      if (typeof ref !== "string" || !/^<object>[^<>]+<\/object>$/.test(ref) || refs.has(ref))
+        throw new Error("Context search returned a malformed or repeated canonical reference; reload to try again");
+      refs.add(ref);
+    }
+    items.push(...page.items);
+    pages++;
+    if (items.length > total)
+      throw new Error("Context search returned more items than its snapshot contains");
+    if (page.complete) {
+      if (page.next_cursor !== null || items.length !== total)
+        throw new Error("Context search marked an incomplete snapshot complete; reload to try again");
+      return {items, total, complete: true, pages};
+    }
+    if (!page.items.length || !page.next_cursor || cursors.has(page.next_cursor))
+      throw new Error("Context search is incomplete and has no usable continuation; reload to try again");
+    cursors.add(page.next_cursor);
+    cursor = page.next_cursor;
+  }
+}
+
+// Canonical context_find projection. Relationships remain first-class nodes so
+// a stored multi-endpoint record is represented by endpoint membership spokes,
+// never by inferred pairs between its endpoints.
+function ctxFindGraphData(items) {
+  const rows = Array.isArray(items) ? items : [], nodes = [], edges = [], byRef = new Map();
+  const isRef = value => typeof value === "string" && /^<object>[^<>]+<\/object>$/.test(value);
+  const isRelationship = item => item?.is_relationship === true || item?.kind === "relationship";
+  const colors = Object.assign(Object.create(null), {topic:"#849a75", material:"#b3b7bd", note:"#b3b7bd", person:"#72a99f", task:"#d88a85",
+    story:"#d4b463", table:"#83b5cf", agent:"#b997c2", project:"#849a75", idea:"#d4b463", transcript:"#b3b7bd",
+    occurrence:"#d88a85", event:"#d88a85", company:"#83b5cf", platform:"#83b5cf", other:"#aaaaaa", relationship:"#b69861"});
+  const refLabel = ref => String(ref || "").replace(/^<object>|<\/object>$/g, "").replace(/[_-]+/g, " ");
+  const makeNode = (item, kind, idPrefix) => {
+    const ref = item.ref;
+    const node = {id: `${idPrefix}:${ref}`, kind, label: String(item.name || refLabel(ref)),
+      tip: String(item.summary || item.definition || ""), color: Object.hasOwn(colors,kind) ? colors[kind] : "#aaaaaa",
+      item: {...item, type: kind, id: ref, ref}};
+    return node;
+  };
+  for (const item of rows) {
+    if (!item || isRelationship(item) || !isRef(item.ref) || byRef.has(item.ref)) continue;
+    const kind = item.kind === "business_topic" ? "topic" : String(item.kind || "other");
+    const node = makeNode(item, kind, "object");
+    nodes.push(node); byRef.set(item.ref, node);
+  }
+  const relationships = [];
+  for (const item of rows) {
+    if (!item || !isRelationship(item) || !isRef(item.ref) || byRef.has(item.ref)) continue;
+    const rawEndpoints = Array.isArray(item.endpoints) ? item.endpoints.slice() : [];
+    const node = makeNode({...item, endpoints: rawEndpoints,
+      unavailableEndpointCount: 0,
+      malformedEndpointCount: Array.isArray(item.endpoints) ? rawEndpoints.filter(ref => !isRef(ref)).length : 1},
+    "relationship", "relationship");
+    nodes.push(node); byRef.set(item.ref, node); relationships.push(node);
+  }
+  relationships.forEach(node => {
+    const endpointRefs = [...new Set(node.item.endpoints.filter(isRef))];
+    node.item.unavailableEndpointCount = endpointRefs.filter(ref => !byRef.has(ref)).length;
+    endpointRefs.forEach((endpointRef, index) => {
+      const endpoint = byRef.get(endpointRef);
+      if (!endpoint) return;
+      edges.push({id: `endpoint:${encodeURIComponent(node.item.ref)}:${index}`, source: node.id, target: endpoint.id,
+        kind: "endpoint", role: "endpoint", membership: true, relationshipRef: node.item.ref, endpointRef});
+    });
+  });
+  return {rootId: null, nodes, edges, counts: {objects: nodes.filter(node => node.kind !== "relationship").length,
+    relationships: nodes.filter(node => node.kind === "relationship").length, endpointLinks: edges.length}};
+}
+
 function ctxGraphData(d, scope, isRoot) {
   return ctxRelationshipGraph(d.graph, isRoot ? null : scope.document_id);
 }
@@ -15,7 +101,7 @@ function ctxRelationshipGraph(data, topicId) {
     const ids=new Set([rootId,...edges.flatMap(edge=>[edge.source,edge.target])]);
     items=items.filter(item=>ids.has(key(item)));
   }
-  const colors={topic:'#849a75',material:'#b3b7bd',person:'#72a99f',task:'#d88a85',story:'#d4b463',table:'#83b5cf',agent:'#b997c2'};
+  const colors={topic:'#849a75',material:'#b3b7bd',person:'#72a99f',task:'#d88a85',story:'#d4b463',table:'#83b5cf',agent:'#b997c2',relationship:'#b69861'};
   const nodes=items.map(item=>({id:key(item),item,kind:item.type,label:item.label,tip:item.summary || '',
     path:item.path || null,color:colors[item.type] || '#aaaaaa'}));
   return {rootId,nodes,edges};
@@ -108,7 +194,9 @@ function ctxGraphAnchor(n, to) {
 function ctxGraphMermaid(graph) {
   const ids = new Map(graph.nodes.map((n, i) => [n.id, `n${i}`])), lines = ["graph LR"];
   graph.nodes.forEach(n => lines.push(`  ${ids.get(n.id)}["${mmText(n.label).replace(/</g, "").replace(/>/g, "").replace(/&/g, "and")}"]`));
-  graph.edges.forEach(e => lines.push(`  ${ids.get(e.source)} -->|${mmText(e.role || e.kind)}| ${ids.get(e.target)}`));
+  graph.edges.forEach(e => lines.push(e.membership
+    ? `  ${ids.get(e.source)} ---|endpoint| ${ids.get(e.target)}`
+    : `  ${ids.get(e.source)} -->|${mmText(e.role || e.kind)}| ${ids.get(e.target)}`));
   return lines.join("\n") + "\n";
 }
 
@@ -117,14 +205,33 @@ function contextGraph(el, graph, opts = {}) {
   let saved = {};
   try { saved = JSON.parse(ls(opts.storageKey) || "{}") || {}; } catch (_) { /* absent or invalid local view */ }
   const nodes = ctxGraphLayout(graph, saved.positions || {}), byId = new Map(nodes.map(n => [n.id, n]));
+  const byRef = new Map(nodes.filter(n=>n.item?.ref || n.item?.id).map(n=>[n.item.ref || n.item.id,n]));
   const degrees = new Map(nodes.map(n => [n.id, 0]));
   graph.edges.forEach(e => { degrees.set(e.source, degrees.get(e.source) + 1); degrees.set(e.target, degrees.get(e.target) + 1); });
   let selected = byId.has(saved.selected) ? saved.selected : null, neighbors = new Set();
   let width = 0, height = 0, frame = 0, saveTimer = 0, destroyed = false;
   const camera = { k: 1, x: 0, y: 0 };
-  const typeNames = {story:'Stories',task:'Tasks',person:'People',table:'Tables',agent:'Agents',topic:'Topics',material:'Materials'};
-  let storedTypes;try{storedTypes=JSON.parse(ls('ctxgraph-types-v2') || 'null');}catch(_){}
-  const shownTypes = new Set(Array.isArray(storedTypes)?storedTypes:Object.keys(typeNames));
+  const typeNames = Object.assign(Object.create(null), {story:'Stories',task:'Tasks',person:'People',table:'Tables',agent:'Agents',topic:'Topics',material:'Materials',
+    project:'Projects',idea:'Ideas',note:'Notes',transcript:'Transcripts',occurrence:'Occurrences',event:'Events',
+    company:'Companies',platform:'Platforms',other:'Other',relationship:'Relationships'});
+  const knownLegacyTypes = ['story','task','person','table','agent','topic','material'];
+  const graphKinds = [...new Set(nodes.map(node=>node.kind))];
+  graphKinds.forEach(kind=>{if(!Object.hasOwn(typeNames,kind))typeNames[kind]=kind.replace(/[-_]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());});
+  let preference;try{preference=JSON.parse(ls('ctxgraph-types-v4') || 'null');}catch(_){}
+  let storedTypes, knownTypes;
+  if (preference && Array.isArray(preference.shown) && Array.isArray(preference.known)) {
+    storedTypes=preference.shown; knownTypes=new Set(preference.known);
+  } else {
+    try { storedTypes=JSON.parse(ls('ctxgraph-types-v3') || 'null'); } catch(_) { storedTypes=null; }
+    if (Array.isArray(storedTypes)) knownTypes=new Set([...knownLegacyTypes,'relationship']);
+    else {
+      try { storedTypes=JSON.parse(ls('ctxgraph-types-v2') || 'null'); } catch(_) { storedTypes=null; }
+      knownTypes=new Set(knownLegacyTypes);
+    }
+    if (!Array.isArray(storedTypes)) storedTypes=graphKinds.slice();
+  }
+  const shownTypes = new Set(storedTypes);
+  graphKinds.forEach(kind=>{if(!knownTypes.has(kind))shownTypes.add(kind);knownTypes.add(kind);});
   const isVisible = n => shownTypes.has(n.kind) || n.id === selected || neighbors.has(n.id) || n.id === graph.rootId;
   const minZoom = .03, maxZoom = 4;
   const arrowId='context-arrow-'+newRequestId();
@@ -134,25 +241,28 @@ function contextGraph(el, graph, opts = {}) {
       <label class="ctxgraph-links"><input type="checkbox" ${ls("ctxgraph-links") !== "0" ? "checked" : ""}> All links</label>
       <button type="button" data-action="copy" title="Copy graph as Mermaid" aria-label="Copy graph as Mermaid">${SVG_MAPCOPY}</button>
     </div>
-    <div class="ctxgraph-types">${Object.entries(typeNames).filter(([kind])=>nodes.some(n=>n.kind===kind)).map(([kind,label])=>`<label><input type="checkbox" data-kind="${kind}" ${shownTypes.has(kind)?'checked':''}>${label}</label>`).join('')}</div>
+    <div class="ctxgraph-types">${Object.entries(typeNames).filter(([kind])=>nodes.some(n=>n.kind===kind)).map(([kind,label])=>`<label><input type="checkbox" data-kind="${esc(kind)}" ${shownTypes.has(kind)?'checked':''}>${esc(label)}</label>`).join('')}</div>
     <div class="ctxgraph-canvas" tabindex="0" role="group" aria-label="Context map. Drag nodes to arrange; drag the background to pan. Use plus, minus and arrow keys to navigate.">
       <svg class="ctxgraph-network" aria-hidden="true"><defs><marker id="${arrowId}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 Z" fill="#a6aaa6"></path></marker></defs><g class="ctxgraph-edges"></g></svg>
       <div class="ctxgraph-nodes"></div>
 
       <div class="ctxgraph-zoom"><button type="button" data-action="out" aria-label="Zoom out">−</button><output aria-label="Zoom level">100%</output><button type="button" data-action="in" aria-label="Zoom in">+</button><button type="button" data-action="fit" title="Fit to view" aria-label="Fit to view">${SVG_MAPFIT}</button></div>
     </div>
-    <div class="ctxgraph-footer"><div class="ctxgraph-legend"><span><i class="ctxgraph-topic-key"></i>Topic</span><span><i class="ctxgraph-note-key"></i>Material</span><span><i class="ctxgraph-person-key"></i>Person</span><span>Task</span><span>Story</span><span>Table</span><span>Agent</span></div><span class="ctxgraph-count"></span></div>
+    <div class="ctxgraph-footer"><div class="ctxgraph-legend"><span><i class="ctxgraph-topic-key"></i>Topic</span><span><i class="ctxgraph-note-key"></i>Material</span><span><i class="ctxgraph-person-key"></i>Person</span><span><i class="ctxgraph-relationship-key"></i>Relationship</span><span>Task</span><span>Story</span><span>Table</span><span>Agent</span></div><span class="ctxgraph-count"></span></div>
     <div class="ctxgraph-reader" hidden></div><div class="ctxgraph-sr" role="status" aria-live="polite"></div>
   </div>`;
   const root = el.querySelector(".ctxgraph"), canvas = root.querySelector(".ctxgraph-canvas"), svg = root.querySelector(".ctxgraph-network");
   const layer = root.querySelector(".ctxgraph-nodes"), reader = root.querySelector(".ctxgraph-reader"), search = root.querySelector("input[type=search]");
   const results = root.querySelector(".ctxgraph-results"), links = root.querySelector(".ctxgraph-links input"), status = root.querySelector("[role=status]");
-  root.querySelector(".ctxgraph-count").textContent = `${nodes.length} nodes · ${graph.edges.length} edges`;
+  root.querySelector(".ctxgraph-count").textContent = graph.counts
+    ? `${graph.counts.objects} objects · ${graph.counts.relationships} relationships · ${graph.counts.endpointLinks} endpoint links`
+    : `${nodes.length} nodes · ${graph.edges.length} edges`;
   const pairs=new Map();
   graph.edges.forEach(edge=>{const pair=[edge.source,edge.target].sort().join('|');if(!pairs.has(pair))pairs.set(pair,[]);pairs.get(pair).push(edge.id);});
   const edges = graph.edges.map(e => {
     const siblings=pairs.get([e.source,e.target].sort().join('|'));
-    const path = svgEl("path", { class: `ctxgraph-edge ${e.kind}`, "data-edge": e.id, 'marker-end':`url(#${arrowId})` });
+    const path = svgEl("path", { class: `ctxgraph-edge ${e.kind}`, "data-edge": e.id });
+    if (!e.membership) path.setAttribute('marker-end', `url(#${arrowId})`);
     root.querySelector(".ctxgraph-edges").append(path); return { ...e, el: path, index:siblings.indexOf(e.id), count:siblings.length };
   });
   const labelCanvas = document.createElement("canvas"), measure = labelCanvas.getContext("2d");
@@ -162,9 +272,9 @@ function contextGraph(el, graph, opts = {}) {
     n.labelH = n.lines.length * 16;
   });
   nodes.forEach(n => {
-    n.radius = n.kind === "root" ? 22 : n.kind === "topic" || n.kind === "group" ? 13 : n.kind === "person" ? 9 : 6;
+    n.radius = n.kind === "root" ? 22 : n.kind === "topic" || n.kind === "group" ? 13 : n.kind === "person" ? 9 : n.kind === "relationship" ? 8 : 6;
     const button = document.createElement("button"); button.type = "button";
-    button.className = `ctxgraph-node ${n.kind}`; button.dataset.node = n.id;
+    button.className = `ctxgraph-node ${String(n.kind).replace(/[^a-zA-Z0-9_-]/g,'-')}`; button.dataset.node = n.id;
     button.style.setProperty("--node-color", n.color); button.style.setProperty("--node-size", `${n.radius * 2}px`);
     button.setAttribute("aria-label", `${n.label}, ${n.kind === "group" ? "collection" : n.kind}`); button.title = n.label;
     const dot = document.createElement("span"); dot.className = "ctxgraph-dot"; dot.setAttribute("aria-hidden", "true");
@@ -244,11 +354,18 @@ function contextGraph(el, graph, opts = {}) {
     graph.edges.forEach(e => { if (e.source === selected) neighbors.add(e.target); else if (e.target === selected) neighbors.add(e.source); });
     reader.hidden = false;
     const kind = n.kind === "group" ? "Collection" : n.kind === "root" ? "Business" : n.kind[0].toUpperCase() + n.kind.slice(1);
+    const endpoints = n.kind === "relationship" && Array.isArray(n.item?.endpoints) ? n.item.endpoints : null;
+    const endpointDetails = endpoints ? `<div class="ctxgraph-endpoints"><strong>Stored endpoints (${endpoints.length})</strong>${endpoints.length ? endpoints.map((ref,index)=>{
+      const target=typeof ref==='string'?byRef.get(ref):null, label=target?.label || (typeof ref==='string'?ref:JSON.stringify(ref));
+      return `<div class="ctxgraph-endpoint"><span>${index+1}.</span>${target?`<button type="button" class="quiet" data-select="${esc(target.id)}">${esc(label)}</button>`:`<span>${esc(label)} <small>Unavailable or filtered</small></span>`}</div>`;
+    }).join('') : '<div class="ctxgraph-endpoint"><span>No endpoints recorded.</span></div>'}${n.item.unavailableEndpointCount ? `<small>${n.item.unavailableEndpointCount} endpoint${n.item.unavailableEndpointCount===1?' is':'s are'} unavailable or filtered from this graph.</small>` : ''}${n.item.malformedEndpointCount ? `<small>${n.item.malformedEndpointCount} malformed endpoint${n.item.malformedEndpointCount===1?'':'s'} retained in the source data.</small>` : ''}</div>` : '';
     reader.innerHTML = `<div class="ctxgraph-reader-head"><div><div class="ctxgraph-kind">${esc(kind)}${n.role ? ` · ${esc(n.role)}` : ""}${n.external ? " · related topic" : ""}</div><h3>${esc(n.label)}</h3></div><button type="button" data-action="clear" aria-label="Close selection">×</button></div>
-      ${(n.item?.departments || []).map(departmentTag).join(' ')}${n.tip ? `<p>${esc(n.tip)}</p>` : ""}<div class="ctxgraph-reader-actions">${n.item || n.path != null ? `<button type="button" class="ctxgraph-open" data-action="open">Open ${esc(n.kind)} →</button>` : ""}<span>${neighbors.size} connection${neighbors.size === 1 ? "" : "s"}</span></div>
+      ${(n.item?.departments || []).map(departmentTag).join(' ')}${n.tip ? `<p>${esc(n.tip)}</p>` : ""}<div class="ctxgraph-reader-actions">${n.item || n.path != null ? `<button type="button" class="ctxgraph-open" data-action="open">Open ${esc(kind.toLowerCase())} →</button>` : ""}<span>${neighbors.size} connection${neighbors.size === 1 ? "" : "s"}</span></div>${endpointDetails}
       <div class="ctxgraph-relations">${graph.edges.filter(edge=>edge.source===selected||edge.target===selected).map(edge=>{
         const other=byId.get(edge.source===selected?edge.target:edge.source);
-        return `<div class="ctxgraph-relation"><div>${esc(edge.source===selected?n.label:other.label)} &rarr; <strong>${esc(contextRoleLabel(edge.role || edge.kind))}</strong> &rarr; ${esc(edge.source===selected?other.label:n.label)}</div>${edge.context?`<p>${esc(edge.context)}</p>`:''}<button type="button" class="quiet" data-select="${esc(other.id)}">${esc(other.label)}</button>${edge.created_at?`<small>Created ${esc(storyDate(edge.created_at))} · Edited ${esc(storyDate(edge.updated_at))}</small>`:''}</div>`;
+        const description = edge.membership ? `<div>Endpoint membership · <strong>${esc(other.label)}</strong></div>`
+          : `<div>${esc(edge.source===selected?n.label:other.label)} &rarr; <strong>${esc(contextRoleLabel(edge.role || edge.kind))}</strong> &rarr; ${esc(edge.source===selected?other.label:n.label)}</div>`;
+        return `<div class="ctxgraph-relation">${description}${edge.context?`<p>${esc(edge.context)}</p>`:''}<button type="button" class="quiet" data-select="${esc(other.id)}">${esc(other.label)}</button>${edge.created_at?`<small>Created ${esc(storyDate(edge.created_at))} · Edited ${esc(storyDate(edge.updated_at))}</small>`:''}</div>`;
       }).join('')}</div><div class="ctxgraph-reviews"></div>`;
     opts.onSelect?.(n,reader.querySelector('.ctxgraph-reviews'));
     status.textContent = `${n.label}, ${neighbors.size} connections`;
@@ -279,7 +396,7 @@ function contextGraph(el, graph, opts = {}) {
 
   root.querySelectorAll('[data-kind]').forEach(input=>listen(input,'change',()=>{
     if(input.checked)shownTypes.add(input.dataset.kind);else shownTypes.delete(input.dataset.kind);
-    ls('ctxgraph-types-v2',JSON.stringify([...shownTypes]));fit();schedule();
+    ls('ctxgraph-types-v4',JSON.stringify({shown:[...shownTypes],known:[...knownTypes]}));fit();schedule();
   }));
 
   // Pointer capture supports mouse, touch and pen without any global move/up listeners.

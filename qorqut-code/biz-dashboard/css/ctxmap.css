@@ -73,6 +73,7 @@
 .ctxgraph-dot { display: block; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: var(--node-size); height: var(--node-size); border-radius: 50%; background: var(--node-color); border: 1px solid var(--node-color); pointer-events: none; box-shadow: 0 0 0 4px color-mix(in srgb, var(--node-color) 7%, transparent); }
 .ctxgraph-node:is(.topic, .group) .ctxgraph-dot { background: transparent; border: 1.5px dashed var(--node-color); }
 .ctxgraph-node.person .ctxgraph-dot { background: var(--node-color); border: 0; border-radius: 0; clip-path: polygon(50% 0, 100% 100%, 0 100%); box-shadow: none; }
+.ctxgraph-node.relationship .ctxgraph-dot { width: 11px; height: 11px; border: 0; border-radius: 2px; transform: translate(-50%, -50%) rotate(45deg); box-shadow: none; }
 .ctxgraph-node.selected .ctxgraph-dot { box-shadow: 0 0 0 5px var(--bg), 0 0 0 6px #d6c9b2; }
 .ctxgraph-node:is(.topic, .group).selected .ctxgraph-dot { background: transparent; border: 1.5px dashed var(--accent); }
 .ctxgraph-node.person.selected .ctxgraph-dot { background: var(--accent); box-shadow: none; }
@@ -97,6 +98,7 @@
 .ctxgraph-topic-key { border: 1.5px dashed #849a75; border-radius: 50%; }
 .ctxgraph-legend .ctxgraph-note-key { width: 6px; height: 6px; border-radius: 50%; background: #b69861; }
 .ctxgraph-person-key { clip-path: polygon(50% 0, 100% 100%, 0 100%); background: #72a99f; }
+.ctxgraph-legend .ctxgraph-relationship-key { width: 8px; height: 8px; border-radius: 2px; transform: rotate(45deg); background: #b69861; }
 .ctxgraph-legend .ctxgraph-edge-key { height: 0; width: 14px; border-top: 1px solid #827c70; }
 .ctxgraph-legend .ctxgraph-link-key { height: 0; width: 14px; border-top: 1px dashed #699f99; }
 .ctxgraph-count { font: 10px var(--mono); }
@@ -123,4 +125,39 @@
 }
 .ctxgraph-relation { padding:12px 0; border-top:1px solid var(--line); font-size:12px; }
 .ctxgraph-relation small { display:block; color:var(--fg-2); font-size:10px; margin-top:6px; }
+.ctxgraph-endpoints { margin: 12px 0 6px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.ctxgraph-endpoints > strong, .ctxgraph-endpoints > small { display:block; color:var(--fg-2); font-size:10px; margin-bottom:5px; }
+.ctxgraph-endpoint { display:flex; align-items:flex-start; gap:7px; padding:4px 0; overflow-wrap:anywhere; }
+.ctxgraph-endpoint small { color:var(--fg-2); font-size:10px; }
 .ctxgraph-reviews { margin-top:16px; }
+
+.global-context .global-context-base-view { padding: 24px 28px 48px; overflow-y: auto; }
+.global-context-base { width: 100%; max-width: 1240px; min-width: 0; margin: 0 auto 32px; }
+.global-context-base-head { display:flex; align-items:flex-start; flex-wrap:wrap; gap:8px 20px; margin-bottom:16px; }
+.global-context-base-head h2 { margin:0; color:var(--fg); font:500 20px/1.35 var(--sans); }
+.global-context-base-head p { margin:3px 0 0; color:var(--fg-2); font:12px/1.5 var(--sans); }
+.global-context-base-status { display:block; margin:8px 0 12px; color:var(--fg-2); font-size:12px; }
+.global-context-base-reload, .global-context-history-more, .global-context-history-reload, .global-context-expand-retry { margin:8px 0 16px; }
+.global-context-people-tools { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin:10px 0 16px; }
+.global-context-people-tools .global-context-base-status { flex:1 1 auto; margin:0; }
+.global-context-people-tools input { width:min(320px,100%); min-height:36px; padding:7px 10px; border:1px solid var(--line-2); border-radius:var(--r-sm); background:var(--bg); color:var(--fg); font:12px var(--sans); }
+.global-context-people-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:10px; }
+.global-context .global-context-person { width:100%; min-width:0; display:flex; align-items:flex-start; gap:12px; padding:14px; border:1px solid var(--line); border-radius:var(--r); background:var(--surface); color:var(--fg); text-align:left; white-space:normal; }
+.global-context .global-context-person:hover { border-color:var(--line-2); background:var(--wash); }
+.global-context-person-icon { flex:none; color:#72a99f; padding-top:2px; }
+.global-context-person-icon svg { width:18px; height:18px; }
+.global-context-person-text { display:flex; flex-direction:column; gap:5px; min-width:0; overflow-wrap:anywhere; }
+.global-context-person-text strong { font:500 14px/1.35 var(--sans); }
+.global-context-person-text small, .global-context-person-text > span { color:var(--fg-2); font:11px/1.5 var(--sans); }
+.global-context-endpoints { display:grid; gap:4px; }
+.global-context-endpoint { display:flex; align-items:flex-start; gap:7px; }
+.global-context-endpoint > span:first-child { color:var(--fg-2); font:10px var(--mono); padding-top:5px; }
+.global-context-endpoint > div { min-width:0; overflow-wrap:anywhere; }
+.global-context-endpoint-ref { display:block; margin-top:3px; color:var(--fg-2); font:9px/1.5 var(--mono); overflow-wrap:anywhere; }
+.global-context-history-error, .global-context-expand-status { margin:8px 0; font-size:12px; }
+.global-context-object-retry { margin-top:8px; }
+@media(max-width:760px) {
+  .global-context .global-context-base-view { padding:16px 10px 36px; }
+  .global-context-people-tools input { width:100%; min-height:44px; font-size:16px; }
+  .global-context-people-cards { grid-template-columns:minmax(0,1fr); }
+}
