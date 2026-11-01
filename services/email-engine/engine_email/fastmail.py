@@ -4,6 +4,7 @@ import json
 import re
 import base64
 import hashlib
+from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.policy import SMTP, default
 from email.parser import BytesParser
@@ -73,6 +74,19 @@ class ProviderError(Exception):
     def __init__(self, code, *, status=None, uncertain=False, retry_after=None):
         super().__init__(code)
         self.code, self.status, self.uncertain, self.retry_after = code, status, uncertain, retry_after
+
+
+def jmap_utc_date(value):
+    """Serialize provider dates at the JMAP boundary (RFC 8620 section 1.4)."""
+    try:
+        if not isinstance(value, str):
+            raise ValueError()
+        instant = datetime.fromisoformat(value)
+        if instant.tzinfo is None:
+            raise ValueError()
+        return instant.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    except (ValueError, OverflowError) as exc:
+        raise ProviderError("invalid_import_received_at") from exc
 
 
 class Fastmail:
@@ -894,6 +908,10 @@ class Fastmail:
         identity = internet_message_id(message_id)
         if identity is None or len(mail.get_all("Message-ID", [])) != 1 or internet_message_id(str(mail["Message-ID"])) != identity:
             raise ProviderError("outlook_import_message_id_changed")
+        # Outlook's internal dates use +00:00; JMAP UTCDate requires literal Z.
+        # Validate before uploading so a bad date cannot leave a provider write.
+        if received_at is not None:
+            received_at = jmap_utc_date(received_at)
         self.folders()
         upload = self.session()["uploadUrl"].replace("{accountId}", quote(self.account_id, safe=""))
         try:
