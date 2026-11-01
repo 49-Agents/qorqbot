@@ -125,3 +125,11 @@
 .agpad-tab-dot[data-state="running"]{background:#30D158}
 .agpad-tab-dot[data-state="idle"]{background:#c8912a}
 .agpad-tab-dot[hidden]{display:none}
+/* Ordubashy auto-ping switch at the right end of the pane's tab row. */
+.agpad .thead.agpad-ping-head { display:flex; align-items:flex-start; gap:12px; padding-right:28px; }
+.agpad-ping-head > .ttabs { flex:1 1 auto; min-width:0; }
+.agpad-ping.switch { flex:none; height:44px; padding:0 4px; border-radius:8px; background:none; color:var(--fg-3); font-weight:400; font-size:12px; }
+.agpad-ping.switch:hover { background:none; color:var(--fg-2); transform:none; }
+.agpad-ping.switch.on { color:var(--fg); }
+.agpad-ping.switch:focus-visible { outline:2px solid var(--fg-2); outline-offset:-2px; }
+.agpad-ping.switch:disabled { opacity:.5; }

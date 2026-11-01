@@ -320,6 +320,7 @@ function agpadSetView(p, view) {
   if (view === 'status') agentCurrentWorkMount(p);
   tWireHead(p.el, from, next => agpadSetView(p, next));
   if(typeof agentPaneIndicators==='function')agentPaneIndicators(p);
+  agpadPingMount(p);
   if (view === "activity") p.nextLog = 0;
   if (view === "inbox") p.nextInbox = 0;
   // Workspace views (Focus, Campaign Review, any discovered type) are mounted by
@@ -328,6 +329,84 @@ function agpadSetView(p, view) {
   if (view === 'globalTasks') globalTasksMount($('#agpad-body', p.el), {agentId: p.agentId, compact: true});
   agpadPaint(p);
   agpadTick();
+}
+
+// ------------------------------------------------------------ Ordubashy auto-ping
+// The switch pauses or resumes one saved Global inbox broadcast to this agent.
+const AGPAD_PING_NAME = "Focus check-in";
+const AGPAD_PING_MESSAGE = "Scheduled check-in from Alp. Review the items on the Focus board (focus_get) " +
+  "and the open tasks assigned to me. Take on and complete every item you can. Keep each task's status current: " +
+  "doing for what you are working on, waiting for what you are waiting on others for, and blocked for what you are " +
+  "waiting on me for. If you are blocked on an item, reply in that item's thread and state clearly why you are blocked " +
+  "and what would unblock you. Assign me tasks that I can do to unblock you and put them on my Focus (focus_present). " +
+  "Clear done tasks from the Focus pane (focus_set_archived).";
+
+function agpadPingItems(items, agentId) {
+  const json = value => typeof value === "string" ? JSON.parse(value) : value || [];
+  return items.filter(item => item.name === AGPAD_PING_NAME && item.delivery === "inbox" && item.status !== "cancelled" &&
+    json(item.recipients_json ?? item.recipients).some(r => r.agent_id === agentId));
+}
+
+async function agpadPingLoad(p) {
+  const items = coreData(await post("/root/operations/broadcasts_list", { scope: "global", limit: 200 })).items || [];
+  p.ping = { items: agpadPingItems(items, p.agentId), error: false };
+}
+
+function agpadPingPaint(p) {
+  const button = p.el.querySelector(".agpad-ping");
+  if (!button) return;
+  const on = !!p.ping?.items?.some(item => item.status === "active");
+  button.classList.toggle("on", on);
+  button.setAttribute("aria-checked", String(on));
+  button.disabled = !p.ping || !!p.pingBusy;
+  button.title = p.ping?.error ? "Auto-ping state unavailable" : on
+    ? "Ordubashy gets a Focus check-in every 5 hours" : "Auto-ping is off";
+}
+
+function agpadPingMount(p) {
+  if (p.workspaceRole !== "ordubashy" || !p.agentId) return;
+  const head = p.el.querySelector(".thead"), tabs = head?.querySelector(".ttabs");
+  if (!tabs) return;
+  head.classList.add("agpad-ping-head");
+  const button = document.createElement("button");
+  button.type = "button"; button.className = "switch agpad-ping";
+  button.setAttribute("role", "switch");
+  button.setAttribute("aria-label", "Auto-ping every 5 hours");
+  button.innerHTML = '<span class="k" aria-hidden="true"></span>Auto-ping';
+  tabs.after(button);
+  button.onclick = () => agpadPingToggle(p);
+  agpadPingPaint(p);
+  if (!p.ping && !p.pingLoading) {
+    p.pingLoading = true;
+    agpadPingLoad(p).catch(() => { p.ping = { items: [], error: true }; })
+      .finally(() => { p.pingLoading = false; if (_agpad === p) agpadPingPaint(p); });
+  }
+}
+
+async function agpadPingToggle(p) {
+  if (!p.ping || p.pingBusy || _agpad !== p) return;
+  p.pingBusy = true; agpadPingPaint(p);
+  const active = p.ping.items.filter(item => item.status === "active");
+  const call = (name, body) => post(`/root/operations/${name}`, { scope: "global", idempotency_key: newRequestId(), ...body });
+  try {
+    if (active.length) {
+      for (const item of active) coreData(await call("broadcasts_pause", { broadcast_id: item.id, expected_revision: item.revision }));
+    } else if (p.ping.items[0]) {
+      const item = p.ping.items[0];
+      coreData(await call("broadcasts_resume", { broadcast_id: item.id, expected_revision: item.revision }));
+    } else {
+      // First use: the first check-in goes out now, then every 5 hours.
+      coreData(await call("broadcasts_create", { definition: { name: AGPAD_PING_NAME, delivery: "inbox",
+        message: AGPAD_PING_MESSAGE, recipients: [p.agentId], timing: { kind: "interval", every: 5, unit: "hours",
+          at: new Date().toISOString() } } }));
+    }
+    toast(active.length ? "Auto-ping off" : "Auto-ping on");
+  } catch (error) {
+    toast(error.message || "Auto-ping change failed");
+  }
+  try { await agpadPingLoad(p); } catch { p.ping.error = true; }
+  p.pingBusy = false;
+  if (_agpad === p) agpadPingPaint(p);
 }
 
 function agpadVisibility(p) {
