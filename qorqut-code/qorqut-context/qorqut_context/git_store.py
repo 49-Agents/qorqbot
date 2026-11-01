@@ -23,19 +23,30 @@ class Git:
     def __init__(self, root: Path):
         self.root = root
 
-    def run(self, *args, data: bytes | None = None, env: dict | None = None,
-            check: bool = True) -> bytes:
+    def _invocation(self, args, env):
         environment = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         environment.update(env or {})
         command = ["git", "-C", str(self.root), "-c", "core.autocrlf=false",
                    "-c", "core.attributesFile=/dev/null", "-c", "core.hooksPath=/dev/null",
                    "-c", "user.name=Qorqut Context", "-c", "user.email=context@qorqut.invalid",
                    *args]
+        return command, environment
+
+    def run(self, *args, data: bytes | None = None, env: dict | None = None,
+            check: bool = True) -> bytes:
+        command, environment = self._invocation(args, env)
         result = subprocess.run(command, input=data, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, env=environment)
         if check and result.returncode:
             raise ContextError(f"Git {args[0]} failed: {result.stderr.decode(errors='replace').strip()}")
         return result.stdout
+
+    def stream(self, *args, output, data: bytes | None = None, env: dict | None = None) -> None:
+        """Run Git with the same fixed configuration, writing its standard output to the open binary file ``output``."""
+        command, environment = self._invocation(args, env)
+        result = subprocess.run(command, input=data, stdout=output, stderr=subprocess.PIPE, env=environment)
+        if result.returncode:
+            raise ContextError(f"Git {args[0]} failed: {result.stderr.decode(errors='replace').strip()}")
 
     def head(self) -> str:
         return self.run("rev-parse", "--verify", PUBLIC_REF).decode().strip()
