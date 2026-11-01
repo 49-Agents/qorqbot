@@ -1,4 +1,4 @@
-"""Explicit local commands; business data and runtime never default to engine Git."""
+"""Explicit local commands; shared context and runtime never default to engine Git."""
 from __future__ import annotations
 
 import argparse
@@ -21,10 +21,10 @@ class JsonParser(argparse.ArgumentParser):
 
 def parser():
     result = JsonParser(description="Local Qorqut source-to-graph context")
-    result.add_argument("--repo", required=True, help="Explicit business data repository (never the engine repository)")
+    result.add_argument("--repo", required=True, help="Explicit shared context repository (never the engine repository)")
     result.add_argument("--runtime", help="Separate runtime; default is <repo>.runtime")
     commands = result.add_subparsers(dest="command", required=True)
-    init = commands.add_parser("init", help="Initialize a new empty business data repository")
+    init = commands.add_parser("init", help="Initialize a new empty shared context repository")
     init.add_argument("--basic-entity-type", action="append", default=[])
     submit = commands.add_parser("submit", help="Submit and propagate one source change")
     submit.add_argument("operation", choices=("add", "edit", "remove"))
@@ -40,7 +40,7 @@ def parser():
     action_submit.add_argument("--revision-ref")
     action_submit.add_argument("--input-file", help="Exact accepted UTF-8 text for add/edit")
     action_submit.add_argument("--related-objects", type=json.loads, help="JSON list of kind/id/optional explanation pointers")
-    action_submit.add_argument("--business-entity-id", required=True, help="Controlled caller's configured supported business node")
+    action_submit.add_argument("--tags", type=json.loads, help="JSON list of immutable revision snapshots: id, name, business_id (nullable); defaults to []")
     action_submit.add_argument("--submitted-by", required=True)
     action_submit.add_argument("--event-id")
     action_submit.add_argument("--expected-previous-commit")
@@ -84,15 +84,18 @@ def parser():
     note.add_argument("event_id")
     action = commands.add_parser("action", help="Look up an accepted action; --audit includes all revisions")
     action.add_argument("action_ref")
+    actions = commands.add_parser("actions-history", help="List published Actions independently of graph subjects")
+    actions.add_argument("--tag-id", help="Filter by the revision's tag ID")
+    actions.add_argument("--global-only", action="store_true", help="Only revisions without linked business tags")
     timeline = commands.add_parser("action-timeline", help="Read current or audit associations for a current/historical object")
     timeline.add_argument("kind", choices=("node", "edge"))
     timeline.add_argument("id")
-    for command in (action, timeline):
+    for command in (action, actions, timeline):
         command.add_argument("--audit", action="store_true")
-    for command in (notes, note, action, timeline):
+    for command in (notes, note, action, actions, timeline):
         command.add_argument("--offset", type=int, default=0)
         command.add_argument("--limit", type=int, default=16000 if command is note else 20)
-    for command in (search, show, history, source, notes, note, action, timeline):
+    for command in (search, show, history, source, notes, note, action, actions, timeline):
         command.add_argument("--revision", help="Published historical revision; default is current")
     return result
 
@@ -124,7 +127,7 @@ def execute(args):
                 raise ContextError("Accepted action text must be UTF-8") from error
             return pipeline.submit_action(args.operation, args.action_ref, text=action_text,
                 revision_ref=args.revision_ref, related_objects=args.related_objects,
-                business_entity_id=args.business_entity_id, submitted_by=args.submitted_by,
+                tags=args.tags, submitted_by=args.submitted_by,
                 event_id=args.event_id, expected_previous_commit=args.expected_previous_commit)
         metadata = {name: getattr(args, name) for name in ("kind", "title", "origin", "origin_ref", "created_at")
                     if getattr(args, name) is not None}
@@ -147,6 +150,9 @@ def execute(args):
         return snapshot.handoff_note(args.event_id, offset=args.offset, limit=args.limit)
     if args.command == "action":
         return snapshot.action(args.action_ref, audit=args.audit, offset=args.offset, limit=args.limit)
+    if args.command == "actions-history":
+        return snapshot.actions_history(tag_id=args.tag_id, global_only=args.global_only,
+                                        audit=args.audit, offset=args.offset, limit=args.limit)
     if args.command == "action-timeline":
         return snapshot.action_timeline(args.kind, args.id, audit=args.audit, offset=args.offset, limit=args.limit)
     maximum = 100 if args.command == "history" else 64000

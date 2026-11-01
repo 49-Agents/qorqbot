@@ -445,6 +445,32 @@ class Snapshot:
             return {"revision": self.revision, **result}
         return {"revision": self.revision, **self._action_revision(self.actions[action_ref])}
 
+    def actions_history(self, *, tag_id=None, global_only=False, audit=False, offset=0, limit=20):
+        """Published Action revisions, including those without graph associations."""
+        from .input_modes import collection_page, opaque_ref
+        if tag_id is not None:
+            opaque_ref(tag_id, "tag_id")
+        if type(global_only) is not bool or type(audit) is not bool:
+            raise ContextError("global_only and audit must be booleans")
+        events = []
+        for event in self.events.values():
+            if "action" not in event:
+                continue
+            action = event["action"]
+            if not audit and (event["operation"] == "remove" or
+                              self.actions[action["action_ref"]]["id"] != event["id"]):
+                continue
+            tags = action["tags"]
+            if tag_id is not None and not any(tag["id"] == tag_id for tag in tags):
+                continue
+            if global_only and any(tag["business_id"] is not None for tag in tags):
+                continue
+            events.append(event)
+        result = collection_page(events, offset, limit)
+        result["items"] = [self._action_revision(event) for event in result["items"]]
+        return {"revision": self.revision, "tag_id": tag_id, "global_only": global_only,
+                "audit": audit, **result}
+
     def action_timeline(self, kind, object_id, *, audit=False, offset=0, limit=20):
         from .input_modes import collection_page
         self.objects(kind)

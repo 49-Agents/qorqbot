@@ -39,9 +39,31 @@ def pointers(values):
     return result
 
 
-def action_document(action_ref, revision_ref, action_text, related_objects, limit):
+def tag_snapshots(values):
+    """Validate revision metadata without consulting a mutable tag catalog or graph."""
+    if not isinstance(values, list):
+        raise ContextError("Tags must be a list of revision snapshots")
+    result, seen = [], set()
+    for item in values:
+        if not isinstance(item, dict) or set(item) != {"id", "name", "business_id"}:
+            raise ContextError("A tag snapshot requires id, name, and business_id")
+        tag_id = opaque_ref(item["id"], "tag id")
+        name = text(item["name"], "tag name")
+        utf8(name, "tag name")
+        business_id = item["business_id"]
+        if business_id is not None:
+            opaque_ref(business_id, "tag business_id")
+        if tag_id in seen:
+            raise ContextError("Duplicate tag id")
+        seen.add(tag_id)
+        result.append({"id": tag_id, "name": name, "business_id": business_id})
+    return result
+
+
+def action_document(action_ref, revision_ref, action_text, related_objects, tags, limit):
     utf8(action_text, "Action text", limit)
-    document = {"action_ref": action_ref, "text": action_text, "pointers": related_objects}
+    document = {"action_ref": action_ref, "text": action_text, "pointers": related_objects,
+                "tags": tags}
     if revision_ref is not None:
         document["revision_ref"] = revision_ref
     try:

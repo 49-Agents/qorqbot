@@ -84,12 +84,12 @@ class Pipeline:
             return self._run(submission.event_id)
 
     def submit_action(self, operation, action_ref, *, text=None, revision_ref=None,
-                      related_objects=None, business_entity_id, submitted_by, event_id=None,
+                      related_objects=None, tags=None, submitted_by, event_id=None,
                       expected_previous_commit=None):
         with self._lock():
             submission = self.context.begin_action(operation, action_ref, text=text,
                 revision_ref=revision_ref, related_objects=related_objects,
-                business_entity_id=business_entity_id, submitted_by=submitted_by,
+                tags=tags, submitted_by=submitted_by,
                 event_id=event_id, expected_previous_commit=expected_previous_commit,
                 source_bytes=self.config.source_bytes)
             if self.on_event:

@@ -138,13 +138,17 @@ class EventTools:
         self._add("action_lookup", "Read a shared accepted action at the published base by opaque reference. Audit pages include corrections and withdrawals; current view returns its latest revision. Default 20, max 100.",
                   obj({"action_ref": STRING, "audit": {"type": "boolean"}, **PAGE}, ("action_ref",)),
                   lambda **args: self._view(self.base.action(**args), published=True))
+        self._add("actions_history", "Page published Actions independently of graph subjects. Filter immutable revision tags by tag_id; global_only selects revisions with no linked business tag. Filters combine. Current view includes latest non-withdrawn Actions; audit includes all revisions and withdrawals. Default 20, max 100.",
+                  obj({"tag_id": STRING, "global_only": {"type": "boolean"},
+                       "audit": {"type": "boolean"}, **PAGE}),
+                  lambda **args: self._view(self.base.actions_history(**args), published=True))
         self._add("action_timeline", "Page an object's shared action associations at the published base. Historical removed objects are valid. Current view shows current associations; audit includes corrections and withdrawals. Default 20, max 100.",
                   obj({"kind": KIND, "id": ID, "audit": {"type": "boolean"}, **PAGE}, ("kind", "id")),
                   lambda kind, id, **args: self._view(self.base.action_timeline(kind, id, **args), published=True))
         self._add("stage_handoff_note", "Replace this event's single main-agent note with all questions and low-confidence items. GENERAL also includes operational claims and requested work. Empty text explicitly means nothing to hand off. Required before publication; a blocked finish requires a nonempty note explaining what needs resolution. Prepared only, never delivered; bounded by source byte limit.",
                   obj({"text": STRING}, ("text",)), self._handoff)
         if self.input_mode == ACTION:
-            self._add("stage_action_associations", "Replace this action's full association set. Date uses ISO or unknown 0; summary/explanations <=150 words. Associate known historical or draft objects. Add/edit needs at least one; fallback to configured business. Withdrawal needs empty set and previous date. Links cite self automatically.",
+            self._add("stage_action_associations", "Replace this action's full association set. Date uses ISO or unknown 0; summary/explanations <=150 words. Associate relevant known historical or draft objects; an explicit empty set is valid when no suitable subject exists. Tags are grouping metadata, never graph subjects. Withdrawal needs empty set and previous date. Links cite self automatically.",
                       obj({"date": {"type": ["string", "integer"]}, "summary": STRING,
                            "associations": {"type": "array", "items": obj({"kind": KIND, "id": ID, "explanation": STRING}, ("kind", "id", "explanation"))}},
                           ("date", "summary", "associations")), self._associations)

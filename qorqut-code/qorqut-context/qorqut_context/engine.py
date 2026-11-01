@@ -45,7 +45,7 @@ def file_lock(path: Path):
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
-            raise Conflict("Another writer/query is using this business context") from error
+            raise Conflict("Another writer/query is using this shared context") from error
         try:
             yield
         finally:
@@ -75,7 +75,7 @@ class Submission:
 
 
 class Context:
-    """One independent business context. Model execution is outside this class."""
+    """One shared context. Model execution is outside this class."""
 
     def __init__(self, root, runtime=None, *, index_factory=SQLiteIndex):
         self.root = Path(root).expanduser().resolve()
@@ -261,14 +261,14 @@ class Context:
         return Submission(event_id, source_id, snapshot.revision)
 
     def begin_action(self, operation, action_ref, *, text=None, revision_ref=None,
-                     related_objects=None, business_entity_id, submitted_by, event_id=None,
+                     related_objects=None, tags=None, submitted_by, event_id=None,
                      expected_previous_commit=None, source_bytes=modes.SOURCE_BYTES) -> Submission:
         if operation not in ("add", "edit", "remove"):
             raise ContextError("Action operation must be add, edit, or remove")
         action_ref = modes.opaque_ref(action_ref, "action_ref")
         if revision_ref is not None:
             modes.opaque_ref(revision_ref, "revision_ref")
-        business_entity_id = identifier(business_entity_id)
+        tags = modes.tag_snapshots([] if tags is None else tags)
         submitted_by = modes.text(submitted_by, "submitted_by")
         related_objects = modes.pointers([] if related_objects is None else related_objects)
         self._validate_source(None, source_bytes)
@@ -286,9 +286,9 @@ class Context:
                 raise ContextError("Action removal supplies no text or pointers")
             content = None
         else:
-            content = modes.action_document(action_ref, revision_ref, text, related_objects, source_bytes)
+            content = modes.action_document(action_ref, revision_ref, text, related_objects, tags, source_bytes)
         action = {"action_ref": action_ref, "revision_ref": revision_ref,
-                  "pointers": related_objects, "business_entity_id": business_entity_id,
+                  "pointers": related_objects, "tags": tags,
                   "expected_previous_commit": expected_previous_commit}
         request_digest = digest({"input_mode": modes.ACTION, "operation": operation,
             "content": hashlib.sha256(content).hexdigest() if content is not None else None,
@@ -313,9 +313,6 @@ class Context:
                 raise Conflict("Action edit/removal requires a current accepted action")
             if expected_previous_commit is not None and snapshot.event_commits[previous["id"]] != expected_previous_commit:
                 raise Conflict("Stale previous action-ingestion commit")
-            if (business_entity_id not in snapshot.nodes or
-                    not snapshot.support.get(("node", business_entity_id))):
-                raise ContextError("business_entity_id must be an existing supported node in the pinned base")
             if event_id in snapshot.used_ids:
                 raise Conflict("This ID has already been published")
             event_id = event_id or self._allocate(snapshot.used_ids)
@@ -359,8 +356,6 @@ class Context:
             previous = snapshot.actions[job["action"]["action_ref"]]["action_associations"]
             if output["associations"] or output["date"] != previous["date"]:
                 raise ContextError("Withdrawal requires empty associations and the previous action date")
-        elif not output["associations"]:
-            raise ContextError("Action add/edit requires at least one association")
         for item in output["associations"]:
             key = (item["kind"], item["id"])
             draft = job["draft"].get(":".join(key))
@@ -498,7 +493,7 @@ class Context:
             if ref == "self":
                 return job["source"]["id"]
             if ref not in snapshot.by_commit:
-                raise ContextError("Evidence must cite published source events in this business")
+                raise ContextError("Evidence must cite published source events in this shared context")
             return snapshot.by_commit[ref]["source"]["id"]
 
         for change in changes:
@@ -550,16 +545,13 @@ class Context:
         elif mode == modes.ACTION:
             action = job["action"]
             request["action"] = action
-            business = action["business_entity_id"]
-            if (business not in snapshot.nodes or not snapshot.support.get(("node", business)) or
-                    business not in objects["node"]):
-                raise ContextError("The configured business node must be supported in the base and survive this event")
+            modes.tag_snapshots(action["tags"])
             if job["source"]["path"] != f"foundation/actions/{job['source']['id']}.txt":
                 raise ContextError("Invalid managed action source path")
             if content is not None:
                 document = json.loads(content)
                 expected = modes.action_document(action["action_ref"], action["revision_ref"],
-                    document["text"], action["pointers"], job["source_bytes"])
+                    document["text"], action["pointers"], action["tags"], job["source_bytes"])
                 if content != expected:
                     raise Conflict("Action evidence does not match the bound input")
             output = job.get("action_associations")
@@ -723,6 +715,11 @@ class Context:
             job.update(phase="discarding", error=None)
             self._save(job)
             self._cleanup(job)
+
+    def actions_history(self, *, tag_id=None, global_only=False, audit=False,
+                        offset=0, limit=20, revision=None):
+        return self.snapshot(revision).actions_history(tag_id=tag_id, global_only=global_only,
+                                                      audit=audit, offset=offset, limit=limit)
 
     def search(self, query="", *, revision=None, kind=None, attributes=None, limit=20):
         with self._lock():
