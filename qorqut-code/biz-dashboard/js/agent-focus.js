@@ -306,18 +306,23 @@ async function agfocusToggleStory(p,item,refresh=false) {
     const data=coreData(await post(`/biz/${encodeURIComponent(biz)}/operations/stories_get`,{story_id:source.id}));
     if(p.focusStories.get(item.id)!==branch || p.focusMount!==mount || !mount?.isConnected)return;
     const seen=new Set();
-    branch.items=(data.story.links || []).filter(link=>{
-      const key=link.resource_type+':'+link.resource_id;
+    const links=[...(data.story.links || []),...(item.references || []).filter(ref=>ref.type==='task').map(ref=>({
+      resource_type:'tasks',resource_id:ref.id,current:ref.unavailable?null:ref,focusReference:ref
+    }))];
+    branch.items=links.filter(link=>{
+      const businessId=link.focusReference?link.focusReference.business_id:source.business_id;
+      const key=String(businessId ?? 'global')+':'+link.resource_type+':'+link.resource_id;
       if(seen.has(key) || link.resource_id===source.id)return false;
       seen.add(key);return true;
     }).map(link=>{
       const type=({tasks:'task',stories:'story',signoffs:'signoff',email_conversations:'email'})[link.resource_type] || link.item?.type || 'reference';
       const current=link.current;
-      const target={...current,type,resource_type:link.resource_type,id:link.resource_id,business_id:source.business_id,business_slug:biz,business_name:source.business_name};
+      const scope=link.focusReference || source;
+      const target={...current,type,resource_type:link.resource_type,id:link.resource_id,business_id:scope.business_id ?? null,business_slug:scope.business_slug ?? null,business_name:scope.business_name};
       return {id:`${item.id}/${link.resource_type}/${link.resource_id}`,revision:current?.revision || 1,
         label:current?.label || 'Unavailable item',source:target,resolved_source:target,
         state:current?.state,source_revision:current?.revision,unavailable:!current,
-        conversation:['task','story','signoff','email'].includes(type)?{type,id:link.resource_id,business_id:source.business_id}:null,
+        conversation:['task','story','signoff','email'].includes(type)?{type,id:link.resource_id,business_id:target.business_id}:null,
         references:[],_storyParent:item.id,_depth:(item._depth || 0)+1,_storyLink:link};
     });
     branch.pending=false;agfocusAnnounce(p,branch.items.length?`${branch.items.length} Story items`:'No linked Story items');
