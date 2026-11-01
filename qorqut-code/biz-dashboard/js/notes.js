@@ -3,6 +3,7 @@
 // Enter starts a block; Shift+Enter continues it. Pasted physical lines remain separate blocks.
 const NT_SOFT_BREAK = "\u2028";
 const ntUploadingIds = new Set();
+const ntUploadUncertainIds = new Set();
 let ntFilingPoll = null;
 
 // notes view state
@@ -19,6 +20,7 @@ function ntSetSel(id) {
   ntSel = id;
   if (ntScope()) ls(ntKey(), id || "");
 }
+const ntEditingLocked = id => ntUploadingIds.has(id) || ntUploadUncertainIds.has(id);
 let ntLoadedScope = null;
 let ntRestoredBiz = null;           // biz slug whose saved selection we've already applied this session
 let ntListOff = ls("ntlistoff") === "1";   // sidebar collapsed, persisted
@@ -220,7 +222,8 @@ function ntPatchSidebar() {
 function ntMetaHtml(n) {
   const words = ntWords(ntEditState ? ntEditState.lines.join("\n") : n.content);
   // no date here (same line as the journal's): just the word count
-  return `<span class="ntmeta-words">${words} word${words === 1 ? "" : "s"}</span> <span id="ntfiling">${ntFilingHtml(n)}</span>`;
+  const filingTag = ntScope() === '/root' ? 'div' : 'span';
+  return `<span class="ntmeta-words">${words} word${words === 1 ? "" : "s"}</span> <${filingTag} id="ntfiling">${ntFilingHtml(n)}</${filingTag}>`;
 }
 function ntRingSvg(nn) {
   const total = 8, frac = Math.max(0, Math.min(1, nn / total)), r = 6, c = 2 * Math.PI * r, off = c * (1 - frac);
@@ -299,8 +302,9 @@ function ntWireDetail(root, n) {
     id: n.id, biz: ntScope(), revision:n.revision, content_hash:n.content_hash, title0: n.title || "", lines0: lines.slice(), statuses0: JSON.stringify(statuses),
     lines: lines.slice(), statuses, dirty: false, saving: false, countdown: null,
   };
+  if (ntScope() === '/root' && ntGetUploadAttempt(n.id)) ntUploadUncertainIds.add(n.id);
   const titleEl = $("#nttitle");
-  titleEl.value = n.title || ""; ntGrow(titleEl);
+  titleEl.value = n.title || ""; titleEl.readOnly = ntUploadUncertainIds.has(n.id); ntGrow(titleEl);
   ntRenderLines();
   ntEditState.history = [ntHistorySnapshot()];
   ntEditState.historyIndex = 0;
@@ -540,7 +544,7 @@ function ntRenderLines() {
     gutter.onmousedown = e => e.preventDefault();
     wrap.replaceChildren(doc, gutter);
   }
-  ntSetEditable(doc, !ntUploadingIds.has(ntSel));
+  ntSetEditable(doc, !ntEditingLocked(ntSel));
   doc.replaceChildren(...es.lines.map((_, i) => ntMakeBlock(es, i)));
   ntRenderBalls();
   ntPaintOverlay();
@@ -616,7 +620,7 @@ function ntDocBeforeInput(e) {
   const es = ntEditState; if (!es) return;
   const t = e.inputType;
   if (t === "historyUndo" || t === "historyRedo") return;
-  if (ntUploadingIds.has(ntSel)) { e.preventDefault(); return; }
+  if (ntEditingLocked(ntSel)) { e.preventDefault(); return; }
   if (e.isComposing) return;
   const s = ntSelection(); if (!s) return;
   const [a, f] = ntOrdered(s), multi = a.i !== f.i, collapsed = !multi && a.pos === f.pos;
@@ -671,7 +675,7 @@ function ntDocInput(e) {
 }
 function ntDocKeydown(e) {
   const mod = e.ctrlKey || e.metaKey, k = e.key;
-  if (k === "Enter" && !mod && !e.isComposing && !ntUploadingIds.has(ntSel)) {
+  if (k === "Enter" && !mod && !e.isComposing && !ntEditingLocked(ntSel)) {
     // plaintext-only reports both Enter and Shift+Enter as insertLineBreak, so decide here
     const s = ntSelection(); if (!s) return;
     e.preventDefault(); ntRememberSelection();
@@ -687,11 +691,11 @@ function ntDocClipboard(e, cut) {
   if (a.i === f.i && a.pos === f.pos) return;
   e.preventDefault();
   e.clipboardData.setData("text/plain", ntRangeText(a, f));
-  if (cut && !ntUploadingIds.has(ntSel)) { ntRememberSelection(); ntEditRange(a, f, ""); }
+  if (cut && !ntEditingLocked(ntSel)) { ntRememberSelection(); ntEditRange(a, f, ""); }
 }
 function ntDocPaste(e) {
   e.preventDefault();
-  if (ntUploadingIds.has(ntSel)) return;
+  if (ntEditingLocked(ntSel)) return;
   const text = (e.clipboardData?.getData("text/plain") || "").replace(/\r\n?/g, "\n");
   const s = ntSelection(); if (!text || !s) return;
   const [a, f] = ntOrdered(s);
@@ -700,7 +704,7 @@ function ntDocPaste(e) {
 }
 // Ctrl/Cmd+=: a blank block becomes the divider, otherwise the divider goes below the caret's block.
 function ntInsertDivider() {
-  const es = ntEditState, s = ntSelection(); if (!es || !s || ntUploadingIds.has(ntSel)) return;
+  const es = ntEditState, s = ntSelection(); if (!es || !s || ntEditingLocked(ntSel)) return;
   const i = s.f.i, last = i === es.lines.length - 1;
   if (ntDisp(es, i).trim() === "") ntCommit([...es.lines.slice(0, i), NT_DIVIDER, ...(last ? [""] : []), ...es.lines.slice(i + 1)], { index: i + 1, pos: 0 });
   else ntCommit([...es.lines.slice(0, i + 1), NT_DIVIDER, ...(last ? [""] : []), ...es.lines.slice(i + 1)], { index: i + 2, pos: 0 });
@@ -709,7 +713,7 @@ function ntInsertDivider() {
 // Ctrl/Cmd+B: bold for every text block in the selection (all bold -> unbold), stored as the invisible
 // "⁣b⁣ " token; patches classes in place so the caret and selection stay put.
 function ntToggleBold() {
-  const es = ntEditState, sel = ntSelection(); if (!es || !sel || ntUploadingIds.has(ntSel)) return;
+  const es = ntEditState, sel = ntSelection(); if (!es || !sel || ntEditingLocked(ntSel)) return;
   const [a, f] = ntOrdered(sel), bl = ntBlocks(es);
   const idx = []; for (let i = a.i; i <= f.i; i++) if (!bl[i].rule) idx.push(i);
   if (!idx.length) return;
@@ -722,7 +726,7 @@ const ntBlockClass = (i, cls, on) => ntDoc()?.children[i]?.classList.toggle(cls,
 // Left-click cycle / right-click blocked-toggle on a task line's gutter ball — patches just that ball
 // (and its row's struck-through state) rather than a full rebuild.
 function ntCycleBall(i) {
-  if (ntUploadingIds.has(ntSel)) return;
+  if (ntEditingLocked(ntSel)) return;
   const es = ntEditState; if (!es) return;
   ntSetStatus(es, i, ntNextStatus(ntLineStatus(es, i)));
   es.dirty = true;
@@ -730,7 +734,7 @@ function ntCycleBall(i) {
   ntSchedule();
 }
 function ntToggleBlocked(i) {
-  if (ntUploadingIds.has(ntSel)) return;
+  if (ntEditingLocked(ntSel)) return;
   const es = ntEditState; if (!es) return;
   const cur = ntLineStatus(es, i);
   ntSetStatus(es, i, cur === "blocked" ? "todo" : "blocked");
@@ -772,7 +776,7 @@ function ntRecordHistory() {
 }
 function ntUndoRedo(redo) {
   const es = ntEditState;
-  if (!es?.history || ntUploadingIds.has(ntSel)) return;
+  if (!es?.history || ntEditingLocked(ntSel)) return;
   const index = es.historyIndex + (redo ? 1 : -1);
   if (index < 0 || index >= es.history.length) return;
   const snapshot = es.history[index];
@@ -948,15 +952,30 @@ async function ntPickDay(date) {
   if (ntScope() === biz && ntActive()) ntSelect(n.id);
 }
 function ntUploadButton(n) {
-  if(ntScope()==='/root')return "";
   const dirty = ntEditState?.id === n.id && ntEditState.dirty;
   const busy = ntUploadingIds.has(n.id);
+  if (ntScope() === '/root') {
+    const attempt = ntGetUploadAttempt(n.id);
+    const content = ntEditState?.id === n.id ? ntEditState.lines.join("\n") : n.content;
+    const disabled = busy || !String(content || "").trim();
+    const label = busy ? "Submitting…" : attempt ? "Retry same submission" : "Upload to filer";
+    return `<button class="btn" id="ntupload" type="button"${disabled ? " disabled" : ""}>${ICO_UPLOAD}${label}</button>`;
+  }
   const disabled = busy || (!dirty && (!n.content.trim() || (n.uploadId && !n.changedSinceUpload)));
   const label = busy ? "Submitting…" : n.uploadId ? "Send updated version" : "Add to Context";
   return `<button class="btn" id="ntupload" type="button"${disabled ? " disabled" : ""}>${ICO_UPLOAD}${label}</button>`;
 }
 function ntFilingHtml(n) {
-  if(ntScope()==='/root')return "";
+  if (ntScope() === '/root') {
+    return (n.filerSubmissions || []).map(submission => {
+      const state = submission.state;
+      const label = ({queued:"Queued", running:"Filing…", filed:"Filed", partial:"Partially filed", not_filed:"Not filed", failed:"Filing failed", cancelled:"Cancelled", cancelling:"Cancelling…"}[state] || "Status unavailable");
+      const changed = submission.changedSinceSubmission || (ntEditState?.id === n.id && ntEditState.dirty);
+      const summary = Object.keys(submission.summary || {}).length ? `<details class="ntfilingresult"><summary>View filing result</summary><pre>${esc(JSON.stringify(submission.summary, null, 2))}</pre><a class="ntmetalink" target="_blank" rel="noopener" href="/api/root/context-library/${encodeURIComponent(submission.uploadId)}">Open submitted snapshot and receipt</a></details>` : `<a class="ntmetalink" target="_blank" rel="noopener" href="/api/root/context-library/${encodeURIComponent(submission.uploadId)}">Open submitted snapshot</a>`;
+      const prior = submission.previousReceipt ? `<details class="ntfilingresult"><summary>Previous attempt receipt (${esc(submission.previousReceipt.status || "saved")})</summary><pre>${esc(JSON.stringify(submission.previousReceipt.summary || {}, null, 2))}</pre></details>` : "";
+      return `<div class="ntfilingrow"><span class="ntfilingstatus">${esc(label)} · ${esc(submission.uploadId.slice(0, 8))}${changed ? " · Changed since submission" : ""}${submission.filing?.error ? ` · ${esc(submission.filing.error)}` : ""}</span>${summary}${prior}${submission.retryable ? `<button class="ntmetalink ntretryfiler" type="button" data-upload-id="${esc(submission.uploadId)}">Retry</button>` : ""}</div>`;
+    }).join("");
+  }
   if (!n.uploadId) return "";
   const f = n.filing;
   const label = !f ? "Previous submission unavailable" : ({processed: "Filed", failed: "Filing failed", queued: "Queued for filing", running: "Filing…", waiting_signoff: "Awaiting approval", cancelled: "Filing cancelled", cancelling: "Cancelling filing…"}[f.state] || "Filing status unavailable");
@@ -968,6 +987,21 @@ function ntFilingHtml(n) {
 function ntWireUpload() {
   const n = ntById(ntSel); if (!n) return;
   const button = $("#ntupload"); if (button) button.onclick = () => ntDoUpload(n.id);
+  if (ntScope() === '/root') {
+    document.querySelectorAll('.ntretryfiler').forEach(retry => retry.onclick = async () => {
+      const submission = (n.filerSubmissions || []).find(item => item.uploadId === retry.dataset.uploadId);
+      if (!submission || retry.disabled) return;
+      retry.disabled = true;
+      try {
+        const result = await post(`/root/context-library/${encodeURIComponent(submission.uploadId)}/retry`, {
+          expected_revision: submission.filing.revision, idempotency_key: newRequestId()});
+        if (result?.error || result?.status === 'error') toast(result.error?.message || result.error || 'Could not retry this filing.');
+        else { await ntFetch(); ntPaintUpload(); ntWatchFiling(); }
+      } catch (error) { toast(error.message || 'Could not retry this filing.'); }
+      finally { retry.disabled = false; }
+    });
+    return;
+  }
   const view = $("#ntviewcontext"); if (view) view.onclick = async () => {
     const biz = ntScope();
     if (!await ntFlush() || ntScope() !== biz) return;
@@ -992,40 +1026,81 @@ function ntPaintUpload() {
   ntWireUpload();
 }
 async function ntDoUpload(id) {
-  if(ntScope()==='/root')return;
   if (ntUploadingIds.has(id)) return;
-  const biz = ntScope();
-  let locked = [];
+  const scope = ntScope();
+  let locked = [], uncertain = false, attempt = null;
   ntUploadingIds.add(id); ntPaintUpload();
   try {
-    if (ntEditState && !await ntSaveNow()) return;
-    if (ntScope() !== biz || ntEditState?.dirty) return;
-    const n = ntById(id); if (!n) return;
+    attempt = ntScope() === '/root' ? ntGetUploadAttempt(id) : null;
+    if (!attempt) {
+      if (ntEditState && !await ntSaveNow()) return;
+      if (ntScope() !== scope || ntEditState?.dirty) return;
+      const n = ntById(id); if (!n) return;
+      attempt = {idempotency_key: newRequestId(), document_id: id,
+        expected_revision: n.revision, expected_content_hash: n.content_hash};
+      if (scope === '/root') ntPutUploadAttempt(id, attempt);
+    } else {
+      // The exact original key and revision/hash survive a lost response, even if the editor was reloaded.
+      ntUploadUncertainIds.add(id);
+    }
     locked = [...document.querySelectorAll('#nttitle')];
     locked.forEach(el => el.readOnly = true);
     if (ntDoc()) ntSetEditable(ntDoc(), false);
-    const r = await post(`/biz/${biz}/notes/${encodeURIComponent(id)}/upload`, {
-      expected_revision:n.revision, expected_content_hash:n.content_hash});
-    if (r?.error) {toast(r.error); return;}
-    if (r?.status === "signoff_required") {toast("Context submission is awaiting approval."); return;}
-    if (ntScope() !== biz) return;
-    await ntFetch();
-    const fresh = ntById(id), es = ntEditState;
-    if (fresh && es?.id === id && es.biz === biz && es.revision === n.revision) {
-      es.revision = fresh.revision; es.content_hash = fresh.content_hash;
+    // The entry ID is already bound by the route. Keep it in local storage so
+    // the retry can validate its identity, but send only the supported body.
+    const request = {...attempt};
+    delete request.document_id;
+    const r = await post(`${ntEndpoint(scope)}/${encodeURIComponent(id)}/upload`, request);
+    if (r?.error || r?.status === 'error') {
+      if (scope === '/root') ntClearUploadAttempt(id);
+      ntUploadUncertainIds.delete(id);
+      toast(r.error?.message || r.error || 'Could not submit this entry.');
+      return;
     }
-    toast("Submitted to Context — filing queued.");
+    if (r?.status === "signoff_required") {
+      if (scope === '/root') ntClearUploadAttempt(id);
+      ntUploadUncertainIds.delete(id);
+      toast("Context submission is awaiting approval."); return;
+    }
+    if (!['accepted', 'ok'].includes(r?.status)) throw new Error('The filing response was uncertain. Retry to resume the same submission.');
+    if (scope === '/root') ntClearUploadAttempt(id);
+    ntUploadUncertainIds.delete(id);
+    if (ntScope() !== scope) return;
+    await ntFetch();
+    if (scope !== '/root') {
+      const fresh = ntById(id), es = ntEditState;
+      if (fresh && es?.id === id && es.biz === scope) { es.revision = fresh.revision; es.content_hash = fresh.content_hash; }
+    }
+    toast(scope === '/root' ? "Journal snapshot submitted to the filer." : "Submitted to Context — filing queued.");
     ntWatchFiling();
-  } catch (error) {toast(error.message || "Could not add note to Context.");}
-  finally {locked.forEach(el => el.readOnly = false); if (ntDoc()) ntSetEditable(ntDoc(), true); ntUploadingIds.delete(id); ntPaintUpload();}
+  } catch (error) {
+    uncertain = scope === '/root' && Boolean(attempt);
+    if (uncertain) ntUploadUncertainIds.add(id);
+    toast(error.message || (scope === '/root' ? 'Upload response uncertain; retry to resume the same submission.' : 'Could not add note to Context.'));
+  }
+  finally {
+    ntUploadingIds.delete(id);
+    if (!uncertain) { locked.forEach(el => el.readOnly = false); if (ntDoc()) ntSetEditable(ntDoc(), !ntEditingLocked(id)); }
+    ntPaintUpload();
+  }
 }
+function ntUploadAttemptStorageKey(id) { return `nt-filer-upload:${id}`; }
+function ntGetUploadAttempt(id) {
+  try { const value = JSON.parse(localStorage.getItem(ntUploadAttemptStorageKey(id)) || 'null'); return value?.idempotency_key && value.document_id === id ? value : null; }
+  catch (_) { return null; }
+}
+function ntPutUploadAttempt(id, value) { try { localStorage.setItem(ntUploadAttemptStorageKey(id), JSON.stringify(value)); } catch (_) {} }
+function ntClearUploadAttempt(id) { try { localStorage.removeItem(ntUploadAttemptStorageKey(id)); } catch (_) {} }
 function ntWatchFiling() {
   clearTimeout(ntFilingPoll);
-  if(ntScope()==='/root')return;
-  const biz = ntScope();
-  if (!ntActive() || !ntNotes.some(n => ["queued", "running", "waiting_signoff", "cancelling"].includes(n.filing?.state))) return;
+  ntFilingPoll = null;
+  const scope = ntScope();
+  const active = ntNotes.some(n => scope === '/root'
+    ? (n.filerSubmissions || []).some(sub => ['queued', 'running', 'cancelling'].includes(sub.filing?.state))
+    : ["queued", "running", "waiting_signoff", "cancelling"].includes(n.filing?.state));
+  if (!ntActive() || !active) return;
   ntFilingPoll = setTimeout(async () => {
-    if (ntScope() !== biz || !ntActive()) return;
+    if (ntScope() !== scope || !ntActive()) return;
     try {await ntFetch(); ntPaintUpload();} catch (_) { /* retry on the next poll */ }
     ntWatchFiling();
   }, 3000);

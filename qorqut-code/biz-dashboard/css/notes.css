@@ -136,6 +136,12 @@
 #ntfiling { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-weight: 400; }
 #ntfiling:empty { display: none; }
 #ntfiling::before { content: "·"; color: var(--fg-3); }
+#ntfiling:has(.ntfilingrow)::before { content: none; }
+#ntfiling .ntfilingrow { display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+#ntfiling .ntfilingstatus { overflow-wrap: anywhere; }
+#ntfiling .ntfilingresult { flex: 1 1 100%; }
+#ntfiling .ntfilingresult summary { cursor: pointer; }
+#ntfiling .ntfilingresult pre { max-width: min(80ch, 90vw); overflow: auto; white-space: pre-wrap; }
 #ntfiling .ntmetalink {
   display: inline; width: auto; height: auto; min-height: 0; padding: 0;
   border: 0; border-radius: 0; background: none; box-shadow: none;
