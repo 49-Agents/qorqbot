@@ -46,6 +46,7 @@ function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
 function agentPaneViews(scope, roleId, base = []) {
   const leading = [], trailing = [];
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_PANE_FIRST.has(type.renderer) ? leading : trailing).push(type.key);
+  if (roleId === "ordubashy") leading.push("desktop");
   return [...new Set([...leading, ...base, ...trailing, "status"])];
 }
 
@@ -73,6 +74,7 @@ function agpadWorkspaceViewsSync(p) {
 }
 
 function agpadWorkspaceMount(p, view) {
+  if (view === "desktop" && p.workspaceRole === "ordubashy") { agfocusDesktopMount(p); return; }
   const type = workspaceType(view);
   if (type && p.workspaceRole && !type.supported_roles.includes(p.workspaceRole)) { workspaceUnsupportedMount(p, type); return; }
   const mount = workspaceRenderer(type);
@@ -225,6 +227,7 @@ function agentPaneDividerMount(root) {
 
 function agpadDispose() {
   _agpad?.focusDetail?.dispose?.();
+  _agpad?.workspaceDispose?.();
   if (typeof cmpDispose === "function") cmpDispose(_agpad);
   _agpad?.dividerDispose?.();
   _agpad = null;
@@ -264,6 +267,7 @@ function agpadActive(p) {
 
 function agpadMount(name, el, options = {}) {
   _agpad?.focusDetail?.dispose?.();
+  _agpad?.workspaceDispose?.();
   _agpad?.dividerDispose?.();
   if (_agpad) _agpad.focusDetail = null;
   const workspaceScope = options.workspaceScope || (state.scope === "global" ? "global" : "business");
@@ -306,7 +310,10 @@ function agpadSetView(p, view) {
   if (_agpad !== p || !p.views.includes(view)) return;
   p.focusDetail?.dispose?.();
   p.focusDetail = null;
+  p.workspaceDispose?.();
+  p.workspaceDispose = null;
   const from = p.view;
+  if (from === "desktop") p.desktopRequest = (p.desktopRequest || 0) + 1;
   p.view = view;
   p.bodyHtml = null;
   p.el.innerHTML = tHead({ view, views: p.views, bodyId: "agpad-body", taskTools: false });

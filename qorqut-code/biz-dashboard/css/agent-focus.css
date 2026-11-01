@@ -48,8 +48,11 @@
 .agfocus-detail-body .task-inline-actions{display:flex;justify-content:flex-end;margin-bottom:12px}
 
 .agfocus-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}
-.agfocus .agfocus-desktop[data-attention="true"],.agfocus .agfocus-desktop.agfocus-desktop-pending{background:#fff;color:#111;border-radius:7px}
-.agfocus-desktop:disabled.agfocus-desktop-pending{opacity:1}
+.agpad .ttab[data-attention="true"]::after{content:"";position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;background:#fff;pointer-events:none}
+.agfocus-desktop-view{display:flex;flex-direction:column;gap:8px;min-height:100%;padding:0 10px 10px;box-sizing:border-box}
+.agfocus-desktop-view .agfocus-desktop-help{flex:none;margin:0}
+.agfocus-desktop-view .agfocus-desktop-frame{flex:none}
+.agfocus-desktop-view .agfocus-desktop-completion{flex:none}
 .agfocus-toolbar .agfocus-controls{margin:0;gap:5px}
 .agfocus .agfocus-actions .conversation-toggle{width:34px;height:34px;min-height:34px;padding:7px}
 .agfocus .agfocus-actions .conversation-toggle svg{width:20px;height:20px}
