@@ -33,7 +33,13 @@ const attentionQueue=(()=>{
     if(acknowledged.has(key))return;
     acknowledged.add(key);void acknowledge([key]);
   }
+  function viewboxViewed(item){
+    const key=item.attention_id;
+    if(document.hidden || !key || acknowledged.has(key))return;
+    acknowledged.add(key);void acknowledge([key]);
+  }
   async function open(item){
+    if(item.kind==='viewbox'){await agviewboxNavigate(item);return;}
     if(item.kind!=='signoff'){
       // Native/private read cursors clear the queue only after the conversation actually loads.
       // Legacy Telegram/capture entries have no read cursor: show their exact text before clearing.
@@ -61,13 +67,13 @@ const attentionQueue=(()=>{
     }
     const item=items.find(row=>row.id===target.dataset.attentionKey);
     if(item){
-      if(item.kind==='global' && item.chat && target.closest('.attention-all'))_modal?.close();
+      if((item.kind==='viewbox' || item.kind==='global' && item.chat) && target.closest('.attention-all'))_modal?.close();
       void open(item).catch(e=>toast(e.message));
     }
   }
   document.addEventListener('reply-notifications-changed',()=>{if(mounts.size)void refresh();});
   window.addEventListener('focus',()=>{if(mounts.size)void refresh();});
   if(typeof onChange==='function')onChange(['signoffs'],null,()=>{if(mounts.size)void refresh();});
-  return {signoffViewed,refresh,mount(host){mounts.add(host);host.addEventListener('click',clicks);paint(host);void refresh();
+  return {signoffViewed,viewboxViewed,refresh,mount(host){mounts.add(host);host.addEventListener('click',clicks);paint(host);void refresh();
     return ()=>{mounts.delete(host);host.removeEventListener('click',clicks);if(!mounts.size)clearTimeout(timer);};}};
 })();

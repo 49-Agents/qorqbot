@@ -266,8 +266,9 @@ const ICO_PLUS = `<svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="
 
 function paintList() {
   const rows=$('#agentrows'); if(!rows)return;
-  rows.innerHTML=agentNavOrder().map(a => `<button type="button" class="item agent ${a.name===state.agent?'on':''}" data-a="${esc(a.name)}"><span class="nm">${identityAvatar('agent',a.display_name || a.name,a)}<span class="tt">${esc(a.display_name || a.name)}</span></span><span class="agent-presence" data-agent-presence="${esc(a.agent_id || '')}" role="img"></span></button>`).join('') || '<p class="empty pad">No agents yet.</p>';
+  rows.innerHTML=agentNavOrder().map(a => `<button type="button" class="item agent ${a.name===state.agent?'on':''}" data-a="${esc(a.name)}" data-agent-unread="${esc(a.agent_id || '')}"><span class="nm">${identityAvatar('agent',a.display_name || a.name,a)}<span class="tt">${esc(a.display_name || a.name)}</span></span><span class="agent-presence" data-agent-presence="${esc(a.agent_id || '')}" role="img"></span></button>`).join('') || '<p class="empty pad">No agents yet.</p>';
   agentNavPaint(); agentNavRefresh();
+  if (typeof replyNotifications !== 'undefined') replyNotifications.paint();
   rows.querySelectorAll('[data-a]').forEach(b=>{b.onclick=event=>{if(event.ctrlKey || event.metaKey){event.preventDefault();agentOpenTab(b.dataset.a,state.biz);}else selectAgent(b.dataset.a);};b.oncontextmenu=e=>{e.preventDefault();lookModal(state.agents.find(a=>a.name===b.dataset.a));};});
 }
 function paintHead(a) {

@@ -4,10 +4,10 @@ const replyNotifications=(()=>{
   try{seen=new Set(JSON.parse(sessionStorage.getItem('reply-notifications:seen') || '[]'));}catch(_){}
   const key=s=>`${s?.type}:${s?.business_id || 'global'}:${s?.id}`;
   const unread=source=>loaded?items.some(item=>item.kind==='thread' && item.unread && key(item.source)===key(source)):null;
-  // A chat-enabled global agent's unread replies come from durable chat messages (item.chat) and clear through the chat's
-  // persisted read position, not through a snapshot of its terminal.
-  const unreadAgent=agentId=>loaded?items.some(item=>item.chat===true && item.unread && item.agent_id===agentId):null;
-  const unreadChat=()=>loaded?items.some(item=>item.chat===true && item.unread):null;
+  // Main chats and task/story DMs share the same per-agent unread marker, for every scope.
+  const unreadReply=item=>(item.chat===true || item.kind==='thread') && item.unread;
+  const unreadAgent=agentId=>loaded?items.some(item=>unreadReply(item) && item.agent_id===agentId):null;
+  const unreadChat=()=>loaded?items.some(unreadReply):null;
   const viewing=item=>item.chat===true && typeof globalChatReadable==='function' && globalChatReadable(item.agent_id);
   function paintDots(){
     const dot=(host,on,label)=>{
@@ -18,8 +18,8 @@ const replyNotifications=(()=>{
       el.setAttribute('role','img');el.setAttribute('aria-label',label);
     };
     dot(document.querySelector('.ritem[data-tab="agents"]'),!!unreadChat(),'Unread agent chat');
-    document.querySelectorAll('[data-global-agent]').forEach(row=>{
-      const id=row.dataset.globalAgent;
+    document.querySelectorAll('[data-global-agent],[data-business-agent],[data-agent-unread]').forEach(row=>{
+      const id=row.dataset.globalAgent || row.dataset.businessAgent || row.dataset.agentUnread;
       dot(row.querySelector('.nm'),!!unreadAgent(id),'Unread reply');
     });
   }
@@ -48,7 +48,7 @@ const replyNotifications=(()=>{
         seen.add(item.id);
         // Establish a baseline on first load; existing unread markers still appear.
         // The owner already looking at that chat does not need a toast for what is on screen.
-        if(!first && !viewing(item))notify({text:item.agent_name+' replied',sub:item.text,onClick:()=>open(item),ms:8000});
+        if(!first && !item.nav_only && !viewing(item))notify({text:item.agent_name+' replied',sub:item.text,onClick:()=>open(item),ms:8000});
       }
       seen=new Set([...seen].slice(-1000));
       try{sessionStorage.setItem('reply-notifications:seen',JSON.stringify([...seen]));}catch(_){}

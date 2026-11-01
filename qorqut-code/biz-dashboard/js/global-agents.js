@@ -173,6 +173,7 @@ async function renderGlobalAgents(c) {
       + (note ? `<p class="empty pad" role="status">${note}</p>` : '');
     if (bizRegion.hidden) bizScroll = scroll; else bizList.scrollTop = scroll;
     agentNavPaint(); paintSelection();
+    if (typeof replyNotifications !== 'undefined') replyNotifications.paint();
   };
   const setBizCollapsed = (collapsed, remember = true) => {
     if (collapsed && !bizRegion.hidden) bizScroll = bizList.scrollTop;

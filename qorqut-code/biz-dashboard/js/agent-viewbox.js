@@ -1,6 +1,6 @@
 // Viewbox: the links the selected agent placed for the owner to inspect. An owner-only read of the agent's board;
-// opening an item only shows it in a frame. Nothing here reads, acknowledges or changes anything for the agent.
-const AGVB_LIMIT = 10;
+// Opening an item clears only that placement's owner attention notice; agent state is unchanged.
+const AGVB_LIMIT = 30;
 const AGVB_MIN = { w: 240, h: 180 };
 const AGVB_STEP = 16, AGVB_STEP_LARGE = 64;
 // Only these exact same-origin paths are the application's own viewer shells; every other URL is an ordinary site.
@@ -43,16 +43,28 @@ function agvbTarget(link) {
 function agvbItem(value) {
   if (!value || typeof value !== 'object' || typeof value.id !== 'string' || typeof value.link !== 'string'
     || typeof value.title !== 'string' || typeof value.placed_at !== 'string') return null;
-  return { id: value.id, link: value.link, title: value.title, kind: AGVB_ICON[value.kind] && value.kind !== 'back' && value.kind !== 'fit' && value.kind !== 'open' ? value.kind : 'web', placed_at: value.placed_at };
+  return { id: value.id, link: value.link, title: value.title, kind: AGVB_ICON[value.kind] && value.kind !== 'back' && value.kind !== 'fit' && value.kind !== 'open' ? value.kind : 'web', placed_at: value.placed_at,
+    attention_id: typeof value.attention_id === 'string' ? value.attention_id : null };
 }
 const agvbStamp = item => { const time = new Date(item.placed_at); return Number.isNaN(time.getTime()) ? item.placed_at : time.toLocaleString(); };
-const agvbSignature = items => JSON.stringify((items || []).map(item => [item.id, item.title, item.link, item.kind, item.placed_at]));
+const agvbSignature = items => JSON.stringify((items || []).map(item => [item.id, item.title, item.link, item.kind, item.placed_at, item.attention_id]));
+
+async function agviewboxNavigate(item) {
+  const samePage = location.hash === '#/global/agents', url = new URL(location.href);
+  url.searchParams.set('agent', item.agent_id);
+  url.searchParams.set('workspace', 'viewbox');
+  url.searchParams.set('viewbox_item', item.viewbox_item_id);
+  url.searchParams.delete('focus_item');
+  history.replaceState(null, '', url);
+  if (samePage) await renderTab(); else location.hash = '/global/agents';
+}
 
 function agviewboxMount(p) {
   const body = $('#agpad-body', p.el);
   if (!body || !p.agentId) return;
   const vb = p.vb = { agentId: p.agentId, abort: null, pending: false, next: 0, items: null, error: false, mode: 'list',
-    selected: null, signature: null, listScroll: 0, size: agvbStoredSize(p), frame: null };
+    selected: null, signature: null, listScroll: 0, size: agvbStoredSize(p), frame: null,
+    linkedItem: new URL(location.href).searchParams.get('viewbox_item') };
   body.classList.add('agvb-body');
   body.classList.remove('agvb-framed');
   body.innerHTML = `<div class="agvb"><div class="agvb-listview"><p class="agvb-status" role="alert" hidden></p>
@@ -87,7 +99,16 @@ async function agviewboxRefresh(p) {
   } catch (_) {
     if (p.vb === vb && !vb.dead && !controller.signal.aborted) vb.error = true;
   } finally {
-    if (p.vb === vb && !vb.dead) { vb.pending = false; vb.next = Date.now() + AGPAD_POLL_MS; agviewboxPaint(p); }
+    if (p.vb === vb && !vb.dead) {
+      vb.pending = false; vb.next = Date.now() + AGPAD_POLL_MS; agviewboxPaint(p);
+      if (!vb.error && vb.linkedItem) {
+        const id = vb.linkedItem;
+        vb.linkedItem = null;
+        const url = new URL(location.href);
+        if (url.searchParams.get('viewbox_item') === id) { url.searchParams.delete('viewbox_item'); history.replaceState(null, '', url); }
+        if (vb.items.some(item => item.id === id)) agviewboxOpen(p, id);
+      }
+    }
   }
 }
 
@@ -96,6 +117,7 @@ function agviewboxTick(p) {
   if (!vb || vb.dead) return;
   if (!vb.pending && Date.now() >= vb.next) agviewboxRefresh(p);
   if (vb.mode === 'list') agviewboxAges(p);
+  if (vb.frame?.loaded) vb.frame.markViewed();
 }
 
 function agviewboxAges(p) {
@@ -163,8 +185,13 @@ function agviewboxOpen(p, id) {
   const open = $('.agvb-open', view), stage = $('.agvb-stage', view), box = $('.agvb-box', view), handle = $('.agvb-handle', view),
     fallback = $('.agvb-fallback', view), announce = $('.agvb-size', view);
   if (target) open.href = target.href; else open.hidden = true;
+  const markViewed = () => {
+    if (!vb.dead && p.vb === vb && vb.selected === item && agpadActive(p) && p.view === 'viewbox'
+      && typeof attentionQueue !== 'undefined') attentionQueue.viewboxViewed(item);
+  };
+  open.onclick = markViewed;
   const cleanups = [];
-  const frame = vb.frame = { cleanup: () => cleanups.splice(0).forEach(fn => fn()) };
+  const frame = vb.frame = { markViewed, loaded: false, cleanup: () => cleanups.splice(0).forEach(fn => fn()) };
   const showFallback = () => { if (vb.frame === frame) fallback.hidden = false; };
 
   const clamp = (value, available, minimum) => Math.max(Math.min(minimum, available), Math.min(value, available));
@@ -237,8 +264,9 @@ function agviewboxOpen(p, id) {
     iframe.referrerPolicy = 'no-referrer';
     if (!target.trusted) iframe.setAttribute('sandbox', 'allow-scripts allow-forms');
     iframe.addEventListener('error', showFallback);
-    box.insertBefore(iframe, handle);
+    iframe.addEventListener('load', () => { frame.loaded = true; markViewed(); });
     iframe.src = target.href;
+    box.insertBefore(iframe, handle);
   } else {
     frame.iframe = document.createElement('iframe');  // inert placeholder keeps close logic uniform
     showFallback();
