@@ -424,7 +424,7 @@ class AgentActivity:
         access={'cache':{},'scopes':scopes}
         agents=[]
         for row in selected:
-            watcher = uow.connection.execute('SELECT * FROM inbox_watchers WHERE agent_id=?', (row['agent_id'],)).fetchone()
+            owner = uow.connection.execute('SELECT * FROM native_session_owners WHERE agent_id=?', (row['agent_id'],)).fetchone()
             nudge = self.nudge(row['agent_id'])
             sessions=[]
             if session_filter:
@@ -453,7 +453,7 @@ class AgentActivity:
                     'state':state,'work_revision':session['revision'],'items':items,
                     'checkpoint': self.runtime.checkpoints.summary(ctx,row['agent_id'],session,uow)
                         if getattr(self.runtime,'checkpoints',None) else None,
-                    'inbox_owner': bool(watcher and watcher['consumer_id'] == session['session_id']),
+                    'inbox_owner': bool(owner and owner['consumer_id'] == session['session_id']),
                     'work_stale': bool(items and (not reviewed_at or
                         (now-datetime.fromisoformat(reviewed_at)).total_seconds() > 7200))}
                 if session_filter:

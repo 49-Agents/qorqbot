@@ -25,8 +25,7 @@ class BridgeBinding:
             except (OSError,ValueError):continue
 
     def unbound(self):
-        # A fenced bridge always identifies itself. Only a pre-fencing bridge sends no
-        # binding header, which is how the backend recognizes the legacy protocol.
+        # A bridge without a verified native binding says why; it never sends a native session or generation.
         return {'X-Qorqut-Binding-Reason':self.reason}
 
     def headers(self):

@@ -146,11 +146,11 @@ class FocusService:
                     raise
                 # Do not retain formerly visible source labels or agent-authored reasons.
                 cards.append({'unavailable': True})
-        watcher = uow.connection.execute('SELECT consumer_id FROM inbox_watchers WHERE agent_id=?', (ctx.principal_id,)).fetchone()
+        session_owner = uow.connection.execute('SELECT consumer_id FROM native_session_owners WHERE agent_id=?', (ctx.principal_id,)).fetchone()
         return {'revision': row['revision'], 'status': row['status'], 'items': cards,
             'browser': row['browser_json'], 'activity': row['activity_json'], 'browser_busy': self.busy(row),
-            'updated_at': row['updated_at'], 'stale': bool(row['updated_at'] and (not watcher
-                or watcher['consumer_id'] != row['consumer_id']))}
+            'updated_at': row['updated_at'], 'stale': bool(row['updated_at'] and (not session_owner
+                or session_owner['consumer_id'] != row['consumer_id']))}
 
     def owner_context(self, owner, agent_id, uow, *, shared=False):
         owner = self.app.current_context(replace(owner, business_id=None, review_business_id=None), uow)

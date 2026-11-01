@@ -66,10 +66,10 @@ class AgentCheckpoints:
         if (machine['principal_id'] != ctx.principal_id or row['registration_id'] != registration
                 or row['runtime'] not in RUNTIMES):
             raise DomainError('forbidden', 'Checkpoint session is not bound to this registration')
-        watcher = uow.connection.execute('SELECT consumer_id,generation FROM inbox_watchers WHERE agent_id=?',
-                                          (ctx.principal_id,)).fetchone()
-        if watcher and (watcher['consumer_id'] != session or watcher['generation'] > 0 and (
-                type(ctx.inbox_generation) is not int or watcher['generation'] != ctx.inbox_generation)):
+        owner = uow.connection.execute('SELECT consumer_id,generation FROM native_session_owners WHERE agent_id=?',
+                                       (ctx.principal_id,)).fetchone()
+        if owner and (owner['consumer_id'] != session or type(ctx.inbox_generation) is not int
+                      or owner['generation'] != ctx.inbox_generation):
             raise DomainError('inbox_session_superseded', 'A newer session owns this agent inbox')
         return ctx, row
 

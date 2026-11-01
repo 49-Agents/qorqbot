@@ -226,28 +226,31 @@ def main(argv=None):
             shell=os.environ.get("SHELL", "/bin/bash"), database=database, terminal_workspace=args.terminal_workspace,
             recovery_config=args.recovery_config, github_app_config=args.github_app_config, context=context_settings)
         if args.prepare_agent:
-            runtime, slug, selector = app.state.runtime, *args.prepare_agent
-            with database.read() as uow:
-                actor = app.state.authentication.installation_owner(connection=uow.connection)[0]
-            from bazarlyk.transport.auth import AuthenticatedPrincipal
-            context, business = app.state.http_api.context(AuthenticatedPrincipal(actor), slug, owner=True)
-            profile, _ = app.state.http_api.terminals.agent(context, selector)
-            from qorqut_operations.contracts import Principal
-            terminals = app.state.http_api.terminals
-            execution = terminals.execution(business)
-            versions = execution.version_provider()
-            if execution.target_identity is None and (args.claude_version or args.codex_version):
-                versions = {"claude-code": args.claude_version or "", "codex": args.codex_version or ""}
-            preparation = {"endpoint": execution.endpoint,
-                "versions": versions,
-                "capture_transcripts": terminals.capture_transcripts}
-            if execution.interpreter is not None:
-                preparation["interpreter"] = execution.interpreter
-            if execution.interpreter_validator is not None:
-                preparation["interpreter_validator"] = execution.interpreter_validator
-            result = terminals.preparation(runtime.resolver, Principal(profile.agent_id, "agent"), **preparation)
-            print(json.dumps(result, sort_keys=True))
-            return 0
+            # Preparing an agent writes its bootstrap material, so only the backend that owns the instance may do it:
+            # ownership, target validation and mutation admission for the preparation alone, and no service is started.
+            with app.state.runtime.owned_preparation():
+                runtime, slug, selector = app.state.runtime, *args.prepare_agent
+                with database.read() as uow:
+                    actor = app.state.authentication.installation_owner(connection=uow.connection)[0]
+                from bazarlyk.transport.auth import AuthenticatedPrincipal
+                context, business = app.state.http_api.context(AuthenticatedPrincipal(actor), slug, owner=True)
+                profile, _ = app.state.http_api.terminals.agent(context, selector)
+                from qorqut_operations.contracts import Principal
+                terminals = app.state.http_api.terminals
+                execution = terminals.execution(business)
+                versions = execution.version_provider()
+                if execution.target_identity is None and (args.claude_version or args.codex_version):
+                    versions = {"claude-code": args.claude_version or "", "codex": args.codex_version or ""}
+                preparation = {"endpoint": execution.endpoint,
+                    "versions": versions,
+                    "capture_transcripts": terminals.capture_transcripts}
+                if execution.interpreter is not None:
+                    preparation["interpreter"] = execution.interpreter
+                if execution.interpreter_validator is not None:
+                    preparation["interpreter_validator"] = execution.interpreter_validator
+                result = terminals.preparation(runtime.resolver, Principal(profile.agent_id, "agent"), **preparation)
+                print(json.dumps(result, sort_keys=True))
+                return 0
         import uvicorn
         uvicorn.run(app, host=args.host, port=args.port, proxy_headers=False, server_header=False, access_log=False,
             timeout_graceful_shutdown=10, limit_concurrency=200, log_level="info")

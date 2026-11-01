@@ -14,7 +14,6 @@ from qorqut_operations.tasks.scope import task_context
 from .events import ITEM_TYPES
 from .messages import Messages
 
-NEVER = '1970-01-01T00:00:00.000000Z'  # the fixed value of the retired poll and lease columns of inbox_watchers
 SOURCES = ('tasks', 'actions', 'signoffs', 'documents', 'email_conversations', 'outreach_events')
 # Tasks and Actions are followed through the discussion's follow state (a personal, sticky preference), not through
 # a subscription row; every other source keeps its subscription.
@@ -168,27 +167,26 @@ class InboxService:
             "AND json_extract(metadata_json,'$.inbox_startup_claim')=1 LIMIT 1",
             (agent_id, consumer)).fetchone() is not None
 
-    def current_watcher(self, ctx, consumer, uow):
-        row = uow.connection.execute('SELECT * FROM inbox_watchers WHERE agent_id=?', (ctx.principal_id,)).fetchone()
+    def current_owner(self, ctx, consumer, uow):
+        """The agent's native session owner row, checked against the exact session and generation the caller carries."""
+        row = uow.connection.execute('SELECT * FROM native_session_owners WHERE agent_id=?', (ctx.principal_id,)).fetchone()
         if row and row['consumer_id'] != consumer:
             raise DomainError('inbox_session_superseded', 'Another verified session owns this inbox; retire the stale helper')
-        if row and row['generation'] > 0 and (
-                ctx.inbox_session_id != consumer or type(ctx.inbox_generation) is not int
-                or ctx.inbox_generation != row['generation']):
+        if row and (ctx.inbox_session_id != consumer or type(ctx.inbox_generation) is not int
+                    or ctx.inbox_generation != row['generation']):
             raise DomainError('inbox_generation_stale', 'Caller native binding is missing or stale')
-        if ctx.inbox_session_id is not None and (ctx.inbox_session_id != consumer or not row
-                or type(ctx.inbox_generation) is not int or ctx.inbox_generation != row['generation']):
+        if not row and ctx.inbox_session_id is not None:
             raise DomainError('inbox_generation_stale', 'Caller native binding is stale')
         return row
 
     def session_owner(self, ctx, consumer, uow):
         """The current owner row of this exact native session. Ownership is the binding itself; it never expires with time."""
-        row = self.current_watcher(ctx, consumer, uow)
+        row = self.current_owner(ctx, consumer, uow)
         if not row or row['consumer_id'] != consumer:
             raise DomainError('inbox_consumer_required', 'Start this session through the verified native binding first')
         return row
 
-    def watch_context(self, ctx, uow):
+    def session_context(self, ctx, uow):
         ctx = self.context(ctx, uow)
         self.app.ensure_writes_open(uow)
         descriptor = self.app.registry.get('inbox_list')
@@ -207,19 +205,16 @@ class InboxService:
         except (ValueError, TypeError, AttributeError):
             raise DomainError('validation_error', 'Inbox session_id must be a UUID')
         with self.app.database.transaction() as uow:
-            ctx = self.watch_context(ctx, uow)
+            ctx = self.session_context(ctx, uow)
             registration = uow.repository('machine_registrations').get(registration_id)
             if not registration or registration['principal_id'] != ctx.principal_id:
                 raise DomainError('forbidden', 'Startup registration belongs to another agent')
-            row = uow.connection.execute('SELECT * FROM inbox_watchers WHERE agent_id=?', (ctx.principal_id,)).fetchone()
-            generation = row['generation'] if row else 0
+            row = uow.connection.execute('SELECT * FROM native_session_owners WHERE agent_id=?', (ctx.principal_id,)).fetchone()
+            generation = row['generation'] if row else 0   # 0 only says that no owner exists yet; it is never stored
             if expected_generation is not None and (type(expected_generation) is not int or expected_generation != generation):
                 raise DomainError('inbox_generation_stale', 'Inbox ownership changed during verification')
             same = row and row['consumer_id'] == consumer
             rebound = False
-            if same and binding is not None and generation == 0:
-                generation = 1
-                rebound = True
             if not same and self.startup_owned(ctx.principal_id, consumer, uow):
                 raise DomainError('inbox_session_superseded', 'This session was replaced; retire its helpers')
             if binding is None:
@@ -229,7 +224,7 @@ class InboxService:
                 if (binding.get('session_id') != consumer or binding.get('registration_id') != registration_id
                         or binding.get('agent_id') != ctx.principal_id or binding.get('workspace') != registration['workspace']):
                     raise DomainError('forbidden', 'Native binding differs from the scoped registration')
-                if same and json.loads(row['binding_json']) and json.loads(row['binding_json']).get('owner') != binding.get('owner'):
+                if same and json.loads(row['binding_json']).get('owner') != binding.get('owner'):
                     if old_state != 'dead':
                         raise DomainError('inbox_binding_ambiguous', 'Same session has a different live or unknown native process identity')
                     generation += 1
@@ -255,32 +250,16 @@ class InboxService:
                     'metadata_json':{**(existing[0]['metadata_json'] if existing else {}),'inbox_startup_claim':True}}
                 if existing: sessions.update(existing[0]['id'],values,expected_revision=existing[0]['revision'])
                 else: sessions.insert({'id':new_id(),**values})
-                uow.connection.execute('INSERT INTO inbox_watchers(agent_id,consumer_id,last_check_at,lease_until,binding_json,generation) '
-                    'VALUES(?,?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET consumer_id=excluded.consumer_id,'
-                    'last_check_at=excluded.last_check_at,lease_until=excluded.lease_until,binding_json=excluded.binding_json,'
-                    'generation=excluded.generation,desired_state=CASE WHEN inbox_watchers.desired_state IN (\'paused\',\'stopped\') THEN inbox_watchers.desired_state ELSE \'running\' END',
-                    (ctx.principal_id,consumer,NEVER,NEVER,json.dumps(binding or {}),generation))
+                uow.connection.execute('INSERT INTO native_session_owners(agent_id,consumer_id,binding_json,generation) '
+                    'VALUES(?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET consumer_id=excluded.consumer_id,'
+                    'binding_json=excluded.binding_json,generation=excluded.generation,'
+                    'desired_state=CASE WHEN native_session_owners.desired_state IN (\'paused\',\'stopped\') THEN native_session_owners.desired_state ELSE \'running\' END',
+                    (ctx.principal_id,consumer,json.dumps(binding),generation))
             else:
-                uow.connection.execute('UPDATE inbox_watchers SET binding_json=?,generation=? WHERE agent_id=? AND generation=?',
+                uow.connection.execute('UPDATE native_session_owners SET binding_json=?,generation=? WHERE agent_id=? AND generation=?',
                     (json.dumps(binding or json.loads(row['binding_json'])),generation,ctx.principal_id,row['generation']))
             return {'inbox_consumer_id':consumer,'inbox_generation':generation,
                     'inbox_desired_state':row['desired_state'] if row else 'running'}
-
-    def legacy_owner(self, ctx, registration_id, consumer, uow):
-        """The migration-preserved generation-0 owner of this exact registration, or the reason it is not one.
-
-        Only the authenticated credential's registration is consulted. A fenced row, another consumer, or a
-        registration this consumer was not claimed through is refused; nothing is created, renewed or upgraded here.
-        """
-        row = uow.connection.execute('SELECT * FROM inbox_watchers WHERE agent_id=?', (ctx.principal_id,)).fetchone()
-        if not row or row['consumer_id'] != consumer:
-            raise DomainError('inbox_session_superseded', 'Legacy consumer is not the current inbox owner')
-        if row['generation'] != 0 or json.loads(row['binding_json']):
-            raise DomainError('inbox_generation_stale', 'Inbox ownership is fenced; the legacy helper must stop')
-        if not uow.connection.execute('SELECT 1 FROM session_registrations WHERE principal_id=? AND registration_id=? AND session_id=? LIMIT 1',
-                (ctx.principal_id, registration_id, consumer)).fetchone():
-            raise DomainError('invalid_registration', 'Legacy consumer belongs to a different registration')
-        return row
 
     def event_visible(self, ctx, row, uow):
         if row['source_type'] == 'content_sessions':

@@ -216,9 +216,12 @@ class NudgeBackend:
         if self.reconcile is None:
             return
         try:
-            with self.database.transaction(operation="inbox_nudges.reconcile") as uow:
-                self.runtime.application.ensure_writes_open(uow)
-                self.reconcile(uow)
+            # A snooze reconciliation writes events, so it is an admitted writer: the actual write admission first (a pass
+            # begun before refusal settles, one begun after it writes nothing), the SQLite transaction inside it.
+            with self.runtime.application.writer_admission.writer():
+                with self.database.transaction(operation="inbox_nudges.reconcile") as uow:
+                    self.runtime.application.ensure_writes_open(uow)
+                    self.reconcile(uow)
         except DomainError as error:
             if error.code in {"authority_invalid", "maintenance"}:
                 raise
