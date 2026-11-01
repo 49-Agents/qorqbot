@@ -37,8 +37,6 @@
 .ac-businesses legend { font-size: 11px; color: var(--fg-2); padding: 0 4px; }
 .ac-biz { height: auto; border-radius: 14px; min-height: 28px; max-width: 100%; padding: 6px 10px; line-height: 1.25; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .ac-businesses .muted { flex: 1 0 100%; margin: 0; }
-.ac-pending { margin: 0; font-size: 12px; color: var(--warn); }
-.ac-pending[hidden] { display: none; }
 .ac-time { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
 .ac-time label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--fg-2); }
 .ac-time .ghost { height: 32px; }

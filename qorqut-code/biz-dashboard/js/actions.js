@@ -215,12 +215,6 @@ function acPaintStatus() {
   pop.querySelector("#ac-save").hidden = !(dirty || ac.conflict || ac.uncertain);
   pop.querySelector("#ac-save").disabled = Boolean(ac.inflight);
   pop.querySelector("#ac-new").hidden = !ac.record || dirty || Boolean(ac.inflight) || Boolean(ac.uncertain);
-  const pending = acEffective().pending;
-  const note = pop.querySelector(".ac-pending");
-  note.hidden = !pending;
-  note.textContent = !pending ? "" : ac.record && ac.record.saved.category !== "business-operational" || !ac.record
-    ? `Choose at least one business to classify this as business-operational. Until then it is saved as ${ac.record?.saved.category || "Unclassified"}.`
-    : "Choose at least one business; the saved businesses stay until you do.";
   acPlace();
 }
 function acPaint() {
@@ -241,7 +235,6 @@ function acPaint() {
     <fieldset class="ac-businesses" ${draft.category === "business-operational" ? "" : "hidden"}><legend>Businesses</legend>
       ${businesses.length ? businesses.map(b => `<button type="button" class="ac-chip ac-biz" data-ac-business="${esc(b.id)}" aria-pressed="${draft.businesses.includes(b.id)}">${esc(b.name || b.slug || b.id)}</button>`).join("") : '<p class="muted">No businesses available.</p>'}
     </fieldset>
-    <p class="ac-pending" role="note" hidden></p>
     <div class="ac-time"><input type="date" id="ac-date" class="inp" aria-label="Action date" max="${today}" value="${esc(draft.date)}">
       <label>Hour<select id="ac-hour" class="inp" ${draft.date ? "" : "disabled"}><option value="">Any</option>${hours.map(h => `<option value="${h}" ${String(draft.hour) === String(h) ? "selected" : ""}>${String(h).padStart(2, "0")}:00</option>`).join("")}</select></label>
       ${draft.date ? '<button type="button" class="ghost" id="ac-now">Now</button>' : ""}</div>
