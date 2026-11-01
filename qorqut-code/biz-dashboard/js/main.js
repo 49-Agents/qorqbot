@@ -10,6 +10,7 @@ onChange(['jobs_routines'], null, () => { if (rtGlobal() && rtVisible()) rtRefre
 setInterval(() => { if (rtGlobal() && rtVisible()) rtRefresh(); }, 60000);
 loadBiz();
 processTray.start();
+replyNotifications.start();
 connectEvents();
 // The daily briefing asks the server after the shared owner session lands; a finishing report job is a change it cares about.
 onChange(['jobs_routines'], null, () => drbCheck('change'));

@@ -9,7 +9,8 @@ function agfocusPageKey(p) { return JSON.stringify([p.focusOffset||0,!!p.focusIn
 function agfocusSnoozed(item) { return Date.parse(item.deferred_until)>Date.now(); }
 function agfocusUnread(p,node,item,value) {
   if(!node || item.unavailable)return;
-  const unread=value ?? (!!p.focusPrivateUnread?.has(item.id) || (!!item.private_unread && !p.focusPrivateRead?.has(item.id)));
+  const shared=typeof replyNotifications!=='undefined'?replyNotifications.unread(item.conversation || item.source):null;
+  const unread=value ?? shared ?? (!!p.focusPrivateUnread?.has(item.id) || (!!item.private_unread && !p.focusPrivateRead?.has(item.id)));
   node.querySelector('.agfocus-unread').hidden=!unread;
   const name=item.display_name?.trim() || item.label;
   node.setAttribute('aria-label',name+(agfocusSnoozed(item)?', postponed':'')+(unread?', unread private reply':''));
@@ -218,7 +219,10 @@ function agfocusMount(p) {
     agfocusSelect(p,null);
     row?.focus({preventScroll:true});
   };
+  const repliesChanged=()=>{for(const node of p.focusCards.values())agfocusUnread(p,node,node._item);};
+  document.addEventListener('reply-notifications-changed',repliesChanged);
   p.workspaceDispose=()=>{
+    document.removeEventListener('reply-notifications-changed',repliesChanged);
     agfocusOverlayClose(p);disposeResize();disposeOrdering();p.focusSnoozePopup?.close();p.focusSnoozePopup=null;
     for(const node of p.focusCards.values()){node._conversationHost?._conversation?.dispose();node._referenceObserver?.disconnect();}
     p.focusCards.clear();p.focusSelected=null;p.focusMount=null;

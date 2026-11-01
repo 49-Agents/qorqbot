@@ -273,6 +273,7 @@ function conversationMount(host,source,adapter={}) {
       const readState=data?.read_state;
       s.readState=readState || {last_read_sequence:latest,unread:false};
       void loadPeers();
+      if(typeof replyNotifications!=='undefined')void replyNotifications.refresh();
       // A coordinator reply can arrive between GET and mark-read. The server's
       // unread result is authoritative: keep or restore the dot and projection.
       if(!stillPrivateVisible())return;
@@ -437,10 +438,10 @@ function conversationMount(host,source,adapter={}) {
     const next=event.key==='ArrowRight'?tabs[(index+1)%tabs.length]:event.key==='ArrowLeft'?tabs[(index+tabs.length-1)%tabs.length]:event.key==='Home'?tabs[0]:event.key==='End'?tabs.at(-1):null;
     if(next){event.preventDefault();selectChannel(next.dataset.channel);next.focus();}
   };
-  let peersPending=false,peersAgain=false;
+  let peersPending=false,peersAgain=false,peerWaiters=[];
   async function loadPeers() {
     if(!current() || !viewerIsOwner())return;
-    if(peersPending){peersAgain=true;return;}
+    if(peersPending){peersAgain=true;return new Promise(resolve=>peerWaiters.push(resolve));}
     peersPending=true;
     try {
       const data=await conversationPrivateCall(source,adapter,'owner_conversation_peers',{});
@@ -457,7 +458,7 @@ function conversationMount(host,source,adapter={}) {
           tab.innerHTML=`<span class="conversation-channel-icon">${typeof agentGlyph==='function'?agentGlyph({role:peer.role},18):esc(peer.name.slice(0,2))}</span><span class="conversation-unread" data-peer-unread hidden></span>`;
           tablist.insertBefore(tab,tablist.querySelector('[data-channel="team"]'));
         }
-        if(tab){tab.title=peer.name;tab.setAttribute('aria-label','Private with '+peer.name+(peer.unread?', unread messages':''));tab.querySelector('[data-peer-unread]').hidden=!peer.unread;}
+        if(tab){tab.dataset.agentId=peer.agent_id;tab.title=peer.name;tab.setAttribute('aria-label','Private with '+peer.name+(peer.unread?', unread messages':''));tab.querySelector('[data-peer-unread]').hidden=!peer.unread;}
       }
       for(const [key,s] of Object.entries(channels))if(key.startsWith('agent:')) {
         const tab=tablist.querySelector(`[data-channel="${CSS.escape(key)}"]`);
@@ -466,7 +467,7 @@ function conversationMount(host,source,adapter={}) {
       }
       setUnread(peers.some(peer=>peer.unread));syncChannel();syncSending();
     } catch(_) { /* Keep the existing indicators on an unavailable metadata read. */ }
-    finally {peersPending=false;if(peersAgain){peersAgain=false;void loadPeers();}}
+    finally {peersPending=false;peerWaiters.splice(0).forEach(resolve=>resolve());if(peersAgain){peersAgain=false;void loadPeers();}}
   }
   view=host._conversation={
     dismissOnOutside:adapter.dismissOnOutside!==false,
@@ -476,6 +477,13 @@ function conversationMount(host,source,adapter={}) {
     preload:()=>load(false,{channel:'team'}),
     isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),
     channel:()=>channel,selectChannel,setUnread,
+    openPeer:async peer=>{
+      await loadPeers();
+      const tab=[...tablist.querySelectorAll('[data-agent-id]')].find(tab=>tab.dataset.agentId===peer && !tab.disabled);
+      if(!tab)throw new Error('This agent thread is no longer available.');
+      if(tab.dataset.channel==='marketing')attachMarketing(conversationState(source,'marketing',peer));
+      selectChannel(tab.dataset.channel);expand(true);
+    },
     // A draft kept for a lost Marketing agent still counts: it is preserved, just never re-aimed.
     hasDraft:()=>[...conversationStates.values()].some(state=>state.source===key && state.text),
     dispose:()=>{
