@@ -248,7 +248,7 @@ function renderTools() {
 
 function textShown() {
   const payload = state.payload;
-  if (!payload || payload.kind === "binary") return false;
+  if (!payload || ["binary", "image"].includes(payload.kind)) return false;
   if (payload.kind === "text") return true;
   return state.mode === "source" || (payload.kind === "markdown" && payload.html == null);
 }
@@ -265,7 +265,11 @@ function renderBody() {
     return;
   }
   let node;
-  if (textShown()) node = textNode(payload.text);
+  if (payload.kind === "image") {
+    node = h("img", {class: "fv-image", src: state.meta.urls.image, alt: state.meta.name,
+      onerror: () => parts.body.replaceChildren(h("p", {class: "fv-error", role: "alert"}, "This image could not be displayed."), downloadButton(state.meta.urls.download))});
+  }
+  else if (textShown()) node = textNode(payload.text);
   else if (payload.kind === "markdown") node = markdownNode(payload.html);
   else if (payload.kind === "csv") node = csvNode(payload);
   else node = frameNode(payload);
@@ -367,7 +371,7 @@ async function main() {
   root.replaceChildren(parts.head, parts.notices, parts.tools, parts.panel, parts.body);
   renderHead(); renderNotices(); renderTools(); renderBody();
   if (meta.managed && meta.managed.history_available && !isVersion()) loadHistory(null).catch(() => {});
-  if (meta.binary) { state.payload = { kind: "binary", size: meta.size, preview_bytes: 0, truncated: false }; renderNotices(); renderTools(); renderBody(); return; }
+  if (meta.binary || meta.preview_kind === "image") { state.payload = { kind: meta.preview_kind === "image" ? "image" : "binary", size: meta.size, preview_bytes: 0, truncated: false }; renderNotices(); renderTools(); renderBody(); return; }
   try { state.payload = await call("content", search); }
   catch (error) { showError(error, main); return; }
   if (state.payload.truncated && state.payload.kind === "html") state.mode = "source";

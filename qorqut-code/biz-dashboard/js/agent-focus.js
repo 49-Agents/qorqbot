@@ -197,7 +197,7 @@ async function agfocusSnooze(p,node,until,popup,retry=false) {
 function agfocusMount(p) {
   const body = $('#agpad-body', p.el);
   body.innerHTML = `<div class="agfocus"><p class="agfocus-error" role="alert" hidden></p><button type="button" class="quiet" data-focus-retry-move hidden>Retry same move</button><p class="agfocus-sr" data-focus-announcement role="status" aria-live="polite"></p><span class="agfocus-sr" id="agfocus-move-instructions">Use Alt+ArrowUp or Alt+ArrowDown to move one visible row.</span>
-    <header><div class="agfocus-heading"><div class="global-eyebrow">Focus</div><div class="agfocus-toolbar"><button class="quiet agfocus-icon" data-focus-refresh aria-label="Refresh Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 18 17"/></svg></button><div class="agfocus-controls"><button class="quiet" data-focus-archived aria-pressed="false">Archived</button><button class="quiet" data-focus-deferred aria-pressed="false">Postponed</button></div></div></div><p class="agfocus-empty muted" role="status">Loading Focus…</p></header>
+    <header><div class="agfocus-heading"><div class="global-eyebrow">Focus</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add to Focus" title="Add to Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button><button class="quiet agfocus-icon" data-focus-refresh aria-label="Refresh Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 18 17"/></svg></button><div class="agfocus-controls"><button class="quiet" data-focus-archived aria-pressed="false">Archived</button><button class="quiet" data-focus-deferred aria-pressed="false">Postponed</button></div></div></div><p class="agfocus-empty muted" role="status">Loading Focus…</p></header>
     <p class="agfocus-activity muted" hidden></p><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected conversation" hidden><header class="agfocus-thread-heading"><span data-focus-thread-title></span><button type="button" class="quiet" data-focus-thread-close aria-label="Close thread"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Thread height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Focus pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
   p.focusDrafts ||= new Map();
   p.focusCards = new Map();
@@ -229,6 +229,7 @@ function agfocusMount(p) {
   p.focusPrivateRead ||= new Map();
   p.focusBoardSeq ||= 0;
   p.focusPages ||= [];
+  $('[data-focus-add]',p.el).onclick=()=>agfocusAdd(p);
   $('[data-focus-refresh]',p.el).onclick=()=>agfocusRefresh(p);
   for(const kind of ['archived','deferred']) {
     const toggle=$('[data-focus-'+kind+']',p.el);
@@ -805,4 +806,33 @@ async function agfocusOpenItem(p,item) {
   } catch(error) {
     if(detail.current())detail.host.innerHTML=`<p class="ferr" role="alert">${esc(error.message)}</p>`;
   }
+}
+
+
+// One atomic create-and-present call; a retry keeps the exact request and key.
+function agfocusAdd(p) {
+  let submission=null, pending=false;
+  modal({title:'Add to Focus', body:`<form id="focus-add-form"><label>Title<input class="inp" name="title" required maxlength="200" autocomplete="off"></label><label>Link <span class="muted">(optional)</span><input class="inp" name="link" type="url" placeholder="https://…"></label><p class="muted">Leave the link empty to create a task.</p><p role="alert" class="bad" hidden></p></form>`,
+    actions:[{label:'Cancel',onClick:close=>close()}, {label:'Add', primary:true, onClick:async(close,el)=>{
+      if(pending)return;
+      const form=el.querySelector('form'), error=form.querySelector('[role="alert"]');
+      if(!submission) {
+        if(!form.reportValidity())return;
+        const title=form.elements.title.value.trim(),link=form.elements.link.value.trim();
+        if(!title)return;
+        if(link && !/^https?:\/\//i.test(link)){error.textContent='Use an HTTP or HTTPS link.';error.hidden=false;return;}
+        const key=newRequestId();
+        submission=link ? {operation:'focus_present',args:{scope:'global',reference:{key,title,target:{type:'url',url:link}},idempotency_key:key}}
+          : {operation:'tasks_create',args:{scope:'global',title,focus:{display_name:title},idempotency_key:key}};
+      }
+      pending=true;error.hidden=true;
+      form.querySelectorAll('input').forEach(input=>input.disabled=true);
+      try {
+        coreData(await post('/root/operations/'+submission.operation,submission.args));
+        close();toast('Added to Focus');p.focusOffset=0;p.focusPages=[];await agfocusRefresh(p);
+      } catch(err) {
+        error.textContent=err.message;error.hidden=false;
+        if(['validation_error','forbidden','policy_denied','not_found'].includes(err.code)){submission=null;form.querySelectorAll('input').forEach(input=>input.disabled=false);}
+      } finally {pending=false;}
+    }}],onOpen:el=>{el.querySelector('input').focus();el.querySelector('form').onsubmit=event=>{event.preventDefault();el.querySelector('.mfoot button:last-child')?.click();};}});
 }

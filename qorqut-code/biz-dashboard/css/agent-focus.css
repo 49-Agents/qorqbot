@@ -158,3 +158,6 @@
 .agfocus .agfocus-flag{font-size:9px;max-width:4em}
 .agfocus-snooze-picker{min-width:0;width:min(250px,calc(100vw - 24px))}
 .agfocus-snooze-picker p{margin:0}
+
+#focus-add-form { display: grid; gap: 12px; }
+#focus-add-form label { display: grid; gap: 6px; }

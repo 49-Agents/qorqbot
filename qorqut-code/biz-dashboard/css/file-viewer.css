@@ -113,3 +113,5 @@ button { font: inherit; }
   .fv-frame { height: 60vh; }
   .fv-history li { align-items: flex-start; }
 }
+
+.fv-image { display: block; max-width: 100%; max-height: calc(100dvh - 110px); width: auto; height: auto; object-fit: contain; margin: 0 auto; }

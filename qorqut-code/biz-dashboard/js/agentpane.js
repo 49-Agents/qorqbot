@@ -11,7 +11,7 @@ let _agpad = null;
 // declaration keeps Focus available when that read is unavailable.
 const WORKSPACE_BASE_VIEWS = new Set(["tasks", "inbox", "activity", "status", "globalTasks"]);
 const WORKSPACE_SEED = [
-  { key: "focus", display_name: "Focus", supported_roles: ["ordubashy"], renderer: "focus_board",
+  { key: "focus", display_name: "Focus", supported_roles: ["ordubashy", "global-marketing"], renderer: "focus_board",
     presentation_actions: ["focus_show", "focus_clear", "focus_browser_input", "focus_present", "focus_edit",
       "focus_move", "focus_set_archived", "focus_reply"] },
   { key: "campaign_review", display_name: "Campaign creation", supported_roles: ["business-agent", "global-marketing"], renderer: "campaign_review",
