@@ -1253,7 +1253,7 @@ class OperationalDelegationOperations:
             self._require_parent(current_context)
             if current_context.session_registration_id != registration_id:
                 raise DomainError("forbidden", "Dispatcher registration is not bound to this parent session")
-            self.inbox.lease(current_context, consumer_id, uow)
+            self.inbox.session_owner(current_context, consumer_id, uow)
             registration = uow.repository("machine_registrations").get(registration_id)
             if registration is None or registration["principal_id"] != current_context.principal_id:
                 raise DomainError("forbidden", "Dispatcher registration belongs to another parent")
@@ -1344,7 +1344,7 @@ class OperationalDelegationOperations:
             self._require_parent(current_context)
             if current_context.session_registration_id != registration_id:
                 raise DomainError("forbidden", "Dispatcher registration is not bound to this parent session")
-            self.inbox.lease(current_context, consumer_id, uow)
+            self.inbox.session_owner(current_context, consumer_id, uow)
             parent_registration = uow.repository("machine_registrations").get(registration_id)
             if parent_registration is None or parent_registration["principal_id"] != current_context.principal_id:
                 raise DomainError("forbidden", "Dispatcher registration belongs to another parent")
@@ -1450,7 +1450,7 @@ class OperationalDelegationOperations:
             self._require_parent(current_context)
             if current_context.session_registration_id != registration_id:
                 raise DomainError("forbidden", "Dispatcher registration is not bound to this parent session")
-            self.inbox.lease(current_context, consumer_id, uow)
+            self.inbox.session_owner(current_context, consumer_id, uow)
             registration = uow.repository("machine_registrations").get(registration_id)
             if registration is None or registration["principal_id"] != current_context.principal_id:
                 raise DomainError("forbidden", "Dispatcher registration belongs to another parent")

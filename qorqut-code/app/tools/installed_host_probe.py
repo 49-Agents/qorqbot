@@ -253,7 +253,7 @@ class Controller:
     start_external_writer_ticker = start
 
 
-for name in ("global_chat", "activity", "incidents", "terminal_control", "content_sessions", "telegram", "email_history", "changes"):
+for name in ("native_chat", "activity", "incidents", "terminal_control", "content_sessions", "telegram", "email_history", "changes"):
     setattr(runtime, name, Controller())
 runtime.start()
 threads = (runtime.signoffs._thread, background._thread)

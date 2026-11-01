@@ -208,11 +208,13 @@ class TerminalService:
         return [{"agent": row["name"], "agent_id": row["agent_id"], "done": False}
                 for row in agents if self.binding(business, row, broker)[1] in sessions]
 
-    def input_existing(self, business_id, agent_id, data):
+    def input_existing(self, business_id, agent_id, data, key=None):
         """Trusted broadcast port: only an already-attached mirror is writable.
 
         It intentionally has no owner check because the dispatcher has already
-        persisted an authorized broadcast.  It never calls open/ensure_session.
+        persisted an authorized broadcast.  It never calls open/ensure_session.  A host-native agent's input goes through the
+        shared native input arbiter (``key`` is the broadcast delivery's idempotency key); a sandbox or remote target keeps
+        its broker transport.
         """
         if not isinstance(data, str) or len(data) > 65536:
             raise DomainError("validation_error", "Terminal input requires bounded text")
@@ -222,11 +224,9 @@ class TerminalService:
                 (agent_id, business_id)).fetchone()
             if row is None:
                 return {"state": "unavailable", "detail": "Agent is unavailable"}
-        chat = getattr(self.runtime, "global_chat", None)
-        if business_id is None and chat is not None and chat.handles(agent_id):
-            # A chat-managed global agent takes input through the runner queue, never terminal typing.
-            return chat.broadcast_input(agent_id, data)
         execution = self.execution(business)
+        if execution.target_identity is None and execution.broker is self.broker and key is not None:
+            return self._native_input(agent_id, data, key)
         broker = execution.broker
         if broker is None or not broker.tmux_available():
             return {"state": "unavailable", "detail": "Terminal backend is unavailable"}
@@ -242,6 +242,22 @@ class TerminalService:
             # The broker cannot prove whether a failed write reached the PTY.
             return {"state": "uncertain", "detail": "Terminal write outcome is uncertain"}
         return {"state": "delivered"}
+
+    def _native_input(self, agent_id, data, key):
+        """One broadcast delivery to a host-native session through the arbiter, reported in the dispatcher's vocabulary."""
+        from bazarlyk.native_chat.contracts import InputRequest, NativeChatError, STATE_FAILED, STATE_SUBMITTED, STATE_UNCERTAIN, TYPE_BROADCAST
+        try:
+            result = self.runtime.native_chat.arbiter.submit(InputRequest(agent_id, TYPE_BROADCAST, key, data))
+        except NativeChatError as error:
+            return {"state": "failed", "detail": error.message}
+        if result.state == STATE_SUBMITTED:
+            return {"state": "delivered", "evidence": result.evidence}
+        if result.state == STATE_UNCERTAIN:
+            return {"state": "uncertain", "detail": "Terminal write outcome is uncertain"}
+        if result.state == STATE_FAILED:
+            return {"state": "failed", "detail": result.reason or "Terminal input failed"}
+        # Rejected or deferred: nothing was typed.
+        return {"state": "unavailable", "detail": result.reason or "No verified native session is ready"}
 
     def _prepare(self, execution, agent_id):
         versions = execution.version_provider()

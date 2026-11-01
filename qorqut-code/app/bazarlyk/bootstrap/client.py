@@ -55,9 +55,6 @@ def load_registration(path: Path) -> dict:
         raise DomainError("invalid_registration", "Transcript capture selection must be a boolean")
     if type(registration.get("durable_delegation_enabled", False)) is not bool:
         raise DomainError("invalid_registration", "Durable delegation selection must be a boolean")
-    interval = registration.get("watcher_interval_seconds")
-    if interval is not None and (type(interval) is not int or not 2 <= interval <= 300):
-        raise DomainError("invalid_registration", "Prepared watcher interval is outside its 2-300 second bound")
     workspace = Path(registration["workspace"])
     if not workspace.is_absolute() or path.resolve() != workspace.resolve() / ".bazarlyk/registration.json":
         raise DomainError("registration_conflict", "Local registration does not match its prepared workspace")

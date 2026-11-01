@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
@@ -589,19 +589,6 @@ class AgentConfigResolver:
         result = {"ready": True, "effective_config_id": config.effective_config_id, "refresh_required": changed,
                   "reload_skills": event != "prompt", "preparation": data["preparation"]}
         result["inbox_available"] = any(tool["canonical_operation"] == "inbox_list" and tool["available"] for tool in data["tools"])
-        # Advisory freshness only: a lease does not prove this session has a live Monitor.
-        if any(tool["canonical_operation"] == "inbox_list" and tool["available"] for tool in data["tools"]):
-            from bazarlyk.inbox.watcher import INTERVAL
-            with self.database.read() as uow:
-                watcher = uow.connection.execute(
-                    "SELECT last_check_at, lease_until FROM inbox_watchers WHERE agent_id=?",
-                    (principal.id,)).fetchone()
-            now = datetime.now(timezone.utc)
-            recent = False
-            if watcher:
-                age = (now - datetime.fromisoformat(watcher["last_check_at"])).total_seconds()
-                recent = 0 <= age <= INTERVAL + 60 and datetime.fromisoformat(watcher["lease_until"]) > now
-            result["inbox_watcher_check_needed"] = not recent
         if event != "prompt" or changed:
             result["mandatory_context"] = data["mandatory_context"]
             memory = getattr(self, 'working_memory', None)

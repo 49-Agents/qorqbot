@@ -1,7 +1,9 @@
-"""Scoped inbox reads, explicit acknowledgements and a single consumer lease."""
+"""Scoped inbox reads, explicit acknowledgements and the current native session owner.
+
+Nothing here polls or leases. New work is announced by the native-chat nudge backend, which reads this service's pending view and
+authorization; a read or a nudge never acknowledges anything."""
 import json
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
 
 from qorqut_operations.actions import action_key, one_line
 from qorqut_operations.application import OperationDescriptor
@@ -12,6 +14,7 @@ from qorqut_operations.tasks.scope import task_context
 from .events import ITEM_TYPES
 from .messages import Messages
 
+NEVER = '1970-01-01T00:00:00.000000Z'  # the fixed value of the retired poll and lease columns of inbox_watchers
 SOURCES = ('tasks', 'actions', 'signoffs', 'documents', 'email_conversations', 'outreach_events')
 # Tasks and Actions are followed through the discussion's follow state (a personal, sticky preference), not through
 # a subscription row; every other source keeps its subscription.
@@ -20,7 +23,6 @@ VISIBLE_TYPES = {**ITEM_TYPES, 'tasks': 'task', 'actions': 'action'}
 CONSUMER = {'type': 'string', 'format': 'uuid'}
 SCOPE = {'scope': {'enum': ['business', 'global']}}
 TARGET = {'source_type': {'enum': list(SOURCES)}, 'source_id': {'type': 'string', 'minLength': 1, 'maxLength': 200}}
-LEASE_SECONDS = 900
 
 
 class InboxService:
@@ -28,6 +30,8 @@ class InboxService:
         self.app, self.domains, self.clock = application, domains, clock
         self.resolver = resolver
         self.messages = Messages(self)
+        # Where an agent's inbox notice stands (the nudge backend's read-only status); the host replaces this when it wires the backend.
+        self.delivery = lambda agent_id: {'state': 'unknown', 'reason': 'nudge_backend_not_running', 'last_attempt_at': None}
 
     def owner_agent_context(self, owner, agent_id):
         with self.app.database.read() as uow:
@@ -59,19 +63,16 @@ class InboxService:
             return {'document': store.view(row, uow)}
 
     def owner_snapshot(self, owner, agent_id, *, after=0):
+        """The agent's pending items and subscriptions as its owner may inspect them, and ``delivery``: where the backend's
+        advisory notice stands ({state, reason, last_attempt_at}, the same meaning as ``agents[].inbox`` of the activity list).
+        It is read only after the owner's authorization above, never says the agent read anything, and replaces the retired
+        watcher, lease and poll fields."""
         ctx = self.owner_agent_context(owner, agent_id)
         with self.app.database.read() as uow:
             ctx = self.context(ctx, uow)
             batch = self.pending(ctx, uow, after=after)
-            watcher = uow.connection.execute('SELECT last_check_at,lease_until FROM inbox_watchers WHERE agent_id=?', (agent_id,)).fetchone()
-            return {**batch, 'subscriptions': self.subscriptions(ctx, uow),
-                    'watcher': dict(watcher) if watcher else None,
-                    'watcher_active': bool(watcher and watcher['lease_until'] > timestamp(self.clock)
-                        and watcher['last_check_at'] > self.lease_until(seconds=-360))}
-
-    def lease_until(self, *, seconds=LEASE_SECONDS):
-        return (self.clock().astimezone(timezone.utc) + timedelta(seconds=seconds)).isoformat(
-            timespec='microseconds').replace('+00:00', 'Z')
+            snapshot = {**batch, 'subscriptions': self.subscriptions(ctx, uow)}
+        return {**snapshot, 'delivery': self.delivery(agent_id)}
 
     def register(self):
         common = dict(supports_signoff=False, scope_kinds=frozenset({'business', 'global'}), global_capability='read_global_context',
@@ -180,10 +181,11 @@ class InboxService:
             raise DomainError('inbox_generation_stale', 'Caller native binding is stale')
         return row
 
-    def lease(self, ctx, consumer, uow):
+    def session_owner(self, ctx, consumer, uow):
+        """The current owner row of this exact native session. Ownership is the binding itself; it never expires with time."""
         row = self.current_watcher(ctx, consumer, uow)
-        if not row or row['consumer_id'] != consumer or row['lease_until'] <= timestamp(self.clock):
-            raise DomainError('inbox_consumer_required', 'Start or renew this session inbox watcher before consuming updates')
+        if not row or row['consumer_id'] != consumer:
+            raise DomainError('inbox_consumer_required', 'Start this session through the verified native binding first')
         return row
 
     def watch_context(self, ctx, uow):
@@ -257,10 +259,10 @@ class InboxService:
                     'VALUES(?,?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET consumer_id=excluded.consumer_id,'
                     'last_check_at=excluded.last_check_at,lease_until=excluded.lease_until,binding_json=excluded.binding_json,'
                     'generation=excluded.generation,desired_state=CASE WHEN inbox_watchers.desired_state IN (\'paused\',\'stopped\') THEN inbox_watchers.desired_state ELSE \'running\' END',
-                    (ctx.principal_id,consumer,'1970-01-01T00:00:00.000000Z',self.lease_until(),json.dumps(binding or {}),generation))
+                    (ctx.principal_id,consumer,NEVER,NEVER,json.dumps(binding or {}),generation))
             else:
-                uow.connection.execute('UPDATE inbox_watchers SET lease_until=?,binding_json=?,generation=? WHERE agent_id=? AND generation=?',
-                    (self.lease_until(),json.dumps(binding or json.loads(row['binding_json'])),generation,ctx.principal_id,row['generation']))
+                uow.connection.execute('UPDATE inbox_watchers SET binding_json=?,generation=? WHERE agent_id=? AND generation=?',
+                    (json.dumps(binding or json.loads(row['binding_json'])),generation,ctx.principal_id,row['generation']))
             return {'inbox_consumer_id':consumer,'inbox_generation':generation,
                     'inbox_desired_state':row['desired_state'] if row else 'running'}
 
@@ -279,24 +281,6 @@ class InboxService:
                 (ctx.principal_id, registration_id, consumer)).fetchone():
             raise DomainError('invalid_registration', 'Legacy consumer belongs to a different registration')
         return row
-
-    def require_legacy(self, ctx, registration_id, consumer):
-        with self.app.database.read() as uow:
-            self.legacy_owner(self.context(ctx, uow), registration_id, consumer, uow)
-
-    def legacy_observation(self, ctx, registration_id, consumer, adapter):
-        """Report, never create, the verified native session of the existing generation-0 owner.
-
-        This is how the supervisor learns that a migration-preserved owner may be maintained: the owner and its
-        scoped registration still match, and the same native process is verified on its execution target. It changes
-        no ownership and writes nothing; an unobservable target is an error, never an assumption.
-        """
-        with self.app.database.read() as uow:
-            ctx = self.watch_context(ctx, uow)
-            state = self.legacy_owner(ctx, registration_id, consumer, uow)['desired_state']
-        native = adapter.verify_legacy(ctx.principal_id, registration_id, consumer)
-        return {'generation': 0, 'desired_state': state, 'session_id': consumer, 'owner': native['owner'],
-                'runtime': native['runtime'], 'observation': native['observation']}
 
     def event_visible(self, ctx, row, uow):
         if row['source_type'] == 'content_sessions':
@@ -410,7 +394,7 @@ class InboxService:
                                and not marketing_peer(uow, ctx.principal_id)):
             return False
         try:
-            self.lease(ctx, session_id, uow)
+            self.session_owner(ctx, session_id, uow)
             descriptor = self.app.registry.get('inbox_list')
             if ctx.business_id is not None:
                 descriptor = replace(descriptor, global_capability=None)
@@ -626,303 +610,3 @@ class InboxService:
             'ON CONFLICT(id) DO UPDATE SET include_related=1',
             (identity, ctx.principal_id, ctx.business_id, 'tasks', args['source_id'], timestamp(self.clock)))
         return identity
-
-    def status(self,ctx,consumer):
-        from bazarlyk.installation import app_manifest
-        with self.app.database.read() as uow:
-            ctx=self.context(ctx,uow);row=self.current_watcher(ctx,consumer,uow)
-            if not row:raise DomainError('inbox_binding_required','Verified native binding is unavailable')
-            manifest=app_manifest()
-            if not hasattr(self.app,'inbox_instance'):self.app.inbox_instance=new_id()
-            return {'instance':self.app.inbox_instance,'release_id':manifest.get('release_id') if manifest else None,
-                'generation':row['generation'],'desired_state':row['desired_state']}
-
-    def set_desired_state(self,ctx,consumer,desired_state):
-        if desired_state not in {'running','paused','stopped'}:
-            raise DomainError('validation_error','Unknown desired watcher state')
-        with self.app.database.transaction() as uow:
-            ctx=self.watch_context(ctx,uow)
-            row=self.current_watcher(ctx,consumer,uow)
-            if not row:raise DomainError('inbox_binding_required','No verified native binding is available')
-            uow.connection.execute('UPDATE inbox_watchers SET desired_state=? WHERE agent_id=? AND generation=?',
-                (desired_state,ctx.principal_id,row['generation']))
-            return {'desired_state':desired_state,'generation':row['generation']}
-
-    def release(self, ctx, consumer):
-        import uuid
-        try: uuid.UUID(consumer)
-        except (ValueError, TypeError, AttributeError):
-            raise DomainError('validation_error', 'consumer_id must be a UUID')
-        with self.app.database.transaction() as uow:
-            ctx = self.context(ctx, uow)
-            self.app.ensure_writes_open(uow)
-            row = uow.connection.execute('SELECT * FROM inbox_watchers WHERE agent_id=?', (ctx.principal_id,)).fetchone()
-            if not row or row['consumer_id'] != consumer:
-                return {'released': False}
-            self.current_watcher(ctx, consumer, uow)
-            changed = uow.connection.execute(
-                'UPDATE inbox_watchers SET lease_until=? WHERE agent_id=? AND consumer_id=? AND generation=? AND lease_until>?',
-                (timestamp(self.clock), ctx.principal_id, consumer, row['generation'], timestamp(self.clock))).rowcount
-            if changed:
-                delegation = getattr(self.app, 'operational_delegation', None)
-                if delegation is not None:
-                    delegation.fence_parent_runtime(uow, ctx.principal_id,
-                        actor_principal_id=ctx.principal_id, reason='Parent inbox session released')
-            return {'released': bool(changed)}
-
-    def watch(self, ctx, consumer):
-        # Watchers use authenticated transport, not model calls or database access.
-        import uuid
-        try: uuid.UUID(consumer)
-        except (ValueError, TypeError, AttributeError): raise DomainError('validation_error', 'consumer_id must be a UUID')
-        with self.app.database.transaction(operation='inbox.watch.lease') as uow:
-            ctx = self.watch_context(ctx, uow)
-            now = timestamp(self.clock)
-            owner = self.current_watcher(ctx, consumer, uow)
-            if not owner:
-                raise DomainError('inbox_binding_required', 'A verified native binding is required before polling')
-            if owner['desired_state'] != 'running':
-                raise DomainError('inbox_watching_stopped', 'Inbox watching is explicitly paused or stopped')
-            until = self.lease_until()
-            uow.connection.execute('INSERT INTO inbox_watchers(agent_id,consumer_id,last_check_at,lease_until) VALUES(?,?,?,?) '
-                'ON CONFLICT(agent_id) DO UPDATE SET consumer_id=excluded.consumer_id,last_check_at=excluded.last_check_at,lease_until=excluded.lease_until',
-                (ctx.principal_id, consumer, now, until))
-        # Permission checks and inbox materialization must not hold SQLite's
-        # single writer lock. Recheck ownership in this read snapshot.
-        with self.app.database.read() as uow:
-            ctx = self.context(ctx, uow)
-            self.lease(ctx, consumer, uow)
-            count, after, notifications = 0, 0, []
-            while True:
-                batch = self.pending(ctx, uow, after=after, limit=100)
-                count += len(batch['items'])
-                for item in batch['items']:
-                    delivered = uow.connection.execute(
-                        'SELECT notified_consumer_id FROM inbox_deliveries WHERE agent_id=? AND event_id=?',
-                        (ctx.principal_id, item['id'])).fetchone()
-                    if (delivered[0] != consumer and len(notifications) < 100
-                            and not self.active_event_claim(ctx.principal_id, item['id'], uow)):
-                        notifications.append(item['id'])
-                if batch['next_cursor'] is None: break
-                after = batch['next_cursor']
-            return {'pending_count': count, 'last_check_at': now, 'lease_until': until,
-                    'notification_event_ids': notifications, 'watcher_protocol': 3, 'generation': owner['generation']}
-
-    def notification(self, ctx, consumer, event_ids, *, delivered=False, issue=False, notification_id=None, observed=False):
-        """Revalidate just before delivery; confirming a notice never handles work."""
-        if (not isinstance(event_ids, list) or not 1 <= len(event_ids) <= 100
-                or any(type(i) is not int or i < 1 for i in event_ids)
-                or len(set(event_ids)) != len(event_ids)):
-            raise DomainError('validation_error', 'Notification requires up to 100 unique positive event IDs')
-        if type(observed) is not bool or type(issue) is not bool or (issue and (notification_id or delivered)):
-            raise DomainError('validation_error', 'Invalid notification issue request')
-        if notification_id is not None and (not isinstance(notification_id,str) or len(notification_id)>100):
-            raise DomainError('validation_error', 'Invalid notification receipt')
-        unit = (self.app.database.transaction(operation='inbox.notification.confirm') if delivered or issue or observed
-                else self.app.database.read())
-        with unit as uow:
-            ctx = self.context(ctx, uow)
-            self.lease(ctx, consumer, uow)
-            if delivered or issue or observed:
-                self.app.ensure_writes_open(uow)
-            recognized = None
-            if notification_id is not None:
-                receipt = uow.connection.execute('SELECT * FROM inbox_notification_receipts '
-                    'WHERE id=? AND agent_id=? AND consumer_id=?',
-                    (notification_id, ctx.principal_id, consumer)).fetchone()
-                recognized = bool(receipt and receipt['generation'] == self.lease(ctx,consumer,uow)['generation']
-                    and json.loads(receipt['event_ids_json']) == event_ids)
-                if not recognized:
-                    return {'event_ids': [], 'recognized': False}
-            elif not issue and not delivered:
-                # Rolling v2 compatibility: only cancel a notice whose exact
-                # events were recorded as delivered to this same native session.
-                recognized = all(uow.connection.execute('SELECT 1 FROM inbox_deliveries WHERE agent_id=? '
-                    'AND event_id=? AND notified_consumer_id=? AND notified_at IS NOT NULL',
-                    (ctx.principal_id,identity,consumer)).fetchone() for identity in event_ids)
-            current = []
-            for identity in event_ids:
-                row = uow.connection.execute('SELECT e.* FROM inbox_events e JOIN inbox_deliveries d ON d.event_id=e.id '
-                    'WHERE d.agent_id=? AND e.id=? AND d.acknowledged_at IS NULL',
-                    (ctx.principal_id, identity)).fetchone()
-                if row and self.event_visible(ctx, row, uow):
-                    current.append(identity)
-            if observed and recognized:
-                # Receipt observed at the verified native prompt boundary reconciles
-                # a lost terminal submission response; events remain unacknowledged.
-                uow.connection.execute("UPDATE inbox_notification_receipts SET delivery_state='submitted' WHERE id=? AND delivery_state IN ('uncertain','submitted')", (notification_id,))
-            if delivered or observed and recognized:
-                uow.connection.executemany('UPDATE inbox_deliveries SET notified_consumer_id=?,notified_at=? '
-                    'WHERE agent_id=? AND event_id=? AND acknowledged_at IS NULL',
-                    [(consumer, timestamp(self.clock), ctx.principal_id, identity) for identity in current])
-            result = {'event_ids': current}
-            if recognized is not None:
-                result['recognized'] = recognized
-            if issue and current:
-                owner = self.lease(ctx, consumer, uow)
-                content_ids = {row[0] for row in uow.connection.execute(
-                    "SELECT id FROM inbox_events WHERE source_type='content_sessions' AND id IN (" +
-                    ','.join('?' for _ in current) + ')',current)}
-                if content_ids:
-                    # Watcher and content dispatcher share this SQLite fence.
-                    # A changed event-set must never evade an in-flight or
-                    # uncertain notice covering the same content commit.
-                    outstanding = uow.connection.execute(
-                        "SELECT id,event_ids_json,delivery_state FROM inbox_notification_receipts "
-                        "WHERE agent_id=? AND consumer_id=? AND generation=? AND delivery_state IN ('queued','uncertain') "
-                        "ORDER BY created_at,id",(ctx.principal_id,consumer,owner['generation'])).fetchall()
-                    for notice in outstanding:
-                        original = json.loads(notice['event_ids_json'])
-                        if not content_ids.intersection(original):continue
-                        if notice['delivery_state'] == 'uncertain':
-                            return {'event_ids':[i for i in original if i in current],
-                                'notification_id':notice['id'],'delivery_state':'uncertain'}
-                        if set(original) <= set(current):
-                            return {'event_ids':original,'notification_id':notice['id'],'delivery_state':'queued'}
-                        # No transport has reserved a queued notice yet. An
-                        # acknowledged/revoked member makes its set unusable.
-                        uow.connection.execute("UPDATE inbox_notification_receipts SET delivery_state='cancelled' WHERE id=? AND delivery_state='queued'",(notice['id'],))
-                existing = uow.connection.execute('SELECT id,delivery_state FROM inbox_notification_receipts '
-                    'WHERE agent_id=? AND consumer_id=? AND generation=? AND event_ids_json=? ORDER BY created_at DESC LIMIT 1',
-                    (ctx.principal_id,consumer,owner['generation'],json.dumps(current))).fetchone()
-                if existing:
-                    return {**result, 'notification_id':existing['id'], 'delivery_state':existing['delivery_state']}
-                identity, now = new_id(), timestamp(self.clock)
-                uow.connection.execute('INSERT INTO inbox_notification_receipts'
-                    '(id,agent_id,consumer_id,event_ids_json,created_at,generation) VALUES(?,?,?,?,?,?)',
-                    (identity,ctx.principal_id,consumer,json.dumps(current),now,owner['generation']))
-                cutoff = timestamp(lambda:self.clock()-timedelta(days=7))
-                uow.connection.execute("DELETE FROM inbox_notification_receipts WHERE created_at<? "
-                    "AND (event_ids_json!='[]' OR delivery_state IN ('submitted','cancelled','failed'))",(cutoff,))
-                result['notification_id'] = identity
-            return result
-
-    def recovery_notice(self, ctx, consumer, notification_id, backend, *, runtime, legacy=None, adapter=None):
-        """One durable wake for a prepared context handoff, using the existing transport.
-
-        Empty event IDs identify this service notice. They never acknowledge inbox
-        events or establish context delivery; only the subsequent hook does that.
-        """
-        from uuid import UUID
-        try:
-            if str(UUID(notification_id)) != notification_id:raise ValueError
-        except (ValueError,TypeError,AttributeError):
-            raise DomainError('validation_error','Recovery notification requires its episode UUID')
-        with self.app.database.transaction(operation='bootstrap.recovery.notice') as uow:
-            ctx = self.watch_context(ctx,uow)
-            owner = self.lease(ctx,consumer,uow)
-            if owner['desired_state'] != 'running':
-                raise DomainError('inbox_watching_stopped','Watching is paused or stopped')
-            old = uow.connection.execute('SELECT * FROM inbox_notification_receipts WHERE id=?',(notification_id,)).fetchone()
-            if old:
-                if (old['agent_id'],old['consumer_id'],old['generation'],old['event_ids_json']) != (
-                        ctx.principal_id,consumer,owner['generation'],'[]'):
-                    raise DomainError('inbox_generation_stale','Recovery episode belongs to a different binding')
-            else:
-                uow.connection.execute('INSERT INTO inbox_notification_receipts '
-                    '(id,agent_id,consumer_id,event_ids_json,created_at,generation) VALUES(?,?,?,?,?,?)',
-                    (notification_id,ctx.principal_id,consumer,'[]',timestamp(self.clock),owner['generation']))
-        return self.deliver_notice(ctx,consumer,notification_id,backend,runtime=runtime,legacy=legacy,adapter=adapter)
-
-    def deliver_notice(self, ctx, consumer, notification_id, backend, *, runtime, legacy=None, adapter=None):
-        """Durable pre-submit fencing, shared terminal transport, never acknowledge events.
-
-        ``legacy`` is ``(registration_id, observed native owner)`` from the authenticated transport, and is honored
-        only for the unfenced generation-0 owner of that registration: the same native identity is verified again
-        immediately before submission. It never upgrades or replaces the owner.
-        """
-        from .watcher import EVENT_NUDGE
-        expected = None
-        with self.app.database.transaction(operation='inbox.notice.reserve') as uow:
-            ctx = self.watch_context(ctx,uow)
-            owner = self.lease(ctx,consumer,uow)
-            if owner['desired_state'] != 'running':
-                raise DomainError('inbox_watching_stopped','Watching is paused or stopped')
-            row = uow.connection.execute('SELECT * FROM inbox_notification_receipts WHERE id=? AND agent_id=? AND consumer_id=?',
-                (notification_id,ctx.principal_id,consumer)).fetchone()
-            if not row or row['generation'] != owner['generation']:
-                raise DomainError('inbox_generation_stale','Notice belongs to a stale binding')
-            if row['delivery_state'] != 'queued':
-                return {'state':row['delivery_state']}
-            ids = json.loads(row['event_ids_json'])
-            active = [identity for identity in ids if (event := uow.connection.execute(
-                'SELECT e.* FROM inbox_events e JOIN inbox_deliveries d ON e.id=d.event_id WHERE d.agent_id=? AND e.id=? AND d.acknowledged_at IS NULL',
-                (ctx.principal_id,identity)).fetchone()) and self.event_visible(ctx,event,uow)]
-            if active != ids:
-                uow.connection.execute("UPDATE inbox_notification_receipts SET delivery_state='cancelled' WHERE id=?",(notification_id,))
-                return {'state':'cancelled'}
-            profile = dict(uow.connection.execute('SELECT * FROM agent_profiles WHERE agent_id=?',(ctx.principal_id,)).fetchone())
-            binding = json.loads(owner['binding_json'])
-            if owner['generation'] == 0 and not binding and legacy is not None:
-                registration_id, expected = legacy
-                if not isinstance(expected, str) or not expected:
-                    raise DomainError('inbox_binding_ambiguous','Legacy delivery requires the observed native identity')
-                self.legacy_owner(ctx,registration_id,consumer,uow)
-                binding = {'runtime':runtime,'registration_id':registration_id,'owner':expected}
-            if binding.get('runtime') != runtime:
-                raise DomainError('inbox_binding_ambiguous','Notice runtime differs from the native binding')
-            uow.connection.execute("UPDATE inbox_notification_receipts SET delivery_state='uncertain' WHERE id=?",(notification_id,))
-        text = (f"{EVENT_NUDGE} [Qorqut inbox v3: {notification_id}; events: {','.join(map(str,ids))}]" if ids else
-            'The session helper has refreshed your instructions. The trusted hook delivers them with this notice. '
-            'Continue the owner\'s authorized work using the hook\'s current status; no startup command or status reply is needed. '
-            f'[Qorqut context recovery: {notification_id}]')
-        def native_adapter():
-            from bazarlyk.bootstrap.native_binding import NativeBindingAdapter
-            return adapter or NativeBindingAdapter(backend.runtime)
-        def checkpoint():
-            with self.app.database.read() as uow:
-                current = self.lease(ctx,consumer,uow)
-                if current['generation'] != owner['generation']:
-                    raise DomainError('inbox_generation_stale','Notice binding changed before submission')
-                if current['desired_state'] != 'running':
-                    raise DomainError('inbox_watching_stopped','Watching is paused or stopped')
-                if expected is not None:
-                    self.legacy_owner(ctx,binding['registration_id'],consumer,uow)
-                    if current['desired_state'] != 'running':
-                        raise DomainError('inbox_watching_stopped','Watching is paused or stopped')
-                # Recheck pending events immediately before the serialized paste.
-                for identity in ids:
-                    event = uow.connection.execute('SELECT e.* FROM inbox_events e JOIN inbox_deliveries d ON e.id=d.event_id '
-                        'WHERE d.agent_id=? AND e.id=? AND d.acknowledged_at IS NULL',(ctx.principal_id,identity)).fetchone()
-                    if not event or not self.event_visible(ctx,event,uow):
-                        raise DomainError('stale_notification','Notice events were handled')
-            if expected is not None:
-                observed = native_adapter().verify_legacy(ctx.principal_id,binding['registration_id'],consumer)
-                if observed['owner'] != expected or observed['runtime'] != runtime:
-                    raise DomainError('inbox_generation_stale','Native identity changed before submission')
-            elif not ids:
-                verified, _ = native_adapter().verify(ctx.principal_id,binding['registration_id'],consumer,previous=binding)
-                if verified['owner'] != binding['owner']:
-                    raise DomainError('inbox_generation_stale','Native identity changed before recovery notice')
-        try:
-            if runtime == 'claude-code':
-                outcome = backend.service_notice(profile,text,workdir=self.resolver.paths.runtime/'inbox-paste',checkpoint=checkpoint)
-                state = 'queued' if outcome.status == 'deferred' else outcome.status
-                receipt = {'reason':outcome.reason, **(outcome.receipt or {})}
-            else:
-                checkpoint()
-                if expected is None:
-                    verified, _ = native_adapter().verify(ctx.principal_id,binding['registration_id'],consumer,previous=binding)
-                    if verified['owner'] != binding['owner']:
-                        raise DomainError('inbox_binding_ambiguous','Codex process identity changed')
-                _, execution, _ = native_adapter().selected(ctx.principal_id)
-                import subprocess
-                if execution.target_identity is None:
-                    subprocess.run(['codex','queue','--thread',consumer,'--message',text],cwd=profile['workspace'],
-                        timeout=1,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-                else:
-                    execution.broker.queue_notice(consumer,text)
-                state, receipt = 'submitted', {}
-        except DomainError as error:
-            state = 'cancelled' if error.code in {'stale_notification','inbox_generation_stale','inbox_session_superseded'} else 'uncertain'
-            receipt = {'reason':error.code}
-        except Exception:
-            state, receipt = 'uncertain', {'reason':'submission_requires_reconciliation'}
-        with self.app.database.transaction(operation='inbox.notice.result') as uow:
-            # Even after transfer, keep the old receipt; never change the new lease.
-            uow.connection.execute('UPDATE inbox_notification_receipts SET delivery_state=?,delivery_json=? WHERE id=?',
-                (state,json.dumps(receipt),notification_id))
-            if state == 'submitted':
-                uow.connection.executemany('UPDATE inbox_deliveries SET notified_consumer_id=?,notified_at=? WHERE agent_id=? AND event_id=? AND acknowledged_at IS NULL',
-                    [(consumer,timestamp(self.clock),ctx.principal_id,identity) for identity in ids])
-        return {'state':state,'receipt':receipt}

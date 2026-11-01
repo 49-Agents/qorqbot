@@ -12,6 +12,7 @@ empty-instance setup call; the service, ``build_runtime`` and the host commands 
 from __future__ import annotations
 
 from qorqut_operations.background import storage_contribution as background_storage
+from qorqut_operations.inbox_nudges import storage_contribution as inbox_nudges_storage
 from qorqut_operations.signoffs.service import storage_contribution as signoff_storage
 from qorqut_operations.storage.assembly import (Assembly, AssemblyBuilder, AssemblyError, CONTRIBUTION_TYPES,
                                                 FileEffectContribution, RecordEffectContribution,
@@ -19,6 +20,7 @@ from qorqut_operations.storage.assembly import (Assembly, AssemblyBuilder, Assem
 from qorqut_operations.storage.database import Database
 
 from bazarlyk.instance_paths import InstancePaths
+from bazarlyk.native_chat.schema import storage_contribution as native_chat_storage
 from .documents import DocumentLifecycle, DocumentReceiptHistory, RESOURCE_TYPE as DOCUMENTS
 from .records import HostRecordEffects
 from .schema import storage_contributions
@@ -59,8 +61,9 @@ def host_contributions(change_feed):
     """Every contribution of the retained host domains, in registration order. The Operations engine owns the Signoff,
     routine, job and neutral Context relationship/review tables; its Signoff and background machinery state the host
     tables they read (``inbox_changes``, ``documents``) as required-table contributions, checked when the store is
-    composed, initialised and validated."""
-    return (*storage_contributions(), signoff_storage(), background_storage(),
+    composed, initialised and validated. The inbox nudge engine owns its three tables and reads ``inbox_events`` and
+    ``inbox_deliveries``."""
+    return (*storage_contributions(), signoff_storage(), background_storage(), native_chat_storage(), inbox_nudges_storage(),
             FileEffectContribution("documents", {DOCUMENTS: DocumentLifecycle()}, DocumentReceiptHistory()),
             RecordEffectContribution("records", HostRecordEffects()),
             TransactionContribution("inbox", finalizers=inbox_finalizers()),

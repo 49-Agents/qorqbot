@@ -404,10 +404,9 @@ class BroadcastDispatcher:
                     input_reserved = True
             if input_reserved:
                 try:
-                    from bazarlyk.global_chat.correlation import delivering
-                    with delivering(f"broadcast:{delivery['broadcast_id']}:{delivery['occurrence']}:{delivery['recipient_id']}"):
-                        result = self.terminals.input_existing(delivery['business_id'], delivery['recipient_id'], payload['message']) \
-                            if self.terminals else {'state': 'unavailable', 'detail': 'Terminal backend is unavailable'}
+                    result = self.terminals.input_existing(delivery['business_id'], delivery['recipient_id'], payload['message'],
+                        key=f"broadcast:{delivery['broadcast_id']}:{delivery['occurrence']}:{delivery['recipient_id']}") \
+                        if self.terminals else {'state': 'unavailable', 'detail': 'Terminal backend is unavailable'}
                     state = result.get('state', 'uncertain')
                     if state not in {'delivered', 'unavailable', 'uncertain', 'failed'}:
                         state = 'uncertain'

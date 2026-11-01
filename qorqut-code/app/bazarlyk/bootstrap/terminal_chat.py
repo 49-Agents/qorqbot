@@ -36,7 +36,7 @@ def native_process(runtime):
 
 def publish(hook, registration_path, *, runtime="claude-code"):
     registration = load_registration(registration_path)
-    if registration.get("capture_transcripts") is not True or os.environ.get("QORQUT_GLOBAL_CHAT"):
+    if registration.get("capture_transcripts") is not True:
         return False
     session, event = hook.get("session_id"), hook.get("hook_event_name")
     if event not in EVENTS or not isinstance(session, str) or not SESSION_ID.fullmatch(session):

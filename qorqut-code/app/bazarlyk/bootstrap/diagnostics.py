@@ -1,7 +1,6 @@
-"""Bounded integration observations. A lease or projection hash is not readiness."""
+"""Bounded integration observations. A projection hash is not readiness, and a submitted nudge is not proof the agent read anything."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import os
 from pathlib import Path
 import shlex
@@ -9,8 +8,7 @@ import subprocess
 import time
 
 HELPER_MODULES = ("bazarlyk.bootstrap.claude_session", "bazarlyk.bootstrap.mcp_reconnect",
-                  "bazarlyk.inbox.watcher", "bazarlyk.bootstrap.transcript_snapshot")
-SENTINEL = "1970-01-01T00:00:00.000000Z"
+                  "bazarlyk.bootstrap.transcript_snapshot")
 
 
 def helper_probe(executable, *, run=subprocess.run, timeout=2):
@@ -51,21 +49,17 @@ def command_executables(value):
     return sorted(found)
 
 
-def integration_facts(*, helper, watcher=None, process="unknown", backend="unknown",
-                      delivery="unknown", scope="active", target="local", now=None):
-    now = now or datetime.now(timezone.utc)
-    watcher = dict(watcher or {})
-    checked = watcher.get("last_check_at", SENTINEL)
-    try:
-        fresh = checked != SENTINEL and (now - datetime.fromisoformat(checked.replace("Z", "+00:00"))).total_seconds() < 360
-    except (TypeError, ValueError):
-        fresh = False
+def integration_facts(*, helper, nudge=None, process="unknown", backend="unknown",
+                      delivery="unknown", scope="active", target="local"):
+    """``nudge`` is the NudgeBackend status of the agent: idle, pending, deferred, submitted, uncertain, stale, unavailable or
+    offline. It describes the advisory notice only; readiness depends on the helper, the verified native process, the backend
+    connection and the composer, never on a notice having been sent."""
+    state = dict(nudge or {}).get("state", "unknown")
     return {"scope": scope, "execution_target": target, "helper": helper,
             "native_process": process, "backend_connection": backend,
-            "watcher": "fresh" if fresh else "never_polled" if checked == SENTINEL else "stale",
-            "delivery": delivery,
+            "nudge": state, "delivery": delivery,
             "ready": scope == "active" and helper.get("ready") is True and process == "verified"
-                and backend == "connected" and fresh and delivery == "ready"}
+                and backend == "connected" and delivery == "ready"}
 
 
 def prepared_helpers(projection,workspace=None):

@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import sys
 import time
@@ -15,7 +14,8 @@ from typing import Callable
 from bazarlyk.catalog.packages import content_hash
 from qorqut_operations.contracts import DomainError, utc_now
 from bazarlyk.agents.context import MAX_CONTEXT_CHARACTERS
-from bazarlyk.inbox.defaults import CLAUDE_INBOX_SETUP, INBOX_RECOVERY_REMINDER
+from bazarlyk.inbox.defaults import INBOX_SESSION_NOTE
+from bazarlyk.native_chat.projection import leading_marker
 from .client import (BOOTSTRAP_TIMEOUT, REQUEST_TIMEOUT, BootstrapClient,
                      load_registration, path_has_symlink, write_json_private)
 from .transcript_snapshot import run as snapshot_transcript
@@ -112,95 +112,33 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     if response.get("ready") is not True:
         error = response.get("error") or {}
         raise DomainError(error.get("code", "reprepare_required"), error.get("message", "Agent preparation is not ready"))
-    supervised = False
     binding_error = response.get('inbox_binding_error')
-    if prepared:
-        supervised = response.get('inbox_generation') is not None
-    elif native and response.get('inbox_generation') is not None:
+    if not prepared and native and response.get('inbox_generation') is not None:
         from .supervisor import register
         try:
-            supervised = register(registration_path,native,response)
+            register(registration_path,native,response)
         except (OSError,ValueError,DomainError):
             binding_error = 'inbox_delivery_unavailable'
-    if native and not supervised and response.get('inbox_generation') is None:
-        from .supervisor import maintained_legacy
-        supervised = maintained_legacy(native,response)
     config_id = response.get("effective_config_id")
     if not isinstance(config_id, str) or len(config_id) > 100:
         raise DomainError("bootstrap_unavailable", "Bootstrap omitted its configuration digest")
     setup = ""
-    inbox_notice = False
     consumer = response.get("inbox_consumer_id")
-    consumer_context = ""
-    if consumer is not None:
-        if consumer != str(uuid.UUID(session_id)):
-            raise DomainError("invalid_bootstrap", "Inbox consumer does not match this session")
-        consumer_context = '' if supervised else f"Legacy inbox session: {consumer}.\n"
-    chat_managed = os.environ.get("QORQUT_GLOBAL_CHAT") == registration.get("agent_id")
+    if consumer is not None and consumer != str(uuid.UUID(session_id)):
+        raise DomainError("invalid_bootstrap", "Inbox consumer does not match this session")
     if binding_error:
-        setup = 'Inbox delivery is paused: ' + binding_error + '. Pending events remain available after binding recovery.'
-    if response.get("inbox_available") and not binding_error:
-        if supervised:
-            setup = ('Inbox delivery is supervised outside this conversation. Do not maintain a Monitor or start another watcher. '
-                     + (f'Keep consumer_id {session_id} for this existing session; '
-                        if response.get('inbox_generation') is None else 'Your authenticated agent identity selects your inbox; ')
-                     + 'acknowledge only exact events you handled.')
-        elif chat_managed:
-            # The global chat runner hosts this session's watcher and queues its reminders as chat turns: no Monitor, no
-            # ``codex queue`` process and no second watcher. Lease ownership is still arbitrated by the inbox service.
-            setup = ("Inbox delivery is managed by the Qorqut chat runner for this session. "
-                f"Use consumer_id {session_id} for this session's inbox operations. "
-                "Do not start a Monitor or launch another watcher. Inbox reminders arrive as ordinary prompts.")
-        elif runtime == "codex":
-            from .codex_session import ensure_watcher
-            try:
-                ensure_watcher(hook, registration_path)
-                setup = ("Codex inbox delivery is managed by the trusted Qorqut hook. "
-                    f"Use consumer_id {session_id} for this session's inbox operations. "
-                    "Do not launch a second watcher or Claude Monitor. "
-                    "The existing inbox service arbitrates lease ownership; a running watcher does not prove lease ownership.")
-            except (OSError,ValueError,DomainError):
-                setup = ('Inbox delivery is temporarily unavailable. Current instructions were still delivered. '
-                    'Continue authorized local work; do not start a duplicate watcher or restart the conversation.')
-        else:
-            setup = CLAUDE_INBOX_SETUP + "\n" + consumer_context
-        review = response.get('review')
-        dev_review = review_cadence.applies(review)
-        if event == 'UserPromptSubmit':
-            from bazarlyk.inbox.watcher import notification_ids, notification_receipt
-            notice = notification_receipt(hook.get('prompt'))
-            ids = notification_ids(hook.get('prompt'))
-            if ids:
-                try:
-                    observation = {
-                        'registration_id': registration['registration_id'], 'consumer_id': session_id, 'event_ids': ids,
-                        **({'notification_id':notice['notification_id'], 'observed':True, 'binding_generation':response.get('inbox_generation')} if notice else {})}
-                    if prepared:
-                        handoff.queue(registration,client.handoff,'/api/agent/inbox/notification',observation)
-                        current = {}  # A later observation is telemetry, not context delivery.
-                    else:
-                        current = client.post('/api/agent/inbox/notification', observation)
-                except (DomainError,OSError):
-                    current = {}  # Inbox telemetry cannot discard valid mandatory context.
-                # Only a server-verified receipt is an inbox notice; lookalike owner text still counts.
-                inbox_notice = current.get('recognized') is True
-                if runtime == 'codex' and current.get('event_ids') == [] and inbox_notice:
-                    # Observe (never count) the handled notice before returning its block.
-                    _review_note(hook, registration, response, runtime, owner_input=False)
-                    return {'decision': 'block', 'reason': 'This inbox reminder has already been handled or is no longer accessible. No reply is needed.'}, None, client
-            # Count-only v1 messages have no durable source binding. Recognize
-            # their wording in the watcher, but never cancel owner input by text.
+        setup = 'Inbox notices are paused: ' + binding_error + '. Pending events remain available through your MCP inbox tools.'
+    elif response.get("inbox_available"):
+        setup = INBOX_SESSION_NOTE
     if response.get('activity_available'):
         setup += f'\nSESSION CURRENT-WORK ID: {session_id}. Use this native UUID with agent_work_update; activity heartbeat is automatic.'
-    owner_input = (event == "UserPromptSubmit" and not inbox_notice
+    # A system input typed by the application (an inbox notice or a recovery wake) starts with its marker and is never owner input.
+    system_input = leading_marker(hook.get("prompt")) is not None
+    owner_input = (event == "UserPromptSubmit" and not system_input
                    and hook.get("prompt") != review_cadence.continuation(registration["workspace"], registration["registration_id"], session_id))
     review_note = _review_note(hook, registration, response, runtime, owner_input=owner_input)
     if (event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required")
             and not recovery.read(registration,session_id)):
-        if runtime == "claude-code" and not supervised and not chat_managed and response.get("inbox_watcher_check_needed") is True:
-            return {"hookSpecificOutput": {"hookEventName": event,
-                    "additionalContext": consumer_context + INBOX_RECOVERY_REMINDER
-                    + ("\n" + review_note if review_note else "")}}, None, client
         if review_note:
             return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": review_note}}, None, client
         return {}, None, client
@@ -268,11 +206,6 @@ def run(hook: dict, registration_path: Path, *, stream=sys.stdout, diagnostics=s
 
     try:
         output, receipt, client = handle_hook(hook, registration_path, runtime=runtime, client_factory=client_factory)
-        if output.get('decision') == 'block':
-            # Cancelling a stale queued notice is not a context-delivery receipt.
-            stream.write(json.dumps(output, separators=(',', ':')) + '\n')
-            stream.flush()
-            return 0
         native = getattr(client,'native',None)
         if native:
             from .handoff import read as read_state, same

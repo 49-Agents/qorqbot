@@ -60,7 +60,7 @@ class FocusService:
             'items_json': [], 'browser_json': None, 'activity_json': None, 'updated_at': None}
 
     def session(self, ctx, consumer, uow):
-        self.inbox.lease(ctx, consumer, uow)
+        self.inbox.session_owner(ctx, consumer, uow)
         if not self.inbox.startup_owned(ctx.principal_id, consumer, uow):
             raise DomainError('inbox_consumer_required', 'Use the consumer_id supplied by this prepared session startup')
 
@@ -146,11 +146,11 @@ class FocusService:
                     raise
                 # Do not retain formerly visible source labels or agent-authored reasons.
                 cards.append({'unavailable': True})
-        watcher = uow.connection.execute('SELECT consumer_id,lease_until FROM inbox_watchers WHERE agent_id=?', (ctx.principal_id,)).fetchone()
+        watcher = uow.connection.execute('SELECT consumer_id FROM inbox_watchers WHERE agent_id=?', (ctx.principal_id,)).fetchone()
         return {'revision': row['revision'], 'status': row['status'], 'items': cards,
             'browser': row['browser_json'], 'activity': row['activity_json'], 'browser_busy': self.busy(row),
             'updated_at': row['updated_at'], 'stale': bool(row['updated_at'] and (not watcher
-                or watcher['consumer_id'] != row['consumer_id'] or watcher['lease_until'] <= timestamp(self.inbox.clock)))}
+                or watcher['consumer_id'] != row['consumer_id']))}
 
     def owner_context(self, owner, agent_id, uow, *, shared=False):
         owner = self.app.current_context(replace(owner, business_id=None, review_business_id=None), uow)

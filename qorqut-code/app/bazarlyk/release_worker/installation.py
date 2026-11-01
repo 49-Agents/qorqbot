@@ -17,7 +17,6 @@ from .lifetime import atomic_json, exclusion
 HELPERS = ["bazarlyk.bootstrap." + name for name in
     ("claude_session", "codex_session", "mcp_headers", "mcp_reconnect", "transcript_snapshot",
      "activity_hook", "browser_entry", "supervisor", "migration", "reference_probe")]
-HELPERS += ["bazarlyk.inbox.watcher"]
 
 
 def validate_config(config):

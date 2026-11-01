@@ -244,8 +244,7 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
             "/api/agent/technical-observation",
             "/api/agent/delegation/claim",
             "/api/agent/delegation/poll", "/api/agent/delegation/fail",
-            "/api/agent/delegation/browser",
-            "/api/agent/inbox/watch", "/api/agent/inbox/release"]
+            "/api/agent/delegation/browser"]
         if getattr(authentication, "business_id", None) and runtime.browser_access is not None:
             agent_paths.append("/api/agent/browser")
         if getattr(authentication, "business_id", None) and runtime.provider_tokens is not None:

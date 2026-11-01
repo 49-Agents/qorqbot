@@ -425,9 +425,7 @@ class AgentActivity:
         agents=[]
         for row in selected:
             watcher = uow.connection.execute('SELECT * FROM inbox_watchers WHERE agent_id=?', (row['agent_id'],)).fetchone()
-            check_age = (now-datetime.fromisoformat(watcher['last_check_at'])).total_seconds() if watcher else None
-            inbox_state = ('not_started' if not watcher or watcher['last_check_at'].startswith('1970-') else
-                'ready' if 0 <= check_age <= 360 and datetime.fromisoformat(watcher['lease_until']) > now else 'stale')
+            nudge = self.nudge(row['agent_id'])
             sessions=[]
             if session_filter:
                 session_rows = uow.connection.execute('SELECT * FROM agent_activity WHERE agent_id=? AND session_id=?',
@@ -467,9 +465,14 @@ class AgentActivity:
             agents.append({'agent_id':row['agent_id'],'name':row['name'],'display_name':row['display_name'],'role_id':row['role_id'],
                 'business_id':row['home_business_id'],'business_slug':row['slug'],'business_name':row['business_name'] or 'Global',
                 'state':state,'last_seen_at':max((x['last_seen_at'] for x in sessions if x['last_seen_at']),default=None),'sessions':sessions,
-                'inbox': {'state': inbox_state, 'last_check_at': watcher['last_check_at'] if watcher else None,
-                    'lease_until': watcher['lease_until'] if watcher else None}})
+                'inbox': nudge})
         return {'agents':agents,'next_cursor':cursor,'as_of':timestamp(self.clock)}
+
+    def nudge(self, agent_id):
+        """Where this agent's inbox notice stands (idle, pending, deferred, submitted, uncertain, stale, unavailable or unknown). It
+        says nothing about whether the agent read anything, and carries no event, count or text."""
+        from bazarlyk.native_chat.nudges import delivery_view
+        return delivery_view(getattr(self.runtime, 'inbox_nudges', None), agent_id)
 
     def startup(self, principal, config):
         role=config['role']['id']

@@ -99,7 +99,7 @@ class DashboardCompatibility:
         notes = self.data(context, "notes_list", {"agent_id": profile["agent_id"], "limit": 30})["items"]
         return {**profile, **self.appearance(profile), "agent_yaml": yaml.safe_dump({"generated": True, **profile}, sort_keys=False),
                 "plan": plan.get("body", ""), "notes": [Path(note["path"]).name for note in notes],
-                "sessions": [path.name for path in self.local_files.session_paths(context.business_id, profile["agent_id"])], "learnings": ""}
+                "sessions": self.local_files.session_names(context.business_id, profile["agent_id"]), "learnings": ""}
 
     def assignees(self, context):
         return self.data(context, "assignees_list")["assignees"]

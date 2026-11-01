@@ -35,6 +35,14 @@ def validate_package(package):
         raise DomainError('invalid_artifact', 'Terminal control requires the exact bounded tool contract')
 
 
+def execution_outcome(error):
+    """The recorded state of an action whose execution raised: ``failed`` when it was definitely never typed (the native input
+    arbiter refused it before the first input), otherwise ``uncertain``: an effect may have happened and is never replayed."""
+    if isinstance(error, DomainError) and error.code == 'not_delivered':
+        return 'failed', error.message
+    return 'uncertain', 'Terminal execution could not be confirmed; inspect before issuing a new command'
+
+
 class TerminalControl:
     def __init__(self, runtime):
         self.runtime, self.app, self.backend = runtime, runtime.application, None
@@ -299,13 +307,13 @@ class TerminalControl:
             # Never replay after a crash, timeout or uncertain external write.
             uow.repository('terminal_actions').update(action['id'], {'state':'uncertain','detail':'Execution started; do not retry without inspection'}, expected_revision=action['revision'])
         try:
-            from bazarlyk.global_chat.correlation import delivering
-            with delivering(f"terminal-action:{action['id']}"):
-                detail = self.backend.execute(target, action['action'], action['message'], action['binding_json']['terminal'])
+            detail = self.backend.execute(target, action['action'], action['message'], action['binding_json']['terminal'],
+                                          input_key=f"terminal-action:{action['id']}")
             state = 'completed'
-        except Exception:
-            logging.getLogger(__name__).exception('Terminal action %s outcome uncertain', action['id'])
-            state, detail = 'uncertain', 'Terminal execution could not be confirmed; inspect before issuing a new command'
+        except Exception as exc:
+            state, detail = execution_outcome(exc)
+            if state == 'uncertain':
+                logging.getLogger(__name__).exception('Terminal action %s outcome uncertain', action['id'])
         with self.runtime.database.transaction() as uow:
             row = uow.repository('terminal_actions').get(action['id'])
             uow.repository('terminal_actions').update(action['id'], {'state':state,'detail':detail}, expected_revision=row['revision'])

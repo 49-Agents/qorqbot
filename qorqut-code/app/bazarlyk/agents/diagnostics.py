@@ -16,10 +16,18 @@ class AgentDiagnostics:
     def __init__(self, runtime):
         self.runtime = runtime
 
+    def nudge_status(self, agent_id):
+        """The state of this agent's inbox notice: idle, pending, deferred, submitted, uncertain, stale, unavailable or offline.
+        Submitted means a notice was sent to the native session; it never means the agent read or handled anything."""
+        backend = getattr(self.runtime, 'inbox_nudges', None)
+        if backend is None:
+            return {'state': 'unknown', 'reason': 'nudge_backend_not_running'}
+        return backend.status(agent_id)
+
     def register(self):
         for name, arguments, description, handler in (
             ('agent_runtime_get', schema(),
-             'Diagnose your own preparation, inbox lease and retained applications. Remains usable when mandatory context is unavailable. '
+             'Diagnose your own preparation, inbox notice state and retained applications. Remains usable when mandatory context is unavailable. '
              'Reports actual error codes and repair ownership; never grants preparation or replays work.', self.runtime_get),
             ('operations_describe', schema({
                 'names': {'type': 'array', 'minItems': 1, 'maxItems': 10, 'uniqueItems': True,
@@ -86,8 +94,6 @@ class AgentDiagnostics:
             preparation = {'ready': False, 'mandatory_context_available': False,
                 'error': {'code': error.code, 'retryable': error.retryable}}
             delivery = None
-        watcher = uow.connection.execute('SELECT consumer_id,last_check_at,lease_until FROM inbox_watchers WHERE agent_id=?',
-            (ctx.principal_id,)).fetchone()
         scopes = ['agent:' + ctx.principal_id, *['business:' + identity for identity in ctx.allowed_business_ids]]
         if 'read_global_context' in ctx.global_capabilities:
             scopes.append('global')
@@ -114,9 +120,9 @@ class AgentDiagnostics:
             'context_delivery': {'session_id':ctx.inbox_session_id,'receipt':delivery,
                 'state': 'unknown' if not ctx.inbox_session_id else 'not_observed' if not delivery else
                     'stale' if delivery['current_vs_emitted'] else 'emitted'},
-            'inbox': dict(watcher) if watcher else None, 'watcher_protocol': 2,
+            'inbox': self.nudge_status(ctx.principal_id),
             'applications': recovery, 'more_applications': len(receipts) > 20,
             'guidance': 'The session helper recovers automatically and the trusted hook delivers refreshed instructions. '
                 'Do not rerun startup hooks or restart the conversation. Temporary connection failures do not cancel authorized local work. '
-                'Configuration readiness and inbox polling do not establish context delivery. Report a persistent fault once via dev_tickets_create; '
+                'Configuration readiness and an inbox notice do not establish context delivery. Report a persistent fault once via dev_tickets_create; '
                 'retain the request/receipt ID and never resend an external action to repair its status.'}

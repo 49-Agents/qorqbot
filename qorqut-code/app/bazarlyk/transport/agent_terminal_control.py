@@ -58,13 +58,6 @@ class AgentTerminalBackend:
         self.screen_settle, self.paste_settle, self.submit_settle = screen_settle, paste_settle, submit_settle
         self._owner_locks = {}
 
-    def chat(self, row):
-        """The chat service when this exact agent is a chat-managed global agent."""
-        service = getattr(self.runtime, 'global_chat', None)
-        if service is not None and row.get('home_business_id') is None and service.handles(row['agent_id']):
-            return service
-        return None
-
     def selected(self, row):
         with self.runtime.database.read() as uow:
             business = uow.repository('businesses').get(row['home_business_id']) if row['home_business_id'] else None
@@ -77,18 +70,11 @@ class AgentTerminalBackend:
         key, session, cwd = self.terminals.binding(business, row, broker)
         return broker, key, session, cwd, business
 
-    def snapshot(self, row, *, client=None, legacy=False):
-        """The registered terminal's observation. ``client`` (owner input) names the client to verify for any role.
-
-        ``legacy`` observes the tmux terminal itself even for a chat-managed agent (the enable/start transition check)."""
+    def snapshot(self, row, *, client=None):
+        """The registered terminal's observation. ``client`` (owner input) names the client to verify for any role."""
         dev = dev_client(row)
         selected = client or dev
         client = selected or 'codex'
-        chat = None if legacy else self.chat(row)
-        if chat is not None:
-            # A chat-managed global agent has no terminal client. It reports as a present client so direct messages route
-            # to its chat queue; every terminal lifecycle action is refused in ``execute``.
-            return {'state': 'present', 'command': runtime_client(row) or client, 'client': runtime_client(row) or client, 'chat': True}
         broker, _, session, _, _ = self.selected(row)
         if not broker.session_alive(session): return {'state':'absent', **({'client':selected} if selected else {})}
         code, output = broker.tmux('list-panes', '-t', '='+session, '-F', '#{pid}|#{session_id}|#{pane_id}|#{pane_pid}|#{pane_current_command}|#{pane_tty}')
@@ -157,22 +143,16 @@ class AgentTerminalBackend:
             self.sleep(.2)
         raise DomainError('operation_unavailable', 'Codex did not reach its input prompt; inspect terminal')
 
-    def execute(self, row, action, message, expected):
+    def execute(self, row, action, message, expected, input_key=None):
         if self.snapshot(row)!=expected:
             raise DomainError('revision_conflict', 'Terminal changed before dispatch')
         self.validate(action, expected)
-        if expected.get('chat'):
-            if action != 'ping':
-                raise DomainError('operation_unavailable', 'This global agent runs through the chat runner; '
-                                  'use its chat runtime controls, not terminal lifecycle actions')
-            return self.chat(row).ping(row['agent_id'], message)
         dev = dev_client(row)
         if dev and expected.get('client') != dev:
             raise DomainError('revision_conflict', 'Dev runtime changed before dispatch')
         broker, key, session, _, business = self.selected(row)
         if action=='ping':
-            broker.submit_input(session, message)
-            return f"Direct message submitted to {'Claude Code' if dev == 'claude' else 'Codex'}; processing is not confirmed"
+            return self._ping(row, message, input_key or f"terminal-action:{uuid4()}", dev)
         if action in {'kill','restart'}:
             # Target the observed tmux ID, never a name that may now refer to a new session.
             code, _ = broker.tmux('kill-session', '-t', expected['session_id'])
@@ -281,8 +261,6 @@ class AgentTerminalBackend:
         client = runtime_client(row)
         if client is None:
             return OwnerInputOutcome('failed', 'unsupported_runtime')
-        if self.chat(row) is not None:
-            return OwnerInputOutcome('failed', 'chat_managed')
         lock = self._owner_locks.setdefault(row['agent_id'], threading.Lock())
         if not lock.acquire(blocking=False):
             return OwnerInputOutcome('deferred', 'target_busy')
@@ -291,9 +269,19 @@ class AgentTerminalBackend:
         finally:
             lock.release()
 
-    def service_notice(self, row, text, *, workdir, checkpoint):
-        """Use the same serialized input transport without owner-message attribution."""
-        return self.owner_input(row, text, workdir=workdir, checkpoint=checkpoint)
+    def _ping(self, row, message, key, dev):
+        """A direct message into the exact registered native session, through the shared input arbiter. Nothing is typed unless
+        that session is verifiably there; an input that was definitely not typed is reported as such, never as uncertain."""
+        from bazarlyk.native_chat.contracts import InputRequest, NativeChatError, STATE_SUBMITTED, STATE_UNCERTAIN, TYPE_DIRECT
+        try:
+            result = self.runtime.native_chat.arbiter.submit(InputRequest(row['agent_id'], TYPE_DIRECT, key, message))
+        except NativeChatError as error:
+            raise DomainError('not_delivered', error.message) from None
+        if result.state == STATE_SUBMITTED:
+            return f"Direct message submitted to {'Claude Code' if dev == 'claude' else 'Codex'}; processing is not confirmed"
+        if result.state == STATE_UNCERTAIN:
+            raise DomainError('operation_failed', 'Direct message outcome could not be confirmed')
+        raise DomainError('not_delivered', f"Direct message was not typed: {result.reason or 'the native session is not ready'}")
 
     def _deliver(self, row, client, text, workdir, checkpoint, require_paste_echo=True, allow_busy=False):
         # Each of the three observations must independently show the ordinary empty composer on the exact same client
