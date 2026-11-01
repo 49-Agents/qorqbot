@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------- context
-// Home, search and object pages read the context base (context_home / context_find / context_object /
-// context_expand, the same reads the agents get). Uploads keep their receipts. The Graph, People and
-// file pages below still browse the legacy hq/context registry until they move as well.
+// Home, search, object, graph and people pages read the context base. Uploads
+// retain the legacy navigation for compatibility, with the owner's base ledger
+// shown alongside it whenever the base reader is available.
 let _ctxTimer = null, _ctxUnwatch = null, _ctxData = null, _ctxGeneration = 0;
 const ctxPageCache = new Map();
 let _ctxGraph = null, _ctxNavigation = 0;
@@ -44,7 +44,18 @@ async function ctxLoadData(biz, full = !ctxIndependentPage(state.ctx)) {
   const signal = pageReads.signal;
   const view = state.ctx === '' ? '?view=graph' : '';
   if (ctxFullRead?.biz === biz && ctxFullRead.signal === signal && ctxFullRead.view === view) return ctxFullRead.promise;
-  const read = {biz, signal, view, promise:pageRead(`/biz/${encodeURIComponent(biz)}/context${view}`)};
+  const baseGraph = async () => {
+    const items = (coreData(await pageReadPost(`/biz/${encodeURIComponent(biz)}/operations/context_find`, {query: "", limit: 500})).items || []);
+    const nodes = items.filter(item => !item.is_relationship).map(item => ({type: item.kind === "person" ? "person" : "topic", id: item.ref, label: item.name, summary: item.summary || item.definition || ""}));
+    const nodeTypes = new Map(nodes.map(node => [node.id, node.type]));
+    const edges = [];
+    items.filter(item => item.is_relationship).forEach(rel => {
+      const endpoints = rel.endpoints || [];
+      for (let i = 1; i < endpoints.length; i++) edges.push({source: {type: nodeTypes.get(endpoints[0]) || "topic", id: endpoints[0]}, target: {type: nodeTypes.get(endpoints[i]) || "topic", id: endpoints[i]}, role: (rel.tags || []).join(", ") || "related", updated_at: rel.updated_at});
+    });
+    return {graph_only: true, tree: {path: "", children: []}, people: [], inbox: [], dumps: [], graph: {nodes, edges}, counts: {person: nodes.filter(n => n.type === "person").length}};
+  };
+  const read = {biz, signal, view, promise: view === '?view=graph' ? baseGraph() : pageRead(`/biz/${encodeURIComponent(biz)}/context${view}`)};
   ctxFullRead = read;
   try { return await read.promise; } finally { if (ctxFullRead === read) ctxFullRead = null; }
 }
@@ -312,7 +323,7 @@ function ctxHomeHtml(pack) {
   return head + brief + roomSec + recentSec + actionSec;
 }
 // one object: card facts, relationships, its timeline of impacts, and the neighbourhood context_expand returns
-function ctxObjectHtml(surface, expand) {
+function ctxObjectHtml(surface, expand, changes = []) {
   const o = surface.object || {}, name = o.name || refName(o.ref);
   const head = `<div class="crumbs"><a data-p="_home">context base</a><span class="sep">›</span><span class="cur">${esc(name)}</span></div>
     <div class="th"><h2>${esc(name)}</h2><div class="pa">${o.home_ref && o.home_ref !== o.ref ? objChip(o.home_ref, `home: ${refName(o.home_ref)}`) : ""}</div></div>`;
@@ -328,10 +339,18 @@ function ctxObjectHtml(surface, expand) {
   const relSec = `<div class="sec"><div class="sh">Relationships <span class="stamp">${(surface.relationships || []).length}</span></div>${rels ? `<div class="cards">${rels}</div>` : `<div class="empty">none</div>`}</div>`;
   const tl = (surface.timeline || []).map(i => `<div class="card n"><div class="ct"><span class="kd">${day(i.created_at)}</span><span class="tt">${esc(cap(i.headline || "", 90))}</span></div><div class="cb">${esc(i.substance || "")}</div>${i.upload_id ? `<div class="cs">${esc(String(i.upload_id).slice(0, 12))}</div>` : ""}</div>`).join("");
   const tlSec = `<div class="sec"><div class="sh">Timeline <span class="stamp">${(surface.timeline || []).length}</span></div>${tl ? `<div class="cards">${tl}</div>` : `<div class="empty">no impacts yet</div>`}</div>`;
+  const changeRows = changes.map(change => {
+    const actor = change.actor_name || change.actor_id || "unknown actor";
+    const kind = change.action_kind === "direct_edit" ? "Direct edit" : change.action_kind === "filing" ? "Filing" : titleCase(change.action_kind || "Change");
+    const scope = change.submission_business_id || change.business_id || "global";
+    const evidence = JSON.stringify({before: change.before_state, after: change.after_state});
+    return `<details class="card n ctx-change"><summary><span class="kd">${esc(kind)}</span><span class="tt">${esc(actor)}</span><span class="cs">${esc(change.outcome || "recorded")} · ${esc(String(change.created_at || "").slice(0, 19))}</span></summary><div class="cb">${esc(change.rationale || change.source_reference || "")}</div><div class="cs">scope ${esc(scope)} · ${esc(evidence)}</div></details>`;
+  }).join("");
+  const changeSec = changes.length ? `<div class="sec"><div class="sh">Change history <span class="stamp">${changes.length}</span></div><div class="cards">${changeRows}</div></div>` : "";
   const near = ((expand && expand.nodes) || []).filter(n => n.ref !== o.ref).map(n => objChip(n.ref, n.name)).join("");
   const nearSec = near ? `<div class="sec"><div class="sh">Neighbourhood</div><div class="chips">${near}</div></div>` : "";
   const brief = (surface.brief || "").trim() ? `<div class="sec"><div class="sh">Living brief</div>${mdLines(surface.brief)}</div>` : "";
-  return head + meta + definition + attrSec + brief + relSec + tlSec + nearSec;
+  return head + meta + definition + attrSec + brief + relSec + tlSec + changeSec + nearSec;
 }
 // --- end context base rendering ---
 
@@ -348,18 +367,50 @@ async function openHome() {
   v.innerHTML = ctxHomeHtml(pack || {});
   wireObjectLinks(v);
 }
-async function openObject(ref) {
-  const v = $("#ctxview"), biz = state.biz, page = `_obj/${ref}`;
+async function openObject(ref, pageOverride = null) {
+  const v = $("#ctxview"), biz = state.biz, page = pageOverride || `_obj/${ref}`;
   v.innerHTML = `<p class="empty pad" role="status">Loading…</p>`;
-  let surface, expand = null;
+  let surface, expand = null, changes = [];
   try {
     surface = coreData(await pageReadPost(`/biz/${encodeURIComponent(biz)}/operations/context_object`, {ref}));
     try { expand = coreData(await pageReadPost(`/biz/${encodeURIComponent(biz)}/operations/context_expand`, {ref})); } catch (_) { expand = null; }
+    try { changes = coreData(await pageReadPost(`/biz/${encodeURIComponent(biz)}/operations/context_changes`, {ref, limit: 25})).changes || []; } catch (_) { changes = []; }
   } catch (error) { if (state.biz === biz && state.ctx === page && v.isConnected) v.innerHTML = `<div class="empty">${esc(error.message || "No such object.")}</div>`; return; }
   if (state.biz !== biz || state.ctx !== page || !v.isConnected) return;
-  v.innerHTML = ctxObjectHtml(surface || {}, expand);
+  v.innerHTML = ctxObjectHtml(surface || {}, expand, changes);
   wireCrumbs(v);
   wireObjectLinks(v);
+}
+
+// Resolve a legacy authored path to a canonical object by durable content
+// identity exposed through context_find. This is only a reader projection:
+// raw uploads, INDEX.md and unmapped files stay on the legacy file reader.
+async function baseObjectForLegacyPath(path, text, documentId = "") {
+  if (!path || path === "INDEX.md" || path.startsWith("_inbox/") || path.startsWith("_dumps/") || path.startsWith("_maps/")) return null;
+  // The legacy reader carries the original UUID even when the path has been
+  // renamed. Ask the compatibility projection to resolve that durable mapping
+  // before considering any prose/name fallback.
+  if (documentId) {
+    try {
+      const projected = coreData(await pageReadPost(`/biz/${encodeURIComponent(state.biz)}/operations/context_get`, {document_id: documentId}));
+      const doc = projected?.document;
+      if (doc?.canonical_ref) return {ref: doc.canonical_ref, kind: String(doc.kind || "").replace(/^context_/, "")};
+    } catch (_) { /* unmapped legacy material continues through the old reader */ }
+  }
+  const {meta} = ctxSplit(text || "");
+  const leaf = path.split("/").pop().replace(/\.md$/, "");
+  const parent = path.split("/").slice(-2, -1)[0] || "";
+  const queries = [...new Set([meta.name, meta.title, leaf === "_topic" ? parent : leaf].filter(q => String(q || "").trim().length >= 2))];
+  const wanted = path.startsWith("_people/") ? "person" : leaf === "_topic" ? "topic" : "note";
+  for (const query of queries) {
+    try {
+      const items = coreData(await pageReadPost(`/biz/${encodeURIComponent(state.biz)}/operations/context_find`, {query, limit: 30})).items || [];
+      const exact = items.find(item => item.kind === wanted && String(item.name || "").toLowerCase() === String(query).toLowerCase());
+      const candidate = exact || items.find(item => item.kind === wanted);
+      if (candidate?.ref) return candidate;
+    } catch (_) { return null; }
+  }
+  return null;
 }
 
 // A topic opens its scoped relationship graph.
@@ -384,6 +435,15 @@ async function openPerson(slug) {
   const v = $("#ctxview"), d = _ctxData || {};
   let person = findPerson(slug);
   if (!person) { v.innerHTML = `<div class="empty">no such person</div>`; return; }
+  try {
+    if (person.document_id) {
+      const projected = coreData(await pageReadPost(`/biz/${encodeURIComponent(state.biz)}/operations/context_get`, {document_id: person.document_id}));
+      if (projected?.document?.canonical_ref) return openObject(projected.document.canonical_ref, `_people/${slug}`);
+    }
+    const found = coreData(await pageReadPost(`/biz/${encodeURIComponent(state.biz)}/operations/context_find`, {query: person.name, limit: 20})).items || [];
+    const base = found.find(item => item.kind === "person" && String(item.name || "").toLowerCase() === String(person.name || "").toLowerCase());
+    if (base?.ref) return openObject(base.ref, `_people/${slug}`);
+  } catch (_) { /* legacy person view remains the compatibility fallback */ }
   const s = d.summarizing || {}, busy = s.current && s.current.topic === `person:${slug}`;
   const r = await api(`/biz/${state.biz}/context/person/${slug}`);
   if (state.ctx !== `_people/${slug}`) return;    // navigated away while the notes were loading
@@ -442,17 +502,16 @@ function renderPersonNotes(text) {
 }
 
 // Shared compact cards, newest person or relationship activity first.
-function openPeople() {
-  const v = $("#ctxview"), d = _ctxData || {}, biz=state.biz;
-  const nodes=d.graph?.nodes.filter(n=>n.type==='person') || [];
-  const people=writingRecent((nodes.length?nodes:(d.people || []).map(p=>({type:'person',id:p.document_id || p.slug,label:p.name,path:p.path,...p}))).map(node=>{
-    const person=(d.people || []).find(p=>p.document_id===node.id) || {};
-    const times=[person.at,node.updated_at,...(d.graph?.edges || []).filter(e=>(e.source.type==='person' && e.source.id===node.id) || (e.target.type==='person' && e.target.id===node.id)).map(e=>e.updated_at)].filter(Boolean).sort();
-    return {...person,...node,title:node.label || person.name,updated_at:times.at(-1)};
-  }));
-  _ctxLastSig = ctxSig(d, "_people");
-  v.innerHTML = `<div class="jrhome"><div class="jrhhead"><h2>People</h2></div><div class="jrgrid">${people.map(person => writingCard({id:person.id,title:person.title,updated:person.updated_at,role:person.role || '',org:person.org || ''})).join('')}</div>${people.length ? '' : '<p class="jrfaint">No people yet.</p>'}</div>`;
-  v.querySelectorAll('.jrcard').forEach(el=>el.onclick=()=>contextOpenItem(biz,people.find(p=>p.id===el.dataset.id)));
+async function openPeople() {
+  const v = $("#ctxview"), biz = state.biz;
+  v.innerHTML = '<p class="empty pad" role="status">Loading people from the context base…</p>';
+  let items;
+  try { items = (coreData(await pageReadPost(`/biz/${encodeURIComponent(biz)}/operations/context_find`, {query: "", limit: 500})).items || []).filter(item => item.kind === "person"); }
+  catch (error) { v.innerHTML = `<div class="empty">${esc(error.message || "Could not load people.")}</div>`; return; }
+  if (state.biz !== biz || state.ctx !== "_people" || !v.isConnected) return;
+  _ctxLastSig = JSON.stringify(items);
+  v.innerHTML = `<div class="jrhome"><div class="jrhhead"><h2>People</h2><span class="stamp">${items.length} in context base</span></div><div class="jrgrid">${items.map(person => writingCard({id:person.ref,title:person.name,updated:person.updated_at,role:person.attributes?.role || '',org:person.attributes?.org || ''})).join('')}</div>${items.length ? '' : '<p class="jrfaint">No people yet.</p>'}</div>`;
+  v.querySelectorAll('.jrcard').forEach(el => el.onclick=()=>ctxGo(`_obj/${el.dataset.id}`));
 }
 
 // context base receipt (metadata.context_base, written by the context.base_file job): one small chip per upload
@@ -465,8 +524,19 @@ function ctxBaseChip(item) {
   return `<span class="cnt ${b.status === "failed" ? "bad" : ""}" title="${esc(title)}">base ${b.status === "filed" ? "✓" : "✗"}</span>`;
 }
 // uploads: what's still filing (or failed) up top, then every filed dump — the tree's old Inbox/Uploads sections
-function openUploads() {
+async function openUploads() {
   const v = $("#ctxview"), d = _ctxData || {}, inbox = d.inbox || [], dumps = d.dumps || [];
+  let baseUploads = [];
+  try {
+    baseUploads = (coreData(await pageReadPost(`/biz/${encodeURIComponent(state.biz)}/operations/context_filings`, {limit: 60})).uploads || []);
+  } catch (_) { /* legacy installations and non-owner viewers keep the old reader */ }
+  const base = baseUploads.length ? `<div class="sec"><div class="sh">Context base ledger</div><div class="cards">${baseUploads.map(u => {
+    const p = u.provenance || {}, a = p.attribution || {};
+    const who = a.display_name || a.principal_id || p.by || "unknown actor";
+    const state = u.status || "pending";
+    const title = u.notes || u.upload_id;
+    return `<div class="card u d" data-p="_dumps/${esc(u.upload_id)}.md"><div class="ct"><span class="tt">${esc(title)}</span><span class="cnt ${state === "failed" ? "bad" : ""}" title="${esc(`base ${state}; ${who}`)}">base ${esc(state)}</span></div><div class="cb">${esc(who)}${p.origin ? ` · ${esc(p.origin)}` : ""}</div><div class="cs">${esc(u.upload_id)} · ${String(u.text || "").length} chars</div></div>`;
+  }).join("")}</div></div>` : "";
   _ctxLastSig = ctxSig(d, "_uploads");
   const head = `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><span class="cur">Uploads</span></div><div class="th"><h2>Uploads</h2></div>`;
   const filing = inbox.length ? `<div class="sec"><div class="sh">Filing</div><div class="cards">${inbox.map(i => {
@@ -476,7 +546,7 @@ function openUploads() {
   }).join("")}</div></div>` : "";
   const up = dumps.length ? `<div class="sec"><div class="sh">Uploads</div><div class="cards">${dumps.slice(0, 60).map(u => `<div class="card u d" data-p="_dumps/${esc(u.id)}.md"><div class="ct"><span class="tt">${esc(u.notes || u.topic || u.preview || u.id)}</span>${u.map ? `<span class="cnt" title="has a mind map">map</span>` : ""}${ctxBaseChip(u)}</div><div class="cb">${esc(u.id)}</div><div class="cs">${u.chars} chars</div></div>`).join("")}</div></div>${dumps.length > 60 ? `<div class="empty pad">${dumps.length - 60} older uploads; search finds them</div>` : ""}`
     : `<div class="empty">nothing uploaded yet</div>`;
-  v.innerHTML = head + filing + up;
+  v.innerHTML = head + base + filing + up;
   wireCrumbs(v);
   v.querySelectorAll(".card").forEach(el => el.onclick = e => { if (e.target.closest(".retry")) return; ctxGo(el.dataset.p); });
   v.querySelectorAll(".retry").forEach(el => el.onclick = e => { e.stopPropagation(); ctxRetry(el.dataset.id, el); });
@@ -578,14 +648,26 @@ async function openCtx(p) {
   const chips = CTX_META.filter(k => meta[k]).map(k => `<span class="chip ${k === "error" ? "bad" : ""}"><b>${esc(k)}</b>${esc(meta[k])}</span>`).join("") +
     (r.material?.material_type ? `<span class="chip"><b>type</b>${esc(r.material.material_type)}</span><span class="chip"><b>origin</b>${esc(r.material.origin)}</span>${(r.material.tags || []).map(tag=>`<span class="chip">${esc(tag)}</span>`).join('')}` : '');
   const uid = uploadId(p);
-  const um = uid ? await api(`/biz/${state.biz}/context/map?id=${uid}`) : null;   // its mind map and where it went
+  if (!uid) {
+    const base = await baseObjectForLegacyPath(p, r.text, r.document_id);
+    if (base && state.ctx === p) return openObject(base.ref, p);
+  }
+  let um = null, filing = null;
+  if (uid) {
+    try {
+      const base = coreData(await pageReadPost(`/biz/${encodeURIComponent(state.biz)}/operations/context_upload_map`, {upload_id: uid}));
+      um = {map: {tree: base.outline, nodes: (base.outline || []).length, at: base.updated_at}, trace: {where: "_dumps"}, mapping: false};
+    } catch (_) { um = await api(`/biz/${state.biz}/context/map?id=${uid}`); }
+    try { filing = coreData(await pageReadPost(`/biz/${encodeURIComponent(state.biz)}/operations/context_filings`, {upload_id: uid})); }
+    catch (_) { /* legacy mode and non-owner viewers keep the old upload detail */ }
+  }
   if (state.ctx !== p) return;                                                     // navigated away meanwhile
   const title = meta.title || (uid ? (meta.notes || meta.topic || `Upload ${uid}`) : p.endsWith("/_topic.md") ? "description" : p.split("/").pop());
   v.innerHTML = `${ctxCrumbs(dir, p.split("/").pop())}
     <div class="jcol"><div class="jhead"><h2 class="jt">${esc(title)}</h2>${ro ? `<span class="ro">${p === "INDEX.md" ? "generated" : "filed upload, immutable"}</span>` : `<span class="jsave" id="jsave"></span><button class="jbtn" id="jsavebtn" type="button">Save</button><button class="jbtn" id="jdiscard" type="button">Discard</button>`}</div>
     ${chips ? `<div class="chips">${chips}</div>` : ""}<hr class="jhr">
     <div id="ctx-stories" class="small" aria-label="Related stories"></div>
-    ${uid ? uploadSections(uid, um || {}) : ""}
+    ${uid ? uploadFilingEvidence(filing) + uploadSections(uid, um || {}) : ""}
     ${ro ? `<div class="jbody">${esc(body)}</div>` : `<textarea class="jta" id="jta" spellcheck="false" placeholder="Start writing…"></textarea>`}</div>`;
   wireCrumbs(v);
   if(r.document_id)storyRelatedChips(v.querySelector('#ctx-stories'),biz,uid?'uploads':'documents',r.document_id,async()=>{
@@ -613,6 +695,29 @@ async function openCtx(p) {
     ta.value = _jState.body0; _jState.dirty = false; jGrow(ta);
     const el = $("#jsave"); if (el) { el.textContent = "discarded"; setTimeout(() => { if ($("#jsave") === el && el.textContent === "discarded") el.textContent = ""; }, 2000); }
   };
+}
+
+function uploadFilingEvidence(data) {
+  if (!data?.upload) return "";
+  const upload = data.upload, provenance = upload.provenance || {}, attribution = provenance.attribution || {};
+  const decisions = data.decisions || {}, verify = decisions.verify || {}, calls = decisions.model_calls || decisions.calls || [];
+  const actor = attribution.display_name || attribution.name || attribution.principal_id || provenance.by || "unresolved actor";
+  const kind = attribution.principal_kind || attribution.kind || "unknown";
+  const summary = decisions.summary || {};
+  const counts = [summary.developments != null ? `${summary.developments} developments` : "",
+    summary.impacts != null ? `${summary.impacts} impacts` : "",
+    summary.actions != null ? `${summary.actions} actions` : ""].filter(Boolean).join(" · ");
+  const evidence = [
+    `<span class="chip"><b>actor</b>${esc(actor)}</span>`,
+    `<span class="chip"><b>kind</b>${esc(kind)}</span>`,
+    provenance.origin ? `<span class="chip"><b>source</b>${esc(provenance.origin)}</span>` : "",
+    upload.status ? `<span class="chip"><b>status</b>${esc(upload.status)}</span>` : "",
+    counts ? `<span class="chip"><b>applied</b>${esc(counts)}</span>` : "",
+    verify.model ? `<span class="chip"><b>verifier</b>${esc(verify.model)}</span>` : "",
+    Array.isArray(calls) ? `<span class="chip"><b>model calls</b>${calls.length}</span>` : ""
+  ].filter(Boolean).join("");
+  return `<div class="sec ctx-filing-evidence"><div class="sh">Base filing evidence</div><div class="chips">${evidence}</div>` +
+    (provenance.document_id || upload.upload_id ? `<div class="cs">upload ${esc(provenance.document_id || upload.upload_id)}</div>` : "") + `</div>`;
 }
 
 // an upload's two maps: the model-drawn mind map of its text, and where it went (notes, topics, people)
