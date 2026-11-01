@@ -96,6 +96,7 @@ function agfocusOrderMount(p,board,body) {
     if(!cancel && current.active && current.anchor)void agfocusMove(p,current.row.dataset.cardId,current.anchor.dataset.cardId,current.side);
   };
   const down=event=>{
+    if(!drag)p.focusSuppressClickUntil=0;
     const line=event.target.closest('.agfocus-row'),row=line?.closest('.agfocus-card');
     if(!line || row.dataset.moveDisabled==='true' || event.button!==0 || drag || !agfocusMoveEligible(p,row))return;
     p.focusSuppressClickUntil=0;
@@ -116,7 +117,7 @@ function agfocusOrderMount(p,board,body) {
   const up=event=>{if(drag?.pointerId===event.pointerId)stop();};
   const cancel=event=>{if(drag?.pointerId===event.pointerId)stop(true);};
   const key=event=>{
-    if(event.key==='Escape' && drag){event.preventDefault();stop(true);return;}
+    if(event.key==='Escape' && drag){event.preventDefault();event.stopImmediatePropagation();stop(true);return;}
     const row=event.target.closest('.agfocus-card');
     if(!row || !board.contains(row) || (event.target!==row && !event.target.closest('.agfocus-row')) || row.dataset.moveDisabled==='true' || !event.altKey || !['ArrowUp','ArrowDown'].includes(event.key))return;
     event.preventDefault();event.stopPropagation();
@@ -126,11 +127,13 @@ function agfocusOrderMount(p,board,body) {
   };
   const blur=()=>stop(true);
   const touch=event=>{if(drag?.active)event.preventDefault();};
+  const context=event=>{if(drag?.active){event.preventDefault();event.stopImmediatePropagation();}};
   const suppress=event=>{if(event.detail && Date.now()<(p.focusSuppressClickUntil || 0)){event.preventDefault();event.stopImmediatePropagation();}};
   board.addEventListener('touchmove',touch,{passive:false});
+  board.addEventListener('contextmenu',context,true);
   board.addEventListener('pointerdown',down);board.addEventListener('pointermove',move);window.addEventListener('pointerup',up);board.addEventListener('pointercancel',cancel);board.addEventListener('lostpointercapture',cancel);window.addEventListener('blur',blur);board.addEventListener('click',suppress,true);
   document.addEventListener('keydown',key);
-  return ()=>{stop(true);board.removeEventListener('touchmove',touch);board.removeEventListener('pointerdown',down);board.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);board.removeEventListener('pointercancel',cancel);board.removeEventListener('lostpointercapture',cancel);window.removeEventListener('blur',blur);board.removeEventListener('click',suppress,true);document.removeEventListener('keydown',key);};
+  return ()=>{stop(true);board.removeEventListener('contextmenu',context,true);board.removeEventListener('touchmove',touch);board.removeEventListener('pointerdown',down);board.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);board.removeEventListener('pointercancel',cancel);board.removeEventListener('lostpointercapture',cancel);window.removeEventListener('blur',blur);board.removeEventListener('click',suppress,true);document.removeEventListener('keydown',key);};
 }
 
 const AGFOCUS_SNOOZE_OPTIONS = [

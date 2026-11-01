@@ -7,8 +7,9 @@ const attentionQueue=(()=>{
   const viewedIds=item=>item.viewed_ids?.length?item.viewed_ids:[item.id];
   const remaining=()=>items.filter(item=>!viewedIds(item).every(id=>acknowledged.has(id)));
   const destination=item=>{
-    if(item.kind==='global')return JSON.stringify(['global',item.agent_id]);
-    if(item.kind==='thread' && item.source)return JSON.stringify(['thread',item.thread_id || null,item.source.type,item.source.business_id || item.biz || null,item.source.id]);
+    if(item.kind==='global' && item.agent_id)return JSON.stringify(['global',item.agent_id]);
+    if(item.kind==='thread' && item.thread_id)return JSON.stringify(['thread',item.thread_id]);
+    if(item.kind==='thread' && item.source?.id)return JSON.stringify(['thread',item.source.type,item.source.business_id || item.biz || null,item.source.id]);
     if(item.kind==='viewbox')return JSON.stringify(['viewbox',item.agent_id,item.viewbox_item_id]);
     if(item.kind==='signoff')return JSON.stringify(['signoff',item.signoff_id]);
     return item.id;

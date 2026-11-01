@@ -128,7 +128,7 @@
 .agent-workspace-app .agfocus .agfocus-actions:has([aria-expanded="true"], [aria-busy="true"]) { opacity:1; pointer-events:auto; }
 .agent-workspace-app .agfocus .agfocus-row .agfocus-actions button { background:none; border:0; }
 @media (hover:none) { .agent-workspace-app .agfocus .agfocus-actions { opacity:1; pointer-events:auto; } }
-@media (pointer:coarse) { .agent-workspace-app .agfocus .agfocus-row{min-height:44px}.agent-workspace-app .agfocus .agfocus-marker,.agent-workspace-app .agfocus .agfocus-row .agfocus-task-state{height:40px}.agfocus .focus-signoff-chip{min-height:44px} }
+@media (pointer:coarse) { .agent-workspace-app .agfocus .agfocus-row{min-height:44px}.agent-workspace-app .agfocus .agfocus-marker,.agent-workspace-app .agfocus .agfocus-row .agfocus-task-state{height:40px}.agfocus .focus-signoff-queue .focus-signoff-chip{min-height:44px} }
 
 /* Agent-owned screen tabs. Padding belongs to this shell, not nested headings. */
 .agent-workspace-app .agpad .agent-workspace-body { padding:5px 0 0; overflow:hidden; display:flex; flex-direction:column; }
