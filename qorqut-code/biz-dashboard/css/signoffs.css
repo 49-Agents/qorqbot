@@ -14,7 +14,7 @@
 .sg-rowmeta time { flex: none; }
 .sg-scope { color: var(--fg-2); }
 .sg-global { color: #8cbcc9; }
-.sg-detail { padding-top: 16px; }
+.sg-detail { max-width: 1040px; padding-top: 16px; }
 .sg-preview { font-size: 13px; }
 .sg-rationale, .sg-impact, .sg-effects { margin-bottom: 16px; }
 .sg-rationale p, .sg-impact p { margin: 0 0 6px; white-space: pre-wrap; }
