@@ -12,9 +12,9 @@ let ntNotes = [];                   // cache of the last /notes fetch
 let ntSearch = "";                  // detail sidebar search (in-memory filter)
 
 // remember what was open (a note id, or "" for the homepage) per business
-const ntScope = () => state.scope === 'global' ? '/root' : null;
+const ntScope = () => state.scope === 'global' || tView === 'globalNotes' ? '/root' : null;
 const ntEndpoint = (scope = ntScope()) => scope === '/root' ? '/root/notes' : `/biz/${encodeURIComponent(scope)}/notes`;
-const ntActive = () => tView === 'notes';
+const ntActive = () => tView === 'notes' || tView === 'globalNotes';
 const ntKey = () => `nt:${ntScope()}`;
 function ntSetSel(id) {
   ntSel = id;
