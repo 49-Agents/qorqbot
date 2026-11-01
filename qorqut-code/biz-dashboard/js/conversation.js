@@ -64,11 +64,11 @@ function conversationPeople(s) {
 }
 // Presentation only: canonical bodies and transport payloads stay complete.
 function messagePreview(body, summary) {
-  const words=String(summary || body || '').trim().split(/\s+/u).filter(Boolean);
+  const words=String(summary || plainSafeLinks(body) || '').trim().split(/\s+/u).filter(Boolean);
   return words.slice(0,10).join(' ') + (words.length>10?'…':'');
 }
 function conversationMessage(note, open) {
-  const body=`<div data-conversation-body="${esc(note.id)}">${esc(note.body || '')}</div>`;
+  const body=`<div data-conversation-body="${esc(note.id)}">${renderSafeLinks(note.body || '')}</div>`;
   const preview=messagePreview(note.body,note.summary);
   if(!note.summary && String(note.body || '').trim().split(/\s+/u).length<=10)return body;
   return `<details data-message-id="${esc(note.id)}"${open?' open':''}><summary aria-label="${esc(preview)} — expand full message">${esc(preview)}</summary>${body}</details>`;
