@@ -110,3 +110,10 @@
 .agfocus-desktop-completion label{display:grid;gap:4px;font-size:11px}
 .agfocus-desktop-completion .agfocus-done{justify-self:start}
 .agfocus-desktop-success{margin:8px 0;font-size:12px}
+.agbrowser-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.agbrowser-switch{display:inline-flex;gap:4px}
+.agbrowser-switch button[aria-pressed="true"]{background:var(--bg-2,rgba(127,127,127,.18));font-weight:600}
+.agbrowser-actions{display:inline-flex;align-items:center;gap:10px;margin-left:auto;font-size:11px}
+.agfocus-desktop-help .agbrowser-actions{margin:4px 0 0}
+.agbrowser-note{flex-basis:100%;margin:0;color:var(--fg-2);font-size:11px}
+.agbrowser-stage{display:flex;flex:none;justify-content:center}

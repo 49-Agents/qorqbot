@@ -43,12 +43,16 @@ function workspaceViewsFor(roleId) { return roleId ? workspaceTypes().filter(typ
 // through the registry (or shown as an honest unsupported placeholder).
 function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
 
-function agentPaneViews(scope, roleId, base = []) {
+// Browser appears for any agent with a configured browser binding; the full
+// Desktop remains Ordubashy's alone (core also enforces this on the binding).
+function agentPaneViews(scope, roleId, base = [], browser = false) {
   const leading = [], trailing = [];
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_PANE_FIRST.has(type.renderer) ? leading : trailing).push(type.key);
-  if (roleId === "ordubashy" || (scope === "global" && roleId === "global-marketing")) leading.push("desktop");
+  if (browser) leading.push("browser");
+  if (roleId === "ordubashy") leading.push("desktop");
   return [...new Set([...leading, ...base, ...trailing, "status"])];
 }
+function agpadBrowserTab(p) { return typeof agbrowserTab === "function" && agbrowserTab(p); }
 
 function workspaceTypesLoad() {
   if (workspaceDeclarationAsked) return workspaceDeclarationPending;
@@ -67,15 +71,15 @@ function workspaceTypesLoad() {
 
 function agpadWorkspaceViewsSync(p) {
   if (!p.workspaceRole) return;
-  const views = agentPaneViews(p.workspaceScope, p.workspaceRole, p.workspaceBase);
+  const views = agentPaneViews(p.workspaceScope, p.workspaceRole, p.workspaceBase, agpadBrowserTab(p));
   if (views.join("\u0000") === p.views.join("\u0000")) return;
   p.views = views;
   agpadSetView(p, views.includes(p.view) ? p.view : views[0]);
 }
 
 function agpadWorkspaceMount(p, view) {
-  if (view === "desktop" && (p.workspaceRole === "ordubashy" ||
-      (p.workspaceScope === "global" && p.workspaceRole === "global-marketing"))) { agfocusDesktopMount(p); return; }
+  if (view === "desktop" && p.workspaceRole === "ordubashy") { agfocusDesktopMount(p); return; }
+  if (view === "browser" && typeof agbrowserMount === "function") { agbrowserMount(p); return; }
   const type = workspaceType(view);
   if (type && p.workspaceRole && !type.supported_roles.includes(p.workspaceRole)) { workspaceUnsupportedMount(p, type); return; }
   const mount = workspaceRenderer(type);
@@ -281,8 +285,13 @@ function agpadMount(name, el, options = {}) {
     views: ["inbox"], ...options,
     workspaceScope, workspaceBase, workspaceRole: options.workspaceRole || null,
   };
-  p.views = agentPaneViews(workspaceScope, p.workspaceRole, workspaceBase);
+  // Links to the retired Marketing "desktop" tab land in the agent's Browser view.
+  let initialView = options.initialView || agpadRememberedView(p);
+  if (initialView === "desktop" && p.workspaceRole !== "ordubashy" && workspaceScope === "global") initialView = "browser";
+  if (initialView === "browser") p.browserRequested = true;
+  p.views = agentPaneViews(workspaceScope, p.workspaceRole, workspaceBase, agpadBrowserTab(p));
   if (p.workspaceRole) workspaceTypesLoad();
+  if (typeof agbrowserDiscover === "function") agbrowserDiscover(p);
   p.dividerDispose = agentPaneDividerMount(el.closest?.(".agsplit"));
   const button = $("#agpad-toggle");
   if (button) {
@@ -304,7 +313,19 @@ function agpadMount(name, el, options = {}) {
   };
   // A linked view is honored only when it is a usable key; anything else leaves
   // the pane on its normal first view instead of an empty pane.
-  if (!options.initialView || !agpadRequestView(p, options.initialView)) agpadSetView(p, p.views[0]);
+  if (!initialView || !agpadRequestView(p, initialView)) agpadSetView(p, p.views[0]);
+}
+
+// Browser/Desktop is remembered per registered agent, never shared between agents.
+const AGPAD_REMEMBERED_VIEWS = new Set(["browser", "desktop"]);
+function agpadViewKey(p) { return p.agentId ? `agpad:view:${p.agentId}` : null; }
+function agpadRememberedView(p) {
+  const key = agpadViewKey(p), view = key && ls(key);
+  return AGPAD_REMEMBERED_VIEWS.has(view) ? view : null;
+}
+function agpadRememberView(p, view) {
+  const key = agpadViewKey(p);
+  if (key) ls(key, AGPAD_REMEMBERED_VIEWS.has(view) ? view : "");
 }
 
 function agpadSetView(p, view) {
@@ -315,7 +336,9 @@ function agpadSetView(p, view) {
   p.workspaceDispose = null;
   const from = p.view;
   if (from === "desktop") p.desktopRequest = (p.desktopRequest || 0) + 1;
+  if (from === "browser") p.browserRequest = (p.browserRequest || 0) + 1;
   p.view = view;
+  agpadRememberView(p, view);
   p.bodyHtml = null;
   p.el.innerHTML = tHead({ view, views: p.views, bodyId: "agpad-body", taskTools: false });
   if (view === 'status') agentCurrentWorkMount(p);
