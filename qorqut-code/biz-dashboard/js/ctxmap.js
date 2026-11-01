@@ -2,7 +2,7 @@
 // Mind maps as plain SVG, no libraries. `mindmap(el, root, opts)` draws a {label, kind, children} tree as a
 // two-sided tidy tree: root in the middle, first-level branches split right and left, each branch its own
 // colour. Drag to pan, wheel to zoom, click a badge to fold or unfold a branch, click a label to go there
-// (opts.onOpen). `ctxMapIdea` adapts the shared service's registered upload-map response.
+// (opts.onOpen).
 // `mapMermaid` exports it as Mermaid mindmap text. Folder graphs use ctxgraph.js.
 
 const MAP_FONT = "12.5px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
@@ -209,5 +209,3 @@ function mapMermaid(root) {
   return out.join("\n") + "\n";
 }
 
-// an upload's model-drawn mind map ({text, children}) as renderer input
-const ctxMapIdea = (t, depth = 0) => ({ label: t.text, kind: depth ? "idea" : "root", children: (t.children || []).map(c => ctxMapIdea(c, depth + 1)) });

@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------- context
-// Home, search, object, graph and people pages read the context base. Uploads
-// retain the legacy navigation for compatibility, with the owner's base ledger
-// shown alongside it whenever the base reader is available.
+// Home, search, object, graph and people pages read the published graph. Uploads are registered source
+// documents addressed by their document identity (`_source/<id>`); their filing facts come from the recorded
+// `filing` projection and the owner diagnostics (see context-source.js).
 let _ctxTimer = null, _ctxUnwatch = null, _ctxData = null, _ctxGeneration = 0;
 const ctxPageCache = new Map();
 let _ctxGraph = null, _ctxNavigation = 0;
@@ -18,15 +18,6 @@ const isTopic = p => p != null && !p.endsWith(".md");           // state.ctx is 
 const ctxFind = (node, path) => { if (!node) return null; if ((node.path || "") === path) return node; for (const c of node.children || []) { const h = ctxFind(c, path); if (h) return h; } return null; };
 const PERSON_VIEW_RE = /^_people\/([a-z][a-z0-9-]{1,63})$/;     // "_people/<slug>" (no .md) is the person view, not a raw file
 const OBJ_PAGE_RE = /^_obj\/(.{0,200})$/;                           // "_obj/<ref>" is a published-graph object page; the reader validates the ref
-const uploadId = p => {
-  const data = _ctxData || {};
-  const registered = [...(data.inbox || []), ...(data.dumps || [])].find(row => String(row.path || '').replace(/^context\//, '') === p);
-  if (registered) return registered.id;
-  const legacy = /^_(?:inbox|dumps)\/(\d{4}-\d{2}-\d{2}-\d{4}-[0-9a-z]{4})\.md$/.exec(p || '');
-  return legacy ? legacy[1] : '';
-};
-const ctxMapStamp = (d, id) => { const m = ((d || {}).maps || []).find(x => x.id === id); return m ? `${m.at}|${m.nodes}` : ""; };
-let _ctxMapAt = "", _ctxMapping = false;                        // the upload view's mind map state, so the watcher knows when to redraw
 const findPerson = slug => ((_ctxData || {}).people || []).find(p => p.slug === slug);
 const cap = (s, n = 70) => {
   s = String(s || "");
@@ -71,7 +62,9 @@ async function renderContext(c) {
   wireCtxSearch();
   if (state.ctx == null) state.ctx = ls(`ctxpage:${biz}`) ?? contextTab0 ?? "_home";
   _ctxData = ctxPageCache.get(biz) || null;
+  _ctxQueue = null; _ctxPaintError = "";
   ctxTree(_ctxData || {loading:true});
+  ctxQueueRefresh();
   const current = () => generation === _ctxGeneration && state.scope !== 'global' && state.biz === biz && state.tab === 'context' && c.isConnected;
   const loadTree = async () => {
     try {
@@ -134,13 +127,8 @@ async function ctxSearch(q) {
   pubMountSearch(v, {kind: 'business', id: biz}, q, nav);
 }
 
-function ctxBusy(d) {
-  const s = d.summarizing || {};
-  return !!((d.filing && d.filing.current) || (d.inbox || []).some(i => ["queued", "running", "waiting_signoff", "cancelling"].includes(i.status)) || s.current || s.queued);
-}
-const ctxSig = (d, p) => (["_learning", "_tables", "_products", "_home"].includes(p) || p?.startsWith("_obj/")) ? p // These views own their refreshes.
+const ctxSig = (d, p) => (["_learning", "_tables", "_products", "_home", "_uploads"].includes(p) || p?.startsWith("_obj/") || p?.startsWith("_source/")) ? p // These views own their refreshes.
   : p === "_people" ? JSON.stringify([d?.people,d?.graph?.nodes.filter(n=>n.type==='person'),d?.graph?.edges.filter(e=>e.source.type==='person' || e.target.type==='person')])
-  : p === "_uploads" ? JSON.stringify([(d || {}).inbox || [], (d || {}).dumps || []])
   : JSON.stringify([(d || {}).tree,
     (d || {}).people, p ? null : (d || {}).pillars,
     (d || {}).graph]);
@@ -170,35 +158,46 @@ function ctxWatch() {
     if (state.tab !== "context" || state.biz !== biz || !tree.isConnected) return;
     if (!ctxDataFits(d2, state.ctx)) { _ctxTimer = setTimeout(tick, 100); return; }   // raced a navigation mid-fetch: retry once the shape matches
     ctxPaint(d2);
-    const uid = uploadId(state.ctx);
-    if (state.ctx && state.ctx.startsWith("_inbox/") && !(d2.inbox || []).some(i => `_inbox/${i.id}.md` === state.ctx)) {
-      ctxGo((d2.dumps || []).some(u => u.id === uid) ? `_dumps/${uid}.md` : "");     // filed while we looked: follow it
-    }
-    else if (isTopic(state.ctx)) { if (ctxSig(d2, state.ctx) !== _ctxLastSig) ctxShow(state.ctx); }   // summaries, notes, people landed
-    else if (uid && (ctxMapStamp(d2, uid) !== _ctxMapAt || (_ctxMapping && !ctxBusy(d2)))) openCtx(state.ctx);   // its map landed (or failed)
+    if (isTopic(state.ctx)) { if (ctxSig(d2, state.ctx) !== _ctxLastSig) ctxShow(state.ctx); }   // summaries, notes, people landed
+    ctxQueueRefresh();
     _ctxTimer = setTimeout(tick, 60000);
   };
   _ctxUnwatch = typeof onChange === 'function' ? onChange(['documents', 'jobs_routines'], biz, tick) : null;
   _ctxTimer = setTimeout(tick, 60000);
 }
 
+// The footer speaks only about the Context queue: counts from the process view's `context_queue`, or an explicit error.
+let _ctxQueue = null, _ctxPaintError = "", _ctxQueueRead = 0;
+function ctxQueueDraw() {
+  const q = $("#ctxq");
+  if (!q || q.querySelector("[data-context-reload]")) return;
+  const bits = [];
+  if (_ctxPaintError) bits.push(`<span class="bad">${esc(_ctxPaintError)}</span>`);
+  if (_ctxQueue?.error) bits.push(`<span class="bad" role="alert" data-src-queue-error>${esc(_ctxQueue.error)}</span>`);
+  else if (_ctxQueue) bits.push(srcQueueHtml(_ctxQueue.queue));
+  q.innerHTML = bits.filter(Boolean).join(`<span class="dot">·</span>`);
+}
+async function ctxQueueRefresh() {
+  const biz = state.biz, generation = _ctxGeneration, read = ++_ctxQueueRead, signal = pageReads.signal;
+  try {
+    const data = await srcReadProcesses({kind: "business", id: biz}, signal);
+    if (data?.error) throw new Error(typeof data.error === "string" ? data.error : data.error.message || "Context queue status is unavailable");
+    if (!srcQueueValid(data?.context_queue)) throw new Error("Context queue status was not returned");
+    if (read !== _ctxQueueRead || generation !== _ctxGeneration || state.biz !== biz) return;
+    _ctxQueue = {queue: data.context_queue};
+  } catch (error) {
+    if (read !== _ctxQueueRead || generation !== _ctxGeneration || state.biz !== biz) return;
+    _ctxQueue = {error: `Context queue status is unavailable: ${error.message}`};
+  }
+  ctxQueueDraw();
+  if ($("#ctxrows")) ctxTree(_ctxData || {loading: true});
+}
+
 function ctxPaint(d) {
   if (!d.error) ctxPageCache.set(state.biz, d);
   _ctxData = d;
-  const q = $("#ctxq"), inbox = d.inbox || [], f = d.filing || {}, s = d.summarizing || {}, cur = f.current;
-  const failed = inbox.filter(i => i.failed).length, waiting = inbox.filter(i => ["queued", "running", "waiting_signoff", "cancelling"].includes(i.status)).length;
-  const bits = [];
-  if (d.error) bits.push(`<span class="bad">${esc(d.error)}</span>`);
-  if (d.has_filer === false) bits.push(`<span class="bad">no agents/_filer in this business; copy it from biz-template</span>`);
-  if (cur) bits.push(`<span class="run">filing ${esc(cur.id)} · ${fmtAgo(cur.started)}</span>`);
-  if (waiting) bits.push(`${waiting} waiting${cur ? "" : ` · next sweep within ${Math.round((f.every || 300) / 60)} min`}`);
-  if (failed) bits.push(`<span class="bad">${failed} failed</span>`);
-  if (s.current) {
-    const t = String(s.current.topic || "");
-    bits.push(`<span class="run">${t.startsWith("map:") ? `mapping ${esc(t.slice(4))}` : `summarising ${esc(t)}`}</span>${s.queued ? ` +${s.queued}` : ""}`);
-  }
-  // idle: nothing; the bar only speaks while something is queued, running or failed
-  q.innerHTML = bits.join(`<span class="dot">·</span>`);
+  _ctxPaintError = d.error ? String(d.error) : "";
+  ctxQueueDraw();
   ctxTree(d);
 }
 
@@ -214,8 +213,8 @@ function ctxTree(d) {
   for (const [key, label, icon] of [['_tables', 'Tables', aicon('database', 'currentColor', 15)], ['_products', 'Products', `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg>`]]) {
     rows.push(`<button type="button" class="item bt ${state.ctx === key ? 'on' : ''}" data-p="${key}"><div class="nm">${icon}<span class="tt">${label}</span></div></button>`);
   }
-  const inbox0 = d.inbox || [], failed0 = inbox0.filter(i => i.failed).length, waiting0 = inbox0.filter(i => ["queued", "running", "waiting_signoff", "cancelling"].includes(i.status)).length;
-  const badge0 = failed0 ? `<span class="bdot bad"></span>` : waiting0 ? `<span class="bdot acc"></span>` : "";
+  const cq = _ctxQueue?.queue, attention = cq && (cq.blocked || cq.completion_conflict || cq.queue_blocked), active = cq && (cq.queued || cq.processing || cq.discard_requested || cq.publication_pending_completion);
+  const badge0 = attention ? `<span class="bdot bad"></span>` : active ? `<span class="bdot acc"></span>` : "";
   const peopleOn0 = state.ctx === "_people" || (state.ctx != null && PERSON_VIEW_RE.test(state.ctx));
   rows.push(`<div class="item bt ${peopleOn0 ? "on" : ""}" data-p="_people"><div class="nm">${SVG_PEOPLE}<span class="tt">People</span></div></div>`);
   rows.push(`<div class="item bt ${state.ctx === "_uploads" ? "on" : ""}" data-p="_uploads"><div class="nm">${SVG_INBOX}<span class="tt">Uploads</span>${badge0}</div></div>`);
@@ -234,7 +233,7 @@ async function ctxGo(p) {
   return ctxShow(p);
 }
 
-const ctxIndependentPage = p => p === '_learning' || p === '_tables' || p === '_products' || p === '_home' || p === '_people' || p?.startsWith('_obj/');
+const ctxIndependentPage = p => p === '_learning' || p === '_tables' || p === '_products' || p === '_home' || p === '_people' || p === '_uploads' || p?.startsWith('_obj/') || p?.startsWith('_source/');
 async function ctxShow(p) {
   if (p === "_tasks") { p = ""; state.ctx = ""; }
     ls(`ctxpage:${state.biz}`, (["_tables", "_products", "_people", "_learning", "_uploads", "_home"].includes(p)) ? p : "");
@@ -278,7 +277,9 @@ async function ctxShow(p) {
   const om = p != null && OBJ_PAGE_RE.exec(p);
   if (om) { _ctxLastSig = ctxSig(_ctxData, p); return openObject(om[1]); }
   if (p === "_people") return openPeople();
-  if (p === "_uploads") return openUploads();
+  if (p === "_uploads") { _ctxLastSig = ctxSig(_ctxData, p); return openUploads(); }
+  const src = p != null && /^_source\/(.*)$/.exec(p);
+  if (src) { _ctxLastSig = ctxSig(_ctxData, p); return openSource(src[1]); }
   const m = p != null && PERSON_VIEW_RE.exec(p);
   if (m) return openPerson(m[1]);
   return isTopic(p) ? openTopic(p) : openCtx(p);
@@ -312,37 +313,6 @@ function openObject(ref) {
   const v = $("#ctxview");
   v.classList.remove('global-context-graph-view');
   pubMountObject(v, {kind: 'business', id: state.biz}, ref, ctxNav());
-}
-
-// Resolve a legacy authored path to a canonical object by durable content
-// identity exposed through context_find. This is only a reader projection:
-// raw uploads, INDEX.md and unmapped files stay on the legacy file reader.
-async function baseObjectForLegacyPath(path, text, documentId = "") {
-  if (!path || path === "INDEX.md" || path.startsWith("_inbox/") || path.startsWith("_dumps/") || path.startsWith("_maps/")) return null;
-  // The legacy reader carries the original UUID even when the path has been
-  // renamed. Ask the compatibility projection to resolve that durable mapping
-  // before considering any prose/name fallback.
-  if (documentId) {
-    try {
-      const projected = coreData(await pageReadPost(`/biz/${encodeURIComponent(state.biz)}/operations/context_get`, {document_id: documentId}));
-      const doc = projected?.document;
-      if (doc?.canonical_ref) return {ref: doc.canonical_ref, kind: String(doc.kind || "").replace(/^context_/, "")};
-    } catch (_) { /* unmapped legacy material continues through the old reader */ }
-  }
-  const {meta} = ctxSplit(text || "");
-  const leaf = path.split("/").pop().replace(/\.md$/, "");
-  const parent = path.split("/").slice(-2, -1)[0] || "";
-  const queries = [...new Set([meta.name, meta.title, leaf === "_topic" ? parent : leaf].filter(q => String(q || "").trim().length >= 2))];
-  const wanted = path.startsWith("_people/") ? "person" : leaf === "_topic" ? "topic" : "note";
-  for (const query of queries) {
-    try {
-      const items = coreData(await pageReadPost(`/biz/${encodeURIComponent(state.biz)}/operations/context_find`, {query, limit: 30})).items || [];
-      const exact = items.find(item => item.kind === wanted && String(item.name || "").toLowerCase() === String(query).toLowerCase());
-      const candidate = exact || items.find(item => item.kind === wanted);
-      if (candidate?.ref) return candidate;
-    } catch (_) { return null; }
-  }
-  return null;
 }
 
 // A topic opens its scoped relationship graph.
@@ -456,59 +426,25 @@ async function openPeople() {
   v.querySelectorAll('.jrcard').forEach(el => el.onclick=()=>ctxGo(`_obj/${el.dataset.id}`));
 }
 
-// context base receipt (metadata.context_base, written by the context.base_file job): one small chip per upload
-function ctxBaseChip(item) {
-  const b = item && item.context_base;
-  if (!b || !b.status) return "";
-  const s = b.summary || {};
-  const counts = b.status === "filed" ? [s.developments != null ? `${s.developments} dev` : "", s.impacts != null ? `${s.impacts} imp` : "", s.actions != null ? `${s.actions} act` : ""].filter(Boolean).join(" · ") : "";
-  const title = b.status === "filed" ? `context base: filed${s.commit ? ` · ${String(s.commit).slice(0, 8)}` : ""}${counts ? ` · ${counts}` : ""}` : `context base: failed · ${String(b.error || "").slice(0, 120)}`;
-  return `<span class="cnt ${b.status === "failed" ? "bad" : ""}" title="${esc(title)}">base ${b.status === "filed" ? "✓" : "✗"}</span>`;
-}
-// uploads: what's still filing (or failed) up top, then every filed dump — the tree's old Inbox/Uploads sections
-async function openUploads() {
-  const v = $("#ctxview"), d = _ctxData || {}, inbox = d.inbox || [], dumps = d.dumps || [];
-  let baseUploads = [];
-  try {
-    baseUploads = (coreData(await pageReadPost(`/biz/${encodeURIComponent(state.biz)}/operations/context_filings`, {limit: 60})).uploads || []);
-  } catch (_) { /* legacy installations and non-owner viewers keep the old reader */ }
-  const base = baseUploads.length ? `<div class="sec"><div class="sh">Context base ledger</div><div class="cards">${baseUploads.map(u => {
-    const p = u.provenance || {}, a = p.attribution || {};
-    const who = a.display_name || a.principal_id || p.by || "unknown actor";
-    const state = u.status || "pending";
-    const title = u.notes || u.upload_id;
-    return `<div class="card u d" data-p="_dumps/${esc(u.upload_id)}.md"><div class="ct"><span class="tt">${esc(title)}</span><span class="cnt ${state === "failed" ? "bad" : ""}" title="${esc(`base ${state}; ${who}`)}">base ${esc(state)}</span></div><div class="cb">${esc(who)}${p.origin ? ` · ${esc(p.origin)}` : ""}</div><div class="cs">${esc(u.upload_id)} · ${String(u.text || "").length} chars</div></div>`;
-  }).join("")}</div></div>` : "";
-  _ctxLastSig = ctxSig(d, "_uploads");
-  const head = `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><span class="cur">Uploads</span></div><div class="th"><h2>Uploads</h2></div>`;
-  const filing = inbox.length ? `<div class="sec"><div class="sh">Filing</div><div class="cards">${inbox.map(i => {
-    const cur = d.filing && d.filing.current && d.filing.current.id === i.id;
-    const st = cur ? `<span class="run">filing</span>` : i.failed ? `<span class="bad">failed</span>` : esc(({queued: "queued", running: "filing", waiting_signoff: "awaiting approval", cancelled: "cancelled", cancelling: "cancelling"})[i.status] || "status unavailable");
-    return `<div class="card u ${i.failed ? "failed" : ""}" data-p="_inbox/${esc(i.id)}.md"><div class="ct"><span class="tt">${esc(i.notes || i.topic || i.preview || i.id)}</span>${i.retryable ? `<button class="retry" data-id="${esc(i.id)}" title="queue it again">retry</button>` : ""}</div><div class="cb">${st}${ctxBaseChip(i)}</div><div class="cs">${esc(i.id)} · ${i.chars} chars${i.error ? ` · ${esc(String(i.error).slice(0, 80))}` : ""}</div></div>`;
-  }).join("")}</div></div>` : "";
-  const up = dumps.length ? `<div class="sec"><div class="sh">Uploads</div><div class="cards">${dumps.slice(0, 60).map(u => `<div class="card u d" data-p="_dumps/${esc(u.id)}.md"><div class="ct"><span class="tt">${esc(u.notes || u.topic || u.preview || u.id)}</span>${u.map ? `<span class="cnt" title="has a mind map">map</span>` : ""}${ctxBaseChip(u)}</div><div class="cb">${esc(u.id)}</div><div class="cs">${u.chars} chars</div></div>`).join("")}</div></div>${dumps.length > 60 ? `<div class="empty pad">${dumps.length - 60} older uploads; search finds them</div>` : ""}`
-    : `<div class="empty">nothing uploaded yet</div>`;
-  v.innerHTML = head + base + filing + up;
+// uploads: registered source documents, listed with their current filing state. Each kind pages on its own.
+function openUploads() {
+  const v = $("#ctxview"), biz = state.biz, scope = {kind: "business", id: biz};
+  const live = () => state.biz === biz && state.ctx === "_uploads" && state.tab === "context" && v.isConnected;
+  v.classList.remove("ctxembedded-view", "global-context-graph-view");
+  v.innerHTML = `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><span class="cur">Uploads</span></div><div class="th"><h2>Uploads</h2></div>
+    <div data-src-recent></div><div data-src-lists></div>`;
   wireCrumbs(v);
-  v.querySelectorAll(".card").forEach(el => el.onclick = e => { if (e.target.closest(".retry")) return; ctxGo(el.dataset.p); });
-  v.querySelectorAll(".retry").forEach(el => el.onclick = e => { e.stopPropagation(); ctxRetry(el.dataset.id, el); });
+  const open = id => ctxGo(`_source/${id}`);
+  srcMountList(v.querySelector("[data-src-lists]"), scope, [{kind: "context_upload", label: "Uploads"}, {kind: "context_dump", label: "Dumps"}], {live, open});
+  srcMountRecentFilings(v.querySelector("[data-src-recent]"), scope, {live, open});
 }
-
-const ctxRetryPending = new Set();
-async function ctxRetry(id, button) {
-  if (ctxRetryPending.has(id)) return;
-  ctxRetryPending.add(id);
-  if (button) button.disabled = true;
-  try {
-    const r = await post(`/biz/${state.biz}/context/retry`, { id });
-    toast(r.error ? r.error : `${id} filing queued`);
-    renderContext($("#content"));
-  } catch (error) {
-    toast(error.message || "Could not queue filing");
-  } finally {
-    ctxRetryPending.delete(id);
-    if (button) button.disabled = false;
-  }
+// one source document by its identity: current filing, bounded body, recorded diagnostics
+function openSource(id) {
+  const v = $("#ctxview"), biz = state.biz, route = `_source/${id}`;
+  v.classList.remove("ctxembedded-view", "global-context-graph-view");
+  srcMountSource(v, {kind: "business", id: biz}, id, {live: () => state.biz === biz && state.ctx === route && state.tab === "context",
+    crumbs: `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><a data-p="_uploads">Uploads</a><span class="sep">›</span><span class="cur">${esc(id)}</span></div>`,
+    wireCrumbs, openObject: ref => ctxGo(`_obj/${ref}`)});
 }
 
 const CTX_META = ["title", "by", "notes", "from", "at", "part", "also", "filed_by", "topic", "processed", "result", "attempts", "error", "last_attempt"];
@@ -583,40 +519,23 @@ async function openCtx(p) {
   const r = await api(`/biz/${encodeURIComponent(biz)}/context/file?p=${encodeURIComponent(p)}`);
   if (state.biz !== biz || state.ctx !== p || !v.isConnected) return;
   if (r.error) { v.innerHTML = `<div class="empty">${esc(r.error)}</div>`; return; }
-  const ro = p === "INDEX.md" || p.startsWith("_dumps/");
+  const ro = p === "INDEX.md";
   const { meta } = ctxSplit(r.text);                 // for the chip row
   const { fm, sep, body } = jSplitFm(r.text);          // lossless, for editing/saving
   const dir = p.includes("/") && !p.startsWith("_") ? p.split("/").slice(0, -1).join("/") : "";
   const chips = CTX_META.filter(k => meta[k]).map(k => `<span class="chip ${k === "error" ? "bad" : ""}"><b>${esc(k)}</b>${esc(meta[k])}</span>`).join("") +
     (r.material?.material_type ? `<span class="chip"><b>type</b>${esc(r.material.material_type)}</span><span class="chip"><b>origin</b>${esc(r.material.origin)}</span>${(r.material.tags || []).map(tag=>`<span class="chip">${esc(tag)}</span>`).join('')}` : '');
-  const uid = uploadId(p);
-  if (!uid) {
-    const base = await baseObjectForLegacyPath(p, r.text, r.document_id);
-    if (base && state.ctx === p) return openObject(base.ref, p);
-  }
-  let um = null, filing = null;
-  if (uid) {
-    try {
-      const base = coreData(await pageReadPost(`/biz/${encodeURIComponent(state.biz)}/operations/context_upload_map`, {upload_id: uid}));
-      um = {map: {tree: base.outline, nodes: (base.outline || []).length, at: base.updated_at}, trace: {where: "_dumps"}, mapping: false};
-    } catch (_) { um = await api(`/biz/${state.biz}/context/map?id=${uid}`); }
-    try { filing = coreData(await pageReadPost(`/biz/${encodeURIComponent(state.biz)}/operations/context_filings`, {upload_id: uid})); }
-    catch (_) { /* legacy mode and non-owner viewers keep the old upload detail */ }
-  }
-  if (state.ctx !== p) return;                                                     // navigated away meanwhile
-  const title = meta.title || (uid ? (meta.notes || meta.topic || `Upload ${uid}`) : p.endsWith("/_topic.md") ? "description" : p.split("/").pop());
+  const title = meta.title || (p.endsWith("/_topic.md") ? "description" : p.split("/").pop());
   v.innerHTML = `${ctxCrumbs(dir, p.split("/").pop())}
-    <div class="jcol"><div class="jhead"><h2 class="jt">${esc(title)}</h2>${ro ? `<span class="ro">${p === "INDEX.md" ? "generated" : "filed upload, immutable"}</span>` : `<span class="jsave" id="jsave"></span><button class="jbtn" id="jsavebtn" type="button">Save</button><button class="jbtn" id="jdiscard" type="button">Discard</button>`}</div>
+    <div class="jcol"><div class="jhead"><h2 class="jt">${esc(title)}</h2>${ro ? `<span class="ro">${p === "INDEX.md" ? "authored template index · static" : "read only"}</span>` : `<span class="jsave" id="jsave"></span><button class="jbtn" id="jsavebtn" type="button">Save</button><button class="jbtn" id="jdiscard" type="button">Discard</button>`}</div>
     ${chips ? `<div class="chips">${chips}</div>` : ""}<hr class="jhr">
     <div id="ctx-work" class="small" aria-label="Related work"></div>
-    ${uid ? uploadFilingEvidence(filing) + uploadSections(uid, um || {}) : ""}
-    ${ro ? `<div class="jbody">${esc(body)}</div>` : `<textarea class="jta" id="jta" spellcheck="false" placeholder="Start writing…"></textarea>`}</div>`;
+        ${ro ? `<div class="jbody">${esc(body)}</div>` : `<textarea class="jta" id="jta" spellcheck="false" placeholder="Start writing…"></textarea>`}</div>`;
   wireCrumbs(v);
-  if(r.document_id)workRelatedChips(v.querySelector('#ctx-work'),biz,uid?'uploads':'documents',r.document_id,async()=>{
+  if(r.document_id)workRelatedChips(v.querySelector('#ctx-work'),biz,'documents',r.document_id,async()=>{
     if(_jState?.dirty){await jSave();if(_jState?.dirty)return false;}
     return true;
   });
-  if (uid) wireUpload(v, uid, um || {});
   if (ro) return;
   const ta = $("#jta");
   ta.value = body;
@@ -636,66 +555,6 @@ async function openCtx(p) {
     jClearTimers();
     ta.value = _jState.body0; _jState.dirty = false; jGrow(ta);
     const el = $("#jsave"); if (el) { el.textContent = "discarded"; setTimeout(() => { if ($("#jsave") === el && el.textContent === "discarded") el.textContent = ""; }, 2000); }
-  };
-}
-
-function uploadFilingEvidence(data) {
-  if (!data?.upload) return "";
-  const upload = data.upload, provenance = upload.provenance || {}, attribution = provenance.attribution || {};
-  const decisions = data.decisions || {}, verify = decisions.verify || {}, calls = decisions.model_calls || decisions.calls || [];
-  const actor = attribution.display_name || attribution.name || attribution.principal_id || provenance.by || "unresolved actor";
-  const kind = attribution.principal_kind || attribution.kind || "unknown";
-  const summary = decisions.summary || {};
-  const counts = [summary.developments != null ? `${summary.developments} developments` : "",
-    summary.impacts != null ? `${summary.impacts} impacts` : "",
-    summary.actions != null ? `${summary.actions} actions` : ""].filter(Boolean).join(" · ");
-  const evidence = [
-    `<span class="chip"><b>actor</b>${esc(actor)}</span>`,
-    `<span class="chip"><b>kind</b>${esc(kind)}</span>`,
-    provenance.origin ? `<span class="chip"><b>source</b>${esc(provenance.origin)}</span>` : "",
-    upload.status ? `<span class="chip"><b>status</b>${esc(upload.status)}</span>` : "",
-    counts ? `<span class="chip"><b>applied</b>${esc(counts)}</span>` : "",
-    verify.model ? `<span class="chip"><b>verifier</b>${esc(verify.model)}</span>` : "",
-    Array.isArray(calls) ? `<span class="chip"><b>model calls</b>${calls.length}</span>` : ""
-  ].filter(Boolean).join("");
-  return `<div class="sec ctx-filing-evidence"><div class="sh">Base filing evidence</div><div class="chips">${evidence}</div>` +
-    (provenance.document_id || upload.upload_id ? `<div class="cs">upload ${esc(provenance.document_id || upload.upload_id)}</div>` : "") + `</div>`;
-}
-
-// an upload's two maps: the model-drawn mind map of its text, and where it went (notes, topics, people)
-function uploadSections(uid, um) {
-  const m = um.map, t = um.trace || {}, filed = t.where === "_dumps", notes = t.notes || [];
-  _ctxMapAt = m ? `${m.at}|${m.nodes}` : ""; _ctxMapping = !!um.mapping;
-  const stamp = m ? `<span class="stamp">${m.nodes} nodes · ${esc(String(m.at || "").slice(0, 10))}${m.model ? ` · ${esc(m.model)}` : ""}</span>` : "";
-  const btn = um.mapping ? `<button class="ghost sm" disabled>drawing…</button>` : `<button class="ghost sm" id="dumpdraw">${m ? "Redraw" : "Draw mind map"}</button>`;
-  const mapBody = m ? `<div id="dumpmap"></div>` : `<div class="empty">${um.mapping ? "being drawn now from the text below" : um.error ? esc(um.error) : "No mind map yet."}</div>`;
-  const cards = notes.length ? `<div class="cards">${notes.map(n => `<div class="card n" data-p="${esc(n.path)}" data-tree="${esc(n.tree || "context")}" title="${esc(n.title)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(n.title || n.path))}</span></div>
-      <div class="cb">${esc(n.summary || "")}</div><div class="cs">${esc(n.topic)}${(n.people || []).length ? ` · ${esc(n.people.join(", "))}` : ""}</div></div>`).join("")}</div>`
-    : `<div class="empty">${filed ? `no notes were cut from it${t.result ? `: ${esc(t.result)}` : ""}` : "Not filed yet."}</div>`;
-  const chip = (path, label, extra = "") => `<span class="chip${path.startsWith("marketing-content/") ? "" : " go"}" data-p="${esc(path)}" ${extra}>${esc(label)}</span>`;
-  const topics = (t.topics || []).length || (t.also || []).length ? `<div class="row"><span class="lbl">topics</span>${(t.topics || []).map(x => chip(x, x)).join("")}${(t.also || []).map(x => chip(x, `${x} (also)`, 'title="cross-referenced, not filed into"')).join("")}</div>` : "";
-  const people = (t.people || []).length ? `<div class="row"><span class="lbl">people</span>${t.people.map(pp => chip(`_people/${pp.slug}`, pp.name)).join("")}</div>` : "";
-  // a call or meeting: who the owner said was there and when. A picked Person links to their page; a typed name is plain.
-  const up = [...((_ctxData || {}).inbox || []), ...((_ctxData || {}).dumps || [])].find(u => u.id === uid) || {};
-  const who = (up.participants || []).map(x => {
-    const person = x.person_id && ((_ctxData || {}).people || []).find(pp => pp.document_id === x.person_id);
-    return person ? chip(`_people/${person.slug}`, x.name) : `<span class="chip">${esc(x.name)}</span>`;
-  });
-  const encounter = ["call", "meeting"].includes(up.origin)
-    ? `<div class="sec trace"><div class="row"><span class="lbl">${esc(up.origin)}</span>${who.length ? `<span class="small muted">with</span>${who.join("")}` : ""}${up.occurred_on ? `<span class="small muted">on ${esc(up.occurred_on)}</span>` : ""}</div></div>` : "";
-  return `${encounter}<div class="sec"><div class="sh">Mind map ${stamp}<span class="ml">${btn}</span></div>${mapBody}</div>
-    <div class="sec trace"><div class="sh">Where it went</div>${cards}${topics}${people}</div>`;
-}
-function wireUpload(v, uid, um) {
-  if (um.map && um.map.tree) mindmap($("#dumpmap"), ctxMapIdea(um.map.tree));
-  v.querySelectorAll(".trace .card, .trace .chip.go").forEach(el => el.onclick = () => el.dataset.tree === "marketing-content" ? mkOpenNote(el.dataset.p) : ctxGo(el.dataset.p));
-  const b = $("#dumpdraw");
-  if (b) b.onclick = async () => {
-    b.disabled = true;
-    const r = await post(`/biz/${state.biz}/context/map`, { id: uid });
-    toast(r.error || `drawing the mind map of ${uid}`);
-    const d = await api(`/biz/${state.biz}/context`); ctxPaint(d); ctxWatch();
-    if (state.ctx && uploadId(state.ctx) === uid) openCtx(state.ctx);
   };
 }
 
