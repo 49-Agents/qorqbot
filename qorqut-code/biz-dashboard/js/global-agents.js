@@ -241,20 +241,20 @@ async function renderGlobalAgents(c) {
 
   // ---- selection
   // An actual global agent is a persistent chat served by the supervised runner; the workspace terminal and every business agent
-  // keep the terminal. The chat view's "Diagnostic terminal" action opens the agent's tmux shell for troubleshooting only.
+  // keep the terminal. The view toggle detaches only the UI; the chat runner and tmux shell keep running independently.
   let chatMount = null;
   const disposeChat = () => { chatMount?.dispose(); chatMount = null; };
   const mountAgentSession = agent => {
     disposeChat();
     if (typeof teardownTerm === 'function') teardownTerm();
-    chatMount = mountGlobalChat(pane, agent, {openTerminal: () => mountDiagnosticTerminal(agent)});
+    chatMount = mountGlobalChat(pane, agent, {openTerminal: () => mountAgentShell(agent)});
     // The view is torn down by navigation, not by an event: release the stream once the pane has left the page.
     const mine = chatMount, watch = setInterval(() => { if (!pane.isConnected || chatMount !== mine) { clearInterval(watch); if (chatMount === mine) disposeChat(); } }, 2000);
   };
-  const mountDiagnosticTerminal = agent => {
+  const mountAgentShell = agent => {
     disposeChat();
-    pane.innerHTML = `<div class="gchat-diagnostic"><div class="gchat-diagnostic-bar"><button type="button" class="quiet" data-chat-return>Back to chat</button>
-      <span class="muted">Diagnostic terminal for ${esc(agent.display_name || agent.name)}. Do not start the agent here while its chat is enabled.</span></div><div class="gchat-diagnostic-host"></div></div>`;
+    pane.innerHTML = `<div class="gchat-diagnostic"><div class="gchat-diagnostic-bar">${globalChatViewToggle(true)}
+      <span class="muted">Interactive shell · agent conversation stays in Chat.</span></div><div class="gchat-diagnostic-host"></div></div>`;
     pane.querySelector('[data-chat-return]').onclick = () => { if (current() && selected === agent.agent_id) mountAgentSession(agent); };
     mountTerminal(agent.agent_id, pane.querySelector('.gchat-diagnostic-host'), () => {}, `/root/terminal/${encodeURIComponent(agent.agent_id)}`);
   };

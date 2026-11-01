@@ -70,6 +70,13 @@ function globalChatMarkdown(source) {
 }
 
 // ---- the mount
+function globalChatViewToggle(terminal = false) {
+  return `<div class="gchat-view-toggle" role="group" aria-label="Agent view">
+    <button type="button" class="quiet" data-chat-return aria-pressed="${!terminal}" ${terminal ? '' : 'disabled'}>Chat</button>
+    <button type="button" class="quiet" data-terminal aria-pressed="${terminal}" ${terminal ? 'disabled' : ''}>Terminal</button>
+  </div>`;
+}
+
 function mountGlobalChat(pane, agent, options = {}) {
   const agentId = agent.agent_id, base = globalChatBase(agentId), label = agent.display_name || agent.name || 'Agent';
   const messages = new Map();                    // id -> message view
@@ -84,7 +91,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       <span class="gchat-name">${esc(label)}</span>
       <span class="gchat-status" role="status" aria-live="polite"></span>
       <span class="gchat-spacer"></span>
-      <button type="button" class="quiet gchat-stop" hidden>Stop</button>
+      ${options.openTerminal ? globalChatViewToggle() : ''}
       <span class="gchat-tools termtools"></span>
       <details class="gchat-menu"><summary aria-label="Chat options" title="Chat options">⋯</summary><div class="gchat-menu-list" role="menu"></div></details>
     </header>
@@ -101,7 +108,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   </div>`;
   const root = pane.firstElementChild;
   const $q = selector => root.querySelector(selector);
-  const status = $q('.gchat-status'), stop = $q('.gchat-stop'), menu = $q('.gchat-menu-list'), banner = $q('.gchat-banner');
+  const status = $q('.gchat-status'), menu = $q('.gchat-menu-list'), banner = $q('.gchat-banner');
   const scroller = $q('.gchat-scroll'), log = $q('.gchat-log'), actionHost = $q('.gchat-actions'), emptyNote = $q('.gchat-empty');
   const olderButton = $q('.gchat-older'), jump = $q('.gchat-jump'), form = $q('.gchat-composer');
   const input = form.querySelector('textarea'), send = form.querySelector('.gchat-send');
@@ -269,14 +276,11 @@ function mountGlobalChat(pane, agent, options = {}) {
   function paintRuntime() {
     status.textContent = runtimeText();
     status.dataset.state = !runtime ? 'loading' : !runtime.enabled ? 'off' : runtime.runner_state === 'error' ? 'error' : runtime.desired_state !== 'running' ? 'stopped' : runtime.runner_state;
-    stop.hidden = !(runtime && runtime.enabled && runtime.active_turn);
     const enabled = !!(runtime && runtime.enabled), running = enabled && runtime.desired_state === 'running';
     menu.innerHTML = [
       !enabled ? '<button type="button" role="menuitem" data-runtime="enable">Enable chat</button>' : '',
       enabled && !running ? '<button type="button" role="menuitem" data-runtime="start">Start agent</button>' : '',
-      running ? '<button type="button" role="menuitem" data-runtime="stop">Stop agent</button>' : '',
       enabled ? '<button type="button" role="menuitem" data-runtime="disable">Disable chat</button>' : '',
-      options.openTerminal ? '<button type="button" role="menuitem" data-terminal>Diagnostic terminal</button>' : '',
     ].join('');
     emptyNote.hidden = messages.size > 0 || !runtime;
     if (runtime && !runtime.enabled) {
@@ -304,11 +308,6 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (control) { event.preventDefault(); void runtimeAction(control.dataset.runtime); return; }
     if (event.target.closest('[data-terminal]')) { menu.closest('details').open = false; options.openTerminal?.(); }
   });
-  stop.onclick = async () => {
-    stop.disabled = true;
-    try { coreData(await post(`${base}/stop`, {})); } catch (problem) { if (live()) showBanner(`Could not stop: ${failure(problem)}`); }
-    finally { if (live()) stop.disabled = false; }
-  };
 
   // ---- composer
   const saveDraft = () => { if (input.value) GLOBAL_CHAT_DRAFTS.set(agentId, input.value); else GLOBAL_CHAT_DRAFTS.delete(agentId); };
@@ -427,7 +426,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       closeStream(); clearTimeout(retryTimer); clearTimeout(flushTimer); clearTimeout(readTimer);
       saveDraft();
       cleanups.splice(0).forEach(cleanup => cleanup());
-      input.oninput = input.onkeydown = form.onsubmit = stop.onclick = olderButton.onclick = jump.onclick = null;
+      input.oninput = input.onkeydown = form.onsubmit = olderButton.onclick = jump.onclick = null;
       if (pane.firstElementChild === root) pane.innerHTML = '';
     },
     focus() { input.focus(); },
