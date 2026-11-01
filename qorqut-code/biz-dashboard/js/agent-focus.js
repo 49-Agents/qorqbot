@@ -328,7 +328,7 @@ async function agfocusToggleStory(p,item,refresh=false) {
   agfocusPaint(p);agfocusAnnounce(p,'Loading Story items…');
   const source=item.resolved_source || item.source,biz=source.business_slug,mount=p.focusMount;
   try {
-    const data=coreData(await post(`/biz/${encodeURIComponent(biz)}/operations/stories_get`,{story_id:source.id}));
+    const data=coreData(await post(biz?`/biz/${encodeURIComponent(biz)}/operations/stories_get`:`/root/operations/stories_get`,{story_id:source.id,...(!biz?{scope:"global"}:{})}));
     if(p.focusStories.get(item.id)!==branch || p.focusMount!==mount || !mount?.isConnected)return;
     const seen=new Set();
     const links=[...(data.story.links || []),...(item.references || []).map(ref=>({
@@ -961,9 +961,9 @@ async function agfocusOpenItem(p,item) {
         item:()=>({id:item.id,businessId:item.business_id}),waitingOnly:false,execution:true});
       detail.onDispose(()=>view.dispose());view.paint();return;
     }
-    if(item.type==='story' && item.business_slug) {
+    if(item.type==='story') {
       detail.onDispose(()=>{if(typeof storyDispose==='function')storyDispose();});
-      await renderStories(detail.host,{biz:item.business_slug,initialStoryId:item.id,onBack:detail.back});return;
+      await renderStories(detail.host,{biz:item.business_slug || null,initialStoryId:item.id,onBack:detail.back});return;
     }
     if(item.resource_type==='data_tables'){await tablesOpen(item.business_slug,item.id);return;}
     if(item.resource_type==='products'){await productsOpen(item.business_slug,item.id);return;}

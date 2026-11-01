@@ -164,7 +164,8 @@ function frameNode(payload) {
   // No allow-scripts, allow-same-origin, allow-forms or allow-top-navigation: the page is inert, and the
   // content security policy in the prefix blocks script, network, forms and base.
   const frame = h("iframe", { class: "fv-frame", title: "HTML preview (scripts and network disabled)", sandbox: "", referrerpolicy: "no-referrer" });
-  frame.setAttribute("srcdoc", payload.frame_prefix + payload.text);
+  // Source, copy and download keep payload.text; the frame shows the copy with its local images embedded.
+  frame.setAttribute("srcdoc", payload.frame_prefix + (payload.rendered ?? payload.text));
   return frame;
 }
 
@@ -226,6 +227,12 @@ function renderNotices() {
     const cuts = [payload.rows_truncated && "rows", payload.columns_truncated && "columns", payload.cells_truncated && "long cells"].filter(Boolean);
     if (cuts.length) notices.push(h("div", { class: "fv-banner warn", role: "note" }, `The table preview is limited (${cuts.join(", ")} shortened). Download for everything.`));
   }
+  if (payload && payload.kind === "html" && payload.images && payload.images.unavailable) {
+    const { unavailable, historical } = payload.images, count = unavailable === 1 ? "An image" : `${unavailable} images`;
+    notices.push(h("div", { class: "fv-banner info", role: "note" }, historical
+      ? `${count} in this saved version cannot be shown: saved versions do not include the page's image files.`
+      : `${count} used by this page could not be shown (missing, not permitted, too large or beyond the preview limits).`));
+  }
   if (payload && payload.kind === "text" && payload.csv_unparseable) notices.push(h("div", { class: "fv-banner info", role: "note" }, "This file could not be read as a table, so it is shown as text."));
   if (payload && payload.kind === "markdown" && payload.html == null) notices.push(h("div", { class: "fv-banner info", role: "note" }, "This document is too large to render, so its source is shown."));
   parts.notices.replaceChildren(...notices);
@@ -273,6 +280,8 @@ function renderBody() {
   else if (payload.kind === "markdown") node = markdownNode(payload.html);
   else if (payload.kind === "csv") node = csvNode(payload);
   else node = frameNode(payload);
+  // Inside the dashboard Viewbox the rendered HTML preview takes the whole pane instead of a fixed viewport fraction.
+  root.classList.toggle("fv-fill", node.classList.contains("fv-frame") && window.self !== window.top);
   parts.body.replaceChildren(node);
 }
 

@@ -17,6 +17,9 @@ const GLOBAL_CHAT_STATE_TEXT = {
   queued: 'Queued', running: 'Sent to terminal', failed: 'Failed', interrupted: 'Stopped',
   uncertain: 'Delivery not confirmed. It was not sent again; check the agent before resending.',
 };
+// Internal notices (e.g. <task-notification>) are saved as chat turns; a message that starts with an opening tag is never shown.
+// Same rule as bazarlyk/global_chat/store.py internal_notification.
+const globalChatHidden = message => /^[ \t\n\r\v\f]*<[A-Za-z][\s\S]*>/.test(message.body || '');
 const globalChatBase = id => `/root/agents/${encodeURIComponent(id)}/chat`;
 
 // ---- Markdown (headings, lists, quotes, fenced and inline code, bold, italic, and the shared safe links)
@@ -131,7 +134,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   // ---- the read position: the newest agent message actually shown, only while the tab is visible and scrolled to the end
   function newestAgentSequence() {
     let newest = 0;
-    for (const message of messages.values()) if (message.role === 'agent' && message.state === 'completed' && message.body) newest = Math.max(newest, message.sequence);
+    for (const message of messages.values()) if (message.role === 'agent' && message.state === 'completed' && message.body && !globalChatHidden(message)) newest = Math.max(newest, message.sequence);
     return newest;
   }
   function scheduleRead() {
@@ -157,6 +160,10 @@ function mountGlobalChat(pane, agent, options = {}) {
     return `<span class="gchat-state" data-state="${esc(message.state)}">${esc((GLOBAL_CHAT_STATE_TEXT[message.state] || message.state) + detail)}</span>`;
   };
   function paintMessage(message) {
+    if (globalChatHidden(message)) {      // also covers a streamed reply whose text turns out to start with the tag
+      nodes.get(message.id)?.remove(); nodes.delete(message.id);
+      return {node: null, isNew: false};
+    }
     let node = nodes.get(message.id);
     const isNew = !node;
     if (isNew) { node = document.createElement('div'); nodes.set(message.id, node); }
@@ -188,7 +195,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     messages.set(message.id, {...previous, ...message});
     const appended = place(messages.get(message.id));
     if (previous) paintMessage(messages.get(message.id));
-    emptyNote.hidden = messages.size > 0 || !runtime;
+    emptyNote.hidden = nodes.size > 0 || !runtime;
     afterChange(appended && message.role === 'agent');
     if (message.role === 'agent' && message.state === 'completed') scheduleRead();
   }
@@ -259,8 +266,8 @@ function mountGlobalChat(pane, agent, options = {}) {
     const connected = !!runtime?.can_send;
     status.textContent = !runtime ? 'Loading…' : connected ? 'Terminal connected' : 'Terminal offline';
     status.dataset.state = !runtime ? 'loading' : connected ? 'ready' : 'stopped';
-    emptyNote.hidden = messages.size > 0 || !runtime;
-    if (!messages.size && runtime) {
+    emptyNote.hidden = nodes.size > 0 || !runtime;
+    if (!nodes.size && runtime) {
       emptyNote.innerHTML = connected ? '<p>Your terminal conversation appears here.</p>'
         : `<p>Start or resume ${esc(label)} in Terminal. Its conversation will appear here.</p>${options.openTerminal ? '<button type="button" class="quiet" data-terminal>Open terminal</button>' : ''}`;
     }
@@ -320,7 +327,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (!live() || mine !== generation) return;
       messages.clear(); nodes.clear(); log.innerHTML = '';
       runtime = data.runtime; older = !!data.older; cursor = data.cursor || 0; lastRead = data.last_read_sequence || 0; actions = data.actions || [];
-      data.messages.forEach(message => { messages.set(message.id, message); log.appendChild(paintMessage(message).node); });
+      data.messages.forEach(message => { messages.set(message.id, message); const {node} = paintMessage(message); if (node) log.appendChild(node); });
       olderButton.hidden = !older;
       paintRuntime(); paintActions(); showBanner('');
       toBottom();
