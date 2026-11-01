@@ -123,12 +123,26 @@ function agfocusOrderMount(p,board,body) {
   return ()=>{stop(true);board.removeEventListener('pointerdown',down);board.removeEventListener('pointermove',move);board.removeEventListener('pointerup',up);board.removeEventListener('pointercancel',cancel);document.removeEventListener('keydown',key);};
 }
 
-function agfocusTomorrow(now=new Date()) { const date=new Date(now);date.setDate(date.getDate()+1);date.setHours(9,0,0,0);return date; }
+const AGFOCUS_SNOOZE_OPTIONS = [
+  ['1h', '1h'], ['3h', '3h'], ['tomorrow', 'Tomorrow'], ['day-after', 'Day after tomorrow'],
+  ['saturday', 'Saturday'], ['monday', 'Monday'], ['week', 'In a week'], ['two-weeks', 'In 2 weeks']
+];
+function agfocusSnoozeTime(option, now = new Date()) {
+  if (option === '1h' || option === '3h') return new Date(now.getTime() + (option === '1h' ? 1 : 3) * 3600000);
+  const today = sjDate(now), days = {tomorrow:1, 'day-after':2, week:7, 'two-weeks':14};
+  if (Object.hasOwn(days, option)) return sjInstant(sjAddDays(today, days[option]), 6);
+  const weekday = {saturday:6, monday:1}[option];
+  if (weekday === undefined) throw new Error('Unknown snooze option');
+  let offset = (weekday - new Date(today + 'T12:00:00Z').getUTCDay() + 7) % 7;
+  let target = sjInstant(sjAddDays(today, offset), 6);
+  if (target <= now) target = sjInstant(sjAddDays(today, offset + 7), 6);
+  return target;
+}
 function agfocusSnoozePicker(p,node,anchor) {
   if(anchor.disabled || node._item.unavailable)return;
   p.focusSnoozePopup?.close();
   const saved=p.focusSnoozes.get(node.dataset.cardId);
-  const popup=tControlPopover(anchor,`<div class="task-snooze-picker"><p class="ferr" role="alert" hidden></p>${saved?.submission?'<button type="button" class="quiet" data-focus-snooze-retry>Retry same postpone</button>':`${agfocusSnoozed(node._item)?'<button type="button" class="quiet" data-focus-snooze-clear>Return to Focus now</button>':''}<div class="task-snooze-shortcuts"><button type="button" class="quiet" data-focus-snooze-hour>In 1 hour</button><button type="button" class="quiet" data-focus-snooze-tomorrow>Tomorrow at 09:00</button></div><label>Choose date/time (local)<input type="datetime-local" data-focus-snooze-date aria-label="Postpone until"></label><button type="button" class="btn" data-focus-snooze-apply>Apply</button>`}<button type="button" class="quiet" data-focus-snooze-close>Close</button></div>`,'Postpone Focus item');
+  const popup=tControlPopover(anchor,`<div class="task-snooze-picker"><p class="ferr" role="alert" hidden></p>${saved?.submission?'<button type="button" class="quiet" data-focus-snooze-retry>Retry same postpone</button>':`${agfocusSnoozed(node._item)?'<button type="button" class="quiet" data-focus-snooze-clear>Return to Focus now</button>':''}<div class="task-snooze-shortcuts">${AGFOCUS_SNOOZE_OPTIONS.map(([key,label])=>`<button type="button" class="quiet" data-focus-snooze-preset="${key}" title="${key.endsWith('h') ? label + ' from now' : label + ' at 6 AM (San Juan time)'}">${label}</button>`).join('')}</div>`}<button type="button" class="quiet" data-focus-snooze-close>Close</button></div>`,'Postpone Focus item');
   if(!popup)return;
   popup.itemId=node.dataset.cardId;p.focusSnoozePopup=popup;
   popup.el.classList.add('agfocus-snooze-picker');popup.el.setAttribute('role','dialog');
@@ -138,9 +152,7 @@ function agfocusSnoozePicker(p,node,anchor) {
     }
     void agfocusSnooze(p,node,until?.toISOString() ?? null,popup);
   };
-  popup.el.querySelector('[data-focus-snooze-hour]')?.addEventListener('click',()=>choose(new Date(Date.now()+3600000)));
-  popup.el.querySelector('[data-focus-snooze-tomorrow]')?.addEventListener('click',()=>choose(agfocusTomorrow()));
-  popup.el.querySelector('[data-focus-snooze-apply]')?.addEventListener('click',()=>choose(new Date(popup.el.querySelector('input').value)));
+  popup.el.querySelectorAll('[data-focus-snooze-preset]').forEach(button=>button.addEventListener('click',()=>choose(agfocusSnoozeTime(button.dataset.focusSnoozePreset))));
   popup.el.querySelector('[data-focus-snooze-clear]')?.addEventListener('click',()=>choose(null));
   popup.el.querySelector('[data-focus-snooze-retry]')?.addEventListener('click',()=>agfocusSnooze(p,node,null,popup,true));
   popup.el.querySelector('[data-focus-snooze-close]').onclick=()=>popup.close();
