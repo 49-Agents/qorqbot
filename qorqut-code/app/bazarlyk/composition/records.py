@@ -35,9 +35,6 @@ class HostRecordEffects:
             uow.connection.execute("UPDATE stories SET sequence=?, updated_at=? WHERE business_id IS ? AND id=?",
                 (values["sequence"], committed_at, change.resource.business_id, story["id"]))
             return [row]
-        if change.action == "append_context_review" and table == "context_reviews":
-            values["created_at"] = timestamp()
-            return [repository.insert(values)]
         if change.action == "insert":
             if table in STORY_LIMITS:
                 limit, label = STORY_LIMITS[table]

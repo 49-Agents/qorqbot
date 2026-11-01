@@ -11,6 +11,8 @@ empty-instance setup call; the service, ``build_runtime`` and the host commands 
 
 from __future__ import annotations
 
+from qorqut_operations.background import storage_contribution as background_storage
+from qorqut_operations.signoffs.service import storage_contribution as signoff_storage
 from qorqut_operations.storage.assembly import (Assembly, AssemblyBuilder, AssemblyError, CONTRIBUTION_TYPES,
                                                 FileEffectContribution, RecordEffectContribution,
                                                 TransactionContribution)
@@ -54,8 +56,11 @@ class HostComposition:
 
 
 def host_contributions(change_feed):
-    """Every contribution of the retained host domains, in registration order."""
-    return (*storage_contributions(),
+    """Every contribution of the retained host domains, in registration order. The Operations engine owns the Signoff,
+    routine, job and neutral Context relationship/review tables; its Signoff and background machinery state the host
+    tables they read (``inbox_changes``, ``documents``) as required-table contributions, checked when the store is
+    composed, initialised and validated."""
+    return (*storage_contributions(), signoff_storage(), background_storage(),
             FileEffectContribution("documents", {DOCUMENTS: DocumentLifecycle()}, DocumentReceiptHistory()),
             RecordEffectContribution("records", HostRecordEffects()),
             TransactionContribution("inbox", finalizers=inbox_finalizers()),
