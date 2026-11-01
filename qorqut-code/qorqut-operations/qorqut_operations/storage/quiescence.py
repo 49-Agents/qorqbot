@@ -3,24 +3,39 @@
 The caller must supply concrete writer controllers.  SQLite claims are only a last check: they do not identify
 arbitrary processes which can still write a business checkout or persistent home.
 
-This module owns the barrier's ordering and its refusal rules: the installation exclusive lock, the database
-maintenance gate, the shared in-process admission (``qorqut_operations.storage.admission``), one verified
-``QuiescenceProof`` per controller, and the rule that an unverified or failed drain/thaw leaves both the gate and
-admission closed. Docker, container and process inventory and their freeze/thaw implementations are host
-controllers passed in as ``host_writers`` and ``container_writers``; a missing controller is a refusal, never a
-bypass. Constructing a quiescer starts and stops nothing.
+This module owns the barrier's ordering and its refusal rules. The order is: refuse new mutations (waiting for
+nothing), drain every writer controller so already admitted work finishes its receipts with the resources it owns,
+and only then take the installation exclusive lock, wait for the admitted units to leave, close the database
+maintenance gate and freeze the host and container writers. Closing the gate or taking the lock first would make
+an admitted receipt unable to complete behind the maintenance state it was admitted before. Each controller
+yields one verified ``QuiescenceProof``; a void ``stop`` is proof only by its documented stop/join contract and
+any other result is none. An unverified or failed drain/thaw leaves both the gate and admission closed. The
+writer inventory is complete or the barrier refuses: every required writer class has a concrete controller or a
+``KnownZeroWriters`` whose emptiness is verified when the barrier runs, and a missing one is never read as zero.
+Docker, container and process inventory and their freeze/thaw implementations are host controllers passed in as
+``host_writers`` and ``container_writers``. Constructing a quiescer starts and stops nothing.
 """
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from dataclasses import dataclass
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass, field
+import logging
 from time import monotonic
 from typing import Protocol
 
 from qorqut_operations.contracts import DomainError
 from .admission import RecoveryAdmission
 from .recovery_gate import DatabaseMaintenanceGate
+
+LOGGER = logging.getLogger(__name__)
+# The writer classes every installation of the engine has; a composition declares more through ``required``.
+CORE_WRITERS = ("background", "signoffs", "email_history", "browser", "sandbox")
+
+
+class UnprovenStop(TimeoutError):
+    """A stop returned (or reported) without positive evidence that the worker stopped; it is a failed drain like a
+    join timeout, never a stop."""
 
 
 @dataclass(frozen=True)
@@ -46,33 +61,55 @@ class FreezeController(Protocol):
     def thaw(self) -> None: ...
 
 
-class BoundedWriter:
-    """Adapt a known stop/join service to the recovery controller contract."""
+def void_stop(writer, timeout):
+    """The documented contract of a void-return service: ``stop(timeout=...)`` joins its worker, raises
+    ``TimeoutError`` if the worker survived and otherwise returns ``None``. Any other result is not stop evidence."""
+    result = writer.stop(timeout=timeout)
+    if result is not None:
+        raise UnprovenStop(f"{type(writer).__name__}.stop returned {type(result).__name__}, not the void stop evidence")
 
-    def __init__(self, writer, name):
-        self.writer, self.name = writer, name
+
+def worker_alive(writer):
+    thread = getattr(writer, "_thread", None)
+    return bool(thread and thread.is_alive())
+
+
+class BoundedWriter:
+    """Adapt a known stop/join service to the recovery controller contract.
+
+    ``stop`` is the service's explicit stop adapter: ``stop(writer, timeout)`` returns normally only once the worker
+    has positively stopped and raises (``TimeoutError``, including ``UnprovenStop``) otherwise; the default is the
+    void contract above. ``running`` says whether the service was running before the barrier, so only work that was
+    actually running is restarted by ``start(writer)``, and only after the capture is complete and thawed."""
+
+    def __init__(self, writer, name, *, stop=void_stop, running=worker_alive, start=lambda writer: writer.start()):
+        self.writer, self.name, self._stop, self._running, self._start = writer, name, stop, running, start
         self._resume_required = None
 
     def drain(self, *, timeout):
         if self._resume_required is None:
-            thread = getattr(self.writer, "_thread", None)
-            self._resume_required = bool(thread and thread.is_alive())
-        self.writer.stop(timeout=timeout)
+            self._resume_required = bool(self._running(self.writer))
+        self._stop(self.writer, timeout)
         return QuiescenceProof(self.name, "drained")
 
     def resume(self):
         if self._resume_required:
-            self.writer.start()
+            self._start(self.writer)
         self._resume_required = None
 
 
 class KnownZeroWriters:
-    """Explicit trusted inventory result for a writer class known to be absent."""
+    """Explicit inventory result for a writer class that has no writer in this composition.
 
-    def __init__(self, name):
-        self.name = name
+    ``verify`` is evaluated every time the barrier drains, so the claim is checked against the composition's actual
+    state when it matters and a writer that has since appeared is a refusal rather than an unexamined zero."""
+
+    def __init__(self, name, verify=None):
+        self.name, self.verify = name, verify
 
     def drain(self, *, timeout):
+        if self.verify is not None and self.verify() is not True:
+            raise DomainError("recovery_not_quiescent", f"The {self.name} writer inventory is no longer empty")
         return QuiescenceProof(self.name, "drained")
 
     def resume(self):
@@ -83,17 +120,19 @@ class KnownZeroWriters:
 class RecoveryQuiescer:
     """Yield only after concrete writers have stopped or frozen for recovery.
 
-    Browser and sandbox controllers must drain their single-writer leases before
-    returning from ``stop``. ``host_writers`` is mandatory whenever inventory
-    finds legacy host writers: this barrier never treats resource claims or PID
-    labels as proof that such terminals are harmless.
+    Browser and sandbox controllers must drain their single-writer leases before returning from ``drain``.
+    ``host_writers`` is mandatory whenever inventory finds legacy host writers: this barrier never treats resource
+    claims or PID labels as proof that such terminals are harmless. ``writers`` holds the composition's further
+    named controllers (registered through ``register_writer``) and ``required`` the further writer classes whose
+    controller must exist; a required class without one, or with an object that cannot drain and resume, refuses
+    the barrier before anything is stopped.
     """
     database: object
     admission: RecoveryAdmission | None = None
     background: object | None = None
     signoffs: object | None = None
     email_history: object | None = None
-    # Optional writer: an installation without the Telegram bridge has nothing to drain.
+    # Optional writers of the engine's own inventory: they become required when the composition names them.
     telegram: object | None = None
     content_sessions: object | None = None
     browser_writers: object | None = None
@@ -102,6 +141,36 @@ class RecoveryQuiescer:
     host_writers: object | None = None
     installation_lock: object | None = None
     maintenance_gate: object | None = None
+    writers: dict = field(default_factory=dict)
+    required: tuple = ()
+
+    def register_writer(self, name, controller):
+        """Add one named controller to the inventory; a name is registered once."""
+        named = {"background", "signoffs", "email_history", "telegram", "content_sessions", "browser", "sandbox"}
+        if not isinstance(name, str) or not name or name in named or name in self.writers:
+            raise DomainError("invalid_configuration", f"Recovery writer {name!r} is invalid or already registered")
+        self.writers[name] = controller
+        return controller
+
+    def inventory(self):
+        """The ordered ``(name, controller)`` drains, or a refusal that names every missing or unusable class.
+
+        The composition's registered writers drain first (in registration order, the host's own stop order); the
+        engine's classes follow. Nothing is stopped by asking."""
+        named = (("background", self.background), ("signoffs", self.signoffs), ("email_history", self.email_history),
+                 ("telegram", self.telegram), ("content_sessions", self.content_sessions),
+                 ("browser", self.browser_writers), ("sandbox", self.sandbox_writers))
+        engine = {name: controller for name, controller in named if controller is not None}
+        controllers = {**self.writers, **engine}
+        required = dict.fromkeys((*CORE_WRITERS, *self.required))
+        problems = [name for name in required if controllers.get(name) is None]
+        problems += [name for name, controller in controllers.items()
+                     if not (callable(getattr(controller, "drain", None)) and callable(getattr(controller, "resume", None)))]
+        if self.container_writers is None:
+            problems.append("containers")
+        if problems:
+            raise DomainError("recovery_not_quiescent", "Recovery writer inventory is incomplete: " + ", ".join(sorted(set(problems))))
+        return tuple(controllers.items())
 
     def _claims_clear(self):
         with self.database.read() as uow:
@@ -116,18 +185,21 @@ class RecoveryQuiescer:
     def quiesce(self, *, timeout=30):
         if self.installation_lock is None:
             raise DomainError("recovery_not_quiescent", "Recovery installation lock is not installed")
-        with self.installation_lock.exclusive(timeout=timeout):
-            with self._quiesce(timeout=timeout) as value:
-                yield value
-
-    @contextmanager
-    def _quiesce(self, *, timeout):
         if type(timeout) is not int or not 1 <= timeout <= 600:
             raise DomainError("validation_error", "Recovery quiescence timeout must be bounded")
-        stopped, frozen, admission_closed = [], [], False
-        deadline = monotonic() + timeout
+        if self.admission is None:
+            raise DomainError("recovery_not_quiescent", "Recovery mutation admission is not installed")
+        if getattr(self.admission, "sealed", False):
+            raise DomainError("recovery_not_quiescent", "Write admission is sealed for shutdown")
+        # A full installation can contain legacy host terminals. The caller must provide a controller that
+        # inventories them; no flag can claim that they do not exist.
+        if self.host_writers is None:
+            raise DomainError("recovery_not_quiescent", "Recovery legacy-writer inventory is not installed")
+        controllers = self.inventory()
         gate = self.maintenance_gate or DatabaseMaintenanceGate(self.database)
-        closure, verified = None, False
+        deadline = monotonic() + timeout
+        drained, frozen = [], []
+        closure, verified, reopenable = None, False, False
 
         def remaining():
             value = deadline - monotonic()
@@ -135,61 +207,62 @@ class RecoveryQuiescer:
                 raise TimeoutError("recovery writer deadline elapsed")
             return max(1, int(value))
 
-        try:
-            if self.admission is None:
-                raise DomainError("recovery_not_quiescent", "Recovery mutation admission is not installed")
-            # A full installation can contain legacy host terminals. The caller
-            # must provide a controller that inventories them; no flag can claim
-            # that they do not exist.
-            if self.host_writers is None:
-                raise DomainError("recovery_not_quiescent", "Recovery legacy-writer inventory is not installed")
-            controllers = {"background": self.background, "signoffs": self.signoffs, "email_history": self.email_history,
-                           "browser": self.browser_writers, "sandbox": self.sandbox_writers,
-                           "containers": self.container_writers}
-            missing = [name for name, controller in controllers.items() if controller is None]
-            if missing:
-                raise DomainError("recovery_not_quiescent", "Recovery writer inventory is incomplete")
-            # The installation exclusive lock has drained managed file writers.
-            # Closing SQLite admission also rejects independent SQL-only callers.
-            # Neither transaction remains open while a controller is stopped.
-            closure = gate.close()
-            self.admission.close_and_wait(timeout=remaining())
-            admission_closed = True
-            for writer in (self.background, self.signoffs, self.email_history, self.telegram, self.content_sessions, self.browser_writers, self.sandbox_writers):
-                if writer is None:
-                    continue
-                self._proof(writer.drain(timeout=remaining()), "drained")
-                stopped.append(writer)
-            self._proof(self.host_writers.inventory_and_freeze(timeout=remaining()), "frozen")
-            frozen.append(self.host_writers)
-            self._proof(self.container_writers.freeze(timeout=remaining()), "frozen")
-            frozen.append(self.container_writers)
-            if not self._claims_clear():
-                raise DomainError("recovery_not_quiescent", "Durable file effects remain in progress")
-            verified = True
-            yield self
-        except TimeoutError as exc:
-            raise DomainError("recovery_not_quiescent", "A writer did not drain before recovery", retryable=True) from exc
-        finally:
-            resume_error = None
-            for writer in reversed(frozen):
+        with ExitStack() as locks:
+            try:
+                # New external work is refused first and nothing waits on it; admitted work keeps its admission and
+                # settles while the controllers drain, because neither the lock nor the gate exists yet.
+                self.admission.refuse_new()
+                for _name, writer in controllers:
+                    self._proof(writer.drain(timeout=remaining()), "drained")
+                    drained.append(writer)
                 try:
-                    writer.thaw()
-                except (DomainError, TimeoutError, OSError) as exc:
-                    resume_error = resume_error or exc
-            # Unknown drain/thaw outcomes retain maintenance and local admission.
-            # Reopening after a timeout would advertise a recovery we did not prove.
-            if verified and resume_error is None:
-                try:
-                    # Workers may start their loops while admission is closed;
-                    # none can claim work until every restart has succeeded.
-                    for writer in reversed(stopped):
-                        writer.resume()
-                    gate.restore(closure)
-                except (DomainError, OSError, TimeoutError, RuntimeError) as exc:
-                    resume_error = exc
-                else:
-                    if admission_closed:
+                    locks.enter_context(self.installation_lock.exclusive(timeout=remaining()))
+                except TimeoutError as exc:
+                    # Every drain is proved and nothing durable has changed: this refusal can be undone.
+                    reopenable = True
+                    raise DomainError("recovery_not_quiescent", "Admitted work or another process still holds the installation lock",
+                                      retryable=True) from exc
+                # The exclusive lock drained managed file writers. Closing SQLite admission also rejects
+                # independent SQL-only callers. Neither transaction remains open while a controller is stopped.
+                self.admission.close_and_wait(timeout=remaining())
+                closure = gate.close()
+                self._proof(self.host_writers.inventory_and_freeze(timeout=remaining()), "frozen")
+                frozen.append(self.host_writers)
+                self._proof(self.container_writers.freeze(timeout=remaining()), "frozen")
+                frozen.append(self.container_writers)
+                if not self._claims_clear():
+                    raise DomainError("recovery_not_quiescent", "Durable file effects remain in progress")
+                verified = True
+                yield self
+            except TimeoutError as exc:
+                raise DomainError("recovery_not_quiescent", "A writer did not drain before recovery", retryable=True) from exc
+            finally:
+                resume_error = None
+                for writer in reversed(frozen):
+                    try:
+                        writer.thaw()
+                    except (DomainError, TimeoutError, OSError) as exc:
+                        resume_error = resume_error or exc
+                # Unknown drain/thaw outcomes retain maintenance and local admission.
+                # Reopening after a timeout would advertise a recovery we did not prove.
+                if (verified or reopenable) and resume_error is None:
+                    try:
+                        # Workers may start their loops while admission is closed;
+                        # none can claim work until every restart has succeeded.
+                        for writer in reversed(drained):
+                            writer.resume()
+                        if verified:
+                            gate.restore(closure)
+                    except (DomainError, OSError, TimeoutError, RuntimeError) as exc:
+                        resume_error = exc
+                    else:
                         self.admission.open()
-            if resume_error is not None:
-                raise resume_error
+                elif not verified:
+                    self.admission.refuse_new()
+                    if closure is None:
+                        try:
+                            gate.close()
+                        except Exception as exc:  # noqa: BLE001 - the in-process boundary is already closed
+                            LOGGER.warning("The maintenance gate could not be closed after an unproven barrier: %r", exc)
+                if resume_error is not None:
+                    raise resume_error

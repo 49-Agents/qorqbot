@@ -28,7 +28,7 @@ INBOX_SCHEMA = (
     """CREATE TABLE inbox_deliveries (
  agent_id TEXT NOT NULL REFERENCES agent_profiles(agent_id),
  event_id INTEGER NOT NULL REFERENCES inbox_events(id),
- acknowledged_at TEXT, outcome TEXT, notified_consumer_id TEXT, notified_at TEXT,
+ acknowledged_at TEXT, outcome TEXT,
  required INTEGER NOT NULL DEFAULT 1 CHECK(required IN (0,1)),
  PRIMARY KEY(agent_id,event_id)
 )""",

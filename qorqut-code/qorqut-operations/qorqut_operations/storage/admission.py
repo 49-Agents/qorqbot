@@ -70,15 +70,19 @@ class InstallationRecoveryLock:
 class RecoveryAdmission:
     """In-process write admission shared by Application and recovery.
 
-    ``close_and_wait`` rejects new mutations and waits for operations already
-    admitted on this process.  It intentionally cannot vouch for host shells or
-    containers; the host's quiescer handles those through explicit controllers.
+    Closing is two separate acts. ``refuse_new`` rejects every new mutation at once and waits for nothing: work
+    already admitted, and every writer unit nested inside it on the same thread, keeps running and can finish its
+    receipts, so a drain can let admitted effects settle without anyone reopening admission to new callers.
+    ``close_and_wait`` refuses and then waits for the operations already admitted on this process to leave. Only
+    ``open`` ends a refusal. It intentionally cannot vouch for host shells or containers; the host's quiescer
+    handles those through explicit controllers.
     """
 
     def __init__(self, *, installation_lock=None):
         self.installation_lock = installation_lock
         self._condition = Condition()
         self._closed = False
+        self._sealed = False
         self._active = 0
         self._local = local()
 
@@ -110,6 +114,26 @@ class RecoveryAdmission:
             if lock_context is not None:
                 lock_context.__exit__(None, None, None)
 
+    @property
+    def refusing(self):
+        with self._condition:
+            return self._closed
+
+    @property
+    def admitted(self):
+        """How many outermost writer units are inside admission right now."""
+        with self._condition:
+            return self._active
+
+    def refuse_new(self):
+        with self._condition:
+            self._closed = True
+
+    @property
+    def sealed(self):
+        with self._condition:
+            return self._sealed
+
     def close_and_wait(self, *, timeout):
         deadline = monotonic() + timeout
         with self._condition:
@@ -120,7 +144,17 @@ class RecoveryAdmission:
                     raise TimeoutError("admitted write did not drain")
                 self._condition.wait(remaining)
 
+    def seal(self, *, timeout):
+        """Final shutdown admission: close and wait like ``close_and_wait``, and from now on ``open`` is refused,
+        so neither a recovery window ending nor a caller can reopen mutation admission beneath a closing store.
+        The seal is taken before waiting, so an admitted writer that does not drain leaves it sealed."""
+        with self._condition:
+            self._sealed = True
+        self.close_and_wait(timeout=timeout)
+
     def open(self):
         with self._condition:
+            if self._sealed:
+                raise DomainError("maintenance", "Write admission is sealed for shutdown")
             self._closed = False
             self._condition.notify_all()
