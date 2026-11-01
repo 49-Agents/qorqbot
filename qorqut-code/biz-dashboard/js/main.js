@@ -11,6 +11,9 @@ setInterval(() => { if (rtGlobal() && rtVisible()) rtRefresh(); }, 60000);
 loadBiz();
 processTray.start();
 connectEvents();
+// The daily briefing asks the server after the shared owner session lands; a finishing report job is a change it cares about.
+onChange(['jobs_routines'], null, () => drbCheck('change'));
+drbStart();
 
 // ---------------------------------------------------------- tab-chord shortcuts
 // Hold Tab as a modifier: Tab+letter jumps around the app; a double-tap of Tab (no letter
