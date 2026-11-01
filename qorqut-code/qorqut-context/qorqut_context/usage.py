@@ -30,6 +30,8 @@ INT64 = 2 ** 63 - 1
 RECEIPT_BYTES, ATTEMPT_BYTES = 64 * 1024, 1024 * 1024
 TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z")
 ATTEMPT_ID = re.compile(r"[0-9a-f]{32}")
+EVIDENCE_KEYS = {"usage_source", "usage_scope", "usage_updates", "ignored_updates", "usage_observed",
+                 "counters_complete", "usage_complete", "cost_observed", "limitations"}
 RECEIPT_KEYS = {"format", "call_id", "event_id", "attempt_id", "attempt_sequence", "stage", "state", "started_at",
                 "finished_at", "configured", "observed", "usage", "evidence", "bootstrap_call_id", "error"}
 
@@ -70,7 +72,12 @@ def text_ok(value, limit=200):
 
 
 def derived_evidence(receipt):
-    """Completeness flags computed from a receipt's primary facts (never stored without recomputation)."""
+    """Completeness flags computed from a receipt's primary facts (never stored without recomputation).
+
+    ``counters_complete`` is only the presence of all five observed counters. ``usage_complete`` means
+    *verified final* usage: no evidence source can prove totals final (the native protocol has no such marker,
+    and a finished call or a full snapshot is not one), so it is always ``False`` and is never derived from them.
+    """
     usage, primary = receipt["usage"], receipt["evidence"]
     tokens = [usage[name] for name in TOKEN_FIELDS]
     observed = any(value is not None for value in tokens)
@@ -80,9 +87,9 @@ def derived_evidence(receipt):
         ["final_totals_unproven"] if observed else []) + (
         ["cost_unreported"] if usage["cost_usd"] is None else []) + (
         ["ignored_updates"] if ignored else [])
-    return {"usage_source": primary["usage_source"], "usage_updates": primary["usage_updates"],
-            "ignored_updates": ignored, "usage_observed": observed,
-            "usage_complete": receipt["state"] != "started" and None not in tokens and not ignored,
+    return {"usage_source": primary["usage_source"], "usage_scope": primary["usage_scope"],
+            "usage_updates": primary["usage_updates"], "ignored_updates": ignored, "usage_observed": observed,
+            "counters_complete": None not in tokens, "usage_complete": False,
             "cost_observed": usage["cost_usd"] is not None, "limitations": limits}
 
 
@@ -105,11 +112,16 @@ class CallMeter:
         atomic_write(self.path, encode(receipt))
 
     def identity(self, value):
-        """Take only verified native identities the runner announces; never copy its other identity detail."""
+        """Take only verified native identities the runner announces; never copy its other identity detail.
+
+        A non-null native thread/turn identity is immutable once announced. Provider and model evidence may
+        change (a reroute changes the observed model), but never relabels an earlier usage snapshot.
+        """
         observed, changed = self.receipt["observed"], False
         for key, name in (("thread_id", "thread_id"), ("turn_id", "turn_id"),
                           ("model_provider", "provider"), ("observed_model", "model")):
-            if text_ok(value.get(key)) and observed[name] != value[key]:
+            if text_ok(value.get(key)) and observed[name] != value[key] and (
+                    observed[name] is None or name not in ("thread_id", "turn_id")):
                 observed[name], changed = value[key], True
         ignored = value.get("usage_updates_ignored")
         if count_ok(ignored) and ignored != self.runner_ignored:
@@ -118,21 +130,31 @@ class CallMeter:
             self.write()
 
     def accept(self, usage):
-        """Replace the cumulative snapshot; returns False (and counts it) when the update is unusable."""
+        """Replace the cumulative snapshot; returns False (and counts it) when the update is unusable.
+
+        Evidence claiming native IDs is accepted only when both match the call's already verified pair
+        exactly (scope ``native``); evidence carrying neither is a trusted runner's call-scoped evidence
+        (scope ``call``). An early, partial or foreign claim is never kept or relabelled by a later identity.
+        """
         if not isinstance(usage, Usage):
             return False
         counters = [getattr(usage, name) for name in TOKEN_FIELDS]
         observed = self.receipt["observed"]
+        claim = (usage.thread_id, usage.turn_id)
+        if claim == (None, None):
+            scope = "call"
+        elif all(text_ok(item) for item in claim) and claim == (observed["thread_id"], observed["turn_id"]):
+            scope = "native"
+        else:
+            return False
         if (any(value is not None and not count_ok(value) for value in counters) or
-                (usage.cost_usd is not None and not cost_ok(usage.cost_usd)) or not text_ok(usage.source, 64) or
-                any(claimed is not None and (not text_ok(claimed) or (known is not None and claimed != known))
-                    for claimed, known in ((usage.thread_id, observed["thread_id"]),
-                                           (usage.turn_id, observed["turn_id"])))):
+                (usage.cost_usd is not None and not cost_ok(usage.cost_usd)) or not text_ok(usage.source, 64)):
             return False
         self.receipt["usage"] = {**dict(zip(TOKEN_FIELDS, counters)),
                                  "cost_usd": None if usage.cost_usd is None else float(usage.cost_usd)}
         evidence = self.receipt["evidence"]
-        evidence["usage_source"], evidence["usage_updates"] = usage.source, evidence["usage_updates"] + 1
+        evidence["usage_source"], evidence["usage_scope"] = usage.source, scope
+        evidence["usage_updates"] += 1
         return True
 
     def observe(self, usage):
@@ -178,7 +200,7 @@ class AttemptCalls:
         calls.mkdir(mode=0o700, exist_ok=True)
         calls.chmod(0o700)
         path = calls / (stage + ".json")
-        if os.path.lexists(path):
+        if probe(path, "A call receipt") is not None:
             raise Conflict(f"This attempt already reserved its {stage} call")
         attempt = self.attempt
         meter = CallMeter(path, {
@@ -187,7 +209,7 @@ class AttemptCalls:
             "state": "started", "started_at": utc_now(), "finished_at": None, "configured": dict(self.configured),
             "observed": {"provider": None, "model": None, "thread_id": None, "turn_id": None},
             "usage": {**{name: None for name in TOKEN_FIELDS}, "cost_usd": None},
-            "evidence": {"usage_source": None, "usage_updates": 0, "ignored_updates": 0},
+            "evidence": {"usage_source": None, "usage_scope": None, "usage_updates": 0, "ignored_updates": 0},
             "bootstrap_call_id": self.bootstrap_call_id if stage == "propagation" else None, "error": None})
         meter.write()
         return meter
@@ -251,6 +273,25 @@ def check(condition, label):
         raise corrupt(f"{label} is invalid")
 
 
+def probe(path, label):
+    """The ``lstat`` of a path, or ``None`` only when it is genuinely absent; any other failure is unreadable."""
+    try:
+        return os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise Unavailable("unreadable_evidence", f"{label} cannot be inspected") from error
+
+
+def directory_present(path, label):
+    """True for a real directory, False when absent. A symbolic link or any other type is corrupt evidence."""
+    state = probe(path, label)
+    if state is None:
+        return False
+    check(stat.S_ISDIR(state.st_mode), label)       # ``lstat``: a symlinked directory is never followed
+    return True
+
+
 def validated_item(value, event_id, attempt_id, sequence, stage):
     label = f"Call receipt {attempt_id}:{stage}"
     check(set(value) == RECEIPT_KEYS and value["format"] == RECEIPT_FORMAT, label)
@@ -267,11 +308,12 @@ def validated_item(value, event_id, attempt_id, sequence, stage):
     check(type(usage) is dict and set(usage) == {*TOKEN_FIELDS, "cost_usd"} and
           all(usage[name] is None or count_ok(usage[name]) for name in TOKEN_FIELDS) and
           (usage["cost_usd"] is None or cost_ok(usage["cost_usd"])), label)
-    check(type(primary) is dict and set(primary) == {"usage_source", "usage_updates", "ignored_updates",
-                                                   "usage_observed", "usage_complete", "cost_observed", "limitations"} and
+    check(type(primary) is dict and set(primary) == EVIDENCE_KEYS and
           (primary["usage_source"] is None or text_ok(primary["usage_source"], 64)) and
+          primary["usage_scope"] in (None, "native", "call") and
           count_ok(primary["usage_updates"]) and count_ok(primary["ignored_updates"]) and
-          (primary["usage_updates"] > 0) == (primary["usage_source"] is not None), label)
+          (primary["usage_updates"] > 0) == (primary["usage_source"] is not None) == (primary["usage_scope"] is not None), label)
+    check(primary["usage_scope"] != "native" or (observed["thread_id"] is not None and observed["turn_id"] is not None), label)
     check(primary == derived_evidence(value), label)
     bootstrap = value["bootstrap_call_id"]
     check(bootstrap is None or (stage == "propagation" and type(bootstrap) is str and
@@ -283,23 +325,51 @@ def validated_item(value, event_id, attempt_id, sequence, stage):
     return {key: item for key, item in value.items() if key != "format"}
 
 
-def attempts(root, event_id):
-    """Attempt directories of one event in immutable sequence order, validated against their own records."""
-    if not os.path.lexists(root):
+def attempts(runs, event_id):
+    """Attempt directories of one event in immutable sequence order, validated against their own records.
+
+    Only a genuinely absent run or event directory is empty; unreadable or redirected evidence is not.
+    """
+    if not directory_present(runs, "The run directory"):
         return []
-    check(stat.S_ISDIR(os.lstat(root).st_mode), "The event run directory")
+    root = runs / event_id
+    if not directory_present(root, "The event run directory"):
+        return []
+    try:
+        names = sorted(os.listdir(root))
+    except OSError as error:
+        raise Unavailable("unreadable_evidence", "The event run directory cannot be listed") from error
     found = {}
-    for directory in sorted(root.iterdir()):
+    for name in names:
+        directory = root / name
+        state = probe(directory, "An attempt directory")
+        if state is None or not (stat.S_ISDIR(state.st_mode) or stat.S_ISLNK(state.st_mode)):
+            continue                                  # not an attempt directory
         path = directory / "attempt.json"
-        if not os.path.lexists(path):
+        if probe(path, "An attempt record") is None:
             continue
-        check(ATTEMPT_ID.fullmatch(directory.name) is not None and stat.S_ISDIR(os.lstat(directory).st_mode), "An attempt directory")
+        check(ATTEMPT_ID.fullmatch(name) is not None and directory_present(directory, "An attempt directory"),
+              "An attempt directory")
         record = read_bounded(path, ATTEMPT_BYTES, "An attempt record")
         sequence = record.get("sequence")
-        check(record.get("event_id") == event_id and record.get("attempt_id") == directory.name and
+        check(record.get("event_id") == event_id and record.get("attempt_id") == name and
               type(sequence) is int and sequence >= 1 and sequence not in found, "An attempt record")
         found[sequence] = directory
     return sorted(found.items())
+
+
+def receipt_entries(runs, event_id):
+    """``(sequence, stage rank, path, attempt id, stage)`` of every recorded call receipt of the event."""
+    entries = []
+    for sequence, directory in attempts(Path(runs), event_id):
+        calls = directory / "calls"
+        if not directory_present(calls, "A calls directory"):
+            continue
+        for rank, stage in enumerate(STAGES):
+            path = calls / (stage + ".json")
+            if probe(path, "A call receipt") is not None:
+                entries.append((sequence, rank, path, directory.name, stage))
+    return entries
 
 
 def encode_cursor(event_id, limit, key):
@@ -329,6 +399,11 @@ def decode_cursor(cursor, event_id, limit):
     return tuple(value["after"])
 
 
+def unavailable(event_id, code, message):
+    return {"status": "unavailable", "event_id": event_id, "items": [], "next_cursor": None,
+            "error": {"code": code, "message": message[:300]}}
+
+
 def page(runs, event_id, *, limit, cursor):
     """One bounded page of an event's call receipts: ``{status, event_id, items, next_cursor, error}``.
 
@@ -339,17 +414,14 @@ def page(runs, event_id, *, limit, cursor):
         raise ContextError(f"limit must be an integer from 1 to {MAX_PAGE}")
     after = decode_cursor(cursor, event_id, limit) if cursor is not None else None
     try:
-        entries = [(sequence, rank, directory / "calls" / (stage + ".json"), directory.name, stage)
-                   for sequence, directory in attempts(Path(runs) / event_id, event_id)
-                   for rank, stage in enumerate(STAGES)
-                   if os.path.lexists(directory / "calls" / (stage + ".json"))]
-        later = [entry for entry in entries if after is None or entry[:2] > after]
+        later = [entry for entry in receipt_entries(runs, event_id) if after is None or entry[:2] > after]
         items = [validated_item(read_bounded(path, RECEIPT_BYTES, f"Call receipt {attempt}:{stage}"),
                                 event_id, attempt, sequence, stage)
                  for sequence, rank, path, attempt, stage in later[:limit]]
     except Unavailable as problem:
-        return {"status": "unavailable", "event_id": event_id, "items": [], "next_cursor": None,
-                "error": {"code": problem.code, "message": str(problem)[:300]}}
+        return unavailable(event_id, problem.code, str(problem))
+    except OSError:                                    # defensive: no raw operating-system error escapes
+        return unavailable(event_id, "unreadable_evidence", "The usage evidence cannot be read")
     more = len(later) > limit
     return {"status": "ready", "event_id": event_id, "items": items,
             "next_cursor": encode_cursor(event_id, limit, later[limit - 1][:2]) if more else None, "error": None}
