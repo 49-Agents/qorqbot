@@ -19,8 +19,12 @@ from .tables import TableOperations
 from .tables.uploads import DataUploadOperations
 from .stories import StoryOperations
 from .products import ProductOperations
-from .relationships import RelationshipOperations
+from qorqut_operations.items import ItemResolver
+from qorqut_operations.relationships import ContextReviews, RelationshipOperations
+from .items.compose import build_neutral_items
+from .items.resources import RelatedResources
 from qorqut_operations.application.plans import utc_clock
+from bazarlyk.composition.catalog import install_contribution
 from .ideas import IdeaOperations
 from .personal_context import PersonalContextOperations
 from .subscriptions import SubscriptionOperations
@@ -49,6 +53,9 @@ class BusinessDomains:
     tables: TableOperations
     data_uploads: DataUploadOperations
     relationships: RelationshipOperations
+    items: ItemResolver
+    related: RelatedResources
+    reviews: ContextReviews
     ideas: IdeaOperations
     personal_context: PersonalContextOperations
     subscriptions: SubscriptionOperations
@@ -102,7 +109,13 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     from .email.unified import UnifiedEmailOperations
     UnifiedEmailOperations(email=email, account=account_email, platform=platform_actions,
                            resolver=agent_resolver).register(registry)
-    stories = StoryOperations(documents=documents, tasks=tasks, clock=clock)
+    # Business setup is constructed first only because its edge guard is the neutral relationships' protected-edge port;
+    # its operations are registered below, in their v1 position.
+    business_setup = BusinessSetupOperations(application, tasks, clock=clock)
+    neutral = build_neutral_items(application, documents=documents, email=email, business_setup=business_setup, clock=clock)
+    tasks.items = neutral.items
+    stories = StoryOperations(documents=documents, tasks=tasks, items=neutral.items, related=neutral.related,
+                              relationships=neutral.relationships, reviews=neutral.reviews, clock=clock)
     stories.register(registry, application)
     OwnerActions(paths, stories, clock=clock).register(registry)
     tasks.stories = stories
@@ -111,11 +124,8 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     tables.stories = stories
     data_uploads.stories = stories
     ProductOperations(application, clock=clock).register(registry)
-    relationships = RelationshipOperations(stories, application, clock=clock)
-    stories.relationships = relationships
-    relationships.register(registry)
-    business_setup = BusinessSetupOperations(application, tasks, clock=clock)
-    business_setup.register(registry, relationships)
+    install_contribution(registry, neutral.relationships.contribution())
+    business_setup.register(registry)
     email.setup_reconcile = business_setup.reconcile
     archive = BusinessArchive(application)
     archive.resolver = agent_resolver
@@ -132,4 +142,4 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     if agent_resolver is not None:
         agent_resolver.working_memory = memory
     documents.working_memory = memory
-    return BusinessDomains(tasks, ledger, metrics, activity, documents, assets, platform_actions, email, stories, tables, data_uploads, relationships, ideas, personal_context, subscriptions, memory, archive, context_base=context_base, business_setup=business_setup, viewbox=viewbox)
+    return BusinessDomains(tasks, ledger, metrics, activity, documents, assets, platform_actions, email, stories, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, ideas, personal_context, subscriptions, memory, archive, context_base=context_base, business_setup=business_setup, viewbox=viewbox)

@@ -130,7 +130,7 @@ class InboxService:
                 self.app.authorize(selected, descriptor, (), uow, namespace='global')
                 return bool(uow.repository('tasks', business_id=None).get(identity))
             if source_type in {'principals', 'agent_profiles', 'context_entities'}:
-                self.domains.stories.relationships.items.resolve(selected,
+                self.domains.items.resolve(selected,
                     {'type': ITEM_TYPES[source_type], 'id': identity}, uow, allow_busy=True)
                 return True
             if source_type == 'email_conversations' and business is None:
@@ -148,7 +148,7 @@ class InboxService:
                 self.app.authorize(selected, descriptor, (), uow,
                     namespace='global' if business is None else 'business:'+business)
                 return bool(uow.repository('stories', business_id=business).get(identity))
-            self.domains.stories.related(selected, uow, source_type, identity, allow_busy=True)
+            self.domains.related.get(selected, uow, source_type, identity, allow_busy=True)
             return True
         except DomainError as error:
             if error.code in {'not_found', 'forbidden', 'policy_denied', 'busy', 'document_unavailable', 'operation_unavailable', 'invalid_assignee'}:

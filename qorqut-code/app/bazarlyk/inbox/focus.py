@@ -6,7 +6,8 @@ from urllib.parse import urlsplit
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, InvocationOptions, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp
-from bazarlyk.domains.relationships.items import ITEM_TYPES, UNAVAILABLE
+from bazarlyk.domains.items.vocabulary import ITEM_TYPES
+from qorqut_operations.items import UNAVAILABLE
 
 UUID = {'type': 'string', 'format': 'uuid'}
 TEXT = {'type': 'string', 'minLength': 1, 'maxLength': 2000}
@@ -19,7 +20,7 @@ ITEM = schema({'type': {'enum': [kind for kind in ITEM_TYPES if kind != 'product
 class FocusService:
     def __init__(self, inbox, signoffs):
         self.inbox, self.app, self.signoffs = inbox, inbox.app, signoffs
-        self.items = inbox.domains.stories.relationships.items
+        self.items = inbox.domains.items
         self.desktop_url = lambda: None
 
     def register(self):
