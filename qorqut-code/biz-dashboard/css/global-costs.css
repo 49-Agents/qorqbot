@@ -22,8 +22,8 @@ button.costs-jump:hover { background:none; color:var(--fg); transform:none; text
 .costs-subhead h2 { margin:0 0 4px; font-size:16px; }
 .costs-subhead p { margin:0; color:var(--fg-2); font-size:12px; }
 .costs-sub .filing-cost-total { margin:8px 0; }
-.costs-sub .filing-cost-total strong { font-size:18px; }
-.costs-sub .filing-cost-row > span:first-child small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.costs-sub .filing-cost-subtotal strong { font-size:18px; }
+
 
 .costs-pnl { margin:0 0 28px; padding:20px 24px 16px; border:1px solid var(--line-2); border-radius:16px; background:var(--wash); }
 .costs-pnl header { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; flex-wrap:wrap; }
@@ -50,6 +50,8 @@ button.costs-jump:hover { background:none; color:var(--fg); transform:none; text
 .costs-readout { margin-left:auto; padding:4px 10px; border:1px solid var(--line-2); border-radius:8px; background:var(--bg); color:var(--fg); font-variant-numeric:tabular-nums; }
 .costs-readout[hidden] { display:none; }
 .costs-note { margin:8px 0 0; color:var(--fg-2); font-size:12px; }
+.costs-incomplete { padding-left:10px; border-left:2px solid var(--warn, #9b6410); }
+.costs-summary small { display:block; margin-top:2px; color:var(--fg-2); font-size:11px; }
 .costs-pnl-data { margin-top:12px; color:var(--fg-2); font-size:12px; }
 .costs-pnl-data summary { cursor:pointer; }
 .costs-pnl-data table { width:100%; margin-top:8px; border-collapse:collapse; font-variant-numeric:tabular-nums; }
