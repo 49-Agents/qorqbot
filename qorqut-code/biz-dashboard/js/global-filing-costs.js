@@ -132,7 +132,7 @@ function filingCostCoverage(coverage) {
 // The Costs page's Context usage section.
 async function filingCostsMount(c) {
   const generation = ++globalFilingCostsGeneration;
-  let cursor = null, selection = 0, requestSequence = 0, loading = false;
+  let cursor = null, selection = 0, requestSequence = 0, loading = false, range = {};
   let calls = new Map(), aggregates = null, coverage = null;
   const expanded = new Set();
   const current = () => generation === globalFilingCostsGeneration && c.isConnected
@@ -174,8 +174,11 @@ async function filingCostsMount(c) {
     });
   };
 
-  const load = async (reset = false) => {
+  // The selected dates are frozen when a selection begins: every continuation and retry of it sends the same dates (the backend
+  // binds a cursor to its exact filters), even if the UTC month turns meanwhile. Only a deliberate new selection recomputes them.
+  const load = async (reset = false, fresh = reset) => {
     if (!current() || (loading && !reset)) return;
+    if (fresh) range = filingCostRange(period.value);
     const mine = ++requestSequence, mySelection = reset ? ++selection : selection;
     loading = true; status.textContent = '';
     if (reset) {
@@ -184,7 +187,7 @@ async function filingCostsMount(c) {
     }
     more.disabled = true;
     try {
-      const result = await filingCostCall({...filingCostRange(period.value), limit:FILING_COST_PAGE_LIMIT, ...(cursor ? {cursor} : {})});
+      const result = await filingCostCall({...range, limit:FILING_COST_PAGE_LIMIT, ...(cursor ? {cursor} : {})});
       // A response for an earlier period, an earlier request or a Costs view that is gone never paints.
       if (!current() || mySelection !== selection || mine !== requestSequence) return;
       if (!filingCostIsPage(result)) throw new Error('The Context usage response is not in the expected format');
@@ -196,7 +199,7 @@ async function filingCostsMount(c) {
     } catch (error) {
       if (!current() || mySelection !== selection || mine !== requestSequence) return;
       status.innerHTML = `<span role="alert">${esc(error.message)}</span> <button type="button" class="ghost" id="filing-cost-retry">Retry</button>`;
-      $('#filing-cost-retry', c).onclick = () => load(!aggregates);
+      $('#filing-cost-retry', c).onclick = () => load(!aggregates, false);
       if (!aggregates) { total.innerHTML = '<span class="muted">Context usage is unavailable.</span>'; body.innerHTML = ''; }
       more.hidden = !cursor;
     } finally {
