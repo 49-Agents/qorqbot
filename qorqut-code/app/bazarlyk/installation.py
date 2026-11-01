@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 from bazarlyk.contracts import DomainError
+from bazarlyk.instance_paths import InstancePaths
 
 
 @lru_cache(maxsize=1)
@@ -27,9 +28,11 @@ def app_manifest():
         raise DomainError("invalid_installation", "Selected application manifest is unavailable") from exc
 
 
-def component(workspace, name):
-    manifest = app_manifest()
-    return Path(manifest["components"][name]["path"]) if manifest else Path(workspace) / ("biz-" + name)
+def component(paths: InstancePaths, name: str) -> Path:
+    """The explicitly selected source or installed-artifact location of one component (``app``, ``dashboard``, ...)."""
+    if not isinstance(paths, InstancePaths):
+        raise DomainError("invalid_configuration", "Component locations require the explicit instance paths")
+    return paths.component(name)
 
 
 def installation_config():

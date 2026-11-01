@@ -18,6 +18,7 @@ from bazarlyk.transport.terminals import TerminalService
 from bazarlyk.sandbox.terminal import SandboxTerminalProvider
 from .local import LocalFiles
 from .egress import BusinessEgress
+from .instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from .remote import fleet_factory
 from .runtime import build_runtime
 from .web import create_app
@@ -54,9 +55,9 @@ def transcript_capture_configuration(value=None):
     return value
 
 
-def load_terminal_broker(workspace):
+def load_terminal_broker(paths):
     from bazarlyk.installation import component
-    path = component(workspace, 'dashboard') / 'pty_broker.py'
+    path = component(paths, 'dashboard') / 'pty_broker.py'
     spec = importlib.util.spec_from_file_location("bazarlyk_dashboard_pty_broker", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -64,7 +65,7 @@ def load_terminal_broker(workspace):
     return module
 
 
-def assemble(businesses_root, workspace, *, origins, endpoint, bootstrap_token="", shell="/bin/bash",
+def assemble(businesses_root, workspace, *, paths, origins, endpoint, bootstrap_token="", shell="/bin/bash",
              model_client_factory=None, broker=None, database=None, signing_key=None, reddit_adapter=None,
              nightly_maintenance=_DEFAULT_MAINTENANCE, capture_transcripts=None, terminal_workspace=None,
              execution_provider=None, sandbox_factory=None, recovery_config=None, github_app_config=None,
@@ -78,7 +79,7 @@ def assemble(businesses_root, workspace, *, origins, endpoint, bootstrap_token="
 
     capture_transcripts = transcript_capture_configuration(capture_transcripts)
     programs = ProgramRegistry()
-    runtime = build_runtime(businesses_root, workspace, database=database, job_programs=programs)
+    runtime = build_runtime(businesses_root, workspace, paths=paths, database=database, job_programs=programs)
     if integrations is not None:
         # Post-commit Outreach registration of new businesses; started with the runtime.
         from bazarlyk.bootstrap.preparation import OUTREACH_TOKEN_ROOT
@@ -111,7 +112,7 @@ def assemble(businesses_root, workspace, *, origins, endpoint, bootstrap_token="
         from .email import EmailClient
         runtime.domains.email.client = EmailClient(os.environ["EMAIL_ENGINE_URL"], os.environ.get("EMAIL_READ_TOKEN", ""),
             admin_token=os.environ.get("EMAIL_ADMIN_TOKEN", ""), send_token=Path(os.environ["EMAIL_SEND_TOKEN_FILE"]).read_text().strip() if os.environ.get("EMAIL_SEND_TOKEN_FILE") else "")
-    broker = broker or load_terminal_broker(workspace)
+    broker = broker or load_terminal_broker(paths)
     from bazarlyk.sandbox.service import BusinessSandboxService
     from bazarlyk.sandbox.quiescence import BoundedWriter, DockerFreezer
     runtime.sandbox = (sandbox_factory or BusinessSandboxService)(runtime)
@@ -180,14 +181,15 @@ def assemble(businesses_root, workspace, *, origins, endpoint, bootstrap_token="
     compatibility = DashboardCompatibility(runtime, terminals=terminals, background=runtime.background, local_files=local)
     authentication = Authentication(runtime.database, runtime.root, bootstrap_token=bootstrap_token, signing_key=signing_key)
     from bazarlyk.installation import component
-    return create_app(runtime, dashboard_root=component(workspace, 'dashboard'), authentication=authentication, origins=origins,
+    return create_app(runtime, dashboard_root=component(paths, 'dashboard'), authentication=authentication, origins=origins,
         compatibility=compatibility, terminals=terminals, integrations=integrations)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Shared Qorqut dashboard and HTTP MCP service")
     parser.add_argument("--root", type=Path, default=os.environ.get("BIZ_ROOT"))
-    parser.add_argument("--workspace", type=Path, default=Path(__file__).resolve().parents[3])
+    parser.add_argument("--workspace", type=Path, default=None)
+    add_instance_arguments(parser)
     parser.add_argument("--terminal-workspace", type=Path, default=os.environ.get("QORQUT_TERMINAL_WORKSPACE"))
     parser.add_argument("--biz", action="append", default=[])
     parser.add_argument("--host", default=os.environ.get("BIZ_DASH_HOST", "127.0.0.1"))
@@ -206,6 +208,9 @@ def main(argv=None):
     try:
         if args.root is None:
             raise DomainError("invalid_configuration", "Set one explicit businesses root with --root or BIZ_ROOT")
+        if args.workspace is None:
+            raise DomainError("invalid_configuration", "Set the explicit engine workspace with --workspace")
+        paths = instance_paths_from_arguments(args, required=("app", "dashboard", "template"))
         root = Path(args.root).expanduser().resolve()
         marker = find_authority(root)
         if marker is None or marker.parent.parent.resolve() != root:
@@ -228,7 +233,7 @@ def main(argv=None):
         origins = args.origin + [value for value in os.environ.get("BIZ_SERVICE_ORIGINS", "").split(",") if value]
         origins += [f"http://{local_host}:{args.port}", f"http://localhost:{args.port}"]
         endpoint = args.service_url or f"http://127.0.0.1:{args.port}/mcp"
-        app = assemble(root, args.workspace, origins=origins, endpoint=endpoint, bootstrap_token=args.token,
+        app = assemble(root, args.workspace, paths=paths, origins=origins, endpoint=endpoint, bootstrap_token=args.token,
             shell=os.environ.get("SHELL", "/bin/bash"), database=database, terminal_workspace=args.terminal_workspace,
             recovery_config=args.recovery_config, github_app_config=args.github_app_config)
         if args.prepare_agent:

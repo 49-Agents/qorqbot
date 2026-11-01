@@ -23,11 +23,16 @@ SOURCE_SCHEMA = {
 }
 
 
-def load_sources(workspace, *, config_path=None):
+def load_sources(workspace, *, paths=None, config_path=None):
+    """Entries resolve against ``workspace``; the default map file is the ``app`` component's, from explicit ``paths``."""
     workspace = Path(workspace).resolve()
-    from bazarlyk.installation import component
-    path = Path(config_path or os.environ.get("QORQUT_PACKAGE_SOURCES")
-                or component(workspace, 'core') / 'package-sources.json')
+    selected = config_path or os.environ.get("QORQUT_PACKAGE_SOURCES")
+    if not selected:
+        if paths is None:
+            raise DomainError("invalid_configuration", "Select a package source map or pass the explicit instance paths")
+        from bazarlyk.installation import component
+        selected = component(paths, 'app') / 'package-sources.json'
+    path = Path(selected)
     try:
         definitions = json.loads(path.read_text())
     except (OSError, ValueError) as exc:

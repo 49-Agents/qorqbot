@@ -165,7 +165,10 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
         from bazarlyk.transport.owner_mcp import OwnerSessionCaller
         owner_mcp = MCPTransport(runtime, authentication, origins,
                                  caller=OwnerSessionCaller(runtime, authentication))
-    dashboard_root = Path(dashboard_root or runtime.workspace / "biz-dashboard").resolve()
+    if dashboard_root is None:
+        from bazarlyk.installation import component
+        dashboard_root = component(runtime.paths, "dashboard")
+    dashboard_root = Path(dashboard_root).resolve()
 
     @asynccontextmanager
     async def lifespan(app):

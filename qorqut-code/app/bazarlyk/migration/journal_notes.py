@@ -12,6 +12,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from bazarlyk.contracts import DomainError, InvocationContext, canonical_hash, plain
+from bazarlyk.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from bazarlyk.service.runtime import build_runtime
 from bazarlyk.transport.auth import Authentication
 
@@ -75,9 +76,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--workspace', required=True, type=Path)
+    add_instance_arguments(parser)
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
-    runtime = build_runtime(args.root, args.workspace)
+    runtime = build_runtime(args.root, args.workspace, paths=instance_paths_from_arguments(args, required=('app', 'template')))
     print(json.dumps(migrate(runtime, apply=args.apply), indent=2))
 
 
