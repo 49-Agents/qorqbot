@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qorqut-operations"
-version = "0.1.0"
-description = "Shared Qorqut operational records and SQLite foundation"
+version = "1.2.0.dev0"
+description = "Portable Qorqut Operations engine: authority, storage and application contracts"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["jsonschema>=4.18"]
 
 [project.optional-dependencies]
 test = ["pytest>=7.4"]
@@ -16,9 +16,6 @@ test = ["pytest>=7.4"]
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["qorqut_operations*"]
-
-[tool.setuptools.package-data]
-qorqut_operations = ["schema.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
