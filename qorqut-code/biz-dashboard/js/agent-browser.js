@@ -33,9 +33,12 @@ function agbrowserSurfaces(p, force = false) {
   }).finally(() => { if (p.surfacesPending === pending) p.surfacesPending = null; });
 }
 
-// Mount-time discovery only decides whether a Browser tab is offered.
+// Mount-time discovery only decides whether a Browser tab is offered. Global agents and a
+// business's own agents use the same owner-only read; a business agent gets Browser only (its
+// Desktop toggle stays Ordubashy's). Anyone the read refuses simply never sees the tab.
+const AGBROWSER_SCOPES = new Set(['global', 'business']);
 function agbrowserDiscover(p) {
-  if (!p.agentId || p.workspaceScope !== 'global') return;
+  if (!p.agentId || !AGBROWSER_SCOPES.has(p.workspaceScope)) return;
   agbrowserSurfaces(p).then(() => { if (_agpad === p) agpadWorkspaceViewsSync(p); }).catch(() => {});
 }
 
