@@ -29,10 +29,14 @@
 .ac-chip:hover { background: var(--hover); color: var(--fg); transform: none; }
 .ac-chip[aria-pressed="true"] { border-color: var(--fg-2); color: var(--fg); background: var(--wash); }
 .ac-chip:focus-visible { outline: 2px solid var(--fg-2); outline-offset: 1px; }
-.ac-businesses { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: var(--r-sm); max-height: 160px; overflow: auto; }
+/* Scope buttons are icon-only squares; the category name is their label and title. */
+.ac-scope { width: 28px; padding: 0; border-radius: var(--r-sm); }
+/* Business names are wrapping chips in a growing box: no height cap, no inner scrolling. */
+.ac-businesses { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; min-width: 0; margin: 0; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: var(--r-sm); }
 .ac-businesses[hidden] { display: none; }
 .ac-businesses legend { font-size: 11px; color: var(--fg-2); padding: 0 4px; }
-.ac-businesses label { display: flex; gap: 8px; align-items: center; color: var(--fg); }
+.ac-biz { height: auto; border-radius: 14px; min-height: 28px; max-width: 100%; padding: 6px 10px; line-height: 1.25; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.ac-businesses .muted { flex: 1 0 100%; margin: 0; }
 .ac-pending { margin: 0; font-size: 12px; color: var(--warn); }
 .ac-pending[hidden] { display: none; }
 .ac-time { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }

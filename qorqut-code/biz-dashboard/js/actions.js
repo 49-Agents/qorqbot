@@ -159,7 +159,6 @@ function acOpen(opener, action = null) {
   document.body.appendChild(pop);
   document.querySelectorAll("[data-ac-capture]").forEach(b => b.setAttribute("aria-expanded", String(b === opener)));
   acPaint();
-  acPlace();
   pop.querySelector("#ac-text").focus();
   if (!ac.config) acOp("actions_config_get", {}).then(config => { ac.config = config; acPaint(); }).catch(() => {});
   setTimeout(() => document.addEventListener("pointerdown", acOutside, true));
@@ -170,7 +169,9 @@ function acPlace() {
   const r = opener.getBoundingClientRect(), width = Math.min(380, window.innerWidth - 16);
   pop.style.width = `${width}px`;
   pop.style.left = `${Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8))}px`;
-  pop.style.top = `${Math.min(r.bottom + 6, window.innerHeight - 80)}px`;
+  // The panel grows with its content; measured at its final width, it shifts up to stay in view, and
+  // when it is taller than the window it sits at the top margin rather than being capped or scrolled.
+  pop.style.top = `${Math.max(8, Math.min(r.bottom + 6, window.innerHeight - pop.offsetHeight - 8))}px`;
 }
 function acOutside(event) {
   const pop = $("#ac-pop");
@@ -220,6 +221,7 @@ function acPaintStatus() {
   note.textContent = !pending ? "" : ac.record && ac.record.saved.category !== "business-operational" || !ac.record
     ? `Choose at least one business to classify this as business-operational. Until then it is saved as ${ac.record?.saved.category || "Unclassified"}.`
     : "Choose at least one business; the saved businesses stay until you do.";
+  acPlace();
 }
 function acPaint() {
   const pop = $("#ac-pop"); if (!pop) return;
@@ -235,12 +237,12 @@ function acPaint() {
   pop.innerHTML = `<label class="ac-label" for="ac-text">Completed action</label>
     <textarea id="ac-text" class="inp" rows="3" maxlength="2000" placeholder="What was completed?" spellcheck="true">${esc(draft.text)}</textarea>
     <div class="ac-chips" role="group" aria-label="Category (none selected is Unclassified)">${AC_CATEGORIES.map(([id]) =>
-      `<button type="button" class="ac-chip" data-ac-category="${id}" aria-pressed="${draft.category === id}">${acCategoryIcon(id)}<span>${id}</span></button>`).join("")}</div>
+      `<button type="button" class="ac-chip ac-scope" data-ac-category="${id}" aria-pressed="${draft.category === id}" aria-label="Scope: ${id}" title="${id}">${acCategoryIcon(id)}</button>`).join("")}</div>
     <fieldset class="ac-businesses" ${draft.category === "business-operational" ? "" : "hidden"}><legend>Businesses</legend>
-      ${businesses.length ? businesses.map(b => `<label><input type="checkbox" data-ac-business="${esc(b.id)}" ${draft.businesses.includes(b.id) ? "checked" : ""}> ${esc(b.name || b.slug || b.id)}</label>`).join("") : '<p class="muted">No businesses available.</p>'}
+      ${businesses.length ? businesses.map(b => `<button type="button" class="ac-chip ac-biz" data-ac-business="${esc(b.id)}" aria-pressed="${draft.businesses.includes(b.id)}">${esc(b.name || b.slug || b.id)}</button>`).join("") : '<p class="muted">No businesses available.</p>'}
     </fieldset>
     <p class="ac-pending" role="note" hidden></p>
-    <div class="ac-time"><label>Real time <span class="muted">(${esc(SJ_LABEL)})</span><input type="date" id="ac-date" class="inp" max="${today}" value="${esc(draft.date)}"></label>
+    <div class="ac-time"><input type="date" id="ac-date" class="inp" aria-label="Action date" max="${today}" value="${esc(draft.date)}">
       <label>Hour<select id="ac-hour" class="inp" ${draft.date ? "" : "disabled"}><option value="">Any</option>${hours.map(h => `<option value="${h}" ${String(draft.hour) === String(h) ? "selected" : ""}>${String(h).padStart(2, "0")}:00</option>`).join("")}</select></label>
       ${draft.date ? '<button type="button" class="ghost" id="ac-now">Now</button>' : ""}</div>
     <div class="ac-foot"><span class="ac-status" role="status" aria-live="polite"></span>
@@ -255,9 +257,10 @@ function acPaint() {
     if (d.category === "business-operational") pop.querySelector("[data-ac-business]")?.focus();
     else pop.querySelector(`[data-ac-category="${id}"]`)?.focus();
   });
-  pop.querySelectorAll("[data-ac-business]").forEach(input => input.onchange = () => {
-    const d = acDraft(), id = input.dataset.acBusiness;
-    d.businesses = input.checked ? [...new Set([...d.businesses, id])] : d.businesses.filter(b => b !== id);
+  pop.querySelectorAll("[data-ac-business]").forEach(button => button.onclick = () => {
+    const d = acDraft(), id = button.dataset.acBusiness, on = !d.businesses.includes(id);
+    d.businesses = on ? [...d.businesses, id] : d.businesses.filter(b => b !== id);
+    button.setAttribute("aria-pressed", String(on));
     acEdited(); acPaintStatus();
   });
   const date = pop.querySelector("#ac-date"), hour = pop.querySelector("#ac-hour");
