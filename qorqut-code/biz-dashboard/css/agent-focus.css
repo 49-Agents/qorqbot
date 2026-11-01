@@ -208,8 +208,8 @@
 .agfocus [data-focus-snooze] svg { width:18px; height:18px; }
 
 /* Compact new-attention strip, separate from the persistent board. */
-.attention-queue{height:48px;min-height:48px;display:flex;align-items:center;gap:4px;margin-bottom:4px;min-width:0}
-.attention-stack{display:flex;align-items:center;min-width:0;flex:1;padding:3px 1px}
+.attention-queue{height:64px;min-height:64px;display:flex;align-items:center;gap:4px;margin-bottom:4px;min-width:0}
+.attention-stack{display:flex;align-items:center;gap:6px;min-width:0;flex:1;padding:3px 1px}
 .attention-chip{display:flex;align-items:center;gap:5px;min-width:0;height:34px;flex:1;padding:5px 10px;border:1px solid var(--line-2);border-radius:9px;background:var(--elevated);color:var(--fg);box-shadow:0 1px 4px #0002;font-size:11px;text-align:left;position:relative}
 .attention-chip+.attention-chip{margin-left:-8px}
 .attention-chip:hover,.attention-chip:focus-visible{z-index:2;transform:translateY(-2px)}
@@ -228,5 +228,5 @@
 .agfocus > header,.agfocus > .attention-queue,.agfocus > .agfocus-pages { flex:none; }
 .agfocus > .agfocus-layout { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; align-content:start; }
 .attention-queue .attention-label { display:none; }
-.agfocus .attention-queue .attention-chip,.attention-queue .attention-chip { flex:0 0 36px; width:36px; height:34px; min-height:34px; padding:5px; justify-content:center; }
-.attention-queue .attention-chip+.attention-chip { margin-left:-4px; }
+.agfocus .attention-queue .attention-chip,.attention-queue .attention-chip { flex:0 0 54px; width:54px; height:51px; min-height:51px; padding:7px; justify-content:center; }
+.attention-queue .attention-chip+.attention-chip { margin-left:0; }
