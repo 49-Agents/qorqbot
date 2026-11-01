@@ -12,6 +12,7 @@ document.addEventListener('click',event=>{
   // check wrongly read as "outside" and collapse the panel the click opened.
   const path=event.composedPath();
   for(const host of document.querySelectorAll('[data-inline-conversation]')) {
+    if(host._conversation?.dismissOnOutside===false)continue;
     if(!path.includes(host.closest('.agfocus-card') || host) && host._conversation?.isExpanded())host._conversation.collapse();
   }
 });
@@ -48,8 +49,7 @@ function conversationGlyph(person,size) {
 function conversationOrdubashyGlyph(size) {
   return typeof agentGlyph==='function' ? agentGlyph({role:{id:'ordubashy'}},size) : 'O';
 }
-// Up to 4 overlapping avatars for the team-channel toast; no overflow count,
-// unlike the Focus people row — if more than 4 have posted, just show 4.
+// Up to 4 overlapping avatars for the team-channel toast; no overflow count.
 function conversationChannelAvatars(people) {
   if(!people.length) return '<span class="conversation-channel-avatar conversation-channel-avatar-empty" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 20v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1"/><circle cx="9" cy="7" r="3"/><path d="M22 20v-1a3.99 3.99 0 0 0-3-3.85"/><path d="M16 3.13a3.99 3.99 0 0 1 0 7.75"/></svg></span>';
   return people.slice(0,4).map(person=>`<span class="conversation-channel-avatar" aria-hidden="true">${conversationGlyph(person,18)}</span>`).join('');
@@ -106,8 +106,11 @@ function conversationMount(host,source,adapter={}) {
   if (!host) return;
   const key=conversationKey(source);
   let expanded=false;
-  const expandedMessages=new Set();
+  const expandedMessages={private:new Set(),team:new Set()};
   if (host.dataset.conversation===key) { host._source=source; return host._conversation; }
+  host._conversation?.dispose?.();
+  let disposed=false,view;
+  const scroll={private:0,team:0};
   host.dataset.conversation=key;host._source=source;
   // The session can arrive after a mount, so the owner test is read on demand
   // rather than frozen: a late non-owner session restores the team composer.
@@ -135,9 +138,10 @@ function conversationMount(host,source,adapter={}) {
   }
   st().mounts.add(host);
   host.dataset.conversationChannel=channel;
-  const syncDraft=sourceInput=>{const s=st();for(const mount of [...s.mounts]){if(!mount.isConnected || mount.dataset.conversation!==key || mount.dataset.conversationChannel!==s.channel){s.mounts.delete(mount);continue;}const other=mount.querySelector('textarea');if(other && other!==sourceInput && other.value!==s.text)other.value=s.text;}};
+  const syncDraft=(sourceInput,s=st())=>{for(const mount of [...s.mounts]){if(!mount.isConnected || mount.dataset.conversation!==key || mount.dataset.conversationChannel!==s.channel){s.mounts.delete(mount);continue;}const other=mount.querySelector('textarea');if(other && other!==sourceInput && other.value!==s.text)other.value=s.text;}};
   input.value=st().text;input.oninput=()=>{st().text=input.value;syncDraft(input);adapter.onInput?.();};
-  const current=()=>host.isConnected && host.dataset.conversation===key;
+  const current=()=>!disposed && host.isConnected && host.dataset.conversation===key && host._conversation===view;
+  feed.onscroll=()=>{if(expanded)scroll[channel]=feed.scrollTop;};
   function syncSending() {
     const s=st();
     for(const mount of s.mounts)if(mount.isConnected && mount.dataset.conversation===key && mount.dataset.conversationChannel===s.channel){
@@ -174,7 +178,7 @@ function conversationMount(host,source,adapter={}) {
     const signature=JSON.stringify([channel,s.notes,s.participants,s.cursor,s.before]);
     if(painted===signature)return;
     painted=signature;
-    const top=feed.scrollTop;
+    const top=scroll[channel];
     const groups=[];
     for (const note of s.notes) {
       const last=groups.at(-1);
@@ -188,9 +192,10 @@ function conversationMount(host,source,adapter={}) {
       const owner=first.is_owner ?? (first.author_kind==='human');
       const name=conversationPersonName(first);
       const avatar=conversationGlyph(first,31);
-      return `<div class="conversation-group ${owner?'conversation-owner':'conversation-agent'}">${!owner?`<div class="conversation-agent-header"><span class="conversation-avatar" aria-hidden="true">${avatar}</span><small>${esc(name)}</small></div>`:''}<div>${group.map(note=>`<div class="conversation-bubble">${note.title && note.title!=='Message'?`<strong>${esc(note.title)}</strong>`:''}${note.parent_event_id && adapter.openParent?`<button type="button" class="quiet conversation-parent" data-note-parent="${esc(note.id)}">About an earlier entry</button>`:''}${conversationMessage(note,expandedMessages.has(note.id))}${(note.refs||[]).map((r,i)=>`<button type="button" class="quiet" data-note-ref="${esc(note.id)}:${i}" ${r.unavailable?'disabled':''}>${esc(r.label || r.type || 'Reference')}</button>`).join('')}</div>`).join('')}${time}</div></div>`;
+      return `<div class="conversation-group ${owner?'conversation-owner':'conversation-agent'}">${!owner?`<div class="conversation-agent-header"><span class="conversation-avatar" aria-hidden="true">${avatar}</span><small>${esc(name)}</small></div>`:''}<div>${group.map(note=>`<div class="conversation-bubble">${note.title && note.title!=='Message'?`<strong>${esc(note.title)}</strong>`:''}${note.parent_event_id && adapter.openParent?`<button type="button" class="quiet conversation-parent" data-note-parent="${esc(note.id)}">About an earlier entry</button>`:''}${conversationMessage(note,expandedMessages[channel].has(note.id))}${(note.refs||[]).map((r,i)=>`<button type="button" class="quiet" data-note-ref="${esc(note.id)}:${i}" ${r.unavailable?'disabled':''}>${esc(r.label || r.type || 'Reference')}</button>`).join('')}</div>`).join('')}${time}</div></div>`;
     }).join('');
-    feed.querySelectorAll('[data-message-id]').forEach(details=>details.addEventListener('toggle',()=>{if(!details.isConnected)return;if(details.open)expandedMessages.add(details.dataset.messageId);else expandedMessages.delete(details.dataset.messageId);}));
+    const messageState=expandedMessages[channel];
+    feed.querySelectorAll('[data-message-id]').forEach(details=>details.addEventListener('toggle',()=>{if(!details.isConnected)return;if(details.open)messageState.add(details.dataset.messageId);else messageState.delete(details.dataset.messageId);}));
     if(typeof StoryNotePane==='function') for(const note of s.notes) {
       if(note.statuses_json) {const body=[...feed.querySelectorAll('[data-conversation-body]')].find(el=>el.dataset.conversationBody===note.id);if(body)new StoryNotePane(body,{body:note.body,statuses:note.statuses_json},{readonly:true});}
     }
@@ -214,7 +219,7 @@ function conversationMount(host,source,adapter={}) {
   // Acknowledge only what the server has already returned to this owner, and only
   // after an interactive private load that included the newest page.
   async function acknowledge(s) {
-    const stillPrivateVisible=()=>viewerIsOwner() && expanded && channel==='private' && current();
+    const stillPrivateVisible=()=>viewerIsOwner() && expanded && channel==='private' && current() && adapter.isVisible?.()!==false;
     if(!stillPrivateVisible() || s.marking)return;
     const latest=s.conversation?.latest_sequence || 0;
     if(!latest || latest<=(s.readState?.last_read_sequence || 0))return;
@@ -224,6 +229,7 @@ function conversationMount(host,source,adapter={}) {
       // away from while the private history request was in flight.
       if(!stillPrivateVisible())return;
       const data=await conversationPrivateCall(source,adapter,'owner_conversation_mark_read',{sequence:latest},{idempotency_key:newRequestId()});
+      if(!current())return;
       const readState=data?.read_state;
       s.readState=readState || {last_read_sequence:latest,unread:false};
       // A coordinator reply can arrive between GET and mark-read. The server's
@@ -241,15 +247,17 @@ function conversationMount(host,source,adapter={}) {
     } finally {s.marking=false;}
   }
   async function load(more=false,options={}) {
+    if(!current())return;
     const target=options.channel || channel,s=channels[target];
     if(s.loading)return;
-    s.loading=true;if(target===channel)error.hidden=true;
+    s.loading=true;s.loadOwner=view;if(target===channel)error.hidden=true;
     s.refreshAfterSend=false;
     try {
       let data;
       const pagination=more?{...(s.cursor?{cursor:s.cursor}:{}),...(s.before?{before:s.before}:{})}:{};
       if(target==='private') {
         const result=await conversationPrivateCall(source,adapter,'owner_conversation_get',{limit:20,...(more && s.before?{before:s.before}:{})});
+        if(!current())return;
         s.conversation=result.conversation || null;s.readState=result.read_state || null;
         data={notes:result.messages || [],next_before:result.next_before,participants:result.participants};
       }
@@ -258,11 +266,13 @@ function conversationMount(host,source,adapter={}) {
         const result=await conversationCall(source,'stories_timeline',{story_id:source.id,notes_only:true,limit:20,...pagination});
         data={notes:result.events.slice().reverse().map(n=>({...n,created_by:n.actor_id,created_by_name:n.actor?.name,author_kind:n.actor?.kind})),next_cursor:result.next_cursor,participants:result.participants};
       } else data=await conversationCall(source,source.type==='email'?'email_comments_list':source.type==='task'?'tasks_thread_get':'signoffs_notes_list',{[source.type==='email'?'conversation_id':source.type+'_id']:source.id,limit:20,...pagination});
+      if(!current())return;
       s.participants=data.participants || s.participants;
       const oldHeight=feed.scrollHeight;
       const merged=new Map((more?[...data.notes,...s.notes]:[...s.notes,...data.notes]).map(n=>[n.id,n]));
       s.notes=[...merged.values()].sort((a,b)=>a.sequence!=null && b.sequence!=null?a.sequence-b.sequence:(a.created_at||'').localeCompare(b.created_at||'') || a.id.localeCompare(b.id));
-      if(more || !s.loaded){s.cursor=data.next_cursor;s.before=data.next_before;}
+      const missingPrivateHistory=target==='private' && s.notes.length<(s.conversation?.message_count || 0);
+      if(more || !s.loaded || (!s.cursor && !s.before && missingPrivateHistory)){s.cursor=data.next_cursor;s.before=data.next_before;}
       s.loaded=true;
       if(target===channel && current()){paint();if(more)feed.scrollTop=Math.max(0,feed.scrollHeight-oldHeight+feed.scrollTop);}
       for(const mount of s.mounts)if(mount!==host && mount.isConnected && mount.dataset.conversation===key && mount.dataset.conversationChannel===target && mount._conversation?.isExpanded())mount._conversation._paint?.();
@@ -272,23 +282,25 @@ function conversationMount(host,source,adapter={}) {
       if(target==='team'){adapter.onParticipants?.(conversationPeople(s));paintTeamIcon();}
       if(target==='private' && !more && options.acknowledge)await acknowledge(s);
     } catch(e){
+      if(!current())return;
       if(['forbidden','not_found'].includes(e.code)){
         s.notes=[];s.participants=[];s.loaded=false;s.cursor=null;s.before=null;
         if(target===channel && current())paint();
+        adapter.onUnavailable?.(e);
       }
       if(target===channel && current())showError(e);
     } finally{
-      s.loading=false;
+      if(s.loadOwner===view){s.loading=false;s.loadOwner=null;}
       // A send may finish while an earlier read is still in flight. Fetch again
       // afterwards so that response cannot leave the new message out of view.
-      if(s.refreshAfterSend)void load(false,{channel:target});
+      if(current() && s.refreshAfterSend)void load(false,{channel:target});
     }
   }
   async function submit() {
     // A tab switch mid-send must not redirect the message: the channel and its
     // state are fixed for the whole submission.
     const sending=channel,s=channels[sending];
-    if(s.sending || !s.text.trim() || readOnly())return;
+    if(!current() || s.sending || !s.text.trim() || readOnly())return;
     s.sending=true;syncSending();error.hidden=true;
     let saved=false;
     try {
@@ -305,7 +317,7 @@ function conversationMount(host,source,adapter={}) {
       else await conversationCall(source,{task:'tasks_comment',story:'stories_note_add',signoff:'signoffs_comment',email:'email_comment'}[source.type],
         {[source.type==='email'?'conversation_id':source.type+'_id']:source.id,...(source.type==='story'?{body:request.text}:{text:request.text})},
         {idempotency_key:request.idempotency_key,...(request.revision?{expected_revision:request.revision}:{})});
-      s.text='';s.submission=null;saved=true;if(current() && channel===sending){input.value='';send.textContent='Send';}syncDraft(input);
+      s.text='';s.submission=null;saved=true;if(current() && channel===sending){input.value='';send.textContent='Send';}syncDraft(channel===sending?input:null,s);
     } catch(e){
       // The server owns the channel rule: move the draft to the private channel
       // rather than losing it or retrying a write the owner may not make.
@@ -323,12 +335,13 @@ function conversationMount(host,source,adapter={}) {
   }
   function selectChannel(next,options={}) {
     if(!channels[next] || next===channel)return;
+    scroll[channel]=feed.scrollTop;
     channels[channel].mounts.delete(host);
     channel=next;host.dataset.conversationChannel=next;
     channels[next].mounts.add(host);
     syncChannel();
     input.value=st().text;
-    syncSending();painted='';paint();
+    syncSending();painted='';paint();feed.scrollTop=scroll[channel];
     if(expanded)void load(false,{acknowledge:options.acknowledge!==false && next==='private'});
   }
   function setUnread(value) {
@@ -340,7 +353,7 @@ function conversationMount(host,source,adapter={}) {
   input.onkeydown=event=>{
     if(event.key==='Enter' && event.ctrlKey && !event.isComposing && !send.disabled && !input.disabled){event.preventDefault();submit();}
   };
-  function expand(value,notify=true) {expanded=value;panel.hidden=!value;toggle.setAttribute('aria-expanded',String(value));if(notify)adapter.onToggle?.(value);if(value) {if(st().loaded)paint();void load(false,{acknowledge:channel==='private'});scheduleAgeRefresh();}}
+  function expand(value,notify=true) {if(disposed)return;if(!value)scroll[channel]=feed.scrollTop;expanded=value;panel.hidden=!value;toggle.setAttribute('aria-expanded',String(value));if(notify)adapter.onToggle?.(value);if(value) {if(st().loaded)paint();feed.scrollTop=scroll[channel];void load(false,{acknowledge:channel==='private'});scheduleAgeRefresh();}}
   toggle.onclick=()=>expand(!expanded);older.onclick=()=>load(true);send.onclick=submit;
   const channelTabs=[...host.querySelectorAll('.conversation-channel')];
   for(const tab of channelTabs) {
@@ -356,7 +369,8 @@ function conversationMount(host,source,adapter={}) {
       next.focus();
     };
   }
-  host._conversation={
+  view=host._conversation={
+    dismissOnOutside:adapter.dismissOnOutside!==false,
     refresh:()=>expanded || adapter.inlineComposer?load(false,{channel:expanded?channel:'team'}):null,
     // Preloading is a background read of the team discussion only: it never
     // acknowledges private messages and never reads the private channel.
@@ -364,6 +378,20 @@ function conversationMount(host,source,adapter={}) {
     isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),
     channel:()=>channel,selectChannel,setUnread,
     hasDraft:()=>!!(channels.private.text || channels.team.text),
+    dispose:()=>{
+      if(disposed)return;
+      disposed=true;expanded=false;
+      for(const s of Object.values(channels)){
+        s.mounts.delete(host);
+        if(s.loadOwner===view){s.loading=false;s.loadOwner=null;}
+        if(!s.mounts.size){clearTimeout(s.ageTimer);s.ageTimer=null;}
+      }
+      input.oninput=input.onkeydown=send.onclick=older.onclick=toggle.onclick=feed.onscroll=null;
+      input.disabled=send.disabled=true;
+      for(const tab of channelTabs)tab.onclick=tab.onkeydown=null;
+      if(host._conversation===view){delete host._conversation;delete host.dataset.conversation;}
+      toggle.remove();host.replaceChildren();
+    },
     get state(){return st();},
     states:channels,_paint:paint};
   // Collapsed by default at the component level: mounting is not itself an

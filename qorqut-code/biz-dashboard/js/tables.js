@@ -23,6 +23,22 @@ const dataIconButton = (id, label, icon) => `<button class="data-icon" type="but
 const dataValue = value => value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
 const dataCell = (row, key) => row && Object.hasOwn(row.cells, key) ? row.cells[key] : null;
 const dataDownload = (biz, id) => `/api/biz/${encodeURIComponent(biz)}/data-uploads/${encodeURIComponent(id)}/download`;
+// The standalone read-only page for one table; Global tables carry no business_id.
+const dataViewLink = (biz, tableId) => {
+  const business = biz === null ? null : state.bizs.find(entry => entry.slug === biz);
+  if (biz !== null && !business) return null;
+  return `${location.origin}/tables/view?table_id=${encodeURIComponent(tableId)}${business ? `&business_id=${encodeURIComponent(business.id)}` : ''}`;
+};
+const dataCopyLink = async (text, button) => {
+  try { await navigator.clipboard.writeText(text); }
+  catch (_) {
+    const field = Object.assign(document.createElement('textarea'), {value: text});
+    document.body.appendChild(field); field.select();
+    try { document.execCommand('copy'); } finally { field.remove(); }
+  }
+  button.title = button.ariaLabel = 'Link copied';
+  setTimeout(() => { button.title = button.ariaLabel = 'Copy link'; }, 1500);
+};
 const dataSettingsIcon = document.querySelector('.ritem[data-tab="settings"] svg').outerHTML;
 
 async function renderTables(container, filters = null) {
@@ -119,7 +135,7 @@ async function dataOpenTable(id, append = false) {
       listed.querySelector('strong').textContent = table.title;
       listed.querySelector('span').textContent = `${table.row_count} rows${table.archived ? ' · Archived' : ''}`;
     }
-    panel.innerHTML = `<header class="data-heading">${dataIconButton('data-back', 'Back to tables', aicon('arrow-left', 'currentColor', 18))}<h1>${esc(table.title)}</h1>${(table.tags?.departments || []).map(departmentTag).join(' ')}<span class="data-spacer"></span>${dataIconButton('data-edit-table', 'Edit table and columns', dataSettingsIcon)}</header>${table.description ? `<p class="data-description">${esc(table.description)}</p>` : ''}${biz === null ? '' : '<div id="data-stories"></div>'}<div class="data-row-tools"><label>Search rows<input type="search" id="data-row-query" class="inp" value="${esc(_data.query)}"></label><span class="data-spacer"></span><div id="data-draft-actions" hidden><button type="button" class="btn" id="data-discard">Discard</button><button type="button" class="btn primary" id="data-save">Save</button></div>${dataIconButton('data-row-delete', 'Remove selected rows', SVG_X)}${dataIconButton('data-row-new', 'Add row', SVG_TPLUS)}</div><div class="data-grid-wrap"><table class="data-grid"><thead><tr><th class="data-check"><input type="checkbox" id="data-select-all" aria-label="Select visible rows"></th>${table.columns.map(column => `<th><button type="button" data-sort="${column.id}" ${column.type === 'json' ? 'disabled' : ''}>${esc(column.name)}${_data.order === column.id ? (_data.descending ? ' ↓' : ' ↑') : ''}</button></th>`).join('')}</tr></thead><tbody></tbody></table></div><footer class="data-footer"><span id="data-row-count"></span><button class="btn" id="data-more" ${_data.cursor ? '' : 'hidden'}>Load more</button></footer>`;
+    panel.innerHTML = `<header class="data-heading">${dataIconButton('data-back', 'Back to tables', aicon('arrow-left', 'currentColor', 18))}<h1>${esc(table.title)}</h1>${(table.tags?.departments || []).map(departmentTag).join(' ')}<span class="data-spacer"></span>${dataViewLink(biz, id) ? dataIconButton('data-copy-link', 'Copy link', '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>') : ''}${dataIconButton('data-edit-table', 'Edit table and columns', dataSettingsIcon)}</header>${table.description ? `<p class="data-description">${esc(table.description)}</p>` : ''}${biz === null ? '' : '<div id="data-stories"></div>'}<div class="data-row-tools"><label>Search rows<input type="search" id="data-row-query" class="inp" value="${esc(_data.query)}"></label><span class="data-spacer"></span><div id="data-draft-actions" hidden><button type="button" class="btn" id="data-discard">Discard</button><button type="button" class="btn primary" id="data-save">Save</button></div>${dataIconButton('data-row-delete', 'Remove selected rows', SVG_X)}${dataIconButton('data-row-new', 'Add row', SVG_TPLUS)}</div><div class="data-grid-wrap"><table class="data-grid"><thead><tr><th class="data-check"><input type="checkbox" id="data-select-all" aria-label="Select visible rows"></th>${table.columns.map(column => `<th><button type="button" data-sort="${column.id}" ${column.type === 'json' ? 'disabled' : ''}>${esc(column.name)}${_data.order === column.id ? (_data.descending ? ' ↓' : ' ↑') : ''}</button></th>`).join('')}</tr></thead><tbody></tbody></table></div><footer class="data-footer"><span id="data-row-count"></span><button class="btn" id="data-more" ${_data.cursor ? '' : 'hidden'}>Load more</button></footer>`;
     if (table.purpose === 'metrics') {
       const toggle = document.createElement('button'); toggle.id = 'metrics-columns'; toggle.className = 'btn'; toggle.textContent = 'Metric columns';
       toggle.onclick = () => { _data.metricsRows = false; _data.order = ''; dataOpenTable(id); };
@@ -127,6 +143,8 @@ async function dataOpenTable(id, append = false) {
     }
     panel.querySelector('#data-back').onclick = dataBack;
     panel.querySelector('#data-edit-table').onclick = () => dataTableEditor(table);
+    const copy = panel.querySelector('#data-copy-link');
+    if (copy) copy.onclick = () => dataCopyLink(dataViewLink(biz, table.id), copy);
     panel.querySelector('#data-row-new').disabled = table.archived;
     panel.querySelector('#data-row-new').onclick = () => {
       const draft = dataStartDraft(), row = {id: newRequestId(), cells: {}, position: table.row_count + draft.added.size};

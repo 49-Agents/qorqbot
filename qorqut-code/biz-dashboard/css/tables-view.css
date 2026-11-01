@@ -1,0 +1,16 @@
+/* Standalone owner table page. It intentionally shares nothing with the full application shell. */
+:root { color-scheme: light dark; --tv-bg: #fff; --tv-fg: #1a1a1a; --tv-mute: #6b6b6b; --tv-line: #e2e2e2; --tv-head: #f5f5f5; }
+@media (prefers-color-scheme: dark) { :root { --tv-bg: #121212; --tv-fg: #eaeaea; --tv-mute: #9a9a9a; --tv-line: #2c2c2c; --tv-head: #1c1c1c; } }
+html, body { margin: 0; background: var(--tv-bg); color: var(--tv-fg); font: 13px/1.4 system-ui, sans-serif; }
+.tv { padding: 10px 12px 16px; }
+.tv-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.tv-head h1 { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
+.tv-note, .tv-status, .tv-foot { color: var(--tv-mute); font-size: 12px; margin: 6px 0; }
+.tv-wrap { overflow: auto; border: 1px solid var(--tv-line); border-radius: 6px; max-width: 100%; }
+.tv-grid { border-collapse: collapse; width: 100%; }
+.tv-grid th, .tv-grid td { padding: 5px 9px; border-bottom: 1px solid var(--tv-line); text-align: left; vertical-align: top; max-width: 360px; overflow-wrap: anywhere; }
+.tv-grid th { position: sticky; top: 0; background: var(--tv-head); font-weight: 600; white-space: nowrap; }
+.tv-foot { display: flex; align-items: center; gap: 12px; }
+.tv-foot button { font: inherit; padding: 3px 10px; border: 1px solid var(--tv-line); border-radius: 6px; background: transparent; color: var(--tv-fg); cursor: pointer; }
+.tv-foot button:disabled { opacity: .5; cursor: default; }
+[hidden] { display: none !important; }

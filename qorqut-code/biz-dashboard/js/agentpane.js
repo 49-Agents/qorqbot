@@ -45,13 +45,14 @@ function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
 
 // Browser appears for any agent with a configured browser binding; the full
 // Desktop remains Ordubashy's alone (core also enforces this on the binding).
-function agentPaneViews(scope, roleId, base = [], browser = false) {
+// Viewbox is offered to any registered agent (the owner-only board is keyed by its id), after the general views.
+function agentPaneViews(scope, roleId, base = [], browser = false, agentId = null) {
   const leading = [], trailing = [];
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_PANE_FIRST.has(type.renderer) ? leading : trailing).push(type.key);
   // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
-  return [...new Set([...leading, ...base, ...trailing, "status"])];
+  return [...new Set([...leading, ...base, ...(agentId ? ["viewbox"] : []), ...trailing, "status"])];
 }
 // The header shows one Browser entry for Ordubashy's Browser and Desktop modes.
 function agpadHeadViews(p) { return p.workspaceRole === "ordubashy" ? p.views.filter(view => view !== "desktop") : p.views; }
@@ -82,7 +83,7 @@ function workspaceTypesLoad() {
 
 function agpadWorkspaceViewsSync(p) {
   if (!p.workspaceRole) return;
-  const views = agentPaneViews(p.workspaceScope, p.workspaceRole, p.workspaceBase, agpadBrowserTab(p));
+  const views = agentPaneViews(p.workspaceScope, p.workspaceRole, p.workspaceBase, agpadBrowserTab(p), p.agentId);
   if (views.join("\u0000") === p.views.join("\u0000")) return;
   p.views = views;
   agpadSetView(p, views.includes(p.view) ? p.view : views[0]);
@@ -91,6 +92,7 @@ function agpadWorkspaceViewsSync(p) {
 function agpadWorkspaceMount(p, view) {
   if (view === "desktop" && p.workspaceRole === "ordubashy") { agfocusDesktopMount(p); return; }
   if (view === "browser" && typeof agbrowserMount === "function") { agbrowserMount(p); return; }
+  if (view === "viewbox" && typeof agviewboxMount === "function") { agviewboxMount(p); return; }
   const type = workspaceType(view);
   if (type && p.workspaceRole && !type.supported_roles.includes(p.workspaceRole)) { workspaceUnsupportedMount(p, type); return; }
   const mount = workspaceRenderer(type);
@@ -137,6 +139,7 @@ function agpadRequestView(p, view) {
 }
 
 function agpadWorkspaceTick(p) {
+  if (p.view === "viewbox" && typeof agviewboxTick === "function") agviewboxTick(p);
   for (const view of p.views) {
     const type = workspaceType(view);
     const tick = type && WORKSPACE_TICKS[type.renderer];
@@ -300,7 +303,7 @@ function agpadMount(name, el, options = {}) {
   let initialView = options.initialView || agpadRememberedView(p);
   if (initialView === "desktop" && p.workspaceRole !== "ordubashy" && workspaceScope === "global") initialView = "browser";
   if (initialView === "browser") p.browserRequested = true;
-  p.views = agentPaneViews(workspaceScope, p.workspaceRole, workspaceBase, agpadBrowserTab(p));
+  p.views = agentPaneViews(workspaceScope, p.workspaceRole, workspaceBase, agpadBrowserTab(p), p.agentId);
   if (p.workspaceRole) workspaceTypesLoad();
   if (typeof agbrowserDiscover === "function") agbrowserDiscover(p);
   p.dividerDispose = agentPaneDividerMount(el.closest?.(".agsplit"));
