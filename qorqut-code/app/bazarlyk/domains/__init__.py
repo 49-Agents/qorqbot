@@ -8,7 +8,7 @@ from .document_history import DocumentHistory
 from .file_links import FileLinks
 from .assets import AssetOperations
 from .documents import DocumentOperations
-from .contextbase import ContextBaseOperations
+from .context_sources import ContextSourceOperations
 from .email import EmailOperations
 from .account_email import AccountEmailOperations
 from .ledger import LedgerOperations
@@ -68,7 +68,7 @@ class BusinessDomains:
     subscriptions: SubscriptionOperations
     working_memory: WorkingMemory
     archive: BusinessArchive
-    context_base: ContextBaseOperations = None
+    context_sources: ContextSourceOperations = None
     shared_context: SharedContextReader = None
     business_setup: BusinessSetupOperations = None
     viewbox: AgentViewbox = None
@@ -105,9 +105,8 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     ledger.register(registry)
     metrics.register(registry)
     documents.register(registry, application)
-    context_base = ContextBaseOperations(documents, job_programs=job_programs, graph_edits=graph_edits).register(registry)
+    context_sources = ContextSourceOperations(documents, job_programs=job_programs, graph_edits=graph_edits).register(registry)
     ContextUsageOperations().register(registry)
-    documents.context_base = context_base
     # The one published Context read engine: registered directly over the instance's graph locations, with no
     # per-business reads beside it. ``documents.shared_context`` is the reader the other host read consumers use.
     shared_context = SharedContextReader.for_instance(paths)
@@ -166,4 +165,4 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     if agent_resolver is not None:
         agent_resolver.working_memory = memory
     documents.working_memory = memory
-    return BusinessDomains(tasks, ledger, metrics, activity, documents, assets, platform_actions, email, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, ideas, personal_context, subscriptions, memory, archive, context_base=context_base, shared_context=shared_context, business_setup=business_setup, viewbox=viewbox, actions=actions, tags=tags, queue=queue)
+    return BusinessDomains(tasks, ledger, metrics, activity, documents, assets, platform_actions, email, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, ideas, personal_context, subscriptions, memory, archive, context_sources=context_sources, shared_context=shared_context, business_setup=business_setup, viewbox=viewbox, actions=actions, tags=tags, queue=queue)

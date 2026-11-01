@@ -67,7 +67,7 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
              model_client_factory=None, broker=None, database=None, signing_key=None, reddit_adapter=None,
              nightly_maintenance=_DEFAULT_MAINTENANCE, capture_transcripts=None, terminal_workspace=None,
              execution_provider=None, sandbox_factory=None, recovery_config=None, github_app_config=None,
-             integrations=None, learning_engine=None):
+             integrations=None, learning_engine=None, context=None):
     from bazarlyk.background.integration import attach_background
     from qorqut_operations.background.programs import ProgramRegistry
     from bazarlyk.integrations.config import from_environment as outreach_host
@@ -77,7 +77,7 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
 
     capture_transcripts = transcript_capture_configuration(capture_transcripts)
     programs = ProgramRegistry()
-    runtime = build_runtime(workspace, paths=paths, database=database, job_programs=programs)
+    runtime = build_runtime(workspace, paths=paths, database=database, job_programs=programs, context=context)
     if integrations is not None:
         # Post-commit Outreach registration of new businesses; started with the runtime.
         from bazarlyk.bootstrap.preparation import OUTREACH_TOKEN_ROOT
@@ -93,21 +93,11 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
         from bazarlyk.storage.versioning import NightlyMaintenance
         nightly_maintenance = NightlyMaintenance(runtime.database, runtime.paths, locks=runtime.locks, git_enabled=True)
     local = LocalFiles(runtime)
-    from bazarlyk.domains.contextbase.service import SETTING_KEYS, ContextBaseService
-    base_defaults = {key: os.environ[key] for key in (*SETTING_KEYS, "OPENROUTER_API_KEY", "DASHSCOPE_API_KEY", "QWEN_API_KEY",
-                                                       "TYPESAFE_API_KEY", "QWEN_PROVIDER") if key in os.environ}
-    runtime.context_base = ContextBaseService(runtime, local_files=local, defaults=base_defaults)
-    runtime.domains.context_base.service = runtime.context_base
-    runtime.domains.ideas.context_base = runtime.context_base
-    if getattr(runtime.domains, "business_setup", None):
-        runtime.domains.business_setup.context_exists = runtime.context_base.contains
     from bazarlyk.shared_context import PublishedContextText
     published_context = PublishedContextText(runtime.domains.shared_context)
     runtime.resolver.context_home = published_context.home_text
     runtime.owner_bootstrap.context_home = published_context.home_text
     runtime.owner_bootstrap.context_status = published_context.status
-    if nightly_maintenance is not None and getattr(nightly_maintenance, "backups", None) is not None:
-        nightly_maintenance.backups.context_base_path = runtime.context_base.database_path
     if os.environ.get("EMAIL_ENGINE_URL"):
         from .email import EmailClient
         runtime.domains.email.client = EmailClient(os.environ["EMAIL_ENGINE_URL"], os.environ.get("EMAIL_READ_TOKEN", ""),
@@ -203,6 +193,8 @@ def main(argv=None):
     parser.add_argument("--claude-version")
     parser.add_argument("--codex-version")
     parser.add_argument("--recovery-config", type=Path, help="Private external host configuration for local encrypted recovery")
+    parser.add_argument("--context-config", type=Path, help="Explicit JSON file of Context RunnerConfig fields (model, effort, limits); "
+                        "the library defaults apply without it")
     parser.add_argument("--github-app-config", type=Path,
                         default=os.environ.get("QORQUT_GITHUB_APP_CONFIG") or None,
                         help="Private external host configuration for business GitHub access (or QORQUT_GITHUB_APP_CONFIG)")
@@ -226,9 +218,13 @@ def main(argv=None):
         origins = args.origin + [value for value in os.environ.get("BIZ_SERVICE_ORIGINS", "").split(",") if value]
         origins += [f"http://{local_host}:{args.port}", f"http://localhost:{args.port}"]
         endpoint = args.service_url or f"http://127.0.0.1:{args.port}/mcp"
+        context_settings = None
+        if args.context_config is not None:
+            from bazarlyk.shared_context.service import ContextSettings, runner_config_from_file
+            context_settings = ContextSettings(config=runner_config_from_file(args.context_config))
         app = assemble(args.workspace, paths=paths, origins=origins, endpoint=endpoint, bootstrap_token=args.token,
             shell=os.environ.get("SHELL", "/bin/bash"), database=database, terminal_workspace=args.terminal_workspace,
-            recovery_config=args.recovery_config, github_app_config=args.github_app_config)
+            recovery_config=args.recovery_config, github_app_config=args.github_app_config, context=context_settings)
         if args.prepare_agent:
             runtime, slug, selector = app.state.runtime, *args.prepare_agent
             with database.read() as uow:

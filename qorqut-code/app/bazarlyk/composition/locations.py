@@ -16,7 +16,7 @@ from pathlib import Path, PurePosixPath
 
 from qorqut_operations.contracts import DomainError
 
-from bazarlyk.instance_paths import InstancePathError, InstancePaths
+from bazarlyk.instance_paths import GRAPH_DIRECTORY, InstancePathError, InstancePaths
 
 AGENTS_SEGMENT = "agents"
 
@@ -60,8 +60,18 @@ def scope_root(paths, business=None) -> Path:
     return paths.operations if business is None else business_root(paths, business)
 
 
+def reserve_graph_root(business, relative_path) -> None:
+    """A Global authored path never names the published Context's engine root (``operations/context-graph``).
+
+    Graph files change only through the Context queue and edit authority, so a managed document can neither be registered
+    nor written there. Business documents resolve below their own HQ and are unaffected."""
+    if business is None and PurePosixPath(relative_path).parts[:1] == (GRAPH_DIRECTORY,):
+        raise DomainError("forbidden", "That location belongs to the published Context and cannot hold managed documents")
+
+
 def document_root(paths, business, relative_path) -> Path:
     """The root a registered document path is relative to, chosen only by the path's first segment."""
+    reserve_graph_root(business, relative_path)
     parts = PurePosixPath(relative_path).parts
     if parts and parts[0] == AGENTS_SEGMENT:
         return scope_root(paths, business)
@@ -101,9 +111,9 @@ def document_path_at(paths, business, location):
 
 
 def document_path_at_global(paths, location):
-    """A Global document's path: any operations-relative location outside the businesses and runtime trees."""
+    """A Global document's path: any operations-relative location outside the businesses, runtime and Context graph trees."""
     first = location.split("/", 1)[0]
-    return None if first in {"businesses", ".runtime"} else location
+    return None if first in {"businesses", ".runtime", GRAPH_DIRECTORY} else location
 
 
 def business_runtime(paths, business_id) -> Path:

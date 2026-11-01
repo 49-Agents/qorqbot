@@ -35,6 +35,8 @@ import re
 from types import MappingProxyType
 
 COMPONENTS = ("app", "operations_engine", "context_engine", "dashboard", "template", "roles")
+# The engine-owned published Context repository below ``operations``; no authored document path may name it.
+GRAPH_DIRECTORY = "context-graph"
 
 # One path segment for a registered business folder or an agent identity. Registered v1 identifiers (UUIDs) are
 # kept at their full length; the character set excludes separators, traversal and hidden names.
@@ -152,7 +154,9 @@ class InstancePaths:
 
     @property
     def context(self) -> Path:
-        return self._checked(self._operations / "context")
+        """The one published Context repository (engine-owned Git root). Global authored documents such as
+        ``context/_inbox/...`` live beside it under ``operations/context`` and are a different tree."""
+        return self._checked(self._operations / GRAPH_DIRECTORY)
 
     @property
     def context_runtime(self) -> Path:

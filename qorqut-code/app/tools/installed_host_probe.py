@@ -16,7 +16,6 @@ import shutil
 import sqlite3
 import subprocess
 import sys
-import types
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -73,24 +72,6 @@ for package in (qorqut_operations, bazarlyk):
 work = Path(config["work"])
 shutil.rmtree(work, ignore_errors=True)
 work.mkdir(parents=True)
-
-
-def ensure_contextbase():
-    """The optional private ContextBase package is not part of the disposable environment; supply only the request model
-    the retained operations import (the same stand-in the focused acceptance cases use)."""
-    if "contextbase" in sys.modules or importlib.util.find_spec("contextbase") is not None:
-        return
-    from pydantic import BaseModel
-    package, schema = types.ModuleType("contextbase"), types.ModuleType("contextbase.schema")
-
-    class DirectEditRequest(BaseModel):
-        instruction: str = ""
-
-    schema.DirectEditRequest, package.schema = DirectEditRequest, schema
-    sys.modules["contextbase"], sys.modules["contextbase.schema"] = package, schema
-
-
-ensure_contextbase()
 from qorqut_operations.contracts import InvocationContext, InvocationOptions, Principal, new_id, plain, utc_now  # noqa: E402
 from bazarlyk.background.integration import attach_background  # noqa: E402
 from bazarlyk.bootstrap.seed import apply_initial_plan, register_context_sources  # noqa: E402
