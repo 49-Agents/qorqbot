@@ -112,9 +112,10 @@ class StorageContribution:
     without (v1: ``documents``); the assembly refuses to freeze unless a lifecycle provider is registered for each.
 
     ``required_tables`` names host-created tables the contribution's code reads or writes without owning them
-    (for the engine's Signoffs: ``inbox_changes``, ``management_routing``, ``tasks``, ``relationships`` ...). They
-    are checked against the compiled target at initialization and validation, so a composition that forgot one
-    fails there instead of at the first request."""
+    (for the engine's Signoffs: ``inbox_changes``; for program authority: ``documents``). Each must be owned by
+    another contribution with a table specification (``freeze`` refuses otherwise) and must exist in the compiled
+    target schema (checked at initialization and validation), so a composition that forgot one fails there
+    instead of at the first request."""
 
     owner: str
     tables: Mapping[str, TableSpec] = field(default_factory=dict)
@@ -335,6 +336,10 @@ class AssemblyBuilder:
         for item in self._storage:
             for name in sorted(item.required_tables):
                 needed.setdefault(name, []).append(item.owner)
+        unspecified = sorted((name, owners) for name, owners in needed.items() if name not in tables)
+        if unspecified:
+            raise AssemblyError("Required table has no table specification: " + "; ".join(
+                f"{name} (needed by {', '.join(owners)})" for name, owners in unspecified))
         publishers = [item.change_publisher for item in self._transactions if item.change_publisher is not None]
         payload = {"name": self._target_name, "version": self._target_version, "owners": [
             {"owner": item.owner, "schema": list(item.schema)} for item in self._storage],

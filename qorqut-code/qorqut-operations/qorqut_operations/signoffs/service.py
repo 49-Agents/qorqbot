@@ -15,7 +15,7 @@ from qorqut_operations.application.registry import CatalogEntry, OperationDescri
 from qorqut_operations.contracts import (ChangeSet, DomainError, InvocationOptions, OperationResult,
                                          canonical_bytes, canonical_hash, new_id, plain, utc_now)
 from qorqut_operations.departments import profile_department
-from qorqut_operations.storage.assembly import AssemblyError
+from qorqut_operations.storage.assembly import AssemblyError, StorageContribution
 from qorqut_operations.storage.executor import application_claim
 from qorqut_operations.storage.files import file_hash
 from qorqut_operations.storage.locks import LockPaths
@@ -54,6 +54,13 @@ SIGNOFF_ENTRIES = (
 )
 # Host tables the engine's Signoff SQL reads or writes directly (see docs/EXTRACTION.md).
 SIGNOFF_REQUIRED_TABLES = frozenset({"inbox_changes"})
+
+
+def storage_contribution() -> StorageContribution:
+    """The Signoff machinery's storage requirements, for the host's assembly: the engine owns the Signoff tables
+    (``signoffs``, ``signoff_notes``, ``signoff_attention``, ``signoff_notifications``, ...) in its core schema and
+    needs these host-created tables to exist in the composed target."""
+    return StorageContribution("signoffs", required_tables=SIGNOFF_REQUIRED_TABLES)
 
 
 class SignoffService:
@@ -131,10 +138,6 @@ class SignoffService:
     def contribution(self) -> CatalogContribution:
         """The engine's Signoff catalog contribution (authority metadata plus installed descriptors)."""
         return CatalogContribution("signoffs", SIGNOFF_ENTRIES, self.descriptors())
-
-    def storage_requirements(self) -> frozenset[str]:
-        """Host tables the engine's Signoff SQL touches without owning them (for ``StorageContribution.required_tables``)."""
-        return SIGNOFF_REQUIRED_TABLES
 
     def _context(self, context, uow, *, owner=False):
         context = self.app.current_context(context, uow)

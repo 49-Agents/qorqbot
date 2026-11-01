@@ -4,6 +4,16 @@ from uuid import UUID, uuid5
 
 from qorqut_operations.contracts import DomainError, canonical_hash
 from qorqut_operations.policy import WorkerProfile
+from qorqut_operations.storage.assembly import StorageContribution
+
+# Host tables the exact-output validation reads (``documents``: automatic work may not change mandatory instructions).
+BACKGROUND_REQUIRED_TABLES = frozenset({"documents"})
+
+
+def storage_contribution() -> StorageContribution:
+    """The program authority's storage requirements, for the host's assembly. The engine owns ``jobs``,
+    ``routines``, ``routine_runs`` and ``routine_slots``; ``documents`` is a host table."""
+    return StorageContribution("background", required_tables=BACKGROUND_REQUIRED_TABLES)
 
 
 class BackgroundAuthority:

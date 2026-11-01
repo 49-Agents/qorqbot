@@ -7,9 +7,9 @@ from .platform_approval import PlatformApproval
 from .ports import (ABSENT, Absent, CampaignFilter, EmailDecisions, ExecutionPresentation, FocusAttention,
                     ManagementQueries, OwnerTaskAttention, PeerIdentities, PlatformActions, ReferenceTarget,
                     ReferenceVocabulary, SignoffPorts)
-from .service import SIGNOFF_ENTRIES, SIGNOFF_REQUIRED_TABLES, SignoffService
+from .service import SIGNOFF_ENTRIES, SIGNOFF_REQUIRED_TABLES, SignoffService, storage_contribution
 
 __all__ = ["ABSENT", "Absent", "CampaignFilter", "EmailDecisions", "ExecutionPresentation", "FocusAttention",
            "ManagementQueries", "OwnerTaskAttention", "PeerIdentities", "PlatformActions", "PlatformApproval",
            "ReferenceTarget", "ReferenceVocabulary", "SIGNOFF_ENTRIES", "SIGNOFF_REQUIRED_TABLES",
-           "SignoffPorts", "SignoffService"]
+           "SignoffPorts", "SignoffService", "storage_contribution"]
