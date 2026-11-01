@@ -13,7 +13,7 @@ import shutil
 import string
 import tempfile
 
-from .git_store import Git, PUBLIC_REF, Snapshot
+from .git_store import FORMAT_VERSION, Git, PUBLIC_REF, Snapshot
 from .schema import (Conflict, ContextError, change_details, digest, encode,
                      identifier, metadata as normalize_metadata, object_record,
                      source_path, text, value_key)
@@ -102,7 +102,7 @@ class Context:
         except ContextError as error:
             raise Conflict("Could not prepare the empty Git repository for initialization") from error
         with context._lock(initializing=True):
-            files = {"graph/config.json": encode({"format_version": 2, "published_ref": PUBLIC_REF}),
+            files = {"graph/config.json": encode({"format_version": FORMAT_VERSION, "published_ref": PUBLIC_REF}),
                      "graph/catalogs/nodes.json": encode({"basic_entity_type": list(dict.fromkeys(seeds))}),
                      "graph/catalogs/edges.json": encode({})}
             commit = context.git.commit(files, context.runtime, None, "Initialize context vocabulary")
@@ -178,7 +178,7 @@ class Context:
             identifier(event_id)
         with self._lock():
             snapshot, pending = self.snapshot(), self._job()
-            self._require_format2(snapshot, pending)
+            self._require_current_format(pending)
             previous = next((event for event in snapshot.sources.values()
                              if event["source"]["path"] == path and event["operation"] != "remove"), None)
             existing = snapshot.events.get(event_id)
@@ -221,9 +221,10 @@ class Context:
                 input_mode=modes.GENERAL)
 
     @staticmethod
-    def _require_format2(snapshot, job=None):
-        if snapshot.format_version != 2 or (job and job.get("format_version") != 2):
-            raise Conflict("Format version conflict: format 1 is read-only; unpublished drafts require an explicit migration")
+    def _require_current_format(job):
+        if job and job.get("format_version") != FORMAT_VERSION:
+            raise Conflict(f"Unsupported pending event format version {job.get('format_version')!r}; "
+                           f"this engine supports format {FORMAT_VERSION} only")
 
     @staticmethod
     def _validate_source(content, limit):
@@ -244,7 +245,7 @@ class Context:
         directory = self._event_directory(event_id)
         if content is not None:
             atomic_write(directory / "input.bin", content)
-        job = {"format_version": 2, "id": event_id, "base_revision": snapshot.revision,
+        job = {"format_version": FORMAT_VERSION, "id": event_id, "base_revision": snapshot.revision,
                "input_mode": input_mode, "submission_digest": request_digest,
                "operation": operation, "submitted_by": submitted_by,
                "source": {"id": source_id, "path": path, **metadata},
@@ -295,7 +296,7 @@ class Context:
             "action": action, "submitted_by": submitted_by})
         with self._lock():
             snapshot, pending = self.snapshot(), self._job()
-            self._require_format2(snapshot, pending)
+            self._require_current_format(pending)
             existing = snapshot.events.get(event_id)
             if existing:
                 if existing["submission_digest"] != request_digest:
@@ -379,7 +380,7 @@ class Context:
         if job is None or job["id"] != event_id:
             raise Conflict("No matching pending event")
         snapshot = self.snapshot()
-        self._require_format2(snapshot, job)
+        self._require_current_format(job)
         if event_id in snapshot.events:
             raise Conflict("This event is already published; recover it instead of editing")
         if self.git.head() != job["base_revision"]:
@@ -441,7 +442,7 @@ class Context:
         return self._remove(event_id, "edge", object_id, **details)
 
     def _prepare_publication(self, snapshot, job):
-        self._require_format2(snapshot, job)
+        self._require_current_format(job)
         objects = {"node": dict(snapshot.nodes), "edge": dict(snapshot.edges)}
         support = dict(snapshot.support)
         catalogs = json.loads(json.dumps(snapshot.catalogs))
@@ -654,7 +655,7 @@ class Context:
             if job is None or job["id"] != event_id:
                 raise Conflict("No matching pending event")
             if not existing:
-                self._require_format2(snapshot, job)
+                self._require_current_format(job)
             try:
                 if existing:
                     return self._finish(job, existing)
@@ -694,7 +695,7 @@ class Context:
                     job["error"] = str(error)
                     self._save(job)
                     raise
-            self._require_format2(snapshot, job)
+            self._require_current_format(job)
             if job["phase"] == "discarding":
                 self._cleanup(job)
                 return {"status": "discarded", "event_id": job["id"]}
@@ -709,7 +710,7 @@ class Context:
             if job is None or job["id"] != event_id:
                 raise Conflict("No matching pending event")
             snapshot = self.snapshot()
-            self._require_format2(snapshot, job)
+            self._require_current_format(job)
             if event_id in snapshot.events:
                 raise Conflict("A published event must be recovered, not discarded")
             job.update(phase="discarding", error=None)

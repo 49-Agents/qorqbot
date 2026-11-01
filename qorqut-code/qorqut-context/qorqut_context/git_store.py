@@ -10,9 +10,12 @@ import stat
 import subprocess
 import tempfile
 
+from .input_modes import ACTION, GENERAL
 from .schema import Conflict, ContextError, identifier
 
 PUBLIC_REF = "refs/heads/main"
+FORMAT_VERSION = 2
+INPUT_MODES = (GENERAL, ACTION)
 
 
 class Git:
@@ -242,10 +245,12 @@ class Snapshot:
         self.git, self.revision = git, revision
         self.files = git.files(revision)
         config = self._json("graph/config.json")
-        if (config.get("format_version") not in (1, 2) or
-                config != {"format_version": config["format_version"], "published_ref": PUBLIC_REF}):
-            raise ContextError("Not a supported context repository")
-        self.format_version = config["format_version"]
+        if config != {"format_version": FORMAT_VERSION, "published_ref": PUBLIC_REF}:
+            version = config.get("format_version") if isinstance(config, dict) else None
+            if version != FORMAT_VERSION:
+                raise ContextError(f"Unsupported context format version {version!r}; "
+                                   f"this engine supports format {FORMAT_VERSION} only")
+            raise ContextError(f"Context repository configuration is not the supported format {FORMAT_VERSION} configuration")
         self.nodes, self.edges = {}, {}
         for path, content in self.files.items():
             for prefix, target in (("graph/nodes/", self.nodes), ("graph/edges/", self.edges)):
@@ -267,8 +272,10 @@ class Snapshot:
             event = self._json(path)
             if event["id"] != event_id:
                 raise ContextError("Event identity does not match its path")
-            if event.get("format_version") != self.format_version:
-                raise ContextError("Event/repository format version mismatch")
+            if event.get("format_version") != FORMAT_VERSION:
+                raise ContextError(f"A published event is not format {FORMAT_VERSION}")
+            if event.get("input_mode") not in INPUT_MODES:
+                raise ContextError("A published event has no supported input mode")
             original = git.run("cat-file", "blob", f"{commit}:{path}")
             if original != self.files[path]:
                 raise ContextError("An immutable event was modified")
@@ -276,7 +283,7 @@ class Snapshot:
             self.used_ids.add(event_id)
             self.used_ids.add(event["source"]["id"])
             self.sources[event["source"]["id"]] = event
-            if event.get("input_mode") == "OPERATIONAL_ACTION":
+            if event["input_mode"] == ACTION:
                 self.actions[event["action"]["action_ref"]] = event
             for change in event["changes"]:
                 self.used_ids.add(change["id"])
@@ -320,8 +327,7 @@ class Snapshot:
 
     @staticmethod
     def input_mode(event):
-        # Format 1 had no trust classification; never relabel its semantics GENERAL.
-        return event.get("input_mode", "LEGACY")
+        return event["input_mode"]
 
     def event(self, event_id):
         if event_id not in self.events:
