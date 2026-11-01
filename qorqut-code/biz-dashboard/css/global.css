@@ -1,8 +1,13 @@
-.workspace-choice { display: grid; grid-template-columns: 20px minmax(0, 1fr) 14px auto; align-items: center; gap: 10px; width: 100%; }
+.workspace-choice { display: grid; grid-template-columns: 30px minmax(0, 1fr) 21px auto; align-items: center; gap: 15px; width: 100%; }
 .workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-business-icon { width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid var(--line-2); border-radius: 6px; font-size: 10px; }
-.workspace-menu .mi { padding: 0 10px; }
-.workspace-menu .mi:has(.workspace-global) { height: 44px; margin-bottom: 8px; }
+.workspace-business-icon { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--line-2); border-radius: 9px; font-size: 15px; }
+.workspace-menu { max-height: min(640px, calc(100vh - 24px)); max-width: calc(100vw - 24px); }
+.workspace-menu .mi { height: 72px; gap: 12px; padding: 0 20px; font-size: 19.5px; }
+.workspace-menu .mi:has(.workspace-global) { height: 88px; margin-bottom: 16px; }
+.workspace-menu .identity-avatar { width: 36px; height: 36px; font-size: 16.5px; }
+.workspace-menu .identity-avatar svg, .workspace-menu .workspace-choice > svg { width: 30px; height: 30px; }
+.workspace-menu .workspace-drag svg { width: 21px; height: 27px; }
+.workspace-menu .sg-attention-badge { min-width: 27px; height: 27px; padding: 0 6px; font-size: 15px; }
 .workspace-menu .mi.on { background: var(--line-2); color: var(--fg); }
 .workspace-drag { grid-column:3; grid-row:1; display: flex; opacity: 0; cursor: grab; }
 .workspace-menu .mi:hover .workspace-drag { opacity: 1; }
@@ -10,7 +15,7 @@
 .workspace-menu .mi.drop-before { box-shadow: inset 0 2px var(--fg-2); }
 .workspace-menu .mi.drop-after { box-shadow: inset 0 -2px var(--fg-2); }
 #wsletter svg { display: block; }
-#wsletter svg, .workspace-choice > svg, .global-placeholder-icon > svg { width: 20px; height: 20px; }
+#wsletter svg, .global-placeholder-icon > svg { width: 20px; height: 20px; }
 button.global-rail { padding: 0; background: none; width: 44px; }
 button.global-rail svg { width: 20px; height: 20px; }
 .global-content { padding: 36px 40px; min-width: 0; overflow-y: auto; }
