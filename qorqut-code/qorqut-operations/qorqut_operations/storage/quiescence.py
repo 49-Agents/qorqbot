@@ -258,6 +258,8 @@ class RecoveryQuiescer:
             raise DomainError("recovery_not_quiescent", "Recovery mutation admission is not installed")
         if getattr(self.admission, "sealed", False):
             raise DomainError("recovery_not_quiescent", "Write admission is sealed for shutdown")
+        if getattr(self.admission, "shutting_down", False):
+            raise DomainError("recovery_not_quiescent", "Shutdown has begun; no recovery window can start")
         # A full installation can contain legacy host terminals. The caller must provide a controller that
         # inventories them; no flag can claim that they do not exist.
         if self.host_writers is None:

@@ -70,21 +70,41 @@ class InstallationRecoveryLock:
 class RecoveryAdmission:
     """In-process write admission shared by Application and recovery.
 
-    Closing is two separate acts. ``refuse_new`` rejects every new mutation at once and waits for nothing: work
-    already admitted, and every writer unit nested inside it on the same thread, keeps running and can finish its
-    receipts, so a drain can let admitted effects settle without anyone reopening admission to new callers.
-    ``close_and_wait`` refuses and then waits for the operations already admitted on this process to leave. Only
-    ``open`` ends a refusal. It intentionally cannot vouch for host shells or containers; the host's quiescer
-    handles those through explicit controllers.
+    Four independent reasons keep new outer writer units out, and none of them waits for work already admitted: that
+    work, and every writer unit nested inside it on the same thread, keeps running and can finish its receipts.
+
+    * the *start* refusal: ``serving=False`` at construction until the owned startup path calls ``admit``; ``withhold``
+      puts it back (a failed start). A recovery window never ends it.
+    * the *recovery* refusal: ``refuse_new`` and ``close_and_wait`` set it, only ``open`` clears it, so a drain can let
+      admitted effects settle without anyone reopening admission to new callers.
+    * the *shutdown* refusal: ``begin_shutdown`` is persistent. A recovery window's later ``open`` clears only its own
+      refusal and leaves admission refused (it is not a thaw failure), and ``admit`` is refused too.
+    * the *seal*: ``seal`` is the final, irreversible shutdown admission.
+
+    ``close_and_wait`` additionally waits for the operations already admitted on this process to leave. It
+    intentionally cannot vouch for host shells or containers; the host's quiescer handles those through explicit
+    controllers.
     """
 
-    def __init__(self, *, installation_lock=None):
+    def __init__(self, *, installation_lock=None, serving=True):
         self.installation_lock = installation_lock
         self._condition = Condition()
         self._closed = False
+        self._serving = bool(serving)
+        self._shutdown = False
         self._sealed = False
         self._active = 0
         self._local = local()
+
+    def _refusal(self):
+        """The message for the refusal that applies now, or ``None`` when new writer units are admitted."""
+        if self._shutdown:
+            return "Writes are unavailable: shutdown has begun"
+        if not self._serving:
+            return "Writes are unavailable until the backend owns and has started the instance"
+        if self._closed:
+            return "Writes are unavailable during recovery"
+        return None
 
     @contextmanager
     def writer(self):
@@ -97,8 +117,9 @@ class RecoveryAdmission:
         try:
             with self._condition:
                 if depth == 0:
-                    if self._closed:
-                        raise DomainError("maintenance", "Writes are unavailable during recovery", retryable=True)
+                    refusal = self._refusal()
+                    if refusal is not None:
+                        raise DomainError("maintenance", refusal, retryable=True)
                     self._active += 1
                 self._local.depth = depth + 1
             try:
@@ -117,7 +138,7 @@ class RecoveryAdmission:
     @property
     def refusing(self):
         with self._condition:
-            return self._closed
+            return self._refusal() is not None
 
     @property
     def admitted(self):
@@ -125,9 +146,38 @@ class RecoveryAdmission:
         with self._condition:
             return self._active
 
+    @property
+    def serving(self):
+        with self._condition:
+            return self._serving
+
+    @property
+    def shutting_down(self):
+        with self._condition:
+            return self._shutdown
+
     def refuse_new(self):
         with self._condition:
             self._closed = True
+
+    def withhold(self):
+        """Refuse new outer writer units until ``admit`` (the start refusal); waits for nothing."""
+        with self._condition:
+            self._serving = False
+
+    def admit(self):
+        """End the start refusal. Only the owned startup path calls it, after ownership and target validation; it
+        does not touch a recovery or shutdown refusal, and is refused once shutdown has begun."""
+        with self._condition:
+            if self._shutdown:
+                raise DomainError("maintenance", "Write admission is closed for shutdown")
+            self._serving = True
+
+    def begin_shutdown(self):
+        """Persistently refuse new outer writer units for shutdown, waiting for nothing: admitted work and its
+        nested receipt writes keep running. Nothing but a new admission object ends it."""
+        with self._condition:
+            self._shutdown = True
 
     @property
     def sealed(self):
@@ -145,14 +195,16 @@ class RecoveryAdmission:
                 self._condition.wait(remaining)
 
     def seal(self, *, timeout):
-        """Final shutdown admission: close and wait like ``close_and_wait``, and from now on ``open`` is refused,
-        so neither a recovery window ending nor a caller can reopen mutation admission beneath a closing store.
-        The seal is taken before waiting, so an admitted writer that does not drain leaves it sealed."""
+        """Final shutdown admission: begin shutdown, close and wait like ``close_and_wait``, and from now on ``open``
+        is refused, so neither a recovery window ending nor a caller can reopen mutation admission beneath a closing
+        store. The seal is taken before waiting, so an admitted writer that does not drain leaves it sealed."""
         with self._condition:
             self._sealed = True
+            self._shutdown = True
         self.close_and_wait(timeout=timeout)
 
     def open(self):
+        """End the recovery refusal only (not the start or shutdown refusal)."""
         with self._condition:
             if self._sealed:
                 raise DomainError("maintenance", "Write admission is sealed for shutdown")
