@@ -219,7 +219,7 @@ function agfocusMount(p) {
   };
   p.workspaceDispose=()=>{
     agfocusOverlayClose(p);disposeResize();disposeOrdering();p.focusSnoozePopup?.close();p.focusSnoozePopup=null;
-    for(const node of p.focusCards.values())node._conversationHost?._conversation?.dispose();
+    for(const node of p.focusCards.values()){node._conversationHost?._conversation?.dispose();node._referenceObserver?.disconnect();}
     p.focusCards.clear();p.focusSelected=null;p.focusMount=null;
   };
   p.focusPrivateUnread ||= new Map();
@@ -299,17 +299,18 @@ async function agfocusToggleStory(p,item,refresh=false) {
   p.focusStories ||= new Map();
   let branch=p.focusStories.get(item.id);
   if(branch?.expanded && !refresh){branch.expanded=false;agfocusPaint(p);return;}
-  branch={expanded:true,items:refresh?(branch?.items || []):[],pending:true};p.focusStories.set(item.id,branch);
+  branch={expanded:true,items:refresh?(branch?.items || []):[],references:refresh?(branch?.references || []):[],showReferences:branch?.showReferences || false,pending:true};p.focusStories.set(item.id,branch);
   agfocusPaint(p);agfocusAnnounce(p,'Loading Story items…');
   const source=item.resolved_source || item.source,biz=source.business_slug,mount=p.focusMount;
   try {
     const data=coreData(await post(`/biz/${encodeURIComponent(biz)}/operations/stories_get`,{story_id:source.id}));
     if(p.focusStories.get(item.id)!==branch || p.focusMount!==mount || !mount?.isConnected)return;
     const seen=new Set();
-    const links=[...(data.story.links || []),...(item.references || []).filter(ref=>ref.type==='task').map(ref=>({
-      resource_type:'tasks',resource_id:ref.id,current:ref.unavailable?null:ref,focusReference:ref
+    const links=[...(data.story.links || []),...(item.references || []).map(ref=>({
+      resource_type:ref.resource_type || ({task:'tasks',story:'stories',agent:'agent_profiles'})[ref.type] || ref.type,resource_id:ref.id || ref.url,current:ref.unavailable?null:ref,focusReference:ref
     }))];
-    branch.items=links.filter(link=>{
+    const children=links.filter(link=>{
+      if(link.resource_type==='agent_profiles' || link.current?.type==='agent' || link.item?.type==='agent')return false;
       const businessId=link.focusReference?link.focusReference.business_id:source.business_id;
       const key=String(businessId ?? 'global')+':'+link.resource_type+':'+link.resource_id;
       if(seen.has(key) || link.resource_id===source.id)return false;
@@ -323,13 +324,55 @@ async function agfocusToggleStory(p,item,refresh=false) {
         label:current?.label || 'Unavailable item',source:target,resolved_source:target,
         state:current?.state,source_revision:current?.revision,unavailable:!current,
         conversation:['task','story','signoff','email'].includes(type)?{type,id:link.resource_id,business_id:target.business_id}:null,
-        references:[],_storyParent:item.id,_depth:(item._depth || 0)+1,_storyLink:link};
+        references:[],_storyParent:item.id,_storyBusinessId:source.business_id,_depth:(item._depth || 0)+1,_storyLink:link};
     });
+    branch.items=children.filter(child=>['task','story'].includes(child.source.type));
+    branch.references=children.filter(child=>!['task','story'].includes(child.source.type));
     branch.pending=false;agfocusAnnounce(p,branch.items.length?`${branch.items.length} Story items`:'No linked Story items');
     agfocusPaint(p);
   } catch(error) {
     branch.expanded=false;branch.pending=false;p.focusError='Could not load Story items. '+error.message;agfocusPaint(p);
   }
+}
+
+function agfocusStoryReferences(p,node,item) {
+  node._referenceObserver?.disconnect();
+  node.querySelector('.agfocus-story-references')?.remove();
+  const branch=p.focusStories?.get(item.id);
+  if(!branch?.expanded || !branch.references?.length)return;
+  const row=document.createElement('div');row.className='agfocus-story-references';row.setAttribute('aria-label','Story references');
+  node.querySelector('.agfocus-row').after(row);
+  const icons={file:'M14 3H5v18h14V8z M14 3v5h5 M8 13h8 M8 17h8',table:'M3 4h18v16H3z M3 10h18 M9 4v16',link:'M10 14l4-4 M8 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0 M16 8l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0'};
+  const chips=branch.references.map(ref=>{
+    const target=ref.resolved_source,kind=target.resource_type==='data_tables'?'table':target.resource_type==='documents' || target.path?'file':'link';
+    const chip=document.createElement('button');chip.type='button';chip.className='quiet agfocus-reference-chip';chip.title=ref.label;chip.disabled=ref.unavailable;
+    chip.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="${icons[kind]}"/></svg><span></span>`;
+    chip.querySelector('span').textContent=ref.label;chip.dataset.kind=kind;
+    chip.onclick=event=>{
+      event.stopPropagation();
+      if(target.resource_type==='documents'){
+        const query=new URLSearchParams({document_id:target.id});if(target.business_id)query.set('business_id',target.business_id);
+        window.open('/files/view?'+query,'_blank','noopener');
+      } else agfocusOpenItem(p,target).catch(e=>toast(e.message));
+    };
+    row.append(chip);return chip;
+  });
+  const more=document.createElement('button');more.type='button';more.className='quiet agfocus-reference-more';row.append(more);
+  const fit=()=>{
+    if(!row.isConnected)return;
+    row.classList.toggle('expanded',branch.showReferences);
+    chips.forEach(chip=>chip.hidden=false);more.hidden=true;
+    const width=row.clientWidth;
+    const widths=chips.map(chip=>chip.getBoundingClientRect().width);
+    if(branch.showReferences){more.hidden=false;more.textContent='Less';more.setAttribute('aria-expanded','true');return;}
+    if(widths.reduce((a,b)=>a+b+4,0)-4<=width)return;
+    let used=0,count=0;
+    for(const chipWidth of widths){if(used+chipWidth+64>width)break;used+=chipWidth+4;count++;}
+    chips.forEach((chip,index)=>chip.hidden=index>=count);
+    more.hidden=false;more.textContent=`+${chips.length-count} more`;more.setAttribute('aria-expanded','false');
+  };
+  more.onclick=event=>{event.stopPropagation();branch.showReferences=!branch.showReferences;fit();};
+  node._referenceObserver=new ResizeObserver(fit);node._referenceObserver.observe(row);fit();
 }
 
 function agfocusPaint(p) {
@@ -358,7 +401,7 @@ function agfocusPaint(p) {
   }
   const list = $('.agfocus-items', host);
   host.dataset.revision=data.revision;
-  const signature=JSON.stringify([data.items,p.focusPageKey,data.next_offset]);
+  const signature=JSON.stringify([data.items,p.focusPageKey,data.next_offset,[...(p.focusStories || [])].map(([id,b])=>[id,b.expanded,b.references])]);
   if(list.dataset.signature===signature) {
     for(const item of data.items) {
       agfocusUnread(p,p.focusCards.get(item.id),item);
@@ -390,6 +433,7 @@ function agfocusPaint(p) {
     if(list.children[position]!==node)list.insertBefore(node,list.children[position]||null);
     position++;
     node._item=item;
+    agfocusStoryReferences(p,node,item);
     node.classList.toggle('agfocus-story-child',!!item._storyParent);
     node.style.setProperty('--focus-depth',item._depth || 0);
     if(item.unavailable) {
@@ -635,6 +679,8 @@ function agfocusContext(node,item) {
   const source=item.resolved_source || item.context || item.conversation || {};
   const biz=source.business_slug || item.context_business_slug;
   const businessId=source.business_id ?? item.source?.business_id ?? item.context?.business_id;
+  const scope=node.querySelector('.agfocus-scope');
+  scope.hidden=!!item._storyParent && item.source?.type==='task' && !!item._storyBusinessId && businessId===item._storyBusinessId;
   const businessName=source.business_name || (state.bizs || []).find(b=>b.slug===biz)?.name || 'Business';
   agfocusHtml(node.querySelector('.agfocus-scope'),businessId || biz
     ? `<span class="agfocus-scope-chip" aria-label="${esc(businessName)}">${esc(businessName)}</span>`
