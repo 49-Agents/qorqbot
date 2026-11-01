@@ -72,24 +72,24 @@
 .agfocus-card{margin:0;padding:0;border:0;border-radius:14px;background:none;min-width:0}
 .agfocus-card:focus-visible{outline:0}
 .agfocus-card:focus-visible > .agfocus-row{outline:2px solid var(--fg-2);outline-offset:-2px}
-.agfocus-row{padding-top:0;padding-bottom:0;min-height:44px;display:grid;grid-template-columns:30px clamp(70px,22%,132px) minmax(0,1fr) auto;gap:8px;min-width:0}
+.agfocus-row{padding-top:0;padding-bottom:0;min-height:36px;display:grid;grid-template-columns:30px clamp(70px,22%,132px) minmax(0,1fr) auto;gap:8px;min-width:0}
 .agfocus-card:not(.agfocus-collapsed) > .agfocus-row{background:rgba(255,255,255,.03)}
 .agfocus-row .task-business-column{flex:0 0 clamp(76px,22%,132px);width:auto}
 .agfocus-row .agfocus-scope{min-width:0}
-.agfocus-scope-chip{--department-color:var(--fg-2);display:inline-flex;align-items:center;min-height:23px;padding:2px 7px;border:1px solid color-mix(in srgb,var(--department-color) 30%,transparent);border-radius:8px;background:color-mix(in srgb,var(--department-color) 10%,transparent);color:var(--fg-2);font-size:10px;line-height:1.3}
+.agfocus-scope-chip{--department-color:var(--fg-2);display:inline-flex;align-items:center;min-height:19px;padding:1px 7px;border:1px solid color-mix(in srgb,var(--department-color) 30%,transparent);border-radius:8px;background:color-mix(in srgb,var(--department-color) 10%,transparent);color:var(--fg-2);font-size:8px;line-height:1.3}
 .agfocus-global-chip{padding:3px 6px}
-.agfocus-row .agfocus-scope-chip:not(.agfocus-global-chip){display:block;max-width:100%;box-sizing:border-box;min-height:0;padding:1px 7px;line-height:19px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agfocus-row .agfocus-scope-chip:not(.agfocus-global-chip){display:block;max-width:100%;box-sizing:border-box;min-height:0;padding:1px 7px;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agfocus-row .task-headline{display:flex;align-items:center;gap:4px;min-width:0}
-.agfocus-row .ttl{flex:1;min-width:0}
-.agfocus-marker{display:inline-flex;align-items:center;justify-content:center;flex:none;width:30px;height:30px}
+.agfocus-row .ttl{flex:1;min-width:0;font-size:11px}
+.agfocus-marker{display:inline-flex;align-items:center;justify-content:center;flex:none;width:26px;height:26px}
 .agfocus-marker .sdot{width:12px;height:12px}
 /* app.css styles every .agfocus button as a pill; the shared Tasks ball opts back out. */
 .agfocus .agfocus-row .agfocus-task-state,.agfocus .agfocus-row .agfocus-task-state:hover{margin:0;min-height:0;border:0;background:none}
 .agfocus-flag{flex:0 1 auto;min-width:0;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-2);font-size:10px}
 .agfocus .agfocus-row .ttl{white-space:nowrap;margin:0}
-.agfocus-card:not(.agfocus-collapsed) > .agfocus-row .ttl{overflow:visible;white-space:normal;overflow-wrap:anywhere;padding:4px 0}
+.agfocus-card:not(.agfocus-collapsed) > .agfocus-row .ttl{overflow:visible;white-space:normal;overflow-wrap:anywhere;padding:2px 0}
 .agfocus .agfocus-actions{display:flex;align-items:center;justify-content:flex-end;gap:3px;flex:none;margin:0 0 0 auto}
-.agfocus .agfocus-row .agfocus-actions button{display:inline-flex;align-items:center;justify-content:center;margin:0;width:28px;height:28px;min-height:28px;padding:5px;border:0;background:transparent;font-size:11px}
+.agfocus .agfocus-row .agfocus-actions button{display:inline-flex;align-items:center;justify-content:center;margin:0;width:24px;height:24px;min-height:24px;padding:3px;border:0;background:transparent;font-size:9px}
 .agfocus-unavailable > .agfocus-row{cursor:default}
 
 /* One selected source is moved here; its hidden keyed host stays mounted on close. */
@@ -135,7 +135,7 @@
 @container agfocus-rows (max-width:460px){
   .agfocus-row{grid-template-columns:30px clamp(28px,20%,88px) minmax(0,1fr) auto;gap:2px;padding:2px 4px}
   .agfocus-row .task-business-column{width:100%;min-width:0}
-  .agfocus-row .agfocus-scope-chip:not(.agfocus-global-chip){padding:1px 3px;font-size:9px}
+  .agfocus-row .agfocus-scope-chip:not(.agfocus-global-chip){padding:1px 3px;font-size:7px}
   .agfocus .agfocus-row .agfocus-actions{gap:0}
   .agfocus .agfocus-row .agfocus-actions button{width:20px;height:24px;min-height:24px;padding:2px}
   .agfocus-card.agfocus-collapsed > .agfocus-row .ttl{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;overflow-wrap:anywhere;line-height:1.3}
@@ -155,9 +155,19 @@
 .agfocus-drop-before{box-shadow:inset 0 2px 0 var(--fg-2)}
 .agfocus-drop-after{box-shadow:inset 0 -2px 0 var(--fg-2)}
 .agfocus-snoozed [data-focus-snooze]{color:var(--warn)}
-.agfocus .agfocus-flag{font-size:9px;max-width:4em}
+.agfocus .agfocus-flag{font-size:7px;max-width:4em}
 .agfocus-snooze-picker{min-width:0;width:min(250px,calc(100vw - 24px))}
 .agfocus-snooze-picker p{margin:0}
 
 #focus-add-form { display: grid; gap: 12px; }
 #focus-add-form label { display: grid; gap: 6px; }
+
+.agfocus-layout.agfocus-overlay-open{grid-template-columns:minmax(0,1fr)}
+.agfocus-dock.agfocus-chat-overlay{position:fixed;z-index:40;box-sizing:border-box;min-height:0;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(10px);border-radius:12px;box-shadow:0 12px 40px #0005}
+.agfocus-chat-overlay .agfocus-thread-resize{display:none}
+.agfocus .agfocus-chat-overlay .agfocus-thread-heading{padding:12px 16px;font-size:14px}
+.agfocus-chat-overlay .agfocus-region{padding:0 16px 12px}
+.agfocus-chat-overlay .conversation-group{font-size:13px;max-width:85%}
+.agfocus-chat-overlay .conversation-bubble{padding:8px 12px}
+.agfocus-chat-overlay .conversation-inline-compose textarea{height:64px;max-height:160px;min-height:64px;font-size:13px;resize:vertical;padding:10px}
+.agfocus-chat-overlay .conversation-inline-compose .conversation-send{height:40px;padding:8px 12px}

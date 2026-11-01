@@ -218,7 +218,7 @@ function agfocusMount(p) {
     row?.focus({preventScroll:true});
   };
   p.workspaceDispose=()=>{
-    disposeResize();disposeOrdering();p.focusSnoozePopup?.close();p.focusSnoozePopup=null;
+    agfocusOverlayClose(p);disposeResize();disposeOrdering();p.focusSnoozePopup?.close();p.focusSnoozePopup=null;
     for(const node of p.focusCards.values())node._conversationHost?._conversation?.dispose();
     p.focusCards.clear();p.focusSelected=null;p.focusMount=null;
   };
@@ -468,7 +468,9 @@ function agfocusSelect(p,id) {
   }
   const dock=$('.agfocus-dock',board);
   dock.hidden=!next;$('.agfocus-layout',board).classList.toggle('agfocus-thread-open',!!next);
+  agfocusOverlayClose(p);
   if(next){
+    agfocusOverlayOpen(p,board,dock);
     agfocusText($('[data-focus-thread-title]',dock),next._item.display_name?.trim() || next._item.label);
     $('.agfocus-dock-content',dock).appendChild(next._region);next._region.hidden=false;
     next.classList.remove('agfocus-collapsed');next.setAttribute('aria-expanded','true');
@@ -486,6 +488,7 @@ function agfocusRefreshThreads(p) {
 function agfocusThreadHeight(p,height) {
   const board=p.focusMount,dock=board && $('.agfocus-dock',board);
   if(!dock || dock.hidden || board.hidden)return;
+  if(p.focusOverlay){p.focusOverlay.fit();return;}
   const body=$('#agpad-body',p.el),bodyBox=body.getBoundingClientRect(),layoutBox=$('.agfocus-layout',board).getBoundingClientRect();
   const available=Math.floor(Math.min(innerHeight,bodyBox.bottom)-Math.max(bodyBox.top,layoutBox.top)-4);
   // The pane scroll container makes even a shorter-than-minimum viewport reachable.
@@ -743,6 +746,7 @@ function agfocusDesktopMount(p) {
 }
 
 function agfocusDetail(p,title) {
+  agfocusSelect(p,null);
   p.focusDetail?.dispose?.();
   const body=$('#agpad-body',p.el),board=$('.agfocus',body),scroll=body.scrollTop;
   const restore=document.activeElement;
@@ -835,4 +839,24 @@ function agfocusAdd(p) {
         if(['validation_error','forbidden','policy_denied','not_found'].includes(err.code)){submission=null;form.querySelectorAll('input').forEach(input=>input.disabled=false);}
       } finally {pending=false;}
     }}],onOpen:el=>{el.querySelector('input').focus();el.querySelector('form').onsubmit=event=>{event.preventDefault();el.querySelector('.mfoot button:last-child')?.click();};}});
+}
+
+
+function agfocusOverlayClose(p) {
+  if(!p.focusOverlay)return;
+  p.focusOverlay.dispose();p.focusOverlay=null;
+}
+function agfocusOverlayOpen(p,board,dock) {
+  const terminal=p.el.closest('.agsplit')?.querySelector('.global-agent-session, #chat');
+  if(!terminal || terminal.getBoundingClientRect().width<240)return;
+  const layout=board.querySelector('.agfocus-layout'),wasInert=terminal.inert;
+  const fit=()=>{const rect=terminal.getBoundingClientRect();Object.assign(dock.style,{left:rect.left+'px',top:rect.top+'px',width:rect.width+'px',height:rect.height+'px'});};
+  dock.classList.add('agfocus-chat-overlay');layout.classList.add('agfocus-overlay-open');
+  dock.setAttribute('role','dialog');dock.setAttribute('aria-label','Task conversation');
+  terminal.inert=true;
+  const escape=event=>{if(event.key==='Escape' && !document.querySelector('.overlay')){event.preventDefault();event.stopPropagation();agfocusSelect(p,null);}};
+  const observer=new ResizeObserver(fit);observer.observe(terminal);
+  window.addEventListener('resize',fit);document.addEventListener('keydown',escape);
+  p.focusOverlay={fit,dispose:()=>{observer.disconnect();window.removeEventListener('resize',fit);document.removeEventListener('keydown',escape);terminal.inert=wasInert;dock.classList.remove('agfocus-chat-overlay');layout.classList.remove('agfocus-overlay-open');dock.removeAttribute('role');dock.setAttribute('aria-label','Selected conversation');for(const key of ['left','top','width','height'])dock.style[key]='';}};
+  fit();
 }
