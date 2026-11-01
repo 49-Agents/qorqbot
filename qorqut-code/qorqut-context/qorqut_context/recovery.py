@@ -24,7 +24,7 @@ capture instead of being dropped.
 """
 from __future__ import annotations
 
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 import fcntl
 import hashlib
@@ -852,6 +852,10 @@ def _empty_target(path, label):
         raise RecoveryError("invalid_target", f"The {label} target must be a new or empty directory")
 
 
+def _restore_lock(target):
+    return target.parent / f".{target.name}.context-restore.lock"
+
+
 def _runtime_digest(runtime):
     rows = []
     for rel, info in sorted(_entries(runtime, "The staged runtime").items()):
@@ -869,11 +873,15 @@ class _Restore:
         self.journal_path = repository.parent / f".{repository.name}.context-restore.json"
         self.staging = {"repository": repository.parent / f".{repository.name}.restoring",
                         "runtime": runtime.parent / f".{runtime.name}.restoring"}
+        # One lock per explicit target, keyed only by the path: restores that share either location contend on it.
+        self.locks = {"repository": _restore_lock(repository), "runtime": _restore_lock(runtime)}
 
     def checkpoint(self, phase):
         """Fault-injection seam."""
 
     def _journal(self):
+        if self.journal_path.is_symlink():
+            raise RecoveryError("restore_conflict", "The restore journal is a symbolic link; it was left untouched")
         try:
             value = json.loads(self.journal_path.read_bytes())
         except FileNotFoundError:
@@ -890,26 +898,49 @@ class _Restore:
         journal["evidence"].update(evidence)
         atomic_write(self.journal_path, encode(journal))
 
+    def _separate(self):
+        """Refuse a pair whose capture, targets, journal, locks or staging are, contain or sit inside one another."""
+        named = [("capture", self.directory), ("repository", self.repository), ("runtime", self.runtime),
+                 ("journal", self.journal_path), ("repository lock", self.locks["repository"]),
+                 ("runtime lock", self.locks["runtime"]), ("repository staging", self.staging["repository"]),
+                 ("runtime staging", self.staging["runtime"])]
+        for index, (first, one) in enumerate(named):
+            for second, other in named[index + 1:]:
+                if _inside(one, other) or _inside(other, one):
+                    raise RecoveryError("invalid_target", f"The restore {first} and {second} locations overlap")
+
+    @contextmanager
+    def _locked(self):
+        """Hold both target locks, nonblocking and in one stable order, for the whole restore including its final check."""
+        with ExitStack() as stack:
+            for path in sorted(set(self.locks.values()), key=str):
+                try:
+                    descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+                except OSError as error:
+                    raise RecoveryError("restore_conflict", "A restore lock location is not usable; it was left untouched") from error
+                stack.callback(os.close, descriptor)
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    raise RecoveryError("restore_conflict", "A restore lock location is not a regular file; it was left untouched")
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError as error:
+                    raise RecoveryError("restore_conflict", "Another restore owns this location", retryable=True) from error
+            yield
+
     def run(self):
+        self._separate()
         if not self.journal_path.exists():
             _empty_target(self.repository, "repository")      # refuse before anything is written
             _empty_target(self.runtime, "runtime")
         for path in (self.repository.parent, self.runtime.parent):
             path.mkdir(mode=0o700, parents=True, exist_ok=True)
-        lock = self.journal_path.with_name(self.journal_path.name + ".lock")
-        with open(lock, "a+b") as handle:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as error:
-                raise RecoveryError("restore_conflict", "Another restore owns this location", retryable=True) from error
-            try:
-                return self._run()
-            finally:
-                fcntl.flock(handle, fcntl.LOCK_UN)
+        with self._locked():
+            return self._run()
 
     def _identity(self):
         return {"format": RESTORE_FORMAT, "version": VERSION, "manifest_sha256": self.manifest_sha256,
-                "target": {"repository": str(self.repository), "runtime": str(self.runtime)}}
+                "target": {"repository": str(self.repository), "runtime": str(self.runtime)},
+                "staging": {key: str(path) for key, path in self.staging.items()}}
 
     def _run(self):
         journal = self._journal()
@@ -921,6 +952,11 @@ class _Restore:
         if journal is None:
             _empty_target(self.repository, "repository")
             _empty_target(self.runtime, "runtime")
+            # Only a journal of this capture and these targets owns its recorded staging; with none, any entry is foreign.
+            present = [str(path) for path in self.staging.values() if os.path.lexists(path)]
+            if present:
+                raise RecoveryError("restore_conflict", "A restore staging location already exists and this restore does not own it; it was left untouched",
+                                    details={"paths": present})
             journal = {**identity, "phase": "started", "evidence": {}}
             self._save(journal, "started")
         self._reconcile(journal)
@@ -950,8 +986,8 @@ class _Restore:
 
     @staticmethod
     def _discard(staging):
-        if staging.is_symlink():
-            raise RecoveryError("restore_conflict", "A restore staging location is a symbolic link; it was left untouched")
+        if staging.is_symlink() or (os.path.lexists(staging) and not staging.is_dir()):
+            raise RecoveryError("restore_conflict", "A restore staging location is not a directory; it was left untouched")
         if staging.exists():
             shutil.rmtree(staging)
 
@@ -1034,9 +1070,12 @@ def restore(directory, *, target_repository, target_runtime, expected_manifest_s
 
     Offline only: no writer, driver, model, queue, publication or index rebuild is started, and the pair is
     created in staging and installed (runtime first, repository last) only after validation. Both targets
-    must be new or empty; they come only from the caller, never from the capture. A journal beside the
-    repository records phase and checksums so an interrupted restore is either completed deterministically
-    or refused; a different capture or target never overwrites it.
+    must be new or empty; they come only from the caller, never from the capture. Both targets are fenced
+    by nonblocking locks, held in a stable order until the restored pair has been verified, and the capture,
+    targets and every derived journal, lock and staging location must be disjoint. A journal beside the
+    repository records phase, checksums and its exact staging so an interrupted restore is either completed
+    deterministically or refused; only that journal owns its staging, a staging location it does not own is
+    refused untouched, and a different capture or target never overwrites it. There is no force option.
     """
     directory = _location(directory, "capture directory")
     repository, runtime = _pair(target_repository, target_runtime, ("target repository", "target runtime"))
