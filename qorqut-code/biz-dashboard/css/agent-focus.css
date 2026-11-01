@@ -228,5 +228,5 @@
 .agfocus > header,.agfocus > .attention-queue,.agfocus > .agfocus-pages { flex:none; }
 .agfocus > .agfocus-layout { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; align-content:start; }
 .attention-queue .attention-label { display:none; }
-.agfocus .attention-queue .attention-chip,.attention-queue .attention-chip { flex:0 0 54px; width:54px; height:51px; min-height:51px; padding:7px; justify-content:center; }
+.agfocus .attention-queue .attention-chip,.attention-queue .attention-chip { flex:0 1 54px; width:54px; height:51px; min-height:51px; padding:7px 0; justify-content:center; }
 .attention-queue .attention-chip+.attention-chip { margin-left:0; }

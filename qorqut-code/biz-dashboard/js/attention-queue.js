@@ -1,7 +1,26 @@
 // Shared owner queue. Message read cursors and Signoff decisions remain independent.
 const attentionQueue=(()=>{
+  const visibleLimit=6;
   let items=[],loading=false,error='',timer,generation=0,saving=0,refreshAfterSave=false,writes=Promise.resolve();
   const mounts=new Set(),lists=new Set(),acknowledged=new Set();
+  const destination=item=>{
+    if(item.kind==='global')return JSON.stringify(['global',item.agent_id,!!item.chat]);
+    if(item.kind==='thread' && item.source)return JSON.stringify(['thread',item.agent_id,item.source.type,item.source.business_id || item.biz || null,item.source.id]);
+    if(item.kind==='viewbox')return JSON.stringify(['viewbox',item.agent_id,item.viewbox_item_id]);
+    if(item.kind==='signoff')return JSON.stringify(['signoff',item.signoff_id]);
+    return item.id;
+  };
+  function distinctDestinations(rows){
+    const groups=new Map();
+    // The API orders newest first. Keep that destination's newest preview and
+    // every underlying ID so dismissing its one tile clears the complete group.
+    for(const item of rows){
+      const key=destination(item),previous=groups.get(key),ids=item.viewed_ids?.length?item.viewed_ids:[item.id];
+      if(previous)previous.viewed_ids=[...new Set([...previous.viewed_ids,...ids])];
+      else groups.set(key,{...item,viewed_ids:[...ids]});
+    }
+    return [...groups.values()];
+  }
   const icon=item=>item.kind==='signoff'
     ? '<span class="attention-signoff" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6"/></svg></span>'
     : item.kind==='viewbox' ? '<span class="attention-viewbox" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H6v18h12V7zM14 3v5h4M9 12h6M9 16h6"/></svg></span>'
@@ -10,15 +29,15 @@ const attentionQueue=(()=>{
   const button=item=>`<button type="button" class="attention-chip" data-attention-key="${esc(item.id)}" title="${esc(label(item))}\nRight-click to dismiss" aria-label="${esc(label(item))}">${icon(item)}<span class="attention-label">${esc(item.kind==='signoff'?item.title:item.text)}</span></button>`;
   function paint(host){
     if(!host.isConnected){mounts.delete(host);return;}
-    const visible=items.slice(0,3);
-    host.innerHTML=`<div class="attention-stack">${visible.map(button).join('')}${items.length>3?`<button type="button" class="attention-more" data-attention-more aria-label="Show all ${items.length} attention items">+${items.length-3}</button>`:''}${!items.length?`<span class="attention-empty">${error?'Attention unavailable':loading?'Loading attention…':'Nothing new'}</span>`:''}</div>${error?'<button type="button" class="quiet attention-retry" data-attention-retry>Retry</button>':''}`;
+    const visible=items.slice(0,visibleLimit);
+    host.innerHTML=`<div class="attention-stack">${visible.map(button).join('')}${items.length>visibleLimit?`<button type="button" class="attention-more" data-attention-more aria-label="Show all ${items.length} attention items">+${items.length-visibleLimit}</button>`:''}${!items.length?`<span class="attention-empty">${error?'Attention unavailable':loading?'Loading attention…':'Nothing new'}</span>`:''}</div>${error?'<button type="button" class="quiet attention-retry" data-attention-retry>Retry</button>':''}`;
   }
   const paintAll=()=>{mounts.forEach(paint);lists.forEach(host=>{if(!host.isConnected){lists.delete(host);return;}host.innerHTML=items.length?items.map(button).join(''):'<p class="muted">Nothing new</p>';});};
   async function refresh(){
     if(saving){refreshAfterSave=true;return;}
     if(loading)return;
     loading=true;const request=++generation;
-    try{const data=coreData(await api('/root/attention-queue'));if(request===generation){items=data.items || [];error='';}}
+    try{const data=coreData(await api('/root/attention-queue'));if(request===generation){items=distinctDestinations(data.items || []);error='';}}
     catch(e){if(request===generation)error=e.message;}
     finally{loading=false;paintAll();clearTimeout(timer);if(mounts.size)timer=setTimeout(refresh,10000);}
   }
@@ -31,7 +50,7 @@ const attentionQueue=(()=>{
     const saved=writes.then(async()=>{
       try{
         const data=coreData(await post('/root/attention-queue',{viewed:keys}));
-        items=data.items || [];error='';paintAll();
+        items=distinctDestinations(data.items || []);error='';paintAll();
       }catch(e){keys.forEach(id=>acknowledged.delete(id));toast('Could not clear attention: '+e.message);}
       finally{
         saving--;
