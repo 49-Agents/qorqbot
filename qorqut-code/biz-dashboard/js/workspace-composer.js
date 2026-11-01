@@ -117,7 +117,10 @@ async function workspaceComposerRefresh() {
     ]);
     if(!Array.isArray(global) || !Array.isArray(local))throw new Error('Could not load agents.');
     if(!current())return;
-    agents=key==='global'?global:[...global.filter(a=>(a.role_id || a.role?.id)==='ordubashy'),...local.map(agent=>({...agent,business_slug:key}))];
+    agents=key==='global'?global:[...global.filter(a=>['ordubashy','global-marketing'].includes(a.role_id || a.role?.id))
+      .map(agent=>(agent.role_id || agent.role?.id)==='global-marketing'
+        ? {...agent,display_name:(agent.display_name || agent.name)+' (Global)'} : agent),
+      ...local.map(agent=>({...agent,business_slug:key}))];
     if(!Array.isArray(agents) || !agents.length)throw new Error('No agents available.');
     picker.disabled=false;
     choose(w.selections.get(key) && agents.some(a=>a.agent_id===w.selections.get(key))?w.selections.get(key):(agents.find(a=>(a.role_id || a.role?.id)==='ordubashy') || agents[0]).agent_id);
