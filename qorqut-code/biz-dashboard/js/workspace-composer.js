@@ -84,6 +84,17 @@ async function workspaceComposerRefresh() {
     const focusBeforeSend=document.activeElement;
     saved.sending=true;send.disabled=true;picker.disabled=true;input.readOnly=true;status.textContent='Sending…';
     try {
+      let chat = false;
+      if (!target.business_slug) {
+        const data = coreData(await api(`/root/agents/${encodeURIComponent(target.agent_id)}/chat`));
+        chat = data.runtime.enabled;
+      }
+      if (chat) {
+        if (!saved.attempt || saved.attempt.text !== text) saved.attempt = {text, key:newRequestId()};
+        coreData(await post(`/root/agents/${encodeURIComponent(target.agent_id)}/chat/messages`,
+          {text, idempotency_key:saved.attempt.key}));
+        saved.attempt = null;
+      } else {
       const base=target.business_slug?`/biz/${encodeURIComponent(target.business_slug)}/terminal/${encodeURIComponent(target.name)}`:`/root/terminal/${encodeURIComponent(target.agent_id)}`;
       const write=async(action,body)=>{
         const result=await post(base+'/'+action,body,{signal:AbortSignal.timeout(15000)});
@@ -94,8 +105,9 @@ async function workspaceComposerRefresh() {
       await write('input',{data:text});
       await new Promise(resolve=>setTimeout(resolve,200));
       await write('input',{data:'\r'});
+      }
       saved.text='';if(current()){input.value='';status.textContent='Sent';}
-    } catch(error){if(current())status.textContent='Delivery unconfirmed. Show terminal before retrying. '+(error.message || '');}
+    } catch(error){if(current())status.textContent='Delivery unconfirmed. Chat retries reuse the same message; check terminal delivery before retrying. '+(error.message || '');}
     finally{saved.sending=false;w.sync?.();if(current() && document.activeElement===focusBeforeSend)input.focus();}
   };
   try {

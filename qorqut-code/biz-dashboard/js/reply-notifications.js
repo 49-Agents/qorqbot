@@ -4,6 +4,25 @@ const replyNotifications=(()=>{
   try{seen=new Set(JSON.parse(sessionStorage.getItem('reply-notifications:seen') || '[]'));}catch(_){}
   const key=s=>`${s?.type}:${s?.business_id || 'global'}:${s?.id}`;
   const unread=source=>loaded?items.some(item=>item.kind==='thread' && item.unread && key(item.source)===key(source)):null;
+  // A chat-enabled global agent's unread replies come from durable chat messages (item.chat) and clear through the chat's
+  // persisted read position, not through a snapshot of its terminal.
+  const unreadAgent=agentId=>loaded?items.some(item=>item.chat===true && item.unread && item.agent_id===agentId):null;
+  const unreadChat=()=>loaded?items.some(item=>item.chat===true && item.unread):null;
+  const viewing=item=>item.chat===true && typeof globalChatReadable==='function' && globalChatReadable(item.agent_id);
+  function paintDots(){
+    const dot=(host,on,label)=>{
+      if(!host)return;
+      let el=host.querySelector(':scope > .chat-unread-dot');
+      if(!on){el?.remove();return;}
+      if(!el){el=document.createElement('span');el.className='chat-unread-dot';host.appendChild(el);}
+      el.setAttribute('role','img');el.setAttribute('aria-label',label);
+    };
+    dot(document.querySelector('.ritem[data-tab="agents"]'),!!unreadChat(),'Unread agent chat');
+    document.querySelectorAll('[data-global-agent]').forEach(row=>{
+      const id=row.dataset.globalAgent;
+      dot(row.querySelector('.nm'),!!unreadAgent(id),'Unread reply');
+    });
+  }
   async function open(item){
     if(item.kind==='global'){
       ls('ag:scope:global',item.agent_id);
@@ -28,14 +47,16 @@ const replyNotifications=(()=>{
         if(seen.has(item.id))continue;
         seen.add(item.id);
         // Establish a baseline on first load; existing unread markers still appear.
-        if(!first)notify({text:item.agent_name+' replied',sub:item.text,onClick:()=>open(item),ms:8000});
+        // The owner already looking at that chat does not need a toast for what is on screen.
+        if(!first && !viewing(item))notify({text:item.agent_name+' replied',sub:item.text,onClick:()=>open(item),ms:8000});
       }
       seen=new Set([...seen].slice(-1000));
       try{sessionStorage.setItem('reply-notifications:seen',JSON.stringify([...seen]));}catch(_){}
+      paintDots();
       document.dispatchEvent(new Event('reply-notifications-changed'));
     }catch(_){/* Retain the last known unread state; retry without toast spam. */}
     finally{pending=false;clearTimeout(timer);timer=setTimeout(poll,document.hidden?30000:10000);}
   }
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)void poll();});
-  return {start:poll,refresh:poll,unread,open};
+  return {start:poll,refresh:poll,unread,unreadAgent,unreadChat,paint:paintDots,open};
 })();

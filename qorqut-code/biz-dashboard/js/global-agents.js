@@ -100,6 +100,7 @@ async function renderGlobalAgents(c) {
     <span class="agent-presence" data-agent-presence="${esc(agent.agent_id)}" role="img"></span>
   </button>`).join('');
   agentNavPaint(); agentNavRefresh();
+  if (typeof replyNotifications !== 'undefined') replyNotifications.paint();
   const params = new URLSearchParams(location.search);
   const linkedFocus = params.has('focus_item');
   const linkedWorkspace = agTakeLinkedWorkspace('#/global/agents');
@@ -239,6 +240,24 @@ async function renderGlobalAgents(c) {
   paintBusinessAgents();
 
   // ---- selection
+  // An actual global agent is a persistent chat served by the supervised runner; the workspace terminal and every business agent
+  // keep the terminal. The chat view's "Diagnostic terminal" action opens the agent's tmux shell for troubleshooting only.
+  let chatMount = null;
+  const disposeChat = () => { chatMount?.dispose(); chatMount = null; };
+  const mountAgentSession = agent => {
+    disposeChat();
+    if (typeof teardownTerm === 'function') teardownTerm();
+    chatMount = mountGlobalChat(pane, agent, {openTerminal: () => mountDiagnosticTerminal(agent)});
+    // The view is torn down by navigation, not by an event: release the stream once the pane has left the page.
+    const mine = chatMount, watch = setInterval(() => { if (!pane.isConnected || chatMount !== mine) { clearInterval(watch); if (chatMount === mine) disposeChat(); } }, 2000);
+  };
+  const mountDiagnosticTerminal = agent => {
+    disposeChat();
+    pane.innerHTML = `<div class="gchat-diagnostic"><div class="gchat-diagnostic-bar"><button type="button" class="quiet" data-chat-return>Back to chat</button>
+      <span class="muted">Diagnostic terminal for ${esc(agent.display_name || agent.name)}. Do not start the agent here while its chat is enabled.</span></div><div class="gchat-diagnostic-host"></div></div>`;
+    pane.querySelector('[data-chat-return]').onclick = () => { if (current() && selected === agent.agent_id) mountAgentSession(agent); };
+    mountTerminal(agent.agent_id, pane.querySelector('.gchat-diagnostic-host'), () => {}, `/root/terminal/${encodeURIComponent(agent.agent_id)}`);
+  };
   const select = (agent, requestedView = null, remember = true) => {
     if (!current()) return;
     const workspace = typeof agent === 'string' ? globalWorkspaceTerminal(agent) : null;
@@ -246,14 +265,16 @@ async function renderGlobalAgents(c) {
     if (remember) ls('ag:scope:global', selected);
     paintSelection();
     pane.dataset.agentPane = workspace ? 'off' : 'on';
-    mountTerminal(selected, pane, status => {
+    disposeChat();
+    if (!workspace) mountAgentSession(agent);
+    else mountTerminal(selected, pane, status => {
       if (!current() || selected !== (workspace ? workspace.id : agent.agent_id) || !workspace) return;
       terminalStatus = {live: status === 'live', title: status === 'live' ? 'Terminal connected' : status === 'ended' ? 'Terminal exited' : 'Terminal disconnected'};
       const dot = $('[data-global-agent-status]', nav);
       if (!dot) return;
       dot.classList.toggle('live', terminalStatus.live);
       dot.title = terminalStatus.title;
-    }, workspace ? workspace.base : `/root/terminal/${encodeURIComponent(agent.agent_id)}`);
+    }, workspace.base);
     agpadMount(workspace ? '' : (agent.display_name || agent.name), $('#agpad', c), workspace ? {
       biz: null, open: false, isCurrent: () => false,
     } : {
@@ -270,6 +291,7 @@ async function renderGlobalAgents(c) {
     if (remember) ls('ag:scope:global', id);
     paintSelection();
     pane.dataset.agentPane = 'on';
+    disposeChat();
     mountTerminal(agent.name, pane, () => {}, `/biz/${encodeURIComponent(biz.slug)}/terminal/${encodeURIComponent(agent.name)}`);
     agpadMount(agent.name, $('#agpad', c), {
       biz: biz.slug, agentId: id, workspaceScope: 'business', workspaceRole: agent.role?.id || agent.role_id || null,
