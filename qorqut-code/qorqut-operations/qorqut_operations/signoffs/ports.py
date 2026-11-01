@@ -137,8 +137,12 @@ class PlatformActions(Protocol):
 
 class EmailDecisions(Protocol):
     """Email proposal presentation (v1 ``domains.email.decisions``): ``visibility(context, uow)`` -> ``(sql, params)``
-    appended with ``AND`` fragments that can only narrow the engine's own visibility predicate, and
-    ``email_context(row, uow)`` -> the email context of an input request, or ``None``."""
+    and ``email_context(row, uow)`` -> the email context of an input request, or ``None``.
+
+    The ``visibility`` string is appended *verbatim* to the engine's own visibility predicate: the engine adds no
+    ``AND`` and no parentheses. A nonempty fragment therefore includes its own leading `` AND `` (an empty string is
+    allowed), is written over alias ``s`` with ``?`` placeholders bound by ``params``, and, if it combines predicates
+    with ``OR``, parenthesizes them itself. It can only narrow the engine's visibility predicate, never replace it."""
 
     def visibility(self, context: InvocationContext, uow) -> tuple[str, Sequence[Any]]: ...
 
@@ -150,8 +154,10 @@ class CampaignFilter(Protocol):
 
     The engine first authorizes the read operation named by ``authorizing_operation`` (v1: ``stories_get``) for the
     caller. ``narrow(context, campaign_id, uow)`` then validates the campaign (v1 ``campaign``) and returns
-    ``(sql, params)``: an ``AND``-fragment over alias ``s`` that restricts the listing. The engine wraps it in its
-    own parentheses and never lets it replace the visibility predicate."""
+    ``(sql, params)``: a BARE SQL predicate over alias ``s`` with ``?`` placeholders bound by ``params`` and NO
+    leading ``AND``. The engine supplies the connective and the parentheses (it appends `` AND (`` + the predicate +
+    ``)`` to the visibility predicate), so the predicate can only narrow the listing and never replace the visibility
+    predicate."""
 
     authorizing_operation: str
 
