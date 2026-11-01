@@ -1,8 +1,16 @@
-// Persistent chat for actual global agents (biz-core docs/GLOBAL-AGENT-CHAT.md). It replaces the terminal pane for those
-// agents only; Terminal owns the native session and this view displays its saved conversation.
-// One mount owns one SSE stream, its timers and listeners, and releases all of them in dispose().
-const GLOBAL_CHAT_DRAFTS = new Map();           // agent id -> unsent composer text, kept while switching agents
-const GLOBAL_CHAT_SENDS = new Map();            // retain retry identity across mounts
+// Persistent chat for any registered agent (global or business). It is a projection of the agent's native session
+// conversation (qorqut-code docs/v1.2/NATIVE_CHAT_DTO.md): opening, switching or reading never starts, resumes, stops or types
+// into an agent; Terminal owns the session lifecycle. One mount owns one SSE stream, its timers and listeners, and releases all
+// of them in dispose().
+// Composer state is bound to the exact agent and conversation, and outlives a mount so a switch never leaks or loses it.
+const GLOBAL_CHAT_DRAFTS = new Map();           // scope -> unsent composer text
+const GLOBAL_CHAT_SENDS = new Map();            // scope -> {text, key}: the identity of an unconfirmed send, reused by a retry
+const GLOBAL_CHAT_INFLIGHT = new Map();         // scope -> {text, promise} of a send still waiting for its response
+const GLOBAL_CHAT_INPUTS = new Map();           // input id -> {conversation}: where this browser's own admitted sends were bound
+const GLOBAL_CHAT_RESENDS = new Map();          // undelivered input id -> {key}: identity of an explicit resend
+const GLOBAL_CHAT_LAST = new Map();             // agent id -> conversation the composer was last bound to (shown until the first read confirms it)
+const GLOBAL_CHAT_HIDDEN = new Set();           // settled inputs the owner dismissed or already resent
+const globalChatScope = (agentId, conversationId) => `${agentId}\n${conversationId || ''}`;
 function globalChatReadable(agentId) {
   const root = document.querySelector(`[data-global-chat="${CSS.escape(agentId)}"]`);
   if (document.hidden || !root?.isConnected || root.closest('[inert],[hidden],[aria-hidden="true"]')) return false;
@@ -13,23 +21,34 @@ function globalChatReadable(agentId) {
 }
 const GLOBAL_CHAT_PAGE = 50;
 const GLOBAL_CHAT_MAX = 17000;
-const GLOBAL_CHAT_STATE_TEXT = {
-  queued: 'Queued', running: 'Sent to terminal', failed: 'Failed', interrupted: 'Stopped',
-  uncertain: 'Delivery not confirmed. It was not sent again; check the agent before resending.',
+// Refusals store no input; any other failure leaves the outcome unknown and keeps the send identity.
+const GLOBAL_CHAT_REFUSALS = new Set(['terminal_offline', 'capture_disabled', 'capture_not_ready', 'operation_unavailable',
+  'unsupported_runtime', 'terminal_changed', 'validation_error', 'not_found', 'forbidden', 'idempotency_conflict']);
+const GLOBAL_CHAT_REFUSAL_TEXT = {
+  terminal_offline: 'The agent is not running in its terminal. Start or resume it manually in Terminal, then send again.',
+  capture_disabled: 'Transcript capture is off for this agent, so Chat cannot send to it.',
+  capture_not_ready: 'The session has not published its conversation yet. Try again in a moment.',
+  terminal_changed: 'The terminal changed before the message was admitted. Nothing was sent; check the agent and try again.',
 };
-// Internal notices (e.g. <task-notification>) are saved as chat turns; a message that starts with an opening tag is never shown.
-// Same rule as bazarlyk/global_chat/store.py internal_notification.
-const globalChatHidden = message => /^[ \t\n\r\v\f]*<[A-Za-z][\s\S]*>/.test(message.body || '');
-// Native time controls presentation; sequence remains the delivery/read/event identity.
-function globalChatOrder(a, b) {
-  const time = Date.parse(a.created_at) - Date.parse(b.created_at);
-  return (Number.isFinite(time) && time) || a.sequence - b.sequence;
-}
+const GLOBAL_CHAT_INPUT_LABEL = {inbox_nudge: 'Inbox nudge', telegram: 'Telegram', broadcast: 'Broadcast', direct_message: 'Direct message'};
+const GLOBAL_CHAT_INPUT_STATE = {
+  waiting: 'Waiting for the agent to take it. Not typed yet.',
+  submitting: 'Sending…',
+  uncertain: 'May not have been delivered; check the conversation. It will not be sent again automatically.',
+  failed: 'Not delivered. Nothing was typed.',
+  undelivered: 'Not delivered: the session ended or a different conversation took over. Nothing was typed.',
+};
+const GLOBAL_CHAT_NOTICE_REASON = {
+  no_matching_input: 'No matching input receipt', type_mismatch: 'Type does not match its receipt', not_delivered: 'Receipt shows it was never delivered',
+};
+const globalChatNoticeLabel = system => !system ? 'System notice'
+  : system.verified ? GLOBAL_CHAT_INPUT_LABEL[system.input_type] || String(system.input_type || 'system notice').replace(/_/g, ' ')
+  : 'Unverified notice';
 const GLOBAL_CHAT_TIME = new Intl.DateTimeFormat(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
 const GLOBAL_CHAT_FULL_TIME = new Intl.DateTimeFormat(undefined, {dateStyle:'full', timeStyle:'long'});
-function globalChatTimestamp(message) {
-  if (!message.created_at) return '';
-  const date = new Date(message.created_at);
+function globalChatTimestamp(value) {
+  if (!value) return '';
+  const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return '';
   const full = esc(GLOBAL_CHAT_FULL_TIME.format(date));
   return `<time class="gchat-time" datetime="${date.toISOString()}" title="${full}" aria-label="${full}">${esc(GLOBAL_CHAT_TIME.format(date))}</time>`;
@@ -211,13 +230,16 @@ function mountAgentView(pane, agent, opts) {
   return view;
 }
 
+
 function mountGlobalChat(pane, agent, options = {}) {
   const agentId = agent.agent_id, base = globalChatBase(agentId), label = agent.display_name || agent.name || 'Agent';
-  const messages = new Map();                    // id -> message view
-  const nodes = new Map();                       // id -> element
-  let runtime = null, actions = [], older = false, historyBefore = null, cursor = 0, lastRead = 0;
-  let stream = null, retryTimer = null, retryDelay = 1000, flushTimer = null, readTimer = null;
-  let disposed = false, loading = false, generation = 0, atBottom = true, unseen = 0, sending = false, pendingSend = GLOBAL_CHAT_SENDS.get(agentId) || null;
+  const entries = new Map();                     // entry id -> entry
+  const nodes = new Map();                       // entry id -> element
+  const inputNodes = new Map();                  // input id -> element
+  let session = null, conversation = null, conversations = [], inputs = [], older = null, shown, selected = null;
+  let cursor = 0, lastRead = 0, composerScope = globalChatScope(agentId, GLOBAL_CHAT_LAST.get(agentId));
+  let stream = null, retryTimer = null, retryDelay = 1000, readTimer = null, streamDown = false;
+  let disposed = false, loading = false, again = false, generation = 0, atBottom = true, unseen = 0, finished = false, reading = 0;
   const cleanups = [];
 
   pane.innerHTML = `<div class="gchat" data-global-chat="${esc(agentId)}">
@@ -227,12 +249,13 @@ function mountGlobalChat(pane, agent, options = {}) {
     </header>
     ${options.openTerminal ? `<div class="gchat-session-switch">${globalChatViewToggle()}</div>` : ''}
     <div class="gchat-banner" role="status" hidden></div>
+    <div class="gchat-conversations" hidden><select aria-label="Conversation"></select><button type="button" class="quiet" data-current-conversation>Back to current</button></div>
     <div class="gchat-scroll" tabindex="-1"><button type="button" class="quiet gchat-older" hidden>Load older messages</button>
       <div class="gchat-log" role="log" aria-live="polite" aria-label="Conversation with ${esc(label)}"></div>
-      <div class="gchat-actions"></div>
+      <div class="gchat-pending-list"></div>
       <div class="gchat-empty" hidden></div></div>
     <button type="button" class="gchat-jump" hidden>New messages ↓</button>
-    <div class="gchat-working" role="status" aria-live="polite" hidden><span>Working…</span></div>
+    <div class="gchat-session" role="status" aria-live="polite" data-state="loading"><span class="gchat-session-dot" aria-hidden="true"></span><span class="gchat-session-text">Loading…</span></div>
     <form class="gchat-composer">
       <textarea rows="2" maxlength="${GLOBAL_CHAT_MAX}" aria-label="Message ${esc(label)}" placeholder="Message ${esc(label)}…" autocomplete="off"></textarea>
       <button type="submit" class="gchat-send">Send</button>
@@ -245,11 +268,11 @@ function mountGlobalChat(pane, agent, options = {}) {
   const root = pane.firstElementChild;
   const $q = selector => root.querySelector(selector);
   const status = $q('.gchat-status'), banner = $q('.gchat-banner');
-  const scroller = $q('.gchat-scroll'), log = $q('.gchat-log'), actionHost = $q('.gchat-actions'), emptyNote = $q('.gchat-empty');
+  const scroller = $q('.gchat-scroll'), log = $q('.gchat-log'), pendingHost = $q('.gchat-pending-list'), emptyNote = $q('.gchat-empty');
   const olderButton = $q('.gchat-older'), jump = $q('.gchat-jump'), form = $q('.gchat-composer');
-  const working = $q('.gchat-working');
+  const sessionLine = $q('.gchat-session'), sessionText = $q('.gchat-session-text');
+  const convBar = $q('.gchat-conversations'), convSelect = convBar.querySelector('select');
   const input = form.querySelector('textarea'), send = form.querySelector('.gchat-send');
-  input.value = GLOBAL_CHAT_DRAFTS.get(agentId) || '';
 
   const live = () => !disposed && root.isConnected;
   const listen = (target, type, handler, opts) => { target.addEventListener(type, handler, opts); cleanups.push(() => target.removeEventListener(type, handler, opts)); };
@@ -299,25 +322,35 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (atBottom) { unseen = 0; jump.hidden = true; scheduleRead(); }
   });
   jump.onclick = () => { toBottom(); input.focus(); };
-  const afterChange = (grew) => {
+  const afterChange = grew => {
     if (atBottom) toBottom();
     else if (grew) { unseen++; jump.hidden = false; jump.textContent = unseen > 1 ? `${unseen} new messages ↓` : 'New messages ↓'; }
   };
 
-  // ---- the read position: the newest agent message actually shown, only while the tab is visible and scrolled to the end
-  function newestAgentSequence() {
+  // ---- the read position: the newest completed reply whose entry is rendered in this visible Chat. Only a rendered page or
+  // entry counts; received events, prefetching and agent selection never do, and newest_sequence is never acknowledged.
+  function renderedBoundary() {
+    const edge = scroller.getBoundingClientRect().bottom;
     let newest = 0;
-    for (const message of messages.values()) if (message.role === 'agent' && message.state === 'completed' && message.body && !globalChatHidden(message)) newest = Math.max(newest, message.sequence);
+    for (const [id, node] of nodes) {
+      const entry = entries.get(id);
+      if (entry?.speaker === 'agent' && entry.completion_sequence > newest && node.getBoundingClientRect().top < edge) newest = entry.completion_sequence;
+    }
     return newest;
   }
   function scheduleRead() {
     clearTimeout(readTimer);
     readTimer = setTimeout(async () => {
-      const sequence = newestAgentSequence();
-      if (!live() || !globalChatReadable(agentId) || !atBottom || sequence <= lastRead) return;
-      lastRead = sequence;
-      try { coreData(await post(`${base}/read`, {sequence})); if (typeof replyNotifications !== 'undefined') void replyNotifications.refresh(); }
-      catch (_) { lastRead = Math.min(lastRead, sequence - 1); }
+      if (!live() || !globalChatReadable(agentId) || !atBottom) return;
+      const sequence = renderedBoundary();
+      if (sequence <= lastRead || sequence <= reading) return;
+      reading = sequence;
+      try {
+        const result = coreData(await post(`${base}/read`, {sequence}));
+        lastRead = Math.max(lastRead, result.last_read_sequence || 0);
+        if (typeof replyNotifications !== 'undefined') void replyNotifications.refresh();
+      } catch (_) { /* the next render or scroll tries again */ }
+      finally { reading = 0; }
     }, 400);
   }
   listen(document, 'visibilitychange', () => { if (!document.hidden) scheduleRead(); });
@@ -325,226 +358,304 @@ function mountGlobalChat(pane, agent, options = {}) {
   visibilityObserver.observe(document.body, {attributes:true, childList:true, subtree:true, attributeFilter:['inert','hidden','aria-hidden']});
   cleanups.push(() => visibilityObserver.disconnect());
 
-  // ---- messages
-  const stateLine = message => {
-    if (message.role !== 'owner' && message.role !== 'notice') return '';
-    if (message.state === 'completed') return '';
-    const detail = message.error?.message && message.state !== 'uncertain' ? ` ${message.error.message}` : '';
-    return `<span class="gchat-state" data-state="${esc(message.state)}">${esc((GLOBAL_CHAT_STATE_TEXT[message.state] || message.state) + detail)}</span>`;
-  };
-  function paintMessage(message) {
-    if (globalChatHidden(message)) {      // also covers a streamed reply whose text turns out to start with the tag
-      nodes.get(message.id)?.remove(); nodes.delete(message.id);
-      return {node: null, isNew: false};
-    }
-    let node = nodes.get(message.id);
+  // ---- transcript entries (the list is the transcript; entries are keyed by their stable id and ordered by archive position)
+  function paintEntry(entry) {
+    let node = nodes.get(entry.id);
     const isNew = !node;
-    if (isNew) { node = document.createElement('div'); nodes.set(message.id, node); }
-    node.className = `gchat-msg gchat-${message.role}`;
-    node.dataset.id = message.id; node.dataset.state = message.state; node.dataset.sequence = String(message.sequence);
-    // Replayed messages keep their chips and keyboard focus.
-    const signature = JSON.stringify([message.role, message.state, message.body, message.origin, message.error, message.created_at]);
+    if (isNew) { node = document.createElement('div'); nodes.set(entry.id, node); }
+    node.className = `gchat-msg gchat-${entry.speaker}`;
+    node.dataset.id = entry.id; node.dataset.position = String(entry.position);
+    // Replayed entries keep their chips and keyboard focus.
+    const signature = JSON.stringify([entry.speaker, entry.text, entry.partial, entry.timestamp, entry.system]);
     if (node.chatSignature === signature) return {node, isNew};
     node.chatSignature = signature;
-    const origin = message.origin && !['chat', 'system'].includes(message.origin) ? `<span class="gchat-origin">${esc(message.origin)}</span>` : '';
-    if (message.role === 'agent') {
-      const working = message.state === 'running';
-      const tail = message.state === 'interrupted' ? '<span class="gchat-state" data-state="interrupted">Stopped</span>'
-        : message.state === 'failed' ? `<span class="gchat-state" data-state="failed">${esc(message.error?.message || 'The agent reported an error.')}</span>` : '';
-      node.innerHTML = `<div class="gchat-body md">${message.body ? globalChatMarkdown(message.body) : ''}${working && !message.body ? '<span class="gchat-typing" aria-label="Working">…</span>' : ''}</div>${tail}`;
-      node.classList.toggle('gchat-streaming', working);
-      if (!working) {
+    node.classList.toggle('gchat-partial', entry.partial === true);
+    if (entry.speaker === 'agent') {
+      node.innerHTML = `<div class="gchat-body md">${globalChatMarkdown(entry.text)}</div>`;
+      if (entry.partial !== true) {
         const chips = globalChatReferenceChips(node.querySelector('.gchat-body'));
         if (chips) node.append(chips);
       }
+    } else if (entry.speaker === 'notice') {
+      const system = entry.system, verified = !!system?.verified;
+      node.dataset.verified = String(verified);
+      if (system?.input_type) node.dataset.inputType = system.input_type; else delete node.dataset.inputType;
+      const why = !verified && system?.reason ? GLOBAL_CHAT_NOTICE_REASON[system.reason] || system.reason : '';
+      node.innerHTML = `<div class="gchat-body"><span class="gchat-marker" ${why ? `title="${esc(why)}"` : ''}>${esc(globalChatNoticeLabel(system))}</span><span class="gchat-text">${esc(entry.text)}</span></div>`;
     } else {
-      node.innerHTML = `<div class="gchat-body">${origin}<span class="gchat-text">${esc(message.body)}</span></div>${stateLine(message)}`;
+      node.innerHTML = `<div class="gchat-body"><span class="gchat-text">${esc(entry.text)}</span></div>`;
     }
-    node.insertAdjacentHTML('beforeend', globalChatTimestamp(message));
+    node.insertAdjacentHTML('beforeend', globalChatTimestamp(entry.timestamp));
     return {node, isNew};
   }
-  function place(message) {
-    const {node, isNew} = paintMessage(message);
+  // Returns true when the entry was added after every existing one.
+  function placeEntry(entry) {
+    const previous = entries.get(entry.id);
+    entries.set(entry.id, entry);
+    const {node, isNew} = paintEntry(entry);
     if (!isNew) return false;
-    // Backfilled native messages belong at their original time, including live SSE imports.
-    const after = [...log.children].find(child => globalChatOrder(messages.get(child.dataset.id), message) > 0);
+    const after = [...log.children].find(child => Number(child.dataset.position) > entry.position);
     log.insertBefore(node, after || null);
-    return !after;
+    return !after && !previous;
   }
-  function upsert(message) {
-    const previous = messages.get(message.id);
-    if (previous && previous.state === 'completed' && message.state !== 'completed') return;   // a replayed older state never regresses
-    messages.set(message.id, {...previous, ...message});
-    const appended = place(messages.get(message.id));
-    if (previous) paintMessage(messages.get(message.id));
-    emptyNote.hidden = nodes.size > 0 || !runtime;
-    afterChange(appended && message.role === 'agent');
-    if (message.role === 'agent' && message.state === 'completed') scheduleRead();
-  }
-  function delta(data) {
-    const message = messages.get(data.message_id);
-    if (!message) { void loadState(); return; }
-    if (message.state === 'completed') return;
-    message.body += data.text;
-    // Coalesce rendering of a fast stream into one paint per frame.
-    if (!flushTimer) flushTimer = setTimeout(() => { flushTimer = null; if (live()) { for (const m of messages.values()) if (m.state === 'running' && m.role === 'agent') paintMessage(m); afterChange(false); } }, 60);
+  const newestPosition = () => { let top = -1; for (const entry of entries.values()) top = Math.max(top, entry.position); return top; };
+  function clearEntries() {
+    entries.clear(); nodes.clear(); log.replaceChildren();
+    pendingHost.replaceChildren(); inputNodes.clear();
   }
 
-  // ---- pending permission and question cards
-  function paintActions() {
-    actionHost.innerHTML = actions.map(action => {
-      const request = action.request || {};
-      if (action.kind === 'permission') {
-        return `<section class="gchat-card" data-action="${esc(action.id)}" aria-label="Permission request">
-          <h4>${esc(request.title || `${label} asks permission`)}</h4>${request.detail ? `<p>${esc(request.detail)}</p>` : ''}
-          ${request.blocked_path ? `<p class="muted">${esc(request.blocked_path)}</p>` : ''}
-          <div class="gchat-card-buttons"><button type="button" data-answer="allow">Allow</button><button type="button" class="quiet" data-answer="deny">Deny</button></div>
-          <p class="gchat-card-error" role="alert" hidden></p></section>`;
+  // ---- application inputs not yet confirmed by the transcript
+  const viewingCurrent = () => !selected || conversations.find(item => item.conversation_id === selected)?.current === true;
+  const viewedId = () => conversation?.conversation_id ?? null;
+  function inputVisible(item, noticeIds) {
+    if (item.state === 'submitted' || GLOBAL_CHAT_HIDDEN.has(item.id) || noticeIds.has(item.id)) return false;
+    const mine = GLOBAL_CHAT_INPUTS.get(item.id);
+    return mine?.conversation ? mine.conversation === viewedId() : viewingCurrent();
+  }
+  function paintInputs() {
+    // A verified notice entry already is its input's receipt: never show the same input a second time.
+    const noticeIds = new Set([...entries.values()].map(entry => entry.system?.input_id).filter(Boolean));
+    const shownInputs = inputs.filter(item => inputVisible(item, noticeIds)).reverse();   // newest-first -> chronological
+    const keep = new Set(shownInputs.map(item => item.id));
+    for (const [id, node] of inputNodes) if (!keep.has(id)) { node.remove(); inputNodes.delete(id); }
+    for (const item of shownInputs) {
+      let node = inputNodes.get(item.id);
+      if (!node) { node = document.createElement('div'); inputNodes.set(item.id, node); }
+      const system = item.origin === 'system', kind = GLOBAL_CHAT_INPUT_LABEL[item.input_type];
+      node.className = `gchat-msg gchat-pending ${system ? 'gchat-notice' : 'gchat-user'}`;
+      node.dataset.inputId = item.id; node.dataset.state = item.state; node.dataset.inputType = item.input_type;
+      const detail = item.reason && item.state !== 'uncertain' ? ` ${item.reason}` : '';
+      const resendable = ['failed', 'undelivered'].includes(item.state) && !!item.body && viewingCurrent();
+      const dismissable = ['uncertain', 'failed', 'undelivered'].includes(item.state);
+      const signature = JSON.stringify([item.state, item.body, item.reason, kind, resendable, dismissable, session?.can_send]);
+      node.dataset.resendable = String(resendable);
+      if (node.chatSignature !== signature) {
+        node.chatSignature = signature;
+        const text = item.body ?? (item.input_type === 'telegram' ? 'Private message' : '');
+        node.innerHTML = `<div class="gchat-body">${kind ? `<span class="gchat-marker">${esc(kind)}</span>` : ''}${text ? `<span class="gchat-text">${esc(text)}</span>` : ''}</div>
+          <span class="gchat-state" data-state="${esc(item.state)}">${esc(GLOBAL_CHAT_INPUT_STATE[item.state] + detail)}</span>
+          ${resendable || dismissable ? `<span class="gchat-pending-actions">${resendable ? `<button type="button" class="quiet" data-resend="${esc(item.id)}" ${session?.can_send ? '' : 'disabled'}>Resend</button>` : ''}${dismissable ? `<button type="button" class="quiet" data-dismiss="${esc(item.id)}">Dismiss</button>` : ''}</span>` : ''}`;
       }
-      return `<section class="gchat-card" data-action="${esc(action.id)}" aria-label="Question from ${esc(label)}"><form>${(request.questions || []).map(question => {
-        const name = esc(question.id), multi = !!question.multi_select, type = multi ? 'checkbox' : 'radio';
-        return `<fieldset data-question="${name}"><legend>${esc(question.header ? `${question.header}: ` : '')}${esc(question.question)}</legend>
-          ${(question.options || []).map((option, index) => `<label><input type="${type}" name="q-${esc(action.id)}-${name}" value="${esc(option.label)}"> <span>${esc(option.label)}</span>${option.description ? `<small> ${esc(option.description)}</small>` : ''}</label>`).join('')}
-          ${question.allow_other !== false ? `<label>Other <input type="${question.secret ? 'password' : 'text'}" autocomplete="off" data-other maxlength="2000" aria-label="Other answer for ${esc(question.question)}"></label>` : ''}</fieldset>`;
-      }).join('')}<div class="gchat-card-buttons"><button type="submit">Answer</button></div><p class="gchat-card-error" role="alert" hidden></p></form></section>`;
-    }).join('');
-    if (actions.length) afterChange(true);
-  }
-  async function answer(card, response) {
-    const error = card.querySelector('.gchat-card-error');
-    card.querySelectorAll('button').forEach(button => { button.disabled = true; });
-    try {
-      coreData(await post(`${base}/actions/${encodeURIComponent(card.dataset.action)}`, {response}));
-      actions = actions.filter(action => action.id !== card.dataset.action);
-      paintActions();
-    } catch (problem) {
-      if (!live()) return;
-      error.hidden = false; error.textContent = failure(problem);
-      card.querySelectorAll('button').forEach(button => { button.disabled = false; });
-      if (problem.code === 'stale_action') { actions = actions.filter(action => action.id !== card.dataset.action); paintActions(); }
     }
-  }
-  listen(actionHost, 'click', event => {
-    const button = event.target.closest('[data-answer]');
-    const card = button && button.closest('[data-action]');
-    if (card) answer(card, {decision: button.dataset.answer});
-  });
-  listen(actionHost, 'submit', event => {
-    event.preventDefault();
-    const card = event.target.closest('[data-action]');
-    if (!card) return;
-    const answers = {};
-    card.querySelectorAll('fieldset[data-question]').forEach(set => {
-      const picked = [...set.querySelectorAll('input:checked')].map(box => box.value);
-      const other = set.querySelector('[data-other]')?.value.trim();
-      if (other) picked.push(other);
-      if (picked.length) answers[set.dataset.question] = picked;
+    shownInputs.forEach((item, index) => {                                                   // chronological, without re-inserting settled nodes
+      const node = inputNodes.get(item.id);
+      if (pendingHost.children[index] !== node) pendingHost.insertBefore(node, pendingHost.children[index] || null);
     });
-    answer(card, {answers});
-  });
+    paintEmpty();
+  }
 
-  // Terminal owns lifecycle, configuration and native approval prompts.
-  function paintRuntime() {
-    const connected = !!runtime?.can_send;
-    const surface = runtime?.transport === 'codex_queue' ? 'Codex' : 'Terminal';
-    const wasHidden = working.hidden;
-    working.hidden = !connected || runtime?.working !== true;
-    if (working.hidden !== wasHidden && atBottom) toBottom();
-    status.textContent = !runtime ? 'Loading…' : `${surface} ${connected ? 'connected' : 'offline'}`;
-    status.dataset.state = !runtime ? 'loading' : connected ? 'ready' : 'stopped';
-    emptyNote.hidden = nodes.size > 0 || !runtime;
-    if (!nodes.size && runtime) {
-      emptyNote.innerHTML = connected ? '<p>Your agent conversation appears here.</p>'
-        : `<p>Start or resume ${esc(label)} in ${surface}. Its conversation will appear here.</p>${surface === 'Terminal' && options.openTerminal ? '<button type="button" class="quiet" data-terminal>Open terminal</button>' : ''}`;
+  // ---- session status, composer enablement and the empty state
+  const canSend = () => !!session?.can_send && viewingCurrent() && !finished;
+  function sessionSummary() {
+    if (!session) return {key: 'loading', short: 'Loading…', line: 'Loading…'};
+    if (!viewingCurrent()) return {key: 'archive', short: 'Earlier conversation', line: 'Viewing an earlier conversation. Messages go to the current one.'};
+    if (session.state === 'live') {
+      if (session.reason === 'capture_disabled') return {key: 'disabled', short: 'Capture disabled', line: 'Transcript capture is off for this agent, so Chat cannot show or send messages.'};
+      if (session.reason === 'capture_not_ready') return {key: 'starting', short: 'Starting capture', line: 'The conversation is starting. You can send once the session publishes it.'};
+      return session.working ? {key: 'working', short: 'Working', line: 'Working…'} : {key: 'live', short: 'Live', line: 'Live'};
     }
-    input.disabled = !connected;
-    send.disabled = !connected || sending;
-    input.placeholder = connected ? `Message ${label}…` : `Start or resume the agent in ${surface}`;
+    const direction = `Start or resume ${label} manually in Terminal to send.`;
+    if (session.reason === 'capture_disabled') return {key: 'disabled', short: 'Capture disabled', line: 'Transcript capture is off for this agent, so Chat cannot show or send messages.'};
+    if (session.reason === 'unsupported_runtime') return {key: 'offline', short: 'Unsupported', line: 'Chat does not support this agent’s runtime.'};
+    return {key: 'offline', short: 'Offline', line: `Not running. ${direction}`};
+  }
+  function paintEmpty() {
+    const empty = !nodes.size && !inputNodes.size && !!session;
+    emptyNote.hidden = !empty;
+    if (!empty) return;
+    const key = sessionSummary().key;
+    emptyNote.innerHTML = key === 'live' || key === 'working' ? '<p>Your agent conversation appears here.</p>'
+      : key === 'starting' ? '<p>The conversation appears once the session publishes its first turn.</p>'
+      : key === 'disabled' ? '<p>Transcript capture is off for this agent, so there is no conversation to show.</p>'
+      : `<p>Start or resume ${esc(label)} in Terminal. Its conversation will appear here.</p>${options.openTerminal ? '<button type="button" class="quiet" data-terminal>Open terminal</button>' : ''}`;
+  }
+  function paintSession() {
+    const summary = sessionSummary(), working = summary.key === 'working' && !streamDown;
+    sessionLine.dataset.state = streamDown && summary.key === 'working' ? 'live' : summary.key;
+    sessionLine.classList.toggle('gchat-session-working', working);
+    sessionText.textContent = finished ? 'This chat is no longer available.' : summary.line;
+    sessionLine.title = session?.detail || '';
+    status.textContent = finished ? 'Unavailable' : summary.short;
+    status.dataset.state = !session ? 'loading' : ['live', 'working'].includes(summary.key) ? 'ready' : 'stopped';
+    const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope);
+    input.disabled = !enabled;
+    send.disabled = !enabled || sending;
+    input.placeholder = enabled ? `Message ${label}…` : !session ? `Message ${label}…` : !viewingCurrent() ? 'Return to the current conversation to send' : 'Not available to send';
+    paintEmpty();
+    for (const button of pendingHost.querySelectorAll('[data-resend]')) button.disabled = !session?.can_send || GLOBAL_CHAT_RESENDS.get(button.dataset.resend)?.pending === true;
   }
   const showBanner = text => { banner.hidden = !text; banner.textContent = text || ''; delete banner.dataset.reconnect; };
+  function paintConversations() {
+    convBar.hidden = conversations.length < 2;
+    const chosen = selected || conversations.find(item => item.current)?.conversation_id || '';
+    convSelect.innerHTML = conversations.map(item => {
+      const when = item.updated_at ? ` · ${GLOBAL_CHAT_TIME.format(new Date(item.updated_at))}` : '';
+      return `<option value="${esc(item.conversation_id)}"${item.conversation_id === chosen ? ' selected' : ''}>${esc(`${item.provider || 'Conversation'}${when}${item.current ? ' (current)' : ''}`)}</option>`;
+    }).join('');
+    convBar.querySelector('[data-current-conversation]').hidden = viewingCurrent();
+  }
   listen(root, 'click', event => {
     const chip = event.target.closest('[data-preview-href]');
     if (chip) { openPreview(chip); return; }
     if (event.target.closest('[data-preview-close]')) { closePreview(); return; }
-    if (event.target.closest('[data-terminal]')) options.openTerminal?.();
+    if (event.target.closest('[data-terminal]')) { options.openTerminal?.(); return; }
+    if (event.target.closest('[data-current-conversation]')) { chooseConversation(null); return; }
+    const resend = event.target.closest('[data-resend]'), dismiss = event.target.closest('[data-dismiss]');
+    if (resend) void resendInput(resend.dataset.resend);
+    else if (dismiss) { GLOBAL_CHAT_HIDDEN.add(dismiss.dataset.dismiss); paintInputs(); }
   });
+  listen(convSelect, 'change', () => chooseConversation(convSelect.value));
+  function chooseConversation(id) {
+    const current = conversations.find(item => item.current)?.conversation_id;
+    const next = id && id !== current ? id : null;
+    if (next === selected) { paintConversations(); return; }
+    selected = next; generation++; loading = false; again = false;
+    clearEntries(); older = null; shown = undefined; olderButton.hidden = true;
+    void load();
+  }
 
-  // ---- composer
-  const saveDraft = () => { if (input.value) GLOBAL_CHAT_DRAFTS.set(agentId, input.value); else GLOBAL_CHAT_DRAFTS.delete(agentId); };
-  input.oninput = () => { saveDraft(); if (pendingSend && pendingSend.text !== input.value) { pendingSend = null; GLOBAL_CHAT_SENDS.delete(agentId); } };
+  // ---- composer: the draft and the unconfirmed send are bound to this exact agent and conversation
+  const scope = () => globalChatScope(agentId, viewedId());
+  function bindComposer() {
+    const next = scope();
+    GLOBAL_CHAT_LAST.set(agentId, viewedId());
+    if (next === composerScope) return;
+    composerScope = next;
+    input.value = GLOBAL_CHAT_DRAFTS.get(next) || '';
+    watchInflight(next);
+  }
+  // A send started from an earlier mount of this composer finishes on its own; this mount only shows its outcome.
+  function watchInflight(key) {
+    const earlier = GLOBAL_CHAT_INFLIGHT.get(key);
+    earlier?.promise.finally(() => {
+      if (!live()) return;
+      if (composerScope === key && input.value === earlier.text && GLOBAL_CHAT_DRAFTS.get(key) !== earlier.text) input.value = '';
+      paintSession(); void load();
+    });
+  }
+  const saveDraft = () => { if (input.value) GLOBAL_CHAT_DRAFTS.set(composerScope, input.value); else GLOBAL_CHAT_DRAFTS.delete(composerScope); };
+  input.oninput = () => {
+    saveDraft();
+    const pending = GLOBAL_CHAT_SENDS.get(composerScope);
+    if (pending && pending.text !== input.value && !GLOBAL_CHAT_INFLIGHT.has(composerScope)) GLOBAL_CHAT_SENDS.delete(composerScope);
+  };
   input.onkeydown = event => {
     // Enter sends, Shift+Enter inserts a newline, and a composition in progress (IME) is never interrupted.
     if (event.key === 'Enter' && !event.isComposing && (!event.shiftKey || event.ctrlKey || event.metaKey)) {
       event.preventDefault(); form.requestSubmit();
     }
   };
+  const refusalText = problem => GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || failure(problem);
+  // One admission request. The result is recorded in module state so a mount that was left meanwhile loses nothing.
+  async function admit(text, key) {
+    const result = coreData(await post(`${base}/messages`, {text, idempotency_key: key}));
+    if (result.input) GLOBAL_CHAT_INPUTS.set(result.input.id, {conversation: result.binding?.conversation_id ?? null});
+    return result;
+  }
+  function takeInput(item) {
+    if (!item || !live()) return;
+    inputs = [item, ...inputs.filter(old => old.id !== item.id)];
+    paintInputs(); afterChange(true);
+  }
   form.onsubmit = async event => {
     event.preventDefault();
-    const text = input.value;
-    if (sending || !text.trim() || !runtime?.can_send) return;
-    sending = true; send.disabled = true;
+    const text = input.value, mine = composerScope;
+    if (!text.trim() || !canSend() || GLOBAL_CHAT_INFLIGHT.has(mine)) return;
     // A retry of the same text reuses its key, so a lost response can never become a second message.
-    if (!pendingSend || pendingSend.text !== text) pendingSend = {text, key: newRequestId()};
-    GLOBAL_CHAT_SENDS.set(agentId, pendingSend);
-    const attempt = pendingSend;
-    try {
-      const result = coreData(await post(`${base}/messages`, {text, idempotency_key: attempt.key}));
-      if (GLOBAL_CHAT_SENDS.get(agentId) === attempt) {
-        GLOBAL_CHAT_SENDS.delete(agentId);
-        if (GLOBAL_CHAT_DRAFTS.get(agentId) === text) GLOBAL_CHAT_DRAFTS.delete(agentId);
+    let attempt = GLOBAL_CHAT_SENDS.get(mine);
+    if (!attempt || attempt.text !== text) attempt = {text, key: newRequestId()};
+    GLOBAL_CHAT_SENDS.set(mine, attempt);
+    const run = (async () => {
+      try {
+        const result = await admit(text, attempt.key);
+        if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine);
+        if (GLOBAL_CHAT_DRAFTS.get(mine) === text) GLOBAL_CHAT_DRAFTS.delete(mine);
+        if (live() && composerScope === mine) { if (input.value === text) input.value = ''; showBanner(''); }
+        takeInput(result.input);
+        if (live()) { atBottom = true; toBottom(); void load(); }
+      } catch (problem) {
+        if (GLOBAL_CHAT_REFUSALS.has(problem.code)) { if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine); }
+        if (live() && composerScope === mine) showBanner(GLOBAL_CHAT_REFUSALS.has(problem.code) ? refusalText(problem)
+          : `Delivery unconfirmed: ${failure(problem)} Press Send to check or retry this same message.`);
+        if (problem.code === 'capture_not_ready' || problem.code === 'terminal_offline' || problem.code === 'terminal_changed') void load();
+      } finally {
+        GLOBAL_CHAT_INFLIGHT.delete(mine);
+        if (live()) paintSession();
       }
-      if (!live()) return;
-      if (pendingSend === attempt) { pendingSend = null; if (input.value === text) { input.value = ''; saveDraft(); } }
-      showBanner('');
-      if (result.message) { upsert(result.message); atBottom = true; toBottom(); }
-      void refreshRuntime();
-    } catch (problem) {
-      if (live()) showBanner(['transition_required', 'terminal_offline', 'terminal_not_ready', 'terminal_unavailable'].includes(problem.code) ? failure(problem) : `Delivery unconfirmed: ${failure(problem)} Press Send to check or retry this same message.`);
-    } finally { sending = false; if (live()) paintRuntime(); }
+    })();
+    GLOBAL_CHAT_INFLIGHT.set(mine, {text, promise: run});
+    paintSession();
+    await run;
   };
-
-  // ---- loading
-  async function refreshRuntime() {
-    try { const data = coreData(await api(base)); if (live()) { runtime = data.runtime; actions = data.actions || []; paintRuntime(); paintActions(); } } catch (_) { /* the stream keeps it current */ }
-  }
-  async function loadState() {
-    if (loading) return;
-    loading = true;
-    const mine = ++generation;
+  // A definitely undelivered input is resent only when the owner asks; the new send has its own key, stable across a retry.
+  async function resendInput(id) {
+    const item = inputs.find(row => row.id === id);
+    if (!item?.body || !['failed', 'undelivered'].includes(item.state) || !canSend()) return;
+    const resend = GLOBAL_CHAT_RESENDS.get(id) || {key: newRequestId()};
+    resend.pending = true; GLOBAL_CHAT_RESENDS.set(id, resend);
+    paintSession();
     try {
-      const data = coreData(await api(base));
-      if (!live() || mine !== generation) return;
-      messages.clear(); nodes.clear(); log.innerHTML = '';
-      runtime = data.runtime; older = !!data.older; cursor = data.cursor || 0; lastRead = data.last_read_sequence || 0; actions = data.actions || [];
-      historyBefore = data.messages[0]?.sequence ?? null;
-      data.messages.forEach(message => { messages.set(message.id, message); place(message); });
-      olderButton.hidden = !older;
-      paintRuntime(); paintActions(); showBanner('');
-      toBottom();
-      connect();
+      const result = await admit(item.body, resend.key);
+      GLOBAL_CHAT_RESENDS.delete(id); GLOBAL_CHAT_HIDDEN.add(id);
+      showBanner(''); takeInput(result.input); void load();
     } catch (problem) {
-      if (live()) { showBanner(`Chat is unavailable: ${failure(problem)}`); status.textContent = 'Unavailable'; retry(loadState); }
-    } finally { loading = false; }
+      resend.pending = false;
+      if (GLOBAL_CHAT_REFUSALS.has(problem.code)) GLOBAL_CHAT_RESENDS.delete(id);
+      if (live()) showBanner(GLOBAL_CHAT_REFUSALS.has(problem.code) ? refusalText(problem) : `Delivery unconfirmed: ${failure(problem)} Press Resend to check or retry this same message.`);
+    } finally { if (live()) paintSession(); }
+  }
+
+  // ---- loading: a state fetch is idempotent, so every "changed" event just reads it again (coalesced)
+  const stateUrl = () => `${base}?limit=${GLOBAL_CHAT_PAGE}${selected ? `&conversation=${encodeURIComponent(selected)}` : ''}`;
+  async function load(reset = false) {
+    if (loading) { again = true; return; }
+    loading = true;
+    const mine = generation;
+    try {
+      const data = coreData(await api(stateUrl()));
+      if (!live() || mine !== generation) return;
+      const id = data.conversation?.conversation_id ?? null;
+      const page = data.entries || [];
+      // A page that starts after everything held (a long gap while away) cannot be joined to it: start from that page.
+      const gap = data.older != null && page.length && page[0].position > newestPosition() && entries.size > 0;
+      const fresh = reset || shown === undefined || id !== shown || gap;
+      if (fresh) { clearEntries(); older = data.older; }
+      shown = id; session = data.session; conversation = data.conversation; conversations = data.conversations || [];
+      inputs = data.inputs || []; lastRead = Math.max(fresh && reset ? 0 : lastRead, data.last_read_sequence || 0);
+      cursor = fresh && reset ? data.cursor || 0 : Math.max(cursor, data.cursor || 0);
+      let grew = false;
+      page.forEach(entry => { if (placeEntry(entry) && entry.speaker === 'agent') grew = true; });
+      bindComposer();
+      olderButton.hidden = older == null;
+      paintConversations(); paintInputs(); paintSession();
+      if (fresh) { showBanner(''); toBottom(); } else afterChange(grew);
+      if (!stream) connect();
+    } catch (problem) {
+      if (live() && mine === generation) { showBanner(`Chat is unavailable: ${failure(problem)}`); status.textContent = 'Unavailable'; retry(() => load()); }
+    } finally {
+      if (mine === generation) { loading = false; if (again && live()) { again = false; void load(); } }
+    }
   }
   olderButton.onclick = async () => {
-    // Only history responses advance this cursor. An old SSE backfill must not skip intervening pages.
-    const first = historyBefore;
-    if (first == null) return;
+    // Only history responses advance this cursor, so no page is skipped.
+    const before = older, mine = generation;
+    if (before == null) return;
     olderButton.disabled = true;
     try {
-      const data = coreData(await api(`${base}/history?before=${first}&limit=${GLOBAL_CHAT_PAGE}`));
-      if (!live()) return;
+      const target = viewedId();
+      const data = coreData(await api(`${base}/history?before=${before}&limit=${GLOBAL_CHAT_PAGE}${target ? `&conversation=${encodeURIComponent(target)}` : ''}`));
+      if (!live() || mine !== generation) return;
       const height = scroller.scrollHeight, top = scroller.scrollTop;
-      data.messages.forEach(message => { if (!messages.has(message.id)) { messages.set(message.id, message); place(message); } });
-      historyBefore = data.messages[0]?.sequence ?? historyBefore;
-      older = !!data.older; olderButton.hidden = !older;
+      (data.entries || []).forEach(entry => { if (!entries.has(entry.id)) placeEntry(entry); });
+      older = data.older ?? null; olderButton.hidden = older == null;
       scroller.scrollTop = top + (scroller.scrollHeight - height);          // keep the reader's place
       atBottom = nearBottom();
+      paintInputs();
     } catch (problem) { if (live()) showBanner(`Could not load older messages: ${failure(problem)}`); }
     finally { if (live()) olderButton.disabled = false; }
   };
 
-  // ---- the event stream: replay from the saved cursor, reconnect with backoff, resynchronise on reset
+  // ---- the event stream: replay from the durable cursor, reconnect with backoff, resynchronise on reset
   function closeStream() { if (stream) { stream.close(); stream = null; } }
   function retry(action) {
     clearTimeout(retryTimer);
@@ -559,39 +670,35 @@ function mountGlobalChat(pane, agent, options = {}) {
     stream = source;
     source.addEventListener('open', () => {
       retryDelay = 1000;
-      if (!banner.hidden && banner.dataset.reconnect) { showBanner(''); void refreshRuntime(); }
+      if (streamDown) { streamDown = false; paintSession(); }
+      if (!banner.hidden && banner.dataset.reconnect) { showBanner(''); void load(); }
     });
     source.addEventListener('chat', event => {
       let item;
       try { item = JSON.parse(event.data); } catch (_) { return; }
       if (!item || item.cursor <= cursor) return;                              // replay overlap is ignored by cursor
       cursor = item.cursor;
-      if (item.kind === 'message') upsert(item.data);
-      else if (item.kind === 'delta') delta(item.data);
-      else if (item.kind === 'runtime') { runtime = item.data; paintRuntime(); }
-      else if (item.kind === 'action') {
-        actions = actions.filter(action => action.id !== item.data.id);
-        if (item.data.state === 'pending') actions.push(item.data);
-        paintActions();
-      }
+      if (item.kind === 'changed') void load();                                // an event renders nothing; the fetched page does
     });
-    source.addEventListener('reset', () => { closeStream(); void loadState(); });
-    source.addEventListener('done', () => { closeStream(); working.hidden = true; showBanner('This chat is no longer available.'); });
+    source.addEventListener('reset', () => { closeStream(); cursor = 0; void load(true); });
+    source.addEventListener('done', () => { closeStream(); finished = true; streamDown = false; showBanner('This chat is no longer available.'); paintSession(); });
     source.onerror = () => {
       if (!live()) return;
-      working.hidden = true;
+      streamDown = true; paintSession();
       showBanner('Reconnecting…'); banner.dataset.reconnect = '1';
       // The browser retries a dropped stream itself with Last-Event-ID; a closed one needs a fresh connection.
       if (source.readyState === EventSource.CLOSED) { stream = null; retry(connect); }
     };
   }
 
-  void loadState();
+  input.value = GLOBAL_CHAT_DRAFTS.get(composerScope) || '';
+  watchInflight(composerScope);
+  void load();
   return {
     agentId,
     dispose() {
       disposed = true; generation++;
-      closeStream(); clearTimeout(retryTimer); clearTimeout(flushTimer); clearTimeout(readTimer);
+      closeStream(); clearTimeout(retryTimer); clearTimeout(readTimer);
       saveDraft();
       cleanups.splice(0).forEach(cleanup => cleanup());
       input.oninput = input.onkeydown = form.onsubmit = olderButton.onclick = jump.onclick = null;

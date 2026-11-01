@@ -1,4 +1,4 @@
-/* Global agent chat (js/global-chat.js). Uses the dashboard's existing tokens; no new colours or layout system. */
+/* Agent chat (js/global-chat.js). Uses the dashboard's existing tokens; no new colours or layout system. */
 .gchat { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; width: 100%; color: var(--fg); font-size: 15.75px; }
 .gchat-top { position:absolute; top:4px; left:4px; z-index:2; display:flex; align-items:center; gap:8px; max-width:calc(100% - 8px); padding:5px 9px; border:0; border-radius:6px; background:color-mix(in srgb, var(--bg) 68%, transparent); backdrop-filter:blur(8px); pointer-events:none; font-size:12px; }
 .gchat-name { font-weight: 500; letter-spacing: -.011em; }
@@ -11,15 +11,18 @@
 .gchat-older { display: block; margin: 0 auto 12px; }
 .gchat-log { display: flex; flex-direction: column; gap: 10px; }
 .gchat-msg { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: min(760px, 88%); }
-.gchat-owner { align-self: flex-end; align-items: flex-end; }
+.gchat-user { align-self: flex-end; align-items: flex-end; }
 .gchat-agent { align-self: flex-start; }
-.gchat-notice { align-self: center; max-width: 80%; font-size: 12px; color: var(--fg-2); }
+.gchat-notice { align-self: center; align-items: center; max-width: 80%; font-size: 12px; color: var(--fg-2); }
 .gchat-body { font-size: 15.75px; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: 12px; overflow-wrap: anywhere; line-height: 1.5; }
-.gchat-owner .gchat-body { background: rgba(255,255,255,.08); white-space: pre-wrap; }
-.gchat-owner .gchat-body, .gchat-agent .gchat-body { border: 0; }
+.gchat-user .gchat-body { background: rgba(255,255,255,.08); white-space: pre-wrap; }
+.gchat-user .gchat-body, .gchat-agent .gchat-body { border: 0; }
 .gchat-agent .gchat-body { background: none; text-align: left; }
-.gchat-notice .gchat-body { border-style: dashed; background: none; white-space: pre-wrap; }
-.gchat-origin { margin-right: 8px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-3, var(--fg-2)); }
+.gchat-notice .gchat-body { padding: 4px 10px; border: 1px dashed var(--line-2); border-radius: 8px; background: none; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
+/* Qorqut's own label for a system-originated input; it is not a provider role. Unverified lookalikes keep a visibly different mark. */
+.gchat-marker { display: inline-block; margin-right: 8px; padding: 0 6px; border: 1px solid var(--line-2); border-radius: 4px; font-size: 11px; line-height: 1.6; color: var(--fg-2); vertical-align: baseline; }
+.gchat-notice[data-verified="false"] .gchat-marker { border-style: dashed; color: var(--danger); }
+.gchat-partial .gchat-body { opacity: .8; }
 .gchat-body.md > :first-child { margin-top: 0; }
 .gchat-body.md > :last-child { margin-bottom: 0; }
 .gchat-body.md p { margin: 0 0 .6em; }
@@ -49,25 +52,31 @@
 .gchat-preview-content>iframe, .gchat-preview-content>img { display:block; width:100%; height:100%; border:0; object-fit:contain; }
 .gchat-state { font-size: 11px; color: var(--fg-2); }
 .gchat-time { padding:0 12px; font-size:10px; line-height:1.4; color:var(--fg-2); font-variant-numeric:tabular-nums; }
-.gchat-state[data-state="failed"], .gchat-state[data-state="uncertain"] { color: var(--danger); }
-.gchat-streaming .gchat-body { border-color: var(--line); }
-.gchat-typing { color: var(--fg-2); letter-spacing: 2px; }
-.gchat-working { flex: none; padding: 0 12px 8px; font-size: 15.75px; line-height: 1.5; color: var(--fg-2); }
-.gchat-working[hidden] { display: none; }
-.gchat-working span { display: inline-block; background: linear-gradient(110deg, var(--fg-2) 25%, var(--fg) 45%, var(--fg-2) 65%); background-size: 250% 100%; background-clip: text; -webkit-background-clip: text; color: transparent; animation: gchat-working-shine 2.4s ease-in-out infinite; }
+.gchat-state[data-state="failed"], .gchat-state[data-state="uncertain"], .gchat-state[data-state="undelivered"] { color: var(--danger); }
+.gchat-pending .gchat-state { max-width: 100%; }
+.gchat-pending[data-state="waiting"] .gchat-body, .gchat-pending[data-state="submitting"] .gchat-body { opacity: .7; }
+.gchat-pending-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.gchat-pending-list:empty { display: none; }
+.gchat-pending-actions { display: inline-flex; gap: 6px; }
+.gchat-pending-actions button { min-height: 26px; padding: 2px 9px; font-size: 11px; }
+.gchat-conversations { display: flex; align-items: center; gap: 8px; margin: 40px 0 0; flex: none; font-size: 12px; }
+.gchat-conversations[hidden], .gchat-conversations [hidden] { display: none; }
+.gchat-conversations select { min-width: 0; max-width: 100%; font-size: 12px; }
+.gchat-conversations + .gchat-scroll { padding-top: 10px; }
+/* One restrained session line sits by the composer: live, working, starting capture, capture disabled or offline. */
+.gchat-session { display: flex; align-items: center; gap: 7px; flex: none; padding: 0 12px 6px; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
+.gchat-session-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3, var(--fg-2)); }
+.gchat-session[data-state="live"] .gchat-session-dot, .gchat-session[data-state="working"] .gchat-session-dot { background: var(--ok); }
+.gchat-session[data-state="disabled"] .gchat-session-dot, .gchat-session[data-state="offline"] .gchat-session-dot { background: var(--danger); }
+.gchat-session[data-state="starting"] .gchat-session-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--fg-2); }
+.gchat-session-text { min-width: 0; }
+.gchat-session-working .gchat-session-text { background: linear-gradient(110deg, var(--fg-2) 25%, var(--fg) 45%, var(--fg-2) 65%); background-size: 250% 100%; background-clip: text; -webkit-background-clip: text; color: transparent; animation: gchat-working-shine 2.4s ease-in-out infinite; }
 @keyframes gchat-working-shine { from { background-position: 100% 0; } to { background-position: -100% 0; } }
-@media (prefers-reduced-motion: reduce) { .gchat-working span { animation: none; background: none; color: var(--fg-2); } }
+@media (prefers-reduced-motion: reduce) { .gchat-session-working .gchat-session-text { animation: none; background: none; color: var(--fg-2); } }
 .gchat-empty { padding: 24px 8px; color: var(--fg-2); text-align: center; }
-.gchat-card { margin: 12px 0 0; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 12px; max-width: 760px; }
-.gchat-card h4 { margin: 0 0 6px; font-weight: 500; }
-.gchat-card p { margin: 0 0 8px; overflow-wrap: anywhere; }
-.gchat-card fieldset { margin: 0 0 10px; padding: 0; border: 0; }
-.gchat-card legend { margin-bottom: 6px; font-weight: 500; }
-.gchat-card label { display: block; margin: 3px 0; }
-.gchat-card-buttons { display: flex; gap: 8px; }
-.gchat-card-error { color: var(--danger); font-size: 12px; }
-.gchat-jump { position: absolute; right: 18px; bottom: 96px; z-index: 3; }
-.gchat-composer { display: flex; align-items: flex-end; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); flex: none; }
+.gchat-jump { position: absolute; right: 18px; bottom: 112px; z-index: 3; }
+.gchat-composer { display: flex; align-items: flex-end; gap: 8px; padding-top: 6px; border-top: 1px solid var(--line); flex: none; }
+.gchat-composer textarea:disabled { opacity: .6; cursor: not-allowed; }
 .gchat-composer textarea { flex: 1; min-width: 0; min-height: 44px; max-height: 220px; resize: vertical; padding: 9px 11px; font: inherit; line-height: 1.45; }
 .gchat-send { flex: none; min-height: 40px; padding: 7px 16px; }
 .gchat-diagnostic { position:relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
@@ -77,7 +86,7 @@
 .chat-unread-dot { display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.45); flex: none; vertical-align: middle; }
 .chat-unread-dot[hidden] { display: none; }
 .ritem .chat-unread-dot { position: absolute; top: 6px; right: 6px; margin: 0; }
-@media (max-width: 800px) { .gchat-msg { max-width: 96%; } .gchat-jump { bottom: 88px; } }
+@media (max-width: 800px) { .gchat-msg { max-width: 96%; } .gchat-jump { bottom: 104px; } }
 
 .gchat-view-toggle { display: inline-flex; flex: none; gap: 4px; }
 .gchat-view-toggle button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; min-height: 30px; padding: 6px; border: 0; border-radius: 6px; transform: none; }
