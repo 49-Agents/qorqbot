@@ -3,6 +3,8 @@ const attentionQueue=(()=>{
   const visibleLimit=6;
   let items=[],loading=false,error='',timer,generation=0,saving=0,refreshAfterSave=false,writes=Promise.resolve();
   const mounts=new Set(),lists=new Set(),acknowledged=new Set();
+  const viewedIds=item=>item.viewed_ids?.length?item.viewed_ids:[item.id];
+  const remaining=()=>items.filter(item=>!viewedIds(item).every(id=>acknowledged.has(id)));
   const destination=item=>{
     if(item.kind==='global')return JSON.stringify(['global',item.agent_id,!!item.chat]);
     if(item.kind==='thread' && item.source)return JSON.stringify(['thread',item.agent_id,item.source.type,item.source.business_id || item.biz || null,item.source.id]);
@@ -29,10 +31,10 @@ const attentionQueue=(()=>{
   const button=item=>`<button type="button" class="attention-chip" data-attention-key="${esc(item.id)}" title="${esc(label(item))}\nRight-click to dismiss" aria-label="${esc(label(item))}">${icon(item)}<span class="attention-label">${esc(item.kind==='signoff'?item.title:item.text)}</span></button>`;
   function paint(host){
     if(!host.isConnected){mounts.delete(host);return;}
-    const visible=items.slice(0,visibleLimit);
-    host.innerHTML=`<div class="attention-stack">${visible.map(button).join('')}${items.length>visibleLimit?`<button type="button" class="attention-more" data-attention-more aria-label="Show all ${items.length} attention items">+${items.length-visibleLimit}</button>`:''}${!items.length?`<span class="attention-empty">${error?'Attention unavailable':loading?'Loading attention…':'Nothing new'}</span>`:''}</div>${error?'<button type="button" class="quiet attention-retry" data-attention-retry>Retry</button>':''}`;
+    const current=remaining(),visible=current.slice(0,visibleLimit);
+    host.innerHTML=`<div class="attention-stack">${visible.map(button).join('')}${current.length>visibleLimit?`<button type="button" class="attention-more" data-attention-more aria-label="Show all ${current.length} attention items">+${current.length-visibleLimit}</button>`:''}${!current.length?`<span class="attention-empty">${error?'Attention unavailable':loading?'Loading attention…':'Nothing new'}</span>`:''}</div>${error?'<button type="button" class="quiet attention-retry" data-attention-retry>Retry</button>':''}`;
   }
-  const paintAll=()=>{mounts.forEach(paint);lists.forEach(host=>{if(!host.isConnected){lists.delete(host);return;}host.innerHTML=items.length?items.map(button).join(''):'<p class="muted">Nothing new</p>';});};
+  const paintAll=()=>{mounts.forEach(paint);const current=remaining();lists.forEach(host=>{if(!host.isConnected){lists.delete(host);return;}host.innerHTML=current.length?current.map(button).join(''):'<p class="muted">Nothing new</p>';});};
   async function refresh(){
     if(saving){refreshAfterSave=true;return;}
     if(loading)return;
@@ -45,14 +47,18 @@ const attentionQueue=(()=>{
     const keys=[...new Set(ids || [])].filter(id=>!acknowledged.has(id));
     if(!keys.length)return Promise.resolve();
     keys.forEach(id=>acknowledged.add(id));saving++;generation++;
+    // Clear every mounted copy immediately; keep the source rows for rollback on failure.
+    paintAll();
     // Serialize additive preference writes. An older poll cannot restore a dismissed
     // item, and one completed dismissal cannot be discarded by another in flight.
     const saved=writes.then(async()=>{
+      const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
       try{
-        const data=coreData(await post('/root/attention-queue',{viewed:keys}));
+        const data=coreData(await post('/root/attention-queue',{viewed:keys},{signal:controller.signal}));
         items=distinctDestinations(data.items || []);error='';paintAll();
-      }catch(e){keys.forEach(id=>acknowledged.delete(id));toast('Could not clear attention: '+e.message);}
+      }catch(e){keys.forEach(id=>acknowledged.delete(id));paintAll();toast('Could not clear attention: '+(e.name==='AbortError'?'Save timed out. Right-click again to retry.':e.message));}
       finally{
+        clearTimeout(timeout);
         saving--;
         if(!saving && refreshAfterSave){refreshAfterSave=false;void refresh();}
       }
@@ -101,14 +107,14 @@ const attentionQueue=(()=>{
     const item=target && items.find(row=>row.id===target.dataset.attentionKey);
     if(!item)return;
     event.preventDefault();event.stopPropagation();
-    void acknowledge(item.viewed_ids?.length?item.viewed_ids:[item.id]);
+    void acknowledge(viewedIds(item));
   }
   function clicks(event){
     const target=event.target.closest('button');if(!target)return;
     if(target.hasAttribute('data-attention-retry')){void refresh();return;}
     if(target.hasAttribute('data-attention-more')){
       let host;
-      modal({title:'New attention',width:540,body:`<div class="attention-all">${items.map(button).join('')}</div>`,
+      modal({title:'New attention',width:540,body:`<div class="attention-all">${remaining().map(button).join('')}</div>`,
         onOpen:el=>{host=el.querySelector('.attention-all');lists.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);},
         onClose:()=>{lists.delete(host);host?.removeEventListener('click',clicks);host?.removeEventListener('contextmenu',dismiss);}});return;
     }
