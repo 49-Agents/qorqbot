@@ -1,0 +1,182 @@
+"""Explicit local commands; business data and runtime never default to engine Git."""
+from __future__ import annotations
+
+import argparse
+from dataclasses import asdict, fields
+import json
+from pathlib import Path
+import sys
+
+from .engine import Context
+from .pipeline import Pipeline, PropagationError
+from .runner import RunnerConfig
+from .schema import ContextError
+from .tools import page, text_page
+
+
+class JsonParser(argparse.ArgumentParser):
+    def error(self, message):
+        raise ContextError(message)
+
+
+def parser():
+    result = JsonParser(description="Local Qorqut source-to-graph context")
+    result.add_argument("--repo", required=True, help="Explicit business data repository (never the engine repository)")
+    result.add_argument("--runtime", help="Separate runtime; default is <repo>.runtime")
+    commands = result.add_subparsers(dest="command", required=True)
+    init = commands.add_parser("init", help="Initialize a new empty business data repository")
+    init.add_argument("--basic-entity-type", action="append", default=[])
+    submit = commands.add_parser("submit", help="Submit and propagate one source change")
+    submit.add_argument("operation", choices=("add", "edit", "remove"))
+    submit.add_argument("path", help="Managed foundation/... .md or .txt path")
+    submit.add_argument("--input-file", help="Host-side source file for add/edit; bytes remain unchanged")
+    submit.add_argument("--submitted-by", required=True)
+    for name in ("kind", "title", "origin", "origin-ref", "created-at"):
+        submit.add_argument("--" + name)
+    submit.add_argument("--event-id", help="Reuse a submission's stable ID; input digest must match")
+    action_submit = commands.add_parser("submit-action", help="Ingest one controlled-caller accepted action revision")
+    action_submit.add_argument("operation", choices=("add", "edit", "remove"))
+    action_submit.add_argument("action_ref", help="Opaque upstream reference; never a path")
+    action_submit.add_argument("--revision-ref")
+    action_submit.add_argument("--input-file", help="Exact accepted UTF-8 text for add/edit")
+    action_submit.add_argument("--related-objects", type=json.loads, help="JSON list of kind/id/optional explanation pointers")
+    action_submit.add_argument("--business-entity-id", required=True, help="Controlled caller's configured supported business node")
+    action_submit.add_argument("--submitted-by", required=True)
+    action_submit.add_argument("--event-id")
+    action_submit.add_argument("--expected-previous-commit")
+    retry = commands.add_parser("retry", help="Explicitly retry one saved event; recover ready/published work first")
+    retry.add_argument("event_id")
+    for command in (submit, action_submit, retry):
+        command.add_argument("--model", default="gpt-6-astra")
+        command.add_argument("--effort", default="max", choices=("none", "minimal", "low", "medium", "high", "xhigh", "max"))
+        command.add_argument("--codex", default="codex", help="Installed Codex executable")
+        for field in fields(RunnerConfig):
+            if field.name not in ("executable", "model", "effort", "service_tier"):
+                command.add_argument("--" + field.name.replace("_", "-"),
+                                     type=float if field.name.endswith("timeout") else int, default=field.default)
+    commands.add_parser("pending", help="Inspect the durable pending event and latest attempt")
+    commands.add_parser("recover", help="Finish existing publication/indexing without model execution")
+    discard = commands.add_parser("discard", help="Explicitly discard one unpublished draft")
+    discard.add_argument("event_id")
+    search = commands.add_parser("search", help="Search a pinned published graph/source view")
+    search.add_argument("query", nargs="?", default="")
+    search.add_argument("--kind", choices=("node", "edge", "source"))
+    search.add_argument("--attributes", type=json.loads, help="JSON object of exact list-member filters")
+    search.add_argument("--limit", type=int, default=20)
+    show = commands.add_parser("show-object")
+    show.add_argument("kind", choices=("node", "edge"))
+    show.add_argument("id")
+    history = commands.add_parser("history")
+    history.add_argument("id")
+    history.add_argument("--kind", choices=("node", "edge", "source"), required=True)
+    history.add_argument("--offset", type=int, default=0)
+    history.add_argument("--limit", type=int, default=20)
+    source = commands.add_parser("source", help="Inspect source-event evidence or a current source by ID")
+    selection = source.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--commit")
+    selection.add_argument("--id")
+    source.add_argument("--version", choices=("before", "after"), default="after")
+    source.add_argument("--offset", type=int, default=0)
+    source.add_argument("--limit", type=int, default=16000)
+    notes = commands.add_parser("handoff-notes", help="List committed handoff dispositions; never sends anything")
+    notes.add_argument("--include-empty", action="store_true")
+    note = commands.add_parser("handoff-note", help="Read one committed note by context event ID")
+    note.add_argument("event_id")
+    action = commands.add_parser("action", help="Look up an accepted action; --audit includes all revisions")
+    action.add_argument("action_ref")
+    timeline = commands.add_parser("action-timeline", help="Read current or audit associations for a current/historical object")
+    timeline.add_argument("kind", choices=("node", "edge"))
+    timeline.add_argument("id")
+    for command in (action, timeline):
+        command.add_argument("--audit", action="store_true")
+    for command in (notes, note, action, timeline):
+        command.add_argument("--offset", type=int, default=0)
+        command.add_argument("--limit", type=int, default=16000 if command is note else 20)
+    for command in (search, show, history, source, notes, note, action, timeline):
+        command.add_argument("--revision", help="Published historical revision; default is current")
+    return result
+
+
+def execute(args):
+    if args.command == "init":
+        context = Context.initialize(args.repo, args.runtime, basic_entity_types=args.basic_entity_type)
+        return {"status": "initialized", "revision": context.git.head(), "repository": str(context.root), "runtime": str(context.runtime)}
+    context = Context(args.repo, args.runtime)
+    if args.command in ("submit", "submit-action", "retry"):
+        config = RunnerConfig(executable=args.codex, model=args.model, effort=args.effort,
+            **{field.name: getattr(args, field.name) for field in fields(RunnerConfig)
+               if field.name not in ("executable", "model", "effort", "service_tier")})
+        pipeline = Pipeline(context, config=config,
+            on_event=lambda event_id: print(json.dumps({"event_id": event_id}), file=sys.stderr, flush=True))
+        if args.command == "retry":
+            return pipeline.retry(args.event_id)
+        if (args.operation == "remove") == bool(args.input_file):
+            raise ContextError("Add/edit requires --input-file; removal must not supply it")
+        if args.input_file:
+            with Path(args.input_file).open("rb") as handle:
+                content = handle.read(config.source_bytes + 1)
+        else:
+            content = None
+        if args.command == "submit-action":
+            try:
+                action_text = content.decode("utf-8") if content is not None else None
+            except UnicodeDecodeError as error:
+                raise ContextError("Accepted action text must be UTF-8") from error
+            return pipeline.submit_action(args.operation, args.action_ref, text=action_text,
+                revision_ref=args.revision_ref, related_objects=args.related_objects,
+                business_entity_id=args.business_entity_id, submitted_by=args.submitted_by,
+                event_id=args.event_id, expected_previous_commit=args.expected_previous_commit)
+        metadata = {name: getattr(args, name) for name in ("kind", "title", "origin", "origin_ref", "created_at")
+                    if getattr(args, name) is not None}
+        if args.operation == "add" and not {"kind", "title", "origin"} <= set(metadata):
+            raise ContextError("Source additions require --kind, --title and --origin")
+        return pipeline.submit(args.operation, args.path, content=content, metadata=metadata or None,
+                               submitted_by=args.submitted_by, event_id=args.event_id)
+    if args.command in ("pending", "recover", "discard"):
+        pipeline = Pipeline(context)
+        return getattr(pipeline, args.command)(*([args.event_id] if args.command == "discard" else []))
+    if args.command == "search":
+        return {"items": [asdict(hit) for hit in context.search(args.query, revision=args.revision,
+                    kind=args.kind, attributes=args.attributes, limit=args.limit)]}
+    snapshot = context.snapshot(args.revision)
+    if args.command == "show-object":
+        return snapshot.read(args.kind, args.id)
+    if args.command == "handoff-notes":
+        return snapshot.handoff_notes(include_empty=args.include_empty, offset=args.offset, limit=args.limit)
+    if args.command == "handoff-note":
+        return snapshot.handoff_note(args.event_id, offset=args.offset, limit=args.limit)
+    if args.command == "action":
+        return snapshot.action(args.action_ref, audit=args.audit, offset=args.offset, limit=args.limit)
+    if args.command == "action-timeline":
+        return snapshot.action_timeline(args.kind, args.id, audit=args.audit, offset=args.offset, limit=args.limit)
+    maximum = 100 if args.command == "history" else 64000
+    if args.offset < 0 or not 1 <= args.limit <= maximum:
+        raise ContextError(f"offset must be nonnegative and limit between 1 and {maximum}")
+    if args.command == "history":
+        return {"revision": snapshot.revision, **page(snapshot.history(args.id, kind=args.kind), args.offset, args.limit)}
+    if args.commit:
+        evidence = snapshot.source_change(args.commit)
+        return {"revision": snapshot.revision, "commit": args.commit, "event": evidence["event"],
+                "version": args.version, **text_page(evidence[args.version], args.offset, args.limit)}
+    event = snapshot.sources.get(args.id)
+    if not event or event["operation"] == "remove":
+        raise ContextError("No current source with this ID; use its historical commit")
+    return {"revision": snapshot.revision, "source": event["source"], "input_mode": snapshot.input_mode(event),
+            **text_page(snapshot.files[event["source"]["path"]], args.offset, args.limit)}
+
+
+def main(argv=None):
+    try:
+        result = execute(parser().parse_args(argv))
+    except PropagationError as error:
+        print(json.dumps({"ok": False, "error": error.as_dict()}, ensure_ascii=False))
+        return 1
+    except (ContextError, OSError, ValueError) as error:
+        print(json.dumps({"ok": False, "error": {"type": type(error).__name__, "reason": str(error)}}, ensure_ascii=False))
+        return 1
+    print(json.dumps({"ok": True, "result": result}, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
