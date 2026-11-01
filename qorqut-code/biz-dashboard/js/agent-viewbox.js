@@ -50,6 +50,7 @@ const agvbStamp = item => { const time = new Date(item.placed_at); return Number
 const agvbSignature = items => JSON.stringify((items || []).map(item => [item.id, item.title, item.link, item.kind, item.placed_at, item.attention_id]));
 
 async function agviewboxNavigate(item) {
+  if (typeof globalAgentsNavigate === 'function' && await globalAgentsNavigate(item.agent_id, {view: 'viewbox', viewboxItem: item.viewbox_item_id})) return;
   const samePage = location.hash === '#/global/agents', url = new URL(location.href);
   url.searchParams.set('agent', item.agent_id);
   url.searchParams.set('workspace', 'viewbox');
@@ -57,6 +58,16 @@ async function agviewboxNavigate(item) {
   url.searchParams.delete('focus_item');
   history.replaceState(null, '', url);
   if (samePage) await renderTab(); else location.hash = '/global/agents';
+}
+
+function agviewboxReveal(p, id) {
+  const vb = p?.vb;
+  if (!vb || vb.dead) return;
+  vb.linkedItem = id;
+  // Reuse a pending board read, or refresh an existing board before opening the
+  // placement. Its native frame load still owns unread acknowledgement.
+  if (vb.mode === 'frame') agviewboxBack(p);
+  else void agviewboxRefresh(p);
 }
 
 function agviewboxMount(p) {
@@ -143,7 +154,7 @@ function agviewboxPaint(p) {
     const body = $('#agpad-body', p.el), scroll = body.scrollTop;
     list.innerHTML = vb.items.map(item => {
       const label = AGVB_KIND_LABEL[item.kind];
-      return `<li><button type="button" class="agvb-row" data-id="${esc(item.id)}" data-kind="${esc(item.kind)}" title="${esc(agvbStamp(item) + '\n' + item.link)}"
+      return `<li><button type="button" class="agvb-row" data-id="${esc(item.id)}" data-kind="${esc(item.kind)}"
         aria-label="${esc(`${item.title}, ${label}, ${agvbStamp(item)}, ${item.link}`)}"><span class="agvb-ic" aria-hidden="true">${AGVB_ICON[item.kind]}</span>
         <span class="agvb-title">${esc(item.title)}</span><time class="agvb-age" datetime="${esc(item.placed_at)}">${esc(agvbAge(item.placed_at))}</time></button></li>`;
     }).join('');
@@ -174,10 +185,10 @@ function agviewboxOpen(p, id) {
   $('.agvb-listview', root).hidden = true;
   view.hidden = false;
   body.classList.add('agvb-framed');
-  view.innerHTML = `<div class="agvb-bar"><button type="button" class="agvb-back" aria-label="Back to Viewbox list" title="Back">${AGVB_ICON.back}</button>
+  view.innerHTML = `<div class="agvb-bar"><button type="button" class="agvb-back" aria-label="Back to Viewbox list">${AGVB_ICON.back}</button>
     <strong class="agvb-name">${esc(item.title)}</strong>
-    <button type="button" class="agvb-fit" title="Fill pane" aria-label="Fill pane">${AGVB_ICON.fit}</button>
-    <a class="agvb-open" target="_blank" rel="noopener noreferrer" title="Open in new tab" aria-label="Open in new tab">${AGVB_ICON.open}<span>Open in new tab</span></a></div>
+    <button type="button" class="agvb-fit" aria-label="Fill pane">${AGVB_ICON.fit}</button>
+    <a class="agvb-open" target="_blank" rel="noopener noreferrer" aria-label="Open in new tab">${AGVB_ICON.open}<span>Open in new tab</span></a></div>
     <p class="agvb-fallback" role="status" hidden>This page did not load here. Some sites block embedding or need a full browser; use Open in new tab.</p>
     <div class="agvb-stage"><div class="agvb-box"><button type="button" class="agvb-handle" aria-label="Resize frame" aria-describedby="agvb-hint"></button></div></div>
     <p id="agvb-hint" class="agvb-sr">Use the arrow keys to resize the frame, Shift for larger steps. Fill pane resets to the full pane.</p>
@@ -260,9 +271,14 @@ function agviewboxOpen(p, id) {
   if (target && !(location.protocol === 'https:' && target.href.startsWith('http:'))) {
     const iframe = frame.iframe = document.createElement('iframe');
     iframe.className = 'agvb-frame';
-    iframe.title = `${item.title} (shared by this agent)`;
+    iframe.setAttribute('aria-label', `${item.title} (shared by this agent)`);
     iframe.referrerPolicy = 'no-referrer';
-    if (!target.trusted) iframe.setAttribute('sandbox', 'allow-scripts allow-forms');
+    if (!target.trusted) {
+      // A separately hosted app needs its own origin for fetch, cookies and
+      // storage. The browser still separates it from Qorqut's origin.
+      const separateOrigin = new URL(target.href).origin !== location.origin;
+      iframe.setAttribute('sandbox', 'allow-scripts allow-forms' + (separateOrigin ? ' allow-same-origin' : ''));
+    }
     iframe.addEventListener('error', showFallback);
     iframe.addEventListener('load', () => { frame.loaded = true; markViewed(); });
     iframe.src = target.href;

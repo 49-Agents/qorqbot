@@ -49,22 +49,72 @@ function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
 function agentPaneViews(scope, roleId, base = [], browser = false, agentId = null) {
   const leading = [], trailing = [];
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_PANE_FIRST.has(type.renderer) ? leading : trailing).push(type.key);
+  const personal = typeof agentWorkspaceViews === 'function' ? agentWorkspaceViews(scope, roleId) : [];
+  if (personal.includes('business')) leading.splice(Math.max(0, leading.indexOf('focus') + 1), 0, 'business');
+  else leading.unshift(...personal);
   // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
   return [...new Set([...leading, ...base, ...(agentId ? ["viewbox"] : []), ...trailing, "status"])];
 }
+// The workspace preview groups the existing Activity and Inbox renderers behind
+// one header entry. Their internal view keys keep polling and deep links intact.
+const agpadOverviewView = view => ["status", "inbox", "activity"].includes(view);
+function agpadCombinedOverview(p) { return !!document.body?.classList?.contains("agent-workspace-app"); }
 // The header shows one Browser entry for Ordubashy's Browser and Desktop modes.
-function agpadHeadViews(p) { return p.workspaceRole === "ordubashy" ? p.views.filter(view => view !== "desktop") : p.views; }
-function agpadHeadActive(p, view) { return view === "desktop" && p.workspaceRole === "ordubashy" ? "browser" : view; }
+function agpadHeadViews(p) {
+  const views = p.workspaceRole === "ordubashy" ? p.views.filter(view => view !== "desktop") : p.views;
+  if (!agpadCombinedOverview(p)) return views;
+  const header = [...new Set(views.map(view => agpadOverviewView(view) ? "status" : view))];
+  if (header.includes("focus") && header.includes("viewbox")) {
+    header.splice(header.indexOf("viewbox"), 1);
+    header.splice(header.indexOf("focus") + 1, 0, "viewbox");
+  }
+  return header;
+}
+function agpadHeadActive(p, view) {
+  if (agpadCombinedOverview(p) && agpadOverviewView(view)) return "status";
+  return view === "desktop" && p.workspaceRole === "ordubashy" ? "browser" : view;
+}
 function agpadModeKey(p) { return p.agentId ? `agpad:mode:${p.agentId}` : null; }
 // Selecting the Browser entry reopens the mode the owner last used for this agent.
 function agpadTabView(p, view) {
+  if (agpadCombinedOverview(p) && view === "status") return p.overviewView || "status";
   if (view !== "browser" || p.workspaceRole !== "ordubashy" || !p.views.includes("desktop")) return view;
   const key = agpadModeKey(p);
   return (p.browserMode || (key && ls(key))) === "desktop" ? "desktop" : "browser";
 }
 function agpadBrowserTab(p) { return typeof agbrowserTab === "function" && agbrowserTab(p); }
+
+function agpadOverviewPaint(p) {
+  p.el.querySelectorAll("[data-agent-overview]").forEach(button => {
+    button.setAttribute("aria-pressed", String(button.dataset.agentOverview === "inbox" ? p.view === "inbox" : p.view !== "inbox"));
+  });
+}
+
+function agpadOverviewMount(p) {
+  if (!agpadCombinedOverview(p)) return;
+  const tab = p.el.querySelector('.ttab[data-v="status"]');
+  if (tab) {
+    tab.setAttribute("aria-label", "Activity and inbox");
+    tab.innerHTML = T_VIEW_ICON.activity;
+  }
+  if (!agpadOverviewView(p.view)) return;
+  const toggle = document.createElement("div");
+  toggle.className = "agpad-overview-switch";
+  toggle.setAttribute("role", "group");
+  toggle.setAttribute("aria-label", "Agent activity and inbox");
+  toggle.innerHTML = ["activity", "inbox"].map(view => `<button type="button" class="quiet" data-agent-overview="${view}" aria-controls="agpad-body" aria-pressed="${view === "inbox" ? p.view === "inbox" : p.view !== "inbox"}">${view === "inbox" ? "Inbox" : "Activity"}</button>`).join("");
+  $("#agpad-body", p.el).before(toggle);
+  toggle.querySelectorAll("[data-agent-overview]").forEach(button => {
+    button.onclick = () => {
+      const next = button.dataset.agentOverview === "inbox" ? "inbox" : p.overviewActivityView || "status";
+      if (p.view === next) return;
+      agpadSetView(p, next);
+      p.el.querySelector(`[data-agent-overview="${button.dataset.agentOverview}"]`)?.focus({preventScroll: true});
+    };
+  });
+}
 
 function workspaceTypesLoad() {
   if (workspaceDeclarationAsked) return workspaceDeclarationPending;
@@ -90,6 +140,7 @@ function agpadWorkspaceViewsSync(p) {
 }
 
 function agpadWorkspaceMount(p, view) {
+  if (typeof agentWorkspaceMount === 'function' && agentWorkspaceMount(p, view)) return;
   if (view === "desktop" && p.workspaceRole === "ordubashy") { agfocusDesktopMount(p); return; }
   if (view === "browser" && typeof agbrowserMount === "function") { agbrowserMount(p); return; }
   if (view === "viewbox" && typeof agviewboxMount === "function") { agviewboxMount(p); return; }
@@ -267,8 +318,10 @@ function agpadGroups(tasks, name) {
   };
 }
 
-function agpadActive(p) {
-  return p && _agpad === p && p.agent && p.open && !document.hidden &&
+// Completed reads may retain data while hidden; starting a poll still requires
+// the default visible check and the exact same mounted agent pane.
+function agpadActive(p, allowHidden = false) {
+  return p && _agpad === p && p.agent && p.open && (allowHidden || !document.hidden) &&
     (p.isCurrent ? p.isCurrent() : state.tab === "agents" && state.biz === p.biz && state.agent === p.agent) &&
     p.el.isConnected && $("#agpad") === p.el;
 }
@@ -290,7 +343,7 @@ function agpadMount(name, el, options = {}) {
   };
   p.open = !!name; // The pane stays available without a hide/show control.
   // Links to the retired Marketing "desktop" tab land in the agent's Browser view.
-  let initialView = options.initialView || agpadRememberedView(p);
+  let initialView = options.initialView || (typeof agentWorkspaceDefault === 'function' && agentWorkspaceDefault(p)) || agpadRememberedView(p);
   if (initialView === "desktop" && p.workspaceRole !== "ordubashy" && workspaceScope === "global") initialView = "browser";
   if (initialView === "browser") p.browserRequested = true;
   p.views = agentPaneViews(workspaceScope, p.workspaceRole, workspaceBase, agpadBrowserTab(p), p.agentId);
@@ -321,16 +374,28 @@ function agpadRememberView(p, view) {
   if (key) ls(key, AGPAD_REMEMBERED_VIEWS.has(view) ? view : "");
 }
 
-function agpadSetView(p, view) {
+function agpadSetView(p, view, leaveChecked = false) {
   if (_agpad !== p || !p.views.includes(view)) return;
+  if (!leaveChecked && p.workspaceFrame && typeof agentWorkspaceCanLeave === 'function') {
+    const frame = p.workspaceFrame;
+    return agentWorkspaceCanLeave(p).then(ok => {
+      if (ok && _agpad === p && p.workspaceFrame === frame) agpadSetView(p, view, true);
+    });
+  }
   p.focusDetail?.dispose?.();
   p.focusDetail = null;
   p.workspaceDispose?.();
   p.workspaceDispose = null;
   const from = p.view;
+  const overviewSwitch = view !== from && agpadCombinedOverview(p) && agpadOverviewView(from) && agpadOverviewView(view)
+    && p.el.querySelector(".agpad-overview-switch");
   if (from === "desktop") p.desktopRequest = (p.desktopRequest || 0) + 1;
   if (from === "browser") p.browserRequest = (p.browserRequest || 0) + 1;
   p.view = view;
+  if (agpadCombinedOverview(p) && agpadOverviewView(view)) {
+    p.overviewView = view;
+    if (view !== "inbox") p.overviewActivityView = view;
+  }
   if (view === "browser" || view === "desktop") {
     p.browserMode = view;
     const modeKey = agpadModeKey(p);
@@ -338,13 +403,25 @@ function agpadSetView(p, view) {
   }
   agpadRememberView(p, view);
   p.bodyHtml = null;
-  p.el.innerHTML = tHead({ view: agpadHeadActive(p, view), views: agpadHeadViews(p), bodyId: "agpad-body", taskTools: false });
+  if (overviewSwitch) {
+    // The subview owns only the body. Preserve the main tab strip's nodes,
+    // horizontal scroll and focus instead of remounting it on every toggle.
+    const body = $("#agpad-body", p.el);
+    body.replaceChildren(); body.scrollTop = 0;
+    agpadOverviewPaint(p);
+  } else {
+    p.el.innerHTML = tHead({ view: agpadHeadActive(p, view), views: agpadHeadViews(p), bodyId: "agpad-body", taskTools: false });
+    agpadOverviewMount(p);
+    tWireHead(p.el, agpadHeadActive(p, from), next => {
+      const view = agpadTabView(p, next);
+      if (view !== p.view) agpadSetView(p, view);
+    });
+    agpadPingMount(p);
+  }
   if (view === 'status') agentCurrentWorkMount(p);
-  tWireHead(p.el, agpadHeadActive(p, from), next => agpadSetView(p, agpadTabView(p, next)));
   if(typeof agentPaneIndicators==='function')agentPaneIndicators(p);
-  agpadPingMount(p);
-  if (view === "activity") p.nextLog = 0;
-  if (view === "inbox") p.nextInbox = 0;
+  if (view === "activity" && !p.logs) p.nextLog = 0;
+  if (view === "inbox" && !p.inbox) p.nextInbox = 0;
   // Workspace views (Focus, Campaign Review, any discovered type) are mounted by
   // their own renderer; an undeclared view gets the honest placeholder.
   if (agpadWorkspaceView(view)) agpadWorkspaceMount(p, view);
@@ -501,12 +578,12 @@ async function agpadRefreshLog(p) {
   p.pending = true;
   try {
     const rows = await api(`/biz/${encodeURIComponent(p.biz)}/log?n=${AGPAD_LOG_N}`);
-    if (!agpadActive(p) || p.view !== "activity") return;
+    if (!agpadActive(p, true)) return;
     if (!Array.isArray(rows)) throw new Error("Log unavailable");
     p.logs = rows.filter(e => e.actor === `agent:${p.agent}`);
     p.logError = false;
   } catch (e) {
-    if (agpadActive(p) && p.view === "activity") p.logError = true;
+    if (agpadActive(p, true)) p.logError = true;
   } finally {
     p.pending = false;
     p.nextLog = Date.now() + AGPAD_POLL_MS;
@@ -616,7 +693,9 @@ async function agpadRefreshInbox(p, more = false) {
     const pages = more ? 1 : Math.max(1, Math.ceil((p.inbox?.items.length || 0) / 20));
     for (let page = 0; page < pages; page++) {
       data = coreData(await api(`/me/agents/${encodeURIComponent(agentId)}/inbox${cursor ? '?after=' + cursor : ''}`));
-      if (!agpadActive(p) || p.view !== 'inbox') return;
+      // Finish reads for this same pane even after its subview or browser tab
+      // becomes hidden. Painting still belongs only to the visible Inbox.
+      if (!agpadActive(p, true)) return;
       if (!Array.isArray(data.items) || !Array.isArray(data.subscriptions)) throw new Error('Invalid inbox response');
       items.push(...data.items); cursor = data.next_cursor;
       if (!cursor) break;
@@ -624,7 +703,7 @@ async function agpadRefreshInbox(p, more = false) {
     p.inbox = { ...data, items: [...new Map(items.map(item => [item.id, item])).values()] };
     p.inboxError = false;
   } catch (_) {
-    if (agpadActive(p) && p.view === 'inbox') p.inboxError = true;
+    if (agpadActive(p, true)) p.inboxError = true;
   } finally {
     p.inboxPending = false; p.nextInbox = Date.now() + AGPAD_POLL_MS;
     if (agpadActive(p) && p.view === 'inbox') agpadPaintInbox(p);

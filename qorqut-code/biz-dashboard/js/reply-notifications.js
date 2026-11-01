@@ -25,6 +25,7 @@ const replyNotifications=(()=>{
   }
   async function open(item){
     if(item.kind==='global'){
+      if(typeof globalAgentsNavigate==='function' && await globalAgentsNavigate(item.agent_id,{chat:true}))return;
       ls('ag:scope:global',item.agent_id);
       if(location.hash==='#/global/agents')await renderTab();else location.hash='/global/agents';
       return;

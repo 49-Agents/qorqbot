@@ -54,7 +54,7 @@ function bumpUsage(u) { addUsage(state.usage || (state.usage = blankUsage()), u)
 const agKey = () => `ag:${state.biz}`;
 const agentNavKey = scope => `agent-nav:${scope || state.biz || 'global'}`;
 function agentNavButton() {
-  return '<button type="button" class="quiet agent-nav-toggle" data-agent-nav-toggle aria-expanded="true" aria-label="Hide agent navigation" title="Hide agent navigation">' +
+  return '<button type="button" class="quiet agent-nav-toggle" data-agent-nav-toggle aria-expanded="true" aria-label="Hide agent navigation">' +
     '<svg class="agent-nav-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 9l-3 3 3 3"/></svg>' +
     '<svg class="agent-nav-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M12 9l3 3-3 3"/></svg></button>';
 }
@@ -65,7 +65,7 @@ function wireAgentNavToggle(c, scope) {
     root.classList.toggle('nav-off', hidden);
     button.setAttribute('aria-expanded', String(!hidden));
     button.setAttribute('aria-label', hidden ? 'Show agent navigation' : 'Hide agent navigation');
-    button.title = hidden ? 'Show agent navigation' : 'Hide agent navigation';
+    if (typeof agentWorkspaceMenuPlace === 'function') agentWorkspaceMenuPlace(c);
   };
   set(ls(agentNavKey(scope)) === '1');
   button.onclick = () => { const hidden = !root.classList.contains('nav-off'); set(hidden); root._agentPaneDividerRefresh?.(); ls(agentNavKey(scope), hidden ? '1' : '0'); };
@@ -89,10 +89,10 @@ function agpadOptions(agent, extra = {}) {
     agentId: agent?.agent_id || null, ...extra };
 }
 async function renderAgents(c) {
+  if (typeof agentWorkspaceMenuPlace === 'function') agentWorkspaceMenuPlace();
   const gen = ++agRenderGen, biz = state.biz;
   const linkedWorkspace = agTakeLinkedWorkspace('#' + biz);
-  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><div class="agent-nav-heading"><h2>Agents</h2><span class="agent-nav-actions">${broadcastButton()}${agentNavButton()}</span></div></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><div class="agent-pane-divider" data-agent-pane-divider role="separator" aria-label="Terminal and agent pane divider" aria-orientation="vertical" tabindex="0"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
-  wireBroadcastButton(c, {scope:'business',biz});
+  c.innerHTML = `<div class="split agsplit"><div class="listcol" id="agentlist"><div class="ctop"><div class="agent-nav-heading"><h2>Agents</h2><span class="agent-nav-actions">${agentNavButton()}</span></div></div><div class="crows" id="agentrows"></div></div><div class="chat termmode" id="chat"></div><div class="agent-pane-divider" data-agent-pane-divider role="separator" aria-label="Terminal and agent pane divider" aria-orientation="vertical" tabindex="0"></div><aside class="tasks agpad" id="agpad" aria-label="Agent overview"></aside></div>`;
   wireAgentNavToggle(c, biz);
   $("#agentrows", c).innerHTML = `<p class="empty pad" role="status">Loading agents…</p>`;
   const cached = agPageCache.get(biz);
@@ -102,7 +102,7 @@ async function renderAgents(c) {
     const selected = state.agents.find(a => a.name === (state.agent || ls(agKey()))) || state.agents[0];
     if (selected) {
       agSetSel(selected.name); paintList();
-      mountTerminal(selected.name, $("#chat"), stat => markTermState(selected.name, stat));
+      agMountView(selected);
       agpadMount(selected.name, $("#agpad"), agpadOptions(selected, {initialView: linkedWorkspace}));
     }
   }
@@ -122,8 +122,18 @@ async function renderAgents(c) {
   if (!a) { agSetSel(null); $("#chat").innerHTML = `<div class="empty" style="padding:24px">This business has no active agent.</div>`; agpadMount(null, $("#agpad")); return; }
   agSetSel(a.name);
   paintList();
-  mountTerminal(a.name, $("#chat"), stat => markTermState(a.name, stat));
+  agMountView(a);
   agpadMount(a.name, $("#agpad"), agpadOptions(a, {initialView: linkedWorkspace}));
+}
+
+// The business Agents page uses the same Chat/Terminal view as Global, keyed by the agent's registered id.
+// A profile without one gets only its terminal: no id is inferred.
+function agMountView(agent) {
+  const chat = $('#chat');
+  if (!chat) return;
+  const biz = state.biz, terminal = {key: agent.name, base: `/biz/${encodeURIComponent(biz)}/terminal/${encodeURIComponent(agent.name)}`};
+  if (!agent.agent_id) { agentViewDispose(); mountTerminal(agent.name, chat, stat => markTermState(agent.name, stat)); return; }
+  mountAgentView(chat, agent, {terminal, isCurrent: () => state.tab === 'agents' && state.biz === biz && state.agent === agent.name, onTerminalStatus: stat => markTermState(agent.name, stat)});
 }
 
 function selectAgent(name) {
@@ -134,7 +144,7 @@ function selectAgent(name) {
   agRenderGen++;
   agSetSel(name);
   document.querySelectorAll('#agentrows .agent').forEach(row => row.classList.toggle('on', row.dataset.a === name));
-  mountTerminal(name, chat, status => markTermState(name, status));
+  agMountView(agent);
   agpadMount(name, pane, agpadOptions(agent));
 }
 

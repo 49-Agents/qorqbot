@@ -195,10 +195,26 @@ async function agfocusSnooze(p,node,until,popup,retry=false) {
   agfocusPaint(p);
 }
 
+// The workspace keeps board controls beside its tabs, with secondary actions
+// tucked into one local menu. Native handlers still own the same buttons.
+function agfocusWorkspaceTools(p,board) {
+  const head=p.el.querySelector('.thead'),tools=board.querySelector('.agfocus-toolbar');
+  if(!document.body.classList.contains('agent-workspace-app') || !head || !tools)return ()=>{};
+  const options=document.createElement('details');options.className='agfocus-options';
+  options.innerHTML='<summary aria-label="Focus options"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 7h9m4 0h3M4 17h3m4 0h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></summary><div class="agfocus-options-menu"></div>';
+  const menu=options.querySelector('.agfocus-options-menu');
+  menu.append(tools.querySelector('[data-focus-refresh]'),tools.querySelector('.agfocus-controls'));
+  tools.append(options);tools.classList.add('agfocus-head-tools');head.append(tools);
+  const close=event=>{if(options.open && !options.contains(event.target))options.open=false;};
+  const escape=event=>{if(event.key==='Escape' && options.open){event.preventDefault();event.stopPropagation();options.open=false;options.querySelector('summary').focus({preventScroll:true});}};
+  document.addEventListener('pointerdown',close);options.addEventListener('keydown',escape);
+  return ()=>{document.removeEventListener('pointerdown',close);tools.remove();};
+}
+
 function agfocusMount(p) {
   const body = $('#agpad-body', p.el);
   body.innerHTML = `<div class="agfocus"><p class="agfocus-error" role="alert" hidden></p><button type="button" class="quiet" data-focus-retry-move hidden>Retry same move</button><p class="agfocus-sr" data-focus-announcement role="status" aria-live="polite"></p><span class="agfocus-sr" id="agfocus-move-instructions">Use Alt+ArrowUp or Alt+ArrowDown to move one visible row.</span>
-    <header><div class="agfocus-heading"><div class="global-eyebrow">Focus</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add to Focus" title="Add to Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button><button class="quiet agfocus-icon" data-focus-refresh aria-label="Refresh Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 18 17"/></svg></button><div class="agfocus-controls"><button class="quiet" data-focus-archived aria-pressed="false">Archived</button><button class="quiet" data-focus-deferred aria-pressed="false">Postponed</button></div></div></div><p class="agfocus-empty muted" role="status">Loading Focus…</p></header>
+    <header><div class="agfocus-heading"><div class="global-eyebrow">Focus</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add to Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button><button class="quiet agfocus-icon" data-focus-refresh aria-label="Refresh Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 18 17"/></svg></button><div class="agfocus-controls"><button class="quiet" data-focus-archived aria-pressed="false">Archived</button><button class="quiet" data-focus-deferred aria-pressed="false">Postponed</button></div></div></div><p class="agfocus-empty muted" role="status">Loading Focus…</p></header>
     <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected conversation" hidden><header class="agfocus-thread-heading"><span data-focus-thread-title></span><button type="button" class="quiet" data-focus-thread-close aria-label="Close thread"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Thread height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Focus pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
   p.focusDrafts ||= new Map();
   p.focusCards = new Map();
@@ -206,6 +222,7 @@ function agfocusMount(p) {
   p.focusSelected = null;
   const board = $('.agfocus', body);
   p.focusMount = board;
+  const disposeTools=agfocusWorkspaceTools(p,board);
   const disposeAttention=typeof attentionQueue!=='undefined'?attentionQueue.mount(board.querySelector('.attention-queue')):()=>{};
   const storedHeight=Number(ls(AGFOCUS_THREAD_HEIGHT_KEY));
   p.focusThreadHeight=Number.isFinite(storedHeight) && storedHeight>=AGFOCUS_THREAD_MIN_HEIGHT ? storedHeight : 320;
@@ -223,6 +240,7 @@ function agfocusMount(p) {
   const repliesChanged=()=>{for(const node of p.focusCards.values())agfocusUnread(p,node,node._item);};
   document.addEventListener('reply-notifications-changed',repliesChanged);
   p.workspaceDispose=()=>{
+    disposeTools();
     disposeAttention();
     document.removeEventListener('reply-notifications-changed',repliesChanged);
     agfocusOverlayClose(p);disposeResize();disposeOrdering();p.focusSnoozePopup?.close();p.focusSnoozePopup=null;
@@ -370,7 +388,7 @@ function agfocusStoryReferences(p,node,item) {
   const icons={file:'M14 3H5v18h14V8z M14 3v5h5 M8 13h8 M8 17h8',table:'M3 4h18v16H3z M3 10h18 M9 4v16',link:'M10 14l4-4 M8 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0 M16 8l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0'};
   const chips=branch.references.map(ref=>{
     const target=ref.resolved_source,kind=target.resource_type==='data_tables'?'table':target.resource_type==='documents' || target.path?'file':'link';
-    const chip=document.createElement('button');chip.type='button';chip.className='quiet agfocus-reference-chip';chip.title=ref.label;chip.disabled=ref.unavailable;
+    const chip=document.createElement('button');chip.type='button';chip.className='quiet agfocus-reference-chip';chip.setAttribute('aria-label',ref.label);chip.disabled=ref.unavailable;
     chip.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="${icons[kind]}"/></svg><span></span>`;
     chip.querySelector('span').textContent=ref.label;chip.dataset.kind=kind;
     chip.onclick=event=>{
@@ -484,13 +502,13 @@ function agfocusPaint(p) {
     if(taskItem){
       if(!marker.querySelector('.agfocus-task-state'))marker.innerHTML=`<button type="button" class="ball ${esc(taskState)} agfocus-task-state" aria-label="${esc(T_LABEL[taskState] || taskState)}"><span class="core"></span></button>`;
     } else if(item.source?.type==='story') {
-      agfocusHtml(marker,`<button type="button" class="quiet agfocus-story-toggle" aria-label="Expand Story items"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4h6v6H4zM14 14h6v6h-6zM7 10v7h7"/></svg></button>`);
+      agfocusHtml(marker,`<button type="button" class="quiet agfocus-story-toggle" aria-label="Expand Story items"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 7v14M12 7C9 4 5 4 2 4v15c3 0 7 0 10 2M12 7c3-3 7-3 10-3v15c-3 0-7 0-10 2"/></svg></button>`);
       const toggle=marker.querySelector('button'),expanded=!!p.focusStories?.get(item.id)?.expanded;
       toggle.setAttribute('aria-expanded',String(expanded));toggle.setAttribute('aria-label',expanded?'Collapse Story items':'Expand Story items');
       toggle.onclick=event=>{event.stopPropagation();agfocusToggleStory(p,item);};
     } else agfocusHtml(marker,`<span class="sdot ${T_STATES.includes(item.state)?esc(item.state):''}" aria-hidden="true"></span>`);
     agfocusText(node.querySelector('.ttl'),name);
-    node.querySelector('.ttl').title=name;
+    node.querySelector('.ttl').removeAttribute('title');
     agfocusContext(node,item);
     const flag=node.querySelector('.agfocus-flag');
     const snoozed=agfocusSnoozed(item);
@@ -720,7 +738,7 @@ function agfocusDesktopTab(p) {
   const pending = p.focus?.browser?.state === 'pending';
   tab.dataset.attention = pending ? 'true' : 'false';
   tab.setAttribute('aria-label', pending ? 'Browser, desktop input requested' : 'Browser');
-  tab.title = pending ? 'Ordubashy is waiting for desktop input' : 'Browser';
+  tab.removeAttribute('title');
 }
 
 async function agfocusDone(p, requestId, host, draft) {
@@ -869,7 +887,7 @@ async function agfocusDesktop(p, reconnect = false) {
   const requestId = browser?.request_id;
   let draft = requestId ? p.focusDrafts.get(requestId) : null;
   if (requestId && !draft) { draft = {note: ''}; p.focusDrafts.set(requestId, draft); }
-  body.innerHTML='<section class="agfocus-desktop-view"><div class="agfocus-desktop-help agbrowser-bar">' + agbrowserModeToggle(p, 'desktop') + '<span class="agbrowser-actions">' + agbrowserReconnectButton('data-desktop-retry') + '</span></div><div class="agfocus-desktop-help agfocus-desktop-notes"></div><iframe class="agfocus-reference-frame agfocus-desktop-frame" title="Desktop control" referrerpolicy="no-referrer" allow="clipboard-read; clipboard-write; fullscreen"></iframe>' +
+  body.innerHTML='<section class="agfocus-desktop-view"><div class="agfocus-desktop-help agbrowser-bar">' + agbrowserModeToggle(p, 'desktop') + '<span class="agbrowser-actions">' + agbrowserReconnectButton('data-desktop-retry') + '</span></div><div class="agfocus-desktop-help agfocus-desktop-notes"></div><iframe class="agfocus-reference-frame agfocus-desktop-frame" aria-label="Desktop control" referrerpolicy="no-referrer" allow="clipboard-read; clipboard-write; fullscreen"></iframe>' +
     (pending ? '<div class="agfocus-desktop-completion"><label>Note for Ordubashy <span class="muted">(optional)</span><textarea class="inp agfocus-note" rows="2" maxlength="4000"></textarea></label><button class="btn agfocus-done" type="button">I’m done</button><p class="agfocus-done-error" role="alert" hidden></p><p class="muted">Input completion only. This does not approve a signoff.</p></div>' : '') + '</section>';
   const host = $('.agfocus-desktop-view', body);
   const help = $('.agfocus-desktop-notes', host);
@@ -939,7 +957,7 @@ async function agfocusOpenItem(p,item) {
     if(item.url) {
       const url=agfocusURL(item.url);
       if(!url)throw new Error('This reference URL is unavailable.');
-      detail.host.innerHTML=`<iframe class="agfocus-reference-frame" title="${esc(item.label || 'Reference')}" src="${esc(url)}" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads" allow="clipboard-read; clipboard-write; fullscreen"></iframe><p class="muted agfocus-reference-help">If this site prevents embedding, <a href="${esc(url)}" target="_blank" rel="noopener noreferrer">open it in a new tab</a>.</p>`;
+      detail.host.innerHTML=`<iframe class="agfocus-reference-frame" aria-label="${esc(item.label || 'Reference')}" src="${esc(url)}" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads" allow="clipboard-read; clipboard-write; fullscreen"></iframe><p class="muted agfocus-reference-help">If this site prevents embedding, <a href="${esc(url)}" target="_blank" rel="noopener noreferrer">open it in a new tab</a>.</p>`;
       return;
     }
     if(item.type==='email' && item.business_slug) {

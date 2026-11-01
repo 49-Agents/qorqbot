@@ -1,6 +1,14 @@
 // Global profiles have their own roster and terminal identity, with no business selection.
 // Registered business agents can also be picked here; the Global screen stays put.
 let globalAgentsGeneration = 0;
+// Attention links use the mounted roster's normal selection path. The page shell,
+// menu, lookup and divider stay in place while the destination agent changes.
+async function globalAgentsNavigate(agentId, options = {}) {
+  const root = document.querySelector('.global-agents');
+  if (!root?.openAgent) return false;
+  await root.openAgent(agentId, options);
+  return true;
+}
 const GLOBAL_WORKSPACE_TERMINAL = '__qorqut_workspace_terminal__';
 // One owner shell keeps the original id, route and tmux session. Older saved or
 // linked Terminal 2/3 selections open it instead; their sessions and routes are untouched.
@@ -52,6 +60,7 @@ const GLOBAL_LOOKUP_ICON = '<svg class="global-biz-find" viewBox="0 0 24 24" fil
 const GLOBAL_BIZ_CHEVRON = '<svg class="global-biz-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const GLOBAL_TERMINAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>';
 async function renderGlobalAgents(c) {
+  if (typeof agentWorkspaceMenuPlace === 'function') agentWorkspaceMenuPlace();
   const generation = ++globalAgentsGeneration;
   const current = () => generation === globalAgentsGeneration && c.isConnected
     && state.scope === 'global' && state.globalTab === 'agents';
@@ -69,7 +78,7 @@ async function renderGlobalAgents(c) {
   }
   if (!current()) return;
   c.innerHTML = `<div class="split global-agents agsplit">
-    <div class="listcol"><div class="ctop"><div class="global-eyebrow">Global</div><div class="agent-nav-heading"><h1>Agents</h1><span class="agent-nav-actions">${broadcastButton()}${agentNavButton()}</span></div></div>
+    <div class="listcol"><div class="ctop"><div class="global-eyebrow">Global</div><div class="agent-nav-heading"><h1>Agents</h1><span class="agent-nav-actions">${agentNavButton()}</span></div></div>
       <div class="global-nav-body">
         <div class="crows global-primary" id="global-primary-roster">
           <div class="global-roster" id="global-agent-list"></div>
@@ -77,7 +86,7 @@ async function renderGlobalAgents(c) {
         </div>
         <section class="global-biz-nav" aria-label="Agent and terminal lookup">
           <div class="global-biz-tools">
-            <button type="button" class="quiet global-biz-toggle" id="global-biz-toggle" aria-expanded="false" aria-controls="global-biz-region" aria-label="${GLOBAL_LOOKUP_LABEL}" title="${GLOBAL_LOOKUP_LABEL}">${GLOBAL_LOOKUP_ICON}${GLOBAL_BIZ_CHEVRON}</button>
+            <button type="button" class="quiet global-biz-toggle" id="global-biz-toggle" aria-expanded="false" aria-controls="global-biz-region" aria-label="${GLOBAL_LOOKUP_LABEL}">${GLOBAL_LOOKUP_ICON}${GLOBAL_BIZ_CHEVRON}</button>
             <input type="search" class="global-biz-search" id="global-biz-search" aria-label="${GLOBAL_LOOKUP_LABEL}" placeholder="Find…" autocomplete="off" spellcheck="false">
           </div>
           <div class="global-biz-region" id="global-biz-region">
@@ -90,11 +99,16 @@ async function renderGlobalAgents(c) {
     <div class="agent-pane-divider" data-agent-pane-divider role="separator" aria-label="Terminal and agent pane divider" aria-orientation="vertical" tabindex="0"></div>
     <aside class="tasks agpad" id="agpad" aria-label="Agent pane"></aside>
   </div>`;
-  wireBroadcastButton(c, {scope:'global'});
   wireAgentNavToggle(c, 'global');
   const list = $('#global-agent-list', c), pane = $('#global-agent-terminal', c), nav = $('.listcol', c);
   const bizList = $('#global-biz-agent-list', c), search = $('#global-biz-search', c), bizStatus = $('#global-biz-status', c);
   const pinnedList = $('#global-pinned-agent-list', c), bizRegion = $('#global-biz-region', c), bizToggle = $('#global-biz-toggle', c);
+  if (document.body.classList.contains('agent-workspace-app')) {
+    // Keep the trigger at the top of the rail. Only its search and results
+    // float beside the rail, so opening lookup never moves the trigger or roster.
+    $('.global-nav-body', c).prepend($('.global-biz-nav', c));
+    bizRegion.prepend(search);
+  }
   // Icon-only rows: the agent name lives in the accessible label, with no visible text, tooltip or presence ball.
   list.innerHTML = agents.map(agent => `<button class="item agent" type="button" data-global-agent="${esc(agent.agent_id)}" aria-pressed="false" aria-label="${esc(agent.display_name || agent.name)}">
     <span class="nm">${identityAvatar("agent", agent.display_name || agent.name, {...agent, ...agent.presentation})}</span>
@@ -108,7 +122,7 @@ async function renderGlobalAgents(c) {
   // ---- registered business agents: read once per view (and per explicit retry), searched in memory
   const businesses = (state.bizs || []).filter(biz => biz && biz.slug);
   const rosters = new Map();                       // business slug -> {biz, agents} | {biz, error}
-  let rosterLoaded = !businesses.length, selected;
+  let rosterLoaded = !businesses.length, selected, selectionVersion = 0;
   const readBusiness = async biz => {
     const rows = await pageRead(`/biz/${encodeURIComponent(biz.slug)}/agents?summary=1`);
     if (!Array.isArray(rows)) throw new Error('Agents unavailable');
@@ -137,7 +151,7 @@ async function renderGlobalAgents(c) {
     });
   };
   // One row renderer for promoted pins and lookup results, so both stay identical.
-  const pinControl = (id, label, pinned) => `<button type="button" class="quiet global-biz-pin" data-pin-agent="${esc(id)}" aria-pressed="${pinned}" aria-label="${pinned ? 'Unpin' : 'Pin'} ${esc(label)}" title="${pinned ? 'Unpin' : 'Pin'}">${ICO_PIN}</button>`;
+  const pinControl = (id, label, pinned) => `<button type="button" class="quiet global-biz-pin" data-pin-agent="${esc(id)}" aria-pressed="${pinned}" aria-label="${pinned ? 'Unpin' : 'Pin'} ${esc(label)}">${ICO_PIN}</button>`;
   const businessRow = ({id, biz, agent}, pinned) => {
     const name = agent.display_name || agent.name, business = biz.name || biz.slug, department = dept(agent.department);
     return `<div class="global-biz-row"><button class="item agent global-biz-agent" type="button" data-business-agent="${esc(id)}" aria-pressed="false" aria-label="${esc(`${name}, ${business}, ${department.label}`)}">
@@ -181,7 +195,7 @@ async function renderGlobalAgents(c) {
     bizRegion.hidden = search.hidden = collapsed;
     const label = collapsed ? GLOBAL_LOOKUP_LABEL : 'Collapse agent lookup';
     bizToggle.setAttribute('aria-expanded', String(!collapsed));
-    bizToggle.setAttribute('aria-label', label); bizToggle.title = label;
+    bizToggle.setAttribute('aria-label', label);
     if (!collapsed) bizList.scrollTop = bizScroll;
     if (remember) ls(GLOBAL_BIZ_COLLAPSED_KEY, collapsed ? '1' : '0');
   };
@@ -193,7 +207,12 @@ async function renderGlobalAgents(c) {
     (collapse ? bizToggle : search).focus();
   };
   search.oninput = paintBusinessAgents;
-  search.onkeydown = event => { if (event.key === 'Escape' && search.value) { event.stopPropagation(); search.value = ''; paintBusinessAgents(); } };
+  search.onkeydown = event => {
+    if (event.key !== 'Escape') return;
+    event.stopPropagation();
+    if (search.value) { search.value = ''; paintBusinessAgents(); }
+    else { setBizCollapsed(true); bizToggle.focus(); }
+  };
   bizStatus.onclick = event => {
     if (!event.target.closest('[data-global-biz-retry]')) return;
     const retry = [...rosters.values()].filter(roster => roster.error).map(roster => roster.biz.slug);
@@ -238,31 +257,28 @@ async function renderGlobalAgents(c) {
 
   // ---- selection
   // Global Chat displays the same native conversation as Terminal. Switching views only changes the UI.
-  let chatMount = null;
-  const disposeChat = () => { chatMount?.dispose(); chatMount = null; };
-  const mountAgentSession = agent => {
-    disposeChat();
-    if (typeof teardownTerm === 'function') teardownTerm();
-    chatMount = mountGlobalChat(pane, agent, {openTerminal: () => mountAgentShell(agent)});
-    // The view is torn down by navigation, not by an event: release the stream once the pane has left the page.
-    const mine = chatMount, watch = setInterval(() => { if (!pane.isConnected || chatMount !== mine) { clearInterval(watch); if (chatMount === mine) disposeChat(); } }, 2000);
-  };
-  const mountAgentShell = agent => {
-    disposeChat();
-    pane.innerHTML = `<div class="gchat-diagnostic"><div class="gchat-top"><span class="gchat-name">${esc(agent.display_name || agent.name)}</span><span class="gchat-status">Terminal</span></div><div class="gchat-session-switch">${globalChatViewToggle(true)}</div><div class="gchat-diagnostic-host"></div></div>`;
-    pane.querySelector('[data-chat-return]').onclick = () => { if (current() && selected === agent.agent_id) mountAgentSession(agent); };
-    const shellStatus = pane.querySelector('.gchat-status');
-    mountTerminal(agent.agent_id, pane.querySelector('.gchat-diagnostic-host'), status => { shellStatus.textContent = status === 'live' ? 'Terminal connected' : status === 'ended' ? 'Terminal exited' : 'Terminal disconnected'; }, `/root/terminal/${encodeURIComponent(agent.agent_id)}`);
-  };
-  const select = (agent, requestedView = null, remember = true) => {
+  // One shared lifecycle (global-chat.js) serves Global agents and registered business agents.
+  const disposeChat = () => agentViewDispose();
+  const select = (agent, requestedView = null, remember = true, leaveChecked = false) => {
     if (!current()) return;
+    selectionVersion++;
     const workspace = typeof agent === 'string' ? globalWorkspaceTerminal(agent) : null;
-    selected = workspace ? workspace.id : agent.agent_id;
+    const id = workspace ? workspace.id : agent?.agent_id;
+    if (!id) return;
+    if (selected === id) {
+      if (requestedView && _agpad?.agentId === id) agpadRequestView(_agpad, requestedView);
+      return;
+    }
+    if (!leaveChecked && typeof agentWorkspaceCanLeave === 'function' && _agpad?.workspaceFrame) {
+      const previous = _agpad;
+      return agentWorkspaceCanLeave(previous).then(ok => { if (ok && _agpad === previous) select(agent, requestedView, remember, true); });
+    }
+    selected = id;
     if (remember) ls('ag:scope:global', selected);
     paintSelection();
     pane.dataset.agentPane = workspace ? 'off' : 'on';
     disposeChat();
-    if (!workspace) mountAgentSession(agent);
+    if (!workspace) mountAgentView(pane, agent, {terminal: {key: agent.agent_id, base: `/root/terminal/${encodeURIComponent(agent.agent_id)}`}, isCurrent: () => current() && selected === agent.agent_id});
     else mountTerminal(selected, pane, () => {}, workspace.base);
     agpadMount(workspace ? '' : (agent.display_name || agent.name), $('#agpad', c), workspace ? {
       biz: null, open: false, isCurrent: () => false,
@@ -274,14 +290,24 @@ async function renderGlobalAgents(c) {
     });
   };
   // A business agent keeps the Global screen: its own business terminal and a business-scoped pane.
-  const selectBusiness = ({id, biz, agent}, requestedView = null, remember = true) => {
+  const selectBusiness = ({id, biz, agent}, requestedView = null, remember = true, leaveChecked = false) => {
     if (!current()) return;
+    selectionVersion++;
+    if (selected === id) {
+      if (requestedView && _agpad?.agentId === id) agpadRequestView(_agpad, requestedView);
+      return;
+    }
+    if (!leaveChecked && typeof agentWorkspaceCanLeave === 'function' && _agpad?.workspaceFrame) {
+      const previous = _agpad;
+      return agentWorkspaceCanLeave(previous).then(ok => { if (ok && _agpad === previous) selectBusiness({id, biz, agent}, requestedView, remember, true); });
+    }
     selected = id;
     if (remember) ls('ag:scope:global', id);
     paintSelection();
     pane.dataset.agentPane = 'on';
     disposeChat();
-    mountTerminal(agent.name, pane, () => {}, `/biz/${encodeURIComponent(biz.slug)}/terminal/${encodeURIComponent(agent.name)}`);
+    // Registered business agents chat through the same universal endpoint, by their registered id; Terminal is the exact business route.
+    mountAgentView(pane, {...agent, agent_id: id}, {terminal: {key: agent.name, base: `/biz/${encodeURIComponent(biz.slug)}/terminal/${encodeURIComponent(agent.name)}`}, isCurrent: () => current() && selected === id});
     agpadMount(agent.name, $('#agpad', c), {
       biz: biz.slug, agentId: id, workspaceScope: 'business', workspaceRole: agent.role?.id || agent.role_id || null,
       initialView: requestedView, open: ls(`agpad:${biz.slug}`) !== 'off',
@@ -298,6 +324,26 @@ async function renderGlobalAgents(c) {
   if (linkedAgent) { const url = new URL(location.href); url.searchParams.delete('agent'); history.replaceState(null, '', url); }
   const remembered = linkedAgent || (linkedFocus ? agents.find(a => a.role?.id === 'ordubashy')?.agent_id : ls('ag:scope:global'));
   const roster = loadBusinesses(businesses.map(biz => biz.slug));
+  $('.global-agents', c).openAgent = async (id, {chat = false, view = null, viewboxItem = null} = {}) => {
+    const version = ++selectionVersion;
+    const agent = agents.find(candidate => candidate.agent_id === id);
+    if (!agent && !rosterLoaded) await roster;
+    if (!current() || version !== selectionVersion) return;
+    const business = !agent && businessItems().find(candidate => candidate.id === id);
+    if (!agent && !business) throw new Error('This agent is no longer available in the agent list.');
+    if (selected === id) {
+      if (view && _agpad?.agentId === id && _agpad.view !== view) await agpadSetView(_agpad, view);
+    } else if (agent) await select(agent, view);
+    else await selectBusiness(business, view);
+    // A cancelled unsaved-edit prompt or a newer selection must stay where it is.
+    if (!current() || selected !== id || (view && _agpad?.view !== view)) return;
+    if (viewboxItem) agviewboxReveal(_agpad, viewboxItem);
+    if (chat) {
+      pane.querySelector('[data-chat-return]:not(:disabled)')?.click();
+      pane.querySelector('.gchat-jump')?.click();
+      pane.querySelector('.gchat-composer textarea')?.focus({preventScroll: true});
+    }
+  };
   const global = globalWorkspaceTerminal(remembered) ? GLOBAL_WORKSPACE_TERMINAL : agents.find(a => a.agent_id === remembered);
   const fallback = () => agents.find(a => a.role?.id === 'ordubashy') || agents[0] || GLOBAL_WORKSPACE_TERMINAL;
   if (global || !remembered || !businesses.length) select(global || fallback(), linkedWorkspace);

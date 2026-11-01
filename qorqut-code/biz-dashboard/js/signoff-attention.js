@@ -85,8 +85,10 @@ window.sgAttentionRefresh = async () => {
 // Stage 2 PR6: push replaces the 15s poll; the focus handler stays (a
 // backgrounded tab can miss its own change-feed connection's relevance while
 // unfocused), and the 60s safety poll bounds staleness if an event is missed.
-onChange(['signoffs'], null, sgAttentionRefresh);
-setInterval(sgAttentionRefresh,60000);
-window.addEventListener('focus',sgAttentionRefresh);
-window.addEventListener('hashchange',sgAttentionPaint);
-sgAttentionRefresh();
+if (typeof embeddedAgentPane === 'undefined' || !embeddedAgentPane) {
+  onChange(['signoffs'], null, sgAttentionRefresh);
+  setInterval(sgAttentionRefresh,60000);
+  window.addEventListener('focus',sgAttentionRefresh);
+  window.addEventListener('hashchange',sgAttentionPaint);
+  sgAttentionRefresh();
+}

@@ -45,7 +45,7 @@ function acMountButton() {
 }
 // Owner identity may land after the first paint; keep one button across navigation.
 acMountButton();
-if (typeof loadSession === "function") loadSession().then(acMountButton).catch(() => {});
+if (typeof loadSession === "function" && (typeof embeddedAgentPane === 'undefined' || !embeddedAgentPane)) loadSession().then(acMountButton).catch(() => {});
 
 // ---------------------------------------------------------------- saved state and payloads
 function acRealTime(draft) {

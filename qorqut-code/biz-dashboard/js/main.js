@@ -4,6 +4,10 @@
 // `rtGlobal()`/`rtVisible()` check make a global (every-business) subscription
 // safe to over-fire; each still keeps a 60s safety poll (section 2.3: a
 // missed event delays a view by at most 60s, never breaks correctness).
+if (agentWorkspaceEmbedded()) {
+  window.agentWorkspaceReady = agentWorkspaceBootEmbedded();
+} else {
+agentWorkspaceMenuMount();
 onChange(['action_logs', 'signoffs', 'jobs_routines'], null, refreshSide);
 setInterval(refreshSide, 60000);
 onChange(['jobs_routines'], null, () => { if (rtGlobal() && rtVisible()) rtRefresh(); });
@@ -15,6 +19,7 @@ connectEvents();
 // The daily briefing asks the server after the shared owner session lands; a finishing report job is a change it cares about.
 onChange(['jobs_routines'], null, () => drbCheck('change'));
 drbStart();
+}
 
 // ---------------------------------------------------------- tab-chord shortcuts
 // Hold Tab as a modifier: Tab+letter jumps around the app; a double-tap of Tab (no letter

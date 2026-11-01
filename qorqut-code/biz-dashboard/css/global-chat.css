@@ -10,7 +10,7 @@
 .gchat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 38px 2px 14px; overscroll-behavior: contain; }
 .gchat-older { display: block; margin: 0 auto 12px; }
 .gchat-log { display: flex; flex-direction: column; gap: 10px; }
-.gchat-msg { display: flex; flex-direction: column; gap: 4px; max-width: min(760px, 88%); }
+.gchat-msg { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: min(760px, 88%); }
 .gchat-owner { align-self: flex-end; align-items: flex-end; }
 .gchat-agent { align-self: flex-start; }
 .gchat-notice { align-self: center; max-width: 80%; font-size: 12px; color: var(--fg-2); }
@@ -27,7 +27,26 @@
 .gchat-body.md blockquote { margin: 0 0 .6em; padding-left: 10px; border-left: 2px solid var(--line-2); color: var(--fg-2); }
 .gchat-body.md pre { margin: 0 0 .6em; padding: 8px 10px; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.04); }
 .gchat-body.md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; }
+.gchat-body.md .gc-table-wrap { max-width: 100%; margin: 0 0 .6em; overflow-x: auto; }
+.gchat-body.md table { border-collapse: collapse; font-size: inherit; }
+.gchat-body.md th, .gchat-body.md td { padding: 3px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: normal; }
+.gchat-body.md th { font-weight: 600; border-bottom-color: var(--line-2); white-space: nowrap; }
+.gchat-body.md .gc-center { text-align: center; }
+.gchat-body.md .gc-right { text-align: right; }
+.gchat-body.md tbody tr:last-child td { border-bottom: 0; }
 .gchat-body.md .gc-heading { font-weight: 600; }
+.gchat-references { display:flex; flex-wrap:wrap; gap:6px; max-width:100%; padding:0 12px 8px; box-sizing:border-box; }
+.gchat-reference { display:inline-flex; align-items:center; gap:6px; min-width:0; max-width:100%; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:var(--hover); color:var(--fg); font:inherit; font-size:11px; }
+.gchat-reference svg { width:14px; height:14px; flex:none; }
+.gchat-reference>span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gchat-reference small { flex:none; font-size:10px; color:var(--fg-2); }
+.gchat-preview-window { position:absolute; z-index:5; top:48px; right:12px; display:flex; flex-direction:column; width:min(520px,calc(100% - 24px)); height:min(380px,65%); max-width:calc(100% - 24px); max-height:calc(100% - 125px); min-width:min(240px,calc(100% - 24px)); min-height:min(180px,calc(100% - 125px)); resize:both; overflow:hidden; box-sizing:border-box; border:1px solid var(--line-2); border-radius:9px; background:var(--bg); color:var(--fg); box-shadow:0 10px 32px #0005; }
+.gchat-preview-window[hidden] { display:none; }
+.gchat-preview-window>header { display:flex; align-items:center; gap:6px; padding:5px 8px; flex:none; border-bottom:1px solid var(--line); }
+.gchat-preview-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.gchat-preview-window>header button, .gchat-preview-open { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; padding:0; border:0; color:var(--fg-2); font-size:18px; text-decoration:none; }
+.gchat-preview-content { flex:1; min-height:0; overflow:auto; }
+.gchat-preview-content>iframe, .gchat-preview-content>img { display:block; width:100%; height:100%; border:0; object-fit:contain; }
 .gchat-state { font-size: 11px; color: var(--fg-2); }
 .gchat-state[data-state="failed"], .gchat-state[data-state="uncertain"] { color: var(--danger); }
 .gchat-streaming .gchat-body { border-color: var(--line); }

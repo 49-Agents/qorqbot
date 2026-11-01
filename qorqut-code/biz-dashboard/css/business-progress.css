@@ -39,3 +39,12 @@
  .business-progress-workspace button.item {width:auto;flex:none;margin:0;padding:10px;}
  .business-progress-workspace > .pane {padding:16px;width:100%;}
 }
+
+body.agent-pane-embedded .business-progress-page:has(.milestone-list) > header { margin-bottom:10px; font-size:11px; }
+body.agent-pane-embedded .milestone-list { gap:7px; }
+body.agent-pane-embedded .milestone-card { gap:10px; padding:11px 12px; border-radius:9px; background:none; }
+body.agent-pane-embedded .milestone-marker { flex-basis:20px; height:20px; font-size:10px; }
+body.agent-pane-embedded .milestone-body { padding-top:1px; }
+body.agent-pane-embedded .milestone-body h2 { font-size:12.6px; }
+body.agent-pane-embedded .milestone-body > p { margin-top:4px; font-size:12px; line-height:1.45; }
+body.agent-pane-embedded .milestone-completion, body.agent-pane-embedded .milestone-history { margin-top:7px; font-size:10px; }

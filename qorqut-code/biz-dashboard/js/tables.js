@@ -15,8 +15,9 @@ const dataCall = async (biz, op, args = {}) => coreData(biz === null
   : await post(`/biz/${encodeURIComponent(biz)}/operations/${op}`, args));
 const dataGlobal = () => state.scope === 'global';
 const dataTarget = () => dataGlobal() ? null : state.biz;
-const dataView = () => dataGlobal() ? state.globalTab === 'tables' : state.tab === 'accounting' || state.tab === 'context' && state.ctx === '_tables';
-const dataContainer = () => document.querySelector(!dataGlobal() && state.tab === 'context' ? '#ctxembedded' : '#content');
+const dataMarketing = () => !dataGlobal() && typeof embeddedAgentPane !== 'undefined' && embeddedAgentPane && state.tab === 'marketing' && _mk.view === 'tables';
+const dataView = () => dataGlobal() ? state.globalTab === 'tables' : dataMarketing() || state.tab === 'accounting' || state.tab === 'context' && state.ctx === '_tables';
+const dataContainer = () => document.querySelector(dataMarketing() ? '#mkview' : !dataGlobal() && state.tab === 'context' ? '#ctxembedded' : '#content');
 const dataInScope = biz => biz === null ? dataGlobal() : state.scope === 'business' && state.biz === biz;
 const dataActive = (biz, node) => dataInScope(biz) && dataView() && node?.isConnected;
 const dataIconButton = (id, label, icon) => `<button class="data-icon" type="button" id="${id}" title="${esc(label)}" aria-label="${esc(label)}">${icon}</button>`;
@@ -391,6 +392,13 @@ async function dataOpenUpload(id) {
 function dataOpenUploads() { openTasks(true);tSetView('uploads'); }
 
 async function tablesOpen(biz, id, mode = 'tables', filters = {}) {
+  if (dataMarketing() && biz === state.biz) {
+    _data.mode = mode; _data.selected = id;
+    if (Object.hasOwn(filters, 'department')) _data.department = filters.department;
+    if (Object.hasOwn(filters, 'purpose')) _data.purpose = filters.purpose;
+    await renderTables(dataContainer());
+    return;
+  }
   if (biz == null) {
     // A source with no business is a Global table: open Global > Tables, never a business.
     if (!dataGlobal()) await selectGlobal('tables');

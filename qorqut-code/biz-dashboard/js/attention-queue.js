@@ -1,12 +1,13 @@
 // Shared owner queue. Message read cursors and Signoff decisions remain independent.
 const attentionQueue=(()=>{
-  let items=[],loading=false,error='',timer,generation=0;
+  let items=[],loading=false,error='',timer,generation=0,saving=0,refreshAfterSave=false,writes=Promise.resolve();
   const mounts=new Set(),lists=new Set(),acknowledged=new Set();
   const icon=item=>item.kind==='signoff'
     ? '<span class="attention-signoff" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6"/></svg></span>'
+    : item.kind==='viewbox' ? '<span class="attention-viewbox" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H6v18h12V7zM14 3v5h4M9 12h6M9 16h6"/></svg></span>'
     : typeof identityAvatar==='function' ? identityAvatar('agent',item.agent_name,{agent_id:item.agent_id,...item.presentation}) : '<span aria-hidden="true">✉</span>';
   const label=item=>item.kind==='signoff'?'Review · '+item.title:item.agent_name+' · '+item.text;
-  const button=item=>`<button type="button" class="attention-chip" data-attention-key="${esc(item.id)}" title="${esc(label(item))}" aria-label="${esc(label(item))}">${icon(item)}<span class="attention-label">${esc(item.kind==='signoff'?item.title:item.text)}</span></button>`;
+  const button=item=>`<button type="button" class="attention-chip" data-attention-key="${esc(item.id)}" title="${esc(label(item))}\nRight-click to dismiss" aria-label="${esc(label(item))}">${icon(item)}<span class="attention-label">${esc(item.kind==='signoff'?item.title:item.text)}</span></button>`;
   function paint(host){
     if(!host.isConnected){mounts.delete(host);return;}
     const visible=items.slice(0,3);
@@ -14,29 +15,40 @@ const attentionQueue=(()=>{
   }
   const paintAll=()=>{mounts.forEach(paint);lists.forEach(host=>{if(!host.isConnected){lists.delete(host);return;}host.innerHTML=items.length?items.map(button).join(''):'<p class="muted">Nothing new</p>';});};
   async function refresh(){
+    if(saving){refreshAfterSave=true;return;}
     if(loading)return;
     loading=true;const request=++generation;
     try{const data=coreData(await api('/root/attention-queue'));if(request===generation){items=data.items || [];error='';}}
-    catch(e){error=e.message;}
+    catch(e){if(request===generation)error=e.message;}
     finally{loading=false;paintAll();clearTimeout(timer);if(mounts.size)timer=setTimeout(refresh,10000);}
   }
-  async function acknowledge(ids){
-    const request=++generation;
-    try{
-      const data=coreData(await post('/root/attention-queue',{viewed:ids}));
-      if(request===generation){items=data.items || [];paintAll();}
-    }catch(e){ids.forEach(id=>acknowledged.delete(id));toast('Could not clear attention: '+e.message);}
+  function acknowledge(ids){
+    const keys=[...new Set(ids || [])].filter(id=>!acknowledged.has(id));
+    if(!keys.length)return Promise.resolve();
+    keys.forEach(id=>acknowledged.add(id));saving++;generation++;
+    // Serialize additive preference writes. An older poll cannot restore a dismissed
+    // item, and one completed dismissal cannot be discarded by another in flight.
+    const saved=writes.then(async()=>{
+      try{
+        const data=coreData(await post('/root/attention-queue',{viewed:keys}));
+        items=data.items || [];error='';paintAll();
+      }catch(e){keys.forEach(id=>acknowledged.delete(id));toast('Could not clear attention: '+e.message);}
+      finally{
+        saving--;
+        if(!saving && refreshAfterSave){refreshAfterSave=false;void refresh();}
+      }
+    });
+    writes=saved.catch(()=>{});return saved;
   }
   function signoffViewed(s){
     if(document.hidden)return;
     const key=`signoff:${s.id}:${s.proposal_revision}:${s.payload_hash}`;
-    if(acknowledged.has(key))return;
-    acknowledged.add(key);void acknowledge([key]);
+    void acknowledge([key]);
   }
   function viewboxViewed(item){
     const key=item.attention_id;
-    if(document.hidden || !key || acknowledged.has(key))return;
-    acknowledged.add(key);void acknowledge([key]);
+    if(document.hidden || !key)return;
+    void acknowledge([key]);
   }
   async function open(item){
     if(item.kind==='viewbox'){await agviewboxNavigate(item);return;}
@@ -46,7 +58,14 @@ const attentionQueue=(()=>{
       if(item.kind==='global' && !item.chat){
         modal({title:esc(item.agent_name),body:`<p class="attention-message">${esc(item.body || item.text)}</p>`,
           actions:[{label:'Open chat',onClick:close=>{close();void replyNotifications.open(item);}}],onOpen:()=>acknowledge(item.viewed_ids)});
-      }else await replyNotifications.open(item);
+      }else{
+        const chat=item.chat && document.querySelector(`[data-global-chat="${CSS.escape(item.agent_id)}"]`);
+        if(chat?.getClientRects().length && !chat.closest('[hidden],[inert],[aria-hidden="true"]') && getComputedStyle(chat).visibility!=='hidden'){
+          chat.querySelector('.gchat-jump')?.click();
+          chat.querySelector('.gchat-composer textarea')?.focus({preventScroll:true});return;
+        }
+        await replyNotifications.open(item);
+      }
       return;
     }
     let view,host;
@@ -58,12 +77,21 @@ const attentionQueue=(()=>{
       view.paint();
     },onClose:()=>{view?.dispose();void refresh();}});
   }
+  function dismiss(event){
+    const target=event.target.closest('[data-attention-key]');
+    const item=target && items.find(row=>row.id===target.dataset.attentionKey);
+    if(!item)return;
+    event.preventDefault();event.stopPropagation();
+    void acknowledge(item.viewed_ids?.length?item.viewed_ids:[item.id]);
+  }
   function clicks(event){
     const target=event.target.closest('button');if(!target)return;
     if(target.hasAttribute('data-attention-retry')){void refresh();return;}
     if(target.hasAttribute('data-attention-more')){
+      let host;
       modal({title:'New attention',width:540,body:`<div class="attention-all">${items.map(button).join('')}</div>`,
-        onOpen:el=>{const host=el.querySelector('.attention-all');lists.add(host);host.addEventListener('click',clicks);}});return;
+        onOpen:el=>{host=el.querySelector('.attention-all');lists.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);},
+        onClose:()=>{lists.delete(host);host?.removeEventListener('click',clicks);host?.removeEventListener('contextmenu',dismiss);}});return;
     }
     const item=items.find(row=>row.id===target.dataset.attentionKey);
     if(item){
@@ -74,6 +102,6 @@ const attentionQueue=(()=>{
   document.addEventListener('reply-notifications-changed',()=>{if(mounts.size)void refresh();});
   window.addEventListener('focus',()=>{if(mounts.size)void refresh();});
   if(typeof onChange==='function')onChange(['signoffs'],null,()=>{if(mounts.size)void refresh();});
-  return {signoffViewed,viewboxViewed,refresh,mount(host){mounts.add(host);host.addEventListener('click',clicks);paint(host);void refresh();
-    return ()=>{mounts.delete(host);host.removeEventListener('click',clicks);if(!mounts.size)clearTimeout(timer);};}};
+  return {signoffViewed,viewboxViewed,refresh,mount(host){mounts.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);paint(host);void refresh();
+    return ()=>{mounts.delete(host);host.removeEventListener('click',clicks);host.removeEventListener('contextmenu',dismiss);if(!mounts.size)clearTimeout(timer);};}};
 })();

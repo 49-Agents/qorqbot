@@ -159,3 +159,4 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-agents .global-biz-search { padding: 0 6px; }
 .global-agents .global-biz-pin { right: 8px; background: var(--wash); }
 .global-agents .global-biz-status { margin: 2px 6px; }
+.global-agents .global-biz-status { flex-direction: column; align-items: stretch; gap: 4px; text-align: center; }

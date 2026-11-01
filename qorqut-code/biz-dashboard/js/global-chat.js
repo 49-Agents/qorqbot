@@ -27,7 +27,7 @@ function globalChatOrder(a, b) {
 }
 const globalChatBase = id => `/root/agents/${encodeURIComponent(id)}/chat`;
 
-// ---- Markdown (headings, lists, quotes, fenced and inline code, bold, italic, and the shared safe links)
+// ---- Markdown (headings, lists, quotes, tables, code, emphasis, and the shared safe links)
 const globalChatInline = text => {
   let html = '';
   text.split(/(`[^`\n]+`)/g).forEach(part => {
@@ -39,6 +39,34 @@ const globalChatInline = text => {
   });
   return html;
 };
+// Pipe tables use the same single-backtick code spans as the inline renderer. Outer pipes are optional.
+function globalChatTableCells(line) {
+  const cells = [];
+  let cell = '', code = false, lastPipe = false;
+  const text = line.trim();
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    lastPipe = false;
+    if (char === '\\' && text[i + 1] === '|') { cell += '|'; i++; continue; }
+    if (char === '\\' && text[i + 1] === '\\') { cell += '\\\\'; i++; continue; }
+    if (char === '`') code = !code && text.indexOf('`', i + 1) > 0;
+    if (char === '|' && !code) { cells.push(cell); cell = ''; lastPipe = true; continue; }
+    cell += char;
+  }
+  cells.push(cell);
+  if (text.startsWith('|')) cells.shift();
+  if (lastPipe && cells.length) cells.pop();
+  return cells.map(item => item.trim());
+}
+const globalChatTableAlign = cell => {
+  const match = /^(:)?-{3,}(:)?$/.exec(cell);
+  return match ? (match[1] && match[2] ? 'center' : match[2] ? 'right' : match[1] ? 'left' : '') : null;
+};
+function globalChatTable(head, align, rows) {
+  const cell = (tag, text, i) => `<${tag}${tag === 'th' ? ' scope="col"' : ''}${align[i] ? ` class="gc-${align[i]}"` : ''}>${globalChatInline(text)}</${tag}>`;
+  const row = (tag, cells) => `<tr>${align.map((_, i) => cell(tag, cells[i] ?? '', i)).join('')}</tr>`;
+  return `<div class="gc-table-wrap" role="region" aria-label="Table" tabindex="0"><table><thead>${row('th', head)}</thead>${rows.length ? `<tbody>${rows.map(cells => row('td', cells)).join('')}</tbody>` : ''}</table></div>`;
+}
 function globalChatMarkdown(source) {
   const lines = String(source ?? '').replace(/\r\n?/g, '\n').split('\n');
   const out = [];
@@ -71,10 +99,52 @@ function globalChatMarkdown(source) {
     const quoted = /^\s*>\s?(.*)$/.exec(line);
     if (quoted) { flushParagraph(); flushList(); quote.push(quoted[1]); continue; }
     flushList(); flushQuote();
+    if (line.includes('|') && index + 1 < lines.length && lines[index + 1].includes('|')) {
+      const head = globalChatTableCells(line), marks = globalChatTableCells(lines[index + 1]).map(globalChatTableAlign);
+      if (head.length === marks.length && marks.length && marks.every(mark => mark !== null)) {
+        flushParagraph();
+        const rows = [];
+        index++;
+        while (index + 1 < lines.length && lines[index + 1].trim() && lines[index + 1].includes('|') && !/^\s*```/.test(lines[index + 1])) rows.push(globalChatTableCells(lines[++index]));
+        out.push(globalChatTable(head, marks, rows));
+        continue;
+      }
+    }
     paragraph.push(line);
   }
   flush();
   return out.join('');
+}
+
+function globalChatReferenceTarget(href) {
+  const safe = safeLinkUrl(href);
+  if (!safe) return null;
+  const url = new URL(safe, location.origin);
+  const viewer = url.origin === location.origin && ['/files/view', '/tables/view'].includes(url.pathname);
+  const path = viewer ? url.searchParams.get('path') || '' : url.pathname;
+  const image = /\.(?:png|jpe?g|gif|webp)$/i.test(path);
+  const kind = image ? 'Image' : viewer ? url.pathname === '/tables/view' ? 'Table' : 'File' : 'Web page';
+  return {url, viewer, image, kind};
+}
+
+// Chips represent rendered links, never code samples. No document/image request happens until a chip is opened.
+function globalChatReferenceChips(body) {
+  const chips = document.createElement('div'), seen = new Set();
+  chips.className = 'gchat-references';
+  for (const link of body.querySelectorAll('a.safe-link')) {
+    const target = globalChatReferenceTarget(link.href);
+    if (!target || seen.has(target.url.href)) continue;
+    seen.add(target.url.href);
+    const chip = document.createElement('button');
+    chip.type = 'button'; chip.className = 'gchat-reference';
+    chip.dataset.previewHref = target.url.href; chip.dataset.previewTitle = link.textContent;
+    chip.setAttribute('aria-label', `Preview ${link.textContent}`);
+    if (typeof AGVB_ICON !== 'undefined') chip.innerHTML = AGVB_ICON[target.kind === 'Table' ? 'table' : target.viewer || target.image ? 'file' : 'web'];
+    const label = document.createElement('span'); label.textContent = link.textContent;
+    const kind = document.createElement('small'); kind.textContent = target.kind;
+    chip.append(label, kind); chips.append(chip);
+  }
+  return chips.childElementCount ? chips : null;
 }
 
 // ---- the mount
@@ -83,6 +153,53 @@ function globalChatViewToggle(terminal = false) {
     <button type="button" class="quiet" data-chat-return aria-pressed="${!terminal}" ${terminal ? '' : 'disabled'}>Chat</button>
     <button type="button" class="quiet" data-terminal aria-pressed="${terminal}" ${terminal ? 'disabled' : ''}>Terminal</button>
   </div>`;
+}
+
+// One Chat/Terminal lifecycle for any registered agent, on the Global page and in a business workspace.
+// `agent.agent_id` is the registered id the chat API needs; `terminal.key`/`terminal.base` name the exact existing terminal route.
+// Only one view is live at a time: mounting another, toggling, or dispose() releases the old stream and terminal.
+// opts: {terminal: {key, base?}, isCurrent(): bool, onTerminalStatus(status), view: 'chat'|'terminal'}
+let globalAgentViewActive = null;
+function agentViewDispose() { globalAgentViewActive?.dispose(); }
+function mountAgentView(pane, agent, opts) {
+  agentViewDispose();
+  let chat = null, closeTerminal = null, watcher = null, disposed = false;
+  const stop = () => {
+    clearInterval(watcher); watcher = null;
+    chat?.dispose(); chat = null;
+    if (closeTerminal) { closeTerminal(); closeTerminal = null; }
+  };
+  const showChat = () => {
+    if (disposed) return;
+    stop();
+    // The shared main terminal may belong to a shell mounted outside this view (workspace Terminal, a legacy agent without an id):
+    // release its viewer (stream and resize observer only; the server process keeps running).
+    if (typeof teardownTerm === 'function') teardownTerm();
+    chat = mountGlobalChat(pane, agent, {openTerminal: showTerminal});
+    // Navigation tears the pane down without an event: release the stream once it has left the page.
+    const mine = chat;
+    watcher = setInterval(() => { if (!pane.isConnected || chat !== mine) { clearInterval(watcher); if (chat === mine) stop(); } }, 2000);
+  };
+  const showTerminal = () => {
+    if (disposed) return;
+    stop();
+    const label = agent.display_name || agent.name;
+    pane.innerHTML = `<div class="gchat-diagnostic"><div class="gchat-top"><span class="gchat-name">${esc(label)}</span><span class="gchat-status">Terminal</span></div><div class="gchat-session-switch">${globalChatViewToggle(true)}</div><div class="gchat-diagnostic-host"></div></div>`;
+    pane.querySelector('[data-chat-return]').onclick = () => { if (!opts.isCurrent || opts.isCurrent()) showChat(); };
+    const shellStatus = pane.querySelector('.gchat-status');
+    closeTerminal = mountTerminal(opts.terminal.key, pane.querySelector('.gchat-diagnostic-host'), status => {
+      shellStatus.textContent = status === 'live' ? 'Terminal connected' : status === 'ended' ? 'Terminal exited' : 'Terminal disconnected';
+      opts.onTerminalStatus?.(status);
+    }, opts.terminal.base);
+  };
+  const view = {showChat, showTerminal, dispose() {
+    if (disposed) return;
+    disposed = true; stop();
+    if (globalAgentViewActive === view) globalAgentViewActive = null;
+  }};
+  globalAgentViewActive = view;
+  (opts.view === 'terminal' ? showTerminal : showChat)();
+  return view;
 }
 
 function mountGlobalChat(pane, agent, options = {}) {
@@ -111,6 +228,10 @@ function mountGlobalChat(pane, agent, options = {}) {
       <textarea rows="2" maxlength="${GLOBAL_CHAT_MAX}" aria-label="Message ${esc(label)}" placeholder="Message ${esc(label)}…" autocomplete="off"></textarea>
       <button type="submit" class="gchat-send">Send</button>
     </form>
+    <section class="gchat-preview-window" role="dialog" aria-label="Document preview" hidden>
+      <header><span class="gchat-preview-title"></span><a class="gchat-preview-open" target="_blank" rel="noopener noreferrer" aria-label="Open preview in new tab">↗</a><button type="button" class="quiet" data-preview-close aria-label="Close preview">×</button></header>
+      <div class="gchat-preview-content"></div>
+    </section>
   </div>`;
   const root = pane.firstElementChild;
   const $q = selector => root.querySelector(selector);
@@ -124,6 +245,42 @@ function mountGlobalChat(pane, agent, options = {}) {
   const live = () => !disposed && root.isConnected;
   const listen = (target, type, handler, opts) => { target.addEventListener(type, handler, opts); cleanups.push(() => target.removeEventListener(type, handler, opts)); };
   const failure = error => (error && (error.message || error)) || 'The request failed.';
+  const preview = $q('.gchat-preview-window'), previewContent = $q('.gchat-preview-content');
+  let previewTrigger = null;
+  const clearPreview = () => {
+    // Release the old embedded page before replacing, closing or leaving this agent.
+    previewContent.querySelectorAll('iframe').forEach(frame => { frame.src = 'about:blank'; });
+    previewContent.replaceChildren();
+  };
+  const closePreview = (restoreFocus = true) => {
+    clearPreview(); preview.hidden = true;
+    if (restoreFocus && previewTrigger?.isConnected) previewTrigger.focus({preventScroll:true});
+    previewTrigger = null;
+  };
+  cleanups.push(() => closePreview(false));
+  const openPreview = button => {
+    const target = globalChatReferenceTarget(button.dataset.previewHref);
+    if (!target) return;
+    clearPreview(); previewTrigger = button;
+    const title = button.dataset.previewTitle;
+    $q('.gchat-preview-title').textContent = title;
+    $q('.gchat-preview-open').href = target.url.href;
+    const media = document.createElement(target.image ? 'img' : 'iframe');
+    media.referrerPolicy = 'no-referrer';
+    if (target.image) {
+      media.alt = title; media.decoding = 'async';
+      media.src = target.viewer ? `/api/root/files/image${target.url.search}` : target.url.href;
+      media.addEventListener('error', () => { if (media.isConnected) previewContent.textContent = 'This image could not be displayed.'; });
+    } else {
+      media.setAttribute('aria-label', title + ' preview');
+      // Viewbox uses these same reader shells; arbitrary websites retain its sandbox.
+      if (!target.viewer) media.setAttribute('sandbox', 'allow-scripts allow-forms');
+      media.src = target.url.href;
+    }
+    previewContent.append(media); preview.hidden = false;
+    $q('[data-preview-close]').focus({preventScroll:true});
+  };
+  listen(preview, 'keydown', event => { if (event.key === 'Escape') { event.stopPropagation(); closePreview(); } });
 
   // ---- scrolling
   const nearBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48;
@@ -176,6 +333,10 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (isNew) { node = document.createElement('div'); nodes.set(message.id, node); }
     node.className = `gchat-msg gchat-${message.role}`;
     node.dataset.id = message.id; node.dataset.state = message.state; node.dataset.sequence = String(message.sequence);
+    // Replayed messages keep their chips and keyboard focus.
+    const signature = JSON.stringify([message.role, message.state, message.body, message.origin, message.error]);
+    if (node.chatSignature === signature) return {node, isNew};
+    node.chatSignature = signature;
     const origin = message.origin && !['chat', 'system'].includes(message.origin) ? `<span class="gchat-origin">${esc(message.origin)}</span>` : '';
     if (message.role === 'agent') {
       const working = message.state === 'running';
@@ -183,6 +344,10 @@ function mountGlobalChat(pane, agent, options = {}) {
         : message.state === 'failed' ? `<span class="gchat-state" data-state="failed">${esc(message.error?.message || 'The agent reported an error.')}</span>` : '';
       node.innerHTML = `<div class="gchat-body md">${message.body ? globalChatMarkdown(message.body) : ''}${working && !message.body ? '<span class="gchat-typing" aria-label="Working">…</span>' : ''}</div>${tail}`;
       node.classList.toggle('gchat-streaming', working);
+      if (!working) {
+        const chips = globalChatReferenceChips(node.querySelector('.gchat-body'));
+        if (chips) node.append(chips);
+      }
     } else {
       node.innerHTML = `<div class="gchat-body">${origin}<span class="gchat-text">${esc(message.body)}</span></div>${stateLine(message)}`;
     }
@@ -287,6 +452,9 @@ function mountGlobalChat(pane, agent, options = {}) {
   }
   const showBanner = text => { banner.hidden = !text; banner.textContent = text || ''; delete banner.dataset.reconnect; };
   listen(root, 'click', event => {
+    const chip = event.target.closest('[data-preview-href]');
+    if (chip) { openPreview(chip); return; }
+    if (event.target.closest('[data-preview-close]')) { closePreview(); return; }
     if (event.target.closest('[data-terminal]')) options.openTerminal?.();
   });
 

@@ -47,6 +47,12 @@
     const el=event.target.closest?.('[title]');
     if (!el || el === titled || !el.getAttribute('title')) return;
     restore(); titled=el; el._appTitle=el.getAttribute('title'); el.setAttribute('title','');
+    const quietControl = _tipQuietControl(el);
+    if (quietControl) {
+      if (!quietControl.hasAttribute('aria-label') && !quietControl.hasAttribute('aria-labelledby') && !quietControl.textContent.trim())
+        quietControl.setAttribute('aria-label', quietControl._appTitle || quietControl.title || el._appTitle);
+      return;
+    }
     let custom=el;
     while(custom && !custom._tipBound && !custom.hasAttribute?.('data-tip')) custom=custom.parentElement;
     if (!custom) { tip(el,()=>esc(el._appTitle)); el._tipShow(); }

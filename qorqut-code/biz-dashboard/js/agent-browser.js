@@ -51,7 +51,7 @@ const agbrowserIcon = name => (typeof T_VIEW_ICON === 'object' && T_VIEW_ICON[na
 // Icon-only connected toggle; every button carries its own accessible name.
 function agbrowserToggle(label, items) {
   return `<div class="agbrowser-switch" role="group" aria-label="${esc(label)}">${items.map(item =>
-    `<button type="button" class="quiet agbrowser-seg" ${item.attr}="${esc(item.value)}" aria-pressed="${item.pressed}" aria-label="${esc(item.label)}" title="${esc(item.label)}">${item.icon}</button>`).join('')}</div>`;
+    `<button type="button" class="quiet agbrowser-seg" ${item.attr}="${esc(item.value)}" aria-pressed="${item.pressed}" aria-label="${esc(item.label)}">${item.icon}</button>`).join('')}</div>`;
 }
 
 function agbrowserSurfaceIcon(p, surface) {
@@ -74,7 +74,7 @@ function agbrowserModeToggle(p, mode) {
 }
 
 function agbrowserReconnectButton(attr) {
-  return `<button type="button" class="quiet agbrowser-reconnect" ${attr} aria-label="Reconnect" title="Reconnect">${AGBROWSER_ICON_RECONNECT}</button>`;
+  return `<button type="button" class="quiet agbrowser-reconnect" ${attr} aria-label="Reconnect">${AGBROWSER_ICON_RECONNECT}</button>`;
 }
 
 function agbrowserWireMode(p, host) {
@@ -99,7 +99,7 @@ function agbrowserFrame(p, host, surface, fit) {
   const stage = $('.agbrowser-stage', host);
   const frame = document.createElement('iframe');
   frame.className = 'agfocus-reference-frame agfocus-desktop-frame agbrowser-frame';
-  frame.title = `${surface.label} browser`;
+  frame.setAttribute('aria-label', `${surface.label} browser`);
   frame.referrerPolicy = 'no-referrer';
   frame.setAttribute('allow', 'clipboard-read; clipboard-write; fullscreen');
   frame.dataset.surface = surface.id;
