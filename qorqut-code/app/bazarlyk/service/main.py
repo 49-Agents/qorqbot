@@ -162,6 +162,8 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
         metric_collector=DailyJSONClient(egress.metrics_environment, proxy_resolver=runtime.sandbox.account_proxy),
         backup_downloader=BackupDownloader(egress.metrics_environment, proxy_resolver=runtime.sandbox.account_proxy),
         stripe_revenue=StripeRevenueProgram(StripeRevenueKey(workspace, runtime.root), local), learning_engine=learning_engine)
+    if nightly_maintenance is not None:
+        runtime.maintenance_capture = nightly_maintenance.bind_runtime(runtime)
     if recovery_config is not None:
         from bazarlyk.sandbox.recovery_admin import RecoveryAdminConfig, RecoveryAdministration
         selected = RecoveryAdminConfig.load(recovery_config, paths=paths)

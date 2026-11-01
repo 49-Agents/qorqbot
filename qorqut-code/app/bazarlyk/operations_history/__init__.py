@@ -7,8 +7,8 @@ backup, restore or replay mechanism, and independent of Context's Git authority,
 transcript archives and the exact existing table/document histories. SQLite stays the authority and a history failure
 never rolls back, repeats or approves accepted Operations work. See ``docs/v1.2/OPERATIONAL_HISTORY_CHECKPOINT.md``.
 
-Nothing here is wired into application startup: construction and import do nothing, and ``HistoryObserver`` is only
-started by its owner.
+The host binds one ``HistoryObserver`` to committed changes and starts it through its owned lifecycle.
+Construction and import do nothing; only explicit instance initialization creates the history repository.
 """
 from ._areas import (Area, AreaProvider, BusinessAgentFiles, BusinessHeadquarters, GlobalAgentFiles, GlobalFiles)
 from ._observer import HistoryObserver, ObserverState, ObserverStop
