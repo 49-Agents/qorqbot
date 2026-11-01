@@ -340,7 +340,7 @@ BEGIN SELECT RAISE(ABORT, 'immutable job outputs'); END""",
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     created_by TEXT REFERENCES principals(id),
-    CHECK (business_id IS NOT NULL OR (to_type='story' AND ((from_type='task' AND role='part_of') OR (from_type='agent' AND role='participates_in') OR role='concerns')) OR (from_type='story' AND role='concerns')
+    CHECK (business_id IS NOT NULL OR (to_type='task' AND role='concerns') OR (from_type='task' AND role='concerns')
         OR (from_type='task' AND ((role='assigned_to' AND to_type IN ('agent','person')) OR (role='blocked_by' AND to_type='task')))
         OR (from_type IN ('material','topic','person') AND (
             (role='part_of' AND to_type='topic')

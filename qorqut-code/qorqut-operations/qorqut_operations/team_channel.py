@@ -1,4 +1,4 @@
-"""Owner comments can join business task and Story discussions.
+"""Owner comments can join business Task discussions.
 
 Other shared discussion writes still require the private owner channel.
 Formal decisions retain their separate authorization and decision paths.
@@ -45,7 +45,7 @@ def channel_required(operation=None):
 
 def reject_owner_team_write(ctx, uow, operation):
     """Refuse `operation`'s shared-channel write when the actor is the owner."""
-    if ctx.business_id and operation in {'tasks_comment', 'stories_note_add', 'focus_reply'}:
-        return  # Business task/story group discussion is also open to the owner.
+    if ctx.business_id and operation in {'tasks_comment', 'focus_reply'}:
+        return  # Business Task discussion (parent Tasks included) is also open to the owner.
     if is_installation_owner(ctx, uow):
         raise channel_required(operation)

@@ -12,7 +12,7 @@ from qorqut_operations.actions.schema import CATEGORIES, ORIGINS
 GLOBAL_AGENT_CATEGORIES = ("global-operational", "business-operational")
 AGENT_WORD_LIMIT = 20
 TEXT_LIMIT = 2000
-EVIDENCE_KEYS = ("url", "commit", "pull_request", "signoff", "story", "document", "request", "conversation", "upload")
+EVIDENCE_KEYS = ("url", "commit", "pull_request", "signoff", "task", "document", "request", "conversation", "upload")
 EVIDENCE = {**schema({key: {"type": "string", "minLength": 1, "maxLength": 2000} for key in EVIDENCE_KEYS}),
             "description": "Optional typed evidence of the result (URL, commit, pull request or record IDs)."}
 ACTION_TEXT = {"type": "string", "minLength": 1, "maxLength": TEXT_LIMIT}

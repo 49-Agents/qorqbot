@@ -1,6 +1,6 @@
 """Typed host ports for the extracted Signoff machinery.
 
-The deployed v1 Signoff code reached into platform-action, email, Story, Task, Focus, management and identity
+The deployed v1 Signoff code reached into platform-action, email, campaign-group, Task, Focus, management and identity
 modules by import or by optional attributes of the application. Every such reach is one small typed port here,
 named after the v1 function it replaces and keeping that function's arguments and results. The engine keeps the
 scope, decision and application checks itself: a port supplies presentation, vocabulary, an additional *narrowing*
@@ -152,7 +152,8 @@ class EmailDecisions(Protocol):
 class CampaignFilter(Protocol):
     """Campaign filtering of ``signoffs_list`` (v1 ``stories.attribution.campaign`` plus the campaign SQL).
 
-    The engine first authorizes the read operation named by ``authorizing_operation`` (v1: ``stories_get``) for the
+    The engine first authorizes the read operation named by ``authorizing_operation`` (the host names the read of the
+    Task that is the campaign; v1 named the retired group read) for the
     caller. ``narrow(context, campaign_id, uow)`` then validates the campaign (v1 ``campaign``) and returns
     ``(sql, params)``: a BARE SQL predicate over alias ``s`` with ``?`` placeholders bound by ``params`` and NO
     leading ``AND``. The engine supplies the connective and the parentheses (it appends `` AND (`` + the predicate +

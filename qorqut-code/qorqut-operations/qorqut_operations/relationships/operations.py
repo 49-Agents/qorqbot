@@ -21,6 +21,18 @@ from qorqut_operations.relationships.edges import (CONTEXT, ROLE, edge_values, e
 from qorqut_operations.relationships.ports import RelationshipPorts
 from qorqut_operations.relationships.reviews import ContextReviews
 from qorqut_operations.storage.assembly import AssemblyError
+from qorqut_operations.tasks.scope import task_context, task_namespace
+
+SCOPE = {"scope": {"enum": ["business", "global"]}}
+# The eight operations whose owning namespace is the business or, for the owner and an authorized global agent, Global. This is
+# the Task namespace contract (``task_namespace`` / ``task_context``) and nothing else: graph, navigation, archive, Material and
+# review operations stay business-only.
+SCOPED = ("relationship_roles_list", "relationships_list", "relationships_get", "context_items_list", "context_items_get",
+          "relationships_create", "relationships_update", "relationships_remove")
+GLOBAL_SCOPE = dict(scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
+                    resolve_namespace=task_namespace)
+GLOBAL_NOTE = (" With scope=global it works in the Global namespace (owner and authorized global agents only); both endpoints and "
+               "the link stay in that one namespace.")
 
 RELATIONSHIP_READS = ("relationship_roles_list", "relationships_list", "relationships_get", "context_items_list",
                       "context_items_get", "context_navigation_get", "context_graph_get")
@@ -66,21 +78,23 @@ class RelationshipOperations:
             "relationships_get": ({"relationship_id": UUID}, ("relationship_id",), "Read one relationship, including direction, role, explanation and creation/update timestamps."),
             "context_items_list": ({**PAGE, **plain(materials.filters), "type": item["properties"]["type"], "query": filters["query"], "include_archived": filters["include_archived"], "include_sources": {"type": "boolean"}}, (), "Find existing context items before linking them. Filter Materials by material_type, origin or tag. Raw uploads and archived items are excluded by default."),
             "context_items_get": ({"item": item}, ("item",), "Resolve a context item to its current title, subtype, archive state and domain resource identity."),
-            "context_navigation_get": ({}, (), "Read authorized story, table, product and people counts without loading the graph."),
+            "context_navigation_get": ({}, (), "Read authorized table, product and people counts without loading the graph."),
             "context_graph_get": ({"item": item, "include_archived": filters["include_archived"]}, (), "Read the business context map, or one item's immediate neighborhood. Original uploads and generated projections are never map nodes. Reading does not acknowledge context."),
         }
         descriptors = []
         for name, (properties, required, description) in reads.items():
-            descriptors.append(OperationDescriptor(name, schema(properties, required), effect_kind="read", supports_signoff=False,
-                description=description, read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
+            scoped = {**GLOBAL_SCOPE, "description": description + GLOBAL_NOTE} if name in SCOPED else {"description": description}
+            descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties} if name in SCOPED else properties, required),
+                effect_kind="read", supports_signoff=False, **scoped,
+                read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
         writes = {
             "relationships_create": (fields, ("source", "target", "role"), "Create a directional relationship. Prefer predefined roles; custom roles and duplicates are allowed. This never grants access or wakes an agent. Assign tasks using tasks_assign."),
             "relationships_update": ({"relationship_id": UUID, "changes": {**schema(fields), "minProperties": 1}}, ("relationship_id", "changes"), "Edit a relationship's endpoints, role or explanation using its expected_revision. Workflow edges must use their domain tools."),
             "relationships_remove": ({"relationship_id": UUID}, ("relationship_id",), "Remove only this relationship using its expected_revision. Items and their contents are preserved. Workflow edges must use their domain tools."),
         }
         for name, (properties, required, description) in writes.items():
-            descriptors.append(OperationDescriptor(name, schema(properties, required), description=description,
-                prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
+            descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), description=description + GLOBAL_NOTE,
+                **GLOBAL_SCOPE, prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
                 apply=self.apply, validate_targets=self.validate_prepared))
         descriptors.append(OperationDescriptor("context_items_archive", schema({"item": item, "archived": {"type": "boolean"}}, ("item", "archived")),
             description="Archive or restore an item without deleting its content or relationships. Does not cascade. Requires the item's expected_revision. Agent retirement and business membership use their dedicated administration tools.",
@@ -108,6 +122,8 @@ class RelationshipOperations:
     # -- reads -----------------------------------------------------------------------------------------------------
 
     def read(self, operation, ctx, args, uow):
+        if operation in SCOPED:
+            ctx = task_context(ctx, args, uow)
         if operation == "context_navigation_get":
             return self.ports.navigation.read(ctx, args, uow)
         if operation == "context_graph_get":
@@ -192,7 +208,9 @@ class RelationshipOperations:
     # -- writes ----------------------------------------------------------------------------------------------------
 
     def prepare(self, operation, ctx, args, options, uow):
-        builder = PlanBuilder(ctx, operation, args, "Update context relationship", clock=self.clock)
+        ctx = task_context(ctx, args, uow)
+        builder = PlanBuilder(ctx, operation, args, "Update context relationship", clock=self.clock,
+                              namespace=task_namespace(ctx, args))
         creating = operation == "relationships_create"
         identity = new_id() if creating else args["relationship_id"]
         before = None if creating else uow.repository("relationships", business_id=ctx.business_id).get(identity, required=True)
@@ -219,6 +237,7 @@ class RelationshipOperations:
         return builder.build()
 
     def validate_prepared(self, ctx, plan, uow):
+        ctx = task_context(ctx, plan.arguments, uow)
         for change in plan.changes:
             if change.resource.resource_type != "relationships":
                 continue
@@ -233,6 +252,7 @@ class RelationshipOperations:
                     self.items.resolve(ctx, item, uow)
 
     def apply(self, ctx, plan, uow):
+        ctx = task_context(ctx, plan.arguments, uow)
         apply_records(ctx, plan, uow)
         identity = next(change.resource.resource_id for change in plan.changes if change.resource.resource_type == "relationships")
         row = uow.repository("relationships", business_id=ctx.business_id).get(identity)
