@@ -46,6 +46,13 @@ function filingCostBasisLabel(value, bases) {
   return value ? String(value) : '';
 }
 
+// Compact UTC timestamp for a filing row; unparsable values pass through.
+function filingCostWhen(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return value || 'Date unavailable';
+  return date.toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hourCycle:'h23', timeZone:'UTC'}) + ' UTC';
+}
+
 function filingCostRowBases(item) {
   return [...new Set([...(item.luna?.bases || []), ...(item.jev?.bases || [])])].sort();
 }
@@ -57,23 +64,21 @@ function filingCostRange(period) {
   return {start_date:day(new Date(Date.UTC(year, month, 1))), end_date:day(new Date(Date.UTC(year, month + 1, 0)))};
 }
 
-async function renderGlobalFilingCosts(c) {
+// The Costs page's Context filing sub-table.
+async function filingCostsMount(c) {
   const generation = ++globalFilingCostsGeneration;
   let cursor = null, loading = false;
   let rows = [];
   const current = () => generation === globalFilingCostsGeneration && c.isConnected
-    && state.scope === 'global' && state.globalTab === 'filing-costs';
-  c.innerHTML = `<section class="pane global-content global-filing-costs" aria-label="Global filing costs">
-    <div class="global-eyebrow">Global</div>
-    <header class="global-heading filing-costs-heading"><div><h1>Filing costs</h1>
-      <p>API usage incurred by Luna and Jev while filing context. This is not payment or bank accounting.</p></div>
+    && state.scope === 'global' && state.globalTab === 'costs';
+  c.innerHTML = `<header class="costs-subhead filing-costs-heading"><div><h2>Context filing</h2>
+      <p>API usage incurred by Luna and Jev while filing context.</p></div>
       <label>Period<select id="filing-cost-period" class="inp"><option value="month">This month</option><option value="all">All time</option></select></label>
     </header>
     <div class="filing-cost-total" id="filing-cost-total" aria-live="polite"><span class="muted">Loading costs…</span></div>
     <div id="filing-cost-status" role="status" class="muted"></div>
     <div id="filing-cost-table"></div>
-    <div class="filing-cost-more"><button type="button" class="ghost" id="filing-cost-more" hidden>Load more</button></div>
-  </section>`;
+    <div class="filing-cost-more"><button type="button" class="ghost" id="filing-cost-more" hidden>Load more</button></div>`;
   const period = $('#filing-cost-period', c), status = $('#filing-cost-status', c), body = $('#filing-cost-table', c);
   const total = $('#filing-cost-total', c), more = $('#filing-cost-more', c);
 
@@ -96,7 +101,7 @@ async function renderGlobalFilingCosts(c) {
         const amount = filingCostMoney(item.known_total_usd);
         const totalLabel = partial ? `Known ${amount}` : amount;
         return `<div class="filing-cost-row" role="row" data-filing-cost="${esc(item.upload_id)}">
-          <span><strong>${esc(item.date || 'Date unavailable')}</strong><small>${esc(item.upload_id)}</small></span>
+          <span><strong title="${esc(item.date || '')}">${esc(filingCostWhen(item.date))}</strong><small>${esc(item.upload_id)}</small></span>
           <span>${esc(source)}</span>
           <span>${esc(item.filing_status || 'Unknown')}</span>
           <span class="filing-cost-component">${filingCostComponent(item.luna)}</span>

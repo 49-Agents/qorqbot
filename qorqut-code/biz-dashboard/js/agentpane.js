@@ -271,13 +271,13 @@ function agpadMount(name, el, options = {}) {
   _agpad?.dividerDispose?.();
   if (_agpad) _agpad.focusDetail = null;
   const workspaceScope = options.workspaceScope || (state.scope === "global" ? "global" : "business");
-  const workspaceBase = options.views || (workspaceScope === "global" ? ["inbox", "globalTasks"] : ["tasks", "inbox"]);
+  const workspaceBase = options.views || ["inbox"];
   const p = _agpad = {
     biz: state.biz, agent: name, el, open: !!name && ls(`agpad:${state.biz}`) !== "off",
-    view: "tasks",
+    view: "inbox",
     logs: null, logError: false, nextLog: 0, pending: false,
     tasks: null, source: state.tasks, tasksStarted: false, taskError: false, bodyHtml: null,
-    views: ["tasks", "inbox"], ...options,
+    views: ["inbox"], ...options,
     workspaceScope, workspaceBase, workspaceRole: options.workspaceRole || null,
   };
   p.views = agentPaneViews(workspaceScope, p.workspaceRole, workspaceBase);
