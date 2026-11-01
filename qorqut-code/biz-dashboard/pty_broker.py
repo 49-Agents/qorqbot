@@ -252,8 +252,8 @@ def keys() -> list[str]:
 # Targets: `=NAME` is an exact session match; window commands take `=NAME:`.
 
 TMUX = shutil.which("tmux")
-TMUX_SOCK = "bazarlyk"
-TMUX_CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".state")
+TMUX_SOCK = os.environ.get("BIZ_TMUX_SOCKET", "bazarlyk")
+TMUX_CONFIG_DIR = os.environ.get("BIZ_DASH_STATE", os.path.join(os.path.dirname(os.path.abspath(__file__)), ".state"))
 TMUX_CONF = """\
 set -g status off
 set -g prefix None

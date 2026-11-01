@@ -18,7 +18,9 @@ set -euo pipefail
 umask 077
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-PYTHON=$HERE/../biz-core/.venv/bin/python
+PYTHON=${BIZ_DASH_PYTHON:-$HERE/../biz-core/.venv/bin/python}
+APP_LAUNCHER=${BIZ_DASH_LAUNCHER:-}
+WORKSPACE=${BIZ_DASH_WORKSPACE:-$HERE/..}
 CONF=${BIZ_DASH_CONF:-$HERE/.env.dashboard}
 STATE=${BIZ_DASH_STATE:-$HERE/.state}
 PIDFILE=$STATE/dashboard.pid
@@ -63,7 +65,7 @@ cmd_start() {
     HOME="$HOME" USER="${USER:-$(id -un)}" LOGNAME="${LOGNAME:-$(id -un)}" PATH="$PATH" \
     SHELL="${SHELL:-/bin/bash}" LANG="${LANG:-C.UTF-8}" TERM=xterm-256color \
     "${ENV_ARGS[@]}" \
-    setsid nohup "$PYTHON" -I -u -m bazarlyk.service --workspace "$HERE/.." --host "$HOST" --port "$PORT" \
+    setsid nohup "$PYTHON" -I -u -m bazarlyk.service --workspace "$WORKSPACE" --host "$HOST" --port "$PORT" \
       >> "$LOG" 2>&1 < /dev/null &
   echo $! > "$PIDFILE"
   sleep 1.5
@@ -78,9 +80,26 @@ cmd_stop() {
   if ! pid=$(running_pid); then echo "not running"; rm -f "$PIDFILE"; return 0; fi
   kill "$pid"
   for _ in {1..40}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
-  kill -0 "$pid" 2>/dev/null && kill -9 "$pid"
+  if kill -0 "$pid" 2>/dev/null; then die "graceful shutdown timed out (pid $pid); inspect before recovery"; fi
   rm -f "$PIDFILE"
   echo "stopped (pid $pid). Agent shells in tmux keep running; 'start' re-attaches."
+}
+
+cmd_foreground() {
+  read_conf
+  mkdir -p "$STATE"
+  local launch
+  if [ -n "$APP_LAUNCHER" ]; then
+    [ -x "$APP_LAUNCHER" ] || die "stable application launcher unavailable"
+    launch=("$APP_LAUNCHER")
+  else
+    [ -x "$PYTHON" ] || die "configured interpreter unavailable"
+    launch=("$PYTHON" -I -u -m bazarlyk.service)
+  fi
+  exec env -i \
+    HOME="$HOME" USER="${USER:-$(id -un)}" LOGNAME="${LOGNAME:-$(id -un)}" PATH="$PATH" \
+    SHELL="${SHELL:-/bin/bash}" LANG="${LANG:-C.UTF-8}" TERM=xterm-256color \
+    "${ENV_ARGS[@]}" BIZ_DASH_STATE="$STATE" "${launch[@]}" --workspace "$WORKSPACE" --host "$HOST" --port "$PORT"
 }
 
 cmd_status() {
@@ -93,9 +112,10 @@ cmd_status() {
 
 case ${1:-} in
   start) cmd_start ;;
+  foreground) cmd_foreground ;;
   stop) cmd_stop ;;
   restart) cmd_stop; cmd_start ;;
   status) cmd_status ;;
   logs) mkdir -p "$STATE"; touch "$LOG"; tail -n "${2:-50}" -f "$LOG" ;;
-  *) echo "usage: $0 start|stop|restart|status|logs [n]"; exit 2 ;;
+  *) echo "usage: $0 foreground|start|stop|restart|status|logs [n]"; exit 2 ;;
 esac
