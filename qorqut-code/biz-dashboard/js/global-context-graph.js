@@ -11,7 +11,7 @@ function contextPublishedGraphModel(homeNodes, totals = null) {
   const add = node => { canonical.push(node); byId.set(node.id, node); byRef.set(node.item.ref, node); return node; };
   nodes.forEach(dto => {
     if (!dto || typeof dto.ref !== "string" || byId.has(dto.ref)) return;
-    add({ id: dto.ref, kind: "node", label: clip(dto.summary, 60) || dto.ref, tip: String(dto.summary || ""), color: "#849a75",
+    add({ id: dto.ref, kind: "node", label: clip(dto.summary, 60) || "Item", tip: String(dto.summary || ""), color: "#849a75",
       displayRole: "knowledge", displayReason: "",
       item: { type: "node", id: dto.ref, ref: dto.ref, kind: "node", summary: String(dto.summary || ""), attributes: dto.attributes || {},
         truncated: dto.truncated === true, relationshipCount: dto.relationship_count, relationshipsTruncated: dto.relationships_truncated === true } });
@@ -22,7 +22,7 @@ function contextPublishedGraphModel(homeNodes, totals = null) {
   }));
   const placeholder = endpoint => {
     if (byId.has(endpoint.ref)) return;
-    add({ id: endpoint.ref, kind: "endpoint", label: endpoint.summary == null ? endpoint.ref : clip(endpoint.summary, 60), tip: String(endpoint.summary || ""),
+    add({ id: endpoint.ref, kind: "endpoint", label: endpoint.summary == null || endpoint.summary === "" ? "Item" : clip(endpoint.summary, 60), tip: String(endpoint.summary || ""),
       color: "#aaaaaa", displayRole: "knowledge", displayReason: "",
       item: { type: "endpoint", id: endpoint.ref, ref: endpoint.ref, kind: "node", placeholder: true, summary: endpoint.summary == null ? "" : String(endpoint.summary),
         truncated: endpoint.truncated === true, attributes: {} } });
@@ -36,7 +36,7 @@ function contextPublishedGraphModel(homeNodes, totals = null) {
   edges.forEach(edge => {
     const selfLoop = edge.from.ref === edge.to.ref;
     const refs = selfLoop ? [edge.from.ref] : [edge.from.ref, edge.to.ref];
-    const node = { id: edge.ref, kind: "relationship", label: clip(edge.summary, 60) || edge.ref, tip: String(edge.summary || ""), color: "#b69861",
+    const node = { id: edge.ref, kind: "relationship", label: clip(edge.summary, 60) || "Relationship", tip: String(edge.summary || ""), color: "#b69861",
       displayRole: "relationship", displayReason: "", defaultCanvas: true, bookkeeping: false, selfLoop,
       item: { type: "relationship", id: edge.ref, ref: edge.ref, kind: "edge", summary: String(edge.summary || ""), attributes: edge.attributes || {},
         truncated: edge.truncated === true, endpoints: refs, from: edge.from.ref, to: edge.to.ref, unavailableEndpointCount: 0, malformedEndpointCount: 0 } };
@@ -63,7 +63,7 @@ function contextPublishedGraphModel(homeNodes, totals = null) {
   });
   const resultLabel = node => {
     const key = String(node.label || "").trim().toLocaleLowerCase(), duplicates = byLabel.get(key) || [];
-    return duplicates.length < 2 ? node.label : `${node.label} · ${node.item.ref}`;
+    return duplicates.length < 2 ? node.label : `${node.label} (${duplicates.slice().sort((a, b) => String(a).localeCompare(String(b))).indexOf(node.id) + 1})`;
   };
   const neighbors = (id, shownKinds = null) => [...(neighborSets.get(id) || [])]
     .map(otherId => byId.get(otherId)).filter(node => node && (!shownKinds || shownKinds.has(node.kind)))

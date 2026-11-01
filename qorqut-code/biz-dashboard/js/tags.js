@@ -56,7 +56,7 @@ function tagPickerMount(host, {biz = null, labels = [], onChange = null, disable
     const own = ++generation, query = input.value.trim();
     let found = [];
     try { found = await tagCatalogSearch(biz, query); error.hidden = true; }
-    catch (failure) { if (own === generation && host.isConnected) { error.textContent = 'Tag catalog unavailable: ' + failure.message; error.hidden = false; } }
+    catch (failure) { if (own === generation && host.isConnected) { error.textContent = "Couldn't load. Retry"; error.hidden = false; } }
     if (own !== generation || !host.isConnected) return;
     found = found.filter(item => !value.some(have => tagKey(have) === tagKey(item)));
     const exact = query && (found.some(item => tagKey(item) === tagKey(query)) || value.some(item => tagKey(item) === tagKey(query)));

@@ -75,7 +75,7 @@ function renderGlobalContextObject(host) {
   const route = location.hash, encoded = location.hash.split('/')[4] || '';
   let ref;
   try { ref = decodeURIComponent(encoded); }
-  catch (_) { return globalContextBaseRouteError(host, 'The object link has malformed encoding.'); }
+  catch (_) { return globalContextBaseRouteError(host, 'Unavailable'); }
   pubMountObject(host, {kind: 'root'}, ref, globalContextNav(route));
 }
 

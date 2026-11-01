@@ -192,7 +192,7 @@ function contextGlobalKnowledgeGraph(el, graph, opts = {}) {
     const dot = document.createElement("span"); dot.className = "ctxgraph-dot"; dot.setAttribute("aria-hidden", "true"); button.append(dot);
     entry.append(button);
     const label = document.createElement("span"); label.className = "ctxgraph-node-label";
-    label.textContent = node.label || node.item?.ref || node.id; label.setAttribute("aria-hidden", "true");
+    label.textContent = node.label || (node.kind === "relationship" ? "Relationship" : "Item"); label.setAttribute("aria-hidden", "true");
     entry.append(label); entry._label = label;
     return entry;
   }
@@ -201,7 +201,7 @@ function contextGlobalKnowledgeGraph(el, graph, opts = {}) {
     root.dataset.focusId = state.focusId || "";
     const choices = [...new Set([state.focusId, ...(visibleState.includedOwners || [])].filter(id => model.knowledgeIds.has(id)))];
     pageOwner.replaceChildren(...choices.map(id => {
-      const option = document.createElement("option"); option.value = id; option.textContent = model.byId.get(id)?.label || id; return option;
+      const option = document.createElement("option"); option.value = id; option.textContent = model.byId.get(id)?.label || "Item"; return option;
     }));
     const activeOwner = choices.includes(state.pageOwner) ? state.pageOwner : state.focusId;
     pageOwner.value = activeOwner || "";
@@ -231,7 +231,7 @@ function contextGlobalKnowledgeGraph(el, graph, opts = {}) {
     else if (overflow) automaticCapacityMessage = overflow + " expanded neighborhood" + (overflow === 1 ? " is" : "s are") +
       " held outside the visible-node limit at this size. Focus an object, change pages, or collapse a neighborhood to explore it.";
     const capacityMessage = projectionNotice || automaticCapacityMessage;
-    status.textContent = capacityMessage || "Recorded connections are shown from the stored relationship records.";
+    status.textContent = capacityMessage || "";
     const focus = model.byId.get(state.focusId), allNeighbors = focus ? model.neighbors(focus.id) : [], shownNeighbors = focus ? model.neighbors(focus.id, shownKinds) : [];
     const noFilteredFocusConnections = !!focus && allNeighbors.length > 0 && shownNeighbors.length === 0;
     const isolatedFocus = !!focus && allNeighbors.length === 0;
@@ -337,9 +337,8 @@ function contextGlobalKnowledgeGraph(el, graph, opts = {}) {
     const item = node.item || {}, role = node.displayRole;
     const connected = relationListFor(node);
     const loadedAll = item.relationshipsTruncated || (Number.isSafeInteger(item.relationshipCount) && item.relationshipCount > connected.length);
-    const note = (item.placeholder ? '<p class="ctxgraph-display-note">This node is not loaded in the bounded view. Only its relationship endpoint is shown; open the record for the published node.</p>' : "") +
-      (item.truncated ? '<p class="ctxgraph-display-note">The summary is shortened in this view.</p>' : "") +
-      (loadedAll ? '<p class="ctxgraph-display-note">' + connected.length + ' of ' + (Number.isSafeInteger(item.relationshipCount) ? item.relationshipCount : 'more') + ' relationships are loaded; open the record for the rest.</p>' : "");
+    const note = (item.placeholder ? '<p class="ctxgraph-display-note">More available. Open the record for details.</p>' : "") +
+      (loadedAll ? '<p class="ctxgraph-display-note">More available. Open the record for the rest.</p>' : "");
     const tags = Array.isArray(item.tags) && item.tags.length ? '<div class="ctxgraph-tags">' + item.tags.map(tag => '<span>' + esc(tag) + '</span>').join("") + '</div>' : "";
     const summary = item.summary ? '<p>' + esc(item.summary) + '</p>' : "";
     const definition = item.definition ? '<div class="ctxgraph-definition"><strong>Definition</strong><p>' + esc(item.definition) + '</p></div>' : "";
@@ -351,26 +350,25 @@ function contextGlobalKnowledgeGraph(el, graph, opts = {}) {
       (isExpanded ? "Collapse connections" : "Expand connections") + ' · ' + neighbors + '</button>' : "";
     const outsideViewNote = role === "knowledge" && !renderedIds.has(node.id)
       ? '<p class="ctxgraph-limit-note" role="status">This record is outside the current view. Use Focus here to open its connections.</p>' : "";
-    const connectedHtml = connected.length ? '<section class="ctxgraph-reader-section"><h4>Recorded connection records (' + connected.length + ')</h4>' + connected.map(rel => {
-      const reason = rel.bookkeeping ? "Filing/projection record · detail only" : rel.defaultCanvas ? "Substantive recorded connection" : "Source/collection-related record · detail only";
-      return '<div class="ctxgraph-related-record"><button type="button" class="quiet" data-select="' + esc(rel.id) + '">' + esc(labelFor(rel)) + '</button><small>' + esc(reason) +
-        ((rel.item?.tags || []).length ? ' · ' + esc(rel.item.tags.join(" · ")) : "") + '</small></div>';
-    }).join("") + '</section>' : '<p class="ctxgraph-no-records">No relationship records reference this object.</p>';
+    const connectedHtml = connected.length ? '<section class="ctxgraph-reader-section"><h4>Relationships</h4>' + connected.map(rel => {
+      return '<div class="ctxgraph-related-record"><button type="button" class="quiet" data-select="' + esc(rel.id) + '">' + esc(labelFor(rel)) + '</button>' +
+        ((rel.item?.tags || []).length ? '<small>' + esc(rel.item.tags.join(" · ")) + '</small>' : "") + '</div>';
+    }).join("") + '</section>' : '<p class="ctxgraph-no-records">No relationships.</p>';
     reader.hidden = false;
     reader.innerHTML = '<div class="ctxgraph-reader-head"><div><div class="ctxgraph-kind">' + esc(globalContextGraphKindLabel(node.kind)) +
-      (role !== "knowledge" ? ' · Stored source' : "") + '</div><h3>' + esc(labelFor(node)) + '</h3></div>' +
+      (role !== "knowledge" ? ' · Source' : "") + '</div><h3>' + esc(labelFor(node)) + '</h3></div>' +
       '<button type="button" data-action="clear" class="ctxgraph-reader-close" aria-label="Close record details">×</button></div>' + note + summary + definition + tags +
       outsideViewNote + (limitMessage ? '<p class="ctxgraph-limit-note" role="status">' + esc(limitMessage) + '</p>' : "") +
-      '<div class="ctxgraph-reader-actions">' + focusButton + expandButton + (item.ref ? '<button type="button" class="ctxgraph-open" data-action="open">Open canonical record →</button>' : "") +
-      '<span>' + connected.length + ' recorded relationship' + (connected.length === 1 ? "" : "s") + '</span></div>' + connectedHtml + '<div class="ctxgraph-reviews"></div>';
+      '<div class="ctxgraph-reader-actions">' + focusButton + expandButton + (item.ref ? '<button type="button" class="ctxgraph-open" data-action="open">Open →</button>' : "") +
+      '<span>' + connected.length + ' relationship' + (connected.length === 1 ? "" : "s") + '</span></div>' + connectedHtml + '<div class="ctxgraph-reviews"></div>';
     opts.onSelect?.(node, reader.querySelector(".ctxgraph-reviews"));
   }
   function renderRelationshipReader(node) {
     const item = node.item || {}, endpoints = Array.isArray(item.endpoints) ? item.endpoints : [];
     const endpointRows = endpoints.map((ref, index) => {
       const endpoint = typeof ref === "string" ? byRef.get(ref) : null;
-      const label = endpoint?.label || (typeof ref === "string" ? ref : JSON.stringify(ref));
-      const action = endpoint ? '<button type="button" class="quiet" data-select="' + esc(endpoint.id) + '">' + esc(label) + '</button>' : '<span>' + esc(label) + ' <small>Unavailable in this snapshot</small></span>';
+      const label = endpoint?.label || "Item";
+      const action = endpoint ? '<button type="button" class="quiet" data-select="' + esc(endpoint.id) + '">' + esc(label) + '</button>' : '<span>' + esc(label) + ' <small>Unavailable</small></span>';
       return '<div class="ctxgraph-endpoint"><span>' + (index + 1) + '.</span>' + action + '</div>';
     }).join("");
     const definition = item.definition ? '<div class="ctxgraph-definition"><strong>Definition</strong><p>' + esc(item.definition) + '</p></div>' : "";
@@ -380,27 +378,26 @@ function contextGlobalKnowledgeGraph(el, graph, opts = {}) {
       (typeof pair[1] === "string" ? pair[1] : JSON.stringify(pair[1]))).join(" · ") : "";
     const listed = (model.relationshipEndpoints.get(node.id) || []).filter(id => renderedIds.has(id)).length;
     const offCanvas = Math.max(0, endpoints.length - listed);
-    const statusLine = node.selfLoop ? "Self relationship: both ends are the same node." : node.defaultCanvas
-      ? "Recorded relationship; shown when at least two eligible endpoints are in the current neighborhood." : "Stored relationship; too few eligible endpoints for a default graph connection.";
+    const statusLine = "Both ends are the same item.";
     const unavailable = item.unavailableEndpointCount || 0, malformed = item.malformedEndpointCount || 0;
     reader.hidden = false;
-    reader.innerHTML = '<div class="ctxgraph-reader-head"><div><div class="ctxgraph-kind">Relationship · Stored record</div><h3>' + esc(labelFor(node)) + '</h3></div>' +
+    reader.innerHTML = '<div class="ctxgraph-reader-head"><div><div class="ctxgraph-kind">Relationship</div><h3>' + esc(labelFor(node)) + '</h3></div>' +
       '<button type="button" data-action="clear" class="ctxgraph-reader-close" aria-label="Close relationship details">×</button></div>' +
-      '<p class="ctxgraph-display-note">' + esc(statusLine) + '</p>' + summary + definition + tags +
-      '<section class="ctxgraph-reader-section"><h4>Canonical endpoints (' + endpoints.length + ')</h4>' + (endpointRows || '<p>No endpoints recorded.</p>') +
+      (node.selfLoop ? '<p class="ctxgraph-display-note">' + esc(statusLine) + '</p>' : "") + summary + definition + tags +
+      '<section class="ctxgraph-reader-section"><h4>Connects</h4>' + (endpointRows || '<p>No endpoints recorded.</p>') +
       (offCanvas ? '<small>' + offCanvas + ' endpoint' + (offCanvas === 1 ? " is" : "s are") + ' outside the visible neighborhood.</small>' : "") +
       (unavailable ? '<small>' + unavailable + ' stored endpoint' + (unavailable === 1 ? " is" : "s are") + ' unavailable in this snapshot.</small>' : "") +
       (malformed ? '<small>' + malformed + ' endpoint value' + (malformed === 1 ? " is" : "s are") + ' malformed in the stored record.</small>' : "") + '</section>' +
       (source ? '<p class="ctxgraph-provenance">Recorded source: ' + esc(source) + '</p>' : "") +
-      '<div class="ctxgraph-reader-actions">' + (item.ref ? '<button type="button" class="ctxgraph-open" data-action="open">Open canonical relationship →</button>' : "") +
-      '<span>' + endpoints.length + ' stored endpoint' + (endpoints.length === 1 ? "" : "s") + '</span></div><div class="ctxgraph-reviews"></div>';
+      '<div class="ctxgraph-reader-actions">' + (item.ref ? '<button type="button" class="ctxgraph-open" data-action="open">Open →</button>' : "") +
+      '<span>' + endpoints.length + ' end' + (endpoints.length === 1 ? "" : "s") + '</span></div><div class="ctxgraph-reviews"></div>';
     opts.onSelect?.(node, reader.querySelector(".ctxgraph-reviews"));
   }
   function showReader() {
     if (!selected || !byId.has(selected)) { reader.hidden = true; reader.replaceChildren(); schedule(); return; }
     const node = byId.get(selected);
     if (node.kind === "relationship") renderRelationshipReader(node); else renderObjectReader(node);
-    status.textContent = node.label + (node.kind === "relationship" ? ", relationship record" : ", canonical object record");
+    status.textContent = node.label;
     draw();
   }
 

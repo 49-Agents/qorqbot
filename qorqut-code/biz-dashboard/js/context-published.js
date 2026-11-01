@@ -1,11 +1,11 @@
-// Readers of the shared published Context graph (context_home / context_find / context_object / context_expand /
-// context_changes). One implementation serves the Global Graph/object routes and the business Context Home, Graph,
+// Readers of the shared published Context graph (context_home / context_find / context_object / context_expand). One implementation serves the Global Graph/object routes and the business Context Home, Graph,
 // search and object routes: only the operation path differs (/root/operations/<op> or /biz/<slug>/operations/<op>),
 // and both read the same published graph. Reads only; nothing here writes, initializes Context or fetches a source.
 //
 // Pages are bound to the revision of their first page and to their exact request; only returned opaque cursors are
-// followed, and no loop ever walks the whole graph.
-const PUB_LIMITS = Object.freeze({home: 30, find: 50, expand: 50, history: 10, text: 16000, changes: 20});
+// followed, and no loop ever walks the whole graph. References, revisions and commits decide what is requested and
+// accepted but are never shown: people see names, summaries, content and plain status.
+const PUB_LIMITS = Object.freeze({home: 30, find: 50, expand: 50, history: 10, text: 16000});
 const PUB_REF_RE = /^(node|edge|source):[a-z0-9]{5}$/;
 const pubRefKind = ref => typeof ref === 'string' && PUB_REF_RE.test(ref) ? ref.slice(0, ref.indexOf(':')) : null;
 let pubMountGeneration = 0;
@@ -53,12 +53,6 @@ const pubIs = (() => {
     support_after: list(commit), developments: list(development), source: sourceSummary, before: stored, after: stored});
   const sourceHistoryEntry = shape({event_id: id, commit, recorded_at: string, input_mode: mode, operation, change_count: count});
   const history = entry => shape({total: count, items: list(entry), page});
-  const changeEvent = shape({event_id: id, commit, recorded_at: string, input_mode: mode, operation, submitted_by: string,
-    source: shape({id, ref: refOf('source'), title: string, source_kind: string, origin: string, origin_ref: nullable(string), created_at: nullable(string), path: string}),
-    changes: list(shape({kind: oneOf('node', 'edge'), id, ref: string, operation, explanation: string, citations: list(commit)})),
-    change_count: count, changes_truncated: bool, handoff_disposition: oneOf('prepared', 'empty', null),
-    action: either(value => value === null, shape({action_ref: string, revision_ref: nullable(string),
-      tags: list(shape({id: string, name: string, business_id: nullable(string)}))}))});
   const unavailable = shape({status: oneOf('not_initialized', 'unavailable'), revision: value => value === null, reason: shape({code: string, message: string})});
   const ready = (fields) => shape({status: lit('ready'), revision: commit, ...fields});
   const content = either(value => value === null, shape({text: string, offset: count, limit: value => Number.isSafeInteger(value) && value >= 1,
@@ -77,7 +71,6 @@ const pubIs = (() => {
     context_find: ready({query: string, items: list(either(node, relationship, source)), page}),
     context_expand: ready({origin: node, depth: value => [1, 2, 3].includes(value), direction: oneOf('out', 'in', 'both'), total: count,
       relationships: list(relationship), page}),
-    context_changes: ready({total: count, items: list(changeEvent), page}),
     context_object: value => plain(value) && plain(value.object) && Object.hasOwn(objectKinds, value.object.kind) && objectKinds[value.object.kind](value)
   };
   return {out, unavailable, plain, count};
@@ -148,55 +141,55 @@ function pubCollection({read, items, pageOf, keyOf, limit, verify}) {
 }
 
 // ---- rendering (escaped text only; attribute values and summaries are always data, never markup)
-const pubShort = value => String(value || '').slice(0, 8);
+const PUB_COPY = {loadFailed: "Couldn't load. Retry", changed: 'Context changed. Reload', more: 'More available', loadMore: 'Load more'};
+const pubNeutral = {node: 'Item', edge: 'Relationship', source: 'Source'};
+const pubName = (text, kind) => text == null || text === '' ? pubNeutral[kind] : text;
+const pubOperation = operation => ({add: 'Added', edit: 'Updated', remove: 'Removed'}[operation] || 'Updated');
 const pubAttributeChips = attributes => Object.entries(attributes || {}).map(([name, members]) =>
   `<span class="chip pub-attr"><b>${esc(name)}</b>${members.length ? esc(members.map(String).join(', ')) : '—'}</span>`).join('');
-const pubRefButton = (ref, label) => `<button type="button" class="pub-ref chip go" data-pub-ref="${esc(ref)}" title="${esc(ref)}">${esc(label)}</button>`;
-const pubRevision = revision => `<span class="stamp pub-revision" title="Published revision ${esc(revision)}">revision ${esc(pubShort(revision))}</span>`;
-const pubCode = ref => `<code class="pub-code">${esc(ref)}</code>`;
+// The reference stays in a data attribute for navigation only; it is never shown or offered as a title.
+const pubRefButton = (ref, label) => `<button type="button" class="pub-ref chip go" data-pub-ref="${esc(ref)}">${esc(label)}</button>`;
 
 function pubEdgeLine(edge, focusRef = null) {
-  const end = e => e.ref === focusRef ? `<span class="pub-self">${esc(e.summary || e.ref)}</span>` : pubRefButton(e.ref, e.summary == null ? e.ref : e.summary);
-  return `<div class="card n pub-edge" data-pub-edge="${esc(edge.ref)}"><div class="ct"><span class="kd">${esc(edge.direction || 'edge')}</span>
+  const end = e => e.ref === focusRef ? `<span class="pub-self">${esc(pubName(e.summary, 'node'))}</span>` : pubRefButton(e.ref, pubName(e.summary, 'node'));
+  return `<div class="card n pub-edge" data-pub-edge="${esc(edge.ref)}"><div class="ct"><span class="kd">Relationship</span>
     <span class="tt">${end(edge.from)} <span class="pub-arrow" aria-hidden="true">→</span> ${end(edge.to)}</span></div>
-    <div class="cb">${esc(edge.summary)}${edge.truncated ? ' <small class="pub-trunc">summary shortened</small>' : ''}</div>
-    <div class="cs">${pubRefButton(edge.ref, edge.ref)}${edge.depth ? ` · depth ${edge.depth}` : ''}</div>${pubAttributes(edge.attributes)}</div>`;
+    <div class="cb">${esc(edge.summary)}</div>${pubAttributes(edge.attributes)}</div>`;
 }
 const pubAttributes = attributes => Object.keys(attributes || {}).length ? `<div class="chips pub-attrs">${pubAttributeChips(attributes)}</div>` : '';
 
 function pubNodeCard(node) {
   const shown = node.relationships || [], more = node.relationship_count - shown.length;
-  return `<article class="card n pub-node" data-pub-node="${esc(node.ref)}"><div class="ct"><span class="kd">node</span>
-    <span class="tt"><button type="button" class="pub-open" data-pub-ref="${esc(node.ref)}">${esc(node.summary || node.ref)}</button></span></div>
-    ${node.truncated ? '<div class="cs pub-trunc">Summary shortened here; open the record for the full text.</div>' : ''}
-    <div class="cs">${pubCode(node.ref)} · ${node.relationship_count} relationship${node.relationship_count === 1 ? '' : 's'}${node.relationships_truncated || more > 0 ? ` <span class="pub-trunc">(${shown.length} shown; open the record for the rest)</span>` : ''}</div>
+  return `<article class="card n pub-node" data-pub-node="${esc(node.ref)}"><div class="ct"><span class="kd">Item</span>
+    <span class="tt"><button type="button" class="pub-open" data-pub-ref="${esc(node.ref)}">${esc(pubName(node.summary, 'node'))}</button></span></div>
+    <div class="cs">${node.relationship_count} relationship${node.relationship_count === 1 ? '' : 's'}${node.relationships_truncated || more > 0 ? ` · <span class="pub-trunc">${PUB_COPY.more}</span>` : ''}</div>
     ${pubAttributes(node.attributes)}</article>`;
 }
 function pubSourceCard(source) {
-  return `<article class="card n pub-source" data-pub-source="${esc(source.ref)}"><div class="ct"><span class="kd">source${source.withdrawn ? ' · withdrawn' : ''}</span>
-    <span class="tt"><button type="button" class="pub-open" data-pub-ref="${esc(source.ref)}">${esc(source.title || source.ref)}</button></span></div>
-    <div class="cs">${pubCode(source.ref)} · ${esc(source.source_kind)} · ${esc(source.origin)}</div>
-    ${source.excerpt ? `<div class="cb">${esc(source.excerpt)}${source.truncated ? ' <small class="pub-trunc">excerpt shortened</small>' : ''}</div>` : ''}</article>`;
+  return `<article class="card n pub-source" data-pub-source="${esc(source.ref)}"><div class="ct"><span class="kd">Source${source.withdrawn ? ' · Removed' : ''}</span>
+    <span class="tt"><button type="button" class="pub-open" data-pub-ref="${esc(source.ref)}">${esc(pubName(source.title, 'source'))}</button></span></div>
+    ${source.excerpt ? `<div class="cb">${esc(source.excerpt)}${source.truncated ? ` <small class="pub-trunc">${PUB_COPY.more}</small>` : ''}</div>` : ''}</article>`;
 }
 function pubFindCard(item) {
   if (item.kind === 'source') return pubSourceCard(item);
-  if (item.kind === 'edge') return `<article class="card n pub-edge-result" data-pub-result="${esc(item.ref)}"><div class="ct"><span class="kd">edge</span>
-    <span class="tt"><button type="button" class="pub-open" data-pub-ref="${esc(item.ref)}">${esc(item.summary || item.ref)}</button></span></div>
-    <div class="cs">${pubCode(item.ref)} · ${pubRefButton(item.from.ref, item.from.summary == null ? item.from.ref : item.from.summary)} → ${pubRefButton(item.to.ref, item.to.summary == null ? item.to.ref : item.to.summary)}</div>
-    ${item.truncated ? '<div class="cs pub-trunc">Summary shortened here.</div>' : ''}${pubAttributes(item.attributes)}</article>`;
-  return `<article class="card n pub-node" data-pub-result="${esc(item.ref)}"><div class="ct"><span class="kd">node</span>
-    <span class="tt"><button type="button" class="pub-open" data-pub-ref="${esc(item.ref)}">${esc(item.summary || item.ref)}</button></span></div>
-    <div class="cs">${pubCode(item.ref)}${item.truncated ? ' <span class="pub-trunc">summary shortened</span>' : ''}</div>${pubAttributes(item.attributes)}</article>`;
+  if (item.kind === 'edge') return `<article class="card n pub-edge-result" data-pub-result="${esc(item.ref)}"><div class="ct"><span class="kd">Relationship</span>
+    <span class="tt"><button type="button" class="pub-open" data-pub-ref="${esc(item.ref)}">${esc(pubName(item.summary, 'edge'))}</button></span></div>
+    <div class="cs">${pubRefButton(item.from.ref, pubName(item.from.summary, 'node'))} → ${pubRefButton(item.to.ref, pubName(item.to.summary, 'node'))}</div>
+    ${pubAttributes(item.attributes)}</article>`;
+  return `<article class="card n pub-node" data-pub-result="${esc(item.ref)}"><div class="ct"><span class="kd">Item</span>
+    <span class="tt"><button type="button" class="pub-open" data-pub-ref="${esc(item.ref)}">${esc(pubName(item.summary, 'node'))}</button></span></div>
+    ${pubAttributes(item.attributes)}</article>`;
 }
 
 function pubUnavailableHtml(status, reason, retryLabel) {
-  if (status === 'not_initialized') return `<div class="empty pub-state" data-pub-state="not_initialized" role="status"><strong>The shared Context has not been initialized.</strong>
-    <p>Nothing has been published yet. Opening this page does not create it.</p><button type="button" class="bt pub-retry">${esc(retryLabel)}</button></div>`;
-  return `<div class="empty bad pub-state" data-pub-state="unavailable" role="alert"><strong>The shared Context cannot be read right now.</strong>
-    <p>${esc(reason?.message || 'It is unavailable.')} <small>${esc(reason?.code || '')}</small></p><button type="button" class="bt pub-retry">${esc(retryLabel)}</button></div>`;
+  if (status === 'not_initialized') return `<div class="empty pub-state" data-pub-state="not_initialized" role="status"><strong>Nothing has been added to Context yet.</strong>
+    <button type="button" class="bt pub-retry">${esc(retryLabel)}</button></div>`;
+  return `<div class="empty bad pub-state" data-pub-state="unavailable" role="alert"><strong>${PUB_COPY.loadFailed}</strong>
+    <button type="button" class="bt pub-retry">${esc(retryLabel)}</button></div>`;
 }
-const pubErrorHtml = (error, what) => `<div class="bad pub-error" role="alert" data-pub-error="${error.integrity ? 'integrity' : 'transient'}">
-  ${esc(error.message || `${what} could not be loaded.`)} <button type="button" class="bt pub-${error.integrity ? 'restart' : 'again'}">${error.integrity ? 'Restart from the first page' : 'Retry this page'}</button></div>`;
+// An integrity error means the Context moved under the reader (or a page did not fit); a transient one is simply retried.
+const pubErrorHtml = error => `<div class="bad pub-error" role="alert" data-pub-error="${error.integrity ? 'integrity' : 'transient'}">
+  ${error.integrity ? PUB_COPY.changed : PUB_COPY.loadFailed} <button type="button" class="bt pub-${error.integrity ? 'restart' : 'again'}">${error.integrity ? 'Reload' : 'Retry'}</button></div>`;
 
 // A live check shared by every view: the same mount, still attached, not aborted, and the caller's route is still current.
 function pubLive(host, generation, signal, current) {
@@ -219,25 +212,25 @@ function pubMountHome(host, scope, nav) {
     if (!live()) return;
     const crumbs = `<div class="crumbs"><span class="cur">${esc(nav.homeLabel)}</span></div>`;
     let body;
-    if (collection.status === 'idle') body = collection.error ? pubErrorHtml(collection.error, 'Home') : '<p class="empty pad" role="status">Loading the shared Context…</p>';
+    if (collection.status === 'idle') body = collection.error ? pubErrorHtml(collection.error) : '<p class="empty pad" role="status">Loading…</p>';
     else if (collection.status !== 'ready') body = pubUnavailableHtml(collection.status, collection.reason, 'Retry');
     else {
       const first = collection.first || collection.last, totals = first.totals;
-      body = `<div class="th"><h2>Shared Context</h2><div class="pa">${pubRevision(collection.revision)}</div></div>
-        <div class="meta pub-totals">${totals.nodes} nodes · ${totals.edges} relationships · ${totals.sources} sources · ${totals.events} events</div>
-        ${first.empty ? '<div class="empty pub-state" data-pub-state="empty" role="status">The published Context is empty. Nothing has been filed into it yet.</div>' : `
-        <div class="sec"><div class="sh">Most connected nodes <span class="stamp">${collection.items.length} of ${totals.nodes} loaded</span></div>
-        <div class="cards">${collection.items.map(pubNodeCard).join('')}</div>${collection.hasMore && !collection.error ? '<button type="button" class="bt pub-more">Load more nodes</button>' : ''}</div>`}
-        ${collection.error ? pubErrorHtml(collection.error, 'Home') : ''}<p class="cs"><button type="button" class="quiet pub-refresh">Refresh from the first page</button></p>`;
+      body = `<div class="th"><h2>Shared Context</h2></div>
+        <div class="meta pub-totals">${totals.nodes} item${totals.nodes === 1 ? '' : 's'} · ${totals.edges} relationship${totals.edges === 1 ? '' : 's'} · ${totals.sources} source${totals.sources === 1 ? '' : 's'}</div>
+        ${first.empty ? '<div class="empty pub-state" data-pub-state="empty" role="status">Nothing has been added to Context yet.</div>' : `
+        <div class="sec"><div class="sh">Most connected</div>
+        <div class="cards">${collection.items.map(pubNodeCard).join('')}</div>${collection.hasMore && !collection.error ? `<button type="button" class="bt pub-more">${PUB_COPY.loadMore}</button>` : ''}</div>`}
+        ${collection.error ? pubErrorHtml(collection.error) : ''}<p class="cs"><button type="button" class="quiet pub-refresh">Refresh</button></p>`;
     }
-    host.innerHTML = `<section class="pub-view pub-home" aria-label="Shared Context home">${crumbs}${body}</section>`;
+    host.innerHTML = `<section class="pub-view pub-home" aria-label="Shared Context">${crumbs}${body}</section>`;
     pubWireRefs(host, nav);
     const more = host.querySelector('.pub-more'); if (more) more.onclick = load;
     host.querySelectorAll('.pub-again').forEach(b => b.onclick = load);
     host.querySelectorAll('.pub-restart, .pub-retry, .pub-refresh').forEach(b => b.onclick = () => { collection.restart(); load(); });
   };
   async function load() { if (collection.loading) return; paint(); await collection.load(live); paint(); }
-  collection.restart(); host.innerHTML = '<p class="empty pad" role="status">Loading the shared Context…</p>';
+  collection.restart(); host.innerHTML = '<p class="empty pad" role="status">Loading…</p>';
   load();
 }
 
@@ -250,14 +243,14 @@ function pubMountSearch(host, scope, query, nav) {
   const paint = () => {
     if (!live()) return;
     let body;
-    if (collection.status === 'idle') body = collection.error ? pubErrorHtml(collection.error, 'Search') : '<p class="empty pad" role="status">Searching…</p>';
-    else if (collection.status !== 'ready') body = pubUnavailableHtml(collection.status, collection.reason, 'Retry search');
+    if (collection.status === 'idle') body = collection.error ? pubErrorHtml(collection.error) : '<p class="empty pad" role="status">Searching…</p>';
+    else if (collection.status !== 'ready') body = pubUnavailableHtml(collection.status, collection.reason, 'Retry');
     else body = `<div class="cards">${collection.items.map(pubFindCard).join('') ||
-      '<div class="empty pub-state" data-pub-state="no-results">No published records match this search. An empty result is not proof that nothing exists.</div>'}</div>
-      ${collection.hasMore && !collection.error ? '<button type="button" class="bt pub-more">Load more results</button>' : ''}
-      ${collection.exhausted ? '<div class="pub-window" role="status">The search window is exhausted. Narrow the query to see more.</div>' : ''}
-      ${collection.error ? pubErrorHtml(collection.error, 'Search') : ''}`;
-    host.innerHTML = `<section class="pub-view sec ctx-search-results"><div class="sh">Search: ${esc(query)} <span class="stamp">${collection.items.length} loaded${collection.hasMore ? ', more available' : ''}</span>${collection.revision ? ` ${pubRevision(collection.revision)}` : ''}</div>${body}</section>`;
+      '<div class="empty pub-state" data-pub-state="no-results">No results.</div>'}</div>
+      ${collection.hasMore && !collection.error ? `<button type="button" class="bt pub-more">${PUB_COPY.loadMore}</button>` : ''}
+      ${collection.exhausted ? `<div class="pub-window" role="status">${PUB_COPY.more}. Narrow the search to see more.</div>` : ''}
+      ${collection.error ? pubErrorHtml(collection.error) : ''}`;
+    host.innerHTML = `<section class="pub-view sec ctx-search-results"><div class="sh">Search: ${esc(query)}${collection.hasMore ? ` <span class="stamp">${PUB_COPY.more}</span>` : ''}</div>${body}</section>`;
     pubWireRefs(host, nav);
     const more = host.querySelector('.pub-more'); if (more) more.onclick = load;
     host.querySelectorAll('.pub-again').forEach(b => b.onclick = load);
@@ -274,10 +267,10 @@ function pubMountGraph(host, scope, nav, {storageKey, caption}) {
   const generation = ++pubMountGeneration, signal = pageReads.signal, live = pubLive(host, generation, signal, nav.current);
   const collection = pubCollection({limit: PUB_LIMITS.home, items: data => data.nodes, pageOf: data => data.page, keyOf: node => node.ref,
     read: cursor => pubRead(scope, 'context_home', {limit: PUB_LIMITS.home, ...(cursor ? {cursor} : {})}, signal)});
-  host.innerHTML = `<section class="global-context-base global-context-graph pub-view" aria-label="Published Context graph">
-    <div class="global-context-graph-status"><div class="global-context-base-status pub-graph-status" role="status">Loading the published Context graph…</div>
-      <button type="button" class="bt pub-more" hidden>Load more nodes</button>
-      <button type="button" class="bt global-context-base-reload pub-refresh" hidden>Refresh from the first page</button></div>
+  host.innerHTML = `<section class="global-context-base global-context-graph pub-view" aria-label="Context graph">
+    <div class="global-context-graph-status"><div class="global-context-base-status pub-graph-status" role="status">Loading…</div>
+      <button type="button" class="bt pub-more" hidden>${PUB_COPY.loadMore}</button>
+      <button type="button" class="bt global-context-base-reload pub-refresh" hidden>Refresh</button></div>
     <div class="pub-graph-notes" role="status"></div><div class="global-context-graph-host"></div></section>`;
   const status = host.querySelector('.pub-graph-status'), more = host.querySelector('.pub-more'), refresh = host.querySelector('.pub-refresh');
   const notes = host.querySelector('.pub-graph-notes'), graphHost = host.querySelector('.global-context-graph-host');
@@ -286,7 +279,7 @@ function pubMountGraph(host, scope, nav, {storageKey, caption}) {
     notes.replaceChildren(); more.hidden = true; refresh.hidden = false;
     if (collection.status === 'idle') {
       ctxClearGraph(); graphHost.replaceChildren(); refresh.hidden = true;
-      status.textContent = collection.error ? `The published Context graph could not be loaded. ${collection.error.message}` : 'Loading the published Context graph…';
+      status.textContent = collection.error ? PUB_COPY.loadFailed : 'Loading…';
       if (collection.error) { more.hidden = false; more.textContent = 'Retry'; status.dataset.pubError = 'transient'; } else delete status.dataset.pubError;
       return;
     }
@@ -299,148 +292,126 @@ function pubMountGraph(host, scope, nav, {storageKey, caption}) {
     const first = collection.first || collection.last, totals = first.totals;
     if (first.empty) {
       ctxClearGraph(); graphHost.replaceChildren();
-      status.textContent = 'The published Context graph is empty. Nothing has been filed into it yet.';
+      status.textContent = 'Nothing has been added to Context yet.';
       status.dataset.pubState = 'empty'; return;
     }
     delete status.dataset.pubState;
     const model = contextPublishedGraphModel(collection.items, totals);
     const truncatedNodes = collection.items.filter(node => node.relationships_truncated).length;
-    model.countLabel = (objects, connections) => `Showing ${objects} of ${model.knowledgeCount} loaded records · ${connections} connections`;
-    status.textContent = `Bounded view: ${model.loadedNodes} of ${totals.nodes} nodes and ${model.relationshipCount} of ${totals.edges} relationships loaded` +
-      `${model.placeholderCount ? `, ${model.placeholderCount} endpoint${model.placeholderCount === 1 ? '' : 's'} not loaded` : ''}. This is not the complete graph. Revision ${pubShort(collection.revision)}.`;
-    if (truncatedNodes) notes.textContent = `${truncatedNodes} loaded node${truncatedNodes === 1 ? ' has' : 's have'} more relationships than are shown here; open a record for the rest.`;
-    if (collection.items.some(node => node.truncated)) notes.textContent += ' Some summaries are shortened.';
+    model.countLabel = (objects, connections) => `${objects} item${objects === 1 ? '' : 's'} · ${connections} connection${connections === 1 ? '' : 's'}`;
+    status.textContent = collection.hasMore || model.loadedNodes < totals.nodes ? `${model.loadedNodes} of ${totals.nodes} items shown · ${PUB_COPY.more}` : `${totals.nodes} item${totals.nodes === 1 ? '' : 's'}`;
+    if (truncatedNodes) notes.textContent = `${PUB_COPY.more}: some items have more connections than are shown. Open an item for the rest.`;
     if (collection.error) {
       const message = document.createElement('div');
       message.className = 'bad pub-error'; message.setAttribute('role', 'alert'); message.dataset.pubError = collection.error.integrity ? 'integrity' : 'transient';
-      message.textContent = collection.error.message;
+      message.textContent = collection.error.integrity ? PUB_COPY.changed : PUB_COPY.loadFailed;
       notes.append(message);
-      if (!collection.error.integrity) { more.hidden = false; more.textContent = 'Retry this page'; }
-    } else if (collection.hasMore) { more.hidden = false; more.textContent = 'Load more nodes'; }
+      if (!collection.error.integrity) { more.hidden = false; more.textContent = 'Retry'; }
+      else { more.hidden = false; more.textContent = 'Reload'; more.dataset.pubRestart = ''; }
+    } else if (collection.hasMore) { more.hidden = false; more.textContent = PUB_COPY.loadMore; }
     ctxClearGraph();
     _ctxGraph = contextGraph(graphHost, model.graph, {knowledgeGraph: model, storageKey, caption,
       onOpen: node => { const ref = node.item?.ref; if (ref) nav.open(ref); }});
   };
   async function load() { if (collection.loading) return; more.disabled = true; await collection.load(live); more.disabled = false; paint(); }
-  more.onclick = load;
+  more.onclick = () => { if (more.hasAttribute('data-pub-restart')) { more.removeAttribute('data-pub-restart'); collection.restart(); paint(); } load(); };
   refresh.onclick = () => { collection.restart(); paint(); load(); };
   collection.restart(); load();
 }
 
 // ---- Object (node / edge / source) ---------------------------------------------------------------------------------
-function pubChangesHtml(changes, state) {
-  if (state.status === 'forbidden') return '<div class="sec"><div class="sh">Change diagnostics</div><div class="empty pub-state" data-pub-state="changes-forbidden">Change diagnostics are an owner view and are not available to this role.</div></div>';
-  if (state.status === 'unavailable') return `<div class="sec"><div class="sh">Change diagnostics</div><div class="bad pub-state" data-pub-state="changes-unavailable" role="alert">${esc(state.message)} <button type="button" class="bt pub-changes-retry">Retry</button></div></div>`;
-  if (state.status === 'idle') return '<div class="sec"><div class="sh">Change diagnostics</div><p class="empty" role="status">Loading change diagnostics…</p></div>';
-  const rows = changes.items.map(event => `<details class="card n ctx-change pub-change"><summary><span class="kd">${esc(event.operation)}</span><span class="tt">${esc(event.submitted_by)}</span>
-    <span class="cs">${esc(event.recorded_at)} · ${esc(event.input_mode)}</span></summary>
-    <div class="cb">${pubCode(event.source.ref)} ${esc(event.source.title)} <small>${esc(event.source.path)}</small></div>
-    <div class="cs">${event.change_count} change${event.change_count === 1 ? '' : 's'}${event.changes_truncated ? ' (list shortened)' : ''}${event.action ? ` · action ${esc(event.action.action_ref)}` : ''}</div>
-    ${event.changes.map(change => `<div class="cs">${esc(change.operation)} ${pubRefButton(change.ref, change.ref)} ${esc(change.explanation)}</div>`).join('')}</details>`).join('');
-  return `<div class="sec"><div class="sh">Change diagnostics <span class="stamp">${changes.items.length} of ${changes.total}</span></div>
-    ${rows ? `<div class="cards">${rows}</div>` : '<div class="empty">No published events changed this record.</div>'}
-    ${changes.hasMore && !changes.error ? '<button type="button" class="bt pub-changes-more">Load more changes</button>' : ''}
-    ${changes.error ? pubErrorHtml(changes.error, 'Change diagnostics').replace('pub-again', 'pub-changes-again').replace('pub-restart', 'pub-changes-restart') : ''}</div>`;
-}
-
-const pubCommit = commit => `<code class="pub-commit" title="${esc(commit)}">${esc(commit)}</code>`;
-const pubCommits = list => list.length ? list.map(pubCommit).join(' ') : '<span class="pub-none">none</span>';
+// A stored record in the history, shown as content only: its text, attributes and endpoint names.
 function pubStoredHtml(label, stored) {
-  if (stored === null) return `<div class="pub-stored" data-pub-stored="${label}"><b>${label}:</b> <span class="pub-none">absent (no ${label === 'Before' ? 'earlier' : 'later'} stored record)</span></div>`;
-  const ends = stored.from_id !== undefined ? `<div class="cs">from <code>${esc(stored.from_id)}</code> → to <code>${esc(stored.to_id)}</code></div>` : '';
-  return `<div class="pub-stored" data-pub-stored="${label}"><b>${label}:</b> ${esc(stored.summary)} ${pubCode(stored.ref)}${ends}${pubAttributes(stored.attributes) || '<div class="cs pub-none">no attributes</div>'}</div>`;
+  if (stored === null) return `<div class="pub-stored" data-pub-stored="${label}"><b>${label}:</b> <span class="pub-none">None</span></div>`;
+  return `<div class="pub-stored" data-pub-stored="${label}"><b>${label}:</b> ${esc(stored.summary)}${pubAttributes(stored.attributes)}</div>`;
 }
 function pubHistoryDetails(entry) {
   const sameSummary = entry.before && entry.after && entry.before.summary === entry.after.summary;
-  return `<details class="pub-history-details"><summary>Evidence and changes</summary>
-    ${sameSummary ? '<div class="cs pub-unchanged">Summary unchanged; see the attributes and endpoints below.</div>' : ''}
+  return `<details class="pub-history-details"><summary>What changed</summary>
+    ${sameSummary ? '<div class="cs pub-unchanged">The text is unchanged; see the details below.</div>' : ''}
     ${pubStoredHtml('Before', entry.before)}${pubStoredHtml('After', entry.after)}
-    <div class="cs">Event ${pubCode(entry.event_id)} · commit ${pubCommit(entry.commit)} · ${esc(entry.recorded_at)}</div>
-    <div class="cs">Citations: ${pubCommits(entry.citations)}</div><div class="cs">Support after: ${pubCommits(entry.support_after)}</div>
-    ${entry.developments.map(d => `<div class="cs pub-development">${esc(String(d.date))}: ${esc(d.description)} · citations ${pubCommits(d.citations)}</div>`).join('')}</details>`;
+    ${entry.developments.map(d => `<div class="cs pub-development">${esc(String(d.date))}: ${esc(d.description)}</div>`).join('')}</details>`;
 }
 function pubHistoryHtml(history, kind) {
   const rows = history.items.map(entry => kind === 'source'
-    ? `<div class="card n pub-history${entry.operation === 'remove' ? ' pub-tombstone' : ''}" data-pub-history="${esc(entry.event_id)}"><div class="ct"><span class="kd">${esc(entry.operation === 'remove' ? 'removed' : entry.operation)}</span><span class="tt">${esc(entry.recorded_at)}</span></div>
-        <div class="cs">${entry.change_count} change${entry.change_count === 1 ? '' : 's'} · ${esc(entry.input_mode)} · <code>${esc(pubShort(entry.commit))}</code></div></div>`
+    ? `<div class="card n pub-history${entry.operation === 'remove' ? ' pub-tombstone' : ''}" data-pub-history="${esc(entry.event_id)}"><div class="ct"><span class="kd">${pubOperation(entry.operation)}</span><span class="tt">${esc(entry.recorded_at)}</span></div>
+        <div class="cs">${entry.change_count} change${entry.change_count === 1 ? '' : 's'}</div></div>`
     : `<div class="card n pub-history${entry.operation === 'remove' ? ' pub-tombstone' : ''}" data-pub-history="${esc(entry.event_id)}">
-        <div class="ct"><span class="kd">${esc(entry.operation === 'remove' ? 'removed' : entry.operation)}</span><span class="tt">${esc(entry.recorded_at)}</span></div>
+        <div class="ct"><span class="kd">${pubOperation(entry.operation)}</span><span class="tt">${esc(entry.recorded_at)}</span></div>
         <div class="cb">${esc(entry.explanation)}</div>
-        ${entry.operation === 'remove' ? '<div class="cs pub-tombstone-note">Tombstone: this record was removed from the published graph by this event.</div>' : ''}
-        <div class="cs">${pubRefButton(entry.source.ref, entry.source.title || entry.source.ref)} · ${esc(entry.input_mode)} · <code>${esc(pubShort(entry.commit))}</code></div>
+        <div class="cs">${pubRefButton(entry.source.ref, pubName(entry.source.title, 'source'))}</div>
         ${pubHistoryDetails(entry)}</div>`).join('');
-  return `<div class="sec pub-history-section"><div class="sh">History <span class="stamp">${history.items.length} of ${history.total}</span></div>
-    ${rows ? `<div class="cards">${rows}</div>` : '<div class="empty">No published events.</div>'}
-    ${history.hasMore && !history.error ? '<button type="button" class="bt pub-history-more">Load more history</button>' : ''}
-    ${history.error ? pubErrorHtml(history.error, 'History').replace('pub-again', 'pub-history-again').replace('pub-restart', 'pub-history-restart') : ''}</div>`;
+  return `<div class="sec pub-history-section"><div class="sh">History</div>
+    ${rows ? `<div class="cards">${rows}</div>` : '<div class="empty">No history yet.</div>'}
+    ${history.hasMore && !history.error ? `<button type="button" class="bt pub-history-more">${PUB_COPY.loadMore}</button>` : ''}
+    ${history.error ? pubErrorHtml(history.error).replace('pub-again', 'pub-history-again').replace('pub-restart', 'pub-history-restart') : ''}</div>`;
 }
 
 function pubEvidenceHtml(support) {
-  const rows = support.items.map(item => `<div class="card n pub-evidence"><div class="ct"><span class="kd">${esc(item.input_mode)}</span>
-    <span class="tt">${pubRefButton(item.source.ref, item.source.title || item.source.ref)}</span></div>
-    <div class="cs">${esc(item.recorded_at)} · event ${esc(item.event_id)} · <code>${esc(pubShort(item.commit))}</code> · ${esc(item.source.source_kind)}</div></div>`).join('');
-  return `<div class="sec pub-support"><div class="sh">Support evidence <span class="stamp">${support.items.length} of ${support.count}</span></div>
-    ${rows ? `<div class="cards">${rows}</div>` : '<div class="empty">No committed evidence.</div>'}${support.truncated ? '<div class="pub-trunc">The evidence list is shortened.</div>' : ''}</div>`;
+  const rows = support.items.map(item => `<div class="card n pub-evidence"><div class="ct"><span class="kd">Source</span>
+    <span class="tt">${pubRefButton(item.source.ref, pubName(item.source.title, 'source'))}</span></div>
+    <div class="cs">${esc(item.recorded_at)}</div></div>`).join('');
+  return `<div class="sec pub-support"><div class="sh">Sources</div>
+    ${rows ? `<div class="cards">${rows}</div>` : '<div class="empty">No sources.</div>'}${support.truncated ? `<div class="pub-trunc">${PUB_COPY.more}</div>` : ''}</div>`;
 }
 
 function pubObjectBody(view) {
   const data = view.object, object = data.object;
-  const crumbs = `<div class="crumbs">${view.nav.crumbs.map(c => `<button type="button" class="quiet pub-crumb" data-pub-go="${esc(c.go)}">${esc(c.label)}</button><span class="sep">›</span>`).join('')}<span class="cur">${esc(object.ref)}</span></div>`;
-  const head = (title, kind) => `<div class="th"><h2>${esc(title)}</h2><div class="pa"><span class="kd">${esc(kind)}</span> ${pubCode(object.ref)} ${pubRevision(data.revision)}</div></div>`;
+  const title = pubName(object.kind === 'source' ? object.title : object.summary, object.kind);
+  const crumbs = `<div class="crumbs">${view.nav.crumbs.map(c => `<button type="button" class="quiet pub-crumb" data-pub-go="${esc(c.go)}">${esc(c.label)}</button><span class="sep">›</span>`).join('')}<span class="cur">${esc(title)}</span></div>`;
+  const head = (name, kind) => `<div class="th"><h2>${esc(name)}</h2><div class="pa"><span class="kd">${esc(kind)}</span></div></div>`;
   let main = '';
   if (object.kind === 'node') {
     const shown = data.relationships.length;
-    main = head(object.summary, 'node') + pubAttributes(object.attributes) +
-      `<div class="sec pub-relationships"><div class="sh">Relationships <span class="stamp">${shown} of ${data.relationship_count}</span></div>
-        ${shown ? `<div class="cards">${data.relationships.map(edge => pubEdgeLine(edge, object.ref)).join('')}</div>` : '<div class="empty">none</div>'}
-        ${data.relationships_truncated ? '<div class="pub-trunc">More relationships exist than this record lists; the neighbourhood below pages through them.</div>' : ''}</div>` +
+    main = head(title, 'Item') + pubAttributes(object.attributes) +
+      `<div class="sec pub-relationships"><div class="sh">Relationships</div>
+        ${shown ? `<div class="cards">${data.relationships.map(edge => pubEdgeLine(edge, object.ref)).join('')}</div>` : '<div class="empty">None</div>'}
+        ${data.relationships_truncated ? `<div class="pub-trunc">${PUB_COPY.more}</div>` : ''}</div>` +
       pubExpandHtml(view) + pubEvidenceHtml(data.support);
   } else if (object.kind === 'edge') {
-    main = head(object.summary, 'edge') + pubAttributes(object.attributes) +
-      `<div class="sec pub-endpoints"><div class="sh">Endpoints</div><div class="cards">
-        <div class="card n"><div class="ct"><span class="kd">from</span><span class="tt">${pubRefButton(object.from.ref, object.from.summary == null ? object.from.ref : object.from.summary)}</span></div></div>
-        <div class="card n"><div class="ct"><span class="kd">to</span><span class="tt">${pubRefButton(object.to.ref, object.to.summary == null ? object.to.ref : object.to.summary)}</span></div></div></div></div>` +
+    main = head(title, 'Relationship') + pubAttributes(object.attributes) +
+      `<div class="sec pub-endpoints"><div class="sh">Connects</div><div class="cards">
+        <div class="card n"><div class="ct"><span class="kd">From</span><span class="tt">${pubRefButton(object.from.ref, pubName(object.from.summary, 'node'))}</span></div></div>
+        <div class="card n"><div class="ct"><span class="kd">To</span><span class="tt">${pubRefButton(object.to.ref, pubName(object.to.summary, 'node'))}</span></div></div></div></div>` +
       pubEvidenceHtml(data.support);
   } else {
     const content = view.text;
-    const body = !content ? '<div class="empty pub-state" data-pub-state="no-content">No committed text is published for this source.</div>'
-      : `<pre class="pub-source-text" tabindex="0" aria-label="Committed source text">${esc(content.text)}</pre>
-        <div class="cs">${content.loaded} of ${content.total_characters} characters${content.has_more ? '' : ' · complete'}</div>
-        ${content.has_more && !view.textError ? '<button type="button" class="bt pub-text-more">Load more text</button>' : ''}
-        ${view.textError ? pubErrorHtml(view.textError, 'Source text').replace('pub-again', 'pub-text-again').replace('pub-restart', 'pub-text-restart') : ''}`;
+    const body = !content ? '<div class="empty pub-state" data-pub-state="no-content">No text is available for this source.</div>'
+      : `<pre class="pub-source-text" tabindex="0" aria-label="Source text">${esc(content.text)}</pre>
+        ${content.has_more && !view.textError ? `<button type="button" class="bt pub-text-more">${PUB_COPY.loadMore}</button>` : ''}
+        ${view.textError ? pubErrorHtml(view.textError).replace('pub-again', 'pub-text-again').replace('pub-restart', 'pub-text-restart') : ''}`;
     const supports = data.supports;
-    main = head(object.title, 'source') +
-      `<div class="meta pub-source-meta">${esc(object.source_kind)} · origin ${esc(object.origin)} · ${esc(object.operation)} · ${esc(object.input_mode)}${object.created_at ? ` · ${esc(object.created_at)}` : ''}</div>
-       ${object.withdrawn ? '<div class="bad pub-withdrawn" role="status">This source was withdrawn; the records it supported remain in the published history.</div>' : ''}
-       ${object.origin_ref ? `<div class="cs pub-origin-ref">Origin reference (not opened): ${pubCode(object.origin_ref)}</div>` : ''}
-       <div class="sec pub-content"><div class="sh">Committed text</div>${body}</div>
-       <div class="sec pub-supports"><div class="sh">Supported records <span class="stamp">${supports.items.length} of ${supports.count}</span></div>
-         <div class="cards">${supports.items.map(item => item.kind === 'edge' ? pubEdgeLine(item) : pubFindCard(item)).join('') || '<div class="empty">none</div>'}</div>
-         ${supports.truncated ? '<div class="pub-trunc">The supported-records list is shortened.</div>' : ''}</div>`;
+    main = head(title, 'Source') +
+      (object.created_at ? `<div class="meta pub-source-meta">${esc(object.created_at)}</div>` : '') +
+       `${object.withdrawn ? '<div class="bad pub-withdrawn" role="status">Removed. The items it supported keep their history.</div>' : ''}
+       <div class="sec pub-content"><div class="sh">Text</div>${body}</div>
+       <div class="sec pub-supports"><div class="sh">Supports</div>
+         <div class="cards">${supports.items.map(item => item.kind === 'edge' ? pubEdgeLine(item) : pubFindCard(item)).join('') || '<div class="empty">None</div>'}</div>
+         ${supports.truncated ? `<div class="pub-trunc">${PUB_COPY.more}</div>` : ''}</div>`;
   }
-  return crumbs + main + pubHistoryHtml(view.history, object.kind === 'source' ? 'source' : 'item') + pubChangesHtml(view.changes, view.changesState);
+  return crumbs + main + pubHistoryHtml(view.history, object.kind === 'source' ? 'source' : 'item');
 }
 
 function pubExpandHtml(view) {
   const expand = view.expand;
-  if (view.changedPublication) return `<div class="sec pub-neighbourhood"><div class="sh">Neighbourhood</div><div class="bad pub-error" data-pub-error="publication-changed" role="alert">
-    The Context was published again between this record and its neighbourhood. <button type="button" class="bt pub-reload">Reload the record</button></div></div>`;
-  if (expand.status === 'idle') return '<div class="sec pub-neighbourhood"><div class="sh">Neighbourhood</div><p class="empty" role="status">Loading the neighbourhood…</p></div>';
-  if (expand.status !== 'ready') return `<div class="sec pub-neighbourhood"><div class="sh">Neighbourhood</div>${pubUnavailableHtml(expand.status, expand.reason, 'Retry')}</div>`;
-  return `<div class="sec pub-neighbourhood"><div class="sh">Neighbourhood <span class="stamp">${expand.items.length} of ${expand.total}</span></div>
+  if (view.changedPublication) return `<div class="sec pub-neighbourhood"><div class="sh">Connected</div><div class="bad pub-error" data-pub-error="publication-changed" role="alert">
+    ${PUB_COPY.changed} <button type="button" class="bt pub-reload">Reload</button></div></div>`;
+  if (expand.status === 'idle') return '<div class="sec pub-neighbourhood"><div class="sh">Connected</div><p class="empty" role="status">Loading…</p></div>';
+  if (expand.status !== 'ready') return `<div class="sec pub-neighbourhood"><div class="sh">Connected</div>${pubUnavailableHtml(expand.status, expand.reason, 'Retry')}</div>`;
+  return `<div class="sec pub-neighbourhood"><div class="sh">Connected</div>
     ${expand.items.length ? `<div class="cards">${expand.items.map(edge => pubEdgeLine(edge, view.ref)).join('')}</div>` : '<div class="empty">No relationships.</div>'}
-    ${expand.hasMore && !expand.error ? '<button type="button" class="bt pub-expand-more">Load more relationships</button>' : ''}
-    ${expand.error ? pubErrorHtml(expand.error, 'Neighbourhood').replace('pub-again', 'pub-expand-again').replace('pub-restart', 'pub-expand-restart') : ''}</div>`;
+    ${expand.hasMore && !expand.error ? `<button type="button" class="bt pub-expand-more">${PUB_COPY.loadMore}</button>` : ''}
+    ${expand.error ? pubErrorHtml(expand.error).replace('pub-again', 'pub-expand-again').replace('pub-restart', 'pub-expand-restart') : ''}</div>`;
 }
 
-function pubMountObject(host, scope, ref, nav, {changes: wantChanges = true} = {}) {
+function pubMountObject(host, scope, ref, nav) {
   const generation = ++pubMountGeneration, signal = pageReads.signal, live = pubLive(host, generation, signal, nav.current);
   const fail = message => { host.innerHTML = `<section class="pub-view"><div class="empty bad pub-route-error" role="alert">${esc(message)}</div><button type="button" class="bt pub-back">${esc(nav.backLabel)}</button></section>`;
     host.querySelector('.pub-back').onclick = () => nav.go(nav.crumbs[nav.crumbs.length - 1].go); };
-  if (!pubRefKind(ref)) return fail('This link is not a published Context reference (expected node:, edge: or source: followed by five characters).');
+  if (!pubRefKind(ref)) return fail('Unavailable');
   const kind = pubRefKind(ref);
   let loadGeneration = 0;   // one per record load: results of an older load never touch the current one
-  const view = {ref, nav, object: null, text: null, textError: null, changedPublication: false, changesState: {status: 'idle'}};
+  const view = {ref, nav, object: null, text: null, textError: null, changedPublication: false};
   const history = pubCollection({limit: PUB_LIMITS.history, items: data => data.history.items, pageOf: data => data.history.page, keyOf: entry => entry.event_id,
     verify: data => { if (data.object.ref !== ref) { const error = new Error('A history page was for a different record.'); error.integrity = true; throw error; } },
     read: cursor => pubRead(scope, 'context_object', {ref, history_limit: PUB_LIMITS.history, ...(cursor ? {history_cursor: cursor} : {})}, signal)});
@@ -461,9 +432,6 @@ function pubMountObject(host, scope, ref, nav, {changes: wantChanges = true} = {
     },
     read: cursor => pubRead(scope, 'context_expand', {ref, depth: 1, direction: 'both', limit: PUB_LIMITS.expand, ...(cursor ? {cursor} : {})}, signal)});
   view.expand = expand;
-  const changes = pubCollection({limit: PUB_LIMITS.changes, items: data => data.items, pageOf: data => data.page, keyOf: event => event.event_id,
-    read: cursor => pubRead(scope, 'context_changes', {ref, limit: PUB_LIMITS.changes, ...(cursor ? {cursor} : {})}, signal)});
-  view.changes = changes;
   const textLimit = PUB_LIMITS.text;
   const acceptText = (data, used) => {
     const content = data.content;
@@ -482,8 +450,8 @@ function pubMountObject(host, scope, ref, nav, {changes: wantChanges = true} = {
   };
   const paint = () => {
     if (!live() || !view.object) return;
-    host.innerHTML = `<section class="pub-view global-context-base global-context-object pub-object" data-pub-kind="${kind}" aria-label="Published ${kind}">${pubObjectBody({...view, object: view.object,
-      history: history_(), expand: expand_(), changes: changes_()})}</section>`;
+    host.innerHTML = `<section class="pub-view global-context-base global-context-object pub-object" data-pub-kind="${kind}" aria-label="${pubNeutral[kind]}">${pubObjectBody({...view, object: view.object,
+      history: history_(), expand: expand_()})}</section>`;
     pubWireRefs(host, nav);
     const on = (selector, fn) => host.querySelectorAll(selector).forEach(b => b.onclick = fn);
     on('.pub-history-more, .pub-history-again', () => run(history, paint));
@@ -492,15 +460,11 @@ function pubMountObject(host, scope, ref, nav, {changes: wantChanges = true} = {
     on('.pub-expand-more, .pub-expand-again', () => runExpand());
     on('.pub-expand-restart, .pub-retry', () => { expand.restart(); runExpand(); });
     on('.pub-reload', () => start());
-    on('.pub-changes-more, .pub-changes-again', () => runChanges());
-    on('.pub-changes-restart', () => { changes.restart(); runChanges(); });
-    on('.pub-changes-retry', () => { changes.restart(); runChanges(); });
     on('.pub-text-more, .pub-text-again', () => runText());
     on('.pub-text-restart', () => start());
   };
   const history_ = () => ({items: history.items, total: history.total ?? history.items.length, hasMore: history.hasMore, error: history.error});
   const expand_ = () => ({status: expand.status, reason: expand.reason, items: expand.items, total: expand.total ?? expand.items.length, hasMore: expand.hasMore, error: expand.error});
-  const changes_ = () => ({items: changes.items, total: changes.last?.total ?? changes.items.length, hasMore: changes.hasMore, error: changes.error});
   async function run(collection, repaint) { if (collection.loading) return; const g = loadGeneration; await collection.load(live); if (g === loadGeneration) repaint(); }
   async function runExpand() {
     if (expand.loading) return;
@@ -511,23 +475,6 @@ function pubMountObject(host, scope, ref, nav, {changes: wantChanges = true} = {
     if (expand.status === 'ready' && expand.revision !== view.object.revision) {
       expand.restart(); view.changedPublication = true;
     }
-    paint();
-  }
-  async function runChanges() {
-    if (!wantChanges) return;
-    if (changes.loading) return;
-    view.changesState = {status: 'ready'};
-    const before = changes.items.length, g = loadGeneration;
-    await changes.load(live);
-    if (!live() || g !== loadGeneration) return;
-    if (changes.error && !changes.integrity && ['forbidden', 'permission_denied'].includes(changes.error.code) && !before) {
-      view.changesState = {status: 'forbidden'}; changes.error = null;
-    } else if (changes.status === 'ready' || changes.error) {
-      view.changesState = {status: 'ready'};
-    }
-    if (changes.status === 'not_initialized' || changes.status === 'unavailable') view.changesState = {status: 'unavailable', message: changes.reason?.message || 'Change diagnostics are unavailable.'};
-    else if (changes.error && !changes.items.length && !changes.integrity && view.changesState.status !== 'forbidden')
-      view.changesState = {status: 'unavailable', message: changes.error.message || 'Change diagnostics could not be loaded.'};
     paint();
   }
   async function runText() {
@@ -546,14 +493,13 @@ function pubMountObject(host, scope, ref, nav, {changes: wantChanges = true} = {
   async function start() {
     const g = ++loadGeneration;
     view.textBusy = false;
-    history.restart(); expand.restart(); changes.restart(); view.text = null; view.textError = null; view.object = null; view.changedPublication = false;
-    view.changesState = {status: 'idle'};
-    host.innerHTML = '<p class="empty pad pub-loading" role="status">Loading the published record…</p>';
+    history.restart(); expand.restart(); view.text = null; view.textError = null; view.object = null; view.changedPublication = false;
+    host.innerHTML = '<p class="empty pad pub-loading" role="status">Loading…</p>';
     let data;
     try { data = await pubRead(scope, 'context_object', {ref, history_limit: PUB_LIMITS.history, text_limit: textLimit}, signal); }
     catch (error) {
       if (!live() || g !== loadGeneration) return;
-      host.innerHTML = `<section class="pub-view"><div class="empty bad pub-route-error" role="alert" data-pub-error="${error.code === 'not_found' ? 'not-found' : 'transient'}">${esc(error.message || 'The record could not be loaded.')}</div>
+      host.innerHTML = `<section class="pub-view"><div class="empty bad pub-route-error" role="alert" data-pub-error="${error.code === 'not_found' ? 'not-found' : 'transient'}">${error.code === 'not_found' ? 'Unavailable' : PUB_COPY.loadFailed}</div>
         <button type="button" class="bt pub-retry-object">Reload</button> <button type="button" class="bt pub-back">${esc(nav.backLabel)}</button></section>`;
       host.querySelector('.pub-retry-object').onclick = start;
       host.querySelector('.pub-back').onclick = () => nav.go(nav.crumbs[nav.crumbs.length - 1].go);
@@ -564,13 +510,12 @@ function pubMountObject(host, scope, ref, nav, {changes: wantChanges = true} = {
       host.innerHTML = `<section class="pub-view">${pubUnavailableHtml(data.status, data.reason, 'Retry')}</section>`;
       host.querySelector('.pub-retry').onclick = start; return;
     }
-    if (data.object.ref !== ref) { fail('The Context answered for a different record than the one requested.'); return; }
+    if (data.object.ref !== ref) { fail('Unavailable'); return; }
     view.object = data;
     try { history.apply(data, null); if (data.object.kind === 'source') acceptText(data, null); }
     catch (error) { history.error = error; }
     paint();
     if (data.object.kind === 'node') runExpand();
-    runChanges();
   }
   start();
 }

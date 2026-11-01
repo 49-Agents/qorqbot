@@ -125,12 +125,12 @@ async function acSave({ explicit = false } = {}) {
       ac.status = "saved";
       acListChanged();
     } catch (error) {
-      if (acUncertainError(error)) { ac.uncertain = request; ac.status = "error"; ac.message = "Not saved yet. It will retry without creating a duplicate."; }
+      if (acUncertainError(error)) { ac.uncertain = request; ac.status = "error"; ac.message = "Couldn't confirm. Try again"; }
       else if (error.code === "revision_conflict" && ac.record) {
         ac.uncertain = null; ac.conflict = true; ac.status = "conflict";
         ac.message = "This action changed elsewhere. Your text is kept; press Save to replace the saved version.";
         try { const fresh = await acOp("actions_get", { action_id: ac.record.id }); if (ac.draft === draftRef) acAdopt(fresh.action); } catch (_) { /* keep the draft */ }
-      } else { ac.uncertain = null; ac.status = "error"; ac.message = error.message || "Could not save this action."; }
+      } else { ac.uncertain = null; ac.status = "error"; ac.message = uiFailure(error); }
     } finally {
       ac.inflight = null;
     }
@@ -210,7 +210,7 @@ function acWithdraw() {
         close();
         if (ac.record === record) { ac.draft = acNewDraft(); ac.record = null; ac.status = "idle"; ac.message = ""; ac.conflict = false; ac.uncertain = null; }
         acPaint(); acListChanged(); toast("Action withdrawn.");
-      } catch (error) { box.textContent = error.code === "revision_conflict" ? "This action changed elsewhere. Reopen it to see the current revision." : error.message; box.hidden = false; }
+      } catch (error) { box.textContent = uiFailure(error); box.hidden = false; }
     } }] });
 }
 function acNewAction() {
@@ -231,7 +231,7 @@ function acStatusText() {
   if (ac.status === "blank") return "Type what was completed; blank text is not saved.";
   if (ac.inflight) return "Saving…";
   if (acDirty()) return effective.text ? "Unsaved changes" : "";
-  return ac.record ? `Saved · revision ${ac.record.revision}` : "";
+  return ac.record ? "Saved" : "";
 }
 function acPaintStatus() {
   const pop = $("#ac-pop"); if (!pop) return;
@@ -323,7 +323,7 @@ async function acListRefresh({ more = false } = {}) {
     acList.rows = more ? [...acList.rows, ...data.actions] : data.actions;
     acList.cursor = data.next_cursor; acList.error = ""; acList.key = key;
   } catch (error) {
-    if (seq === acList.seq) { acList.error = error.message || "Actions are unavailable."; acList.key = key; }
+    if (seq === acList.seq) { acList.error = uiFailure(error, {load: true}); acList.key = key; }
   } finally {
     if (seq === acList.seq) { acList.loading = false; acListPaint(); }
   }
@@ -352,7 +352,7 @@ function acRowHtml(action, i) {
       ${action.can_change ? `<button type="button" class="ghost ac-edit" data-ac-edit aria-label="Correct action">Correct</button>` : ""}</div>
     <div class="ac-row-meta"><time>${esc(acOccurred(action))}</time><span>${esc(acPerson(action))}</span><span>${esc(action.category || "Unclassified")}</span>${businesses.length ? `<span>${businesses.map(b => esc(b.name || b.slug || b.id)).join(", ")}</span>` : ""}${action.origin && action.origin !== "manual" ? `<span>${esc(action.origin)}</span>` : ""}${(action.tags || []).map(tag => `<span class="ac-tag">${esc(tag)}</span>`).join("")}<span>Revision ${esc(String(action.revision))}</span></div>
     ${refs.length || action.detail ? `<details class="ac-row-details"><summary>Details</summary>${action.detail ? `<p>${esc(action.detail)}</p>` : ""}${refs.map(([key, value]) => `<div><span class="muted">${esc(key)}</span> ${/^https?:\/\//.test(value) ? `<a href="${esc(value)}" target="_blank" rel="noopener">${esc(value)}</a>` : esc(value)}</div>`).join("")}</details>` : ""}
-    <details class="ac-row-discussion" data-ac-discussion><summary>Discussion and revisions</summary><div class="ac-discussion-body"></div></details>
+    <details class="ac-row-discussion" data-ac-discussion><summary>Discussion and earlier versions</summary><div class="ac-discussion-body"></div></details>
   </article>`;
 }
 
@@ -363,11 +363,11 @@ function acDiscussionMount(host, action) {
   if (host.dataset.mounted) return;
   host.dataset.mounted = "true";
   const view = { messages: [], participants: [], cursor: null, loading: false };
-  host.innerHTML = `<div class="ac-revisions"><label>Revision<select aria-label="Action revision">${Array.from({ length: action.revision }, (_, i) => action.revision - i).map(n => `<option value="${n}">${n}${n === action.revision ? " (current)" : ""}</option>`).join("")}</select></label><div class="ac-revision-text" role="status"></div></div>
+  host.innerHTML = `<div class="ac-revisions"><label>Version<select aria-label="Action version">${Array.from({ length: action.revision }, (_, i) => action.revision - i).map(n => `<option value="${n}">${n === action.revision ? "Current" : `Version ${n}`}</option>`).join("")}</select></label><div class="ac-revision-text" role="status"></div></div>
     <div class="ac-follow"><button type="button" class="quiet" data-follow="true">Follow</button><button type="button" class="quiet" data-follow="false">Unfollow</button></div>
     <div class="ac-thread" aria-label="Action discussion"></div><button type="button" class="quiet ac-older" hidden>Older messages</button><p class="muted ac-private-note">Comments from the owner go through the private conversation with Ordubashy.</p><p class="ferr" role="alert" hidden></p>`;
   const error = host.querySelector(".ferr"), thread = host.querySelector(".ac-thread"), older = host.querySelector(".ac-older");
-  const fail = e => { error.textContent = e.message || String(e); error.hidden = false; };
+  const fail = (e, load = false) => { error.textContent = uiFailure(e, {load}); error.hidden = false; };
   const person = id => view.participants.find(p => p.id === id);
   const name = id => { const p = person(id); return p ? (p.display_name || p.name || "Unknown") : "Unknown"; };
   const paint = () => {
@@ -390,7 +390,7 @@ function acDiscussionMount(host, action) {
       const data = await acOp("actions_thread_get", { action_id: action.action_id, limit: 20, ...(more && view.cursor ? { cursor: view.cursor } : {}) });
       const merged = new Map((more ? [...data.messages, ...view.messages] : data.messages).map(m => [m.id, m]));
       view.messages = [...merged.values()]; view.participants = data.participants || view.participants; view.cursor = data.next_cursor; error.hidden = true; paint();
-    } catch (e) { fail(e); } finally { view.loading = false; }
+    } catch (e) { fail(e, true); } finally { view.loading = false; }
   };
   older.onclick = () => load(true);
   host.querySelector("select").onchange = async event => {
@@ -398,7 +398,7 @@ function acDiscussionMount(host, action) {
     try {
       const data = await acOp("actions_get", { action_id: action.action_id, revision });
       out.textContent = `${data.action.operation ? data.action.operation + " · " : ""}${data.action.text}`;
-    } catch (e) { out.textContent = ""; fail(e); }
+    } catch (e) { out.textContent = ""; fail(e, true); }
   };
   host.querySelectorAll("[data-follow]").forEach(button => button.onclick = async () => {
     try { await acOp("actions_follow", { action_id: action.action_id, following: button.dataset.follow === "true", idempotency_key: newRequestId() }); toast(button.dataset.follow === "true" ? "Following this action." : "Unfollowed this action."); error.hidden = true; }
@@ -447,7 +447,7 @@ async function acOpenTask(action) {
       if (!biz) throw new Error("This task’s business is unavailable.");
     }
     await taskProgressOpenReference(biz, { type: "task", id });
-  } catch (error) { toast(error.message || "Task unavailable."); }
+  } catch (error) { toast(uiFailure(error, {load: true})); }
 }
 // The owner's Activity view lists canonical actions; other viewers keep the business log.
 function acActivityActive() { return acOwner(); }

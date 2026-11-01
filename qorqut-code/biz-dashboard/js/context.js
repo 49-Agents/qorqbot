@@ -181,13 +181,13 @@ async function ctxQueueRefresh() {
   const biz = state.biz, generation = _ctxGeneration, read = ++_ctxQueueRead, signal = pageReads.signal;
   try {
     const data = await srcReadProcesses({kind: "business", id: biz}, signal);
-    if (data?.error) throw new Error(typeof data.error === "string" ? data.error : data.error.message || "Context queue status is unavailable");
+    if (data?.error) throw new Error("Context queue status is unavailable");
     if (!srcQueueValid(data?.context_queue)) throw new Error("Context queue status was not returned");
     if (read !== _ctxQueueRead || generation !== _ctxGeneration || state.biz !== biz) return;
     _ctxQueue = {queue: data.context_queue};
   } catch (error) {
     if (read !== _ctxQueueRead || generation !== _ctxGeneration || state.biz !== biz) return;
-    _ctxQueue = {error: `Context queue status is unavailable: ${error.message}`};
+    _ctxQueue = {error: "Context needs attention"};
   }
   ctxQueueDraw();
   if ($("#ctxrows")) ctxTree(_ctxData || {loading: true});
@@ -432,18 +432,17 @@ function openUploads() {
   const live = () => state.biz === biz && state.ctx === "_uploads" && state.tab === "context" && v.isConnected;
   v.classList.remove("ctxembedded-view", "global-context-graph-view");
   v.innerHTML = `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><span class="cur">Uploads</span></div><div class="th"><h2>Uploads</h2></div>
-    <div data-src-recent></div><div data-src-lists></div>`;
+    <div data-src-lists></div>`;
   wireCrumbs(v);
   const open = id => ctxGo(`_source/${id}`);
   srcMountList(v.querySelector("[data-src-lists]"), scope, [{kind: "context_upload", label: "Uploads"}, {kind: "context_dump", label: "Dumps"}], {live, open});
-  srcMountRecentFilings(v.querySelector("[data-src-recent]"), scope, {live, open});
 }
-// one source document by its identity: current filing, bounded body, recorded diagnostics
+// one source document by its identity: name, plain filing status, bounded body
 function openSource(id) {
   const v = $("#ctxview"), biz = state.biz, route = `_source/${id}`;
   v.classList.remove("ctxembedded-view", "global-context-graph-view");
   srcMountSource(v, {kind: "business", id: biz}, id, {live: () => state.biz === biz && state.ctx === route && state.tab === "context",
-    crumbs: `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><a data-p="_uploads">Uploads</a><span class="sep">›</span><span class="cur">${esc(id)}</span></div>`,
+    crumbs: `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><a data-p="_uploads">Uploads</a><span class="sep">›</span><span class="cur">Source</span></div>`,
     wireCrumbs, openObject: ref => ctxGo(`_obj/${ref}`)});
 }
 

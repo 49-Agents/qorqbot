@@ -40,9 +40,8 @@ const GLOBAL_CHAT_INPUT_STATE = {
   failed: 'Not delivered. Nothing was typed.',
   undelivered: 'Not delivered: the session ended or a different conversation took over. Nothing was typed.',
 };
-const GLOBAL_CHAT_NOTICE_REASON = {
-  no_matching_input: 'No matching input receipt', type_mismatch: 'Type does not match its receipt', not_delivered: 'Receipt shows it was never delivered',
-};
+// The expanded text of an inbox nudge is system-generated and technical: the timeline shows only its compact marker.
+const globalChatMarkerOnly = type => type === 'inbox_nudge';
 const globalChatNoticeLabel = system => !system ? 'System notice'
   : system.verified ? GLOBAL_CHAT_INPUT_LABEL[system.input_type] || String(system.input_type || 'system notice').replace(/_/g, ' ')
   : 'Unverified notice';
@@ -278,7 +277,6 @@ function mountGlobalChat(pane, agent, options = {}) {
 
   const live = () => !disposed && root.isConnected;
   const listen = (target, type, handler, opts) => { target.addEventListener(type, handler, opts); cleanups.push(() => target.removeEventListener(type, handler, opts)); };
-  const failure = error => (error && (error.message || error)) || 'The request failed.';
   const preview = $q('.gchat-preview-window'), previewContent = $q('.gchat-preview-content');
   let previewTrigger = null;
   const clearPreview = () => {
@@ -384,8 +382,8 @@ function mountGlobalChat(pane, agent, options = {}) {
       const system = entry.system, verified = !!system?.verified;
       node.dataset.verified = String(verified);
       if (system?.input_type) node.dataset.inputType = system.input_type; else delete node.dataset.inputType;
-      const why = !verified && system?.reason ? GLOBAL_CHAT_NOTICE_REASON[system.reason] || system.reason : '';
-      node.innerHTML = `<div class="gchat-body"><span class="gchat-marker" ${why ? `title="${esc(why)}"` : ''}>${esc(globalChatNoticeLabel(system))}</span><span class="gchat-text">${esc(entry.text)}</span></div>`;
+      const markerOnly = verified && globalChatMarkerOnly(system.input_type);
+      node.innerHTML = `<div class="gchat-body"><span class="gchat-marker">${esc(globalChatNoticeLabel(system))}</span>${markerOnly ? '' : `<span class="gchat-text">${esc(entry.text)}</span>`}</div>`;
     } else {
       node.innerHTML = `<div class="gchat-body"><span class="gchat-text">${esc(entry.text)}</span></div>`;
     }
@@ -433,17 +431,16 @@ function mountGlobalChat(pane, agent, options = {}) {
       const system = item.origin === 'system', kind = GLOBAL_CHAT_INPUT_LABEL[item.input_type];
       node.className = `gchat-msg gchat-pending ${system ? 'gchat-notice' : 'gchat-user'}`;
       node.dataset.inputId = item.id; node.dataset.state = item.state; node.dataset.inputType = item.input_type;
-      const detail = item.reason && item.state !== 'uncertain' ? ` ${item.reason}` : '';
       const definite = ownerChat(item) && ['failed', 'undelivered'].includes(item.state) && !!item.body;
       const resendable = definite && viewingLive(), reusable = definite && !viewingLive() && !!defaultConversation();
       const dismissable = ['uncertain', 'failed', 'undelivered'].includes(item.state);
-      const signature = JSON.stringify([item.state, item.body, item.reason, kind, resendable, reusable, dismissable, canSend()]);
+      const signature = JSON.stringify([item.state, item.body, kind, resendable, reusable, dismissable, canSend()]);
       node.dataset.resendable = String(resendable);
       if (node.chatSignature !== signature) {
         node.chatSignature = signature;
-        const text = item.body ?? (item.input_type === 'telegram' ? 'Private message' : '');
+        const text = globalChatMarkerOnly(item.input_type) ? '' : item.body ?? (item.input_type === 'telegram' ? 'Private message' : '');
         node.innerHTML = `<div class="gchat-body">${kind ? `<span class="gchat-marker">${esc(kind)}</span>` : ''}${text ? `<span class="gchat-text">${esc(text)}</span>` : ''}</div>
-          <span class="gchat-state" data-state="${esc(item.state)}">${esc(GLOBAL_CHAT_INPUT_STATE[item.state] + detail)}</span>
+          <span class="gchat-state" data-state="${esc(item.state)}">${esc(GLOBAL_CHAT_INPUT_STATE[item.state])}</span>
           ${resendable || reusable || dismissable ? `<span class="gchat-pending-actions">${resendable ? `<button type="button" class="quiet" data-resend="${esc(item.id)}" ${canSend() ? '' : 'disabled'}>Resend</button>` : ''}${reusable ? `<button type="button" class="quiet" data-reuse="${esc(item.id)}">Use in current chat</button>` : ''}${dismissable ? `<button type="button" class="quiet" data-dismiss="${esc(item.id)}">Dismiss</button>` : ''}</span>` : ''}`;
       }
     }
@@ -566,7 +563,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       event.preventDefault(); form.requestSubmit();
     }
   };
-  const refusalText = problem => GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || failure(problem);
+  const refusalText = problem => GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || "Couldn't send. Try again";
   // One admission request. The result is recorded in module state so a mount that was left meanwhile loses nothing.
   const admit = async (text, key, pin) => coreData(await post(`${base}/messages`, {text, idempotency_key: key, expected_binding: pin}));
   function takeInput(item) {
@@ -594,7 +591,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       } catch (problem) {
         if (GLOBAL_CHAT_REFUSALS.has(problem.code)) { if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine); }
         if (live() && composerScope === mine) showBanner(GLOBAL_CHAT_REFUSALS.has(problem.code) ? refusalText(problem)
-          : `Delivery unconfirmed: ${failure(problem)} Press Send to check or retry this same message.`);
+          : "Couldn't confirm. Try again");
         if (problem.code === 'capture_not_ready' || problem.code === 'terminal_offline' || problem.code === 'terminal_changed') void load();
       } finally {
         GLOBAL_CHAT_INFLIGHT.delete(mine);
@@ -619,7 +616,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     } catch (problem) {
       resend.pending = false;
       if (GLOBAL_CHAT_REFUSALS.has(problem.code)) GLOBAL_CHAT_RESENDS.delete(id);
-      if (live()) showBanner(GLOBAL_CHAT_REFUSALS.has(problem.code) ? refusalText(problem) : `Delivery unconfirmed: ${failure(problem)} Press Resend to check or retry this same message.`);
+      if (live()) showBanner(GLOBAL_CHAT_REFUSALS.has(problem.code) ? refusalText(problem) : "Couldn't confirm. Try again");
     } finally { if (live()) paintSession(); }
   }
 
@@ -658,7 +655,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (fresh) { showBanner(''); toBottom(); } else afterChange(grew);
       if (!stream) connect();
     } catch (problem) {
-      if (live() && mine === generation) { paintSession(); showBanner(`Chat is unavailable: ${failure(problem)}`); status.textContent = 'Unavailable'; retry(() => load()); }
+      if (live() && mine === generation) { paintSession(); showBanner("Couldn't load. Retry"); status.textContent = 'Unavailable'; retry(() => load()); }
     } finally {
       if (mine === generation) { loading = false; if (again && live()) { again = false; void load(); } }
     }
@@ -678,7 +675,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       scroller.scrollTop = top + (scroller.scrollHeight - height);          // keep the reader's place
       atBottom = nearBottom();
       paintInputs();
-    } catch (problem) { if (live()) showBanner(`Could not load older messages: ${failure(problem)}`); }
+    } catch (problem) { if (live()) showBanner("Couldn't load. Retry"); }
     finally { if (live()) olderButton.disabled = false; }
   };
 
