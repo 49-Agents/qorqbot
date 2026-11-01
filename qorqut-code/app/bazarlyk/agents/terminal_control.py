@@ -344,4 +344,8 @@ class TerminalControl:
 
     def stop(self, timeout=5):
         self.stop_event.set()
-        if self.thread: self.thread.join(timeout)
+        thread = self.thread
+        if thread is None: return
+        thread.join(timeout)
+        if thread.is_alive(): raise TimeoutError('Terminal control is still draining')
+        self.thread = None

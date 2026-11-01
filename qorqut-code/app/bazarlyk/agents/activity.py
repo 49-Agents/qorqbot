@@ -216,7 +216,11 @@ class AgentActivity:
 
     def stop(self):
         self._stop.set()
-        if self._thread: self._thread.join(timeout=3)
+        thread=self._thread
+        if thread is None: return
+        thread.join(timeout=3)
+        if thread.is_alive(): raise TimeoutError('Agent activity observation is still draining')
+        self._thread=None
 
     def _observe(self):
         while not self._stop.is_set():

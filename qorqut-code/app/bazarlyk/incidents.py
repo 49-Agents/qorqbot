@@ -997,6 +997,10 @@ class IncidentDrain:
 
     def stop(self, timeout=5):
         self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=max(0, timeout))
+        thread = self._thread
+        if thread is None:
+            return
+        thread.join(timeout=max(0, timeout))
+        if thread.is_alive():
+            raise TimeoutError("System incident drain is still running")
         self._thread = None

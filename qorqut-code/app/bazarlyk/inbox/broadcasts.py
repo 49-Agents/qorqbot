@@ -278,10 +278,13 @@ class BroadcastDispatcher:
 
     def stop(self, timeout=5):
         self.stop_event.set()
-        if self.thread:
-            self.thread.join(timeout)
-            if not self.thread.is_alive():
-                self.thread = None
+        thread = self.thread
+        if thread is None:
+            return
+        thread.join(timeout)
+        if thread.is_alive():
+            raise TimeoutError("Broadcast dispatcher is still draining")
+        self.thread = None
 
     def _next(self, timing, now):
         if timing["kind"] == "once":
