@@ -1,0 +1,412 @@
+"""The SDK's one stateful HTTP endpoint, with a fresh principal on every request."""
+
+import logging
+from dataclasses import replace
+
+import anyio
+from mcp import types
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
+from mcp.server.auth.provider import AccessToken
+from mcp.server.lowlevel import Server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.exceptions import McpError
+from starlette.requests import Request
+
+from bazarlyk.contracts import DomainError, InvocationOptions, OperationResult, new_id, plain
+from bazarlyk.application.batches import NAME as BATCH_NAME
+from bazarlyk.agents.diagnostics import DIAGNOSTIC_OPERATIONS
+from bazarlyk.browser.operations import BROWSER_OPERATION
+from .results import failure
+from . import batches, mcp_presentation, mcp_reads
+
+logger = logging.getLogger(__name__)
+
+OPTION_SCHEMAS = {
+    "expected_revision": {"type": "integer", "minimum": 1},
+    "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 200},
+    "business_id": {"type": "string", "format": "uuid"},
+    "review_business_id": {"type": "string", "format": "uuid"},
+    "supersedes_signoff_id": {"type": "string", "format": "uuid"},
+    "expected_superseded_status_revision": {"type": "integer", "minimum": 1},
+}
+
+
+def split_options(arguments, *, domain_fields=()):
+    if not isinstance(arguments, dict):
+        raise DomainError("validation_error", "Operation arguments must be an object")
+    options = {key: value for key, value in arguments.items() if key in OPTION_SCHEMAS and key not in domain_fields}
+    return {key: value for key, value in arguments.items() if key not in options}, InvocationOptions.from_mapping(options)
+
+
+def tool_schema(registry, name):
+    descriptor = registry.get(name)
+    schema = plain(descriptor.input_schema)
+    if descriptor.transport_only:
+        return schema
+    options = (OPTION_SCHEMAS if descriptor.effect_kind != "read" else
+               {key: OPTION_SCHEMAS[key] for key in ("business_id", "review_business_id")})
+    schema["properties"] = {**options, **schema.get("properties", {})}
+    if descriptor.name in mcp_presentation.COMPACT_OPERATIONS:
+        schema["properties"]["response_detail"] = (
+            mcp_presentation.CONFIG_DETAIL_SCHEMA if descriptor.name == "agent_config_get"
+            else mcp_presentation.SUMMARY_DETAIL_SCHEMA if descriptor.name in mcp_presentation.SUMMARY_OPERATIONS
+            else mcp_presentation.DETAIL_SCHEMA)
+    if descriptor.name == "agent_config_get":
+        schema["properties"]["tool_names"] = mcp_presentation.TOOL_NAMES_SCHEMA
+        schema["properties"]["sections"] = mcp_presentation.SECTIONS_SCHEMA
+    if descriptor.name in mcp_reads.OPERATIONS:
+        schema["properties"]["if_read_token"] = mcp_reads.TOKEN_SCHEMA
+    required = set(schema.get("required", []))
+    if descriptor.effect_kind != "read":
+        required.add("idempotency_key")
+    for key, value in descriptor.alias_bindings.get(name, {}).items():
+        schema["properties"][key] = {**schema["properties"].get(key, {}), "const": plain(value)}
+        required.discard(key)
+    schema["required"] = sorted(required)
+    # Invocation fields belong to the same top-level object as domain selectors.
+    # Strict discriminated branches must accept them too; nested schemas retain
+    # their original additionalProperties/selector constraints.
+    domain_properties = descriptor.input_schema.get("properties", {})
+    transport_properties = {key:value for key,value in schema["properties"].items() if key not in domain_properties}
+    for keyword in ("oneOf", "anyOf", "allOf"):
+        for branch in schema.get(keyword, []):
+            if branch.get("type") == "object" or "properties" in branch:
+                branch["properties"] = {**transport_properties, **branch.get("properties", {})}
+    return schema
+
+
+def tool_annotations(descriptor):
+    return types.ToolAnnotations(readOnlyHint=descriptor.effect_kind == "read",
+        destructiveHint=descriptor.effect_kind != "read", idempotentHint=not descriptor.external_read,
+        openWorldHint=descriptor.external_read or descriptor.effect_kind == "job")
+
+
+class RegisteredAgentCaller:
+    """Existing registered-agent MCP behavior; other routes install their own caller."""
+
+    scope = "agent"
+
+    def __init__(self, runtime, authentication):
+        self.runtime, self.authentication = runtime, authentication
+
+    def authenticate(self, authorization):
+        return self.authentication.agent(authorization)
+
+    def identity(self, actor):
+        return (actor.principal.id, actor.credential_id, actor.registration_id)
+
+    def inventory(self, actor):
+        allowed = None
+        if actor.delegation_assignment_id:
+            with self.runtime.database.read() as uow:
+                assignment = uow.repository("operational_assignments").get(actor.delegation_assignment_id)
+                if (assignment is None or assignment["parent_principal_id"] != actor.principal.id
+                        or assignment["execution_generation"] != actor.delegation_generation
+                        or assignment["state"] != "running"):
+                    raise DomainError("unauthenticated", "Delegated worker assignment is no longer active")
+                from bazarlyk.agents.operational_delegation import WORKER_OPERATIONS
+                allowed = set(assignment["allowed_operations_json"]) | set(WORKER_OPERATIONS)
+        try:
+            rows = self.runtime.resolver.resolve_agent_config(actor.principal).data["tools"]
+            visible = [row for row in rows if allowed is None or row["canonical_operation"] in allowed]
+            if allowed is not None and BROWSER_OPERATION in allowed and not any(
+                    row["canonical_operation"] == BROWSER_OPERATION for row in visible):
+                descriptor = self.runtime.registry.get(BROWSER_OPERATION)
+                visible.append({"canonical_operation": BROWSER_OPERATION, "exposed_aliases": [],
+                                "available": True, "description": descriptor.description})
+            return visible
+        except DomainError:
+            if allowed is not None:
+                # A delegated connection never receives the ordinary repair
+                # inventory, which would be an alternate path around its plan.
+                return []
+            # A broken mandatory document must not hide the small repair
+            # interface too. This cannot expose ordinary business tools.
+            context = self.runtime.agent_context(actor.principal, diagnostic=True)
+            rows = []
+            with self.runtime.database.read() as uow:
+                for name in sorted(DIAGNOSTIC_OPERATIONS):
+                    try:
+                        descriptor = self.runtime.registry.get(name)
+                        self.runtime.application.authorize(context,
+                            descriptor.business_policy if context.business_id else descriptor, (), uow)
+                        rows.append({'canonical_operation': name, 'exposed_aliases': [], 'available': True})
+                    except DomainError:
+                        continue
+            return rows
+
+    def check_operation(self, canonical_name):
+        pass
+
+    def validate_options(self, actor, canonical_name, options):
+        pass
+
+    def validate_arguments(self, actor, canonical_name, args):
+        pass
+
+    @staticmethod
+    def exposes(descriptor):
+        return not descriptor.owner_only and "mcp" in descriptor.exposure
+
+    def invocation_context(self, actor, *, canonical_name, options):
+        context = self.runtime.agent_context(actor.principal, diagnostic=canonical_name in DIAGNOSTIC_OPERATIONS,
+            business_id=options.business_id,
+            session_registration_id=actor.registration_id, review_business_id=options.review_business_id)
+        if actor.delegation_binding_id:
+            context = replace(context, delegation_binding_id=actor.delegation_binding_id,
+                delegation_assignment_id=actor.delegation_assignment_id,
+                delegation_generation=actor.delegation_generation)
+        return context
+
+    def check_batch(self, actor):
+        if actor.delegation_assignment_id:
+            raise DomainError("forbidden", "Delegated workers cannot execute batches")
+        config = self.runtime.resolver.resolve_agent_config(actor.principal)
+        if not any(row["canonical_operation"] == BATCH_NAME and row["available"] and row["effective_mode"] == "allow"
+                   for row in config.data["tools"]):
+            raise DomainError("policy_denied", "Batch execution is not allowed for this agent")
+        return actor
+
+
+class MCPTransport:
+    def __init__(self, runtime, authentication, origins, caller=None):
+        self.runtime, self.authentication, self.origins = runtime, authentication, origins
+        self.caller = caller or RegisteredAgentCaller(runtime, authentication)
+        self.read_revalidation = mcp_reads.ReadRevalidation()
+        self.server = Server("bazarlyk", version="2.0.0")
+        self.manager = StreamableHTTPSessionManager(self.server, json_response=True,
+            security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+            session_idle_timeout=3600, max_request_body_size=2 * 1024 * 1024)
+
+        @self.server.list_tools()
+        async def list_tools():
+            try:
+                actor = self._request_actor()
+                inventory = await anyio.to_thread.run_sync(lambda: self.caller.inventory(actor))
+                tools = []
+                for row in inventory:
+                    if not row["available"]:
+                        continue
+                    descriptor = self.runtime.registry.get(row["canonical_operation"])
+                    for name in (row["canonical_operation"], *row["exposed_aliases"]):
+                        tools.append(types.Tool(name=name,
+                            description=(descriptor.description or name.replace("_", " ")) + mcp_presentation.description(descriptor.name),
+                            inputSchema=tool_schema(self.runtime.registry, name),
+                            annotations=tool_annotations(descriptor)))
+                return tools
+            except DomainError as exc:
+                raise McpError(types.ErrorData(code=-32000, message=exc.message, data=exc.to_dict())) from exc
+
+        @self.server.call_tool(validate_input=False)
+        async def call_tool(name, arguments):
+            if name == BATCH_NAME:
+                actor = None
+                try:
+                    actor = await self._authorize_batch()
+                    arguments = self.runtime.registry.bind_arguments(name, arguments)
+                    batches.validate_entries(arguments)
+                    value = await batches.execute(arguments, invoke=self._single_result, authorize=self._authorize_batch)
+                    if value.get("status") == "ok":
+                        self._report_transport_success(operation=BATCH_NAME, request_id=value.get("request_id"), actor=actor)
+                except DomainError as exc:
+                    value = OperationResult.failure(exc, request_id=new_id()).to_dict()
+                except Exception as exc:
+                    request_id = new_id()
+                    self.server.request_context.request.scope["bazarlyk.transport_failed"] = True
+                    if not getattr(exc, "_qorqut_incident_reported", False):
+                        self._report_transport_failure(operation=BATCH_NAME, request_id=request_id, actor=actor)
+                    logger.exception("MCP batch failed: %s", request_id)
+                    value = OperationResult.failure(DomainError("internal_error", "The batch failed; use its correlation ID for diagnosis"), request_id=request_id).to_dict()
+            else:
+                value = await self._single_result(name, arguments)
+            wire = mcp_presentation.finalize(value)
+            return types.CallToolResult(content=self._content_blocks(wire),
+                isError=value["status"] == "error")
+
+    @staticmethod
+    def _content_blocks(wire):
+        """Project private browser image payloads into real MCP content blocks."""
+        images = []
+
+        def strip(value):
+            if isinstance(value, dict):
+                private = value.get("_mcp_images")
+                if isinstance(private, list):
+                    images.extend(item for item in private if isinstance(item, dict))
+                return {key: strip(item) for key, item in value.items()
+                        if key not in {"_mcp_images", "content_base64"}}
+            if isinstance(value, list):
+                return [strip(item) for item in value]
+            return value
+
+        text = mcp_presentation.serialize(strip(wire))
+        blocks = [types.TextContent(type="text", text=text)]
+        for image in images:
+            data = image.get("data")
+            mime_type = image.get("mime_type")
+            if isinstance(data, str) and isinstance(mime_type, str) and mime_type.startswith("image/"):
+                blocks.append(types.ImageContent(type="image", data=data, mimeType=mime_type))
+        return blocks
+
+    def _report_transport_failure(self, *, operation, request_id, actor=None, context=None):
+        reporter = getattr(getattr(self.runtime, "incidents", None), "reporter", None)
+        if reporter is None:
+            reporter = getattr(getattr(self.runtime, "application", None), "incident_reporter", None)
+        if reporter is None:
+            return
+        principal = getattr(actor, "principal", None)
+        try:
+            reporter.transport_failure(component="mcp", operation=operation,
+                request_id=request_id, context=context,
+                agent_id=(principal.id if getattr(principal, "kind", None) == "agent" else None))
+        except Exception:
+            # Reporting must never replace or recurse into the transport error.
+            pass
+
+    def _report_transport_success(self, *, operation, request_id, actor=None, context=None):
+        reporter = getattr(getattr(self.runtime, "incidents", None), "reporter", None)
+        if reporter is None:
+            reporter = getattr(getattr(self.runtime, "application", None), "incident_reporter", None)
+        if reporter is None:
+            return
+        principal = getattr(actor, "principal", None)
+        try:
+            reporter.transport_success(component="mcp", operation=operation,
+                request_id=request_id, context=context,
+                agent_id=(principal.id if getattr(principal, "kind", None) == "agent" else None))
+        except Exception:
+            pass
+
+    async def _single_result(self, name, arguments, actor=None):
+        request_id = new_id()
+        detail = "full"
+        canonical_name = name
+        context = None
+        try:
+            actor = actor or self._request_actor()
+            descriptor = self.runtime.registry.get(name)
+            if not self.caller.exposes(descriptor):
+                raise DomainError("forbidden", "This operation is not exposed to agent MCP")
+            if descriptor.transport_only:
+                raise DomainError("validation_error", "Nested transport operations are not supported")
+            canonical_name = descriptor.name
+            self.caller.check_operation(canonical_name)
+            arguments, detail = mcp_presentation.split_detail(canonical_name, arguments)
+            arguments, tool_names = mcp_presentation.split_tool_names(canonical_name, arguments, detail)
+            arguments, sections = mcp_presentation.split_sections(canonical_name, arguments, detail)
+            arguments, read_token = mcp_reads.split(canonical_name, arguments, detail)
+            # A Global-only operation may target a business without selecting its
+            # scope (for example business_archive). Preserve its declared inputs;
+            # ordinary business selectors, including agent_config_get, still route.
+            domain_fields = descriptor.input_schema.get("properties", {}) if descriptor.scope_kinds == {"global"} else ()
+            args, options = split_options(arguments, domain_fields=domain_fields)
+            self.caller.validate_options(actor, canonical_name, options)
+            self.caller.validate_arguments(actor, canonical_name, args)
+            if canonical_name == "agent_config_get" and detail in {"compact", "summary", "context"}:
+                # These projections never return the live briefing. Prevent its
+                # potentially expensive domain reads from delaying the mandatory
+                # context that the caller explicitly requested.
+                options = replace(options, omit_work_briefing=True)
+            def invoke():
+                nonlocal context
+                context = self.caller.invocation_context(actor, canonical_name=canonical_name, options=options)
+                # Bind application observation to this transport call's
+                # correlation ID after trusted context resolution.
+                context = replace(context, request_id=request_id)
+                if canonical_name == BROWSER_OPERATION:
+                    self.runtime.registry.bind_arguments(canonical_name, args)
+                    namespace = self.runtime.application.namespace(context, descriptor, args)
+                    with self.runtime.database.read() as uow:
+                        self.runtime.application.authorize(context, descriptor, (), uow,
+                            namespace=namespace, arguments=args)
+                    body = dict(args)
+                    if options.business_id is not None and body.get("business_id") is None:
+                        body["business_id"] = options.business_id
+                    body["idempotency_key"] = options.idempotency_key
+                    value = self.runtime.browser_access.tool(actor, body["action"], body)
+                    return OperationResult.ok(value, request_id=request_id)
+                return self.runtime.application.invoke(context, name, args, options)
+            result = await anyio.to_thread.run_sync(invoke)
+            presented = mcp_presentation.present(canonical_name, result.to_dict(), detail,
+                tool_names=tool_names, sections=sections, arguments=args)
+            if read_token is not None and result.status == "ok":
+                # Authentication, argument binding, scope and policy checks, and
+                # the domain read have ALL completed before token comparison.
+                binding = {"caller_route": self.caller.scope, "identity": self.caller.identity(actor),
+                    "session": self.server.request_context.request.headers.get("mcp-session-id"),
+                    "operation": name, "operation_version": descriptor.version, "arguments": args,
+                    "detail": detail, "business_id": context.business_id,
+                    "review_business_id": context.review_business_id,
+                    "allowed_business_ids": sorted(context.allowed_business_ids),
+                    "global_capabilities": sorted(context.global_capabilities),
+                    "profile_revision": context.profile_revision, "policy_revision": context.policy_revision,
+                    "owner_session_business_id": context.owner_session_business_id,
+                    "delegation_binding_id": context.delegation_binding_id,
+                    "delegation_assignment_id": context.delegation_assignment_id,
+                    "delegation_generation": context.delegation_generation}
+                presented = self.read_revalidation.present(requested=read_token, binding=binding,
+                    canonical=result.to_dict(), presented=presented)
+            if presented.get("status") == "ok":
+                self._report_transport_success(operation=canonical_name, request_id=request_id,
+                    actor=actor, context=context)
+            return presented
+        except DomainError as exc:
+            result = OperationResult.failure(exc, request_id=request_id)
+        except Exception as exc:
+            try:
+                self.server.request_context.request.scope["bazarlyk.transport_failed"] = True
+            except Exception:
+                pass
+            if not getattr(exc, "_qorqut_incident_reported", False):
+                self._report_transport_failure(operation=canonical_name, request_id=request_id,
+                    actor=actor, context=context)
+            logger.exception("MCP operation failed: %s", request_id)
+            result = OperationResult.failure(DomainError("internal_error", "The operation failed; use its correlation ID for diagnosis"), request_id=request_id)
+        return result.to_dict()
+
+    async def _authorize_batch(self):
+        bound = self._request_actor()
+        authorization = self.server.request_context.request.headers.get("authorization")
+        def authorize():
+            actor = self.caller.authenticate(authorization)
+            if self.caller.identity(actor) != self.caller.identity(bound):
+                raise DomainError("unauthenticated", "Batch authentication no longer matches the request")
+            return self.caller.check_batch(actor)
+        return await anyio.to_thread.run_sync(authorize)
+
+    def _request_actor(self):
+        self.runtime.require_authority()
+        request = self.server.request_context.request
+        if request is None or "bazarlyk.auth" not in request.scope:
+            raise DomainError("unauthenticated", "No authenticated transport request is bound")
+        return request.scope["bazarlyk.auth"]
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return
+        request = Request(scope, receive)
+        actor = None
+        scope["bazarlyk.request_id"] = new_id()
+        scope["bazarlyk.transport_failed"] = False
+        try:
+            self.origins.validate(request)
+            if request.query_params:
+                raise DomainError("invalid_request", "MCP does not accept query credentials or identity selectors")
+            self.runtime.require_authority()
+            actor = await anyio.to_thread.run_sync(lambda: self.caller.authenticate(request.headers.get("authorization")))
+            scope["bazarlyk.auth"] = actor
+            transport_identity = actor.delegation_binding_id or actor.credential_id
+            scope["user"] = AuthenticatedUser(AccessToken(token=transport_identity, client_id=transport_identity,
+                scopes=[self.caller.scope], subject=actor.principal.id, claims={"iss": "bazarlyk"}))
+            await self.manager.handle_request(scope, receive, send)
+            if not scope["bazarlyk.transport_failed"]:
+                self._report_transport_success(operation="request", request_id=scope["bazarlyk.request_id"], actor=actor)
+        except DomainError as exc:
+            await failure(exc, new_id())(scope, receive, send)
+        except Exception as exc:
+            request_id = new_id()
+            if not getattr(exc, "_qorqut_incident_reported", False):
+                self._report_transport_failure(operation="request", request_id=request_id, actor=actor)
+            logger.exception("MCP transport failed: %s", request_id)
+            await failure(DomainError("internal_error", "The request failed; use its correlation ID for diagnosis"), request_id)(scope, receive, send)

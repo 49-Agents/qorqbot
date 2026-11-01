@@ -1,0 +1,19 @@
+#!/bin/sh
+# Run the pinned agent-browser with this runtime's own bundled Node, never a host Node.
+# Only this runtime's node/bin is prepended to the child's PATH; argv passes through unchanged.
+set -eu
+self=$(readlink -f -- "$0") || { echo "run-agent-browser: cannot resolve its own location" >&2; exit 126; }
+runtime=${self%/*}
+node="$runtime/node/bin/node"
+cli="$runtime/node_modules/agent-browser/bin/agent-browser.js"
+if [ ! -f "$node" ] || [ ! -x "$node" ]; then
+    echo "run-agent-browser: the bundled Node is missing or not executable ($node); build this runtime with tools/browser/build_runtime.py. The host Node is not used." >&2
+    exit 127
+fi
+if [ ! -f "$cli" ]; then
+    echo "run-agent-browser: the pinned agent-browser is not installed ($cli)" >&2
+    exit 127
+fi
+PATH="$runtime/node/bin${PATH:+:$PATH}"
+export PATH
+exec "$node" "$cli" "$@"

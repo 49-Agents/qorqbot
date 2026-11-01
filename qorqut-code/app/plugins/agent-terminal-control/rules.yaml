@@ -1,0 +1,4 @@
+authorization: service_enforced
+lifecycle: standing_coordinator_authority_with_explicit_overrides
+ping: exact_owner_command_only
+dev_messages: agents_message_send_terminal_delivery
