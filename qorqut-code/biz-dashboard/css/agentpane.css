@@ -93,8 +93,9 @@
 .agpad { min-width: 0; }
 .agpad[hidden] { display: none; }
 .agpad-inbox-status { display:flex; align-items:center; gap:8px; padding: 12px 16px; color: var(--fg-2); font-size: 12px; }
-.agpad-watcher-dot { flex:none; width:8px; height:8px; border-radius:50%; background:var(--fg-3); }
-.agpad-watcher-dot.connected { background:#30D158; }
+.agpad-delivery-dot { flex:none; width:8px; height:8px; border-radius:50%; background:var(--fg-3); }
+.agpad-inbox-status[data-delivery-state=idle] .agpad-delivery-dot,.agpad-inbox-status[data-delivery-state=submitted] .agpad-delivery-dot { background:#30D158; }
+.agpad-inbox-status[data-delivery-state=uncertain] .agpad-delivery-dot,.agpad-inbox-status[data-delivery-state=unavailable] .agpad-delivery-dot,.agpad-inbox-status[data-delivery-state=stale] .agpad-delivery-dot { background:var(--warn); }
 .agpad-inbox-heading { margin: 20px 16px 8px; color: var(--fg-2); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
 .agpad-inbox-item { display: block; width: 100%; height: auto; min-height: 76px; white-space: normal; line-height: 1.5; border: 0; border-radius: 0; border-bottom: 1px solid var(--line); padding: 12px 16px; background: transparent; color: var(--fg); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .agpad-inbox-item:hover, .agpad-inbox-item:focus-visible, .agpad-inbox-item:active { background: var(--hover); color: var(--fg); transform: none; }

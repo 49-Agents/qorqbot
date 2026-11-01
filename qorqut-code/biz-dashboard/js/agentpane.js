@@ -635,9 +635,31 @@ function agpadInboxAge(at, unavailable = 'Time unavailable') {
   return `${amount} ${unit}${amount === 1 ? '' : 's'} ago`;
 }
 
-function agpadWatcherAge(at) {
-  const age = agpadInboxAge(at, '');
-  return age ? `Last check: ${age}` : 'Last check unavailable';
+// Backend delivery of the inbox advisory (data.delivery, the same semantics as agents[].inbox): Qorqut types at most
+// one short notice into the agent's exact native session. Submission is never evidence that the agent read anything,
+// so no state here means read or acknowledged; only an exact acknowledgement by the agent does.
+const AGENT_DELIVERY_STATES = {
+  idle: 'Nothing waiting for a notice',
+  pending: 'Notice pending',
+  deferred: 'Notice deferred',
+  submitted: 'Notice submitted · processing unconfirmed',
+  uncertain: 'Notice may have been typed · not resent',
+  stale: 'Session changed · a new notice will follow',
+  unavailable: 'Notice delivery unavailable',
+  unknown: 'Delivery status unavailable',
+};
+const AGENT_DELIVERY_REASONS = {
+  offline: 'No live session; it is delivered after someone starts one manually',
+  nudge_backend_not_running: 'The delivery service is not running',
+  nudge_status_unavailable: 'The delivery status could not be read',
+  session_not_current: 'The session is not the current one',
+};
+function agentDeliveryView(delivery) {
+  const value = delivery && typeof delivery === 'object' ? delivery : {};
+  const stateName = AGENT_DELIVERY_STATES[value.state] ? value.state : 'unknown';
+  const reason = typeof value.reason === 'string' && value.reason ? (AGENT_DELIVERY_REASONS[value.reason] || value.reason.replace(/^not_typed:/, '').replace(/_/g, ' ')) : '';
+  const attention = ['pending', 'deferred', 'uncertain', 'stale', 'unavailable', 'unknown'].includes(stateName);
+  return {state: stateName, label: AGENT_DELIVERY_STATES[stateName], reason, at: value.last_attempt_at || null, attention};
 }
 
 // Current participants route replies; originals attribute authorship (core C7).
@@ -667,7 +689,7 @@ function agpadPaintInbox(p) {
     <strong>${esc(item.summary || 'Source item')}</strong><span>${esc(({focus_cards:'Focus Reference',tasks:'Task',signoffs:'Signoff',documents:'Document',email_conversations:'Email',data_tables:'Table',action_logs:'Action',requests:'Request',agent_profiles:'Agent',principals:'Person',context_entities:'Reference'})[item.source_type] || 'Update')}${subscription ? (item.include_related ? ' · Includes linked items' : ' · Item only') + (item.managed_by === 'thread_follow' ? ' · Following discussion' : item.managed_by === 'related_work' ? ' · Related work' : '') : ' · ' + esc(item.event_type.split(',').map(type => ({relationship_changed:'Links changed',assignment_changed:'Assignment changed',response_submitted:'Response submitted',action_outcome:'Action result',note_added:'Note added',note:'Note added',message_changed:'Message received'})[type] || type.replaceAll('_', ' ')).join(', '))}</span>
     ${subscription ? '' : `<span>${esc(item.actor_name)} · ${esc(agpadInboxAge(item.created_at))}</span>`}</button>`;
   const html = error + (!data ? tEmptyHtml(p.inboxError ? 'No inbox data available.' : 'Loading inbox…') :
-    `<div class="agpad-inbox-top"><h3 class="agpad-inbox-heading">Pending updates</h3><div class="agpad-inbox-status"><span class="agpad-watcher-dot${data.watcher_active ? ' connected' : ''}" role="img" aria-label="${data.watcher_active ? 'Watcher connected' : data.watcher ? 'Watcher disconnected' : 'Watcher not started'}" title="${data.watcher_active ? 'Watcher connected' : data.watcher ? 'Watcher disconnected' : 'Watcher not started'}"></span><span>${data.watcher ? esc(agpadWatcherAge(data.watcher.last_check_at)) : 'Claude must start its inbox watcher.'}</span></div></div>${data.items.length ? data.items.map(item => card(item)).join('') : tEmptyHtml('No accessible pending updates.')}
+    `<div class="agpad-inbox-top"><h3 class="agpad-inbox-heading">Pending updates</h3>${(view => `<div class="agpad-inbox-status" data-delivery-state="${esc(view.state)}"><span class="agpad-delivery-dot" role="img" aria-label="${esc(view.label)}" title="${esc(view.label)}"></span><span>${esc(view.label)}${view.reason ? ' · ' + esc(view.reason) : ''}${view.at ? ' · last attempt ' + esc(agpadInboxAge(view.at, '')) : ''}</span></div>`)(agentDeliveryView(data.delivery))}</div>${data.items.length ? data.items.map(item => card(item)).join('') : tEmptyHtml('No accessible pending updates.')}
     ${data.next_cursor ? '<button type="button" class="quiet" id="agpad-inbox-more">More updates</button>' : ''}
     <h3 class="agpad-inbox-heading">Subscriptions</h3>${data.subscriptions.length ? data.subscriptions.map(item => card(item, true)).join('') : tEmptyHtml('No subscriptions.')}`);
   if (p.bodyHtml === html) return;

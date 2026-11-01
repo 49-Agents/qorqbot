@@ -32,7 +32,7 @@ const GLOBAL_CHAT_REFUSAL_TEXT = {
   binding_not_ready: 'The live session is still connecting. Try again in a moment.',
   terminal_changed: 'The terminal changed before the message was admitted. Nothing was sent; check the agent and try again.',
 };
-const GLOBAL_CHAT_INPUT_LABEL = {inbox_nudge: 'Inbox nudge', telegram: 'Telegram', broadcast: 'Broadcast', direct_message: 'Direct message'};
+const GLOBAL_CHAT_INPUT_LABEL = {inbox_nudge: 'Inbox nudge', bootstrap_recovery: 'Session recovery', telegram: 'Telegram', broadcast: 'Broadcast', direct_message: 'Direct message'};
 const GLOBAL_CHAT_INPUT_STATE = {
   waiting: 'Waiting for the agent to take it. Not typed yet.',
   submitting: 'Sending…',
