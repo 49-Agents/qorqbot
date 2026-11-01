@@ -10,10 +10,31 @@ const GLOBAL_PINS_KEY = 'ag:global-pins:v1';
 // The lookup panel (business agents and Terminal) collapses on its own, and starts collapsed until the owner
 // chooses otherwise; this is neither the whole-navigation toggle nor pane state.
 const GLOBAL_BIZ_COLLAPSED_KEY = 'ag:global-biz-collapsed:v1';
-const globalPinnedAgents = () => {
+const globalLegacyPins = () => {
   try { const ids = JSON.parse(ls(GLOBAL_PINS_KEY) || '[]'); return new Set(Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : []); }
   catch (_) { return new Set(); }
 };
+let globalSavedPins = null;
+let globalPinWrites = Promise.resolve();
+const globalPinnedAgents = () => new Set(globalSavedPins || globalLegacyPins());
+const globalAcceptPins = data => {
+  globalSavedPins = data.pinned_agents;
+  ls(GLOBAL_PINS_KEY, JSON.stringify(globalSavedPins));
+};
+async function globalLoadPins() {
+  await globalPinWrites;
+  let data = coreData(await api('/root/agent-pins'));
+  if (!data.initialized) data = coreData(await post('/root/agent-pins', {initialize: [...globalLegacyPins()]}));
+  globalAcceptPins(data);
+}
+function globalSavePin(id, pinned) {
+  const write = globalPinWrites.then(async () => {
+    const data = coreData(await post('/root/agent-pins', {agent_id: id, pinned}));
+    globalAcceptPins(data);
+  });
+  globalPinWrites = write.catch(() => {});
+  return write;
+}
 // Retired profiles and archival records never reach the list, whatever was pinned.
 const globalActiveProfile = agent => !!agent && typeof agent.agent_id === 'string' && !agent.archival_record && (agent.status === undefined || agent.status === 'active');
 const globalTextParts = value => (Array.isArray(value) ? value : [value]).filter(part => typeof part === 'string' || typeof part === 'number').map(String);
@@ -39,6 +60,7 @@ async function renderGlobalAgents(c) {
   try {
     agents = globalAgentProfiles.length ? globalAgentProfiles : await loadGlobalAgentProfiles();
     if (!Array.isArray(agents)) throw new Error('The Global agent list is unavailable.');
+    await globalLoadPins();
   } catch (error) {
     if (!current()) return;
     c.innerHTML = `<section class="pane global-content"><div class="global-eyebrow">Global</div><h1>Agents</h1><p role="alert">${esc(error.message)}</p><button id="global-agents-retry">Retry</button></section>`;
@@ -181,16 +203,22 @@ async function renderGlobalAgents(c) {
     paintBusinessAgents(); loadBusinesses(retry);
   };
   // Pinned and lookup rows share one handler. Pinning only moves a row: it never selects or remounts anything.
-  const pinBusinessAgent = id => {
-    const pins = globalPinnedAgents(), wasPinned = pins.delete(id);
-    if (!wasPinned) pins.add(id);
-    ls(GLOBAL_PINS_KEY, JSON.stringify([...pins]));
-    paintBusinessAgents();
-    const control = root => root.querySelector(`[data-pin-agent="${CSS.escape(id)}"]`);
-    // Focus follows the moved control. A result hidden by collapse or by the query hands it to the nearest control.
-    if (!wasPinned) control(pinnedList)?.focus();
-    else if (bizRegion.hidden) bizToggle.focus();
-    else (control(bizList) || search).focus();
+  let pinSaving = false;
+  const pinBusinessAgent = async id => {
+    if (pinSaving) return;
+    pinSaving = true;
+    const wasPinned = globalPinnedAgents().has(id);
+    try {
+      await globalSavePin(id, !wasPinned);
+      if (!current()) return;
+      paintBusinessAgents();
+      const control = root => root.querySelector(`[data-pin-agent="${CSS.escape(id)}"]`);
+      if (!wasPinned) control(pinnedList)?.focus();
+      else if (bizRegion.hidden) bizToggle.focus();
+      else (control(bizList) || search).focus();
+    } catch (error) {
+      toast('Could not save pin. Please try again.');
+    } finally { pinSaving = false; }
   };
   const businessClick = event => {
     const pin = event.target.closest('[data-pin-agent]');
