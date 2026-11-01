@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import uuid
 
-from . import bootstrap
+from . import bootstrap, usage
 from .engine import atomic_write, file_lock
 from .runner import AppServerRunner, RunnerConfig
 from .schema import Conflict, ContextError, digest, encode, identifier
@@ -131,6 +131,15 @@ class Pipeline:
             result.append((path.parent, value))
         return sorted(result, key=lambda item: item[1]["sequence"])
 
+    def usage_receipts(self, event_id, *, limit=100, cursor=None):
+        """A bounded page of the private per-call usage receipts of one event, in attempt/stage order.
+
+        Read-only: takes no lock, creates nothing, starts nothing. Returns
+        ``{status, event_id, items, next_cursor, error}``; see CORE_CONTRACTS.md for the item DTO.
+        """
+        identifier(event_id)
+        return usage.page(self.context.runtime / "runs", event_id, limit=limit, cursor=cursor)
+
     def pending(self):
         job = self.context.pending()
         attempts = self._attempts(job["id"]) if job else []
@@ -239,7 +248,8 @@ class Pipeline:
                        "input_mode": draft["input_mode"],
                        "prompt_digests": prompts, "model": self.config.identity(), "configuration": asdict(self.config),
                        "sequence": len(previous) + 1, "stage": phase, "error": None,
-                       "bootstrap_key": bootstrap_key, "identities": {}, "completion": None}
+                       "bootstrap_key": bootstrap_key, "identities": {}, "completion": None,
+                       "bootstrap_call_id": None}
 
             def save():
                 atomic_write(directory / "attempt.json", encode(attempt))
@@ -249,6 +259,8 @@ class Pipeline:
                 save()
 
             save()
+            # Each actual runner call is reserved durably before it is launched and settled after.
+            calls = usage.AttemptCalls(self.runner, directory, attempt, self.config.identity())
             atomic_write(directory / "source-change.json", encode(source_change))
             tools = EventTools(self.context, event_id, max_response_bytes=self.config.tool_response_bytes)
             phase = attempt["stage"] = "bootstrap"
@@ -258,11 +270,14 @@ class Pipeline:
                 if old.get("bootstrap_key") == bootstrap_key and (old_directory / "bootstrap.json").exists():
                     sample = json.loads((old_directory / "bootstrap.json").read_bytes())
                     attempt["bootstrap_reused_from"] = old["attempt_id"]
+                    # A reused sample references its original call and is not charged again.
+                    calls.bootstrap_call_id = old.get("bootstrap_call_id")
                     break
             if sample is None:
-                sample = bootstrap.prepare(tools.base, source_change, self.runner,
+                sample = bootstrap.prepare(tools.base, source_change, calls,
                     directory=directory / "bootstrap", max_payload_bytes=self.config.payload_bytes,
                     rng=self.rng, on_identity=identity)
+            attempt["bootstrap_call_id"] = calls.bootstrap_call_id
             atomic_write(directory / "bootstrap.json", encode(sample))
             phase = attempt["stage"] = "propagation"
             save()
@@ -274,8 +289,8 @@ class Pipeline:
                                            "removed": value["record"] is None} for _, value in sorted(existing.items())],
                        "catalog_discovery": "Use read_catalog for all node or edge attribute names and chosen categorical values; it includes staged vocabulary.",
                        "draft_discovery": "Use read_draft and read_object to inspect existing staged records/support before creating more objects."}
-            result = self.runner.run(stage="propagation", instructions=instructions, payload=payload,
-                                     directory=directory / "propagation", tools=tools, on_identity=identity)
+            result = calls.run(stage="propagation", instructions=instructions, payload=payload,
+                               directory=directory / "propagation", tools=tools, on_identity=identity)
             attempt["completion"] = tools.completion
             attempt["turn_status"] = result.status
             save()

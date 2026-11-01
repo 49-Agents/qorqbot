@@ -15,9 +15,13 @@ import subprocess
 import tempfile
 import threading
 import time
+from typing import Protocol
 
 from .engine import atomic_write
 from .schema import ContextError, digest, encode
+from .usage import Usage, TOKEN_FIELDS, count_ok
+
+USAGE_METHOD = "thread/tokenUsage/updated"
 
 
 class RunnerError(ContextError):
@@ -65,6 +69,20 @@ class RunResult:
     thread_id: str
     turn_id: str
     model: str
+    usage: Usage | None = None      # the last observed cumulative snapshot; ``None`` when none was observed
+
+
+class Runner(Protocol):
+    """What the pipeline requires of a runner, including injected ones.
+
+    ``on_identity`` receives the cumulative identity dict as it grows. ``on_usage`` receives each cumulative
+    :class:`Usage` snapshot as soon as it is observed (a later one replaces, never adds to, an earlier one),
+    so usage persists even when the call later fails. A runner with no usage evidence simply never calls it.
+    """
+    config: RunnerConfig
+
+    def run(self, *, stage, instructions, payload, directory, tools=None, output_schema=None,
+            on_identity=None, on_usage=None) -> RunResult: ...
 
 
 # Use recognized feature flags, not tools.view_image (ignored by 0.160.0).
@@ -133,7 +151,7 @@ class AppServerRunner:
         self.config = config or RunnerConfig()
 
     def run(self, *, stage, instructions, payload, directory, tools=None,
-            output_schema=None, on_identity=None):
+            output_schema=None, on_identity=None, on_usage=None):
         if stage not in ("bootstrap", "propagation"):
             raise RunnerError("Unknown model stage")
         if stage == "bootstrap" and tools is not None:
@@ -148,12 +166,12 @@ class AppServerRunner:
             # Scratch contains no data, runtime logs, repository, or host instructions.
             with termination_guard(), tempfile.TemporaryDirectory(prefix="qorqut-context-model-") as scratch:
                 return self._run(stage, instructions, payload, definitions, tools, output_schema,
-                                 directory, scratch, log, on_identity)
+                                 directory, scratch, log, on_identity, on_usage)
         finally:
             log.close()
 
     def _run(self, stage, instructions, payload, definitions, tools, output_schema,
-             directory, scratch, log, on_identity):
+             directory, scratch, log, on_identity, on_usage):
         config = self.config
         overrides = restricted_config(config)
         command = [config.executable, "app-server", "--listen", "stdio://"]
@@ -215,6 +233,7 @@ class AppServerRunner:
         deadline = time.monotonic() + (config.bootstrap_timeout if stage == "bootstrap" else config.propagation_timeout)
         os.set_blocking(process.stdin.fileno(), False)
         thread_id, turn_id, serial = None, None, 0
+        latest_usage, ignored_usage = None, 0
         call_cache, messages = {}, {}
         deferred = []
         identities = {"stage": stage, **config.identity()}
@@ -252,6 +271,34 @@ class AppServerRunner:
         def same_turn(params):
             if params.get("threadId") != thread_id or params.get("turnId") != turn_id:
                 raise RunnerError("App-server request has mismatched thread/turn identity")
+
+        def this_turn(params):
+            return (thread_id is not None and turn_id is not None and
+                    params.get("threadId") == thread_id and params.get("turnId") == turn_id)
+
+        def observe_usage(params):
+            """Cumulative counters of exactly this thread/turn replace the snapshot; anything else is ignored."""
+            nonlocal latest_usage, ignored_usage
+            names = ("inputTokens", "cachedInputTokens", "outputTokens", "reasoningOutputTokens", "totalTokens")
+            counters = params.get("tokenUsage")
+            total = counters.get("total") if isinstance(counters, dict) else None
+            if not this_turn(params):
+                reason = "foreign_identity"
+            elif not isinstance(total, dict) or not all(count_ok(total.get(name)) for name in names):
+                reason = "malformed"
+            else:
+                reason = None
+            if reason:
+                ignored_usage += 1
+                log.write({"type": "usage_ignored", "reason": reason})
+                identity(usage_updates_ignored=ignored_usage)
+                return
+            # A fresh ephemeral thread runs exactly one turn, so its cumulative ``total`` is this call's usage.
+            latest_usage = Usage(**dict(zip(TOKEN_FIELDS, (total[name] for name in names))),
+                                 thread_id=thread_id, turn_id=turn_id, source=USAGE_METHOD)
+            log.write({"type": "token_usage", "total": {name: total[name] for name in names}})
+            if on_usage:
+                on_usage(latest_usage)
 
         def notification(value):
             method, params = value.get("method"), value.get("params", {})
@@ -297,6 +344,13 @@ class AppServerRunner:
                     if item.get("type") == "agentMessage":
                         messages[item["id"]] = item
                     log.write({"type": "item", "item": item})
+            elif method == USAGE_METHOD:
+                observe_usage(params)
+            elif method == "model/rerouted":
+                if this_turn(params) and isinstance(params.get("toModel"), str) and params["toModel"]:
+                    log.write({"type": "model_rerouted", "from": params.get("fromModel"),
+                               "to": params["toModel"], "reason": params.get("reason")})
+                    identity(observed_model=params["toModel"], rerouted_from=params.get("fromModel"))
             elif method == "error":
                 log.write({"type": "model_error", "params": params})
                 if not params.get("willRetry", False):
@@ -320,7 +374,8 @@ class AppServerRunner:
                         raise RunnerError("Malformed app-server RPC response")
                     return value["result"]
                 if method == "turn/start" and value.get("method") in (
-                        "item/started", "item/completed", "item/tool/call", "turn/completed"):
+                        "item/started", "item/completed", "item/tool/call", "turn/completed",
+                        USAGE_METHOD, "model/rerouted"):
                     deferred.append(value)
                 else:
                     notification(value)
@@ -365,8 +420,8 @@ class AppServerRunner:
                 "dynamicTools": definitions})
             thread_id = response["thread"]["id"]
             identity(thread_id=thread_id, cli_version=response["thread"]["cliVersion"],
-                     model_provider=response["modelProvider"], requested_service_tier="default",
-                     observed_service_tier=response.get("serviceTier"))
+                     model_provider=response["modelProvider"], observed_model=response.get("model"),
+                     requested_service_tier="default", observed_service_tier=response.get("serviceTier"))
             log.write({"type": "thread_settings", **{key: response.get(key) for key in (
                 "model", "modelProvider", "reasoningEffort", "serviceTier", "approvalPolicy", "sandbox")},
                 "instruction_sources": response.get("instructionSources", []),
@@ -442,7 +497,7 @@ class AppServerRunner:
                     output = "\n".join(item.get("text", "") for item in messages.values()
                                        if item.get("phase") in (None, "final_answer"))
                     identity(status=status, application_tool_calls=len(call_cache))
-                    return RunResult(status, output, thread_id, turn_id, config.model)
+                    return RunResult(status, output, thread_id, turn_id, config.model, latest_usage)
                 notification(value)
         finally:
             # This new process group belongs only to this invocation, including its code host.
