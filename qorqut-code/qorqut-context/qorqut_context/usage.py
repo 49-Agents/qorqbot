@@ -30,6 +30,7 @@ INT64 = 2 ** 63 - 1
 RECEIPT_BYTES, ATTEMPT_BYTES = 64 * 1024, 1024 * 1024
 TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z")
 ATTEMPT_ID = re.compile(r"[0-9a-f]{32}")
+FLAGS = ("usage_observed", "counters_complete", "usage_complete", "cost_observed")
 EVIDENCE_KEYS = {"usage_source", "usage_scope", "usage_updates", "ignored_updates", "usage_observed",
                  "counters_complete", "usage_complete", "cost_observed", "limitations"}
 RECEIPT_KEYS = {"format", "call_id", "event_id", "attempt_id", "attempt_sequence", "stage", "state", "started_at",
@@ -296,7 +297,8 @@ def validated_item(value, event_id, attempt_id, sequence, stage):
     label = f"Call receipt {attempt_id}:{stage}"
     check(set(value) == RECEIPT_KEYS and value["format"] == RECEIPT_FORMAT, label)
     check(value["call_id"] == f"{attempt_id}:{stage}" and value["event_id"] == event_id and
-          value["attempt_id"] == attempt_id and value["attempt_sequence"] == sequence and
+          value["attempt_id"] == attempt_id and type(value["attempt_sequence"]) is int and
+          value["attempt_sequence"] == sequence and
           value["stage"] == stage and value["state"] in STATES, label)
     check(type(value["started_at"]) is str and TIME.fullmatch(value["started_at"]), label)
     check(value["finished_at"] is None or (type(value["finished_at"]) is str and TIME.fullmatch(value["finished_at"])), label)
@@ -314,6 +316,7 @@ def validated_item(value, event_id, attempt_id, sequence, stage):
           count_ok(primary["usage_updates"]) and count_ok(primary["ignored_updates"]) and
           (primary["usage_updates"] > 0) == (primary["usage_source"] is not None) == (primary["usage_scope"] is not None), label)
     check(primary["usage_scope"] != "native" or (observed["thread_id"] is not None and observed["turn_id"] is not None), label)
+    check(all(type(primary[name]) is bool for name in FLAGS), label)       # 0 == False and 1 == True in Python
     check(primary == derived_evidence(value), label)
     bootstrap = value["bootstrap_call_id"]
     check(bootstrap is None or (stage == "propagation" and type(bootstrap) is str and
@@ -343,13 +346,15 @@ def attempts(runs, event_id):
     for name in names:
         directory = root / name
         state = probe(directory, "An attempt directory")
-        if state is None or not (stat.S_ISDIR(state.st_mode) or stat.S_ISLNK(state.st_mode)):
-            continue                                  # not an attempt directory
+        if state is None:
+            continue
+        check(not stat.S_ISLNK(state.st_mode), "An attempt directory")      # whatever it points to, however empty
+        if not stat.S_ISDIR(state.st_mode):
+            continue                                  # an unrelated file
         path = directory / "attempt.json"
         if probe(path, "An attempt record") is None:
             continue
-        check(ATTEMPT_ID.fullmatch(name) is not None and directory_present(directory, "An attempt directory"),
-              "An attempt directory")
+        check(ATTEMPT_ID.fullmatch(name) is not None, "An attempt directory")
         record = read_bounded(path, ATTEMPT_BYTES, "An attempt record")
         sequence = record.get("sequence")
         check(record.get("event_id") == event_id and record.get("attempt_id") == name and
