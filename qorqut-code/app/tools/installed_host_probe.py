@@ -2,15 +2,19 @@
 
 It imports only installed packages (``bazarlyk`` and ``qorqut_operations`` from the disposable environment), reads the
 checkout only as data (component and role-source locations) and builds a synthetic instance below its own work
-directory. It exits non-zero on the first failed assertion and prints one JSON receipt on success."""
+directory. It exits non-zero on the first failed assertion and prints one JSON receipt on success. The last sections are a
+package-composition check of the native archive and operational history libraries, not their activation or a final
+export policy."""
 
 from __future__ import annotations
 
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import sqlite3
+import subprocess
 import sys
 import types
 from datetime import datetime, timezone
@@ -232,7 +236,7 @@ check([row["event_type"] for row in selected["inbox_events"]] == ["response_subm
 evidence["selected_rows"] = {table: len(rows) for table, rows in selected.items()}
 
 
-# -- 8. A clean, bounded shutdown under the one lifetime owner ----------------------------------------------------------
+# -- 8. The services start under the one lifetime owner; neither new library is imported or activated by the host -------
 class Controller:
     """Bounded stand-ins for the services that would reach native sessions, terminals or providers."""
 
@@ -254,6 +258,98 @@ for name in ("global_chat", "activity", "incidents", "terminal_control", "conten
 runtime.start()
 threads = (runtime.signoffs._thread, background._thread)
 check(all(thread.is_alive() for thread in threads), "the Signoff and background services did not start")
+
+LIBRARIES = ("bazarlyk.native_archive", "bazarlyk.operations_history", "qorqut_operations.history_exports")
+transcripts = paths.agent_transcripts(agent, business_folder="first")
+check(not [name for name in sys.modules if name.startswith(LIBRARIES)],
+      "host composition, the retained slice or start-up imported an inert library: "
+      f"{sorted(name for name in sys.modules if name.startswith(LIBRARIES))}")
+check(not paths.history.exists() and not transcripts.exists(), "start-up created a history repository or a transcript archive")
+
+
+# -- 9. The native archive and the operational history coexist, inert, with the installed host and engine --------------
+def schema_objects():
+    connection = sqlite3.connect(f"file:{paths.database}?mode=ro", uri=True)
+    try:
+        return sorted(tuple(row) for row in connection.execute("SELECT type, name, sql FROM sqlite_master"))
+    finally:
+        connection.close()
+
+
+schema_before = schema_objects()
+real_tables = {row[1] for row in schema_before if row[0] == "table" and not row[1].startswith("sqlite_")}
+
+import bazarlyk.native_archive as archive_package  # noqa: E402
+import bazarlyk.operations_history as history_package  # noqa: E402
+import qorqut_operations.history_exports as export_package  # noqa: E402
+from bazarlyk.native_archive import CaptureBinding, TranscriptArchive  # noqa: E402
+from bazarlyk.operations_history import GlobalFiles, History  # noqa: E402
+from qorqut_operations.history_exports import ExportCatalog, HistoryContribution, Integer, TableExport, Text  # noqa: E402
+
+for module in (archive_package, history_package, export_package):
+    check(Path(module.__file__).resolve().is_relative_to(site), f"{module.__name__} does not load from the installed package")
+
+# 9a. One synthetic, bound Claude transcript is archived losslessly and read back.
+conversation = "33333333-3333-4333-8333-333333333333"
+agent_workspace = paths.agent_workspace(agent, business_folder="first")
+agent_workspace.mkdir(parents=True, exist_ok=True)  # the archive creates only its root's final directory
+provider_home = work / "provider-home"
+provider_home.mkdir()
+source = provider_home / "session.jsonl"
+line = json.dumps({"type": "user", "sessionId": conversation, "cwd": str(agent_workspace), "uuid": "m1",
+                   "message": {"role": "user", "content": "synthetic installed-archive line"}}).encode() + b"\n"
+source.write_bytes(line)
+binding = CaptureBinding(agent, "claude", conversation, 1, str(agent_workspace), str(source))
+archive = TranscriptArchive(transcripts)
+receipt = archive.capture(binding)
+check(receipt.sequence == 1 and receipt.length == len(line) and receipt.complete, f"unexpected archive receipt {receipt}")
+check(archive.capture(binding) == receipt and archive.latest(binding) == receipt, "an unchanged capture published a new receipt")
+raw = archive.read_raw(receipt, offset=0, limit=1 << 20)
+check(raw.data == line and raw.next_offset is None, "the archived bytes differ from the source")
+with archive.iter_records(receipt) as records:
+    check([(item.offset, item.length, item.kind) for item in records] == [(0, len(line), "json")], "unexpected archived records")
+evidence["archive"] = {"receipt_sequence": receipt.sequence, "bytes": receipt.length, "records": 1}
+
+# 9b. A deliberately partial catalog over declared safe columns: one snapshot is committed and says its coverage is incomplete.
+catalog = ExportCatalog([HistoryContribution("installed-probe", exports=(
+    TableExport("products", {"id": Text(), "name": Text(), "revision": Integer()}, ("id",)),))])
+target = database.assembly.target
+with database.read() as uow:
+    exported = catalog.export(uow)
+check((exported.schema.name, exported.schema.version, exported.schema.digest) == (target.name, target.version, target.digest),
+      "the export's schema identity is not the host assembly's")
+check(not exported.coverage_complete and set(exported.missing) == real_tables - {"products"},
+      "the partial catalog did not report exactly the unclassified tables as missing")
+(paths.files / "notes").mkdir(parents=True)
+(paths.files / "notes" / "plan.md").write_text("synthetic global note")
+history = History(database, paths=paths, catalog=catalog, areas=lambda uow: [GlobalFiles()],
+                  clock=lambda: "2026-10-11T12:00:00.000000Z")
+history.initialize()
+summary = history.snapshot()
+check(summary["changed"] and summary["files_complete"] and summary["rows"] == {"products": 1}, f"unexpected snapshot {summary}")
+check(summary["complete"] is False and summary["coverage_complete"] is False, "incomplete coverage was reported as complete")
+check(summary["coverage"]["missing_total"] == len(real_tables) - 1, "the snapshot's missing-table count is wrong")
+check(history.snapshot()["changed"] is False and history.status()["state"] == "incomplete", "unexpected history status")
+
+
+def git(*arguments):
+    done = subprocess.run(["git", "--git-dir", str(paths.history), *arguments], capture_output=True,
+                          env={"PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+    check(done.returncode == 0, f"git {arguments[0]} failed: {done.stderr.decode()[:200]}")
+    return done.stdout
+
+
+tree = set(git("ls-tree", "-r", "--name-only", "refs/heads/history").decode().split())
+check(tree == {"database/manifest.json", "database/products.jsonl", "files/notes/plan.md"}, f"unexpected history tree {sorted(tree)}")
+objects = git("cat-file", "--batch-all-objects", "--batch")
+exported_row = json.loads(git("show", "refs/heads/history:database/products.jsonl").decode().splitlines()[0])
+check(set(exported_row) == {"id", "name", "revision"} and exported_row["name"] == "Widget", f"unexpected exported row {exported_row}")
+check(business.encode() not in objects and agent.encode() not in objects, "an undeclared column value reached the history")
+check(schema_objects() == schema_before, "the archive or history changed the database schema")
+evidence["history"] = {"commit": summary["commit"], "tree": sorted(tree), "rows": summary["rows"], "complete": summary["complete"],
+                       "missing_tables": summary["coverage"]["missing_total"], "schema_unchanged": True}
+
+# -- 10. A clean, bounded shutdown ---------------------------------------------------------------------------------------
 report = runtime.stop()
 check(report.clean and report.database_closed and not any(thread.is_alive() for thread in threads), "the shutdown was not clean")
 evidence["shutdown"] = {"clean": report.clean, "database_closed": report.database_closed, "stopped": list(report.stopped)}

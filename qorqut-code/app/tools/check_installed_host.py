@@ -17,7 +17,10 @@ Nothing global or live is touched. In ``workdir`` (a temporary directory by defa
   the installed files are byte-identical to the recorded commits; that the host's engine-owned types are the installed
   Operations types; and it runs the small retained-operations gate on a synthetic instance (a protected proposal
   approved and applied once, a registered non-Context program under its worker, an ordinary retained read, a read-only
-  row selection of the committed outcome and a clean bounded shutdown).
+  row selection of the committed outcome and a clean bounded shutdown). It also shows that the inert native archive
+  and operational history libraries are not imported or activated by the host's start-up, then composes them with the
+  installed host and engine: one bound synthetic transcript capture and read, and one history snapshot over a
+  deliberately partial export catalog that must report incomplete coverage.
 
 No model, provider, browser, native session, network service or operational data is used. The probe's package-index
 access is only ``pip`` installing declared dependencies into the disposable environment.
