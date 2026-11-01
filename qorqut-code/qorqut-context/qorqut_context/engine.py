@@ -168,10 +168,28 @@ class Context:
                 return candidate
         raise Conflict("Could not allocate an unused five-character ID")
 
+    @staticmethod
+    def _evidence(**values):
+        """Optional controlled evidence in the order it joins identity; ``None`` means not supplied and is omitted."""
+        return {name: value for name, value in values.items() if value is not None}
+
     def begin(self, operation, path, *, content=None, metadata=None, submitted_by,
-              event_id=None, source_bytes=modes.SOURCE_BYTES) -> Submission:
+              event_id=None, source_bytes=modes.SOURCE_BYTES, record_context=None,
+              expected_revision=None) -> Submission:
+        """Stage one GENERAL source change.
+
+        ``record_context`` is optional trusted-caller evidence ``{scope, provenance}`` bound into the
+        submission and recorded in its event; it creates no permission. ``expected_revision`` is an
+        optional full published commit that a NEW event requires to be the published head when it is
+        staged; it is bound into the submission but is not recorded as a second base.
+        """
         if operation not in ("add", "edit", "remove"):
             raise ContextError("Source operation must be add, edit, or remove")
+        if record_context is not None:
+            self._validate_source(None, source_bytes)
+            record_context = modes.record_context(record_context, source_bytes)
+        if expected_revision is not None:
+            modes.full_commit(expected_revision, "expected_revision")
         path = source_path(path)
         if path.startswith("foundation/actions/"):
             raise ContextError("foundation/actions/ is reserved for accepted action evidence")
@@ -193,9 +211,10 @@ class Context:
             if metadata is None and default_source:
                 metadata = {k: v for k, v in default_source["source"].items() if k not in ("id", "path")}
             normalized = normalize_metadata(metadata)
+            evidence = self._evidence(record_context=record_context, expected_revision=expected_revision)
             request_digest = digest({"input_mode": modes.GENERAL, "operation": operation, "path": path,
                                      "content": hashlib.sha256(content).hexdigest() if content is not None else None,
-                                     "metadata": normalized, "submitted_by": submitted_by})
+                                     "metadata": normalized, "submitted_by": submitted_by, **evidence})
             if existing:
                 if existing["submission_digest"] != request_digest:
                     raise Conflict("A published event ID cannot be reused with different input")
@@ -205,6 +224,8 @@ class Context:
                 if pending["id"] != event_id or pending["submission_digest"] != request_digest:
                     raise Conflict("Complete, retry, or discard the pending event before submitting another")
                 return Submission(pending["id"], pending["source"]["id"], pending["base_revision"])
+            if expected_revision is not None and snapshot.revision != expected_revision:
+                raise Conflict("Stale expected revision: the published head is not the expected commit")
             self._validate_source(content, source_bytes)
             if operation in ("edit", "remove"):
                 self._validate_source(snapshot.files.get(path), source_bytes)
@@ -222,7 +243,7 @@ class Context:
                          else previous["source"]["id"])
             return self._stage_submission(snapshot, event_id, source_id, path, normalized,
                 operation, content, submitted_by, request_digest, source_bytes, previous,
-                input_mode=modes.GENERAL)
+                input_mode=modes.GENERAL, evidence=evidence)
 
     @staticmethod
     def _require_current_format(job):
@@ -246,7 +267,7 @@ class Context:
 
     def _stage_submission(self, snapshot, event_id, source_id, path, metadata, operation,
                           content, submitted_by, request_digest, source_bytes, previous,
-                          *, input_mode, action=None):
+                          *, input_mode, action=None, evidence=None):
         directory = self._event_directory(event_id)
         if content is not None:
             atomic_write(directory / "input.bin", content)
@@ -263,12 +284,20 @@ class Context:
                "reserved_ids": [event_id, source_id], "draft": {}}
         if action is not None:
             job["action"] = action
+        job.update(evidence or {})
         self._save(job)
         return Submission(event_id, source_id, snapshot.revision)
 
     def begin_action(self, operation, action_ref, *, text=None, revision_ref=None,
                      related_objects=None, tags=None, submitted_by, event_id=None,
-                     expected_previous_commit=None, source_bytes=modes.SOURCE_BYTES) -> Submission:
+                     expected_previous_commit=None, source_bytes=modes.SOURCE_BYTES,
+                     record_context=None) -> Submission:
+        """Stage one accepted Action revision.
+
+        ``record_context`` is optional trusted-caller evidence ``{scope, provenance}``: it joins the
+        canonical Action source document (add/edit), the submission identity and the event, and
+        is retained by a removal's event. It is separate from tags, which stay ordinary labels.
+        """
         if operation not in ("add", "edit", "remove"):
             raise ContextError("Action operation must be add, edit, or remove")
         action_ref = modes.opaque_ref(action_ref, "action_ref")
@@ -278,6 +307,7 @@ class Context:
         submitted_by = modes.text(submitted_by, "submitted_by")
         related_objects = modes.pointers([] if related_objects is None else related_objects)
         self._validate_source(None, source_bytes)
+        record_context = modes.record_context(record_context, source_bytes)
         if event_id is not None:
             identifier(event_id)
         if expected_previous_commit is not None:
@@ -292,13 +322,15 @@ class Context:
                 raise ContextError("Action removal supplies no text or pointers")
             content = None
         else:
-            content = modes.action_document(action_ref, revision_ref, text, related_objects, tags, source_bytes)
+            content = modes.action_document(action_ref, revision_ref, text, related_objects, tags,
+                                            source_bytes, record_context)
         action = {"action_ref": action_ref, "revision_ref": revision_ref,
                   "pointers": related_objects, "tags": tags,
                   "expected_previous_commit": expected_previous_commit}
+        evidence = self._evidence(record_context=record_context)
         request_digest = digest({"input_mode": modes.ACTION, "operation": operation,
             "content": hashlib.sha256(content).hexdigest() if content is not None else None,
-            "action": action, "submitted_by": submitted_by})
+            "action": action, "submitted_by": submitted_by, **evidence})
         with self._lock():
             snapshot, pending = self.snapshot(), self._job()
             existing = snapshot.events.get(event_id)
@@ -332,7 +364,7 @@ class Context:
             return self._stage_submission(snapshot, event_id, source_id, path,
                 {"kind": "accepted_action", "title": action_ref, "origin": "controlled_caller"},
                 operation, content, submitted_by, request_digest, source_bytes, previous,
-                input_mode=modes.ACTION, action=action)
+                input_mode=modes.ACTION, action=action, evidence=evidence)
 
     def stage_handoff_note(self, event_id, text):
         with self._lock():
@@ -528,6 +560,7 @@ class Context:
         event = {k: job[k] for k in ("format_version", "id", "base_revision", "submission_digest",
                                     "operation", "submitted_by", "source", "input_mode",
                                     "input_digest", "previous_source_event")}
+        event.update({key: job[key] for key in ("record_context",) if key in job})
         event.update(mode_outputs)
         event["changes"] = sorted(changes, key=lambda c: (c["kind"], c["id"]))
         files[f"graph/events/{job['id']}.json"] = encode(event)
@@ -536,7 +569,8 @@ class Context:
     def _validate_mode_output(self, snapshot, job, objects, content):
         mode = job["input_mode"]
         request = {"input_mode": mode, "operation": job["operation"],
-                   "content": job["input_digest"], "submitted_by": job["submitted_by"]}
+                   "content": job["input_digest"], "submitted_by": job["submitted_by"],
+                   **self._evidence(**{key: job.get(key) for key in ("record_context", "expected_revision")})}
         if mode == modes.GENERAL:
             if "action" in job or "action_associations" in job:
                 raise ContextError("GENERAL input rejects action output")
@@ -554,7 +588,8 @@ class Context:
             if content is not None:
                 document = json.loads(content)
                 expected = modes.action_document(action["action_ref"], action["revision_ref"],
-                    document["text"], action["pointers"], action["tags"], job["source_bytes"])
+                    document["text"], action["pointers"], action["tags"], job["source_bytes"],
+                    job.get("record_context"))
                 if content != expected:
                     raise Conflict("Action evidence does not match the bound input")
             output = job.get("action_associations")
@@ -626,7 +661,7 @@ class Context:
         return digest({key: job[key] for key in (
             "format_version", "id", "base_revision", "submission_digest", "operation", "submitted_by",
             "source", "input_digest", "source_bytes", "input_mode", "previous_source_event", "draft")}
-            | {key: job[key] for key in ("action", "handoff_note", "action_associations") if key in job})
+            | {key: job[key] for key in ("action", "handoff_note", "action_associations", "record_context") if key in job})
 
     def inspect_draft(self, event_id, *, validate=False):
         """Inspect a pending draft; optionally run publication validation, without publishing.
@@ -643,7 +678,7 @@ class Context:
                     "submission_digest": job["submission_digest"],
                     "input_digest": job["input_digest"], "draft": job["draft"],
                     "input_mode": job["input_mode"], "previous_source_event": job["previous_source_event"],
-                    **{key: job[key] for key in ("action", "handoff_note", "action_associations") if key in job},
+                    **{key: job[key] for key in ("action", "handoff_note", "action_associations", "record_context") if key in job},
                     "digest": self._draft_digest(job), "validated": validate}
 
     def publish(self, event_id, *, expected_draft_digest=None):

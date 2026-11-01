@@ -1,4 +1,7 @@
 """Format-2 input/output validation; meaning remains the caller's responsibility."""
+import math
+import re
+
 from .schema import ContextError, encode, identifier, normalize_date, text
 
 
@@ -60,12 +63,75 @@ def tag_snapshots(values):
     return result
 
 
-def action_document(action_ref, revision_ref, action_text, related_objects, tags, limit):
+def _json_value(value, limit):
+    """A deep copy of ``value`` if it is strictly JSON-compatible; nothing is converted or stringified."""
+    if value is None or type(value) in (bool, int):
+        return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ContextError("record_context numbers must be finite JSON numbers")
+        return value
+    if type(value) is str:
+        utf8(value, "record_context text", limit)
+        return value
+    if type(value) is list:
+        return [_json_value(member, limit) for member in value]
+    if type(value) is dict:
+        result = {}
+        for key, member in value.items():
+            if type(key) is not str:
+                raise ContextError("record_context object keys must be strings")
+            utf8(key, "record_context key", limit)
+            result[key] = _json_value(member, limit)
+        return result
+    raise ContextError("record_context may contain only JSON-compatible values")
+
+
+def record_context(value, limit=SOURCE_BYTES):
+    """Trusted caller evidence ``{scope, provenance}``; it grants no permission, ownership or write capability.
+
+    ``None`` means no supplied record context. The canonical serialization obeys the source byte limit.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {"scope", "provenance"}:
+        raise ContextError("record_context requires exactly scope and provenance")
+    scope = value["scope"]
+    if not isinstance(scope, dict):
+        raise ContextError("record_context scope must be an object")
+    if scope.get("kind") == "global" and set(scope) == {"kind"}:
+        normalized_scope = {"kind": "global"}
+    elif scope.get("kind") == "business" and set(scope) == {"kind", "business_id"}:
+        normalized_scope = {"kind": "business", "business_id": opaque_ref(scope["business_id"], "record_context business_id")}
+    else:
+        raise ContextError("record_context scope must be {kind: 'global'} or {kind: 'business', business_id}")
+    if not isinstance(value["provenance"], dict):
+        raise ContextError("record_context provenance must be a JSON object")
+    try:
+        result = {"scope": normalized_scope, "provenance": _json_value(value["provenance"], limit)}
+        size = len(encode(result))
+    except RecursionError as error:
+        raise ContextError("record_context is nested too deeply") from error
+    if size > limit:
+        raise ContextError("record_context exceeds the configured byte limit")
+    return result
+
+
+def full_commit(value, name):
+    """A full Git commit hash; never ``self``, a branch name or another revision expression."""
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value):
+        raise ContextError(f"{name} must be a full published commit")
+    return value
+
+
+def action_document(action_ref, revision_ref, action_text, related_objects, tags, limit, record_context=None):
     utf8(action_text, "Action text", limit)
     document = {"action_ref": action_ref, "text": action_text, "pointers": related_objects,
                 "tags": tags}
     if revision_ref is not None:
         document["revision_ref"] = revision_ref
+    if record_context is not None:
+        document["record_context"] = record_context
     try:
         content = encode(document)
     except UnicodeEncodeError as error:

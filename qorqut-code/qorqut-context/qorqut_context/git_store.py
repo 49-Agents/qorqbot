@@ -353,7 +353,8 @@ class Snapshot:
                 result.append({"event_id": event_id, "commit": commit,
                                "input_mode": self.input_mode(event),
                                "recorded_at": self.git.recorded_at(commit),
-                               "operation": event["operation"], "source": event["source"]})
+                               "operation": event["operation"], "source": event["source"],
+                               **({"record_context": event["record_context"]} if "record_context" in event else {})})
                 continue
             for change in event["changes"]:
                 if change["id"] != object_id or (kind and change["kind"] != kind):
@@ -436,6 +437,7 @@ class Snapshot:
         return ({key: resolved[key] for key in (
             "id", "input_mode", "operation", "source", "action", "action_associations",
             "association_transition", "previous_source_event", "commit", "recorded_at")}
+            | ({"record_context": resolved["record_context"]} if "record_context" in resolved else {})
             | {"text": json.loads(content)["text"] if content is not None else None,
                "withdrawn": event["operation"] == "remove"})
 

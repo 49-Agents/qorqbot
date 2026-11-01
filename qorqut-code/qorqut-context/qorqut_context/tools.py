@@ -233,7 +233,7 @@ class EventTools:
         changes = sorted(draft["draft"].values(), key=lambda c: (c["kind"], c["id"]))
         return self._view({"event_id": self.event_id, "digest": draft["digest"],
                            "input_mode": self.input_mode,
-                           **{key: draft[key] for key in ("action", "handoff_note", "action_associations") if key in draft},
+                           **{key: draft[key] for key in ("action", "handoff_note", "action_associations", "record_context") if key in draft},
                            "required_reassessment": self.required_reassessment,
                            "completion": self.completion, **page(changes, offset, limit)})
 

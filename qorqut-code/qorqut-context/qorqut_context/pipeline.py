@@ -68,7 +68,8 @@ class Pipeline:
         except UnicodeDecodeError as error:
             raise ContextError("Source input must be model-readable UTF-8") from error
 
-    def submit(self, operation, path, *, content=None, metadata=None, submitted_by, event_id=None):
+    def submit(self, operation, path, *, content=None, metadata=None, submitted_by, event_id=None,
+               record_context=None, expected_revision=None):
         with self._lock():
             snapshot = self.context.snapshot()
             # Repeated published submissions retain their digest check without a new model limit.
@@ -78,20 +79,22 @@ class Pipeline:
                     self._text(snapshot.files.get(path))
             submission = self.context.begin(operation, path, content=content, metadata=metadata,
                                              submitted_by=submitted_by, event_id=event_id,
-                                             source_bytes=self.config.source_bytes)
+                                             source_bytes=self.config.source_bytes,
+                                             record_context=record_context,
+                                             expected_revision=expected_revision)
             if self.on_event:
                 self.on_event(submission.event_id)
             return self._run(submission.event_id)
 
     def submit_action(self, operation, action_ref, *, text=None, revision_ref=None,
                       related_objects=None, tags=None, submitted_by, event_id=None,
-                      expected_previous_commit=None):
+                      expected_previous_commit=None, record_context=None):
         with self._lock():
             submission = self.context.begin_action(operation, action_ref, text=text,
                 revision_ref=revision_ref, related_objects=related_objects,
                 tags=tags, submitted_by=submitted_by,
                 event_id=event_id, expected_previous_commit=expected_previous_commit,
-                source_bytes=self.config.source_bytes)
+                source_bytes=self.config.source_bytes, record_context=record_context)
             if self.on_event:
                 self.on_event(submission.event_id)
             return self._run(submission.event_id)
@@ -168,6 +171,8 @@ class Pipeline:
                   "input_mode": draft["input_mode"], "previous_source_event": draft["previous_source_event"],
                   "operation": draft["operation"], "source": draft["source"],
                   "before": self._text(before), "after": self._text(after)}
+        if "record_context" in draft:
+            change["record_context"] = draft["record_context"]
         if "action" in draft:
             action = draft["action"]
             change["action"] = action
