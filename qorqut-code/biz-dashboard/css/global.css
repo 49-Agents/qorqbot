@@ -1,14 +1,14 @@
-.workspace-choice { display: grid; grid-template-columns: 25px minmax(0, 1fr) 17.5px auto; align-items: center; gap: 12.5px; width: 100%; }
+.workspace-choice { display: grid; grid-template-columns: 22.5px minmax(0, 1fr) 15.75px auto; align-items: center; gap: 11.25px; width: 100%; }
 .workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-business-icon { width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid var(--line-2); border-radius: 7.5px; font-size: 12.5px; }
-.workspace-menu { max-height: min(480px, calc(100vh - 24px)); max-width: calc(100vw - 24px); }
-.workspace-menu .mi { height: 54px; gap: 10px; padding: 0 15px; font-size: 16.25px; }
-.workspace-menu .mi:has(.workspace-global) { height: 66px; margin-bottom: 12px; }
-.workspace-menu .identity-avatar { width: 30px; height: 30px; font-size: 13.75px; }
-.workspace-menu .identity-avatar svg { width: 22px; height: 22px; }
-.workspace-menu .workspace-choice > svg { width: 25px; height: 25px; }
-.workspace-menu .workspace-drag svg { width: 17.5px; height: 22.5px; }
-.workspace-menu .sg-attention-badge { min-width: 22.5px; height: 22.5px; padding: 0 5px; font-size: 12.5px; }
+.workspace-business-icon { width: 22.5px; height: 22.5px; display: grid; place-items: center; border: 1px solid var(--line-2); border-radius: 6.75px; font-size: 11.25px; }
+.workspace-menu { max-height: min(400px, calc(100vh - 24px)); max-width: calc(100vw - 24px); }
+.workspace-menu .mi { height: 45px; gap: 9px; padding: 0 12.5px; font-size: 14.625px; }
+.workspace-menu .mi:has(.workspace-global) { height: 55px; margin-bottom: 10px; }
+.workspace-menu .identity-avatar { width: 27px; height: 27px; font-size: 12.375px; }
+.workspace-menu .identity-avatar svg { width: 18px; height: 18px; }
+.workspace-menu .workspace-choice > svg { width: 22.5px; height: 22.5px; }
+.workspace-menu .workspace-drag svg { width: 15.75px; height: 20.25px; }
+.workspace-menu .sg-attention-badge { min-width: 20.25px; height: 20.25px; padding: 0 4.5px; font-size: 11.25px; }
 .workspace-menu .mi.on { background: var(--line-2); color: var(--fg); }
 .workspace-drag { grid-column:3; grid-row:1; display: flex; opacity: 0; cursor: grab; }
 .workspace-menu .mi:hover .workspace-drag { opacity: 1; }
