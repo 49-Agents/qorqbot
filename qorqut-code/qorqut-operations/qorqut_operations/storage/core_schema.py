@@ -327,5 +327,68 @@ BEGIN SELECT RAISE(ABORT, 'immutable job outputs'); END""",
     PRIMARY KEY (namespace, routine_id, target_namespace),
     FOREIGN KEY (namespace, routine_id) REFERENCES routines(namespace, id)
 )""",
+    """CREATE TABLE "relationships" (
+    business_id TEXT REFERENCES businesses(id),
+    id TEXT NOT NULL,
+    from_type TEXT NOT NULL,
+    from_id TEXT NOT NULL,
+    to_type TEXT NOT NULL,
+    to_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    context TEXT NOT NULL DEFAULT '',
+    revision INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    created_by TEXT REFERENCES principals(id),
+    CHECK (business_id IS NOT NULL OR (to_type='story' AND ((from_type='task' AND role='part_of') OR (from_type='agent' AND role='participates_in') OR role='concerns')) OR (from_type='story' AND role='concerns')
+        OR (from_type='task' AND ((role='assigned_to' AND to_type IN ('agent','person')) OR (role='blocked_by' AND to_type='task')))
+        OR (from_type IN ('material','topic','person') AND (
+            (role='part_of' AND to_type='topic')
+            OR (role IN ('concerns','mentions') AND to_type IN ('topic','person'))
+            OR (role='extracted_from' AND to_type='material')))),
+    PRIMARY KEY (business_id, id)
+)""",
+    """CREATE INDEX relationships_from ON relationships(business_id,from_type,from_id,role)""",
+    """CREATE UNIQUE INDEX relationships_global_key ON relationships(id) WHERE business_id IS NULL""",
+    """CREATE INDEX relationships_memory_observe ON relationships(business_id,from_type,from_id,id)""",
+    """CREATE INDEX relationships_role ON relationships(business_id,role,updated_at,id)""",
+    """CREATE INDEX relationships_to ON relationships(business_id,to_type,to_id,role)""",
+    """CREATE TABLE context_reviews (
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    id TEXT NOT NULL,
+    relationship_id TEXT NOT NULL,
+    item_type TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    source_token TEXT NOT NULL,
+    relationship_revision INTEGER NOT NULL,
+    result TEXT NOT NULL CHECK(result IN ('incorporated','no_change','pending')),
+    explanation TEXT NOT NULL,
+    actor_id TEXT NOT NULL REFERENCES principals(id),
+    prepared_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(business_id,id)
+)""",
+    """CREATE INDEX context_reviews_history ON context_reviews(business_id,item_type,item_id,relationship_id,created_at,id)""",
+    """CREATE TRIGGER context_reviews_no_delete BEFORE DELETE ON context_reviews BEGIN
+    SELECT RAISE(ABORT,'Context review decisions are immutable');
+END""",
+    """CREATE TRIGGER context_reviews_no_update BEFORE UPDATE ON context_reviews BEGIN
+    SELECT RAISE(ABORT,'Context review decisions are immutable');
+END""",
+    """CREATE TABLE context_review_states (
+    business_id TEXT NOT NULL,
+    relationship_id TEXT NOT NULL,
+    item_type TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    review_id TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(business_id,relationship_id,item_type,item_id),
+    FOREIGN KEY(business_id,relationship_id) REFERENCES relationships(business_id,id) ON DELETE CASCADE,
+    FOREIGN KEY(business_id,review_id) REFERENCES context_reviews(business_id,id)
+)""",
     """INSERT INTO change_sequences(name, value) VALUES ('signoffs', 0)""",
 )

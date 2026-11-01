@@ -12,7 +12,9 @@ script is run from an unrelated working directory with a clean ``sys.path``. The
   replay, using only the installed package,
 * a second script runs a small actual Signoff slice (a restricted agent's proposal is approved by the owner and
   applied once, through typed ``SignoffPorts``) and a registered-program slice (a manual routine run executes a
-  synthetic program whose frozen output is applied under its worker identity), again with no ``bazarlyk``.
+  synthetic program whose frozen output is applied under its worker identity), again with no ``bazarlyk``,
+* a third script runs one neutral-item/relationship slice over two synthetic item kinds: an authorized link versus
+  a denied endpoint, a read that acknowledges nothing, and an explicit review committed with a same-item edit.
 
 The build needs ``setuptools`` and ``wheel`` available to ``pip`` (pip fetches them into the isolated build
 environment) and a package index for ``jsonschema``.
@@ -262,6 +264,179 @@ print(json.dumps({"signoff": "applied-once", "program": "succeeded", "digest": g
 '''
 
 
+NEUTRAL = r'''
+import importlib.util, json, sqlite3, sys, tempfile
+from pathlib import Path
+
+assert importlib.util.find_spec("bazarlyk") is None, "bazarlyk must not be importable"
+from qorqut_operations.application import Application, CatalogContribution, CatalogEntry, OperationDescriptor, OperationRegistry
+from qorqut_operations.application.plans import PlanBuilder, apply_records, ref, require_revision
+from qorqut_operations.contracts import DomainError, InvocationContext, PolicyDecision, Principal, canonical_hash, plain
+from qorqut_operations.items import ItemContribution, ItemResolver, authorize_item_read, item_revision
+from qorqut_operations.relationships import RelationshipOperations, RelationshipPorts, ReviewEdit
+from qorqut_operations.storage import AssemblyBuilder, Database, FileEffectContribution, RecordEffectContribution, StorageContribution, TableSpec
+
+HUMAN, BUSINESS = "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"
+TABLE = ("CREATE TABLE {t} (business_id TEXT NOT NULL REFERENCES businesses(id), id TEXT NOT NULL, title TEXT NOT NULL, "
+         "body TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, "
+         "updated_at TEXT NOT NULL, PRIMARY KEY (business_id, id))")
+
+class History:
+    def capture_receipt(self, uow, receipt, plan): pass
+class Hooks:
+    tracked_tables = frozenset()
+    def apply_effect(self, *args): return None
+    def force_revision(self, plan, change): return False
+    def record_applied(self, uow, plan, table, before, after, *, actor_id=None): pass
+class Policy:
+    denied = set()
+    def resolve(self, ctx, operation, targets, uow):
+        return PolicyDecision("deny" if operation.name in self.denied else "allow", "probe")
+
+class Lookup:
+    # One scoped lookup per kind over a synthetic table; reading is authorized through the descriptor's own policy.
+    def __init__(self, application, kind, table, read):
+        self.application, self.kind, self.table, self.read = application, kind, table, read
+    def resource(self, ctx, item, uow):
+        row = uow.repository(self.table, business_id=ctx.business_id).get(item["id"]) if item["type"] == self.kind else None
+        if row is None:
+            raise DomainError("not_found", "Context item does not exist in this business")
+        return self.table, row
+    def resolve(self, ctx, item, uow, builder=None, *, allow_busy=False):
+        table, row = self.resource(ctx, item, uow)
+        authorize_item_read(self.application, ctx, self.read, uow)
+        if builder:
+            builder.expect(ref(table, item["id"], ctx.business_id), row)
+        return {"label": row["title"], **item, "revision": item_revision(row), "resource_type": table,
+                "resource_id": item["id"], "subtype": self.kind, "material_type": None, "tags": [], "archived": False,
+                "raw_source": False, "summary": row["body"][:40], "created_at": row["created_at"], "updated_at": row["updated_at"]}
+    def relationship_item(self, ctx, item, uow):
+        self.resource(ctx, item, uow)
+        return item
+    def fingerprint(self, ctx, item, uow, builder=None):
+        self.resolve(ctx, item, uow, builder)
+        _, row = self.resource(ctx, item, uow)
+        return canonical_hash({"title": row["title"], "body": row["body"]})
+
+class Candidates:
+    def candidates(self, ctx, uow, kind=None):
+        return [{"type": k, "id": row["id"]} for k, table in (("note", "notes"), ("task", "tasks")) if not kind or kind == k
+                for row in uow.repository(table, business_id=ctx.business_id).list()]
+
+class Unused:
+    # Required ports this slice never reaches: they refuse rather than assume a default.
+    filters, material_types, tags = {}, ("note",), {"type": "array", "items": {"type": "string"}}
+    @staticmethod
+    def matches(value, args): return True
+    @staticmethod
+    def prepare(ctx, args, options, uow): raise DomainError("validation_error", "not used in this slice")
+    @staticmethod
+    def apply(ctx, plan, uow): raise DomainError("validation_error", "not used in this slice")
+    @staticmethod
+    def read(ctx, args, uow): return {"counts": {}}
+    @staticmethod
+    def check(ctx, uow, edge): pass
+
+def note_update(ctx, args, options, uow):
+    row = uow.repository("notes", business_id=ctx.business_id).get(args["note_id"], required=True)
+    require_revision(row, options.expected_revision)
+    builder = PlanBuilder(ctx, "notes_update", args, "Update note")
+    builder.record("notes", row["id"], row, {**plain(args["changes"]), "updated_at": builder.at})
+    return builder.build()
+
+with tempfile.TemporaryDirectory(prefix="qops-wheel-neutral-") as directory:
+    assembly = (AssemblyBuilder(target_name="wheel-neutral", target_version=1)
+        .add(StorageContribution("probe", {"notes": TableSpec(("business_id", "id"), "business_id"),
+                                           "tasks": TableSpec(("business_id", "id"), "business_id")},
+                                 schema=(TABLE.format(t="notes"), TABLE.format(t="tasks"))))
+        .add(FileEffectContribution("probe", receipt_history=History()))
+        .add(RecordEffectContribution("probe", Hooks())).freeze())
+    database = Database(Path(directory) / "neutral.sqlite3", assembly=assembly).initialize_target()
+    with database.transaction() as uow:
+        uow.repository("principals").insert({"id": HUMAN, "kind": "human", "display_name": "Owner"})
+        uow.repository("businesses").insert({"id": BUSINESS, "slug": "p", "name": "p", "workspace": directory + "/w",
+                                             "hq_path": directory + "/w/hq"})
+        uow.repository("business_memberships", business_id=BUSINESS).insert({"principal_id": HUMAN, "is_owner": True})
+        for table, identity in (("notes", "n1"), ("tasks", "k1")):
+            uow.repository(table, business_id=BUSINESS).insert({"id": identity, "title": identity.upper(), "body": "body"})
+
+    # The Application owns the one open registry; the resolver and operations are built over it, then it is frozen.
+    registry, policy = OperationRegistry(), Policy()
+    app = Application(database, registry, policy=policy)
+    items = ItemResolver(app, (ItemContribution("notes", ("note",), Lookup(app, "note", "notes", "notes_get")),
+                               ItemContribution("work", ("task",), Lookup(app, "task", "tasks", "tasks_get"))),
+                         candidates=Candidates())
+    unused = Unused()
+    ports = RelationshipPorts(roles={"related_to": ("Related to", "Related from")}, workflow_roles={}, materials=unused,
+        archive=unused, navigation=unused, protected_edges=unused, review_edits={"notes_update": ReviewEdit("note", "note_id")})
+    relationships = RelationshipOperations(items, ports)
+    get = lambda name, key: OperationDescriptor(name, {"type": "object", "properties": {key: {"type": "string"}},
+        "required": [key], "additionalProperties": False}, effect_kind="read", supports_signoff=False,
+        read=lambda ctx, args, options, uow: {})
+    update = OperationDescriptor("notes_update", {"type": "object", "required": ["note_id", "changes"],
+        "properties": {"note_id": {"type": "string"}, "changes": {"type": "object"}}, "additionalProperties": False},
+        prepare=note_update, apply=lambda ctx, plan, uow: {"rows": len(apply_records(ctx, plan, uow))})
+    domain = CatalogContribution("probe", (CatalogEntry("notes_get", False, "read"), CatalogEntry("tasks_get", False, "read"),
+                                           CatalogEntry("notes_update", True, "records")),
+                                 (get("notes_get", "note_id"), get("tasks_get", "task_id"), update))
+    for contribution in (domain, relationships.contribution()):
+        for entry in contribution.entries:
+            registry.declare(entry)
+    for contribution in (domain, relationships.contribution()):
+        for descriptor in contribution.descriptors:
+            registry.register(descriptor)
+    registry.freeze()
+
+    owner = InvocationContext(Principal(HUMAN, "human"), business_id=BUSINESS, allowed_business_ids=frozenset({BUSINESS}),
+                              source="dashboard")
+    note, task = {"type": "note", "id": "n1"}, {"type": "task", "id": "k1"}
+    link = {"source": note, "target": task, "role": "related_to", "context": "evidence"}
+    assert items.kinds == ("note", "task")
+    # A link needs a readable endpoint; a denied endpoint is refused and nothing is written.
+    policy.denied = {"tasks_get"}
+    refused = app.invoke(owner, "relationships_create", link, {"idempotency_key": "denied"})
+    assert refused.error["code"] == "forbidden", refused
+    policy.denied = set()
+    created = app.invoke(owner, "relationships_create", link, {"idempotency_key": "link"})
+    assert created.status == "ok", created
+    edge = plain(created.data)["relationship"]
+    assert edge["source"] == note and edge["target"] == task and edge["revision"] == 1 and edge["predefined"] is True
+    listed = plain(app.invoke(owner, "relationships_list", {"item": note, "direction": "outgoing"}, {}).data)
+    assert [row["id"] for row in listed["items"]] == [edge["id"]]
+
+    # Reading acknowledges nothing; the explicit review plus a same-item edit commit as one transaction.
+    waiting = plain(app.invoke(owner, "context_reviews_list", {"item": note}, {}).data)["items"][0]
+    assert waiting["pending"] and waiting["available"]
+    with database.read() as uow:
+        assert uow.connection.execute("SELECT count(*) FROM context_reviews").fetchone()[0] == 0
+    decision = {"relationship_id": edge["id"], "relationship_revision": 1, "review_revision": 0,
+                "source_token": waiting["source_token"], "result": "incorporated", "explanation": "Folded in"}
+    review = {"item": note, "items": [decision], "edit": {"operation": "notes_update",
+                                                         "arguments": {"note_id": "n1", "changes": {"body": "Edited"}}}}
+    reviewed = app.invoke(owner, "context_review", review, {"idempotency_key": "review", "expected_revision": 1})
+    assert reviewed.status == "ok", reviewed
+    with database.read(business_id=BUSINESS) as uow:
+        assert uow.repository("notes").get("n1")["body"] == "Edited" and uow.repository("notes").get("n1")["revision"] == 2
+        (stored,) = uow.repository("context_reviews").list()
+        assert stored["created_at"] and stored["result"] == "incorporated" and stored["actor_id"] == HUMAN
+        assert len(uow.repository("context_review_states").list()) == 1
+    # A second decision from the old observation is stale; decisions are immutable.
+    stale = app.invoke(owner, "context_review", {"item": note, "items": [decision]},
+                       {"idempotency_key": "again", "expected_revision": 2})
+    assert stale.error["code"] == "revision_conflict", stale
+    with database.transaction() as uow:
+        try:
+            uow.connection.execute("UPDATE context_reviews SET explanation='x'")
+        except sqlite3.IntegrityError:
+            pass
+        else:
+            raise AssertionError("review decisions must be immutable")
+    database.close()
+assert not any(name == "bazarlyk" or name.startswith("bazarlyk.") for name in sys.modules)
+print(json.dumps({"items": ["note", "task"], "link": "authorized-vs-denied", "review": "atomic-with-edit"}))
+'''
+
+
 def run(command, **kwargs):
     result = subprocess.run(command, capture_output=True, text=True, **kwargs)
     if result.returncode:
@@ -282,7 +457,7 @@ def main(argv: list[str]) -> None:
     python = environment / "bin" / "python"
     run([str(python), "-m", "pip", "install", "--quiet", str(wheels[0])])
     # -I: ignore PYTHON* variables and the user site; the cwd is an empty directory, not the checkout.
-    for script in (PROBE, SLICE):
+    for script in (PROBE, SLICE, NEUTRAL):
         output = run([str(python), "-I", "-c", script], cwd=elsewhere)
         print(output.strip())
 

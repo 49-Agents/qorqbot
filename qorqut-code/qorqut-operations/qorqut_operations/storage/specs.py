@@ -32,6 +32,11 @@ CORE_TABLES = {
     "routine_runs": TableSpec(("id",), "business_id"),
     "routine_slots": TableSpec(("namespace", "routine_id", "target_namespace")),
     "jobs": TableSpec(("id",), "business_id"),
+    # The shared item relationships and their explicit review decisions (append-only decisions, one mutable state
+    # row per reviewing item and relationship).
+    "relationships": TableSpec(("business_id", "id"), "business_id"),
+    "context_reviews": TableSpec(("business_id", "id"), "business_id", False, None),
+    "context_review_states": TableSpec(("business_id", "relationship_id", "item_type", "item_id"), "business_id"),
 }
 
 CORE_IMMUTABLE_FIELDS = {

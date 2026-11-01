@@ -171,8 +171,9 @@ class PlanBuilder:
 def apply_records(ctx, plan, uow):
     """Apply a plan's record/job effects in order; file effects and policy markers are not rows.
 
-    Each effect is first offered to the domain's ``apply_effect`` hook (a returned sequence means the domain
-    wrote it); otherwise it is the generic insert/update/delete with revision CAS against the prepared target."""
+    The engine's own ``append_context_review`` effect (a review decision, its commit time allocated here) is written
+    directly. Every other effect is first offered to the domain's ``apply_effect`` hook (a returned sequence means the
+    domain wrote it); otherwise it is the generic insert/update/delete with revision CAS against the prepared target."""
     hooks = uow.database.assembly.record_hooks
     targets = {target.resource: target for target in plan.expected_targets}
     result = []
@@ -185,6 +186,13 @@ def apply_records(ctx, plan, uow):
         repository = uow.repository(table, business_id=change.resource.business_id)
         key = record_key(change.resource)
         values = plain(change.values)
+        if change.action == "append_context_review" and table == "context_reviews":
+            # An engine-owned effect: the decision's content, identity, attribution and source token are frozen in the
+            # prepared plan; only its commit time is allocated here, in the applying transaction. Review decisions are
+            # append-only and, as in v1, record no shared-history event.
+            values["created_at"] = timestamp()
+            result.append(repository.insert(values))
+            continue
         applied = hooks.apply_effect(ctx, plan, change, uow, repository, key, values)
         if applied is not None:
             result.extend(applied)
