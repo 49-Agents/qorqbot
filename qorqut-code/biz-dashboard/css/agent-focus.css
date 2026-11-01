@@ -110,10 +110,15 @@
 .agfocus-desktop-completion label{display:grid;gap:4px;font-size:11px}
 .agfocus-desktop-completion .agfocus-done{justify-self:start}
 .agfocus-desktop-success{margin:8px 0;font-size:12px}
-.agbrowser-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
-.agbrowser-switch{display:inline-flex;gap:4px}
-.agbrowser-switch button[aria-pressed="true"]{background:var(--bg-2,rgba(127,127,127,.18));font-weight:600}
-.agbrowser-actions{display:inline-flex;align-items:center;gap:10px;margin-left:auto;font-size:11px}
-.agfocus-desktop-help .agbrowser-actions{margin:4px 0 0}
-.agbrowser-note{flex-basis:100%;margin:0;color:var(--fg-2);font-size:11px}
+.agbrowser-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.agbrowser-switch{display:inline-flex;align-items:stretch;border:1px solid var(--line-2);border-radius:8px;overflow:hidden;background:transparent}
+.agbrowser .agbrowser-switch .agbrowser-seg,.agfocus-desktop-view .agbrowser-switch .agbrowser-seg{display:inline-flex;align-items:center;justify-content:center;width:34px;height:30px;min-height:30px;margin:0;padding:0;border:0;border-radius:0;background:transparent;color:var(--fg-2);cursor:pointer}
+.agbrowser-switch .agbrowser-seg + .agbrowser-seg{border-left:1px solid var(--line-2)}
+.agbrowser-switch .agbrowser-seg svg,.agbrowser-reconnect svg{width:16px;height:16px;flex:none}
+.agbrowser-switch .agbrowser-seg:hover{background:var(--hover);color:var(--fg)}
+.agbrowser-switch .agbrowser-seg[aria-pressed="true"]{background:var(--hover);color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg-2)}
+.agbrowser-switch .agbrowser-seg:focus-visible,.agbrowser-reconnect:focus-visible{outline:2px solid var(--fg-2);outline-offset:-2px}
+.agbrowser-actions{display:inline-flex;align-items:center;margin-left:auto}
+.agfocus-desktop-view .agbrowser-reconnect{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;min-height:30px;margin:0;padding:0;border:0;border-radius:8px;background:transparent;color:var(--fg-2);cursor:pointer}
+.agbrowser-reconnect:hover{background:var(--hover);color:var(--fg)}
 .agbrowser-stage{display:flex;flex:none;justify-content:center}

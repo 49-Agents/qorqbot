@@ -41,11 +41,41 @@ function agbrowserDiscover(p) {
 
 function agbrowserTab(p) { return !!(p.browserRequested || p.surfaces?.browsers.length); }
 
-function agbrowserStatus(body, message, role = 'status', retry = null) {
-  body.innerHTML = `<section class="agfocus-desktop-view agbrowser"><p class="${role === 'alert' ? 'ferr' : 'muted'}" role="${role}">${esc(message)}</p>` +
-    (retry ? '<button type="button" class="quiet" data-browser-reconnect>Reconnect</button>' : '') + '</section>';
+const AGBROWSER_ICON_RECONNECT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.5-4.4L4 8.5M4 4v4.5h4.5M4 13a8 8 0 0 0 14.5 4.4l1.5-1.9M20 20v-4.5h-4.5"/></svg>';
+const AGBROWSER_ICON_MAIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 6 8.5-6"/></svg>';
+const agbrowserIcon = name => (typeof T_VIEW_ICON === 'object' && T_VIEW_ICON[name]) || '';
+
+// Icon-only connected toggle; every button carries its own accessible name.
+function agbrowserToggle(label, items) {
+  return `<div class="agbrowser-switch" role="group" aria-label="${esc(label)}">${items.map(item =>
+    `<button type="button" class="quiet agbrowser-seg" ${item.attr}="${esc(item.value)}" aria-pressed="${item.pressed}" aria-label="${esc(item.label)}" title="${esc(item.label)}">${item.icon}</button>`).join('')}</div>`;
+}
+
+// Ordubashy alone can switch between its Browser and its full Desktop.
+function agbrowserModeToggle(p, mode) {
+  if (p.workspaceRole !== 'ordubashy') return '';
+  return agbrowserToggle('View', [
+    {attr: 'data-agent-mode', value: 'browser', label: 'Browser', icon: agbrowserIcon('browser'), pressed: mode === 'browser'},
+    {attr: 'data-agent-mode', value: 'desktop', label: 'Desktop', icon: agbrowserIcon('desktop'), pressed: mode === 'desktop'}]);
+}
+
+function agbrowserReconnectButton(attr) {
+  return `<button type="button" class="quiet agbrowser-reconnect" ${attr} aria-label="Reconnect" title="Reconnect">${AGBROWSER_ICON_RECONNECT}</button>`;
+}
+
+function agbrowserWireMode(p, host) {
+  for (const button of host.querySelectorAll('[data-agent-mode]')) button.onclick = () => {
+    if (button.getAttribute('aria-pressed') !== 'true') agpadSetView(p, button.dataset.agentMode);
+  };
+}
+
+function agbrowserStatus(p, body, message, role = 'status', retry = null) {
+  body.innerHTML = `<section class="agfocus-desktop-view agbrowser"><div class="agbrowser-bar">${agbrowserModeToggle(p, 'browser')}` +
+    (retry ? `<span class="agbrowser-actions">${agbrowserReconnectButton('data-browser-reconnect')}</span>` : '') + '</div>' +
+    `<p class="${role === 'alert' ? 'ferr' : 'muted'}" role="${role}">${esc(message)}</p></section>`;
   const button = $('[data-browser-reconnect]', body);
   if (button && retry) button.onclick = retry;
+  agbrowserWireMode(p, body);
 }
 
 // The frame and its size observers are removed before another stream mounts, so
@@ -64,8 +94,6 @@ function agbrowserFrame(p, host, surface, fit) {
   frame.src = display.url;
   const disposers = [];
   fit({host, onDispose: fn => disposers.push(fn)}, {width: surface.width || display.width, height: surface.height || display.height});
-  const open = $('[data-browser-open]', host);
-  if (open) open.href = surface.url;
   p.browserFrameDispose = () => {
     p.browserFrameDispose = null;
     disposers.splice(0).forEach(fn => fn());
@@ -76,13 +104,11 @@ function agbrowserFrame(p, host, surface, fit) {
 
 function agbrowserShow(p, body, surfaces, selected) {
   const several = surfaces.browsers.length > 1;
+  const icon = item => /outlook|mail/i.test(item.id + ' ' + item.label) ? AGBROWSER_ICON_MAIL : agbrowserIcon('browser');
   body.innerHTML = `<section class="agfocus-desktop-view agbrowser"><div class="agfocus-desktop-help agbrowser-bar">
-    ${several ? `<div class="agbrowser-switch" role="group" aria-label="Browser">${surfaces.browsers.map(item =>
-      `<button type="button" class="quiet" data-browser-surface="${esc(item.id)}" aria-pressed="false">${esc(item.label)}</button>`).join('')}</div>`
-      : `<strong>${esc(selected.label)}</strong>`}
-    <span class="agbrowser-actions"><button type="button" class="quiet" data-browser-reconnect>Reconnect</button>
-    <a data-browser-open target="_blank" rel="noopener noreferrer">Open in new tab</a></span>
-    <p class="agbrowser-note">If the browser stays blank or cannot be embedded, use Reconnect or open it in a new tab.</p></div>
+    ${agbrowserModeToggle(p, 'browser')}
+    ${several ? agbrowserToggle('Browser', surfaces.browsers.map(item => ({attr: 'data-browser-surface', value: item.id, label: item.label, icon: icon(item), pressed: false}))) : ''}
+    <span class="agbrowser-actions">${agbrowserReconnectButton('data-browser-reconnect')}</span></div>
     <div class="agbrowser-stage"></div></section>`;
   const host = $('.agbrowser', body);
   const choose = surface => {
@@ -95,6 +121,7 @@ function agbrowserShow(p, body, surfaces, selected) {
     if (surface && button.getAttribute('aria-pressed') !== 'true') choose(surface);
   };
   $('[data-browser-reconnect]', host).onclick = () => agbrowserMount(p, true);
+  agbrowserWireMode(p, host);
   choose(selected);
 }
 
@@ -105,15 +132,15 @@ async function agbrowserMount(p, reconnect = false) {
   const request = p.browserRequest = (p.browserRequest || 0) + 1;
   p.workspaceDispose = () => { p.browserRequest++; p.browserFrameDispose?.(); };
   const current = () => agpadActive(p) && p.view === 'browser' && p.browserRequest === request && body.isConnected;
-  agbrowserStatus(body, 'Loading browser…');
+  agbrowserStatus(p, body, 'Loading browser…');
   let surfaces;
   try { surfaces = await agbrowserSurfaces(p, reconnect); } catch (error) {
-    if (current()) agbrowserStatus(body, 'The browser configuration could not be read. ' + error.message, 'alert', () => agbrowserMount(p, true));
+    if (current()) agbrowserStatus(p, body, 'The browser configuration could not be read. ' + error.message, 'alert', () => agbrowserMount(p, true));
     return;
   }
   if (!current() || surfaces.agentId !== p.agentId) return;
   if (!surfaces.browsers.length) {
-    agbrowserStatus(body, surfaces.configured ? 'No browser is configured for this agent.'
+    agbrowserStatus(p, body, surfaces.configured ? 'No browser is configured for this agent.'
       : 'Browser viewing is not configured yet. An installation owner adds this agent’s browser binding.', 'status', () => agbrowserMount(p, true));
     return;
   }

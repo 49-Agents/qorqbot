@@ -48,9 +48,20 @@ function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
 function agentPaneViews(scope, roleId, base = [], browser = false) {
   const leading = [], trailing = [];
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_PANE_FIRST.has(type.renderer) ? leading : trailing).push(type.key);
-  if (browser) leading.push("browser");
+  // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
+  if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
   return [...new Set([...leading, ...base, ...trailing, "status"])];
+}
+// The header shows one Browser entry for Ordubashy's Browser and Desktop modes.
+function agpadHeadViews(p) { return p.workspaceRole === "ordubashy" ? p.views.filter(view => view !== "desktop") : p.views; }
+function agpadHeadActive(p, view) { return view === "desktop" && p.workspaceRole === "ordubashy" ? "browser" : view; }
+function agpadModeKey(p) { return p.agentId ? `agpad:mode:${p.agentId}` : null; }
+// Selecting the Browser entry reopens the mode the owner last used for this agent.
+function agpadTabView(p, view) {
+  if (view !== "browser" || p.workspaceRole !== "ordubashy" || !p.views.includes("desktop")) return view;
+  const key = agpadModeKey(p);
+  return (p.browserMode || (key && ls(key))) === "desktop" ? "desktop" : "browser";
 }
 function agpadBrowserTab(p) { return typeof agbrowserTab === "function" && agbrowserTab(p); }
 
@@ -338,11 +349,16 @@ function agpadSetView(p, view) {
   if (from === "desktop") p.desktopRequest = (p.desktopRequest || 0) + 1;
   if (from === "browser") p.browserRequest = (p.browserRequest || 0) + 1;
   p.view = view;
+  if (view === "browser" || view === "desktop") {
+    p.browserMode = view;
+    const modeKey = agpadModeKey(p);
+    if (modeKey) ls(modeKey, view);
+  }
   agpadRememberView(p, view);
   p.bodyHtml = null;
-  p.el.innerHTML = tHead({ view, views: p.views, bodyId: "agpad-body", taskTools: false });
+  p.el.innerHTML = tHead({ view: agpadHeadActive(p, view), views: agpadHeadViews(p), bodyId: "agpad-body", taskTools: false });
   if (view === 'status') agentCurrentWorkMount(p);
-  tWireHead(p.el, from, next => agpadSetView(p, next));
+  tWireHead(p.el, agpadHeadActive(p, from), next => agpadSetView(p, agpadTabView(p, next)));
   if(typeof agentPaneIndicators==='function')agentPaneIndicators(p);
   agpadPingMount(p);
   if (view === "activity") p.nextLog = 0;
