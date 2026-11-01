@@ -13,6 +13,14 @@
         return new ClipboardData({ source: source, type: "text/plain", data: text });
     }
 
+    function isToolbarTarget(target) {
+        return target && target.nodeType === 1 && target.closest && target.closest(TOOLBAR_SELECTOR);
+    }
+
+    function stopToolbarEvent(event) {
+        if (isToolbarTarget(event.target)) event.stopPropagation();
+    }
+
     function writeLocalText(text, fallbackField) {
         function fallbackCopy() {
             // The visible field is already selected by the Copy action. Keep
@@ -61,6 +69,13 @@
         var panel = toolbar.querySelector(".qorqut-clipboard-panel");
         var field = toolbar.querySelector("#qorqut-clipboard-text");
         var status = toolbar.querySelector(".qorqut-clipboard-status");
+
+        // A client tile focuses its Guacamole connection when clicks bubble
+        // through it. Keep toolbar controls local while preserving each
+        // control's own default action and handlers.
+        ["pointerdown", "mousedown", "mouseup", "click", "touchstart"].forEach(function(type) {
+            toolbar.addEventListener(type, stopToolbarEvent);
+        });
 
         function setStatus(message) { status.textContent = message; }
 
@@ -146,13 +161,14 @@
             }
         });
 
-        $rootScope.$on("guacBeforeKeydown", function guardToolbarKeydown(event) {
-            var toolbar = document.querySelector(TOOLBAR_SELECTOR);
-            if (toolbar && toolbar.contains(document.activeElement)) event.preventDefault();
-        });
-        $rootScope.$on("guacBeforeKeyup", function guardToolbarKeyup(event) {
-            var toolbar = document.querySelector(TOOLBAR_SELECTOR);
-            if (toolbar && toolbar.contains(document.activeElement)) event.preventDefault();
+        // Guacamole's global Keyboard listens during document capture. Its
+        // child client scope broadcasts guacBeforeKeydown/keyup, so a
+        // root-scope listener cannot reliably protect this field. Stop
+        // propagation before that listener while leaving browser defaults
+        // intact for typing, paste, copy, and IME composition.
+        ["keydown", "keypress", "keyup", "input", "beforeinput",
+            "compositionstart", "compositionupdate", "compositionend", "copy", "cut", "paste"].forEach(function(type) {
+            window.addEventListener(type, stopToolbarEvent, true);
         });
 
         function ensureToolbar() {
