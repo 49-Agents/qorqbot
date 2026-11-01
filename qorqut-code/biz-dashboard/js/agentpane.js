@@ -14,10 +14,10 @@ const WORKSPACE_SEED = [
   { key: "focus", display_name: "Focus", supported_roles: ["ordubashy", "global-marketing"], renderer: "focus_board",
     presentation_actions: ["focus_show", "focus_clear", "focus_browser_input", "focus_present", "focus_edit",
       "focus_move", "focus_set_archived", "focus_reply"] },
-  { key: "campaign_review", display_name: "Campaign creation", supported_roles: ["business-agent", "global-marketing"], renderer: "campaign_review",
+  { key: "campaign_review", display_name: "Outreach", supported_roles: ["business-agent", "global-marketing"], renderer: "campaign_review",
     presentation_actions: ["workspace_present", "workspace_select", "workspace_attention"] },
 ];
-// Campaign creation and Focus are task-specific workspaces, so keep them at
+// Outreach and Focus are task-specific workspaces, so keep them at
 // the front of the agent pane before its general-purpose views.
 const WORKSPACE_PANE_FIRST = new Set(["focus_board", "campaign_review"]);
 // Mount resets each renderer's own poll gate, exactly as this pane did before.
@@ -422,7 +422,7 @@ function agpadSetView(p, view, leaveChecked = false) {
   if(typeof agentPaneIndicators==='function')agentPaneIndicators(p);
   if (view === "activity" && !p.logs) p.nextLog = 0;
   if (view === "inbox" && !p.inbox) p.nextInbox = 0;
-  // Workspace views (Focus, Campaign Review, any discovered type) are mounted by
+  // Workspace views (Focus, Outreach, any discovered type) are mounted by
   // their own renderer; an undeclared view gets the honest placeholder.
   if (agpadWorkspaceView(view)) agpadWorkspaceMount(p, view);
   if (view === 'globalTasks') globalTasksMount($('#agpad-body', p.el), {agentId: p.agentId, compact: true});
