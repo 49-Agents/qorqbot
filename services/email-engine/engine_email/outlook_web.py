@@ -315,7 +315,17 @@ class OutlookWeb:
 
     def _copy(self, mailbox, row, raw):
         content, _ = decode_message(raw)
-        found = self.fastmail.find_observed_mime(mailbox, row["internet_message_id"], content)
+        try:
+            found = self.fastmail.find_observed_mime(mailbox, row["internet_message_id"], content)
+        except ProviderError as exc:
+            if exc.code != "outlook_import_conflicting_owner":
+                raise
+            # A recipient's existing Inbox copy is not our business archive.
+            # _sent() already verified this native sent MIME against the bound
+            # send. Import that authorized source separately, without reading,
+            # moving or relabelling the foreign copy. The durable import gate
+            # below still refuses another import after an uncertain result.
+            found = None
         if found is None:
             if row["copy_state"] in {"importing", "uncertain", "imported"}:
                 raise ProviderError("outlook_import_unconfirmed", uncertain=True)
