@@ -343,7 +343,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   function scheduleRead() {
     clearTimeout(readTimer);
     readTimer = setTimeout(async () => {
-      if (!live() || !globalChatReadable(agentId) || !atBottom) return;
+      if (!live() || !session || !globalChatReadable(agentId) || !atBottom) return;
       const sequence = renderedBoundary();
       if (sequence <= lastRead || sequence <= reading) return;
       reading = sequence;
@@ -522,11 +522,19 @@ function mountGlobalChat(pane, agent, options = {}) {
     const item = key ? conversations.find(row => globalChatKey(row) === key) : null;
     const next = item && !item.current ? {provider: item.provider, conversation_id: item.conversation_id} : null;
     if (globalChatKey(next) === globalChatKey(selected)) { paintConversations(); return; }
-    selected = next; generation++; loading = false; again = false; reading = 0; clearTimeout(readTimer);
-    switching = true;                                   // the previous session's enabled composer is never shown for the next selection
-    clearEntries(); older = null; shown = undefined; olderButton.hidden = true;
-    paintInputs(); paintSession();
+    selected = next; generation++; loading = false; again = false;
+    switching = true;                                   // until a successful state for this selection arrives
+    invalidatePage();
     void load();
+  }
+  // Drops the displayed page and its session so nothing stale can be read, sent or acknowledged until a fresh successful state
+  // arrives. The unsent draft stays in its conversation-specific store.
+  function invalidatePage() {
+    saveDraft(); composerScope = null; input.value = '';
+    reading = 0; clearTimeout(readTimer);
+    session = null; conversation = null; inputs = []; older = null; shown = undefined;
+    clearEntries(); olderButton.hidden = true;
+    paintInputs(); paintSession();
   }
 
   // ---- composer: the draft and the unconfirmed send are bound to this exact agent, provider and conversation
@@ -650,7 +658,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (fresh) { showBanner(''); toBottom(); } else afterChange(grew);
       if (!stream) connect();
     } catch (problem) {
-      if (live() && mine === generation) { switching = false; paintSession(); showBanner(`Chat is unavailable: ${failure(problem)}`); status.textContent = 'Unavailable'; retry(() => load()); }
+      if (live() && mine === generation) { paintSession(); showBanner(`Chat is unavailable: ${failure(problem)}`); status.textContent = 'Unavailable'; retry(() => load()); }
     } finally {
       if (mine === generation) { loading = false; if (again && live()) { again = false; void load(); } }
     }
@@ -701,8 +709,8 @@ function mountGlobalChat(pane, agent, options = {}) {
     });
     source.addEventListener('reset', () => {
       // A restored installation: outstanding state/history/read callbacks are obsolete and must not reinstate the old cursor or boundary.
-      closeStream(); generation++; loading = false; again = false; reading = 0; clearTimeout(readTimer);
-      cursor = 0; lastRead = 0; void load(true);
+      closeStream(); generation++; loading = false; again = false;
+      cursor = 0; lastRead = 0; invalidatePage(); void load(true);
     });
     source.addEventListener('done', () => { closeStream(); finished = true; streamDown = false; showBanner('This chat is no longer available.'); paintSession(); });
     source.onerror = () => {
