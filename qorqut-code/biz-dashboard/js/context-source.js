@@ -273,7 +273,7 @@ function srcMountSource(host, scope, docId, opts = {}) {
       if (!alive() || version !== state.version) return;
       const doc = data.document || {};
       if (doc.id !== docId) throw new Error('The page belongs to a different document and was refused.');
-      const cursor = data.next_cursor ?? null;
+      const cursor = data.next_cursor;
       if (typeof doc.body !== 'string' || !Number.isSafeInteger(doc.character_offset) || doc.character_offset < 0 || typeof data.complete !== 'boolean'
         || !(cursor === null || (typeof cursor === 'string' && cursor !== '')) || data.complete !== (cursor === null) || (cursor !== null && doc.body === '')) throw new Error('The page is malformed and was refused.');
       // The server validates the opaque cursor against the document, scope and body; the file hash is not a second authority
