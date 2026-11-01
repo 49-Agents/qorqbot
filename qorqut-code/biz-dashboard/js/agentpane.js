@@ -46,7 +46,7 @@ function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
 function agentPaneViews(scope, roleId, base = []) {
   const leading = [], trailing = [];
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_PANE_FIRST.has(type.renderer) ? leading : trailing).push(type.key);
-  if (roleId === "ordubashy") leading.push("desktop");
+  if (roleId === "ordubashy" || (scope === "global" && roleId === "global-marketing")) leading.push("desktop");
   return [...new Set([...leading, ...base, ...trailing, "status"])];
 }
 
@@ -74,7 +74,8 @@ function agpadWorkspaceViewsSync(p) {
 }
 
 function agpadWorkspaceMount(p, view) {
-  if (view === "desktop" && p.workspaceRole === "ordubashy") { agfocusDesktopMount(p); return; }
+  if (view === "desktop" && (p.workspaceRole === "ordubashy" ||
+      (p.workspaceScope === "global" && p.workspaceRole === "global-marketing"))) { agfocusDesktopMount(p); return; }
   const type = workspaceType(view);
   if (type && p.workspaceRole && !type.supported_roles.includes(p.workspaceRole)) { workspaceUnsupportedMount(p, type); return; }
   const mount = workspaceRenderer(type);
