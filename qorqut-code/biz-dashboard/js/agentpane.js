@@ -320,7 +320,8 @@ function agpadMount(name, el, options = {}) {
   if (!name) { el.innerHTML = ""; return; }
   el.onclick = e => {
     const row = e.target.closest(".trow");
-    if (row && agpadActive(p)) tOpenTask(row.dataset.id);
+    // Focus rows reuse the row look, but they are not tasks: their clicks open their own details.
+    if (row && !row.closest(".agfocus") && agpadActive(p)) tOpenTask(row.dataset.id);
   };
   // A linked view is honored only when it is a usable key; anything else leaves
   // the pane on its normal first view instead of an empty pane.

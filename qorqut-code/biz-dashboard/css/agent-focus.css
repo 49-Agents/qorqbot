@@ -1,4 +1,4 @@
-/* Compact Focus cards and in-pane source navigation. */
+/* Focus rows (compact, like the Tasks table) and in-pane source navigation. */
 .agfocus .agfocus-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .agfocus .agfocus-heading .global-eyebrow{margin:0}
 .agfocus .agfocus-icon{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;min-height:28px;padding:5px;border:0;background:transparent}
@@ -7,21 +7,12 @@
 .agfocus .agfocus-controls button{border-radius:8px;padding:3px 9px;min-height:25px;font-size:11px;background:transparent;color:var(--fg-2)}
 .agfocus .agfocus-controls button[aria-pressed=true]{background:var(--hover);border-color:var(--fg-3);color:var(--fg)}
 .agpad .agfocus h2{font-size:12px;margin:8px 0;font-weight:500}
-.agfocus-card{padding:10px 12px;margin:8px 0}
-.agfocus-items .agfocus-card{cursor:default}
-.agfocus-items .agfocus-card:hover{border-color:var(--line-2);background:var(--wash)}
-.agfocus-items .agfocus-card:focus-visible{outline:2px solid var(--fg-2);outline-offset:2px}
-.agfocus-card h3{font-size:14px;font-weight:200;line-height:1.4;margin:5px 0}
-.agfocus-card .agfocus-reason{color:var(--fg-2);font-size:11px;line-height:1.5}
 .agfocus-framing{display:grid;gap:8px;margin:9px 0}
 .agfocus-framing section{border-left:2px solid var(--line-2);padding-left:8px}
 .agfocus-framing section[data-framing=requested_response]{border-left-color:var(--warn)}
 .agfocus-framing h4{margin:0 0 2px;color:var(--fg-2);font-size:10px;font-weight:600}
 .agfocus-framing p{font-size:11px;margin:0}
 .agfocus-framing:not(:has(section:not([hidden]))){display:none}
-.agfocus .agfocus-actions{display:flex;align-items:center;justify-content:flex-end;gap:3px;margin-top:6px}
-.agfocus .agfocus-actions button{display:inline-flex;align-items:center;justify-content:center;margin:0;width:27px;height:26px;min-height:26px;padding:5px;border:0;background:transparent;font-size:11px}
-.agfocus .agfocus-actions [data-manage]{letter-spacing:1px}
 .agfocus-related{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .agfocus .agfocus-related button{display:inline-flex;margin:0;max-width:100%;white-space:normal;text-align:left}
 .agfocus .agfocus-context{margin-top:8px;font-size:10px}
@@ -29,7 +20,6 @@
 .agfocus .conversation-panel button{display:inline-flex;margin:6px 0 0}
 .agfocus .conversation-panel .conversation-channels button{margin:0}
 .agfocus .agfocus-pages{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;font-size:11px}
-.agfocus-retained{border-style:dashed}
 .agfocus-detail{padding:14px;min-width:0}
 .agfocus-detail-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
 .agfocus-detail-header button{flex:none;height:28px;font-size:11px;padding:4px 9px}
@@ -42,7 +32,6 @@
 .agfocus-desktop-frame{width:100%;height:auto;min-height:0;max-width:100%;margin-inline:auto}
 .agfocus-reference-help{font-size:11px}.agfocus-reference-help a{text-decoration:underline}
 .agfocus-detail-body .story-back{display:none}
-@media(max-width:600px){.agfocus-card{padding:9px 10px}.agfocus-detail{padding:10px}}
 
 .agfocus-detail-body [data-task-back],.agfocus-detail-body .global-task-editor-heading [data-back]{display:none}
 .agfocus-detail-body .task-inline-actions{display:flex;justify-content:flex-end;margin-bottom:12px}
@@ -54,54 +43,10 @@
 .agfocus-desktop-view .agfocus-desktop-frame{flex:none}
 .agfocus-desktop-view .agfocus-desktop-completion{flex:none}
 .agfocus-toolbar .agfocus-controls{margin:0;gap:5px}
-.agfocus .agfocus-actions .conversation-toggle{width:34px;height:34px;min-height:34px;padding:7px}
-.agfocus .agfocus-actions .conversation-toggle svg{width:20px;height:20px}
-.agfocus .agfocus-heading{align-items:center}
-
-.agfocus-items .agfocus-card{position:relative}
-.agfocus-card .agfocus-meta{padding-right:34px;min-height:26px}
-.agfocus .agfocus-actions{position:absolute;top:8px;right:8px;margin:0}
 .agfocus .conversation-inline-compose .conversation-toggle{flex:0 0 36px;width:36px;height:36px;min-height:36px;margin:0;padding:8px;border-radius:8px;line-height:0;color:var(--fg-2)}
 .agfocus .conversation-inline-compose .conversation-send{height:36px;border-radius:8px;margin:0}
 .agfocus .conversation-inline-compose .conversation-toggle svg{width:18px;height:18px}
 .agfocus .conversation-inline-compose .conversation-toggle[aria-expanded="true"]{background:var(--hover);color:var(--fg);border-color:var(--fg-3)}
-
-.agfocus-people{display:flex;align-items:center;margin:8px 0 10px;padding-left:0}
-.agfocus-people[hidden]{display:none}
-.agfocus-person{display:grid;place-items:center;flex:none;width:30px;height:30px;border:2px solid var(--bg);border-radius:50%;background:var(--surface);font-size:10px;overflow:hidden}
-.agfocus-person + .agfocus-person{margin-left:-8px}
-.agfocus-person-more{color:var(--fg-2);font-weight:600}
-
-.agfocus-card .agfocus-meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
-.agfocus-scope-chip{display:inline-flex;align-items:center;min-height:23px;padding:2px 8px;border:1px solid var(--line-2);border-radius:999px;color:var(--fg-2);font-size:10px;line-height:16px}
-.agfocus-global-chip{padding:3px 6px}
-.agfocus-card .agfocus-meta .department-tag{font-size:10px;min-height:23px;padding:2px 7px}
-.agfocus-kind{font-size:10px}
-.agfocus-card h3{display:flex;align-items:center;gap:7px;padding-top:2px}
-.agfocus-task-state{display:inline-flex;align-items:center;flex:none}
-.agfocus-task-state .core{width:10px;height:10px}
-
-.agfocus-card h3 .agfocus-task-state{width:22px;height:22px;min-height:22px;margin:0;padding:5px;border:0;background:transparent;justify-content:center;cursor:pointer}
-
-.agfocus-scope-chip{--department-color:var(--fg-2);border-radius:8px;border:1px solid color-mix(in srgb,var(--department-color) 30%,transparent);background:color-mix(in srgb,var(--department-color) 10%,transparent);line-height:1.3;padding:2px 7px}
-.agfocus-meta .agfocus-people{margin:0 0 0 2px}
-.agfocus-card h3{margin-top:6px}
-
-.agfocus-items .agfocus-card{cursor:pointer}
-.agfocus-card.agfocus-collapsed > .agfocus-reason,
-.agfocus-card.agfocus-collapsed > .agfocus-framing,
-.agfocus-card.agfocus-collapsed > .agfocus-context,
-.agfocus-card.agfocus-collapsed > .agfocus-related,
-.agfocus-card.agfocus-collapsed > .agfocus-conversation{display:none}
-.agfocus-card.agfocus-collapsed .agfocus-meta{padding-right:68px}
-.agfocus-card.agfocus-collapsed .agfocus-actions .conversation-toggle{width:27px;height:26px;min-height:26px;padding:4px}
-.agfocus-card.agfocus-collapsed .agfocus-actions .conversation-toggle svg{width:18px;height:18px}
-
-.agfocus-card.agfocus-collapsed > .agfocus-meta,
-.agfocus-card.agfocus-collapsed > .agfocus-actions{opacity:.7;filter:saturate(.65)}
-/* An unread private reply stays fully legible on a dimmed collapsed card. */
-.agfocus-card.agfocus-collapsed > .agfocus-actions:has(.conversation-unread:not([hidden])){opacity:1;filter:none}
-.agfocus-card.agfocus-collapsed .agfocus-actions .conversation-unread{top:1px;right:1px}
 
 .agfocus-card .conversation-inline-compose textarea{background:transparent}
 .agfocus-desktop-help{margin-bottom:10px;font-size:12px;line-height:1.5}
@@ -122,3 +67,54 @@
 .agfocus-desktop-view .agbrowser-reconnect{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;min-height:30px;margin:0;padding:0;border:0;border-radius:8px;background:transparent;color:var(--fg-2);cursor:pointer}
 .agbrowser-reconnect:hover{background:var(--hover);color:var(--fg)}
 .agbrowser-stage{display:flex;flex:none;justify-content:center}
+
+
+/* Row: scope, creator, status + title, controls. Tasks rhythm comes from .trow
+   (css/tasks.css) and the shared column classes; only Focus-specific sizing is here. */
+.agfocus-items{display:flex;flex-direction:column;min-width:0;container:agfocus-rows/inline-size}
+.agfocus-card{margin:0;padding:0;border:0;border-radius:14px;background:none;min-width:0}
+.agfocus-card:focus-visible{outline:0}
+.agfocus-card:focus-visible > .agfocus-row{outline:2px solid var(--fg-2);outline-offset:-2px}
+.agfocus-row{gap:10px;min-width:0}
+.agfocus-card:not(.agfocus-collapsed) > .agfocus-row{background:rgba(255,255,255,.03)}
+.agfocus-row .task-business-column{flex:0 0 clamp(76px,22%,132px);width:auto}
+.agfocus-row .agfocus-scope{min-width:0}
+.agfocus-scope-chip{--department-color:var(--fg-2);display:inline-flex;align-items:center;min-height:23px;padding:2px 7px;border:1px solid color-mix(in srgb,var(--department-color) 30%,transparent);border-radius:8px;background:color-mix(in srgb,var(--department-color) 10%,transparent);color:var(--fg-2);font-size:10px;line-height:1.3}
+.agfocus-global-chip{padding:3px 6px}
+.agfocus-row .agfocus-scope-chip:not(.agfocus-global-chip){display:block;max-width:100%;box-sizing:border-box;min-height:0;padding:1px 7px;line-height:19px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agfocus-row .agfocus-creator{display:flex;align-items:center;flex:0 0 auto;min-width:26px}
+.agfocus-row .task-headline{gap:0}
+.agfocus-marker{display:inline-flex;align-items:center;justify-content:center;flex:none;width:30px;height:30px}
+.agfocus-marker .sdot{width:12px;height:12px}
+/* app.css styles every .agfocus button as a pill; the shared Tasks ball opts back out. */
+.agfocus .agfocus-row .agfocus-task-state,.agfocus .agfocus-row .agfocus-task-state:hover{margin:0;min-height:0;border:0;background:none}
+.agfocus-flag{flex:0 1 auto;min-width:0;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-2);font-size:10px}
+.agfocus-card:not(.agfocus-collapsed) > .agfocus-row .ttl{overflow:visible;white-space:normal;overflow-wrap:anywhere;padding:4px 0}
+.agfocus .agfocus-actions{display:flex;align-items:center;justify-content:flex-end;gap:3px;flex:none;margin:0 0 0 auto}
+.agfocus .agfocus-row .agfocus-actions button{display:inline-flex;align-items:center;justify-content:center;margin:0;width:28px;height:28px;min-height:28px;padding:5px;border:0;background:transparent;font-size:11px}
+.agfocus .agfocus-row .agfocus-actions .conversation-toggle svg{width:18px;height:18px}
+.agfocus-unavailable > .agfocus-row{cursor:default}
+.agfocus-retained > .agfocus-row{outline:1px dashed var(--line-2);outline-offset:-1px}
+
+/* The opened region sits directly under its row, without a card box. */
+.agfocus-region{padding:2px 12px 14px}
+.agfocus-card.agfocus-collapsed > .agfocus-region{display:none}
+.agfocus-meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:0 0 6px}
+.agfocus-meta:not(:has(> :not([hidden]):not(:empty))){display:none}
+.agfocus-meta .department-tag{font-size:10px;min-height:23px;padding:2px 7px}
+.agfocus-kind{font-size:10px}
+.agfocus-people{display:flex;align-items:center;margin:0 0 0 2px}
+.agfocus-people[hidden]{display:none}
+.agfocus-person{display:grid;place-items:center;flex:none;width:30px;height:30px;border:2px solid var(--bg);border-radius:50%;background:var(--surface);font-size:10px;overflow:hidden}
+.agfocus-person + .agfocus-person{margin-left:-8px}
+.agfocus-person-more{color:var(--fg-2);font-weight:600}
+.agfocus-region .agfocus-reason{color:var(--fg-2);font-size:11px;line-height:1.5}
+
+@media(max-width:600px){.agfocus-detail{padding:10px}}
+/* The pane, not the window, sets the width: narrow panes tighten the row and let a collapsed title take two lines. */
+@container agfocus-rows (max-width:460px){
+  .agfocus-row{gap:6px;padding:2px 8px}
+  .agfocus-row .task-business-column{flex-basis:clamp(56px,19%,88px)}
+  .agfocus-card.agfocus-collapsed > .agfocus-row .ttl{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;overflow-wrap:anywhere;line-height:1.3}
+  .agfocus-region{padding:2px 8px 12px}
+}
