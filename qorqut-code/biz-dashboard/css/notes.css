@@ -98,19 +98,18 @@
 
 
 .ntlinewrap { position: relative; min-height: 280px; }
-.ntlines { display: flex; flex-direction: column; }
+.ntlines { position: relative; display: flex; flex-direction: column; }
 .ntdoc { min-height: 280px; outline: none; cursor: text; white-space: pre-wrap; overflow-wrap: anywhere;
   font: 400 14.5px/1.75 var(--sans); letter-spacing: -.005em; color: var(--fg); }
 .ntline { position: relative; min-height: calc(14.5px * 1.75); }
 .ntline.nttask { padding-left: calc(1.5rem + 1.5rem + 10px); text-indent: -1.5rem; }
 .ntline.bold { font-weight: 600; }
 .ntline.done { text-decoration: line-through; color: color-mix(in srgb, var(--fg) 55%, transparent); }
-.ntballwrap { user-select: none; }
 
 
 
 .ntballwrap { position: absolute; left: calc(0.5rem - 8px); top: calc(15.5px * 1.75 / 2); transform: translateY(-50%);
-  width: 30px; height: 30px; z-index: 3; }
+  width: 30px; height: 30px; z-index: 3; user-select: none; }
 .ntball, .ntball:hover, .ntball:active { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center;
   cursor: pointer; padding: 0; border: 0; border-radius: 0; background: none; color: inherit; transform: none; font: inherit; }
 .ntdot { display: block; box-sizing: border-box; width: 6px; height: 6px; border-radius: 9999px;

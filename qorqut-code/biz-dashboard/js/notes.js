@@ -414,6 +414,7 @@ function ntPruneStatuses(es) {
 // native and re-read into es.lines; anything that changes block structure (Enter, joins, edits that
 // span blocks, paste, cut) is applied to the model and the surface is rebuilt.
 const ntDoc = () => $("#ntdoc");
+let ntLineResizeObserver = null;
 const ntBlockText = b => b.textContent.replace(/​/g, "");
 function ntSetEditable(doc, on) {
   if (!on) { doc.contentEditable = "false"; return; }
@@ -452,7 +453,6 @@ function ntMakeBlock(es, i) {
   if (task) {
     const status = ntLineStatus(es, i);
     if (status === "done" || status === "cancelled") el.classList.add("done");
-    el.insertAdjacentHTML("afterbegin", `<span class="ntballwrap" contenteditable="false"><button type="button" class="ntball ntb-${esc(status)}" data-i="${i}" aria-label="Status: ${esc(NT_STATUS_LABEL[status] || status)}. Click to change."><span class="ntdot"></span></button></span>`);
   }
   if (display) el.append(display);
   if (display === "" || display.endsWith("\n")) el.append(document.createElement("br"));
@@ -480,6 +480,17 @@ function ntSelection() {
   return a && f ? { a, f } : null;
 }
 const ntOrdered = s => (s.a.i < s.f.i || (s.a.i === s.f.i && s.a.pos <= s.f.pos)) ? [s.a, s.f] : [s.f, s.a];
+// Keep a triple-click inside this block: native paragraph selection can end at the
+// next block's start, making replacement consume the following line's boundary.
+function ntDocMousedown(e) {
+  if (e.button !== 0 || e.detail !== 3) return;
+  const block = e.target.closest(".ntline");
+  if (!block || block.classList.contains("ntrule")) return;
+  e.preventDefault();
+  const i = Number(block.dataset.i);
+  ntDoc().focus({ preventScroll: true });
+  ntSetSelection({ i, pos: 0 }, { i, pos: ntBlockText(block).length });
+}
 function ntDomPoint(i, pos) {
   const doc = ntDoc(), b = doc.children[i];
   if (!b) return { node: doc, offset: doc.childNodes.length };
@@ -487,7 +498,7 @@ function ntDomPoint(i, pos) {
   const w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
   let acc = 0, n;
   while ((n = w.nextNode())) { const len = n.nodeValue.length; if (pos <= acc + len) return { node: n, offset: pos - acc }; acc += len; }
-  return { node: b, offset: b.querySelector(":scope > .ntballwrap") ? 1 : 0 };
+  return { node: b, offset: 0 };
 }
 function ntSetSelection(a, f) {
   const p = ntDomPoint(a.i, a.pos), q = ntDomPoint(f.i, f.pos);
@@ -518,19 +529,44 @@ function ntRenderLines() {
     doc.onbeforeinput = ntDocBeforeInput; doc.oninput = ntDocInput; doc.onkeydown = ntDocKeydown;
     doc.oncopy = e => ntDocClipboard(e, false); doc.oncut = e => ntDocClipboard(e, true); doc.onpaste = ntDocPaste;
     doc.ondrop = e => e.preventDefault();
-    doc.onmousedown = e => { if (e.target.closest(".ntballwrap")) e.preventDefault(); };
+    doc.onmousedown = ntDocMousedown;
+    ntLineResizeObserver?.disconnect();
+    ntLineResizeObserver = new ResizeObserver(() => ntPlaceBalls());
+    ntLineResizeObserver.observe(doc);
     doc.onfocus = () => ntPaintOverlay();
     doc.onblur = () => setTimeout(ntPaintOverlay, 0);
-    wrap.replaceChildren(doc);
+    const gutter = document.createElement("div");
+    gutter.id = "ntgutter"; gutter.className = "ntgutter";
+    gutter.onmousedown = e => e.preventDefault();
+    wrap.replaceChildren(doc, gutter);
   }
   ntSetEditable(doc, !ntUploadingIds.has(ntSel));
   doc.replaceChildren(...es.lines.map((_, i) => ntMakeBlock(es, i)));
-  doc.querySelectorAll(".ntball").forEach(b => {
-    const i = Number(b.dataset.i);
+  ntRenderBalls();
+  ntPaintOverlay();
+}
+// Status balls live in a layer beside the editable text, not inside it, so they never sit in the
+// selectable flow (a non-editable node at a block start makes triple-click and range ends collapse).
+function ntRenderBalls() {
+  const es = ntEditState, g = $("#ntgutter"); if (!es || !g) return;
+  g.replaceChildren(...es.lines.flatMap((raw, i) => {
+    if (!ntIsTaskLine(raw) || ntIsRuleAt(es, i)) return [];
+    const status = ntLineStatus(es, i), w = document.createElement("span");
+    w.className = "ntballwrap";
+    w.innerHTML = `<button type="button" class="ntball ntb-${esc(status)}" data-i="${i}" aria-label="Status: ${esc(NT_STATUS_LABEL[status] || status)}. Click to change."><span class="ntdot"></span></button>`;
+    const b = w.firstChild;
     b.onclick = e => { e.stopPropagation(); e.preventDefault(); ntCycleBall(i); };
     b.oncontextmenu = e => { e.preventDefault(); e.stopPropagation(); ntToggleBlocked(i); };
+    return [w];
+  }));
+  ntPlaceBalls();
+}
+function ntPlaceBalls() {
+  const doc = ntDoc(), g = $("#ntgutter"); if (!doc || !g) return;
+  g.querySelectorAll(".ntball").forEach(b => {
+    const blk = doc.children[Number(b.dataset.i)];
+    if (blk) b.parentNode.style.top = `calc(${blk.offsetTop}px + 15.5px * 1.75 / 2)`;
   });
-  ntPaintOverlay();
 }
 function ntPaintOverlay() {
   const es = ntEditState; if (!es) return;
@@ -589,7 +625,7 @@ function ntDocBeforeInput(e) {
   if (t === "insertLineBreak") return take(() => ntEditRange(a, f, "\n", true));
   if (t === "insertFromDrop" || t === "deleteByDrag") return e.preventDefault();
   if (t.startsWith("delete")) {
-    if (multi || (!collapsed && false)) return take(() => ntEditRange(a, f, ""));
+    if (multi) return take(() => ntEditRange(a, f, ""));
     if (!collapsed) return;
     const bl = ntBlocks(es), b = bl[a.i], n = bl.length;
     if (t.includes("Backward") && a.pos === 0) {
@@ -629,6 +665,7 @@ function ntDocInput(e) {
   const stray = [...doc.childNodes].some(n => n.nodeType !== 1 || !n.classList.contains("ntline"));
   if (stray) { ntCommit(bl.map(ntComposeRaw), s ? { index: s.a.i, pos: s.a.pos } : null); return; }
   es.lines = bl.map(ntComposeRaw); es.dirty = true;
+  ntPlaceBalls();
   ntPaintOverlay();
   ntSchedule();
 }
@@ -708,7 +745,7 @@ function ntPatchBall(i) {
   const btn = document.querySelector(`.ntball[data-i="${i}"]`); if (!btn) return;
   btn.className = `ntball ntb-${status}`;
   btn.setAttribute("aria-label", `Status: ${NT_STATUS_LABEL[status] || status}. Click to change.`);
-  const row = btn.closest(".ntline"); if (row) row.classList.toggle("done", closed);
+  ntBlockClass(i, "done", closed);
 }
 
 // History belongs to the open note, not the surface rebuilt by structural edits.
