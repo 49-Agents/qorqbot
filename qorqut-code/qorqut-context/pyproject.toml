@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qorqut-context"
+version = "0.1.0"
+description = "Qorqut shared context engine: Git-backed context, propagation pipeline and Codex app-server runner"
+readme = "README.md"
+requires-python = ">=3.12"
+# The source imports only the standard library. It shells out to the installed
+# `git` and, for model propagation, to an installed `codex` executable; those are
+# system tools, not Python distributions.
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["qorqut_context*"]
+
+[tool.setuptools.package-data]
+# The prompt files are read from the package directory at import time.
+qorqut_context = ["prompts/*.md"]
