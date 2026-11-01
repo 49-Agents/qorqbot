@@ -1,5 +1,5 @@
 // Owner restore of archived businesses in Global Overview. Restore returns the
-// business with exactly one business agent; nothing else is started.
+// business with its Onbashy and Dev peers; nothing else is started.
 const businessRestoreKeys = new Map();   // business id -> idempotency key kept until success
 
 function businessRestoreRows(data) {
@@ -40,8 +40,8 @@ function businessRestoreConfirm(row, host) {
   let busy = false;
   modal({
     title: `Restore ${name}?`, width: 460,
-    body: `<p>${esc(name)} returns to the business menu with its one business agent, Onbashy.</p>
-      <p class="muted">Retired agents stay inactive and no session starts. The agent folder is prepared from its saved profile.</p>
+    body: `<p>${esc(name)} returns to the business menu with Onbashy and Dev.</p>
+      <p class="muted">Their saved work is preserved and no session starts.</p>
       <p class="ferr" id="business-restore-error" role="alert" hidden></p>`,
     actions: [
       { label: 'Cancel', onClick: close => close() },
@@ -57,7 +57,10 @@ function businessRestoreConfirm(row, host) {
             idempotency_key: businessRestoreKeys.get(row.id)}));
           businessRestoreKeys.delete(row.id);
           close();
-          toast(data.display_name ? `${name} restored with ${data.display_name}` : `${name} restored`);
+          const peerNames = Array.isArray(data.agents) && data.agents.length
+            ? data.agents.map(agent => agent.display_name).filter(Boolean)
+            : data.display_name ? [data.display_name] : [];
+          toast(peerNames.length ? `${name} restored with ${peerNames.join(' and ')}` : `${name} restored`);
           await loadBiz({preserveNavigation: true});
           if (state.scope === 'global' && state.globalTab === 'overview') renderTab();
           else if (host.isConnected) businessRestoreMount(host);
