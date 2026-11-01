@@ -139,7 +139,7 @@
 #ntfiling:has(.ntfilingrow)::before { content: none; }
 #ntfiling .ntfilingrow { display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 #ntfiling .ntfilingstatus { overflow-wrap: anywhere; }
-#ntfiling .ntfilingresult { flex: 1 1 100%; }
+#ntfiling .ntfilingresult { flex: 0 1 auto; }
 #ntfiling .ntfilingresult summary { cursor: pointer; }
 #ntfiling .ntfilingresult pre { max-width: min(80ch, 90vw); overflow: auto; white-space: pre-wrap; }
 #ntfiling .ntmetalink {
