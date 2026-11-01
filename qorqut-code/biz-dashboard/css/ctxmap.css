@@ -338,3 +338,11 @@
 .ctxgraph-legend .ctxgraph-endpoint-key { display:inline-block; width:9px; height:9px; margin-right:5px; border-radius:50%; border:1.5px dashed #9a9993; }
 .pub-view .pub-ref, .pub-view .pub-attr { display:inline-block; max-width:100%; white-space:normal; overflow-wrap:anywhere; }
 .pub-view .pub-edge .tt { display:block; min-width:0; }
+.pub-view .th { flex-wrap:wrap; min-width:0; }
+.pub-view .th h2 { min-width:0; overflow-wrap:anywhere; }
+.pub-view .th .pa { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; min-width:0; max-width:100%; overflow-wrap:anywhere; }
+.pub-view .crumbs, .pub-view .meta { min-width:0; overflow-wrap:anywhere; }
+.pub-view .pub-history-details { margin-top:6px; font-size:11px; }
+.pub-view .pub-history-details summary { cursor:pointer; color:var(--fg-2); }
+.pub-view .pub-commit { display:inline-block; max-width:100%; overflow-wrap:anywhere; word-break:break-all; }
+.pub-view .pub-none { color:var(--fg-3); }
