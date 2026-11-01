@@ -4,13 +4,14 @@
 // of them in dispose().
 // Composer state is bound to the exact agent and conversation, and outlives a mount so a switch never leaks or loses it.
 const GLOBAL_CHAT_DRAFTS = new Map();           // scope -> unsent composer text
-const GLOBAL_CHAT_SENDS = new Map();            // scope -> {text, key}: the identity of an unconfirmed send, reused by a retry
+const GLOBAL_CHAT_SENDS = new Map();            // scope -> {text, key, pin}: the frozen identity of an unconfirmed send, reused by a retry
 const GLOBAL_CHAT_INFLIGHT = new Map();         // scope -> {text, promise} of a send still waiting for its response
-const GLOBAL_CHAT_INPUTS = new Map();           // input id -> {conversation}: where this browser's own admitted sends were bound
-const GLOBAL_CHAT_RESENDS = new Map();          // undelivered input id -> {key}: identity of an explicit resend
-const GLOBAL_CHAT_LAST = new Map();             // agent id -> conversation the composer was last bound to (shown until the first read confirms it)
+const GLOBAL_CHAT_RESENDS = new Map();          // undelivered input id -> {key, pin}: identity of an explicit resend
 const GLOBAL_CHAT_HIDDEN = new Set();           // settled inputs the owner dismissed or already resent
-const globalChatScope = (agentId, conversationId) => `${agentId}\n${conversationId || ''}`;
+// Exact provider + conversation identity of a captured conversation; the one key for drafts, sends, queries and the selector.
+const globalChatKey = target => target?.conversation_id ? `${target.provider || ''}\n${target.conversation_id}` : null;
+const globalChatScope = (agentId, target) => globalChatKey(target) ? `${agentId}\n${globalChatKey(target)}` : null;
+const globalChatQuery = target => target ? `&conversation=${encodeURIComponent(target.conversation_id)}&provider=${encodeURIComponent(target.provider || '')}` : '';
 function globalChatReadable(agentId) {
   const root = document.querySelector(`[data-global-chat="${CSS.escape(agentId)}"]`);
   if (document.hidden || !root?.isConnected || root.closest('[inert],[hidden],[aria-hidden="true"]')) return false;
@@ -22,12 +23,13 @@ function globalChatReadable(agentId) {
 const GLOBAL_CHAT_PAGE = 50;
 const GLOBAL_CHAT_MAX = 17000;
 // Refusals store no input; any other failure leaves the outcome unknown and keeps the send identity.
-const GLOBAL_CHAT_REFUSALS = new Set(['terminal_offline', 'capture_disabled', 'capture_not_ready', 'operation_unavailable',
+const GLOBAL_CHAT_REFUSALS = new Set(['terminal_offline', 'capture_disabled', 'capture_not_ready', 'binding_not_ready', 'operation_unavailable',
   'unsupported_runtime', 'terminal_changed', 'validation_error', 'not_found', 'forbidden', 'idempotency_conflict']);
 const GLOBAL_CHAT_REFUSAL_TEXT = {
   terminal_offline: 'The agent is not running in its terminal. Start or resume it manually in Terminal, then send again.',
   capture_disabled: 'Transcript capture is off for this agent, so Chat cannot send to it.',
   capture_not_ready: 'The session has not published its conversation yet. Try again in a moment.',
+  binding_not_ready: 'The live session is still connecting. Try again in a moment.',
   terminal_changed: 'The terminal changed before the message was admitted. Nothing was sent; check the agent and try again.',
 };
 const GLOBAL_CHAT_INPUT_LABEL = {inbox_nudge: 'Inbox nudge', telegram: 'Telegram', broadcast: 'Broadcast', direct_message: 'Direct message'};
@@ -236,8 +238,8 @@ function mountGlobalChat(pane, agent, options = {}) {
   const entries = new Map();                     // entry id -> entry
   const nodes = new Map();                       // entry id -> element
   const inputNodes = new Map();                  // input id -> element
-  let session = null, conversation = null, conversations = [], inputs = [], older = null, shown, selected = null;
-  let cursor = 0, lastRead = 0, composerScope = globalChatScope(agentId, GLOBAL_CHAT_LAST.get(agentId));
+  let session = null, conversation = null, conversations = [], inputs = [], older = null, shown, selected = null, switching = false, clears = 0;
+  let cursor = 0, lastRead = 0, composerScope = null;
   let stream = null, retryTimer = null, retryDelay = 1000, readTimer = null, streamDown = false;
   let disposed = false, loading = false, again = false, generation = 0, atBottom = true, unseen = 0, finished = false, reading = 0;
   const cleanups = [];
@@ -257,8 +259,8 @@ function mountGlobalChat(pane, agent, options = {}) {
     <button type="button" class="gchat-jump" hidden>New messages ↓</button>
     <div class="gchat-session" role="status" aria-live="polite" data-state="loading"><span class="gchat-session-dot" aria-hidden="true"></span><span class="gchat-session-text">Loading…</span></div>
     <form class="gchat-composer">
-      <textarea rows="2" maxlength="${GLOBAL_CHAT_MAX}" aria-label="Message ${esc(label)}" placeholder="Message ${esc(label)}…" autocomplete="off"></textarea>
-      <button type="submit" class="gchat-send">Send</button>
+      <textarea rows="2" disabled maxlength="${GLOBAL_CHAT_MAX}" aria-label="Message ${esc(label)}" placeholder="Message ${esc(label)}…" autocomplete="off"></textarea>
+      <button type="submit" class="gchat-send" disabled>Send</button>
     </form>
     <section class="gchat-preview-window" role="dialog" aria-label="Document preview" hidden>
       <header><span class="gchat-preview-title"></span><a class="gchat-preview-open" target="_blank" rel="noopener noreferrer" aria-label="Open preview in new tab">↗</a><button type="button" class="quiet" data-preview-close aria-label="Close preview">×</button></header>
@@ -345,12 +347,14 @@ function mountGlobalChat(pane, agent, options = {}) {
       const sequence = renderedBoundary();
       if (sequence <= lastRead || sequence <= reading) return;
       reading = sequence;
+      const epoch = generation;
       try {
         const result = coreData(await post(`${base}/read`, {sequence}));
+        if (epoch !== generation) return;
         lastRead = Math.max(lastRead, result.last_read_sequence || 0);
         if (typeof replyNotifications !== 'undefined') void replyNotifications.refresh();
       } catch (_) { /* the next render or scroll tries again */ }
-      finally { reading = 0; }
+      finally { if (epoch === generation) reading = 0; }
     }, 400);
   }
   listen(document, 'visibilitychange', () => { if (!document.hidden) scheduleRead(); });
@@ -400,22 +404,27 @@ function mountGlobalChat(pane, agent, options = {}) {
   }
   const newestPosition = () => { let top = -1; for (const entry of entries.values()) top = Math.max(top, entry.position); return top; };
   function clearEntries() {
-    entries.clear(); nodes.clear(); log.replaceChildren();
+    clears++; entries.clear(); nodes.clear(); log.replaceChildren();
     pendingHost.replaceChildren(); inputNodes.clear();
   }
 
   // ---- application inputs not yet confirmed by the transcript
-  const viewingCurrent = () => !selected || conversations.find(item => item.conversation_id === selected)?.current === true;
-  const viewedId = () => conversation?.conversation_id ?? null;
+  const viewedKey = () => globalChatKey(conversation);
+  // The live session's exact binding; a conversation is sendable only when it is the one displayed.
+  const liveBinding = () => session?.binding || null;
+  const viewingLive = () => !!liveBinding() && globalChatKey(liveBinding()) === viewedKey();
+  const defaultConversation = () => conversations.find(item => item.current) || null;
+  // A receipt belongs to the exact provider/conversation of its own binding; one without a binding is shown nowhere.
   function inputVisible(item, noticeIds) {
     if (item.state === 'submitted' || GLOBAL_CHAT_HIDDEN.has(item.id) || noticeIds.has(item.id)) return false;
-    const mine = GLOBAL_CHAT_INPUTS.get(item.id);
-    return mine?.conversation ? mine.conversation === viewedId() : viewingCurrent();
+    return !!viewedKey() && globalChatKey(item.binding) === viewedKey();
   }
+  // Only a definitely undelivered owner Chat message can be offered again; every other producer's receipt is status only.
+  const ownerChat = item => item.origin === 'owner' && item.input_type === 'chat';
   function paintInputs() {
     // A verified notice entry already is its input's receipt: never show the same input a second time.
     const noticeIds = new Set([...entries.values()].map(entry => entry.system?.input_id).filter(Boolean));
-    const shownInputs = inputs.filter(item => inputVisible(item, noticeIds)).reverse();   // newest-first -> chronological
+    const shownInputs = inputs.filter(item => inputVisible(item, noticeIds)).sort((a, b) => a.sequence - b.sequence);
     const keep = new Set(shownInputs.map(item => item.id));
     for (const [id, node] of inputNodes) if (!keep.has(id)) { node.remove(); inputNodes.delete(id); }
     for (const item of shownInputs) {
@@ -425,16 +434,17 @@ function mountGlobalChat(pane, agent, options = {}) {
       node.className = `gchat-msg gchat-pending ${system ? 'gchat-notice' : 'gchat-user'}`;
       node.dataset.inputId = item.id; node.dataset.state = item.state; node.dataset.inputType = item.input_type;
       const detail = item.reason && item.state !== 'uncertain' ? ` ${item.reason}` : '';
-      const resendable = ['failed', 'undelivered'].includes(item.state) && !!item.body && viewingCurrent();
+      const definite = ownerChat(item) && ['failed', 'undelivered'].includes(item.state) && !!item.body;
+      const resendable = definite && viewingLive(), reusable = definite && !viewingLive() && !!defaultConversation();
       const dismissable = ['uncertain', 'failed', 'undelivered'].includes(item.state);
-      const signature = JSON.stringify([item.state, item.body, item.reason, kind, resendable, dismissable, session?.can_send]);
+      const signature = JSON.stringify([item.state, item.body, item.reason, kind, resendable, reusable, dismissable, canSend()]);
       node.dataset.resendable = String(resendable);
       if (node.chatSignature !== signature) {
         node.chatSignature = signature;
         const text = item.body ?? (item.input_type === 'telegram' ? 'Private message' : '');
         node.innerHTML = `<div class="gchat-body">${kind ? `<span class="gchat-marker">${esc(kind)}</span>` : ''}${text ? `<span class="gchat-text">${esc(text)}</span>` : ''}</div>
           <span class="gchat-state" data-state="${esc(item.state)}">${esc(GLOBAL_CHAT_INPUT_STATE[item.state] + detail)}</span>
-          ${resendable || dismissable ? `<span class="gchat-pending-actions">${resendable ? `<button type="button" class="quiet" data-resend="${esc(item.id)}" ${session?.can_send ? '' : 'disabled'}>Resend</button>` : ''}${dismissable ? `<button type="button" class="quiet" data-dismiss="${esc(item.id)}">Dismiss</button>` : ''}</span>` : ''}`;
+          ${resendable || reusable || dismissable ? `<span class="gchat-pending-actions">${resendable ? `<button type="button" class="quiet" data-resend="${esc(item.id)}" ${canSend() ? '' : 'disabled'}>Resend</button>` : ''}${reusable ? `<button type="button" class="quiet" data-reuse="${esc(item.id)}">Use in current chat</button>` : ''}${dismissable ? `<button type="button" class="quiet" data-dismiss="${esc(item.id)}">Dismiss</button>` : ''}</span>` : ''}`;
       }
     }
     shownInputs.forEach((item, index) => {                                                   // chronological, without re-inserting settled nodes
@@ -445,12 +455,14 @@ function mountGlobalChat(pane, agent, options = {}) {
   }
 
   // ---- session status, composer enablement and the empty state
-  const canSend = () => !!session?.can_send && viewingCurrent() && !finished;
+  const canSend = () => !!session?.can_send && viewingLive() && !switching && !finished;
   function sessionSummary() {
     if (!session) return {key: 'loading', short: 'Loading…', line: 'Loading…'};
-    if (!viewingCurrent()) return {key: 'archive', short: 'Earlier conversation', line: 'Viewing an earlier conversation. Messages go to the current one.'};
+    if (switching) return {key: 'loading', short: 'Loading…', line: 'Loading…'};
+    if (selected || (session.state === 'live' && session.can_send && !viewingLive())) return {key: 'archive', short: 'Earlier conversation', line: 'Viewing a conversation that is not the live session. Messages go only to the live session.'};
     if (session.state === 'live') {
       if (session.reason === 'capture_disabled') return {key: 'disabled', short: 'Capture disabled', line: 'Transcript capture is off for this agent, so Chat cannot show or send messages.'};
+      if (session.reason === 'binding_not_ready') return {key: 'starting', short: 'Connecting', line: 'Connecting to the live session. You can send once it is ready.'};
       if (session.reason === 'capture_not_ready') return {key: 'starting', short: 'Starting capture', line: 'The conversation is starting. You can send once the session publishes it.'};
       return session.working ? {key: 'working', short: 'Working', line: 'Working…'} : {key: 'live', short: 'Live', line: 'Live'};
     }
@@ -480,19 +492,19 @@ function mountGlobalChat(pane, agent, options = {}) {
     const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope);
     input.disabled = !enabled;
     send.disabled = !enabled || sending;
-    input.placeholder = enabled ? `Message ${label}…` : !session ? `Message ${label}…` : !viewingCurrent() ? 'Return to the current conversation to send' : 'Not available to send';
+    input.placeholder = enabled ? `Message ${label}…` : !session ? `Message ${label}…` : (selected || !viewingLive()) ? 'Not the live conversation: nothing can be sent here' : 'Not available to send';
     paintEmpty();
     for (const button of pendingHost.querySelectorAll('[data-resend]')) button.disabled = !session?.can_send || GLOBAL_CHAT_RESENDS.get(button.dataset.resend)?.pending === true;
   }
   const showBanner = text => { banner.hidden = !text; banner.textContent = text || ''; delete banner.dataset.reconnect; };
   function paintConversations() {
     convBar.hidden = conversations.length < 2;
-    const chosen = selected || conversations.find(item => item.current)?.conversation_id || '';
+    const chosen = selected ? globalChatKey(selected) : globalChatKey(defaultConversation());
     convSelect.innerHTML = conversations.map(item => {
       const when = item.updated_at ? ` · ${GLOBAL_CHAT_TIME.format(new Date(item.updated_at))}` : '';
-      return `<option value="${esc(item.conversation_id)}"${item.conversation_id === chosen ? ' selected' : ''}>${esc(`${item.provider || 'Conversation'}${when}${item.current ? ' (current)' : ''}`)}</option>`;
+      return `<option value="${esc(globalChatKey(item))}"${globalChatKey(item) === chosen ? ' selected' : ''}>${esc(`${item.provider || 'Conversation'}${when}${item.current ? ' (current)' : ''}`)}</option>`;
     }).join('');
-    convBar.querySelector('[data-current-conversation]').hidden = viewingCurrent();
+    convBar.querySelector('[data-current-conversation]').hidden = !selected;
   }
   listen(root, 'click', event => {
     const chip = event.target.closest('[data-preview-href]');
@@ -500,29 +512,30 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (event.target.closest('[data-preview-close]')) { closePreview(); return; }
     if (event.target.closest('[data-terminal]')) { options.openTerminal?.(); return; }
     if (event.target.closest('[data-current-conversation]')) { chooseConversation(null); return; }
-    const resend = event.target.closest('[data-resend]'), dismiss = event.target.closest('[data-dismiss]');
+    const resend = event.target.closest('[data-resend]'), dismiss = event.target.closest('[data-dismiss]'), reuse = event.target.closest('[data-reuse]');
     if (resend) void resendInput(resend.dataset.resend);
+    else if (reuse) useInCurrentChat(reuse.dataset.reuse);
     else if (dismiss) { GLOBAL_CHAT_HIDDEN.add(dismiss.dataset.dismiss); paintInputs(); }
   });
   listen(convSelect, 'change', () => chooseConversation(convSelect.value));
-  function chooseConversation(id) {
-    const current = conversations.find(item => item.current)?.conversation_id;
-    const next = id && id !== current ? id : null;
-    if (next === selected) { paintConversations(); return; }
-    selected = next; generation++; loading = false; again = false;
+  function chooseConversation(key) {
+    const item = key ? conversations.find(row => globalChatKey(row) === key) : null;
+    const next = item && !item.current ? {provider: item.provider, conversation_id: item.conversation_id} : null;
+    if (globalChatKey(next) === globalChatKey(selected)) { paintConversations(); return; }
+    selected = next; generation++; loading = false; again = false; reading = 0; clearTimeout(readTimer);
+    switching = true;                                   // the previous session's enabled composer is never shown for the next selection
     clearEntries(); older = null; shown = undefined; olderButton.hidden = true;
+    paintInputs(); paintSession();
     void load();
   }
 
-  // ---- composer: the draft and the unconfirmed send are bound to this exact agent and conversation
-  const scope = () => globalChatScope(agentId, viewedId());
+  // ---- composer: the draft and the unconfirmed send are bound to this exact agent, provider and conversation
   function bindComposer() {
-    const next = scope();
-    GLOBAL_CHAT_LAST.set(agentId, viewedId());
+    const next = globalChatScope(agentId, conversation);
     if (next === composerScope) return;
     composerScope = next;
-    input.value = GLOBAL_CHAT_DRAFTS.get(next) || '';
-    watchInflight(next);
+    input.value = next ? GLOBAL_CHAT_DRAFTS.get(next) || '' : '';
+    if (next) watchInflight(next);
   }
   // A send started from an earlier mount of this composer finishes on its own; this mount only shows its outcome.
   function watchInflight(key) {
@@ -533,7 +546,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       paintSession(); void load();
     });
   }
-  const saveDraft = () => { if (input.value) GLOBAL_CHAT_DRAFTS.set(composerScope, input.value); else GLOBAL_CHAT_DRAFTS.delete(composerScope); };
+  const saveDraft = () => { if (!composerScope) return; if (input.value) GLOBAL_CHAT_DRAFTS.set(composerScope, input.value); else GLOBAL_CHAT_DRAFTS.delete(composerScope); };
   input.oninput = () => {
     saveDraft();
     const pending = GLOBAL_CHAT_SENDS.get(composerScope);
@@ -547,11 +560,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   };
   const refusalText = problem => GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || failure(problem);
   // One admission request. The result is recorded in module state so a mount that was left meanwhile loses nothing.
-  async function admit(text, key) {
-    const result = coreData(await post(`${base}/messages`, {text, idempotency_key: key}));
-    if (result.input) GLOBAL_CHAT_INPUTS.set(result.input.id, {conversation: result.binding?.conversation_id ?? null});
-    return result;
-  }
+  const admit = async (text, key, pin) => coreData(await post(`${base}/messages`, {text, idempotency_key: key, expected_binding: pin}));
   function takeInput(item) {
     if (!item || !live()) return;
     inputs = [item, ...inputs.filter(old => old.id !== item.id)];
@@ -560,14 +569,15 @@ function mountGlobalChat(pane, agent, options = {}) {
   form.onsubmit = async event => {
     event.preventDefault();
     const text = input.value, mine = composerScope;
-    if (!text.trim() || !canSend() || GLOBAL_CHAT_INFLIGHT.has(mine)) return;
-    // A retry of the same text reuses its key, so a lost response can never become a second message.
+    if (!mine || !text.trim() || !canSend() || GLOBAL_CHAT_INFLIGHT.has(mine)) return;
+    // A retry of the same text reuses its key and its original binding pin, so a lost response can never become a second
+    // message or move to another session. Only a deliberate new send takes the binding observed now.
     let attempt = GLOBAL_CHAT_SENDS.get(mine);
-    if (!attempt || attempt.text !== text) attempt = {text, key: newRequestId()};
+    if (!attempt || attempt.text !== text) attempt = {text, key: newRequestId(), pin: liveBinding().binding_id};
     GLOBAL_CHAT_SENDS.set(mine, attempt);
     const run = (async () => {
       try {
-        const result = await admit(text, attempt.key);
+        const result = await admit(text, attempt.key, attempt.pin);
         if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine);
         if (GLOBAL_CHAT_DRAFTS.get(mine) === text) GLOBAL_CHAT_DRAFTS.delete(mine);
         if (live() && composerScope === mine) { if (input.value === text) input.value = ''; showBanner(''); }
@@ -590,12 +600,12 @@ function mountGlobalChat(pane, agent, options = {}) {
   // A definitely undelivered input is resent only when the owner asks; the new send has its own key, stable across a retry.
   async function resendInput(id) {
     const item = inputs.find(row => row.id === id);
-    if (!item?.body || !['failed', 'undelivered'].includes(item.state) || !canSend()) return;
-    const resend = GLOBAL_CHAT_RESENDS.get(id) || {key: newRequestId()};
+    if (!item?.body || !ownerChat(item) || !['failed', 'undelivered'].includes(item.state) || !canSend() || !viewingLive()) return;
+    const resend = GLOBAL_CHAT_RESENDS.get(id) || {key: newRequestId(), pin: liveBinding().binding_id};
     resend.pending = true; GLOBAL_CHAT_RESENDS.set(id, resend);
     paintSession();
     try {
-      const result = await admit(item.body, resend.key);
+      const result = await admit(item.body, resend.key, resend.pin);
       GLOBAL_CHAT_RESENDS.delete(id); GLOBAL_CHAT_HIDDEN.add(id);
       showBanner(''); takeInput(result.input); void load();
     } catch (problem) {
@@ -605,8 +615,17 @@ function mountGlobalChat(pane, agent, options = {}) {
     } finally { if (live()) paintSession(); }
   }
 
+  // From an archive the undelivered text is only copied into the current conversation's draft; sending stays a separate action.
+  function useInCurrentChat(id) {
+    const item = inputs.find(row => row.id === id), target = defaultConversation();
+    if (!item?.body || !ownerChat(item) || !['failed', 'undelivered'].includes(item.state) || !target) return;
+    const key = globalChatScope(agentId, target), existing = GLOBAL_CHAT_DRAFTS.get(key);
+    GLOBAL_CHAT_DRAFTS.set(key, existing && !existing.includes(item.body) ? `${existing}\n\n${item.body}` : existing || item.body);
+    showBanner('Copied to the current conversation’s draft. Switch back to review and send it.');
+  }
+
   // ---- loading: a state fetch is idempotent, so every "changed" event just reads it again (coalesced)
-  const stateUrl = () => `${base}?limit=${GLOBAL_CHAT_PAGE}${selected ? `&conversation=${encodeURIComponent(selected)}` : ''}`;
+  const stateUrl = () => `${base}?limit=${GLOBAL_CHAT_PAGE}${globalChatQuery(selected)}`;
   async function load(reset = false) {
     if (loading) { again = true; return; }
     loading = true;
@@ -614,7 +633,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     try {
       const data = coreData(await api(stateUrl()));
       if (!live() || mine !== generation) return;
-      const id = data.conversation?.conversation_id ?? null;
+      const id = globalChatKey(data.conversation);
       const page = data.entries || [];
       // A page that starts after everything held (a long gap while away) cannot be joined to it: start from that page.
       const gap = data.older != null && page.length && page[0].position > newestPosition() && entries.size > 0;
@@ -625,26 +644,26 @@ function mountGlobalChat(pane, agent, options = {}) {
       cursor = fresh && reset ? data.cursor || 0 : Math.max(cursor, data.cursor || 0);
       let grew = false;
       page.forEach(entry => { if (placeEntry(entry) && entry.speaker === 'agent') grew = true; });
-      bindComposer();
+      switching = false; bindComposer();
       olderButton.hidden = older == null;
       paintConversations(); paintInputs(); paintSession();
       if (fresh) { showBanner(''); toBottom(); } else afterChange(grew);
       if (!stream) connect();
     } catch (problem) {
-      if (live() && mine === generation) { showBanner(`Chat is unavailable: ${failure(problem)}`); status.textContent = 'Unavailable'; retry(() => load()); }
+      if (live() && mine === generation) { switching = false; paintSession(); showBanner(`Chat is unavailable: ${failure(problem)}`); status.textContent = 'Unavailable'; retry(() => load()); }
     } finally {
       if (mine === generation) { loading = false; if (again && live()) { again = false; void load(); } }
     }
   }
   olderButton.onclick = async () => {
     // Only history responses advance this cursor, so no page is skipped.
-    const before = older, mine = generation;
-    if (before == null) return;
+    const before = older, mine = generation, requested = viewedKey(), epoch = clears, target = conversation;
+    if (before == null || !target) return;
     olderButton.disabled = true;
     try {
-      const target = viewedId();
-      const data = coreData(await api(`${base}/history?before=${before}&limit=${GLOBAL_CHAT_PAGE}${target ? `&conversation=${encodeURIComponent(target)}` : ''}`));
-      if (!live() || mine !== generation) return;
+      const data = coreData(await api(`${base}/history?before=${before}&limit=${GLOBAL_CHAT_PAGE}${globalChatQuery(target)}`));
+      // Applied only to the exact provider/conversation it asked for, even if the live conversation changed on its own.
+      if (!live() || mine !== generation || epoch !== clears || viewedKey() !== requested) return;
       const height = scroller.scrollHeight, top = scroller.scrollTop;
       (data.entries || []).forEach(entry => { if (!entries.has(entry.id)) placeEntry(entry); });
       older = data.older ?? null; olderButton.hidden = older == null;
@@ -680,7 +699,11 @@ function mountGlobalChat(pane, agent, options = {}) {
       cursor = item.cursor;
       if (item.kind === 'changed') void load();                                // an event renders nothing; the fetched page does
     });
-    source.addEventListener('reset', () => { closeStream(); cursor = 0; void load(true); });
+    source.addEventListener('reset', () => {
+      // A restored installation: outstanding state/history/read callbacks are obsolete and must not reinstate the old cursor or boundary.
+      closeStream(); generation++; loading = false; again = false; reading = 0; clearTimeout(readTimer);
+      cursor = 0; lastRead = 0; void load(true);
+    });
     source.addEventListener('done', () => { closeStream(); finished = true; streamDown = false; showBanner('This chat is no longer available.'); paintSession(); });
     source.onerror = () => {
       if (!live()) return;
@@ -691,8 +714,6 @@ function mountGlobalChat(pane, agent, options = {}) {
     };
   }
 
-  input.value = GLOBAL_CHAT_DRAFTS.get(composerScope) || '';
-  watchInflight(composerScope);
   void load();
   return {
     agentId,

@@ -62,7 +62,7 @@
 .gchat-conversations { display: flex; align-items: center; gap: 8px; margin: 40px 0 0; flex: none; font-size: 12px; }
 .gchat-conversations[hidden], .gchat-conversations [hidden] { display: none; }
 .gchat-conversations select { min-width: 0; max-width: 100%; font-size: 12px; }
-.gchat-conversations + .gchat-scroll { padding-top: 10px; }
+.gchat-conversations:not([hidden]) + .gchat-scroll { padding-top: 10px; }
 /* One restrained session line sits by the composer: live, working, starting capture, capture disabled or offline. */
 .gchat-session { display: flex; align-items: center; gap: 7px; flex: none; padding: 0 12px 6px; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
 .gchat-session-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3, var(--fg-2)); }
