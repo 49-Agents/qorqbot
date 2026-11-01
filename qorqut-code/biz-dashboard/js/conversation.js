@@ -3,7 +3,15 @@
 // no viewing telemetry beyond the explicit private read acknowledgment.
 const conversationStates = new Map();
 let conversationMountId = 0;
-const CONVERSATION_CHANNELS = [['private', 'Private with Ordubashy'], ['team', 'Agent discussion']];
+const CONVERSATION_CHANNELS = [['private', 'Private with Ordubashy'], ['marketing', 'Private with Marketing'], ['team', 'Agent discussion']];
+// Omitting the peer keeps the original Ordubashy channel. The Marketing channel is found by role exactly once:
+// the agent the service returns is then pinned, and every later read, send, acknowledgment, page and retry
+// names that agent. A role-only request is never repeated once a peer is pinned.
+const CONVERSATION_MARKETING_ROLE = 'global-marketing';
+const conversationPeer=s=>s.channel==='marketing'?{peer_role:CONVERSATION_MARKETING_ROLE,...(s.peer?{agent_id:s.peer}:{})}:{};
+const CONVERSATION_CHANGED = 'The Marketing agent changed or is no longer available. Select the Marketing tab again to choose the current agent.';
+// Refusals that mean this exact peer channel cannot be used now.
+const CONVERSATION_LOST = ['forbidden','not_found','policy_denied','revision_conflict','invalid_principal'];
 // Inline Focus conversations dismiss on outside clicks, while their contents stay interactive.
 document.addEventListener('click',event=>{
   // composedPath() is frozen at dispatch time: a reactive re-render (the team
@@ -17,10 +25,15 @@ document.addEventListener('click',event=>{
   }
 });
 function conversationKey(source) { return `${source.type}:${source.biz || 'global'}:${source.id}`; }
-function conversationStateKey(source,channel) { return `${conversationKey(source)}:${channel}`; }
-function conversationState(source,channel='private') {
-  const key=conversationStateKey(source,channel);
-  if (!conversationStates.has(key)) conversationStates.set(key,{channel,text:'',notes:[],participants:[],loaded:false,cursor:null,before:null,mounts:new Set(),ageTimer:null,conversation:null,readState:null});
+// Shared state is keyed by source, channel and the exact peer, so one agent's history, cursors, draft and retry
+// can never be shown to, or sent to, another.
+function conversationStateKey(source,channel,peer=null) { return `${conversationKey(source)}:${channel}${peer?`:${peer}`:''}`; }
+function conversationNewState(source,channel,peer=null) {
+  return {source:conversationKey(source),channel,peer,text:'',notes:[],participants:[],loaded:false,cursor:null,before:null,mounts:new Set(),ageTimer:null,conversation:null,readState:null,unavailable:null};
+}
+function conversationState(source,channel='private',peer=null) {
+  const key=conversationStateKey(source,channel,peer);
+  if (!conversationStates.has(key)) conversationStates.set(key,conversationNewState(source,channel,peer));
   return conversationStates.get(key);
 }
 // The dashboard is the owner interface. A session that explicitly reports another
@@ -48,6 +61,9 @@ function conversationGlyph(person,size) {
 // Same defensive fallback as conversationGlyph, for a harness that doesn't load core.js.
 function conversationOrdubashyGlyph(size) {
   return typeof agentGlyph==='function' ? agentGlyph({role:{id:'ordubashy'}},size) : 'O';
+}
+function conversationMarketingGlyph(size) {
+  return typeof agentGlyph==='function' ? agentGlyph({role:{id:'global-marketing'}},size) : 'M';
 }
 // Up to 4 overlapping avatars for the team-channel toast; no overflow count.
 function conversationChannelAvatars(people) {
@@ -106,25 +122,28 @@ function conversationMount(host,source,adapter={}) {
   if (!host) return;
   const key=conversationKey(source);
   let expanded=false;
-  const expandedMessages={private:new Set(),team:new Set()};
+  const expandedMessages={private:new Set(),marketing:new Set(),team:new Set()};
   if (host.dataset.conversation===key) { host._source=source; return host._conversation; }
   host._conversation?.dispose?.();
   let disposed=false,view;
-  const scroll={private:0,team:0};
+  const scroll={private:0,marketing:0,team:0};
   host.dataset.conversation=key;host._source=source;
   // The session can arrive after a mount, so the owner test is read on demand
   // rather than frozen: a late non-owner session restores the team composer.
   const viewerIsOwner=()=>conversationViewerIsOwner();
-  const channels={private:conversationState(source,'private'),team:conversationState(source,'team')};
+  // Until the service names a Marketing agent this mount holds an empty, unsendable discovery state of its own.
+  const marketing={state:conversationNewState(source,'marketing')};
+  const channels={private:conversationState(source,'private'),team:conversationState(source,'team'),get marketing(){return marketing.state;}};
   let channel=adapter.channel || (viewerIsOwner()?'private':'team');
   const st=()=>channels[channel];
   const readOnly=()=>channel==='team' && viewerIsOwner();
+  const lost=()=>channel==='marketing' && !!st().unavailable;
   const mountId=++conversationMountId;
   const panelId=`conversation-panel-${mountId}`;
   const tabId=name=>`conversation-tab-${mountId}-${name}`;
   // Icon-only, matching the pane's .ttab icon tabs: the label stays as the
   // accessible name (aria-label) instead of visible text.
-  const tabs=CONVERSATION_CHANNELS.map(([name,label])=>`<button type="button" role="tab" id="${tabId(name)}" class="quiet conversation-channel" data-channel="${name}" aria-selected="false" tabindex="-1" aria-controls="${panelId}" aria-label="${esc(label)}"><span class="conversation-channel-icon" data-channel-icon="${name}">${name==='private'?conversationOrdubashyGlyph(18):conversationChannelAvatars([])}</span></button>`).join('');
+  const tabs=CONVERSATION_CHANNELS.map(([name,label])=>`<button type="button" role="tab" id="${tabId(name)}" class="quiet conversation-channel" data-channel="${name}" aria-selected="false" tabindex="-1" aria-controls="${panelId}" aria-label="${esc(label)}"><span class="conversation-channel-icon" data-channel-icon="${name}">${name==='private'?conversationOrdubashyGlyph(18):name==='marketing'?conversationMarketingGlyph(18):conversationChannelAvatars([])}</span></button>`).join('');
   host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span><span class="conversation-unread" data-conversation-unread aria-hidden="true" hidden></span></button><section id="${panelId}" class="conversation-panel" role="tabpanel" aria-labelledby="${tabId('private')}" hidden><div class="conversation-channels" role="tablist" aria-label="Conversation channel">${tabs}</div><button type="button" class="quiet conversation-older" hidden>Older messages</button><div class="conversation-feed" role="log" aria-label="Conversation"></div><label class="conversation-compose">Message<textarea class="inp" rows="3" maxlength="20000"></textarea></label><button type="button" class="btn conversation-send">Send</button><p class="ferr" role="alert" hidden></p></section>`;
   const toggle=host.querySelector('.conversation-toggle'),panel=host.querySelector('.conversation-panel'),feed=host.querySelector('.conversation-feed'),input=host.querySelector('textarea'),send=host.querySelector('.conversation-send'),older=host.querySelector('.conversation-older'),error=host.querySelector('[role="alert"]');
   const unreadDot=host.querySelector('[data-conversation-unread]');
@@ -137,17 +156,19 @@ function conversationMount(host,source,adapter={}) {
     composer.append(composeLabel,send);host.append(composer,error);
   }
   st().mounts.add(host);
-  host.dataset.conversationChannel=channel;
-  const syncDraft=(sourceInput,s=st())=>{for(const mount of [...s.mounts]){if(!mount.isConnected || mount.dataset.conversation!==key || mount.dataset.conversationChannel!==s.channel){s.mounts.delete(mount);continue;}const other=mount.querySelector('textarea');if(other && other!==sourceInput && other.value!==s.text)other.value=s.text;}};
+  host.dataset.conversationChannel=channel;host.dataset.conversationPeer=st().peer || '';
+  const syncDraft=(sourceInput,s=st())=>{for(const mount of [...s.mounts]){if(!mount.isConnected || mount.dataset.conversation!==key || mount.dataset.conversationChannel!==s.channel || mount.dataset.conversationPeer!==(s.peer || '')){s.mounts.delete(mount);continue;}const other=mount.querySelector('textarea');if(other && other!==sourceInput && other.value!==s.text)other.value=s.text;}};
   input.value=st().text;input.oninput=()=>{st().text=input.value;syncDraft(input);adapter.onInput?.();};
   const current=()=>!disposed && host.isConnected && host.dataset.conversation===key && host._conversation===view;
   feed.onscroll=()=>{if(expanded)scroll[channel]=feed.scrollTop;};
   function syncSending() {
     const s=st();
-    for(const mount of s.mounts)if(mount.isConnected && mount.dataset.conversation===key && mount.dataset.conversationChannel===s.channel){
+    // No exact Marketing agent has loaded yet, so there is nobody to send to.
+    const unresolved=s.channel==='marketing' && !s.peer;
+    for(const mount of s.mounts)if(mount.isConnected && mount.dataset.conversation===key && mount.dataset.conversationChannel===s.channel && mount.dataset.conversationPeer===(s.peer || '')){
       const tx=mount.querySelector('textarea'),button=mount.querySelector('.conversation-send');
-      if(tx)tx.disabled=!!s.sending || !!s.submission;
-      if(button){button.disabled=!!s.sending;button.textContent=s.submission?'Retry Send':'Send';}
+      if(tx)tx.disabled=!!s.sending || !!s.submission || unresolved;
+      if(button){button.disabled=!!s.sending || unresolved;button.textContent=s.submission?'Retry Send':'Send';}
     }
   }
   function syncChannel() {
@@ -157,11 +178,11 @@ function conversationMount(host,source,adapter={}) {
       tab.tabIndex=selected?0:-1;
     }
     panel.setAttribute('aria-labelledby',tabId(channel));
-    const hidden=readOnly();
+    const hidden=readOnly() || lost();
     // Only the composer goes away: the inline wrapper still carries the Focus
     // message icon, which must stay reachable in the read-only team view.
     composeLabel.hidden=hidden;send.hidden=hidden;
-    if(adapter.inlineComposer)input.placeholder=adapter.placeholder ?? (channel==='private'?'Private message to Ordubashy…':'Leave a comment…');
+    if(adapter.inlineComposer)input.placeholder=adapter.placeholder ?? (channel==='private'?'Private message to Ordubashy…':channel==='marketing'?'Private message to Marketing…':'Leave a comment…');
   }
   syncChannel();
   syncSending();
@@ -175,7 +196,7 @@ function conversationMount(host,source,adapter={}) {
   let painted='';
   function paint() {
     const s=st();
-    const signature=JSON.stringify([channel,s.notes,s.participants,s.cursor,s.before]);
+    const signature=JSON.stringify([channel,s.peer,s.unavailable,!!s.text,s.notes,s.participants,s.cursor,s.before]);
     if(painted===signature)return;
     painted=signature;
     const top=scroll[channel];
@@ -186,7 +207,8 @@ function conversationMount(host,source,adapter={}) {
       else groups.push([note]);
     }
     const latestSystem=s.notes.findLast(note=>note.entry_kind==='system');
-    feed.innerHTML=!groups.length?'<div class="conversation-system">No messages yet</div>':groups.map(group=>{
+    feed.innerHTML=s.unavailable?`<div class="conversation-system" data-marketing-unavailable>${esc(s.unavailable)}${s.text?' Your unsent draft for that agent is kept separately and is not sent to anyone else.':''}</div>`
+      :!groups.length?'<div class="conversation-system">No messages yet</div>':groups.map(group=>{
       const first=group[0],last=group.at(-1),time=`<time datetime="${esc(last.created_at)}" title="${esc(last.created_at)}">${esc(conversationAge(last.created_at))}</time>`;
       if(first.entry_kind==='system') return `<div class="conversation-system">${esc(first.body)}${first===latestSystem?time:''}</div>`;
       const owner=first.is_owner ?? (first.author_kind==='human');
@@ -216,11 +238,26 @@ function conversationMount(host,source,adapter={}) {
     s.ageTimer=setTimeout(()=>{s.ageTimer=null;for(const mount of [...s.mounts]){if(!mount.isConnected)s.mounts.delete(mount);else if(mount._conversation?.isExpanded())for(const time of mount.querySelectorAll('time[datetime]'))time.textContent=conversationAge(time.dateTime);}if(s.mounts.size)scheduleAgeRefresh();},60000);
   }
   function showError(e) { error.hidden=false;error.textContent=e.message || String(e); }
+  // Moves this mount onto another Marketing state without carrying any history, draft or retry across.
+  function attachMarketing(next) {
+    const previous=marketing.state;
+    if(previous===next)return;
+    previous.mounts.delete(host);
+    marketing.state=next;
+    if(channel==='marketing'){next.mounts.add(host);host.dataset.conversationPeer=next.peer || '';input.value=next.text;}
+  }
+  // The exact agent is gone or changed: show the channel as unavailable and never fall back to another agent.
+  // The old draft stays in that agent's own state; nothing is re-sent or shown elsewhere.
+  function markUnavailable(s,message) {
+    s.unavailable=message || CONVERSATION_CHANGED;
+    s.notes=[];s.participants=[];s.loaded=false;s.cursor=null;s.before=null;s.conversation=null;s.readState=null;
+    if(channels.marketing===s && channel==='marketing' && current()){syncChannel();syncSending();painted='';paint();}
+  }
   // Acknowledge only what the server has already returned to this owner, and only
   // after an interactive private load that included the newest page.
   async function acknowledge(s) {
-    const stillPrivateVisible=()=>viewerIsOwner() && expanded && channel==='private' && current() && adapter.isVisible?.()!==false;
-    if(!stillPrivateVisible() || s.marking)return;
+    const stillPrivateVisible=()=>viewerIsOwner() && expanded && st()===s && channel!=='team' && current() && adapter.isVisible?.()!==false;
+    if(!stillPrivateVisible() || s.marking || s.unavailable)return;
     const latest=s.conversation?.latest_sequence || 0;
     if(!latest || latest<=(s.readState?.last_read_sequence || 0))return;
     s.marking=true;
@@ -228,14 +265,16 @@ function conversationMount(host,source,adapter={}) {
       // Do not acknowledge a load that the owner has already closed or switched
       // away from while the private history request was in flight.
       if(!stillPrivateVisible())return;
-      const data=await conversationPrivateCall(source,adapter,'owner_conversation_mark_read',{sequence:latest},{idempotency_key:newRequestId()});
+      const data=await conversationPrivateCall(source,adapter,'owner_conversation_mark_read',{sequence:latest,...conversationPeer(s)},{idempotency_key:newRequestId()});
       if(!current())return;
+      // A receipt for a different Marketing agent than the one this channel is pinned to never updates its read state.
+      if(s.channel==='marketing' && data?.conversation?.agent_id!==s.peer){markUnavailable(s);return;}
       const readState=data?.read_state;
       s.readState=readState || {last_read_sequence:latest,unread:false};
       // A coordinator reply can arrive between GET and mark-read. The server's
       // unread result is authoritative: keep or restore the dot and projection.
       if(!stillPrivateVisible())return;
-      if(readState?.unread===true || Number(readState?.last_read_sequence ?? latest)<latest) {
+      if(readState?.unread===true || readState?.any_unread===true || Number(readState?.last_read_sequence ?? latest)<latest) {
         setUnread(true);
         adapter.onUnread?.(latest);
         return;
@@ -248,16 +287,31 @@ function conversationMount(host,source,adapter={}) {
   }
   async function load(more=false,options={}) {
     if(!current())return;
-    const target=options.channel || channel,s=channels[target];
+    const target=options.channel || channel,origin=channels[target];
+    let s=origin;
+    // A lost Marketing agent is never re-read or replaced here; only an explicit selection or reopen finds the current one.
+    if(s.unavailable){if(target===channel && current())paint();return;}
     if(s.loading)return;
     s.loading=true;s.loadOwner=view;if(target===channel)error.hidden=true;
     s.refreshAfterSend=false;
     try {
       let data;
       const pagination=more?{...(s.cursor?{cursor:s.cursor}:{}),...(s.before?{before:s.before}:{})}:{};
-      if(target==='private') {
-        const result=await conversationPrivateCall(source,adapter,'owner_conversation_get',{limit:20,...(more && s.before?{before:s.before}:{})});
+      if(target!=='team') {
+        const result=await conversationPrivateCall(source,adapter,'owner_conversation_get',{limit:20,...conversationPeer(s),...(more && s.before?{before:s.before}:{})});
         if(!current())return;
+        if(target==='marketing') {
+          const bound=result.conversation?.agent_id;
+          if(!s.peer) {
+            // The one role-only discovery: pin the exact agent it returned, unless a newer selection replaced it.
+            if(!bound)throw Object.assign(new Error('The Marketing channel did not report its agent.'),{code:'invalid_response'});
+            if(channels.marketing!==origin)return;
+            s=conversationState(source,'marketing',bound);
+            s.unavailable=null;
+            attachMarketing(s);
+            syncChannel();syncSending();
+          } else if(bound!==s.peer) throw Object.assign(new Error(CONVERSATION_CHANGED),{code:'revision_conflict'});
+        }
         s.conversation=result.conversation || null;s.readState=result.read_state || null;
         data={notes:result.messages || [],next_before:result.next_before,participants:result.participants};
       }
@@ -271,36 +325,39 @@ function conversationMount(host,source,adapter={}) {
       const oldHeight=feed.scrollHeight;
       const merged=new Map((more?[...data.notes,...s.notes]:[...s.notes,...data.notes]).map(n=>[n.id,n]));
       s.notes=[...merged.values()].sort((a,b)=>a.sequence!=null && b.sequence!=null?a.sequence-b.sequence:(a.created_at||'').localeCompare(b.created_at||'') || a.id.localeCompare(b.id));
-      const missingPrivateHistory=target==='private' && s.notes.length<(s.conversation?.message_count || 0);
+      const missingPrivateHistory=target!=='team' && s.notes.length<(s.conversation?.message_count || 0);
       if(more || !s.loaded || (!s.cursor && !s.before && missingPrivateHistory)){s.cursor=data.next_cursor;s.before=data.next_before;}
       s.loaded=true;
-      if(target===channel && current()){paint();if(more)feed.scrollTop=Math.max(0,feed.scrollHeight-oldHeight+feed.scrollTop);}
-      for(const mount of s.mounts)if(mount!==host && mount.isConnected && mount.dataset.conversation===key && mount.dataset.conversationChannel===target && mount._conversation?.isExpanded())mount._conversation._paint?.();
+      if(target===channel && channels[target]===s && current()){paint();if(more)feed.scrollTop=Math.max(0,feed.scrollHeight-oldHeight+feed.scrollTop);}
+      for(const mount of s.mounts)if(mount!==host && mount.isConnected && mount.dataset.conversation===key && mount.dataset.conversationChannel===target && mount.dataset.conversationPeer===(s.peer || '') && mount._conversation?.isExpanded())mount._conversation._paint?.();
       s.rejectionRequiresMessage=data.rejection_requires_message;
       // Card-level people projections describe the team, not the private pair,
       // and stay current even while the private channel is the one on screen.
       if(target==='team'){adapter.onParticipants?.(conversationPeople(s));paintTeamIcon();}
-      if(target==='private' && !more && options.acknowledge)await acknowledge(s);
+      if(target!=='team' && !more && options.acknowledge)await acknowledge(s);
     } catch(e){
       if(!current())return;
-      if(['forbidden','not_found'].includes(e.code)){
+      if(target==='marketing' && s.peer && CONVERSATION_LOST.includes(e.code))markUnavailable(s,e.code==='revision_conflict'?e.message:CONVERSATION_CHANGED);
+      else if(['forbidden','not_found'].includes(e.code)){
         s.notes=[];s.participants=[];s.loaded=false;s.cursor=null;s.before=null;
         if(target===channel && current())paint();
         adapter.onUnavailable?.(e);
       }
-      if(target===channel && current())showError(e);
+      if(target===channel && channels[target]===s && current() && !(target==='marketing' && s.unavailable))showError(e);
     } finally{
-      if(s.loadOwner===view){s.loading=false;s.loadOwner=null;}
+      if(origin.loadOwner===view){origin.loading=false;origin.loadOwner=null;}
       // A send may finish while an earlier read is still in flight. Fetch again
       // afterwards so that response cannot leave the new message out of view.
-      if(current() && s.refreshAfterSend)void load(false,{channel:target});
+      if(current() && origin.refreshAfterSend)void load(false,{channel:target});
     }
   }
   async function submit() {
     // A tab switch mid-send must not redirect the message: the channel and its
     // state are fixed for the whole submission.
     const sending=channel,s=channels[sending];
-    if(!current() || s.sending || !s.text.trim() || readOnly())return;
+    if(!current() || s.sending || !s.text.trim() || readOnly() || lost())return;
+    // Nothing is sent to Marketing until the exact agent has loaded and been pinned.
+    if(sending==='marketing' && !s.peer){showError(new Error('The Marketing agent has not loaded yet. Try again once its messages appear.'));return;}
     s.sending=true;syncSending();error.hidden=true;
     let saved=false;
     try {
@@ -309,10 +366,12 @@ function conversationMount(host,source,adapter={}) {
         if(sending==='team' && (source.type==='task' || source.type==='story')) {
           const data=await conversationCall(source,source.type==='task'?'tasks_get':'stories_get',{[source.type+'_id']:source.id});revision=data[source.type].revision;
         }
-        s.submission={text:s.text,idempotency_key:newRequestId(),...(sending==='team'?{revision}:{})};
+        s.submission={text:s.text,idempotency_key:newRequestId(),peer:s.peer,...(sending==='team'?{revision}:{})};
       }
       const request=s.submission;
-      if(sending==='private') await conversationPrivateCall(source,adapter,'owner_conversation_send',{text:request.text},{idempotency_key:request.idempotency_key});
+      // A retry belongs to the agent it was first sent for.
+      if(request.peer!==s.peer)throw Object.assign(new Error(CONVERSATION_CHANGED),{code:'revision_conflict'});
+      if(sending!=='team') await conversationPrivateCall(source,adapter,'owner_conversation_send',{text:request.text,...conversationPeer(s)},{idempotency_key:request.idempotency_key});
       else if(adapter.send) await conversationRequest(adapter.send(request));
       else await conversationCall(source,{task:'tasks_comment',story:'stories_note_add',signoff:'signoffs_comment',email:'email_comment'}[source.type],
         {[source.type==='email'?'conversation_id':source.type+'_id']:source.id,...(source.type==='story'?{body:request.text}:{text:request.text})},
@@ -327,22 +386,33 @@ function conversationMount(host,source,adapter={}) {
         selectChannel('private',{acknowledge:false});
         if(current()){input.value=draft;showError(e);}
       }
+      else if(sending==='marketing' && CONVERSATION_LOST.includes(e.code) && s.peer){
+        // The pinned agent can no longer be written to: keep the draft with that agent, drop the retry, and never re-aim.
+        s.submission=null;markUnavailable(s,e.code==='revision_conflict'?e.message:CONVERSATION_CHANGED);
+      }
       else if(current() && channel===sending){showError(e);if(['revision_conflict','stale_signoff','not_found','forbidden','policy_denied'].includes(e.code)){s.submission=null;send.textContent='Send';error.textContent+=' Review the current source before sending again.';}else if(s.submission){send.textContent='Retry Send';if(e.code==='request_timeout')error.textContent='Could not confirm delivery. Retry Send to check the same message.';}}
     } finally{s.sending=false;syncSending();adapter.onInput?.();}
     // A confirmed write is complete. Refresh history without holding the
     // composer disabled, and preserve the same submission key on uncertain writes.
     if(saved){s.refreshAfterSend=true;void load(false,{channel:s.channel});}
   }
+  // Selecting the Marketing tab (or reopening the conversation) after the channel was lost is the explicit
+  // step that looks the current Marketing agent up again by role, with a clean slate.
   function selectChannel(next,options={}) {
-    if(!channels[next] || next===channel)return;
-    scroll[channel]=feed.scrollTop;
-    channels[channel].mounts.delete(host);
-    channel=next;host.dataset.conversationChannel=next;
-    channels[next].mounts.add(host);
+    if(!channels[next])return;
+    const reset=next==='marketing' && !!channels.marketing.unavailable;
+    if(next===channel && !reset)return;
+    if(reset)attachMarketing(conversationNewState(source,'marketing'));
+    if(next!==channel) {
+      scroll[channel]=feed.scrollTop;
+      channels[channel].mounts.delete(host);
+      channel=next;host.dataset.conversationChannel=next;host.dataset.conversationPeer=channels[next].peer || '';
+      channels[next].mounts.add(host);
+    }
     syncChannel();
     input.value=st().text;
     syncSending();painted='';paint();feed.scrollTop=scroll[channel];
-    if(expanded)void load(false,{acknowledge:options.acknowledge!==false && next==='private'});
+    if(expanded)void load(false,{acknowledge:options.acknowledge!==false && next!=='team'});
   }
   function setUnread(value) {
     unreadDot.hidden=!value;
@@ -353,8 +423,8 @@ function conversationMount(host,source,adapter={}) {
   input.onkeydown=event=>{
     if(event.key==='Enter' && event.ctrlKey && !event.isComposing && !send.disabled && !input.disabled){event.preventDefault();submit();}
   };
-  function expand(value,notify=true) {if(disposed)return;if(!value)scroll[channel]=feed.scrollTop;expanded=value;panel.hidden=!value;toggle.setAttribute('aria-expanded',String(value));if(notify)adapter.onToggle?.(value);if(value) {if(st().loaded)paint();feed.scrollTop=scroll[channel];void load(false,{acknowledge:channel==='private'});scheduleAgeRefresh();}}
-  toggle.onclick=()=>expand(!expanded);older.onclick=()=>load(true);send.onclick=submit;
+  function expand(value,notify=true,explicit=false) {if(disposed)return;if(!value)scroll[channel]=feed.scrollTop;expanded=value;panel.hidden=!value;toggle.setAttribute('aria-expanded',String(value));if(notify)adapter.onToggle?.(value);if(value) {if(explicit && lost()){attachMarketing(conversationNewState(source,'marketing'));syncChannel();syncSending();painted='';input.value=st().text;}if(st().loaded)paint();feed.scrollTop=scroll[channel];void load(false,{acknowledge:channel!=='team'});scheduleAgeRefresh();}}
+  toggle.onclick=()=>expand(!expanded,true,true);older.onclick=()=>load(true);send.onclick=submit;
   const channelTabs=[...host.querySelectorAll('.conversation-channel')];
   for(const tab of channelTabs) {
     tab.onclick=()=>selectChannel(tab.dataset.channel);
@@ -377,7 +447,8 @@ function conversationMount(host,source,adapter={}) {
     preload:()=>load(false,{channel:'team'}),
     isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),
     channel:()=>channel,selectChannel,setUnread,
-    hasDraft:()=>!!(channels.private.text || channels.team.text),
+    // A draft kept for a lost Marketing agent still counts: it is preserved, just never re-aimed.
+    hasDraft:()=>[...conversationStates.values()].some(state=>state.source===key && state.text),
     dispose:()=>{
       if(disposed)return;
       disposed=true;expanded=false;
