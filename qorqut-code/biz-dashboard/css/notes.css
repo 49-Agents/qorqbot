@@ -159,3 +159,7 @@
   .nt .ntedinner{padding:24px 16px 80px}
   .nt .nttitlein{flex-basis:100%;min-width:0}
 }
+.ntvisibility { opacity: .38; filter: grayscale(1); border: 1px solid transparent; }
+.ntvisibility.on { opacity: 1; filter: none; border-color: currentColor; }
+.ntvisibility:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.ntvisibility:disabled { cursor: wait; }

@@ -11,7 +11,7 @@ let ntNotes = [];                   // cache of the last /notes fetch
 let ntSearch = "";                  // detail sidebar search (in-memory filter)
 
 // remember what was open (a note id, or "" for the homepage) per business
-const ntScope = () => state.scope === 'global' ? '/root' : state.biz;
+const ntScope = () => state.scope === 'global' ? '/root' : null;
 const ntEndpoint = (scope = ntScope()) => scope === '/root' ? '/root/notes' : `/biz/${encodeURIComponent(scope)}/notes`;
 const ntActive = () => tView === 'notes';
 const ntKey = () => `nt:${ntScope()}`;
@@ -271,6 +271,7 @@ function ntDetailHtml(n) {
             <button id="ntdiscard" class="btn quiet" type="button" hidden>Discard</button>
             <span class="ntsavewrap" id="ntsavewrap"></span>
             <span id="ntuploadwrap">${ntUploadButton(n)}</span>
+            <button id="ntvisibility" class="nticon ntvisibility${n.ordubashyVisible !== false ? ' on' : ''}" type="button" role="switch" aria-checked="${n.ordubashyVisible !== false}" aria-label="Allow Ordubaşı to review this entry" title="${n.ordubashyVisible !== false ? 'Visible to Ordubaşı' : 'Hidden from Ordubaşı'}">${agentGlyph({role:{id:'ordubashy'}},18)}</button>
             <button id="ntdel" class="nticon" type="button" aria-label="Archive page" data-tip="Archive page">${aicon('archive','currentColor',16)}</button>
           </div>
         </div>
@@ -330,6 +331,18 @@ function ntWireDetail(root, n) {
   root.querySelector("#ntnew2").onclick = () => ntCreateNew();
   root.querySelector("#ntdel").onclick = () => ntDeleteFlow(n.id);
   root.querySelector("#ntdiscard").onclick = () => ntDiscard();
+  root.querySelector("#ntvisibility").onclick = async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      if (!await ntFlush()) return;
+      const current = ntById(n.id);
+      if (!current) return;
+      const saved = await ntPatch('/root', n.id, {ordubashy_visible: current.ordubashyVisible === false});
+      if (saved) await ntFetch();
+      if (ntActive() && ntSel === n.id) ntRender();
+    } finally { button.disabled = false; }
+  };
 
   const search = root.querySelector("#ntsearch");
   let searchT = null;
@@ -806,7 +819,7 @@ async function ntSelect(id) {
 const ntGoHome = () => ntSelect(null);
 async function ntCreateNew() {
   if(!await ntFlush())return;
-  const r = await ntCreate({});
+  const r = await ntCreate({title:'Daily'});
   if (!r) return;
   await ntFetch();
   ntSetSel(r.id);
