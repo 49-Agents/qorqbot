@@ -54,7 +54,7 @@ function filingCostRow(call) {
 
 // Missing or malformed required evidence is never proof of completeness: anything that is not a plain zero counts as a gap.
 function filingCostIncomplete(aggregates, coverage) {
-  const gap = (source, key) => !source || !Number.isSafeInteger(source[key]) || source[key] > 0;
+  const gap = (source, key) => !source || source[key] !== 0;
   return ['unknown_cost_calls', 'unfinished_calls', 'events_not_ready'].some(key => gap(aggregates, key))
     || ['partial_events', 'unavailable_events', 'unscanned_events', 'ready_events_without_calls'].some(key => gap(coverage, key));
 }
