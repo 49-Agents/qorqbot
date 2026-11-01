@@ -62,6 +62,7 @@ checks = [
  'test_inbox_nudges.py::test_an_offline_event_waits_for_a_manual_session_start_and_nothing_launches_one',
  'test_inbox_nudges.py::test_an_uncertain_submission_survives_a_restart_and_is_never_resent',
 ]
+checks = config.get("checks", checks)
 import pytest
 output = io.StringIO()
 with redirect_stdout(output), redirect_stderr(output):
