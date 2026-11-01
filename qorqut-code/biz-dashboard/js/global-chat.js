@@ -106,6 +106,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       <div class="gchat-actions"></div>
       <div class="gchat-empty" hidden></div></div>
     <button type="button" class="gchat-jump" hidden>New messages ↓</button>
+    <div class="gchat-working" role="status" aria-live="polite" hidden><span>Working…</span></div>
     <form class="gchat-composer">
       <textarea rows="2" maxlength="${GLOBAL_CHAT_MAX}" aria-label="Message ${esc(label)}" placeholder="Message ${esc(label)}…" autocomplete="off"></textarea>
       <button type="submit" class="gchat-send">Send</button>
@@ -116,6 +117,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   const status = $q('.gchat-status'), banner = $q('.gchat-banner');
   const scroller = $q('.gchat-scroll'), log = $q('.gchat-log'), actionHost = $q('.gchat-actions'), emptyNote = $q('.gchat-empty');
   const olderButton = $q('.gchat-older'), jump = $q('.gchat-jump'), form = $q('.gchat-composer');
+  const working = $q('.gchat-working');
   const input = form.querySelector('textarea'), send = form.querySelector('.gchat-send');
   input.value = GLOBAL_CHAT_DRAFTS.get(agentId) || '';
 
@@ -269,6 +271,9 @@ function mountGlobalChat(pane, agent, options = {}) {
   // Terminal owns lifecycle, configuration and native approval prompts.
   function paintRuntime() {
     const connected = !!runtime?.can_send;
+    const wasHidden = working.hidden;
+    working.hidden = !connected || runtime?.working !== true;
+    if (working.hidden !== wasHidden && atBottom) toBottom();
     status.textContent = !runtime ? 'Loading…' : connected ? 'Terminal connected' : 'Terminal offline';
     status.dataset.state = !runtime ? 'loading' : connected ? 'ready' : 'stopped';
     emptyNote.hidden = nodes.size > 0 || !runtime;
@@ -373,7 +378,10 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (!live()) return;
     const source = new EventSource(evUrl(`${base}/events?cursor=${cursor}`));
     stream = source;
-    source.addEventListener('open', () => { retryDelay = 1000; if (!banner.hidden && banner.dataset.reconnect) showBanner(''); });
+    source.addEventListener('open', () => {
+      retryDelay = 1000;
+      if (!banner.hidden && banner.dataset.reconnect) { showBanner(''); void refreshRuntime(); }
+    });
     source.addEventListener('chat', event => {
       let item;
       try { item = JSON.parse(event.data); } catch (_) { return; }
@@ -389,9 +397,10 @@ function mountGlobalChat(pane, agent, options = {}) {
       }
     });
     source.addEventListener('reset', () => { closeStream(); void loadState(); });
-    source.addEventListener('done', () => { closeStream(); showBanner('This chat is no longer available.'); });
+    source.addEventListener('done', () => { closeStream(); working.hidden = true; showBanner('This chat is no longer available.'); });
     source.onerror = () => {
       if (!live()) return;
+      working.hidden = true;
       showBanner('Reconnecting…'); banner.dataset.reconnect = '1';
       // The browser retries a dropped stream itself with Last-Event-ID; a closed one needs a fresh connection.
       if (source.readyState === EventSource.CLOSED) { stream = null; retry(connect); }
