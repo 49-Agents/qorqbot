@@ -140,13 +140,13 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 
 /* Compact Global navigation: an icon strip (114px, 134px on wide screens). Agent names are accessible labels only;
    business rows keep just the business name beside their icon, and no presence or connection balls are drawn. */
-.global-agents .listcol .ctop { padding: 12px 6px 8px; align-items: center; text-align: center; }
-.global-agents .agent-nav-heading { flex-direction: column; justify-content: center; gap: 6px; margin-bottom: 4px; }
+.global-agents .listcol .ctop { padding: 12px 10px 8px; align-items: flex-start; text-align: left; }
+.global-agents .agent-nav-heading { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 6px; margin-bottom: 4px; }
 .global-agents .agent-nav-heading h1 { font-size: 16px; }
-.global-agents .agent-nav-actions { justify-content: center; }
+.global-agents .agent-nav-actions { justify-content: flex-start; }
 .global-agents .listcol button.item.agent { width: calc(100% - 12px); margin: 0 auto; padding-left: 4px; padding-right: 4px; }
-.global-agents .item.agent .nm { position: relative; flex: 0 1 auto; max-width: 100%; justify-content: center; }
-.global-agents .global-roster .item.agent, .global-agents .item.global-biz-agent { justify-content: center; }
+.global-agents .item.agent .nm { position: relative; flex: 0 1 auto; max-width: 100%; justify-content: flex-start; }
+.global-agents .global-roster .item.agent, .global-agents .item.global-biz-agent { justify-content: flex-start; }
 .global-agents .nm > .chat-unread-dot { position: absolute; top: -3px; right: -6px; margin: 0; }
 .global-agents .item.global-biz-agent { padding-right: 4px; min-height: 40px; }
 .global-agents .global-biz-icons { width: auto; }
@@ -154,8 +154,8 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-agents .global-biz-text { flex-direction: row; align-items: center; }
 .global-agents .global-biz-name { color: var(--fg-2); font-size: 11.5px; }
 .global-agents .global-workspace-terminal .nm { gap: 6px; }
-.global-agents .global-biz-tools { margin: 0 6px 4px; justify-content: center; }
-.global-agents .listcol.biz-collapsed .global-biz-toggle { flex: 1 1 auto; justify-content: center; }
+.global-agents .global-biz-tools { margin: 0 6px 4px; justify-content: flex-start; }
+.global-agents .listcol.biz-collapsed .global-biz-toggle { flex: 1 1 auto; justify-content: flex-start; }
 .global-agents .global-biz-search { padding: 0 6px; }
 .global-agents .global-biz-pin { right: 8px; background: var(--wash); }
 .global-agents .global-biz-status { margin: 2px 6px; }
