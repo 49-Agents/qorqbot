@@ -680,7 +680,7 @@ async function agpadOpenInboxSource({ inboxSource: id, sourceType: type, busines
   }
   if (biz && (state.scope === 'global' || state.biz !== biz)) await selectBiz(biz);
   if (biz && state.biz !== biz) return;
-  if (type === 'data_tables') return tablesOpen(biz, id);
+  if (type === 'data_tables') return tablesOpen(biz || null, id);
   if (type === 'agent_profiles') {
     const { agent } = coreData(await api(`/biz/${encodeURIComponent(biz)}/agents/${encodeURIComponent(id)}`));
     if (agent.status !== 'active') return modal({ title: esc(agent.display_name || agent.name), body: `<p>${esc(agent.status)}</p>`, actions: [] });
