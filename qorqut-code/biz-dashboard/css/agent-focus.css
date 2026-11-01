@@ -198,3 +198,7 @@
 @media (prefers-reduced-motion:reduce){.agfocus .agfocus-marker .agfocus-task-state .core{transition:none}}
 
 .agfocus .agfocus-scope[hidden]{display:none}
+
+/* A hidden inherited business badge must not leave the title in its narrow track. */
+.agfocus-row:has(> .agfocus-scope[hidden]) > .task-headline{grid-column:2 / 4}
+.agfocus-row:has(> .agfocus-scope[hidden]) > .agfocus-actions{grid-column:4}
