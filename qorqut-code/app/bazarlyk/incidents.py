@@ -938,7 +938,7 @@ def drain_spool(reporter: IncidentReporter, database, *, reporter_id: str,
     """Flush one bounded batch behind the normal storage write-admission barrier."""
     with database.transaction(operation="system_incident_drain") as uow:
         from qorqut_operations.application.engine import Application
-        from bazarlyk.background.authority import BackgroundAuthority
+        from qorqut_operations.background.authority import BackgroundAuthority
         Application.ensure_writes_open(uow)
         BackgroundAuthority.require_worker(reporter_id,None,uow)
         result = reporter.drain(uow, reporter_id=reporter_id, limit=limit)

@@ -19,7 +19,7 @@ import httpx
 
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.application.plans import schema
-from .programs import ProgramResult
+from qorqut_operations.background.programs import ProgramResult
 
 ENV = {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,99}$"}
 ARGUMENTS = schema({"endpoint_env": ENV, "token_env": ENV, "keep": {"type": "integer", "minimum": 1, "maximum": 365}},

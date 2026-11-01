@@ -5,7 +5,7 @@ import subprocess
 
 from bazarlyk.composition.locations import business_hq
 from qorqut_operations.contracts import DomainError
-from .programs import ProgramResult
+from qorqut_operations.background.programs import ProgramResult
 
 
 def repository_status(control, arguments):

@@ -16,7 +16,7 @@ import yaml
 
 from bazarlyk.composition.locations import business_hq
 from bazarlyk.agents.roles import BUSINESS_AGENT_ROLE, FOUNDER_ROLE
-from bazarlyk.departments import department as department_info, profile_department, department_id, BY_ID
+from qorqut_operations.departments import department as department_info, profile_department, department_id, BY_ID
 from qorqut_operations.contracts import DomainError, InvocationOptions, new_id, plain
 from qorqut_operations.storage.repositories import decode_row
 from .http import check_body_length, checked_fields, read_json, revalidated

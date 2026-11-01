@@ -10,7 +10,7 @@ from bazarlyk.domains.learnings import analysis, sources, verification
 from bazarlyk.domains.learnings.issues import enrolled_ids
 from qorqut_operations.application.plans import rows
 from bazarlyk.composition.locations import business_hq
-from .programs import ProgramResult
+from qorqut_operations.background.programs import ProgramResult
 from .providers import ProviderError
 
 MAX_PASS_BYTES = 64 * 1024 * 1024    # The most saved-session content one pass over a business's transcript adapter selects.

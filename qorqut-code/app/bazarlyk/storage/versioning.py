@@ -8,7 +8,7 @@ import subprocess
 import tarfile
 import tempfile
 
-from bazarlyk.background.programs import ProgramResult
+from qorqut_operations.background.programs import ProgramResult
 from qorqut_operations.contracts import DomainError, canonical_bytes, utc_now
 from qorqut_operations.storage.executor import application_claim
 from .exports import atomic_write, build_exports, publish_exports, registered_path

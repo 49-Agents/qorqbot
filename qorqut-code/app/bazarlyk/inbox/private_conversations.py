@@ -11,7 +11,7 @@ import json
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock
-from bazarlyk.domains.conversations import SUMMARY, author, normalize_summary, participants
+from qorqut_operations.conversations import SUMMARY, author, normalize_summary, participants
 from bazarlyk.management.identity import installation_owner, private_participants
 
 AUDIENCE = 'owner_ordubashy'

@@ -93,7 +93,7 @@ class OwnerSessionCaller:
         # commentary belongs to the private Ordubashy conversation.
         if canonical_name in {"stories_update", "stories_close", "stories_reopen"} and (
                 args.get("note") or args.get("summary")):
-            from bazarlyk.domains.team_channel import channel_required
+            from qorqut_operations.team_channel import channel_required
             raise channel_required(canonical_name)
 
     def validate_options(self, actor, canonical_name, options):

@@ -1,7 +1,7 @@
 """Small canonical management intake over messages and input Signoffs."""
 import json
 
-from bazarlyk.domains.conversations import SUMMARY, normalize_summary
+from qorqut_operations.conversations import SUMMARY, normalize_summary
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock, ref, require_revision

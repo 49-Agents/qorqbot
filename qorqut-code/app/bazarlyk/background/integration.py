@@ -1,24 +1,29 @@
-"""Fixed program registration and the shared service lifecycle assembly."""
+"""Fixed program registration and the retained background service assembly.
+
+The generic machinery (program registry, authority, serial job service, routine scheduler and operations) is the
+Operations engine's. This module registers the host's concrete programs on the one ``ProgramRegistry``, installs the
+routine/learning/job operations and attaches the one ``BackgroundService`` with its ``JobObserver`` and scheduler.
+The program registry is frozen with the operation registry by ``Runtime.freeze_registry`` before traffic."""
 
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError
-from bazarlyk.sandbox.quiescence import BoundedWriter
+from qorqut_operations.storage.quiescence import BoundedWriter
+from bazarlyk.composition.catalog import install_contribution
 from qorqut_operations.application.plans import IDENTITY, UUID, schema
 from bazarlyk.domains.learnings.operations import EXTRACT_ARGUMENTS, LearningOperations
-from bazarlyk.domains.routines.operations import RoutineOperations
+from qorqut_operations.routines.operations import RoutineOperations
 from bazarlyk.reports.service import DailyReportOperations, DailyReportProgram
-from .authority import BackgroundAuthority
 from .context import ContextPrograms
 from .email import EmailProgram
 from .account_email import AccountEmailProgram
 from .metrics import MetricCollectionProgram
 from .learnings import LearningProgram
 from .models import ModelCalls
-from .programs import Program
+from qorqut_operations.background.programs import Program
 from .repository import repository_status
 from .platform_actions import PlatformPrograms
-from .routines import RoutineScheduler
-from .service import BackgroundService
+from qorqut_operations.background.routines import RoutineScheduler
+from qorqut_operations.background.service import BackgroundService
 
 DOCUMENT_RESOURCES = ("documents", "managed_document_files", "document_index_sources", "agent_profiles", "principals", "business_memberships", "jobs")
 FILING_RESOURCES = (*DOCUMENT_RESOURCES, "relationships", "stories", "action_logs", "action_log_labels")
@@ -130,21 +135,22 @@ def register_programs(programs, *, models=None, context_reader=None, transcript_
     return programs
 
 
-def register_operations(runtime, programs, authority=None, *, clock=None):
+def register_operations(runtime, programs, authority, *, clock=None):
     """Install the complete public contract without starting background workers.
 
     Preparation and the HTTP service must resolve the same tool registry. Worker
     attachment supplies real program adapters later, without changing that registry.
+    ``programs`` and ``authority`` are the runtime's one registry and the one authority bound to it.
     """
-    authority = authority or BackgroundAuthority(runtime.database, programs)
+    if programs is not runtime.programs or authority is not runtime.authority:
+        raise ValueError("Routine operations use the runtime's one program registry and background authority")
     if getattr(runtime, "background_operations", None) is not None:
         routines, learnings = runtime.background_operations
-        for operations in (routines, learnings):
-            operations.programs, operations.authority = programs, authority
         if clock is not None:
             routines.clock = clock
         return routines, learnings
-    routines = RoutineOperations(runtime.application, programs, authority, clock=clock).register()
+    routines = RoutineOperations(programs, authority, clock=clock)
+    install_contribution(runtime.registry, routines.contribution())
     learnings = LearningOperations(runtime.application, programs, authority, documents=runtime.domains.documents).register()
 
     def job_get(ctx, args, options, uow):
@@ -195,6 +201,8 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
                       backup_downloader=None, stripe_revenue=None, daily_reports=None, learning_engine=None):
     if runtime.background is not None:
         raise ValueError("Background service is already attached")
+    if programs is not runtime.programs:
+        raise ValueError("Background attachment uses the runtime's one program registry")
     register_programs(programs, models=ModelCalls(model_client_factory),
         context_reader=context_reader or runtime.domains.documents.snapshot_for_job,
         transcript_source=transcript_source, platform_actions=runtime.domains.platform_actions,
@@ -204,16 +212,18 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
         backup_downloader=backup_downloader, stripe_revenue=stripe_revenue,
         daily_reports=daily_reports or DailyReportProgram(paths=lambda: runtime.paths, on_completed=lambda row: _report_completed(runtime, row)),
         learning_engine=learning_engine)
-    authority = BackgroundAuthority(runtime.database, programs)
+    authority = runtime.authority
     if getattr(runtime.domains, "ideas", None):
         runtime.domains.ideas.conversion.worker_authority = authority
     runtime.policy.worker_profiles = authority.worker_profiles
     runtime.policy.job_consequence_verifier = authority.verify_consequence
     runtime.policy.job_plan_validator = authority.validate_plan
-    background = BackgroundService(runtime.application, programs, authority, locks=runtime.locks, clock=clock)
-    background.paths = runtime.paths
-    background.routines, background.learnings = register_operations(runtime, programs, authority, clock=clock)
-    background.scheduler = RoutineScheduler(background.routines)
+    routines, learnings = register_operations(runtime, programs, authority, clock=clock)
+    # The host's incident reporter observes every job result after its own commit; it cannot change the outcome.
+    background = BackgroundService(runtime.application, programs, authority, locks=runtime.locks,
+                                   job_observer=runtime.application.incident_reporter,
+                                   scheduler=RoutineScheduler(routines, runtime.database), clock=clock)
+    background.routines, background.learnings = routines, learnings
 
     runtime.background = background
     # Recovery uses the service's real bounded stop/join, rather than inferring

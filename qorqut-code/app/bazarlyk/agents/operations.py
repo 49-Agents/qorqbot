@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from bazarlyk.departments import department_id, profile_department
+from qorqut_operations.departments import department_id, profile_department
 
 import base64
 import difflib

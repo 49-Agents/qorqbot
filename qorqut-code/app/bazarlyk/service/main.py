@@ -69,7 +69,7 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
              execution_provider=None, sandbox_factory=None, recovery_config=None, github_app_config=None,
              integrations=None, learning_engine=None):
     from bazarlyk.background.integration import attach_background
-    from bazarlyk.background.programs import ProgramRegistry
+    from qorqut_operations.background.programs import ProgramRegistry
     from bazarlyk.integrations.config import from_environment as outreach_host
 
     if integrations is None:
@@ -112,7 +112,8 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
             admin_token=os.environ.get("EMAIL_ADMIN_TOKEN", ""), send_token=Path(os.environ["EMAIL_SEND_TOKEN_FILE"]).read_text().strip() if os.environ.get("EMAIL_SEND_TOKEN_FILE") else "")
     broker = broker or load_terminal_broker(paths)
     from bazarlyk.sandbox.service import BusinessSandboxService
-    from bazarlyk.sandbox.quiescence import BoundedWriter, DockerFreezer
+    from qorqut_operations.storage.quiescence import BoundedWriter
+    from bazarlyk.sandbox.quiescence import DockerFreezer
     runtime.sandbox = (sandbox_factory or BusinessSandboxService)(runtime)
     runtime.recovery_quiescer.sandbox_writers = BoundedWriter(runtime.sandbox.worker, "sandbox")
     runtime.recovery_quiescer.container_writers.freezer = DockerFreezer(runtime.sandbox.docker)
