@@ -140,3 +140,7 @@
 .agpad-ping-next[hidden] { display:none; }
 
 .agsplit .agpad, .agsplit .agpad .thead, .agsplit .agpad .tbody { background: var(--bg); }
+
+/* Reduce the gap below the right-pane tabs without changing other tab bars. */
+.agpad .thead .ttabs { margin-bottom:4px; padding-bottom:4px; }
+.global-pinned-list:not(:empty) { margin-top:20px; }

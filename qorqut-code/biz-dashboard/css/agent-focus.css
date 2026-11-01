@@ -220,3 +220,13 @@
 .attention-empty{font-size:11px;color:var(--fg-3);padding-left:3px}
 .attention-all{display:grid;gap:7px}.attention-all .attention-chip{margin:0;width:100%;min-height:38px}
 .attention-message{white-space:pre-wrap;overflow-wrap:anywhere}.attention-retry{font-size:10px}
+
+/* Keep header and new attention in place while the work list scrolls. */
+.agpad .tbody:has(> .agfocus:not([hidden])) { overflow:hidden; padding-bottom:0; }
+.agpad .tbody > .agfocus { display:flex; flex-direction:column; height:100%; min-height:0; box-sizing:border-box; padding-top:4px; }
+.agpad .tbody > .agfocus[hidden] { display:none; }
+.agfocus > header,.agfocus > .attention-queue,.agfocus > .agfocus-pages { flex:none; }
+.agfocus > .agfocus-layout { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; align-content:start; }
+.attention-queue .attention-label { display:none; }
+.agfocus .attention-queue .attention-chip,.attention-queue .attention-chip { flex:0 0 36px; width:36px; height:34px; min-height:34px; padding:5px; justify-content:center; }
+.attention-queue .attention-chip+.attention-chip { margin-left:-4px; }

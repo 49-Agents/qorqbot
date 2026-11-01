@@ -210,7 +210,7 @@ function agfocusMount(p) {
   const storedHeight=Number(ls(AGFOCUS_THREAD_HEIGHT_KEY));
   p.focusThreadHeight=Number.isFinite(storedHeight) && storedHeight>=AGFOCUS_THREAD_MIN_HEIGHT ? storedHeight : 320;
   const disposeResize=agfocusThreadResizeMount(p,board,body);
-  const disposeOrdering=agfocusOrderMount(p,board,body);
+  const disposeOrdering=agfocusOrderMount(p,board,$('.agfocus-layout',board));
   p.focusSnoozes ||= new Map();
   p.focusOrderPending ||= false;
   p.focusMoveSubmission ||= null;
