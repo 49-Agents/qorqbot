@@ -13,7 +13,7 @@ from qorqut_operations.application.plans import IDENTITY, UUID, schema
 from bazarlyk.domains.learnings.operations import EXTRACT_ARGUMENTS, LearningOperations
 from qorqut_operations.routines.operations import RoutineOperations
 from bazarlyk.reports.service import DailyReportOperations, DailyReportProgram
-from .context import ContextPrograms
+from .context_filing import FilingPrograms
 from .email import EmailProgram
 from .account_email import AccountEmailProgram
 from .metrics import MetricCollectionProgram
@@ -25,50 +25,24 @@ from .platform_actions import PlatformPrograms
 from qorqut_operations.background.routines import RoutineScheduler
 from qorqut_operations.background.service import BackgroundService
 
-DOCUMENT_RESOURCES = ("documents", "managed_document_files", "document_index_sources", "agent_profiles", "principals", "business_memberships", "jobs")
-FILING_RESOURCES = (*DOCUMENT_RESOURCES, "relationships", "stories", "action_logs", "action_log_labels")
-DELIVERY_RESOURCES = (*FILING_RESOURCES, "tasks", "task_notes", "business_configs")
-
-
 def _report_completed(runtime, row):
     """Wake the Telegram bridge after a report's artifacts and completed state are committed (no I/O, no write)."""
     from bazarlyk.telegram.reports import notify_completed
     notify_completed(runtime, row)
 
 
-def register_programs(programs, *, models=None, context_reader=None, transcript_source=None,
+def register_programs(programs, *, models=None, transcript_source=None,
                       platform_actions=None, file_applier=None, reddit_adapter=None, maintenance=None, email=None, tables=None, metric_collector=None,
-                      context_base=None, documents=None, backup_downloader=None, stripe_revenue=None, daily_reports=None,
-                      learning_engine=None):
+                      backup_downloader=None, stripe_revenue=None, daily_reports=None, learning_engine=None):
     models = models or ModelCalls(None)
-    context = ContextPrograms(models, context_reader, context_base=context_base)
     learning = LearningProgram(models, transcript_source, learning_engine)
-
-    revision = {"type": "integer", "minimum": 1}
 
     def add(identity, arguments, run, outputs=(), resources=(), permissions=(), **kwargs):
         programs.register(Program(identity, 1, arguments, run,
             {name: "allow" for name in (*outputs, *permissions)}, outputs, resources, **kwargs))
 
-    add("context.summarize", schema({"document_id": UUID, "expected_revision": revision}, ["document_id", "expected_revision"]),
-        context.summarize, ("context_summary_apply",), DOCUMENT_RESOURCES,
-        scope_kinds=("business", "global"), global_capabilities=("read_global_context",))
-    add("context.map", schema({"upload_id": UUID, "expected_revision": revision, "title": {"type": "string", "maxLength": 2000}},
-        ["upload_id", "expected_revision"]), context.map, ("context_map_apply",), DOCUMENT_RESOURCES,
-        scope_kinds=("business", "global"), global_capabilities=("read_global_context",))
-    add("context.file", schema({"upload_id": UUID, "expected_revision": revision}, ["upload_id", "expected_revision"]),
-        context.file, ("context_filing_apply", "context_filing_fail"), FILING_RESOURCES,
-        ("context_topics_create", "context_notes_create", "context_people_create", "context_people_update", "logs_add"),
-        scope_kinds=("business", "global"), global_capabilities=("read_global_context",))
-    if documents is not None:
-        from .contextbase import ContextBasePrograms
-        base = ContextBasePrograms(context_base, documents)
-        add("context.base_file", schema({"upload_id": UUID, "expected_revision": revision, "retract": {"type": "boolean"},
-                                         "force": {"type": "boolean"}}, ["upload_id"]), base.file,
-            ("context_base_receipt",), DOCUMENT_RESOURCES, scope_kinds=("business", "global"), global_capabilities=("read_global_context",))
-        add("context.base_instruct", schema({"text": {"type": "string", "minLength": 1, "maxLength": 20000},
-            "people": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 2000}, "maxItems": 20}}, ["text"]),
-            base.instruct, (), (), (), scope_kinds=("business", "global"), global_capabilities=("read_global_context",), timeout_seconds=600)
+    # The final Context filing programs: completion-only, no model call and no document read of their own.
+    FilingPrograms().register(programs)
     add("learnings.extract", EXTRACT_ARGUMENTS, learning.run, ("learnings_record_batch",),
         ("learning_candidates", "learning_decisions", "learning_scan_state", "learning_runs", "learning_history"), timeout_seconds=7200,
         scope_kinds=("business", "global"), global_capabilities=("read_global_context",))
@@ -168,6 +142,10 @@ def register_operations(runtime, programs, authority, *, clock=None):
                 private_access_revoked = True
         if private_account_job and private_access_revoked and ctx.principal_kind != "agent":
             raise DomainError("forbidden", "Private account job details require the current owner")
+        # A job bound to a Context filing also reports that filing (ids, state, completion and source currency); the frozen
+        # reason text stays with the initiator and the owner, other agents get the error code only.
+        filing = runtime.domains.documents.job_filing(uow, ctx, row)
+        extra = {} if filing is None else {"filing": filing}
         if (ctx.principal_kind == "agent" and
                 (private_access_revoked or (not private_account_job and
                                             row["initiated_by_principal_id"] != ctx.principal_id))):
@@ -179,8 +157,8 @@ def register_operations(runtime, programs, authority, *, clock=None):
             error = row.get("error_json")
             public["error_json"] = ({key: error[key] for key in ("code", "retryable") if key in error}
                 if isinstance(error, dict) else None)
-            return {"job": public, "details_available": False}
-        return {"job": row, "details_available": True}
+            return {"job": public, "details_available": False, **extra}
+        return {"job": row, "details_available": True, **extra}
 
     from .owner_email import register_record
     register_record(runtime.registry)
@@ -197,18 +175,16 @@ def register_operations(runtime, programs, authority, *, clock=None):
 
 
 def attach_background(runtime, programs, *, model_client_factory=None, transcript_source=None,
-                      context_reader=None, reddit_adapter=None, clock=None, maintenance=None, metric_collector=None,
+                      reddit_adapter=None, clock=None, maintenance=None, metric_collector=None,
                       backup_downloader=None, stripe_revenue=None, daily_reports=None, learning_engine=None):
     if runtime.background is not None:
         raise ValueError("Background service is already attached")
     if programs is not runtime.programs:
         raise ValueError("Background attachment uses the runtime's one program registry")
     register_programs(programs, models=ModelCalls(model_client_factory),
-        context_reader=context_reader or runtime.domains.documents.snapshot_for_job,
         transcript_source=transcript_source, platform_actions=runtime.domains.platform_actions,
         file_applier=runtime.file_applier, reddit_adapter=reddit_adapter,
         maintenance=maintenance, email=runtime.domains.email, tables=runtime.domains.tables, metric_collector=metric_collector,
-        context_base=lambda: getattr(runtime, "context_base", None), documents=runtime.domains.documents,
         backup_downloader=backup_downloader, stripe_revenue=stripe_revenue,
         daily_reports=daily_reports or DailyReportProgram(paths=lambda: runtime.paths, on_completed=lambda row: _report_completed(runtime, row)),
         learning_engine=learning_engine)

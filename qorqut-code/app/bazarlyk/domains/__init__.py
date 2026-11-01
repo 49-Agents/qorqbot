@@ -25,6 +25,7 @@ from .items.compose import build_neutral_items
 from .items.resources import RelatedResources
 from qorqut_operations.application.plans import utc_clock
 from bazarlyk.composition.catalog import install_contribution
+from bazarlyk.shared_context import SharedContextReader, shared_context_contribution
 from .ideas import IdeaOperations
 from .personal_context import PersonalContextOperations
 from .subscriptions import SubscriptionOperations
@@ -62,6 +63,7 @@ class BusinessDomains:
     working_memory: WorkingMemory
     archive: BusinessArchive
     context_base: ContextBaseOperations = None
+    shared_context: SharedContextReader = None
     business_setup: BusinessSetupOperations = None
     viewbox: AgentViewbox = None
 
@@ -71,13 +73,14 @@ class BusinessDomains:
         return self.documents.store.resolve_file_target(resource)
 
 
-def register_business_domains(registry, application, paths, *, catalog, agent_resolver, clock=utc_clock, job_programs=None):
+def register_business_domains(registry, application, paths, *, catalog, agent_resolver, clock=utc_clock, job_programs=None, filing=None,
+                              graph_edits=None):
     tasks = TaskOperations(clock=clock)
     tables = TableOperations(application.database, paths, clock=clock, job_programs=job_programs)
     ledger = LedgerOperations(tables=tables, clock=clock, job_programs=job_programs)
     metrics = MetricOperations(tables=tables, clock=clock, job_programs=job_programs)
     activity = ActivityOperations(ledger=ledger, clock=clock)
-    documents = DocumentOperations(application.database, paths, tasks=tasks, activity=activity, clock=clock, job_programs=job_programs)
+    documents = DocumentOperations(application.database, paths, tasks=tasks, activity=activity, clock=clock, job_programs=job_programs, filing=filing)
     assets = AssetOperations(documents.store, clock=clock)
     data_uploads = DataUploadOperations(documents.store, clock=clock)
     email = EmailOperations(application=application, resolver=agent_resolver, documents=documents, clock=clock, programs=job_programs)
@@ -95,8 +98,13 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     metrics.register(registry)
     activity.register(registry)
     documents.register(registry, application)
-    context_base = ContextBaseOperations(documents, job_programs=job_programs).register(registry)
+    context_base = ContextBaseOperations(documents, job_programs=job_programs, graph_edits=graph_edits).register(registry)
     documents.context_base = context_base
+    # The one published Context read engine: registered directly over the instance's graph locations, with no
+    # per-business reads beside it. ``documents.shared_context`` is the reader the other host read consumers use.
+    shared_context = SharedContextReader.for_instance(paths)
+    install_contribution(registry, shared_context_contribution(shared_context))
+    documents.shared_context = shared_context
     DocumentHistory(documents).register(registry)
     FileLinks(documents, paths).register(registry)
     from .documents.journal import JournalOperations
@@ -142,4 +150,4 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     if agent_resolver is not None:
         agent_resolver.working_memory = memory
     documents.working_memory = memory
-    return BusinessDomains(tasks, ledger, metrics, activity, documents, assets, platform_actions, email, stories, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, ideas, personal_context, subscriptions, memory, archive, context_base=context_base, business_setup=business_setup, viewbox=viewbox)
+    return BusinessDomains(tasks, ledger, metrics, activity, documents, assets, platform_actions, email, stories, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, ideas, personal_context, subscriptions, memory, archive, context_base=context_base, shared_context=shared_context, business_setup=business_setup, viewbox=viewbox)

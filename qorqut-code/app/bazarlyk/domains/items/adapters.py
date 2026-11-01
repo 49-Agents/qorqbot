@@ -129,15 +129,25 @@ class HostArchive:
 
 
 class HostNavigation:
-    """``context_navigation_get``: authorized story, table, product and people counts, including the authorized old
-    Context-base people count until the new Context replaces those callers."""
+    """``context_navigation_get``: authorized story, table and product counts plus the shared Context's person count.
+
+    The person count comes only from the published graph's ``basic_entity_type=["person"]`` nodes; the graph is one shared
+    set, so it does not depend on the business. There is no fallback to the operational people items or the old document
+    store: when the graph cannot be read ``counts.person`` is ``null`` (unknown) and ``context`` says why. ``count=0`` is
+    reserved for a ready graph that genuinely has no matching node. The result is::
+
+        {"navigation_only": true, "counts": {story, table, product: int, person: int | null},
+         "context": {"status": "ready" | "not_initialized" | "unavailable", "reason": null | {code, message},
+                     "revision": <published revision read> | null}}
+
+    A renderer shows ``person: null`` as unknown (not zero) and may use ``context.status`` / ``context.reason`` to say so."""
 
     def __init__(self, items, documents):
         self.items, self.documents = items, documents
 
     def read(self, ctx, args, uow):
         counts = {}
-        for kind in ('story', 'table', 'product', 'person'):
+        for kind in ('story', 'table', 'product'):
             count = 0
             for item in self.items.candidates(ctx, uow, kind=kind):
                 try: value = self.items.resolve(ctx, item, uow)
@@ -145,17 +155,20 @@ class HostNavigation:
                     if error.code not in UNAVAILABLE: raise
                     continue
                 if not value['raw_source'] and not value['archived']: count += 1
-            if kind == "person":
-                base = getattr(self.documents, "context_base", None)
-                if base is not None and base.service and base.service.enabled:
-                    self.items.authorize(ctx, "context_find", uow)
-                    from ..contextbase.service import _package
-                    with base.service.open() as store:
-                        allowed = _package().business_refs(store, ctx.business_id)
-                        count = sum(o["kind"] == "person" and (allowed is None or o["ref"] in allowed)
-                                    for o in store.list_objects(include_relationships=False))
             counts[kind] = count
-        return {'navigation_only': True, 'counts': counts}
+        counts['person'], context = self._people(ctx, uow)
+        return {'navigation_only': True, 'counts': counts, 'context': context}
+
+    def _people(self, ctx, uow):
+        reader = getattr(self.documents, "shared_context", None)
+        if reader is None:
+            return None, {"status": "unavailable", "revision": None,
+                          "reason": {"code": "not_configured", "message": "No shared published Context is configured"}}
+        self.items.authorize(ctx, "context_find", uow)
+        published = reader.count_nodes({"basic_entity_type": ["person"]})
+        if published["status"] == "ready":
+            return published["count"], {"status": "ready", "reason": None, "revision": published["revision"]}
+        return None, {"status": published["status"], "reason": published.get("reason"), "revision": published.get("revision")}
 
 
 class HostProtectedEdges:

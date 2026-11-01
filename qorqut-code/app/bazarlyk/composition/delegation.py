@@ -6,10 +6,16 @@ binding rows, its worker control operations and its role support, and records a 
 the existing ``OperationalDelegation`` store, which stays the host's (native delegated execution and its fencing).
 
 The three reviewed review-scope exceptions are also v1 data: the only cases where a globally owned operation may
-stage effects on business rows."""
+stage effects on business rows.
+
+The one delegated creation group is the host's trusted vocabulary for ``context_edit``: the queue input and its
+companion binding are two new records under one identity allocated while the edit prepares, so an assignment cannot
+list them in advance. Only that complete group, for that operation, skips the assignment's record-ID membership; the
+Operations authority path enforces it and every other delegated check still applies."""
 
 from __future__ import annotations
 
+from qorqut_operations.application import DelegatedCreationGroup
 from qorqut_operations.application.review import BoundResource, ReviewScopeException
 
 from bazarlyk.agents.operational_delegation import (OperationalDelegation, WORKER_OPERATIONS,
@@ -69,4 +75,9 @@ HOST_REVIEW_EXCEPTIONS = (
                          bound_resources={"documents": BoundResource("document_id"),
                                           "managed_document_files": BoundResource("document_id", "document_id")},
                          principal_kinds=frozenset({"human"}), allow_delegated=False),
+)
+
+HOST_DELEGATED_CREATION_GROUPS = (
+    # An explicit Context graph edit: its queue input and the graph-edit binding that carries it, created together.
+    DelegatedCreationGroup("context_edit", frozenset({"context_graph_edits", "context_inputs"})),
 )

@@ -18,6 +18,7 @@ from bazarlyk.composition.locations import business_hq
 from bazarlyk.agents.roles import BUSINESS_AGENT_ROLE, FOUNDER_ROLE
 from qorqut_operations.departments import department as department_info, profile_department, department_id, BY_ID
 from qorqut_operations.contracts import DomainError, InvocationOptions, new_id, plain
+from qorqut_operations.team_channel import is_installation_owner
 from qorqut_operations.storage.repositories import decode_row
 from .http import check_body_length, checked_fields, read_json, revalidated
 from .results import response
@@ -124,10 +125,14 @@ class DashboardCompatibility:
     async def global_route(self, request, context, parts):
         if len(parts) == 4 and parts[:2] == ['root', 'context-library'] and parts[3] in ('retry', 'retract') and request.method == 'POST':
             body = await read_json(request)
+            # Both operations take exactly {upload_id}; the revision precondition and the idempotency key are invocation options.
+            # An unsupported field is refused, never reinterpreted (retraction has no force).
+            checked_fields(body, {'expected_revision', 'idempotency_key'})
             options = self.options(body)
             operation = 'context_retry' if parts[3] == 'retry' else 'context_retract'
-            args = {'upload_id': parts[2]} if operation == 'context_retry' else {'upload_id': parts[2], 'force': bool(body.get('force'))}
-            return await anyio.to_thread.run_sync(lambda: response(self.invoke(context, operation, args, options)))
+            return await anyio.to_thread.run_sync(lambda: response(self.invoke(context, operation, {'upload_id': parts[2]}, options)))
+        if parts == ['root', 'context'] and request.method == 'GET':
+            return await anyio.to_thread.run_sync(lambda: self.global_context_get(request, context))
         if parts[:2] == ['root', 'context-library'] and request.method == 'GET':
             if len(parts) == 2:
                 args = {'scope': 'shared', 'limit': 50, 'kind': request.query_params.get('kind', 'context_note')}
@@ -390,45 +395,16 @@ class DashboardCompatibility:
             return response(result) if result.status != "ok" else JSONResponse({"ok": True, **self.appearance({**profile, "presentation": presentation})})
         return self.document_post(request, context, business, tail, body)
 
-    @staticmethod
-    def filing_status(upload, uow):
-        """Project the latest attempt, including failures after model computation.
-
-        Source revision orders retries; completion time must not let an older
-        attempt hide a newer queued/running attempt. Processed uploads win.
-        """
-        meta = upload.get("metadata_json", upload.get("metadata", {}))
-        # The legacy filer's job decides the shown state when it exists; in base-only mode the context base job does.
-        row = uow.connection.execute(
-            "SELECT id,state,error_json,attempts,updated_at FROM jobs WHERE business_id IS ? "
-            "AND kind IN ('context.file','context.base_file') AND json_extract(arguments_json,'$.upload_id')=? "
-            "ORDER BY CASE kind WHEN 'context.file' THEN 0 ELSE 1 END, "
-            "CAST(json_extract(arguments_json,'$.expected_revision') AS INTEGER) DESC, created_at DESC, rowid DESC LIMIT 1",
-            (upload["business_id"], upload["id"])).fetchone()
-        state, error = "unavailable", None
-        if upload["kind"] == "context_dump" or meta.get("status") == "processed":
-            state = "processed"
-        elif row:
-            state = {"applying": "running", "cancel_requested": "cancelling"}.get(row["state"], row["state"])
-            if state == "succeeded":
-                state, error = "unavailable", "Filing finished without a filed upload"
-            elif state == "failed":
-                error = (json.loads(row["error_json"] or "null") or {}).get("message") or "Filing failed"
-        elif meta.get("status") == "failed":
-            state, error = "failed", meta.get("error")
-        return {"id": upload["id"], "state": state, "error": error, "revision": upload["revision"],
-            "context_base": meta.get("context_base"),
-            "job_id": row["id"] if row else None, "attempts": row["attempts"] if row else 0,
-            "updated_at": row["updated_at"] if row else upload.get("updated_at"),
-            "retryable": upload["kind"] == "context_upload" and state in {"failed", "cancelled", "unavailable"}}
-
-    def page_view(self, document, uow=None):
+    def page_view(self, document, uow=None, context=None):
+        """A note or journal entry. Its ``filing`` (and each journal submission's) is the one current-source projection of the
+        upload it references, taken from the document operations; ``context`` is the caller (it decides error redaction)."""
         from bazarlyk.domains.documents.note_snapshot import snapshot_hash
         from bazarlyk.domains.documents.journal_access import JOURNAL_KINDS
         meta = document["metadata"]
+        documents = self.runtime.domains.documents
         def resolve_filing(uow):
             upload = uow.repository("documents", business_id=document["business_id"]).get(meta["upload_id"])
-            return self.filing_status(upload, uow) if upload and upload["kind"] in {"context_upload", "context_dump"} else None
+            return documents.source_filing(uow, context, upload) if upload and upload["kind"] in {"context_upload", "context_dump"} else None
         filing = None
         if meta.get("upload_id"):
             if uow is not None:
@@ -439,7 +415,6 @@ class DashboardCompatibility:
         def submissions(uow):
             if document.get("kind") not in JOURNAL_KINDS:
                 return []
-            from qorqut_operations.storage.repositories import decode_row
             found = uow.connection.execute(
                 "SELECT * FROM documents WHERE kind='context_upload' "
                 "AND json_extract(metadata_json, '$.journal_source_id')=? ORDER BY created_at, id",
@@ -448,25 +423,12 @@ class DashboardCompatibility:
             for saved in found:
                 upload = decode_row(saved)
                 upload_meta = upload["metadata_json"]
-                status = self.filing_status(upload, uow)
-                receipt = status.get("context_base") or {}
-                active_attempt = status["state"] in {"queued", "running", "cancelling"}
-                # A retry keeps its prior receipt until the new filer attempt
-                # finishes. During that window show and poll the live job, and
-                # keep the old receipt in a separate explicitly historical field.
-                current_receipt = {} if active_attempt else receipt
-                outcome = current_receipt.get("status")
-                summary = current_receipt.get("summary") or {}
-                partial = outcome == "filed" and bool(summary.get("denied") or summary.get("unresolved_checks"))
                 result.append({"uploadId": upload["id"], "sourceRevision": upload_meta.get("journal_source_revision"),
                     "sourceHash": upload_meta.get("journal_source_hash"), "sourceDate": upload_meta.get("journal_source_date"),
                     "createdAt": upload_meta.get("journal_uploaded_at"),
                     "changedSinceSubmission": (upload_meta.get("journal_source_revision") != document.get("revision")
                         or upload_meta.get("journal_source_hash") != document.get("content_hash")),
-                    "state": status["state"] if active_attempt else "partial" if partial else outcome or status["state"],
-                    "filing": {**status, "context_base": None if active_attempt else status.get("context_base")},
-                    "summary": summary, "previousReceipt": receipt if active_attempt and receipt else None,
-                    "retryable": status.get("retryable", False)})
+                    "filing": documents.source_filing(uow, context, upload)})
             return result
 
         if uow is not None:
@@ -496,13 +458,14 @@ class DashboardCompatibility:
             raise DomainError("not_found", "Registered document was not found unambiguously in this business")
         return matches[0]
 
+    # Stored document bookkeeping that older filers wrote beside the derived summary. The current-source ``filing`` is the evidence;
+    # these never stand beside it in an upload's item.
+    UPLOAD_BOOKKEEPING = ("context_base", "context_filing", "result", "error", "attempts", "last_attempt", "processed", "filed_by")
+
     def context_item(self, document):
         meta, path = document["metadata"], PurePosixPath(document["path"])
-        if document["kind"] in {"context_upload", "context_dump"}:
-            with self.runtime.database.read() as uow:
-                filing = self.filing_status(document, uow)
-            meta = {**meta, "filing": filing, "status": filing["state"], "error": filing["error"],
-                "failed": filing["state"] == "failed", "retryable": filing["retryable"], "attempts": filing["attempts"]}
+        if document["kind"] in {"context_upload", "context_dump"} and "filing" in document:
+            meta = {**{key: value for key, value in meta.items() if key not in self.UPLOAD_BOOKKEEPING}, "filing": document["filing"]}
         relative = str(path.relative_to(path.parts[0]))
         kind = {"context_topic": "topic", "context_person": "person", "context_note": "note", "context_upload": "inbox",
             "context_dump": "dump", "context_map": "map", "pillar": "pillar", "context": "pillar"}.get(document["kind"], "note")
@@ -555,38 +518,30 @@ class DashboardCompatibility:
             del lines[start:end]
         return "\n".join(lines).strip()
 
-    def context_processes_view(self, context):
-        """filing/summarizing/has_filer only, the way context_view builds them
-        (see its jobs()/attempts construction below) but without context_list,
-        the tree, or the graph: current/queued come straight from an indexed
-        jobs query instead of filing_status() over every inbox/dump document.
-
-        filing mirrors context_view's exact bucketing: current is a job whose
-        state is running or applying (filing_status() folds "applying" into
-        "running"); queued counts only literal "queued" jobs, not
-        waiting_signoff. summarizing mirrors jobs()'s own bucketing instead:
-        current is running or applying; queued counts queued or
-        waiting_signoff. topic only ever needs to answer "is this a map job",
-        the one thing contextRows() (js/processes.js) branches on, so it comes
-        straight from the job's own kind instead of a document lookup.
-        """
-        def started_at(value):
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() if value else 0
+    def context_queue(self, context):
+        """The read-only ``context_queue`` object of the caller's namespace (the business, or Global when none is selected)."""
+        from bazarlyk.domains.documents.queue_status import context_queue_summary
         with self.runtime.database.read() as uow:
-            filing_jobs = [decode_row(row) for row in uow.connection.execute(
-                "SELECT id,state,updated_at FROM jobs WHERE business_id=? AND kind='context.file' "
-                "AND state IN ('queued','running','applying')", (context.business_id,))]
-            summary_jobs = [decode_row(row) for row in uow.connection.execute(
-                "SELECT id,kind,state,updated_at FROM jobs WHERE business_id=? AND kind IN ('context.summarize','context.map') "
-                "AND state IN ('queued','running','applying','waiting_signoff')", (context.business_id,))]
-        filing_current = next((row for row in filing_jobs if row["state"] in {"running", "applying"}), None)
-        filing = {"current": {"id": filing_current["id"], "started": started_at(filing_current["updated_at"])} if filing_current else None,
-            "queued": sum(row["state"] == "queued" for row in filing_jobs)}
-        summary_current = next((row for row in summary_jobs if row["state"] in {"running", "applying"}), None)
-        summarizing = {"current": {"id": summary_current["id"], "started": started_at(summary_current["updated_at"]),
-            "topic": "map:" if summary_current["kind"] == "context.map" else ""} if summary_current else None,
-            "queued": sum(row["state"] in {"queued", "waiting_signoff"} for row in summary_jobs)}
-        return {"filing": filing, "summarizing": summarizing, "has_filer": self.background is not None}
+            return context_queue_summary(uow.connection, context.business_id)
+
+    def context_processes_view(self, context):
+        """The processes view: only the namespace's Context queue summary, read from the queue's own rows.
+
+        No count comes from generic job activity (a deferred Context job is not a model that is running), and no read initializes
+        Context or starts work. Missing queue composition is an explicit error from the summary, not an empty answer."""
+        return {"context_queue": self.context_queue(context)}
+
+    def global_context_get(self, request, context):
+        """``GET /api/root/context?view=processes``: the owner's read of Global-owned Context work (not a union of businesses)."""
+        checked_fields(dict(request.query_params), {"view"}, {"view"})
+        if request.query_params["view"] != "processes":
+            raise DomainError("validation_error", "Only the processes view is available for Global Context")
+        if context.business_id is not None:
+            raise DomainError("scope_required", "The Global Context process view is read without a selected business")
+        with self.runtime.database.read() as uow:
+            if context.principal_kind != "human" or not is_installation_owner(context, uow):
+                raise DomainError("forbidden", "Global Context process state is an owner view")
+        return JSONResponse(self.context_processes_view(context), headers={"Cache-Control": "no-store"})
 
     def context_view(self, context):
         documents = self.collection(context, "context_list")
@@ -630,38 +585,10 @@ class DashboardCompatibility:
             if document["kind"] == "context_map" and document["metadata"].get("upload_id") in by_id]
         mapped = {item["id"] for item in maps}
         result = {"tree": nodes[""], "pillars": [item["path"] for item in items if item["kind"] == "pillar"],
-            "inbox": [{**item, "attempts": int(item.get("attempts", 0)), "failed": item.get("failed", False)} for item in items if item["kind"] == "inbox"],
+            "inbox": [item for item in items if item["kind"] == "inbox"],
             "dumps": [{**item, "map": item["id"] in mapped} for item in items if item["kind"] == "dump"], "maps": maps,
             "people": people}
-        status = self.background.status(context.business_id) if self.background else {"current": None, "queued": 0, "recent": [], "error": None}
-        def jobs(kinds):
-            selected = []
-            for row in status["recent"]:
-                if row["kind"] not in kinds:
-                    continue
-                args = row["arguments_json"]
-                source = by_id.get(args.get("upload_id", args.get("document_id")), {})
-                path = PurePosixPath(source.get("path", "context/unknown"))
-                topic = "map:" + path.stem if row["kind"] == "context.map" else "person:" + path.stem if source.get("kind") == "context_person" else str(path.parent).removeprefix("context/")
-                selected.append({**row, "job_id": row["id"], "id": path.stem, "topic": topic,
-                    "started": datetime.fromisoformat(row["updated_at"].replace("Z", "+00:00")).timestamp()})
-            failed = [row for row in selected if row["state"] == "failed"]
-            return {"current": next((row for row in selected if row["state"] in {"running", "applying"}), None),
-                "queued": sum(row["state"] in {"queued", "waiting_signoff"} for row in selected), "items": selected,
-                "failed": failed, "done": [row for row in selected if row["state"] == "succeeded"],
-                "error": (failed[0].get("error_json") or {}).get("message") if failed else None,
-                "every": self.background.interval if self.background else None}
-        attempts = [{**item["filing"], "id": item["id"],
-            "started": datetime.fromisoformat(item["filing"]["updated_at"].replace("Z", "+00:00")).timestamp()
-                if item["filing"].get("updated_at") else 0}
-            for item in items if item.get("filing")]
-        failures = [item for item in attempts if item["state"] == "failed"]
-        filing = {"current": next((item for item in attempts if item["state"] == "running"), None),
-            "queued": sum(item["state"] == "queued" for item in attempts), "items": attempts,
-            "failed": failures, "done": [item for item in attempts if item["state"] == "processed"],
-            "error": failures[0]["error"] if failures else None,
-            "every": self.background.interval if self.background else None}
-        result.update(filing=filing, summarizing=jobs({"context.summarize", "context.map"}), has_filer=self.background is not None)
+        result["context_queue"] = self.context_queue(context)
         result["graph"] = self.data(context, "context_graph_get", {})
         return result
 
@@ -671,9 +598,10 @@ class DashboardCompatibility:
                 category = request.query_params.get("category")
                 rows = self.collection(context, tail[0] + "_list", {"category": category} if category else None)
                 with self.runtime.database.read() as uow:
-                    return JSONResponse([self.page_view(row, uow) for row in rows])
-            # page_view()'s filing status reads `jobs` directly (coarse jobs_routines).
-            return revalidated(request, self.runtime.changes, {"documents", "jobs_routines"}, context.business_id, produce)
+                    return JSONResponse([self.page_view(row, uow, context) for row in rows])
+            # page_view()'s filing status reads the Context queue's rows (coarse, global-only context_queue) and `jobs` directly
+            # (coarse jobs_routines).
+            return revalidated(request, self.runtime.changes, {"documents", "jobs_routines", "context_queue"}, context.business_id, produce)
         if tail == ["assets"]:
             groups = {"polished": [], "drafted": []}
             for row in self.collection(context, "assets_list"):
@@ -699,17 +627,18 @@ class DashboardCompatibility:
                     return JSONResponse(self.context_processes_view(context))
                 return JSONResponse(self.context_view(context))
             # One declared kind set for all three ?view= variants: graph/default
-            # read context_list (documents), processes/default read `jobs`
-            # directly (coarse jobs_routines); the query string is already part
+            # read context_list (documents) and the queue summary (coarse, global-only context_queue), processes/default read
+            # `jobs` directly (coarse jobs_routines); the query string is already part
             # of the ETag's own identity, so the three variants never collide.
-            return revalidated(request, self.runtime.changes, {"documents", "jobs_routines"}, context.business_id, produce)
+            return revalidated(request, self.runtime.changes, {"documents", "jobs_routines", "context_queue"}, context.business_id, produce)
         if tail == ["context", "file"]:
             tree = request.query_params.get("dir", "context")
             if tree not in {"context", "marketing-content"}:
                 raise DomainError("validation_error", "Unknown document tree")
             doc = self.document_selector(context, request.query_params.get("p", ""), "context_list" if tree == "context" else "content_list", prefix=tree)
             return JSONResponse({"path": request.query_params["p"], "dir": tree, "text": doc["body"], "document_id": doc["id"], "revision": doc["revision"], "content_hash": doc["content_hash"],
-                "material": {key: doc[key] for key in ("material_type", "origin", "tags") if key in doc}})
+                "material": {key: doc[key] for key in ("material_type", "origin", "tags") if key in doc},
+                **({"filing": doc["filing"]} if "filing" in doc else {})})
         if tail == ["context", "search"]:
             query = request.query_params.get("q", "").strip()
             docs = self.collection(context, "context_search", {"query": query}) if len(query) >= 2 else []
@@ -733,8 +662,7 @@ class DashboardCompatibility:
             person_refs = {key: row for row in documents.values() if row["kind"] == "context_person" for key in (row["id"], PurePosixPath(row["path"]).stem)}
             people = {person_refs[key]["id"]: {"slug": PurePosixPath(person_refs[key]["path"]).stem, "name": person_refs[key]["metadata"].get("name", "")}
                 for key in [*filed.get("people", []), *(key for note in notes for key in note.get("people", []))] if key in person_refs}
-            jobs = [row for row in self.background.status(context.business_id)["recent"] if row["kind"] == "context.map" and row["arguments_json"].get("upload_id") == upload["id"]] if self.background else []
-            current = jobs[0] if jobs else None
+            current = None      # mapping is no longer a background job
             identity = PurePosixPath(upload["path"]).stem
             return JSONResponse({"id": identity, "document_id": upload["id"], "map": self.map_view(max(maps, key=lambda row: row["created_at"]), upload) if maps else None,
                 "trace": {"id": identity, "document_id": upload["id"], "where": "_dumps" if upload["kind"] == "context_dump" else "_inbox",
@@ -802,7 +730,7 @@ class DashboardCompatibility:
             result_data = plain(result.data)
             if result_data.get("document"):
                 doc = self.data(context, domain + "_get", {"document_id": result_data["document"]["id"]})["document"]
-                return JSONResponse(self.page_view(doc))
+                return JSONResponse(self.page_view(doc, context=context))
             return JSONResponse({"ok": True, **result_data})
         if len(tail) == 2 and tail[0] == "context":
             action, revision = tail[1], None
@@ -812,19 +740,10 @@ class DashboardCompatibility:
                 checked_fields(body, {"path", "text", "expected_content_hash"} | OPTIONS, {"path", "text"})
                 doc = self.document_selector(context, body["path"], prefix="context")
                 operation, args, revision = "context_document_update", {"document_id": doc["id"], "body": body["text"], "expected_content_hash": body.get("expected_content_hash", doc["content_hash"])}, doc["revision"]
-            elif action in {"retry", "map"}:
+            elif action == "retry":
                 checked_fields(body, {"id"} | OPTIONS, {"id"})
                 doc = self.document_selector(context, body["id"], kinds={"context_upload", "context_dump"})
-                operation, args, revision = ("context_retry" if action == "retry" else "context_map_generate"), {"upload_id": doc["id"]}, doc["revision"]
-            elif action == "summarize":
-                checked_fields(body, {"person", "note", "topic"} | OPTIONS)
-                selectors = [key for key in ("person", "note", "topic") if body.get(key)]
-                if len(selectors) != 1:
-                    raise DomainError("validation_error", "Select exactly one summary target")
-                key = selectors[0]
-                selector = "_people/" + body[key] + ".md" if key == "person" else body[key] + "/_topic.md" if key == "topic" else body[key]
-                doc = self.document_selector(context, selector, prefix="context")
-                operation, args, revision = "context_summarize", {"document_id": doc["id"]}, doc["revision"]
+                operation, args, revision = "context_retry", {"upload_id": doc["id"]}, doc["revision"]
             else:
                 raise DomainError("not_found", "Context action is not registered")
             result = self.invoke(context, operation, args, self.options(body, revision=revision))

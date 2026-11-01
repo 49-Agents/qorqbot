@@ -294,8 +294,6 @@ class AgentConfigResolver:
                         strategy.append({**dict(item), "title": metadata.get("title")})
         selected_docs, signatures = {}, []
         needed = {"foundation", "business-agent"} if profile.scope.kind == "business" else {"foundation", "ecosystem-agent", "ecosystem"}
-        if selected:
-            needed |= {"product", "icp", "brand"}
         if profile.scope.kind == "ecosystem" and "read_global_context" not in profile.scope.global_capabilities:
             raise DomainError("invalid_scope", "Ecosystem orientation requires read_global_context capability")
         def located(base, doc, key):
@@ -338,15 +336,12 @@ class AgentConfigResolver:
         snapshot = self._snapshot(principal, business_id)
         provider = getattr(self, "context_home", None)
         home_text = provider(snapshot["business"]["id"] if snapshot["business"] else None) if provider else None
-        orient = getattr(self, "context_orientation", None)
-        orientation = (orient([row["id"] for row in snapshot["businesses"]])
-                       if orient and snapshot["profile"].scope.kind == "ecosystem" else None)
-        key = (canonical_hash({"key": snapshot["cache_key"], "context_home": home_text, "orientation": orientation})
-               if home_text or orientation else snapshot["cache_key"])
+        key = (canonical_hash({"key": snapshot["cache_key"], "context_home": home_text})
+               if home_text else snapshot["cache_key"])
         with self._lock:
             config = self._cache.get(key)
         if config is None:
-            config = self._compose(snapshot, context_home=home_text, orientation=orientation)
+            config = self._compose(snapshot, context_home=home_text)
             with self._lock:
                 self._cache[key] = config
                 self._cache.move_to_end(key)
@@ -372,7 +367,7 @@ class AgentConfigResolver:
         data["context_refresh_required"] = bool(session_registration and (delivery is None or delivery["current_vs_emitted"]))
         return EffectiveAgentConfig(data)
 
-    def _compose(self, snapshot: dict, *, context_home: str | None = None, orientation: dict | None = None) -> EffectiveAgentConfig:
+    def _compose(self, snapshot: dict, *, context_home: str | None = None) -> EffectiveAgentConfig:
         profile = snapshot["profile"]
         packages = self.packages_for_profile(profile)
         role = packages[0]
@@ -395,10 +390,8 @@ class AgentConfigResolver:
             return data
 
         for key, doc in snapshot["documents"].items():
-            if context_home and key in {"product", "icp", "brand"}:
-                continue  # base mode: pillar texts live in the home brief; the files are not a bootstrap dependency
             sources[key] = ContextSource(doc["id"], read(doc).decode("utf-8"), doc["revision"], doc["content_hash"],
-                str(doc["absolute_path"]), section_selector="Agent Brief" if key in {"product", "icp", "brand"} else None)
+                str(doc["absolute_path"]))
         strategy = []
         from bazarlyk.domains.documents.store import split_document
         for doc in snapshot["strategy_notes"]:
@@ -427,7 +420,7 @@ class AgentConfigResolver:
             workspace=snapshot["row"]["workspace"], business=snapshot["business"],
             allowed_businesses=tuple(snapshot["businesses"]), owner_name=snapshot["owner_name"],
             available_operations=frozenset(tool["canonical_operation"] for tool in tools if tool["available"]),
-            context_home=context_home, orientation=orientation, products=snapshot["products"],
+            context_home=context_home, products=snapshot["products"],
             strategy_notes=tuple(strategy))
         visible_scope = plain(profile.to_dict()["scope"])
         if profile.scope.kind == "ecosystem":

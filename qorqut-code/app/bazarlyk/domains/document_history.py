@@ -3,7 +3,8 @@
 Scope always comes from the selected business/Global context, never from a
 namespace in the request. Each source is first resolved through its owning
 domain's own access rules; only then is shared history read. Working memory is
-not served here: working_memory_get alone keeps its source-visibility checks.
+not served here: working_memory_get alone keeps its source-visibility checks. The shared Context's history is its
+published Git graph and is read with context_object and context_changes, not here.
 """
 
 from __future__ import annotations
@@ -16,8 +17,7 @@ from bazarlyk.storage import history
 
 from qorqut_operations.application.plans import schema
 
-SOURCE_KINDS = ("document", "story", "story_draft", "learning_candidate", "learning_decision",
-                "context_object", "context_brief")
+SOURCE_KINDS = ("document", "story", "story_draft", "learning_candidate", "learning_decision")
 VERSION = {"type": "integer", "minimum": 1}
 LIMIT = {"type": "integer", "minimum": 1, "maximum": 200}
 SQL_SOURCES = {"story": "stories", "story_draft": "story_drafts", "learning_candidate": "learning_candidates",
@@ -68,10 +68,10 @@ class DocumentHistory:
                         "between two versions, or a page of version metadata (no contents).",
             read=self.get, **common))
         registry.register(OperationDescriptor("business_history_list",
-            schema({"source": {"enum": ["core", "context"]}, "before_sequence": VERSION, "limit": LIMIT}),
+            schema({"source": {"enum": ["core"]}, "before_sequence": VERSION, "limit": LIMIT}),
             scope_kinds=frozenset({"business"}), resolve_namespace=lambda c, _a: "business:" + c.business_id,
-            description="Owner: the selected business's recorded activity facts, newest first, from one source "
-                        "(core or context); each source has its own sequence and cursor.",
+            description="Owner: the selected business's recorded activity facts, newest first, from the core source "
+                        "and its sequence cursor.",
             read=self.events, **common))
         return self
 
@@ -87,8 +87,6 @@ class DocumentHistory:
         self.owner(ctx, uow)
         mode = selection(args)
         kind, source_id = args["source_kind"], args["source_id"]
-        if kind in {"context_object", "context_brief"}:
-            return self._context(ctx, kind, source_id, mode, args)
         space, document_id, revision = self._core_source(ctx, kind, source_id, uow)
         store = HistoryStore(uow.connection)
         try:
@@ -131,28 +129,12 @@ class DocumentHistory:
         return {"history_document_id": document_id, "versions": [_version(item, content=False) for item in page.versions],
                 "next_before_version": page.next_before_version}
 
-    def _context(self, ctx, kind, source_id, mode, args):
-        service = self._context_service()
-        return {"source_kind": kind, "source_id": source_id,
-                **service.history(kind, source_id, business_id=ctx.business_id, mode=mode, args=args,
-                                  read=self._read)}
-
-    def _context_service(self):
-        operations = getattr(self.documents, "context_base", None)
-        if operations is None:
-            raise DomainError("operation_unavailable", "The context base is not configured on this installation")
-        return operations.require()
-
     # business_history_list
 
     def events(self, ctx, args, options, uow):
         self.owner(ctx, uow)
         source = args.get("source", "core")
-        if source == "context":
-            page = self._context_service().history_events(ctx.business_id, before_sequence=args.get("before_sequence"),
-                                                           limit=args.get("limit", 50))
-        else:
-            page = HistoryStore(uow.connection).list_events(ctx.business_id, before_sequence=args.get("before_sequence"),
-                                                            limit=args.get("limit", 50))
+        page = HistoryStore(uow.connection).list_events(ctx.business_id, before_sequence=args.get("before_sequence"),
+                                                        limit=args.get("limit", 50))
         return {"source": source, "events": [_event(item) for item in page.events],
                 "next_before_sequence": page.next_before_sequence}

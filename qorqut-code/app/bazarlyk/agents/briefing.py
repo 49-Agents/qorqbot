@@ -22,8 +22,7 @@ UNAVAILABLE = {"forbidden", "policy_denied", "not_found", "operation_unavailable
 GUIDANCE = (
     ("Tasks", ("tasks_list", "tasks_get", "tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete")),
     ("Stories and campaigns", ("stories_list", "stories_get", "stories_create", "stories_update", "stories_note_add", "stories_timeline")),
-    ("Context base", ("context_home", "context_object", "context_expand", "context_find")),
-    ("Context maintenance", ("context_edit", "context_instruct", "context_upload", "context_filings", "context_changes", "context_upload_map")),
+    ("Shared Context", ("context_home", "context_object", "context_expand", "context_find")),
     ("Materials", ("context_items_list", "context_items_get", "materials_update", "context_upload", "content_list", "content_get", "context_items_archive")),
     ("Tables", ("tables_list", "tables_get", "tables_rows_list", "tables_create", "tables_update", "tables_rows_write")),
     ("Own plan and notes", ("plans_get", "plans_set", "notes_list", "notes_get", "notes_create", "notes_update")),

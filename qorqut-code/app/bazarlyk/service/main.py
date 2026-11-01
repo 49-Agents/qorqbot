@@ -101,9 +101,11 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
     runtime.domains.ideas.context_base = runtime.context_base
     if getattr(runtime.domains, "business_setup", None):
         runtime.domains.business_setup.context_exists = runtime.context_base.contains
-    runtime.resolver.context_home = runtime.context_base.home_text
-    runtime.owner_bootstrap.context_home = runtime.context_base.home_text
-    runtime.resolver.context_orientation = runtime.context_base.orientation
+    from bazarlyk.shared_context import PublishedContextText
+    published_context = PublishedContextText(runtime.domains.shared_context)
+    runtime.resolver.context_home = published_context.home_text
+    runtime.owner_bootstrap.context_home = published_context.home_text
+    runtime.owner_bootstrap.context_status = published_context.status
     if nightly_maintenance is not None and getattr(nightly_maintenance, "backups", None) is not None:
         nightly_maintenance.backups.context_base_path = runtime.context_base.database_path
     if os.environ.get("EMAIL_ENGINE_URL"):
