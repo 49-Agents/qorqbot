@@ -1,6 +1,6 @@
 // Shared context catch-up for every item. Reads never acknowledge a relationship.
 const contextRoleLabel = role => String(role || 'related to').replace(/_/g, ' ');
-const contextItemType = item => item.material_type ? item.material_type.charAt(0).toUpperCase()+item.material_type.slice(1) : item.subtype === 'conversation' ? 'Conversation' : ({material:'Material',topic:'Topic',story:'Story',task:'Task',table:'Table',person:'Person',agent:'Agent'}[item.type] || item.type);
+const contextItemType = item => item.material_type ? item.material_type.charAt(0).toUpperCase()+item.material_type.slice(1) : item.subtype === 'conversation' ? 'Conversation' : ({material:'Material',topic:'Topic',story:'Story',task:'Task',table:'Table',product:'Product',person:'Person',agent:'Agent'}[item.type] || item.type);
 const contextMaterialLabel = item => [item.origin,...(item.tags || [])].filter(Boolean).join(' · ');
 
 async function contextOpenItem(biz, item, beforeOpen) {
@@ -15,6 +15,7 @@ async function contextOpenItem(biz, item, beforeOpen) {
     await goTab('context'); return;
   }
   if (item.type === 'person') { await editPersonDetails(biz, item.id); return; }
+  if (item.type === 'product') { await productsOpen(biz, item.id); return; }
   if (item.type === 'story') {
     if (state.biz !== biz) await selectBiz(biz);
     storyPending={biz,id:item.id}; openTasks(false); await goTab('stories'); return;
