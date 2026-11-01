@@ -90,8 +90,6 @@
 .sg-recipient { padding: 12px 0; border-top: 1px solid var(--line-2); }
 .sg-platform h3 { font-size: 14px; margin: 12px 0 6px; }
 .sg-platform-field span { white-space: pre-wrap; }
-.sg-outreach-progress, .sg-recipient-result { padding: 8px 12px; margin: 10px 0; background: var(--wash); border-radius: var(--r-sm); }
-.sg-outreach-progress p { margin: 6px 0; }
 
 .sg .sg-rows { display:flex; flex-direction:column; gap:16px; }
 .sg-urgent:not([hidden]) + .sg-waiting { margin-top:16px; }
@@ -102,5 +100,3 @@
 .sg-rowhead .sg-state { flex-direction:column; align-items:flex-end; gap:6px; }
 .sg-state-tags { display:flex; width:max-content; max-width:100%; gap:5px; }
 .sg-state time { font:400 11px/1.5 var(--sans); color:var(--fg-3); white-space:nowrap; }
-.sg-progress-counts { display:flex; flex-wrap:wrap; gap:6px; }
-.sg-progress-counts span { padding:3px 7px; border:1px solid var(--line-2); border-radius:999px; font:11px/1.4 var(--sans); }
