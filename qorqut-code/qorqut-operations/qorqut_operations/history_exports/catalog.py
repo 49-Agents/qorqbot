@@ -162,7 +162,10 @@ class ExportCatalog:
             raise HistoryExportError("history_export_failed", f"Reading the rows failed ({type(error).__name__})",
                                      table=name) from error
         rows = [self._row(export, row) for row in source]
-        rows.sort(key=lambda row: tuple(row[column] for column in export.key))
+        # A nullable owning business is the distinct Global scope. Keep that
+        # value, and order it before real business IDs without comparing None
+        # with strings. Duplicate full keys are still refused below.
+        rows.sort(key=lambda row: tuple((row[column] is not None, row[column]) for column in export.key))
         keys = [tuple(row[column] for column in export.key) for row in rows]
         if len(set(keys)) != len(keys):
             raise HistoryExportError("history_export_invalid", "The declared stable key is not unique", table=name)

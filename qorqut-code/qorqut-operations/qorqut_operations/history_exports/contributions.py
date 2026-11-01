@@ -149,9 +149,9 @@ class TableExport:
             raise HistoryCompositionError(f"Table {self.table} needs a stable ordered key of distinct columns")
         for name in key:
             kind = columns.get(name)
-            if not isinstance(kind, (Text, Integer)) or kind.nullable:
+            if not isinstance(kind, (Text, Integer)):
                 raise HistoryCompositionError(
-                    f"Key column {self.table}.{name} must be a declared non-null text or integer column")
+                    f"Key column {self.table}.{name} must be a declared text or integer column")
         if self.selector is not None and not callable(self.selector):
             raise HistoryCompositionError(f"Table {self.table} selector must be callable")
         if type(self.shard_hex) is not int or not 0 <= self.shard_hex <= MAXIMUM_SHARD_HEX:
