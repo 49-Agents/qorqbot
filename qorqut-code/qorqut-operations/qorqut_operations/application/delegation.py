@@ -2,14 +2,90 @@
 
 The checks are the deployed v1 ones, unchanged. Only the stored rows and the host's vocabulary (worker control
 operations, record-selector argument names, role support) come from the injected ``DelegationProvider``; with no
-provider every delegated call is refused."""
+provider every delegated call is refused.
+
+The one addition is a typed ``DelegatedCreationGroup`` made by trusted assembly code: the records one operation creates
+together under identities allocated while it prepares (a queue input and its companion binding) cannot be named by an
+assignment in advance, so a *complete* group of expected-absent targets sharing one new UUID is exempt from the assignment's
+record-ID membership and from nothing else."""
 
 from __future__ import annotations
 
-from qorqut_operations.contracts import DomainError
+from dataclasses import dataclass
+from uuid import UUID
+
+from qorqut_operations.contracts import OPERATION_NAME, DomainError, ExpectedTarget
 
 
-def authorize_delegation(provider, context, descriptor, targets, uow, *, namespace=None, arguments=None):
+@dataclass(frozen=True)
+class DelegatedCreationGroup:
+    """One operation and the resource types it creates together, as one new record each, under one fresh identity.
+
+    The operation's name must equal the descriptor's exactly and the resource types are at least two distinct names. A group
+    is authority vocabulary supplied by the trusted host; no caller argument, assignment or tool policy can install one."""
+
+    operation_name: str
+    resource_types: frozenset[str]
+
+    def __post_init__(self):
+        if not isinstance(self.operation_name, str) or not OPERATION_NAME.fullmatch(self.operation_name):
+            raise ValueError("A delegated creation group names one operation")
+        types = self.resource_types
+        if isinstance(types, (str, bytes)) or not hasattr(types, "__iter__"):
+            raise ValueError("A delegated creation group lists its resource types")
+        listed = list(types)
+        if (len(listed) < 2 or len(set(listed)) != len(listed)
+                or any(not isinstance(name, str) or not OPERATION_NAME.fullmatch(name) for name in listed)):
+            raise ValueError("A delegated creation group names at least two distinct resource types")
+        object.__setattr__(self, "resource_types", frozenset(listed))
+
+
+def creation_groups(groups) -> tuple[DelegatedCreationGroup, ...]:
+    """Validate the trusted assembly input: typed groups, at most one rule per operation."""
+    groups = tuple(groups)
+    if any(type(group) is not DelegatedCreationGroup for group in groups):
+        raise TypeError("Delegated creation groups are typed contributions made by trusted assembly code")
+    names = [group.operation_name for group in groups]
+    if len(set(names)) != len(names):
+        raise ValueError("An operation has at most one delegated creation group")
+    return groups
+
+
+def _canonical_uuid(value) -> bool:
+    try:
+        return isinstance(value, str) and str(UUID(value)) == value
+    except ValueError:
+        return False
+
+
+def _is_complete_group(groups, operation_name, targets, namespace) -> bool:
+    """Whether the whole expected-target list of this operation is exactly one matching creation group.
+
+    Every target is a typed ``ExpectedTarget`` for a distinct declared type and no other, expected absent, with no revision or
+    hash, the same canonical new UUID, and the admission's own business (or Global) scope. A resource namespace is absent or
+    exactly the canonical admission namespace. Anything else keeps the assignment's record boundary."""
+    group = next((item for item in groups if item.operation_name == operation_name), None)
+    if group is None or not isinstance(namespace, str):
+        return False
+    if namespace == "global":
+        business_id = None
+    elif namespace.startswith("business:"):
+        business_id = namespace.removeprefix("business:")
+    else:
+        return False
+    targets = tuple(targets)
+    if (len(targets) != len(group.resource_types) or any(not isinstance(target, ExpectedTarget) for target in targets)
+            or {target.resource.resource_type for target in targets} != group.resource_types):
+        return False
+    identities = {target.resource.resource_id for target in targets}
+    if len(identities) != 1 or not _canonical_uuid(next(iter(identities))):
+        return False
+    return all(not target.exists and target.revision is None and target.content_hash is None
+               and target.resource.business_id == business_id and target.resource.namespace in (None, namespace)
+               for target in targets)
+
+
+def authorize_delegation(provider, context, descriptor, targets, uow, *, namespace=None, arguments=None, creation_groups=()):
     if provider is None:
         raise DomainError("forbidden", "Delegated execution is not installed")
     operation_name = descriptor.name if hasattr(descriptor, "name") else descriptor
@@ -61,6 +137,9 @@ def authorize_delegation(provider, context, descriptor, targets, uow, *, namespa
     if namespace == "global" and scope["kind"] != "global" and not worker_control:
         raise DomainError("forbidden", "Business assignments cannot access global operations")
     record_ids = scope.get("record_ids", {})
+    # Only a complete creation group of the trusted assembly skips the record-ID membership below; every check above and the
+    # business boundary of each target still apply to it.
+    new_group = not worker_control and _is_complete_group(creation_groups, operation_name, targets, namespace)
     for target in targets:
         resource = getattr(target, "resource", target)
         if worker_control:
@@ -73,6 +152,8 @@ def authorize_delegation(provider, context, descriptor, targets, uow, *, namespa
                 set(scope.get("allowed_business_ids", ())) & set(context.allowed_business_ids))
             if resource.business_id not in allowed_businesses:
                 raise DomainError("forbidden", "Prepared target is outside the assignment business scope")
+        if new_group:
+            continue
         permitted = record_ids.get(resource.resource_type)
         if permitted is None or resource.resource_id not in permitted:
             raise DomainError("forbidden", "Prepared record is outside the assignment record boundary")

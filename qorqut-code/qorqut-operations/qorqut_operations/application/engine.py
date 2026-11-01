@@ -9,7 +9,7 @@ import json
 from qorqut_operations.contracts import (ChangeSet, DomainError, InvocationContext, InvocationOptions,
     OperationResult, PolicyDecision, canonical_hash, plain)
 from qorqut_operations.storage.receipts import ApplyReceipts, IdempotencyReceipts
-from .delegation import authorize_delegation
+from .delegation import authorize_delegation, creation_groups
 from .registry import OperationRegistry
 from .review import ReviewScopeException, review_scope
 
@@ -23,7 +23,7 @@ class ApprovalBinding:
 class Application:
     def __init__(self, database, registry: OperationRegistry, *, policy=None, signoffs=None,
                  context_resolver=None, file_executor=None, writer_admission=None,
-                 delegation=None, review_exceptions=()):
+                 delegation=None, review_exceptions=(), delegated_creation_groups=()):
         self.database, self.registry = database, registry
         self.policy, self.signoffs = policy, signoffs
         self.context_resolver, self.file_executor = context_resolver, file_executor
@@ -31,6 +31,8 @@ class Application:
         # Typed trusted ports. Delegated execution is refused without a provider.
         self.delegation = delegation
         self.review_exceptions = tuple(review_exceptions)
+        # Typed trusted contributions: the only operations whose complete new-record group an assignment need not name.
+        self.delegated_creation_groups = creation_groups(delegated_creation_groups)
         if any(type(exception) is not ReviewScopeException for exception in self.review_exceptions):
             raise TypeError("Review exceptions are typed contributions made by trusted assembly code")
         # Optional model-free technical incident observer. Runtime assembly
@@ -215,7 +217,7 @@ class Application:
     def authorize_delegation(self, context, descriptor, targets, uow, *, namespace=None, arguments=None):
         """Intersect live parent authority with one exact saved assignment binding."""
         return authorize_delegation(self.delegation, context, descriptor, targets, uow,
-                                    namespace=namespace, arguments=arguments)
+                                    namespace=namespace, arguments=arguments, creation_groups=self.delegated_creation_groups)
 
     @staticmethod
     def ensure_writes_open(uow):
