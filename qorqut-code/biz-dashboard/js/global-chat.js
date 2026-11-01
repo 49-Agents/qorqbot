@@ -25,6 +25,15 @@ function globalChatOrder(a, b) {
   const time = Date.parse(a.created_at) - Date.parse(b.created_at);
   return (Number.isFinite(time) && time) || a.sequence - b.sequence;
 }
+const GLOBAL_CHAT_TIME = new Intl.DateTimeFormat(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+const GLOBAL_CHAT_FULL_TIME = new Intl.DateTimeFormat(undefined, {dateStyle:'full', timeStyle:'long'});
+function globalChatTimestamp(message) {
+  if (!message.created_at) return '';
+  const date = new Date(message.created_at);
+  if (!Number.isFinite(date.getTime())) return '';
+  const full = esc(GLOBAL_CHAT_FULL_TIME.format(date));
+  return `<time class="gchat-time" datetime="${date.toISOString()}" title="${full}" aria-label="${full}">${esc(GLOBAL_CHAT_TIME.format(date))}</time>`;
+}
 const globalChatBase = id => `/root/agents/${encodeURIComponent(id)}/chat`;
 
 // ---- Markdown (headings, lists, quotes, tables, code, emphasis, and the shared safe links)
@@ -334,7 +343,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     node.className = `gchat-msg gchat-${message.role}`;
     node.dataset.id = message.id; node.dataset.state = message.state; node.dataset.sequence = String(message.sequence);
     // Replayed messages keep their chips and keyboard focus.
-    const signature = JSON.stringify([message.role, message.state, message.body, message.origin, message.error]);
+    const signature = JSON.stringify([message.role, message.state, message.body, message.origin, message.error, message.created_at]);
     if (node.chatSignature === signature) return {node, isNew};
     node.chatSignature = signature;
     const origin = message.origin && !['chat', 'system'].includes(message.origin) ? `<span class="gchat-origin">${esc(message.origin)}</span>` : '';
@@ -351,6 +360,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     } else {
       node.innerHTML = `<div class="gchat-body">${origin}<span class="gchat-text">${esc(message.body)}</span></div>${stateLine(message)}`;
     }
+    node.insertAdjacentHTML('beforeend', globalChatTimestamp(message));
     return {node, isNew};
   }
   function place(message) {
