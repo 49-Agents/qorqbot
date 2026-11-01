@@ -17,7 +17,7 @@ function agfocusUnread(p,node,item,value) {
   node._conversationHost?._conversation?.setUnread(unread);
 }
 function agfocusMoveEligible(p,node) {
-  return !!node && node.parentElement?.classList.contains('agfocus-items') && !node._item?.unavailable && !node._item?._storyParent && !node._item?.archived &&
+  return !!node && node.parentElement?.classList.contains('agfocus-items') && !node._item?.unavailable && !node._item?.archived &&
     !p.focusSnoozes?.get(node.dataset.cardId)?.pending && node.querySelector('.agfocus-task-state')?.getAttribute('aria-busy')!=='true';
 }
 function agfocusRowPending(p,node) {
@@ -218,7 +218,6 @@ function agfocusMount(p) {
     <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected conversation" hidden><header class="agfocus-thread-heading"><span data-focus-thread-title></span><button type="button" class="quiet" data-focus-thread-close aria-label="Close thread"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Thread height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Focus pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
   p.focusDrafts ||= new Map();
   p.focusCards = new Map();
-  p.focusStories=agfocusRestoreStories();
   p.focusSelected = null;
   const board = $('.agfocus', body);
   p.focusMount = board;
@@ -294,13 +293,6 @@ async function agfocusRefresh(p) {
       for(const [id,seq] of p.focusPrivateUnread || [])
         if(requestSeq>seq && !data.items.some(item=>item.id===id && item.private_unread))p.focusPrivateUnread.delete(id);
       p.focusRefreshThreads=true;
-      const restored=new Set();
-      while(true){
-        const stories=agfocusVisibleItems(p,data.items).filter(item=>item.source?.type==='story' && !item.unavailable && p.focusStories?.get(item.id)?.expanded && !restored.has(item.id));
-        if(!stories.length)break;
-        stories.forEach(item=>restored.add(item.id));
-        await Promise.all(stories.map(item=>agfocusToggleStory(p,item,true)));
-      }
     } catch (error) {
       if (agpadActive(p) && (!focusMount || p.focusMount===focusMount)) p.focusError = 'Could not refresh Focus. ' + error.message;
       else if(agpadActive(p) && p.view==='focus')p.focusRefreshAgain=true;
@@ -313,113 +305,8 @@ async function agfocusRefresh(p) {
   return p.focusRequest;
 }
 
-const AGFOCUS_STORIES_KEY='agfocus:expanded-stories:v1';
-function agfocusRestoreStories(){
-  try {
-    const ids=JSON.parse(ls(AGFOCUS_STORIES_KEY) || '[]');
-    return new Map((Array.isArray(ids)?ids:[]).filter(id=>typeof id==='string').slice(0,500).map(id=>[id,{expanded:true,items:[],references:[]}]));
-  } catch(_){return new Map();}
-}
-function agfocusSaveStories(p){
-  try {ls(AGFOCUS_STORIES_KEY,JSON.stringify([...p.focusStories].filter(([,branch])=>branch.expanded).map(([id])=>id).slice(-500)));}catch(_){}
-}
-
-function agfocusVisibleItems(p,items) {
-  const result=[];
-  function append(item,ancestors=new Set()) {
-    result.push(item);
-    const key=item.source?.type==='story'?item.source.id:null;
-    if(!key || item.unavailable || ancestors.has(key))return;
-    const branch=p.focusStories?.get(item.id);
-    if(!branch?.expanded)return;
-    for(const child of branch.items || [])append(child,new Set([...ancestors,key]));
-  }
-  for(const item of items)append(item);
-  return result;
-}
-async function agfocusToggleStory(p,item,refresh=false) {
-  p.focusStories ||= new Map();
-  let branch=p.focusStories.get(item.id);
-  if(branch?.expanded && !refresh){branch.expanded=false;agfocusSaveStories(p);agfocusPaint(p);return;}
-  branch={expanded:true,items:refresh?(branch?.items || []):[],references:refresh?(branch?.references || []):[],showReferences:branch?.showReferences || false,pending:true};p.focusStories.set(item.id,branch);
-  if(!refresh)agfocusSaveStories(p);
-  agfocusPaint(p);agfocusAnnounce(p,'Loading Story items…');
-  const source=item.resolved_source || item.source,biz=source.business_slug,mount=p.focusMount;
-  try {
-    const data=coreData(await post(biz?`/biz/${encodeURIComponent(biz)}/operations/stories_get`:`/root/operations/stories_get`,{story_id:source.id,...(!biz?{scope:"global"}:{})}));
-    if(p.focusStories.get(item.id)!==branch || p.focusMount!==mount || !mount?.isConnected)return;
-    const seen=new Set();
-    const links=[...(data.story.links || []),...(item.references || []).map(ref=>({
-      resource_type:ref.resource_type || ({task:'tasks',story:'stories',agent:'agent_profiles'})[ref.type] || ref.type,resource_id:ref.id || ref.url,current:ref.unavailable?null:ref,focusReference:ref
-    }))];
-    const children=links.filter(link=>{
-      if(link.resource_type==='agent_profiles' || link.current?.type==='agent' || link.item?.type==='agent')return false;
-      const businessId=link.focusReference?link.focusReference.business_id:source.business_id;
-      const key=String(businessId ?? 'global')+':'+link.resource_type+':'+link.resource_id;
-      if(seen.has(key) || link.resource_id===source.id)return false;
-      seen.add(key);return true;
-    }).map(link=>{
-      const type=({tasks:'task',stories:'story',signoffs:'signoff',email_conversations:'email'})[link.resource_type] || link.item?.type || 'reference';
-      const current=link.current;
-      const scope=link.focusReference || source;
-      const target={...current,type,resource_type:link.resource_type,id:link.resource_id,business_id:scope.business_id ?? null,business_slug:scope.business_slug ?? null,business_name:scope.business_name};
-      return {id:`${item.id}/${link.resource_type}/${link.resource_id}`,revision:current?.revision || 1,
-        label:current?.label || 'Unavailable item',source:target,resolved_source:target,
-        state:current?.state,source_revision:current?.revision,unavailable:!current,
-        conversation:['task','story','signoff','email'].includes(type)?{type,id:link.resource_id,business_id:target.business_id}:null,
-        references:[],_storyParent:item.id,_storyBusinessId:source.business_id,_depth:(item._depth || 0)+1,_storyLink:link};
-    });
-    branch.items=children.filter(child=>['task','story'].includes(child.source.type));
-    branch.references=children.filter(child=>!['task','story'].includes(child.source.type));
-    branch.pending=false;agfocusAnnounce(p,branch.items.length?`${branch.items.length} Story items`:'No linked Story items');
-    agfocusPaint(p);
-  } catch(error) {
-    branch.expanded=false;branch.pending=false;p.focusError='Could not load Story items. '+error.message;agfocusPaint(p);
-  }
-}
-
-function agfocusStoryReferences(p,node,item) {
-  node._referenceObserver?.disconnect();
-  node.querySelector('.agfocus-story-references')?.remove();
-  const branch=p.focusStories?.get(item.id);
-  if(!branch?.expanded || !branch.references?.length)return;
-  const row=document.createElement('div');row.className='agfocus-story-references';row.setAttribute('aria-label','Story references');
-  node.querySelector('.agfocus-row').after(row);
-  const icons={file:'M14 3H5v18h14V8z M14 3v5h5 M8 13h8 M8 17h8',table:'M3 4h18v16H3z M3 10h18 M9 4v16',link:'M10 14l4-4 M8 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0 M16 8l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0'};
-  const chips=branch.references.map(ref=>{
-    const target=ref.resolved_source,kind=target.resource_type==='data_tables'?'table':target.resource_type==='documents' || target.path?'file':'link';
-    const chip=document.createElement('button');chip.type='button';chip.className='quiet agfocus-reference-chip';chip.setAttribute('aria-label',ref.label);chip.disabled=ref.unavailable;
-    chip.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="${icons[kind]}"/></svg><span></span>`;
-    chip.querySelector('span').textContent=ref.label;chip.dataset.kind=kind;
-    chip.onclick=event=>{
-      event.stopPropagation();
-      if(target.resource_type==='documents'){
-        const query=new URLSearchParams({document_id:target.id});if(target.business_id)query.set('business_id',target.business_id);
-        window.open('/files/view?'+query,'_blank','noopener');
-      } else agfocusOpenItem(p,target).catch(e=>toast(e.message));
-    };
-    row.append(chip);return chip;
-  });
-  const more=document.createElement('button');more.type='button';more.className='quiet agfocus-reference-more';row.append(more);
-  const fit=()=>{
-    if(!row.isConnected)return;
-    row.classList.toggle('expanded',branch.showReferences);
-    chips.forEach(chip=>chip.hidden=false);more.hidden=true;
-    const width=row.clientWidth;
-    const widths=chips.map(chip=>chip.getBoundingClientRect().width);
-    if(branch.showReferences){more.hidden=false;more.textContent='Less';more.setAttribute('aria-expanded','true');return;}
-    if(widths.reduce((a,b)=>a+b+4,0)-4<=width)return;
-    let used=0,count=0;
-    for(const chipWidth of widths){if(used+chipWidth+64>width)break;used+=chipWidth+4;count++;}
-    chips.forEach((chip,index)=>chip.hidden=index>=count);
-    more.hidden=false;more.textContent=`+${chips.length-count} more`;more.setAttribute('aria-expanded','false');
-  };
-  more.onclick=event=>{event.stopPropagation();branch.showReferences=!branch.showReferences;fit();};
-  node._referenceObserver=new ResizeObserver(fit);node._referenceObserver.observe(row);fit();
-}
-
 function agfocusPaint(p) {
-  const data = p.focus && {...p.focus,items:agfocusVisibleItems(p,p.focus.items)};
+  const data = p.focus;
   const attention = data?.browser?.state === 'pending' || data?.items.some(item => item.needs_input);
   const tab = $('[data-v="focus"]', p.el);
   tab?.classList.toggle('agfocus-attention', !!attention);
@@ -444,7 +331,7 @@ function agfocusPaint(p) {
   }
   const list = $('.agfocus-items', host);
   host.dataset.revision=data.revision;
-  const signature=JSON.stringify([data.items,p.focusPageKey,data.next_offset,[...(p.focusStories || [])].map(([id,b])=>[id,b.expanded,b.references])]);
+  const signature=JSON.stringify([data.items,p.focusPageKey,data.next_offset]);
   if(list.dataset.signature===signature) {
     for(const item of data.items) {
       agfocusUnread(p,p.focusCards.get(item.id),item);
@@ -476,9 +363,6 @@ function agfocusPaint(p) {
     if(list.children[position]!==node)list.insertBefore(node,list.children[position]||null);
     position++;
     node._item=item;
-    agfocusStoryReferences(p,node,item);
-    node.classList.toggle('agfocus-story-child',!!item._storyParent);
-    node.style.setProperty('--focus-depth',item._depth || 0);
     if(item.unavailable) {
       if(p.focusSelected===item.id)agfocusSelect(p,null);
       node._conversationHost?._conversation?.dispose();
@@ -501,11 +385,6 @@ function agfocusPaint(p) {
     // Keep the state button alive across polling paints, including mid-click.
     if(taskItem){
       if(!marker.querySelector('.agfocus-task-state'))marker.innerHTML=`<button type="button" class="ball ${esc(taskState)} agfocus-task-state" aria-label="${esc(T_LABEL[taskState] || taskState)}"><span class="core"></span></button>`;
-    } else if(item.source?.type==='story') {
-      agfocusHtml(marker,`<button type="button" class="quiet agfocus-story-toggle" aria-label="Expand Story items"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 7v14M12 7C9 4 5 4 2 4v15c3 0 7 0 10 2M12 7c3-3 7-3 10-3v15c-3 0-7 0-10 2"/></svg></button>`);
-      const toggle=marker.querySelector('button'),expanded=!!p.focusStories?.get(item.id)?.expanded;
-      toggle.setAttribute('aria-expanded',String(expanded));toggle.setAttribute('aria-label',expanded?'Collapse Story items':'Expand Story items');
-      toggle.onclick=event=>{event.stopPropagation();agfocusToggleStory(p,item);};
     } else agfocusHtml(marker,`<span class="sdot ${T_STATES.includes(item.state)?esc(item.state):''}" aria-hidden="true"></span>`);
     agfocusText(node.querySelector('.ttl'),name);
     node.querySelector('.ttl').removeAttribute('title');
@@ -522,13 +401,12 @@ function agfocusPaint(p) {
     node.tabIndex=0;node.setAttribute('role','group');node.setAttribute('aria-label',name);
     // The row owns selection; conversation controls live in the dock and never toggle it.
     const toggleCard=()=>{
-      if(item._storyLink && !item.conversation){open();return;}
       agfocusSelect(p,p.focusSelected===item.id?null:item.id);
       if(p.focusSelected===item.id)node._conversationHost.querySelector('.conversation-inline-compose textarea')?.focus({preventScroll:true});
     };
     node.onclick=event=>{
       if(event.composedPath().some(el=>el.matches?.('button,a,input,textarea,select,.agfocus-marker,.agfocus-conversation')) || Date.now()<(p.focusSuppressClickUntil || 0))return;
-      if((event.ctrlKey || event.metaKey) && !item._storyParent){event.preventDefault();agfocusNewTab(item);return;}
+      if((event.ctrlKey || event.metaKey)){event.preventDefault();agfocusNewTab(item);return;}
       if(event.target.closest('.agfocus-row'))toggleCard();
     };
     node.onkeydown=event=>{if(event.target===node && ['Enter',' '].includes(event.key)){event.preventDefault();toggleCard();}};
@@ -539,14 +417,12 @@ function agfocusPaint(p) {
         item.state = snapshot.task.status; item.source_revision = snapshot.task.revision;
       });
       ball.onclick=event=>{event.stopPropagation();agfocusTaskState(p,item,ball);};
-      ball.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();agfocusTaskState(p,item,ball,true);};
     }
-    actions.querySelector('[data-manage]').onclick=event=>{event.stopPropagation();if((event.ctrlKey || event.metaKey) && !item._storyParent)agfocusNewTab(item);else open();};
+    actions.querySelector('[data-manage]').onclick=event=>{event.stopPropagation();if((event.ctrlKey || event.metaKey))agfocusNewTab(item);else open();};
     const grip=actions.querySelector('[data-focus-grip]');grip.setAttribute('aria-label','Move '+name);
     actions.querySelector('[data-focus-snooze]').onclick=event=>{event.stopPropagation();agfocusSnoozePicker(p,node,event.currentTarget);};
     actions.querySelector('[data-focus-snooze]').setAttribute('aria-pressed',String(snoozed));
     agfocusRowPending(p,node);
-    grip.hidden=!!item._storyParent;actions.querySelector('[data-focus-snooze]').hidden=!!item._storyParent;
     const related=node._region.querySelector('.agfocus-related');related.replaceChildren();
     for(const ref of item.references||[]) {
       const button=document.createElement('button');button.className='quiet';button.textContent=ref.unavailable?'Related item unavailable':ref.label;button.disabled=!!ref.unavailable;
@@ -569,8 +445,8 @@ function agfocusPaint(p) {
       onUnavailable:()=>{if(p.focusMount!==host || p.focusCards.get(item.id)!==node)return;node._item.unavailable=true;const current=p.focus?.items.find(other=>other.id===item.id);if(current)current.unavailable=true;agfocusPaint(p);},
       onRead:()=>{agfocusUnread(p,node,{...node._item,private_unread:false},false);item.private_unread=false;p.focusPrivateUnread?.delete(item.id);p.focusPrivateRead?.set(item.id,p.focusBoardSeq || 0);const current=p.focus?.items.find(other=>other.id===item.id);if(current)current.private_unread=false;},
       onUnread:()=>{agfocusUnread(p,node,{...node._item,private_unread:true},true);item.private_unread=true;p.focusPrivateUnread?.set(item.id,p.focusBoardSeq || 0);p.focusPrivateRead?.delete(item.id);const current=p.focus?.items.find(other=>other.id===item.id);if(current)current.private_unread=true;},
-      ...(!item._storyParent?{read:async pagination=>coreData(await post('/root/operations/focus_get',{scope:'global',item_id:item.id,conversation:true,...pagination})).item.thread,
-      send:async request=>coreData(await post('/root/operations/focus_reply',{scope:'global',item_id:item.id,text:request.text,idempotency_key:request.idempotency_key,...(request.revision?{expected_source_revision:request.revision}:{})}))}:{}),
+      read:async pagination=>coreData(await post('/root/operations/focus_get',{scope:'global',item_id:item.id,conversation:true,...pagination})).item.thread,
+      send:async request=>coreData(await post('/root/operations/focus_reply',{scope:'global',item_id:item.id,text:request.text,idempotency_key:request.idempotency_key,...(request.revision?{expected_source_revision:request.revision}:{})})),
     });
     // Focus has no actionable Comment toggle. Its title carries unread state.
     if(newConversation)conversationHost.querySelector('.conversation-toggle')?.remove();
@@ -636,20 +512,15 @@ function agfocusSelect(p,id) {
 async function agfocusLoadThreadContext(p,node) {
   const item=node._item,source=item.resolved_source || item.source || item.context;
   const target=node._region.querySelector('.agfocus-task-details');
-  if(!source || !['task','story'].includes(source.type) || !target)return;
+  if(!source || !source.type==='task' || !target)return;
   const request={};node._contextRequest=request;
   target.textContent='Loading details…';
   const biz=source.business_slug || item.context_business_slug;
   try {
-    const operation=source.type==='story'?'stories_get':'tasks_get';
-    const data=coreData(await post(biz?`/biz/${encodeURIComponent(biz)}/operations/${operation}`:`/root/operations/${operation}`,
-      {[source.type+'_id']:source.id,...(!biz?{scope:'global'}:{})}));
+    const data=coreData(await post(biz?`/biz/${encodeURIComponent(biz)}/operations/tasks_get`:`/root/operations/tasks_get`,
+      {task_id:source.id,...(!biz?{scope:'global'}:{})}));
     if(node._contextRequest!==request || node._item.unavailable || p.focusSelected!==item.id)return;
-    const task=data.task || data.story;
-    if(source.type==='story'){
-      target.textContent=[task.purpose,task.situation].filter(Boolean).join('\n\n');
-      return;
-    }
+    const task=data.task;
     const details=[task.status && (T_LABEL[task.status] || task.status),task.due && `Due ${task.due}`,
       ...(task.tags || []),...Object.entries(task.fields || {}).map(([key,value])=>`${key}: ${String(value)}`)].filter(Boolean);
     target.textContent=details.join(' · ');
@@ -662,7 +533,7 @@ async function agfocusLoadThreadContext(p,node) {
 function agfocusRefreshThreads(p) {
   if(!p.focusRefreshThreads)return;
   p.focusRefreshThreads=false;
-  for(const item of agfocusVisibleItems(p,p.focus?.items || []))p.focusCards.get(item.id)?._conversationHost?._conversation?.refresh();
+  for(const item of (p.focus?.items || []))p.focusCards.get(item.id)?._conversationHost?._conversation?.refresh();
 }
 
 function agfocusThreadHeight(p,height) {
@@ -712,9 +583,9 @@ function agfocusTaskRecord(item) {
   const source=item.resolved_source || item.source;
   return taskStateObserve(source.business_slug || null, {id:source.id,status:item.state || source.state || 'open',revision:item.source_revision});
 }
-function agfocusTaskState(p,item,button,block=false) {
+function agfocusTaskState(p,item,button) {
   const source=item.resolved_source || item.source,task=agfocusTaskRecord(item);
-  const status=block ? (task.status==='blocked'?'open':'blocked') : tNext(task.status);
+  const status=tNext(task.status);
   return taskStateSet(source.business_slug || null,task,status);
 }
 
@@ -724,7 +595,6 @@ function agfocusContext(node,item) {
   const biz=source.business_slug || item.context_business_slug;
   const businessId=source.business_id ?? item.source?.business_id ?? item.context?.business_id;
   const scope=node.querySelector('.agfocus-scope');
-  scope.hidden=!!item._storyParent && item.source?.type==='task' && !!item._storyBusinessId && businessId===item._storyBusinessId;
   const businessName=source.business_name || (state.bizs || []).find(b=>b.slug===biz)?.name || 'Business';
   agfocusHtml(node.querySelector('.agfocus-scope'),businessId || biz
     ? `<span class="agfocus-scope-chip" aria-label="${esc(businessName)}">${esc(businessName)}</span>`
@@ -979,18 +849,14 @@ async function agfocusOpenItem(p,item) {
         item:()=>({id:item.id,businessId:item.business_id}),waitingOnly:false,execution:true});
       detail.onDispose(()=>view.dispose());view.paint();return;
     }
-    if(item.type==='story') {
-      detail.onDispose(()=>{if(typeof storyDispose==='function')storyDispose();});
-      await renderStories(detail.host,{biz:item.business_slug || null,initialStoryId:item.id,onBack:detail.back});return;
-    }
     if(item.resource_type==='data_tables'){await tablesOpen(item.business_slug,item.id);return;}
     if(item.resource_type==='products'){await productsOpen(item.business_slug,item.id);return;}
     if(item.resource_type==='documents') {
       const {document:doc}=coreData(await api(agfocusPath(p)+'/documents/'+encodeURIComponent(item.id)));
-      if(detail.current())detail.host.innerHTML=`<div class="story-source">${esc(doc.body || 'No text preview available.')}</div>`;
+      if(detail.current())detail.host.innerHTML=`<div class="work-source">${esc(doc.body || 'No text preview available.')}</div>`;
       return;
     }
-    detail.host.innerHTML=`<div class="story-source">${esc(item.summary || 'No preview available.')}</div>`;
+    detail.host.innerHTML=`<div class="work-source">${esc(item.summary || 'No preview available.')}</div>`;
   } catch(error) {
     if(detail.current())detail.host.innerHTML=`<p class="ferr" role="alert">${esc(error.message)}</p>`;
   }

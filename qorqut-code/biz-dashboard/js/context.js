@@ -55,7 +55,7 @@ async function ctxLoadData(biz, full = !ctxIndependentPage(state.ctx)) {
     const graph = ctxFindGraphData(items);
     const countKind = kind => graph.nodes.filter(node => node.kind === kind).length;
     return {graph_only: true, canonical_graph: true, tree: {path: "", children: []}, people: [], inbox: [], dumps: [], graph,
-      counts: {person: countKind("person"), story: countKind("story"), table: countKind("table")}};
+      counts: {person: countKind("person"), table: countKind("table")}};
   };
   const read = {biz, signal, view, promise: view === '?view=graph' ? baseGraph() : pageRead(`/biz/${encodeURIComponent(biz)}/context${view}`)};
   ctxFullRead = read;
@@ -129,7 +129,6 @@ function ctxMark(snippet, q) {
 }
 
 async function ctxSearch(q) {
-  if (storyView && !await storyCanLeave()) return;
   const v = $("#ctxview");
   if (!v) return;
   const biz = state.biz, selected = state.ctx;
@@ -138,7 +137,6 @@ async function ctxSearch(q) {
   catch (error) { if (v.isConnected && state.biz === biz) v.innerHTML = `<div class="empty">${esc(error.message || 'Search failed.')}</div>`; return; }
   const inp = $("#ctxsearch");
   if (!v.isConnected || state.biz !== biz || state.ctx !== selected || !inp || inp.value.trim() !== q) return;
-  storyDispose();
   v.classList.remove('ctxembedded-view');
   ctxClearGraph();
   v.innerHTML = ctxSearchHtml(q, hits);
@@ -149,7 +147,7 @@ function ctxBusy(d) {
   const s = d.summarizing || {};
   return !!((d.filing && d.filing.current) || (d.inbox || []).some(i => ["queued", "running", "waiting_signoff", "cancelling"].includes(i.status)) || s.current || s.queued);
 }
-const ctxSig = (d, p) => (["_learning", "_tables", "_products", "_home"].includes(p) || p?.startsWith("_stories") || p?.startsWith("_obj/")) ? p // These views own their refreshes.
+const ctxSig = (d, p) => (["_learning", "_tables", "_products", "_home"].includes(p) || p?.startsWith("_obj/")) ? p // These views own their refreshes.
   : p === "_people" ? JSON.stringify([d?.people,d?.graph?.nodes.filter(n=>n.type==='person'),d?.graph?.edges.filter(e=>e.source.type==='person' || e.target.type==='person')])
   : p === "_uploads" ? JSON.stringify([(d || {}).inbox || [], (d || {}).dumps || []])
   : JSON.stringify([(d || {}).tree,
@@ -160,11 +158,11 @@ let _ctxLastSig = "";
 // events trigger an immediate check; a 60s safety poll bounds staleness the same way
 // as every other Stage 2 site (section 2.3: a missed event delays a view by at most
 // 60s). Root Graph (`?view=graph`) and the independent pages (_learning/_tables/
-// _stories*, the nav-only operation) already fetch a light shape via ctxLoadData's
+// the nav-only operation) already fetch a light shape via ctxLoadData's
 // own view selection; every other page (topic/person/_people/_uploads) needs the
 // full shape ctxPaint/ctxPageCache expect, so `tick` still calls the same
 // ctxLoadData(biz) the old poll used -- just far less often. Scoped to this mount's
-// own business, like stories.js: a fresh subscription replaces the old one (see the
+// own business: a fresh subscription replaces the old one (see the
 // clear above and at renderContext's top) on every load, so there is no reason to
 // accept another business's over-match here.
 function ctxWatch() {
@@ -220,10 +218,10 @@ function ctxTree(d) {
   rows.push(`<div class="item ov ${state.ctx === '_home' || (state.ctx != null && OBJ_PAGE_RE.test(state.ctx)) ? 'on' : ''}" data-p="_home"><div class="nm">${SVG_HOME}<span class="tt">Home</span></div></div>`);
   rows.push(`<div class="item ov ${state.ctx === '_learning' ? 'on' : ''}" data-p="_learning"><div class="nm">${SVG_BRAIN}<span class="tt">Learning</span></div></div>`);
   const graphNodes = d.graph?.nodes || [];
-  rows.push(`<div class="ctx-counts">${[['story','Stories','_stories'],['table','Tables','_tables'],['person','People','_people']].map(([type,label,path]) => `<button type="button" data-count-page="${path}"><b>${d.loading ? "—" : d.counts?.[type] ?? graphNodes.filter(n=>n.type===type || n.kind===type).length}</b><span>${label}</span></button>`).join('')}</div>`);
+  rows.push(`<div class="ctx-counts">${[['table','Tables','_tables'],['person','People','_people']].map(([type,label,path]) => `<button type="button" data-count-page="${path}"><b>${d.loading ? "—" : d.counts?.[type] ?? graphNodes.filter(n=>n.type===type || n.kind===type).length}</b><span>${label}</span></button>`).join('')}</div>`);
   rows.push(`<div class="item ov ${isRoot ? 'on' : ''}" data-p=""><div class="nm">${aicon('share-2','currentColor',15)}<span class="tt">Graph</span></div></div>`);
-  for (const [key, label, icon] of [['_stories', 'Stories', `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M12 5h8M12 11h6M12 19h8"/></svg>`], ['_tables', 'Tables', aicon('database', 'currentColor', 15)], ['_products', 'Products', `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg>`]]) {
-    rows.push(`<button type="button" class="item bt ${(state.ctx === key || key === '_stories' && state.ctx?.startsWith('_stories/')) ? 'on' : ''}" data-p="${key}"><div class="nm">${icon}<span class="tt">${label}</span></div></button>`);
+  for (const [key, label, icon] of [['_tables', 'Tables', aicon('database', 'currentColor', 15)], ['_products', 'Products', `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg>`]]) {
+    rows.push(`<button type="button" class="item bt ${state.ctx === key ? 'on' : ''}" data-p="${key}"><div class="nm">${icon}<span class="tt">${label}</span></div></button>`);
   }
   const inbox0 = d.inbox || [], failed0 = inbox0.filter(i => i.failed).length, waiting0 = inbox0.filter(i => ["queued", "running", "waiting_signoff", "cancelling"].includes(i.status)).length;
   const badge0 = failed0 ? `<span class="bdot bad"></span>` : waiting0 ? `<span class="bdot acc"></span>` : "";
@@ -237,7 +235,6 @@ function ctxTree(d) {
 
 async function ctxGo(p) {
   const pane = $("#ctxview"), biz = state.biz, navigation = ++_ctxNavigation;
-  if (typeof storyView !== 'undefined' && storyView && !await storyCanLeave()) return;
   if (navigation !== _ctxNavigation || !pane?.isConnected || state.biz !== biz || state.tab !== 'context') return;
   clearTimeout(_ctxSearchTimer);
   const search = $("#ctxsearch"); if (search) search.value = '';
@@ -246,14 +243,13 @@ async function ctxGo(p) {
   return ctxShow(p);
 }
 
-const ctxIndependentPage = p => p === '_learning' || p === '_tables' || p === '_products' || p === '_home' || p === '_people' || p?.startsWith('_stories') || p?.startsWith('_obj/');
+const ctxIndependentPage = p => p === '_learning' || p === '_tables' || p === '_products' || p === '_home' || p === '_people' || p?.startsWith('_obj/');
 async function ctxShow(p) {
   if (p === "_tasks") { p = ""; state.ctx = ""; }
   if (!(typeof p === 'string' && p.startsWith('_obj/'))) _ctxCanonicalPendingEndpointSnapshot = null;
-  ls(`ctxpage:${state.biz}`, (["_tables", "_products", "_people", "_learning", "_uploads", "_home"].includes(p) || p?.startsWith("_stories")) ? p : "");
-  storyDispose();
+  ls(`ctxpage:${state.biz}`, (["_tables", "_products", "_people", "_learning", "_uploads", "_home"].includes(p)) ? p : "");
   const pane = $("#ctxview");
-  pane?.classList.toggle('ctxembedded-view', (['_tables', '_products'].includes(p) || p?.startsWith('_stories')));
+  pane?.classList.toggle('ctxembedded-view', ['_tables', '_products'].includes(p));
   ctxClearGraph();
   jClearTimers();
   if (!ctxDataFits(_ctxData, p) && !ctxIndependentPage(p)) {
@@ -279,11 +275,10 @@ async function ctxShow(p) {
     const v = $("#ctxview"); if (v) v.innerHTML = `<div class="empty">learning.js not loaded</div>`;
     return;
   }
-  if ((['_tables', '_products'].includes(p) || p?.startsWith('_stories'))) {
+  if (['_tables', '_products'].includes(p)) {
     _ctxLastSig = ctxSig(_ctxData, p);
     pane.innerHTML = '<div id="ctxembedded"></div>';
     const content = pane.firstElementChild;
-    if (p?.startsWith('_stories')) return renderStories(content);
     if (p === '_tables') return renderTables(content);
     if (p === '_products') return renderProducts(content);
   }
@@ -559,7 +554,7 @@ async function openPerson(slug) {
   const contactNotes = contact.notes ? `<div class="sec"><div class="sh">How to contact</div><p class="about">${esc(contact.notes)}</p></div>` : "";
   v.innerHTML = head + meta + aka + about + contactNotes + sum + notesSec + ment;
   if(d.graph){
-    const related=document.createElement('div');related.className='story-associations';v.appendChild(related);
+    const related=document.createElement('div');related.className='work-associations';v.appendChild(related);
     contextRelatedChips(related,state.biz,{type:'person',id:person.document_id}).catch(e=>toast(e.message));
   }
   wireCrumbs(v);
@@ -759,11 +754,11 @@ async function openCtx(p) {
   v.innerHTML = `${ctxCrumbs(dir, p.split("/").pop())}
     <div class="jcol"><div class="jhead"><h2 class="jt">${esc(title)}</h2>${ro ? `<span class="ro">${p === "INDEX.md" ? "generated" : "filed upload, immutable"}</span>` : `<span class="jsave" id="jsave"></span><button class="jbtn" id="jsavebtn" type="button">Save</button><button class="jbtn" id="jdiscard" type="button">Discard</button>`}</div>
     ${chips ? `<div class="chips">${chips}</div>` : ""}<hr class="jhr">
-    <div id="ctx-stories" class="small" aria-label="Related stories"></div>
+    <div id="ctx-work" class="small" aria-label="Related work"></div>
     ${uid ? uploadFilingEvidence(filing) + uploadSections(uid, um || {}) : ""}
     ${ro ? `<div class="jbody">${esc(body)}</div>` : `<textarea class="jta" id="jta" spellcheck="false" placeholder="Start writing…"></textarea>`}</div>`;
   wireCrumbs(v);
-  if(r.document_id)storyRelatedChips(v.querySelector('#ctx-stories'),biz,uid?'uploads':'documents',r.document_id,async()=>{
+  if(r.document_id)workRelatedChips(v.querySelector('#ctx-work'),biz,uid?'uploads':'documents',r.document_id,async()=>{
     if(_jState?.dirty){await jSave();if(_jState?.dirty)return false;}
     return true;
   });
@@ -851,7 +846,7 @@ function wireUpload(v, uid, um) {
 }
 
 async function editPersonDetails(biz, id, after) {
-  const {item} = await storyCall(biz, 'context_items_get', {item:{type:'person', id}});
+  const {item} = await workCall(biz, 'context_items_get', {item:{type:'person', id}});
   const contact = item.contact || {};
   const field = (name, label, value, type='text', max=4000) => `<label>${label}<input name="${name}" type="${type}" maxlength="${max}" value="${esc(value || '')}"></label>`;
   const body = `<div class="data-form">
@@ -876,7 +871,7 @@ async function editPersonDetails(biz, id, after) {
       if(Object.keys(changes).length) {
         const binding=JSON.stringify(changes);
         if(attempt?.binding!==binding) attempt={binding,key:newRequestId()};
-        await storyCall(biz,'context_people_update',{document_id:id,changes},{expected_revision:item.revision,idempotency_key:attempt.key});
+        await workCall(biz,'context_people_update',{document_id:id,changes},{expected_revision:item.revision,idempotency_key:attempt.key});
       }
       close(); if(state.biz===biz) await after?.();
     } catch(e) {el.querySelector('.data-form-error').textContent=e.message;}

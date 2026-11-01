@@ -18,7 +18,6 @@ async function taskProgressOpenReference(biz, ref, beforeOpen) {
   if (await beforeOpen?.() === false) return;
   if (ref.type === 'signoff') return sgAttentionNavigate(biz || null, ref.id);
   if (ref.type === 'dev_ticket') { location.hash = '/global/overview/incidents'; return; }
-  if (ref.type === 'story' && biz) return contextOpenItem(biz,{type:'story',id:ref.id});
   // Materials (e.g. an email conversation) open through the shared context-item route.
   if (ref.type === 'material' && biz) return contextOpenItem(biz,{type:'material',id:ref.id,resource_type:ref.resource_type});
 }

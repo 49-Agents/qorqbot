@@ -219,7 +219,7 @@ function globalContextGraphProject(items) {
 
 function globalContextGraphKindLabel(kind) {
   const known = { business_topic: "Business", topic: "Concept", person: "Person", product: "Product", platform: "Platform",
-    project: "Project", note: "Note", transcript: "Transcript", relationship: "Relationship", idea: "Idea", story: "Story",
+    project: "Project", note: "Note", transcript: "Transcript", relationship: "Relationship", idea: "Idea",
     task: "Task", material: "Material", table: "Table", agent: "Agent", event: "Event", occurrence: "Occurrence",
     company: "Company", other: "Other" };
   return known[kind] || String(kind || "other").replace(/[-_]+/g, " ").replace(/\b\w/g, letter => letter.toUpperCase());

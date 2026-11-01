@@ -664,7 +664,7 @@ function agpadPaintInbox(p) {
     <summary><strong>Message from ${esc(messageParticipant(item.message, 'sender'))}</strong><span>${esc(agpadInboxAge(item.created_at))}${item.message.reply_to ? ' · Reply' : ''}${messageCollapsed(item.message) ? ' · Read-only history' : ''}</span>${messageOriginally(item.message, 'sender')}<span>${esc(messagePreview(item.message.body,item.message.summary))}</span></summary>
     <div class="agpad-message-body">${esc(item.message.body)}</div>
     <span>To ${esc(messageParticipant(item.message, 'recipient'))}</span>${messageOriginally(item.message, 'recipient')}</details>` : `<button type="button" class="agpad-inbox-item" data-agent-id="${esc(agentId || '')}" data-inbox-source="${esc(item.source_id)}" data-source-type="${esc(item.source_type)}" data-business="${esc(item.business_slug || '')}">
-    <strong>${esc(item.summary || 'Source item')}</strong><span>${esc(({focus_cards:'Focus Reference',stories:'Story',tasks:'Task',signoffs:'Signoff',documents:'Document',email_conversations:'Email',data_tables:'Table',action_logs:'Action',requests:'Request',agent_profiles:'Agent',principals:'Person',context_entities:'Reference'})[item.source_type] || 'Update')}${subscription ? (item.include_related ? ' · Includes linked items' : ' · Item only') : ' · ' + esc(item.event_type.split(',').map(type => ({relationship_changed:'Links changed',assignment_changed:'Assignment changed',response_submitted:'Response submitted',action_outcome:'Action result',note_added:'Note added',note:'Note added',message_changed:'Message received'})[type] || type.replaceAll('_', ' ')).join(', '))}</span>
+    <strong>${esc(item.summary || 'Source item')}</strong><span>${esc(({focus_cards:'Focus Reference',tasks:'Task',signoffs:'Signoff',documents:'Document',email_conversations:'Email',data_tables:'Table',action_logs:'Action',requests:'Request',agent_profiles:'Agent',principals:'Person',context_entities:'Reference'})[item.source_type] || 'Update')}${subscription ? (item.include_related ? ' · Includes linked items' : ' · Item only') + (item.managed_by === 'thread_follow' ? ' · Following discussion' : item.managed_by === 'related_work' ? ' · Related work' : '') : ' · ' + esc(item.event_type.split(',').map(type => ({relationship_changed:'Links changed',assignment_changed:'Assignment changed',response_submitted:'Response submitted',action_outcome:'Action result',note_added:'Note added',note:'Note added',message_changed:'Message received'})[type] || type.replaceAll('_', ' ')).join(', '))}</span>
     ${subscription ? '' : `<span>${esc(item.actor_name)} · ${esc(agpadInboxAge(item.created_at))}</span>`}</button>`;
   const html = error + (!data ? tEmptyHtml(p.inboxError ? 'No inbox data available.' : 'Loading inbox…') :
     `<div class="agpad-inbox-top"><h3 class="agpad-inbox-heading">Pending updates</h3><div class="agpad-inbox-status"><span class="agpad-watcher-dot${data.watcher_active ? ' connected' : ''}" role="img" aria-label="${data.watcher_active ? 'Watcher connected' : data.watcher ? 'Watcher disconnected' : 'Watcher not started'}" title="${data.watcher_active ? 'Watcher connected' : data.watcher ? 'Watcher disconnected' : 'Watcher not started'}"></span><span>${data.watcher ? esc(agpadWatcherAge(data.watcher.last_check_at)) : 'Claude must start its inbox watcher.'}</span></div></div>${data.items.length ? data.items.map(item => card(item)).join('') : tEmptyHtml('No accessible pending updates.')}
@@ -731,7 +731,7 @@ async function agpadOpenInboxSource({ inboxSource: id, sourceType: type, busines
   if (type === 'signoffs') return sgAttentionNavigate(biz || null, id);
   if (!biz && type === 'documents') {
     const { document: source } = coreData(await api(`/me/agents/${encodeURIComponent(agentId)}/inbox/documents/${encodeURIComponent(id)}`));
-    return modal({ title: esc(source.metadata?.title || source.path), body: `<div class="story-source">${esc(source.body || '')}</div>`, actions: [] });
+    return modal({ title: esc(source.metadata?.title || source.path), body: `<div class="work-source">${esc(source.body || '')}</div>`, actions: [] });
   }
   if (biz && (state.scope === 'global' || state.biz !== biz)) await selectBiz(biz);
   if (biz && state.biz !== biz) return;
@@ -742,12 +742,11 @@ async function agpadOpenInboxSource({ inboxSource: id, sourceType: type, busines
     state.agent = agent.name; return goTab('agents');
   }
   if (type === 'principals' || type === 'context_entities') {
-    const { item } = await storyCall(biz, 'context_items_get', { item: { type: type === 'principals' ? 'person' : 'entity', id } });
-    if (type === 'context_entities' && /^https?:\/\//.test(item.url || '')) return storyOpenLink({biz}, {resource_type:'entity',resource_id:id,current:item});
+    const { item } = await workCall(biz, 'context_items_get', { item: { type: type === 'principals' ? 'person' : 'entity', id } });
+    if (type === 'context_entities' && /^https?:\/\//.test(item.url || '')) return workOpenLink({biz}, {resource_type:'entity',resource_id:id,current:item});
     return modal({title:esc(item.label),body:`<p>${esc([item.role,item.org,item.about,item.summary].filter(Boolean).join(' · '))}</p>`,actions:[]});
   }
-  if (type === 'stories') { state.ctx = '_stories/' + id; return goTab('context'); }
   if (type === 'tasks') return tOpenTask(id);
-  const data = await storyCall(biz, 'stories_resource_get', { resource_type: type, resource_id: id });
-  return storyOpenLink({ biz }, { resource_type: type, resource_id: id, current: data.resource || {} });
+  const { item } = await workCall(biz, 'context_items_get', { item: workItem(type, id) });
+  return workOpenLink({ biz }, { resource_type: type, resource_id: id, current: { ...item, kind: item.kind || item.subtype } });
 }

@@ -1,6 +1,6 @@
 // Shared context catch-up for every item. Reads never acknowledge a relationship.
 const contextRoleLabel = role => String(role || 'related to').replace(/_/g, ' ');
-const contextItemType = item => item.material_type ? item.material_type.charAt(0).toUpperCase()+item.material_type.slice(1) : item.subtype === 'conversation' ? 'Conversation' : ({material:'Material',topic:'Topic',story:'Story',task:'Task',table:'Table',product:'Product',person:'Person',agent:'Agent'}[item.type] || item.type);
+const contextItemType = item => item.material_type ? item.material_type.charAt(0).toUpperCase()+item.material_type.slice(1) : item.subtype === 'conversation' ? 'Conversation' : ({material:'Material',topic:'Topic',task:'Task',table:'Table',product:'Product',person:'Person',agent:'Agent'}[item.type] || item.type);
 const contextMaterialLabel = item => [item.origin,...(item.tags || [])].filter(Boolean).join(' · ');
 
 async function contextOpenItem(biz, item, beforeOpen) {
@@ -16,17 +16,14 @@ async function contextOpenItem(biz, item, beforeOpen) {
   }
   if (item.type === 'person') { await editPersonDetails(biz, item.id); return; }
   if (item.type === 'product') { await productsOpen(biz, item.id); return; }
-  if (item.type === 'story') {
-    if (state.biz !== biz) await selectBiz(biz);
-    storyPending={biz,id:item.id}; openTasks(false); await goTab('stories'); return;
-  }
-  await storyOpenLink({biz, error:e=>toast(e.message)}, {resource_type:item.resource_type === 'context_entities' ? 'entity' : item.resource_type,
+  if (item.type === 'task') { await tOpenTask(item.id); return; }
+  await workOpenLink({biz, error:e=>toast(e.message)}, {resource_type:item.resource_type === 'context_entities' ? 'entity' : item.resource_type,
     resource_id:item.id, current:{...item, kind:item.kind || item.subtype}, snapshot_json:item});
 }
 
 async function contextRelatedChips(host, biz, item, beforeOpen) {
   let data;
-  try { data = await storyCall(biz, 'context_reviews_list', {item, include_reviewed:true, limit:50}); }
+  try { data = await workCall(biz, 'context_reviews_list', {item, include_reviewed:true, limit:50}); }
   catch (error) {
     if (!host.isConnected) return;
     const message=document.createElement('span');message.className='muted';message.textContent=error.message;
@@ -60,7 +57,7 @@ async function contextReviewPanel(host, biz, item, options={}) {
   const load=async(more=false,automatic=false)=>{
     const request=++generation;
     try{
-      const data=await storyCall(biz,'context_reviews_list',{item,include_reviewed:reviewed.checked,limit:50,...(more&&cursor?{cursor}:{})});
+      const data=await workCall(biz,'context_reviews_list',{item,include_reviewed:reviewed.checked,limit:50,...(more&&cursor?{cursor}:{})});
       if(!host.isConnected || request!==generation || (automatic&&interacting()))return;
       cursor=data.next_cursor;error.hidden=true;
       if(!more)list.replaceChildren();
@@ -78,7 +75,7 @@ async function contextReviewPanel(host, biz, item, options={}) {
       <div class="context-relation-role">${esc(row.direction==='incoming'?'Incoming':'Outgoing')} · ${esc(contextRoleLabel(row.role))}${source?' · '+esc(contextItemType(source)):''}</div>
       ${source?.material_type?`<div class="context-relation-role context-material-label">${esc(contextMaterialLabel(source))}</div>`:''}
       ${row.context?`<p>${esc(row.context)}</p>`:''}${source?.summary?`<p>${esc(source.summary)}</p>`:''}
-      ${latest?`<div class="context-last-review"><strong>${esc(latest.result==='pending'?'Reopened':latest.result==='incorporated'?'Incorporated':'No change needed')}</strong> · ${esc(latest.actor?.name || '')} · ${esc(storyDate(latest.created_at))}<p>${esc(latest.explanation)}</p></div>`:''}
+      ${latest?`<div class="context-last-review"><strong>${esc(latest.result==='pending'?'Reopened':latest.result==='incorporated'?'Incorporated':'No change needed')}</strong> · ${esc(latest.actor?.name || '')} · ${esc(workDate(latest.created_at))}<p>${esc(latest.explanation)}</p></div>`:''}
       <label class="context-review-explanation">Explanation<textarea class="inp" rows="2" maxlength="4000" ${row.available?'':'disabled'}></textarea></label>
       <div class="context-review-actions">${row.pending?'<button class="btn" data-result="incorporated">Incorporated</button><button class="quiet" data-result="no_change">No change needed</button>':'<button class="quiet" data-result="pending">Reopen</button>'}<button class="quiet context-history">Review history</button></div><div class="context-review-history" hidden></div>`;
     article.querySelector('.context-source').onclick=()=>contextOpenItem(biz,source,options.beforeOpen).catch(fail);
@@ -95,7 +92,7 @@ async function contextReviewPanel(host, biz, item, options={}) {
         const args=button.dataset.result==='pending'?{item,...observed,explanation}:{item,items:[{...observed,result:button.dataset.result,explanation}]};
         const signature=JSON.stringify({operation,args,itemRevision});
         if(pendingRequest?.signature!==signature)pendingRequest={signature,key:newRequestId()};
-        await storyCall(biz,operation,args,{expected_revision:itemRevision,idempotency_key:pendingRequest.key});
+        await workCall(biz,operation,args,{expected_revision:itemRevision,idempotency_key:pendingRequest.key});
         await load();await options.onChange?.();
       }catch(e){fail(e);text.disabled=false;enable();}
     });
@@ -105,9 +102,9 @@ async function contextReviewPanel(host, biz, item, options={}) {
       try{
         history.replaceChildren();
         const loadHistory=async(cursor)=>{
-          const data=await storyCall(biz,'context_reviews_history',{item,relationship_id:row.relationship_id,limit:50,...(cursor?{cursor}:{})});
+          const data=await workCall(biz,'context_reviews_history',{item,relationship_id:row.relationship_id,limit:50,...(cursor?{cursor}:{})});
           if(!article.isConnected)return;
-          history.insertAdjacentHTML('beforeend',data.reviews.map(review=>`<div><strong>${esc(review.result==='pending'?'Reopened':review.result==='incorporated'?'Incorporated':'No change needed')}</strong> · ${esc(review.actor?.name || '')} · ${esc(storyDate(review.created_at))}<p>${esc(review.explanation)}</p></div>`).join('')||'<p class="muted">No previous reviews.</p>');
+          history.insertAdjacentHTML('beforeend',data.reviews.map(review=>`<div><strong>${esc(review.result==='pending'?'Reopened':review.result==='incorporated'?'Incorporated':'No change needed')}</strong> · ${esc(review.actor?.name || '')} · ${esc(workDate(review.created_at))}<p>${esc(review.explanation)}</p></div>`).join('')||'<p class="muted">No previous reviews.</p>');
           if(data.next_cursor){
             const more=document.createElement('button');more.className='quiet';more.textContent='Older reviews';
             more.onclick=async()=>{more.disabled=true;try{await loadHistory(data.next_cursor);more.remove();}catch(e){more.disabled=false;fail(e);}};

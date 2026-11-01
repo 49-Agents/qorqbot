@@ -40,11 +40,6 @@ function logTaskId(entry) {
   return typeof ref === "string" ? ref.trim() : "";
 }
 
-const logGraphs=new Map();
-function logGraph(biz){
-  const cached=logGraphs.get(biz);if(cached && Date.now()-cached.at<20000)return cached.promise;
-  const promise=Promise.resolve().then(()=>storyCall(biz,'context_graph_get'));logGraphs.set(biz,{at:Date.now(),promise});return promise;
-}
 function logHeadline(entry){
   let text=String(entry.summary || '').replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,'').replace(/\b[0-9A-HJKMNP-TV-Z]{26}\b/g,'');
   for(const id of [entry.id,...Object.values(entry.refs || {})])if(typeof id==='string' && id.length>8)text=text.split(id).join('');
@@ -81,14 +76,6 @@ function logTips(el, rows) {
   const biz = state.biz;
   el.querySelectorAll(".le").forEach((row, i) => {
     const e = rows[i], ids = [e.id, e.action_id].filter(Boolean);
-    logGraph(biz).then(graph=>{
-      if(!row.isConnected || state.biz!==biz)return;
-      const stories=graph.nodes.filter(n=>n.type==='story' && graph.edges.some(edge=>
-        (edge.source.type==='action' && ids.includes(edge.source.id) && edge.target.type==='story' && edge.target.id===n.id) ||
-        (edge.target.type==='action' && ids.includes(edge.target.id) && edge.source.type==='story' && edge.source.id===n.id)));
-      const tags=row.querySelector('.log-tags');
-      for(const story of stories){const button=document.createElement('button');button.className='log-tag';button.textContent=tChipLabel(story.label);button.title=story.label;button.onclick=()=>contextOpenItem(biz,story);tags.prepend(button);}
-    }).catch(()=>{});
     const button = row.querySelector(".ltask"), task = logTaskId(e);
     if (button && task) button.onclick = async () => {
       if (state.biz !== biz || !button.isConnected || button.disabled) return;

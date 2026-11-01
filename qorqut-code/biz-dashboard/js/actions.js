@@ -1,6 +1,8 @@
 // Completed actions: the owner's capture popover (floating bottom-right button) and the
 // Actions list inside the Activity view. Both use the shared core's native actions_* operations through
-// the owner's root route. Nothing here infers a category from the page that is open: the owner chooses.
+// the owner's root route. Every save after the first is a correction (a new immutable revision, checked
+// against the revision the owner last saw) and removal is a withdrawal; neither rewrites history.
+// Nothing here infers a category from the page that is open: the owner chooses.
 // Times are San Juan time (js/san-juan-time.js); the server owns the recording instant.
 const AC_CATEGORIES = [
   ["global-systems", AICONS.code],
@@ -22,7 +24,7 @@ const acOwner = () => state.session?.principal_kind === "human" && state.session
 const acOp = (name, body) => post(`/root/operations/${name}`, body).then(coreData);
 
 function acNewDraft() {
-  return { text: "", category: null, businesses: [], date: "", hour: "" };
+  return { text: "", category: null, businesses: [], date: "", hour: "", tags: [] };
 }
 function acDraft() { return ac.draft || (ac.draft = acNewDraft()); }
 
@@ -59,9 +61,9 @@ function acEffective(draft = acDraft(), record = ac.record) {
   const pending = category === "business-operational" && !business_ids.length;
   if (pending) ({ category, business_ids } = record ? record.saved : { category: null, business_ids: [] });
   if (category !== "business-operational") business_ids = [];
-  return { text: draft.text.trim(), category, business_ids, real_time: acRealTime(draft), pending };
+  return { text: draft.text.trim(), category, business_ids, real_time: acRealTime(draft), tags: tagNormalize(draft.tags).sort(), pending };
 }
-const acSame = (a, b) => a.text === b.text && a.category === b.category && a.real_time === b.real_time && a.business_ids.join() === b.business_ids.join();
+const acSame = (a, b) => a.text === b.text && a.category === b.category && a.real_time === b.real_time && a.business_ids.join() === b.business_ids.join() && (a.tags || []).join("\n") === (b.tags || []).join("\n");
 function acDirty() {
   const effective = acEffective(), draft = acDraft();
   if (!ac.record) return Boolean(draft.text.trim()) || Boolean(draft.category || draft.date);
@@ -74,8 +76,9 @@ function acSavable() {
 function acAdopt(action) {
   const occurred = action.occurred || {};
   const real_time = occurred.precision === "day" ? occurred.date : occurred.precision === "hour" ? `${occurred.date}T${String(occurred.hour).padStart(2, "0")}` : null;
-  ac.record = { id: action.action_id, revision: action.revision, saved: { text: action.text, category: action.category || null,
-    business_ids: (action.businesses || []).map(b => b.id).sort(), real_time } };
+  ac.record = { id: action.action_id, revision: action.revision, canChange: action.can_change !== false && !action.withdrawn, withdrawn: Boolean(action.withdrawn),
+    saved: { text: action.text, category: action.category || null, business_ids: (action.businesses || []).map(b => b.id).sort(), real_time,
+      tags: tagNormalize(action.tags).sort() } };
 }
 
 // ---------------------------------------------------------------- save state machine
@@ -89,7 +92,7 @@ function acRequest() {
   if (!ac.record) {
     const args = { text: effective.text, ...(effective.category ? { category: effective.category } : {}),
       ...(effective.business_ids.length ? { business_ids: effective.business_ids } : {}),
-      ...(effective.real_time ? { real_time: effective.real_time } : {}) };
+      ...(effective.real_time ? { real_time: effective.real_time } : {}), ...(effective.tags.length ? { tags: effective.tags } : {}) };
     return { name: "actions_record", body: { ...args, idempotency_key: key } };
   }
   const saved = ac.record.saved, args = { action_id: ac.record.id };
@@ -98,7 +101,8 @@ function acRequest() {
     args.category = effective.category; args.business_ids = effective.business_ids;
   }
   if (effective.real_time !== saved.real_time) args.real_time = effective.real_time;
-  return { name: "actions_update", body: { ...args, idempotency_key: key, expected_revision: ac.record.revision } };
+  if (effective.tags.join("\n") !== saved.tags.join("\n")) args.tags = effective.tags;
+  return { name: "actions_correct", body: { ...args, idempotency_key: key, expected_revision: ac.record.revision } };
 }
 const acUncertainError = error => !error.httpStatus || error.httpStatus >= 500 || ["invalid_response", "unavailable", "internal_error"].includes(error.code);
 
@@ -157,7 +161,7 @@ function acOpen(opener, action = null) {
     if (ac.inflight || ac.uncertain || ac.conflict || (ac.draft && acDirty())) { toast("Finish saving the current action first."); return; }
     const occurred = action.occurred || {};
     ac.draft = { text: action.text, category: action.category || null, businesses: (action.businesses || []).map(b => b.id),
-      date: occurred.precision === "instant" ? "" : occurred.date || "", hour: occurred.precision === "hour" ? String(occurred.hour) : "" };
+      date: occurred.precision === "instant" ? "" : occurred.date || "", hour: occurred.precision === "hour" ? String(occurred.hour) : "", tags: tagNormalize(action.tags) };
     acAdopt(action); ac.status = "idle"; ac.message = ""; ac.conflict = false;
   }
   acClose({ save: false, restore: false });
@@ -195,6 +199,20 @@ function acClose({ save = true, restore = true } = {}) {
   if (save && acSavable() && !ac.conflict) acSave();
   if (restore) (opener?.isConnected ? opener : document.querySelector("[data-ac-capture]:not([hidden])"))?.focus();
 }
+// Withdrawal keeps the action and every revision readable, marked withdrawn; it checks the exact revision seen.
+function acWithdraw() {
+  const record = ac.record; if (!record?.canChange || ac.inflight) return;
+  modal({ stack: true, title: "Withdraw action", body: `<p>The action stays readable as withdrawn and accepts no later change.</p><label class="work-field">Reason (optional)<textarea class="inp" name="rationale" rows="2" maxlength="2000"></textarea></label><div class="ferr" role="alert" hidden></div>`,
+    actions: [{ label: "Withdraw", primary: true, onClick: async (close, el) => {
+      const box = el.querySelector(".ferr"), rationale = el.querySelector("[name=rationale]").value.trim();
+      try {
+        await acOp("actions_withdraw", { action_id: record.id, ...(rationale ? { rationale } : {}), expected_revision: record.revision, idempotency_key: newRequestId() });
+        close();
+        if (ac.record === record) { ac.draft = acNewDraft(); ac.record = null; ac.status = "idle"; ac.message = ""; ac.conflict = false; ac.uncertain = null; }
+        acPaint(); acListChanged(); toast("Action withdrawn.");
+      } catch (error) { box.textContent = error.code === "revision_conflict" ? "This action changed elsewhere. Reopen it to see the current revision." : error.message; box.hidden = false; }
+    } }] });
+}
 function acNewAction() {
   if (ac.inflight || acDirty() || ac.uncertain) return;
   ac.draft = acNewDraft(); ac.record = null; ac.status = "idle"; ac.message = ""; ac.conflict = false;
@@ -213,7 +231,7 @@ function acStatusText() {
   if (ac.status === "blank") return "Type what was completed; blank text is not saved.";
   if (ac.inflight) return "Saving…";
   if (acDirty()) return effective.text ? "Unsaved changes" : "";
-  return ac.record ? "Saved" : "";
+  return ac.record ? `Saved · revision ${ac.record.revision}` : "";
 }
 function acPaintStatus() {
   const pop = $("#ac-pop"); if (!pop) return;
@@ -223,6 +241,7 @@ function acPaintStatus() {
   pop.querySelector("#ac-save").hidden = !(dirty || ac.conflict || ac.uncertain);
   pop.querySelector("#ac-save").disabled = Boolean(ac.inflight);
   pop.querySelector("#ac-new").hidden = !ac.record || dirty || Boolean(ac.inflight) || Boolean(ac.uncertain);
+  pop.querySelector("#ac-withdraw").hidden = !ac.record || !ac.record.canChange || Boolean(ac.inflight);
   acPlace();
 }
 function acPaint() {
@@ -243,11 +262,13 @@ function acPaint() {
     <fieldset class="ac-businesses" ${draft.category === "business-operational" ? "" : "hidden"}><legend>Businesses</legend>
       ${businesses.length ? businesses.map(b => `<button type="button" class="ac-chip ac-biz" data-ac-business="${esc(b.id)}" aria-pressed="${draft.businesses.includes(b.id)}">${esc(b.name || b.slug || b.id)}</button>`).join("") : '<p class="muted">No businesses available.</p>'}
     </fieldset>
+    <div class="ac-tags" id="ac-tags"></div>
     <div class="ac-time"><input type="date" id="ac-date" class="inp" aria-label="Action date" max="${today}" value="${esc(draft.date)}">
       <label>Hour<select id="ac-hour" class="inp" ${draft.date ? "" : "disabled"}><option value="">Any</option>${hours.map(h => `<option value="${h}" ${String(draft.hour) === String(h) ? "selected" : ""}>${String(h).padStart(2, "0")}:00</option>`).join("")}</select></label>
       ${draft.date ? '<button type="button" class="ghost" id="ac-now">Now</button>' : ""}</div>
     <div class="ac-foot"><span class="ac-status" role="status" aria-live="polite"></span>
-      <button type="button" class="btn" id="ac-new" hidden>New action</button><button type="button" class="btn primary" id="ac-save" hidden>Save</button></div>`;
+      <button type="button" class="btn" id="ac-withdraw" hidden>Withdraw</button><button type="button" class="btn" id="ac-new" hidden>New action</button><button type="button" class="btn primary" id="ac-save" hidden>Save</button></div>`;
+  tagPickerMount(pop.querySelector("#ac-tags"), { biz: null, labels: draft.tags, label: "Tags", onChange: labels => { acDraft().tags = labels; acEdited(); } });
   const text = pop.querySelector("#ac-text");
   text.oninput = () => { acDraft().text = text.value; acEdited(); };
   text.onblur = () => { if (acSavable() && !ac.conflict) acSave(); };
@@ -270,6 +291,7 @@ function acPaint() {
   pop.querySelector("#ac-now")?.addEventListener("click", () => { const d = acDraft(); d.date = ""; d.hour = ""; acEdited(); acPaint(); pop.querySelector("#ac-date").focus(); });
   pop.querySelector("#ac-save").onclick = () => acSave({ explicit: true });
   pop.querySelector("#ac-new").onclick = acNewAction;
+  pop.querySelector("#ac-withdraw").onclick = acWithdraw;
   pop.onkeydown = event => {
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); acClose(); }
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); acSave({ explicit: true }); }
@@ -281,13 +303,14 @@ function acPaint() {
 window.addEventListener("resize", () => { if (ac.open) acPlace(); });
 
 // ---------------------------------------------------------------- Actions list (Activity view)
-const acList = { rows: [], cursor: null, filter: "all", business: "", loading: false, error: "", key: "", seq: 0 };
+const acList = { rows: [], cursor: null, filter: "all", business: "", withdrawn: false, loading: false, error: "", key: "", seq: 0 };
 function acListChanged() { if (typeof tView !== "undefined" && tView === "activity" && acOwner()) acListRefresh(); }
 function acListArgs() {
   const args = { limit: 50 };
   if (state.scope !== "global") { const b = tBiz(); if (b.id) args.business = b.id; }
   else if (acList.business) args.business = acList.business;
   if (acList.filter !== "all") args.categories = [acList.filter];
+  if (acList.withdrawn) args.include_withdrawn = true;
   return args;
 }
 async function acListRefresh({ more = false } = {}) {
@@ -321,14 +344,67 @@ function acRowHtml(action, i) {
   const refs = Object.entries(action.refs || {}).filter(([key]) => key !== "task");
   const task = typeof action.refs?.task === "string" && action.legacy ? action.refs.task : "";
   const businesses = action.businesses || [];
-  return `<article class="ac-row" data-ac-row="${i}">
+  return `<article class="ac-row${action.withdrawn ? " withdrawn" : ""}" data-ac-row="${i}">
     <div class="ac-row-main"><span class="ac-row-cat" title="${esc(action.category || "Unclassified")}">${acCategoryIcon(action.category)}</span>
       <p class="ac-row-text">${esc(action.text)}</p>
       ${task ? `<button class="ltask" type="button" data-ac-task title="Open related task" aria-label="Open related task">${T_VIEW_ICON.tasks}</button>` : ""}
-      ${action.editable ? `<button type="button" class="ghost ac-edit" data-ac-edit aria-label="Edit action">Edit</button>` : ""}</div>
-    <div class="ac-row-meta"><time>${esc(acOccurred(action))}</time><span>${esc(acPerson(action))}</span><span>${esc(action.category || "Unclassified")}</span>${businesses.length ? `<span>${businesses.map(b => esc(b.name || b.slug || b.id)).join(", ")}</span>` : ""}${action.origin && action.origin !== "manual" ? `<span>${esc(action.origin)}</span>` : ""}</div>
+      ${action.withdrawn ? '<span class="ac-withdrawn">Withdrawn</span>' : ""}
+      ${action.can_change ? `<button type="button" class="ghost ac-edit" data-ac-edit aria-label="Correct action">Correct</button>` : ""}</div>
+    <div class="ac-row-meta"><time>${esc(acOccurred(action))}</time><span>${esc(acPerson(action))}</span><span>${esc(action.category || "Unclassified")}</span>${businesses.length ? `<span>${businesses.map(b => esc(b.name || b.slug || b.id)).join(", ")}</span>` : ""}${action.origin && action.origin !== "manual" ? `<span>${esc(action.origin)}</span>` : ""}${(action.tags || []).map(tag => `<span class="ac-tag">${esc(tag)}</span>`).join("")}<span>Revision ${esc(String(action.revision))}</span></div>
     ${refs.length || action.detail ? `<details class="ac-row-details"><summary>Details</summary>${action.detail ? `<p>${esc(action.detail)}</p>` : ""}${refs.map(([key, value]) => `<div><span class="muted">${esc(key)}</span> ${/^https?:\/\//.test(value) ? `<a href="${esc(value)}" target="_blank" rel="noopener">${esc(value)}</a>` : esc(value)}</div>`).join("")}</details>` : ""}
+    <details class="ac-row-discussion" data-ac-discussion><summary>Discussion and revisions</summary><div class="ac-discussion-body"></div></details>
   </article>`;
+}
+
+// The shared discussion of one action plus its immutable revisions. A comment belongs to the discussion only: it
+// never creates an action or approves anything, and the installation owner's side conversation stays in the
+// private channel, so no shared comment box is offered here (the backend refuses it with channel_required).
+function acDiscussionMount(host, action) {
+  if (host.dataset.mounted) return;
+  host.dataset.mounted = "true";
+  const view = { messages: [], participants: [], cursor: null, loading: false };
+  host.innerHTML = `<div class="ac-revisions"><label>Revision<select aria-label="Action revision">${Array.from({ length: action.revision }, (_, i) => action.revision - i).map(n => `<option value="${n}">${n}${n === action.revision ? " (current)" : ""}</option>`).join("")}</select></label><div class="ac-revision-text" role="status"></div></div>
+    <div class="ac-follow"><button type="button" class="quiet" data-follow="true">Follow</button><button type="button" class="quiet" data-follow="false">Unfollow</button></div>
+    <div class="ac-thread" aria-label="Action discussion"></div><button type="button" class="quiet ac-older" hidden>Older messages</button><p class="muted ac-private-note">Comments from the owner go through the private conversation with Ordubashy.</p><p class="ferr" role="alert" hidden></p>`;
+  const error = host.querySelector(".ferr"), thread = host.querySelector(".ac-thread"), older = host.querySelector(".ac-older");
+  const fail = e => { error.textContent = e.message || String(e); error.hidden = false; };
+  const person = id => view.participants.find(p => p.id === id);
+  const name = id => { const p = person(id); return p ? (p.display_name || p.name || "Unknown") : "Unknown"; };
+  const paint = () => {
+    thread.replaceChildren();
+    if (!view.messages.length) { const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "No discussion yet."; thread.append(empty); }
+    for (const message of view.messages) {
+      const item = document.createElement("div"); item.className = "ac-message" + (message.kind === "system" ? " system" : "");
+      const who = document.createElement("strong"), when = document.createElement("time"), body = document.createElement("p");
+      const speaker = message.author_id ? name(message.author_id) : "System";
+      const recorded = message.author_id && message.recorder_id && message.author_id !== message.recorder_id ? ` · recorded by ${name(message.recorder_id)}` : "";
+      who.textContent = speaker + recorded; when.textContent = ` ${sjDateTime(message.created_at)}`; when.setAttribute("datetime", message.created_at);
+      body.textContent = message.body || "";
+      item.append(who, when, body); thread.append(item);
+    }
+    older.hidden = !view.cursor;
+  };
+  const load = async (more = false) => {
+    if (view.loading) return; view.loading = true;
+    try {
+      const data = await acOp("actions_thread_get", { action_id: action.action_id, limit: 20, ...(more && view.cursor ? { cursor: view.cursor } : {}) });
+      const merged = new Map((more ? [...data.messages, ...view.messages] : data.messages).map(m => [m.id, m]));
+      view.messages = [...merged.values()]; view.participants = data.participants || view.participants; view.cursor = data.next_cursor; error.hidden = true; paint();
+    } catch (e) { fail(e); } finally { view.loading = false; }
+  };
+  older.onclick = () => load(true);
+  host.querySelector("select").onchange = async event => {
+    const out = host.querySelector(".ac-revision-text"), revision = Number(event.target.value);
+    try {
+      const data = await acOp("actions_get", { action_id: action.action_id, revision });
+      out.textContent = `${data.action.operation ? data.action.operation + " · " : ""}${data.action.text}`;
+    } catch (e) { out.textContent = ""; fail(e); }
+  };
+  host.querySelectorAll("[data-follow]").forEach(button => button.onclick = async () => {
+    try { await acOp("actions_follow", { action_id: action.action_id, following: button.dataset.follow === "true", idempotency_key: newRequestId() }); toast(button.dataset.follow === "true" ? "Following this action." : "Unfollowed this action."); error.hidden = true; }
+    catch (e) { fail(e); }
+  });
+  load();
 }
 function acListPaint() {
   if (typeof tView === "undefined" || tView !== "activity") return;
@@ -339,6 +415,7 @@ function acListPaint() {
   const filters = `<div class="ac-filters"><div class="ttabs ac-filter" role="group" aria-label="Category filter">${[["all", "All"], ...AC_CATEGORIES.map(([id]) => [id, id]), ["unclassified", "Unclassified"]].map(([id, label]) =>
       `<button type="button" class="ttab ac-filter-btn${acList.filter === id ? " on" : ""}" data-ac-filter="${id}" aria-pressed="${acList.filter === id}">${esc(label)}</button>`).join("")}</div>
     ${global ? `<select class="inp" id="ac-filter-business" aria-label="Business filter"><option value="">All businesses</option>${acBusinesses().map(b => `<option value="${esc(b.id)}" ${acList.business === b.id ? "selected" : ""}>${esc(b.name || b.slug || b.id)}</option>`).join("")}</select>` : ""}
+    <label class="ac-withdrawn-toggle"><input type="checkbox" id="ac-show-withdrawn" ${acList.withdrawn ? "checked" : ""}> Show withdrawn</label>
     <span class="muted ac-zone">${esc(SJ_LABEL)}</span></div>`;
   let list;
   if (acList.error && !acList.rows.length) list = tEmptyHtml(acList.error);
@@ -346,11 +423,14 @@ function acListPaint() {
   else list = `<div class="ac-list">${acList.rows.map(acRowHtml).join("")}</div>${acList.cursor ? '<button class="btn" id="ac-more" type="button">Load more</button>' : ""}`;
   body.innerHTML = filters + (acList.error && acList.rows.length ? `<p class="muted" role="alert">${esc(acList.error)}</p>` : "") + list;
   body.querySelectorAll("[data-ac-filter]").forEach(button => button.onclick = () => { acList.filter = button.dataset.acFilter; acList.rows = []; acList.cursor = null; acListPaint(); acListRefresh(); });
+  body.querySelector("#ac-show-withdrawn").onchange = event => { acList.withdrawn = event.target.checked; acList.rows = []; acList.cursor = null; acListPaint(); acListRefresh(); };
   const business = body.querySelector("#ac-filter-business");
   if (business) business.onchange = () => { acList.business = business.value; acList.rows = []; acList.cursor = null; acListRefresh(); };
   body.querySelector("#ac-more")?.addEventListener("click", () => acListRefresh({ more: true }));
   body.querySelectorAll("[data-ac-row]").forEach(row => {
     const action = acList.rows[Number(row.dataset.acRow)];
+    const discussion = row.querySelector("[data-ac-discussion]");
+    discussion.addEventListener("toggle", () => { if (discussion.open) acDiscussionMount(discussion.querySelector(".ac-discussion-body"), action); });
     row.querySelector("[data-ac-edit]")?.addEventListener("click", event => acOpen(document.querySelector("[data-ac-capture]:not([hidden])") || event.currentTarget, action));
     row.querySelector("[data-ac-task]")?.addEventListener("click", () => acOpenTask(action));
   });

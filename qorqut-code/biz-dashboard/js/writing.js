@@ -138,7 +138,7 @@ function writingHeatmapHtml(entries) {
   </div>`;
 }
 
-// One compact card layout for Notes, Stories and People.
+// One compact card layout for Notes and People.
 function writingCard({id, title, updated, detail = '', icon = '', role, org, summary}) {
   return `<button class="jrcard${role !== undefined || org !== undefined ? ' person-card' : ''}" type="button" data-id="${esc(id)}"><div class="jrcrow1"><span class="jrctitle">${esc(title || 'Untitled')}</span>${icon}</div>${summary ? `<p class="jrcsummary">${esc(summary)}</p>` : ''}${role !== undefined || org !== undefined ? `<div class="person-role" title="${esc(role || '')}">${esc(role || '')}</div><div class="person-org" title="${esc(org || '')}">${esc(org || '')}</div>` : ''}<div class="jrcfoot"><span>${updated ? esc(relativeTime(updated)) : ''}</span><span>${esc(detail)}</span></div></button>`;
 }

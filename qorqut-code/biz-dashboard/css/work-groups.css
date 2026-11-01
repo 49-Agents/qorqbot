@@ -1,0 +1,25 @@
+/* Work-group (parent Task) associations, campaign badges and related-context review. */
+.work-back{display:flex;gap:6px;align-items:center;margin-bottom:24px}
+.campaign-badge{display:inline-block;width:fit-content;max-width:100%;height:auto;min-height:24px;padding:3px 9px;border:1px solid var(--line);border-radius:14px;font-size:11px;font-weight:400;color:var(--fg-2);background:transparent;white-space:normal;overflow-wrap:anywhere;text-align:left}
+.sg-row>.campaign-badge{margin-top:9px}
+.work-source{white-space:pre-wrap;overflow-wrap:anywhere;max-height:65vh;overflow:auto}
+.work-asset-preview{display:block;max-width:100%;max-height:55vh;object-fit:contain;margin:0 auto}
+.work-associations{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0;font-size:12px}.work-association-list{max-height:55vh;overflow:auto;margin-top:12px}.work-association-choice{display:flex;align-items:center;gap:10px;padding:12px 3px;border-bottom:1px solid var(--line,#333);cursor:pointer}.work-association-choice input{width:16px;height:16px;accent-color:#fff}.work-association-choice span:last-child{min-width:0;overflow-wrap:anywhere}.work-association-choice small{display:block;color:var(--muted,#999);margin-top:4px}.up-work{margin:0 0 16px}.work-association-error{margin-top:12px}
+.context-review-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; font-size:12px; }
+.context-review-toolbar label { display:flex; align-items:center; gap:6px; }
+.context-relation { padding:14px 0; border-bottom:1px solid var(--line); min-width:0; overflow-wrap:anywhere; }
+.context-relation-heading { display:flex; align-items:baseline; gap:12px; justify-content:space-between; }
+.context-relation-heading .context-source { text-align:left; font-size:14px; font-weight:500; overflow-wrap:anywhere; min-width:0; padding:0; }
+.context-review-state { color:var(--fg-2); flex:none; font-size:11px; }
+.context-relation-role { color:var(--fg-2); font-size:11px; margin-top:5px; }
+.context-relation p { font-size:12px; line-height:1.6; margin:8px 0; white-space:pre-wrap; }
+.context-last-review { font-size:11px; color:var(--fg-2); margin-top:12px; }
+.context-review-explanation { display:block; font-size:11px; color:var(--fg-2); margin:12px 0 8px; }
+.context-review-explanation textarea { display:block; box-sizing:border-box; width:100%; resize:vertical; min-height:64px; margin-top:5px; }
+.context-review-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.context-review-history { margin-top:14px; font-size:11px; }
+.context-review-history > div { border-top:1px solid var(--line); padding:10px 0; }
+.task-assignee-choices { display:grid; gap:10px; padding:8px 0; }
+.task-assignee-choices label { display:flex; align-items:center; gap:8px; overflow-wrap:anywhere; }
+.task-assignee-count { font-size:10px; font-weight:600; }
+.work-field{display:block;font-size:12px;margin-bottom:14px}.work-field .inp{display:block;margin-top:6px;width:100%;box-sizing:border-box}

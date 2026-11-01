@@ -1,5 +1,5 @@
 // One source-owned group discussion and isolated owner–agent private channels.
-// Business task/Story peers are discovered by exact identity. Local drafts only, and
+// Business task peers are discovered by exact identity. Local drafts only, and
 // no viewing telemetry beyond the explicit private read acknowledgment.
 const conversationStates = new Map();
 let conversationMountId = 0;
@@ -137,7 +137,7 @@ function conversationMount(host,source,adapter={}) {
   let channel=adapter.channel || (viewerIsOwner()?'private':'team');
   const st=()=>channels[channel];
   const businessSource=()=>!!(source.biz || source.business_id || adapter.privateSource?.business_id);
-  const readOnly=()=>channel==='team' && viewerIsOwner() && !(businessSource() && ['task','story'].includes(source.type));
+  const readOnly=()=>channel==='team' && viewerIsOwner() && !(businessSource() && source.type==='task');
   const lost=()=>channel!=='team' && !!st().unavailable;
   const mountId=++conversationMountId;
   const panelId=`conversation-panel-${mountId}`;
@@ -219,9 +219,6 @@ function conversationMount(host,source,adapter={}) {
     }).join('');
     const messageState=expandedMessages[channel];
     feed.querySelectorAll('[data-message-id]').forEach(details=>details.addEventListener('toggle',()=>{if(!details.isConnected)return;if(details.open)messageState.add(details.dataset.messageId);else messageState.delete(details.dataset.messageId);}));
-    if(typeof StoryNotePane==='function') for(const note of s.notes) {
-      if(note.statuses_json) {const body=[...feed.querySelectorAll('[data-conversation-body]')].find(el=>el.dataset.conversationBody===note.id);if(body)new StoryNotePane(body,{body:note.body,statuses:note.statuses_json},{readonly:true});}
-    }
     feed.querySelectorAll('[data-note-ref]').forEach(button=>button.onclick=()=>{
       const [id,index]=button.dataset.noteRef.split(':');const note=s.notes.find(n=>n.id===id);
       if(note)taskProgressOpenReference(source.biz,note.refs[Number(index)]).catch(e=>showError(e));
@@ -321,10 +318,7 @@ function conversationMount(host,source,adapter={}) {
         data={notes:result.messages || [],next_before:result.next_before,participants:result.participants};
       }
       else if(adapter.read) data=await conversationRequest(adapter.read(pagination));
-      else if(source.type==='story') {
-        const result=await conversationCall(source,'stories_timeline',{story_id:source.id,notes_only:true,limit:20,...pagination});
-        data={notes:result.events.slice().reverse().map(n=>({...n,created_by:n.actor_id,created_by_name:n.actor?.name,author_kind:n.actor?.kind})),next_cursor:result.next_cursor,participants:result.participants};
-      } else data=await conversationCall(source,source.type==='email'?'email_comments_list':source.type==='task'?'tasks_thread_get':'signoffs_notes_list',{[source.type==='email'?'conversation_id':source.type+'_id']:source.id,limit:20,...pagination});
+      else data=await conversationCall(source,source.type==='email'?'email_comments_list':source.type==='task'?'tasks_thread_get':'signoffs_notes_list',{[source.type==='email'?'conversation_id':source.type+'_id']:source.id,limit:20,...pagination});
       if(!current())return;
       s.participants=data.participants || s.participants;
       const oldHeight=feed.scrollHeight;
@@ -368,8 +362,8 @@ function conversationMount(host,source,adapter={}) {
     try {
       if(!s.submission) {
         let revision=host._source.revision;
-        if(sending==='team' && (source.type==='task' || source.type==='story')) {
-          const data=await conversationCall(source,source.type==='task'?'tasks_get':'stories_get',{[source.type+'_id']:source.id});revision=data[source.type].revision;
+        if(sending==='team' && source.type==='task') {
+          const data=await conversationCall(source,'tasks_get',{task_id:source.id});revision=data.task.revision;
         }
         s.submission={text:s.text,idempotency_key:newRequestId(),peer:s.peer,...(sending==='team'?{revision}:{})};
       }
@@ -378,8 +372,8 @@ function conversationMount(host,source,adapter={}) {
       if(request.peer!==s.peer)throw Object.assign(new Error(CONVERSATION_CHANGED),{code:'revision_conflict'});
       if(sending!=='team') await conversationPrivateCall(source,adapter,'owner_conversation_send',{text:request.text,...conversationPeer(s)},{idempotency_key:request.idempotency_key});
       else if(adapter.send) await conversationRequest(adapter.send(request));
-      else await conversationCall(source,{task:'tasks_comment',story:'stories_note_add',signoff:'signoffs_comment',email:'email_comment'}[source.type],
-        {[source.type==='email'?'conversation_id':source.type+'_id']:source.id,...(source.type==='story'?{body:request.text}:{text:request.text})},
+      else await conversationCall(source,{task:'tasks_comment',signoff:'signoffs_comment',email:'email_comment'}[source.type],
+        {[source.type==='email'?'conversation_id':source.type+'_id']:source.id,text:request.text},
         {idempotency_key:request.idempotency_key,...(request.revision?{expected_revision:request.revision}:{})});
       s.text='';s.submission=null;saved=true;if(current() && channel===sending){input.value='';send.textContent='Send';}syncDraft(channel===sending?input:null,s);
     } catch(e){
@@ -505,7 +499,7 @@ function conversationMount(host,source,adapter={}) {
   // Collapsed by default at the component level: mounting is not itself an
   // explicit open (Focus mounts every card up front, long before any of them
   // are looked at). Consumers that only ever mount once a specific item is
-  // already the one the owner is looking at (a selected task/story/signoff,
+  // already the one the owner is looking at (a selected task/signoff,
   // an opened email thread, the Focus card the owner just clicked, the inbox
   // modal) call .expand() themselves right after mounting, once, so the chat
   // still shows by default there without baking an eager private-channel

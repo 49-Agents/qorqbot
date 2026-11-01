@@ -1,5 +1,4 @@
-// One small shared renderer for ordinary links in written prose (conversation messages and task progress notes,
-// story descriptions and timeline notes). It recognises web/viewer links, absolute businesses file references and bare http(s)
+// One small shared renderer for ordinary links in written prose (conversation messages and task progress notes). It recognises web/viewer links, absolute businesses file references and bare http(s)
 // URLs and escapes everything else, so text can never become markup. Returns an HTML string; newlines and the
 // surrounding text are untouched. Links open in a new tab and their clicks never reach a row, summary or composer.
 const SAFE_LINK_RE = /!?\[((?:\\.|[^\[\]\\\n]){1,300})\]\((<[^<>\n]{1,4096}>|[^\s()<>\\]{1,4096})\)|(https?:\/\/[^\s<>"'`\\]+)/giu;

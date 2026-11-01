@@ -4,7 +4,7 @@ const replyNotifications=(()=>{
   try{seen=new Set(JSON.parse(sessionStorage.getItem('reply-notifications:seen') || '[]'));}catch(_){}
   const key=s=>`${s?.type}:${s?.business_id || 'global'}:${s?.id}`;
   const unread=source=>loaded?items.some(item=>item.kind==='thread' && item.unread && key(item.source)===key(source)):null;
-  // Main chats and task/story DMs share the same per-agent unread marker, for every scope.
+  // Main chats and task DMs share the same per-agent unread marker, for every scope.
   const unreadReply=item=>(item.chat===true || item.kind==='thread') && item.unread;
   const unreadAgent=agentId=>loaded?items.some(item=>unreadReply(item) && item.agent_id===agentId):null;
   const unreadChat=()=>loaded?items.some(unreadReply):null;

@@ -120,9 +120,6 @@
 .agent-workspace-app .agfocus .agfocus-global-chip svg { display:none; }
 .agent-workspace-app .agfocus .agfocus-global-chip::after { content:"Global"; }
 .agent-workspace-app .agfocus .agfocus-marker { width:18px; height:26px; }
-.agent-workspace-app .agfocus .agfocus-story-toggle { width:18px; height:26px; border:0; background:none; }
-.agent-workspace-app .agfocus .agfocus-story-toggle svg { width:16px; height:16px; }
-.agent-workspace-app .agfocus .agfocus-story-child { margin-left:calc(var(--focus-depth,1) * 23px); }
 .agent-workspace-app .agfocus .agfocus-actions { opacity:0; pointer-events:none; }
 .agent-workspace-app .agfocus .agfocus-card:hover > .agfocus-row .agfocus-actions,
 .agent-workspace-app .agfocus .agfocus-card:focus-within > .agfocus-row .agfocus-actions,

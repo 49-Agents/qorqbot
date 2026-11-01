@@ -30,7 +30,7 @@
 .agfocus-reference-frame{display:block;width:100%;height:calc(100vh - 210px);min-height:350px;box-sizing:border-box;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--surface)}
 .agfocus-desktop-frame{width:100%;height:auto;min-height:0;max-width:100%;margin-inline:auto}
 .agfocus-reference-help{font-size:11px}.agfocus-reference-help a{text-decoration:underline}
-.agfocus-detail-body .story-back{display:none}
+.agfocus-detail-body .work-back{display:none}
 
 .agfocus-detail-body [data-task-back],.agfocus-detail-body .global-task-editor-heading [data-back]{display:none}
 .agfocus-detail-body .task-inline-actions{display:flex;justify-content:flex-end;margin-bottom:12px}
@@ -178,18 +178,7 @@
 .agfocus .agfocus-dock .conversation-channels button{height:36.4px;min-height:36.4px;min-width:36.4px;border-radius:18.2px}
 .agfocus .conversation-channel-icon{zoom:1.3}
 
-.agfocus-story-child{margin-left:calc(var(--focus-depth,1) * 20px)}
-.agfocus .agfocus-story-toggle{display:grid;place-items:center;width:26px;height:26px;min-height:0;padding:0;border:0;background:none;margin:0}
-.agfocus-story-toggle[aria-expanded="true"]{background:var(--hover)}
-.agfocus-story-child [data-focus-grip],.agfocus-story-child [data-focus-snooze]{display:none}
 
-.agfocus-story-references{display:flex;gap:4px;align-items:center;margin:2px 8px 5px 20px;min-width:0;overflow:hidden}
-.agfocus-story-references.expanded{flex-wrap:wrap}
-.agfocus .agfocus-reference-chip,.agfocus .agfocus-reference-more{display:inline-flex;align-items:center;gap:4px;flex:none;min-height:0;padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;margin:0}
-.agfocus .agfocus-reference-chip{max-width:160px}
-.agfocus-reference-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.agfocus-reference-chip svg{width:13px;height:13px;flex:none}
-.agfocus-story-references [hidden]{display:none!important}
 
 /* Shrink only the visible dot; preserve the full state-control hit area. */
 .agfocus .agfocus-marker .agfocus-task-state .core{transform:scale(.5);transition:transform 120ms ease}

@@ -47,7 +47,7 @@ function ctxFindGraphData(items) {
   const isRef = value => typeof value === "string" && /^<object>[^<>]+<\/object>$/.test(value);
   const isRelationship = item => item?.is_relationship === true || item?.kind === "relationship";
   const colors = Object.assign(Object.create(null), {topic:"#849a75", material:"#b3b7bd", note:"#b3b7bd", person:"#72a99f", task:"#d88a85",
-    story:"#d4b463", table:"#83b5cf", agent:"#b997c2", project:"#849a75", idea:"#d4b463", transcript:"#b3b7bd",
+    table:"#83b5cf", agent:"#b997c2", project:"#849a75", idea:"#d4b463", transcript:"#b3b7bd",
     occurrence:"#d88a85", event:"#d88a85", company:"#83b5cf", platform:"#83b5cf", other:"#aaaaaa", relationship:"#b69861"});
   const refLabel = ref => String(ref || "").replace(/^<object>|<\/object>$/g, "").replace(/[_-]+/g, " ");
   const makeNode = (item, kind, idPrefix) => {
@@ -101,7 +101,7 @@ function ctxRelationshipGraph(data, topicId) {
     const ids=new Set([rootId,...edges.flatMap(edge=>[edge.source,edge.target])]);
     items=items.filter(item=>ids.has(key(item)));
   }
-  const colors={topic:'#849a75',material:'#b3b7bd',person:'#72a99f',task:'#d88a85',story:'#d4b463',table:'#83b5cf',agent:'#b997c2',relationship:'#b69861'};
+  const colors={topic:'#849a75',material:'#b3b7bd',person:'#72a99f',task:'#d88a85',table:'#83b5cf',agent:'#b997c2',relationship:'#b69861'};
   const nodes=items.map(item=>({id:key(item),item,kind:item.type,label:item.label,tip:item.summary || '',
     path:item.path || null,color:colors[item.type] || '#aaaaaa'}));
   return {rootId,nodes,edges};
@@ -213,10 +213,10 @@ function contextGraph(el, graph, opts = {}) {
   let selected = byId.has(saved.selected) ? saved.selected : null, neighbors = new Set();
   let width = 0, height = 0, frame = 0, saveTimer = 0, destroyed = false;
   const camera = { k: 1, x: 0, y: 0 };
-  const typeNames = Object.assign(Object.create(null), {story:'Stories',task:'Tasks',person:'People',table:'Tables',agent:'Agents',topic:'Topics',material:'Materials',
+  const typeNames = Object.assign(Object.create(null), {task:'Tasks',person:'People',table:'Tables',agent:'Agents',topic:'Topics',material:'Materials',
     project:'Projects',idea:'Ideas',note:'Notes',transcript:'Transcripts',occurrence:'Occurrences',event:'Events',
     company:'Companies',platform:'Platforms',other:'Other',relationship:'Relationships'});
-  const knownLegacyTypes = ['story','task','person','table','agent','topic','material'];
+  const knownLegacyTypes = ['task','person','table','agent','topic','material'];
   const graphKinds = [...new Set(nodes.map(node=>node.kind))];
   graphKinds.forEach(kind=>{if(!Object.hasOwn(typeNames,kind))typeNames[kind]=kind.replace(/[-_]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());});
   let preference;try{preference=JSON.parse(ls('ctxgraph-types-v4') || 'null');}catch(_){}
@@ -250,7 +250,7 @@ function contextGraph(el, graph, opts = {}) {
 
       <div class="ctxgraph-zoom"><button type="button" data-action="out" aria-label="Zoom out">−</button><output aria-label="Zoom level">100%</output><button type="button" data-action="in" aria-label="Zoom in">+</button><button type="button" data-action="fit" title="Fit to view" aria-label="Fit to view">${SVG_MAPFIT}</button></div>
     </div>
-    <div class="ctxgraph-footer"><div class="ctxgraph-legend"><span><i class="ctxgraph-topic-key"></i>Topic</span><span><i class="ctxgraph-note-key"></i>Material</span><span><i class="ctxgraph-person-key"></i>Person</span><span><i class="ctxgraph-relationship-key"></i>Relationship</span><span>Task</span><span>Story</span><span>Table</span><span>Agent</span></div><span class="ctxgraph-count"></span></div>
+    <div class="ctxgraph-footer"><div class="ctxgraph-legend"><span><i class="ctxgraph-topic-key"></i>Topic</span><span><i class="ctxgraph-note-key"></i>Material</span><span><i class="ctxgraph-person-key"></i>Person</span><span><i class="ctxgraph-relationship-key"></i>Relationship</span><span>Task</span><span>Table</span><span>Agent</span></div><span class="ctxgraph-count"></span></div>
     <div class="ctxgraph-reader" hidden></div><div class="ctxgraph-sr" role="status" aria-live="polite"></div>
   </div>`;
   const root = el.querySelector(".ctxgraph"), canvas = root.querySelector(".ctxgraph-canvas"), svg = root.querySelector(".ctxgraph-network");
@@ -367,7 +367,7 @@ function contextGraph(el, graph, opts = {}) {
         const other=byId.get(edge.source===selected?edge.target:edge.source);
         const description = edge.membership ? `<div>Endpoint membership · <strong>${esc(other.label)}</strong></div>`
           : `<div>${esc(edge.source===selected?n.label:other.label)} &rarr; <strong>${esc(contextRoleLabel(edge.role || edge.kind))}</strong> &rarr; ${esc(edge.source===selected?other.label:n.label)}</div>`;
-        return `<div class="ctxgraph-relation">${description}${edge.context?`<p>${esc(edge.context)}</p>`:''}<button type="button" class="quiet" data-select="${esc(other.id)}">${esc(other.label)}</button>${edge.created_at?`<small>Created ${esc(storyDate(edge.created_at))} · Edited ${esc(storyDate(edge.updated_at))}</small>`:''}</div>`;
+        return `<div class="ctxgraph-relation">${description}${edge.context?`<p>${esc(edge.context)}</p>`:''}<button type="button" class="quiet" data-select="${esc(other.id)}">${esc(other.label)}</button>${edge.created_at?`<small>Created ${esc(workDate(edge.created_at))} · Edited ${esc(workDate(edge.updated_at))}</small>`:''}</div>`;
       }).join('')}</div><div class="ctxgraph-reviews"></div>`;
     opts.onSelect?.(n,reader.querySelector('.ctxgraph-reviews'));
     status.textContent = `${n.label}, ${neighbors.size} connections`;
