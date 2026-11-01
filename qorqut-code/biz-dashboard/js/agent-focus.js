@@ -23,8 +23,7 @@ function agfocusMoveEligible(p,node) {
 function agfocusRowPending(p,node) {
   if(!node || node._item?.unavailable)return;
   const snoozePending=!!p.focusSnoozes?.get(node.dataset.cardId)?.pending;
-  const grip=node.querySelector('[data-focus-grip]');
-  grip.disabled=!!p.focusOrderPending || !!p.focusMoveSubmission || !agfocusMoveEligible(p,node);
+  node.dataset.moveDisabled=String(!!p.focusOrderPending || !!p.focusMoveSubmission || !agfocusMoveEligible(p,node));
   const snooze=node.querySelector('[data-focus-snooze]');
   snooze.disabled=snoozePending || !!p.focusOrderPending || !!node._item.archived;
   snooze.setAttribute('aria-busy',String(snoozePending));
@@ -91,37 +90,47 @@ function agfocusOrderMount(p,board,body) {
     const current=drag;drag=null;
     if(frame!=null){cancelAnimationFrame(frame);frame=null;}
     clearMarker();current.row.classList.remove('agfocus-dragging');
-    if(current.grip.hasPointerCapture(current.pointerId))current.grip.releasePointerCapture(current.pointerId);
+    clearTimeout(current.timer);
+    if(current.row.hasPointerCapture(current.pointerId))current.row.releasePointerCapture(current.pointerId);
     if(current.active)p.focusSuppressClickUntil=Date.now()+400;
     if(!cancel && current.active && current.anchor)void agfocusMove(p,current.row.dataset.cardId,current.anchor.dataset.cardId,current.side);
   };
   const down=event=>{
-    const grip=event.target.closest('[data-focus-grip]'),row=grip?.closest('.agfocus-card');
-    if(!grip || grip.disabled || event.button!==0 || drag || !agfocusMoveEligible(p,row))return;
-    event.preventDefault();event.stopPropagation();grip.focus({preventScroll:true});
-    drag={grip,row,pointerId:event.pointerId,startY:event.clientY,x:event.clientX,y:event.clientY,active:false};
-    grip.setPointerCapture(event.pointerId);
+    const line=event.target.closest('.agfocus-row'),row=line?.closest('.agfocus-card');
+    if(!line || row.dataset.moveDisabled==='true' || event.button!==0 || drag || !agfocusMoveEligible(p,row))return;
+    p.focusSuppressClickUntil=0;
+    drag={row,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,x:event.clientX,y:event.clientY,active:false};
+    const pending=drag;
+    pending.timer=setTimeout(()=>{
+      if(drag!==pending || !row.isConnected || row.dataset.moveDisabled==='true'){stop(true);return;}
+      pending.active=true;row.classList.add('agfocus-dragging');row.setPointerCapture(event.pointerId);
+      frame=requestAnimationFrame(scroll);
+    },128);
   };
   const move=event=>{
     if(drag?.pointerId!==event.pointerId)return;
     drag.x=event.clientX;drag.y=event.clientY;
-    if(!drag.active && Math.abs(drag.y-drag.startY)>=6){drag.active=true;drag.row.classList.add('agfocus-dragging');frame=requestAnimationFrame(scroll);}
+    if(!drag.active && Math.hypot(drag.x-drag.startX,drag.y-drag.startY)>7){stop(true);return;}
     if(drag.active){event.preventDefault();target();}
   };
   const up=event=>{if(drag?.pointerId===event.pointerId)stop();};
   const cancel=event=>{if(drag?.pointerId===event.pointerId)stop(true);};
   const key=event=>{
     if(event.key==='Escape' && drag){event.preventDefault();stop(true);return;}
-    const grip=event.target.closest('[data-focus-grip]');
-    if(!grip || grip.disabled || !event.altKey || !['ArrowUp','ArrowDown'].includes(event.key))return;
+    const row=event.target.closest('.agfocus-card');
+    if(!row || !board.contains(row) || (event.target!==row && !event.target.closest('.agfocus-row')) || row.dataset.moveDisabled==='true' || !event.altKey || !['ArrowUp','ArrowDown'].includes(event.key))return;
     event.preventDefault();event.stopPropagation();
-    const row=grip.closest('.agfocus-card'),rows=[...$('.agfocus-items',board).children].filter(node=>agfocusMoveEligible(p,node));
+    const rows=[...$('.agfocus-items',board).children].filter(node=>agfocusMoveEligible(p,node));
     const anchor=rows[rows.indexOf(row)+(event.key==='ArrowUp'?-1:1)];
     if(anchor)void agfocusMove(p,row.dataset.cardId,anchor.dataset.cardId,event.key==='ArrowUp'?'before_id':'after_id');
   };
-  board.addEventListener('pointerdown',down);board.addEventListener('pointermove',move);board.addEventListener('pointerup',up);board.addEventListener('pointercancel',cancel);
+  const blur=()=>stop(true);
+  const touch=event=>{if(drag?.active)event.preventDefault();};
+  const suppress=event=>{if(event.detail && Date.now()<(p.focusSuppressClickUntil || 0)){event.preventDefault();event.stopImmediatePropagation();}};
+  board.addEventListener('touchmove',touch,{passive:false});
+  board.addEventListener('pointerdown',down);board.addEventListener('pointermove',move);window.addEventListener('pointerup',up);board.addEventListener('pointercancel',cancel);board.addEventListener('lostpointercapture',cancel);window.addEventListener('blur',blur);board.addEventListener('click',suppress,true);
   document.addEventListener('keydown',key);
-  return ()=>{stop(true);board.removeEventListener('pointerdown',down);board.removeEventListener('pointermove',move);board.removeEventListener('pointerup',up);board.removeEventListener('pointercancel',cancel);document.removeEventListener('keydown',key);};
+  return ()=>{stop(true);board.removeEventListener('touchmove',touch);board.removeEventListener('pointerdown',down);board.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);board.removeEventListener('pointercancel',cancel);board.removeEventListener('lostpointercapture',cancel);window.removeEventListener('blur',blur);board.removeEventListener('click',suppress,true);document.removeEventListener('keydown',key);};
 }
 
 const AGFOCUS_SNOOZE_OPTIONS = [
@@ -224,6 +233,9 @@ function agfocusMount(p) {
   p.focusMount = board;
   const disposeTools=agfocusWorkspaceTools(p,board);
   const disposeAttention=typeof attentionQueue!=='undefined'?attentionQueue.mount(board.querySelector('.attention-queue')):()=>{};
+  const signoffQueue=document.createElement('section');signoffQueue.className='focus-signoff-queue';signoffQueue.setAttribute('aria-label','Signoff queue');signoffQueue.hidden=true;
+  board.querySelector('.attention-queue').after(signoffQueue);
+  const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,id=>p.focus?.items.find(item=>item.source?.type==='signoff' && item.source.id===id)?.display_name):()=>{};
   const storedHeight=Number(ls(AGFOCUS_THREAD_HEIGHT_KEY));
   p.focusThreadHeight=Number.isFinite(storedHeight) && storedHeight>=AGFOCUS_THREAD_MIN_HEIGHT ? storedHeight : 320;
   const disposeResize=agfocusThreadResizeMount(p,board,body);
@@ -242,6 +254,7 @@ function agfocusMount(p) {
   p.workspaceDispose=()=>{
     disposeTools();
     disposeAttention();
+    disposeSignoffs();
     document.removeEventListener('reply-notifications-changed',repliesChanged);
     agfocusOverlayClose(p);disposeResize();disposeOrdering();p.focusSnoozePopup?.close();p.focusSnoozePopup=null;
     for(const node of p.focusCards.values()){node._conversationHost?._conversation?.dispose();node._referenceObserver?.disconnect();}
@@ -255,7 +268,7 @@ function agfocusMount(p) {
   p.focusBoardSeq ||= 0;
   p.focusPages ||= [];
   $('[data-focus-add]',p.el).onclick=()=>agfocusAdd(p);
-  $('[data-focus-refresh]',p.el).onclick=()=>{agfocusRefresh(p);if(typeof attentionQueue!=='undefined')void attentionQueue.refresh();};
+  $('[data-focus-refresh]',p.el).onclick=()=>{agfocusRefresh(p);if(typeof attentionQueue!=='undefined'){void attentionQueue.refresh();void attentionQueue.refreshSignoffs();}};
   for(const kind of ['archived','deferred']) {
     const toggle=$('[data-focus-'+kind+']',p.el);
     toggle.setAttribute('aria-pressed',String(!!p['focusInclude'+kind]));
@@ -445,7 +458,10 @@ function agfocusWorkExtras(p,node,item) {
 }
 
 function agfocusPaint(p) {
-  const data = p.focus && {...p.focus,items:agfocusVisibleItems(p,p.focus.items)};
+  // A standalone Focus renderer can still show Signoff cards without the queue module.
+  const separateSignoffs=typeof attentionQueue!=='undefined';
+  const data = p.focus && {...p.focus,items:agfocusVisibleItems(p,p.focus.items.filter(item=>!separateSignoffs || item.source?.type!=='signoff'))};
+  if(separateSignoffs)attentionQueue.paintSignoffs();
   const attention = data?.browser?.state === 'pending' || data?.items.some(item => item.needs_input);
   const tab = $('[data-v="focus"]', p.el);
   tab?.classList.toggle('agfocus-attention', !!attention);
@@ -492,7 +508,7 @@ function agfocusPaint(p) {
     if(node?.dataset.unavailable && !item.unavailable){node.remove();p.focusCards.delete(item.id);node=null;}
     if(!node) {
       node=document.createElement('article');node.className='agfocus-card';node.dataset.cardId=item.id;
-      node.innerHTML='<div class="trow agfocus-row"><span class="agfocus-marker"></span><span class="task-business-column agfocus-scope"></span><div class="task-headline"><button type="button" class="quiet agfocus-work-toggle" aria-expanded="false" aria-label="Show related work" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M6 3v12M6 9h6a4 4 0 0 1 4 4v2"/><circle cx="6" cy="18" r="2.4"/><circle cx="16" cy="18" r="2.4"/></svg></button><p class="ttl"></p><span class="agfocus-unread" aria-hidden="true" hidden></span><span class="agfocus-flag" hidden></span></div><div class="agfocus-actions"><button type="button" class="quiet agfocus-grip" data-focus-grip aria-describedby="agfocus-move-instructions"><svg viewBox="0 0 16 20" width="12" height="15" fill="currentColor" aria-hidden="true"><path d="M4 4h2v2H4zm6 0h2v2h-2zM4 9h2v2H4zm6 0h2v2h-2zM4 14h2v2H4zm6 0h2v2h-2z"/></svg></button><button type="button" class="quiet" data-manage aria-label="Open details"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></button><button type="button" class="quiet" data-focus-snooze aria-label="Snooze Focus item" aria-haspopup="dialog" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg></button></div></div><div class="agfocus-region" hidden><div class="agfocus-thread-context" aria-label="Task details and context"><p class="agfocus-source-title"></p><div class="agfocus-task-details"></div><div class="agfocus-framing"><section data-framing="requested_response"><p class="agfocus-request"></p></section></div><p class="agfocus-context muted"></p><div class="agfocus-related"></div></div><div class="agfocus-conversation"></div></div>';
+      node.innerHTML='<div class="trow agfocus-row"><span class="agfocus-notification" aria-hidden="true"><span class="agfocus-unread" hidden></span></span><span class="agfocus-marker"></span><span class="task-business-column agfocus-scope"></span><div class="task-headline"><button type="button" class="quiet agfocus-work-toggle" aria-expanded="false" aria-label="Show related work" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M6 3v12M6 9h6a4 4 0 0 1 4 4v2"/><circle cx="6" cy="18" r="2.4"/><circle cx="16" cy="18" r="2.4"/></svg></button><p class="ttl"></p><span class="agfocus-flag" hidden></span></div><div class="agfocus-actions"><button type="button" class="quiet" data-focus-snooze aria-label="Snooze Focus item" aria-haspopup="dialog" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg></button></div></div><div class="agfocus-region" hidden><div class="agfocus-thread-context" aria-label="Task details and context"><p class="agfocus-source-title"></p><button type="button" class="quiet" data-manage aria-label="Open details">Open details</button><div class="agfocus-task-details"></div><div class="agfocus-framing"><section data-framing="requested_response"><p class="agfocus-request"></p></section></div><p class="agfocus-context muted"></p><div class="agfocus-related"></div></div><div class="agfocus-conversation"></div></div>';
       node._region=node.querySelector('.agfocus-region');
       node._region.dataset.focusThreadId=item.id;
       node._conversationHost=node.querySelector('.agfocus-conversation');
@@ -564,12 +580,12 @@ function agfocusPaint(p) {
       });
       ball.onclick=event=>{event.stopPropagation();agfocusTaskState(p,item,ball);};
     }
-    actions.querySelector('[data-manage]').onclick=event=>{event.stopPropagation();if((event.ctrlKey || event.metaKey) && !item._workParent)agfocusNewTab(item);else open();};
-    const grip=actions.querySelector('[data-focus-grip]');grip.setAttribute('aria-label','Move '+name);
+    node._region.querySelector('[data-manage]').onclick=event=>{event.stopPropagation();if((event.ctrlKey || event.metaKey) && !item._workParent)agfocusNewTab(item);else open();};
+    node.setAttribute('aria-describedby','agfocus-move-instructions');
     actions.querySelector('[data-focus-snooze]').onclick=event=>{event.stopPropagation();agfocusSnoozePicker(p,node,event.currentTarget);};
     actions.querySelector('[data-focus-snooze]').setAttribute('aria-pressed',String(snoozed));
     agfocusRowPending(p,node);
-    grip.hidden=!!item._workParent;actions.querySelector('[data-focus-snooze]').hidden=!!item._workParent;
+    actions.querySelector('[data-focus-snooze]').hidden=!!item._workParent;
     const related=node._region.querySelector('.agfocus-related');related.replaceChildren();
     for(const ref of item.references||[]) {
       const button=document.createElement('button');button.className='quiet';button.textContent=ref.unavailable?'Related item unavailable':ref.label;button.disabled=!!ref.unavailable;

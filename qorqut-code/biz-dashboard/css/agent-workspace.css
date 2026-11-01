@@ -97,35 +97,38 @@
 .agent-workspace-app .agpad .agfocus { padding-top:0; padding-left:0; }
 .agent-workspace-app .agfocus > header,
 .agent-workspace-app .agfocus > .attention-queue,
-.agent-workspace-app .agfocus .agfocus-items,
 .agent-workspace-app .agfocus > .agfocus-pages { zoom:1.1; }
-.agent-workspace-app .agfocus .attention-queue { height:auto; min-height:44px; align-items:flex-start; margin:3px 0 21px; }
+.agent-workspace-app .agfocus .attention-queue { height:auto; min-height:44px; align-items:flex-start; margin:3px 0 10px; }
 .agent-workspace-app .agfocus .attention-stack { gap:8px; padding:0; }
-.agent-workspace-app .agfocus .attention-chip { flex:0 1 44px; width:44px; height:44px; min-height:44px; padding:7px 0; border:1px solid #242424; border-radius:8px; background:#131313; box-shadow:none; }
-.agent-workspace-app .agfocus .attention-chip::after { content:""; position:absolute; top:6px; right:6px; width:5px; height:5px; border-radius:50%; background:var(--fg); }
+.agent-workspace-app .agfocus .attention-chip { flex:0 1 44px; width:44px; height:44px; min-height:44px; padding:7px 0; border:0; border-radius:8px; background:#131313; box-shadow:none; }
+.agent-workspace-app .agfocus .attention-chip::after { content:""; position:absolute; top:6px; left:6px; width:5px; height:5px; border-radius:50%; background:var(--fg); }
 .agent-workspace-app .agfocus .attention-chip .identity-avatar,
 .agent-workspace-app .agfocus .attention-signoff { border:0; background:none; box-shadow:none; }
 .agent-workspace-app .agfocus .attention-chip svg { width:19px; height:19px; }
 .agent-workspace-app .agfocus .attention-empty { padding:12px 0; }
 .agent-workspace-app .agfocus .agfocus-card { border-radius:0; }
-.agent-workspace-app .agfocus .agfocus-row { grid-template-columns:18px minmax(0,1fr) auto; gap:11px; min-height:50px; padding:11px 0; border-bottom:1px solid #242424; border-radius:0; background:none; }
+.agent-workspace-app .agfocus .agfocus-row { grid-template-columns:16px 20px minmax(0,1fr) auto; gap:11px; min-height:32px; padding:2px 0; border:0; border-radius:0; background:none; }
 .agent-workspace-app .agfocus .agfocus-row:hover { background:var(--wash); }
-.agent-workspace-app .agfocus .agfocus-row > .task-headline { grid-column:2; grid-row:1; }
-.agent-workspace-app .agfocus .agfocus-row > .agfocus-actions { grid-column:3; grid-row:1; }
-.agent-workspace-app .agfocus .agfocus-row .ttl { font-size:12.6px; font-weight:400; letter-spacing:normal; line-height:1.7; padding:0; }
-.agent-workspace-app .agfocus .agfocus-row .agfocus-scope { grid-column:2; grid-row:1; justify-self:end; position:relative; z-index:1; width:auto; max-width:min(124px,65%); opacity:0; pointer-events:none; }
+.agent-workspace-app .agfocus .agfocus-row > .task-headline { grid-column:3; grid-row:1; }
+.agent-workspace-app .agfocus .agfocus-row > .agfocus-actions { grid-column:4; grid-row:1; }
+.agent-workspace-app .agfocus .agfocus-row .ttl { font-size:14.5px; font-weight:400; letter-spacing:-.005em; line-height:1.75; padding:0; text-transform:lowercase; }
+.agent-workspace-app .agfocus .agfocus-row .agfocus-scope { grid-column:3; grid-row:1; justify-self:end; position:relative; z-index:1; width:auto; max-width:min(124px,65%); opacity:0; pointer-events:none; }
 .agent-workspace-app .agfocus .agfocus-card:hover > .agfocus-row .agfocus-scope,
 .agent-workspace-app .agfocus .agfocus-card:focus-within > .agfocus-row .agfocus-scope { opacity:1; }
 .agent-workspace-app .agfocus .agfocus-row .agfocus-scope-chip { display:block; max-width:100%; min-height:0; padding:0 5px; border:0; border-radius:3px; background:#191919; font-size:11px; line-height:20px; color:#979797; }
 .agent-workspace-app .agfocus .agfocus-global-chip svg { display:none; }
 .agent-workspace-app .agfocus .agfocus-global-chip::after { content:"Global"; }
-.agent-workspace-app .agfocus .agfocus-marker { width:18px; height:26px; }
+.agent-workspace-app .agfocus .agfocus-marker { width:20px; height:26px; }
+.agent-workspace-app .agfocus .agfocus-marker .agfocus-task-state .core{transform:scale(.55)}
+.agent-workspace-app .agfocus .agfocus-marker:hover .agfocus-task-state .core,.agent-workspace-app .agfocus .agfocus-task-state:focus-visible .core{transform:scale(1.1)}
+.agent-workspace-app .agfocus .agfocus-dock{border:0}
 .agent-workspace-app .agfocus .agfocus-actions { opacity:0; pointer-events:none; }
 .agent-workspace-app .agfocus .agfocus-card:hover > .agfocus-row .agfocus-actions,
 .agent-workspace-app .agfocus .agfocus-card:focus-within > .agfocus-row .agfocus-actions,
 .agent-workspace-app .agfocus .agfocus-actions:has([aria-expanded="true"], [aria-busy="true"]) { opacity:1; pointer-events:auto; }
 .agent-workspace-app .agfocus .agfocus-row .agfocus-actions button { background:none; border:0; }
 @media (hover:none) { .agent-workspace-app .agfocus .agfocus-actions { opacity:1; pointer-events:auto; } }
+@media (pointer:coarse) { .agent-workspace-app .agfocus .agfocus-row{min-height:44px}.agent-workspace-app .agfocus .agfocus-marker,.agent-workspace-app .agfocus .agfocus-row .agfocus-task-state{height:40px}.agfocus .focus-signoff-chip{min-height:44px} }
 
 /* Agent-owned screen tabs. Padding belongs to this shell, not nested headings. */
 .agent-workspace-app .agpad .agent-workspace-body { padding:5px 0 0; overflow:hidden; display:flex; flex-direction:column; }

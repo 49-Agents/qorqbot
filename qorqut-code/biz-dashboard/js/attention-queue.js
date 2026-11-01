@@ -2,12 +2,13 @@
 const attentionQueue=(()=>{
   const visibleLimit=6;
   let items=[],loading=false,error='',timer,generation=0,saving=0,refreshAfterSave=false,writes=Promise.resolve();
-  const mounts=new Set(),lists=new Set(),acknowledged=new Set();
+  const mounts=new Set(),lists=new Set(),acknowledged=new Set(),signoffMounts=new Map();
+  let signoffs=[],signoffsLoading=false,signoffsError='',signoffTimer;
   const viewedIds=item=>item.viewed_ids?.length?item.viewed_ids:[item.id];
   const remaining=()=>items.filter(item=>!viewedIds(item).every(id=>acknowledged.has(id)));
   const destination=item=>{
-    if(item.kind==='global')return JSON.stringify(['global',item.agent_id,!!item.chat]);
-    if(item.kind==='thread' && item.source)return JSON.stringify(['thread',item.agent_id,item.source.type,item.source.business_id || item.biz || null,item.source.id]);
+    if(item.kind==='global')return JSON.stringify(['global',item.agent_id]);
+    if(item.kind==='thread' && item.source)return JSON.stringify(['thread',item.thread_id || null,item.source.type,item.source.business_id || item.biz || null,item.source.id]);
     if(item.kind==='viewbox')return JSON.stringify(['viewbox',item.agent_id,item.viewbox_item_id]);
     if(item.kind==='signoff')return JSON.stringify(['signoff',item.signoff_id]);
     return item.id;
@@ -17,8 +18,14 @@ const attentionQueue=(()=>{
     // The API orders newest first. Keep that destination's newest preview and
     // every underlying ID so dismissing its one tile clears the complete group.
     for(const item of rows){
+      if(item.kind==='signoff' || item.signoff_id || item.source?.type==='signoff')continue;
       const key=destination(item),previous=groups.get(key),ids=item.viewed_ids?.length?item.viewed_ids:[item.id];
-      if(previous)previous.viewed_ids=[...new Set([...previous.viewed_ids,...ids])];
+      if(previous){
+        previous.viewed_ids=[...new Set([...previous.viewed_ids,...ids])];
+        // Legacy delivery and native chat share the same DM. Prefer its live
+        // conversation route while retaining the newest preview and all IDs.
+        if(item.kind==='global' && item.chat)previous.chat=true;
+      }
       else groups.set(key,{...item,viewed_ids:[...ids]});
     }
     return [...groups.values()];
@@ -35,6 +42,37 @@ const attentionQueue=(()=>{
     host.innerHTML=`<div class="attention-stack">${visible.map(button).join('')}${current.length>visibleLimit?`<button type="button" class="attention-more" data-attention-more aria-label="Show all ${current.length} attention items">+${current.length-visibleLimit}</button>`:''}${!current.length?`<span class="attention-empty">${error?'Attention unavailable':loading?'Loading attention…':'Nothing new'}</span>`:''}</div>${error?'<button type="button" class="quiet attention-retry" data-attention-retry>Retry</button>':''}`;
   }
   const paintAll=()=>{mounts.forEach(paint);const current=remaining();lists.forEach(host=>{if(!host.isConnected){lists.delete(host);return;}host.innerHTML=current.length?current.map(button).join(''):'<p class="muted">Nothing new</p>';});};
+  function paintSignoffs(){
+    for(const [host,name] of signoffMounts){
+      if(!host.isConnected){signoffMounts.delete(host);continue;}
+      const markup=signoffs.map(s=>{const title=name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(s.title)}">${icon({kind:'signoff'})}<span>${esc(title)}</span></button>`;}).join('');
+      const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'');
+      if(host._signoffHTML!==html){host.innerHTML=html;host._signoffHTML=html;}
+      host.hidden=!signoffs.length&&!signoffsError;
+    }
+  }
+  async function refreshSignoffs(){
+    if(signoffsLoading || !signoffMounts.size)return;
+    signoffsLoading=true;
+    try{
+      const rows=[],seen=new Set();let cursor=null;
+      do{
+        const query=new URLSearchParams({states:'pending',limit:'50'});if(cursor)query.set('cursor',cursor);
+        const data=coreData(await api('/root/signoffs?'+query));
+        if(!Array.isArray(data.items))throw new Error('Invalid signoff list');
+        rows.push(...data.items);cursor=data.next_cursor;
+        if(cursor && seen.has(cursor))throw new Error('Repeated signoff page');
+        seen.add(cursor);
+      }while(cursor);
+      signoffs=[...new Map(rows.filter(s=>s.state==='pending').map(s=>[s.id,s])).values()];signoffsError='';
+    }catch(e){signoffsError=e.message;}
+    finally{signoffsLoading=false;paintSignoffs();clearTimeout(signoffTimer);if(signoffMounts.size)signoffTimer=setTimeout(refreshSignoffs,60000);}
+  }
+  function signoffClick(event){
+    if(event.target.closest('[data-signoffs-retry]')){void refreshSignoffs();return;}
+    const key=event.target.closest('[data-signoff-key]')?.dataset.signoffKey,s=signoffs.find(item=>item.id===key);
+    if(s)void open({kind:'signoff',signoff_id:s.id,business_id:s.review_business_id,category:s.category,globalReview:true}).catch(e=>toast(e.message));
+  }
   async function refresh(){
     if(saving){refreshAfterSave=true;return;}
     if(loading)return;
@@ -97,10 +135,10 @@ const attentionQueue=(()=>{
     modal({title:'Signoff',width:760,stack:true,body:'<div class="attention-signoff-view"></div>',onOpen:el=>{
       host=el.querySelector('.attention-signoff-view');
       view=sgCreateView({active:()=>host.isConnected,body:()=>host,workspace:()=>item.biz || 'scope:global',
-        global:!item.business_id,category:item.category,item:()=>({id:item.signoff_id,businessId:item.business_id}),
+        global:item.globalReview || !item.business_id,category:item.category,item:()=>({id:item.signoff_id,businessId:item.business_id}),
         waitingOnly:false,execution:true});
       view.paint();
-    },onClose:()=>{view?.dispose();void refresh();}});
+    },onClose:()=>{view?.dispose();void refreshSignoffs();}});
   }
   function dismiss(event){
     const target=event.target.closest('[data-attention-key]');
@@ -125,8 +163,11 @@ const attentionQueue=(()=>{
     }
   }
   document.addEventListener('reply-notifications-changed',()=>{if(mounts.size)void refresh();});
-  window.addEventListener('focus',()=>{if(mounts.size)void refresh();});
-  if(typeof onChange==='function')onChange(['signoffs'],null,()=>{if(mounts.size)void refresh();});
-  return {signoffViewed,viewboxViewed,refresh,mount(host){mounts.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);paint(host);void refresh();
+  window.addEventListener('focus',()=>{if(mounts.size)void refresh();void refreshSignoffs();});
+  if(typeof onChange==='function')onChange(['signoffs'],null,()=>{void refreshSignoffs();});
+  return {signoffViewed,viewboxViewed,refresh,refreshSignoffs,paintSignoffs,
+    mountSignoffs(host,name){signoffMounts.set(host,name);host.addEventListener('click',signoffClick);paintSignoffs();void refreshSignoffs();
+      return ()=>{signoffMounts.delete(host);host.removeEventListener('click',signoffClick);if(!signoffMounts.size)clearTimeout(signoffTimer);};},
+    mount(host){mounts.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);paint(host);void refresh();
     return ()=>{mounts.delete(host);host.removeEventListener('click',clicks);host.removeEventListener('contextmenu',dismiss);if(!mounts.size)clearTimeout(timer);};}};
 })();
