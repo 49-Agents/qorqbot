@@ -15,7 +15,8 @@
 let changeEvents = null;
 function receiveChanges(payload) {
   if (!payload || (payload.kinds || []).includes('*')) { storeInvalidateAll(); return; }
-  (payload.kinds || []).forEach(kind => storeNotify(kind, payload.business_id ?? null));
+  // `context_queue` is scope-wide: a blocked head in one business changes every business's queue-waiting status.
+  (payload.kinds || []).forEach(kind => storeNotify(kind, kind === 'context_queue' ? null : payload.business_id ?? null));
 }
 function connectEvents() {
   if (changeEvents) return changeEvents;

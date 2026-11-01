@@ -280,6 +280,8 @@ function srcMountSource(host, scope, docId, opts = {}) {
     if (note) note.textContent = 'Checking again automatically while this is in progress.';
     state.timer = setTimeout(() => { state.refreshes++; refreshStatus(); }, SRC_REFRESH_MS);
   };
+  // Queue-wide changes (including another business's blocked head) refresh status only; torn down with the mount.
+  const unsubscribe = typeof onChange === 'function' ? onChange(['context_queue', 'documents'], scope.kind === 'root' ? null : scope.id, () => { if (alive()) refreshStatus(); else unsubscribe?.(); }) : null;
   (async () => {
     await loadBody(true);
     if (!alive()) return;
@@ -287,7 +289,7 @@ function srcMountSource(host, scope, docId, opts = {}) {
     await srcPaintDiagnostics(q('diagnostics'), scope, docId, diagCtx());
     scheduleRefresh();
   })();
-  return {destroy() { if (generation === srcMountGeneration) srcMountGeneration++; clearTimeout(state.timer); }};
+  return {destroy() { if (generation === srcMountGeneration) srcMountGeneration++; clearTimeout(state.timer); unsubscribe?.(); }};
 }
 
 // ------------------------------------------------------------- source lists

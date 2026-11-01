@@ -162,7 +162,7 @@ function ctxWatch() {
     ctxQueueRefresh();
     _ctxTimer = setTimeout(tick, 60000);
   };
-  _ctxUnwatch = typeof onChange === 'function' ? onChange(['documents', 'jobs_routines'], biz, tick) : null;
+  _ctxUnwatch = typeof onChange === 'function' ? onChange(['documents', 'jobs_routines', 'context_queue'], biz, tick) : null;
   _ctxTimer = setTimeout(tick, 60000);
 }
 
