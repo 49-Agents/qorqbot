@@ -17,10 +17,10 @@ import stat
 from qorqut_operations.contracts import DomainError
 
 _ANY = object()
-# Interrupted replacements leave files named with this prefix. A recovery sweep must import this constant
-# rather than repeat the literal. (Deployed v1 used a different, product-named prefix; stale files under it
-# are an operational-data migration concern, not something this package reads.)
-TEMPORARY_PREFIX = ".qorqut-"
+# Interrupted replacements leave files named with this prefix. It is the retained deployed-v1 on-disk contract
+# (v1 recovery sweeps match it), so it stays byte-for-byte; a recovery sweep imports this constant rather than
+# repeating the literal.
+TEMPORARY_PREFIX = ".bazarlyk-"
 
 
 def _parts(path):

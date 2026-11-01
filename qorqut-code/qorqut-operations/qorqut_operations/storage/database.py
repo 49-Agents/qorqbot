@@ -22,14 +22,14 @@ import time
 import re
 import weakref
 
-from qorqut_operations import local_time
 from qorqut_operations.contracts import DomainError, utc_now
 from .assembly import Assembly
+from .inventory import CompiledTarget, IDENTITY_DDL, IDENTITY_TABLE, compile_target, describe, differences, read_objects
 from .repositories import Repository, UNSET
+from .sqlfunctions import install_sql_functions
 
 # Distinct from the deployed v1 application ID ('BZLK'): a v1 database is never accepted as a target store.
 APPLICATION_ID = 0x514F5053  # 'QOPS'
-IDENTITY_TABLE = "target_identity"
 LOGGER = logging.getLogger(__name__)
 OBSERVATION = ContextVar('storage_operation', default=('unlabelled', None, None, None))
 REQUEST_TIMING = ContextVar('request_timing', default=None)
@@ -135,6 +135,7 @@ class Database:
             raise ValueError("Busy timeout must be positive and bounded")
         self.busy_timeout = busy_timeout
         self._columns: dict[str, frozenset[str]] = {}
+        self._compiled: CompiledTarget | None = None
         self._pool: deque = deque()
         self._pool_lock = threading.Lock()
         self._closed = False
@@ -142,10 +143,7 @@ class Database:
     def _connect(self):
         connection = sqlite3.connect(self.path, timeout=self.busy_timeout, isolation_level=None, check_same_thread=False)
         connection.row_factory = sqlite3.Row
-        connection.create_function("inbox_actor", 0, lambda: None)
-        # San Juan operational day/hour of a stored UTC instant (day buckets and expression indexes).
-        connection.create_function("san_juan_date", 1, local_time.local_date, deterministic=True)
-        connection.create_function("san_juan_hour", 1, local_time.local_hour, deterministic=True)
+        install_sql_functions(connection)
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA synchronous = FULL")
         connection.execute(f"PRAGMA busy_timeout = {int(self.busy_timeout * 1000)}")
@@ -203,13 +201,22 @@ class Database:
         self._columns = {table: frozenset(row[1] for row in connection.execute(f'PRAGMA table_info("{table}")'))
                          for table in self.assembly.tables}
 
+    def compiled(self) -> CompiledTarget:
+        """The expected schema inventory, compiled in a disposable in-memory database from the composed DDL.
+
+        Only explicit initialization and validation call this; it never touches a store."""
+        if self._compiled is None:
+            self._compiled = compile_target(self.assembly)
+        return self._compiled
+
     def initialize_target(self):
         """Create a new, empty store for this composed target. Explicit, for isolated instances and tests.
 
         Refuses any existing store that already has tables: it never upgrades, converts or re-initializes one.
         The target name, version and digest are recorded so a later ``open_existing`` can prove it is looking
-        at exactly this composition."""
+        at exactly this composition, and the created schema is checked against the compiled inventory."""
         target = self.assembly.target
+        expected = self.compiled()  # an invalid composition fails before any file or directory exists
         self.path.parent.mkdir(parents=True, exist_ok=True)
         created = not self.path.exists()
         connection = self._connect()
@@ -222,8 +229,7 @@ class Database:
                 raise DomainError("storage_configuration", "SQLite WAL mode is unavailable")
             connection.execute("PRAGMA foreign_keys = OFF")
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute(f'CREATE TABLE "{IDENTITY_TABLE}" (id TEXT PRIMARY KEY CHECK (id = \'target\'), '
-                               'name TEXT NOT NULL, version INTEGER NOT NULL, digest TEXT NOT NULL, created_at TEXT NOT NULL)')
+            connection.execute(IDENTITY_DDL)
             for _owner, statements in self.assembly.schema:
                 for statement in statements:
                     connection.execute(statement)
@@ -231,10 +237,9 @@ class Database:
                                (target.name, target.version, target.digest, utc_now()))
             connection.execute(f"PRAGMA user_version = {target.version}")
             connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
-            missing = set(self.assembly.tables) - {row[0] for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'")}
-            if missing:
-                raise DomainError("invalid_database", f"Composed schema does not create: {', '.join(sorted(missing))}")
+            problems = differences(expected.objects, read_objects(connection))
+            if problems:
+                raise DomainError("invalid_database", f"Created schema differs from the composition: {describe(problems)}")
             if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
                 raise DomainError("invalid_database", "Target schema produced invalid references")
             connection.commit()
@@ -260,7 +265,11 @@ class Database:
         return self._columns[table]
 
     def _validate_target(self, connection, *, error="invalid_database"):
-        """Check the stored target identity of an open read-only connection; raises ``DomainError``."""
+        """Check an open read-only connection against this composition; raises ``DomainError``.
+
+        The stored identity must be exactly this target, and the schema catalog must hold exactly the compiled
+        inventory: the same tables, indexes and triggers, each with its owner table and stored definition. No rows
+        are read and nothing is repaired."""
         target = self.assembly.target
         if connection.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
             raise DomainError(error, "Existing database is not an Operations target store")
@@ -273,8 +282,9 @@ class Database:
         identity = connection.execute(f'SELECT name, version, digest FROM "{IDENTITY_TABLE}"').fetchall()
         if [tuple(row) for row in identity] != [(target.name, target.version, target.digest)]:
             raise DomainError(error, "Existing database target identity does not match this composition")
-        if not set(self.assembly.tables) <= tables:
-            raise DomainError(error, "Existing database is missing operational tables")
+        problems = differences(self.compiled().objects, read_objects(connection))
+        if problems:
+            raise DomainError(error, f"Existing database schema differs from the composed target: {describe(problems)}")
         for validator in self.assembly.validators:
             validator(connection)
 
@@ -287,6 +297,7 @@ class Database:
             raise DomainError("invalid_database", "Existing operational database is missing or crosses a symbolic link")
         connection = sqlite3.connect(self.path.resolve().as_uri() + "?mode=ro", uri=True)
         try:
+            install_sql_functions(connection)
             connection.execute("PRAGMA query_only = ON")
             self._validate_target(connection)
             self._remember_columns(connection)
@@ -392,6 +403,7 @@ class Database:
         path = Path(path).resolve(strict=True)
         connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
         try:
+            install_sql_functions(connection)
             try:
                 self._validate_target(connection, error="invalid_backup")
             except DomainError as exc:

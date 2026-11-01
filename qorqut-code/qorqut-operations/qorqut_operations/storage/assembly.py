@@ -11,7 +11,9 @@ run before ``COMMIT`` and roll the whole unit back when they fail. Post-commit n
 is durable and can never undo or fail it.
 
 A missing required hook is an error at ``freeze`` time, never a silent no-op: the engine cannot finish a file
-receipt or apply prepared records without the domain's history callbacks being named explicitly.
+receipt or apply prepared records without the domain's history callbacks being named explicitly, and a resource type
+whose availability bookkeeping a contribution declares required (``required_lifecycles``) must have its lifecycle
+provider. A file resource with no declared requirement has no lifecycle callbacks: that is explicit, not an omission.
 """
 
 from __future__ import annotations
@@ -30,6 +32,9 @@ from qorqut_operations.storage.specs import CORE_IMMUTABLE_FIELDS, CORE_TABLES, 
 OWNER = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
 TABLE_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 CORE_OWNER = "operations"
+# Engine-owned storage names no contribution may declare or reuse (``change_sequences`` is not a repository entry,
+# but it is part of the engine's schema and of the validated inventory).
+RESERVED_TABLES = frozenset({"change_sequences", "target_identity"})
 
 
 class AssemblyError(ValueError):
@@ -101,13 +106,17 @@ def _owner(value: Any) -> str:
 @dataclass(frozen=True)
 class StorageContribution:
     """Tables, their immutable columns and the DDL statements that create them (tables, indexes, triggers and
-    sequence seeds). ``validators`` receive a read-only connection when an existing store is opened."""
+    sequence seeds). ``validators`` receive a read-only connection when an existing store is opened.
+
+    ``required_lifecycles`` names resource types whose availability bookkeeping this contribution cannot do
+    without (v1: ``documents``); the assembly refuses to freeze unless a lifecycle provider is registered for each."""
 
     owner: str
     tables: Mapping[str, TableSpec] = field(default_factory=dict)
     immutable_fields: Mapping[str, frozenset[str]] = field(default_factory=dict)
     schema: tuple[str, ...] = ()
     validators: tuple[Callable[[Any], None], ...] = ()
+    required_lifecycles: frozenset[str] = frozenset()
 
     def __post_init__(self):
         _owner(self.owner)
@@ -115,6 +124,13 @@ class StorageContribution:
         for name, spec in tables.items():
             if not isinstance(name, str) or not TABLE_NAME.fullmatch(name) or not isinstance(spec, TableSpec):
                 raise AssemblyError("Tables require a plain name and a TableSpec")
+        if self.owner != CORE_OWNER and RESERVED_TABLES & set(tables):
+            raise AssemblyError(f"Table reserved by the engine: {', '.join(sorted(RESERVED_TABLES & set(tables)))}")
+        required = frozenset(self.required_lifecycles)
+        if isinstance(self.required_lifecycles, str) or any(
+                not isinstance(name, str) or not TABLE_NAME.fullmatch(name) for name in required):
+            raise AssemblyError("Required lifecycles are resource type names")
+        object.__setattr__(self, "required_lifecycles", required)
         immutable = {name: frozenset(fields) for name, fields in dict(self.immutable_fields).items()}
         if set(immutable) - set(tables):
             raise AssemblyError("Immutable columns can only be declared by the table's own contribution")
@@ -216,6 +232,7 @@ class Assembly:
     finalizers: tuple[Callable[[Any], None], ...]
     change_publisher: ChangePublisher | None
     lifecycles: Mapping[str, ResourceLifecycle]
+    required_lifecycles: frozenset[str]
     receipt_history: ReceiptHistory
     record_hooks: RecordEffectHooks
     _origin: object = field(default=None, repr=False, compare=False)
@@ -290,6 +307,11 @@ class AssemblyBuilder:
             raise AssemblyError("Required hook missing: file receipts need a domain receipt history")
         if not self._records:
             raise AssemblyError("Required hook missing: prepared-record application needs record effect hooks")
+        provided = {name for item in self._files for name in item.lifecycles}
+        required = frozenset(name for item in self._storage for name in item.required_lifecycles)
+        if required - provided:
+            raise AssemblyError("Required hook missing: resource lifecycle for "
+                                + ", ".join(sorted(required - provided)))
         tables: dict[str, TableSpec] = {}
         immutable: dict[str, frozenset[str]] = {}
         for item in self._storage:
@@ -314,4 +336,4 @@ class AssemblyBuilder:
             change_publisher=publishers[0] if publishers else None,
             lifecycles=MappingProxyType({name: lifecycle for item in self._files
                                          for name, lifecycle in item.lifecycles.items()}),
-            receipt_history=histories[0], record_hooks=self._records[0].hooks, _origin=_FREEZE_TOKEN)
+            required_lifecycles=required, receipt_history=histories[0], record_hooks=self._records[0].hooks, _origin=_FREEZE_TOKEN)
