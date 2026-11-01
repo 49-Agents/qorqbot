@@ -132,7 +132,7 @@
 .ctxgraph-reviews { margin-top:16px; }
 
 .global-context .global-context-base-view { padding: 24px 28px 48px; overflow-y: auto; }
-.global-context .global-context-graph-view { display:flex; min-width:0; min-height:0; overflow:hidden; padding:0; }
+.global-context-graph-view { display:flex; min-width:0; min-height:0; overflow:hidden; padding:0; }
 .global-context-base { width: 100%; max-width: 1240px; min-width: 0; margin: 0 auto 32px; }
 .global-context-graph-view > .global-context-graph { display:flex; flex:1; flex-direction:column; min-width:0; min-height:0; max-width:none; margin:0; }
 .global-context-graph-title { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
@@ -309,3 +309,32 @@
   .global-context-graph-view .ctxgraph.global-context-knowledge-graph .ctxgraph-search input { min-height:44px; font-size:16px; }
   .global-context-graph-view .ctxgraph.global-context-knowledge-graph .ctxgraph-node { width:44px; height:44px; }
 }
+
+/* Published-graph readers (js/context-published.js): shared by the Global and business routes. */
+.pub-view { min-width:0; }
+.pub-view .pub-open { padding:0; border:0; background:none; color:var(--fg); font:inherit; text-align:left; cursor:pointer; text-decoration:underline; text-decoration-color:var(--line-2); text-underline-offset:3px; overflow-wrap:anywhere; }
+.pub-view .pub-open:hover, .pub-view .pub-open:focus-visible { color:var(--accent); }
+.pub-view .pub-ref { max-width:100%; overflow-wrap:anywhere; text-align:left; font:inherit; background:none; cursor:pointer; }
+.pub-view .pub-crumb { padding:0 2px; border:0; background:none; color:var(--fg-2); cursor:pointer; font:inherit; }
+.pub-view .pub-code, .pub-view code { font-family:var(--mono); font-size:11px; color:var(--fg-2); overflow-wrap:anywhere; }
+.pub-view .pub-trunc, .pub-view .pub-window { color:var(--fg-2); font-size:11px; }
+.pub-view .pub-window { margin:8px 0; padding:6px 10px; border:1px solid var(--line-2); border-radius:6px; }
+.pub-view .pub-error { margin:8px 0; padding:8px 10px; border:1px solid var(--line-2); border-radius:6px; overflow-wrap:anywhere; }
+.pub-view .pub-state { padding:14px; overflow-wrap:anywhere; }
+.pub-view .pub-more, .pub-view .pub-history-more, .pub-view .pub-text-more, .pub-view .pub-expand-more, .pub-view .pub-changes-more { margin:10px 0; min-height:36px; }
+.pub-view .pub-source-text { margin:8px 0; padding:10px 12px; max-height:60vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; border:1px solid var(--line); border-radius:6px; font:12px/1.5 var(--mono); }
+.pub-view .pub-edge .tt { overflow-wrap:anywhere; }
+.pub-view .pub-arrow { color:var(--fg-3); }
+.pub-view .pub-tombstone { opacity:.8; border-style:dashed; }
+.pub-view .pub-withdrawn { padding:8px 10px; margin:8px 0; border:1px solid var(--line-2); border-radius:6px; }
+.pub-graph-notes { flex:none; padding:0 12px; font-size:11px; color:var(--fg-2); overflow-wrap:anywhere; }
+.pub-graph-notes:empty { display:none; }
+.pub-graph-status .pub-state { padding:6px 0; }
+.global-context-graph-status .pub-more { flex:none; min-height:30px; margin:0; padding:4px 10px; font-size:11px; }
+.global-context-graph-view .ctxgraph.global-context-knowledge-graph .ctxgraph-node-entry .ctxgraph-node.node .ctxgraph-dot { width:18px; height:18px; border:0; border-radius:50%; background:#d4d3ce; }
+.global-context-graph-view .ctxgraph.global-context-knowledge-graph .ctxgraph-node-entry .ctxgraph-node.endpoint .ctxgraph-dot { width:16px; height:16px; border:1.5px dashed #9a9993; border-radius:50%; background:transparent; }
+.ctxgraph-node.endpoint .ctxgraph-dot { border:1.5px dashed #9a9993; background:transparent; }
+.ctxgraph-legend .ctxgraph-node-key { display:inline-block; width:9px; height:9px; margin-right:5px; border-radius:50%; background:#d4d3ce; }
+.ctxgraph-legend .ctxgraph-endpoint-key { display:inline-block; width:9px; height:9px; margin-right:5px; border-radius:50%; border:1.5px dashed #9a9993; }
+.pub-view .pub-ref, .pub-view .pub-attr { display:inline-block; max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+.pub-view .pub-edge .tt { display:block; min-width:0; }

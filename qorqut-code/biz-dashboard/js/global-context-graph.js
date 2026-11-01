@@ -1,93 +1,59 @@
-// UI-only projection for the Global context relationship browser. Canonical
-// objects and relationships remain unchanged and searchable by their exact refs.
+// Visual projection of the published Context graph for the relationship explorer. It is built directly from the
+// published node and relationship DTOs (context_home nodes carrying their relationships); the canonical records stay
+// unchanged and open by their exact node:/edge: references. A relationship endpoint that is not among the loaded nodes
+// becomes a distinct placeholder that carries only what the endpoint DTO itself states.
 const GLOBAL_CONTEXT_GRAPH_PAGE_SIZES = Object.freeze([4, 8, 12]);
 
-function globalContextGraphRole(node) {
-  const item = node?.item || {}, kind = String(item.kind || node?.kind || "other");
-  if (kind === "note" || kind === "transcript")
-    return { role: "source-document", reason: "Source documents stay available in search and details." };
-  const source = item.source && typeof item.source === "object" ? item.source : {};
-  const wrapPath = typeof source.wrap?.path === "string" ? source.wrap.path.replace(/\\/g, "/") : "";
-  const withoutMarker = wrapPath.replace(/\/_topic\.md$/i, "").replace(/_topic\.md$/i, "");
-  const finalDirectory = withoutMarker.split("/").filter(Boolean).at(-1)?.toLocaleLowerCase() || "";
-  const collectionDirectories = new Set(["marketing", "launchpads", "personal", "operating", "owner-strategy"]);
-  if (kind === "topic" && source.wrap && collectionDirectories.has(finalDirectory))
-    return { role: "collection", reason: "Imported collection; its canonical record stays available in search and details." };
-  const foundingDocumentNames = new Set(["brand", "product", "icp", "positioning", "founding"]);
-  if (kind === "topic" && source.created_by === "idea_conversion" && foundingDocumentNames.has(String(item.name || "").trim().toLocaleLowerCase()))
-    return { role: "source-document", reason: "Generated source document; its canonical text stays available in search and details." };
-  return { role: "knowledge", reason: "" };
-}
-
-function globalContextGraphProject(items) {
-  const sourceItems = Array.isArray(items) ? items : [];
-  const canonicalGraph = ctxFindGraphData(sourceItems);
-  const canonical = canonicalGraph.nodes.map(node => {
-    const copy = { ...node, item: { ...node.item } };
-    // ctxFindGraphData preserves the stored kind in item.kind, while its display
-    // kind normalizes business_topic to topic for other context maps.
-    if (copy.item.kind === "business_topic") copy.kind = "business_topic";
-    copy.displayRole = copy.kind === "relationship" ? "relationship" : globalContextGraphRole(copy).role;
-    copy.displayReason = copy.kind === "relationship" ? "" : globalContextGraphRole(copy).reason;
-    return copy;
+function contextPublishedGraphModel(homeNodes, totals = null) {
+  const nodes = Array.isArray(homeNodes) ? homeNodes : [];
+  const clip = (text, size) => { const value = String(text || ""); return value.length > size ? value.slice(0, size - 1).trimEnd() + "…" : value; };
+  const canonical = [], byId = new Map(), byRef = new Map();
+  const add = node => { canonical.push(node); byId.set(node.id, node); byRef.set(node.item.ref, node); return node; };
+  nodes.forEach(dto => {
+    if (!dto || typeof dto.ref !== "string" || byId.has(dto.ref)) return;
+    add({ id: dto.ref, kind: "node", label: clip(dto.summary, 60) || dto.ref, tip: String(dto.summary || ""), color: "#849a75",
+      displayRole: "knowledge", displayReason: "",
+      item: { type: "node", id: dto.ref, ref: dto.ref, kind: "node", summary: String(dto.summary || ""), attributes: dto.attributes || {},
+        truncated: dto.truncated === true, relationshipCount: dto.relationship_count, relationshipsTruncated: dto.relationships_truncated === true } });
   });
-  const byId = new Map(canonical.map(node => [node.id, node]));
-  const byRef = new Map(canonical.filter(node => typeof node.item?.ref === "string").map(node => [node.item.ref, node]));
-  const objects = canonical.filter(node => node.kind !== "relationship");
-  const knowledge = objects.filter(node => node.displayRole === "knowledge");
-  const knowledgeIds = new Set(knowledge.map(node => node.id));
-  const relationships = canonical.filter(node => node.kind === "relationship");
-  const generatedDocumentIds = new Set(objects.filter(node => node.displayRole === "source-document" &&
-    node.item?.source?.created_by === "idea_conversion").map(node => node.id));
-  const isBookkeeping = node => {
-    const source = node.item?.source || {};
-    if (["wrap", "within_home", "related_home"].includes(source.auto)) return true;
-    if (source.created_by !== "idea_conversion") return false;
-    return (Array.isArray(node.item?.endpoints) ? node.item.endpoints : []).some(ref => {
-      const endpoint = byRef.get(ref);
-      return endpoint && generatedDocumentIds.has(endpoint.id);
-    });
+  const edges = new Map();
+  nodes.forEach(dto => (Array.isArray(dto?.relationships) ? dto.relationships : []).forEach(edge => {
+    if (edge && typeof edge.ref === "string" && !edges.has(edge.ref)) edges.set(edge.ref, edge);
+  }));
+  const placeholder = endpoint => {
+    if (byId.has(endpoint.ref)) return;
+    add({ id: endpoint.ref, kind: "endpoint", label: endpoint.summary == null ? endpoint.ref : clip(endpoint.summary, 60), tip: String(endpoint.summary || ""),
+      color: "#aaaaaa", displayRole: "knowledge", displayReason: "",
+      item: { type: "endpoint", id: endpoint.ref, ref: endpoint.ref, kind: "node", placeholder: true, summary: endpoint.summary == null ? "" : String(endpoint.summary),
+        truncated: endpoint.truncated === true, attributes: {} } });
   };
-  const neighborSets = new Map(knowledge.map(node => [node.id, new Set()]));
+  edges.forEach(edge => { placeholder(edge.from); placeholder(edge.to); });
+  const objects = canonical.slice();
+  const relationships = [];
   const incident = new Map(canonical.map(node => [node.id, []]));
-  const shownRelationships = [], relationshipEndpoints = new Map();
-  relationships.forEach(node => {
-    const refs = Array.isArray(node.item?.endpoints) ? node.item.endpoints : [];
-    const endpointIds = refs.map(ref => byRef.get(ref)?.id).filter(id => id && knowledgeIds.has(id));
-    const uniqueEndpointIds = [...new Set(endpointIds)];
-    relationshipEndpoints.set(node.id, uniqueEndpointIds);
-    refs.forEach(ref => {
-      const endpoint = byRef.get(ref);
-      if (endpoint) incident.get(endpoint.id)?.push(node.id);
+  const membership = [];
+  const relationshipEndpoints = new Map(), neighborSets = new Map(objects.map(node => [node.id, new Set()]));
+  edges.forEach(edge => {
+    const selfLoop = edge.from.ref === edge.to.ref;
+    const refs = selfLoop ? [edge.from.ref] : [edge.from.ref, edge.to.ref];
+    const node = { id: edge.ref, kind: "relationship", label: clip(edge.summary, 60) || edge.ref, tip: String(edge.summary || ""), color: "#b69861",
+      displayRole: "relationship", displayReason: "", defaultCanvas: true, bookkeeping: false, selfLoop,
+      item: { type: "relationship", id: edge.ref, ref: edge.ref, kind: "edge", summary: String(edge.summary || ""), attributes: edge.attributes || {},
+        truncated: edge.truncated === true, endpoints: refs, from: edge.from.ref, to: edge.to.ref, unavailableEndpointCount: 0, malformedEndpointCount: 0 } };
+    add(node); relationships.push(node);
+    relationshipEndpoints.set(node.id, refs.slice());
+    refs.forEach((ref, index) => {
+      incident.get(ref).push(node.id);
+      membership.push({ id: `endpoint:${edge.ref}:${index}`, source: node.id, target: ref, kind: "endpoint", role: "endpoint", membership: true });
     });
-    node.item.unavailableEndpointCount = Array.isArray(node.item?.endpoints)
-      ? [...new Set(refs.filter(ref => typeof ref === "string"))].filter(ref => !byRef.has(ref)).length
-      : 1;
-    node.item.malformedEndpointCount = Array.isArray(node.item?.endpoints)
-      ? refs.filter(ref => typeof ref !== "string" || !/^<object>[^<>]+<\/object>$/.test(ref)).length
-      : 1;
-    node.bookkeeping = isBookkeeping(node);
-    node.defaultCanvas = !node.bookkeeping && uniqueEndpointIds.length >= 2;
-    if (!node.defaultCanvas) return;
-    shownRelationships.push(node);
-    uniqueEndpointIds.forEach(id => {
-      uniqueEndpointIds.forEach(otherId => { if (otherId !== id) neighborSets.get(id).add(otherId); });
-    });
+    if (!selfLoop) { neighborSets.get(refs[0]).add(refs[1]); neighborSets.get(refs[1]).add(refs[0]); }
   });
   incident.forEach(list => list.sort((a, b) => a.localeCompare(b)));
-  const graphNodes = [...knowledge, ...shownRelationships];
-  const graphNodeIds = new Set(graphNodes.map(node => node.id));
-  const graphEdges = canonicalGraph.edges.filter(edge => graphNodeIds.has(edge.source) && graphNodeIds.has(edge.target) &&
-    knowledgeIds.has(edge.target)).map(edge => ({ ...edge }));
+  const knowledge = objects, knowledgeIds = new Set(knowledge.map(node => node.id));
   const graph = {
-    rootId: null, nodes: graphNodes, edges: graphEdges,
-    counts: {
-      objects: knowledge.length, relationships: shownRelationships.length, endpointLinks: graphEdges.length,
-      eligibleRelationships: shownRelationships.length,
-      substantiveRelationships: relationships.filter(node => !node.bookkeeping).length,
-      storedObjects: objects.length, storedRelationships: relationships.length,
-      storedEndpointLinks: canonicalGraph.edges.length, storedRecords: canonical.length
-    }
+    rootId: null, nodes: canonical.slice(), edges: membership,
+    counts: { objects: knowledge.length, relationships: relationships.length, endpointLinks: membership.length, eligibleRelationships: relationships.length,
+      storedObjects: knowledge.length, storedRelationships: relationships.length, storedEndpointLinks: membership.length, storedRecords: canonical.length }
   };
   const byLabel = new Map();
   canonical.forEach(node => {
@@ -97,19 +63,17 @@ function globalContextGraphProject(items) {
   });
   const resultLabel = node => {
     const key = String(node.label || "").trim().toLocaleLowerCase(), duplicates = byLabel.get(key) || [];
-    if (duplicates.length < 2) return node.label;
-    const refPart = String(node.item?.ref || node.id).replace(/^<object>|<\/object>$/g, "");
-    return `${node.label} · ${refPart}`;
+    return duplicates.length < 2 ? node.label : `${node.label} · ${node.item.ref}`;
   };
   const neighbors = (id, shownKinds = null) => [...(neighborSets.get(id) || [])]
     .map(otherId => byId.get(otherId)).filter(node => node && (!shownKinds || shownKinds.has(node.kind)))
-    .sort((a, b) => String(a.item?.ref || a.id).localeCompare(String(b.item?.ref || b.id)));
+    .sort((a, b) => String(a.item.ref).localeCompare(String(b.item.ref)));
   const stateFrom = saved => {
     const validId = id => typeof id === "string" && byId.has(id);
     const savedFocus = validId(saved?.focusId) && knowledgeIds.has(saved.focusId) ? saved.focusId : null;
-    const degree = node => (neighborSets.get(node.id)?.size || 0);
-    const defaultFocus = knowledge.slice().sort((a, b) => degree(b) - degree(a) ||
-      String(a.item?.ref || a.id).localeCompare(String(b.item?.ref || b.id)))[0]?.id || null;
+    const degree = node => (incident.get(node.id)?.length || 0);
+    const defaultFocus = knowledge.filter(node => node.kind === "node").sort((a, b) => degree(b) - degree(a) || a.id.localeCompare(b.id))[0]?.id ||
+      knowledge[0]?.id || null;
     const focusId = savedFocus || defaultFocus;
     const expanded = Array.isArray(saved?.expanded) ? saved.expanded.filter(id => knowledgeIds.has(id)) : [];
     if (focusId && !expanded.includes(focusId)) expanded.unshift(focusId);
@@ -144,7 +108,7 @@ function globalContextGraphProject(items) {
     const node = byId.get(id);
     if (!node) return false;
     let targets = [];
-    if (node.kind === "relationship") targets = (node.item?.endpoints || []).map(ref => byRef.get(ref)).filter(endpoint => endpoint && knowledgeIds.has(endpoint.id));
+    if (node.kind === "relationship") targets = node.item.endpoints.map(ref => byRef.get(ref)).filter(endpoint => endpoint && knowledgeIds.has(endpoint.id));
     else if (knowledgeIds.has(id)) targets = [node];
     for (const ownerId of state.expanded) {
       const info = page(state, ownerId, shownKinds), list = neighbors(ownerId, shownKinds);
@@ -157,47 +121,43 @@ function globalContextGraphProject(items) {
   const setCapacity = (state, nextSize, selectedId = null, shownKinds = null) => {
     if (!GLOBAL_CONTEXT_GRAPH_PAGE_SIZES.includes(nextSize) || nextSize === state.pageSize) return false;
     const selectedNode = byId.get(selectedId || state.selectedId), selectedRefs = selectedNode?.kind === "relationship"
-      ? (selectedNode.item?.endpoints || []).map(ref => byRef.get(ref)?.id).filter(Boolean)
+      ? selectedNode.item.endpoints.map(ref => byRef.get(ref)?.id).filter(Boolean)
       : selectedNode && knowledgeIds.has(selectedNode.id) ? [selectedNode.id] : [];
     const nextPages = { ...state.pages }, owners = new Set([...state.expanded, state.focusId, ...Object.keys(state.pages)]);
     owners.forEach(ownerId => {
       const list = neighbors(ownerId, shownKinds), oldPage = page(state, ownerId, shownKinds), oldAnchor = oldPage.items[0]?.id;
-      let anchor = selectedRefs.find(id => list.some(node => node.id === id)) || oldAnchor;
+      const anchor = selectedRefs.find(id => list.some(node => node.id === id)) || oldAnchor;
       if (!anchor) { nextPages[ownerId] = 0; return; }
       const index = list.findIndex(node => node.id === anchor), max = Math.max(0, Math.floor((list.length - 1) / nextSize) * nextSize);
       nextPages[ownerId] = index < 0 ? 0 : Math.min(Math.floor(index / nextSize) * nextSize, max);
     });
     state.pages = nextPages; state.pageSize = nextSize; return true;
   };
+  const connecting = (objectIds, node) => (relationshipEndpoints.get(node.id) || []).filter(id => objectIds.has(id)).length >=
+    (node.selfLoop ? 1 : 2);
   const visible = (state, { shownKinds = null, maxOrdinaryNodes = 48 } = {}) => {
     const owners = [...new Set([state.focusId, ...state.expanded].filter(id => knowledgeIds.has(id)))];
     if (owners.length > maxOrdinaryNodes) {
-      // On smaller canvases keep the hard node cap. Temporarily render only the
-      // focus page while retaining every saved expansion for a larger view.
+      // On smaller canvases keep the hard node cap. Temporarily render only the focus page while retaining every saved expansion.
       const focusId = knowledgeIds.has(state.focusId) ? state.focusId : null;
-      const objects = new Set(focusId ? [focusId] : []), includedOwners = focusId ? [focusId] : [];
-      const pageItems = focusId ? page(state, focusId, shownKinds).items.filter(node => !objects.has(node.id)) : [];
-      const room = Math.max(0, maxOrdinaryNodes - objects.size);
-      pageItems.slice(0, room).forEach(node => objects.add(node.id));
+      const shown = new Set(focusId ? [focusId] : []), includedOwners = focusId ? [focusId] : [];
+      const pageItems = focusId ? page(state, focusId, shownKinds).items.filter(node => !shown.has(node.id)) : [];
+      const room = Math.max(0, maxOrdinaryNodes - shown.size);
+      pageItems.slice(0, room).forEach(node => shown.add(node.id));
       const overflowOwners = pageItems.length > room ? [focusId] : [];
       const suspendedOwners = owners.filter(id => id !== focusId);
-      const relationIds = relationships.filter(node => node.defaultCanvas &&
-        (relationshipEndpoints.get(node.id) || []).filter(id => objects.has(id)).length >= 2).map(node => node.id);
-      return { objectIds: [...objects], relationshipIds: relationIds, includedOwners, overflowOwners, suspendedOwners };
+      const relationIds = relationships.filter(node => connecting(shown, node)).map(node => node.id);
+      return { objectIds: [...shown], relationshipIds: relationIds, includedOwners, overflowOwners, suspendedOwners };
     }
-    // Keep active expansion roots visible even when paging another owner drops
-    // them from that owner's current page. Their own pages can then keep their
-    // recorded branches attached without inventing endpoint pairs.
-    const objects = new Set(owners), includedOwners = [], overflowOwners = [];
+    const shown = new Set(owners), includedOwners = [], overflowOwners = [];
     owners.filter(Boolean).forEach(ownerId => {
-      const pageInfo = page(state, ownerId, shownKinds), add = pageInfo.items.map(node => node.id).filter(id => !objects.has(id));
-      if (objects.size + add.length > maxOrdinaryNodes) { overflowOwners.push(ownerId); return; }
-      add.forEach(id => objects.add(id));
+      const pageInfo = page(state, ownerId, shownKinds), extra = pageInfo.items.map(node => node.id).filter(id => !shown.has(id));
+      if (shown.size + extra.length > maxOrdinaryNodes) { overflowOwners.push(ownerId); return; }
+      extra.forEach(id => shown.add(id));
       includedOwners.push(ownerId);
     });
-    const relationIds = relationships.filter(node => node.defaultCanvas &&
-      (relationshipEndpoints.get(node.id) || []).filter(id => objects.has(id)).length >= 2).map(node => node.id);
-    return { objectIds: [...objects], relationshipIds: relationIds, includedOwners, overflowOwners, suspendedOwners: [] };
+    const relationIds = relationships.filter(node => connecting(shown, node)).map(node => node.id);
+    return { objectIds: [...shown], relationshipIds: relationIds, includedOwners, overflowOwners, suspendedOwners: [] };
   };
   const setFocus = (state, id) => {
     if (!knowledgeIds.has(id)) return false;
@@ -205,22 +165,18 @@ function globalContextGraphProject(items) {
     state.history = state.history.slice(-20); state.focusId = id; state.pageOwner = id; state.expanded = [id];
     state.pages[id] = 0; state.positions = {}; return true;
   };
-  const searchText = node => `${node.label || ""} ${JSON.stringify(node.item || {})}`.toLocaleLowerCase();
+  const searchText = node => `${node.label || ""} ${node.item.summary || ""} ${node.item.ref} ${JSON.stringify(node.item.attributes || {})}`.toLocaleLowerCase();
+  const loadedNodes = knowledge.filter(node => node.kind === "node").length;
   return {
     canonical, graph, byId, byRef, objects, knowledge, relationships, searchNodes: canonical,
     objectCount: objects.length, knowledgeCount: knowledge.length, relationshipCount: relationships.length,
-    sourceDocumentCount: objects.filter(node => node.displayRole === "source-document").length,
-    collectionCount: objects.filter(node => node.displayRole === "collection").length,
-    storedEndpointCount: canonicalGraph.edges.length, shownRelationshipIds: new Set(shownRelationships.map(node => node.id)),
+    loadedNodes, placeholderCount: knowledge.length - loadedNodes, totals,
     neighborSets, relationshipEndpoints, incident, knowledgeIds, resultLabel, neighbors, page, setPage, reveal,
     setCapacity, visible, setFocus, stateFrom, searchText
   };
 }
 
 function globalContextGraphKindLabel(kind) {
-  const known = { business_topic: "Business", topic: "Concept", person: "Person", product: "Product", platform: "Platform",
-    project: "Project", note: "Note", transcript: "Transcript", relationship: "Relationship", idea: "Idea",
-    task: "Task", material: "Material", table: "Table", agent: "Agent", event: "Event", occurrence: "Occurrence",
-    company: "Company", other: "Other" };
+  const known = { node: "Node", endpoint: "Endpoint (not loaded)", relationship: "Relationship" };
   return known[kind] || String(kind || "other").replace(/[-_]+/g, " ").replace(/\b\w/g, letter => letter.toUpperCase());
 }

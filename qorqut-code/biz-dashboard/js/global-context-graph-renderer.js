@@ -31,9 +31,9 @@ function contextGlobalKnowledgeGraph(el, graph, opts = {}) {
   let kindHtml = "";
   kinds.forEach(kind => { kindHtml += '<label><input type="checkbox" data-kind="' + esc(kind) + '" ' + (shownKinds.has(kind) ? "checked" : "") + "><span>" + esc(globalContextGraphKindLabel(kind)) + "</span></label>"; });
   el.innerHTML = '<div class="ctxgraph global-context-knowledge-graph" aria-label="Global context graph">' +
-    '<div class="ctxgraph-bar"><span class="ctxgraph-caption">Context graph <small>Global context</small></span>' +
-    '<div class="ctxgraph-search"><input type="search" aria-label="Search all Global context records" placeholder="Search all context…" autocomplete="off" aria-expanded="false" aria-controls="global-context-graph-results">' +
-    '<div class="ctxgraph-results" id="global-context-graph-results" role="listbox" aria-label="Global context search results" hidden></div></div>' +
+    '<div class="ctxgraph-bar"><span class="ctxgraph-caption">Context graph <small>' + esc(opts.caption || 'Context') + '</small></span>' +
+    '<div class="ctxgraph-search"><input type="search" aria-label="Search loaded graph records" placeholder="Search loaded records…" autocomplete="off" aria-expanded="false" aria-controls="global-context-graph-results">' +
+    '<div class="ctxgraph-results" id="global-context-graph-results" role="listbox" aria-label="Loaded graph search results" hidden></div></div>' +
     '<button type="button" data-action="back" class="ctxgraph-back" aria-label="Back to previous focus" title="Back to previous focus" disabled>← Back</button>' +
     '<button type="button" data-action="copy" class="ctxgraph-copy" title="Copy the recorded context graph as Mermaid" aria-label="Copy recorded context graph as Mermaid">' + SVG_MAPCOPY + '</button></div>' +
     '<div class="ctxgraph-types" role="group" aria-label="Filter visible connection kinds">' + kindHtml + '</div>' +
@@ -47,7 +47,7 @@ function contextGlobalKnowledgeGraph(el, graph, opts = {}) {
     '<div class="ctxgraph-empty-state" role="status" aria-live="polite" hidden></div>' +
     '<div class="ctxgraph-zoom"><button type="button" data-action="out" aria-label="Zoom out">−</button><output aria-label="Zoom level">100%</output><button type="button" data-action="in" aria-label="Zoom in">+</button><button type="button" data-action="fit" title="Fit visible connections" aria-label="Fit visible connections">' + SVG_MAPFIT + '</button></div>' +
     '<div class="ctxgraph-reader" aria-label="Selected canonical record" aria-live="polite" hidden></div></div>' +
-    '<div class="ctxgraph-footer"><div class="ctxgraph-legend"><span><i class="ctxgraph-business-key"></i>Business</span><span><i class="ctxgraph-person-key"></i>Person</span><span><i class="ctxgraph-concept-key"></i>Concept</span><span><i class="ctxgraph-product-key"></i>Product / platform / project</span><span><i class="ctxgraph-relationship-key"></i>Recorded connection</span></div>' +
+    '<div class="ctxgraph-footer"><div class="ctxgraph-legend"><span><i class="ctxgraph-node-key"></i>Node</span><span><i class="ctxgraph-endpoint-key"></i>Endpoint not loaded</span><span><i class="ctxgraph-relationship-key"></i>Recorded relationship</span></div>' +
     '<span class="ctxgraph-count" aria-live="polite"></span></div><div class="ctxgraph-sr" role="status" aria-live="polite"></div></div>';
 
   const root = el.querySelector(".ctxgraph"), canvas = root.querySelector(".ctxgraph-canvas"), svg = root.querySelector(".ctxgraph-network");
@@ -129,13 +129,18 @@ function contextGlobalKnowledgeGraph(el, graph, opts = {}) {
       });
     }
     visibleObjects.forEach(node => { const position = positions.get(node.id) || { x: 0, y: 0 }; node.x = position.x; node.y = position.y; });
-    const relationPositions = new Map(), pairGroups = new Map();
+    const relationPositions = new Map(), pairGroups = new Map(), selfSlots = new Map();
     visibleRelations.forEach(rel => {
       const endpoints = (model.relationshipEndpoints.get(rel.id) || []).filter(id => visibleObjectIds.has(id));
       if (endpoints.length === 2 && (Array.isArray(rel.item?.endpoints) ? rel.item.endpoints.length : 0) === 2) {
         const key = endpoints.slice().sort().join("\u0000");
         if (!pairGroups.has(key)) pairGroups.set(key, []);
         pairGroups.get(key).push({ rel, endpoints });
+      } else if (rel.selfLoop && endpoints.length === 1) {
+        // A self relationship sits beside its one node; parallel self relationships step apart.
+        const at = positions.get(endpoints[0]), slot = selfSlots.get(endpoints[0]) || 0;
+        selfSlots.set(endpoints[0], slot + 1);
+        relationPositions.set(rel.id, { x: at.x + 46 + slot * 24, y: at.y - 46 - slot * 12 });
       } else if (endpoints.length >= 2) {
         const points = endpoints.map(id => positions.get(id));
         relationPositions.set(rel.id, { x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
@@ -159,7 +164,7 @@ function contextGlobalKnowledgeGraph(el, graph, opts = {}) {
     const nextPositions = { ...previous };
     visibleObjects.forEach(node => { if (node.id !== focusId) nextPositions[node.id] = pointFor(node); });
     state.positions = nextPositions;
-    const junctions = visibleRelations.filter(rel => (Array.isArray(rel.item?.endpoints) ? rel.item.endpoints.length : 0) >= 3);
+    const junctions = visibleRelations.filter(rel => rel.selfLoop || (Array.isArray(rel.item?.endpoints) ? rel.item.endpoints.length : 0) >= 3);
     const allNodes = [...visibleObjects, ...junctions];
     const visibleEdges = [];
     visibleRelations.forEach(rel => {
@@ -213,7 +218,8 @@ function contextGlobalKnowledgeGraph(el, graph, opts = {}) {
 
   function updateCount() {
     const objectCount = visibleState.objectIds.length, relationCount = visibleState.relationshipIds.length;
-    countStatus.textContent = "Objects " + objectCount + "/" + model.knowledgeCount + " · connections " + relationCount + "/" +
+    if (model.countLabel) countStatus.textContent = model.countLabel(objectCount, relationCount);
+    else countStatus.textContent = "Objects " + objectCount + "/" + model.knowledgeCount + " · connections " + relationCount + "/" +
       model.graph.counts.eligibleRelationships + " (2+ objects) · records " + model.canonical.length + " searchable / " +
       model.relationshipCount + " relationships";
     const overflow = visibleState.overflowOwners.length, suspended = (visibleState.suspendedOwners || []).length;
@@ -330,7 +336,10 @@ function contextGlobalKnowledgeGraph(el, graph, opts = {}) {
   function renderObjectReader(node) {
     const item = node.item || {}, role = node.displayRole;
     const connected = relationListFor(node);
-    const note = role === "knowledge" ? "" : '<p class="ctxgraph-display-note">' + esc(node.displayReason) + '</p>';
+    const loadedAll = item.relationshipsTruncated || (Number.isSafeInteger(item.relationshipCount) && item.relationshipCount > connected.length);
+    const note = (item.placeholder ? '<p class="ctxgraph-display-note">This node is not loaded in the bounded view. Only its relationship endpoint is shown; open the record for the published node.</p>' : "") +
+      (item.truncated ? '<p class="ctxgraph-display-note">The summary is shortened in this view.</p>' : "") +
+      (loadedAll ? '<p class="ctxgraph-display-note">' + connected.length + ' of ' + (Number.isSafeInteger(item.relationshipCount) ? item.relationshipCount : 'more') + ' relationships are loaded; open the record for the rest.</p>' : "");
     const tags = Array.isArray(item.tags) && item.tags.length ? '<div class="ctxgraph-tags">' + item.tags.map(tag => '<span>' + esc(tag) + '</span>').join("") + '</div>' : "";
     const summary = item.summary ? '<p>' + esc(item.summary) + '</p>' : "";
     const definition = item.definition ? '<div class="ctxgraph-definition"><strong>Definition</strong><p>' + esc(item.definition) + '</p></div>' : "";
@@ -371,7 +380,7 @@ function contextGlobalKnowledgeGraph(el, graph, opts = {}) {
       (typeof pair[1] === "string" ? pair[1] : JSON.stringify(pair[1]))).join(" · ") : "";
     const listed = (model.relationshipEndpoints.get(node.id) || []).filter(id => renderedIds.has(id)).length;
     const offCanvas = Math.max(0, endpoints.length - listed);
-    const statusLine = node.bookkeeping ? "Filing/projection record; excluded from the default canvas." : node.defaultCanvas
+    const statusLine = node.selfLoop ? "Self relationship: both ends are the same node." : node.defaultCanvas
       ? "Recorded relationship; shown when at least two eligible endpoints are in the current neighborhood." : "Stored relationship; too few eligible endpoints for a default graph connection.";
     const unavailable = item.unavailableEndpointCount || 0, malformed = item.malformedEndpointCount || 0;
     reader.hidden = false;
@@ -453,8 +462,8 @@ function contextGlobalKnowledgeGraph(el, graph, opts = {}) {
     const pager = searchMatches.length > 12 ? '<div class="ctxgraph-search-pager"><span>' + (searchOffset + 1) + "–" + end + " of " + searchMatches.length +
       '</span><button type="button" class="ctxgraph-control" data-search-page="-1" ' + (searchOffset === 0 ? "disabled" : "") + ' aria-label="Previous search results">‹</button>' +
       '<button type="button" class="ctxgraph-control" data-search-page="1" ' + (end >= searchMatches.length ? "disabled" : "") + ' aria-label="Next search results">›</button></div>' : "";
-    results.innerHTML = '<div class="ctxgraph-result-count">' + searchMatches.length + ' matching stored records</div>' +
-      (buttons || '<div class="ctxgraph-result-count">No matching stored records.</div>') + pager;
+    results.innerHTML = '<div class="ctxgraph-result-count">' + searchMatches.length + ' matching loaded records</div>' +
+      (buttons || '<div class="ctxgraph-result-count">No matching loaded records.</div>') + pager;
   }
 
   root.querySelectorAll("[data-kind]").forEach(input => listen(input, "change", () => {

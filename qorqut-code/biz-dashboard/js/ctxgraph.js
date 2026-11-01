@@ -39,54 +39,6 @@ async function ctxFindAllPages(readPage, {query = "", limit = 500} = {}) {
   }
 }
 
-// Canonical context_find projection. Relationships remain first-class nodes so
-// a stored multi-endpoint record is represented by endpoint membership spokes,
-// never by inferred pairs between its endpoints.
-function ctxFindGraphData(items) {
-  const rows = Array.isArray(items) ? items : [], nodes = [], edges = [], byRef = new Map();
-  const isRef = value => typeof value === "string" && /^<object>[^<>]+<\/object>$/.test(value);
-  const isRelationship = item => item?.is_relationship === true || item?.kind === "relationship";
-  const colors = Object.assign(Object.create(null), {topic:"#849a75", material:"#b3b7bd", note:"#b3b7bd", person:"#72a99f", task:"#d88a85",
-    table:"#83b5cf", agent:"#b997c2", project:"#849a75", idea:"#d4b463", transcript:"#b3b7bd",
-    occurrence:"#d88a85", event:"#d88a85", company:"#83b5cf", platform:"#83b5cf", other:"#aaaaaa", relationship:"#b69861"});
-  const refLabel = ref => String(ref || "").replace(/^<object>|<\/object>$/g, "").replace(/[_-]+/g, " ");
-  const makeNode = (item, kind, idPrefix) => {
-    const ref = item.ref;
-    const node = {id: `${idPrefix}:${ref}`, kind, label: String(item.name || refLabel(ref)),
-      tip: String(item.summary || item.definition || ""), color: Object.hasOwn(colors,kind) ? colors[kind] : "#aaaaaa",
-      item: {...item, type: kind, id: ref, ref}};
-    return node;
-  };
-  for (const item of rows) {
-    if (!item || isRelationship(item) || !isRef(item.ref) || byRef.has(item.ref)) continue;
-    const kind = item.kind === "business_topic" ? "topic" : String(item.kind || "other");
-    const node = makeNode(item, kind, "object");
-    nodes.push(node); byRef.set(item.ref, node);
-  }
-  const relationships = [];
-  for (const item of rows) {
-    if (!item || !isRelationship(item) || !isRef(item.ref) || byRef.has(item.ref)) continue;
-    const rawEndpoints = Array.isArray(item.endpoints) ? item.endpoints.slice() : [];
-    const node = makeNode({...item, endpoints: rawEndpoints,
-      unavailableEndpointCount: 0,
-      malformedEndpointCount: Array.isArray(item.endpoints) ? rawEndpoints.filter(ref => !isRef(ref)).length : 1},
-    "relationship", "relationship");
-    nodes.push(node); byRef.set(item.ref, node); relationships.push(node);
-  }
-  relationships.forEach(node => {
-    const endpointRefs = [...new Set(node.item.endpoints.filter(isRef))];
-    node.item.unavailableEndpointCount = endpointRefs.filter(ref => !byRef.has(ref)).length;
-    endpointRefs.forEach((endpointRef, index) => {
-      const endpoint = byRef.get(endpointRef);
-      if (!endpoint) return;
-      edges.push({id: `endpoint:${encodeURIComponent(node.item.ref)}:${index}`, source: node.id, target: endpoint.id,
-        kind: "endpoint", role: "endpoint", membership: true, relationshipRef: node.item.ref, endpointRef});
-    });
-  });
-  return {rootId: null, nodes, edges, counts: {objects: nodes.filter(node => node.kind !== "relationship").length,
-    relationships: nodes.filter(node => node.kind === "relationship").length, endpointLinks: edges.length}};
-}
-
 function ctxGraphData(d, scope, isRoot) {
   return ctxRelationshipGraph(d.graph, isRoot ? null : scope.document_id);
 }
