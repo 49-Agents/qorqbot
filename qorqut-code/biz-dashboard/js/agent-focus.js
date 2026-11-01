@@ -330,13 +330,17 @@ const agfocusWorkKey=source=>String(source.business_slug ?? 'global')+':'+source
 
 function agfocusVisibleItems(p,items) {
   const result=[];
+  // A derived row whose Task is already an ancestor on its own path is refused before it is rendered, so a
+  // concerns cycle (A -> B -> A) never grows the path. Independent Focus cards are never deduplicated.
   function append(item,ancestors=new Set()) {
+    const source=item.source?.type==='task'?item.source:null,key=source?agfocusWorkKey(item.resolved_source || source):null;
+    if(item._workParent && key && ancestors.has(key))return;
     result.push(item);
-    const source=item.source?.type==='task'?item.source:null;
-    if(!source || item.unavailable || ancestors.has(agfocusWorkKey(source)))return;
+    if(!source || item.unavailable)return;
     const branch=p.focusWork?.get(item.id);
     if(!branch?.expanded)return;
-    for(const child of branch.items || [])append(child,new Set([...ancestors,agfocusWorkKey(source)]));
+    const path=new Set([...ancestors,key]);
+    for(const child of branch.items || [])append(child,path);
   }
   for(const item of items)append(item);
   return result;
@@ -358,9 +362,11 @@ function agfocusWorkReference(parent,source,other) {
 
 // One page of children and one page of `concerns` relationships, in the Task's own scope.
 async function agfocusLoadWork(p,item,branch,more=false) {
-  const source=item.resolved_source || item.source,biz=source.business_slug,scope=!biz?{scope:'global'}:{};
+  const source=item.resolved_source || item.source,biz=source.business_slug;
+  // Task reads infer Global from the root route; the Global relationship read declares an explicit scope (section G contract).
+  const scope=op=>!biz && op==='relationships_list'?{scope:'global'}:{};
   const path=op=>biz?`/biz/${encodeURIComponent(biz)}/operations/${op}`:`/root/operations/${op}`;
-  const call=async(op,args)=>coreData(await post(path(op),{...args,...scope}));
+  const call=async(op,args)=>coreData(await post(path(op),{...args,...scope(op)}));
   const calls=[];
   if(!more || branch.childCursor)calls.push(call('tasks_list',{parent_id:source.id,include_closed:true,include_archived:true,snooze_filter:'all',limit:AGFOCUS_WORK_PAGE,...(more?{cursor:branch.childCursor}:{})}).then(data=>{
     branch.childCursor=data.next_cursor || null;
@@ -659,7 +665,7 @@ async function agfocusLoadThreadContext(p,node) {
   const biz=source.business_slug || item.context_business_slug;
   try {
     const data=coreData(await post(biz?`/biz/${encodeURIComponent(biz)}/operations/tasks_get`:`/root/operations/tasks_get`,
-      {task_id:source.id,...(!biz?{scope:'global'}:{})}));
+      {task_id:source.id}));
     if(node._contextRequest!==request || node._item.unavailable || p.focusSelected!==item.id)return;
     const task=data.task;
     const details=[task.status && (T_LABEL[task.status] || task.status),task.due && `Due ${task.due}`,
@@ -1019,7 +1025,7 @@ function agfocusAdd(p) {
         if(link && !/^https?:\/\//i.test(link)){error.textContent='Use an HTTP or HTTPS link.';error.hidden=false;return;}
         const key=newRequestId();
         submission=link ? {operation:'focus_present',args:{scope:'global',reference:{key,title,target:{type:'url',url:link}},idempotency_key:key}}
-          : {operation:'tasks_create',args:{scope:'global',title,focus:{display_name:title},idempotency_key:key}};
+          : {operation:'tasks_create',args:{title,focus:{display_name:title},idempotency_key:key}};
       }
       pending=true;error.hidden=true;
       form.querySelectorAll('input').forEach(input=>input.disabled=true);

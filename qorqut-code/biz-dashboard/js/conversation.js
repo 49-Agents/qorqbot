@@ -99,7 +99,9 @@ async function conversationRequest(promise) {
 }
 async function conversationCall(source,operation,args,options={}) {
   const path=source.biz?`/biz/${encodeURIComponent(source.biz)}`:'/root';
-  return coreData(await conversationRequest(post(`${path}/operations/${operation}`,{...args,...(!source.biz?{scope:'global'}:{}),...options})));
+  // Task and Action thread operations infer Global from the root route and their schemas reject `scope`;
+  // only the private conversation operations below declare it.
+  return coreData(await conversationRequest(post(`${path}/operations/${operation}`,{...args,...options})));
 }
 // A private call is Global whenever the mount has no business slug of its own
 // (Focus cards), and then names the owning business inside the canonical source.

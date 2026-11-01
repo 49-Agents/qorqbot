@@ -3,7 +3,20 @@ const contextRoleLabel = role => String(role || 'related to').replace(/_/g, ' ')
 const contextItemType = item => item.material_type ? item.material_type.charAt(0).toUpperCase()+item.material_type.slice(1) : item.subtype === 'conversation' ? 'Conversation' : ({material:'Material',topic:'Topic',task:'Task',table:'Table',product:'Product',person:'Person',agent:'Agent'}[item.type] || item.type);
 const contextMaterialLabel = item => [item.origin,...(item.tags || [])].filter(Boolean).join(' · ');
 
+// Global scope keeps Global scope: items open through the existing Global task/email surfaces, never selectBiz(null).
+async function contextOpenGlobalItem(item, beforeOpen) {
+  if (await beforeOpen?.() === false) return;
+  if (item.type === 'task') {
+    return modal({title:'Global task',width:700,stack:true,body:'<div class="global-work-task"></div>',onOpen:el=>globalTasksMount(el.querySelector('.global-work-task'),{initialTaskId:item.id})});
+  }
+  if (item.resource_type === 'email_conversations' && typeof emailGlobalThreadMount === 'function') {
+    return modal({title:esc(item.label || 'Email'),width:700,stack:true,body:'<div class="global-work-email"></div>',onOpen:el=>emailGlobalThreadMount(el.querySelector('.global-work-email'),item.id,{active:()=>el.isConnected})});
+  }
+  modal({title:esc(item.label || 'Related item'),stack:true,body:`<p class="muted">${esc(contextItemType(item))}</p>`,actions:[]});
+}
+
 async function contextOpenItem(biz, item, beforeOpen) {
+  if (!biz) return contextOpenGlobalItem(item, beforeOpen);
   if (await beforeOpen?.() === false) return;
   if (state.biz !== biz || state.scope === 'global') await selectBiz(biz);
   if (item.type === 'topic' && item.path?.startsWith('context/')) {
@@ -21,7 +34,41 @@ async function contextOpenItem(biz, item, beforeOpen) {
     resource_id:item.id, current:{...item, kind:item.kind || item.subtype}, snapshot_json:item});
 }
 
+// Global relationships have no review or acknowledgment: only the authorized canonical links are listed.
+async function contextRelatedGlobal(host, item, beforeOpen) {
+  const edges=[];let cursor=null;
+  try {
+    do {
+      const page=await workCall(null,'relationships_list',{item,direction:'both',include_archived:false,limit:50,scope:'global',...(cursor?{cursor}:{})});
+      edges.push(...page.items);cursor=page.next_cursor;
+    } while(cursor && edges.length<200);
+  } catch(error) {
+    if(!host.isConnected)return;
+    const message=document.createElement('span');message.className='muted';message.textContent=error.message;
+    const retry=document.createElement('button');retry.className='quiet';retry.textContent='Retry related context';
+    retry.onclick=()=>contextRelatedGlobal(host,item,beforeOpen);
+    host.replaceChildren(message,retry);return;
+  }
+  if(!host.isConnected)return;
+  host.replaceChildren();
+  const label=document.createElement('span');label.className='muted';label.textContent=`${edges.length}${cursor?'+':''} related`;
+  const button=document.createElement('button');button.className='quiet';button.textContent='Related context';
+  button.onclick=()=>modal({stack:true,title:'Related context',body:'<div class="context-review-panel"><div class="context-review-rows"></div></div>',onOpen:el=>{
+    const list=el.querySelector('.context-review-rows');
+    if(!edges.length)list.innerHTML='<p class="muted">No related context.</p>';
+    for(const edge of edges){
+      const other=edge.source?.type===item.type && edge.source?.id===item.id ? edge.target_item : edge.source_item;
+      const row=document.createElement('article');row.className='context-relation';
+      row.innerHTML=`<div class="context-relation-heading"><button class="quiet context-source"${other?'':' disabled'}>${esc(other?.label || 'Unavailable context')}</button></div><div class="context-relation-role">${esc(contextRoleLabel(edge.role))}${other?' · '+esc(contextItemType(other)):''}</div>${edge.context?`<p>${esc(edge.context)}</p>`:''}`;
+      row.querySelector('.context-source').onclick=()=>contextOpenItem(null,other,async()=>{if(await beforeOpen?.()===false)return false;_modal?.close();}).catch(error=>toast(error.message));
+      list.append(row);
+    }
+  }});
+  host.append(label,button);
+}
+
 async function contextRelatedChips(host, biz, item, beforeOpen) {
+  if (!biz) return contextRelatedGlobal(host, item, beforeOpen);
   let data;
   try { data = await workCall(biz, 'context_reviews_list', {item, include_reviewed:true, limit:50}); }
   catch (error) {

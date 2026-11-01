@@ -95,7 +95,6 @@ function _taskStateResolve(entry, value) {
 async function _taskStateRead(entry) {
   if (!entry.fetchPromise) {
     const args = {task_id: entry.id};
-    if (entry.scope == null) args.scope = "global";
     entry.fetchPromise = _taskStateRequest(`${_taskStatePath(entry.scope)}/tasks_get`, args).then(coreData).then(data => {
       const task = data && data.task;
       if (!task || String(task.id) !== entry.id || _taskStateRevision(task) == null) throw new Error("The server returned an invalid task.");
@@ -149,7 +148,6 @@ async function _taskStateDrain(entry) {
   const desired = entry.desired;
   entry.activeDesired = desired;
   const args = {task_id: entry.id, changes: {status: desired}, expected_revision: _taskStateRevision(entry.confirmed), idempotency_key: newRequestId()};
-  if (entry.scope == null) args.scope = "global";
   try {
     const result = await _taskStateRequest(`${_taskStatePath(entry.scope)}/tasks_update`, args);
     if (result?.status === "accepted" || result?.status === "signoff_required") {

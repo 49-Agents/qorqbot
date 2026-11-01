@@ -764,11 +764,11 @@ async function agpadOpenInboxSource({ inboxSource: id, sourceType: type, busines
     state.agent = agent.name; return goTab('agents');
   }
   if (type === 'principals' || type === 'context_entities') {
-    const { item } = await workCall(biz, 'context_items_get', { item: { type: type === 'principals' ? 'person' : 'entity', id } });
+    const { item } = await workCall(biz, 'context_items_get', { item: { type: type === 'principals' ? 'person' : 'entity', id }, ...(biz ? {} : { scope: 'global' }) });
     if (type === 'context_entities' && /^https?:\/\//.test(item.url || '')) return workOpenLink({biz}, {resource_type:'entity',resource_id:id,current:item});
     return modal({title:esc(item.label),body:`<p>${esc([item.role,item.org,item.about,item.summary].filter(Boolean).join(' · '))}</p>`,actions:[]});
   }
   if (type === 'tasks') return tOpenTask(id);
-  const { item } = await workCall(biz, 'context_items_get', { item: workItem(type, id) });
+  const { item } = await workCall(biz, 'context_items_get', { item: workItem(type, id), ...(biz ? {} : { scope: 'global' }) });
   return workOpenLink({ biz }, { resource_type: type, resource_id: id, current: { ...item, kind: item.kind || item.subtype } });
 }
