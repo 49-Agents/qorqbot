@@ -31,10 +31,16 @@ let ctxFullRead = null;
 const ctxDataFits = (data, page) => !!data && (ctxIndependentPage(page) ||
   (!data.navigation_only && (!data.graph_only || page === '')));
 async function ctxReadFindAll(scope, query = "", signal = pageReads.signal) {
-  const path = scope?.kind === "root" ? "/root/operations/context_find"
-    : scope?.kind === "business" && scope.id ? `/biz/${encodeURIComponent(scope.id)}/operations/context_find` : null;
-  if (!path) throw new Error("A root or business context scope is required");
-  return ctxFindAllPages(async args => coreData(await pageReadPost(path, args, signal)), {query, limit: 500});
+  const collection = pubCollection({limit: PUB_LIMITS.find, items: data => data.items, pageOf: data => data.page,
+    keyOf: item => item.ref, read: cursor => pubRead(scope, 'context_find',
+      {query, limit: PUB_LIMITS.find, ...(cursor ? {cursor} : {})}, signal)});
+  do {
+    await collection.load(() => !signal?.aborted);
+    if (signal?.aborted) throw new Error('Request cancelled');
+    if (collection.error) throw collection.error;
+    if (collection.status !== 'ready' || collection.exhausted) throw new Error('People could not be loaded');
+  } while (collection.hasMore);
+  return {items: collection.items, revision: collection.revision};
 }
 async function ctxLoadData(biz, full = !ctxIndependentPage(state.ctx)) {
   if (!full) return coreData(await pageReadPost(`/biz/${encodeURIComponent(biz)}/operations/context_navigation_get`, {}));
@@ -341,31 +347,19 @@ async function openPerson(slug) {
   const v = $("#ctxview"), d = _ctxData || {};
   let person = findPerson(slug);
   if (!person) { v.innerHTML = `<div class="empty">no such person</div>`; return; }
-  try {
-    if (person.document_id) {
-      const projected = coreData(await pageReadPost(`/biz/${encodeURIComponent(state.biz)}/operations/context_get`, {document_id: person.document_id}));
-      if (projected?.document?.canonical_ref) return openObject(projected.document.canonical_ref, `_people/${slug}`);
-    }
-    const found = coreData(await pageReadPost(`/biz/${encodeURIComponent(state.biz)}/operations/context_find`, {query: person.name, limit: 20})).items || [];
-    const base = found.find(item => item.kind === "person" && String(item.name || "").toLowerCase() === String(person.name || "").toLowerCase());
-    if (base?.ref) return openObject(base.ref, `_people/${slug}`);
-  } catch (_) { /* legacy person view remains the compatibility fallback */ }
-  const s = d.summarizing || {}, busy = s.current && s.current.topic === `person:${slug}`;
   const r = await api(`/biz/${state.biz}/context/person/${slug}`);
   if (state.ctx !== `_people/${slug}`) return;    // navigated away while the notes were loading
   person = {...person, ...r};
   const notesText = (r && r.notes_text) || "";
   const head = `<div class="crumbs"><a data-p="">context</a><span class="sep">›</span><a data-p="_people">People</a><span class="sep">›</span><span class="cur">${esc(person.name)}</span></div>
     <div class="th"><h2>${esc(person.name)}</h2>
-      <div class="pa"><button class="ghost sm" id="ctxpedit">Edit details</button><button class="ghost sm" id="ctxpnotes">Edit notes</button><button class="ghost sm" id="ctxpsum" ${busy ? "disabled" : ""}>${busy ? "summarising…" : "Refresh summary"}</button></div></div>`;
+      <div class="pa"><button class="ghost sm" id="ctxpedit">Edit details</button><button class="ghost sm" id="ctxpnotes">Edit notes</button></div></div>`;
   const contact = person.contact || {};
   const metaLine = [person.affiliation || "external", person.role, person.org, contact.email, contact.phone].filter(Boolean).join(" · ");
   const meta = metaLine ? `<div class="meta">${esc(metaLine)}</div>` : "";
   const akaList = person.aka || [];
   const aka = akaList.length ? `<div class="aka">${akaList.map(a => `<span class="chip">${esc(a)}</span>`).join("")}</div>` : "";
   const about = person.about ? `<p class="about">${esc(person.about)}</p>` : "";
-  const sum = person.summary ? `<div class="sec"><div class="sh">Summary <span class="stamp">${esc((person.summarized || "").replace("T", " ").replace(/:\d\dZ/, "Z"))}</span></div>${mdLines(person.summary)}</div>`
-    : `<div class="sec"><div class="sh">Summary</div><div class="empty">${busy ? "being written now" : "No summary yet."}</div></div>`;
   const notesSec = `<div class="sec"><div class="sh">Notes</div>${renderPersonNotes(notesText)}</div>`;
   const mentions = person.mentions || [];
   const ment = mentions.length ? `<div class="sec"><div class="sh">Mentioned in</div><div class="cards">${mentions.map(m => {
@@ -376,7 +370,7 @@ async function openPerson(slug) {
     return `<div class="card n" data-p="${esc(m)}" title="${esc(title)}"><div class="ct">${SVG_FILE}<span class="tt">${esc(cap(title))}</span></div><div class="cb">${esc(body)}</div><div class="cs">${esc(m)}</div></div>`;
   }).join("")}</div></div>` : "";
   const contactNotes = contact.notes ? `<div class="sec"><div class="sh">How to contact</div><p class="about">${esc(contact.notes)}</p></div>` : "";
-  v.innerHTML = head + meta + aka + about + contactNotes + sum + notesSec + ment;
+  v.innerHTML = head + meta + aka + about + contactNotes + notesSec + ment;
   if(d.graph){
     const related=document.createElement('div');related.className='work-associations';v.appendChild(related);
     contextRelatedChips(related,state.biz,{type:'person',id:person.document_id}).catch(e=>toast(e.message));
@@ -385,12 +379,7 @@ async function openPerson(slug) {
   v.querySelectorAll(".card").forEach(el => el.onclick = () => ctxGo(el.dataset.p));
   const ed = $("#ctxpedit"); if (ed) ed.onclick = () => editPersonDetails(state.biz, person.document_id, () => openPerson(slug)).catch(e => toast(e.message));
   const ne = $("#ctxpnotes"); if (ne) ne.onclick = () => ctxGo(`_people/${slug}.md`);
-  const rs = $("#ctxpsum"); if (rs) rs.onclick = async () => {
-    rs.disabled = true;
-    const rr = await post(`/biz/${state.biz}/context/summarize`, { person: slug });
-    toast(rr.error || `summarising ${person.name}`);
-    const d2 = await api(`/biz/${state.biz}/context`); ctxPaint(d2); openPerson(slug); ctxWatch();
-  };
+
 }
 
 // the person file's "## Notes" block: "### <date> · from <id> · <topic>/<note>.md" headings, prose/bullets between
@@ -410,19 +399,19 @@ function renderPersonNotes(text) {
 // Shared compact cards, newest person or relationship activity first.
 async function openPeople() {
   const v = $("#ctxview"), biz = state.biz;
-  v.innerHTML = '<p class="empty pad" role="status">Loading people from the context base…</p>';
+  v.innerHTML = '<p class="empty pad" role="status">Loading people…</p>';
   let items;
-  try { items = (await ctxReadFindAll({kind: "business", id: biz}, "")).items.filter(item => item.kind === "person"); }
+  try { items = (await ctxReadFindAll({kind: "business", id: biz}, "")).items.map(pubPerson).filter(Boolean); }
   catch (error) {
     if (state.biz === biz && state.ctx === "_people" && v.isConnected) {
-      v.innerHTML = `<div class="empty">${esc(error.message || "Could not load people.")}<br><button type="button" class="quiet" data-context-people-reload>Reload people</button></div>`;
+      v.innerHTML = `<div class="empty">Could not load people.<br><button type="button" class="quiet" data-context-people-reload>Reload people</button></div>`;
       v.querySelector('[data-context-people-reload]').onclick = event => { event.currentTarget.disabled = true; openPeople(); };
     }
     return;
   }
   if (state.biz !== biz || state.ctx !== "_people" || !v.isConnected) return;
   _ctxLastSig = JSON.stringify(items);
-  v.innerHTML = `<div class="jrhome"><div class="jrhhead"><h2>People</h2><span class="stamp">${items.length} in context base</span></div><div class="jrgrid">${items.map(person => writingCard({id:person.ref,title:person.name,updated:person.updated_at,role:person.attributes?.role || '',org:person.attributes?.org || ''})).join('')}</div>${items.length ? '' : '<p class="jrfaint">No people yet.</p>'}</div>`;
+  v.innerHTML = `<div class="jrhome"><div class="jrhhead"><h2>People</h2><span class="stamp">${items.length} people</span></div><div class="jrgrid">${items.map(person => writingCard({id:person.ref,title:person.name,updated:person.updated_at,role:person.role,org:person.org})).join('')}</div>${items.length ? '' : '<p class="jrfaint">No people yet.</p>'}</div>`;
   v.querySelectorAll('.jrcard').forEach(el => el.onclick=()=>ctxGo(`_obj/${el.dataset.id}`));
 }
 

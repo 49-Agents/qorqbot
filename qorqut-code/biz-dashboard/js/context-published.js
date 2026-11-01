@@ -140,6 +140,14 @@ function pubCollection({read, items, pageOf, keyOf, limit, verify}) {
   return c;
 }
 
+// People are graph nodes explicitly classified by their stored attributes, never a different DTO kind.
+function pubPerson(item) {
+  if (!item || item.kind !== 'node' || !Array.isArray(item.attributes?.basic_entity_type) ||
+      !item.attributes.basic_entity_type.includes('person')) return null;
+  const text = key => (item.attributes[key] || []).filter(value => typeof value === 'string' && value.trim()).join(' · ');
+  return {...item, name: text('name') || item.summary || 'Person', role: text('role'), org: text('org')};
+}
+
 // ---- rendering (escaped text only; attribute values and summaries are always data, never markup)
 const PUB_COPY = {loadFailed: "Couldn't load. Retry", changed: 'Context changed. Reload', more: 'More available', loadMore: 'Load more'};
 const pubNeutral = {node: 'Item', edge: 'Relationship', source: 'Source'};
