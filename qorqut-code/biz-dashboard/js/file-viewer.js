@@ -19,6 +19,25 @@ function h(tag, props, ...kids) {
   return node;
 }
 
+const ICONS = {
+  link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  copy: 'M9 9h11v11H9zM15 5V3H3v12h2',
+  download: 'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',
+  eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12m13 0a3 3 0 1 0-6 0 3 3 0 0 0 6 0',
+  source: 'm8 5-7 7 7 7m8-14 7 7-7 7'
+};
+function icon(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  for (const [key, value] of Object.entries({viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', 'stroke-width':'1.7', 'stroke-linecap':'round', 'stroke-linejoin':'round', 'aria-hidden':'true'})) svg.setAttribute(key, value);
+  const path = document.createElementNS(svg.namespaceURI, 'path'); path.setAttribute('d', ICONS[name]); svg.append(path); return svg;
+}
+function iconButton(name, label, props = {}) {
+  return h('button', {class:'fv-btn fv-icon', type:'button', title:label, 'aria-label':label, ...props}, icon(name));
+}
+function downloadButton(url) {
+  return h('a', {class:'fv-btn fv-icon', href:url, download:'', title:'Download', 'aria-label':'Download'}, icon('download'));
+}
+
 let toastTimer = null;
 function toast(text) {
   toastBox.textContent = text;
@@ -29,9 +48,9 @@ function toast(text) {
 
 const absolute = url => new URL(url, location.origin).href;
 
-async function copyText(text, anchor) {
+async function copyText(text, anchor, message = "Link copied") {
   try {
-    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); toast("Link copied"); return; }
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); toast(message); return; }
   } catch (error) { /* fall through to the selection fallback */ }
   // The dashboard is served over plain HTTP on the private network, which is not a secure context.
   const area = h("textarea", { class: "fv-offscreen", readonly: "", "aria-hidden": "true", tabindex: "-1" });
@@ -41,8 +60,9 @@ async function copyText(text, anchor) {
   let copied = false;
   try { copied = document.execCommand("copy"); } catch (error) { copied = false; }
   area.remove();
-  if (copied) { toast("Link copied"); return; }
-  const manual = h("input", { class: "fv-manual", readonly: "", "aria-label": "Link to copy", value: text });
+  if (copied) { toast(message); return; }
+  const manual = h("textarea", { class: "fv-manual", readonly: "", "aria-label": message === "Link copied" ? "Link to copy" : "Text to copy" });
+  manual.value = text;
   (anchor?.closest(".fv-head") || root).append(manual);
   manual.focus();
   manual.select();
@@ -131,7 +151,7 @@ function markdownNode(html) {
 }
 
 // ------------------------------------------------------------ Previews
-function textNode(text, wrap) { return h("pre", { class: "fv-text" + (wrap ? " wrap" : ""), tabindex: "0" }, text); }
+function textNode(text) { return h("pre", { class: "fv-text wrap", tabindex: "0" }, text); }
 
 function csvNode(payload) {
   const [head, ...rows] = payload.rows;
@@ -161,7 +181,7 @@ function diffNode(text) {
 }
 
 // ------------------------------------------------------------ The page
-const state = { meta: null, payload: null, mode: "rendered", wrap: false, panel: false, history: null, compare: [], diff: null, drift: null };
+const state = { meta: null, payload: null, mode: "rendered", panel: false, history: null, compare: [], diff: null, drift: null };
 const parts = {};
 
 function isVersion() { return state.meta && state.meta.current === false; }
@@ -174,23 +194,18 @@ function historyQuery(extra) {
 }
 
 function segment(label, pressed, onclick) {
-  return h("button", { class: "fv-btn", type: "button", "aria-pressed": String(pressed), onclick }, label);
+  return iconButton(label === "Source" ? "source" : "eye", label, {"aria-pressed": String(pressed), onclick});
 }
 
 function renderHead() {
   const { meta } = state, version = isVersion();
-  const chips = [h("span", { class: "fv-chip " + (version ? "warn" : "ok") }, version ? `Historical version ${meta.version.history_version}` : "Current file")];
-  if (meta.managed) chips.push(h("span", { class: "fv-chip" }, `Managed ${meta.managed.kind === "working_memory" ? "working memory" : "document"} · ${meta.managed.business_name || "Global"}`));
-  if (!version && Number.isFinite(meta.size)) chips.push(h("span", { class: "fv-chip" }, fmtSize(meta.size)));
-  if (meta.modified_at) chips.push(h("span", { class: "fv-chip" }, `${version ? "Saved" : "Modified"} ${sjDateTime(meta.modified_at)}`));
-  if (version && meta.version.author_name) chips.push(h("span", { class: "fv-chip" }, `by ${meta.version.author_name}`));
-  if (state.drift === true) chips.push(h("span", { class: "fv-chip warn" }, "Edited since the latest saved version"));
-  if (state.drift === false) chips.push(h("span", { class: "fv-chip" }, "Matches the latest saved version"));
-  const copyButton = h("button", { class: "fv-btn", type: "button", onclick: event => copyText(absolute(meta.urls.copy), event.currentTarget) }, version ? "Copy version link" : "Copy link");
+  const copyButton = iconButton('link', version ? 'Copy version link' : 'Copy link', {onclick: event => copyText(absolute(meta.urls.copy), event.currentTarget)});
+  const textCopy = state.payload && typeof state.payload.text === 'string'
+    ? iconButton('copy', state.payload.truncated ? 'Copy preview' : 'Copy text', {onclick: event => copyText(state.payload.text, event.currentTarget, 'Text copied')}) : null;
   parts.head.replaceChildren(
-    h("div", { class: "fv-title" }, h("h1", {}, meta.name), h("div", { class: "fv-path" }, meta.path), h("div", { class: "fv-chips" }, chips)),
-    h("div", { class: "fv-actions" }, copyButton,
-      h("a", { class: "fv-btn", href: meta.urls.download, download: "" }, "Download"),
+    h("div", { class: "fv-title" }, h("h1", {}, meta.name), h("div", { class: "fv-path" }, meta.path)),
+    h("div", { class: "fv-actions" }, copyButton, textCopy,
+      downloadButton(meta.urls.download),
       meta.managed && meta.managed.history_available
         ? h("button", { class: "fv-btn", type: "button", "aria-pressed": String(state.panel), "aria-controls": "fv-history", onclick: toggleHistory }, "History") : null));
 }
@@ -205,7 +220,7 @@ function renderNotices() {
   if (payload && payload.truncated) {
     notices.push(h("div", { class: "fv-banner warn", role: "note" },
       `Showing the first ${fmtSize(payload.preview_bytes)} of ${fmtSize(payload.size)}. `,
-      h("a", { class: "fv-btn", href: meta.urls.download, download: "" }, "Download the full file")));
+      downloadButton(meta.urls.download)));
   }
   if (payload && payload.kind === "csv") {
     const cuts = [payload.rows_truncated && "rows", payload.columns_truncated && "columns", payload.cells_truncated && "long cells"].filter(Boolean);
@@ -226,7 +241,6 @@ function renderTools() {
     } else if (payload.kind === "html") {
       tools.push(segment("Preview", state.mode === "rendered", () => setMode("rendered")), segment("Source", state.mode === "source", () => setMode("source")));
     }
-    if (textShown()) tools.push(segment("Wrap lines", state.wrap, () => { state.wrap = !state.wrap; renderTools(); renderBody(); }));
   }
   parts.tools.replaceChildren(...tools);
   parts.tools.hidden = !tools.length;
@@ -247,11 +261,11 @@ function renderBody() {
   if (payload.kind === "binary") {
     parts.body.replaceChildren(h("section", { class: "fv-error" }, h("h2", {}, "No preview for this file"),
       h("p", {}, "It is not text, so it is not shown here. Download it to open it elsewhere."),
-      h("a", { class: "fv-btn primary", href: state.meta.urls.download, download: "" }, "Download")));
+      downloadButton(state.meta.urls.download)));
     return;
   }
   let node;
-  if (textShown()) node = textNode(payload.text, state.wrap);
+  if (textShown()) node = textNode(payload.text);
   else if (payload.kind === "markdown") node = markdownNode(payload.html);
   else if (payload.kind === "csv") node = csvNode(payload);
   else node = frameNode(payload);
@@ -304,7 +318,7 @@ function versionRow(item, latest) {
     h("span", { class: "fv-history-actions" },
       h("label", {}, checkbox, "Compare"),
       viewing ? null : h("a", { class: "fv-btn", href: link }, "View"),
-      h("button", { class: "fv-btn", type: "button", onclick: event => copyText(absolute(link), event.currentTarget) }, "Copy link")));
+      iconButton('link', 'Copy link', {onclick: event => copyText(absolute(link), event.currentTarget)})));
 }
 
 function renderHistory() {
@@ -357,7 +371,7 @@ async function main() {
   try { state.payload = await call("content", search); }
   catch (error) { showError(error, main); return; }
   if (state.payload.truncated && state.payload.kind === "html") state.mode = "source";
-  renderNotices(); renderTools(); renderBody();
+  renderHead(); renderNotices(); renderTools(); renderBody();
 }
 
 main();
