@@ -61,7 +61,7 @@
 .agent-workspace-app .gchat-agent .gchat-references { padding-left:0; }
 .agent-workspace-app .gchat-owner .gchat-body { border-radius:8px; line-height:1.75; }
 .agent-workspace-app .gchat-composer { gap:6px; padding:6px; border:1px solid var(--line); border-radius:8px; background:var(--surface); }
-.agent-workspace-app .gchat-composer textarea { border:0; background:none; box-shadow:none; font-size:12.6px; }
+.agent-workspace-app .gchat-composer textarea { border:0; background:none; box-shadow:none; font-size:15.75px; }
 .agent-workspace-app .gchat-composer .gchat-send { border-radius:6px; min-height:32px; height:32px; padding:5px 11px; }
 .agent-workspace-app .agpad .thead { display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:13px 18px 10px; }
 .agent-workspace-app .agpad .thead.agpad-ping-head { gap:4px; padding-right:18px; }
