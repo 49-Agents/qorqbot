@@ -78,12 +78,13 @@
 .ritem .chat-unread-dot { position: absolute; top: 6px; right: 6px; margin: 0; }
 @media (max-width: 800px) { .gchat-msg { max-width: 96%; } .gchat-jump { bottom: 88px; } }
 
-.gchat-view-toggle { display: inline-flex; flex: none; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r-sm, 6px); }
-.gchat-view-toggle button { padding: 3px 8px; min-height: 24px; font-size: 12px; border: 0; transform: none; }
+.gchat-view-toggle { display: inline-flex; flex: none; gap: 4px; }
+.gchat-view-toggle button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; min-height: 30px; padding: 6px; border: 0; border-radius: 6px; transform: none; }
+.gchat-view-toggle svg { width: 18px; height: 18px; }
 .gchat-view-toggle button[aria-pressed="true"] { background: var(--hover); color: var(--fg); opacity: 1; cursor: default; }
 
 /* Session controls stay over their own surface, outside chat scroll and terminal output. */
 .gchat-session-switch { position:absolute; top:4px; right:4px; z-index:3; border-radius:6px; background:color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter:blur(8px); }
 .gchat:has(> .gchat-session-switch) > .gchat-top,
-.gchat-diagnostic > .gchat-top { max-width:calc(100% - 140px); }
+.gchat-diagnostic > .gchat-top { max-width:calc(100% - 80px); }
 .gchat-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

@@ -150,8 +150,8 @@ function globalChatReferenceChips(body) {
 // ---- the mount
 function globalChatViewToggle(terminal = false) {
   return `<div class="gchat-view-toggle" role="group" aria-label="Agent view">
-    <button type="button" class="quiet" data-chat-return aria-pressed="${!terminal}" ${terminal ? '' : 'disabled'}>Chat</button>
-    <button type="button" class="quiet" data-terminal aria-pressed="${terminal}" ${terminal ? 'disabled' : ''}>Terminal</button>
+    <button type="button" class="quiet" data-chat-return aria-label="Chat" aria-pressed="${!terminal}" ${terminal ? '' : 'disabled'}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+    <button type="button" class="quiet" data-terminal aria-label="Terminal" aria-pressed="${terminal}" ${terminal ? 'disabled' : ''}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 17 6-6-6-6M12 19h8"/></svg></button>
   </div>`;
 }
 
@@ -436,19 +436,20 @@ function mountGlobalChat(pane, agent, options = {}) {
   // Terminal owns lifecycle, configuration and native approval prompts.
   function paintRuntime() {
     const connected = !!runtime?.can_send;
+    const surface = runtime?.transport === 'codex_queue' ? 'Codex' : 'Terminal';
     const wasHidden = working.hidden;
     working.hidden = !connected || runtime?.working !== true;
     if (working.hidden !== wasHidden && atBottom) toBottom();
-    status.textContent = !runtime ? 'Loading…' : connected ? 'Terminal connected' : 'Terminal offline';
+    status.textContent = !runtime ? 'Loading…' : `${surface} ${connected ? 'connected' : 'offline'}`;
     status.dataset.state = !runtime ? 'loading' : connected ? 'ready' : 'stopped';
     emptyNote.hidden = nodes.size > 0 || !runtime;
     if (!nodes.size && runtime) {
-      emptyNote.innerHTML = connected ? '<p>Your terminal conversation appears here.</p>'
-        : `<p>Start or resume ${esc(label)} in Terminal. Its conversation will appear here.</p>${options.openTerminal ? '<button type="button" class="quiet" data-terminal>Open terminal</button>' : ''}`;
+      emptyNote.innerHTML = connected ? '<p>Your agent conversation appears here.</p>'
+        : `<p>Start or resume ${esc(label)} in ${surface}. Its conversation will appear here.</p>${surface === 'Terminal' && options.openTerminal ? '<button type="button" class="quiet" data-terminal>Open terminal</button>' : ''}`;
     }
     input.disabled = !connected;
     send.disabled = !connected || sending;
-    input.placeholder = connected ? `Message ${label}…` : 'Start the agent in Terminal';
+    input.placeholder = connected ? `Message ${label}…` : `Start or resume the agent in ${surface}`;
   }
   const showBanner = text => { banner.hidden = !text; banner.textContent = text || ''; delete banner.dataset.reconnect; };
   listen(root, 'click', event => {
