@@ -77,8 +77,8 @@ async function renderGlobalAgents(c) {
         </div>
         <section class="global-biz-nav" aria-label="Agent and terminal lookup">
           <div class="global-biz-tools">
-            <button type="button" class="quiet global-biz-toggle" id="global-biz-toggle" aria-expanded="false" aria-controls="global-biz-region" aria-label="${GLOBAL_LOOKUP_LABEL}" title="${GLOBAL_LOOKUP_LABEL}">${GLOBAL_LOOKUP_ICON}<span class="global-biz-find global-biz-find-text">${GLOBAL_LOOKUP_LABEL}</span>${GLOBAL_BIZ_CHEVRON}</button>
-            <input type="search" class="global-biz-search" id="global-biz-search" aria-label="${GLOBAL_LOOKUP_LABEL}" placeholder="${GLOBAL_LOOKUP_LABEL}…" autocomplete="off" spellcheck="false">
+            <button type="button" class="quiet global-biz-toggle" id="global-biz-toggle" aria-expanded="false" aria-controls="global-biz-region" aria-label="${GLOBAL_LOOKUP_LABEL}" title="${GLOBAL_LOOKUP_LABEL}">${GLOBAL_LOOKUP_ICON}${GLOBAL_BIZ_CHEVRON}</button>
+            <input type="search" class="global-biz-search" id="global-biz-search" aria-label="${GLOBAL_LOOKUP_LABEL}" placeholder="Find…" autocomplete="off" spellcheck="false">
           </div>
           <div class="global-biz-region" id="global-biz-region">
             <div class="global-biz-status" id="global-biz-status" role="status" hidden></div>
@@ -95,10 +95,10 @@ async function renderGlobalAgents(c) {
   const list = $('#global-agent-list', c), pane = $('#global-agent-terminal', c), nav = $('.listcol', c);
   const bizList = $('#global-biz-agent-list', c), search = $('#global-biz-search', c), bizStatus = $('#global-biz-status', c);
   const pinnedList = $('#global-pinned-agent-list', c), bizRegion = $('#global-biz-region', c), bizToggle = $('#global-biz-toggle', c);
-  list.innerHTML = agents.map(agent => `<button class="item agent" type="button" data-global-agent="${esc(agent.agent_id)}">
-    <span class="nm">${identityAvatar("agent", agent.display_name || agent.name, {...agent, ...agent.presentation})}<span class="tt">${esc(agent.display_name || agent.name)}</span></span>
-    <span class="agent-presence" data-agent-presence="${esc(agent.agent_id)}" role="img"></span>
-  </button>`).join('');
+  // Icon-only rows: the agent name lives in the accessible label, with no visible text, tooltip or presence ball.
+  list.innerHTML = agents.map(agent => `<button class="item agent" type="button" data-global-agent="${esc(agent.agent_id)}" aria-pressed="false" aria-label="${esc(agent.display_name || agent.name)}">
+    <span class="nm">${identityAvatar("agent", agent.display_name || agent.name, {...agent, ...agent.presentation})}</span>
+  </button>`.replace(/\s*\n\s*/g, '')).join('');
   agentNavPaint(); agentNavRefresh();
   if (typeof replyNotifications !== 'undefined') replyNotifications.paint();
   const params = new URLSearchParams(location.search);
@@ -142,16 +142,12 @@ async function renderGlobalAgents(c) {
     const name = agent.display_name || agent.name, business = biz.name || biz.slug, department = dept(agent.department);
     return `<div class="global-biz-row"><button class="item agent global-biz-agent" type="button" data-business-agent="${esc(id)}" aria-pressed="false" aria-label="${esc(`${name}, ${business}, ${department.label}`)}">
         <span class="nm"><span class="global-biz-icons${pinned ? ' pinned' : ''}" aria-hidden="true">${pinned ? '' : identityAvatar('business', business, {}, business)}<span class="identity-avatar identity-department" style="--department-color:${department.color}">${departmentIcon(agent.department, 11)}</span></span>
-          <span class="global-biz-text"><span class="tt">${esc(name)}</span><span class="global-biz-name">${esc(business)}</span></span></span>
-        <span class="agent-presence" data-agent-presence="${esc(id)}" role="img"></span>
+          <span class="global-biz-text"><span class="global-biz-name">${esc(business)}</span></span></span>
       </button>${pinControl(id, `${name}, ${business}`, pinned)}</div>`;
   };
   // The owner's one shell is an ordinary lookup result: same identity, route and session, selectable and pinnable.
-  // Its connection dot is kept here because the row is repainted whenever the list changes.
-  let terminalStatus = {live: false, title: 'Terminal not connected'};
   const terminalRow = pinned => `<div class="global-biz-row"><button class="item agent global-biz-agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}" aria-pressed="false">
       <span class="nm">${GLOBAL_TERMINAL_ICON}<span class="tt">Terminal</span></span>
-      <span class="ldot${terminalStatus.live ? ' live' : ''}" data-global-agent-status title="${esc(terminalStatus.title)}"></span>
     </button>${pinControl(GLOBAL_WORKSPACE_TERMINAL, 'Terminal', pinned)}</div>`;
   const byBusinessThenName = (a, b) => compare(a.biz.name || a.biz.slug, b.biz.name || b.biz.slug)
     || compare(a.agent.display_name || a.agent.name, b.agent.display_name || b.agent.name) || compare(a.id, b.id);
@@ -266,14 +262,7 @@ async function renderGlobalAgents(c) {
     pane.dataset.agentPane = workspace ? 'off' : 'on';
     disposeChat();
     if (!workspace) mountAgentSession(agent);
-    else mountTerminal(selected, pane, status => {
-      if (!current() || selected !== (workspace ? workspace.id : agent.agent_id) || !workspace) return;
-      terminalStatus = {live: status === 'live', title: status === 'live' ? 'Terminal connected' : status === 'ended' ? 'Terminal exited' : 'Terminal disconnected'};
-      const dot = $('[data-global-agent-status]', nav);
-      if (!dot) return;
-      dot.classList.toggle('live', terminalStatus.live);
-      dot.title = terminalStatus.title;
-    }, workspace.base);
+    else mountTerminal(selected, pane, () => {}, workspace.base);
     agpadMount(workspace ? '' : (agent.display_name || agent.name), $('#agpad', c), workspace ? {
       biz: null, open: false, isCurrent: () => false,
     } : {

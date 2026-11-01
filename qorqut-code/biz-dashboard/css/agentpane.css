@@ -9,15 +9,15 @@
 .split.agsplit.pad-off { grid-template-columns: 228px minmax(0, 1fr) 0; }
 .split.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
 .split.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
-.split.global-agents.agsplit { grid-template-columns: 228px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
-.split.global-agents.agsplit.pad-off { grid-template-columns: 228px minmax(0, 1fr) 0; }
+.split.global-agents.agsplit { grid-template-columns: 114px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
+.split.global-agents.agsplit.pad-off { grid-template-columns: 114px minmax(0, 1fr) 0; }
 .split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
 .split.global-agents.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
-/* Global and per-business agents share one navigation column; it is wider where the screen has room.
-   The nav-off rules above still win (higher specificity), and narrower screens keep 228px. */
+/* Global and per-business agents share one navigation column; it is a compact icon strip, slightly wider where the screen has room.
+   The nav-off rules above still win (higher specificity), and narrower screens keep 114px. */
 @media (min-width: 1000px) {
-  .split.global-agents.agsplit { grid-template-columns: 268px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
-  .split.global-agents.agsplit.pad-off { grid-template-columns: 268px minmax(0, 1fr) 0; }
+  .split.global-agents.agsplit { grid-template-columns: 134px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
+  .split.global-agents.agsplit.pad-off { grid-template-columns: 134px minmax(0, 1fr) 0; }
 }
 .agsplit:not(.pad-off) > .chat.termmode { padding-left: 24px; padding-right: 24px; }
 .agsplit.pad-off > .agent-pane-divider { display: none; }
@@ -66,12 +66,12 @@
   .agent-pane-divider { display: none; }
   /* The divider disappears from the grid at mobile widths, retaining the
      pre-divider three-column behavior for both agent layouts. */
-  .split.agsplit,
-  .split.global-agents.agsplit { grid-template-columns: 228px minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
+  .split.agsplit { grid-template-columns: 228px minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
+  .split.global-agents.agsplit { grid-template-columns: 114px minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
   .split.agsplit.nav-off,
   .split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
-  .split.agsplit.pad-off,
-  .split.global-agents.agsplit.pad-off { grid-template-columns: 228px minmax(0, 1fr) 0; }
+  .split.agsplit.pad-off { grid-template-columns: 228px minmax(0, 1fr) 0; }
+  .split.global-agents.agsplit.pad-off { grid-template-columns: 114px minmax(0, 1fr) 0; }
   .split.agsplit.nav-off.pad-off,
   .split.global-agents.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
 }
