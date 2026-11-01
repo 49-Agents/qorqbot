@@ -1,5 +1,5 @@
 /* Global agent chat (js/global-chat.js). Uses the dashboard's existing tokens; no new colours or layout system. */
-.gchat { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; width: 100%; color: var(--fg); }
+.gchat { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; width: 100%; color: var(--fg); font-size: 13.5px; }
 .gchat-top { position:absolute; top:4px; left:4px; z-index:2; display:flex; align-items:center; gap:8px; max-width:calc(100% - 8px); padding:5px 9px; border:0; border-radius:6px; background:color-mix(in srgb, var(--bg) 68%, transparent); backdrop-filter:blur(8px); pointer-events:none; font-size:12px; }
 .gchat-name { font-weight: 500; letter-spacing: -.011em; }
 .gchat-status { font-size: 11px; color: var(--fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

@@ -206,3 +206,17 @@
 .agfocus .agfocus-row .ttl { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .agfocus .agfocus-row .agfocus-actions [data-focus-snooze] { width:26px; height:26px; min-height:26px; padding:0; }
 .agfocus [data-focus-snooze] svg { width:18px; height:18px; }
+
+/* Compact new-attention strip, separate from the persistent board. */
+.attention-queue{height:48px;min-height:48px;display:flex;align-items:center;gap:4px;margin-bottom:4px;min-width:0}
+.attention-stack{display:flex;align-items:center;min-width:0;flex:1;padding:3px 1px}
+.attention-chip{display:flex;align-items:center;gap:5px;min-width:0;height:34px;flex:1;padding:5px 10px;border:1px solid var(--line-2);border-radius:9px;background:var(--elevated);color:var(--fg);box-shadow:0 1px 4px #0002;font-size:11px;text-align:left;position:relative}
+.attention-chip+.attention-chip{margin-left:-8px}
+.attention-chip:hover,.attention-chip:focus-visible{z-index:2;transform:translateY(-2px)}
+.attention-chip>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attention-chip .identity-avatar{flex:none;width:21px;height:21px}
+.attention-signoff{flex:none;display:grid;place-items:center;width:21px;height:21px;border:1px solid var(--fg-3);border-radius:50%;color:var(--fg-2)}
+.attention-more{flex:none;margin-left:3px;padding:4px 6px;font-size:11px;background:transparent;color:var(--fg-2)}
+.attention-empty{font-size:11px;color:var(--fg-3);padding-left:3px}
+.attention-all{display:grid;gap:7px}.attention-all .attention-chip{margin:0;width:100%;min-height:38px}
+.attention-message{white-space:pre-wrap;overflow-wrap:anywhere}.attention-retry{font-size:10px}
