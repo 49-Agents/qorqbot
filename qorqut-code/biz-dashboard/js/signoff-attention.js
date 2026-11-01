@@ -14,10 +14,16 @@ window.sgAttentionNavigate = async (slug, id) => {
 };
 function sgAttentionPaint() {
   const urgent = sgAttention.urgent.length > 0;
+  const b = sgAttention.businesses.find(b => b.slug === (state.scope === 'global' ? null : state.biz));
+  const count = state.scope === 'global' ? sgAttention.businesses.reduce((sum, row) => sum + (row.signoffs || 0), 0) : b?.signoffs ?? 0;
+  const scopeUrgent = state.scope === 'global' ? urgent : !!b?.urgent;
+  // The pane handle exists only for waiting signoffs: their count, red when urgent or blocking.
   const handle = document.querySelector('#thandle');
   if (handle) {
-    handle.classList.toggle('sg-attention-urgent', urgent);
-    handle.title = urgent ? `${sgAttention.urgent.length} urgent or blocking signoffs` : 'Open side pane';
+    handle.hidden = !count;
+    handle.querySelector('#tcount').textContent = count ? String(count) : '';
+    handle.classList.toggle('sg-attention-urgent', !!count && scopeUrgent);
+    handle.title = `${count} waiting signoffs${scopeUrgent ? ', urgent or blocking' : ''}`;
   }
   document.querySelectorAll('.workspace-menu .mi[data-business-id]').forEach(row => {
     const business = sgAttention.businesses.find(b => b.id === row.dataset.businessId);
@@ -27,9 +33,6 @@ function sgAttentionPaint() {
   const tab = document.querySelector('#taskspanel .ttab[data-v="signoffs"]');
   if (tab) {
     tab.querySelector('.sg-signoff-count')?.remove();
-    const b = sgAttention.businesses.find(b => b.slug === (state.scope === 'global' ? null : state.biz));
-    const count = state.scope === 'global' ? sgAttention.businesses.reduce((sum, row) => sum + (row.signoffs || 0), 0) : b?.signoffs ?? 0;
-    const scopeUrgent = state.scope === 'global' ? urgent : !!b?.urgent;
     if (count) tab.insertAdjacentHTML('beforeend', `<span class="sg-signoff-count${scopeUrgent ? ' urgent' : ''}" aria-label="${count} waiting signoffs${scopeUrgent ? ', urgent or blocking signoffs' : ''}">${count}</span>`);
   }
   let host = document.querySelector('#sg-toast-host');
