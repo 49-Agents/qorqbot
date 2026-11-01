@@ -14,6 +14,14 @@ writer inventory is complete or the barrier refuses: every required writer class
 ``KnownZeroWriters`` whose emptiness is verified when the barrier runs, and a missing one is never read as zero.
 Docker, container and process inventory and their freeze/thaw implementations are host controllers passed in as
 ``host_writers`` and ``container_writers``. Constructing a quiescer starts and stops nothing.
+
+A window yields one ``RecoveryBarrierProof``, issued only after every drain and freeze succeeded, the maintenance and
+admission boundary is closed, the claims are clear and the exclusive installation lock is held. The proof is not a
+flag: it is the issuing quiescer's one current active generation, bound to the creating process and thread and to the
+frozen source database's canonical path and file identity, and it is revoked before anything is thawed, resumed or
+unlocked, on every exit. A recovery capture presents it (``verify_active``, ``require_database``) wherever it must prove
+that the installation is still quiescent. It coordinates trusted code in this process; it is not isolation from code
+running as the same operating-system user.
 """
 
 from __future__ import annotations
@@ -21,6 +29,9 @@ from __future__ import annotations
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 import logging
+import os
+from pathlib import Path
+import threading
 from time import monotonic
 from typing import Protocol
 
@@ -43,6 +54,56 @@ class QuiescenceProof:
     """A controller's observed, bounded drain or freeze outcome."""
     controller: str
     state: str
+
+
+@dataclass(frozen=True)
+class DatabaseIdentity:
+    """A database file as the operating system identifies it: canonical path, device and inode."""
+    path: Path
+    device: int
+    inode: int
+
+    @classmethod
+    def of(cls, path):
+        try:
+            resolved = Path(path).resolve(strict=True)
+            info = resolved.stat()
+        except (OSError, TypeError, ValueError):
+            raise DomainError("recovery_not_quiescent", "Recovery database identity is unavailable") from None
+        return cls(resolved, info.st_dev, info.st_ino)
+
+
+@dataclass(frozen=True, eq=False)
+class RecoveryBarrierProof:
+    """The active proof that a ``RecoveryQuiescer`` window is established, yielded by ``quiesce`` and by nothing else.
+
+    It has no switch a caller can set: it is active only while it is the issuing quiescer's current proof, in the
+    process and thread that created it, with the database file it froze. ``controllers`` (the verified drain and freeze
+    proofs) and ``source`` are read-only evidence, never authorization by themselves."""
+    generation: int
+    process_id: int
+    thread_id: int
+    source: DatabaseIdentity
+    controllers: tuple
+    issuer: object = field(repr=False)
+
+    def verify_active(self):
+        """Raise ``recovery_not_quiescent`` unless this exact proof is the issuing barrier's current window."""
+        issuer = self.issuer
+        if issuer._active is not self or issuer._generation != self.generation:
+            raise DomainError("recovery_not_quiescent", "The recovery barrier proof is not the active window")
+        if (os.getpid(), threading.get_ident()) != (self.process_id, self.thread_id):
+            raise DomainError("recovery_not_quiescent", "The recovery barrier proof belongs to another process or thread")
+        if not getattr(issuer.admission, "refusing", False):
+            raise DomainError("recovery_not_quiescent", "Write admission is no longer closed for the recovery window")
+        if DatabaseIdentity.of(self.source.path) != self.source:
+            raise DomainError("recovery_not_quiescent", "The frozen database file was replaced during the recovery window")
+
+    def require_database(self, database):
+        """Verify the window, then that ``database`` is the very file it froze (canonical path and file identity)."""
+        self.verify_active()
+        if DatabaseIdentity.of(getattr(database, "path", None)) != self.source:
+            raise DomainError("recovery_not_quiescent", "The database is not the one this recovery barrier froze")
 
 
 class DrainController(Protocol):
@@ -143,6 +204,11 @@ class RecoveryQuiescer:
     maintenance_gate: object | None = None
     writers: dict = field(default_factory=dict)
     required: tuple = ()
+    # One window at a time per quiescer: ``_barrier`` refuses a second attempt before it touches anything, ``_generation``
+    # numbers the windows and ``_active`` is the issued proof of the current one (None outside a verified window).
+    _barrier: object = field(default_factory=threading.Lock, init=False, repr=False)
+    _generation: int = field(default=0, init=False, repr=False)
+    _active: object = field(default=None, init=False, repr=False)
 
     def register_writer(self, name, controller):
         """Add one named controller to the inventory; a name is registered once."""
@@ -180,6 +246,7 @@ class RecoveryQuiescer:
     def _proof(value, expected):
         if not isinstance(value, QuiescenceProof) or value.state != expected:
             raise DomainError("recovery_not_quiescent", "Recovery controller returned no verified quiescence proof")
+        return value
 
     @contextmanager
     def quiesce(self, *, timeout=30):
@@ -197,8 +264,9 @@ class RecoveryQuiescer:
             raise DomainError("recovery_not_quiescent", "Recovery legacy-writer inventory is not installed")
         controllers = self.inventory()
         gate = self.maintenance_gate or DatabaseMaintenanceGate(self.database)
+        source = DatabaseIdentity.of(getattr(self.database, "path", None))
         deadline = monotonic() + timeout
-        drained, frozen = [], []
+        drained, frozen, evidence = [], [], []
         closure, verified, reopenable = None, False, False
 
         def remaining():
@@ -207,13 +275,20 @@ class RecoveryQuiescer:
                 raise TimeoutError("recovery writer deadline elapsed")
             return max(1, int(value))
 
+        # A second window in this process is refused at once and touches nothing: it could otherwise resume the services
+        # or reopen admission beneath the window that is running.
+        if not self._barrier.acquire(blocking=False):
+            raise DomainError("recovery_not_quiescent", "Another recovery barrier is in progress", retryable=True)
+        self._generation += 1
+        generation = self._generation
         with ExitStack() as locks:
+            locks.callback(self._barrier.release)
             try:
                 # New external work is refused first and nothing waits on it; admitted work keeps its admission and
                 # settles while the controllers drain, because neither the lock nor the gate exists yet.
                 self.admission.refuse_new()
                 for _name, writer in controllers:
-                    self._proof(writer.drain(timeout=remaining()), "drained")
+                    evidence.append(self._proof(writer.drain(timeout=remaining()), "drained"))
                     drained.append(writer)
                 try:
                     locks.enter_context(self.installation_lock.exclusive(timeout=remaining()))
@@ -226,17 +301,25 @@ class RecoveryQuiescer:
                 # independent SQL-only callers. Neither transaction remains open while a controller is stopped.
                 self.admission.close_and_wait(timeout=remaining())
                 closure = gate.close()
-                self._proof(self.host_writers.inventory_and_freeze(timeout=remaining()), "frozen")
+                evidence.append(self._proof(self.host_writers.inventory_and_freeze(timeout=remaining()), "frozen"))
                 frozen.append(self.host_writers)
-                self._proof(self.container_writers.freeze(timeout=remaining()), "frozen")
+                evidence.append(self._proof(self.container_writers.freeze(timeout=remaining()), "frozen"))
                 frozen.append(self.container_writers)
                 if not self._claims_clear():
                     raise DomainError("recovery_not_quiescent", "Durable file effects remain in progress")
+                if DatabaseIdentity.of(source.path) != source:
+                    raise DomainError("recovery_not_quiescent", "The database file was replaced while the barrier was established")
                 verified = True
-                yield self
+                # Issued only here: every drain and freeze is proved, the boundary is closed, claims are clear and the
+                # exclusive lock is held.
+                proof = RecoveryBarrierProof(generation, os.getpid(), threading.get_ident(), source, tuple(evidence), self)
+                self._active = proof
+                yield proof
             except TimeoutError as exc:
                 raise DomainError("recovery_not_quiescent", "A writer did not drain before recovery", retryable=True) from exc
             finally:
+                # Revoked first, before anything is thawed, resumed or unlocked, on every exit.
+                self._active = None
                 resume_error = None
                 for writer in reversed(frozen):
                     try:
