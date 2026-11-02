@@ -178,11 +178,15 @@ def derive(paths: InstancePaths, transition, request: dict, release: dict) -> di
     workspace = Path(request["workspace"])
     connection = _read_only(paths)
     try:
-        owner = removal._installation_owner(connection)
-        active = connection.execute("SELECT 1 FROM principals WHERE id=? AND kind='human' AND active=1", (owner,)).fetchone()
-        if active is None:
-            raise DomainError("forbidden", "The installation owner principal is not an active human; the owner-authored "
-                              "preparation operations cannot be authorized")
+        owner = None
+        if request["roles"] or request["adoptions"] or request["managed"] or request["native"]:
+            # The owner-authored operations need the installation owner; a plan with no preparation needs none.
+            owner = removal._installation_owner(connection)
+            active = connection.execute("SELECT 1 FROM principals WHERE id=? AND kind='human' AND active=1",
+                                        (owner,)).fetchone()
+            if active is None:
+                raise DomainError("forbidden", "The installation owner principal is not an active human; the "
+                                  "owner-authored preparation operations cannot be authorized")
         intents, already_current, published = [], [], {}
         for role in _load_roles(paths, transition, request):
             artifact, package_id, version, digest = role["artifact"], role["id"], role["version"], role["digest"]
@@ -319,6 +323,8 @@ def _managed_intent(paths, owner: str, release: dict) -> dict:
     if plan["conflicts"] or not plan["complete"]:
         raise DomainError("import_conflict", "The managed upgrade has unresolved conflicts or an unusable module state; "
                           "resolve them before preparation", details={"conflicts": plan["conflicts"][:8]})
+    if plan["state"]["migration_required"]:
+        raise DomainError("unsupported_schema", "The module's own state upgrade is a separate prerequisite")
     changes = []
     for block in (plan["import"]["changes"], plan["management_seed"]["changes"], plan["overseer_seed"]["changes"]):
         for change in block:
@@ -328,6 +334,9 @@ def _managed_intent(paths, owner: str, release: dict) -> dict:
     code, head = _git(paths.agentic_root, "rev-parse", "HEAD")
     if code != 0 or not re.fullmatch(r"[0-9a-f]{40}", head):
         raise DomainError("agentic_installation_invalid", "The authored agentic tree has no readable Git history")
+    code, ref = _git(paths.agentic_root, "symbolic-ref", "HEAD")
+    if code != 0 or not ref.startswith("refs/heads/"):
+        raise DomainError("agentic_installation_invalid", "The authored agentic tree needs its selected branch")
     record, record_sha = upgrade.read_binding(paths)
     owner_sources = plan["provisioning"]["items"]
     return {"kind": "managed_upgrade", "identity": "managed:agentic", "operation": "agentic_upgrade_apply",
@@ -339,7 +348,7 @@ def _managed_intent(paths, owner: str, release: dict) -> dict:
             "changes": sorted(changes, key=lambda item: item["path"]),
             "history": {"directory": str(upgrade.history_directory(paths)), "sha256": record_sha,
                         "snapshot": str(upgrade.history_snapshot(paths, record_sha))},
-            "git": {"head": head},
+            "git": {"head": head, "ref": ref},
             "provisioning": sorted(item["path"] for item in owner_sources),
             "binding": {"path": str(Path(paths.instance_root) / "config" / RECORD), "version": plan["binding"]["target_version"],
                         "instance_id": record["instance_id"], "inventory_sha256": agentic_digest(plan["_prepared"]["inventory"]),

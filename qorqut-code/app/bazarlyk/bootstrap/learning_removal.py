@@ -1396,7 +1396,7 @@ def _effective_candidate(connection, business_id, identity, planned=None, planne
     return candidate
 
 
-def _classify_pending_plan(connection, operation, plan: ChangeSet, registry) -> str:
+def _classify_pending_plan(connection, operation, plan: ChangeSet, registry, *, target_validation=False) -> str:
     """Conservative effect classification: only provably factual, registered, removed-reference-free plans pass."""
     if _retired_operation(operation) or _retired_operation(plan.operation_name):
         return "engine"
@@ -1406,6 +1406,10 @@ def _classify_pending_plan(connection, operation, plan: ChangeSet, registry) -> 
         return "unclassified"
     learning = [change for change in plan.changes if change.resource.resource_type in RETAINED_LEARNING_TABLES]
     known_factual = plan.operation_name in FACTUAL_RECEIPT_OPERATIONS
+    if known_factual and target_validation:
+        # The shared validator understands retained embedded evidence and same-batch reconciliation. Do not reject
+        # those valid plans using the older row-only survey; the target Application must prove the entire plan next.
+        return "factual"
     if not learning:
         # A registered non-learning operation is not proof that its actual effect is independent of the removed
         # engine; only an explicit target-registry compatibility adapter can establish that. Fail closed.
@@ -1439,8 +1443,11 @@ def _pending_receipts(connection, extensions=None, target=None):
     counts = {"engine": 0, "incompatible": 0, "factual": 0, "unrelated": 0, "unclassified": 0, "unverified": 0,
               "unclassified_refs": [], "details": {}}
     registry = target.registry if target is not None else _pending_registry(extensions or NO_EXTENSIONS)
-    for row in connection.execute("SELECT id, operation_name, payload_hash, change_set FROM apply_receipts WHERE " +
-                                  ACTIVE_RECEIPT_PREDICATE):
+    # Materialised first: each proof builds a unit of work that (re)registers SQL functions on this connection, which SQLite
+    # refuses while a statement of the same connection is still open.
+    rows = connection.execute("SELECT id, operation_name, payload_hash, change_set FROM apply_receipts WHERE " +
+                              ACTIVE_RECEIPT_PREDICATE).fetchall()
+    for row in rows:
         receipt_id, operation, payload_hash, raw = row
         try:
             plan = ChangeSet.from_bytes(raw, expected_hash=payload_hash)
@@ -1451,7 +1458,8 @@ def _pending_receipts(connection, extensions=None, target=None):
             counts["unclassified_refs"].append({"receipt_id": receipt_id, "operation": operation,
                                                 "references": ["unreadable_pending_plan"]})
             continue
-        status = _classify_pending_plan(connection, operation, plan, registry)
+        status = _classify_pending_plan(connection, operation, plan, registry,
+                                        target_validation=target is not None and target.runtime is not None)
         reason = None
         if status == "factual":
             # A saved plan is never called resumable from its own row: the real target contracts prove it, read-only.
@@ -1485,8 +1493,9 @@ def _pending_signoffs(connection, extensions=None, target=None):
     counts = {"engine": 0, "incompatible": 0, "factual": 0, "unrelated": 0, "unclassified": 0, "unverified": 0,
               "details": []}
     registry = target.registry if target is not None else _pending_registry(extensions or NO_EXTENSIONS)
-    for row in connection.execute("SELECT id, operation_name, payload_hash, change_set FROM signoffs WHERE " +
-                                  ACTIVE_SIGNOFF_PREDICATE):
+    rows = connection.execute("SELECT id, operation_name, payload_hash, change_set FROM signoffs WHERE " +
+                              ACTIVE_SIGNOFF_PREDICATE).fetchall()
+    for row in rows:
         signoff_id, operation = row[0], row[1]
         try:
             plan = ChangeSet.from_bytes(row[3], expected_hash=row[2])
@@ -1497,7 +1506,8 @@ def _pending_signoffs(connection, extensions=None, target=None):
             counts["details"].append({"signoff_id": signoff_id, "operation": operation,
                                       "references": ["unreadable_pending_plan"]})
             continue
-        status = _classify_pending_plan(connection, operation, plan, registry)
+        status = _classify_pending_plan(connection, operation, plan, registry,
+                                        target_validation=target is not None and target.runtime is not None)
         reason = None
         if status == "factual":
             status, reason = _prove_factual(target, connection, "signoff", signoff_id)

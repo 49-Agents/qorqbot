@@ -18,7 +18,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import contextmanager
 
-from qorqut_operations.contracts import DomainError, InvocationOptions
+from qorqut_operations.contracts import ChangeSet, DomainError, InvocationOptions, canonical_hash, plain
 from qorqut_operations.storage.database import UnitOfWork
 from qorqut_operations.storage.executor import PreparedFileExecutor
 from qorqut_operations.storage.receipts import ApplyReceipts
@@ -64,8 +64,15 @@ def prove_receipt(target, connection, receipt_id: str) -> None:
         context = application.policy.context_for(
             plan.principal_id, business_id=business, review_business_id=plan.review_business_id,
             initiated_by_principal_id=plan.initiated_by_principal_id, job_id=plan.policy_binding.get("job_id"), uow=uow)
-        application.registry.get(plan.operation_name)
-        InvocationOptions.from_mapping(invocation["options"])
+        descriptor = application.registry.get(plan.operation_name)
+        options = InvocationOptions.from_mapping(invocation["options"])
+        expected_hash = canonical_hash({"operation": descriptor.name, "version": descriptor.version,
+            "arguments": plain(plan.arguments), "options": {**plain(options), "business_id": business,
+            "review_business_id": plan.review_business_id, "idempotency_key": None}})
+        if (not options.idempotency_key or invocation.get("idempotency_key") != options.idempotency_key
+                or PreparedFileExecutor._id(context, plan.target_namespace, descriptor.name, options) != receipt_id
+                or invocation["input_hash"] != expected_hash):
+            raise DomainError("invalid_plan", "The saved receipt cannot resume the same keyed invocation")
         application.validate_prepared(context, plan, uow, receipt_id=receipt_id, allow_unverified_files=True)
 
 
@@ -79,8 +86,18 @@ def prove_signoff(target, connection, signoff_id: str) -> None:
 
 def _prove_signoff(application, connection, uow, signoff_id: str) -> None:
     row = decode_row(connection.execute("SELECT * FROM signoffs WHERE id = ?", (signoff_id,)).fetchone())
-    if row is None or row["state"] not in ("pending", "approved"):
+    retryable = (row is not None and row["state"] == "failed" and (row["error_json"] or {}).get("retryable") is True
+                 and (row["decision_json"] or {}).get("kind") == "approve")
+    if row is None or (row["state"] not in ("pending", "approved") and not retryable):
         raise DomainError("unverified_pending_plan", "The saved Signoff is not a pending or approved proposal")
     if application.signoffs is None:
         raise DomainError("unverified_pending_plan", "The target composition has no Signoff service")
-    application.signoffs._validate(row, uow, approved=row["state"] == "approved")
+    if retryable:
+        # The service's retry inspection deliberately leaves the failed row untouched. It only returns to approved
+        # during a later, explicit owner retry; migration must not simulate that state transition.
+        plan = ChangeSet.from_bytes(row["change_set"], expected_hash=row["payload_hash"])
+        context = application.signoffs._proposer_context(plan, uow)
+        application.validate_prepared(context, plan, uow, receipt_id=row["id"],
+                                      allow_unverified_files=True, require_approval=False)
+    else:
+        application.signoffs._validate(row, uow, approved=row["state"] == "approved")

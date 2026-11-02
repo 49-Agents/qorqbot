@@ -280,7 +280,8 @@ def _verify_role(intent, result, connection, paths, attempt) -> dict:
     record = canonical_bytes(["role", artifact["id"], artifact["version"]]).decode("utf-8")
     stored = connection.execute("SELECT digest, stored_path FROM artifacts WHERE kind='role' AND artifact_id=? AND version=?",
                                 (artifact["id"], artifact["version"])).fetchone()
-    if stored is None or stored[0] != artifact["digest"]:
+    if (stored is None or stored[0] != artifact["digest"]
+            or stored[1] != str(artifact_directory(paths, artifact))):
         raise DomainError("operation_conflict", "The reviewed role artifact is not published with its reviewed digest",
                           details={"identity": intent["identity"]})
     for path, digest in files.items():
@@ -337,6 +338,7 @@ def _verify_profile(intent, result, connection, paths, attempt) -> dict:
     if image_fingerprint(current) != profile["after"] and not _later_step(attempt, intent):
         raise DomainError("operation_conflict", "The stored profile row is not the recorded adopted profile")
     old, new = image_document(before, "profile_json"), image_document(after, "profile_json")
+    _preserve_columns(before, after, {"profile_json", "revision", "updated_at"}, "profile")
     revision_before = dict(before)["revision"]
     if revision_before != agent["expected_revision"]:
         raise DomainError("operation_conflict", "The adopted profile was not at its reviewed revision")
@@ -363,6 +365,12 @@ def _git(root, *arguments):
     return done.returncode, done.stdout.strip()
 
 
+def _preserve_columns(before, after, changed, label):
+    old, new = dict(before), dict(after)
+    if set(old) != set(new) or any(old[key] != new[key] for key in old if key not in changed):
+        raise DomainError("operation_conflict", f"The {label} changed an unrelated stored column")
+
+
 def _verify_managed(intent, result, connection, paths, attempt) -> dict:
     """The managed upgrade left exactly what its reviewed public plan and its own retained receipts say.
 
@@ -372,19 +380,26 @@ def _verify_managed(intent, result, connection, paths, attempt) -> dict:
     provisioning root) is outside the operation's semantics."""
     from bazarlyk.agentic import upgrade
     from bazarlyk.agentic.installation import open_installation
+    from .learning_removal_managed import git_files, verify_state
     root = Path(paths.agentic_root)
     binding = intent["binding"]
     reviewed = {str(root / change["path"]): change["sha256"] for change in intent["changes"]}
     claims = {item["path"]: item for item in result["files"]}
-    git_prefix, state_prefix = str(root / ".git") + os.sep, str(Path(paths.agentic_runtime)) + os.sep
+    code, head = _git(root, "rev-parse", "HEAD")
+    status = _git(root, "status", "--porcelain")
+    ancestor = _git(root, "merge-base", "--is-ancestor", intent["git"]["head"], "HEAD")[0]
+    commit = ((result.get("result") or {}).get("data") or {}).get("upgrade_commit")
+    if code != 0 or status != (0, "") or ancestor != 0 or commit != head:
+        raise DomainError("operation_conflict", "The authored repository is not the clean, descended upgrade commit")
+    allowed = (git_files(intent, paths, claims, head) | verify_state(intent, paths, attempt, head)
+               | {binding["path"], intent["history"]["snapshot"]})
     if result["rows"]:
         raise DomainError("operation_conflict", "The managed upgrade may not change a database row")
     for path, claim in claims.items():
         if path in reviewed:
             if claim["after"] != reviewed[path]:
                 raise DomainError("operation_conflict", "A managed file does not hold its reviewed bytes", details={"path": path})
-        elif not (path.startswith(git_prefix) or path.startswith(state_prefix)
-                  or path in (binding["path"], intent["history"]["snapshot"])):
+        elif path not in allowed:
             raise DomainError("operation_conflict", "The managed upgrade changed a file its reviewed plan does not name",
                               details={"path": path})
     for path, digest in reviewed.items():
@@ -402,12 +417,6 @@ def _verify_managed(intent, result, connection, paths, attempt) -> dict:
     open_installation(paths, tuple(binding["selected_extensions"]))
     if _sha256_file(intent["history"]["snapshot"]) != intent["history"]["sha256"]:
         raise DomainError("operation_conflict", "The retained prior-binding snapshot is not the reviewed prior binding")
-    code, head = _git(root, "rev-parse", "HEAD")
-    status = _git(root, "status", "--porcelain")
-    ancestor = _git(root, "merge-base", "--is-ancestor", intent["git"]["head"], "HEAD")[0]
-    commit = ((result.get("result") or {}).get("data") or {}).get("upgrade_commit")
-    if code != 0 or status != (0, "") or ancestor != 0 or commit != head:
-        raise DomainError("operation_conflict", "The authored repository is not the clean, descended upgrade commit")
     return {"rows": set(), "files": set(claims)}
 
 
@@ -424,6 +433,12 @@ def _verify_native(intent, result, connection, paths, attempt) -> dict:
     if image_fingerprint(before) != claim["before"] or image_fingerprint(after) != claim["after"]:
         raise DomainError("operation_conflict", "The recorded registration row images do not match their fingerprints")
     old, new = dict(before), dict(after)
+    _preserve_columns(before, after, {"service_url", "profile_revision", "settings_digest", "skills_digest",
+                                      "projection_json", "compatibility_json", "revision", "updated_at"},
+                      "native registration")
+    from bazarlyk.bootstrap.preparation import service_url
+    if new["service_url"] != service_url(intent["endpoint"]):
+        raise DomainError("operation_conflict", "The refreshed registration selects an unreviewed service URL")
     for column in ("id", "principal_id", "workspace", "credential_id"):
         if old[column] != new[column]:
             raise DomainError("operation_conflict", "The refresh changed the registration's identity or credential",
