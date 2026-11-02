@@ -30,6 +30,7 @@
 .sg-row-actions .sg-actions { margin-top: 0; }
 .sg-row:has(.sg-detail:not([hidden])) .sg-row-actions { display: none; }
 .sg .sg-reject { border: 1px solid var(--line-2); background: transparent; color: var(--fg-2); }
+.sg .sg-review { border: 1px solid var(--line-2); background: transparent; color: var(--fg); }
 .sg .sg-approve { background: var(--accent); color: var(--accent-fg); border: 1px solid var(--accent); font-weight: 700; }
 .sg button:disabled { cursor: default; opacity: .45; }
 .sg button:focus-visible { outline: 2px solid var(--fg-2); outline-offset: 2px; }
@@ -119,3 +120,38 @@
 .sg-inline .sg-row-actions { display:none; }
 .sg-inline .sg-actions { margin-top:8px; }
 .sg-inline .sg .sg-inline-toggle { height:auto; min-height:0; margin-top:6px; padding:2px 0; border:0; background:none; color:var(--fg-2); font-size:11px; }
+
+/* Exact proposal content: always visible, including in compact inline cards. */
+.sg-content { margin: 0 0 16px; min-width: 0; font-size: 13px; line-height: 1.6; }
+.sg-content h3 { margin: 0 0 8px; }
+.sg-content h4 { margin: 10px 0 6px; font-size: 11px; font-weight: 600; color: var(--fg-3); overflow-wrap: anywhere; }
+.sg-content-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; margin: 4px 0; overflow-wrap: anywhere; }
+.sg-whatsapp .sg-content-row { grid-template-columns: 2em minmax(0, 1fr); }
+.sg-content-label { display: block; font-size: 11px; color: var(--fg-3); margin: 4px 0 4px; }
+.sg-content-row .sg-content-label { margin: 2px 0 0; }
+.sg-content-value { white-space: pre-wrap; overflow-wrap: anywhere; }
+.sg-secondary { color: var(--fg-3); font: 11px/1.5 var(--mono); overflow-wrap: anywhere; }
+.sg-recipient-name { font-weight: 600; overflow-wrap: anywhere; }
+.sg-text { max-height: 18em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font: 14px/1.6 var(--sans); padding: 6px 10px; border-left: 2px solid var(--line-2); background: var(--wash); color: var(--fg); }
+.sg-text:focus-visible, .sg-content summary:focus-visible { outline: 2px solid var(--fg-2); outline-offset: 2px; }
+.sg-none { color: var(--fg-3); font-style: italic; }
+.sg-unavailable { padding-left: 10px; border-left: 2px solid var(--line-2); }
+.sg-unavailable p { margin: 0; color: var(--fg-2); }
+.sg-email-source { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--line-2); }
+.sg-change-group + .sg-change-group { margin-top: 10px; }
+.sg-changes { margin: 0; }
+.sg-change { display: grid; grid-template-columns: minmax(80px, 150px) minmax(0, 1fr); gap: 10px; margin: 6px 0; }
+.sg-change dt { color: var(--fg-2); font-weight: 500; overflow-wrap: anywhere; }
+.sg-change dd { margin: 0; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.sg-from { color: var(--fg-3); text-decoration: line-through; text-decoration-color: var(--line-2); }
+.sg-arrow { color: var(--fg-3); }
+.sg-val-text { white-space: pre-wrap; }
+.sg-val-list { margin: 0; padding-left: 18px; }
+.sg-val-obj { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; }
+.sg-val-obj dt { color: var(--fg-3); }
+.sg-val-obj dd { margin: 0; display: block; }
+.sg-fulltext, .sg-more-changes { margin-top: 8px; flex-basis: 100%; }
+.sg-content summary { cursor: pointer; color: var(--fg-2); font-size: 12px; }
+@media (max-width: 520px) {
+  .sg-content-row, .sg-change { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
