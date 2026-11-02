@@ -19,7 +19,7 @@ def app_manifest():
         value = json.loads(Path(path).resolve(strict=True).read_text())
         if value["format"] != 1:
             raise ValueError
-        for name in ("core", "dashboard", "template"):
+        for name in ("core", "dashboard"):
             root = Path(value["components"][name]["path"])
             if not root.is_absolute() or not root.is_dir():
                 raise ValueError

@@ -16,7 +16,7 @@ from pathlib import Path, PurePosixPath
 
 from qorqut_operations.contracts import DomainError
 
-from bazarlyk.instance_paths import GRAPH_DIRECTORY, InstancePathError, InstancePaths
+from bazarlyk.instance_paths import GRAPH_DIRECTORY, PROJECTS_DIRECTORY, InstancePathError, InstancePaths
 
 AGENTS_SEGMENT = "agents"
 
@@ -33,7 +33,7 @@ def _selected(paths, call, *arguments, **options):
 def business_folder(business) -> str:
     folder = business["slug"] if hasattr(business, "keys") else None
     if not isinstance(folder, str) or not folder:
-        raise DomainError("invalid_configuration", "A registered business folder is required")
+        raise DomainError("invalid_configuration", "A registered project folder is required")
     return folder
 
 
@@ -111,19 +111,9 @@ def document_path_at(paths, business, location):
 
 
 def document_path_at_global(paths, location):
-    """A Global document's path: any operations-relative location outside the businesses, runtime and Context graph trees."""
+    """A Global document's path: any operations-relative location outside the projects, runtime and Context graph trees."""
     first = location.split("/", 1)[0]
-    return None if first in {"businesses", ".runtime", GRAPH_DIRECTORY} else location
-
-
-def business_runtime(paths, business_id) -> Path:
-    """Per-business private runtime state of this instance (never authored working material)."""
-    return paths.runtime / "businesses" / business_id
-
-
-def seed_marker(paths, business_id) -> Path:
-    """The private marker that lets an interrupted new-business materialization resume, outside every authored root."""
-    return business_runtime(paths, business_id) / "bootstrap-seed.json"
+    return None if first in {PROJECTS_DIRECTORY, ".runtime", GRAPH_DIRECTORY} else location
 
 
 def agent_workspace_of(paths, agent_id, home_business_id, slug) -> Path:

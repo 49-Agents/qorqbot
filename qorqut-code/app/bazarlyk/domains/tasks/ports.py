@@ -1,4 +1,4 @@
-"""The host's side of the engine's Tasks: who may be assigned, setup guards, Focus, incident links, note references, routing.
+"""The host's side of the engine's Tasks: who may be assigned, Focus, incident links, note references, routing.
 
 The Task flow itself (states, fields, parents, dependencies, tags, discussion, follows, events, snooze) is the Operations
 engine's ``TaskOperations``. Each class here answers one typed ``TaskPorts`` part with the retained v1 host rule; none
@@ -35,33 +35,6 @@ class HostAssignees:
 
     def owner_directed(self, ctx, identity, uow):
         return owner_directed_target(ctx, identity, uow)
-
-
-class HostSetupGuards:
-    """The business-setup domain answers the setup rules of a Task. It is bound once, after both exist."""
-
-    def __init__(self):
-        self.setup = None
-
-    def bind(self, setup):
-        if self.setup is not None:
-            raise RuntimeError("The business-setup guards are bound once")
-        self.setup = setup
-        return self
-
-    def _setup(self):
-        if self.setup is None:
-            raise RuntimeError("The business-setup guards were not bound")
-        return self.setup
-
-    def guard(self, ctx, uow, before, proposed, assignees, *, builder=None, planned=None):
-        return self._setup().task_guard(ctx, uow, before, proposed, assignees, builder=builder, planned=planned or ())
-
-    def view(self, uow, business_id, task_id):
-        return self._setup().task_setup(uow, business_id, task_id)
-
-    def config_guard(self, ctx, uow, config):
-        return self._setup().config_guard(ctx, uow, config)
 
 
 class HostFocus:
@@ -157,10 +130,10 @@ class HostRouting:
         return sorted(required)
 
 
-def task_ports(application, setup_guards: HostSetupGuards, campaigns) -> TaskPorts:
-    return TaskPorts(assignees=HostAssignees(), setup=setup_guards, focus=HostFocus(application), incidents=HostIncidents(),
+def task_ports(application, campaigns) -> TaskPorts:
+    return TaskPorts(assignees=HostAssignees(), focus=HostFocus(application), incidents=HostIncidents(),
                      references=HostNoteReferences(application), campaigns=campaigns, routing=HostRouting())
 
 
-__all__ = ["HostAssignees", "HostFocus", "HostIncidents", "HostNoteReferences", "HostRouting", "HostSetupGuards", "NOTE_REFS",
+__all__ = ["HostAssignees", "HostFocus", "HostIncidents", "HostNoteReferences", "HostRouting", "NOTE_REFS",
            "NOTE_REF_TYPES", "task_ports"]

@@ -1208,9 +1208,9 @@ class ImmutablePackageAdapter(Adapter):
 
 
 def _validate_business_template(root: Path) -> None:
-    from bazarlyk.domains.business_creation import SCAFFOLD
+    from .template_inventory import SCAFFOLD
 
-    # These are the same files consumed by business creation. Reject
+    # The template's frozen historical inventory (release-owned, not a creator input). Reject
     # symlinked parents too: a release must carry its own immutable scaffold.
     for relative in SCAFFOLD:
         if relative == ".gitignore":

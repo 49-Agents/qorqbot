@@ -16,7 +16,7 @@ from .whatsapp_send import WhatsAppSendOperations
 from .ledger import LedgerOperations
 from .metrics import MetricOperations
 from .platform_actions.operations import PlatformActions
-from .tasks import HostSetupGuards, task_ports
+from .tasks import task_ports
 from .tables import TableOperations
 from .tables.uploads import DataUploadOperations
 from .campaigns import CampaignResponsibility, CampaignRules
@@ -45,7 +45,6 @@ from .milestones import MilestoneOperations
 from .business_progress import BusinessProgress
 from .business_briefing import BusinessBriefing
 from .business_archive import BusinessArchive
-from .business_setup import BusinessSetupOperations
 from bazarlyk.incidents import IncidentOperations
 
 
@@ -73,15 +72,14 @@ class BusinessDomains:
     context_sources: ContextSourceOperations = None
     context_questions: ContextQuestionOperations = None
     shared_context: SharedContextReader = None
-    business_setup: BusinessSetupOperations = None
     viewbox: AgentViewbox = None
     actions: ActionOperations = None
     tags: TagOperations = None
     queue: ContextQueueOperations = None
 
     def resolve_file_target(self, resource):
-        if resource.resource_type == "business_creation_files":
-            return self.business_creation.creation.file_target(resource)
+        if resource.resource_type == "business_creation_directories":
+            return self.business_creation.creation.directory_target(resource)
         return self.documents.store.resolve_file_target(resource)
 
 
@@ -129,16 +127,12 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     from .email.unified import UnifiedEmailOperations
     UnifiedEmailOperations(email=email, account=account_email, platform=platform_actions,
                            resolver=agent_resolver).register(registry)
-    # Business setup is constructed first only because its edge guard is the neutral relationships' protected-edge port;
-    # its operations are registered below, in their v1 position.
-    business_setup = BusinessSetupOperations(application, None, clock=clock)
-    neutral = build_neutral_items(application, documents=documents, email=email, business_setup=business_setup, clock=clock)
+    neutral = build_neutral_items(application, documents=documents, email=email, clock=clock)
     # The engine's operational records: the shared tag catalog, Tasks (over the neutral items and the host's ports),
-    # Actions and the Context input queue. Their handlers install here; the host's setup rules answer through ports.
-    setup_guards = HostSetupGuards()
+    # Actions and the Context input queue. Their handlers install here.
     campaign_rules = CampaignRules()
     tags = TagOperations(clock=clock)
-    tasks = TaskOperations(application, neutral.items, task_ports(application, setup_guards, campaign_rules), clock=clock)
+    tasks = TaskOperations(application, neutral.items, task_ports(application, campaign_rules), clock=clock)
     actions = ActionOperations(application, tasks.note_references(), clock=clock)
     # The caller that wires ``filing`` or ``graph_edits`` hands in the one queue those ports and the driver share; otherwise a
     # queue with its own outcome and execution facts is built here.
@@ -146,19 +140,16 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
         queue = ContextQueueOperations(outcomes=FilingOutcomes(), clock=clock, executions=ExecutionFacts())
     for contribution in (tags.contribution(), tasks.contribution(), actions.contribution(), queue.contribution()):
         install_contribution(registry, contribution)
-    business_setup.tasks = platform_actions.tasks = tasks
-    setup_guards.bind(business_setup)
+    platform_actions.tasks = tasks
     campaign_rules.bind(tasks, neutral.related)
     CampaignResponsibility(tasks, neutral.related, clock=clock).register(registry)
     OwnerActions(paths, clock=clock).register(registry)
     ProductOperations(application, clock=clock).register(registry)
     install_contribution(registry, neutral.relationships.contribution())
-    business_setup.register(registry)
-    email.setup_reconcile = business_setup.reconcile
     archive = BusinessArchive(application)
     archive.resolver = agent_resolver
     archive.register(registry)
-    business_creation = BusinessCreationOperations(application, agent_resolver, documents)
+    business_creation = BusinessCreationOperations(application, paths)
     business_creation.register(registry)
     personal_context = PersonalContextOperations(documents)
     personal_context.register(registry)
@@ -170,4 +161,4 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     if agent_resolver is not None:
         agent_resolver.working_memory = memory
     documents.working_memory = memory
-    return BusinessDomains(tasks, ledger, metrics, activity, documents, assets, platform_actions, email, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, business_creation, personal_context, subscriptions, memory, archive, context_sources=context_sources, context_questions=context_questions, shared_context=shared_context, business_setup=business_setup, viewbox=viewbox, actions=actions, tags=tags, queue=queue)
+    return BusinessDomains(tasks, ledger, metrics, activity, documents, assets, platform_actions, email, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, business_creation, personal_context, subscriptions, memory, archive, context_sources=context_sources, context_questions=context_questions, shared_context=shared_context, viewbox=viewbox, actions=actions, tags=tags, queue=queue)

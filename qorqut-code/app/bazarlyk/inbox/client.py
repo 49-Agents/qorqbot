@@ -24,7 +24,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--url', default='http://127.0.0.1:1049')
     scope = parser.add_mutually_exclusive_group(required=True)
-    scope.add_argument('--business', help='Business slug')
+    scope.add_argument('--business', help='Project slug')
     scope.add_argument('--global', dest='global_scope', action='store_true')
     commands = parser.add_subparsers(dest='command', required=True)
     recipients = commands.add_parser('recipients')

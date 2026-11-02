@@ -9,7 +9,7 @@ from qorqut_operations.contracts import DomainError
 SOFTWARE_OWNERSHIP_BOUNDARY = (
     "Ownership boundary for software and design work: implementation belongs to the owner by default; a request "
     "such as \"I need a landing page\" does not assign it to you. A direct owner instruction to you, such as changing "
-    "a specific button, assigns that execution to you: carry it out in the business's registered code workspace with "
+    "a specific button, assigns that execution to you: carry it out in the project's registered code workspace with "
     "native file, shell, Git and test tools instead of handing it back. Ordubashy may pass that owner-authorized "
     "implementation to a permanent global worker; no further owner message is needed. "
     "Never edit Qorqut engine or dashboard code. "

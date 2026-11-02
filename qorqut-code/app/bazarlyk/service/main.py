@@ -198,12 +198,12 @@ def main(argv=None):
                         "the library defaults apply without it")
     parser.add_argument("--github-app-config", type=Path,
                         default=os.environ.get("QORQUT_GITHUB_APP_CONFIG") or None,
-                        help="Private external host configuration for business GitHub access (or QORQUT_GITHUB_APP_CONFIG)")
+                        help="Private external host configuration for project GitHub access (or QORQUT_GITHUB_APP_CONFIG)")
     args = parser.parse_args(argv)
     try:
         if args.workspace is None:
             raise DomainError("invalid_configuration", "Set the explicit engine workspace with --workspace")
-        paths = instance_paths_from_arguments(args, required=("app", "dashboard", "template"))
+        paths = instance_paths_from_arguments(args, required=("app", "dashboard"))
         # The one operational database of the instance; the engine validates its stored target identity and exact schema.
         from bazarlyk.composition.assembly import host_assembly, open_database
         from bazarlyk.service.changes import ChangeFeed
@@ -212,7 +212,7 @@ def main(argv=None):
             with database.read() as uow:
                 registered = {str(Path(row["workspace"]).resolve()) for row in uow.repository("businesses").list()}
             if any(str(Path(path).expanduser().resolve()) not in registered for path in args.biz):
-                raise DomainError("invalid_configuration", "--biz accepts registered business folders only; it does not import them")
+                raise DomainError("invalid_configuration", "--biz accepts registered project folders only; it does not import them")
         local_host = "127.0.0.1" if args.host in {"0.0.0.0", "::"} else args.host
         if ":" in local_host:
             local_host = "[" + local_host.strip("[]") + "]"

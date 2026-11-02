@@ -26,7 +26,7 @@ class BusinessProgress:
         register(registry, self.clock)
         registry.register(OperationDescriptor("business_progress_get", schema({"days": {"enum": [30, 90, 365]}}),
             effect_kind="read", supports_signoff=False,
-            description="Owner read: all-time recorded totals and daily San Juan (America/Puerto_Rico) series for captured outgoing emails, confirmed cold-outreach sends, distinct tasks first marked done, completed actions linked to this business (on their occurrence day) and approved signoffs. Missing dates are explicit, never guessed.",
+            description="Owner read: all-time recorded totals and daily San Juan (America/Puerto_Rico) series for captured outgoing emails, confirmed cold-outreach sends, distinct tasks first marked done, completed actions linked to this project (on their occurrence day) and approved signoffs. Missing dates are explicit, never guessed.",
             read=self.read))
 
         registry.register(OperationDescriptor('global_progress_get', schema({'days': {'enum': [30,120,365]}}),
@@ -77,7 +77,7 @@ class BusinessProgress:
     def read(self, ctx, args, opts, uow):
         member = uow.repository("business_memberships", business_id=ctx.business_id).get(ctx.principal_id)
         if ctx.principal_kind != "human" or not member or not member["active"] or not member["is_owner"]:
-            raise DomainError("forbidden", "Business progress requires its owner")
+            raise DomainError("forbidden", "Project progress requires its owner")
         end = local_time.today(self.clock)
         days = args.get("days", 30)
         series = {(end-timedelta(days=i)).isoformat(): {key: 0 for key in KEYS} for i in reversed(range(days))}

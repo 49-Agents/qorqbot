@@ -15,7 +15,7 @@ RESOURCE = "business_environment_files"
 
 def file_target(runtime, resource):
     if not resource.business_id or resource.resource_id not in {"shared", "private"}:
-        raise DomainError("invalid_plan", "Settings require a registered business target")
+        raise DomainError("invalid_plan", "Settings require a registered project target")
     path = LocalFiles(runtime).env_path(resource.business_id)
     return RegisteredFileTarget(path.parent, ".env.private.json" if resource.resource_id == "private" else ".env")
 
@@ -56,7 +56,7 @@ def persist_settings(local, business_id, row, values):
         receipt["private_hash"] = hashlib.sha256(after).hexdigest()
     if shared != shared_before:
         if len(shared) > 1024 * 1024:
-            raise DomainError("payload_too_large", "Business Settings exceed their size limit")
+            raise DomainError("payload_too_large", "Project Settings exceed their size limit")
         safe_io.atomic_write(path, shared, mode=0o600, enforce_mode=True,
                              expected_hash=hashlib.sha256(shared_before).hexdigest() if shared_before is not None else None)
         receipt["shared_hash"] = hashlib.sha256(shared).hexdigest()
@@ -79,13 +79,13 @@ def register_environment_write(runtime):
     def require_scope(ctx, uow):
         runtime.require_authority()
         if not ctx.business_id:
-            raise DomainError("forbidden", "Select a business to write Settings")
+            raise DomainError("forbidden", "Select a project to write Settings")
         if ctx.principal_kind == "human":
             local.require_environment_owner(ctx, uow)
         elif ctx.principal_kind == "agent":
             # An active supported global reaches every active business; no membership row is consulted.
             if not active_business_participant(uow.connection, ctx.business_id, ctx.principal_id):
-                raise DomainError("forbidden", "Settings writes require active business access")
+                raise DomainError("forbidden", "Settings writes require active project access")
         else:
             raise DomainError("forbidden", "Settings writes require a permitted agent or owner")
 
@@ -119,8 +119,8 @@ def register_environment_write(runtime):
             if len(local.environment_pairs(ctx.business_id)) >= 500 and key not in {p["key"] for p in local.environment_pairs(ctx.business_id)}:
                 raise DomainError("validation_error", "Settings contain too many entries")
         if len(after) > 1024 * 1024:
-            raise DomainError("payload_too_large", "Business Settings exceed their size limit")
-        builder = PlanBuilder(ctx, "environment_set", args, "Set business Settings value " + key)
+            raise DomainError("payload_too_large", "Project Settings exceed their size limit")
+        builder = PlanBuilder(ctx, "environment_set", args, "Set project Settings value " + key)
         digest = hashlib.sha256(before).hexdigest() if before is not None else None
         builder.targets[resource] = ExpectedTarget(resource, exists=before is not None, content_hash=digest)
         # A newly added private binding must not race a write to shared Settings.
@@ -143,9 +143,6 @@ def register_environment_write(runtime):
         for change in plan.changes:
             if change.kind == "file":
                 receipt[change.resource.resource_id + "_hash"] = change.values["after_hash"]
-        setup = getattr(runtime.domains, "business_setup", None)
-        if setup is not None:
-            setup.reconcile(ctx, uow, ctx.business_id, "Settings key " + plan.arguments["key"] + " changed")
         return {"key": plan.arguments["key"], "configured": bool(plan.arguments["value"]), "origin": "business",
                 "receipt": receipt}
 
@@ -156,8 +153,8 @@ def register_environment_write(runtime):
         "rationale": {"type": "string", "maxLength": 2000}}, ("key", "value")),
         effect_kind="compound", scope_kinds={"business"}, exposure={"mcp", "dashboard"},
         prepare=prepare, apply=apply, validate_targets=validate,
-        description="Set one Settings key/value in the selected business, including credentials. Preserves unrelated "
+        description="Set one Settings key/value in the selected project, including credentials. Preserves unrelated "
             "settings and existing private-role restrictions; never writes Global Settings. Pass the actual value "
-            "directly; empty stores an empty business override. Reuse idempotency_key on retries. Returns a receipt "
+            "directly; empty stores an empty project override. Reuse idempotency_key on retries. Returns a receipt "
             "(key names and file hash, never values). New terminal sessions load updated environment values; existing "
             "shells are not restarted."))

@@ -20,10 +20,10 @@ class NeutralItems:
     reviews: ContextReviews
 
 
-def build_neutral_items(application, *, documents, email, business_setup, clock=utc_clock) -> NeutralItems:
+def build_neutral_items(application, *, documents, email, clock=utc_clock) -> NeutralItems:
     related = RelatedResources(application, documents)
     contribution = ItemContribution("host-items", ITEM_TYPES, HostItems(application, documents, email, related))
     items = ItemResolver(application, (contribution,), candidates=HostItemCandidates())
-    ports = relationship_ports(items, documents=documents, business_setup=business_setup, clock=clock)
+    ports = relationship_ports(items, documents=documents, clock=clock)
     relationships = RelationshipOperations(items, ports, clock=clock)
     return NeutralItems(related, items, relationships, relationships.reviews)

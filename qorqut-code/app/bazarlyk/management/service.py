@@ -82,7 +82,7 @@ class ManagementService:
         elif ctx.principal_kind == 'agent':
             # An agent reaches a business only as a current supported global; agent membership rows are not consulted.
             if not reaches_business(uow.connection, ctx.principal_id, business_id):
-                raise DomainError('forbidden', 'Management source business is unavailable')
+                raise DomainError('forbidden', 'Management source project is unavailable')
         elif not uow.connection.execute(
                 'SELECT 1 FROM business_memberships m JOIN businesses b ON b.id=m.business_id '
                 'WHERE m.principal_id=? AND m.business_id=? AND m.active=1 AND b.archived_at IS NULL',
@@ -209,7 +209,7 @@ class ManagementService:
     def prepare_message(self, ctx, args, options, uow):
         normalize_summary(args.get('summary'))
         if ctx.principal_kind != 'agent':
-            raise DomainError('forbidden', 'Management intake is for business agents')
+            raise DomainError('forbidden', 'Management intake is for project agents')
         coordinator = self._coordinator(uow)
         if coordinator == ctx.principal_id:
             raise DomainError('validation_error', 'Coordinator cannot send management messages to itself')

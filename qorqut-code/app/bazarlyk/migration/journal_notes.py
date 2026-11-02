@@ -79,7 +79,7 @@ def main():
     add_instance_arguments(parser)
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
-    runtime = build_runtime(args.root, args.workspace, paths=instance_paths_from_arguments(args, required=('app', 'template')))
+    runtime = build_runtime(args.root, args.workspace, paths=instance_paths_from_arguments(args, required=('app',)))
     print(json.dumps(migrate(runtime, apply=args.apply), indent=2))
 
 

@@ -76,9 +76,9 @@ class Broadcasts:
         if business_id is None and "read_global_context" not in ctx.global_capabilities:
             raise DomainError("forbidden", "Global recipient is outside your scope")
         if business_id is not None and business_id not in ctx.allowed_business_ids:
-            raise DomainError("forbidden", "Recipient business is outside your scope")
+            raise DomainError("forbidden", "Recipient project is outside your scope")
         if business_id is not None and not reaches_business(uow.connection, recipient, business_id):
-            raise DomainError("not_found", "Recipient business is unavailable")
+            raise DomainError("not_found", "Recipient project is unavailable")
         if recipient == ctx.principal_id and allow_self: return {"agent_id": recipient, "business_id": business_id}
         from dataclasses import replace
         selected = replace(ctx, business_id=business_id)

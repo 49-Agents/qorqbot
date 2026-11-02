@@ -59,7 +59,7 @@ class TerminalControl:
         business-home identity is never dispatched to whatever its stored status; inbox delivery remains."""
         if ctx.principal_kind == 'human':
             self.owner(ctx, uow)
-        raise DomainError('forbidden', 'Direct terminal messages targeted retired business Dev agents; use inbox delivery')
+        raise DomainError('forbidden', 'Direct terminal messages targeted retired project Dev agents; use inbox delivery')
 
     def queue_message(self, ctx, message, uow):
         target = self.message_target(ctx, message['recipient_id'], uow)
@@ -116,10 +116,10 @@ class TerminalControl:
             identities.add(args['target_agent_id'])
         for business_id in sorted(set(args.get('business_ids', []))):
             if business_id not in ctx.allowed_business_ids:
-                raise DomainError('forbidden', 'Selected business is outside current scope')
+                raise DomainError('forbidden', 'Selected project is outside current scope')
             business = uow.repository('businesses').get(business_id)
             if not business or business['archived_at'] is not None:
-                raise DomainError('forbidden', 'Selected business is unavailable')
+                raise DomainError('forbidden', 'Selected project is unavailable')
             # Businesses have no resident agents, so a business selection adds no targets.
         if not identities or len(identities) > MAX_TARGETS:
             raise DomainError('validation_error', f'Select between 1 and {MAX_TARGETS} active agents')

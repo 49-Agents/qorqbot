@@ -20,7 +20,7 @@ class Messages:
     def register(self, common):
         self.app.registry.register(OperationDescriptor('agents_message_send', schema({
             'scope': {'enum': ['business', 'global']}, 'to_agent_id': UUID, 'reply_to': UUID, 'summary': SUMMARY,
-            'delivery': {'enum': ['inbox', 'terminal'], 'description': 'Default inbox. terminal targeted retired business Dev agents and is refused; use inbox.'},
+            'delivery': {'enum': ['inbox', 'terminal'], 'description': 'Default inbox. terminal targeted retired project Dev agents and is refused; use inbox.'},
             'message': {'type': 'string', 'minLength': 1, 'maxLength': 16000}}, ('message',)),
             **common, description='Send a durable internal message to a scoped agent. For a reply, supply reply_to; recipient is inferred. No agent may message Learning Applier; those roles can send outbound. Not a task assignment or permission grant.',
             prepare=self.prepare, apply=self.apply))
@@ -31,7 +31,7 @@ class Messages:
         self.app.registry.register(OperationDescriptor('agents_message_recipients', schema({
             'scope': {'enum': ['business', 'global']}, 'all_businesses': {'type': 'boolean'},
             'role_id': {'type': 'string', 'minLength': 1, 'maxLength': 100}}), **common, effect_kind='read',
-            description='Find active agents in the selected scope, or all authorized businesses with all_businesses=true. Filter role_id (for example global-worker). Each row includes business_id for sends; IDs are authoritative.', read=self.recipients))
+            description='Find active agents in the selected scope, or all authorized projects with all_businesses=true. Filter role_id (for example global-worker). Each row includes business_id for sends; IDs are authoritative.', read=self.recipients))
 
     @staticmethod
     def scope_visible(ctx, business):

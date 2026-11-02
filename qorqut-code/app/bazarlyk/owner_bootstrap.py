@@ -38,12 +38,12 @@ MAX_INDEX_ITEMS = 50
 GUIDANCE = (
     "Deeper context is fetched on demand: start with context_home, search context_find, then read"
     " context_object and context_expand. This orientation is an index, not the whole graph.",
-    "Business direction (strategy, positioning, offers, budgets, marketing direction) belongs to the owner with"
+    "Project direction (strategy, positioning, offers, budgets, marketing direction) belongs to the owner with"
     " Ordubashy, who delegates bounded work to the permanent workers; the business-owned strategy and marketing"
-    " notes are listed with notes_list and read with notes_get. Businesses have no resident agents: Ordubashy"
-    " coordinates execution across businesses and the global agents work here when the owner directs them.",
+    " notes are listed with notes_list and read with notes_get. Projects have no resident agents: Ordubashy"
+    " coordinates execution across projects and the global agents work here when the owner directs them.",
     "Direct coordination uses agents_message_recipients, agents_message_send and agents_messages_list"
-    " within this business; create and assign same-business tasks when work needs durable follow-up. These"
+    " within this project; create and assign same-business tasks when work needs durable follow-up. These"
     " messages are distinct from the owner_conversation private discussion attached to a task,"
     " Signoff or email object.",
     "No autonomous work loop is started and nothing is claimed, announced, handed off or reported"
@@ -72,7 +72,7 @@ class OwnerSessionBootstrap:
         registry.register(OperationDescriptor(NAME, schema(), effect_kind="read", supports_signoff=False,
             scope_kinds=frozenset({"business"}), exposure=frozenset({"mcp"}),
             read=lambda ctx, arguments, options, uow: self.read(ctx, uow),
-            description="Orientation for an owner-directed code session: the bound business, its coordinator,"
+            description="Orientation for an owner-directed code session: the bound project, its coordinator,"
                         " its engineering authority, registered repositories and code root, the shared"
                         " published Context home, and a bounded index of further context. Returns no tasks,"
                         " Signoffs or inbox data and changes nothing."))
@@ -126,7 +126,7 @@ class OwnerSessionBootstrap:
 
     @staticmethod
     def _peer_line():
-        return ("Businesses have no resident business agent or Dev; do not assign this business's work to any"
+        return ("Projects have no resident project agent or Dev; do not assign this project's work to any"
                 " other agent without the owner's instruction. This session remains the owner's own code session.")
 
     def _engineering(self, business, missing):
@@ -136,10 +136,10 @@ class OwnerSessionBootstrap:
         repositories = plain(config.get("code") or [])
         if not authority:
             missing.append({"source": "engineering.authority", "reason": "unconfigured",
-                            "detail": "No engineering authority is registered for this business"})
+                            "detail": "No engineering authority is registered for this project"})
         if not repositories:
             missing.append({"source": "engineering.repositories", "reason": "none_registered",
-                            "detail": "No code repositories are registered in the business configuration"})
+                            "detail": "No code repositories are registered in the project configuration"})
         return {"code_root": business["workspace"].rstrip("/") + "/code", "workspace": business["workspace"],
                 "authority": authority, "repositories": repositories,
                 "note": "Owner/Ordubashy-managed; absent targets are unconfigured. No credential values are"
@@ -180,6 +180,6 @@ class OwnerSessionBootstrap:
                           "availability": summary["availability"], "updated_at": row["updated_at"]})
         if not selected:
             missing.append({"source": "context_index", "reason": "no_documents",
-                            "detail": "This business has no authored context documents yet"})
+                            "detail": "This project has no authored context documents yet"})
         return {"items": items, "total": len(selected), "truncated": len(selected) > len(items),
                 "projection": "registered_metadata"}

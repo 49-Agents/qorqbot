@@ -16,7 +16,7 @@ NAMESPACE = "qorqut/global-agents-retirement/v1/backlog"
 NOTICE_NAMESPACE = "qorqut/global-agents-retirement/v1/handoff"
 MANIFEST_KEY = "global_agents_retirement_backlog"
 SCHEMA_VERSION = 1
-TITLE = "Review messages left for retired business agents"
+TITLE = "Review messages left for retired project agents"
 # The only finding code this migration captures; any other open finding of the cohort needs a Manager decision.
 FINDING_CODE = "work_review_missing"
 # Bounds that keep the immutable manifest (and the Task thread that returns it) small. A larger set refuses.
@@ -27,7 +27,7 @@ ENTRY_KEYS = ("message_id", "event_id", "recipient_agent_id", "business_id")
 FINDING_KEYS = ("agent_id", "check_key")
 # Engine-shaped change record of a Task thread's system entry for a change of details without a state change.
 NOTICE_CHANGE = '{"details": true, "from": null, "to": null}'
-NOTICE_BODY = ("Responsibility for this Task moved to the current Ordubashy when the business agent that held it was retired. "
+NOTICE_BODY = ("Responsibility for this Task moved to the current Ordubashy when the project agent that held it was retired. "
                "This is a system handoff notice: it is not an instruction or an approval, and the Task was not started, "
                "completed or otherwise changed beyond who is responsible for it.")
 SYSTEM_ATTRIBUTION = '{"kind":"system"}'
@@ -71,7 +71,7 @@ def attribution(value):
 def body(value):
     """The note of the backlog entry for a manifest: counts and the exact read invocation, never message content."""
     messages, findings = len(value["entries"]), len(value["findings"])
-    parts = ["Historical review of messages left for retired business agents."]
+    parts = ["Historical review of messages left for retired project agents."]
     if messages:
         parts.append(
             f"{messages} direct message{'s were' if messages != 1 else ' was'} still unacknowledged when the business agents "

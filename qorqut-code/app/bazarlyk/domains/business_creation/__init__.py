@@ -1,3 +1,2 @@
-"""Direct business creation and its founding Context upload."""
-from .creation import SCAFFOLD
+"""Direct project creation: one configured-Ordubashy operation makes an empty project."""
 from .operations import BusinessCreationOperations

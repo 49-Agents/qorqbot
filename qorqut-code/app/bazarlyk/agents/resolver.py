@@ -229,7 +229,7 @@ class AgentConfigResolver:
         scope = data["scope"]
         allowed = frozenset((scope["business_id"],)) if scope["kind"] == "business" else frozenset(scope["allowed_business_ids"])
         if review_business_id and review_business_id not in allowed:
-            raise DomainError("forbidden", "Review business is outside the current scope")
+            raise DomainError("forbidden", "Review project is outside the current scope")
         return InvocationContext(principal, business_id=data.get("business_id"), home_business_id=scope.get("business_id"),
             allowed_business_ids=allowed, global_capabilities=frozenset(scope.get("global_capabilities", ())),
             profile_revision=data["profile_revision"], policy_revision=data["profile_revision"],
@@ -263,9 +263,9 @@ class AgentConfigResolver:
         target = ctx.business_id or profile.scope.business_id
         require_active_business(uow.connection, target)
         if target is not None and target not in profile.scope.businesses:
-            raise DomainError("forbidden", "The selected business is no longer in the current agent scope")
+            raise DomainError("forbidden", "The selected project is no longer in the current agent scope")
         if ctx.review_business_id and ctx.review_business_id not in profile.scope.businesses:
-            raise DomainError("forbidden", "The review business is no longer in the current agent scope")
+            raise DomainError("forbidden", "The review project is no longer in the current agent scope")
         return replace(ctx, business_id=target, home_business_id=profile.scope.business_id,
             allowed_business_ids=profile.scope.businesses & active_business_ids(uow.connection), global_capabilities=frozenset(profile.scope.global_capabilities),
             profile_revision=profile.revision, policy_revision=profile.revision, role_artifact_ref=profile.role,
@@ -281,12 +281,12 @@ class AgentConfigResolver:
             target = business_id or profile.scope.business_id
             require_active_business(connection, target)
             if target is not None and target not in profile.scope.businesses:
-                raise DomainError("forbidden", "Selected business is outside the agent's current scope")
+                raise DomainError("forbidden", "Selected project is outside the agent's current scope")
             businesses = []
             for permitted in sorted(profile.scope.businesses):
                 business = connection.execute("SELECT * FROM businesses WHERE id=?", (permitted,)).fetchone()
                 if business is None:
-                    raise DomainError("invalid_scope", f"Profile references an unregistered business: {permitted}")
+                    raise DomainError("invalid_scope", f"Profile references an unregistered project: {permitted}")
                 if business["archived_at"] is None:
                     businesses.append({**dict(business), "display_name": business["name"]})
             selected = next((item for item in businesses if item["id"] == target), None)

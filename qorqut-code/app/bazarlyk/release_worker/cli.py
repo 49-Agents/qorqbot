@@ -92,6 +92,16 @@ def build_parser() -> argparse.ArgumentParser:
     telegram_media.add_argument("--selection", type=Path, required=True)
     telegram_media.add_argument("--stage", choices=("inspect", "prepare", "apply", "verify"), required=True)
     telegram_media.add_argument("--confirm-upgrade", action="store_true")
+    project_transition = commands.add_parser("v12-project-transition", help="inspect, prepare, apply and verify the offline Project transition (business setups purged, businesses renamed to projects) of the stopped v1.2 instance before a coordinated update")
+    project_transition.add_argument("--selection", type=Path, required=True)
+    project_transition.add_argument("--stage", choices=("inspect", "prepare", "apply", "verify"), required=True)
+    project_transition.add_argument("--confirm-transition", action="store_true")
+    rehearsal = commands.add_parser("v12-project-transition-rehearse", help="rehearse the Project transition on an isolated, marked private copy of a stopped instance, stopping between journaled phases to prove each recovery")
+    rehearsal.add_argument("--selection", type=Path, required=True)
+    rehearsal.add_argument("--private-root", type=Path, required=True)
+    rehearsal.add_argument("--interrupt-after", action="append", default=[], metavar="PHASE")
+    rehearsal.add_argument("--interrupt-after-every-phase", action="store_true")
+    rehearsal.add_argument("--confirm-rehearsal", action="store_true")
     helper_update = commands.add_parser("v12-helper-activate", help="activate explicitly selected same-protocol native helpers without restarting sessions")
     helper_update.add_argument("--selection", type=Path, required=True)
     helper_update.add_argument("--confirm-adopt", action="store_true")
@@ -189,6 +199,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "v12-ideas-removal":
             from .v12_ideas_removal import ideas_removal
             _json(ideas_removal(args.selection, stage=args.stage, confirm=args.confirm_removal))
+            return 0
+        if args.command == "v12-project-transition":
+            from .v12_project_transition import project_transition
+            _json(project_transition(args.selection, stage=args.stage, confirm=args.confirm_transition))
+            return 0
+        if args.command == "v12-project-transition-rehearse":
+            from .v12_project_transition_rehearsal import rehearse
+            if not args.confirm_rehearsal:
+                raise ReleaseError("v12-project-transition-rehearse requires explicit rehearsal authorization")
+            _json(rehearse(args.selection, root=args.private_root, interrupt_after=args.interrupt_after,
+                           every_phase=args.interrupt_after_every_phase))
             return 0
         if args.command == "v12-telegram-media":
             from .v12_telegram_media import telegram_media

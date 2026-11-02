@@ -219,12 +219,12 @@ class PrivateConversations:
             business = named
         else:
             if 'business_id' in source and named != ctx.business_id:
-                raise DomainError('validation_error', 'Source business must match the selected business')
+                raise DomainError('validation_error', 'Source project must match the selected project')
             business = ctx.business_id
         if kind in BUSINESS_ONLY and business is None:
-            raise DomainError('validation_error', 'Email threads belong to one business')
+            raise DomainError('validation_error', 'Email threads belong to one project')
         if kind == 'reference' and business is not None:
-            raise DomainError('validation_error', 'Focus References are Global; do not name a business')
+            raise DomainError('validation_error', 'Focus References are Global; do not name a project')
         return business
 
     def select(self, ctx, business_id, uow):
@@ -232,7 +232,7 @@ class PrivateConversations:
         selected = ctx.select_business(business_id) if business_id is not None else replace(ctx, business_id=None)
         selected = replace(selected, review_business_id=business_id)
         if business_id is not None and not self.business_participant(ctx, business_id, uow):
-            raise DomainError('forbidden', 'Private conversation source is outside an active business membership')
+            raise DomainError('forbidden', 'Private conversation source is outside an active project membership')
         return self.app.current_context(selected, uow)
 
     @staticmethod
@@ -306,7 +306,7 @@ class PrivateConversations:
         profile, _ = resolver.profile(selected.principal, connection=uow.connection)
         if not (profile.data['status'] == 'active' and selected.business_id in profile.scope.businesses
                 and selected.business_id in selected.allowed_business_ids):
-            raise DomainError('forbidden', 'Email is outside this active business membership')
+            raise DomainError('forbidden', 'Email is outside this active project membership')
         overrides = profile.data.get('tool_policy', {}).get('overrides', {})
         if any(overrides.get(name) == 'deny' for name in EMAIL_READERS):
             raise DomainError('forbidden', 'Email read access was explicitly denied')

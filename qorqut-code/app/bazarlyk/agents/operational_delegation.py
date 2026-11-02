@@ -70,16 +70,16 @@ def _scope(value, business_id):
     if value["kind"] == "business":
         bound = _canonical_id(value.get("business_id"), "scope.business_id")
         if business_id != bound:
-            raise DomainError("validation_error", "Business scope and assignment business must match exactly")
+            raise DomainError("validation_error", "Project scope and assignment project must match exactly")
     else:
         if business_id is not None or value.get("business_id") is not None:
-            raise DomainError("validation_error", "Global scope cannot also select a business")
+            raise DomainError("validation_error", "Global scope cannot also select a project")
         allowed = value.get("allowed_business_ids", [])
         if not isinstance(allowed, list) or len(allowed) > 100:
             raise DomainError("validation_error", "Global scope requires a bounded allowed_business_ids list")
         value["allowed_business_ids"] = [_canonical_id(item, "scope.allowed_business_ids") for item in allowed]
         if len(set(value["allowed_business_ids"])) != len(value["allowed_business_ids"]):
-            raise DomainError("validation_error", "Global scope business IDs must be unique")
+            raise DomainError("validation_error", "Global scope project IDs must be unique")
     for boundary in ("record_ids", "source_ids"):
         entries = value.get(boundary, {})
         if not isinstance(entries, dict) or len(entries) > 100:

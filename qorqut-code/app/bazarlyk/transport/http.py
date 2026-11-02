@@ -209,14 +209,14 @@ class HTTPAPI:
         with self.runtime.database.read() as uow:
             business = uow.connection.execute("SELECT * FROM businesses WHERE slug=? AND archived_at IS NULL", (slug,)).fetchone() if slug else None
             if slug and business is None:
-                raise DomainError("not_found", "Business is not available to this principal")
+                raise DomainError("not_found", "Project is not available to this principal")
             business_id = business["id"] if business else None
             if business_id:
                 membership = uow.repository("business_memberships", business_id=business_id).get(actor.principal.id)
                 if not membership or not membership["active"]:
-                    raise DomainError("not_found", "Business is not available to this principal")
+                    raise DomainError("not_found", "Project is not available to this principal")
                 if owner and not membership["is_owner"]:
-                    raise DomainError("forbidden", "This action requires the current business owner")
+                    raise DomainError("forbidden", "This action requires the current project owner")
             context = self.runtime.policy.context_for(actor.principal.id, business_id=business_id,
                 review_business_id=business_id, uow=uow)
         return context, decode_row(business)
@@ -571,7 +571,7 @@ class HTTPAPI:
                 context, _ = self.context(actor)
                 args, options = split_options(await read_json(request))
                 if options.business_id is not None or args.get("scope", "global") != "global":
-                    raise DomainError("forbidden", "Global message endpoint cannot select a business")
+                    raise DomainError("forbidden", "Global message endpoint cannot select a project")
                 args["scope"] = "global"
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
                 return response(result)
@@ -581,7 +581,7 @@ class HTTPAPI:
                 context, _ = self.context(actor)
                 args, options = split_options(await read_json(request))
                 if options.business_id is not None or args.get("scope", "global") != "global":
-                    raise DomainError("forbidden", "Global tables cannot select a business")
+                    raise DomainError("forbidden", "Global tables cannot select a project")
                 args["scope"] = "global"
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
                 return response(result)
@@ -708,11 +708,11 @@ class HTTPAPI:
                         if options.idempotency_key is None:
                             options = replace(options, idempotency_key=args.get('request_id'))
                     if options.business_id is not None and options.business_id != context.business_id:
-                        raise DomainError("forbidden", "The body cannot change the URL's selected business")
+                        raise DomainError("forbidden", "The body cannot change the URL's selected project")
                     result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, tail[1], args, options))
                     return response(result)
                 if tail[:1] == ["chat"]:
-                    raise DomainError("legacy_chat_retired", "Business chat execution is retired; use the registered Claude Code terminal")
+                    raise DomainError("legacy_chat_retired", "Project chat execution is retired; use the registered Claude Code terminal")
                 if tail[:1] in (["terminal"], ["terminals"]) and self.terminals:
                     return await self.terminals.route(request, context, business, tail)
                 if self.compatibility:
@@ -785,7 +785,7 @@ class HTTPAPI:
             with self.runtime.database.read() as uow:
                 row = uow.connection.execute("SELECT slug FROM businesses WHERE id=? AND archived_at IS NULL", (business_id,)).fetchone()
             if row is None:
-                raise DomainError("not_found", "Business is not available to this principal")
+                raise DomainError("not_found", "Project is not available to this principal")
             return self.context(actor, row["slug"])[0]
 
         def read():
@@ -1154,9 +1154,9 @@ class HTTPAPI:
             return response(OperationResult.ok(data, request_id=new_id()))
         if request.method == "POST" and parts == ["agent", "provider-token"]:
             if getattr(self.authentication, "business_id", None) is None:
-                raise DomainError("forbidden", "Provider credentials require the private business listener")
+                raise DomainError("forbidden", "Provider credentials require the private project listener")
             if self.runtime.provider_tokens is None:
-                raise DomainError("configuration_missing", "Business provider credentials are not configured")
+                raise DomainError("configuration_missing", "Project provider credentials are not configured")
             body = await read_json(request, limit=8192)
             checked_fields(body, {"registration_id", "provider"}, {"registration_id", "provider"})
             data = await anyio.to_thread.run_sync(partial(self.runtime.provider_tokens.issue,

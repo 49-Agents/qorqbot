@@ -1,11 +1,19 @@
 """Install the host and the exact accepted Operations artifact into a disposable environment and run the installed gate.
 
-    python tools/check_installed_host.py [workdir] [--allow-dirty] [--find-links DIR] [--extra-wheel WHEEL]
-                                         [--roles DIR] [--receipt-out FILE]
+    python tools/check_installed_host.py [workdir] --roles DIR [--allow-dirty] [--find-links DIR] [--extra-wheel WHEEL]
+                                         [--receipt-out FILE]
 
 Build the exact committed host, Operations and Context wheels in an isolated directory, install their requirements,
 then run the focused combined-host acceptance cases with installed imports. No live instance, native agent or provider
 is used. The receipt binds all three source commits and the installed file hashes.
+
+The Operations and Context pins are the gitlinks this host's committed HEAD records at ``qorqut-operations`` and
+``qorqut-context``; each must be an actual gitlink whose exact commit exists in that dependency's own checkout. They are never
+read from the dated HOST_FOUNDATION_SOURCE_RECEIPT.json, which supplies only its historical ``base_commit`` for the
+removed-module audit. The dashboard is the host's explicit ``biz-dashboard`` component; there is no template component.
+``--roles`` is required: the role-source repository (``roles/<role>/{role.yaml,BRIEF.md}`` for each supported global role)
+the checks read, validated before anything is built so a wrong directory cannot turn required checks into skips. The three
+packaged instruction resources are verified byte for byte against the installed files, like the Python modules.
 
 """
 
@@ -14,7 +22,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -25,8 +32,14 @@ import zipfile
 
 APP = Path(__file__).resolve().parents[1]
 ROOT = APP.parent
+# Dated historical record: only its ``parent.base_commit`` is read here (the removed-module audit); no current pin or path.
 RECEIPT = ROOT / "docs" / "v1.2" / "HOST_FOUNDATION_SOURCE_RECEIPT.json"
 PROBE = Path(__file__).with_name("installed_host_probe.py")
+OPERATIONS, CONTEXT, DASHBOARD = "qorqut-operations", "qorqut-context", "biz-dashboard"
+# The role sources the focused checks publish and register (host_foundation_support.SUPPORTED_GLOBAL_ROLES).
+REQUIRED_ROLES = ("ordubashy", "global-marketing", "learning-applier")
+INSTRUCTIONS = "bazarlyk/bootstrap/instructions"
+INSTRUCTION_RESOURCES = {"agent-foundation.md", "ecosystem.md", "operating/ecosystem-agent.md"}
 
 
 def run(command, **kwargs):
@@ -38,6 +51,37 @@ def run(command, **kwargs):
 
 def git(repository, *arguments):
     return run(["git", "-C", str(repository), *arguments]).strip()
+
+
+def committed_gitlink(host, path):
+    """The commit the host's committed HEAD records at ``path``, which must be an actual gitlink (mode 160000)."""
+    entry = run(["git", "-C", str(host), "ls-tree", "HEAD", "--", path]).split()
+    if len(entry) != 4 or entry[:2] != ["160000", "commit"] or entry[3] != path:
+        raise SystemExit(f"The committed host HEAD does not record {path} as a gitlink")
+    return entry[2]
+
+
+def pinned_checkout(host, path):
+    """``(commit, repository)``: the committed gitlink of ``path`` and its own checkout, which must hold that exact commit."""
+    commit, repository = committed_gitlink(host, path), Path(host) / path
+    toplevel = subprocess.run(["git", "-C", str(repository), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if toplevel.returncode or Path(toplevel.stdout.strip()).resolve() != repository.resolve():
+        raise SystemExit(f"{repository} is not the dependency's own repository checkout")
+    if subprocess.run(["git", "-C", str(repository), "cat-file", "-e", commit + "^{commit}"], capture_output=True).returncode:
+        raise SystemExit(f"The pinned {path} commit {commit} is not present in {repository}")
+    return commit, repository
+
+
+def validated_roles(roles):
+    """The role-source directory the focused checks read; every supported global role must carry its manifest and brief."""
+    roles = Path(roles)
+    if not roles.is_dir():
+        raise SystemExit(f"--roles {roles} is not a directory")
+    missing = [f"roles/{role}/{name}" for role in REQUIRED_ROLES for name in ("role.yaml", "BRIEF.md")
+               if not (roles / "roles" / role / name).is_file()]
+    if missing:
+        raise SystemExit(f"--roles {roles} lacks the role sources the checks need: {', '.join(missing)}")
+    return roles
 
 
 def digest(content: bytes):
@@ -109,21 +153,14 @@ def main(argv=None):
     parser.add_argument("--allow-dirty", action="store_true")
     parser.add_argument("--find-links", action="append", default=[])
     parser.add_argument("--extra-wheel", action="append", default=[], type=Path)
-    parser.add_argument("--roles", type=Path, default=Path(os.environ.get("QORQUT_TEST_WORKSPACE_ROOT", ROOT.parent)) / "qorqut-roles" / "agent-roles")
+    parser.add_argument("--roles", type=Path, required=True, help="role-source repository directory the checks read (required)")
     parser.add_argument("--receipt-out", type=Path)
     options = parser.parse_args(argv)
 
-    receipt = json.loads(RECEIPT.read_text())
-    engine = receipt["components"]["operations_engine"]
-    engine_commit, engine_repository = engine["commit"], ROOT / engine["path"]
-    gitlink = git(ROOT, "ls-tree", "HEAD", engine["path"]).split()[2]
-    if gitlink != engine_commit:
-        raise SystemExit(f"The checkout records Operations {gitlink}, the source receipt {engine_commit}")
-    git(engine_repository, "cat-file", "-e", engine_commit + "^{commit}")
-    context = receipt["components"]["context_engine"]
-    context_commit, context_repository = context["commit"], ROOT / context["path"]
-    if git(ROOT, "ls-tree", "HEAD", context["path"]).split()[2] != context_commit:
-        raise SystemExit("The Context gitlink differs from the source receipt")
+    roles = validated_roles(options.roles)
+    engine_commit, engine_repository = pinned_checkout(ROOT, OPERATIONS)
+    context_commit, context_repository = pinned_checkout(ROOT, CONTEXT)
+    dashboard_commit = committed_gitlink(ROOT, DASHBOARD)
     host_commit = git(ROOT, "rev-parse", "HEAD")
     dirty = bool(git(ROOT, "status", "--porcelain", "--", "app"))
     if dirty and not options.allow_dirty:
@@ -149,19 +186,25 @@ def main(argv=None):
     if dirty:
         shutil.copytree(APP, host_source, ignore=shutil.ignore_patterns("__pycache__", "tests", "*.pyc"))
         expected_host = working_files(APP / "bazarlyk")
+        resources = working_files(APP / INSTRUCTIONS, ".md")
     else:
         export(ROOT, host_commit, host_source, "app")
         host_source = host_source / "app"
         expected_host = committed_files(ROOT, host_commit, "app/bazarlyk")
+        resources = committed_files(ROOT, host_commit, "app/" + INSTRUCTIONS, ".md")
     host_wheel = build_wheel(host_source, wheelhouse, "bazarlyk_core-*.whl")
     expected_engine = committed_files(engine_repository, engine_commit, "qorqut_operations")
 
     # Host modules removed since the recorded base: none of them may be importable from the installed host.
-    base = receipt["parent"]["base_commit"]
+    base = json.loads(RECEIPT.read_text())["parent"]["base_commit"]
     deleted = run(["git", "-C", str(ROOT), "diff", "--name-only", "--diff-filter=D", base, "HEAD", "--", "app/bazarlyk"]).split()
     removed = sorted(module_name(name[len("app/"):]) for name in deleted if name.endswith(".py"))
     now = {module_name("bazarlyk/" + path) for path in expected_host}
     removed = [name for name in removed if name not in now]
+    # The packaged initial instructions are verified against the installed files like the modules: exactly these three.
+    if set(resources) != INSTRUCTION_RESOURCES:
+        raise SystemExit(f"The host must package exactly the three initial instruction resources, found {sorted(resources)}")
+    expected_host = {**expected_host, **{f"bootstrap/instructions/{name}": value for name, value in resources.items()}}
 
     run([sys.executable, "-m", "venv", str(environment)])
     python = environment / "bin" / "python"
@@ -178,11 +221,10 @@ def main(argv=None):
         except SystemExit:
             raise SystemExit(f"{name} is pinned to a git commit; supply its wheel with --extra-wheel") from None
 
-    config = {"checkout": str(ROOT), "roles": str(options.roles), "engine_commit": engine_commit, "host_commit": host_commit,
-              "context_commit": context_commit, "dirty": dirty, "expected": {"qorqut_operations": expected_engine, "qorqut_context": expected_context, "bazarlyk": expected_host},
+    config = {"checkout": str(ROOT), "roles": str(roles), "engine_commit": engine_commit, "host_commit": host_commit,
+              "context_commit": context_commit, "dashboard_commit": dashboard_commit, "dirty": dirty, "expected": {"qorqut_operations": expected_engine, "qorqut_context": expected_context, "bazarlyk": expected_host},
               "removed_modules": removed, "work": str(workdir / "probe-work"),
-              "components": {name: str(ROOT / receipt["components"][name]["path"])
-                             for name in ("context_engine", "template", "dashboard") if name in receipt["components"]}}
+              "components": {"context_engine": str(context_repository), "dashboard": str(ROOT / DASHBOARD)}}
     config_path = workdir / "probe-config.json"
     config_path.write_text(json.dumps(config))
     # -I: ignore PYTHON* variables and the user site, and do not put the script's directory on sys.path.

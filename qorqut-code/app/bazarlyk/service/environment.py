@@ -18,7 +18,7 @@ def register_environment(runtime):
             raise DomainError("forbidden", "Settings values require an authorized agent or owner")
         # Humans keep their membership rule; agents are active supported globals with derived business access.
         if ctx.business_id is not None and not active_business_participant(uow.connection, ctx.business_id, ctx.principal_id):
-            raise DomainError("forbidden", "Settings values require active business access")
+            raise DomainError("forbidden", "Settings values require active project access")
         if args["key"] in IDENTITY_KEYS:
             raise DomainError("forbidden", "Runtime identity bindings are not readable Settings")
         try:
@@ -42,7 +42,7 @@ def register_environment(runtime):
         resolve_namespace=lambda ctx, args: "business:" + ctx.business_id if ctx.business_id else "global",
         description="Retrieve one Settings value by key, including private context or credentials, only when "
             "environment_get is explicitly granted. Role-private values also require your registered role; "
-            "they are never inherited across scopes. Business scope reads only that business's own Settings, "
+            "they are never inherited across scopes. Project scope reads only that project's own Settings, "
             "without Global inheritance; Global scope reads Global Settings. Missing returns found:false/value:null; "
             "empty returns found:true/value:''. Values enter model context and may be saved in transcripts. "
             "Retrieve only what the task needs; never repeat secrets in messages, logs or tasks. "
@@ -51,7 +51,7 @@ def register_environment(runtime):
     def read(ctx, args, options, uow):
         runtime.require_authority()
         if ctx.business_id is not None and not active_business_participant(uow.connection, ctx.business_id, ctx.principal_id):
-            raise DomainError("forbidden", "Settings metadata requires active business access")
+            raise DomainError("forbidden", "Settings metadata requires active project access")
         effective = {}
         try:
             owner_session = ctx.owner_session_business_id is not None
@@ -84,7 +84,7 @@ def register_environment(runtime):
         description="List effective Settings variable names, configured (nonempty) status and origin (global/business). "
             "No values are returned. Role-private bindings are visible only to allowed registered roles in their scope. "
             "Optional names checks specific bindings; origin:null means absent or unavailable to your role. "
-            "Business overrides, including empty overrides, win over Global. Follow next_cursor. "
+            "Project overrides, including empty overrides, win over Global. Follow next_cursor. "
             "Configured does not prove credentials are valid or that a tool can use them. "
             "Pass variable names to supported operations such as metrics source endpoint_env/token_env; "
             "the existing runtime resolves values. This tool does not grant script execution or secret access."))

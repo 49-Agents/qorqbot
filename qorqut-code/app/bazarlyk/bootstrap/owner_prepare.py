@@ -64,7 +64,7 @@ printf '{"Authorization":"Bearer %s"}' "$(tr -d '[:space:]' < "$(dirname "$0")/c
 """
 
 REQUIRED_TEXT = (
-    "You act on behalf of {owner} in this business. Other sessions are independent. "
+    "You act on behalf of {owner} in this project. Other sessions are independent. "
     "Follow the owner's current request; do not seek autonomous work, start an inbox/work loop, or claim, "
     "announce, hand off or report work on your own. "
     "A specific owner instruction, such as \"create these tasks\" or \"complete this task\", authorizes that "
@@ -156,13 +156,13 @@ def resolve_roots(code_root, nested=(), outside_roots=()) -> list[Path]:
 def resolve_business(database, business) -> dict:
     value = str(business or "").strip()
     if not value:
-        raise DomainError("validation_error", "A business UUID or slug is required")
+        raise DomainError("validation_error", "A project UUID or slug is required")
     with database.read() as uow:
         rows = uow.connection.execute(
             "SELECT id, slug, name, archived_at FROM businesses WHERE id=? OR slug=?", (value, value)).fetchall()
     row = next((row for row in rows if row["id"] == value), rows[0] if rows else None)
     if row is None:
-        raise DomainError("not_found", "No business matches this identifier")
+        raise DomainError("not_found", "No project matches this identifier")
     return {"id": row["id"], "slug": row["slug"], "name": row["name"]}
 
 
@@ -186,17 +186,17 @@ def instruction_block(business: dict, endpoint: str, owner_name=None) -> str:
         "",
         required_text(owner_name),
         "",
-        "- Start by calling the `owner_session_bootstrap` tool for business orientation and context pointers.",
-        "- Fetch deeper context on demand with `context_list`, `context_search` and `context_get`; business",
+        "- Start by calling the `owner_session_bootstrap` tool for project orientation and context pointers.",
+        "- Fetch deeper context on demand with `context_list`, `context_search` and `context_get`; project",
         "  strategy and marketing notes are listed with `notes_list` and read with `notes_get`.",
-        "- Business direction belongs to the owner with Ordubashy, who coordinates execution through the permanent",
-        "  workers. Businesses have no resident agents.",
+        "- Project direction belongs to the owner with Ordubashy, who coordinates execution through the permanent",
+        "  workers. Projects have no resident agents.",
         "- Use `agents_message_recipients`, `agents_message_send` and `agents_messages_list` for direct",
         "  same-business messages; use `tasks_create` and `tasks_assign` for durable work. Direct messages are",
         "  not the same as owner private conversations on objects.",
         "- Tasks: `tasks_create`, `tasks_update`, close with `tasks_complete`, reopen with `tasks_update` to an open",
         "  status. A work group is an ordinary parent Task (`parent_id`); related items link with `relationships_create`.",
-        "- Business Settings and credentials are bound to this business. Use `environment_list` for names",
+        "- Project Settings and credentials are bound to this project. Use `environment_list` for names",
         "  and retrieve only needed values with `environment_get`; never put secrets in bootstrap, tasks or messages.",
         "- Freeform commentary goes through `owner_conversation_send`; task note fields refuse the owner",
         "  with `channel_required`.",
@@ -406,9 +406,9 @@ def _validate_token(token) -> str:
 
 def _bundle_business(value) -> dict:
     if not isinstance(value, dict) or set(value) != {"id", "slug", "name"}:
-        raise DomainError("invalid_bundle", "Owner-session bundle has invalid business identity")
+        raise DomainError("invalid_bundle", "Owner-session bundle has invalid project identity")
     if any(not isinstance(value[key], str) or not value[key].strip() for key in value):
-        raise DomainError("invalid_bundle", "Owner-session bundle has invalid business identity")
+        raise DomainError("invalid_bundle", "Owner-session bundle has invalid project identity")
     return value
 
 
@@ -677,7 +677,7 @@ def _common(parser, *names) -> None:
         from bazarlyk.service.instance_arguments import add_instance_arguments
         add_instance_arguments(parser)
     if "business" in names:
-        parser.add_argument("--business", required=True, help="Business UUID or slug")
+        parser.add_argument("--business", required=True, help="Project UUID or slug")
     if "root" in names:
         parser.add_argument("--root", required=True, help="Absolute top code root to prepare")
         parser.add_argument("--nested", action="append", default=[],

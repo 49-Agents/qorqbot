@@ -66,7 +66,7 @@ class WorkingMemory:
                 'Sources use tokens observed with working_memory_get, not guessed current revisions. '
                 'If an own legacy plan exists in this scope, read it first and supply legacy_plan_content_hash on first save; '
                 'its exact original bytes are preserved and legacy writes are retired. '
-                'Do not copy credentials or business evidence into Global notes. Never claim pending work succeeded.'))
+                'Do not copy credentials or project evidence into Global notes. Never claim pending work succeeded.'))
 
     def access(self, ctx, args, uow):
         identity = args.get('agent_id', ctx.agent_id)
@@ -89,11 +89,11 @@ class WorkingMemory:
             raise DomainError('forbidden', 'Working memory requires an active agent')
         if ctx.business_id is None:
             if profile.scope.kind != 'ecosystem':
-                raise DomainError('forbidden', 'Business agents have no Global working memory')
+                raise DomainError('forbidden', 'Project agents have no Global working memory')
         else:
             # The resolver's profile carries the derived scope (every active business); no membership row.
             if ctx.business_id not in profile.scope.businesses or ctx.business_id not in ctx.allowed_business_ids:
-                raise DomainError('forbidden', 'Working memory is outside current business scope')
+                raise DomainError('forbidden', 'Working memory is outside current project scope')
         return identity
 
     def row(self, identity, business_id, uow):

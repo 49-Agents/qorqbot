@@ -75,7 +75,7 @@ class TerminalService:
         if selected is None:
             return self._host_execution()
         if not isinstance(selected, TerminalExecution) or selected.broker is None:
-            raise DomainError("operation_unavailable", "The business terminal execution backend is invalid")
+            raise DomainError("operation_unavailable", "The project terminal execution backend is invalid")
         return selected
 
     @staticmethod
@@ -104,7 +104,7 @@ class TerminalService:
                 return
             membership = uow.repository("business_memberships", business_id=current.business_id).get(current.principal_id)
             if current.principal_kind != "human" or not membership or not membership["active"] or not membership["is_owner"]:
-                raise DomainError("forbidden", "Terminal access requires the current business owner")
+                raise DomainError("forbidden", "Terminal access requires the current project owner")
 
     def agent(self, context, selector):
         self.owner(context)
@@ -128,7 +128,7 @@ class TerminalService:
             session = broker.session_name("global", "_" + row["agent_id"])
             return str(self.runtime.root) + "\0global\0" + row["agent_id"], session, str(workspace)
         if row["home_business_id"] != business["id"]:
-            raise DomainError("registration_conflict", "Terminal workspace is not registered under this business")
+            raise DomainError("registration_conflict", "Terminal workspace is not registered under this project")
         hq = business_hq(self.runtime.paths, business)
         # Session names stay derived from the registered agent name, as before.
         stable_name = row["name"]
@@ -283,14 +283,14 @@ class TerminalService:
         """
         broker = self.execution(business).broker
         if broker is None or not broker.tmux_available():
-            raise DomainError("operation_unavailable", "Business terminal reset is unavailable")
+            raise DomainError("operation_unavailable", "Project terminal reset is unavailable")
         sessions = set(broker.list_sessions(broker.session_prefix(business["slug"])))
         for row in agents:
             key, session, _ = self.binding(business, row, broker)
             if session in sessions and not broker.kill_session(session):
                 # Another client may have closed it concurrently. Confirm absence.
                 if session in broker.list_sessions(broker.session_prefix(business["slug"])):
-                    raise DomainError("operation_failed", "A business terminal could not be reset", retryable=True)
+                    raise DomainError("operation_failed", "A project terminal could not be reset", retryable=True)
             broker.stop(key)
 
     async def route(self, request, context, business, tail):

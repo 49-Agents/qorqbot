@@ -30,12 +30,12 @@ class OwnerSessionCaller:
         """Connection/scope validation on every request, including open sessions."""
         business = uow.repository("businesses").get(actor.business_id)
         if business is None or business["archived_at"]:
-            raise DomainError("forbidden", "The owner-session business is unavailable or archived")
+            raise DomainError("forbidden", "The owner-session project is unavailable or archived")
         if not owner_sessions.enabled(business["config_json"]):
-            raise DomainError("forbidden", "Owner sessions are not enabled for this business")
+            raise DomainError("forbidden", "Owner sessions are not enabled for this project")
         member = uow.repository("business_memberships", business_id=actor.business_id).get(actor.principal.id)
         if not member or not member["active"] or not member["is_owner"]:
-            raise DomainError("forbidden", "Owner-session business membership is unavailable")
+            raise DomainError("forbidden", "Owner-session project membership is unavailable")
 
     def identity(self, actor):
         return (actor.principal.id, actor.credential_id, actor.business_id)
@@ -73,7 +73,7 @@ class OwnerSessionCaller:
         if args.get("scope") == "global":
             raise DomainError("forbidden", "Owner sessions cannot select Global operational scope")
         if canonical_name == "agents_message_recipients" and args.get("all_businesses"):
-            raise DomainError("forbidden", "Owner-session recipients are limited to the bound business")
+            raise DomainError("forbidden", "Owner-session recipients are limited to the bound project")
         if canonical_name == "tasks_create" and "focus" in args:
             def in_business(value):
                 if isinstance(value, dict):
@@ -86,16 +86,16 @@ class OwnerSessionCaller:
                     return all(in_business(item) for item in value)
                 return True
             if not in_business(args["focus"]):
-                raise DomainError("forbidden", "Task focus must remain inside the owner-session business")
+                raise DomainError("forbidden", "Task focus must remain inside the owner-session project")
 
     def validate_options(self, actor, canonical_name, options):
         if canonical_name in owner_sessions.GLOBAL_CONTEXT_OPERATIONS:
             if options.business_id is not None or options.review_business_id is not None:
-                raise DomainError("forbidden", "Personal context is Global; owner sessions must not select a business for it")
+                raise DomainError("forbidden", "Personal context is Global; owner sessions must not select a project for it")
             return
         for value in (options.business_id, options.review_business_id):
             if value is not None and value != actor.business_id:
-                raise DomainError("forbidden", "Owner sessions are bound to their configured business")
+                raise DomainError("forbidden", "Owner sessions are bound to their configured project")
 
     def invocation_context(self, actor, *, canonical_name, options):
         business_id = (None if canonical_name in owner_sessions.GLOBAL_CONTEXT_OPERATIONS

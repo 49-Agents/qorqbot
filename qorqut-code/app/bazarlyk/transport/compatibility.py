@@ -89,7 +89,7 @@ class DashboardCompatibility:
         with self.runtime.database.read() as uow:
             row = uow.connection.execute("SELECT agent_id FROM agent_profiles WHERE home_business_id=? AND (agent_id=? OR name=?) AND (status='active' OR ?)", (context.business_id, selector, selector, include_inactive)).fetchone()
         if row is None:
-            raise DomainError("not_found", "Active registered agent was not found in this business")
+            raise DomainError("not_found", "Active registered agent was not found in this project")
         return self.data(context, "agents_get", {"agent_id": row["agent_id"]})["agent"]
 
     def agent_view(self, context, profile):
@@ -110,7 +110,7 @@ class DashboardCompatibility:
         candidates = self.assignees(context)
         matches = [row for row in candidates if value == row["id"] or value == row["kind"] + ":" + (row.get("name") or row["display_name"])]
         if len(matches) != 1:
-            raise DomainError("invalid_assignee", "Select one active member of this business")
+            raise DomainError("invalid_assignee", "Select one active member of this project")
         return matches[0]["id"]
 
     def task_view(self, context, task, *, members=None):
@@ -455,7 +455,7 @@ class DashboardCompatibility:
         matches = [row for row in documents if (kinds is None or row["kind"] in kinds) and
             (row["id"] == selector or row["path"] == path or (prefix is None and PurePosixPath(row["path"]).stem == selector))]
         if len(matches) != 1:
-            raise DomainError("not_found", "Registered document was not found unambiguously in this business")
+            raise DomainError("not_found", "Registered document was not found unambiguously in this project")
         return matches[0]
 
     # Stored document bookkeeping that older filers wrote beside the derived summary. The current-source ``filing`` is the evidence;
@@ -537,7 +537,7 @@ class DashboardCompatibility:
         if request.query_params["view"] != "processes":
             raise DomainError("validation_error", "Only the processes view is available for Global Context")
         if context.business_id is not None:
-            raise DomainError("scope_required", "The Global Context process view is read without a selected business")
+            raise DomainError("scope_required", "The Global Context process view is read without a selected project")
         with self.runtime.database.read() as uow:
             if context.principal_kind != "human" or not is_installation_owner(context, uow):
                 raise DomainError("forbidden", "Global Context process state is an owner view")
@@ -861,11 +861,11 @@ class DashboardCompatibility:
 
     def select_business(self, context, selector):
         if not isinstance(selector, str) or not selector:
-            raise DomainError("scope_required", "Select an explicit review business")
+            raise DomainError("scope_required", "Select an explicit review project")
         with self.runtime.database.read() as uow:
             row = uow.connection.execute("SELECT id FROM businesses WHERE id=? OR slug=?", (selector, selector)).fetchone()
             if row is None or row["id"] not in context.allowed_business_ids:
-                raise DomainError("not_found", "Selected business is not available to this principal")
+                raise DomainError("not_found", "Selected project is not available to this principal")
             return self.runtime.policy.context_for(context.principal_id, business_id=row["id"], review_business_id=row["id"], uow=uow)
 
     def routine_view(self, context, row):
@@ -957,7 +957,7 @@ class DashboardCompatibility:
                 break
             args = {**args, "cursor": page["next_cursor"]}
         else:
-            raise DomainError("collection_too_large", "Use the paginated signoffs endpoint for this business")
+            raise DomainError("collection_too_large", "Use the paginated signoffs endpoint for this project")
         merged = {row["id"]: row for row in pending}
         if since:
             changed = self.data(context, "signoffs_list", {"category": "platform_action", "updated_after": since, "limit": 100})
@@ -1046,13 +1046,13 @@ class DashboardCompatibility:
         global_scope = parts[:2] == ["root", "routines"] or location == "global" or location.startswith("global:")
         if global_scope:
             if any(key in body or key in request.query_params for key in ("review_business_id", "biz")) or location.startswith("global:"):
-                raise DomainError("validation_error", "Global routines no longer accept a review business; use the Global workspace")
+                raise DomainError("validation_error", "Global routines no longer accept a review project; use the Global workspace")
             context = replace(context, business_id=None, review_business_id=None)
         selector = body.get("review_business_id") or request.query_params.get("review_business_id") or request.query_params.get("biz")
         if location.startswith(("business:", "global:")):
             selected = location.split(":", 1)[1]
             if selector and selector != selected:
-                raise DomainError("validation_error", "Routine location and review business disagree")
+                raise DomainError("validation_error", "Routine location and review project disagree")
             selector = selected
         if not global_scope:
             context = self.select_business(context, selector)

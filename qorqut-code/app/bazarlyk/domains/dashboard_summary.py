@@ -43,4 +43,4 @@ def register(registry, clock):
         return {'items':items,'as_of':timestamp(lambda: now),'timezone':local_time.TIMEZONE}
     registry.register(OperationDescriptor('dashboard_summary_get', schema({}), scope_kinds=frozenset({'global'}),
         global_capability='read_global_context', effect_kind='read', supports_signoff=False,
-        exposure=frozenset({'dashboard'}), description='Owner business counts and fourteen daily San Juan (America/Puerto_Rico) activity totals.', read=read))
+        exposure=frozenset({'dashboard'}), description='Owner project counts and fourteen daily San Juan (America/Puerto_Rico) activity totals.', read=read))

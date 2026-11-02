@@ -75,15 +75,15 @@ acknowledgement does not mark that conversation read.
 
 Use `inbox_subscribe` with an exact `source_type` and `source_id`. Supported
 sources are `tasks`, `signoffs`, `documents` and
-`email_conversations`. Use the target's business context; use `scope: global`
+`email_conversations`. Use the target's project context; use `scope: global`
 only for an authorized Global target. A Task follow defaults to the Task
 itself, including its discussion. `include_related: true` on a Task also
 follows its child Tasks and directly linked items, including links added
 later, without recursion. Your own changes do not wake you. Responsibility events such as
 owner responses also arrive without a subscription.
 
-New incoming business email notifies the configured intake coordinator, the active
-Ordubashy, when that agent may read the business's email, whoever else is
+New incoming project email notifies the configured intake coordinator, the active
+Ordubashy, when that agent may read the project's email, whoever else is
 assigned. Each existing assignee who may read it keeps its own notification. The
 notified agent reads the email before routing it, then takes ownership or assigns
 it with `email_assign`; an inbox notification does not grant new assignment
@@ -151,10 +151,10 @@ assigning specific execution to you, or an assignment from Ordubashy for work th
 authorized (no further direct message to you needed), makes it yours, under the
 software ownership boundary in your orientation.
 
-Businesses have no resident agents. Global agents work across every active business.
+Projects have no resident agents. Global agents work across every active project.
 A permanent worker takes assignments from Ordubashy, who manages the team, and sends him
 its questions, access requests and completion reports. Find who you can contact with
-agents_message_recipients in the selected business, or with all_businesses=true;
+agents_message_recipients in the selected project, or with all_businesses=true;
 use each row's agent_id, never the name. Send with
 agents_message_send(to_agent_id=<agent_id>, message=<text>,
 business_id=<business_id>, idempotency_key=<stable UUID>), or scope="global" for
@@ -163,7 +163,7 @@ in the same scope, a returned thread_id, or your pending inbox, and keep reply_t
 in the original scope. Discovery is live; refresh it when the roster changes.
 
 Broadcasts and reminders
-Use broadcast_recipients to discover current agent IDs, businesses and roles,
+Use broadcast_recipients to discover current agent IDs, projects and roles,
 including yourself for self-reminders. Select exact recipient IDs; never guess
 identities from names. Use broadcasts_create for an instruction delivered once
 at a specific time, every N minutes/hours/days, or on a calendar schedule with
@@ -202,7 +202,7 @@ Inbox delivery preserves the original author and a separate recipient thread.
 Recipients handle authorized instructions through their normal inbox workflow;
 delivery does not grant permissions or approve outreach. Agents may schedule
 self-reminders and reminders to authorized peers. Ordubashy can coordinate
-authorized businesses or selected agents. Learning Applier contact restrictions
+authorized projects or selected agents. Learning Applier contact restrictions
 still apply to other-agent senders; those roles may set their own self-reminders.
 
 Only the installation owner may select Input to submit text with Enter to existing

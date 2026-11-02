@@ -85,7 +85,7 @@ def private_folder(runtime_directory, business_id):
     folder = Path(runtime_directory)/"business-backups"/business_id
     for path in (folder.parent.parent, folder.parent, folder):
         if path.is_symlink():
-            raise DomainError("invalid_configuration", "Business backups must not pass through a symlink")
+            raise DomainError("invalid_configuration", "Project backups must not pass through a symlink")
         path.mkdir(mode=0o700, exist_ok=True)
     return folder
 

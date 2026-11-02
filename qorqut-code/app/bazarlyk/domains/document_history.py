@@ -69,7 +69,7 @@ class DocumentHistory:
         registry.register(OperationDescriptor("business_history_list",
             schema({"source": {"enum": ["core"]}, "before_sequence": VERSION, "limit": LIMIT}),
             scope_kinds=frozenset({"business"}), resolve_namespace=lambda c, _a: "business:" + c.business_id,
-            description="Owner: the selected business's recorded activity facts, newest first, from the core source "
+            description="Owner: the selected project's recorded activity facts, newest first, from the core source "
                         "and its sequence cursor.",
             read=self.events, **common))
         return self

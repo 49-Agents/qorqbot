@@ -69,15 +69,15 @@ def _walk(path, *, skip=SKIP_DIRECTORIES, top_skip=frozenset()):
 
 
 def external_worker(root, row) -> bool:
-    """A credential-less registration outside the businesses root (a delegated worker's scratch workspace)."""
+    """A credential-less registration outside the operations root (a delegated worker's scratch workspace)."""
     return not row["credential_id"] and Path(row["workspace"]).is_absolute() and not Path(row["workspace"]).is_relative_to(root)
 
 
 def business_entries(connection, instance):
-    """The registered businesses as the authored manifest records them, from the instance's own path contract.
+    """The registered projects (the internal business rows) as the authored manifest records them, from the instance's own path contract.
 
-    Pure derivation from the registered rows and ``InstancePaths``: a business's folder, HQ and root are
-    ``businesses/<slug>``-relative, exactly the shape a target backup emits and verification demands."""
+    Pure derivation from the registered rows and ``InstancePaths``: a project's folder, HQ and root are
+    ``projects/<slug>``-relative, exactly the shape a target backup emits and verification demands."""
     root = instance.operations
     return [{"slug": business["slug"], "hq": business_hq(instance, business).relative_to(root).as_posix(),
              "root": business_root(instance, business).relative_to(root).as_posix()}
@@ -85,7 +85,7 @@ def business_entries(connection, instance):
 
 
 def require_target_businesses(manifest, database_path, instance):
-    """Raise ``ValueError`` unless the authored manifest's businesses are exactly this database's, in the target layout.
+    """Raise ``ValueError`` unless the authored manifest's projects are exactly this database's, in the target layout.
 
     ``SourceManifest`` also parses historical source archives; recognizing a shape is not enough to certify a
     generation, so a current backup's businesses must equal what its captured database and the instance paths derive."""
@@ -95,7 +95,7 @@ def require_target_businesses(manifest, database_path, instance):
     finally:
         connection.close()
     if [dict(item) for item in manifest.data["businesses"]] != expected:
-        raise ValueError("The authored businesses differ from the captured database and the instance layout")
+        raise ValueError("The authored projects differ from the captured database and the instance layout")
 
 
 def authored_inventory(snapshot, instance, *, skip_external_workers=False):
@@ -110,7 +110,7 @@ def authored_inventory(snapshot, instance, *, skip_external_workers=False):
         for business in businesses.values():
             hq = business_hq(instance, business)
             if not hq.is_dir():
-                raise DomainError("backup_incomplete", "Registered business data folder is missing")
+                raise DomainError("backup_incomplete", "Registered project data folder is missing")
             paths.update(_walk(hq, top_skip=PRIVATE_HQ_DIRECTORIES))
             # The agents of a business sit beside its HQ and are authored material of the same business.
             paths.update(_walk(business_root(instance, business) / "agents"))

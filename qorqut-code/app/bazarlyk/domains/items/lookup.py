@@ -74,9 +74,9 @@ class HostItems:
         if kind in {"person", "topic", "material"}:
             row = uow.repository("documents", business_id=ctx.business_id).get(identity)
             if row and row['kind'] in JOURNAL_KINDS and not is_owner(ctx, uow):
-                raise DomainError('not_found', 'Context item does not exist in this business')
+                raise DomainError('not_found', 'Context item does not exist in this project')
             if row and row['kind'] == 'working_memory':
-                raise DomainError('not_found', 'Context item does not exist in this business')
+                raise DomainError('not_found', 'Context item does not exist in this project')
             if row and document_type(row) == kind:
                 return "documents", row
             if kind == "material":
@@ -102,7 +102,7 @@ class HostItems:
             elif table:
                 row = uow.repository(table, business_id=ctx.business_id).get(identity)
                 if row: return table, row
-        raise DomainError("not_found", "Context item does not exist in this business")
+        raise DomainError("not_found", "Context item does not exist in this project")
 
     def resolve(self, ctx, item, uow, builder=None, *, allow_busy=False):
         table, row = self.resource(ctx, item, uow)

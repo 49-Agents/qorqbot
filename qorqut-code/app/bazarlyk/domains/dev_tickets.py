@@ -166,7 +166,7 @@ class DevTickets:
         if self.role(ctx) == "ordubashy":
             if requested_scope == "business":
                 if ctx.business_id is None or ctx.business_id not in ctx.allowed_business_ids:
-                    raise DomainError("scope_required", "Ordubashy business reads require an authorized business scope")
+                    raise DomainError("scope_required", "Ordubashy project reads require an authorized project scope")
                 if not self.in_scope(ctx, {"business_id": ctx.business_id}, uow):
                     raise DomainError("forbidden", "System Dev report is outside your authorized scope")
                 scopes = {ctx.business_id}

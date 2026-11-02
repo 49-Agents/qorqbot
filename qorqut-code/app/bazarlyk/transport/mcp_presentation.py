@@ -285,7 +285,7 @@ def description(name):
     if name == "tables_rows_write":
         return " Returns row IDs/revisions, not echoed cells; tables_rows_list reads values, or request response_detail=full."
     if name == "agent_config_get":
-        return " Compact identity/scope by default. response_detail=summary is readiness metadata only, not instructions. Before entering another business or when context_refresh_required, read response_detail=context without sections for complete mandatory rules. sections is a partial lookup, never a substitute for that read; tool_names checks named capabilities; full returns diagnostic detail."
+        return " Compact identity/scope by default. response_detail=summary is readiness metadata only, not instructions. Before entering another project or when context_refresh_required, read response_detail=context without sections for complete mandatory rules. sections is a partial lookup, never a substitute for that read; tool_names checks named capabilities; full returns diagnostic detail."
     if name == "signoffs_list":
         return " Compact status/attention index. signoffs_get reads full proposal/answer evidence before acting; response_detail=full retains decision notes for bulk feedback review without per-item reads."
     if name == "signoffs_get":

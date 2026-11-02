@@ -286,7 +286,7 @@ def finalize_events(uow):
                     if coordinator:
                         direct.add(coordinator)
                     elif not any(reader(agent,business,uow) for agent in assigned(uow,business,'material',record['id'])):
-                        LOGGER.warning('Incoming business email has no eligible intake recipient: business=%s conversation=%s',
+                        LOGGER.warning('Incoming project email has no eligible intake recipient: business=%s conversation=%s',
                                        business, record['id'])
             edge = _json(capture['after_json']) or _json(capture['before_json']) or {}
             assignment = capture['source_type'] == 'relationships' and edge.get('role') == 'assigned_to'

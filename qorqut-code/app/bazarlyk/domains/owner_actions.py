@@ -41,10 +41,10 @@ class OwnerActions:
                               for action, fields in actions.items()]
         registry.register(OperationDescriptor(OPERATION, arguments,
             description="Ordubashy only: propose engineering_update or browser_update "
-                "in an authorized business. Supply expected_revision of the business config, parameters "
+                "in an authorized project. Supply expected_revision of the project config, parameters "
                 "and rationale. browser_update takes enabled and proxy_server; the explicit isolated desktop mode "
                 "adds mode 'isolated-desktop-v1' and a required expected_exit_ip (an IPv4 proxy already assigned to "
-                "another business is refused; a mode change needs the browser stopped and unleased). "
+                "another project is refused; a mode change needs the browser stopped and unleased). "
                 "Always stages an exact-change owner Signoff; never applies on chat consent or "
                 "an allow override. No signoff approvals, credentials, shell commands or arbitrary owner actions.",
             prepare=self.prepare, apply=self.apply, validate_targets=self.guard))
@@ -56,7 +56,7 @@ class OwnerActions:
             raise DomainError("forbidden", "Only scoped Global Ordubashy can propose delegated owner actions")
         # Derived reach of the active global, not an agent membership row.
         if not reaches_business(uow.connection, ctx.principal_id, ctx.business_id):
-            raise DomainError("forbidden", "Delegated owner actions require current business reach")
+            raise DomainError("forbidden", "Delegated owner actions require current project reach")
         if plan is not None and plan.arguments.get("action") == BROWSER:
             # A Signoff can be approved long after preparation, and another
             # business may have claimed the same proxy IP meanwhile.
@@ -87,7 +87,7 @@ class OwnerActions:
                 effects.append("Selects the isolated desktop browser: one persistent Chrome in a loopback-only network "
                                "namespace, reachable only through the fixed proxy " + updated["proxy_server"]
                                + " (expected exit " + updated["expected_exit_ip"] + "). The operator provisions its host "
-                               "services and credentials separately; a proxy IP already assigned to another business is refused.")
+                               "services and credentials separately; a proxy IP already assigned to another project is refused.")
         else:
             raise DomainError("validation_error", "Unsupported delegated owner action")
         builder = PlanBuilder(ctx, OPERATION, args, "Update " + before["name"] + " " + key + " settings", clock=self.clock)

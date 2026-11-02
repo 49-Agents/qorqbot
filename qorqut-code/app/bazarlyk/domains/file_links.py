@@ -23,9 +23,9 @@ from qorqut_operations.application.plans import UUID, schema
 DESCRIPTION = (
     "Build an ordinary link the owner can click to read a file in the Qorqut file viewer. Give exactly one of path "
     "or document_id. A path is the file's absolute path under this instance's operations root (best when you know it), "
-    "or relative to that root with its first folder kept: businesses/<slug>/hq/notes/report.md or "
-    "agents/<agent>/scratch/report.md, never starting at the business slug. document_id is a registered document "
-    "readable in your current scope (Global agents select a business with business_id as usual). Optional label; "
+    "or relative to that root with its first folder kept: projects/<slug>/hq/notes/report.md or "
+    "agents/<agent>/scratch/report.md, never starting at the project slug. document_id is a registered document "
+    "readable in your current scope (Global agents select a project with business_id as usual). Optional label; "
     "optional version (document_id only) links one saved version instead of the current file. Returns viewer_url "
     "(root-relative) and a ready Markdown link: paste the returned markdown into your reply unchanged and never build "
     "the URL by hand. For a path this only builds text: nothing is read, listed or verified, and the viewer checks the "
@@ -41,7 +41,7 @@ def namespace(ctx, _arguments):
         return "global"
     if ctx.agent_id:
         return "agent:" + ctx.agent_id
-    raise DomainError("scope_required", "Select a business or Global scope")
+    raise DomainError("scope_required", "Select a project or Global scope")
 
 
 class FileLinks:

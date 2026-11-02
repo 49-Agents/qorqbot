@@ -1,8 +1,8 @@
 """The host knowledge behind the Operations ``RelationshipPorts``: role vocabulary, Material classification, composed
-archive, navigation counts, the business-setup protected edge and the reviewable edit operations.
+archive, navigation counts and the reviewable edit operations.
 
 Each adapter is the deployed v1 code of the generic relationship module that was domain-specific, moved here with its
-dependencies stated (the item resolver, the document service, the application registry, business setup). None of them
+dependencies stated (the item resolver, the document service, the application registry). None of them
 can replace application policy: composed archive and review edits are prepared through the one registry and judged by
 their own operation's policy, including any Signoff floor."""
 
@@ -170,18 +170,8 @@ class HostNavigation:
         return None, {"status": published["status"], "reason": published.get("reason"), "revision": published.get("revision")}
 
 
-class HostProtectedEdges:
-    """Business setup's membership protection of a stored edge (``BusinessSetupOperations.edge_guard``)."""
-
-    def __init__(self, business_setup):
-        self.business_setup = business_setup
-
-    def check(self, ctx, uow, edge):
-        self.business_setup.edge_guard(ctx, uow, edge)
-
-
-def relationship_ports(items, *, documents, business_setup, clock=utc_clock) -> RelationshipPorts:
+def relationship_ports(items, *, documents, clock=utc_clock) -> RelationshipPorts:
     """The one ``RelationshipPorts`` of this host, over the already built item resolver."""
     return RelationshipPorts(roles=ROLES, workflow_roles=WORKFLOW_ROLES, materials=HostMaterials(items, clock=clock),
                              archive=HostArchive(items, documents, clock=clock), navigation=HostNavigation(items, documents),
-                             protected_edges=HostProtectedEdges(business_setup), review_edits=REVIEW_EDITS)
+                             review_edits=REVIEW_EDITS)

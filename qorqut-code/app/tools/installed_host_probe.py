@@ -26,7 +26,8 @@ def installed_identity():
         for relative, digest in files.items():
             path = directory / relative
             assert path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == digest, (package, relative)
-        locations[package] = {'directory': str(directory), 'verified_python_files': len(files)}
+        locations[package] = {'directory': str(directory), 'verified_python_files': sum(1 for name in files if name.endswith('.py')),
+            'verified_resource_files': sum(1 for name in files if not name.endswith('.py'))}
     for name in config['removed_modules']:
         try:
             spec = importlib.util.find_spec(name)
@@ -38,12 +39,11 @@ def installed_identity():
 
 locations = installed_identity()
 # Only fixture/test helpers are importable from source. No application directory is added to sys.path.
-# Their explicit component paths select authored templates and tool resources, never Python engine imports.
+# Their explicit component paths select tool resources, never Python engine imports.
 tests = checkout / 'app/tests'
 sys.path.insert(0, str(tests))
 os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
 os.environ['QORQUT_TEST_ROLE_ROOT'] = config['roles']
-os.environ['QORQUT_TEST_TEMPLATE_ROOT'] = config['components']['template']
 checks = [
  'test_combined_host_lifetime.py',
  'test_host_history_composition.py',
@@ -55,7 +55,9 @@ checks = [
  'test_host_parent_tasks.py::test_a_retained_signoff_applies_the_exact_task_backed_campaign_plan',
  'test_host_parent_tasks.py::test_the_active_operation_catalog_has_no_story_handlers',
  'test_host_context_services.py::test_an_upload_and_an_action_revision_reach_one_ordered_queue_and_publish_with_exact_receipts',
- 'test_host_business_create.py::test_publication_settles_the_ordinary_filing_receipt_of_the_business_upload',
+ 'test_host_business_create.py::test_the_configured_ordubashy_creates_an_empty_project_from_a_name_alone_and_the_owner_keeps_it',
+ 'test_host_business_create.py::test_the_owner_is_refused_over_the_real_http_endpoint_and_by_direct_calls_with_nothing_changed',
+ 'test_host_instruction_seeds.py',
  'test_context_recovery_host.py::test_restore_into_other_paths_reproduces_the_authoritative_hashes_and_the_exact_pending_state',
  'test_nightly_capture_host.py::test_the_coordinator_captures_under_quiescence_and_the_job_then_returns_its_one_final_result',
  'test_inbox_nudges.py::test_a_busy_session_gets_the_notice_at_once_without_inferring_processing',
@@ -74,7 +76,8 @@ for name, module in tuple(sys.modules.items()):
     if name.split('.')[0] in expected and getattr(module, '__file__', None):
         assert Path(sys.prefix).resolve() in Path(module.__file__).resolve().parents, (name, module.__file__)
 evidence = {'format': 'qorqut-v1.2-installed-check', 'host_commit': config['host_commit'],
-    'operations_commit': config['engine_commit'], 'context_commit': config['context_commit'], 'dirty': config['dirty'],
+    'operations_commit': config['engine_commit'], 'context_commit': config['context_commit'],
+    'dashboard_commit': config['dashboard_commit'], 'dirty': config['dirty'],
     'passed': result == 0, 'pytest_exit': int(result), 'checks': checks, 'packages': locations,
     'details': str(work / 'focused-checks.log'), 'provider_validation': 'synthetic adapters and injected runners only',
     'live_state_touched': False, 'migration_executed': False}

@@ -52,7 +52,7 @@ class RelatedResources:
                 # it never opens files still owned by an application receipt.
                 row = uow.repository("documents", business_id=ctx.business_id).get(identity, required=True)
             if row["business_id"] != ctx.business_id:
-                raise DomainError("not_found", "Choose a document in this business")
+                raise DomainError("not_found", "Choose a document in this project")
             if requested_kind in DOCUMENT_TYPES and row["kind"] not in DOCUMENT_TYPES[requested_kind]:
                 raise DomainError("not_found", "Document is not a " + requested_kind + " resource")
         elif kind in {"email_conversations", "email_messages"}:
@@ -80,7 +80,7 @@ class RelatedResources:
             principal = uow.repository("principals").get(identity)
             if active_global(uow.connection, identity) is None or (
                     ctx.business_id is not None and not reaches_business(uow.connection, identity, ctx.business_id)):
-                raise DomainError("invalid_assignee", "Assign an active agent in this business")
+                raise DomainError("invalid_assignee", "Assign an active agent in this project")
             if builder:
                 builder.expect(ref("principals", identity, None), principal)
                 builder.expect(ref(kind, identity, None, "ecosystem" if ctx.business_id else None), row)
