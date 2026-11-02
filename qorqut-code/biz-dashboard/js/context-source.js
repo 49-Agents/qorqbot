@@ -161,6 +161,8 @@ function srcMountSource(host, scope, docId, opts = {}) {
     const obj = q('filing').querySelector('[data-src-object]');
     if (obj) obj.onclick = () => opts.openObject(obj.dataset.srcObject);
   };
+  // The body is mounted once and updated in place: a pending More or a failed read only touches its error line and button,
+  // an unchanged text keeps its node (selection, scroll) and a continuation is appended to the existing text node.
   const paintBody = () => {
     const el = q('body'); if (!el) return;
     if (!state.doc) {   // nothing was read: never label it complete
@@ -169,18 +171,50 @@ function srcMountSource(host, scope, docId, opts = {}) {
       if (reload) reload.onclick = () => loadBody(true).then(() => { if (alive() && state.doc) scheduleRefresh(); });
       return;
     }
-    const text = state.parts.join('');
-    el.innerHTML = `<pre class="src-body" data-src-body></pre>
-      ${state.bodyError ? `<p class="bad" role="alert" data-src-body-error>${esc(state.bodyError)}</p>` : ''}
-      ${state.cursor ? `<button type="button" class="ghost" ${state.restart ? 'data-src-restart' : 'data-src-more'} ${state.loading ? 'disabled' : ''}>${state.restart ? 'Refresh' : state.bodyError ? 'Retry' : 'Load more'}</button>` : ''}`;
-    el.querySelector('[data-src-body]').textContent = text;
-    const more = el.querySelector('[data-src-more]');
-    if (more) more.onclick = () => loadBody();
-    const restart = el.querySelector('[data-src-restart]');
-    // The server refused the cursor (the body changed): never append; read again from the start.
-    if (restart) restart.onclick = () => { state.version++; state.parts = []; state.loaded = new Set(); state.expected = 0; state.cursor = null; state.bodyError = ''; state.restart = false; state.loading = false; loadBody(true); };
+    let pre = el.querySelector('[data-src-body]');
+    if (!pre) { el.innerHTML = '<pre class="src-body" data-src-body></pre>'; pre = el.querySelector('[data-src-body]'); }
+    const text = state.parts.join(''), shown = pre.textContent;
+    if (shown !== text) {
+      if (shown && text.startsWith(shown) && pre.firstChild) pre.firstChild.appendData(text.slice(shown.length));
+      else pre.textContent = text;
+    }
+    let error = el.querySelector('[data-src-body-error]');
+    if (state.bodyError) {
+      if (!error) { error = document.createElement('p'); error.className = 'bad'; error.setAttribute('role', 'alert'); error.dataset.srcBodyError = ''; pre.after(error); }
+      if (error.textContent !== state.bodyError) error.textContent = state.bodyError;
+    } else error?.remove();
+    const attr = state.restart ? 'data-src-restart' : 'data-src-more';
+    let button = el.querySelector('[data-src-more],[data-src-restart]');
+    if (button && (!state.cursor && !state.restart || !button.hasAttribute(attr))) { button.remove(); button = null; }
+    if (state.cursor || state.restart) {
+      if (!button) { button = document.createElement('button'); button.type = 'button'; button.className = 'ghost'; button.setAttribute(attr, ''); el.append(button); }
+      button.disabled = state.loading;
+      const label = state.restart ? 'Refresh' : state.bodyError ? 'Retry' : 'Load more';
+      if (button.textContent !== label) button.textContent = label;
+      // The server refused the cursor (the body changed): never append; read the first page again, keeping this body until it arrives.
+      button.onclick = state.restart ? () => restartBody() : () => loadBody();
+    }
   };
-  // One page at a time; a page is refused unless it continues exactly where the last one ended, on the same content.
+  // A page is refused unless it is well formed, belongs to this document and continues exactly where the last one ended.
+  const checkPage = (data, offset, requested) => {
+    const doc = data.document || {};
+    if (doc.id !== docId) throw new Error('The page belongs to a different document and was refused.');
+    const cursor = data.next_cursor;
+    if (typeof doc.body !== 'string' || !Number.isSafeInteger(doc.character_offset) || doc.character_offset < 0 || typeof data.complete !== 'boolean'
+      || !(cursor === null || (typeof cursor === 'string' && cursor !== '')) || data.complete !== (cursor === null) || (cursor !== null && doc.body === '')) throw new Error('The page is malformed and was refused.');
+    // The server validates the opaque cursor against the document, scope and body; the file hash is not a second authority
+    // (completion rewrites it without changing the body). Only the exact expected offset is accepted.
+    if (doc.character_offset !== offset || (requested && state.loaded.has(doc.character_offset))) throw new Error('The page does not continue the text already shown and was refused.');
+    return {doc, cursor};
+  };
+  // Denied or gone: nothing of the document may stay on screen.
+  const dropDocument = () => {
+    clearTimeout(state.timer);
+    state.doc = null; state.parts = []; state.loaded = new Set(); state.expected = 0; state.cursor = null; state.restart = false;
+    state.bodyError = SRC_COPY.loadFailed;
+    setName('Unavailable'); paintMeta({}); q('filing').innerHTML = '';
+  };
+  // One page at a time.
   const loadBody = async first => {
     if (state.loading) return;
     state.loading = true; state.bodyError = ''; if (!first) paintBody();
@@ -188,14 +222,7 @@ function srcMountSource(host, scope, docId, opts = {}) {
     try {
       const data = await srcRead(scope, 'context_get', {document_id: docId, max_chars: SRC_PAGE_CHARS, ...(requested ? {cursor: requested} : {})});
       if (!alive() || version !== state.version) return;
-      const doc = data.document || {};
-      if (doc.id !== docId) throw new Error('The page belongs to a different document and was refused.');
-      const cursor = data.next_cursor;
-      if (typeof doc.body !== 'string' || !Number.isSafeInteger(doc.character_offset) || doc.character_offset < 0 || typeof data.complete !== 'boolean'
-        || !(cursor === null || (typeof cursor === 'string' && cursor !== '')) || data.complete !== (cursor === null) || (cursor !== null && doc.body === '')) throw new Error('The page is malformed and was refused.');
-      // The server validates the opaque cursor against the document, scope and body; the file hash is not a second authority
-      // (completion rewrites it without changing the body). Only the exact expected offset is accepted.
-      if (state.loaded.has(doc.character_offset) || doc.character_offset !== offset) throw new Error('The page does not continue the text already shown and was refused.');
+      const {doc, cursor} = checkPage(data, offset, true);
       if (!requested) state.doc = {...doc};
       const part = doc.body;
       state.loaded.add(doc.character_offset ?? 0);
@@ -204,11 +231,41 @@ function srcMountSource(host, scope, docId, opts = {}) {
       if (!requested) { setName(doc.title || 'Untitled source'); paintMeta(doc); }
     } catch (error) {
       if (alive() && version === state.version) {
-        state.restart = !!error.code && !srcUncertain(error);
-        state.bodyError = state.restart ? SRC_COPY.changed : SRC_COPY.loadFailed;
+        if (state.doc && (accessLost(error) || sourceGone(error))) dropDocument();
+        else {
+          state.restart = !!error.code && !srcUncertain(error);
+          state.bodyError = state.restart ? SRC_COPY.changed : SRC_COPY.loadFailed;
+        }
       }
     }
-    finally { if (alive() && version === state.version) { state.loading = false; paintBody(); if (!requested) paintFiling(); } else state.loading = false; }
+    finally { if (alive() && version === state.version) { state.loading = false; paintBody(); if (!requested && state.doc) paintFiling(); } else state.loading = false; }
+  };
+  // Re-reads the first page into a candidate. The body on screen is replaced only by a validated answer; a transient failure keeps it
+  // with an error beside the button, and a deleted or denied document clears it.
+  const restartBody = async () => {
+    if (state.loading || !state.doc) return;
+    const token = ++state.version;
+    state.loading = true; state.bodyError = ''; paintBody();
+    let current = true;
+    try {
+      const data = await srcRead(scope, 'context_get', {document_id: docId, max_chars: SRC_PAGE_CHARS});
+      if (!alive() || token !== state.version) { current = false; return; }
+      const {doc, cursor} = checkPage(data, 0, false);
+      const before = JSON.stringify({...state.doc, body: 0}), previousTitle = state.doc.title;
+      state.doc = {...doc};
+      state.parts = [doc.body]; state.loaded = new Set([doc.character_offset]); state.expected = doc.character_offset + [...doc.body].length;
+      state.cursor = cursor; state.restart = false;
+      if (doc.title !== previousTitle || before !== JSON.stringify({...doc, body: 0})) { setName(doc.title || 'Untitled source'); paintMeta(doc); }
+    } catch (error) {
+      if (!alive() || token !== state.version) { current = false; return; }
+      if (accessLost(error) || sourceGone(error)) dropDocument();
+      else state.bodyError = srcUncertain(error) ? SRC_COPY.loadFailed : SRC_COPY.changed;
+    } finally {
+      if (current && alive() && token === state.version) {
+        state.loading = false; paintBody();
+        if (state.doc) { paintFiling(); scheduleRefresh(); }
+      }
+    }
   };
   // Status-only refresh: never touches the body pages or their cursor.
   async function refreshStatus(quiet) {

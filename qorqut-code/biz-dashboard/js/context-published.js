@@ -96,6 +96,14 @@ function pubCollection({read, items, pageOf, keyOf, limit, verify}) {
   const c = {items: [], revision: null, status: 'idle', reason: null, cursor: null, hasMore: false, exhausted: false, error: null, loading: false,
     total: null, epoch: 0, seenKeys: new Set(), seenCursors: new Set(), pages: 0, first: null};
   const integrity = message => { const error = new Error(message); error.integrity = true; return error; };
+  const options = {read, items, pageOf, keyOf, limit, verify};
+  c.fresh = () => pubCollection(options);
+  // Take over a fully validated candidate in one step; any older in-flight request of this collection is superseded.
+  const ADOPTED = ['items', 'revision', 'status', 'reason', 'cursor', 'hasMore', 'exhausted', 'total', 'seenKeys', 'seenCursors', 'pages', 'first', 'last'];
+  // Supersede every outstanding request of this collection without touching what it shows (a pending result is dropped, and its
+  // cleanup can no longer unlock newer work).
+  c.invalidate = () => { c.epoch++; c.loading = false; };
+  c.adopt = next => { for (const key of ADOPTED) c[key] = next[key]; c.error = null; c.loading = false; c.epoch++; };
   c.restart = () => {
     Object.assign(c, {items: [], revision: null, status: 'idle', reason: null, cursor: null, hasMore: false, exhausted: false, error: null, total: null,
       seenKeys: new Set(), seenCursors: new Set(), pages: 0, first: null, loading: false});
@@ -126,19 +134,56 @@ function pubCollection({read, items, pageOf, keyOf, limit, verify}) {
   // Load the first page (after a restart) or the continuation. The result says whether it was superseded.
   c.load = async live => {
     if (c.loading) return;
+    if (!live()) { c.aborted = true; return; }   // never issue a read for a view or request that is already gone
     const used = c.cursor, epoch = c.epoch;
     c.loading = true; c.error = null;
     try {
       const data = await read(used);
-      if (epoch !== c.epoch || !live()) return;
+      if (epoch !== c.epoch || !live()) { c.aborted = true; return; }
       c.apply(data, used);
     } catch (error) {
-      if (epoch !== c.epoch || !live()) return;
+      if (epoch !== c.epoch || !live()) { c.aborted = true; return; }
       c.error = error;
+    } finally { if (epoch === c.epoch) c.loading = false; }
+  };
+  // Staged refresh of the same identity: a separate candidate rereads from the first page through the pages already loaded
+  // (bounded), with every page checked against that candidate's own revision. Only a fully valid candidate replaces the
+  // shown collection; a transient or integrity failure keeps it with a recoverable error, lost access clears it.
+  c.refresh = async live => {
+    // A refresh supersedes a continuation or an older refresh that is still in flight: their results are ignored.
+    const epoch = ++c.epoch, target = Math.max(1, c.pages), next = c.fresh();
+    c.loading = true;
+    try {
+      const current = () => epoch === c.epoch && live();   // a newer refresh, restart or adoption also stops this walk
+      await pubWalk(next, target, current);
+      if (!current()) return;
+      if (next.error) {
+        if (accessLost(next.error) || sourceGone(next.error)) { c.restart(); c.error = next.error; }
+        else { next.error.refresh = true; c.error = next.error; }
+        return;
+      }
+      c.adopt(next);
     } finally { if (epoch === c.epoch) c.loading = false; }
   };
   return c;
 }
+// Read a candidate's first page and then continuations until `target` pages are loaded or the collection ends.
+async function pubWalk(candidate, target, live) {
+  if (!live()) return;
+  await candidate.load(live);
+  while (live() && !candidate.aborted && !candidate.error && candidate.status === 'ready' && candidate.hasMore && candidate.pages < target) await candidate.load(live);
+}
+// Identical markup keeps the existing nodes (selection, scroll, focus); the caller wires handlers afterwards either way.
+// `html` carries an empty `.pub-errslot`; the error markup is placed into it separately, so an error appearing or clearing never
+// rebuilds the content around it.
+const PUB_ERRSLOT = '<div class="pub-errslot"></div>';
+function pubSet(host, html, errorHtml = '') {
+  if (host._pubHtml !== html || !host.firstElementChild) { host.innerHTML = html; host._pubHtml = html; }
+  const slot = host.querySelector('.pub-errslot');
+  if (slot && slot._html !== errorHtml) { slot.innerHTML = errorHtml; slot._html = errorHtml; }
+}
+// A failed refresh keeps its pages and their continuation; a failed continuation hides the control that failed.
+const pubContinues = collection => collection.hasMore && !(collection.error && !collection.error.refresh);
 
 // People are graph nodes explicitly classified by their stored attributes, never a different DTO kind.
 function pubPerson(item) {
@@ -196,8 +241,9 @@ function pubUnavailableHtml(status, reason, retryLabel) {
     <button type="button" class="bt pub-retry">${esc(retryLabel)}</button></div>`;
 }
 // An integrity error means the Context moved under the reader (or a page did not fit); a transient one is simply retried.
+// A failed refresh also offers a staged reload (never a continuation of the pages it was replacing).
 const pubErrorHtml = error => `<div class="bad pub-error" role="alert" data-pub-error="${error.integrity ? 'integrity' : 'transient'}">
-  ${error.integrity ? PUB_COPY.changed : PUB_COPY.loadFailed} <button type="button" class="bt pub-${error.integrity ? 'restart' : 'again'}">${error.integrity ? 'Reload' : 'Retry'}</button></div>`;
+  ${error.integrity ? PUB_COPY.changed : PUB_COPY.loadFailed} <button type="button" class="bt pub-${error.integrity || error.refresh ? 'restart' : 'again'}">${error.integrity ? 'Reload' : 'Retry'}</button></div>`;
 
 // A live check shared by every view: the same mount, still attached, not aborted, and the caller's route is still current.
 function pubLive(host, generation, signal, current) {
@@ -228,17 +274,24 @@ function pubMountHome(host, scope, nav) {
         <div class="meta pub-totals">${totals.nodes} item${totals.nodes === 1 ? '' : 's'} · ${totals.edges} relationship${totals.edges === 1 ? '' : 's'} · ${totals.sources} source${totals.sources === 1 ? '' : 's'}</div>
         ${first.empty ? '<div class="empty pub-state" data-pub-state="empty" role="status">Nothing has been added to Context yet.</div>' : `
         <div class="sec"><div class="sh">Most connected</div>
-        <div class="cards">${collection.items.map(pubNodeCard).join('')}</div>${collection.hasMore && !collection.error ? `<button type="button" class="bt pub-more">${PUB_COPY.loadMore}</button>` : ''}</div>`}
-        ${collection.error ? pubErrorHtml(collection.error) : ''}<p class="cs"><button type="button" class="quiet pub-refresh">Refresh</button></p>`;
+        <div class="cards">${collection.items.map(pubNodeCard).join('')}</div>${pubContinues(collection) ? `<button type="button" class="bt pub-more">${PUB_COPY.loadMore}</button>` : ''}</div>`}
+        ${PUB_ERRSLOT}<p class="cs"><button type="button" class="quiet pub-refresh">Refresh</button></p>`;
     }
-    host.innerHTML = `<section class="pub-view pub-home" aria-label="Shared Context">${crumbs}${body}</section>`;
+    pubSet(host, `<section class="pub-view pub-home" aria-label="Shared Context">${crumbs}${body}</section>`, collection.error && collection.status === 'ready' ? pubErrorHtml(collection.error) : '');
     pubWireRefs(host, nav);
     const more = host.querySelector('.pub-more'); if (more) more.onclick = load;
     host.querySelectorAll('.pub-again').forEach(b => b.onclick = load);
-    host.querySelectorAll('.pub-restart, .pub-retry, .pub-refresh').forEach(b => b.onclick = () => { collection.restart(); load(); });
+    host.querySelectorAll('.pub-restart, .pub-retry, .pub-refresh').forEach(b => { b.onclick = reload; b.disabled = collection.loading; });
   };
   async function load() { if (collection.loading) return; paint(); await collection.load(live); paint(); }
-  collection.restart(); host.innerHTML = '<p class="empty pad" role="status">Loading…</p>';
+  // The shown pages stay mounted while the same Context is read again.
+  async function reload() {
+    if (collection.status === 'idle' && !collection.items.length) { collection.restart(); return load(); }
+    host.querySelectorAll('.pub-restart, .pub-retry, .pub-refresh').forEach(b => { b.disabled = true; });
+    await collection.refresh(live);
+    paint();
+  }
+  collection.restart(); host._pubHtml = null; host.innerHTML = '<p class="empty pad" role="status">Loading…</p>';
   load();
 }
 
@@ -255,17 +308,22 @@ function pubMountSearch(host, scope, query, nav) {
     else if (collection.status !== 'ready') body = pubUnavailableHtml(collection.status, collection.reason, 'Retry');
     else body = `<div class="cards">${collection.items.map(pubFindCard).join('') ||
       '<div class="empty pub-state" data-pub-state="no-results">No results.</div>'}</div>
-      ${collection.hasMore && !collection.error ? `<button type="button" class="bt pub-more">${PUB_COPY.loadMore}</button>` : ''}
+      ${pubContinues(collection) ? `<button type="button" class="bt pub-more">${PUB_COPY.loadMore}</button>` : ''}
       ${collection.exhausted ? `<div class="pub-window" role="status">${PUB_COPY.more}. Narrow the search to see more.</div>` : ''}
-      ${collection.error ? pubErrorHtml(collection.error) : ''}`;
-    host.innerHTML = `<section class="pub-view sec ctx-search-results"><div class="sh">Search: ${esc(query)}${collection.hasMore ? ` <span class="stamp">${PUB_COPY.more}</span>` : ''}</div>${body}</section>`;
+      ${PUB_ERRSLOT}`;
+    pubSet(host, `<section class="pub-view sec ctx-search-results"><div class="sh">Search: ${esc(query)}${collection.hasMore ? ` <span class="stamp">${PUB_COPY.more}</span>` : ''}</div>${body}</section>`, collection.error && collection.status === 'ready' ? pubErrorHtml(collection.error) : '');
     pubWireRefs(host, nav);
     const more = host.querySelector('.pub-more'); if (more) more.onclick = load;
     host.querySelectorAll('.pub-again').forEach(b => b.onclick = load);
-    host.querySelectorAll('.pub-restart, .pub-retry').forEach(b => b.onclick = () => { collection.restart(); load(); });
+    host.querySelectorAll('.pub-restart, .pub-retry').forEach(b => b.onclick = reload);
   };
   async function load() { if (collection.loading) return; paint(); await collection.load(live); paint(); }
-  collection.restart(); load();
+  async function reload() {
+    if (collection.status === 'idle' && !collection.items.length) { collection.restart(); return load(); }
+    await collection.refresh(live);
+    paint();
+  }
+  host._pubHtml = null; collection.restart(); load();
 }
 
 // ---- Graph --------------------------------------------------------------------------------------------------------
@@ -282,24 +340,25 @@ function pubMountGraph(host, scope, nav, {storageKey, caption}) {
     <div class="pub-graph-notes" role="status"></div><div class="global-context-graph-host"></div></section>`;
   const status = host.querySelector('.pub-graph-status'), more = host.querySelector('.pub-more'), refresh = host.querySelector('.pub-refresh');
   const notes = host.querySelector('.pub-graph-notes'), graphHost = host.querySelector('.global-context-graph-host');
+  let graphSignature = null;
   const paint = () => {
     if (!live()) return;
-    notes.replaceChildren(); more.hidden = true; refresh.hidden = false;
+    notes.replaceChildren(); more.hidden = true; refresh.hidden = false; refresh.disabled = collection.loading;
     if (collection.status === 'idle') {
-      ctxClearGraph(); graphHost.replaceChildren(); refresh.hidden = true;
+      ctxClearGraph(); graphHost.replaceChildren(); graphSignature = null; refresh.hidden = true;
       status.textContent = collection.error ? PUB_COPY.loadFailed : 'Loading…';
       if (collection.error) { more.hidden = false; more.textContent = 'Retry'; status.dataset.pubError = 'transient'; } else delete status.dataset.pubError;
       return;
     }
     if (collection.status !== 'ready') {
-      ctxClearGraph(); graphHost.replaceChildren(); refresh.hidden = true;
+      ctxClearGraph(); graphHost.replaceChildren(); graphSignature = null; refresh.hidden = true;
       status.innerHTML = pubUnavailableHtml(collection.status, collection.reason, 'Retry');
-      status.querySelector('.pub-retry').onclick = () => { collection.restart(); load(); };
+      status.querySelector('.pub-retry').onclick = reload;
       return;
     }
     const first = collection.first || collection.last, totals = first.totals;
     if (first.empty) {
-      ctxClearGraph(); graphHost.replaceChildren();
+      ctxClearGraph(); graphHost.replaceChildren(); graphSignature = null;
       status.textContent = 'Nothing has been added to Context yet.';
       status.dataset.pubState = 'empty'; return;
     }
@@ -314,16 +373,28 @@ function pubMountGraph(host, scope, nav, {storageKey, caption}) {
       message.className = 'bad pub-error'; message.setAttribute('role', 'alert'); message.dataset.pubError = collection.error.integrity ? 'integrity' : 'transient';
       message.textContent = collection.error.integrity ? PUB_COPY.changed : PUB_COPY.loadFailed;
       notes.append(message);
-      if (!collection.error.integrity) { more.hidden = false; more.textContent = 'Retry'; }
-      else { more.hidden = false; more.textContent = 'Reload'; more.dataset.pubRestart = ''; }
+      more.hidden = false; more.textContent = collection.error.integrity ? 'Reload' : 'Retry';
     } else if (collection.hasMore) { more.hidden = false; more.textContent = PUB_COPY.loadMore; }
+    // The same graph (camera, layout, selection) stays mounted unless the published data it draws has changed;
+    // a changed graph is rebuilt and restores its view from the saved storage key.
+    const signature = JSON.stringify([collection.items, totals]);
+    if (signature === graphSignature && _ctxGraph && graphHost.firstChild) return;
+    graphSignature = signature;
     ctxClearGraph();
     _ctxGraph = contextGraph(graphHost, model.graph, {knowledgeGraph: model, storageKey, caption,
       onOpen: node => { const ref = node.item?.ref; if (ref) nav.open(ref); }});
   };
   async function load() { if (collection.loading) return; more.disabled = true; await collection.load(live); more.disabled = false; paint(); }
-  more.onclick = () => { if (more.hasAttribute('data-pub-restart')) { more.removeAttribute('data-pub-restart'); collection.restart(); paint(); } load(); };
-  refresh.onclick = () => { collection.restart(); paint(); load(); };
+  async function reload() {
+    if (collection.status === 'idle' && !collection.items.length) { collection.restart(); paint(); return load(); }
+    more.disabled = true; refresh.disabled = true;
+    await collection.refresh(live);
+    more.disabled = false;
+    paint();
+  }
+  // A failed refresh (or a publication change) retries as a staged refresh; a failed continuation retries the next page.
+  more.onclick = () => { if (collection.error && (collection.error.integrity || collection.error.refresh)) reload(); else load(); };
+  refresh.onclick = reload;
   collection.restart(); load();
 }
 
@@ -427,67 +498,77 @@ function pubMountObject(host, scope, ref, nav) {
     host.querySelector('.pub-back').onclick = () => nav.go(nav.crumbs[nav.crumbs.length - 1].go); };
   if (!pubRefKind(ref)) return fail('Unavailable');
   const kind = pubRefKind(ref);
-  let loadGeneration = 0;   // one per record load: results of an older load never touch the current one
-  const view = {ref, nav, object: null, text: null, textError: null, changedPublication: false};
+  let loadGeneration = 0;   // one per record load or reload: results of an older one never touch the current one
+  const view = {ref, nav, object: null, text: null, textPages: 0, textError: null, changedPublication: false, reloadError: null};
+  const integrity = message => Object.assign(new Error(message), {integrity: true});
   const history = pubCollection({limit: PUB_LIMITS.history, items: data => data.history.items, pageOf: data => data.history.page, keyOf: entry => entry.event_id,
-    verify: data => { if (data.object.ref !== ref) { const error = new Error('A history page was for a different record.'); error.integrity = true; throw error; } },
+    verify: (data, c, used) => {
+      if (data.object.ref !== ref) throw integrity('A history page was for a different record.');
+      if (used && data.history.total !== c.total) throw integrity('The history changed while paging; restart to read it again.');
+      c.total = data.history.total;
+    },
     read: cursor => pubRead(scope, 'context_object', {ref, history_limit: PUB_LIMITS.history, ...(cursor ? {history_cursor: cursor} : {})}, signal)});
-  // history.total is carried by each page's own history block
-  const origHistoryApply = history.apply;
-  history.apply = (data, used) => {
-    if (used && data.status === 'ready' && data.history.total !== history.total) { const error = new Error('The history changed while paging; restart to read it again.'); error.integrity = true; throw error; }
-    origHistoryApply(data, used);
-    if (!used && data.status === 'ready') history.total = data.history.total;
-  };
   view.history = history;
   const expand = pubCollection({limit: PUB_LIMITS.expand, items: data => data.relationships, pageOf: data => data.page, keyOf: edge => edge.ref,
     verify: (data, c, used) => {
       const bad = data.origin.ref !== ref || data.depth !== 1 || data.direction !== 'both';
-      if (bad) { const error = new Error('A neighbourhood page was for a different request.'); error.integrity = true; throw error; }
-      if (used && data.total !== c.total) { const error = new Error('The neighbourhood changed while paging; restart to read it again.'); error.integrity = true; throw error; }
+      if (bad) throw integrity('A neighbourhood page was for a different request.');
+      if (used && data.total !== c.total) throw integrity('The neighbourhood changed while paging; restart to read it again.');
       c.total = data.total;
     },
     read: cursor => pubRead(scope, 'context_expand', {ref, depth: 1, direction: 'both', limit: PUB_LIMITS.expand, ...(cursor ? {cursor} : {})}, signal)});
   view.expand = expand;
   const textLimit = PUB_LIMITS.text;
-  const acceptText = (data, used) => {
+  // Validate one text page against the text loaded so far (`prior`, null for the first page) and the publication it belongs to.
+  const nextText = (data, used, prior, revision) => {
     const content = data.content;
     if (used) {
-      if (data.revision !== view.object.revision) { const error = new Error('The Context was published again while reading this text. The text loaded so far is kept; reload the record to read the new publication.'); error.integrity = true; throw error; }
-      if (!content || content.offset !== view.text.loaded) { const error = new Error('The next text page does not continue where the loaded text ends.'); error.integrity = true; throw error; }
-      if (content.total_characters !== view.text.total_characters) { const error = new Error('The source text changed while reading it; reload the record.'); error.integrity = true; throw error; }
-      if (content.has_more && (content.next_cursor === used || content.next_cursor === null || !content.text.length)) { const error = new Error('The text continuation did not advance.'); error.integrity = true; throw error; }
-      if (!content.has_more && content.next_cursor !== null) { const error = new Error('The text continuation did not advance.'); error.integrity = true; throw error; }
+      if (data.revision !== revision) throw integrity('The Context was published again while reading this text. The text loaded so far is kept; reload the record to read the new publication.');
+      if (!content || content.offset !== prior.loaded) throw integrity('The next text page does not continue where the loaded text ends.');
+      if (content.total_characters !== prior.total_characters) throw integrity('The source text changed while reading it; reload the record.');
+      if (content.has_more && (content.next_cursor === used || content.next_cursor === null || !content.text.length)) throw integrity('The text continuation did not advance.');
+      if (!content.has_more && content.next_cursor !== null) throw integrity('The text continuation did not advance.');
     }
-    if (!content) { view.text = null; return; }
-    if (!used && (content.offset !== 0 || content.has_more !== (content.next_cursor !== null))) { const error = new Error('The first text page is inconsistent.'); error.integrity = true; throw error; }
+    if (!content) return null;
+    if (!used && (content.offset !== 0 || content.has_more !== (content.next_cursor !== null))) throw integrity('The first text page is inconsistent.');
     const length = Array.from(content.text).length;
-    view.text = {text: (used ? view.text.text : '') + content.text, loaded: content.offset + length, total_characters: content.total_characters,
+    return {text: (used ? prior.text : '') + content.text, loaded: content.offset + length, total_characters: content.total_characters,
       has_more: content.has_more, next_cursor: content.next_cursor};
   };
   const paint = () => {
     if (!live() || !view.object) return;
-    host.innerHTML = `<section class="pub-view global-context-base global-context-object pub-object" data-pub-kind="${kind}" aria-label="${pubNeutral[kind]}">${pubObjectBody({...view, object: view.object,
-      history: history_(), expand: expand_()})}</section>`;
+    const reloadError = view.reloadError ? `<div class="bad pub-error" role="alert" data-pub-error="${view.reloadError.integrity ? 'integrity' : 'transient'}">
+      ${view.reloadError.integrity ? PUB_COPY.changed : PUB_COPY.loadFailed} <button type="button" class="bt pub-reload">${view.reloadError.integrity ? 'Reload' : 'Retry'}</button></div>` : '';
+    pubSet(host, `<section class="pub-view global-context-base global-context-object pub-object" data-pub-kind="${kind}" aria-label="${pubNeutral[kind]}">${PUB_ERRSLOT}${pubObjectBody({...view, object: view.object,
+      history: history_(), expand: expand_()})}</section>`, reloadError);
     pubWireRefs(host, nav);
     const on = (selector, fn) => host.querySelectorAll(selector).forEach(b => b.onclick = fn);
     on('.pub-history-more, .pub-history-again', () => run(history, paint));
-    host.querySelectorAll('.pub-text-more, .pub-text-again').forEach(b => { b.disabled = view.textBusy === true; });
-    on('.pub-history-restart', () => start());
+    host.querySelectorAll('.pub-history-more, .pub-history-again, .pub-expand-more, .pub-expand-again, .pub-expand-restart, .pub-retry').forEach(b => { b.disabled = view.reloading === true; });
+    host.querySelectorAll('.pub-text-more, .pub-text-again').forEach(b => { b.disabled = view.textBusy === true || view.reloading === true; });
+    host.querySelectorAll('.pub-reload').forEach(b => { b.disabled = view.reloading === true; });
+    on('.pub-history-restart', () => reload());
     on('.pub-expand-more, .pub-expand-again', () => runExpand());
-    on('.pub-expand-restart, .pub-retry', () => { expand.restart(); runExpand(); });
-    on('.pub-reload', () => start());
+    on('.pub-expand-restart, .pub-retry', () => { if (view.reloading) return; expand.restart(); runExpand(); });
+    on('.pub-reload', () => reload());
     on('.pub-text-more, .pub-text-again', () => runText());
-    on('.pub-text-restart', () => start());
+    on('.pub-text-restart', () => reload());
   };
   const history_ = () => ({items: history.items, total: history.total ?? history.items.length, hasMore: history.hasMore, error: history.error});
   const expand_ = () => ({status: expand.status, reason: expand.reason, items: expand.items, total: expand.total ?? expand.items.length, hasMore: expand.hasMore, error: expand.error});
-  async function run(collection, repaint) { if (collection.loading) return; const g = loadGeneration; await collection.load(live); if (g === loadGeneration) repaint(); }
+  // Every continuation is bound to the load generation it started in: a reload (or a new load) makes its result a no-op.
+  const generationLive = () => { const g = loadGeneration; return () => live() && g === loadGeneration; };
+  async function run(collection, repaint) {
+    if (collection.loading || view.reloading) return;
+    const g = loadGeneration;
+    await collection.load(generationLive());
+    if (g === loadGeneration) repaint();
+  }
   async function runExpand() {
-    if (expand.loading) return;
+    if (expand.loading || view.reloading) return;
     view.changedPublication = false;
     const g = loadGeneration;
-    await expand.load(live);
+    await expand.load(generationLive());
     if (!live() || g !== loadGeneration) return;
     if (expand.status === 'ready' && expand.revision !== view.object.revision) {
       expand.restart(); view.changedPublication = true;
@@ -495,44 +576,104 @@ function pubMountObject(host, scope, ref, nav) {
     paint();
   }
   async function runText() {
-    if (!view.text || !view.text.has_more || view.textBusy) return;
+    if (!view.text || !view.text.has_more || view.textBusy || view.reloading) return;
     const used = view.text.next_cursor, g = loadGeneration;
     view.textError = null; view.textBusy = true; paint();
     try {
       const data = await pubRead(scope, 'context_object', {ref, text_limit: textLimit, text_cursor: used}, signal);
       if (!live() || g !== loadGeneration) return;
-      if (data.status !== 'ready' || data.object.kind !== 'source' || data.object.ref !== ref) throw Object.assign(new Error('The text page was for a different record or is unavailable.'), {integrity: true});
-      acceptText(data, used);
+      if (data.status !== 'ready' || data.object.kind !== 'source' || data.object.ref !== ref) throw integrity('The text page was for a different record or is unavailable.');
+      view.text = nextText(data, used, view.text, view.object.revision); view.textPages++;
     } catch (error) { if (!live() || g !== loadGeneration) return; view.textError = error; }
     finally { if (g === loadGeneration) view.textBusy = false; }
     paint();
   }
+  // The route-level error shown when the record cannot be read at all (first load, or lost access / gone record on reload).
+  function showLoadError(error) {
+    view.object = null; host._pubHtml = null;
+    host.innerHTML = `<section class="pub-view"><div class="empty bad pub-route-error" role="alert" data-pub-error="${error.code === 'not_found' ? 'not-found' : 'transient'}">${error.code === 'not_found' ? 'Unavailable' : PUB_COPY.loadFailed}</div>
+      <button type="button" class="bt pub-retry-object">Reload</button> <button type="button" class="bt pub-back">${esc(nav.backLabel)}</button></section>`;
+    host.querySelector('.pub-retry-object').onclick = start;
+    host.querySelector('.pub-back').onclick = () => nav.go(nav.crumbs[nav.crumbs.length - 1].go);
+  }
+  function showUnavailable(data) {
+    view.object = null; host._pubHtml = null;
+    host.innerHTML = `<section class="pub-view">${pubUnavailableHtml(data.status, data.reason, 'Retry')}</section>`;
+    host.querySelector('.pub-retry').onclick = start;
+  }
+  // First load of this identity (mount or an explicit new load): nothing is shown yet, so Loading is correct.
   async function start() {
     const g = ++loadGeneration;
-    view.textBusy = false;
-    history.restart(); expand.restart(); view.text = null; view.textError = null; view.object = null; view.changedPublication = false;
+    view.textBusy = false; view.reloading = false;
+    history.restart(); expand.restart(); view.text = null; view.textPages = 0; view.textError = null; view.object = null; view.changedPublication = false; view.reloadError = null;
+    host._pubHtml = null;
     host.innerHTML = '<p class="empty pad pub-loading" role="status">Loading…</p>';
     let data;
     try { data = await pubRead(scope, 'context_object', {ref, history_limit: PUB_LIMITS.history, text_limit: textLimit}, signal); }
     catch (error) {
       if (!live() || g !== loadGeneration) return;
-      host.innerHTML = `<section class="pub-view"><div class="empty bad pub-route-error" role="alert" data-pub-error="${error.code === 'not_found' ? 'not-found' : 'transient'}">${error.code === 'not_found' ? 'Unavailable' : PUB_COPY.loadFailed}</div>
-        <button type="button" class="bt pub-retry-object">Reload</button> <button type="button" class="bt pub-back">${esc(nav.backLabel)}</button></section>`;
-      host.querySelector('.pub-retry-object').onclick = start;
-      host.querySelector('.pub-back').onclick = () => nav.go(nav.crumbs[nav.crumbs.length - 1].go);
+      showLoadError(error);
       return;
     }
     if (!live() || g !== loadGeneration) return;
-    if (data.status !== 'ready') {
-      host.innerHTML = `<section class="pub-view">${pubUnavailableHtml(data.status, data.reason, 'Retry')}</section>`;
-      host.querySelector('.pub-retry').onclick = start; return;
-    }
+    if (data.status !== 'ready') { showUnavailable(data); return; }
     if (data.object.ref !== ref) { fail('Unavailable'); return; }
     view.object = data;
-    try { history.apply(data, null); if (data.object.kind === 'source') acceptText(data, null); }
+    try { history.apply(data, null); if (data.object.kind === 'source') { view.text = nextText(data, null, null, data.revision); view.textPages = view.text ? 1 : 0; } }
     catch (error) { history.error = error; }
     paint();
     if (data.object.kind === 'node') runExpand();
+  }
+  // Same-record reload: the displayed record, text, history and neighbourhood stay until a candidate (read under a new
+  // generation, through the pages already loaded, all from one publication) is complete; then it replaces them at once.
+  async function reload() {
+    if (!view.object || view.reloading) { if (!view.object) start(); return; }
+    const depths = {history: Math.max(1, history.pages), expand: Math.max(1, expand.pages), text: view.textPages};   // frozen: the candidate rereads exactly this
+    const g = ++loadGeneration, rlive = () => live() && g === loadGeneration;
+    history.invalidate(); expand.invalidate();   // outstanding continuations are dropped; what is shown stays as it is
+    view.reloading = true; view.reloadError = null; view.textBusy = false;
+    host.querySelectorAll('.pub-reload, .pub-history-more, .pub-history-again, .pub-expand-more, .pub-expand-again, .pub-expand-restart, .pub-retry, .pub-text-more, .pub-text-again').forEach(b => { b.disabled = true; });
+    try {
+      const data = await pubRead(scope, 'context_object', {ref, history_limit: PUB_LIMITS.history, text_limit: textLimit}, signal);
+      if (!live() || g !== loadGeneration) return;
+      if (data.status !== 'ready') { showUnavailable(data); return; }
+      if (data.object.ref !== ref) throw integrity('The record changed to a different one.');
+      const nextHistory = history.fresh();
+      nextHistory.apply(data, null);
+      // The first page is already applied; keep reading continuations up to the depth that was loaded.
+      while (rlive() && !nextHistory.aborted && !nextHistory.error && nextHistory.hasMore && nextHistory.pages < depths.history) await nextHistory.load(rlive);
+      if (!rlive()) return;
+      let text = null, textPages = 0;
+      if (data.object.kind === 'source') {
+        text = nextText(data, null, null, data.revision); textPages = text ? 1 : 0;
+        while (rlive() && text && text.has_more && textPages < depths.text) {
+          const used = text.next_cursor;
+          const page = await pubRead(scope, 'context_object', {ref, text_limit: textLimit, text_cursor: used}, signal);
+          if (!live() || g !== loadGeneration) return;
+          if (page.status !== 'ready' || page.object.kind !== 'source' || page.object.ref !== ref) throw integrity('The text page was for a different record or is unavailable.');
+          text = nextText(page, used, text, data.revision); textPages++;
+        }
+        if (!rlive()) return;
+      }
+      let nextExpand = null;
+      if (data.object.kind === 'node') {
+        nextExpand = expand.fresh();
+        await pubWalk(nextExpand, depths.expand, rlive);
+        if (!rlive()) return;
+        if (nextExpand.error) throw nextExpand.error;
+        if (nextExpand.status === 'ready' && nextExpand.revision !== data.revision) throw integrity('The neighbourhood belongs to a different publication; reload the record.');
+      }
+      if (!live() || g !== loadGeneration) return;
+      if (nextHistory.error) throw nextHistory.error;
+      view.object = data; history.adopt(nextHistory);
+      if (nextExpand) expand.adopt(nextExpand);
+      view.text = text; view.textPages = textPages; view.textError = null; view.changedPublication = false;
+    } catch (error) {
+      if (!live() || g !== loadGeneration) return;
+      if (accessLost(error) || sourceGone(error)) { showLoadError(error); view.reloading = false; return; }
+      view.reloadError = error;
+    } finally { if (g === loadGeneration) view.reloading = false; }
+    paint();
   }
   start();
 }
