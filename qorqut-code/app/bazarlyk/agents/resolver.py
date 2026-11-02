@@ -9,7 +9,6 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import shlex
 from threading import RLock
 from typing import Any, Mapping
 
@@ -523,21 +522,9 @@ class AgentConfigResolver:
             available_operations=frozenset(tool["canonical_operation"] for tool in tools if tool["available"]),
             context_home=context_home, agentic_view=view)
         from bazarlyk.agentic.text import render
-        toolkit = render(view, "host", "app/bazarlyk/agentic/assets/toolkit.md",
-                         TOOLKIT_COMMAND=shlex.quote(str(Path(snapshot["row"]["workspace"]) / ".bazarlyk/agentic")))
         session_note = render(view, "host", "app/bazarlyk/agentic/assets/inbox-session-note.md")
         if not session_note.strip() or len(session_note) > MAX_CONTEXT_CHARACTERS:
             raise DomainError("agentic_resource_unavailable", "Managed inbox session guidance is empty or oversized")
-        resource = view.resource("host", "app/bazarlyk/agentic/assets/toolkit.md")
-        rendered = mandatory["rendered"] + "\n\n## Agentic toolkit\n" + toolkit
-        if len(rendered) > MAX_CONTEXT_CHARACTERS:
-            raise DomainError("context_budget_exceeded", "Mandatory context and agentic toolkit exceed the context limit")
-        mandatory = {**mandatory, "rendered": rendered, "character_count": len(rendered),
-                     "bundle_hash": content_hash(rendered.encode()), "entries": [*mandatory["entries"],
-                         {"document_id": resource["root_path"], "source_id": resource["root_path"],
-                          "source_kind": "agentic", "source_path": resource["root_path"], "section_selector": None,
-                          "revision": resource["sha256"], "hash": resource["sha256"], "required": True,
-                          "character_count": len(toolkit), "inclusion_reason": "Managed toolkit discovery and authoring"}]}
         visible_scope = plain(profile.to_dict()["scope"])
         if profile.scope.kind == "ecosystem":
             visible_scope["allowed_business_ids"] = [row["id"] for row in snapshot["businesses"]]
