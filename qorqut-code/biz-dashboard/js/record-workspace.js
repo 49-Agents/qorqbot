@@ -39,7 +39,9 @@ function rwTypeLabel(record) {
   if (source.type === 'task') return TASK_TYPE_LABELS[record.task_type || source.task_type] || 'Task';
   if (source.type === 'email') return 'Email';
   if (source.type === 'reference') return 'Reference';
-  return ({data_tables: 'Table', documents: 'Document', action_logs: 'Action', agent_profiles: 'Agent', context_entities: 'Reference'}
+  if (source.type === 'job') return 'Job';
+  return ({data_tables: 'Table', documents: 'Document', action_logs: 'Action', agent_profiles: 'Agent', context_entities: 'Reference',
+    owner_reminders: 'Reminder', routines: 'Routine', routine_runs: 'Routine run', jobs: 'Job'}
     [record.resource_type] || 'Record');
 }
 function rwTypeIcon(record) {
@@ -52,6 +54,9 @@ function rwTypeIcon(record) {
   if (source.type === 'email') return `<span class="task-type-icon task-type-icon-email" role="img" aria-label="Email"></span>`;
   if (record.resource_type === 'data_tables') return RW_TABLE_ICON;
   if (record.resource_type === 'documents') return RW_FILE_ICON;
+  if (record.resource_type === 'owner_reminders') return T_VIEW_ICON.calendar;
+  if (record.resource_type === 'routines') return (typeof RT_ICONS === 'object' && RT_ICONS.active) || T_VIEW_ICON.calendar;
+  if (source.type === 'job' || record.resource_type === 'jobs') return (typeof RT_ICONS === 'object' && RT_ICONS.logs) || T_VIEW_ICON.calendar;
   if (record.url || record.opening_target?.type === 'url') return RW_LINK_ICON;
   return T_VIEW_ICON.tasks;
 }
@@ -506,6 +511,7 @@ async function rwDashboardMount(host, record, ctx) {
   const call = async (operation, args = {}, options = {}) => coreData(await post(`${path}/operations/${operation}`, {...args, ...options}));
   if (source.type === 'project') return rwProjectDashboard(host, record, ctx, call);
   if (source.type === 'signoff') return rwSignoffDashboard(host, record, ctx);
+  if (source.type === 'job') return rwJobDashboard(host, record, ctx);
   if (source.type === 'task') return rwTaskDashboard(host, record, ctx, call);
   if (source.type === 'email' || record.resource_type === 'email_conversations') {
     host.classList.add('record-panel');
@@ -574,6 +580,132 @@ function rwSignoffDashboard(host, record, ctx) {
   return {dirty: () => false, hasUnsaved: () => false, dispose() { view.dispose(); host.replaceChildren(); }};
 }
 
+// ---------------------------------------------------------------- reminder / routine / job readers
+function rwFormatTime(value) {
+  if (!value) return '—';
+  if (typeof rtTime === 'function') return rtTime(value);
+  try { return new Intl.DateTimeFormat('en-US', {weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false}).format(new Date(value)); }
+  catch (_) { return String(value); }
+}
+// A safe, read-only reminder: text, schedule and state. Scheduling/cancellation stay in their existing UI.
+function rwReminderReader(host, record, item, reminder) {
+  const box = rwNode('section', 'rw-reader rw-reminder');
+  box.append(rwNode('h3', '', 'Reminder'));
+  box.append(rwNode('p', 'rw-reminder-text', reminder.text || item.label || record.label || 'Reminder'));
+  const fields = [['Scheduled for', rwFormatTime(reminder.at)], ['State', reminder.state || '—']];
+  if (reminder.revision != null) fields.push(['Revision', String(reminder.revision)]);
+  const meta = rwNode('p', 'muted rw-reminder-meta', fields.map(([label, value]) => `${label}: ${value}`).join(' · '));
+  box.append(meta);
+  host.append(box);
+  return {dirty: () => false, hasUnsaved: () => false, dispose() { host.replaceChildren(); }};
+}
+// A routine is the Project automation item; its runs are read from the existing scoped routine history,
+// independently paged. A structured run job can be opened through jobs_get, never enumerated here.
+function rwRoutineReader(host, record, ctx, routine) {
+  let disposed = false, loading = false, cursor = null, generation = 0;
+  const routineId = routine.id || record.source.id;
+  const base = record.biz ? `/biz/${encodeURIComponent(record.biz)}` : '/root';
+  const scopeArgs = record.biz ? {} : {scope: 'global'};
+  const shell = rwNode('section', 'rw-reader rw-routine');
+  shell.innerHTML = `<h3></h3><dl class="rw-routine-meta"></dl><div class="rw-routine-history"><h4>Run history</h4>
+    <div class="rw-run-list"></div><p class="muted rw-run-empty">Loading runs…</p>
+    <div class="rw-run-actions"><button type="button" class="quiet" data-routine-more hidden>More runs</button><button type="button" class="quiet" data-routine-retry hidden>Retry</button></div>
+    <p class="ferr" role="alert" data-routine-error hidden></p></div>`;
+  host.append(shell);
+  shell.querySelector('h3').textContent = routine.name || record.label || 'Routine';
+  const meta = shell.querySelector('.rw-routine-meta');
+  const lines = [];
+  if (routine.status) lines.push(['Status', routine.status]);
+  if (routine.next) lines.push(['Next scheduled', rwFormatTime(routine.next)]);
+  if (routine.program) lines.push(['Program', routine.program]);
+  if (routine.target) lines.push(['Target', {root: 'Global', 'each-business': 'Each project', business: 'This project'}[routine.target] || routine.target]);
+  if (routine.unavailable_reason) lines.push(['Scheduling', routine.unavailable_reason]);
+  if (routine.why) lines.push(['About', routine.why]);
+  for (const [label, value] of lines) {
+    const dt = rwNode('dt', '', label); const dd = rwNode('dd', '', String(value));
+    meta.append(dt, dd);
+  }
+  meta.hidden = !lines.length;
+  const list = shell.querySelector('.rw-run-list'), more = shell.querySelector('[data-routine-more]');
+  const retry = shell.querySelector('[data-routine-retry]');
+  const empty = shell.querySelector('.rw-run-empty'), error = shell.querySelector('[data-routine-error]');
+  const stateLabel = state => ({queued: 'Queued', running: 'Running', succeeded: 'Succeeded', failed: 'Failed', cancelled: 'Cancelled'}[state] || state || 'Unknown');
+  function runRow(run) {
+    const row = rwNode('div', 'rw-run-row');
+    const state = rwNode('span', 'rw-run-state ' + (run.state === 'failed' ? 'bad' : ''), stateLabel(run.state));
+    const time = rwNode('time', 'rw-run-time', rwFormatTime(run.started_at || run.created_at || run.start));
+    if (run.started_at || run.created_at || run.start) time.dateTime = run.started_at || run.created_at || run.start;
+    row.append(state, time);
+    if (run.trigger) row.append(rwNode('span', 'rw-run-trigger', run.trigger));
+    const jobId = run.job_id || run.result_json?.job_id;
+    if (jobId) {
+      const button = rwNode('button', 'quiet rw-run-job', 'View job');
+      button.type = 'button';
+      button.setAttribute('aria-label', 'View job ' + jobId);
+      button.onclick = () => void ctx.navigate(rwRecordFromItem({source: {type: 'job', id: jobId, business_id: routine.business_id ?? record.source.business_id ?? null,
+        business_slug: record.biz, business_name: record.business_name, label: 'Job'}}, {biz: record.biz}));
+      row.append(button);
+    }
+    return row;
+  }
+  async function load(append = false) {
+    if (disposed || loading) return;
+    loading = true; const own = ++generation;
+    if (!append) { cursor = null; list.replaceChildren(); }
+    more.disabled = true; retry.hidden = true; error.hidden = true;
+    if (!append) { empty.hidden = false; empty.textContent = 'Loading runs…'; }
+    try {
+      const data = coreData(await post(`${base}/operations/routines_runs`, {...scopeArgs, routine_id: routineId, limit: 25,
+        ...(append && cursor ? {cursor} : {})}));
+      if (disposed || own !== generation || !ctx.alive()) return;
+      for (const run of data.items || []) list.append(runRow(run));
+      cursor = data.next_cursor || null;
+      more.hidden = !cursor;
+      empty.textContent = 'No runs yet.';
+      empty.hidden = !!list.children.length;
+    } catch (failure) {
+      if (disposed || own !== generation || !ctx.alive()) return;
+      error.textContent = uiFailure(failure, {load: true});
+      error.hidden = false;
+      more.hidden = true;
+      retry.hidden = false;
+      empty.hidden = true;
+    } finally {
+      if (own !== generation) return;
+      loading = false; more.disabled = false; more.textContent = 'More runs';
+    }
+  }
+  more.onclick = () => {
+    if (loading) return;
+    more.textContent = 'Loading…';
+    void load(true);
+  };
+  retry.onclick = () => { if (!loading) void load(false); };
+  void load();
+  return {dirty: () => false, hasUnsaved: () => false, dispose() { disposed = true; generation++; host.replaceChildren(); }};
+}
+// A job is reached only from a structured routine run; this is its canonical scoped read, not a jobs browser.
+async function rwJobDashboard(host, record, ctx) {
+  host.classList.add('record-panel');
+  const path = record.biz ? `/biz/${encodeURIComponent(record.biz)}` : '/root';
+  const data = coreData(await post(`${path}/operations/jobs_get`, {job_id: record.source.id, ...(!record.biz ? {scope: 'global'} : {})}));
+  if (!ctx.alive()) return null;
+  const job = data.job;
+  if (!job) throw new Error('This job is no longer available.');
+  const box = rwNode('section', 'rw-reader rw-job');
+  box.append(rwNode('h3', '', 'Job'));
+  const lines = [['Kind', job.kind], ['State', job.state], ['Updated', job.updated_at && rwFormatTime(job.updated_at)], ['Attempts', job.attempts]]
+    .filter(([, value]) => value != null && value !== '');
+  const meta = rwNode('dl', 'rw-routine-meta');
+  for (const [label, value] of lines) meta.append(rwNode('dt', '', label), rwNode('dd', '', String(value)));
+  box.append(meta);
+  const code = job.error_json?.code;
+  if (code) box.append(rwNode('p', 'ferr', 'Error: ' + code));
+  if (data.details_available === false) box.append(rwNode('p', 'muted', 'Full output is only available to the initiating agent and the owner.'));
+  host.append(box);
+  return {dirty: () => false, hasUnsaved: () => false, dispose() { host.replaceChildren(); }};
+}
+
 // ---------------------------------------------------------------- reference / inventory readers
 async function rwReferenceDashboard(host, record, ctx, call) {
   host.classList.add('record-panel');
@@ -608,6 +740,8 @@ async function rwReferenceDashboard(host, record, ctx, call) {
     return {dirty: () => false, hasUnsaved: () => false, dispose() { host.replaceChildren(); }};
   }
   if (authorized) {
+    if (content.reminder) return rwReminderReader(host, record, item, content.reminder);
+    if (content.routine) return rwRoutineReader(host, record, ctx, content.routine);
     const box = rwNode('section', 'rw-reader');
     box.append(rwNode('h3', '', item.label || record.label || 'Record'));
     const summary = content.summary || content.overview || content.body || item.summary || '';
@@ -816,7 +950,7 @@ function rwProjectLinkDialog(project, onLinked) {
   const scopeOptions = `<option value="">Global</option>${projects.map(biz => `<option value="${esc(biz.business_id || biz.id)}" ${(biz.business_id || biz.id) === project.id ? 'selected' : ''}>${esc(biz.name || biz.slug)}${biz.archived ? ' (archived)' : ''}</option>`).join('')}`;
   modal({title: 'Link an existing item', width: 640, stack: true,
     body: `<div class="rw-link-dialog"><label>Scope<select class="inp" data-link-scope>${scopeOptions}</select></label>
-      <label>Kind<select class="inp" data-link-type><option value="">Any kind</option><option value="task">Work</option><option value="signoff">Signoff</option><option value="action">Action</option><option value="document">Document</option><option value="table">Table</option><option value="project">Project</option></select></label>
+      <label>Kind<select class="inp" data-link-type><option value="">Any kind</option><option value="task">Work</option><option value="signoff">Signoff</option><option value="action">Action</option><option value="document">Document</option><option value="table">Table</option><option value="reminder">Reminder</option><option value="routine">Routine</option><option value="project">Project</option></select></label>
       <label>Search<input class="inp" type="search" data-link-search placeholder="Search the selected scope…" maxlength="200"></label>
       <div class="rw-link-results" role="list"></div><p class="muted rw-link-empty" hidden>No matching records.</p>
       <button type="button" class="quiet" data-link-more hidden>More</button><p class="ferr" role="alert" data-link-error hidden></p></div>`,
