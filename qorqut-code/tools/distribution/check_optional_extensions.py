@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Qualify explicit Fastmail/Telegram bundles against a disposable Linux download."""
+"""Qualify explicit optional connector bundles against a disposable Linux download."""
 import argparse
 import hashlib
 import json
@@ -28,8 +28,8 @@ def main():
     bundles = []
     for value in args.bundle:
         name, separator, raw = value.partition('=')
-        if not separator or name not in {'telegram', 'fastmail'} or name in {n for n, _, _ in bundles}:
-            parser.error('Each bundle must be a unique telegram=PATH or fastmail=PATH')
+        if not separator or name not in {'telegram', 'fastmail', 'whatsapp'} or name in {n for n, _, _ in bundles}:
+            parser.error('Each bundle must be a unique telegram=PATH, fastmail=PATH or whatsapp=PATH')
         path = Path(raw).resolve()
         bundles.append((name, path, checksum(path)))
     if not archive.is_file() or not args.core_check.is_file() or not args.probe.is_file():
