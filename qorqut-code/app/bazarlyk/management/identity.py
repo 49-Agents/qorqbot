@@ -103,11 +103,10 @@ def require_protected_control(uow, principal_id, principal_kind, agent_ids, *, a
             "ON a.agent_id=p.id WHERE p.id=?", (principal_id,)).fetchone()
         if row and row['active'] and row['status'] == 'active':
             profile = json.loads(row['profile_json'])
-            if (profile['role']['id'] in {'ordubashy', 'global-marketing'}
-                    and profile['scope']['kind'] == 'ecosystem'):
+            if profile['role']['id'] == 'ordubashy' and profile['scope']['kind'] == 'ecosystem':
                 return
     protected = sorted({identity for identity in agent_ids if protected_control_target(uow, identity)})
     if protected:
-        actors = "the installation owner, Ordubashy or Global Marketing" if allow_coordinators else "the installation owner"
+        actors = "the installation owner or Ordubashy" if allow_coordinators else "the installation owner"
         raise DomainError("forbidden", f"Only {actors} may perform this Dev control operation",
                           details={"agent_ids": protected})

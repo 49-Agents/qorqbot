@@ -98,6 +98,9 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
             denial = "operation_unavailable"
         elif mode == "deny":
             denial = "policy_denied"
+        elif descriptor.global_capability == "manage_ecosystem_agents" and "manage_ecosystem_agents" not in profile.scope.global_capabilities:
+            # The engine refuses these without the capability; discovery must not offer them.
+            denial = "capability_not_granted"
         aliases = [alias for alias in descriptor.aliases
                    if registry.required_plugin_for(alias) in (None, *granted)] if descriptor else []
         row = {"canonical_operation": metadata.name, "exposed_aliases": aliases,

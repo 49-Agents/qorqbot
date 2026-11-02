@@ -9,6 +9,7 @@ import threading
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, PreviewResource, plain
 from qorqut_operations.application.plans import PlanBuilder, schema
+from bazarlyk.agents.worker_access import is_worker
 
 CAPABILITY = "manage_calendar"
 READS = ("calendar_calendars_list", "calendar_events_list", "calendar_event_get")
@@ -63,10 +64,11 @@ class CalendarOperations:
         if ctx.principal_kind == "agent":
             profile, _ = self.runtime.resolver.profile(ctx.principal, connection=uow.connection)
             from bazarlyk.management import ManagementService
-            if (profile.data["status"] == "active" and profile.data["role"]["id"] == "ordubashy"
-                    and profile.scope.kind == "ecosystem" and ManagementService._coordinator(uow) == ctx.principal_id):
+            coordinator = profile.data["role"]["id"] == "ordubashy" and ManagementService._coordinator(uow) == ctx.principal_id
+            if (profile.data["status"] == "active" and profile.scope.kind == "ecosystem"
+                    and (coordinator or is_worker(uow.connection, ctx.principal_id))):
                 return
-        raise DomainError("forbidden", "Private calendars belong to the owner and configured Ordubashy")
+        raise DomainError("forbidden", "Private calendars belong to the owner, configured Ordubashy and granted global workers")
 
     def register(self):
         descriptions = {

@@ -12,11 +12,12 @@ from qorqut_operations.contracts import DomainError
 from bazarlyk.transport import terminal_composer
 
 SHELLS = frozenset({'bash','zsh','sh','fish'})
-# Dev's fixed launcher per trusted profile runtime: the normal configured client, no arguments.
-DEV_CLIENTS = {'claude-code':'claude', 'codex':'codex'}
+# The fixed launcher of Dev and of a global worker per trusted profile runtime: the normal configured client, no arguments.
+LAUNCH_CLIENTS = {'claude-code':'claude', 'codex':'codex'}
 CLIENT_PROCESSES = {'codex':frozenset({'codex'}), 'claude':frozenset({'claude','claude.exe'})}
 # A profile's runtime names the client its terminal must be running for owner input.
 RUNTIME_CLIENTS = {'claude-code':'claude', 'codex':'codex'}
+CLIENT_NAMES = {'claude':'Claude Code', 'codex':'Codex'}
 NATIVE_ONLY = 'Terminal control currently requires native host execution'
 MAX_OWNER_INPUT_CHARS = 17000
 # ``receipt`` names what was observed once input was attempted (client, a hash of the terminal identity, the composer
@@ -24,16 +25,26 @@ MAX_OWNER_INPUT_CHARS = 17000
 OwnerInputOutcome = namedtuple('OwnerInputOutcome', 'status reason receipt', defaults=(None,))
 
 
-def dev_client(row):
-    """Dev's launcher from its trusted profile runtime; None for every other role."""
+def _launch_client(row, role_id):
+    """The launcher from a trusted profile runtime when the profile holds ``role_id``; None for every other role."""
     value = row.get('profile_json') if isinstance(row, dict) else None
     data = json.loads(value) if isinstance(value, str) else value
-    if not isinstance(data, dict) or (data.get('role') or {}).get('id') != roles.DEV_ROLE:
+    if not isinstance(data, dict) or (data.get('role') or {}).get('id') != role_id:
         return None
-    client = DEV_CLIENTS.get(data.get('runtime'))
+    client = LAUNCH_CLIENTS.get(data.get('runtime'))
     if client is None:
-        raise DomainError('unsupported_runtime', 'Dev terminal control supports Claude Code and Codex only')
+        raise DomainError('unsupported_runtime', 'Terminal control supports Claude Code and Codex only')
     return client
+
+
+def dev_client(row):
+    """Dev's launcher from its trusted profile runtime; None for every other role."""
+    return _launch_client(row, roles.DEV_ROLE)
+
+
+def worker_client(row):
+    """A global worker's launcher from its trusted profile runtime; None for every other role."""
+    return _launch_client(row, roles.GLOBAL_WORKER_ROLE)
 
 
 def runtime_client(row):
@@ -72,8 +83,7 @@ class AgentTerminalBackend:
 
     def snapshot(self, row, *, client=None):
         """The registered terminal's observation. ``client`` (owner input) names the client to verify for any role."""
-        dev = dev_client(row)
-        selected = client or dev
+        selected = client or dev_client(row) or worker_client(row)
         client = selected or 'codex'
         broker, _, session, _, _ = self.selected(row)
         if not broker.session_alive(session): return {'state':'absent', **({'client':selected} if selected else {})}
@@ -129,30 +139,38 @@ class AgentTerminalBackend:
         if action=='ping' and snapshot.get('command')!=snapshot.get('client', 'codex'):
             raise DomainError('invalid_transition', 'Direct ping requires the agent\'s verified foreground client')
 
-    def wait_ready(self, row):
+    def wait_ready(self, row, client='codex'):
         broker, _, session, _, _ = self.selected(row)
         until = time.monotonic()+self.timeout
         while time.monotonic()<until:
             snap = self.snapshot(row)
             code, screen = broker.tmux('capture-pane','-p','-t',snap['pane_id'],'-S','-30')
             if not code and ('Blocked by hook' in screen or 'reprepare_required' in screen):
-                raise DomainError('reprepare_required', 'Codex preparation failed')
-            # Codex's idle composer marker. Do not type into trust/login/error prompts.
-            if not code and snap.get('command')=='codex' and any(line.lstrip().startswith('›') for line in screen.splitlines()):
-                return
+                raise DomainError('reprepare_required', 'Agent preparation failed')
+            if not code and snap.get('command')==client:
+                # Only a verified idle composer: never type into trust/login/error prompts.
+                if client=='claude':
+                    try:
+                        self._ready(row, client)
+                        return
+                    except OwnerInputDeferred:
+                        pass
+                elif any(line.lstrip().startswith('›') for line in screen.splitlines()):
+                    return
             self.sleep(.2)
-        raise DomainError('operation_unavailable', 'Codex did not reach its input prompt; inspect terminal')
+        raise DomainError('operation_unavailable', f"{CLIENT_NAMES[client]} did not reach its input prompt; inspect terminal")
 
     def execute(self, row, action, message, expected, input_key=None):
         if self.snapshot(row)!=expected:
             raise DomainError('revision_conflict', 'Terminal changed before dispatch')
         self.validate(action, expected)
         dev = dev_client(row)
-        if dev and expected.get('client') != dev:
-            raise DomainError('revision_conflict', 'Dev runtime changed before dispatch')
+        launcher = dev or worker_client(row)
+        if launcher and expected.get('client') != launcher:
+            raise DomainError('revision_conflict', 'Agent runtime changed before dispatch')
         broker, key, session, _, business = self.selected(row)
         if action=='ping':
-            return self._ping(row, message, input_key or f"terminal-action:{uuid4()}", dev)
+            return self._ping(row, message, input_key or f"terminal-action:{uuid4()}", launcher)
         if action in {'kill','restart'}:
             # Target the observed tmux ID, never a name that may now refer to a new session.
             code, _ = broker.tmux('kill-session', '-t', expected['session_id'])
@@ -175,16 +193,21 @@ class AgentTerminalBackend:
             # Dev is owner-project-led: no role, work prompt or readiness scraping follows.
             broker.submit_input(session, dev)
             return 'Startup command submitted; readiness/work is not confirmed'
-        broker.submit_input(session, 'codex')
-        self.wait_ready(row)
-        broker.submit_input(session, '$role')
+        # A worker runs its profile's client; every other target keeps Codex.
+        client = launcher or 'codex'
+        name, role_command = CLIENT_NAMES[client], '/role' if client=='claude' else '$role'
+        broker.submit_input(session, client)
+        self.wait_ready(row, client)
+        broker.submit_input(session, role_command)
         self.sleep(.2)
         snap = self.snapshot(row)
-        if snap.get('command') != 'codex':
-            raise DomainError('operation_failed', 'Codex exited during role submission')
-        code, _ = broker.tmux('send-keys', '-t', snap['pane_id'], 'Enter')
-        if code: raise DomainError('operation_failed', 'Role submission could not be confirmed')
-        return 'Codex started and $role submitted; role work completion is not implied'
+        if snap.get('command') != client:
+            raise DomainError('operation_failed', f'{name} exited during role submission')
+        if client=='codex':
+            # Codex shows a skill picker for $role; one more Enter selects it.
+            code, _ = broker.tmux('send-keys', '-t', snap['pane_id'], 'Enter')
+            if code: raise DomainError('operation_failed', 'Role submission could not be confirmed')
+        return f'{name} started and {role_command} submitted; role work completion is not implied'
 
     # ----- owner input --------------------------------------------------------------------------------------
     # Typed into the exact registered client only when its screen positively shows an idle, empty composer. This is a
@@ -269,7 +292,7 @@ class AgentTerminalBackend:
         finally:
             lock.release()
 
-    def _ping(self, row, message, key, dev):
+    def _ping(self, row, message, key, client):
         """A direct message into the exact registered native session, through the shared input arbiter. Nothing is typed unless
         that session is verifiably there; an input that was definitely not typed is reported as such, never as uncertain."""
         from bazarlyk.native_chat.contracts import InputRequest, NativeChatError, STATE_SUBMITTED, STATE_UNCERTAIN, TYPE_DIRECT
@@ -278,7 +301,7 @@ class AgentTerminalBackend:
         except NativeChatError as error:
             raise DomainError('not_delivered', error.message) from None
         if result.state == STATE_SUBMITTED:
-            return f"Direct message submitted to {'Claude Code' if dev == 'claude' else 'Codex'}; processing is not confirmed"
+            return f"Direct message submitted to {CLIENT_NAMES[client or 'codex']}; processing is not confirmed"
         if result.state == STATE_UNCERTAIN:
             raise DomainError('operation_failed', 'Direct message outcome could not be confirmed')
         raise DomainError('not_delivered', f"Direct message was not typed: {result.reason or 'the native session is not ready'}")

@@ -10,10 +10,14 @@ from qorqut_operations.contracts import DomainError, new_id, utc_now, plain
 from qorqut_operations.application.plans import PlanBuilder, UUID, TEXT, schema, apply_records, ref
 from bazarlyk.management.identity import require_protected_control
 from .global_scope import active_global
+from .roles import ORDUBASHY_ROLE
+from .worker_access import require_worker_manager
 
 PLUGIN = 'agent-terminal-control'
 PREFIX = 'agent_terminal_'
 ACTIONS = ('start', 'restart', 'kill', 'ping')
+# The session intent an explicit lifecycle action records for its target's native binding, when it has one.
+DESIRED_STATES = {'start': 'running', 'restart': 'running', 'kill': 'stopped'}
 TOOLS = {PREFIX + x for x in (*ACTIONS, 'status', 'execute_command')}
 MAX_TARGETS = 100
 SELECTORS = {
@@ -83,8 +87,8 @@ class TerminalControl:
             self.owner(ctx, uow)
             return
         data = active_global(uow.connection, ctx.principal_id) if ctx.principal_kind == 'agent' else None
-        if data is None or data['role']['id'] not in {'ordubashy', 'global-marketing'}:
-            raise DomainError('forbidden', 'Terminal control is reserved for Ordubashy, Global Marketing and the owner')
+        if data is None or data['role']['id'] != ORDUBASHY_ROLE:
+            raise DomainError('forbidden', 'Terminal control is reserved for Ordubashy and the owner')
 
     def target(self, ctx, identity, uow, *, control=True):
         self.actor(ctx, uow)
@@ -100,12 +104,8 @@ class TerminalControl:
             # Every prepare, apply and queued dispatch rechecks the current actor.
             require_protected_control(uow, ctx.principal_id, ctx.principal_kind, [identity], allow_coordinators=True)
         if ctx.principal_kind == 'agent':
-            sender = uow.connection.execute('SELECT profile_json FROM agent_profiles WHERE agent_id=?', (ctx.principal_id,)).fetchone()
-            from .global_peers import marketing_peer
-            if (json.loads(sender['profile_json'])['role']['id'] == 'global-marketing'
-                    and json.loads(row['profile_json'])['role']['id'] != 'dev'
-                    and (not marketing_peer(uow, ctx.principal_id) or row['home_business_id'] is None)):
-                raise DomainError('forbidden', 'Global Marketing terminal control targets business Dev agents')
+            # Ordubashy reaches worker terminals only; the owner keeps every global.
+            require_worker_manager(ctx, uow, identity)
         return dict(row)
 
     def select_targets(self, ctx, args, uow):
@@ -295,6 +295,10 @@ class TerminalControl:
                 actions.update(action['id'], {'state':'failed','detail':exc.message}, expected_revision=action['revision'])
                 return True
             # Never replay after a crash, timeout or uncertain external write.
+            if action['action'] in DESIRED_STATES:
+                # The explicit start/stop intent is durable before its effect, so nothing restarts a stopped session.
+                uow.connection.execute('UPDATE native_session_owners SET desired_state=? WHERE agent_id=?',
+                                       (DESIRED_STATES[action['action']], target['agent_id']))
             uow.repository('terminal_actions').update(action['id'], {'state':'uncertain','detail':'Execution started; do not retry without inspection'}, expected_revision=action['revision'])
         try:
             detail = self.backend.execute(target, action['action'], action['message'], action['binding_json']['terminal'],
