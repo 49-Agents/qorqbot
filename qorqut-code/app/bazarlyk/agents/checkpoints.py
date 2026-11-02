@@ -115,18 +115,8 @@ class AgentCheckpoints:
             issues[REVIEW + ':' + native['root_turn_id']] = {
                 'code': 'work_review_missing', 'business_id': ctx.business_id, 'task_id': None,
                 'message': REMINDER}
-        # Conversation alone can change priorities. Review once per original
-        # turn, not only after tools and not again after the bookkeeping turn.
-        from .global_peers import global_peer
-        if global_peer(uow,ctx.principal_id) and getattr(self.app,'attention',None):
-            try:
-                self.app.authorize(ctx,self.app.registry.get('focus_get'),(),uow)
-            except DomainError:
-                pass
-            else:
-                issues[FOCUS_REVIEW + ':' + native['root_turn_id']] = {
-                    'code':'focus_review_due','business_id':None,'task_id':None,
-                    'message':FOCUS_INSTRUCTION}
+        # The per-turn Focus board review (with the full board pasted into the Stop hook) is retired; Attention
+        # board nudges keep the board current instead.
         inbox = getattr(self.app, 'inbox', None)
         if not focus_only and inbox is not None and inbox.pending_owner_conversations(ctx, row['session_id'], uow):
             # Keep this issue session-bound and deliberately generic. The source
