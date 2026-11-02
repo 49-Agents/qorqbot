@@ -88,6 +88,19 @@ class PolicyResolver:
         return Principal(row["id"], row["kind"], row["display_name"])
 
     def refresh_context(self, context, uow):
+        # A read transaction has one authority snapshot. Reuse only an exact
+        # immutable input context in that unit, including scope and session /
+        # delegation provenance. Writes always revalidate after each change.
+        memo = getattr(uow, "memo", None) if not getattr(uow, "writable", True) else None
+        key = ("refreshed_context", id(self), context)
+        if memo is not None and key in memo:
+            return memo[key]
+        refreshed = self._refresh_context(context, uow)
+        if memo is not None:
+            memo[key] = refreshed
+        return refreshed
+
+    def _refresh_context(self, context, uow):
         principal = self._principal(context.principal_id, uow)
         if principal.kind != context.principal_kind:
             raise DomainError("invalid_principal", "Principal kind changed")
