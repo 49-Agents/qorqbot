@@ -328,7 +328,7 @@ class Supervisor:
                 seen = json.loads(observation.read_text())
                 if (seen.get('host',socket.gethostname())==socket.gethostname() and seen['session_id'] == item['session_id'] and seen['generation'] == item['generation']
                         and seen['owner'] == item['owner'] and identity(seen['pid']) == seen['started']
-                        and b'bazarlyk.bootstrap.supervisor' in Path(f"/proc/{seen['pid']}/cmdline").read_bytes()):
+                        and self._watcher_process(seen['pid'])):
                     self.children[key] = ObservedHelper(seen['pid'], seen['started'])
                     continue
             except (OSError, ValueError, KeyError): pass
@@ -337,6 +337,13 @@ class Supervisor:
                     '--watch',item['registration_path'],'--session',item['session_id'],
                     '--generation',str(item['generation']),'--owner',item['owner'],'--runtime',item['runtime']],
                     stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+
+    @staticmethod
+    def _watcher_process(pid):
+        if sys.platform == 'darwin':
+            from bazarlyk.process_info import cmdline
+            return 'bazarlyk.bootstrap.supervisor' in cmdline(pid)
+        return b'bazarlyk.bootstrap.supervisor' in Path(f'/proc/{pid}/cmdline').read_bytes()
 
 
 def run_watch(path, session, generation, owner, runtime):

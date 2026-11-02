@@ -17,14 +17,14 @@ import time
 import uuid
 
 IMAGE = 'qorqbot-check-prerequisites:ubuntu24'
-INSTALL = '/install/qorqbot'
+INSTALL = os.environ.get('QORQBOT_CHECK_ROOT', '/install/qorqbot')
 
 
 def inside(phase):
     import sqlite3
     import urllib.error
     import urllib.request
-    root, base = Path(INSTALL), 'http://127.0.0.1:1049'
+    root, base = Path(INSTALL), os.environ.get('QORQBOT_CHECK_URL', 'http://127.0.0.1:1049')
     if phase == 'tools':
         import importlib.util
         import shutil
@@ -68,7 +68,7 @@ def inside(phase):
     session = request('/api/session')['data']
     assert session['is_installation_owner'] and session['operational_timezone'] == 'UTC'
     assert request('/api/root/extensions')['data'] == {'extensions': []}
-    state = Path('/install/acceptance-state.json')
+    state = root.parent / 'acceptance-state.json'
     db = root / 'instance/operations/.runtime/operations.sqlite3'
     marker = root / 'instance/operations/acceptance.txt'
     if phase == 'write':

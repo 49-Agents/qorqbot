@@ -1,6 +1,8 @@
 """Read-only preparation of a managed update for a current installation."""
 from __future__ import annotations
 
+from bazarlyk.posix_files import immutable_database_uri
+
 import base64
 import hashlib
 import stat
@@ -88,7 +90,7 @@ def _state_evidence(paths, state, files):
             hasher.update(chunk)
         if {'sha256': hasher.hexdigest(), 'bytes': before.st_size} != state['database_fingerprint']:
             raise OSError('runtime database changed during inspection')
-        conn = sqlite3.connect(f'file:/proc/self/fd/{fd}?mode=ro&immutable=1', uri=True)
+        conn = sqlite3.connect(immutable_database_uri(fd), uri=True)
         try:
             conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 16 * 1024 * 1024)
             rows = conn.execute('SELECT substr(path,1,4097), substr(sha256,1,65), size FROM inventory ORDER BY path LIMIT 100001').fetchall()

@@ -118,13 +118,49 @@ def run(argv, *, env, cwd):
 
 def require_prerequisites(env):
     if sys.version_info[:2] != (3, 12):
-        raise RuntimeError('This Ubuntu 24.04 download requires Python 3.12 and python3.12-venv')
+        raise RuntimeError('This download requires Python 3.12 with venv support')
     if not shutil.which('git', path=env.get('PATH')):
         raise RuntimeError('Git is required. Install git using your system package manager, then retry.')
     try:
         import ensurepip
     except ImportError:
-        raise RuntimeError('Python venv support is required. Install python3.12-venv, then retry.') from None
+        raise RuntimeError('Python venv support is required. Install Python 3.12 with venv support, then retry.') from None
+
+
+def package_platform(runtime):
+    return read_json(runtime / 'PAYLOAD.json').get('platform', 'ubuntu24-x86_64')
+
+
+def require_platform(runtime):
+    target = package_platform(runtime)
+    if target == 'ubuntu24-x86_64' and platform.system() == 'Linux' and platform.machine() == 'x86_64':
+        return
+    if target == 'macos14-arm64' and platform.system() == 'Darwin' and platform.machine() == 'arm64':
+        version = platform.mac_ver()[0].split('.')[0]
+        if version.isdigit() and int(version) >= 14:
+            return
+    raise RuntimeError('This archive targets ' + target + '; use the download for this operating system and CPU.')
+
+
+def inspect_darwin(root, *arguments):
+    # psutil is an application library, not a prerequisite in system Python.
+    # Existing installation inspection uses its installed environment, including
+    # the prior environment during interrupted-update recovery.
+    python = next((root / name / 'venv/bin/python' for name in ('runtime', '.previous-runtime')
+                   if (root / name / 'ENVIRONMENT.json').is_file()
+                   and (root / name / 'venv/bin/python').is_file()), None)
+    if python is None:
+        raise RuntimeError('A completed Python environment is needed to inspect macOS processes safely. For a fresh download, run ./qorqbot setup first.')
+    try:
+        result = subprocess.run([str(python), '-I', '-B', '-m', 'bazarlyk.process_info', *map(str, arguments)],
+                                capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError('Unable to run macOS process inspection safely') from error
+    if result.returncode == 3 and arguments[0] == 'identity':
+        return None
+    if result.returncode:
+        raise RuntimeError('Unable to verify macOS process ownership: ' + result.stderr.strip())
+    return result.stdout.strip()
 
 
 def require_stopped_terminals(root, env):
@@ -143,6 +179,9 @@ def require_stopped_terminals(root, env):
 
 def installation_processes(root):
     """Find detached tools owned by this installation, including system executables."""
+    if platform.system() == 'Darwin':
+        return [item['pid'] for item in json.loads(inspect_darwin(root, 'owned', root,
+                                                                 '--exclude-pid', os.getpid()))]
     found = []
     marker = ('QORQUT_FOLDER_ROOT=' + str(root)).encode()
     for process in Path('/proc').iterdir():
@@ -201,6 +240,14 @@ def initialize(root, env):
 
 
 def identity(pid):
+    if platform.system() == 'Darwin':
+        value = inspect_darwin(Path(__file__).resolve().parent.parent, 'identity', pid)
+        if value is None:
+            return None
+        boot, separator, start = value.rpartition(':')
+        if not separator or not boot or not start:
+            raise RuntimeError('macOS process inspection returned an invalid identity')
+        return {'boot': boot, 'start': start}
     try:
         fields = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
         if fields[0] == 'Z':
@@ -239,8 +286,7 @@ def main(argv=None):
         parser.error('Unrecognized arguments: ' + ' '.join(remaining))
     root = Path(__file__).resolve().parent.parent
     runtime = root / 'runtime'
-    if platform.system() != 'Linux' or platform.machine() != 'x86_64':
-        raise RuntimeError('This download supports Ubuntu 24.04 on Intel/AMD 64-bit computers')
+    require_platform(runtime)
     os.umask(0o077)
     run_dir = root / '.run'
     run_dir.mkdir(mode=0o700, exist_ok=True)

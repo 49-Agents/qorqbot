@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import socket
+import sys
 
 
 def atomic_json(path, value):
@@ -41,6 +42,9 @@ def exclusion(root, *, shared=False):
 
 def identity(pid):
     try:
+        if sys.platform == 'darwin':
+            from bazarlyk import process_info
+            return None if process_info.is_zombie(pid) else process_info.start_token(pid)
         fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
         return fields[19] if fields[0] != "Z" else None
     except (OSError, IndexError):
@@ -49,13 +53,21 @@ def identity(pid):
 
 def exited_process(pid):
     try:
+        if sys.platform == 'darwin':
+            from bazarlyk import process_info
+            return process_info.is_zombie(pid)
         return Path(f'/proc/{pid}/stat').read_text().rsplit(')',1)[1].split()[0] in {'Z','X'}
-    except FileNotFoundError:return True
+    except (FileNotFoundError, ProcessLookupError):return True
     except (OSError,IndexError):return False
 
 
 def local_instance():
     """Target identity, boot and PID namespace are separate observations."""
+    if sys.platform == 'darwin':
+        from bazarlyk import process_info
+        return {'host': socket.gethostname(), 'target': 'local',
+                'target_instance': process_info.machine_id(), 'boot_id': process_info.boot_id(),
+                'pid_namespace': process_info.namespace_id()}
     return {'host': socket.gethostname(), 'target': 'local',
             'target_instance': Path('/etc/machine-id').read_text().strip(),
             'boot_id': Path('/proc/sys/kernel/random/boot_id').read_text().strip(),

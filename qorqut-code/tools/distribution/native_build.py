@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble a Linux folder download using system tools and standard Python wheels.
+"""Assemble a native folder download using system tools and standard Python wheels.
 
 Build tooling only. Input is a prepare-local output of the filtered export. Never point this at an initialized installation.
 No venv, configuration, HOME, build log or instance is copied from either input.
@@ -74,6 +74,7 @@ def main(argv=None):
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--version', required=True)
+    parser.add_argument('--target', choices=('ubuntu24-x86_64', 'macos14-arm64'), default='ubuntu24-x86_64')
     args = parser.parse_args(argv)
     if not re.fullmatch(r'[0-9A-Za-z][0-9A-Za-z._-]{0,79}', args.version):
         raise ValueError('Invalid package version')
@@ -110,10 +111,15 @@ def main(argv=None):
     own = {normalize(row['name']) for row in receipt['wheels']}
     requirements = sorted(f'{name}=={version}' for name, version in packages.items()
                           if normalize(name) not in own and normalize(name) not in {'pytest', 'pip'})
+    download_options = []
+    if args.target == 'macos14-arm64':
+        download_options = ['--platform', 'macosx_14_0_arm64', '--python-version', '3.12', '--implementation', 'cp', '--abi', 'cp312']
+        if not any(normalize(name) == 'psutil' for name in packages):
+            requirements.append('psutil>=7.0,<8')
     downloads = report.parent / (report.stem + '-downloads')
     downloads.mkdir(parents=True, exist_ok=False)
     subprocess.run([python, '-I', '-m', 'pip', 'download', '--only-binary=:all:', '--no-deps', '--dest', downloads,
-                    *requirements], check=True)
+                    *download_options, *requirements], check=True)
     (runtime / 'wheelhouse').mkdir()
     wheel_records = [strip_wheel(w, runtime / 'wheelhouse' / w.name) for w in sorted(downloads.glob('*.whl'))]
     shutil.copy2(Path(__file__).with_name('native_launch.py'), runtime / 'launch.py')
@@ -125,7 +131,7 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 python=${QORQUT_PYTHON:-python3.12}
 if ! command -v "$python" >/dev/null 2>&1; then
-    echo "Qorqbot requires Python 3.12 and python3.12-venv. Install them using your system package manager." >&2
+    echo "Qorqbot requires Python 3.12 with venv support. Install it using your platform package manager." >&2
     exit 1
 fi
 unset PYTHONHOME PYTHONPATH
@@ -142,7 +148,8 @@ fi
 exec "$python" -I -B "$root/runtime/launch.py" "$@"
 """)
     launcher.chmod(0o755)
-    shutil.copy2(Path(__file__).resolve().parents[2] / 'docs/distribution/README.md', runtime / 'README.txt')
+    guide = 'MACOS.md' if args.target == 'macos14-arm64' else 'README.md'
+    shutil.copy2(Path(__file__).resolve().parents[2] / ('docs/distribution/' + guide), runtime / 'README.txt')
     (output / 'qorqbot/README.txt').symlink_to('runtime/README.txt')
     for name in ('LICENSE', 'LICENSE-SCOPE.md', 'LICENSES/Apache-2.0.txt', 'RELEASE-LICENSES.json'):
         target = output / 'qorqbot' / name
@@ -164,12 +171,12 @@ exec "$python" -I -B "$root/runtime/launch.py" "$@"
         locked.append(f"{requirement} --hash=sha256:{sha(wheel_path)}")
     (runtime / 'requirements.lock').write_text('\n'.join(sorted(locked)) + '\n')
     (runtime / 'DEPENDENCIES.json').write_text(json.dumps({
-        'platform': 'Ubuntu 24.04 x86_64',
+        'platform': 'macOS 14+ Apple silicon' if args.target == 'macos14-arm64' else 'Ubuntu 24.04 x86_64',
         'required': {'python': '3.12.x with venv/pip support', 'git': '2.43 or newer'},
         'optional': {'tmux': '3.4 or newer for agent terminals', 'agent_client': 'user-installed Codex or Claude Code',
                      'browser': 'user-installed compatible Chrome and agent-browser',
                      'node': 'as required by the selected external client/browser tool',
-                     'desktop': 'TigerVNC, Openbox, X11, D-Bus and keyring if a desktop is configured'},
+                     'desktop': 'Linux only: TigerVNC, Openbox, X11, D-Bus and keyring if a desktop is configured'},
         'python_libraries': 'requirements.lock', 'external_tools_bundled': False,
     }, indent=2) + '\n')
     files = {}
@@ -183,8 +190,8 @@ exec "$python" -I -B "$root/runtime/launch.py" "$@"
                    't=host_assembly(ChangeFeed()).target;print(json.dumps([t.name,t.version,t.digest]))')
     schema_target = json.loads(subprocess.check_output([python, '-I', '-c', schema_code], text=True))
     (runtime / 'PAYLOAD.json').write_text(json.dumps({'format': 1, 'version': args.version,
-         'schema_target': schema_target, 'files': files}, indent=2) + '\n')
-    archive = output / ('qorqbot-' + args.version + '-ubuntu24-x86_64.tar.gz')
+         'platform': args.target, 'schema_target': schema_target, 'files': files}, indent=2) + '\n')
+    archive = output / ('qorqbot-' + args.version + '-' + args.target + '.tar.gz')
     def public_header(member):
         member.uid = member.gid = 0
         member.uname = member.gname = ''
@@ -193,7 +200,7 @@ exec "$python" -I -B "$root/runtime/launch.py" "$@"
         return member
     with tarfile.open(archive, 'w:gz', compresslevel=6) as tar:
         tar.add(output / 'qorqbot', arcname='qorqbot', filter=public_header)
-    record = {'format': 1, 'version': args.version, 'qualified': False, 'external_tools_bundled': False, 'archive': str(archive),
+    record = {'format': 1, 'version': args.version, 'platform': args.target, 'qualified': False, 'external_tools_bundled': False, 'archive': str(archive),
               'sha256': sha(archive), 'third_party_wheels': wheel_records, 'source_audit': audit}
     report.write_text(json.dumps(record, indent=2) + '\n')
     print(archive)

@@ -7,6 +7,9 @@ its own installation state and work in a chosen folder.
 The first distribution target is Ubuntu 24.04 on Intel/AMD 64-bit machines.
 Users provide external tools and connect their own accounts. Start with the
 [installation and requirements guide](qorqut-code/docs/distribution/README.md).
+Windows uses [WSL2 with Ubuntu 24.04](qorqut-code/docs/distribution/WINDOWS.md).
+[Native Apple silicon Mac preparation](qorqut-code/docs/distribution/MACOS.md)
+is available; actual Mac build/launch acceptance is pending.
 
 This repository contains the application and everyday connector sources:
 

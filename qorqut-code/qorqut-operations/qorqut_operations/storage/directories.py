@@ -7,7 +7,7 @@ receipt, claims, writer admission and recovery. It adds no executor, store or ma
 2. The empty tree is built in the private ``staging_root`` (outside the authored tree, on the destination's filesystem),
    fsynced, and its exact inode identity and metadata are recorded in the receipt progress (``staged``). The database
    commit is the durable record (``synchronous = FULL``).
-3. The staging directory is published to the final path with ``renameat2(RENAME_NOREPLACE)``: a preexisting path,
+3. The staging directory is published to the final path with an atomic no-replace rename (Linux ``renameat2`` or Darwin ``renameatx_np``): a preexisting path,
    including an identical empty tree, can never be replaced or adopted. Both parent descriptors are held, so no path
    is re-resolved between the checks and the rename.
 4. The published directory is verified against the recorded identity and recorded as ``published``.
@@ -29,6 +29,7 @@ import errno
 import os
 from pathlib import Path, PurePosixPath
 import stat
+import sys
 
 from qorqut_operations.contracts import DomainError
 from . import safe_io
@@ -177,12 +178,15 @@ def _parent(path, *, create):
 
 
 def _rename_noreplace(source_fd, source, destination_fd, destination):
-    function = getattr(ctypes.CDLL(None, use_errno=True), "renameat2", None)
+    name, flag = ("renameatx_np", 0x00000004) if sys.platform == "darwin" else ("renameat2", RENAME_NOREPLACE)
+    function = getattr(ctypes.CDLL(None, use_errno=True), name, None)
     if function is None:
         raise DomainError("invalid_configuration", "This host cannot publish a directory without replacing")
-    if function(source_fd, os.fsencode(source), destination_fd, os.fsencode(destination), RENAME_NOREPLACE) != 0:
+    function.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+    function.restype = ctypes.c_int
+    if function(source_fd, os.fsencode(source), destination_fd, os.fsencode(destination), flag) != 0:
         code = ctypes.get_errno()
-        if code in (errno.EINVAL, errno.ENOSYS, errno.EOPNOTSUPP):
+        if code in (errno.EINVAL, errno.ENOSYS, errno.EOPNOTSUPP, errno.ENOTSUP):
             raise DomainError("invalid_configuration", "This filesystem cannot publish a directory without replacing")
         raise OSError(code, os.strerror(code))
 

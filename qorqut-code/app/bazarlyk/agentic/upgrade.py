@@ -13,6 +13,8 @@ management seed) readable after the active binding truthfully names the distribu
 """
 from __future__ import annotations
 
+from bazarlyk.posix_files import immutable_database_uri
+
 import base64
 import hashlib
 import json
@@ -203,7 +205,7 @@ def _profile_grants(paths, *, immutable=False):
             info = os.fstat(descriptor)
             if not stat.S_ISREG(info.st_mode) or info.st_size > 1024 * 1024 * 1024:
                 raise OSError("unsafe or oversized database")
-            uri = f"file:/proc/self/fd/{descriptor}?mode=ro&immutable=1"
+            uri = immutable_database_uri(descriptor)
         else:
             uri = database.resolve().as_uri() + "?mode=ro"
         connection = sqlite3.connect(uri, uri=True)

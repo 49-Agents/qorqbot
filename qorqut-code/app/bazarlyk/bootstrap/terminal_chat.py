@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 
 from .client import load_registration, path_has_symlink, write_json_private
 from .transcript_snapshot import EVENTS, SESSION_ID
@@ -18,6 +19,9 @@ NATIVE_IDENTITY = ("agent_id", "workspace", "session_id", "runtime", "pid", "sta
 
 
 def process_fields(pid):
+    if sys.platform == 'darwin':
+        from bazarlyk.process_info import fields
+        return fields(pid)
     return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
 
 
@@ -26,8 +30,14 @@ def native_process(runtime):
     for _ in range(20):
         proc = Path(f"/proc/{pid}")
         fields = process_fields(pid)
-        name = (proc / "comm").read_text().strip()
+        if sys.platform == 'darwin':
+            from bazarlyk import process_info
+            name = process_info.name(pid)
+        else:
+            name = (proc / "comm").read_text().strip()
         if name in ({"claude", "claude.exe"} if runtime == "claude-code" else {"codex"}):
+            if sys.platform == 'darwin' and process_info.start_token(pid) != fields[19]:
+                raise ProcessLookupError(pid)
             return {"pid": pid, "started": fields[19]}
         pid = int(fields[1])
         if pid <= 1:

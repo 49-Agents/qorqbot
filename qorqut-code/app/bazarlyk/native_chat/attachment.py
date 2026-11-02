@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import sys
 import re
 import shlex
 import subprocess
@@ -83,9 +84,17 @@ def effective_executable(client: str, shell_pid: int) -> str:
     root = codex_session.PROC_ROOT / str(shell_pid)
     unsupported = DomainError("unsupported_runtime", "The terminal's launcher for this client cannot be established")
     try:
-        argv = [item.decode("utf-8") for item in (root / "cmdline").read_bytes().split(b"\0") if item]
-        environment = dict(item.split("=", 1) for item in (root / "environ").read_bytes().decode("utf-8").split("\0") if "=" in item)
-        executable, cwd = os.readlink(root / "exe"), os.readlink(root / "cwd")
+        if sys.platform == 'darwin':
+            from bazarlyk import process_info
+            before = process_info.start_token(shell_pid)
+            argv, environment = process_info.cmdline(shell_pid), process_info.environ(shell_pid)
+            executable, cwd = str(process_info.exe(shell_pid)), str(process_info.cwd(shell_pid))
+            if process_info.start_token(shell_pid) != before:
+                raise unsupported
+        else:
+            argv = [item.decode("utf-8") for item in (root / "cmdline").read_bytes().split(b"\0") if item]
+            environment = dict(item.split("=", 1) for item in (root / "environ").read_bytes().decode("utf-8").split("\0") if "=" in item)
+            executable, cwd = os.readlink(root / "exe"), os.readlink(root / "cwd")
     except (OSError, ValueError):
         raise unsupported from None
     if Path(executable).name != "bash" or "--rcfile" not in argv or "-i" not in argv:

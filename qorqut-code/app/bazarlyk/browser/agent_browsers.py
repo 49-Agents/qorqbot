@@ -9,8 +9,8 @@ only read (authorization); no host effect runs inside a database transaction.
 Two ownership modes exist and nothing else is ever touched:
 
 * ``managed``: a browser this module created. A small supervisor (``agent_supervisor``) owns one headless Chrome with a profile
-  that belongs to the agent and a loopback CDP port reserved here. The supervisor runs as a deterministic transient *user*
-  service (``systemd-run --user``), so it lives outside the application service and survives its restarts.
+  that belongs to the agent and a loopback CDP port reserved here. Folder installations and macOS use a detached supervisor;
+  existing Linux service installations use a deterministic transient *user* service (``systemd-run --user``).
 * ``legacy``: a pre-existing browser an operator explicitly bound (``agent_binding``) to one exact systemd unit. A
   ``.bazarlyk/browser.json`` alone never proves ownership of anything.
 """
@@ -174,10 +174,13 @@ def _read_json(path, limit=META_LIMIT):
 
 
 def _alive(pid, identity):
-    """The exact process (boot ID + start ticks) is still running and not a zombie."""
+    """The exact process (boot identity + start time) is still running and not a zombie."""
     try:
         if process_identity(pid) != identity:
             return False
+        if sys.platform == 'darwin':
+            from bazarlyk.process_info import is_zombie
+            return not is_zombie(pid) and process_identity(pid) == identity
         return Path(f"/proc/{int(pid)}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
     except (OSError, ValueError, IndexError, TypeError):
         return False
@@ -273,6 +276,9 @@ class SystemctlAdapter:
         return env
 
     def _run(self, scope, argv, timeout):
+        if sys.platform != 'linux':
+            raise DomainError("browser_service_unavailable", "Systemd browser services are supported only on Linux; "
+                              "use a managed headless browser on this platform")
         try:
             done = self.runner(argv, env=self._environment(scope), stdin=subprocess.DEVNULL, capture_output=True,
                                text=True, timeout=timeout, check=False)
@@ -384,11 +390,11 @@ class AgentBrowserManager:
         self.probe = probe or cdp_healthy
         from bazarlyk import native_paths
         native, folder = native_paths.root(), native_paths.folder_root()
-        if native is not None or folder is not None:
+        if native is not None or folder is not None or sys.platform == 'darwin':
             if chrome == CHROME:
                 chrome = (native_paths.executable("chrome") if native is not None else
-                          native_paths.installed_executable("google-chrome-stable", "google-chrome", "chromium", "chromium-browser",
-                                                            override="QORQUT_CHROME_EXECUTABLE") or CHROME)
+                          native_paths.installed_chrome() or
+                          (native_paths.MAC_CHROME if sys.platform == 'darwin' else CHROME))
             if deployments == DEPLOYMENT_DIRECTORIES:
                 deployments = (runtime.paths.instance_root / "config/browser-desktops",)
             if launcher is None:

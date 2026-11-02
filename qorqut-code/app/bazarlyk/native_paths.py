@@ -2,6 +2,10 @@
 import os
 from pathlib import Path
 import shutil
+import sys
+
+
+MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
 
 def folder_root():
@@ -21,6 +25,17 @@ def installed_executable(name, *alternatives, override=None):
         return os.environ[override]
     return next((os.path.abspath(found) for candidate in (name, *alternatives)
                  if (found := shutil.which(candidate))), None)
+
+
+def installed_chrome():
+    """Find installed Chrome without downloading it or overriding an explicit choice."""
+    selected = installed_executable('google-chrome-stable', 'google-chrome', 'chromium', 'chromium-browser',
+                                    override='QORQUT_CHROME_EXECUTABLE')
+    if selected is not None:
+        return selected
+    if sys.platform == 'darwin' and Path(MAC_CHROME).is_file() and os.access(MAC_CHROME, os.X_OK):
+        return MAC_CHROME
+    return None
 
 
 def root():

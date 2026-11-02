@@ -16,6 +16,7 @@ import os
 import shutil
 import socket
 import sqlite3
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,10 @@ RECONCILE_RESOLUTIONS = ("effect_confirmed", "no_effect_confirmed")
 
 def _process_token() -> str:
     """Identify this process: host, pid and start time (guards against pid reuse)."""
+    if sys.platform == "darwin":
+        import psutil
+        start = str(int(psutil.Process().create_time() * 1_000_000))
+        return f"{socket.gethostname()}:{os.getpid()}:{start}"
     start = ""
     try:
         with open("/proc/self/stat", "rb") as handle:
@@ -56,7 +61,7 @@ def _process_token() -> str:
 
 def _runner_alive(token: str | None) -> bool:
     """False only when the runner is known to be gone (same host, no such process)."""
-    if not token or not os.path.isdir("/proc/self"):
+    if not token or (sys.platform != "darwin" and not os.path.isdir("/proc/self")):
         return True
     try:
         host, pid_text, start = token.rsplit(":", 2)
@@ -65,6 +70,15 @@ def _runner_alive(token: str | None) -> bool:
         return True
     if host != socket.gethostname():
         return True
+    if sys.platform == "darwin":
+        import psutil
+        try:
+            current = str(int(psutil.Process(pid).create_time() * 1_000_000))
+        except psutil.NoSuchProcess:
+            return False
+        except psutil.AccessDenied:
+            return True
+        return not start or current == start
     try:
         with open(f"/proc/{pid}/stat", "rb") as handle:
             current = handle.read().rsplit(b")", 1)[1].split()[19].decode()

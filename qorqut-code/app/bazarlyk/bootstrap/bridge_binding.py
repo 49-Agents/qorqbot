@@ -1,6 +1,7 @@
 """Process-scoped MCP provenance; shared app-server pipes deliberately stay unbound."""
 import json
 import os
+import sys
 from pathlib import Path
 
 from .client import path_has_symlink
@@ -17,7 +18,11 @@ class BridgeBinding:
             try:
                 process=ancestor(runtime)
                 if not process:continue
-                args=(proc/str(process['pid'])/'cmdline').read_bytes().split(b'\0')
+                if sys.platform == 'darwin':
+                    from bazarlyk import process_info
+                    args=[arg.encode() for arg in process_info.cmdline(process['pid'])]
+                else:
+                    args=(proc/str(process['pid'])/'cmdline').read_bytes().split(b'\0')
                 if b'app-server' in args:
                     self.reason='shared_app_server_without_thread_provenance';return
                 if any(value in args for value in (b'exec',b'queue',b'--print',b'-p',b'--agent-id')):return

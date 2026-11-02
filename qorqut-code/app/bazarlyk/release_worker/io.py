@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shutil
 import socket
+import sys
 import threading
 import time
 from typing import Any, Iterator
@@ -210,6 +211,9 @@ _LOCK_ACTIVE_GRACE_SECONDS = 600.0
 
 def _process_start(pid: int) -> str | None:
     try:
+        if sys.platform == 'darwin':
+            from bazarlyk.process_info import start_token
+            return start_token(pid)
         fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
         return fields[19]
     except (OSError, IndexError):

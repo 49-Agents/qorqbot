@@ -406,6 +406,8 @@ def _new_journal(paths, intent, prior_binding, provisioned):
 
 
 def apply(paths, plan, *, attribution, acknowledge_grants=False):
+    from bazarlyk.posix_files import require_anonymous_publication
+    require_anonymous_publication()
     """Apply only offline: the caller owns the instance exclusively for this call."""
     managed_plan.validate_plan(paths, plan)
     wanted = managed_intent._retained_plan(plan)

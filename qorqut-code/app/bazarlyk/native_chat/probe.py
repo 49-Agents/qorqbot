@@ -14,6 +14,7 @@ import logging
 from pathlib import Path
 import re
 import sqlite3
+import sys
 
 from qorqut_operations.contracts import DomainError
 from bazarlyk.bootstrap import codex_session
@@ -31,6 +32,13 @@ BINDING = ".bazarlyk/native-binding.json"
 REGISTRATION = ".bazarlyk/registration.json"
 ACTIVITY = ".bazarlyk/activity"
 MAX_MARKER_BYTES = 16384
+
+
+def _process_argv(pid):
+    if sys.platform == 'darwin':
+        from bazarlyk.process_info import cmdline
+        return [arg.encode() for arg in cmdline(pid)]
+    return (codex_session.PROC_ROOT / str(pid) / 'cmdline').read_bytes().split(b'\0')
 
 REASON_LIVE = "live"
 REASON_NO_MARKER = "no_session"
@@ -131,7 +139,7 @@ class SessionProbe:
         if liveness.of_binding(chosen.binding) != liveness.ALIVE or owner is None:
             return None
         try:
-            argv = (codex_session.PROC_ROOT / str(pid) / "cmdline").read_bytes().split(b"\0")
+            argv = _process_argv(pid)
             if b"app-server" not in argv or codex_session.thread_owner(pid, chosen.conversation_id) != owner:
                 return None
             if not self._displayed_codex(profile, owner, chosen.conversation_id):
@@ -217,7 +225,7 @@ class SessionProbe:
         if native[0] == "Z" or native[19] != marker["started"]:
             return None
         if (marker["runtime"] == "codex"
-                and b"app-server" in (codex_session.PROC_ROOT / str(pid) / "cmdline").read_bytes().split(b"\0")):
+                and b"app-server" in _process_argv(pid)):
             # The desktop server is shared by many conversations. Only this session's held writer lock proves that its
             # native thread is open.
             owner = codex_session.thread_owner(pid, marker["session_id"])
