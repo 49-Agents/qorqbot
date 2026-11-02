@@ -356,6 +356,8 @@ function agfocusVisibleItems(p,items) {
   // A derived row whose Task is already an ancestor on its own path is refused before it is rendered, so a
   // concerns cycle (A -> B -> A) never grows the path. Independent Focus cards are never deduplicated.
   function append(item,ancestors=new Set()) {
+    // Cached child/related snapshots include history; the board toggle applies at every depth.
+    if(item._workParent && item.archived && !p.focusIncludearchived)return;
     const source=item.source?.type==='task'?item.source:null,key=source?agfocusWorkKey(item.resolved_source || source):null;
     if(item._workParent && key && ancestors.has(key))return;
     result.push(item);
