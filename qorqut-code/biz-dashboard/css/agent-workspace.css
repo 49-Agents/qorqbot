@@ -47,24 +47,14 @@
 .agent-workspace-app .agpad .tbody:has(> .agfocus) { padding-left:10px; padding-right:11.5px; }
 .agent-workspace-app .agpad .agfocus-heading > .global-eyebrow { display:none; }
 .agent-workspace-app .agpad .agfocus-toolbar { width:auto; }
-.agent-workspace-app .agpad .agfocus-controls { margin:0; }
 .agent-workspace-app .agpad .agfocus > header { margin-bottom:8px; }
 
 /* Focus follows the approved workspace: quiet controls, square attention tiles,
    and readable separated rows. Source status colours remain in tasks.css. */
 .agent-workspace-app .agpad .agfocus-head-tools { display:flex; flex:none; align-items:center; gap:4px; margin-left:auto; }
-.agent-workspace-app .agfocus-head-tools .agfocus-icon,
-.agent-workspace-app .agfocus-options > summary { display:flex; align-items:center; justify-content:center; width:30px; height:30px; min-height:30px; padding:6px; border:0; border-radius:5px; background:none; color:var(--fg-2); cursor:pointer; box-sizing:border-box; }
+.agent-workspace-app .agfocus-head-tools .agfocus-icon { display:flex; align-items:center; justify-content:center; width:30px; height:30px; min-height:30px; padding:6px; border:0; border-radius:5px; background:none; color:var(--fg-2); cursor:pointer; box-sizing:border-box; }
 .agent-workspace-app .agfocus-head-tools svg { width:17px; height:17px; }
-.agent-workspace-app .agfocus-head-tools .agfocus-icon:hover,
-.agent-workspace-app .agfocus-options > summary:hover { color:var(--fg); background:var(--hover); }
-.agent-workspace-app .agfocus-options { position:relative; }
-.agent-workspace-app .agfocus-options > summary { list-style:none; }
-.agent-workspace-app .agfocus-options > summary::-webkit-details-marker { display:none; }
-.agent-workspace-app .agfocus-options-menu { position:absolute; top:calc(100% + 5px); right:0; z-index:20; display:flex; align-items:center; gap:5px; padding:8px; border:1px solid var(--line-2); border-radius:7px; background:var(--surface); box-shadow:var(--shadow-float); }
-.agent-workspace-app .agfocus-options-menu .agfocus-controls { display:flex; flex-wrap:nowrap; gap:4px; }
-.agent-workspace-app .agfocus-options-menu .agfocus-controls button { min-height:28px; padding:4px 8px; font-size:11px; background:none; color:var(--fg-2); }
-.agent-workspace-app .agfocus-options-menu .agfocus-controls button[aria-pressed="true"] { background:var(--hover); color:var(--fg); }
+.agent-workspace-app .agfocus-head-tools .agfocus-icon:hover { color:var(--fg); background:var(--hover); }
 .agent-workspace-app .agpad .agfocus > header:has(.agfocus-empty[hidden]) { display:none; }
 .agent-workspace-app .agpad .agfocus { padding-top:0; padding-left:0; }
 .agent-workspace-app .agfocus > header,

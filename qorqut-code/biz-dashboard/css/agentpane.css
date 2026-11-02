@@ -91,6 +91,8 @@
 
 /* Content uses the shared .tasks surface, header, tabs, rows, and scrolling body. */
 .agpad { min-width: 0; }
+/* The divider draws the one line between chat and pane; the shared .tasks left border would double it. */
+.agsplit > .agpad { border-left: 0; }
 .agpad[hidden] { display: none; }
 .agpad-inbox-status { display:flex; align-items:center; gap:8px; padding: 12px 16px; color: var(--fg-2); font-size: 12px; }
 .agpad-delivery-dot { flex:none; width:8px; height:8px; border-radius:50%; background:var(--fg-3); }

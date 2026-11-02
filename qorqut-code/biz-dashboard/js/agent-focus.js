@@ -250,26 +250,18 @@ async function agfocusSnooze(p,node,until,popup,retry=false) {
   agfocusPaint(p);
 }
 
-// The workspace keeps board controls beside its tabs, with secondary actions
-// tucked into one local menu. Native handlers still own the same buttons.
+// The workspace keeps the board controls beside its tabs.
 function agfocusWorkspaceTools(p,board) {
   const head=p.el.querySelector('.thead'),tools=board.querySelector('.agfocus-toolbar');
   if(!document.body.classList.contains('agent-workspace-app') || !head || !tools)return ()=>{};
-  const options=document.createElement('details');options.className='agfocus-options';
-  options.innerHTML='<summary aria-label="Pinned options"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 7h9m4 0h3M4 17h3m4 0h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></summary><div class="agfocus-options-menu"></div>';
-  const menu=options.querySelector('.agfocus-options-menu');
-  menu.append(tools.querySelector('[data-focus-refresh]'),tools.querySelector('.agfocus-controls'));
-  tools.append(options);tools.classList.add('agfocus-head-tools');head.append(tools);
-  const close=event=>{if(options.open && !options.contains(event.target))options.open=false;};
-  const escape=event=>{if(event.key==='Escape' && options.open){event.preventDefault();event.stopPropagation();options.open=false;options.querySelector('summary').focus({preventScroll:true});}};
-  document.addEventListener('pointerdown',close);options.addEventListener('keydown',escape);
-  return ()=>{document.removeEventListener('pointerdown',close);tools.remove();};
+  tools.classList.add('agfocus-head-tools');head.append(tools);
+  return ()=>tools.remove();
 }
 
 function agfocusMount(p) {
   const body = $('#agpad-body', p.el);
   body.innerHTML = `<div class="agfocus"><p class="agfocus-error" role="alert" hidden></p><button type="button" class="quiet" data-focus-retry-move hidden>Retry same move</button><p class="agfocus-sr" data-focus-announcement role="status" aria-live="polite"></p><span class="agfocus-sr" id="agfocus-move-instructions">Use Alt+ArrowUp or Alt+ArrowDown to move one visible row.</span>
-    <header><div class="agfocus-heading"><div class="global-eyebrow">Pinned</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add to Pinned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button><button class="quiet agfocus-icon" data-focus-refresh aria-label="Refresh Pinned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 18 17"/></svg></button><div class="agfocus-controls"><button class="quiet" data-focus-archived aria-pressed="false">Archived</button><button class="quiet" data-focus-deferred aria-pressed="false">Postponed</button></div></div></div><p class="agfocus-empty muted" role="status">Loading Pinned…</p></header>
+    <header><div class="agfocus-heading"><div class="global-eyebrow">Pinned</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add to Pinned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div></div><p class="agfocus-empty muted" role="status">Loading Pinned…</p></header>
     <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><section class="agfocus-surface" aria-label="Browser, Desktop or Viewbox" hidden><div class="agfocus-surface-bar"><button type="button" class="quiet" data-surface-back aria-label="Back to Pinned">← Pinned</button></div><div class="agfocus-surface-body"></div></section><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected record" hidden><div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Record pane height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Pinned pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
   p.focusDrafts ||= new Map();
   p.focusCards = new Map();
@@ -345,12 +337,6 @@ function agfocusMount(p) {
   p.focusBoardSeq ||= 0;
   p.focusPages ||= [];
   $('[data-focus-add]',p.el).onclick=()=>agfocusAdd(p);
-  $('[data-focus-refresh]',p.el).onclick=()=>{agfocusRefresh(p);todayCalendar?.refresh();if(p.focusSurfaces)p.focusSurfaces.refresh();if(typeof attentionQueue!=='undefined'){if(!p.focusSurfaces)void attentionQueue.refresh();void attentionQueue.refreshSignoffs();}};
-  for(const kind of ['archived','deferred']) {
-    const toggle=$('[data-focus-'+kind+']',p.el);
-    toggle.setAttribute('aria-pressed',String(!!p['focusInclude'+kind]));
-    toggle.onclick=()=>{p['focusInclude'+kind]=!p['focusInclude'+kind];toggle.setAttribute('aria-pressed',String(p['focusInclude'+kind]));p.focusPages=[];p.focusOffset=0;agfocusRefresh(p);};
-  }
   $('[data-focus-more]',p.el).onclick=()=>{if(p.focusPending)return;p.focusPages.push(p.focusOffset||0);p.focusOffset=p.focus.next_offset;agfocusRefresh(p);};
   $('[data-focus-previous]',p.el).onclick=()=>{if(p.focusPending)return;p.focusOffset=p.focusPages.pop()||0;agfocusRefresh(p);};
   agfocusPaint(p);
