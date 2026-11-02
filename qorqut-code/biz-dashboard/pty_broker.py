@@ -253,7 +253,9 @@ def keys() -> list[str]:
 
 TMUX = shutil.which("tmux")
 TMUX_SOCK = os.environ.get("BIZ_TMUX_SOCKET", "bazarlyk")
-TMUX_CONFIG_DIR = os.environ.get("BIZ_DASH_STATE", os.path.join(os.path.dirname(os.path.abspath(__file__)), ".state"))
+# Runtime files must not mutate an immutable dashboard release.
+TMUX_CONFIG_DIR = os.environ.get("BIZ_DASH_STATE") or os.path.join(
+    os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "qorqut", "terminals")
 TMUX_CONF = """\
 set -g status off
 set -g prefix None
