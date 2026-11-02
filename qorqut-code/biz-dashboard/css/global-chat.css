@@ -14,9 +14,17 @@
 .gchat-session[data-state="disabled"] .gchat-session-dot, .gchat-session[data-state="offline"] .gchat-session-dot { background: var(--danger); }
 .gchat-session[data-state="starting"] .gchat-session-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--fg-2); }
 .gchat-session-text { min-width: 0; }
-.gchat-session-working .gchat-session-text { background: linear-gradient(110deg, var(--fg-2) 25%, var(--fg) 45%, var(--fg-2) 65%); background-size: 250% 100%; background-clip: text; -webkit-background-clip: text; color: transparent; animation: gchat-working-shine 2.4s ease-in-out infinite; }
-@keyframes gchat-working-shine { from { background-position: 100% 0; } to { background-position: -100% 0; } }
-@media (prefers-reduced-motion: reduce) { .gchat-session-working .gchat-session-text { animation: none; background: none; color: var(--fg-2); } }
+.gchat-working-tag[hidden], .gchat-session-working > .gchat-session-dot { display:none; }
+.gchat-working-tag { display:inline-flex; align-items:center; gap:10px; padding:6px 10px; border-radius:999px; background:var(--hover); }
+.gchat-working-tag > span:first-child { display:flex; }
+.gchat-working-tag .identity-avatar { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; padding:0; border:0; background:none; }
+.gchat-working-tag .identity-avatar svg { width:18px; height:18px; }
+.gchat-working-dots { display:flex; align-items:center; gap:4px; color:var(--fg-2); }
+.gchat-working-dots i { width:4px; height:4px; border-radius:50%; background:currentColor; opacity:.3; animation:gchat-working-pulse 1.5s ease-in-out infinite; }
+.gchat-working-dots i:nth-child(2) { animation-delay:.18s; }
+.gchat-working-dots i:nth-child(3) { animation-delay:.36s; }
+@keyframes gchat-working-pulse { 0%, 65%, 100% { opacity:.3; box-shadow:none; } 30% { opacity:1; box-shadow:0 0 4px currentColor; } }
+@media (prefers-reduced-motion:reduce) { .gchat-working-dots i { animation:none; opacity:.65; } }
 .gchat-diagnostic { position:relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
 .gchat-diagnostic-bar { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; font-size: 12px; flex: none; }
 .gchat-diagnostic-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }

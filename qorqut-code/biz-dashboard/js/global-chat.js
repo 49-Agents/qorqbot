@@ -138,8 +138,9 @@ function mountGlobalChat(pane, agent, options = {}) {
   const status = $q('.gchat-status');
   const sessionLine = document.createElement('div');
   sessionLine.className = 'gchat-session'; sessionLine.setAttribute('role', 'status'); sessionLine.setAttribute('aria-live', 'polite'); sessionLine.dataset.state = 'loading';
-  sessionLine.innerHTML = '<span class="gchat-session-dot" aria-hidden="true"></span><span class="gchat-session-text">Loading…</span>';
+  sessionLine.innerHTML = `<span class="gchat-working-tag" role="img" aria-label="${esc(label)} is working" hidden><span aria-hidden="true">${identityAvatar('agent', label, {...agent, ...agent.presentation})}</span><span class="gchat-working-dots" aria-hidden="true"><i></i><i></i><i></i></span></span><span class="gchat-session-dot" aria-hidden="true"></span><span class="gchat-session-text">Loading…</span>`;
   const sessionText = sessionLine.querySelector('.gchat-session-text');
+  const workingTag = sessionLine.querySelector('.gchat-working-tag');
 
   const live = () => !disposed && root.isConnected;
   const listen = (target, type, handler, opts) => { target.addEventListener(type, handler, opts); cleanups.push(() => target.removeEventListener(type, handler, opts)); };
@@ -246,11 +247,12 @@ function mountGlobalChat(pane, agent, options = {}) {
   // One repaint: the native status line, then every presentation field the view displays. `patch` adds fields such as the entries.
   function paint(patch = {}, scroll = 'preserve') {
     if (disposed) return;
-    const summary = sessionSummary(), working = summary.key === 'working' && !streamDown;
+    const summary = sessionSummary(), working = summary.key === 'working' && !streamDown && !finished;
     sessionLine.dataset.state = streamDown && summary.key === 'working' ? 'live' : summary.key;
     sessionLine.classList.toggle('gchat-session-working', working);
     sessionText.textContent = finished ? 'This chat is no longer available.' : summary.line;
-    sessionLine.hidden = !sessionText.textContent;
+    workingTag.hidden = !working;
+    sessionLine.hidden = !working && !sessionText.textContent;
     status.textContent = finished ? 'Unavailable' : summary.short;
     status.dataset.state = !session ? 'loading' : ['live', 'working'].includes(summary.key) ? 'ready' : 'stopped';
     const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope);
