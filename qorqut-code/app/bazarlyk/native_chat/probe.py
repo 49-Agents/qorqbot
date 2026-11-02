@@ -22,7 +22,7 @@ from bazarlyk.bootstrap.terminal_chat import CODEX_SUFFIX, NATIVE_IDENTITY, proc
 from bazarlyk.bootstrap.transcript_snapshot import SESSION_ID
 from bazarlyk.transport.agent_terminal_control import NATIVE_ONLY
 
-from . import liveness
+from . import codex_control, codex_viewer, liveness
 from .contracts import RUNTIME_PROVIDERS
 
 LOG = logging.getLogger(__name__)
@@ -102,16 +102,12 @@ class SessionProbe:
         self._selected_reader = selected_reader
 
     def observe(self, profile: dict) -> ProbeResult:
-        """What the agent's native client is doing now, for every producer of input and for the registry.
+        """Follow the verified foreground conversation in the registered terminal.
 
-        The workspace has one newest-hook marker, so starting an unselected terminal conversation overwrites the marker of a
-        selected conversation that is still running. For a selected shared Codex thread the marker is therefore not the only
-        evidence: the owner row's own process and exact thread-writer lock are verified directly, and the selected
-        conversation stays observable while a different conversation is reported separately as ``candidate``. A terminal-owned
-        conversation (Claude Code, foreground Codex) is identified only by its hook marker and is never synthesized from a
-        stale one; if that marker names something else it stays disconnected."""
+        A shared server may hold many threads. Its marker or saved binding counts only when the terminal displays that thread.
+        """
         result = self._observe_marker(profile)
-        if self._selected_reader is None:
+        if result.reason == REASON_LIVE or self._selected_reader is None:
             return result
         try:
             chosen, latest = self._selected_reader(profile)
@@ -119,15 +115,13 @@ class SessionProbe:
             return result
         if chosen is None or not chosen.shared_server:
             return result
-        if result.reason == REASON_LIVE and chosen.holds(result.observation):
-            return result
         if (result.reason == REASON_SESSION_END and (result.marker or {}).get("session_id") == chosen.conversation_id
                 and RUNTIME_PROVIDERS.get((result.marker or {}).get("runtime")) == chosen.provider):
             return result
         selected = self._observe_selected(profile, chosen, latest)
         if selected is None:
             return result
-        return ProbeResult(REASON_LIVE, selected, result.marker, result.observation if result.reason == REASON_LIVE else None)
+        return ProbeResult(REASON_LIVE, selected, result.marker)
 
     def _observe_selected(self, profile: dict, chosen, latest: dict | None) -> Observation | None:
         """The selected shared Codex thread, from the owner row alone: its server process still exists with the recorded start
@@ -139,6 +133,8 @@ class SessionProbe:
         try:
             argv = (codex_session.PROC_ROOT / str(pid) / "cmdline").read_bytes().split(b"\0")
             if b"app-server" not in argv or codex_session.thread_owner(pid, chosen.conversation_id) != owner:
+                return None
+            if not self._displayed_codex(profile, owner, chosen.conversation_id):
                 return None
             workspace = Path(profile["workspace"])
             config = _read_json(workspace / REGISTRATION)
@@ -225,7 +221,8 @@ class SessionProbe:
             # The desktop server is shared by many conversations. Only this session's held writer lock proves that its
             # native thread is open.
             owner = codex_session.thread_owner(pid, marker["session_id"])
-            return {"transport": "codex_queue", "owner": owner} if owner else None
+            return ({"transport": "codex_queue", "owner": owner}
+                    if owner and self._displayed_codex(profile, owner, marker["session_id"]) else None)
         backend = self._backend()
         if backend is None:
             return None
@@ -243,6 +240,24 @@ class SessionProbe:
             if pid <= 1:
                 break
         return None
+
+    def _displayed_codex(self, profile: dict, owner: str, conversation: str) -> bool:
+        """A server-held thread is current only when the registered foreground TUI displays it."""
+        backend = self._backend()
+        if backend is None:
+            return False
+        try:
+            pane = backend.pane_observation(profile, "codex")
+            client = pane.get("client")
+            endpoint = "unix://" + codex_control.control_socket(owner)
+            if (pane.get("kind") != "client" or not client
+                    or not codex_viewer.configured(client["argv"], endpoint, profile["workspace"])
+                    or codex_viewer.displayed_thread(owner, pane.get("title")) != conversation):
+                return False
+            # Thread lookup must not outlive a change of pane or foreground client.
+            return backend.pane_observation(profile, "codex") == pane
+        except (OSError, ValueError, TypeError, KeyError, DomainError):
+            return False
 
     @staticmethod
     def _working(profile: dict, marker: dict, verified: dict) -> bool:

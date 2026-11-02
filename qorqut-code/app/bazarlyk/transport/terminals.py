@@ -352,13 +352,10 @@ class TerminalService:
         if action == "stream" and request.method == "GET":
             if request.headers.get("sec-fetch-site") not in (None, "same-origin"):
                 raise DomainError("csrf_required", "Terminal streams must originate in this dashboard")
-            # A registered agent's stream is either the explicit diagnostic one (``mode=diagnostic``, which makes no claim) or a
-            # view of its selected conversation. With a selection the stream must name its attachment: it is checked before
-            # anything is streamed and again on every recheck below, an unclaimed or stale request is refused, and the stream
-            # ends with ``detached`` the moment it stops being true. Never silently downgraded to an unclaimed stream.
+            # Terminal is always the registered pane. Older clients may still claim a specific conversation;
+            # keep enforcing that explicit claim while ordinary terminal mirrors stay usable across client changes.
             claimed = request.query_params.get("attachment") if agent_terminal else None
-            diagnostic = agent_terminal and request.query_params.get("mode") == "diagnostic"
-            service = self.attachment() if agent_terminal and not diagnostic else None
+            service = self.attachment() if agent_terminal and claimed is not None else None
             if service is not None:
                 await anyio.to_thread.run_sync(lambda: service.check_input(row["agent_id"], claimed))
             terminal, profile, row = await anyio.to_thread.run_sync(open_target)
@@ -468,9 +465,9 @@ class TerminalService:
             data = body.get("data")
             if not isinstance(data, str) or len(data) > 65536:
                 raise DomainError("validation_error", "Terminal input requires bounded text")
-            mode = body.get("mode", "selected")
-            if mode not in ("selected", "diagnostic"):
-                raise DomainError("validation_error", "Terminal input mode must be selected or diagnostic")
+            mode = body.get("mode", "terminal")
+            if mode not in ("terminal", "selected", "diagnostic"):
+                raise DomainError("validation_error", "Unknown terminal input mode")
             service = self.attachment() if agent_terminal and mode == "selected" else None
             if service is not None:
                 # Raw keystrokes are accepted as the selected conversation only while the terminal is positively attached to it.

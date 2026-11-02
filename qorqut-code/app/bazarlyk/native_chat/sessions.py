@@ -7,10 +7,8 @@ being gone, or the selected conversation being re-held by a new process after th
 failure to verify (a tmux hiccup, a screen read) never ends a binding; waiting inputs then simply keep waiting for the same
 session.
 
-Which conversation may hold a binding is decided by the agent's selection (``selection.py``, the ``native_session_owners``
-row), not by whichever conversation was observed last: an observation of any other conversation is only a candidate. It
-creates and supersedes nothing; it is bound only after the owner explicitly selects it. With no selection yet nothing is
-bound either (the first verified registration creates the selection).
+The owner row records the conversation followed from the registered terminal. The native observer updates it before
+reconciliation. A new observation cannot receive messages until that verified adoption completes.
 """
 
 from __future__ import annotations

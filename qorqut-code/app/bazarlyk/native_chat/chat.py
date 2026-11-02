@@ -65,6 +65,7 @@ class NativeChat:
         # One instance for the life of the runtime, on the same per-agent locks as the arbiter and the backend, so Chat sends,
         # selection, reconnect, raw terminal input and controller lifecycle are never driven by two threads at once.
         self.attachment = AttachmentService(runtime, probe, getattr(arbiter, "locks", None) or AgentLocks())
+        self.backend.follow_terminal = self.follow_terminal
 
     @classmethod
     def build(cls, runtime, *, probe: SessionProbe | None = None, adapters=None, archive_factory=None,
@@ -121,9 +122,8 @@ class NativeChat:
         A composer may send only to a captured conversation whose exact binding the backend observer has already recorded; until
         then the view says it is connecting.
 
-        The view is always of the agent's *selected* conversation (``chosen``, read here when not supplied). A client of any
-        other conversation is only reported as ``candidate``: it is never offered for sending, so Chat and Terminal cannot
-        disagree about which conversation they show."""
+        The view follows the terminal conversation adopted by the observer (``chosen``, read here when not supplied).
+        During a switch the composer waits for adoption instead of retargeting an already queued input."""
         observed = observed or self.probe.observe(profile)
         if chosen is _UNREAD:
             with self.database.read() as uow:
@@ -153,11 +153,10 @@ class NativeChat:
             else:
                 reason, detail = REASON_CAPTURE_DISABLED, "Transcript capture is off for this agent, so Chat has no conversation to show"
         elif pending:
-            reason, detail = selection.REASON_PENDING, "The selected conversation is registering with its new process"
+            reason, detail = selection.REASON_PENDING, "Connecting to the conversation in Terminal…"
         elif candidate is not None:
             reason = selection.REASON_CANDIDATE if chosen is not None else selection.REASON_NO_SELECTION
-            detail = ("Another conversation is running in the terminal; select it to use it here" if chosen is not None
-                      else "A conversation is running but none is selected for this agent yet")
+            detail = "Connecting to the conversation in Terminal…"
         else:
             reason = observed.reason
             detail = {REASON_UNSUPPORTED: "Chat needs this agent's native session on the host",
@@ -384,10 +383,28 @@ class NativeChat:
             require_protected_control(uow, principal_id, "human", [agent_id])
         return self.attachment.state(agent_id)
 
+    def follow_terminal(self, profile: dict) -> None:
+        """Adopt the terminal's verified current conversation through the existing binding transaction."""
+        observed = self.probe.observe(profile)
+        if observed.reason != REASON_LIVE:
+            return
+        with self.database.read() as uow:
+            current = selection.selected(uow.connection, profile["agent_id"])
+            owner = installation_owner(uow)
+        live = observed.observation
+        if owner is None or current is not None and current.holds(live):
+            return
+        try:
+            self.select(owner, profile["agent_id"], live.provider, live.conversation_id,
+                        current.generation if current is not None else 0)
+        except DomainError:
+            # A switch or an unfinished hook is retried by the next observer pass.
+            LOG.debug("Terminal conversation adoption deferred for %s", profile["agent_id"], exc_info=True)
+
     def select(self, principal_id: str, agent_id: str, provider, conversation, expected_generation) -> dict:
         """The installation owner explicitly selects the native conversation this agent's Chat and Terminal show.
 
-        This is the only way to replace an existing selection with a different conversation. ``expected_generation`` is the
+        The observer also uses this transaction to follow a verified terminal conversation. ``expected_generation`` is the
         owner generation the caller saw (0 when none exists). The named conversation must be the one the agent's native client
         is running right now, proved here by the same trusted probe the binding uses (hook marker, live process with its start
         ticks, registered pane or held thread-writer lock): an id from the caller is never proof. The change goes through the
@@ -411,7 +428,11 @@ class NativeChat:
                 raise DomainError("validation_error", "That conversation is not of this agent's runtime")
             if (current.generation if current is not None else 0) != expected_generation:
                 raise DomainError("revision_conflict", "The selected conversation changed; reload and try again")
-            if current is not None and current.matches(provider, conversation):
+            observed = self.probe.observe(profile)
+            live = observed.observation if observed.reason == REASON_LIVE else None
+            if live is None or live.provider != provider or live.conversation_id != conversation:
+                raise DomainError("not_found", "The terminal conversation is still connecting")
+            if current is not None and current.holds(live):
                 return {"selection": current.public(), "changed": False}
             marker = self._candidate_marker(profile, agent_id, conversation, PROVIDER_RUNTIMES[provider])
             from bazarlyk.bootstrap.native_binding import NativeBindingAdapter
@@ -423,6 +444,12 @@ class NativeChat:
                 raise DomainError("not_found", "That conversation is not verifiably running in this agent's terminal") from None
             if binding.get("session_id") != conversation or binding.get("runtime") != PROVIDER_RUNTIMES[provider]:
                 raise DomainError("not_found", "That conversation is not verifiably running in this agent's terminal")
+            confirmed = self.probe.observe(profile)
+            latest = confirmed.observation if confirmed.reason == REASON_LIVE else None
+            if (latest is None or latest.provider != provider or latest.conversation_id != conversation
+                    or latest.pid != binding.get("pid") or latest.started != binding.get("started")
+                    or (latest.owner or f"{latest.pid}:{latest.started}") != binding.get("owner")):
+                raise DomainError("revision_conflict", "The terminal conversation changed; reconnecting")
             context = self.runtime.agent_context(Principal(agent_id, "agent"))
             self.runtime.inbox.start_session(context, marker["registration_id"], conversation,
                                              binding.get("event") or "startup", binding=binding, old_state=old_state,

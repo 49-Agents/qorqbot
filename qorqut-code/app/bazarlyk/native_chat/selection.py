@@ -5,10 +5,9 @@ One durable fact says which native conversation an agent's Chat and Terminal sho
 identity, ``generation`` = the owner generation that fences helpers). It persists across any terminal viewer disconnect.
 ``native_sessions`` stays the history of process bindings and captures; it is never a second authority for "current".
 
-This module only reads that row. Replacing it is the job of the existing binding transaction
-(``InboxService.start_session``): by a first verified registration, by the same conversation renewing its process after
-the old one is verified dead, or by an explicit owner selection (``NativeChat.select``). A hook or observation of any other
-conversation is only a *candidate* and never changes the selection.
+This module only reads that row. The native observer follows the verified foreground terminal conversation through the
+existing binding transaction (``NativeChat.select`` / ``InboxService.start_session``). Hooks supply evidence, while the
+observer verifies the registered terminal before adoption. Native session history and queued-input identities remain intact.
 """
 
 from __future__ import annotations

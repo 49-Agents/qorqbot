@@ -21,7 +21,7 @@ from qorqut_operations.contracts import DomainError, utc_now
 from . import store
 from .arbiter import AgentLocks, InputArbiter
 from .captures import Indexer
-from .probe import MARKER, SessionProbe
+from .probe import BINDING, MARKER, SessionProbe
 from .sessions import SessionRegistry
 
 LOG = logging.getLogger(__name__)
@@ -38,6 +38,7 @@ class NativeBackend:
         self._thread: threading.Thread | None = None
         self._recovered = False
         self._working = {}
+        self.follow_terminal = None
         arbiter.wake = self.wake
 
     @property
@@ -95,7 +96,8 @@ class NativeBackend:
             if self._stop_event.is_set():
                 return
             # An agent that never published a session has nothing to bind; its hook marker appears when it does.
-            if profile["agent_id"] not in open_agents and not os.path.lexists(Path(profile["workspace"]) / MARKER):
+            if profile["agent_id"] not in open_agents and not any(
+                    os.path.lexists(Path(profile["workspace"]) / name) for name in (MARKER, BINDING)):
                 continue
             try:
                 self.observe(profile)
@@ -129,6 +131,8 @@ class NativeBackend:
 
     def observe(self, profile: dict) -> None:
         """Bind, capture and index one agent, then deliver its waiting inputs. Safe to repeat."""
+        if self.follow_terminal is not None:
+            self.follow_terminal(profile)
         with self.locks(profile["agent_id"]):
             observed = self.probe.observe(profile)
             reconciled = self.registry.reconcile(profile, observed)

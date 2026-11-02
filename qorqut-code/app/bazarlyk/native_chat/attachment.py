@@ -1,30 +1,8 @@
-"""One account of whether an agent's registered Terminal shows its selected native conversation.
+"""Verified conversation attachment and compatibility controls for older terminal clients.
 
-Chat and Terminal both consume this. The selected conversation is ``selection.py`` (the owner row); the terminal is only a
-*view* of it. A tmux session existing says nothing about which conversation its pane shows, so nothing here infers
-``attached`` from that. A state is reported only from evidence that is read, never assumed:
-
-* ``attached``      the selected conversation is the *foreground client* of this agent's one registered pane: the hook marker
-                    names it, the live process has the owner row's pid and start ticks, descends from the pane shell on the
-                    pane's terminal and is the pane's foreground process group (Claude Code and a foreground Codex). A shared
-                    Codex viewer also publishes its current session ID in its terminal title. Its displayed ID must resolve
-                    uniquely to the selection on the verified server; the writer lock alone is insufficient.
-* ``reconnecting``  a resume was just submitted, or the resumed client has not registered yet. Bounded by a short window.
-* ``disconnected``  the selected conversation is not shown: stopped, no client attached, or its liveness cannot be verified
-                    (an unverifiable process is never treated as dead).
-* ``mismatch``      the pane runs something that is not the selected conversation (another conversation, a client that cannot
-                    be tied to it, another program, the selected client suspended behind the shell). It is left untouched;
-                    nothing is killed or typed into it.
-* ``unsupported``   no verified way to attach this agent (remote execution target, other runtime, missing client capability, a
-                    shared-server viewer whose attachment cannot be proved: reason ``viewer_unverified``).
-
-``allowed action`` is what the owner may do next: ``reconnect`` (resume exactly the selected conversation, only into an absent
-pane or a pane whose registered shell is verifiably the idle foreground, never a fresh conversation) or ``select_candidate``
-(explicitly select the other conversation that is running). A new conversation is never created here: the owner uses the real
-client's own controls in a clearly separate diagnostic terminal and then selects it.
-
-Every side effect (the launch, the selected raw input) runs under the agent's one shared lock, after re-reading the selection
-and the pane right before it.
+The current UI mirrors the registered terminal directly. Chat's observer follows its verified foreground conversation.
+Older clients can still request a specific attachment token or an explicit resume; those requests retain their identity
+checks and never interrupt a different foreground process.
 """
 
 from __future__ import annotations
