@@ -149,6 +149,18 @@ class EmailDecisions(Protocol):
     def email_context(self, row: Mapping[str, Any], uow) -> Mapping[str, Any] | None: ...
 
 
+class VisibilityNarrowing(Protocol):
+    """An additional, host-owned narrowing of who may read a Signoff (no v1 counterpart; opt-in, default ``ABSENT``).
+
+    ``narrow(context, uow)`` -> ``(sql, params)``: a fixed SQL fragment over alias ``s`` with ``?`` placeholders bound by
+    ``params``, appended after every other visibility fragment of ``_visibility`` and therefore applied to every Signoff
+    reader (get, list, notes, owner attention, decisions, rejection and input answers). The fragment is either empty or
+    ONE parenthesized predicate with its own leading `` AND `` (for example `` AND (s.operation_name <> ? OR ...)``);
+    the engine refuses anything else, so a port can only remove proposals from a reader's view, never add them."""
+
+    def narrow(self, context: InvocationContext, uow) -> tuple[str, Sequence[Any]]: ...
+
+
 class CampaignFilter(Protocol):
     """Campaign filtering of ``signoffs_list`` (v1 ``stories.attribution.campaign`` plus the campaign SQL).
 
@@ -210,7 +222,8 @@ def _check(value, label: str, methods: Sequence[str] = (), attributes: Sequence[
 class SignoffPorts:
     """All host ports of one Signoff service. ``execution``, ``peers``, ``tasks`` and ``references`` are required;
     ``platform``, ``email``, ``campaigns``, ``management`` and ``focus`` are optional domains that must be declared,
-    either with an implementation or with ``ABSENT``."""
+    either with an implementation or with ``ABSENT``. ``narrowing`` is an optional extension that defaults to ``ABSENT``
+    (visibility exactly as before)."""
 
     execution: ExecutionPresentation
     peers: PeerIdentities
@@ -221,6 +234,7 @@ class SignoffPorts:
     campaigns: CampaignFilter | Absent
     management: ManagementQueries | Absent
     focus: FocusAttention | Absent
+    narrowing: VisibilityNarrowing | Absent = ABSENT
 
     def __post_init__(self):
         for name, value in (("execution", self.execution), ("peers", self.peers), ("tasks", self.tasks),
@@ -241,7 +255,8 @@ class SignoffPorts:
                 ("email", ("visibility", "email_context"), ()),
                 ("campaigns", ("narrow",), ("authorizing_operation",)),
                 ("management", ("coordinator", "auto_route_input", "routing_for"), ("managed_input_sql",)),
-                ("focus", ("creation_access", "present_created", "release_signoff"), ("fields",))):
+                ("focus", ("creation_access", "present_created", "release_signoff"), ("fields",)),
+                ("narrowing", ("narrow",), ())):
             value = getattr(self, name)
             if value is None:
                 raise AssemblyError(f"Optional Signoff domain {name} must be declared: pass a port or ABSENT")
@@ -254,3 +269,35 @@ class SignoffPorts:
         if value is ABSENT:
             raise DomainError("operation_unavailable", message or f"The {name} domain is not installed")
         return value
+
+
+def checked_narrowing(sql, params) -> tuple[str, list]:
+    """The only accepted shape of a narrowing fragment: empty, or `` AND (<one balanced predicate>)`` whose placeholders
+    match its parameters. Literals are skipped while balancing; anything else could widen the engine's own predicate."""
+    if not isinstance(sql, str) or isinstance(params, (str, bytes)) or not hasattr(params, "__iter__"):
+        raise AssemblyError("A Signoff narrowing port must return (sql, params)")
+    params = list(params)
+    if sql == "":
+        if params:
+            raise AssemblyError("An empty Signoff narrowing cannot bind parameters")
+        return sql, params
+    prefix = " AND ("
+    if not sql.startswith(prefix) or not sql.endswith(")"):
+        raise AssemblyError("A Signoff narrowing must be one parenthesized predicate with a leading AND")
+    depth, quoted, marks = 1, False, 0
+    for index, char in enumerate(sql[len(prefix):], len(prefix)):
+        if char == "'":
+            quoted = not quoted
+        elif quoted:
+            continue
+        elif char == "?":
+            marks += 1
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0 and index != len(sql) - 1:
+                raise AssemblyError("A Signoff narrowing must be one parenthesized predicate")
+    if depth != 0 or quoted or marks != len(params) or any(c in sql for c in (";", "--", "/*")):
+        raise AssemblyError("A Signoff narrowing is unbalanced or binds the wrong parameters")
+    return sql, params

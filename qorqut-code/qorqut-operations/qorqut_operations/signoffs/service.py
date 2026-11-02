@@ -24,7 +24,7 @@ from qorqut_operations.storage.repositories import decode_row
 from .inputs import InputRequests, validate_response
 from .notes import SignoffNotes, eligible
 from .notifications import SignoffNotifications
-from .ports import ABSENT, SignoffPorts
+from .ports import ABSENT, SignoffPorts, checked_narrowing
 from .rejection import Rejection
 
 CATEGORIES = ("internal_change", "platform_action", "input_request")
@@ -204,6 +204,11 @@ class SignoffService:
         if email is not ABSENT:
             extra,values=email.visibility(context,uow)
             clause+=extra;params.extend(values)
+        narrowing = self.ports.narrowing
+        if narrowing is not ABSENT:
+            # Opt-in host narrowing: one checked predicate appended last, so it can only remove rows from every reader.
+            extra, values = checked_narrowing(*narrowing.narrow(context, uow))
+            clause += extra; params.extend(values)
         return clause, params
 
     def _row(self, context, signoff_id, uow):
