@@ -1,6 +1,5 @@
 // One time grid over provider calendars; events stay in Google and Fastmail.
-let calendarDate = new Date(), calendarGeneration = 0, calendarViewDays = 3;
-let calendarMonth = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1), calendarDispose;
+let calendarDispose;
 const calendarZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 const calendarDateString = date => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 const calendarAddDays = (date, days) => { const next = new Date(date); next.setDate(next.getDate()+days); return next; };
@@ -49,139 +48,217 @@ function calendarEventLanes(spans) {
   finish(); return result;
 }
 
-async function renderGlobalCalendar(host) {
+function renderGlobalCalendar(host) {
   calendarDispose?.();
-  const generation = ++calendarGeneration;
-  const countForWidth = () => host.clientWidth <= 600 ? 1 : calendarViewDays;
-  const count = countForWidth();
-  const first = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), calendarDate.getDate());
-  const last = calendarAddDays(first,count), dates = Array.from({length:count},(_,i) => calendarAddDays(first,i));
-  host.innerHTML = `<section class="pane calendar-page" aria-label="Calendar" style="--calendar-columns:${count}">
-    <header class="calendar-header"><div class="calendar-brand"><h1>Calendar</h1><time class="calendar-clock" aria-label="Current time"></time></div>
-      <div class="calendar-header-actions"><button type="button" class="calendar-icon" data-calendar-refresh aria-label="Refresh calendars">${calendarIcon('refresh-cw')}</button><button type="button" class="primary" data-calendar-add disabled><span aria-hidden="true">＋</span> Add event</button></div></header>
-    <div class="calendar-layout"><aside class="calendar-sidebar" aria-label="Calendar navigation">
-      <div class="calendar-month-heading"><h2></h2><div><button type="button" class="calendar-icon" data-month-prev aria-label="Previous month">‹</button><button type="button" class="calendar-icon" data-month-next aria-label="Next month">›</button></div></div>
-      <div class="calendar-month" aria-label="Choose a date"></div><div class="calendar-sources"><h2>My calendars</h2><div></div></div>
-    </aside><main class="calendar-main"><div class="calendar-toolbar"><h2 class="calendar-range"></h2><div class="calendar-controls">
-      <button type="button" class="calendar-icon" data-calendar-prev aria-label="Previous days">‹</button><button type="button" class="calendar-icon" data-calendar-next aria-label="Next days">›</button>
-      <select class="inp calendar-view" aria-label="Calendar view"><option value="1">Day</option><option value="3">3 days</option><option value="7">Week</option></select></div></div>
-      <div class="calendar-status" role="status">Loading calendars…</div><div class="calendar-dayheads"></div><div class="calendar-all-day" hidden></div><div class="calendar-week" aria-label="Hourly calendar grid"></div><div class="calendar-more"></div>
-    </main></div></section>`;
-  const page = $('.calendar-page',host);
-  const sizePage = () => {
-    page.classList.toggle('calendar-narrow',host.clientWidth <= 880);
-    page.classList.toggle('calendar-compact',host.clientWidth <= 600);
-  };
-  sizePage();
-  const current = () => page.isConnected && generation === calendarGeneration && state.globalTab === 'calendar';
-  const reload = () => { if (current()) return renderGlobalCalendar(host); };
-  const chooseDate = date => { calendarDate = date; calendarMonth = new Date(date.getFullYear(),date.getMonth(),1); reload(); };
-  const paintDates = () => {
-    $('.calendar-range',page).textContent = count === 1 ? calendarDateLabel(first) : `${calendarDateLabel(first)} – ${calendarDateLabel(calendarAddDays(last,-1))}`;
-    $('.calendar-dayheads',page).innerHTML = '<span></span>'+dates.map(date => `<div class="calendar-dayhead">${esc(date.toLocaleDateString('en-GB',{weekday:'short'}))}</div>`).join('');
-    $('.calendar-month-heading h2',page).textContent = calendarMonth.toLocaleDateString('en-GB',{month:'long'});
-    const offset = (calendarMonth.getDay()+6)%7, total = new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,0).getDate();
-    const month = $('.calendar-month',page);
-    month.innerHTML = ['M','T','W','T','F','S','S'].map(day => `<span class="calendar-weekday">${day}</span>`).join('') + (offset ? `<span style="grid-column:span ${offset}"></span>` : '') +
-      Array.from({length:total},(_,i) => { const date = new Date(calendarMonth.getFullYear(),calendarMonth.getMonth(),i+1), key = calendarDateString(date);
-        return `<button type="button" class="calendar-monthday ${date >= first && date < last ? 'in-range' : ''}" data-calendar-date="${key}" aria-label="${esc(calendarDateLabel(date))}" aria-pressed="${key === calendarDateString(first)}">${i+1}</button>`;
-      }).join('');
-    month.querySelectorAll('button').forEach(button => button.onclick = () => chooseDate(new Date(button.dataset.calendarDate+'T12:00:00')));
-  };
-  $('.calendar-view',page).value = String(calendarViewDays);
-  $('.calendar-view',page).onchange = event => { calendarViewDays = Number(event.target.value); reload(); };
-  $('[data-calendar-prev]',page).onclick = () => chooseDate(calendarAddDays(first,-count));
-  $('[data-calendar-next]',page).onclick = () => chooseDate(last);
-  $('[data-calendar-refresh]',page).onclick = reload;
-  for (const [selector,offset] of [['[data-month-prev]',-1],['[data-month-next]',1]]) $(selector,page).onclick = () => {
-    calendarMonth = new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+offset,1); paintDates();
-  };
-  paintDates();
-  let clockDay = calendarDateString(new Date()), clockTimer, observer;
-  const dispose = () => { clearInterval(clockTimer); observer?.disconnect(); };
-  calendarDispose = dispose;
-  const tick = () => {
-    if (!current()) { dispose(); return; }
-    const now = new Date(), clock = $('.calendar-clock',page); clock.dateTime = now.toISOString(); clock.textContent = calendarTime(now);
-    const day = calendarDateString(now); if (day !== clockDay) { clockDay = day; paintDates(); }
-  };
-  tick(); clockTimer = setInterval(tick,1000);
-  observer = new ResizeObserver(() => { if (!current()) dispose(); else { sizePage(); if (countForWidth() !== count) reload(); } });
-  observer.observe(host);
+  calendarDispose = calendarMount(host, {isCurrent:() => state.globalTab === 'calendar'});
+}
 
-  const status = $('.calendar-status',page), allEvents = [], failures = new Map();
-  let calendars = [], loading = true;
-  const eventCalendar = event => calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id);
-  const eventButton = (event, allDay = false) => {
-    const calendar = eventCalendar(event), pending = event.attendees?.some(a => calendar?.organizers?.some(email => email.toLowerCase() === a.email.toLowerCase()) && a.status === 'needsAction');
-    const button = document.createElement('button'); button.type = 'button';
-    button.className = `calendar-event ${calendarProviderClass(calendar)}${allDay ? ' calendar-all-day-event' : ''}`;
-    const when = allDay ? 'All day' : `${calendarTime(new Date(event.start))} – ${calendarTime(new Date(event.end))}`;
-    const label = `${event.title || 'Untitled event'} · ${when} · ${calendar?.name || ''}${pending ? ' · Invitation' : ''}`;
-    button.setAttribute('aria-label',label); button.title = label;
-    button.innerHTML = `<strong>${esc(event.title || 'Untitled event')}</strong>`;
-    button.onclick = () => calendarOpen(event,calendars,reload); return button;
+// Each pane owns its navigation and lifecycle; embedding never changes the route.
+function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
+  let calendarDate = new Date(), calendarViewDays = embedded ? 1 : 3, calendarGeneration = 0, active = true;
+  let calendarMonth = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1), dispose = () => {};
+  const render = async () => {
+    dispose();
+    const generation = ++calendarGeneration;
+    const countForWidth = () => host.clientWidth <= 600 ? 1 : calendarViewDays;
+    const count = countForWidth();
+    const first = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), calendarDate.getDate());
+    const last = calendarAddDays(first,count), dates = Array.from({length:count},(_,i) => calendarAddDays(first,i));
+    host.innerHTML = `<section class="pane calendar-page${embedded ? ' calendar-embedded' : ''}" aria-label="Calendar" style="--calendar-columns:${count}">
+      <header class="calendar-header"><div class="calendar-brand"><h1>Calendar</h1><time class="calendar-clock" aria-label="Current time"></time></div>
+        <div class="calendar-header-actions"><button type="button" class="calendar-icon" data-calendar-refresh aria-label="Refresh calendars">${calendarIcon('refresh-cw')}</button><button type="button" class="primary" data-calendar-add disabled><span aria-hidden="true">＋</span> Add event</button></div></header>
+      <div class="calendar-layout"><aside class="calendar-sidebar" aria-label="Calendar navigation">
+        <div class="calendar-month-heading"><h2></h2><div><button type="button" class="calendar-icon" data-month-prev aria-label="Previous month">‹</button><button type="button" class="calendar-icon" data-month-next aria-label="Next month">›</button></div></div>
+        <div class="calendar-month" aria-label="Choose a date"></div><div class="calendar-sources"><h2>My calendars</h2><div></div></div>
+      </aside><main class="calendar-main"><div class="calendar-toolbar"><h2 class="calendar-range"></h2><div class="calendar-controls">
+        <button type="button" class="calendar-icon" data-calendar-prev aria-label="Previous days">‹</button><button type="button" class="calendar-icon" data-calendar-next aria-label="Next days">›</button>
+        <select class="inp calendar-view" aria-label="Calendar view"><option value="1">Day</option><option value="3">3 days</option><option value="7">Week</option></select></div></div>
+        <div class="calendar-status" role="status">Loading calendars…</div><div class="calendar-dayheads"></div><div class="calendar-all-day" hidden></div><div class="calendar-week" aria-label="Hourly calendar grid"></div><div class="calendar-more"></div>
+      </main></div></section>`;
+    const page = $('.calendar-page',host);
+    const sizePage = () => {
+      page.classList.toggle('calendar-narrow',host.clientWidth <= 880);
+      page.classList.toggle('calendar-compact',host.clientWidth <= 600);
+    };
+    sizePage();
+    const current = () => active && page.isConnected && generation === calendarGeneration && isCurrent();
+    const reload = () => { if (current()) return render(); };
+    const chooseDate = date => { calendarDate = date; calendarMonth = new Date(date.getFullYear(),date.getMonth(),1); reload(); };
+    const paintDates = () => {
+      $('.calendar-range',page).textContent = count === 1 ? calendarDateLabel(first) : `${calendarDateLabel(first)} – ${calendarDateLabel(calendarAddDays(last,-1))}`;
+      $('.calendar-dayheads',page).innerHTML = '<span></span>'+dates.map(date => `<div class="calendar-dayhead">${esc(date.toLocaleDateString('en-GB',{weekday:'short'}))}</div>`).join('');
+      $('.calendar-month-heading h2',page).textContent = calendarMonth.toLocaleDateString('en-GB',{month:'long'});
+      const offset = (calendarMonth.getDay()+6)%7, total = new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,0).getDate();
+      const month = $('.calendar-month',page);
+      month.innerHTML = ['M','T','W','T','F','S','S'].map(day => `<span class="calendar-weekday">${day}</span>`).join('') + (offset ? `<span style="grid-column:span ${offset}"></span>` : '') +
+        Array.from({length:total},(_,i) => { const date = new Date(calendarMonth.getFullYear(),calendarMonth.getMonth(),i+1), key = calendarDateString(date);
+          return `<button type="button" class="calendar-monthday ${date >= first && date < last ? 'in-range' : ''}" data-calendar-date="${key}" aria-label="${esc(calendarDateLabel(date))}" aria-pressed="${key === calendarDateString(first)}">${i+1}</button>`;
+        }).join('');
+      month.querySelectorAll('button').forEach(button => button.onclick = () => chooseDate(new Date(button.dataset.calendarDate+'T12:00:00')));
+    };
+    $('.calendar-view',page).value = String(calendarViewDays);
+    $('.calendar-view',page).onchange = event => { calendarViewDays = Number(event.target.value); reload(); };
+    $('[data-calendar-prev]',page).onclick = () => chooseDate(calendarAddDays(first,-count));
+    $('[data-calendar-next]',page).onclick = () => chooseDate(last);
+    $('[data-calendar-refresh]',page).onclick = reload;
+    for (const [selector,offset] of [['[data-month-prev]',-1],['[data-month-next]',1]]) $(selector,page).onclick = () => {
+      calendarMonth = new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+offset,1); paintDates();
+    };
+    paintDates();
+    let clockDay = calendarDateString(new Date()), clockTimer, observer;
+    const cleanup = () => { clearInterval(clockTimer); observer?.disconnect(); };
+    dispose = cleanup;
+    const tick = () => {
+      if (!current()) { cleanup(); return; }
+      const now = new Date(), clock = $('.calendar-clock',page); clock.dateTime = now.toISOString(); clock.textContent = calendarTime(now);
+      const day = calendarDateString(now); if (day !== clockDay) { clockDay = day; paintDates(); }
+    };
+    tick(); clockTimer = setInterval(tick,1000);
+    observer = new ResizeObserver(() => { if (!current()) cleanup(); else { sizePage(); if (countForWidth() !== count) reload(); } });
+    observer.observe(host);
+
+    const status = $('.calendar-status',page), allEvents = [], failures = new Map();
+    let calendars = [], loading = true;
+    const eventButton = (event,allDay) => calendarEventButton(event,calendars,reload,allDay);
+    const paint = () => {
+      if (!current()) return;
+      status.textContent = [...failures.values()].join(' · ') || (loading ? 'Loading events…' : '');
+      calendarPaintGrid(page,dates,allEvents,eventButton);
+    };
+    paint();
+    try {
+      const result = await calendarCall('calendar_calendars_list');
+      if (!current()) return;
+      calendars = result.calendars;
+      result.errors.forEach(e => failures.set(e.connection_id,`${e.connection_id}: ${e.message}`));
+      $('.calendar-sources > div',page).innerHTML = calendars.map(calendar => `<div class="calendar-source ${calendarProviderClass(calendar)}"><span class="calendar-dot"></span><span>${esc(calendar.name)} · ${esc(calendar.provider === 'google' ? 'Google' : calendar.provider === 'fastmail' ? 'Fastmail' : calendar.provider)}</span></div>`).join('');
+      if (!result.configured) { status.textContent = 'Connect Google and Fastmail calendars to get started.'; return; }
+      $('[data-calendar-add]',page).disabled = !calendars.some(c => c.writable);
+      $('[data-calendar-add]',page).onclick = () => calendarEdit(null,calendars,reload,calendarDate);
+      await Promise.all(calendars.map(async calendar => {
+        let cursor, more;
+        const failureKey = `${calendar.connection_id}:${calendar.id}`;
+        const load = async () => {
+          if (more) more.disabled = true;
+          try {
+            const result = await calendarCall('calendar_events_list',{connection_id:calendar.connection_id,calendar_id:calendar.id,
+              start:first.toISOString(),end:last.toISOString(),limit:200,...(cursor ? {cursor} : {})});
+            if (!current()) return;
+            result.events.forEach(event => { const index = allEvents.findIndex(old => old.id === event.id && old.connection_id === event.connection_id && old.calendar_id === event.calendar_id); if (index < 0) allEvents.push(event); else allEvents[index] = event; });
+            cursor = result.next_cursor; failures.delete(failureKey);
+            if (!more) { more = document.createElement('button'); more.type = 'button'; more.onclick = load; $('.calendar-more',page).append(more); }
+            more.textContent = `Load more from ${calendar.name}`; more.hidden = !cursor; more.disabled = false;
+          } catch (error) { if (current()) { failures.set(failureKey,`${calendar.name}: ${error.message}`); if (more) more.disabled = false; } }
+          paint();
+        };
+        await load();
+      }));
+      loading = false; paint();
+    } catch (error) { if (current()) status.textContent = error.message; }
   };
-  const paint = () => {
-    if (!current()) return;
-    status.textContent = [...failures.values()].join(' · ') || (loading ? 'Loading events…' : '');
-    const spans = dates.map(day => calendarEventLanes(allEvents.map(event => calendarDaySpan(event,day)).filter(Boolean)));
-    const flat = spans.flat();
-    const startHour = Math.min(8,...flat.map(item => Math.floor(item.start/60)));
-    const endHour = Math.max(19,...flat.map(item => Math.ceil(item.end/60)));
-    page.style.setProperty('--calendar-hours',endHour-startHour);
-    const grid = $('.calendar-week',page);
-    grid.innerHTML = `<div class="calendar-axis">${Array.from({length:endHour-startHour+1},(_,i) => { const hour = startHour+i, date = new Date(first); date.setHours(hour,0,0,0); return `<span class="calendar-tick" style="top:${i*64}px">${esc(calendarTime(date))}</span>`; }).join('')}</div>`;
-    const allDayRow = $('.calendar-all-day',page); allDayRow.innerHTML = '<span class="calendar-all-day-label">All day</span>'; let hasAllDay = false;
-    dates.forEach((date,index) => {
-      const key = calendarDateString(date), column = document.createElement('section'); column.className = 'calendar-day'; column.dataset.calendarDay = key;
-      column.setAttribute('aria-label',date.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}));
-      for (const span of spans[index]) {
-        const button = eventButton(span.event), height = (span.end-span.start)/60*64;
-        button.style.top = `${(span.start/60-startHour)*64}px`; button.style.height = `${height}px`;
-        button.style.left = `calc(${span.lane/span.columns*100}% + 3px)`; button.style.width = `calc(${100/span.columns}% - 6px)`;
-        if (height < 44) button.classList.add('calendar-short-event');
-        if (height >= 68) { const time = document.createElement('span'); time.textContent = `${calendarTime(new Date(span.event.start))} – ${calendarTime(new Date(span.event.end))}`; button.append(time); }
-        column.append(button);
-      }
-      grid.append(column);
-      const allDayCell = document.createElement('div'); allDayCell.className = 'calendar-all-day-cell';
-      allEvents.filter(event => event.status !== 'cancelled' && event.start?.length === 10 && event.start <= key && key < event.end)
-        .forEach(event => { hasAllDay = true; allDayCell.append(eventButton(event,true)); });
-      allDayRow.append(allDayCell);
-    });
-    allDayRow.hidden = !hasAllDay;
-  };
-  paint();
-  try {
-    const result = await calendarCall('calendar_calendars_list');
-    if (!current()) return;
-    calendars = result.calendars;
-    result.errors.forEach(e => failures.set(e.connection_id,`${e.connection_id}: ${e.message}`));
-    $('.calendar-sources > div',page).innerHTML = calendars.map(calendar => `<div class="calendar-source ${calendarProviderClass(calendar)}"><span class="calendar-dot"></span><span>${esc(calendar.name)} · ${esc(calendar.provider === 'google' ? 'Google' : calendar.provider === 'fastmail' ? 'Fastmail' : calendar.provider)}</span></div>`).join('');
-    if (!result.configured) { status.textContent = 'Connect Google and Fastmail calendars to get started.'; return; }
-    $('[data-calendar-add]',page).disabled = !calendars.some(c => c.writable);
-    $('[data-calendar-add]',page).onclick = () => calendarEdit(null,calendars,reload);
-    await Promise.all(calendars.map(async calendar => {
-      let cursor, more;
-      const failureKey = `${calendar.connection_id}:${calendar.id}`;
-      const load = async () => {
-        if (more) more.disabled = true;
+  void render();
+  return () => { active = false; dispose(); };
+}
+
+function calendarEventButton(event, calendars, refresh, allDay = false) {
+  const calendar = calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id), pending = event.attendees?.some(a => calendar?.organizers?.some(email => email.toLowerCase() === a.email.toLowerCase()) && a.status === 'needsAction');
+  const button = document.createElement('button'); button.type = 'button';
+  button.className = `calendar-event ${calendarProviderClass(calendar)}${allDay ? ' calendar-all-day-event' : ''}`;
+  const when = allDay ? 'All day' : `${calendarTime(new Date(event.start))} – ${calendarTime(new Date(event.end))}`;
+  const label = `${event.title || 'Untitled event'} · ${when} · ${calendar?.name || ''}${pending ? ' · Invitation' : ''}`;
+  button.setAttribute('aria-label',label); button.title = label;
+  button.innerHTML = `<strong>${esc(event.title || 'Untitled event')}</strong>`;
+  button.onclick = () => calendarOpen(event,calendars,refresh); return button;
+}
+
+function calendarPaintGrid(page, dates, allEvents, eventButton, hourHeight = 64) {
+  page.style.setProperty('--calendar-hour',hourHeight+'px');
+  const spans = dates.map(day => calendarEventLanes(allEvents.map(event => calendarDaySpan(event,day)).filter(Boolean)));
+  const flat = spans.flat();
+  const startHour = Math.min(8,...flat.map(item => Math.floor(item.start/60)));
+  const endHour = Math.max(19,...flat.map(item => Math.ceil(item.end/60)));
+  page.style.setProperty('--calendar-hours',endHour-startHour);
+  const grid = $('.calendar-week',page);
+  grid.innerHTML = `<div class="calendar-axis">${Array.from({length:endHour-startHour+1},(_,i) => { const hour = startHour+i, date = new Date(dates[0]); date.setHours(hour,0,0,0); return `<span class="calendar-tick" style="top:${i*hourHeight}px">${esc(calendarTime(date))}</span>`; }).join('')}</div>`;
+  const allDayRow = $('.calendar-all-day',page); allDayRow.innerHTML = '<span class="calendar-all-day-label">All day</span>'; let hasAllDay = false;
+  dates.forEach((date,index) => {
+    const key = calendarDateString(date), column = document.createElement('section'); column.className = 'calendar-day'; column.dataset.calendarDay = key;
+    column.setAttribute('aria-label',date.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}));
+    for (const span of spans[index]) {
+      const button = eventButton(span.event), height = (span.end-span.start)/60*hourHeight;
+      button.style.top = `${(span.start/60-startHour)*hourHeight}px`; button.style.height = `${height}px`;
+      button.style.left = `calc(${span.lane/span.columns*100}% + 3px)`; button.style.width = `calc(${100/span.columns}% - 6px)`;
+      if (height < 44) button.classList.add('calendar-short-event');
+      if (height >= 68) { const time = document.createElement('span'); time.textContent = `${calendarTime(new Date(span.event.start))} – ${calendarTime(new Date(span.event.end))}`; button.append(time); }
+      column.append(button);
+    }
+    grid.append(column);
+    const allDayCell = document.createElement('div'); allDayCell.className = 'calendar-all-day-cell';
+    allEvents.filter(event => event.status !== 'cancelled' && event.start?.length === 10 && event.start <= key && key < event.end)
+      .forEach(event => { hasAllDay = true; allDayCell.append(eventButton(event,true)); });
+    allDayRow.append(allDayCell);
+  });
+  allDayRow.hidden = !hasAllDay;
+  return {startHour,endHour};
+}
+
+// A small, scrollable slice of today's same time grid, above Focus attention.
+function calendarTodayMount(host, openCalendar) {
+  host.className = 'calendar-page calendar-today';
+  host.setAttribute('aria-label', "Today's calendar");
+  host.style.setProperty('--calendar-columns',1);
+  host.innerHTML = `<header class="calendar-today-heading"><button type="button" class="quiet" data-calendar-open aria-label="Open today's calendar"><span>Today</span><span aria-hidden="true">↗</span></button><time class="calendar-clock" aria-label="Current time"></time></header>
+    <p class="calendar-status" role="status">Loading calendar…</p><div class="calendar-all-day" hidden></div><div class="calendar-today-scroll" tabindex="0" aria-label="Today's hourly calendar" hidden><div class="calendar-week"></div></div>`;
+  $('[data-calendar-open]',host).onclick = openCalendar;
+  const status = $('.calendar-status',host), scroll = $('.calendar-today-scroll',host);
+  let active = true, pending = false, loadedDay, snapshot, timer;
+  const current = () => active && host.isConnected;
+  const refresh = async () => {
+    if (!current() || pending) return;
+    pending = true;
+    const now = new Date(), day = new Date(now.getFullYear(),now.getMonth(),now.getDate()), key = calendarDateString(day);
+    const clock = $('.calendar-clock',host); clock.dateTime = now.toISOString(); clock.textContent = calendarTime(now);
+    try {
+      const result = await calendarCall('calendar_calendars_list');
+      if (!current()) return;
+      const calendars = result.calendars, events = [], errors = result.errors.map(e => `${e.connection_id}: ${e.message}`);
+      await Promise.all(calendars.map(async calendar => {
+        let cursor;
         try {
-          const result = await calendarCall('calendar_events_list',{connection_id:calendar.connection_id,calendar_id:calendar.id,
-            start:first.toISOString(),end:last.toISOString(),limit:200,...(cursor ? {cursor} : {})});
-          if (!current()) return;
-          result.events.forEach(event => { const index = allEvents.findIndex(old => old.id === event.id && old.connection_id === event.connection_id && old.calendar_id === event.calendar_id); if (index < 0) allEvents.push(event); else allEvents[index] = event; });
-          cursor = result.next_cursor; failures.delete(failureKey);
-          if (!more) { more = document.createElement('button'); more.type = 'button'; more.onclick = load; $('.calendar-more',page).append(more); }
-          more.textContent = `Load more from ${calendar.name}`; more.hidden = !cursor; more.disabled = false;
-        } catch (error) { if (current()) { failures.set(failureKey,`${calendar.name}: ${error.message}`); if (more) more.disabled = false; } }
-        paint();
-      };
-      await load();
-    }));
-    loading = false; paint();
-  } catch (error) { if (current()) status.textContent = error.message; }
+          do {
+            const page = await calendarCall('calendar_events_list',{connection_id:calendar.connection_id,calendar_id:calendar.id,
+              start:day.toISOString(),end:calendarAddDays(day,1).toISOString(),limit:200,...(cursor ? {cursor} : {})});
+            if (!current()) return;
+            events.push(...page.events); cursor = page.next_cursor;
+          } while (cursor);
+        } catch (error) { errors.push(`${calendar.name}: ${error.message}`); }
+      }));
+      if (!current()) return;
+      events.sort((a,b) => a.start.localeCompare(b.start) || a.id.localeCompare(b.id));
+      status.textContent = errors.join(' · ') || (!result.configured ? 'Connect your calendars to see today.' : events.some(event => event.status !== 'cancelled') ? '' : 'No events today.');
+      scroll.hidden = !result.configured;
+      const nextSnapshot = JSON.stringify([key,calendars,events]);
+      if (snapshot !== nextSnapshot) {
+        const top = scroll.scrollTop;
+        calendarPaintGrid(host,[day],events,(event,allDay) => calendarEventButton(event,calendars,refresh,allDay),48);
+        if (loadedDay !== key) {
+          const spans = events.map(event => calendarDaySpan(event,day)).filter(Boolean);
+          const minutes = now.getHours()*60+now.getMinutes();
+          const next = spans.find(span => span.end > minutes) || spans.at(-1);
+          const startHour = Math.min(8,...spans.map(span => Math.floor(span.start/60)));
+          scroll.scrollTop = Math.max(0,((next ? Math.max(next.start,Math.min(minutes,next.end)) : minutes)-30)/60*48-startHour*48);
+        } else scroll.scrollTop = top;
+        loadedDay = key; snapshot = nextSnapshot;
+      }
+    } catch (error) { if (current()) status.textContent = error.message; }
+    finally { pending = false; }
+  };
+  const dispose = () => { active = false; clearInterval(timer); document.removeEventListener('visibilitychange',visible); };
+  timer = setInterval(() => { if (!current()) dispose(); else if (!document.hidden) void refresh(); },60000);
+  const visible = () => { if (!document.hidden) void refresh(); };
+  document.addEventListener('visibilitychange',visible);
+  void refresh();
+  return {refresh,dispose};
 }
 
 async function calendarOpen(event, calendars, refresh) {
@@ -222,7 +299,7 @@ function calendarDelete(event, refresh) {
     }}]});
 }
 
-function calendarEdit(event, calendars, refresh) {
+function calendarEdit(event, calendars, refresh, calendarDate = new Date()) {
   const writable = calendars.filter(c => c.writable);
   const active = event ? calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id) : writable[0];
   const localInput = value => value?.length === 10 ? value : value ? calendarDateString(new Date(value))+'T'+new Date(value).toTimeString().slice(0,5) : '';

@@ -52,6 +52,7 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   const personal = typeof agentWorkspaceViews === 'function' ? agentWorkspaceViews(scope, roleId) : [];
   if (personal.includes('business')) leading.splice(Math.max(0, leading.indexOf('focus') + 1), 0, 'business');
   else leading.unshift(...personal);
+  if (scope === 'global' && roleId === 'ordubashy') leading.splice(Math.max(0, leading.indexOf('focus') + 1), 0, 'calendar');
   // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
@@ -68,7 +69,7 @@ function agpadHeadViews(p) {
   const header = [...new Set(views.map(view => agpadOverviewView(view) ? "status" : view))];
   if (header.includes("focus") && header.includes("viewbox")) {
     header.splice(header.indexOf("viewbox"), 1);
-    header.splice(header.indexOf("focus") + 1, 0, "viewbox");
+    header.splice(header.indexOf(header.includes('calendar') ? 'calendar' : 'focus') + 1, 0, "viewbox");
   }
   return header;
 }
@@ -141,6 +142,10 @@ function agpadWorkspaceViewsSync(p) {
 
 function agpadWorkspaceMount(p, view) {
   if (typeof agentWorkspaceMount === 'function' && agentWorkspaceMount(p, view)) return;
+  if (view === 'calendar' && p.workspaceScope === 'global' && p.workspaceRole === 'ordubashy') {
+    p.workspaceDispose = calendarMount($('#agpad-body',p.el), {embedded:true, isCurrent:() => agpadActive(p,true) && p.view === 'calendar'});
+    return;
+  }
   if (view === "desktop" && p.workspaceRole === "ordubashy") { agfocusDesktopMount(p); return; }
   if (view === "browser" && typeof agbrowserMount === "function") { agbrowserMount(p); return; }
   if (view === "viewbox" && typeof agviewboxMount === "function") { agviewboxMount(p); return; }

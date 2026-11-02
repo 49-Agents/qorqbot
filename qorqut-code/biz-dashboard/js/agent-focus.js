@@ -235,6 +235,12 @@ function agfocusMount(p) {
   const board = $('.agfocus', body);
   p.focusMount = board;
   const disposeTools=agfocusWorkspaceTools(p,board);
+  let todayCalendar;
+  if(p.workspaceScope === 'global' && p.workspaceRole === 'ordubashy') {
+    const excerpt=document.createElement('section');
+    board.querySelector('.attention-queue').before(excerpt);
+    todayCalendar=calendarTodayMount(excerpt,()=>agpadSetView(p,'calendar'));
+  }
   const disposeAttention=typeof attentionQueue!=='undefined'?attentionQueue.mount(board.querySelector('.attention-queue')):()=>{};
   const signoffQueue=document.createElement('section');signoffQueue.className='focus-signoff-queue';signoffQueue.setAttribute('aria-label','Signoff queue');signoffQueue.hidden=true;
   board.querySelector('.attention-queue').after(signoffQueue);
@@ -256,6 +262,7 @@ function agfocusMount(p) {
   document.addEventListener('reply-notifications-changed',repliesChanged);
   p.workspaceDispose=()=>{
     disposeTools();
+    todayCalendar?.dispose();
     disposeAttention();
     disposeSignoffs();
     document.removeEventListener('reply-notifications-changed',repliesChanged);
@@ -271,7 +278,7 @@ function agfocusMount(p) {
   p.focusBoardSeq ||= 0;
   p.focusPages ||= [];
   $('[data-focus-add]',p.el).onclick=()=>agfocusAdd(p);
-  $('[data-focus-refresh]',p.el).onclick=()=>{agfocusRefresh(p);if(typeof attentionQueue!=='undefined'){void attentionQueue.refresh();void attentionQueue.refreshSignoffs();}};
+  $('[data-focus-refresh]',p.el).onclick=()=>{agfocusRefresh(p);todayCalendar?.refresh();if(typeof attentionQueue!=='undefined'){void attentionQueue.refresh();void attentionQueue.refreshSignoffs();}};
   for(const kind of ['archived','deferred']) {
     const toggle=$('[data-focus-'+kind+']',p.el);
     toggle.setAttribute('aria-pressed',String(!!p['focusInclude'+kind]));
