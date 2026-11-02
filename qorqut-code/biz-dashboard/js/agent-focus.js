@@ -751,9 +751,11 @@ async function agfocusLoadThreadContext(p,node) {
       {task_id:source.id}));
     if(node._contextRequest!==request || node._item.unavailable || p.focusSelected!==item.id)return;
     const task=data.task;
-    const details=[task.status && (T_LABEL[task.status] || task.status),task.due && `Due ${task.due}`,
+    const details=[task.task_type && task.task_type!=='task' && TASK_TYPE_LABELS[task.task_type],task.status && (T_LABEL[task.status] || task.status),task.due && `Due ${task.due}`,
       ...(task.tags || []),...Object.entries(task.fields || {}).map(([key,value])=>`${key}: ${String(value)}`)].filter(Boolean);
     target.textContent=details.join(' · ');
+    if(task.overview){const overview=document.createElement('p');overview.className='task-overview-text';overview.textContent=task.overview;target.appendChild(overview);}
+    if(task.email_conversation_id){const button=document.createElement('button');button.type='button';button.className='quiet';button.textContent='Read email conversation';button.onclick=()=>taskEmailOpen(task,biz);target.appendChild(button);}
     if(task.title)agfocusText(node._region.querySelector('.agfocus-source-title'),task.title);
   } catch(error) {
     if(node._contextRequest===request && p.focusSelected===item.id)target.textContent='Details unavailable. '+error.message;
@@ -1096,8 +1098,8 @@ async function agfocusOpenItem(p,item) {
 
 // One atomic create-and-present call; a retry keeps the exact request and key.
 function agfocusAdd(p) {
-  let submission=null, pending=false;
-  modal({title:'Add to Focus', body:`<form id="focus-add-form"><label>Title<input class="inp" name="title" required maxlength="200" autocomplete="off"></label><label>Link <span class="muted">(optional)</span><input class="inp" name="link" type="url" placeholder="https://…"></label><p class="muted">Leave the link empty to create a task.</p><p role="alert" class="bad" hidden></p></form>`,
+  let submission=null, pending=false, typeEditor;
+  modal({title:'Add to Focus', body:`<form id="focus-add-form"><label>Title<input class="inp" name="title" required maxlength="200" autocomplete="off"></label><label>Link <span class="muted">(optional)</span><input class="inp" name="link" type="url" placeholder="https://…"></label><p class="muted">Leave the link empty to create a task.</p>${taskTypeFields()}<p role="alert" class="bad" hidden></p></form>`,
     actions:[{label:'Cancel',onClick:close=>close()}, {label:'Add', primary:true, onClick:async(close,el)=>{
       if(pending)return;
       const form=el.querySelector('form'), error=form.querySelector('[role="alert"]');
@@ -1106,20 +1108,22 @@ function agfocusAdd(p) {
         const title=form.elements.title.value.trim(),link=form.elements.link.value.trim();
         if(!title)return;
         if(link && !/^https?:\/\//i.test(link)){error.textContent='Use an HTTP or HTTPS link.';error.hidden=false;return;}
+        let taskFields={};
+        if(!link){try{taskFields=typeEditor.values();}catch(err){error.textContent=err.message;error.hidden=false;return;}}
         const key=newRequestId();
         submission=link ? {operation:'focus_present',args:{scope:'global',reference:{key,title,target:{type:'url',url:link}},idempotency_key:key}}
-          : {operation:'tasks_create',args:{title,focus:{display_name:title},idempotency_key:key}};
+          : {operation:'tasks_create',args:{title,...taskFields,focus:{display_name:title},idempotency_key:key}};
       }
       pending=true;error.hidden=true;
-      form.querySelectorAll('input').forEach(input=>input.disabled=true);
+      form.querySelectorAll('input,select,textarea,button').forEach(input=>input.disabled=true);
       try {
         coreData(await post('/root/operations/'+submission.operation,submission.args));
         close();toast('Added to Focus');p.focusOffset=0;p.focusPages=[];await agfocusRefresh(p);
       } catch(err) {
         error.textContent=err.message;error.hidden=false;
-        if(['validation_error','forbidden','policy_denied','not_found'].includes(err.code)){submission=null;form.querySelectorAll('input').forEach(input=>input.disabled=false);}
+        if(['validation_error','forbidden','policy_denied','not_found'].includes(err.code)){submission=null;form.querySelectorAll('input,select,textarea,button').forEach(input=>input.disabled=false);}
       } finally {pending=false;}
-    }}],onOpen:el=>{el.querySelector('input').focus();el.querySelector('form').onsubmit=event=>{event.preventDefault();el.querySelector('.mfoot button:last-child')?.click();};}});
+    }}],onOpen:el=>{typeEditor=taskTypeMount(el,null);el.querySelector('[name=link]').oninput=e=>{el.querySelector('.task-type-editor').hidden=!!e.target.value.trim();};el.querySelector('input').focus();el.querySelector('form').onsubmit=event=>{event.preventDefault();el.querySelector('.mfoot button:last-child')?.click();};}});
 }
 
 

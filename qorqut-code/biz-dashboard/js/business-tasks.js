@@ -9,25 +9,12 @@ function renderBusinessTasks(c) {
   c.innerHTML = `<section class="pane tasks business-tasks" data-business-task-page aria-label="Tasks">
     <header class="business-tasks-head"><h1>Tasks</h1></header>
     <div class="task-toolbar"><label class="tsearch">${SVG_TSEARCH}<input type="search" data-business-task-search aria-label="Search tasks" autocomplete="off" spellcheck="false" value="${esc(btSearch)}"></label><select data-business-task-visibility aria-label="Task visibility">${['active', 'snoozed', 'all'].map(v => `<option value="${v}" ${btVisibility === v ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select><button class="btn" type="button" data-business-task-new>${SVG_TPLUS}New task</button></div>
-    <div class="business-task-add" hidden><input class="inp" aria-label="New task title" placeholder="Task name…" maxlength="1000" autocomplete="off" spellcheck="false"></div>
     <div class="business-task-list" data-business-task-list></div></section>`;
   const page = btPage(), search = page.querySelector('[data-business-task-search]');
-  const add = page.querySelector('.business-task-add'), title = add.querySelector('input');
   let searchTimer;
   search.oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { btSearch = search.value; businessTasksPaint(); }, 80); };
   page.querySelector('[data-business-task-visibility]').onchange = event => { btVisibility = event.target.value; businessTasksPaint(); };
-  page.querySelector('[data-business-task-new]').onclick = () => { add.hidden = false; title.focus(); };
-  title.onkeydown = async event => {
-    if (event.key === 'Escape') { event.preventDefault(); title.value = ''; add.hidden = true; return; }
-    if (event.key !== 'Enter' || event.isComposing) return;
-    event.preventDefault();
-    const text = title.value.trim(); if (!text || title.disabled) return;
-    title.disabled = true;
-    // An unconfirmed create keeps the typed title; it is never retried automatically.
-    try { if (await tadd({title: text, tags: []})) { title.value = ''; add.hidden = true; } }
-    catch (_) { toast("Couldn't save. Try again"); }
-    finally { title.disabled = false; }
-  };
+  page.querySelector('[data-business-task-new]').onclick = () => taskCreateDialog(state.biz, {onCreated:()=>{btSig=null;refreshTasks();}});
   businessTasksPaint();
   refreshTasks();
 }
