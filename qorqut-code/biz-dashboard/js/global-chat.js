@@ -195,6 +195,10 @@ function mountGlobalChat(pane, agent, options = {}) {
   const viewingLive = () => !!liveBinding() && globalChatKey(liveBinding()) === viewedKey();
   // A receipt belongs to the exact provider/conversation of its own binding; one without a binding is shown nowhere.
   function inputVisible(item, noticeIds) {
+    // Inbox delivery is backend bookkeeping, not an owner message needing a
+    // resend/dismiss decision. Keep its audit record there; only a verified
+    // transcript entry gets the small Inbox nudge marker in the conversation.
+    if (item.origin === 'system' && item.input_type === 'inbox_nudge') return false;
     if (item.state === 'submitted' || GLOBAL_CHAT_HIDDEN.has(item.id) || noticeIds.has(item.id)) return false;
     return !!viewedKey() && globalChatKey(item.binding) === viewedKey();
   }
