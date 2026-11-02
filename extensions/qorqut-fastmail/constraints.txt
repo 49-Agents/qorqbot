@@ -1,0 +1,3 @@
+# Third-party pins applied when the Fastmail bridge is installed into the host environment (prepare-local.py --with-fastmail).
+# Core no longer pins or depends on the CalDAV parser; this package does.
+icalendar==7.3.0
