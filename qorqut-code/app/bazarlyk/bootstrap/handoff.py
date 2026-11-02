@@ -102,7 +102,9 @@ def request(registration_path, registration, native, body):
 
 
 def _request_with_observer(root, registration_path, registration, native, body, deadline, observer):
-    revision = observer.observe()
+    # A hint can schedule an authenticated refresh but never authorize delivery.
+    # Both successful paths below require the full observation before returning.
+    revision = observer.hint()
     result = offer(root, registration_path, registration, native, body, revision)
     while True:
         saved = read(result)

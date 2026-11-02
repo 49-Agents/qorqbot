@@ -25,6 +25,24 @@ def _read(root, timeout):
     return result['catalog_revision']
 
 
+def _hint(root):
+    """Read a revision hint for scheduling only, never for delivering context.
+
+    The supervisor authenticates its own request. Before any saved response is
+    delivered, _read independently verifies the installed binding, complete
+    historical evidence, current database and catalogue under the authoring lock.
+    """
+    from bazarlyk.instance_paths import InstancePaths
+    from qorqut_agentic import AgenticLayer
+
+    paths = InstancePaths(Path(root), {})
+    layer = AgenticLayer.open(paths.agentic_root, paths.agentic_runtime, attribution_source='host_authenticated')
+    result = layer.catalog.revision()
+    if result['recovery_required'] or not isinstance(result['catalog_revision'], str) or not result['catalog_revision']:
+        raise ValueError('Catalogue revision is unavailable')
+    return result['catalog_revision']
+
+
 def observe(root, timeout):
     """Also bound store opening, SQLite and hashing, which have independent waits."""
     if timeout <= 0:
@@ -43,33 +61,31 @@ def observe(root, timeout):
         raise DomainError('bootstrap_pending', 'The authored revision check is unavailable or still pending', retryable=True) from exc
 
 
-# Each hook owns one short-lived interpreter. Each observation reads and verifies
-# current state anew. Only pure historical derivations with identical inputs can
-# be reused between observations; they disappear when this hook closes.
+# Each hook owns one short-lived interpreter. The initial hint only schedules
+# work; every delivery requires a fresh full observation. Only imported modules
+# survive between requests, and the process is reaped when the hook closes.
 _OBSERVER_CODE = r'''
 import json, sys
 sys.path[:0] = json.loads(sys.argv[1])
-from bazarlyk.bootstrap.catalog_revision import _read
-from bazarlyk.agentic.proof_memo import retained_derivations
-from bazarlyk.agentic.layout_intent import _retained_reads
+from bazarlyk.bootstrap.catalog_revision import _read, _hint
 root = sys.argv[2]
-with retained_derivations(), _retained_reads():
-    while True:
-        line = sys.stdin.buffer.readline(4097)
-        if not line:
-            break
-        if len(line) > 4096 or not line.endswith(b'\n'):
-            break
-        try:
-            request = json.loads(line)
-            if set(request) != {'timeout'} or not isinstance(request['timeout'], (float, int)) or isinstance(request['timeout'], bool):
-                raise ValueError('invalid request')
-            revision = _read(root, max(0, request['timeout']))
-            response = {'revision': revision}
-        except Exception:
-            response = {'error': 'unavailable'}
-        sys.stdout.write(json.dumps(response, separators=(',', ':')) + '\n')
-        sys.stdout.flush()
+while True:
+    line = sys.stdin.buffer.readline(4097)
+    if not line:
+        break
+    if len(line) > 4096 or not line.endswith(b'\n'):
+        break
+    try:
+        request = json.loads(line)
+        if (set(request) != {'timeout', 'kind'} or request['kind'] not in ('hint', 'verified')
+                or not isinstance(request['timeout'], (float, int)) or isinstance(request['timeout'], bool)):
+            raise ValueError('invalid request')
+        revision = _hint(root) if request['kind'] == 'hint' else _read(root, max(0, request['timeout']))
+        response = {'revision': revision}
+    except Exception:
+        response = {'error': 'unavailable'}
+    sys.stdout.write(json.dumps(response, separators=(',', ':')) + '\n')
+    sys.stdout.flush()
 '''
 _OBSERVER_MAX_LINE = 4096
 
@@ -81,13 +97,19 @@ class _Observer:
         self.buffer = bytearray()
 
     def observe(self):
+        return self._request('verified')
+
+    def hint(self):
+        return self._request('hint')
+
+    def _request(self, kind):
         import os
         import selectors
         import time
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
             raise DomainError('bootstrap_pending', 'The authored revision check is pending', retryable=True)
-        request = json.dumps({'timeout': remaining}, separators=(',', ':')).encode() + b'\n'
+        request = json.dumps({'timeout': remaining, 'kind': kind}, separators=(',', ':')).encode() + b'\n'
         pending = memoryview(request)
         try:
             with selectors.DefaultSelector() as selector:

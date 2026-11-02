@@ -36,14 +36,11 @@ _retained_read = ContextVar('agentic_retained_layout_read', default=None)
 
 @contextmanager
 def _retained_reads():
-    """Reuse validation of one immutable receipt within one hook or locked open.
+    """Reuse validation of one immutable receipt within one locked open.
 
     Every access still reads the private file and its prior binding. The memo
-    holds only the last exact byte string and is discarded by the owning scope.
+    holds only the last exact byte string and is discarded before the next open.
     """
-    if _retained_read.get() is not None:
-        yield
-        return
     token = _retained_read.set({})
     try:
         yield
