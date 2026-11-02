@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 
 from qorqut_operations.application.plans import schema
 from qorqut_operations.contracts import DomainError, InvocationOptions, canonical_bytes
+from qorqut_operations.documents.journal_access import JOURNAL_KINDS
 from qorqut_operations.items import UNAVAILABLE as ITEM_UNAVAILABLE
 from qorqut_operations.projects.links import ProjectTarget
 from qorqut_operations.tasks.schema import CLOSED_STATES
@@ -40,7 +41,8 @@ DOCUMENT_KINDS = {"context_topic": "topic", "context_person": "person"}
 # Documents whose registered kind has an existing authorized read of that record. ``context_upload`` is a mutation
 # staging an upload and runtime records such as working memory are never inventory documents.
 SKIPPED_DOCUMENTS = frozenset({"context_upload", "context_map", "context_index", "working_memory",
-                               "shared_instruction", "shared_instructions", "legacy_request", "email_message"})
+                               "shared_instruction", "shared_instructions", "legacy_request", "email_message",
+                               *JOURNAL_KINDS})
 SECTION_OF = {"task": "work", "signoff": "signoffs", "action": "actions", "table": "tables", "routine": "automation",
               "project": "other", "dev_ticket": "other", "reminder": "other", "entity": "other"}
 LINK_SECTION_TYPES = {"work": ("task",), "signoffs": ("signoff",), "actions": ("action",),
@@ -54,6 +56,13 @@ DEFAULT_LIMIT, MAX_LIMIT = 25, 100
 # A page may examine more identities than it returns (denied/closed/filtered rows); the window keeps advancing
 # through them until a page is full or every reader is exhausted. There is no maximum-total cap.
 PAGE_EXAMINE = 4
+# A single page may authorize at most this many identities while carrying hidden/closed/denied rows. It is a
+# per-request work budget, never a total cap: an empty visible page still returns a cursor so the next request
+# continues at the same reader frontier.
+AUTHORIZATION_BUDGET = 500
+# Extensions have no bounded sort-metadata hook; resolve at most this many of their candidates per request and let
+# the ordinary cursor boundary continue. Unrelated sections never enumerate extension families at all.
+EXTENSION_BUDGET = 100
 # The reason a candidate cannot be shown is never disclosed: only these mean "skip it silently".
 SKIP = frozenset(access.UNAVAILABLE) | ITEM_UNAVAILABLE | {"business_archived"}
 # A whole family the caller may not read is omitted, never disclosed and never fatal to the rest of the page.
@@ -234,17 +243,17 @@ class Inventory:
             return section == "all" or section == name
 
         if enabled("work") and (not wanted or wanted == "task"):
-            add("SELECT updated_at ts,'task' type,business_id scope,id,1 owned,0 linked,NULL link_id,NULL link_revision "
-                "FROM tasks WHERE business_id IS ?", (scan,))
+            add("SELECT updated_at ts,'task' type,COALESCE(business_id,'') scope,id,1 owned,0 linked,NULL link_id,"
+                "NULL link_revision FROM tasks WHERE business_id IS ?", (scan,))
         if enabled("signoffs") and (not wanted or wanted == "signoff"):
             scope_kind = "business" if scan is not None else "global"
-            add("SELECT updated_at ts,'signoff' type,review_business_id scope,id,1 owned,0 linked,NULL link_id,NULL link_revision "
-                "FROM signoffs WHERE review_business_id IS ? AND review_scope_kind=?", (scan, scope_kind))
+            add("SELECT updated_at ts,'signoff' type,COALESCE(review_business_id,'') scope,id,1 owned,0 linked,"
+                "NULL link_id,NULL link_revision FROM signoffs WHERE review_business_id IS ? AND review_scope_kind=?",
+                (scan, scope_kind))
         if enabled("actions") and (not wanted or wanted == "action"):
             if scan is None:
                 add("SELECT updated_at ts,'action' type,COALESCE(business_id,'') scope,action_key id,1 owned,0 linked,"
-                    "NULL link_id,NULL link_revision FROM action_logs WHERE business_id IS NULL AND NOT EXISTS "
-                    "(SELECT 1 FROM action_businesses ab WHERE ab.action_key=action_logs.action_key)")
+                    "NULL link_id,NULL link_revision FROM action_logs WHERE business_id IS NULL")
             else:
                 add("SELECT a.updated_at ts,'action' type,COALESCE(a.business_id,'') scope,a.action_key id,1 owned,0 linked,"
                     "NULL link_id,NULL link_revision FROM action_logs a WHERE EXISTS "
@@ -252,17 +261,17 @@ class Inventory:
         if enabled("documents") and (not wanted or wanted in DOCUMENT_TYPES | {"entity"}):
             placeholders = ",".join("?" for _ in SKIPPED_DOCUMENTS)
             add("SELECT updated_at ts,CASE kind WHEN 'context_topic' THEN 'topic' WHEN 'context_person' THEN 'person' "
-                "ELSE 'material' END type,business_id scope,id,1 owned,0 linked,NULL link_id,NULL link_revision "
-                f"FROM documents WHERE business_id IS ? AND kind NOT IN ({placeholders})", (scan, *sorted(SKIPPED_DOCUMENTS)))
-            add("SELECT updated_at ts,'entity' type,business_id scope,id,1 owned,0 linked,NULL link_id,NULL link_revision "
-                "FROM context_entities WHERE business_id IS ?", (scan,))
+                "ELSE 'material' END type,COALESCE(business_id,'') scope,id,1 owned,0 linked,NULL link_id,"
+                f"NULL link_revision FROM documents WHERE business_id IS ? AND kind NOT IN ({placeholders})",
+                (scan, *sorted(SKIPPED_DOCUMENTS)))
+            add("SELECT updated_at ts,'entity' type,COALESCE(business_id,'') scope,id,1 owned,0 linked,NULL link_id,"
+                "NULL link_revision FROM context_entities WHERE business_id IS ?", (scan,))
         if enabled("tables") and (not wanted or wanted == "table"):
-            add("SELECT updated_at ts,'table' type,business_id scope,id,1 owned,0 linked,NULL link_id,NULL link_revision "
-                "FROM data_tables WHERE business_id IS ?", (scan,))
+            add("SELECT updated_at ts,'table' type,COALESCE(business_id,'') scope,id,1 owned,0 linked,NULL link_id,"
+                "NULL link_revision FROM data_tables WHERE business_id IS ?", (scan,))
         if enabled("automation") and (not wanted or wanted == "routine"):
             add("SELECT updated_at ts,'routine' type,COALESCE(business_id,'') scope,id,1 owned,0 linked,NULL link_id,"
-                "NULL link_revision FROM routines WHERE business_id IS ? AND "
-                "json_extract(metadata_json,'$.retired') IS NULL", (scan,))
+                "NULL link_revision FROM routines WHERE business_id IS ?", (scan,))
         if enabled("other"):
             if not wanted or wanted == "dev_ticket":
                 add("SELECT updated_at ts,'dev_ticket' type,COALESCE(business_id,'') scope,id,1 owned,0 linked,NULL link_id,"
@@ -274,7 +283,7 @@ class Inventory:
                     clause += " AND agent_id=?"
                     values.append(ctx.principal_id)
                 add("SELECT created_at ts,'reminder' type,? scope,id,1 owned,0 linked,NULL link_id,NULL link_revision "
-                    "FROM telegram_outbox WHERE " + clause, [scan, *values])
+                    "FROM telegram_outbox WHERE " + clause, [_scope(scan), *values])
         if projects and (not wanted or wanted == access.PROJECT_TYPE):
             add("SELECT updated_at ts,'project' type,id scope,id,0 owned,0 linked,NULL link_id,NULL link_revision "
                 "FROM businesses WHERE archived_at IS NULL")
@@ -288,10 +297,43 @@ class Inventory:
                     clause += " OR target_type NOT IN (" + ",".join("?" for _ in KNOWN_TYPES) + ")"
                     values += sorted(KNOWN_TYPES)
                 clause += ")"
-            add("SELECT updated_at ts,target_type type,COALESCE(target_business_id,'') scope,target_id id,0 owned,1 linked,"
-                "id link_id,revision link_revision FROM project_item_links WHERE business_id=?" + clause,
+            add("SELECT COALESCE((" + self._link_ts_sql() + "),l.updated_at) ts,l.target_type type,"
+                "COALESCE(l.target_business_id,'') scope,l.target_id id,0 owned,1 linked,l.id link_id,l.revision "
+                "link_revision FROM project_item_links l WHERE l.business_id=?" + clause,
                 [scan, *values])
         return selects, params
+
+    @staticmethod
+    def _link_ts_sql():
+        """The linked target's real source change time, never the association's creation time.
+
+        These are correlated keyset metadata lookups only: no title, body, label or authorization state is selected.
+        A type without a sort metadata contract (an installed extension) falls back to the link row's own timestamp.
+        """
+        return """CASE l.target_type
+            WHEN 'task' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM tasks x
+                              WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+            WHEN 'signoff' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM signoffs x
+                                 WHERE x.review_business_id IS l.target_business_id AND x.id=l.target_id)
+            WHEN 'action' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM action_logs x
+                                WHERE x.action_key=l.target_id)
+            WHEN 'material' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM documents x
+                                  WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+            WHEN 'person' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM documents x
+                                WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+            WHEN 'topic' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM documents x
+                               WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+            WHEN 'entity' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM context_entities x
+                                WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+            WHEN 'table' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM data_tables x
+                               WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+            WHEN 'routine' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM routines x
+                                 WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+            WHEN 'dev_ticket' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM dev_tickets x
+                                    WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+            WHEN 'reminder' THEN (SELECT x.created_at FROM telegram_outbox x WHERE x.id=l.target_id)
+            WHEN 'project' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM businesses x WHERE x.id=l.target_id)
+            ELSE NULL END"""
 
     @staticmethod
     def _grouped(selects):
@@ -306,6 +348,7 @@ class Inventory:
         where = ""
         if after is not None:
             ts, kind, scope, identity = after
+            scope = _scope(scope)
             where = " WHERE (ts<? OR (ts=? AND (type>? OR (type=? AND (scope>? OR (scope=? AND id>?))))))"
             values += [ts, ts, kind, kind, scope, scope, identity]
         sql = f"SELECT * FROM ({grouped})" + where + " ORDER BY ts DESC,type ASC,scope ASC,id ASC LIMIT ?"
@@ -345,15 +388,14 @@ class Inventory:
                 raise DomainError("not_found", "Signoff does not exist in this scope")
             return self.from_signoff(uow, row)
         if kind == "action":
-            # The neutral action resolver accepts the canonical action_id or its legacy bare row id, and authorizes
-            # the action read before returning the stored row. The record itself is then read by its canonical key.
-            table, stored = self.items.resource(reader_ctx, {"type": "action", "id": identity}, uow)
-            if table != "action_logs":
-                raise DomainError("not_found", "Action does not exist")
+            # Resolve in the Action's true source scope, not the destination Project. The neutral action resolver
+            # accepts the canonical action_id or its legacy bare row id and authorizes that source read; a caller who
+            # can read a Global/shared Action may then explicitly link it without gaining membership in the target.
+            source_ctx, stored = self.action_storage(reader_ctx, identity, uow)
             canonical, own_scope = stored["action_key"], stored["business_id"]
-            if scope not in (None, own_scope):
+            if scope != own_scope:
                 raise DomainError("not_found", "Action does not exist in this scope")
-            row = self.read(reader_ctx, "actions_get", {"action_id": canonical}, uow)["action"]
+            row = self.read(source_ctx, "actions_get", {"action_id": canonical}, uow)["action"]
             legacy = row.get("legacy") or {}
             if legacy.get("business_id") != own_scope:
                 raise DomainError("not_found", "Action does not exist in this scope")
@@ -384,6 +426,11 @@ class Inventory:
                              summary=view.get("description"), created_at=view.get("created_at"),
                              updated_at=view.get("updated_at"), archived=view.get("archived", False))
         if kind in DOCUMENT_TYPES or kind == "entity":
+            table, stored = self.items.resource(owned_ctx, {"type": kind, "id": identity}, uow)
+            if table == "documents" and stored.get("kind") in JOURNAL_KINDS:
+                # The owner may read the private journal directly, but it is never promoted into generic Project
+                # inventory or an explicit link. Genuine agent notes and business_owned_note stay available.
+                raise DomainError("not_found", "Item does not exist in this scope")
             view = self.items.resolve(owned_ctx, {"type": kind, "id": identity}, uow, allow_busy=True)
             canonical = view.get("business_id", scope)
             if canonical != scope:
@@ -396,10 +443,36 @@ class Inventory:
             raise DomainError("not_found", "Item does not exist in this scope")
         return self.from_neutral(owned_ctx, {"type": kind, "id": identity}, view, uow)
 
+    def action_context(self, ctx, identity, uow):
+        """The caller refreshed into the Action's canonical source scope (Global or its stored business)."""
+        if identity.startswith("global/"):
+            scope = None
+        elif identity.startswith("business/"):
+            parts = identity.split("/")
+            if len(parts) != 3 or not parts[1]:
+                raise DomainError("not_found", "Action does not exist")
+            scope = parts[1]
+        else:
+            # A legacy bare row ID exists only inside the caller's own selected business.
+            scope = ctx.business_id
+        source = self.scope_context(ctx, scope)
+        current = self.application.current_context(source, uow)
+        if scope is not None and scope not in current.allowed_business_ids:
+            raise DomainError("not_found", "Action does not exist in this scope")
+        return current
+
+    def action_storage(self, ctx, identity, uow):
+        """The true Action row and the refreshed source scope that authorized reading it."""
+        source_ctx = self.action_context(ctx, identity, uow)
+        table, stored = self.items.resource(source_ctx, {"type": "action", "id": identity}, uow)
+        if table != "action_logs":
+            raise DomainError("not_found", "Action does not exist")
+        return source_ctx, stored
+
     def _ticket(self, ctx, identity, scope, uow):
         if ctx.principal_kind == "human":
             listing = self.read(self.scope_context(ctx, None), "dev_tickets_list",
-                                {"status": "all", "details": True}, uow)["items"]
+                                {"status": "all", "details": True, "ticket_id": identity}, uow)["items"]
             row = next((value for value in listing if value["id"] == identity), None)
             if row is None or row.get("business_id") != scope:
                 raise DomainError("not_found", "System Dev report does not exist in this scope")
@@ -407,7 +480,8 @@ class Inventory:
         arguments = {"ticket_id": identity}
         if scope is None:
             arguments["scope"] = "global"
-        row = self.read(self.scope_context(ctx, scope), "dev_tickets_get", arguments, uow)["ticket"]
+        source_ctx = self.application.current_context(self.scope_context(ctx, scope), uow)
+        row = self.read(source_ctx, "dev_tickets_get", arguments, uow)["ticket"]
         if row.get("business_id") != scope:
             raise DomainError("not_found", "System Dev report does not exist in this scope")
         return row
@@ -426,7 +500,10 @@ class Inventory:
     def visible(item, args):
         if item.get("_archived") and not args.get("include_archived", False):
             return False
-        if item["type"] == "task" and not args.get("include_closed", False) and item.get("state") in CLOSED_STATES:
+        if (item["type"] == "task" and not args.get("include_closed", False)
+                and item.get("state") in CLOSED_STATES and item.get("task_type") not in {"story", "customer"}):
+            # Story/Customer are containers with their own established presentation semantics; ordinary actionable
+            # Tasks (including Email Tasks) use lifecycle completion. Their children still follow represented parents.
             return False
         if item["type"] == "signoff" and not args.get("include_closed", False):
             return item.get("state") in {"pending", "answered"}
@@ -462,43 +539,73 @@ class Inventory:
 
     # -- extension kinds -------------------------------------------------------------------------------------------
 
-    def extensions(self, ctx, scan, args, uow):
-        """Extension kinds are enumerated by their own contribution; each is resolved and authorized here."""
+    def extensions(self, ctx, scan, args, uow, *, budget=EXTENSION_BUDGET):
+        """The selected extension kinds, bounded by one per-request budget; returns ``(items, more, resolved)``.
+
+        Installed extension hooks expose candidate identities but no sort-metadata cursor. We therefore enumerate only
+        a bounded batch per request, resolve each candidate through its own authorized read, and report whether the
+        candidate stream has more. Unselected families are never enumerated, and a section that cannot contain an
+        extension kind never scans it.
+        """
         wanted = args.get("type")
+        section = args.get("section", "all")
+        if section not in ("all", "other"):
+            return [], False, 0
         if wanted and wanted in KNOWN_TYPES:
-            return []
+            return [], False, 0
         kinds = {kind for contribution in self.items.contributions
                  for kind in contribution.kinds if kind not in KNOWN_TYPES}
         if not kinds:
-            return []
+            return [], False, 0
         read_ctx = self.scope_context(ctx, scan)
-        seen, found = set(), []
-        for candidate in self.items.candidates(read_ctx, uow, kind=wanted):
+        seen, found, resolved = set(), [], 0
+        iterator = iter(self.items.candidates(read_ctx, uow, kind=wanted))
+        more = False
+        while True:
+            if resolved >= budget:
+                more = next(iterator, None) is not None
+                break
+            try:
+                candidate = next(iterator)
+            except StopIteration:
+                break
             if candidate["type"] in KNOWN_TYPES or (wanted and candidate["type"] != wanted):
+                continue
+            if section != "all" and section_of(candidate) != section:
                 continue
             key = (candidate["type"], candidate["id"])
             if key in seen:
                 continue
             seen.add(key)
             try:
-                view = self.items.resolve(read_ctx, {"type": candidate["type"], "id": candidate["id"]}, uow, allow_busy=True)
+                view = self.items.resolve(read_ctx, {"type": candidate["type"], "id": candidate["id"]}, uow,
+                                          allow_busy=True)
             except DomainError as error:
                 if error.code in SKIP:
                     continue
                 raise
+            resolved += 1
             scope = view.get("business_id", scan)
             if scope != scan:
                 continue
             item = self.from_neutral(read_ctx, candidate, view, uow)
             if not self.visible(item, args):
                 continue
+            if section != "all" and section_of(item) != section:
+                continue
             found.append(item)
-        return found
+        return found, more, resolved
 
     # -- one page --------------------------------------------------------------------------------------------------
 
     def page(self, ctx, project_id, args, uow, *, scan, include_links, projects=False):
-        """One bounded page of the selected inventory scope, owned and explicitly linked, deduplicated by identity."""
+        """One bounded page of the selected inventory scope, owned and explicitly linked, deduplicated by identity.
+
+        A SQL window carries only identity/sort metadata. Extension candidates are a separate bounded stream; an
+        older extra is never allowed to advance the global frontier past an unexamined SQL window. Canonical-read work
+        is capped per request, but the cursor always continues at the real frontier, so a page may legitimately be
+        empty with a non-null cursor while a reader still has hidden rows.
+        """
         limit = args.get("limit", DEFAULT_LIMIT)
         if type(limit) is not int or not 1 <= limit <= MAX_LIMIT:
             raise DomainError("validation_error", "limit must be between 1 and 100")
@@ -512,31 +619,48 @@ class Inventory:
                    "projects": projects}
         after = self._decode(args.get("cursor"), binding)
         selects, params = self._selects(ctx, scan, args, include_links=include_links, projects=projects)
-        extras = sorted(self.extensions(ctx, scan, args, uow), key=lambda item: order_key(item_key(item)))
-        extras = [item for item in extras if is_after(item_key(item), after)]
+        budget = AUTHORIZATION_BUDGET
+        extras, extras_more, extension_reads = self.extensions(ctx, scan, args, uow,
+                                                              budget=min(EXTENSION_BUDGET, budget))
+        budget -= extension_reads
+        extras = sorted((item for item in extras if is_after(item_key(item), after)),
+                        key=lambda item: order_key(item_key(item)))
         seen = set()
-        items, examined = [], 0
+        items = []
         window = max(limit * PAGE_EXAMINE, 50)
         probe = False
-        while len(items) < limit:
+        while len(items) < limit and budget > 0:
             rows = self._window(uow, selects, params, after, window) if selects else []
-            if not rows and not extras:
-                probe = False
-                break
-            pool = []
+            exhausted = len(rows) < window
+            last_sql = (rows[-1]["ts"], rows[-1]["type"], _scope(rows[-1]["scope"]), rows[-1]["id"]) if rows else None
+            entries = []
             for row in rows:
-                pool.append(("row", row, tuple([row["ts"], row["type"], row["scope"], row["id"]])))
+                entries.append(("row", row, (row["ts"], row["type"], _scope(row["scope"]), row["id"])))
             for item in extras:
-                pool.append(("item", item, item_key(item)))
-            pool.sort(key=lambda entry: order_key(entry[2]))
-            extras = []
-            for kind, value, key in pool:
-                if after is not None and not is_after(key, after):
+                key = item_key(item)
+                if not is_after(key, after):
                     continue
+                # With more SQL rows behind this window, only extras up to its last key belong to the consumed
+                # frontier. An older extra waits; it must never jump over unexamined SQL rows.
+                if last_sql is not None and order_key(key) > order_key(last_sql):
+                    continue
+                entries.append(("item", item, key))
+            entries.sort(key=lambda entry: order_key(entry[2]))
+            if not entries:
+                if extras_more:
+                    probe = True
+                break
+            consumed_extras = set()
+            for kind, value, key in entries:
+                if budget <= 0:
+                    break
+                if not is_after(key, after):
+                    continue
+                after = list(key)
+                budget -= 1
                 if kind == "item":
-                    item = value
-                    after = list(key)
-                    candidate = self._clean(item)
+                    consumed_extras.add(target_key(value))
+                    candidate = self._clean(value)
                     candidate["association"] = self.association_for(ctx, uow, candidate, project_id)
                     if args.get("query") and not self._matches(candidate, args["query"]):
                         continue
@@ -547,13 +671,10 @@ class Inventory:
                         continue
                     seen.add(identity)
                     items.append(candidate)
-                    examined += 1
                     if len(items) >= limit:
                         break
                     continue
                 row = value
-                after = list(key)
-                examined += 1
                 try:
                     item = self.resolve_target(ctx, project_id, row["type"], row["id"], _unscope(row["scope"]), uow,
                                                allow_self=True)
@@ -584,16 +705,20 @@ class Inventory:
                 items.append(self._clean(item))
                 if len(items) >= limit:
                     break
-            if len(items) < limit and len(rows) < window and not extras:
+            extras = [item for item in extras if target_key(item) not in consumed_extras]
+            if len(items) >= limit:
                 break
-        if len(items) >= limit:
-            more_rows = bool(self._window(uow, selects, params, after, 1, probe=True)) if selects else False
-
-            more_extras = any(is_after(item_key(item), after)
-                              for item in self.extensions(ctx, scan, args, uow)) if after is not None else False
-            probe = more_rows or more_extras
+            if not exhausted:
+                continue
             if extras:
-                probe = True
+                # SQL is exhausted; process the remaining extras in the next loop with an empty window.
+                if budget <= 0:
+                    break
+                continue
+            break
+        more_rows = bool(self._window(uow, selects, params, after, 1, probe=True)) if selects else False
+        more_extras = extras_more or any(is_after(item_key(item), after) for item in extras)
+        probe = more_rows or more_extras
         cursor = self._encode(binding, after) if probe and after is not None else None
         return items, cursor
 
@@ -638,7 +763,9 @@ class Inventory:
                 or not isinstance(value.get("after"), list) or len(value["after"]) != 4
                 or not all(isinstance(part, str) for part in value["after"])):
             raise DomainError("validation_error", "The cursor belongs to another project or filter")
-        return value["after"]
+        after = value["after"]
+        # A stored/NULL Global scope is one canonical empty-string sort component, never None.
+        return [after[0], after[1], _scope(after[2]), after[3]]
 
     # -- exact item and association --------------------------------------------------------------------------------
 
@@ -666,7 +793,8 @@ class Inventory:
         if kind == "signoff":
             return self.read(own, "signoffs_get", {"signoff_id": identity, **({"scope": "global"} if scope is None else {})}, uow)
         if kind == "action":
-            return self.read(ctx, "actions_get", {"action_id": identity}, uow)
+            source_ctx = self.action_context(ctx, identity, uow)
+            return self.read(source_ctx, "actions_get", {"action_id": identity}, uow)
         if kind == "table":
             return self.read(own, "tables_get", {"table_id": identity, **({"scope": "global"} if scope is None else {})}, uow)
         if kind == "routine":
@@ -693,6 +821,8 @@ class Inventory:
     def document_record(self, ctx, item, uow):
         """The owning read of one authorized document; no mutation and no reader without a real read handler."""
         table, row = self.items.resource(ctx, item, uow)
+        if table == "documents" and row.get("kind") in JOURNAL_KINDS:
+            raise DomainError("not_found", "This private journal entry is not Project inventory")
         if table == "principals":
             listing = self.read(ctx, "assignees_list", {}, uow)
             person = next((value for value in listing.get("assignees", []) if value.get("id") == item["id"]), None)

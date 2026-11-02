@@ -31,6 +31,7 @@ class DevTickets:
                       owner_only=True, global_capability="read_global_context", exposure=frozenset({"dashboard"}))
         registry.register(OperationDescriptor("dev_tickets_list",
             schema({"status": {"enum": ["open", "closed", "all"]}, "details": {"type": "boolean"},
+                    "ticket_id": {"type": "string", "format": "uuid"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 200},
                     "offset": {"type": "integer", "minimum": 0}}),
             **common, effect_kind="read", description="Owner: list System Dev reports, open by default.",
@@ -146,7 +147,14 @@ class DevTickets:
     def list(self, ctx, args, opts, uow):
         self.owner(ctx, uow)
         status = args.get("status", "open")
-        where, params = ("", []) if status == "all" else (" WHERE status=?", [status])
+        clauses, params = [], []
+        if status != "all":
+            clauses.append("status=?")
+            params.append(status)
+        if args.get("ticket_id"):
+            clauses.append("id=?")
+            params.append(args["ticket_id"])
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         columns = "*" if args.get("details", False) else "id,title,kind,status,reporter_id,business_id,created_at,updated_at,revision"
         columns += ',(SELECT i.id FROM system_incidents i WHERE i.ticket_id=dev_tickets.id) AS incident_id'
         limit, offset = args.get("limit", 50), args.get("offset", 0)

@@ -145,8 +145,9 @@ class ProjectRecords:
                 wanted["cursor"] = cursor
             page_items, cursor = self.inventory.page(ctx, project_id, wanted, uow, scan=project_id, include_links=True)
             collected.extend(page_items)
-            if not cursor or not page_items:
+            if not cursor:
                 break
+            # A hidden/denied-only window is not the end: the inventory cursor continues at the real frontier.
         selected = collected[offset:offset + limit]
         return {"items": selected, "next_offset": offset + limit
                 if cursor or len(collected) > offset + limit else None}
@@ -157,6 +158,12 @@ class ProjectRecords:
         project_id = access.project_id_from(args)
         selected, row = access.allow(ctx, args, self.application, uow, project_id=project_id, operation=LINK)
         target, item, owned, pin = self.resolve_link_target(selected, project_id, args["item"], uow)
+        # Freeze the resolved canonical target into the invocation arguments before the plan is built. The engine
+        # requires the prepared arguments to equal the invocation arguments, so canonicalize in place: a later alias
+        # cannot retarget the prepared effect, and fresh/no-op/replay results all carry this canonical identity.
+        canonical = {"type": item["type"], "id": item["id"], "business_id": item.get("business_id")}
+        if args.get("item") != canonical:
+            args["item"] = canonical
         builder = PlanBuilder(ctx, LINK, args, "Link project record", namespace="business:" + project_id, clock=self.clock)
         builder.expect(ref("businesses", project_id, None), row)
         if pin is not None:
@@ -170,9 +177,10 @@ class ProjectRecords:
         selected, _ = access.allow(ctx, args, self.application, uow, project_id=project_id, operation=LINK)
         target, item, owned, pin = self.resolve_link_target(selected, project_id, args["item"], uow)
         if pin is not None:
-            pinned = {expected.resource.resource_id for expected in plan.expected_targets
-                      if expected.resource.resource_type == "action_logs"}
-            if pin["id"] not in pinned:
+            expected = next((value for value in plan.expected_targets
+                             if value.resource.resource_type == "action_logs"), None)
+            if expected is None or (expected.resource.resource_id, expected.resource.business_id,
+                                    expected.resource.namespace) != (pin["id"], pin["business_id"], pin["namespace"]):
                 raise DomainError("revision_conflict", "The action alias resolved to another target; read it again")
         already, stored = owned, self.links.find(ctx, project_id, target, uow)
         if not owned:
@@ -221,9 +229,9 @@ class ProjectRecords:
         target = ProjectTarget(item["type"], item["id"], item.get("business_id"))
         pin = None
         if item["type"] == "action":
-            table, row = self.items.resource(ctx, {"type": "action", "id": item["id"]}, uow)
-            if table == "action_logs":
-                pin = {"id": row["id"], "business_id": row["business_id"], "row": row}
+            source_ctx, row = self.inventory.action_storage(ctx, item["id"], uow)
+            pin = {"id": row["id"], "business_id": row["business_id"],
+                   "namespace": "global" if row["business_id"] is None else None, "row": row}
         from .inventory import owned
         return target, item, owned(uow, item, project_id), pin
 
