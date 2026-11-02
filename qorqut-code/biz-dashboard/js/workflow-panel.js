@@ -68,7 +68,7 @@ function workflowPanelMount(composer, agentId) {
     busy = true; last = Date.now();
     const mine = ++token;
     try {
-      const data = coreData(await post('/root/operations/attention_get', {scope: 'global', agent_id: agentId, limit: 1}, {signal: reads.signal}));
+      const data = coreData(await post('/root/operations/attention_get', {scope: 'global', agent_id: agentId, projection: 'focus'}, {signal: reads.signal}));
       if (disposed || mine !== token) return;
       summary = data?.agent_id === agentId && data.attention?.focus?.type === 'workflow' ? data.attention.workflow || null : null;
     } catch (_) {

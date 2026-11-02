@@ -123,7 +123,7 @@ function attentionBoardRefresh(p) {
     try {
       let cursor = null, data, items = [], seen = new Set();
       do {
-        const page = coreData(await post('/root/operations/attention_get', {scope:'global', agent_id:cache.agentId, limit:100, ...(cursor ? {cursor} : {})}));
+        const page = coreData(await post('/root/operations/attention_get', {scope:'global', agent_id:cache.agentId, projection:'summary', limit:100, ...(cursor ? {cursor} : {})}));
         if (cache.run !== run || p.attentionCache !== cache) return;
         if (!data) data = page;
         items.push(...page.items); cursor = page.next_cursor;
