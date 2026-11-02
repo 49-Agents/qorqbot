@@ -98,7 +98,11 @@ def _state_evidence(paths, state, files):
             if any(len(path) > 4096 or not re.fullmatch(r'[0-9a-f]{64}', sha) for path, sha, _ in rows):
                 state['conflicts'].append({'code': 'invalid_runtime_inventory'})
                 return
-            observed = {path: {'sha256': sha, 'bytes': size} for path, sha, size in rows}
+            # The change feed also observes root notes and other files outside the five
+            # catalog areas. Those rows are preserved by the full runtime fingerprint;
+            # compare this captured catalog only with its corresponding inventory rows.
+            observed = {path: {'sha256': sha, 'bytes': size} for path, sha, size in rows
+                        if path.split('/', 1)[0] in _AREAS}
             actual = {path: {'sha256': digest(body), 'bytes': len(body)} for path, body in sorted(files.items())}
             state['inventory_sha256'] = digest(observed)
             state['authored_inventory_sha256'] = digest(actual)

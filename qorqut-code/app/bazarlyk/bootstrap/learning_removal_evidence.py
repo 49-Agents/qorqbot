@@ -384,9 +384,10 @@ def _verify_profile(intent, result, connection, paths, attempt) -> dict:
 
 
 def _git(root, *arguments):
-    import subprocess
-    done = subprocess.run(["git", "-C", str(root), *arguments], capture_output=True, text=True, timeout=60, check=False)
-    return done.returncode, done.stdout.strip()
+    from bazarlyk.agentic.layout_git import _runner
+    done = _runner(Path(root), Path(root)).run(list(arguments), check=False,
+                                              env={"GIT_NO_REPLACE_OBJECTS": "1"}, timeout=60)
+    return done.returncode, done.stdout.decode().strip()
 
 
 def _preserve_columns(before, after, changed, label):
@@ -396,51 +397,84 @@ def _preserve_columns(before, after, changed, label):
 
 
 def _verify_managed(intent, result, connection, paths, attempt) -> dict:
-    """The managed upgrade left exactly what its reviewed public plan and its own retained receipts say.
-
-    No database row is allowed. A file under the authored tree is allowed only when the reviewed plan names it (with its
-    reviewed bytes), a Git object/ref/log of the authored repository the managed API wrote, a module state file, the
-    rewritten binding or the single retained prior-binding snapshot; anything else (including a stray file in a
-    provisioning root) is outside the operation's semantics."""
-    from bazarlyk.agentic import upgrade
-    from bazarlyk.agentic.installation import open_installation
+    """Verify the exact typed updater completion and its effects against the original backup."""
+    from bazarlyk.agentic import upgrade, managed_ancestry, managed_journal
+    from bazarlyk.agentic.offline import open_installation
+    from bazarlyk.agentic.support import digest
+    from qorqut_agentic.changes import normalize_attribution
     from .learning_removal_managed import git_files, verify_state
+    from .learning_removal_preparation import verify_managed_projection
     root = Path(paths.agentic_root)
-    binding = intent["binding"]
-    reviewed = {str(root / change["path"]): change["sha256"] for change in intent["changes"]}
+    plan_ref = intent["arguments"]["plan_ref"]
+    receipt = (result.get("result") or {}).get("data") or {}
+    if (receipt.get("schema_version") != 2 or receipt.get("kind") != plan_ref["kind"]
+            or any(type(receipt.get(key)) is not bool for key in
+                   ("no_change", "worked", "replayed", "recovered_partial_attempt"))):
+        raise DomainError("operation_conflict", "The managed update has no typed completion receipt")
     claims = {item["path"]: item for item in result["files"]}
-    code, head = _git(root, "rev-parse", "HEAD")
-    status = _git(root, "status", "--porcelain")
-    ancestor = _git(root, "merge-base", "--is-ancestor", intent["git"]["head"], "HEAD")[0]
-    commit = ((result.get("result") or {}).get("data") or {}).get("upgrade_commit")
-    if code != 0 or status != (0, "") or ancestor != 0 or commit != head:
-        raise DomainError("operation_conflict", "The authored repository is not the clean, descended upgrade commit")
-    allowed = (git_files(intent, paths, claims, head) | verify_state(intent, paths, attempt, head)
-               | {binding["path"], intent["history"]["snapshot"]})
+    head = _git(root, "rev-parse", "HEAD")
+    if (head != (0, receipt.get("upgrade_commit")) or _git(root, "status", "--porcelain") != (0, "")
+            or _git(root, "symbolic-ref", "HEAD") != (0, intent["git"]["ref"])):
+        raise DomainError("operation_conflict", "The authored repository is not the clean reviewed upgrade commit")
     if result["rows"]:
-        raise DomainError("operation_conflict", "The managed upgrade may not change a database row")
+        raise DomainError("operation_conflict", "The managed upgrade may not change an Operations database row")
+    record, record_sha = upgrade.read_binding(paths)
+    open_installation(paths, tuple(intent["binding"]["selected_extensions"]))
+    if receipt.get("plan_digest") != plan_ref["plan_digest"] or receipt.get("sha256") != record_sha:
+        raise DomainError("operation_conflict", "The managed receipt does not match the reviewed plan and binding")
+    allowed = set()
+    retained = None
+    if intent["no_change"]:
+        if (not receipt["no_change"] or receipt.get("proof") is not None or receipt["worked"] or receipt["replayed"]
+                or receipt["recovered_partial_attempt"] or receipt.get("prior_binding") is not None
+                or receipt.get("change_id") is not None or receipt.get("sequence") is not None
+                or receipt.get("packages_updated") != [] or intent["changes"] or claims
+                or record_sha != intent["binding"]["record_sha256"] or head[1] != intent["git"]["head"]):
+            raise DomainError("operation_conflict", "The managed no-op changed its binding or evidence")
+    else:
+        pair = managed_journal.discover(paths).get(plan_ref["plan_digest"])
+        _, retained, journal, _ = managed_ancestry._load_node(
+            paths, record, {plan_ref["plan_digest"]: pair}, offline_read_only=True)
+        verify_managed_projection(paths, retained["plan"], intent)
+        if (retained["attribution"] != normalize_attribution(intent["attribution"], trust="host_installer")
+                or journal["result"] != {k: receipt.get(k) for k in journal["result"]}):
+            raise DomainError("operation_conflict", "The managed completion differs from the reviewed intent")
+        proof = receipt.get("proof") or {}
+        for key in ("intent", "journal"):
+            path = intent["evidence"][key]
+            if proof.get(key) != {"path": path, "sha256": _sha256_file(path)}:
+                raise DomainError("operation_conflict", "The managed completion proof differs")
+            allowed.add(path)
+        if _sha256_file(intent["history"]["snapshot"]) != intent["history"]["sha256"]:
+            raise DomainError("operation_conflict", "The managed prior binding differs")
+        allowed.update((intent["history"]["snapshot"], intent["binding"]["path"]))
+        binding = intent["binding"]
+        expected = {key: binding[key] for key in
+                    ("version", "instance_id", "selected_extensions", "inventory_sha256", "source_manifest_sha256")}
+        if (any(record.get(key) != value for key, value in expected.items())
+                or any(digest(record[key]) != binding[key + "_sha256"] for key in
+                       ("management_seed", "overseer_seed", "preferences_seed"))
+                or digest(record["import_manifest"]["files"]) != binding["import_files_sha256"]):
+            raise DomainError("operation_conflict", "The managed binding differs from the reviewed supplier and preferences")
+    if intent["changes"]:
+        allowed |= git_files(intent, paths, claims, head[1])
+    elif head[1] != intent["git"]["head"]:
+        raise DomainError("operation_conflict", "A zero-file managed update changed Git HEAD")
+    allowed |= verify_state(intent, paths, attempt, head[1], retained, receipt)
+    reviewed = {str(root / change["path"]): change for change in intent["changes"]}
     for path, claim in claims.items():
         if path in reviewed:
-            if claim["after"] != reviewed[path]:
-                raise DomainError("operation_conflict", "A managed file does not hold its reviewed bytes", details={"path": path})
+            change = reviewed[path]
+            expected = None if change["op"] == "delete" else change["desired_sha256"]
+            if claim["before"] != change["expected_sha256"] or claim["after"] != expected:
+                raise DomainError("operation_conflict", "A managed file differs from its reviewed bytes", details={"path": path})
         elif path not in allowed:
-            raise DomainError("operation_conflict", "The managed upgrade changed a file its reviewed plan does not name",
-                              details={"path": path})
-    for path, digest in reviewed.items():
-        if _sha256_file(path) != digest:
-            raise DomainError("operation_conflict", "A reviewed managed file does not hold its reviewed bytes",
-                              details={"path": path})
-    record, _ = upgrade.read_binding(paths)
-    expected = {"version": binding["version"], "instance_id": binding["instance_id"],
-                "inventory_sha256": binding["inventory_sha256"], "source_manifest_sha256": binding["source_manifest_sha256"],
-                "selected_extensions": binding["selected_extensions"], "management_seed": binding["management_seed"],
-                "overseer_seed": binding["overseer_seed"]}
-    if ({key: record.get(key) for key in expected} != expected
-            or record["import_manifest"]["files"] != binding["import_files"]):
-        raise DomainError("operation_conflict", "The installed binding is not the reviewed upgraded binding")
-    open_installation(paths, tuple(binding["selected_extensions"]))
-    if _sha256_file(intent["history"]["snapshot"]) != intent["history"]["sha256"]:
-        raise DomainError("operation_conflict", "The retained prior-binding snapshot is not the reviewed prior binding")
+            raise DomainError("operation_conflict", "The managed upgrade changed an unreviewed file", details={"path": path})
+    for path, change in reviewed.items():
+        expected = None if change["op"] == "delete" else change["desired_sha256"]
+        if (_sha256_file(path) != expected or
+                (expected is not None and Path(path).stat().st_mode & 0o777 != change.get("mode", 0o644))):
+            raise DomainError("operation_conflict", "A reviewed managed file differs", details={"path": path})
     return {"rows": set(), "files": set(claims)}
 
 

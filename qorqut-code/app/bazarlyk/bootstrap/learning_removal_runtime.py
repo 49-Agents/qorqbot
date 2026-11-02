@@ -79,8 +79,9 @@ def _compose(paths, transition, workspace, *, historical, agentic, context=None,
 def inert_runtime(paths, transition, workspace=None, *, historical=False, context=None):
     """The composed (never owned, never started) runtime: the one authoritative composition of the target operations, the
     policy and every domain validator, optionally with the metadata-only historical declarations. Read-only: it opens the
-    installed agentic layer exactly as startup does (no write), never opens the Operations database and writes nothing."""
-    from bazarlyk.agentic.installation import open_installation
+    installed agentic layer with the same validation and an immutable offline reader, never opens the Operations
+    database and writes nothing. A nonempty agentic WAL requires prior offline checkpointing."""
+    from bazarlyk.agentic.offline import open_installation
     workspace = Path(workspace) if workspace is not None else Path(paths.instance_root)
     return _compose(paths, transition, workspace, historical=historical,
                     agentic=open_installation(paths, transition.extensions.ids), context=context)
@@ -104,9 +105,10 @@ def close_borrowed(runtime) -> None:
 def offline_runtime(attempt, workspace, *, historical, context=None):
     """The owned preparation runtime for ``attempt``: constructed only after durable backup/A, ownership bound to the
     attempt's owner before the first ``lifetime()`` call, entered through the ordinary owned entry, closed (not released)
-    on every exit path."""
+    on every exit path. Role/profile publication and native projection only read the
+    agentic module; its separate managed-update stage owns all module writes."""
     _require_active(attempt)
-    from bazarlyk.agentic.installation import open_installation
+    from bazarlyk.agentic.offline import open_installation
     paths, transition = attempt.paths, attempt.transition
     agentic = open_installation(paths, transition.extensions.ids)
     runtime = _compose(paths, transition, workspace, historical=historical, agentic=agentic, context=context,

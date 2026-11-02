@@ -18,7 +18,6 @@ reports the real receipts and whether the state is coherent or uncertain, keeps 
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 import re
@@ -309,54 +308,59 @@ def _git(root, *arguments):
     return done.returncode, done.stdout.strip()
 
 
-def managed_identity(plan: dict) -> str:
-    """The managed plan without its grant report: the report is a read-only view of the profile, which this very
-    transition legitimately advances (role pin and revision), so it is informational and never part of the identity."""
-    return canonical_hash({key: value for key, value in plan.items() if key not in ("plan_digest", "_prepared", "grants")})
+def managed_projection(paths, plan: dict) -> dict:
+    """Bind the exact managed plan without copying authored contents into a public coordinator plan."""
+    from bazarlyk.agentic import managed_plan
+    from bazarlyk.agentic.installation import RECORD
+    from bazarlyk.agentic.support import digest
+    managed_plan.validate_plan(paths, plan)
+    return {
+        "arguments": {"export": plan["export"]["root"], "selected_extensions": plan["selected_extensions"],
+                      "acknowledge_grants": plan["acknowledge_grants"],
+                      "plan_ref": {key: plan[key] for key in ("schema_version", "kind", "plan_digest")}},
+        "no_change": plan["no_change"],
+        "changes": [{key: value for key, value in change.items() if key != "content_base64"}
+                    for change in plan["changes"]],
+        "history": plan["history"], "evidence": plan["evidence"],
+        "git": {"head": plan["git"]["head"], "ref": plan["git"]["branch"]},
+        "provisioning": sorted(item["path"] for item in plan["provisioning"]["items"]),
+        "provisioning_plan": plan["provisioning"], "preservation_sha256": digest(plan["preservation"]),
+        "binding": {"path": str(paths.instance_root / "config" / RECORD),
+                    "version": plan["binding"]["target_version"], "instance_id": plan["binding"]["instance_id"],
+                    "record_sha256": plan["binding"]["record_sha256"],
+                    "selected_extensions": plan["selected_extensions"],
+                    "source_manifest_sha256": plan["export"]["source_manifest_sha256"],
+                    "inventory_sha256": digest(plan["target_inventory"]),
+                    "import_files_sha256": digest(plan["import"]["desired_files"]),
+                    "management_seed_sha256": digest(plan["management_seed"]["desired"]),
+                    "overseer_seed_sha256": digest(plan["overseer_seed"]["desired"]),
+                    "preferences_seed_sha256": digest(plan["preferences_seed"])},
+    }
+
+
+def verify_managed_projection(paths, plan: dict, intent: dict) -> None:
+    projection = managed_projection(paths, plan)
+    if any(intent.get(key) != value for key, value in projection.items()):
+        raise DomainError("operation_conflict", "The managed upgrade differs from its reviewed plan")
 
 
 def _managed_intent(paths, owner: str, release: dict) -> dict:
     """The reviewed managed upgrade: the public ``agentic.upgrade`` plan, its conflicts refused before any preparation."""
-    from bazarlyk.agentic import upgrade
-    from bazarlyk.agentic.installation import RECORD, digest as agentic_digest
+    from bazarlyk.agentic import upgrade, managed_plan
     plan = upgrade.prepare_upgrade(paths, release["export"])
+    if plan.get("kind") == "agentic_layout_v2":
+        raise DomainError("operation_conflict", "Agentic layout relocation is a separate prerequisite to learning removal")
+    managed_plan.validate_plan(paths, plan)
+    if plan["state"]["migration_required"]:
+        raise DomainError("unsupported_schema", "The module's own state upgrade is a separate prerequisite")
     if plan["conflicts"] or not plan["complete"]:
         raise DomainError("import_conflict", "The managed upgrade has unresolved conflicts or an unusable module state; "
                           "resolve them before preparation", details={"conflicts": plan["conflicts"][:8]})
-    if plan["state"]["migration_required"]:
-        raise DomainError("unsupported_schema", "The module's own state upgrade is a separate prerequisite")
-    changes = []
-    for block in (plan["import"]["changes"], plan["management_seed"]["changes"], plan["overseer_seed"]["changes"]):
-        for change in block:
-            body = base64.b64decode(change["content_base64"]) if change["op"] != "delete" else None
-            changes.append({"op": change["op"], "path": change["path"],
-                            "sha256": None if body is None else _sha256_hex(body)})
-    code, head = _git(paths.agentic_root, "rev-parse", "HEAD")
-    if code != 0 or not re.fullmatch(r"[0-9a-f]{40}", head):
-        raise DomainError("agentic_installation_invalid", "The authored agentic tree has no readable Git history")
-    code, ref = _git(paths.agentic_root, "symbolic-ref", "HEAD")
-    if code != 0 or not ref.startswith("refs/heads/"):
-        raise DomainError("agentic_installation_invalid", "The authored agentic tree needs its selected branch")
-    record, record_sha = upgrade.read_binding(paths)
-    owner_sources = plan["provisioning"]["items"]
     return {"kind": "managed_upgrade", "identity": "managed:agentic", "operation": "agentic_upgrade_apply",
             "version": 1, "actor": owner, "namespace": "global",
-            "arguments": {"export": release["export"], "selected_extensions": plan["selected_extensions"],
-                          "plan_identity": managed_identity(plan), "acknowledge_grants": False},
             "attribution": {"actor_id": owner, "actor_kind": "owner",
                             "reason": "Offline legacy-learning-removal managed upgrade of the agentic layer"},
-            "changes": sorted(changes, key=lambda item: item["path"]),
-            "history": {"directory": str(upgrade.history_directory(paths)), "sha256": record_sha,
-                        "snapshot": str(upgrade.history_snapshot(paths, record_sha))},
-            "git": {"head": head, "ref": ref},
-            "provisioning": sorted(item["path"] for item in owner_sources),
-            "binding": {"path": str(Path(paths.instance_root) / "config" / RECORD), "version": plan["binding"]["target_version"],
-                        "instance_id": record["instance_id"], "inventory_sha256": agentic_digest(plan["_prepared"]["inventory"]),
-                        "source_manifest_sha256": plan["export"]["source_manifest_sha256"],
-                        "selected_extensions": plan["selected_extensions"],
-                        "management_seed": plan["management_seed"]["desired"],
-                        "overseer_seed": plan["overseer_seed"]["desired"],
-                        "import_files": plan["import"]["desired_files"]}}
+            **managed_projection(paths, plan)}
 
 
 def _native_intent(connection, paths, owner: str, item: dict, adopted: dict, stale_native: set) -> dict:
@@ -433,7 +437,12 @@ def build_preparation(paths: InstancePaths, extensions, request: dict, release: 
 def plan_preparation(paths: InstancePaths, request: dict, release: dict, *, extensions=NO_EXTENSIONS) -> dict:
     """The deterministic, bounded, read-only migration plan for these coordinator inputs."""
     preparation = build_preparation(paths, extensions, request, release)
-    return removal.prepare_migration(paths, extensions=extensions, preparation=preparation)
+    plan = removal.prepare_migration(paths, extensions=extensions, preparation=preparation)
+    size = len((json.dumps(plan, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+    if size > removal.MAX_PLAN_BYTES:
+        raise DomainError("invalid_configuration", "The coordinator plan metadata exceeds the saved-plan size limit",
+                          details={"bytes": size, "limit": removal.MAX_PLAN_BYTES})
+    return plan
 
 
 def bind_inputs(paths: InstancePaths, transition, inputs, release: dict) -> None:
@@ -565,12 +574,10 @@ def _managed(attempt, intent: dict) -> dict:
     """The reviewed ``agentic.upgrade`` plan, re-prepared once more from the actual state and applied as the API itself does."""
     from bazarlyk.agentic import upgrade
     plan = upgrade.prepare_upgrade(attempt.paths, intent["arguments"]["export"], intent["arguments"]["selected_extensions"])
-    if managed_identity(plan) != intent["arguments"]["plan_identity"]:
-        raise DomainError("operation_conflict", "The managed upgrade plan changed since it was reviewed")
-    result = upgrade.apply_upgrade(attempt.paths, plan, attribution=intent["attribution"])
-    return {"status": "ok", "data": {"upgrade_commit": result["upgrade_commit"], "binding_sha256": result["sha256"],
-                                     "packages_updated": result["packages_updated"],
-                                     "recovered_partial_attempt": result["recovered_partial_attempt"]}}
+    verify_managed_projection(attempt.paths, plan, intent)
+    result = upgrade.apply_upgrade(attempt.paths, plan, attribution=intent["attribution"],
+                                   acknowledge_grants=intent["arguments"]["acknowledge_grants"])
+    return {"status": "ok", "data": result}
 
 
 def _native(runtime, intent: dict) -> dict:
