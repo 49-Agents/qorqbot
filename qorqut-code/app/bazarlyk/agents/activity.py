@@ -656,7 +656,7 @@ class AgentActivity:
         for agent in team:
             if 'current_work' in agent:  # A worker's one assignment; its old session list is not shown.
                 item = agent['current_work']['item']
-                work = [(item['summary'] or item['title'] or 'Task in progress') + (' (blocked)' if item['blocked'] else '')] if item else []
+                work = [(item['summary'] or item['title'] or item['blocked_reason'] or 'Task in progress') + (' (blocked)' if item['blocked'] else '')] if item else []
                 stale = agent['current_work']['stale']
             else:
                 work=[i['summary'] + (' (blocked)' if i['blocked'] else '') for s in agent['sessions'] for i in s['items']]

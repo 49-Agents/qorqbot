@@ -125,8 +125,8 @@ class InboxService:
         """Use current domain authorization; unavailable objects disclose no summary."""
         if source_type == 'owner_conversations':
             # Private rows are not an inbox item type and cannot be subscribed
-            # to; only the exact bound peer (configured Ordubashy or granted
-            # Marketing) sees its own delivery, and only while the bound source
+            # to; only the exact bound peer (configured Ordubashy or the eligible
+            # bound worker) sees its own delivery, and only while the bound source
             # itself is still readable.
             from .private_conversations import visible_conversation
             return visible_conversation(self.app, ctx, identity, uow)
