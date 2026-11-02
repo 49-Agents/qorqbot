@@ -5,6 +5,7 @@ or inspects a composed schema (operational units, read-only snapshot/target vali
 inventory) must have them. Installing a function changes only that connection, never the database file."""
 
 from __future__ import annotations
+from zoneinfo import ZoneInfo
 
 from qorqut_operations import local_time
 from qorqut_operations.storage.relocation import refuse
@@ -15,6 +16,8 @@ def install_sql_functions(connection) -> None:
     connection.create_function("inbox_actor", 0, lambda: None)
     # Default refusal of a Task scope relocation; a writable unit of work arms its own guard (see ``storage.relocation``).
     connection.create_function("relocation_permits", 3, refuse)
-    # San Juan operational day/hour of a stored UTC instant (day buckets and expression indexes).
-    connection.create_function("san_juan_date", 1, local_time.local_date, deterministic=True)
-    connection.create_function("san_juan_hour", 1, local_time.local_hour, deterministic=True)
+    # Historical expression indexes retain the meaning of their original function names.
+    # Current summaries call local_time directly and use the configured installation zone.
+    legacy_zone = ZoneInfo("America/Puerto_Rico")
+    connection.create_function("san_juan_date", 1, lambda value: local_time.local_date(value, legacy_zone), deterministic=True)
+    connection.create_function("san_juan_hour", 1, lambda value: local_time.local_hour(value, legacy_zone), deterministic=True)

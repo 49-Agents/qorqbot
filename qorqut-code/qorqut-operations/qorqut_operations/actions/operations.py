@@ -55,7 +55,7 @@ BUSINESS_IDS = {"type": "array", "items": UUID, "maxItems": 50, "uniqueItems": T
 RECORD_DESCRIPTION = (
     "Record one atomic COMPLETED result (not a task description, plan, proposal, status change or failed attempt) "
     "in the canonical action log. Text is the result in at most 20 words for agents; no task, title or time is "
-    "required. Omitted real_time means now; supplied real_time is always San Juan (America/Puerto_Rico) time, "
+    "required. Omitted real_time means now; supplied real_time uses the installation timezone from actions_config_get, "
     "YYYY-MM-DD or YYYY-MM-DDTHH. Agents holding read_global_context record in Global: category is required "
     "(global-operational or business-operational); business-operational needs business_ids of currently authorized, "
     "active projects, and one inaccessible project rejects the whole call. An agent without read_global_context "
@@ -78,7 +78,7 @@ WITHDRAW_DESCRIPTION = (
     "Withdraw an Action you recorded (the installation owner may withdraw any visible Action) with expected_revision. The "
     "Action and its history stay readable, marked withdrawn; the withdrawal is queued for Context as a removal and the "
     "Action accepts no later change.")
-LIST_DESCRIPTION = ("List authorized completed actions by occurrence (newest first) with date (San Juan), category, "
+LIST_DESCRIPTION = ("List authorized completed actions by occurrence (newest first) with their recorded local date, category, "
                     "business, performer and tag filters; withdrawn actions are omitted unless requested. With a project "
                     "selected you see the actions linked to that project; without one, agents holding read_global_context "
                     "see global-operational and their accessible business-operational actions. " + models.SHARING)
@@ -121,7 +121,7 @@ class ActionOperations:
                  ("actions_get", {"action_id": ACTION_ID, "revision": {"type": "integer", "minimum": 1}}, ("action_id",),
                   "Read one authorized action by action_id (its current state, or an exact earlier revision with revision). "
                   "Unauthorized or unknown actions are not found. " + models.SHARING),
-                 ("actions_config_get", {}, (), "Categories, the 20-word agent rule, the San Juan time convention "
+                 ("actions_config_get", {}, (), "Categories, the 20-word agent rule, the installation time convention "
                   "(timezone, current local date/hour and server instant) and your allowed/default action scope."),
                  ("actions_thread_get", {**PAGE, "action_id": ACTION_ID}, ("action_id",), THREAD_DESCRIPTION))
         descriptors = [OperationDescriptor(name, schema(properties, required), **common, effect_kind="read", supports_signoff=False,
@@ -259,7 +259,8 @@ class ActionOperations:
             occurrence = (local_time.recorded_time(row["created_at"]) if args["real_time"] is None
                           else local_time.parse_real_time(args["real_time"], self.clock))
             changes.update(occurred_at=occurrence["occurred_at"], occurred_date=occurrence["real_date"],
-                           occurred_hour=occurrence["real_hour"], time_precision=occurrence["time_precision"])
+                           occurred_hour=occurrence["real_hour"], time_precision=occurrence["time_precision"],
+                           time_zone=occurrence["time_zone"])
         if "evidence" in args:
             changes["refs_json"] = {**{key: value for key, value in row["refs_json"].items() if key not in models.EVIDENCE_KEYS},
                                     **args["evidence"]}
@@ -546,7 +547,8 @@ class ActionOperations:
                 "unclassified": "Unclassified (no category) is available for owner capture only",
                 "agent_word_limit": models.AGENT_WORD_LIMIT, "text_max_characters": models.TEXT_LIMIT,
                 "real_time": {"formats": ["YYYY-MM-DD", "YYYY-MM-DDTHH"], "zone": local_time.TIMEZONE,
-                              "omitted": "now (server clock)", "future": "rejected"},
+                              "omitted": "now (server clock)", "future": "rejected",
+                              "nonexistent_hour": "rejected", "repeated_hour": "first occurrence"},
                 "sharing": models.SHARING, "tags": {"source": "catalog", "operation": "tags_list"},
                 "scope": {"kind": scope["kind"], "allowed_categories": allowed, "default_category": default,
                           "category_required": required, "default_business_ids": defaults,

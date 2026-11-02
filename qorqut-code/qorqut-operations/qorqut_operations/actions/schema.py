@@ -33,7 +33,7 @@ SCHEMA = (
     occurred_date TEXT,
     occurred_hour INTEGER CHECK (occurred_hour IS NULL OR occurred_hour BETWEEN 0 AND 23),
     time_precision TEXT NOT NULL DEFAULT 'instant' CHECK (time_precision IN ('instant','hour','day')),
-    time_zone TEXT NOT NULL DEFAULT 'America/Puerto_Rico',
+    time_zone TEXT NOT NULL DEFAULT 'UTC',
     refs_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(refs_json)),
     related_objects_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(related_objects_json)),
     withdrawn INTEGER NOT NULL DEFAULT 0 CHECK (withdrawn IN (0,1)),
