@@ -23,6 +23,9 @@ class Program:
     scope_kinds: tuple[str, ...] = ("business",)
     external: bool = False
     recover: object = None
+    # Host-owned programs that only an approved domain operation may queue (for example an owner-approved send) are
+    # not schedulable as routines. Not part of the frozen definition, so every existing digest is unchanged.
+    routine_allowed: bool = True
 
     def __post_init__(self):
         if not self.id or type(self.version) is not int or self.version < 1:

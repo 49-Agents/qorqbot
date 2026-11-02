@@ -155,6 +155,8 @@ class RoutineOperations:
         except RoutineError as exc:
             raise DomainError("validation_error", str(exc)) from exc
         program = self.programs.require(data["program"], available=False)
+        if not program.routine_allowed:
+            raise DomainError("forbidden", "This program cannot be scheduled as a routine")
         if program.unavailable_reason:
             if data["status"] != "paused":
                 raise DomainError("operation_unavailable", program.unavailable_reason)
