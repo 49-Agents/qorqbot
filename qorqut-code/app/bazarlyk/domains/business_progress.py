@@ -13,7 +13,7 @@ KEYS = ("tasks_done", "actions", "signoffs_approved")
 
 
 def day(value):
-    """San Juan calendar day of a stored UTC instant; naive or invalid values stay undated."""
+    """Configured local calendar day of a stored UTC instant; naive or invalid values stay undated."""
     return local_time.local_date(value) if isinstance(value, str) else None
 
 
@@ -26,12 +26,12 @@ class BusinessProgress:
         register(registry, self.clock)
         registry.register(OperationDescriptor("business_progress_get", schema({"days": {"enum": [30, 90, 365]}}),
             effect_kind="read", supports_signoff=False,
-            description="Owner read: all-time recorded totals and daily San Juan (America/Puerto_Rico) series for distinct tasks first marked done, completed actions linked to this project (on their occurrence day) and approved signoffs. Missing dates are explicit, never guessed.",
+            description="Owner read: all-time recorded totals and daily installation-local series for distinct tasks first marked done, completed actions linked to this project (on their occurrence day) and approved signoffs. Missing dates are explicit, never guessed.",
             read=self.read))
 
         registry.register(OperationDescriptor('global_progress_get', schema({'days': {'enum': [30,120,365]}}),
             scope_kinds=frozenset({'global'}), global_capability='read_global_context', effect_kind='read',
-            supports_signoff=False, description='Owner daily San Juan (America/Puerto_Rico) counts across authorized workspaces: task completions, every inbox delivery, each learning first accepted and each distinct completed action once on its occurrence day.', read=self.read_global))
+            supports_signoff=False, description='Owner daily installation-local counts across authorized workspaces: task completions, every inbox delivery, each learning first accepted and each distinct completed action once on its occurrence day.', read=self.read_global))
 
     def read_global(self, ctx, args, opts, uow):
         installation = uow.repository('installation').get('service')
@@ -67,7 +67,7 @@ class BusinessProgress:
         # current status; follow-up and resolution events are separate history.
         for row in uow.connection.execute('SELECT business_id,created_at FROM dev_tickets'):
             if row[0] in scopes: count('new_tickets', row[1])
-        # Each canonical action once, on its San Juan occurrence day; never a sum of business counts.
+        # Each canonical action once, on its recorded local occurrence day; never a sum of business counts.
         global_action_counts(uow, series)
         return {'series':[{'date':date,**values} for date,values in series.items()], 'timezone':local_time.TIMEZONE, 'days':len(series)}
 
@@ -87,7 +87,7 @@ class BusinessProgress:
             elif date in series: series[date][key] += n
 
         project_task_completions(uow, ctx.business_id, count)
-        # Actions linked to this business wherever stored, on their San Juan occurrence day (backfills included).
+        # Actions linked to this business wherever stored, on their recorded local occurrence day (backfills included).
         project_action_counts(uow, ctx.business_id, totals, undated, series)
         for row in uow.connection.execute("SELECT json_extract(decision_json,'$.at') FROM signoffs WHERE review_business_id=? AND json_extract(decision_json,'$.kind')='approve'", (ctx.business_id,)):
             count("signoffs_approved", row[0])

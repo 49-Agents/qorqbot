@@ -856,6 +856,7 @@ class DashboardCompatibility:
         actor = (row.get("performed_by") or row.get("recorded_by") or {}).get("id", "")
         return {**row, "id": row["action_id"], "detail": "" if row["text"] == row["summary"] else row["text"], "labels": row["tags"],
             "occurred_at": instant, "occurred_date": occurred.get("date"), "ts": instant, "refs_json": row["refs"],
+            "occurred_hour": occurred.get("hour"), "time_precision": occurred.get("precision"), "time_zone": occurred.get("time_zone"),
             "refs": row["refs"], "actor_id": actor, "actor": actor}
 
     def select_business(self, context, selector):
