@@ -20,7 +20,14 @@ SUPPORTED_MAJOR = EMAIL_MAJOR
 PLACEHOLDER = "{{EMAIL_MANAGEMENT_HOME}}"
 SUBTREE = "skills/email-management"
 TEMPLATE_DIRECTORY = "instance-template"
-TEMPLATE_FILES = frozenset({"SKILL.md", "instructions.md", "inboxes/README.md", "providers/gmail.md", "providers/fastmail.md"})
+# Files every canonical guide must have, whether it came from a factory template or an explicit offline authored snapshot.
+GUIDE_FILES = frozenset({"SKILL.md", "instructions.md", "inboxes/README.md"})
+# Factory-template contract by package version (3.x minor floor first match wins): 3.2 ships one neutral provider README,
+# 3.0 and 3.1 shipped the two provider guides. Both the package validator and the offline template import read this table.
+TEMPLATE_CONTRACTS = (
+    (2, GUIDE_FILES | {"providers/README.md"}),
+    (0, GUIDE_FILES | {"providers/gmail.md", "providers/fastmail.md"}),
+)
 RULES = {"channel": "email", "approval": "owner_input"}
 MAX_FILE_BYTES = 262_144
 EMAIL_COMPOSITION = {
@@ -43,9 +50,19 @@ def _version(value) -> tuple[int, ...]:
         return ()
 
 
+def template_files(version) -> frozenset[str] | None:
+    """The exact factory-template file set the given package version ships, or None for an unsupported version."""
+    parts = _version(version)
+    if parts[:1] != (SUPPORTED_MAJOR,):
+        return None
+    minor = parts[1] if len(parts) > 1 else 0
+    return next((files for floor, files in TEMPLATE_CONTRACTS if minor >= floor), None)
+
+
 def validate_package(package) -> None:
     """Accept exactly the instruction-only v3 contract; refuse any tool, provider rule or unknown template file."""
-    if package.id != PLUGIN_ID or _version(package.version)[:1] != (SUPPORTED_MAJOR,):
+    expected_files = template_files(package.version)
+    if package.id != PLUGIN_ID or expected_files is None:
         _invalid(f"requires {PLUGIN_ID} version {SUPPORTED_MAJOR}.x")
     if declared_plugin_tools(package):
         _invalid("declares no tools")
@@ -58,8 +75,8 @@ def validate_package(package) -> None:
         _invalid(f"native skill must carry the {PLACEHOLDER} placeholder")
     prefix = f"{SUBTREE}/{TEMPLATE_DIRECTORY}/"
     template = {name[len(prefix):] for name in package.files if name.startswith(prefix)}
-    if template != TEMPLATE_FILES:
-        _invalid("instance-template must contain exactly " + ", ".join(sorted(TEMPLATE_FILES)))
+    if template != expected_files:
+        _invalid(f"instance-template of version {package.version} must contain exactly " + ", ".join(sorted(expected_files)))
     for name in sorted(package.files):
         if name.startswith(SUBTREE + "/"):
             try:

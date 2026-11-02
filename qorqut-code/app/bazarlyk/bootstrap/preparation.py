@@ -228,7 +228,7 @@ def seed_instance_guidance(resolver, data) -> dict:
         if grant["id"] == email_guidance.PLUGIN_ID:
             root = email_guidance.home(resolver.paths, agentic_view=view)
             prefix = "plugins/imported-email-management/guidance/email/"
-            for name in sorted(email_guidance.TEMPLATE_FILES):
+            for name in sorted(email_guidance.GUIDE_FILES):
                 resource = view.layer.catalog.read_resource("imported-email-management", "guidance/email/" + name,
                                                             selection=data["agentic_selection"])
                 if resource["encoding"] != "utf-8" or resource["root_path"] != prefix + name:
