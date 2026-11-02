@@ -104,10 +104,11 @@ function dataError(error) {
 }
 function dataSelect(id) {
   _data.selected = id;
+  agentWorkspaceReportParent({table: id, mode: _data.mode});
   document.querySelectorAll('.data-item').forEach(node => node.classList.toggle('on', node.dataset.id === id));
   document.querySelector('.data-workspace')?.classList.add('has-selection');
 }
-function dataBack() { _data.selected = null; ++_dataDetail; document.querySelector('.data-workspace')?.classList.remove('has-selection'); }
+function dataBack() { _data.selected = null; agentWorkspaceReportParent({table: '', mode: _data.mode}); ++_dataDetail; document.querySelector('.data-workspace')?.classList.remove('has-selection'); }
 
 async function dataOpenTable(id, append = false) {
   const biz = dataTarget(), panel = document.querySelector('#data-detail'), generation = ++_dataDetail;
@@ -399,8 +400,19 @@ async function tablesOpen(biz, id, mode = 'tables', filters = {}) {
     await renderTables(dataContainer());
     return;
   }
+  // Links from outside the actual Tables view open it in the Ordubashy pane, with the exact scope and record. A business
+  // page keeps its own in-place tables.
+  const embeddedView = embeddedAgentPane && new URLSearchParams(location.search).get('agent-pane-embed');
+  const inPlace = biz != null && state.scope === 'business' && state.biz === biz && embeddedView !== 'tables';
+  if (embeddedView !== 'tables' && !inPlace && id) {
+    if (biz != null && !state.bizs.some(b => b.slug === biz)) { toast('This business is unavailable.'); return; }
+    const link = {scope: biz == null ? 'global' : biz, id, mode, filters: {department: filters.department || '', purpose: filters.purpose || ''}};
+    if (embeddedAgentPane) return window.parent.agentWorkspaceEscape?.({table: link});
+    agentWorkspacePendingTable = link;
+    await selectGlobal('tables');
+    return;
+  }
   if (biz == null) {
-    // A source with no business is a Global table: open Global > Tables, never a business.
     if (!dataGlobal()) await selectGlobal('tables');
     else if (state.globalTab !== 'tables') await goGlobalTab('tables');
     if (!dataGlobal() || state.globalTab !== 'tables') return;

@@ -75,6 +75,7 @@ const GLOBAL_AGENT_UNAVAILABLE = 'This agent is no longer active. Its history is
 const GLOBAL_TERMINAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>';
 // An agent profile link opens an active global agent; any other agent is history only.
 async function agentProfileOpen(agentId) {
+  if (embeddedAgentPane) return window.parent.agentWorkspaceEscape?.({agent: agentId});
   const agents = await loadGlobalAgentProfiles().catch(() => []);
   if (!agents.some(agent => agent.agent_id === agentId && globalRosterAgent(agent))) { toast(GLOBAL_AGENT_UNAVAILABLE); return; }
   ls('ag:scope:global', agentId);
@@ -192,9 +193,20 @@ async function renderGlobalAgents(c) {
   };
   const linkedAgent = params.get('agent');
   if (linkedAgent) { const url = new URL(location.href); url.searchParams.delete('agent'); history.replaceState(null, '', url); }
-  const remembered = linkedAgent || (linkedFocus ? agents.find(a => a.role?.id === 'ordubashy')?.agent_id : ls('ag:scope:global'));
+  let request = agentWorkspaceTakeRequest();
+  const fresh = !!request;
+  if (!request && !linkedAgent && !linkedFocus) request = agentWorkspaceRehydrate();
+  const remembered = request?.agentId || linkedAgent || (linkedFocus ? agents.find(a => a.role?.id === 'ordubashy')?.agent_id : ls('ag:scope:global'));
   const target = globalWorkspaceTerminal(remembered) ? GLOBAL_WORKSPACE_TERMINAL : agents.find(a => a.agent_id === remembered);
+  // A redirected Calendar, Context or Tables URL never falls back to another agent's content.
+  if (request && (!target || (!fresh && target.role?.id !== AGENT_PANE_DESCRIPTOR_ROLES[request.view]))) {
+    c.innerHTML = `<section class="pane global-content"><div class="global-eyebrow">Global</div><h1>Agents</h1><p role="alert">${esc(GLOBAL_AGENT_UNAVAILABLE)}</p></section>`;
+    return;
+  }
   // A saved or linked agent that is no longer an active global opens nothing of its own.
   if (remembered && !target) toast(GLOBAL_AGENT_UNAVAILABLE);
-  select(target || agents.find(a => a.role?.id === 'ordubashy') || agents[0] || GLOBAL_WORKSPACE_TERMINAL, linkedWorkspace);
+  agentWorkspaceRequest = request;
+  agentWorkspaceApplied = JSON.stringify(request || null);
+  select(target || agents.find(a => a.role?.id === 'ordubashy') || agents[0] || GLOBAL_WORKSPACE_TERMINAL, request?.view || linkedWorkspace);
+  agentWorkspaceRequest = null;
 }

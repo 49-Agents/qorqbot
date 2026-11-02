@@ -18,7 +18,7 @@ function renderGlobalContextBase(host, page) {
 }
 
 function globalContextNav(route) {
-  return {open: ref => { location.hash = globalContextObjectRoute(ref); }, go: token => { location.hash = globalContextBaseRoute(token); },
+  return {open: ref => { routeTo(globalContextObjectRoute(ref)); }, go: token => { routeTo(globalContextBaseRoute(token)); },
     current: () => state.scope === 'global' && state.globalTab === 'context' && location.hash === route,
     crumbs: [{label: 'Global Graph', go: 'graph'}], homeLabel: 'Global Context', backLabel: 'Back to Graph'};
 }
@@ -48,7 +48,7 @@ function renderGlobalContextPeople(host) {
       ${item.role || item.org ? `<small>${esc([item.role,item.org].filter(Boolean).join(' · '))}</small>` : ''}
       ${item.summary || item.definition ? `<span>${esc(cap(item.summary || item.definition, 160))}</span>` : ''}</span></button>`).join('')}</div>`
       : `<div class="empty">${people.length ? 'No people match this search.' : 'No people in Global context yet.'}</div>`;
-    list.querySelectorAll('[data-ref]').forEach(button => button.onclick = () => { location.hash = globalContextObjectRoute(button.dataset.ref); });
+    list.querySelectorAll('[data-ref]').forEach(button => button.onclick = () => { routeTo(globalContextObjectRoute(button.dataset.ref)); });
   };
   async function load() {
     reload.disabled = true; reload.hidden = true; status.textContent = 'Loading people…'; list.replaceChildren();
@@ -81,5 +81,5 @@ function renderGlobalContextObject(host) {
 
 function globalContextBaseRouteError(host, message) {
   host.innerHTML = `<section class="global-context-base"><div class="empty global-context-route-error" role="alert">${esc(message)}</div><button type="button" class="bt">Back to Graph</button></section>`;
-  host.querySelector('button').onclick = () => { location.hash = globalContextBaseRoute('graph'); };
+  host.querySelector('button').onclick = () => { routeTo(globalContextBaseRoute('graph')); };
 }

@@ -15,8 +15,7 @@
 .workspace-menu .mi.dragging { opacity: .45; }
 .workspace-menu .mi.drop-before { box-shadow: inset 0 2px var(--fg-2); }
 .workspace-menu .mi.drop-after { box-shadow: inset 0 -2px var(--fg-2); }
-#wsletter svg { display: block; }
-#wsletter svg, .global-placeholder-icon > svg { width: 20px; height: 20px; }
+.global-placeholder-icon > svg { width: 20px; height: 20px; }
 button.global-rail { padding: 0; background: none; width: 44px; }
 button.global-rail svg { width: 20px; height: 20px; }
 .global-content { padding: 36px 40px; min-width: 0; overflow-y: auto; }

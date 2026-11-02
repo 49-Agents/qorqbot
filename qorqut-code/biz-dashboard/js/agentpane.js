@@ -50,11 +50,15 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   const leading = [], trailing = [];
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_PANE_FIRST.has(type.renderer) ? leading : trailing).push(type.key);
   const personal = typeof agentWorkspaceViews === 'function' ? agentWorkspaceViews(scope, roleId) : [];
-  const own = personal.filter(view => view !== 'business');
+  const own = personal.filter(view => !['business', 'tables'].includes(view));
   leading.unshift(...own);
   // Business follows Focus where the agent has it, otherwise the agent's own views.
   if (personal.includes('business')) leading.splice(leading.includes('focus') ? leading.indexOf('focus') + 1 : own.length, 0, 'business');
-  if (scope === 'global' && roleId === 'ordubashy') leading.splice(Math.max(0, leading.indexOf('focus') + 1), 0, 'calendar');
+  if (scope === 'global' && roleId === 'ordubashy') {
+    leading.splice(Math.max(0, leading.indexOf('focus') + 1), 0, 'calendar');
+    // Tables sit with Calendar, ahead of Business management.
+    if (personal.includes('tables')) leading.splice(leading.indexOf('calendar') + 1, 0, 'tables');
+  }
   // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
@@ -403,6 +407,7 @@ function agpadSetView(p, view, leaveChecked = false) {
   if (from === "desktop") p.desktopRequest = (p.desktopRequest || 0) + 1;
   if (from === "browser") p.browserRequest = (p.browserRequest || 0) + 1;
   p.view = view;
+  if (typeof agentWorkspaceViewChanged === 'function') agentWorkspaceViewChanged(p);
   if (agpadCombinedOverview(p) && agpadOverviewView(view)) {
     p.overviewView = view;
     if (view !== "inbox") p.overviewActivityView = view;

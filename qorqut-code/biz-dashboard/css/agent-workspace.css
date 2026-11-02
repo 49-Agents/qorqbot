@@ -9,11 +9,6 @@
 .agent-workspace-app .rail { top:8px; bottom:auto; left:76.8px; width:min(220px,calc(100vw - 76.8px)); max-height:calc(100vh - 16px); border-radius:8px; padding:6px; background:var(--surface); opacity:0; visibility:hidden; pointer-events:none; }
 .agent-workspace-app.workspace-menu-open .rail { opacity:1; visibility:visible; pointer-events:auto; }
 .agent-workspace-app.workspace-menu-open .agsplit > .listcol { z-index:35; }
-.agent-workspace-app .rail .ws { height:44px; justify-content:flex-start; padding:0 8px; }
-.agent-workspace-app .wsbtn { width:100%; gap:12px; justify-content:flex-start; padding:0 8px; border:0; background:none; }
-.agent-workspace-app .wsbtn::after { content:attr(aria-label); font-size:12px; font-weight:400; }
-.agent-workspace-app #wsletter { width:20px; display:flex; justify-content:center; }
-.agent-workspace-app #wsletter svg { width:20px; height:20px; }
 .agent-workspace-app .rail .ritems { padding:5px; overflow:auto; }
 .agent-workspace-app .rail .ritem { justify-content:flex-start; gap:12px; padding:0 10px; height:36px; border-radius:5px; }
 .agent-workspace-app .rail .ritem::after { content:attr(aria-label); font-size:12px; font-weight:400; }
