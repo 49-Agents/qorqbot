@@ -510,6 +510,30 @@ def moved_location(uow, business_id, task_id):
     return location if current is not None and current["created_at"] == created else None
 
 
+def proven_journey(uow, business_id, task_id):
+    """Where the Task now at ``(business_id, task_id)`` has been, as ``journey_spans`` lists it, or ``None`` when the audit
+    cannot prove it.
+
+    A Task whose bare id no recorded move of its own names has a proven, current-only stay. Anything the bounded audit cannot
+    settle - a history that overflows, moves that are not one continuous journey ending here, or a Task that is not here -
+    proves nothing: ``None`` is "unknown", never a stay. Readers that infer an association from a stay must fail closed on it;
+    ``journey_spans`` keeps its whole-stay fallback for everyone else."""
+    row = uow.connection.execute("SELECT created_at FROM tasks WHERE business_id IS ? AND id=?", (business_id, task_id)).fetchone()
+    history = journeys(uow, task_id) if row is not None else None
+    if history is None:
+        return None
+    moves = history.get(row["created_at"], [])
+    if not moves:
+        return [(business_id, row["created_at"], None)]
+    stays, scope, since = [], moves[0]["source_business_id"], row["created_at"]
+    for move in moves:
+        if move["source_business_id"] != scope:
+            return None
+        stays.append((scope, since, move["moved_at"]))
+        scope, since = move["destination_business_id"], move["moved_at"]
+    return None if scope != business_id else [(scope, since, None), *stays]
+
+
 def journey_spans(uow, business_id, task_id) -> list:
     """Where the Task now at ``(business_id, task_id)`` has been: ``[(scope, since, until), ...]``, the current scope first
     (``until=None``) and then every earlier stay in order, each with the time it began and the time it was left (Global is
@@ -518,22 +542,12 @@ def journey_spans(uow, business_id, task_id) -> list:
     Only moves of this very Task count. An unrelated Task that reuses the bare id in a scope this one left or entered has
     another creation time, and what it wrote before this Task arrived or after it left lies outside the stay. A Task that
     never moved, whose history overflows or whose recorded moves are not one continuous journey has a single stay in its
-    current scope."""
+    current scope (``proven_journey`` tells those apart)."""
     row = uow.connection.execute("SELECT created_at FROM tasks WHERE business_id IS ? AND id=?", (business_id, task_id)).fetchone()
     if row is None:
         return [(business_id, "", None)]
-    whole = [(business_id, row["created_at"], None)]
-    moves = (journeys(uow, task_id) or {}).get(row["created_at"], [])
-    if not moves:
-        return whole
-    stays, scope, since = [], moves[0]["source_business_id"], row["created_at"]
-    for move in moves:
-        if move["source_business_id"] != scope:
-            return whole
-        stays.append((scope, since, move["moved_at"]))
-        scope, since = move["destination_business_id"], move["moved_at"]
-    return whole if scope != business_id else [(scope, since, None), *stays]
+    return proven_journey(uow, business_id, task_id) or [(business_id, row["created_at"], None)]
 
 
 __all__ = ["AdapterReport", "FOREIGN_KEY_CHILDREN", "Inspection", "Relocation", "RelocationAdapter", "TaskRelocation", "blocker",
-           "digest", "journey_spans", "moved_location", "namespace", "scope_of"]
+           "digest", "journey_spans", "moved_location", "namespace", "proven_journey", "scope_of"]

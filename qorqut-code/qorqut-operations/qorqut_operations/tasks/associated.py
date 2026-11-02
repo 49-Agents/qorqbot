@@ -53,7 +53,7 @@ from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.items import UNAVAILABLE
 from qorqut_operations.storage.repositories import decode_row
-from qorqut_operations.tasks.relocation import journey_spans, scope_of
+from qorqut_operations.tasks.relocation import proven_journey, scope_of
 from qorqut_operations.tasks.scope import task_namespace
 
 SCOPE = {"scope": {"enum": ["business", "global"]}}
@@ -106,7 +106,8 @@ class TaskAssociatedRecords:
                         "Task that was moved between scopes keeps the records established while it was in an earlier scope "
                         "(audited stay and the record's own immutable revision or proposal time) and reads a discussion "
                         "reference in the scope the message was written in; each such record is read with the caller's current "
-                        "authority in that scope and an unavailable one is omitted without a trace.",
+                        "authority in that scope and an unavailable one is omitted without a trace; a moved Task whose audited journey cannot be "
+                        "proven gains no inferred Action or Signoff (explicit relationships and typed references still apply).",
             # The Task domain's own Global guard is applied by ``TaskOperations.read``, not merely by the generic policy.
             read=lambda ctx, args, options, uow: self.tasks.read(OPERATION, ctx, args, uow))
 
@@ -288,19 +289,21 @@ class TaskAssociatedRecords:
 
     @staticmethod
     def stays(uow, business_id, task_ids):
-        """``{Task ID: [(scope, since, until), ...]}`` for each Story Task whose bare ID a relocation ever recorded, newest
-        stay first.
+        """``{Task ID: [(scope, since, until), ...] or None}`` for each Story Task whose bare ID a relocation ever recorded,
+        newest stay first.
 
-        Only the audited journey of that very Task counts (``journey_spans``). A relocation can free an ID in a scope for
+        Only the audited journey of that very Task counts (``proven_journey``). A relocation can free an ID in a scope for
         another Task to take, so a Task whose ID was ever moved - itself, or an earlier lifetime of the same ID - is bound
         to its own stays, and the evidence of another lifetime never names it. A Task whose recorded history overflows or is
-        not one continuous journey has one stay, the current scope from its creation: no historical candidate is invented
-        for it. A Task whose ID no relocation ever recorded is absent and keeps the unbounded current-scope behavior."""
+        not one continuous journey has no provable stay: it maps to ``None`` and no Action or Signoff is inferred for it from
+        any scope (a current-scope stay from its creation would be a guess, and could attach another lifetime's records).
+        Its explicit relationships and typed discussion references are unaffected. A Task whose ID no relocation ever
+        recorded is absent and keeps the unbounded current-scope behavior."""
         moved = set()
         for chunk in _chunks(task_ids):
             moved.update(row["task_id"] for row in uow.connection.execute(
                 f"SELECT DISTINCT task_id FROM task_moves WHERE task_id IN ({_marks(chunk)})", chunk))
-        return {task_id: journey_spans(uow, business_id, task_id) for task_id in sorted(moved)}
+        return {task_id: proven_journey(uow, business_id, task_id) for task_id in sorted(moved)}
 
     @staticmethod
     def within(when, since, until):
@@ -330,6 +333,7 @@ class TaskAssociatedRecords:
 
     def stay_sources(self, ctx, uow, record_type, stays):
         """``(raw record ID, Story Task ID, origin)`` triples established during a stay of each moved Story Task."""
+        stays = {task_id: spans for task_id, spans in stays.items() if spans}
         if not stays:
             return set()
         by_scope = {}
@@ -402,16 +406,27 @@ class TaskAssociatedRecords:
                     namespaces = {None, *began[1].get("business_ids", ()), *(
                         link["business_id"] for link in uow.connection.execute(
                             "SELECT business_id FROM action_businesses WHERE action_key=?", (row["action_key"],)))}
-                    if self.lifetimes_at(uow, task_id, namespaces, began[0]) == {(scope, stays[task_id][-1][1])}:
+                    # The Task's own lifetime is identified by its immutable creation time, read from the Task itself: after
+                    # several moves no stay in the journey starts at it except the first, and that one is not last.
+                    created = uow.connection.execute("SELECT created_at FROM tasks WHERE business_id IS ? AND id=?",
+                                                     (stays[task_id][0][0], task_id)).fetchone()
+                    if created is not None and self.lifetimes_at(uow, task_id, namespaces, began[0]) == {(scope, created["created_at"])}:
                         found.add((row["action_key"], task_id, scope))
         return found
 
     @staticmethod
     def lifetimes_at(uow, task_id, namespaces, when):
-        """``{(scope, creation time)}`` of every Task lifetime that carried ``task_id`` in one of ``namespaces`` at ``when``."""
+        """``{(scope, creation time)}`` of every Task lifetime that carried ``task_id`` in one of ``namespaces`` at ``when``,
+        or ``None`` when some lifetime of the id has a journey the audit cannot prove.
+
+        Uniqueness is a proof that no other lifetime carried the ID; a lifetime whose whereabouts are unknown might have, so
+        it proves nothing and the caller must not link."""
         found = set()
         for row in uow.connection.execute("SELECT business_id, created_at FROM tasks WHERE id=?", (task_id,)).fetchall():
-            for scope, since, until in journey_spans(uow, row["business_id"], task_id):
+            spans = proven_journey(uow, row["business_id"], task_id)
+            if spans is None:
+                return None
+            for scope, since, until in spans:
                 if scope in namespaces and since <= when and (until is None or when < until):
                     found.add((scope, row["created_at"]))
         return found
