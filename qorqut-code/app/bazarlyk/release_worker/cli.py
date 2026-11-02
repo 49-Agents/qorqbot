@@ -60,6 +60,12 @@ def build_parser() -> argparse.ArgumentParser:
     repair = commands.add_parser("v12-repair", help="apply a compatible host repair before any fresh native sessions")
     repair.add_argument("--selection", type=Path, required=True)
     repair.add_argument("--confirm-repair", action="store_true")
+    projection_preview = commands.add_parser("v12-agent-projection-preview", help="read-only preview of stale generated agent setup copied into fresh agent workspaces")
+    projection_preview.add_argument("--selection", type=Path, required=True)
+    projection_preview.add_argument("--destination", type=Path, required=True)
+    projection_repair = commands.add_parser("v12-agent-projection-repair", help="quarantine exactly the files of a frozen agent projection preview")
+    projection_repair.add_argument("--preview", type=Path, required=True)
+    projection_repair.add_argument("--confirm-repair", action="store_true")
     cutoff = commands.add_parser("v12-cutoff", help="stop the exact reviewed old writers for an authorized final capture")
     cutoff.add_argument("--selection", type=Path, required=True)
     cutoff.add_argument("--record", type=Path, required=True)
@@ -108,6 +114,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "v12-repair":
             from .v12_repair import repair
             _json(repair(args.selection, confirm=args.confirm_repair))
+            return 0
+        if args.command == "v12-agent-projection-preview":
+            from .agent_projection_repair import preview
+            _json(preview(args.selection, args.destination))
+            return 0
+        if args.command == "v12-agent-projection-repair":
+            from .agent_projection_repair import repair
+            _json(repair(args.preview, confirm=args.confirm_repair))
             return 0
         if args.command == "v12-cutoff":
             from .v12_cutover import cutoff
