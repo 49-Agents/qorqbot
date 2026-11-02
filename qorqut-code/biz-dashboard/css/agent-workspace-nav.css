@@ -1,5 +1,5 @@
 /* The roster leaves room for the workspace Terminal entry below it. */
-.agent-workspace-app .global-agents .global-primary { max-height:calc(100vh - 260px); }
+.agent-workspace-app .global-agents .global-primary { max-height:calc(100vh - 208px); }
 
 /* Activity and Inbox share one main icon tab; their switch belongs to that view. */
 .agent-workspace-app .agpad-overview-switch {
@@ -17,7 +17,7 @@
   .agent-workspace-app .agpad-overview-switch { margin-left:14px; margin-right:14px; }
 }
 
-/* Agent roster: the selected agent and an unread reply read clearly in the expanded rail without changing its size or order. */
+/* Agent roster: the selected agent and an unread reply read clearly in the icon rail without changing its size or order. */
 .agent-workspace-app .global-agents .item.agent { position:relative; }
 .agent-workspace-app .global-agents .item.agent.on { background:var(--hover); color:var(--fg); }
 .agent-workspace-app .global-agents .item.agent:focus-visible { outline:1px solid var(--fg-2); outline-offset:-1px; }
