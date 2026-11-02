@@ -1,5 +1,5 @@
 // Owner Browser views, streamed through exact Guacamole connection URLs: a global agent's
-// own browser desktops in its pane, and each business's one browser as a business resource.
+// own browser desktops in its pane.
 // The binding reads are owner-only presentation; they grant no automation and never change Chrome.
 function agbrowserPath(agentId) { return `/root/agents/${encodeURIComponent(agentId)}/browser-surfaces`; }
 function agbrowserSelectionKey(agentId) { return `agpad:browser:${agentId}`; }
@@ -34,7 +34,6 @@ function agbrowserSurfaces(p, force = false) {
 }
 
 // Mount-time discovery only decides whether a global agent's own Browser tab is offered.
-// Business browsers are business resources, never discovered through an agent pane.
 function agbrowserDiscover(p) {
   if (!p.agentId || p.workspaceScope !== 'global') return;
   agbrowserSurfaces(p).then(() => { if (_agpad === p) agpadWorkspaceViewsSync(p); }).catch(() => {});
@@ -55,9 +54,7 @@ function agbrowserToggle(label, items) {
 function agbrowserSurfaceIcon(p, surface) {
   if (p.workspaceRole !== 'ordubashy') return /outlook|mail/i.test(surface.id + ' ' + surface.label) ? AGBROWSER_ICON_MAIL : agbrowserIcon('browser');
   if (surface.id === 'ordubashy-browser') return identityAvatar('agent', surface.label, {role: {id: 'ordubashy'}});
-  // Business bindings use their business name as the label; the icon is that business's initial.
-  const matches = (typeof state === 'undefined' ? [] : state.bizs || []).filter(b => b.name === surface.label || b.slug === surface.label);
-  return identityAvatar('business', matches.length === 1 ? matches[0].name : surface.label);
+  return agbrowserIcon('browser');
 }
 
 // Ordubashy alone can switch between its Browser and its full Desktop.
