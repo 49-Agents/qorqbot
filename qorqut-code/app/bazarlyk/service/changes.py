@@ -12,7 +12,7 @@ tables with no capture trigger have no row shape to inspect at all). Kinds
 are safe to over-bump -- an extra cache miss -- never safe to under-bump,
 which would let a versioned read 304 on stale data. Where a table's own
 dashboard relevance is not one of the nine kinds the dashboard actually
-reads by (``requests``, ``inbox_*`` tables, ``agent_messages``,
+reads by (``inbox_*`` tables, ``agent_messages``,
 ``focus_cards``), it is left unmapped rather than guessed onto the nearest
 kind: no ETag'd route (PR3) currently declares a dependency on it.
 
@@ -57,8 +57,8 @@ GLOBAL_SCOPE = "global"
 # (a business id or GLOBAL_SCOPE), so this can't collide with one.
 ANY_SCOPE = object()
 
-# Trigger-covered tables (app/schema/v1-migrations/035_agent_inbox.sql and
-# later) -> the dashboard "kind" they affect. `signoff_notes` has a capture
+# Trigger-covered tables (the capture triggers of the committed host DDL and the
+# engine and extension contributions) -> the dashboard "kind" they affect. `signoff_notes` has a capture
 # trigger but is consumed by `finalize_events` before reaching `targets()`
 # uniformly with the others; it still lands in `inbox_changes` and is mapped
 # here directly rather than relying on that indirection.

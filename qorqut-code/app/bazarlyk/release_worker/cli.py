@@ -58,7 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument('--recover-from',help='explicit recovery of the active failed short-path operation ID')
             command.add_argument('--migrate',action='store_true')
             command.add_argument('--backup-before-migration',action='store_true')
-            for component in ('core','dashboard','template'):
+            for component in ('core','dashboard'):
                 command.add_argument('--'+component,help='changed /absolute/repository@ref; unchanged partners come from current')
     activate = commands.add_parser('activate',help='first activation of the persistent installation from a legacy service')
     _common(activate);activate.add_argument('--release',type=Path,required=True,help='absolute installer-staged application directory')
@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
             from .ordinary import AppRelease
             worker=AppRelease(config)
             if args.command=='deploy':
-                _json(worker.deploy({name:getattr(args,name) for name in ('core','dashboard','template') if getattr(args,name)},migrate=args.migrate,backup_before_migration=args.backup_before_migration,recover_from=args.recover_from))
+                _json(worker.deploy({name:getattr(args,name) for name in ('core','dashboard') if getattr(args,name)},migrate=args.migrate,backup_before_migration=args.backup_before_migration,recover_from=args.recover_from))
             elif args.command=='activate':
                 from .activation import Activation
                 _json(Activation(worker).activate(args.release,migrate=args.migrate,backup_before_migration=args.backup_before_migration,

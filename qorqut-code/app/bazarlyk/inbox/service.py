@@ -139,9 +139,6 @@ class InboxService:
         if handler is not None:
             return bool(handler.subscription_visible and handler.subscription_visible(self, ctx, identity, business, uow))
         if source_type not in VISIBLE_TYPES: return False
-        # Request records are historical only; current canonical source reads
-        # use Signoffs and no longer accept the retired requests table.
-        if source_type == 'requests': return False
         try:
             selected = ctx.select_business(business)
             if business is not None and not self.business_member(ctx, business, uow):

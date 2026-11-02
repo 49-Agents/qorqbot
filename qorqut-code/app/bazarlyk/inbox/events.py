@@ -24,7 +24,7 @@ LOGGER = logging.getLogger(__name__)
 
 ITEM_TYPES = {'signoffs': 'signoff',
               'email_conversations': 'material', 'documents': 'material',
-              'data_tables': 'table', 'requests': 'request',
+              'data_tables': 'table',
               'agent_profiles': 'agent', 'context_entities': 'entity', 'principals': 'person'}
 RESOURCE_TYPES = {v: k for k, v in ITEM_TYPES.items() if k != 'documents'}
 IGNORED_FIELDS = {'revision', 'status_revision', 'sequence'}

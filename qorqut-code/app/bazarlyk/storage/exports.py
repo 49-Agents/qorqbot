@@ -19,7 +19,7 @@ from bazarlyk.composition.locations import business_hq
 TABLES = {**CORE_TABLES, **TABLE_SPECS, **{name: spec for part in record_contributions() for name, spec in part.tables.items()}}
 EXPORT_VERSION = 1
 BUSINESS_TABLES = ("relationships", "context_reviews", "context_review_states", "context_entities", "data_tables", "data_rows", "table_versions", "business_configs", "agent_profiles", "tasks", "thread_messages", "item_tags",
-    "documents", "action_logs", "action_revisions", "requests",
+    "documents", "action_logs", "action_revisions",
     "learning_candidates", "learning_decisions", "learning_history", "learning_runs",
     "learning_issues", "learning_issue_candidates", "learning_issue_actions", "learning_issue_links", "learning_engine_packages",
     "routines", "routine_runs", "email_mailboxes", "email_conversations")

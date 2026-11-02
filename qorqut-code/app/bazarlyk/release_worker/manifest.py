@@ -22,14 +22,13 @@ SCHEMA_VERSION = 1
 HISTORY_REFS = {"qorqut-tables", "bazarlyk-history"}
 BRANCH = re.compile(r"^[A-Za-z0-9._/-]+$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
-COMPONENT_CATEGORIES = {"core", "dashboard", "role", "plugin", "engine", "template", "documentation", "outreach", "library"}
+COMPONENT_CATEGORIES = {"core", "dashboard", "role", "plugin", "engine", "documentation", "outreach", "library"}
 ADAPTERS = {
     "core": "qorqut-dashboard",
     "dashboard": "qorqut-dashboard",
     "role": "immutable-package",
     "plugin": "immutable-package",
     "engine": "independent-engine",
-    "template": "template-source",
     "documentation": "documentation",
     "library": "source-library",
     "outreach": "independent-engine",
@@ -242,7 +241,7 @@ def validate_manifest(value: dict[str, Any]) -> dict[str, Any]:
             validate_selection(component["experience_binding"], component, installation)
         if "unchanged" in component and not isinstance(component["unchanged"], bool):
             raise ReleaseError(f"{identifier}.unchanged must be a boolean")
-        if component.get("unchanged") and category not in {"core", "dashboard", "template"}:
+        if component.get("unchanged") and category not in {"core", "dashboard"}:
             raise ReleaseError(f"{identifier}.unchanged is only supported for pinned runtime inputs")
         _require_branch(component.get("target_branch", "main"), field=f"{identifier}.target_branch", allow_target=True)
         adapter_name = component.get("adapter", ADAPTERS[category])
@@ -318,10 +317,6 @@ def validate_manifest(value: dict[str, Any]) -> dict[str, Any]:
         runtime_categories.count("core") != 1 or runtime_categories.count("dashboard") != 1
     ):
         raise UnsupportedAdapter("runtime plans must contain exactly one core and one dashboard component; pin unchanged inputs explicitly")
-    if runtime_categories:
-        templates = [item for item in components if item["category"] == "template"]
-        if len(templates) != 1 or templates[0]["id"] != "biz-template" or templates[0].get("adapter", "template-source") != "template-source":
-            raise UnsupportedAdapter("runtime plans require exactly one pinned biz-template component using template-source")
     if value.get("adoption") is not None and not isinstance(value["adoption"], list):
         raise ReleaseError("adoption must be a list of explicit selections")
     by_id = {item["id"]: item for item in components}

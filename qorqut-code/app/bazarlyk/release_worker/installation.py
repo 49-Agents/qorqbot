@@ -244,7 +244,7 @@ def validate_browser(directory, *, run=subprocess.run):
 
 def stage_initial(root,config,sources,python,*,run=subprocess.run,recovery_name=None,helper_compatibility=None):
     from .ordinary import AppRelease
-    if set(sources)!={'core','dashboard','template'}:raise ReleaseError('Initial staging needs exact core/dashboard/template source refs')
+    if set(sources)!={'core','dashboard'}:raise ReleaseError('Initial staging needs exact core/dashboard source refs')
     worker=AppRelease(config,run=run)
     release_id=recovery_name or 'initial-'+hashlib.sha256(json.dumps(sources,sort_keys=True).encode()).hexdigest()[:16]
     if not __import__('re').fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,99}',release_id):raise ReleaseError('Recovery name must be a managed release name')

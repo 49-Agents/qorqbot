@@ -1207,44 +1207,6 @@ class ImmutablePackageAdapter(Adapter):
         return {"already_succeeded": True, "safe_to_retry": False, "receipt_verified": receipt, "reason": "adoption receipt already exists"}
 
 
-def _validate_business_template(root: Path) -> None:
-    from .template_inventory import SCAFFOLD
-
-    # The template's frozen historical inventory (release-owned, not a creator input). Reject
-    # symlinked parents too: a release must carry its own immutable scaffold.
-    for relative in SCAFFOLD:
-        if relative == ".gitignore":
-            continue
-        source = root / relative
-        parts = Path(relative).parts
-        has_symlink = any(root.joinpath(*parts[:i]).is_symlink() for i in range(len(parts) + 1))
-        if not source.is_file() or has_symlink:
-            raise ReleaseError(f"business template is missing a regular scaffold file: {relative}")
-
-
-def _runtime_template(context: AdapterContext) -> dict[str, Any]:
-    templates = [item for item in context.plan["components"] if item["category"] == "template"]
-    if len(templates) != 1 or templates[0]["id"] != "biz-template":
-        raise ReleaseError("runtime deployment requires a pinned biz-template component")
-    artifact = _verify_staged_artifact(templates[0], context)
-    _validate_business_template(artifact)
-    return templates[0]
-
-
-class TemplateAdapter(Adapter):
-    name = "template-source"
-    categories = frozenset({"template"})
-
-    def stage(self, component: dict[str, Any], context: AdapterContext) -> dict[str, Any]:
-        result = super().stage(component, context)
-        if component["id"] == "biz-template":
-            _validate_business_template(context.artifact_root / component["id"])
-        return result
-
-    def deploy(self, component: dict[str, Any], context: AdapterContext) -> dict[str, Any]:
-        return {"deployed": False, "reason": "template source does not provision or modify businesses"}
-
-
 _ENV_ASSIGNMENT = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$")
 
 
@@ -1518,12 +1480,11 @@ class QorqutDashboardAdapter(Adapter):
             raise UnsupportedAdapter(
                 "required migrations are not supported by release-worker; execute a separately reviewed migration lifecycle before deployment"
             )
-        _runtime_template(context)
         artifacts = {item["id"]: _verify_staged_artifact(item, context) for item in components}
         auxiliary_artifacts = {
             item["id"]: _verify_staged_artifact(item, context)
             for item in context.plan["components"]
-            if item["category"] in {"role", "plugin", "template"}
+            if item["category"] in {"role", "plugin"}
         }
         service = config["service"]
         current = self.inspect(components[0], context)
@@ -1583,10 +1544,9 @@ class QorqutDashboardAdapter(Adapter):
             executor.run(["mkdir", "-p", str(destination)])
             copier(artifacts[item["id"]], destination)
             _verify_destination(executor, artifacts[item["id"]], destination, _stage_record(context, item["id"])["tree_digest"])
-        # Package-map paths and the application's fixed biz-template path
-        # must resolve inside the assembled release, never local staging.
+        # Package-map paths must resolve inside the assembled release, never local staging.
         for item in context.plan["components"]:
-            if item["category"] not in {"role", "plugin", "template"}:
+            if item["category"] not in {"role", "plugin"}:
                 continue
             destination = target / item["id"]
             executor.run(["mkdir", "-p", str(destination)])
@@ -1750,13 +1710,12 @@ class QorqutDashboardAdapter(Adapter):
             return {"safe_to_retry": False, "observed": observed, "reason": "live executable, workspace, configuration and package map do not exactly identify the frozen release"}
         try:
             if context.components:
-                _runtime_template(context)
                 for item in context.components:
                     artifact = _verify_staged_artifact(item, context)
                     destination = target / ("biz-core" if item["category"] == "core" else "biz-dashboard")
                     _verify_destination_files(context.executor, artifact, destination)
                 for item in context.plan["components"]:
-                    if item["category"] not in {"role", "plugin", "template"}:
+                    if item["category"] not in {"role", "plugin"}:
                         continue
                     artifact = _verify_staged_artifact(item, context)
                     _verify_destination(
@@ -1967,7 +1926,6 @@ ADAPTER_TYPES = {
     SourceLibraryAdapter.name: SourceLibraryAdapter,
     DocumentationAdapter.name: DocumentationAdapter,
     ImmutablePackageAdapter.name: ImmutablePackageAdapter,
-    TemplateAdapter.name: TemplateAdapter,
     QorqutDashboardAdapter.name: QorqutDashboardAdapter,
     IndependentEngineAdapter.name: IndependentEngineAdapter,
 }
