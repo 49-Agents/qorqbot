@@ -66,6 +66,11 @@ jobs:
           for wheel in "${fastmail_wheels[@]}"; do wheel_args+=(--wheel "$wheel"); done
           python qorqut-code/tools/distribution/extension_bundle.py --id fastmail "${wheel_args[@]}" --output "$optional/bundles/fastmail.tar.gz" > "$optional/fastmail.json"
           python "$RELEASE_WORK/source/qorqut-code/extensions/whatsapp/tools/build.py" --work "$optional/whatsapp"
+          source_trees=("$optional/whatsapp"/qorqut-whatsapp-*-source)
+          source_image=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["build"]["go_image"])' "${source_trees[0]}/SOURCE-MANIFEST.json")
+          mkdir -p "$optional/whatsapp/source-rebuild"
+          docker run --rm --network none --user "$(id -u):$(id -g)" --mount "type=bind,src=${source_trees[0]},dst=/source,readonly" --mount "type=bind,src=$optional/whatsapp/source-rebuild,dst=/build" -w /source "$source_image" ./build.sh /build
+          cmp "$optional/whatsapp/native/whatsapp-personal" "$optional/whatsapp/source-rebuild/whatsapp-personal"
           whatsapp_wheels=("$optional/whatsapp/dist"/qorqut_whatsapp-*.whl)
           wheel_args=()
           for wheel in "${whatsapp_wheels[@]}"; do wheel_args+=(--wheel "$wheel"); done
