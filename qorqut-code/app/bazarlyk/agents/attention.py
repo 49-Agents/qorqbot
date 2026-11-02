@@ -213,7 +213,7 @@ class Attention:
                     states.add(task['status'])
             except DomainError as error:
                 if error.code not in UNREADABLE: raise
-        return 'reassess' if states & {'blocked','waiting'} else 'empty'
+        return 'reassess' if states & {'blocked','waiting','needs_input'} else 'empty'
 
     def reminder_eligible(self, uow, agent_id, *, consumer_id, binding_generation, focus_generation, kind):
         """Recheck current identity, binding and source authority before delivery."""
@@ -352,7 +352,7 @@ class Attention:
         def ordering(item):
             task = item['task']
             status = task.get('status')
-            rank = {'blocked':0,'working':1,'open':2,'waiting':3,'done':4,'cancelled':5}.get(status, 6)
+            rank = {'blocked':0,'needs_input':1,'working':2,'open':3,'waiting':4,'done':5,'cancelled':6}.get(status, 7)
             completed = task.get('latest_completed_at') or '' if status == 'done' else ''
             # Fixed-width UTC timestamps sort in reverse through their inverted character values.
             inverted = ''.join(chr(127-ord(char)) for char in completed) if completed else '\x7f'
@@ -410,8 +410,8 @@ class Attention:
             ref = {'type':'task','id':row['task_id'],'business_id':row['task_business_id']}
             task = self.task(ctx, ref, uow, lifecycle_only=True)
             if task['created_at'] != row['task_created_at']: raise DomainError('not_found', 'Task is unavailable')
-            if ctx.principal_kind == 'agent' and task['status'] in ('blocked','done') and (args.get('owner_requested') is not True or not args.get('rationale','').strip()):
-                raise DomainError('forbidden', ('Blocked' if task['status'] == 'blocked' else 'Done') + ' removal requires an owner instruction and rationale (owner_requested: true)')
+            if ctx.principal_kind == 'agent' and task['status'] in ('blocked','needs_input','done') and (args.get('owner_requested') is not True or not args.get('rationale','').strip()):
+                raise DomainError('forbidden', {'blocked':'Blocked','needs_input':'Needs input','done':'Done'}[task['status']] + ' removal requires an owner instruction and rationale (owner_requested: true)')
         if op == 'attention_workflow_update':
             row = uow.connection.execute('SELECT * FROM attention_workflows WHERE agent_id=? AND run_id=?', (agent,args['run_id'])).fetchone()
             if not row: raise DomainError('not_found', 'Workflow association is unavailable')
@@ -428,6 +428,8 @@ class Attention:
                   else args.get('changes', {}).get('status'))
         if status == 'waiting':
             return 'Waiting is for an external party. Otherwise, check state and Workers.'
+        if status == 'needs_input':
+            return 'Needs your input: record the owner question in the Task thread and reassess when it is answered.'
         if status not in ('working', 'done'):
             return None
         with self.runtime.database.read() as uow:

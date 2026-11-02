@@ -14,9 +14,9 @@ CONTINUE = ('Continue an authorized next step on the focused task. If none is po
             'not establish that no work remains. If nothing is actionable, wait quietly; report only a new result, '
             'blocker or decision needed.')
 FOCUS = 'Update your precise focus and immediate intent, and record meaningful task or workflow progress. ' + CONTINUE
-BOARD = ('Review the Attention board and choose useful work, or reassess the blocked and waiting commitments. An empty '
-         'inbox does not establish that no work remains. If nothing is actionable, wait quietly; report only a new '
-         'result, blocker or decision needed.')
+BOARD = ('Review the Attention board and choose useful work, or reassess the blocked, waiting and needs-input '
+         'commitments. An empty inbox does not establish that no work remains. If nothing is actionable, wait '
+         'quietly; report only a new result, blocker or decision needed.')
 DETACH = ('This workflow remains blocked. Save the blocker and resume context, then detach your focus '
           'if you cannot progress.')
 MORE = 'For more board context, use attention_get(projection="summary") and its pagination.'
@@ -60,8 +60,8 @@ def render(kind, snapshot):
         lines.append('Other board candidates: unavailable')
     else:
         header = ('Other board candidates (open or working, up to %d shown; not verified actionable, so inspect the '
-                  'source before acting; blocked and waiting tasks are not listed and may warrant reassessment):'
-                  % CANDIDATES)
+                  'source before acting; blocked, waiting and needs-input tasks are not listed and may warrant '
+                  'reassessment):' % CANDIDATES)
         if not snapshot['candidates']:
             header += ' none found among authorized tasks, which does not mean no work remains'
         lines.append(header)
