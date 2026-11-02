@@ -54,13 +54,52 @@ class RequestTiming:
     *copy* of the context, so a `.set()` there would be invisible once the
     call returns to the event loop. Mutating the one shared object is
     visible on both sides.
+
+    Every figure is a sum over the units recorded for the request, in seconds
+    or counts. Units can nest (a read inside a write) or run on several
+    threads at once, so the durations may overlap one another and can exceed
+    the request's wall time: never subtract them from it. Nothing here is SQL
+    execution time.
+
+    * ``db_seconds``: time each unit was held, from its transaction opening to
+      its release (commit or rollback, finalizers and publication included).
+    * ``db_read_seconds`` / ``db_write_seconds``: the same hold time, split by
+      read or write unit; the two always add up to ``db_seconds``.
+    * ``db_wait_seconds``: time each unit spent opening its transaction (a
+      writer's lock wait under the busy timeout, plus the two statements that
+      open it). A unit whose transaction never opened records its whole wait,
+      with no hold time. Connection checkout from the pool is not timed.
+    * ``units`` = ``read_units`` + ``write_units``, including units that failed.
+
+    No SQL text, operation name, argument or row content is kept.
     """
-    __slots__ = ('started', 'db_seconds', 'units')
+    __slots__ = ('started', 'db_seconds', 'units', 'db_wait_seconds', 'db_read_seconds', 'db_write_seconds',
+                 'read_units', 'write_units', '_lock')
 
     def __init__(self):
         self.started = time.monotonic()
         self.db_seconds = 0.0
         self.units = 0
+        self.db_wait_seconds = 0.0
+        self.db_read_seconds = 0.0
+        self.db_write_seconds = 0.0
+        self.read_units = 0
+        self.write_units = 0
+        # Units of one request may finish on different worker threads; `+=` on an attribute is not atomic.
+        self._lock = threading.Lock()
+
+    def record(self, *, writable, wait, held):
+        """Add one finished unit: its transaction-open wait and its hold time, both in seconds."""
+        with self._lock:
+            self.units += 1
+            self.db_seconds += held
+            self.db_wait_seconds += wait
+            if writable:
+                self.write_units += 1
+                self.db_write_seconds += held
+            else:
+                self.read_units += 1
+                self.db_read_seconds += held
 
 
 def storage_error(exc: sqlite3.Error) -> DomainError:
@@ -362,12 +401,11 @@ class Database:
             ACTIVE_ASSEMBLY.reset(catalog_token)
             self._release(connection, healthy=healthy)
             ended = time.monotonic()
-            wait = (acquired or ended) - started
+            wait = (ended if acquired is None else acquired) - started
             held = ended - acquired if acquired is not None else 0
             timing = REQUEST_TIMING.get()
             if timing is not None:
-                timing.db_seconds += held
-                timing.units += 1
+                timing.record(writable=writable, wait=wait, held=held)
             if wait >= .25 or held >= .25 or outcome == 'busy':
                 name, request_id, job_id, receipt_id = OBSERVATION.get()
                 resolved_operation = operation or name

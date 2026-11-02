@@ -10,6 +10,12 @@ from .ports import ABSENT
 
 EASTERN = ZoneInfo('America/New_York')
 
+# The one owner selection of the notification tick; the read-only preflight and the transaction share this text.
+ACTIVE_OWNERS_SQL = """SELECT DISTINCT p.id FROM principals p
+    WHERE p.active=1 AND p.kind='human' AND (EXISTS(SELECT 1 FROM business_memberships m
+    WHERE m.principal_id=p.id AND m.active=1 AND m.is_owner=1) OR EXISTS(
+    SELECT 1 FROM installation i WHERE i.owner_principal_id=p.id))"""
+
 
 def instant(value):
     return datetime.fromisoformat(value.replace('Z', '+00:00')).astimezone(timezone.utc)
@@ -75,20 +81,46 @@ class SignoffNotifications:
         uow.connection.execute('''INSERT OR IGNORE INTO signoff_notifications(id,owner_id,delivery_key,kind,signoff_ids_json,created_at)
             VALUES(?,?,?,?,?,?)''', (new_id(),owner,key,kind,json.dumps([r['id'] for r in rows]),now))
 
+    def _may_have_due_work(self, current, eastern):
+        """Read-only and conservative: whether the tick below could deliver or schedule anything at this instant.
+
+        Only the stored attention state, the clock and the owners' summary schedule are consulted. Visibility, management
+        routing and each owner's scopes are not evaluated here because they can only narrow what the tick does, so a false
+        positive merely enters the authoritative path and a false negative cannot happen. Anything unreadable counts as work.
+        """
+        with self.database.read() as uow:
+            try:
+                for a in uow.connection.execute("""SELECT a.urgent,a.blocking,a.next_notify_at,a.snoozed_until
+                        FROM signoff_attention a JOIN signoffs s ON s.id=a.signoff_id
+                        WHERE a.notify=1 AND s.state='pending' AND s.superseded_by_id IS NULL"""):
+                    if a['snoozed_until'] and instant(a['snoozed_until']) > current:
+                        continue
+                    if (a['urgent'] or a['blocking']) and a['next_notify_at'] and instant(a['next_notify_at']) <= current:
+                        return True
+            except (ValueError, TypeError, AttributeError):
+                return True
+            if eastern.hour >= 8:
+                date = eastern.date().isoformat()
+                # Any selected owner without today's schedule entry may need one, even when no notification results.
+                for _, last_summary_date in uow.connection.execute(f"""SELECT o.id,(SELECT s.last_summary_date
+                        FROM signoff_notification_schedule s WHERE s.owner_id=o.id) FROM ({ACTIVE_OWNERS_SQL}) o"""):
+                    if last_summary_date is None or last_summary_date < date:
+                        return True
+        return False
+
     def tick(self):
         now = stamp(instant(self.service.clock()))
         current = instant(now)
         eastern = current.astimezone(EASTERN)
+        if not self._may_have_due_work(current, eastern):
+            return
         # signoff_notifications/signoff_notification_schedule have no capture
         # trigger; an explicit operation is the only way the host change feed's
         # coarse "signoffs" kind learns a new delivery exists, since these
         # writes are not routed through Application.invoke().
         with self.database.transaction(operation="signoffs_notification_tick") as uow:
             self.service.app.ensure_writes_open(uow)
-            owners = [r[0] for r in uow.connection.execute("""SELECT DISTINCT p.id FROM principals p
-                WHERE p.active=1 AND p.kind='human' AND (EXISTS(SELECT 1 FROM business_memberships m
-                WHERE m.principal_id=p.id AND m.active=1 AND m.is_owner=1) OR EXISTS(
-                SELECT 1 FROM installation i WHERE i.owner_principal_id=p.id))""")]
+            owners = [r[0] for r in uow.connection.execute(ACTIVE_OWNERS_SQL)]
             due = set()
             for owner in owners:
                 context = self.service.app.policy.context_for(owner, business_id=None, review_business_id=None, uow=uow)
