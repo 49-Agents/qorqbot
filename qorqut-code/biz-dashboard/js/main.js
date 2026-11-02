@@ -7,7 +7,7 @@
 if (agentWorkspaceEmbedded()) {
   window.agentWorkspaceReady = agentWorkspaceBootEmbedded();
 } else {
-agentWorkspaceMenuMount();
+agentWorkspaceShellStart();
 onChange(['action_logs', 'signoffs', 'jobs_routines'], null, refreshSide);
 setInterval(refreshSide, 60000);
 onChange(['jobs_routines'], null, () => { if (rtGlobal() && rtVisible()) rtRefresh(); });

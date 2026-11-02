@@ -7,7 +7,7 @@ let globalFilingCostsGeneration = 0;
 const FILING_COST_FORMAT = 'qorqut-context-usage-v1';
 const FILING_COST_PAGE_LIMIT = 10;
 const FILING_COST_UNAVAILABLE = 'Unavailable';
-const filingCostCall = async args => coreData(await post('/root/operations/context_filing_costs', args));
+const filingCostCall = async (args, signal) => coreData(await post('/root/operations/context_filing_costs', args, {signal}));
 
 // Decimal text from the backend is shown as text: no binary floating-point round trip, a recorded zero stays a zero and a
 // sub-cent charge keeps every digit. Anything that is not plain decimal text (null, missing, invalid) is Unavailable.
@@ -67,12 +67,11 @@ function filingCostAggregates(aggregates, coverage, period) {
 }
 
 // The Costs page's Context usage section.
-async function filingCostsMount(c) {
+async function filingCostsMount(c, life) {
   const generation = ++globalFilingCostsGeneration;
   let cursor = null, selection = 0, requestSequence = 0, loading = false, range = {};
   let calls = new Map(), aggregates = null, coverage = null;
-  const current = () => generation === globalFilingCostsGeneration && c.isConnected
-    && state.scope === 'global' && state.globalTab === 'costs';
+  const current = () => generation === globalFilingCostsGeneration && c.isConnected && costsPageActive(life);
   c.innerHTML = `<header class="costs-subhead filing-costs-heading"><div><h2>Context usage</h2></div>
       <label>Period<select id="filing-cost-period" class="inp"><option value="month">This month</option><option value="all">All time</option></select></label>
     </header>
@@ -110,7 +109,7 @@ async function filingCostsMount(c) {
     }
     more.disabled = true;
     try {
-      const result = await filingCostCall({...range, limit:FILING_COST_PAGE_LIMIT, ...(cursor ? {cursor} : {})});
+      const result = await filingCostCall({...range, limit:FILING_COST_PAGE_LIMIT, ...(cursor ? {cursor} : {})}, life?.signal);
       // A response for an earlier period, an earlier request or a Costs view that is gone never paints.
       if (!current() || mySelection !== selection || mine !== requestSequence) return;
       if (!filingCostIsPage(result)) throw new Error('The Context usage response is not in the expected format');

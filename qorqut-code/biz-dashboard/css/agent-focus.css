@@ -231,3 +231,7 @@
 .focus-signoff-chip .attention-signoff{width:13px;height:13px;border:0;border-radius:0}
 .focus-signoff-chip svg{width:13px;height:13px}
 .agfocus .agfocus-thread-context [data-manage]{font-size:11px;padding:0;border:0;background:none;margin:0 0 6px;color:var(--fg-2)}
+
+/* Fixed Browser/Desktop pair, a quiet divider, then the scrolling Viewbox queue. */
+.agfocus-fixed{display:flex;align-items:center;gap:6px;flex:none}
+.agfocus-divider{flex:none;align-self:center;width:1px;height:30px;margin:0 2px;background:var(--line-2);pointer-events:none}

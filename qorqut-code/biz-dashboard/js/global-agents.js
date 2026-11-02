@@ -107,7 +107,6 @@ async function agentProfileOpen(agentId) {
   if (!await globalAgentsNavigate(agentId).catch(() => false)) await selectGlobal('agents');
 }
 async function renderGlobalAgents(c) {
-  if (typeof agentWorkspaceMenuPlace === 'function') agentWorkspaceMenuPlace();
   const generation = ++globalAgentsGeneration;
   const current = () => generation === globalAgentsGeneration && c.isConnected
     && state.scope === 'global' && state.globalTab === 'agents';
@@ -225,20 +224,25 @@ async function renderGlobalAgents(c) {
   if (!request && !linkedAgent && !linkedFocus) request = agentWorkspaceRehydrate();
   const remembered = request?.agentId || linkedAgent || (linkedFocus ? agents.find(a => a.role?.id === 'ordubashy')?.agent_id : ls('ag:scope:global'));
   const target = globalWorkspaceTerminal(remembered) ? GLOBAL_WORKSPACE_TERMINAL : agents.find(a => a.agent_id === remembered);
-  // A redirected Context or Tables URL never falls back to another agent's content.
-  if (request && (!target || (!fresh && target.role?.id !== AGENT_PANE_DESCRIPTOR_ROLES[request.view]))) {
+  // A stored Business descriptor for an agent whose pane no longer offers it opens the shared Tables for a table selection,
+  // and is otherwise dropped, leaving the agent on its own default view.
+  if (request?.view === 'business' && target && !agentWorkspaceDescriptorRole('business', target.role?.id)) {
+    if (request.section === 'tables' || request.table) globalThis.ovOpen?.('tables', '', ['scope', 'table', 'mode', 'department', 'purpose'].some(key => request[key])
+      ? {scope: request.scope, id: request.table, mode: request.mode, department: request.department, purpose: request.purpose} : null);
+    agentWorkspaceStore(null);
+    request = null;
+  }
+  // A redirected Context URL never falls back to another agent's content.
+  if (request && (!target || (!fresh && !agentWorkspaceDescriptorRole(request.view, target.role?.id)))) {
     c.innerHTML = `<section class="pane global-content"><div class="global-eyebrow">Global</div><h1>Agents</h1><p role="alert">${esc(GLOBAL_AGENT_UNAVAILABLE)}</p></section>`;
     return;
   }
   // A saved or linked agent that is no longer an active global opens nothing of its own.
   if (remembered && !target) toast(GLOBAL_AGENT_UNAVAILABLE);
-  // ?workspace= links translate at this boundary: Calendar is a drawer tab, Tables the Ordubashy Business management section.
+  // ?workspace= links translate at this boundary: Calendar and Tables are drawer tabs (Tables opens Global's list).
   let linkedView = linkedWorkspace;
   if (linkedView === 'calendar') { linkedView = null; globalThis.ovOpen?.('calendar'); }
-  else if (linkedView === 'tables') {
-    linkedView = null;
-    if (!request && target?.role?.id === 'ordubashy') request = {agentId: target.agent_id, view: 'business', section: 'tables', route: ''};
-  }
+  else if (linkedView === 'tables') { linkedView = null; globalThis.ovOpen?.('tables', '', {scope: 'global'}); }
   agentWorkspaceRequest = request;
   agentWorkspaceApplied = JSON.stringify(request || null);
   select(target || agents.find(a => a.role?.id === 'ordubashy') || agents[0] || GLOBAL_WORKSPACE_TERMINAL, request?.view || linkedView);

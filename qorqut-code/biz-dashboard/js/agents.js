@@ -13,7 +13,6 @@ function wireAgentNavToggle(c, scope) {
     root.classList.toggle('nav-off', hidden);
     button.setAttribute('aria-expanded', String(!hidden));
     button.setAttribute('aria-label', hidden ? 'Show agent navigation' : 'Hide agent navigation');
-    if (typeof agentWorkspaceMenuPlace === 'function') agentWorkspaceMenuPlace(c);
   };
   set(ls(agentNavKey(scope)) === '1');
   button.onclick = () => { const hidden = !root.classList.contains('nav-off'); set(hidden); root._agentPaneDividerRefresh?.(); ls(agentNavKey(scope), hidden ? '1' : '0'); };

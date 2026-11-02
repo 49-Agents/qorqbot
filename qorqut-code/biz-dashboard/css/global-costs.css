@@ -71,3 +71,15 @@ button.costs-jump:hover { background:none; color:var(--fg); transform:none; text
   .costs-expenses-table .costs-row > span:nth-child(3), .costs-expenses-table .costs-row > span:nth-child(4) { display:none; }
   .costs-subhead { align-items:flex-start; flex-direction:column; }
 }
+
+/* The shared drawer: wide tables scroll inside their own box, so neither the drawer nor the document gains a horizontal scrollbar. */
+.ov-costs .global-costs { max-width:none; }
+.ov-costs .global-eyebrow { display:none; }
+.ov-costs .costs-pnl { padding:14px 12px; }
+.ov-costs .costs-pnl-stats { flex-wrap:wrap; gap:12px 20px; }
+.ov-costs .costs-pnl-stats dd { font-size:16px; }
+.ov-costs .costs-readout { flex-basis:100%; margin-left:0; }
+.ov-costs .costs-subhead { align-items:flex-start; flex-direction:column; }
+.ov-costs .costs-table, .ov-costs .subscriptions-table { overflow-x:auto; }
+.ov-costs .costs-row, .ov-costs .subscriptions-row { min-width:480px; }
+.ov-costs .costs-subtables { gap:28px; margin-top:28px; }

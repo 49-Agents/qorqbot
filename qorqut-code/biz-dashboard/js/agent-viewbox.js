@@ -328,13 +328,46 @@ function agviewboxBack(p, toList = false) {
 const AGVB_SURFACES = [['browser', 'Browser'], ['desktop', 'Desktop']];
 const agvbSurfaceIcon = name => (typeof T_VIEW_ICON === 'object' && T_VIEW_ICON[name]) || '';
 
+// Owner dismissal of exact queue placements (attention_id). The server keeps the durable preference; this per-agent
+// state outlives a pane switch so an in-flight save still hides the placement for a re-mounted strip and its result is not lost.
+const AGVB_DISMISS_TIMEOUT_MS = 15000;
+const agvbDismissals = new Map();
+function agvbDismissState(agentId) {
+  if (!agvbDismissals.has(agentId)) agvbDismissals.set(agentId, { saved: new Set(), pending: new Set(), writes: Promise.resolve() });
+  return agvbDismissals.get(agentId);
+}
+// The saved list must be an array of strings; anything else is an invalid board response.
+function agvbDismissedIds(value) {
+  if (!Array.isArray(value) || !value.every(id => typeof id === 'string')) throw new Error('Viewbox response has invalid dismissals');
+  return value;
+}
+// One additive write per agent at a time, each bounded by its own abort; a failure never blocks the next write.
+function agvbDismissSave(agentId, attentionId) {
+  const state = agvbDismissState(agentId);
+  const run = async () => {
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), AGVB_DISMISS_TIMEOUT_MS);
+    try {
+      const data = coreData(await post(`/root/agents/${encodeURIComponent(agentId)}/viewbox/dismiss`, { attention_id: attentionId }, { signal: controller.signal }));
+      if (data.agent_id !== agentId || !agvbDismissedIds(data.dismissed_attention_ids).includes(attentionId)) throw new Error('Dismissal response does not match');
+      for (const id of data.dismissed_attention_ids) state.saved.add(id);
+    } finally { clearTimeout(timer); state.pending.delete(attentionId); }
+  };
+  const result = state.writes.then(run, run);
+  state.writes = result.catch(() => {});
+  return result;
+}
+
 function agviewboxSurfacesMount(p, host) {
   if (!host || !p.agentId) return null;
   const strip = { agentId: p.agentId, abort: null, pending: false, next: 0, items: null, error: false, signature: null, dead: false, discovery: 'checking', surfaces: null };
   host.setAttribute('aria-label', 'Browser, Desktop and Viewbox');
-  host.innerHTML = `<div class="attention-stack agfocus-surfaces">${AGVB_SURFACES.map(([view, label]) =>
-    `<button type="button" class="attention-chip agfocus-surface-chip" data-focus-surface="${view}" aria-disabled="true">${agvbSurfaceIcon(view)}<span class="attention-label">${label}</span></button>`).join('')}
-    <div class="agfocus-surface-board" role="list" aria-label="Viewbox"></div></div>`;
+  host.innerHTML = `<div class="attention-stack agfocus-surfaces"><div class="agfocus-fixed" role="group" aria-label="Browser and Desktop">${AGVB_SURFACES.map(([view, label]) =>
+    `<button type="button" class="attention-chip agfocus-surface-chip" data-focus-surface="${view}" aria-disabled="true">${agvbSurfaceIcon(view)}<span class="attention-label">${label}</span></button>`).join('')}</div>
+    <span class="agfocus-divider" aria-hidden="true"></span>
+    <div class="agfocus-surface-board" role="group" aria-label="Viewbox"></div></div>`;
+  const dismissals = agvbDismissState(strip.agentId);
+  const hidden = item => !!item.attention_id && (dismissals.saved.has(item.attention_id) || dismissals.pending.has(item.attention_id));
+  const visibleItems = () => strip.items && strip.items.filter(item => !hidden(item));
   const board = $('.agfocus-surface-board', host);
   // A launcher is enabled only by this agent's own resolved browser-surface binding (the existing cached discovery),
   // within the scope discovery covers; Desktop is also limited to Ordubashy. Pending, failed and empty read differently.
@@ -378,16 +411,35 @@ function agviewboxSurfacesMount(p, host) {
     p.viewboxOpen = id; p.viewboxSeed = strip.items;
     agpadSetView(p, 'viewbox');
   };
+  // Right-click (or the context-menu key) dismisses only a Viewbox queue placement; the fixed launchers are never touched.
+  host.oncontextmenu = event => {
+    const chip = event.target.closest?.('[data-viewbox-item]');
+    const item = chip && board.contains(chip) ? strip.items?.find(entry => entry.id === chip.dataset.viewboxItem) : null;
+    if (!item?.attention_id || item.attention_id !== chip.dataset.attentionId || hidden(item)) return;
+    event.preventDefault();
+    const siblings = [...board.querySelectorAll('[data-viewbox-item]')], at = siblings.indexOf(chip);
+    const refocus = document.activeElement === chip ? (siblings[at + 1] || siblings[at - 1])?.dataset.viewboxItem || '' : null;
+    dismissals.pending.add(item.attention_id);
+    paint();
+    if (refocus !== null) (refocus && board.querySelector(`[data-viewbox-item="${CSS.escape(refocus)}"]`) || host.querySelector('[data-focus-surface]'))?.focus({ preventScroll: true });
+    agvbDismissSave(strip.agentId, item.attention_id).then(() => { if (!strip.dead) paint(); }, () => {
+      // Only this placement comes back, and only if it is still on the current board; a refresh settles an ambiguous timeout.
+      if (typeof toast === 'function') toast(`Could not dismiss “${item.title}”. Right-click it again to retry.`);
+      if (strip.dead) return;
+      paint(); strip.next = 0; void refresh();
+    });
+  };
   const paint = () => {
-    const signature = `${agvbSignature(strip.items)}|${strip.items ? 1 : 0}|${strip.error ? 1 : 0}`;
+    const items = visibleItems();
+    const signature = `${agvbSignature(items)}|${items ? 1 : 0}|${strip.error ? 1 : 0}`;
     if (signature === strip.signature) return;
     strip.signature = signature;
     const scroll = board.scrollLeft, focused = document.activeElement?.closest?.('[data-viewbox-item]')?.dataset.viewboxItem;
-    board.innerHTML = (strip.items || []).map(item => {
+    board.innerHTML = (items || []).map(item => {
       const label = AGVB_KIND_LABEL[item.kind];
-      return `<button type="button" role="listitem" class="attention-chip agfocus-surface-chip" data-viewbox-item="${esc(item.id)}" data-kind="${esc(item.kind)}"
-        title="${esc(`${item.title}\n${label}`)}" aria-label="${esc(`${item.title}, ${label}`)}"><span class="attention-viewbox" aria-hidden="true">${AGVB_ICON[item.kind]}</span><span class="attention-label">${esc(item.title)}</span></button>`;
-    }).join('') + (!strip.items?.length ? `<span class="attention-empty">${strip.error ? 'Viewbox unavailable' : strip.items ? '' : 'Loading Viewbox…'}</span>` : '');
+      return `<button type="button" class="attention-chip agfocus-surface-chip" data-viewbox-item="${esc(item.id)}" data-kind="${esc(item.kind)}"${item.attention_id ? ` data-attention-id="${esc(item.attention_id)}"` : ''}
+        title="${esc(`${item.title}\n${label}${item.attention_id ? '\nRight-click to dismiss' : ''}`)}" aria-label="${esc(`${item.title}, ${label}`)}"><span class="attention-viewbox" aria-hidden="true">${AGVB_ICON[item.kind]}</span><span class="attention-label">${esc(item.title)}</span></button>`;
+    }).join('') + (!items?.length ? `<span class="attention-empty">${strip.error ? 'Viewbox unavailable' : items ? '' : 'Loading Viewbox…'}</span>` : '');
     board.scrollLeft = scroll;
     if (focused) board.querySelector(`[data-viewbox-item="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
   };
@@ -400,7 +452,9 @@ function agviewboxSurfacesMount(p, host) {
       const data = coreData(await api(`/root/agents/${encodeURIComponent(strip.agentId)}/viewbox`, { signal: controller.signal }));
       if (strip.abort !== controller || strip.dead) return;
       if (data.agent_id !== strip.agentId || !Array.isArray(data.items)) throw new Error('Viewbox response does not match this agent');
+      const saved = agvbDismissedIds(data.dismissed_attention_ids);
       strip.items = data.items.map(agvbItem).filter(Boolean).slice(0, AGVB_LIMIT);
+      for (const id of saved) dismissals.saved.add(id);
       strip.error = false;
     } catch (_) {
       if (strip.abort !== controller || strip.dead) return;
@@ -412,7 +466,7 @@ function agviewboxSurfacesMount(p, host) {
   };
   strip.refresh = () => { if (strip.discovery === 'failed') discover(true); void refresh(); };
   strip.tick = () => { if (!strip.pending && Date.now() >= strip.next) void refresh(); };
-  strip.dispose = () => { strip.dead = true; strip.abort?.abort(); host.onclick = null; host.innerHTML = ''; };
+  strip.dispose = () => { strip.dead = true; strip.abort?.abort(); host.onclick = null; host.oncontextmenu = null; host.innerHTML = ''; };
   paint();
   discover(false);
   void refresh();

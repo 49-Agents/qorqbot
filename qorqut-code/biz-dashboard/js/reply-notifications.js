@@ -17,7 +17,6 @@ const replyNotifications=(()=>{
       if(!el){el=document.createElement('span');el.className='chat-unread-dot';host.appendChild(el);}
       el.setAttribute('role','img');el.setAttribute('aria-label',label);
     };
-    dot(document.querySelector('.ritem[data-global-tab="agents"]'),!!unreadChat(),'Unread agent chat');
     document.querySelectorAll('[data-global-agent]').forEach(row=>{
       const id=row.dataset.globalAgent;
       dot(row.querySelector('.nm'),!!unreadAgent(id),'Unread reply');
