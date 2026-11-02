@@ -1,0 +1,29 @@
+#!/bin/bash
+# Dedicated Outlook process on an existing remote desktop. DISPLAY must be supplied by the
+# service environment (for example Environment=DISPLAY=:N in the unit or a drop-in).
+set -euo pipefail
+umask 077
+: "${DISPLAY:?DISPLAY is required: set it in the service environment to the remote desktop display}"
+export DISPLAY
+export XAUTHORITY=/var/lib/remote-browser/.Xauthority
+export XDG_RUNTIME_DIR=/run/qorqut-outlook-browser
+export XDG_CONFIG_HOME=/var/lib/qorqut-outlook-browser/.config
+export XDG_CACHE_HOME=/var/lib/qorqut-outlook-browser/.cache
+export XDG_DATA_HOME=/var/lib/qorqut-outlook-browser/.local/share
+/usr/bin/dbus-update-activation-environment DISPLAY XAUTHORITY XDG_RUNTIME_DIR XDG_CONFIG_HOME XDG_CACHE_HOME XDG_DATA_HOME
+mkdir -p -m 0700 "$XDG_RUNTIME_DIR/keyring"
+/usr/bin/gnome-keyring-daemon --daemonize --components=secrets \
+  --control-directory="$XDG_RUNTIME_DIR/keyring" --unlock \
+  < "${CREDENTIALS_DIRECTORY:?systemd keyring credential is required}/keyring-password" >/dev/null
+for attempt in {1..60}; do
+  if /usr/bin/xdpyinfo >/dev/null 2>&1; then break; fi
+  sleep 1
+done
+/usr/bin/xdpyinfo >/dev/null
+exec /usr/bin/google-chrome-stable \
+  --user-data-dir=/var/lib/qorqut-outlook-browser/chrome-profile \
+  --remote-debugging-address=127.0.0.1 --remote-debugging-port=9226 \
+  --no-first-run --no-default-browser-check \
+  --disable-dev-shm-usage --disable-session-crashed-bubble --disable-extensions --disable-gpu \
+  --window-size=1440,900 --start-maximized \
+  https://outlook.cloud.microsoft/mail/

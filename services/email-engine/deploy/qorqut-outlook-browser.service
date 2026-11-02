@@ -1,0 +1,29 @@
+[Unit]
+Description=Dedicated Outlook Chrome for email execution
+Requires=remote-browser.service
+After=remote-browser.service network-online.target
+PartOf=remote-browser.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=qorqut
+Group=qorqut
+# Required: the remote desktop display this browser attaches to; the session script refuses to
+# start without it, for example Environment=DISPLAY=:N (set it here or in a drop-in).
+#Environment=DISPLAY=
+WorkingDirectory=/var/lib/qorqut-outlook-browser
+StateDirectory=qorqut-outlook-browser
+StateDirectoryMode=0700
+RuntimeDirectory=qorqut-outlook-browser
+RuntimeDirectoryMode=0700
+LoadCredential=keyring-password:/etc/qorqut-email/outlook-browser-keyring-password
+UMask=0077
+ExecStart=/usr/bin/dbus-run-session -- /opt/qorqut-email/outlook-browser/session
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target
