@@ -1,6 +1,8 @@
 """One-time persistent installation and package-source migration primitives."""
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import hashlib
 import json
 import os
@@ -20,6 +22,8 @@ HELPERS = ["bazarlyk.bootstrap." + name for name in
 
 
 def validate_config(config):
+    if config.get('release_layout') == 'qorqut-v1.2':
+        raise ReleaseError('The v1 release lifecycle cannot operate on a v1.2 instance; use the explicit v1.2 commands')
     from importlib.resources import files
     from jsonschema import Draft202012Validator
     schema=json.loads(files('bazarlyk.release_worker').joinpath('installation.schema.json').read_text())
@@ -92,7 +96,7 @@ def unpack_wheel(wheel, target):
     return target
 
 
-def install_helpers(root, wheel, python, *, launcher_source, activate=False,reference=None):
+def install_helpers(root, wheel, python, *, launcher_source, activate=False,reference=None,lock_held=False):
     root, wheel = Path(root), Path(wheel)
     key = hashlib.sha256(wheel.read_bytes()).hexdigest()
     target = root / 'runtime/agent-tools' / key
@@ -100,7 +104,7 @@ def install_helpers(root, wheel, python, *, launcher_source, activate=False,refe
         raise ReleaseError('Persistent helper interpreter is missing or not executable')
     expected = {'format': 1, 'code': str(target / 'code'),
                 'python': str(python), 'modules': HELPERS, 'wheel_sha256': key, 'binding_protocol': 1}
-    with exclusion(root):
+    with (nullcontext() if lock_held else exclusion(root)):
         if reference:reference(target,python)
         if not (target / 'manifest.json').is_file():
             unpack_wheel(wheel, target / 'code')

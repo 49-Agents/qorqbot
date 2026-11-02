@@ -48,6 +48,13 @@ def build_parser() -> argparse.ArgumentParser:
     v12.add_argument("--destination", type=Path, required=True)
     v12_verify = commands.add_parser("v12-verify", help="verify an already prepared v1.2 release")
     v12_verify.add_argument("--release", type=Path, required=True)
+    cutover = commands.add_parser("v12-activate", help="activate an explicitly authorized, finally qualified migration")
+    cutover.add_argument("--selection", type=Path, required=True)
+    cutover.add_argument("--confirm-cutover", action="store_true")
+    cutoff = commands.add_parser("v12-cutoff", help="stop the exact reviewed old writers for an authorized final capture")
+    cutoff.add_argument("--selection", type=Path, required=True)
+    cutoff.add_argument("--record", type=Path, required=True)
+    cutoff.add_argument("--confirm-cutoff", action="store_true")
     plan = commands.add_parser("plan", help="resolve exact commits and freeze a plan")
     plan.add_argument("--manifest", type=Path, required=True)
     plan.add_argument("--records-root", type=Path, default=Path(".qorqut-releases"))
@@ -89,6 +96,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "v12-cutoff":
+            from .v12_cutover import cutoff
+            _json(cutoff(args.selection, args.record, confirm=args.confirm_cutoff))
+            return 0
+        if args.command == "v12-activate":
+            from .v12_cutover import activate
+            _json(activate(args.selection, confirm=args.confirm_cutover))
+            return 0
         if args.command == "v12-prepare":
             from .v12 import prepare
             _json(prepare(args.selection, args.destination))
