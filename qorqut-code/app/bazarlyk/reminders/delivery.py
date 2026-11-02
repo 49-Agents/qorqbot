@@ -46,8 +46,9 @@ def event_occurrence(row):
 
 
 def _own(payload, row, occurrence):
-    """Whether the service's payload is the one this exact event names: same occurrence, reminder and scope."""
-    return (isinstance(payload, dict) and payload.get("occurrence_id") == occurrence
+    """Whether the service's payload is the one this exact event names: same occurrence, reminder and scope. A payload that
+    reports its link as withdrawn (``link_available`` false) is never treated as authorized."""
+    return (isinstance(payload, dict) and payload.get("link_available") is not False and payload.get("occurrence_id") == occurrence
             and payload.get("reminder_id") == row["source_id"] and payload.get("business_id") == row["business_id"])
 
 
@@ -138,9 +139,10 @@ class ReminderDelivery:
         recipient, occurrence = payload["recipient_id"], payload["occurrence_id"]
         ctx = self.recipient_context(uow, recipient)
         try:
-            if ctx is None or self.service.visible_occurrence(ctx, uow, occurrence) is None:
-                return None
+            visible = self.service.visible_occurrence(ctx, uow, occurrence) if ctx is not None else None
         except DomainError:
+            return None
+        if visible is None or visible.get("link_available") is False:
             return None
         event_id, stale = self.outstanding(uow, recipient, payload["reminder_id"], occurrence)
         if event_id is None:

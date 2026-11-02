@@ -78,6 +78,11 @@ SIGNOFF_INDEX_FIELDS = ("id", "review_scope", "proposal_revision", "status_revis
     "attention", "job_id", "outcome", "created_at", "updated_at", "supersedes_id", "superseded_by_id")
 INBOX_EVENT_FIELDS = ("id", "source_type", "source_id", "event_type", "summary", "created_at",
     "business_id", "business_slug", "actor_name", "message", "source")
+# A reminder event's compact pointer: the identities the reminder operations take back, the due time, the explicit urgency and
+# the recipient-authorized link. The text is already the event summary.
+REMINDER_POINTER_FIELDS = ("reminder_id", "occurrence_id", "revision", "due_at", "time_critical", "business_id")
+REMINDER_LINK_FIELDS = ("type", "id", "business_id")
+REMINDER_VALUE_LIMIT = 200
 MESSAGE_ITEM_FIELDS = ("id", "event_id", "thread_id", "reply_to", "sender_id", "sender_name",
     "recipient_id", "recipient_name", "current_sender_id", "current_sender_name", "current_recipient_id",
     "current_recipient_name", "counterpart_id", "body", "summary", "created_at", "acknowledged_at", "outcome",
@@ -103,6 +108,18 @@ def message_item(value):
             item.pop(f"current_{side}_id", None)
             item.pop(f"current_{side}_name", None)
     return item
+
+
+def reminder_item(value):
+    """Bounded reminder pointer of an inbox event; nothing the service did not already authorize for the recipient."""
+    def bounded(fields, source):
+        return {key: (item[:REMINDER_VALUE_LIMIT] if isinstance(item, str) else item)
+                for key, item in select(source, fields).items()}
+
+    pointer = bounded(REMINDER_POINTER_FIELDS, value)
+    if isinstance(value.get("linked_item"), dict):
+        pointer["linked_item"] = bounded(REMINDER_LINK_FIELDS, value["linked_item"])
+    return pointer
 
 
 class _TextDumper(yaml.SafeDumper):
@@ -518,6 +535,9 @@ def present(name, value, detail="compact", *, tool_names=None, sections=None, ar
     def message_view(item):
         return {"message": message_item(item["message"])} if isinstance(item.get("message"), dict) else {}
 
+    def inbox_view(item):
+        return {**message_view(item), **({"reminder": reminder_item(item["reminder"])} if isinstance(item.get("reminder"), dict) else {})}
+
     def session_views(item):
         if not isinstance(item.get("sessions"), list):
             return {}
@@ -561,7 +581,7 @@ def present(name, value, detail="compact", *, tool_names=None, sections=None, ar
             signoff["preview"] = {**preview, "changes": [preview_change(item) for item in preview["changes"]]}
         data["signoff"] = signoff
     elif name == "inbox_list":
-        rows("items", INBOX_EVENT_FIELDS, message_view)
+        rows("items", INBOX_EVENT_FIELDS, inbox_view)
     elif name == "agents_messages_list" and isinstance(data.get("items"), list):
         data["items"] = [message_item(item) if isinstance(item, dict) else item for item in data["items"]]
     elif name == "agents_activity_list":
