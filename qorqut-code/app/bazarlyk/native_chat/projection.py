@@ -98,8 +98,8 @@ def internal_notification(body: Any) -> bool:
 
 def unwrap_claude_paste(text):
     # Claude's expanded paste representation is provider chrome around the full input.
-    # Accept only an entire single wrapper with matching IDs, never an embedded quotation.
-    match = re.fullmatch(r'\s*<pasted_content id="([0-9]+)">\n(.*?)\n</pasted_content id="\1">\s*',
+    # Accept only an entire single wrapper with matching IDs (decimal or hexadecimal), never an embedded quotation.
+    match = re.fullmatch(r'\s*<pasted_content id="([0-9a-fA-F]+)">\n(.*?)\n</pasted_content id="\1">\s*',
                              text, re.S)
     if match:
         return match.group(2)
