@@ -75,11 +75,6 @@ def _signoff_context(row):
     context = {'title': row['preview_json'].get('title'), 'explanation': row['preview_json'].get('explanation'),
                'proposal': row['preview_json'], 'category': row['category'],
                'proposal_revision': row['proposal_revision'], 'payload_hash': row['payload_hash']}
-    if row['category'] == 'platform_action':
-        from bazarlyk.domains.platform_actions.proposals import platform_view
-        submission = platform_view(row)['submission']
-        # Execution credentials and sender configuration are not learning input.
-        context['submission'] = {k: submission[k] for k in ('tool', 'why', 'payload') if k in submission}
     return context
 
 

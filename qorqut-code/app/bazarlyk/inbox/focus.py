@@ -72,15 +72,7 @@ class FocusService:
                 or not self.inbox.business_member(ctx, business, uow)):
             raise DomainError('not_found', 'Focus item is unavailable')
         selected = replace(ctx, business_id=business, review_business_id=business)
-        if item['type'] == 'email':
-            email = self.inbox.domains.email
-            # Ordubashy's Global mailbox is read through the Global email operation.
-            self.items.authorize(selected, 'email_conversation_get' if business is None else email.read_operation(selected), uow)
-            email.discussion_access(selected, uow)
-            row = email.conversation(uow, business, item['id'])
-            resolved = {'label': row['subject'], 'revision': row['revision'],
-                'resource_type': 'email_conversations', 'resource_id': item['id']}
-        elif (handler := self.inbox.sources.for_type(item['type'])) is not None and handler.reference is not None:
+        if (handler := self.inbox.sources.for_type(item['type'])) is not None and handler.reference is not None:
             resolved = handler.reference(self.inbox, ctx, item, business, uow)
         elif item['type'] == 'signoff':
             self.items.authorize(selected, 'signoffs_get', uow)

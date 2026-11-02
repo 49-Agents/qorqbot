@@ -1,4 +1,4 @@
-"""The private owner conversation with Ordubashy on one Task, Signoff, email conversation or Focus Reference.
+"""The private owner conversation with Ordubashy on one Task, Signoff or Focus Reference.
 
 Each source has one private channel: the installation owner and the registered Ordubashy, resolved from the stored
 identity (``private_participants``), never from a display name. The channel keeps the original owner/Ordubashy source key
@@ -8,8 +8,7 @@ that same Ordubashy and every other value is refused, so no request chooses a wo
 A row bound to any other ``peer_agent_id`` belongs to a retired per-worker channel. It is never readable, countable,
 deliverable, notified or replayed; every projection below reads the null-peer channel alone, so such a row can neither be
 disclosed nor leave an unread marker nobody can clear. The separately invoked maintenance in
-``bazarlyk.maintenance.private_peer_cleanup`` is the only thing that removes those rows. Team notes and private account
-mail are unchanged.
+``bazarlyk.maintenance.private_peer_cleanup`` is the only thing that removes those rows. Team notes are unchanged.
 """
 
 import json
@@ -24,8 +23,7 @@ from bazarlyk.management.identity import installation_owner, private_participant
 AUDIENCE = 'owner_ordubashy'
 EVENT_SOURCE = 'owner_conversations'
 EVENT_SUMMARY = 'Private message from the owner'
-BUSINESS_ONLY = {'email'}
-SOURCE = schema({'type': {'enum': ['task', 'signoff', 'email', 'reference']},
+SOURCE = schema({'type': {'enum': ['task', 'signoff', 'reference']},
                  'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
                  'business_id': {'type': ['string', 'null']}}, ('type', 'id'))
 # `agent_id` and `peer_role` only restate the one Ordubashy channel; any other value is refused (see `participants`).
@@ -35,8 +33,6 @@ FIELDS = {'agent_id': {'type': 'string', 'format': 'uuid'}, 'peer_role': {'enum'
 # whole inbox page that lists it.
 UNAVAILABLE = {'forbidden', 'not_found', 'policy_denied', 'validation_error', 'operation_unavailable',
                'management_unavailable', 'busy', 'document_unavailable', 'context_refresh_required'}
-EMAIL_READERS = ('email_conversation_get', 'email_conversations_list',
-                 'business_email_conversation_get', 'business_email_conversations_list')
 
 
 def source_key(kind, business_id, identity):
@@ -180,8 +176,6 @@ class PrivateConversations:
             if 'business_id' in source and named != ctx.business_id:
                 raise DomainError('validation_error', 'Source project must match the selected project')
             business = ctx.business_id
-        if kind in BUSINESS_ONLY and business is None:
-            raise DomainError('validation_error', 'Email threads belong to one project')
         if kind == 'reference' and business is not None:
             raise DomainError('validation_error', 'Focus References are Global; do not name a project')
         return business
@@ -209,7 +203,7 @@ class PrivateConversations:
     def namespace(self, ctx):
         return 'business:' + ctx.business_id if ctx.business_id else 'global'
 
-    def source_check(self, selected, kind, identity, uow, role='owner'):
+    def source_check(self, selected, kind, identity, uow):
         """Authorize the caller's canonical read of the bound object."""
         if kind == 'task':
             from qorqut_operations.tasks.scope import task_context
@@ -228,18 +222,8 @@ class PrivateConversations:
             if row['review_business_id'] != scoped.business_id:
                 raise DomainError('not_found', 'Select this signoff’s owning review scope')
             return
-        if kind == 'email':
-            email = getattr(self.domains, 'email', None)
-            if email is None:
-                raise DomainError('operation_unavailable', 'Email is not installed')
-            self.app.authorize(selected, self.app.registry.get(email.read_operation(selected)), (), uow,
-                               namespace=self.namespace(selected))
-            if role == 'coordinator':
-                self.coordinator_email_access(email, selected, uow)
-            else:
-                email.discussion_access(selected, uow)
-            email.conversation(uow, selected.business_id, identity)
-            return
+        if kind != 'reference':
+            raise DomainError('validation_error', 'This conversation source is no longer available')
         board = getattr(self.app, 'attention', None)
         if board is None:
             raise DomainError('operation_unavailable', 'Owner attention is not installed')
@@ -250,26 +234,6 @@ class PrivateConversations:
         if row['source_json'] is not None or row['context_json'] is not None:
             raise DomainError('validation_error', 'This card is bound to a source; discuss it under that source')
 
-    def coordinator_email_access(self, email, selected, uow):
-        """The private coordinator's email read, without the Codex-only gate.
-
-        `EmailOperations.discussion_access` resolves the management coordinator,
-        which is registered Codex-only, so the private channel cannot borrow it
-        without losing its runtime independence. The same active-membership,
-        registered-scope and explicit-deny conditions are checked here instead;
-        the shared email authority itself is untouched for its other callers.
-        """
-        resolver = getattr(email, 'resolver', None)
-        if resolver is None:
-            raise DomainError('operation_unavailable', 'Email is not installed')
-        profile, _ = resolver.profile(selected.principal, connection=uow.connection)
-        if not (profile.data['status'] == 'active' and selected.business_id in profile.scope.businesses
-                and selected.business_id in selected.allowed_business_ids):
-            raise DomainError('forbidden', 'Email is outside this active project membership')
-        overrides = profile.data.get('tool_policy', {}).get('overrides', {})
-        if any(overrides.get(name) == 'deny' for name in EMAIL_READERS):
-            raise DomainError('forbidden', 'Email read access was explicitly denied')
-
     def resolve(self, ctx, args, uow):
         """One place for the pair ACL, the effective scope and the source read."""
         ctx = self.app.current_context(ctx, uow)
@@ -277,7 +241,7 @@ class PrivateConversations:
         source = plain(args['source'])
         business = self.effective_business(ctx, source)
         selected = self.select(ctx, business, uow)
-        self.source_check(selected, source['type'], source['id'], uow, role)
+        self.source_check(selected, source['type'], source['id'], uow)
         return role, {'type': source['type'], 'id': source['id'], 'business_id': business}
 
     def readable(self, ctx, conversation_id, uow):
@@ -296,7 +260,7 @@ class PrivateConversations:
             # authorization below as a separate requirement.
             self.app.authorize(selected, self.app.registry.get('owner_conversation_get'), (), uow,
                                namespace=self.namespace(selected))
-            self.source_check(selected, row['source_type'], row['source_id'], uow, 'coordinator')
+            self.source_check(selected, row['source_type'], row['source_id'], uow)
             return True
         except DomainError as error:
             if error.code in UNAVAILABLE:

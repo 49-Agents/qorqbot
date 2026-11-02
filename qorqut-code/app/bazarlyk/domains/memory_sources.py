@@ -3,17 +3,17 @@ from qorqut_operations.contracts import DomainError, canonical_hash
 from qorqut_operations.application.plans import timestamp, utc_clock
 
 MAX_CHILDREN = 200
-SOURCE_TYPES = ("task", "document", "signoff", "email")
+SOURCE_TYPES = ("task", "document", "signoff")
 
 
 class MemorySources:
-    def __init__(self, application, store, email, *, clock=utc_clock):
-        self.app, self.store, self.email = application, store, email
+    def __init__(self, application, store, *, clock=utc_clock):
+        self.app, self.store = application, store
         self.clock = clock
 
     def authorize(self, ctx, operation, uow):
         descriptor = self.app.registry.get(operation)
-        args = {'scope': 'global'} if ctx.business_id is None and operation.startswith(('signoffs_', 'email_')) else {}
+        args = {'scope': 'global'} if ctx.business_id is None and operation.startswith('signoffs_') else {}
         self.app.authorize(ctx, descriptor, (), uow, namespace=self.app.namespace(ctx, descriptor, args))
         if operation.startswith('tasks_'):
             from qorqut_operations.tasks.scope import task_context
@@ -28,9 +28,8 @@ class MemorySources:
     def observe(self, ctx, source, uow):
         kind, identity = source['type'], source['id']
         tables = {'task': 'tasks', 'document': 'documents',
-                  'signoff': 'signoffs', 'email': 'email_conversations'}
-        operations = {'task': 'tasks_get', 'signoff': 'signoffs_get',
-                      'email': 'email_conversation_get'}
+                  'signoff': 'signoffs'}
+        operations = {'task': 'tasks_get', 'signoff': 'signoffs_get'}
         if kind not in tables:
             raise DomainError('validation_error', 'Unsupported working-memory source type')
         if kind != 'document':
@@ -60,11 +59,8 @@ class MemorySources:
                 if row['metadata_json'].get('working_memory_id'):
                     raise DomainError('not_found', 'Migrated plans use private memory access')
             elif row['kind'] == 'email_message':
-                operation = 'email_conversation_get'
-                self.email.access(ctx, uow)
-                message = uow.repository('email_messages', business_id=ctx.business_id).get(row['metadata_json'].get('message_id'))
-                if not message or message['deleted']:
-                    raise DomainError('not_found', 'Email is no longer available')
+                # A historical mail document: mail now lives with the user's mail provider, not in this installation.
+                raise DomainError('not_found', 'Email is no longer available')
             else:
                 from .documents.library import ContextLibrary
                 if not ContextLibrary.eligible(row):
@@ -96,12 +92,6 @@ class MemorySources:
                 (ctx.business_id, identity))
             cfg = uow.repository('business_configs', business_id=ctx.business_id).get('tasks')
             token['task_config_revision'] = cfg['revision'] if cfg else None
-        elif kind == 'email':
-            self.email.access(ctx, uow)
-            token['messages'] = self.bounded(uow,
-                'SELECT id,revision,deleted FROM email_messages WHERE business_id IS ? AND conversation_id=? ORDER BY id',
-                (ctx.business_id, identity))
-            summary['title'] = str(row.get('subject', 'Email conversation'))[:200]
         else:
             summary['state'] = row['state']
         return {**summary, 'token': canonical_hash(token), 'token_version': 1}

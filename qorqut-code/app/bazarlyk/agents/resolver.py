@@ -29,6 +29,8 @@ from .models import AgentProfile, EffectiveAgentConfig, RETIRED_ROLE_IDS
 from .roles import RETIRED_PLUGIN_IDS, SUPPORTED_GLOBAL_ROLES
 
 PROFILE_CACHE_LIMIT = 128
+# Private account capabilities: an operation declaring one is available only to a profile holding it.
+EXPLICIT_CAPABILITY_OPERATIONS = frozenset({"manage_calendar", "manage_fastmail"})
 
 
 def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, packages=()) -> list[dict]:
@@ -69,23 +71,10 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
         requirement = descriptor.plugin_requirement if descriptor else None
         if requirement and (requirement not in granted or metadata.name not in visible.get(requirement, ())):
             continue
-        if metadata.name in {"business_email_conversations_list", "business_email_conversation_get",
-                             "business_email_sync"} and visible.get("email-management"):
-            # Legacy coordinator spellings stay callable for open sessions but
-            # disappear from discovery once the canonical toolkit is granted.
-            continue
-        if (metadata.name in {"email_thread_update", "email_comment", "email_comments_list",
-                              "email_decision_request", "email_decision_replace", "email_approval_attention_set"}
-                and "email-management" not in granted and profile.scope.kind == "business"):
-            # Workflow ops belong to the one email toolkit for business agents;
-            # the ecosystem coordinator keeps its native inbox discovery.
-            continue
-        if metadata.name.startswith("calendar_") and "manage_calendar" not in profile.scope.global_capabilities:
-            mode = "deny"
-        if metadata.name.startswith("account_email_") and "manage_fastmail" not in profile.scope.global_capabilities:
-            # Ruling 2A: central defaults never grant alone. Account-scope
-            # spellings require the explicit Global account grant; the runtime
-            # account_authority gate additionally pins the configured Ordubashy.
+        if (descriptor and descriptor.global_capability in EXPLICIT_CAPABILITY_OPERATIONS
+                and descriptor.global_capability not in profile.scope.global_capabilities):
+            # Central defaults never grant alone: private account tools (calendar, an optional mail provider) need
+            # the explicit Global capability on the profile, whatever role default or provider default names them.
             mode = "deny"
         if (descriptor and descriptor.global_capability == "manage_delegated_assignments"
                 and "manage_delegated_assignments" not in profile.scope.global_capabilities):
@@ -470,10 +459,6 @@ class AgentConfigResolver:
             if handler is None:
                 raise DomainError("missing_plugin_handler", f"Granted plugin {plugin.id} has no trusted application handler")
             handler(plugin)
-            try:
-                self.registry.get("signoffs_platform_submit")
-            except DomainError as exc:
-                raise DomainError("missing_plugin_handler", f"Granted plugin {plugin.id} requires the installed signoffs_platform_submit handler") from exc
             packages.append(plugin)
         return tuple(packages)
 

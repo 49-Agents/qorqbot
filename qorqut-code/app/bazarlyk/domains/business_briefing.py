@@ -14,10 +14,10 @@ STUCK_AFTER = timedelta(hours=1)
 # Hard bound on the compact JSON answer; per-section caps keep it well below.
 MAX_CHARACTERS = 10000
 CAPS = {"context": 6, "blocked": 5, "active": 6, "paused": 3, "groups": 5, "routines": 5, "jobs": 3,
-        "signoffs": 5, "owner_tasks": 4, "done": 4, "agents": 6, "work": 3, "notes": 4, "email": 3}
+        "signoffs": 5, "owner_tasks": 4, "done": 4, "agents": 6, "work": 3, "notes": 4}
 DESCRIPTION = ("One bounded snapshot of a project: the shared published Context's revision and most connected nodes, "
     "open and blocked tasks, parent-Task work groups, routines and failed jobs, what waits on the owner, work done in the last 14 days, agent "
-    "activity, project note headlines, KPIs and email attention. Call it first when you start work "
+    "activity, project note headlines and KPIs. Call it first when you start work "
     "on a project; Global agents pass business_id. Sections you cannot read are marked unavailable; each "
     "section names the tool for details. Read-only; it never acknowledges inbox events.")
 
@@ -113,8 +113,7 @@ class _Briefing:
                   "as_of": timestamp(lambda: self.now), "window_days": WINDOW_DAYS}
         for key, build in (("context", self.context), ("open_work", self.open_work), ("work_groups", self.work_groups),
                            ("processes", self.processes), ("waiting_on_owner", self.waiting_on_owner),
-                           ("done_recently", self.done_recently), ("agents", self.agents), ("notes", self.notes),
-                           ("email", self.email)):
+                           ("done_recently", self.done_recently), ("agents", self.agents), ("notes", self.notes)):
             result[key] = self.section(key, build)
         if self.unavailable:
             result["unavailable"] = self.unavailable
@@ -244,7 +243,7 @@ class _Briefing:
 
             def kind(row):
                 if row["category"] == "input_request":
-                    return "email_decision" if row.get("email_context") else "question"
+                    return "question"
                 return "approval" if row["category"] == "platform_action" else "change"
             attention = lambda row: (not row["attention"].get("blocking"), not row["attention"].get("urgent"))
             result["pending_signoffs"] = listing["counts"].get("pending", len(rows))
@@ -328,23 +327,6 @@ class _Briefing:
         return {"items": [{"id": row["id"], "title": clip((row.get("metadata") or {}).get("title"), 80),
                            "updated": when(row.get("updated_at"))} for row in rows[:CAPS["notes"]]],
                 "more": "notes_list(target_business_id=..., tag=...); notes_get(document_id)"}
-
-    def email(self):
-        unassigned = self.call("business_email_conversations_list", {"unassigned": True, "limit": 200})
-        ranked = self.call("business_email_conversations_list", {"sort": "attention", "limit": 20})
-        levels = [(row, (row.get("controls") or {}).get("owner_attention_priority", "none")) for row in ranked["items"]]
-        flagged = [(row, level) for row, level in levels if level != "none"]
-        partial = bool(unassigned.get("next_cursor")) or bool(ranked.get("next_cursor")) and len(flagged) == len(levels)
-        counts = Counter(level for _, level in flagged)
-
-        def thread(row, level=None):
-            return compact({"id": row["id"], "subject": clip(row.get("subject"), 80), "priority": level,
-                            "last": when(row.get("last_message_at"))})
-        return compact({"unassigned": len(unassigned["items"]),
-            "owner_attention": {level: counts[level] for level in ("high", "normal", "low")}, "complete": not partial,
-            "attention_items": [thread(row, level) for row, level in flagged[:CAPS["email"]]],
-            "unassigned_items": [thread(row) for row in unassigned["items"][:CAPS["email"]]],
-            "more": "business_email_conversations_list(unassigned=true | sort=\"attention\")"})
 
 
 def bound(result):

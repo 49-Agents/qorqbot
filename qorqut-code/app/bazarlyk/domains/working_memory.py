@@ -26,10 +26,10 @@ def memory_id(agent_id, business_id):
 
 
 class WorkingMemory:
-    def __init__(self, application, documents, email, resolver, *, clock=utc_clock):
+    def __init__(self, application, documents, resolver, *, clock=utc_clock):
         self.app, self.store, self.resolver = application, documents.store, resolver
         self.clock = clock
-        self.sources = MemorySources(application, self.store, email, clock=clock)
+        self.sources = MemorySources(application, self.store, clock=clock)
 
     def register(self, registry):
         props = {**SELECTOR, 'version': VERSION,

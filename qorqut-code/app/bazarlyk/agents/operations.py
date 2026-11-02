@@ -38,7 +38,7 @@ MODE_RANK = {"deny": 0, "signoff": 1, "allow": 2}
 
 
 def published_email_management_pin(connection):
-    """Exact reference to the newest published email-management v2 artifact, or None."""
+    """Exact reference to the newest published email-management v3 artifact, or None."""
     return plugin_defaults.published_pin(connection, EMAIL_MANAGEMENT_PLUGIN_ID)
 
 
@@ -140,7 +140,7 @@ class AgentOperations:
         no capability is added that the manager does not hold. Plugin tools are not compared: a worker needs its own valid
         pin and keeps the plugin's own source and Signoff rules. The owner is exempt. Called when preparing, applying and
         executing a queued plan, each time against current profiles."""
-        if ctx.principal_kind != "agent" or operation == "plugins_enable_delegated" or profile.data["status"] != "active":
+        if ctx.principal_kind != "agent" or profile.data["status"] != "active":
             return
         if profile.role.id != roles.GLOBAL_WORKER_ROLE:
             raise DomainError("forbidden", "A manager agent can only configure global workers")
@@ -173,7 +173,7 @@ class AgentOperations:
     def _require_target_authority(self, ctx, operation, identity, uow):
         """Dev stays owner-only; an agent caller manages only an active global worker."""
         require_protected_control(uow, ctx.principal_id, ctx.principal_kind, [identity])
-        if ctx.principal_kind == "agent" and operation != "plugins_enable_delegated":
+        if ctx.principal_kind == "agent":
             require_worker_manager(ctx, uow, identity)
 
     def register(self, registry, application=None):
@@ -200,14 +200,12 @@ class AgentOperations:
             "agents_deactivate": ({"agent_id": UUID_SCHEMA}, ["agent_id"]),
             "permissions_set": ({"agent_id": UUID_SCHEMA, "overrides": PROFILE_SCHEMA["properties"]["tool_policy"]["properties"]["overrides"]}, ["agent_id", "overrides"]),
             "plugins_enable": ({"agent_id": UUID_SCHEMA, "plugin": PLUGIN_GRANT_SCHEMA}, ["agent_id", "plugin"]),
-            "plugins_enable_delegated": ({"agent_id": UUID_SCHEMA, "plugin": PLUGIN_GRANT_SCHEMA}, ["agent_id", "plugin"]),
             "plugins_disable": ({"agent_id": UUID_SCHEMA, "plugin_id": {"type": "string"}}, ["agent_id", "plugin_id"]),
         }
         for name, (properties, required) in mutations.items():
             registry.register(OperationDescriptor(name,
                 {"type": "object", "properties": {**properties, "rationale": {"type": "string", "maxLength": 2000}}, "required": required},
-                description=("Establish a supported global agent with ecosystem scope. The owner creates ordubashy or learning-applier (at most one active each) or any number of global-worker agents; retired roles cannot be registered or switched to; name, display_name and assignment_brief are required. Ordubashy creates global workers only: name and assignment_brief suffice, role defaults to the newest published global-worker, display_name to the name, runtime to Ordubashy's, and scope to ecosystem with shared-context read access; no plugins are granted unless selected. Projects have no resident agents. Every global reaches every active project; a saved allowed_business_ids list is ignored. When plugins is omitted, workers get none and other globals the email toolkit; an explicit list, even empty, replaces the defaults. Ordubashy can grant a worker only core permissions and capabilities he holds himself and never administrative powers; published plugins are selected independently and keep their own permission checks." if name == "agents_create" else
-                    "Scoped coordinator: apply an exact owner-defined mailbox_grant_delegations entry from business_config_get. Requires its exact plugin pin/config, recipient role and unexpired ceiling; no general capability or permission delegation. Use plugins_enable for a grant outside that ceiling." if name == 'plugins_enable_delegated' else ""),
+                description=("Establish a supported global agent with ecosystem scope. The owner creates ordubashy or learning-applier (at most one active each) or any number of global-worker agents; retired roles cannot be registered or switched to; name, display_name and assignment_brief are required. Ordubashy creates global workers only: name and assignment_brief suffice, role defaults to the newest published global-worker, display_name to the name, runtime to Ordubashy's, and scope to ecosystem with shared-context read access; no plugins are granted unless selected. Projects have no resident agents. Every global reaches every active project; a saved allowed_business_ids list is ignored. When plugins is omitted, only Ordubashy receives the published email-management guidance package and every other agent gets none; an explicit list, even empty, replaces the defaults. Ordubashy can grant a worker only core permissions and capabilities he holds himself and never administrative powers; published plugins are selected independently and keep their own permission checks." if name == "agents_create" else ""),
                 effect_kind="compound" if name == "agents_create" else "records", scope_kinds=frozenset({"business", "global"}),
                 global_capability="manage_ecosystem_agents",
                 resolve_namespace=self.mutation_namespace,
@@ -352,9 +350,6 @@ class AgentOperations:
         return {"content_hash": digest} if digest is not None else None
 
     def prepare(self, operation, ctx, args, options, uow):
-        if operation == 'plugins_enable_delegated':
-            from .delegation import require
-            require(self, ctx, args, uow)
         creating = operation == "agents_create"
         before, old = None, None
         default_selection = False
@@ -423,7 +418,7 @@ class AgentOperations:
                     values["scope"] = {**values["scope"], "allowed_business_ids": list(before.scope.allowed_business_ids)}
             elif operation == "permissions_set":
                 values["tool_policy"] = {"overrides": args["overrides"]}
-            elif operation in {"plugins_enable", "plugins_enable_delegated"}:
+            elif operation == "plugins_enable":
                 values["plugins"] = [item for item in values["plugins"] if item["id"] != args["plugin"]["id"]] + [args["plugin"]]
             elif operation == "plugins_disable":
                 values["plugins"] = [item for item in values["plugins"] if item["id"] != args["plugin_id"]]
@@ -517,7 +512,7 @@ class AgentOperations:
                 if next_plugins.get(plugin_id) in default_grants:
                     continue
                 child = "plugins_enable" if plugin_id in next_plugins else "plugins_disable"
-                if child != operation and not (operation == 'plugins_enable_delegated' and child == 'plugins_enable'):
+                if child != operation:
                     effects.append((child, "plugins." + plugin_id, previous_plugins.get(plugin_id), next_plugins.get(plugin_id)))
         for child, field, prior, after in effects:
             changes.append(PreparedChange("record", resource, "profile_effect", {"field": field, "before": prior, "after": after}, operation_name=child))
@@ -543,9 +538,6 @@ class AgentOperations:
 
     def validate_targets(self, ctx, plan, uow):
         from bazarlyk.catalog.packages import content_hash, relative_path
-        if plan.operation_name == 'plugins_enable_delegated':
-            from .delegation import require
-            require(self, ctx, plain(plan.arguments), uow)
         profile = AgentProfile.from_dict(plan.changes[0].values["profile"], self.resolver.registry)
         if plan.operation_name != "agents_create":
             self._require_target_authority(ctx, plan.operation_name, profile.agent_id, uow)

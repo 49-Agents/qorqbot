@@ -7,7 +7,7 @@ phases of ``PolicyRules`` exactly where v1 evaluated them:
 * ``before_override``: rules that decide before an agent's explicit override is consulted, either because they
   refuse it (Telegram roles, the Ordubashy-only user-input presentation, Global table archive, terminal control, owner-action
   proposals, ``learning-applier`` only operations, the Learning Applier-only Context question tools that follow the caller's current
-  ``context_edit`` decision) or because they read the override themselves (email aliases);
+  ``context_edit`` decision);
 * ``after_override``: standing core defaults that sit between the explicit override and the role default;
 * ``after_default``: core defaults that apply only when neither an override nor a role default names the operation.
 
@@ -18,11 +18,10 @@ human-owner and worker constraints stay in the evaluator's principal-aware resol
 
 from __future__ import annotations
 
-from qorqut_operations.contracts import PolicyDecision
+from qorqut_operations.contracts import DomainError, PolicyDecision
 from qorqut_operations.policy.rules import PolicyRules, resolve_operation_policy as evaluate
 
 from bazarlyk.agents.roles import LEARNING_APPLIER_ROLE, ORDUBASHY_ROLE
-from bazarlyk.domains.email.contract import DEFAULT_APPROVAL as EMAIL_DEFAULTS, LEGACY_ALIAS_TARGETS as EMAIL_LEGACY
 from bazarlyk.inbox.defaults import INBOX_OPERATIONS
 
 READS_AS_TASK = frozenset({"tasks_notes_list", "tasks_thread_get"})
@@ -134,15 +133,6 @@ def _context_questions(name, defaults, overrides, registry, *, role_id, scope, r
     return PolicyDecision("allow" if edit.mode == "allow" else "deny", "context_edit_authority")
 
 
-def _email_alias_overrides(name, defaults, overrides, registry, *, role_id, scope, resolve):
-    canonical_email = EMAIL_LEGACY.get(name, name)
-    aliases = {alias for alias, target in EMAIL_LEGACY.items() if target == canonical_email} | {canonical_email}
-    email_overrides = [overrides[alias] for alias in aliases if alias in overrides]
-    if canonical_email in EMAIL_DEFAULTS and email_overrides:
-        mode = "deny" if "deny" in email_overrides else "signoff" if "signoff" in email_overrides else "allow"
-        return PolicyDecision(mode, "agent_override")
-
-
 def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, resolve):
     if name == "viewbox_place":
         # Every active registered agent may place on its own board; the handler derives the board from the
@@ -150,8 +140,6 @@ def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, r
         return PolicyDecision("allow", "core_default")
     if name in DEV_AND_INCIDENT_READS:
         return PolicyDecision("allow", "core_default")
-    if name == "plugins_enable_delegated":
-        return PolicyDecision("allow" if role_id == ORDUBASHY_ROLE else "deny", "exact_mailbox_delegation")
     if name == "signoffs_input_answer_delegated":
         return PolicyDecision("allow" if role_id == "ordubashy" else "deny", "management_delegated_input")
     if name in INBOX_OPERATIONS:
@@ -164,11 +152,19 @@ def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, r
         return PolicyDecision("allow", "business_owner_channel")
 
 
+def _declared_default(registry, name):
+    try:
+        return registry.get(name).default_mode
+    except DomainError:
+        return None
+
+
 def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, resolve):
-    if name in EMAIL_DEFAULTS or name in EMAIL_LEGACY:
-        # Contract §2 approval defaults (owner ruling 2A): the mode only applies
-        # once the plugin grant or account capability establishes access.
-        return PolicyDecision(EMAIL_DEFAULTS[EMAIL_LEGACY.get(name, name)], "core_default")
+    declared = _declared_default(registry, name)
+    if declared is not None:
+        # A selected provider package declared this standing mode on its own operation; the mode only applies once
+        # the operation's other gates (plugin grant, global capability, scope) establish access.
+        return PolicyDecision(declared, "core_default")
     if name in WORKSPACE_OPERATIONS:
         # Presentation state only; the workspace registry still gates each type.
         from bazarlyk.workspaces import WORKSPACE_ROLES
@@ -190,8 +186,7 @@ def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, r
 
 
 HOST_POLICY_RULES = PolicyRules(
-    before_override=(_telegram, _user_input, _global_tables, _owner_approvals, _learning_applier, _context_questions,
-                     _email_alias_overrides),
+    before_override=(_telegram, _user_input, _global_tables, _owner_approvals, _learning_applier, _context_questions),
     after_override=(_standing_defaults,),
     after_default=(_fallback_defaults,),
 )

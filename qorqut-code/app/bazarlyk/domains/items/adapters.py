@@ -29,7 +29,7 @@ ROLES = {
     "extracted_from": ("Extracted from", "Source for"),
     "related_to": ("Related to", "Related from"),
 }
-WORKFLOW_ROLES = {"assigned_to": "tasks_assign or email assignment tools", "blocked_by": "tasks_update"}
+WORKFLOW_ROLES = {"assigned_to": "tasks_assign", "blocked_by": "tasks_update"}
 # The operations a review may compose with its decision, keyed by operation: the edited item must be the reviewed one.
 REVIEW_EDITS = {
     "tasks_update": ReviewEdit("task", "task_id"),
@@ -61,10 +61,10 @@ class HostMaterials:
         table, row = self.items.resource(ctx, item, uow)
         material = classification(row, table)
         if not material or row.get("kind") == "email_message":
-            raise DomainError("workflow_required", "Use the item's dedicated tools; classify email conversations rather than individual messages")
+            raise DomainError("workflow_required", "Use the item's dedicated tools to classify it")
         require_revision(row, options.expected_revision)
         changes = plain(args["changes"])
-        fixed = table == "email_conversations" or row.get("kind") in RAW_KINDS | {"content"}
+        fixed = row.get("kind") in RAW_KINDS | {"content"}
         if fixed and changes.get("material_type", material["material_type"]) != material["material_type"]:
             raise DomainError("validation_error", "This source has a fixed material type")
         builder = PlanBuilder(ctx, "materials_update", args, "Update Material classification", clock=self.clock)
@@ -107,7 +107,7 @@ class HostArchive:
             operation = "notes_update" if row["kind"] in {"agent_note", "business_note", "journal", "business_owned_note"} else "context_document_update"
             if row["kind"] == "asset": operation = "assets_update"
             store.archive(builder, uow, row, expected_revision=options.expected_revision, archived=args["archived"], operation_name=operation)
-        elif table in {"email_conversations", "context_entities"}:
+        elif table == "context_entities":
             builder.record(table, args["item"]["id"], row, {"archived": args["archived"], "updated_at": builder.at})
         else:
             raise DomainError("workflow_required", "Use the item's dedicated lifecycle tool")

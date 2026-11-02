@@ -83,7 +83,7 @@ def prepare_owner_sessions(config, previous, *, principal_kind):
 
 
 PROTECTED_CONFIGURATION_KEYS = frozenset({
-    CONFIG_KEY, "mailbox_grant_delegations", "delegation", "identity", "id", "slug", "workspace", "hq_path",
+    CONFIG_KEY, "delegation", "identity", "id", "slug", "workspace", "hq_path",
     "owner_principal_id", "registered_paths", "permissions", "grants", "role",
     "plugins", "tool_policy", "agent_policy", "registered_agents",
 })

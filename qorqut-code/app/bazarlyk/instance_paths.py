@@ -13,6 +13,7 @@ Layout under ``instance_root``::
       files/                              global authored working material
       context/                            the one published shared Context
       agents/{agent_id}/                  global agent workspace (Ordubashy and Learning Applier may use configured names)
+      extensions/{name}/                  owner-editable guidance of an optional instruction package (seeded once)
       projects/{folder}/{hq,code}         project notes/documents and project source code
       projects/{folder}/agents/{id}/      historical per-project agent workspace (retired agents; no new ones are created)
       .runtime/operations.sqlite3         the one operational database
@@ -42,6 +43,8 @@ COMPONENTS = ("app", "operations_engine", "context_engine", "dashboard", "roles"
 GRAPH_DIRECTORY = "context-graph"
 # The directory below ``operations`` that holds every registered project (the internal ``business`` records) by slug.
 PROJECTS_DIRECTORY = "projects"
+# The directory below ``operations`` that holds the operator-editable working material of optional instruction packages.
+EXTENSIONS_DIRECTORY = "extensions"
 
 # One path segment for a registered business folder or an agent identity. Registered v1 identifiers (UUIDs) are
 # kept at their full length; the character set excludes separators, traversal and hidden names.
@@ -183,6 +186,10 @@ class InstancePaths:
     @property
     def roles(self) -> Path:
         return self._checked(self._roles)
+
+    def extension_home(self, name: str) -> Path:
+        """The owner-editable instance directory of one instruction package (``operations/extensions/<name>``)."""
+        return self._checked(self._operations / EXTENSIONS_DIRECTORY / _segment(name, "extension name"))
 
     def component(self, name: str) -> Path:
         if name not in COMPONENTS:

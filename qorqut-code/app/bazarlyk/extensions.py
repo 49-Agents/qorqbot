@@ -19,8 +19,8 @@ declarations through a few explicit lists and maps at the call sites that used t
   resolver uses them; operation handlers are registered by ``install`` on the still-open registry;
 * lifecycle steps name an existing start-before and stop-before anchor, and recovery drains them as named writers;
 * source handlers are looked up by exact source key by the one inbox finalizer and the inbox, Focus and Task readers;
-* native preparation contributions and mailbox-purpose adapters are ordinary objects with ordinary methods (the integrated
-  Project-creation, mail-route and agent-preparation code makes no extension call: an extension's workers read current
+* native preparation contributions and calendar-provider adapters are ordinary objects with ordinary methods (the
+  integrated Project-creation and agent-preparation code makes no extension call: an extension's workers read current
   database state, so those sites have nothing to call);
 * routes, assets, framing rules and error mappings are consumed by the HTTP and web composition, which keeps its own
   authentication, origin, CSRF and bearer-scope checks: a route contribution grants no authority.
@@ -126,25 +126,22 @@ class SourceHandlers:
 
 
 @dataclass(frozen=True)
-class MailboxPurpose:
-    """The adapter for one shared-sender mailbox purpose identifier (core owns ``business_mail`` and ``owner_mail``).
+class CalendarProvider:
+    """One calendar connection type an extension supplies to the host's ``calendar_*`` operations (the host keeps Google).
 
-    ``validate(box)`` takes a mailbox from the engine listing and returns the shared-sender columns to store
-    (``purpose``, ``sender_ref``, ``sender_address``, ``sender_transport``) or raises. ``identities(box, archive)`` are
-    the addresses a stored mailbox answers as (the shared sender only when ``archive`` selects it explicitly).
-    ``send_account(box)`` is the recorded sender a reply must use (``address``, ``sender_ref``, ``transport``). A purpose
-    without an adapter is never ordinary mail, never polled and never gains an identity or send authority."""
+    ``name`` is the ``provider`` value of a connection in the private calendar configuration; ``adapter`` is a class built
+    as ``adapter(connection_id, config, transport=None)`` that is a context manager with the host's calendar provider
+    methods (``bazarlyk.calendar.providers.Provider`` is its base). It grants nothing: access still requires the Global
+    calendar capability and the host's calendar authority."""
 
-    purpose: str
-    validate: Callable
-    identities: Callable
-    send_account: Callable
+    name: str
+    adapter: Callable
 
     def __post_init__(self):
-        if not isinstance(self.purpose, str) or not SOURCE_KEY.fullmatch(self.purpose) or self.purpose in {"business_mail", "owner_mail"}:
-            raise _invalid("A mailbox purpose is a bounded lowercase identifier other than the core purposes")
-        if not all(callable(value) for value in (self.validate, self.identities, self.send_account)):
-            raise _invalid("Mailbox purpose adapters are callables")
+        if not isinstance(self.name, str) or not SOURCE_KEY.fullmatch(self.name) or self.name == "google":
+            raise _invalid("A calendar provider is a lowercase connection type other than the core provider")
+        if not callable(self.adapter):
+            raise _invalid("A calendar provider adapter is a class")
 
 
 @dataclass(frozen=True)
@@ -323,7 +320,8 @@ class Extension:
     def sources(self):
         return ()
 
-    def mailbox_purposes(self):
+    def calendar_providers(self):
+        """``CalendarProvider`` values: connection types the host's calendar operations can use (the host keeps Google)."""
         return ()
 
     def native_connections(self):
@@ -385,16 +383,16 @@ class ExtensionSet:
         object.__setattr__(self, "extensions", tuple(sorted(ordered, key=lambda extension: extension.id)))
         object.__setattr__(self, "sources", SourceHandlers(handler for extension in self.extensions
                                                           for handler in extension.sources()))
-        validators, purposes, connections, statuses = {}, {}, {}, {}
+        validators, calendars, connections, statuses = {}, {}, {}, {}
         for extension in self.extensions:
             for plugin, validator in dict(extension.package_validators()).items():
                 if plugin in validators or not callable(validator):
                     raise _invalid(f"Duplicate or invalid package validator: {plugin}")
                 validators[plugin] = validator
-            for purpose in extension.mailbox_purposes():
-                if not isinstance(purpose, MailboxPurpose) or purpose.purpose in purposes:
-                    raise _invalid("Duplicate or invalid mailbox purpose adapter")
-                purposes[purpose.purpose] = purpose
+            for provider in extension.calendar_providers():
+                if not isinstance(provider, CalendarProvider) or provider.name in calendars:
+                    raise _invalid("Duplicate or invalid calendar provider")
+                calendars[provider.name] = provider
             for connection in extension.native_connections():
                 if not isinstance(connection, NativeConnection) or connection.name in connections:
                     raise _invalid("Duplicate or invalid native connection")
@@ -407,7 +405,7 @@ class ExtensionSet:
         if len(adapters) > 1:
             raise _invalid("Only one integration credential adapter can be selected")
         object.__setattr__(self, "package_validators", MappingProxyType(validators))
-        object.__setattr__(self, "mailbox_purposes", MappingProxyType(purposes))
+        object.__setattr__(self, "calendar_providers", MappingProxyType({name: item.adapter for name, item in calendars.items()}))
         object.__setattr__(self, "native_connections", MappingProxyType(connections))
         object.__setattr__(self, "error_statuses", MappingProxyType(statuses))
         object.__setattr__(self, "integration_adapter", adapters[0] if adapters else None)

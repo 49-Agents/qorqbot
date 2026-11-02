@@ -25,7 +25,7 @@ def http_status(result, *, created=False, statuses=None):
         return 410
     if code in {"revision_conflict", "idempotency_conflict", "stale_signoff", "document_conflict", "artifact_conflict", "duplicate_agent_name", "dispatch_in_progress", "memory_drift", "legacy_plan_conflict", "plan_migrated", "stale_binding"}:
         return 409
-    if code in {"busy", "maintenance", "authority_invalid", "authority_not_ready", "operation_unavailable", "bootstrap_unavailable", "apply_incomplete", "creator_unavailable"}:
+    if code in {"busy", "maintenance", "authority_invalid", "authority_not_ready", "operation_unavailable", "provider_unavailable", "bootstrap_unavailable", "apply_incomplete", "creator_unavailable"}:
         return 503
     if code in {"internal_error", "operation_failed"}:
         return 500

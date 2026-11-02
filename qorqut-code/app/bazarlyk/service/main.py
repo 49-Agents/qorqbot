@@ -83,10 +83,6 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
     runtime.resolver.context_home = published_context.home_text
     runtime.owner_bootstrap.context_home = published_context.home_text
     runtime.owner_bootstrap.context_status = published_context.status
-    if os.environ.get("EMAIL_ENGINE_URL"):
-        from .email import EmailClient
-        runtime.domains.email.client = EmailClient(os.environ["EMAIL_ENGINE_URL"], os.environ.get("EMAIL_READ_TOKEN", ""),
-            admin_token=os.environ.get("EMAIL_ADMIN_TOKEN", ""), send_token=Path(os.environ["EMAIL_SEND_TOKEN_FILE"]).read_text().strip() if os.environ.get("EMAIL_SEND_TOKEN_FILE") else "")
     broker = broker or load_terminal_broker(paths)
     from bazarlyk.sandbox.service import BusinessSandboxService
     from qorqut_operations.storage.quiescence import BoundedWriter

@@ -22,7 +22,7 @@ BUSINESS_TABLES = ("relationships", "context_reviews", "context_review_states", 
     "documents", "action_logs", "action_revisions",
     "learning_candidates", "learning_decisions", "learning_history", "learning_runs",
     "learning_issues", "learning_issue_candidates", "learning_issue_actions", "learning_issue_links", "learning_engine_packages",
-    "routines", "routine_runs", "email_mailboxes", "email_conversations")
+    "routines", "routine_runs")
 GLOBAL_TABLES = ("dev_tickets", "dev_ticket_events", "tasks", "thread_messages", "item_tags", "relationships", "business_configs", "agent_profiles", "documents", "routines", "routine_runs",
                  "learning_candidates", "learning_decisions", "learning_history", "learning_runs",
                  "learning_issues", "learning_issue_candidates", "learning_issue_actions", "learning_issue_links",

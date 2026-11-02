@@ -203,7 +203,6 @@ def load_package(source: Path, manifest_path: str, kind: str, registry: Any) -> 
             if (not isinstance(definition, dict) or not isinstance(definition.get("tool"), str)
                     or not isinstance(definition.get("hidden", False), bool)):
                 _error(f"Invalid plugin tool definition: {alias}")
-            _descriptor(registry, "signoffs_platform_submit")
 
     skills = []
     seen = set()

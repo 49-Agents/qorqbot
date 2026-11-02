@@ -9,27 +9,21 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.storage.quiescence import BoundedWriter
 from bazarlyk.composition.catalog import install_contribution
-from qorqut_operations.application.plans import IDENTITY, UUID, schema
+from qorqut_operations.application.plans import UUID, schema
 from bazarlyk.domains.learnings.operations import EXTRACT_ARGUMENTS, LearningOperations
 from qorqut_operations.routines.operations import RoutineOperations
 from .context_filing import FilingPrograms
-from .email import EmailProgram
-from .account_email import AccountEmailProgram
 from .whatsapp_send import WhatsAppSendProgram
 from .learnings import LearningProgram
 from .models import ModelCalls
 from qorqut_operations.background.programs import Program
 from .repository import repository_status
-from .platform_actions import PlatformPrograms
 from qorqut_operations.background.routines import RoutineScheduler
 from qorqut_operations.background.service import BackgroundService
 
-# The only Global jobs `jobs_get` shows a caller admitted by the account-mail capability alone (no routines capability).
-ACCOUNT_MAIL_JOB_KINDS = frozenset({"email.account_mutation", "email.scoped_mutation"})
-
 
 def register_programs(programs, *, models=None, transcript_source=None,
-                      platform_actions=None, file_applier=None, maintenance=None, email=None, tables=None,
+                      maintenance=None, tables=None,
                       backup_downloader=None, learning_engine=None, whatsapp_send=None):
     models = models or ModelCalls(None)
     learning = LearningProgram(models, transcript_source, learning_engine)
@@ -63,21 +57,6 @@ def register_programs(programs, *, models=None, transcript_source=None,
         # Global table history has its own internal program (same runner and recovery), prepared only by the table operations.
         add("tables.global-version", schema({"version_id": UUID}, ("version_id",)), tables.history.run,
             external=True, recover=tables.history.run, scope_kinds=("global",), global_capabilities=("read_global_context",))
-    add("email.sync", schema({}), EmailProgram(email).run, ("email_record_batch",),
-        ("email_mailboxes", "email_conversations", "email_messages", "documents", "managed_document_files", "relationships", "signoffs"))
-    from bazarlyk.domains.email.settings import UPDATE as EMAIL_UPDATE
-    configure_email = EmailProgram(email).configure
-    add("email.configure", EMAIL_UPDATE, configure_email, ("email_record_batch",),
-        ("email_mailboxes", "email_conversations", "email_messages", "documents", "managed_document_files", "relationships", "signoffs"),
-        external=True, recover=configure_email, timeout_seconds=120)
-    account_email = AccountEmailProgram(email)
-    add("email.account_mutation", schema({"scope": {"const": "global"}, "account_id": IDENTITY, "operation": {"enum": [
-        "account_email_message_update", "account_email_message_delete", "account_email_folder_create", "account_email_folder_update",
-        "account_email_folder_delete", "account_email_draft_create", "account_email_send", "account_email_reply", "account_email_forward",
-        "account_email_vacation_set", "account_email_masked_email_set"]},
-        "arguments": {"type": "object", "maxProperties": 30}}, ("scope", "account_id", "operation", "arguments")),
-        account_email.run, (), (), (), scope_kinds=("global",), global_capabilities=("manage_fastmail",),
-        external=True, recover=account_email.recover, timeout_seconds=120)
     # Owner-approved personal WhatsApp sends. Queued only by the whatsapp_send operation's approved Signoff; the program
     # refuses any job it cannot trace to that Signoff, and a routine can never name it.
     whatsapp = WhatsAppSendProgram(whatsapp_send)
@@ -85,21 +64,6 @@ def register_programs(programs, *, models=None, transcript_source=None,
         "chat_id": {"type": "string", "minLength": 3, "maxLength": 160}, "text": {"type": "string", "minLength": 1, "maxLength": 16384}},
         ("scope", "account_ref", "chat_id", "text")), whatsapp.run, (), (), (), scope_kinds=("global",),
         external=True, recover=whatsapp.recover, timeout_seconds=120, routine_allowed=False)
-    from .scoped_email import ScopedEmailProgram
-    scoped_email = ScopedEmailProgram(email)
-    add("email.scoped_mutation", schema({"scope": {"enum": ["business", "global"]},
-        "account_id": IDENTITY, "operation": {"type": "string"}, "arguments": {"type": "object"}},
-        ("scope", "account_id", "operation", "arguments")), scoped_email.run, ("email_mutation_record",),
-        ("email_messages", "email_conversations"), scope_kinds=("business", "global"),
-        global_capabilities=("manage_fastmail",), external=True, recover=scoped_email.recover, timeout_seconds=120)
-    from .owner_email import ARGUMENTS as OWNER_EMAIL, OPERATION as OWNER_RECORD, OwnerEmailProgram
-    add("email.owner_sync", OWNER_EMAIL, OwnerEmailProgram(email).run, (OWNER_RECORD,),
-        ("email_mailboxes", "email_conversations", "email_messages"), scope_kinds=("global",),
-        global_capabilities=("manage_fastmail",), timeout_seconds=300)
-    add("email.attachment", schema({"message_id": UUID, "attachment_id": IDENTITY}, ("message_id", "attachment_id")),
-        EmailProgram(email).attachment, ("assets_upload",), ("documents", "managed_document_files"))
-    if platform_actions is not None:
-        PlatformPrograms(platform_actions, file_applier).register(programs)
     if maintenance is not None:
         add("maintenance.nightly", schema({}), maintenance.run, timeout_seconds=1800,
             scope_kinds=("global",), external=True, recover=maintenance.run)
@@ -124,26 +88,9 @@ def register_operations(runtime, programs, authority, *, clock=None):
     install_contribution(runtime.registry, routines.contribution())
     learnings = LearningOperations(runtime.application, programs, authority, documents=runtime.domains.documents).register()
 
-    def account_mail_job(ctx, args, uow):
-        """The Global job a caller holding only the account-mail capability may inspect, or one uniform refusal that does
-        not reveal whether the job exists, which kind it is or which part of the account gate failed."""
-        refusal = DomainError("forbidden", "Global job details require the global routines capability")
-        row = uow.repository("jobs", business_id=None).get(args["job_id"])
-        try:
-            runtime.application.account_email._access(ctx, uow)
-        except (DomainError, AttributeError):
-            raise refusal from None
-        if row is None or row["kind"] not in ACCOUNT_MAIL_JOB_KINDS:
-            raise refusal
-        return row
-
     def job_get(ctx, args, options, uow):
         business_id = None if args.get("scope") == "global" else ctx.business_id
-        if business_id is None and "manage_global_routines" not in ctx.global_capabilities:
-            # Admitted by the account-mail capability alone: only the account-mail family, only past the current account gate.
-            row = account_mail_job(ctx, args, uow)
-        else:
-            row = uow.repository("jobs", business_id=business_id).get(args["job_id"], required=True)
+        row = uow.repository("jobs", business_id=business_id).get(args["job_id"], required=True)
         if row["kind"] == "whatsapp.send":
             # The frozen recipient and text live only in the job and its Signoff. The installation owner reads the job;
             # every agent (the proposer included) gets status and error codes only.
@@ -158,25 +105,11 @@ def register_operations(runtime, programs, authority, *, clock=None):
             public["error_json"] = ({key: error[key] for key in ("code", "retryable") if key in error}
                                     if isinstance(error, dict) else None)
             return {"job": public, "details_available": False}
-        private_account_job = (row["kind"] in {"email.account_mutation", "email.owner_sync"} or (row["kind"] == "email.scoped_mutation" and row["business_id"] is None)
-                               or bool((row.get("definition_ref_json") or {}).get("account_email_operation")))
-        private_access_revoked = False
-        if private_account_job:
-            # Account jobs freeze provider payloads in the job row. Revalidate
-            # the current account grant and coordinator before exposing them.
-            try:
-                runtime.application.account_email._access(ctx, uow)
-            except (DomainError, AttributeError):
-                private_access_revoked = True
-        if private_account_job and private_access_revoked and ctx.principal_kind != "agent":
-            raise DomainError("forbidden", "Private account job details require the current owner")
         # A job bound to a Context filing also reports that filing (ids, state, completion and source currency); the frozen
         # reason text stays with the initiator and the owner, other agents get the error code only.
         filing = runtime.domains.documents.job_filing(uow, ctx, row)
         extra = {} if filing is None else {"filing": filing}
-        if (ctx.principal_kind == "agent" and
-                (private_access_revoked or (not private_account_job and
-                                            row["initiated_by_principal_id"] != ctx.principal_id))):
+        if ctx.principal_kind == "agent" and row["initiated_by_principal_id"] != ctx.principal_id:
             # Shared coordination needs status, not another agent's provider
             # payloads, private source text or frozen plugin configuration.
             fields = ("id", "business_id", "kind", "state", "created_at", "updated_at", "attempts",
@@ -188,12 +121,10 @@ def register_operations(runtime, programs, authority, *, clock=None):
             return {"job": public, "details_available": False, **extra}
         return {"job": row, "details_available": True, **extra}
 
-    from .owner_email import register_record
-    register_record(runtime.registry)
     runtime.registry.register(OperationDescriptor("jobs_get", schema({"job_id": UUID, "scope": {"enum": ["business", "global"]}}, ["job_id"]),
         effect_kind="read", supports_signoff=False, scope_kinds={"business", "global"},
         resolve_namespace=lambda c,a: "global" if a.get("scope") == "global" else "business:" + c.business_id,
-        global_capability="manage_global_routines", global_read_capability_alternatives=frozenset({"manage_fastmail"}),
+        global_capability="manage_global_routines",
         read=job_get, description="Inspect a scoped background job. The initiating agent and owner can read its full result; "
             "other agents receive status and error codes for coordination without private payloads."))
 
@@ -208,9 +139,8 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
     if programs is not runtime.programs:
         raise ValueError("Background attachment uses the runtime's one program registry")
     register_programs(programs, models=ModelCalls(model_client_factory),
-        transcript_source=transcript_source, platform_actions=runtime.domains.platform_actions,
-        file_applier=runtime.file_applier,
-        maintenance=maintenance, email=runtime.domains.email, tables=runtime.domains.tables,
+        transcript_source=transcript_source,
+        maintenance=maintenance, tables=runtime.domains.tables,
         backup_downloader=backup_downloader,
         learning_engine=learning_engine, whatsapp_send=getattr(runtime.application, "whatsapp_send", None))
     authority = runtime.authority

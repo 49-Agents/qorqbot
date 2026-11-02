@@ -3,8 +3,8 @@
 This is the shared resource lookup that deployed v1 kept inside ``StoryOperations.related``. It is constructed from the
 actual ``Application`` and document service and nothing else, so item lookups, Tasks, documents and Focus all
 read through it without any of them constructing another domain's service. Every read keeps the domain's own checks: document
-availability (``allow_busy`` then reads the last committed metadata only), the email and Signoff domains' read
-handlers, the canonical read-only global Action reference, the active supported global's reach (never an agent
+availability (``allow_busy`` then reads the last committed metadata only), the Signoff domain's read
+handler, the canonical read-only global Action reference, the active supported global's reach (never an agent
 membership), and the resource's own read operation policy. Resolving a resource grants nothing the caller's policy would
 not."""
 
@@ -23,8 +23,7 @@ DOCUMENT_TYPES = {"notes": {"business_note", "agent_note", "journal", "business_
                   "uploads": {"context_upload", "context_dump", "asset", "data_upload"}}
 # The read operation that authorizes each resource table (documents are chosen by their stored kind below).
 READ_OPERATIONS = {"tasks": "tasks_get", "action_logs": "actions_get", "agent_profiles": "agents_get",
-                   "documents": "context_get", "signoffs": "signoffs_get", "email_conversations": "email_conversation_get",
-                   "email_messages": "email_attachments_list", "data_tables": "tables_get"}
+                   "documents": "context_get", "signoffs": "signoffs_get", "data_tables": "tables_get"}
 DOCUMENT_READS = {"business_note": "notes_get", "agent_note": "notes_get", "journal": "notes_get",
                   "business_owned_note": "notes_get", "plan": "plans_get", "content": "content_get",
                   "asset": "assets_get", "data_upload": "data_uploads_get"}
@@ -64,14 +63,6 @@ class RelatedResources:
                 raise DomainError("not_found", "Choose a document in this project")
             if requested_kind in DOCUMENT_TYPES and row["kind"] not in DOCUMENT_TYPES[requested_kind]:
                 raise DomainError("not_found", "Document is not a " + requested_kind + " resource")
-        elif kind in {"email_conversations", "email_messages"}:
-            row = uow.repository(kind, business_id=ctx.business_id).get(identity, required=True)
-            operation = "email_conversation_get" if kind == "email_conversations" else "email_attachments_list"
-            argument = "conversation_id" if kind == "email_conversations" else "message_id"
-            # Reuse email ownership/plugin checks and deleted-message handling.
-            arguments = {argument: identity, "limit": 1} if kind == "email_conversations" else {argument: identity}
-            if ctx.business_id is None: arguments["scope"] = "global"  # Ordubashy's Global mailbox rows.
-            self.application.registry.get(operation).read(ctx, arguments, InvocationOptions(), uow)
         elif kind == "signoffs":
             descriptor = self.application.registry.get("signoffs_get")
             # The signoff domain enforces review-business, global-capability and target visibility.
@@ -110,10 +101,6 @@ class RelatedResources:
             self.application.registry.get(operation).read(ctx, {"table_id": identity}, InvocationOptions(), uow)
         if kind == "signoffs":
             return {"label": view["title"], "state": view["state"], "kind": "signoff", "revision": view["status_revision"]}
-        if kind == "email_messages":
-            message = row["message_json"]
-            return {"label": " · ".join(filter(None, [message.get("subject") or "Email message", message.get("from", {}).get("address"), message.get("sent_at") or message.get("received_at")])),
-                    "kind": "email_message", "conversation_id": row["conversation_id"], "revision": row["revision"]}
         fallback = PurePosixPath(row["path"]).stem.replace("-", " ").replace("_", " ").title() if row.get("path") else identity
         label = (row.get("title") or row.get("summary") or row.get("subject") or metadata.get("title")
                  or metadata.get("name") or metadata.get("filename") or row.get("payload_json", {}).get("subject") or row.get("payload_json", {}).get("title")

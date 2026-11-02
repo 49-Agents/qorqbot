@@ -9,22 +9,21 @@ and no port here can grant authority.
 ``signoff_ports`` is called once by trusted assembly. The Signoff service is constructed before the Application that
 names it as stager, and the retained domains are constructed from that Application, so the domain-backed ports resolve
 their domain through ``SignoffDomains`` at call time; each is bound exactly once by trusted assembly before traffic.
-Every optional domain the host retains gets a real implementation."""
+The platform-action and email domains are not part of the core product: their ports are ``ABSENT`` and the engine
+behaves exactly as it does without them. Every optional domain the host retains gets a real implementation."""
 
 from __future__ import annotations
 
-from qorqut_operations.signoffs import ReferenceTarget, SignoffPorts
+from qorqut_operations.signoffs import ABSENT, ReferenceTarget, SignoffPorts
 from qorqut_operations.storage.assembly import AssemblyError
 
-from bazarlyk.domains import account_email_outcome
-from bazarlyk.domains.email.decisions import email_context
-from bazarlyk.domains.platform_actions.proposals import EXECUTION_STATES, execution_sql, execution_state
 from bazarlyk.domains.tasks import ACTIVE_SQL
 from qorqut_operations.tasks import CLOSED_STATES
 from qorqut_operations.tasks.scope import task_namespace
 from bazarlyk.inbox.attention import FIELDS as FOCUS_FIELDS, creation_access, present_created
 from bazarlyk.management.identity import configured_ordubashy
 from bazarlyk.management.service import MANAGED_INPUT_SQL
+from .execution import EXECUTION_STATES, execution_sql, execution_state
 
 
 class SignoffDomains:
@@ -32,7 +31,7 @@ class SignoffDomains:
 
     Using a port before its domain is bound is a composition error, never a silent default."""
 
-    NAMES = ('platform_actions', 'email', 'management', 'focus_board', 'whatsapp_send')
+    NAMES = ('management', 'focus_board', 'whatsapp_send')
 
     def __init__(self):
         self._bound = {}
@@ -63,7 +62,7 @@ class SignoffDomains:
 
 
 class HostExecution:
-    """v1 ``platform_actions.proposals``: the execution-state vocabulary of a proposal and its SQL mirror."""
+    """The execution-state vocabulary of a Signoff and its SQL mirror (see ``execution``)."""
 
     execution_states = EXECUTION_STATES
 
@@ -75,15 +74,9 @@ class HostExecution:
     def execution_sql(alias):
         return execution_sql(alias)
 
-    @staticmethod
-    def outcome(row, uow, *, detail=True):
-        """The account-mail result of an approved send, derived from its job (read only; see ``account_email_outcome``):
-        the bounded summary in a list row, the full model in a detail read."""
-        return account_email_outcome.signoff_outcome(row, uow, detail=detail)
-
 
 class HostPeers:
-    """v1 ``management.identity``: the current coordinator, the one principal with standing mail authority."""
+    """v1 ``management.identity``: the current coordinator, the one principal with standing authority."""
 
     @staticmethod
     def configured_ordubashy(uow, *, require_codex):
@@ -114,45 +107,6 @@ class HostReferences:
     @staticmethod
     def task_namespace(context, arguments):
         return task_namespace(context, arguments)
-
-
-class HostPlatform:
-    """v1 ``app.platform_actions``: staging, transition and presentation of platform-action proposals."""
-
-    def __init__(self, domains):
-        self.domains = domains
-
-    def staging_values(self, context, plan, old, uow):
-        return self.domains.platform_actions.staging_values(context, plan, old, uow)
-
-    def staged(self, context, row, plan, old, uow):
-        return self.domains.platform_actions.staged(context, row, plan, old, uow)
-
-    def transition(self, row, updated, uow):
-        return self.domains.platform_actions.transition(row, updated, uow)
-
-    def replaceable_after_cancel(self, old, uow):
-        return self.domains.platform_actions.replaceable_after_cancel(old, uow)
-
-    def view(self, row, uow=None):
-        return self.domains.platform_actions.view(row, uow)
-
-    def is_email_submission(self, plan):
-        return self.domains.platform_actions.is_email_submission(plan)
-
-
-class HostEmailDecisions:
-    """Email-linked owner questions (v1 ``domains.email.decisions``): who may read them and the thread context."""
-
-    def __init__(self, domains):
-        self.domains = domains
-
-    def visibility(self, context, uow):
-        return self.domains.email.decisions.visibility(context, uow)
-
-    @staticmethod
-    def email_context(row, uow):
-        return email_context(row, uow)
 
 
 class HostManagement:
@@ -221,6 +175,6 @@ class HostWhatsAppVisibility:
 def signoff_ports(domains: SignoffDomains) -> SignoffPorts:
     """The one ``SignoffPorts`` of this host: every retained optional integration is enabled with its real domain."""
     return SignoffPorts(execution=HostExecution(), peers=HostPeers(), tasks=HostTasks(), references=HostReferences(),
-                        platform=HostPlatform(domains), email=HostEmailDecisions(domains),
+                        platform=ABSENT, email=ABSENT,
                         management=HostManagement(domains), focus=HostFocus(domains),
                         narrowing=HostWhatsAppVisibility(domains))

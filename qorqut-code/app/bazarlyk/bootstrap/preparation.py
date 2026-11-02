@@ -28,7 +28,7 @@ from bazarlyk.catalog.packages import content_hash, files_digest, relative_path
 from qorqut_operations.contracts import DomainError, Principal, new_id, utc_now
 from qorqut_operations.storage import safe_io
 from .client import auth_headers, path_has_symlink, service_url
-from . import whatsapp
+from . import email_guidance, whatsapp
 from .tool_permissions import (VERSION as TOOL_CONFIGURATION_VERSION, fingerprint as tool_fingerprint,
                                permissions as tool_permissions, preparation_lock)
 
@@ -218,13 +218,29 @@ def skill_projection(resolver, data) -> tuple[dict, dict]:
         for skill in package.skills:
             if legacy_inbox_skill(kind, skill):
                 continue
-            prefix = skill["subtree"] + "/"
-            for path, body in package.files.items():
-                if path.startswith(prefix):
-                    for directory in (".claude/skills/", ".agents/skills/"):
-                        files[directory + skill["name"] + "/" + path[len(prefix):]] = body
+            if email_guidance.is_package(package):
+                # The discovery entry only, with its placeholder resolved to the explicit instance directory.
+                projected = email_guidance.skill_files(package, resolver.paths)
+            else:
+                prefix = skill["subtree"] + "/"
+                projected = {path[len(prefix):]: body for path, body in package.files.items() if path.startswith(prefix)}
+            for path, body in projected.items():
+                for directory in (".claude/skills/", ".agents/skills/"):
+                    files[directory + skill["name"] + "/" + path] = body
             selected[skill["name"]] = skill["materialization_hash"]
     return files, selected
+
+
+def seed_instance_guidance(resolver, data) -> dict:
+    """Seed each granted instruction package's instance directory once; an existing directory is never touched.
+
+    Returns the explicit directory of every granted package and whether this preparation created it."""
+    seeded = {}
+    for grant in data["plugins"]:
+        if grant["id"] == email_guidance.PLUGIN_ID:
+            created = email_guidance.seed(resolver.catalog.get("plugin", grant), resolver.paths)
+            seeded[grant["id"]] = {"path": str(email_guidance.home(resolver.paths)), "seeded": created}
+    return seeded
 
 
 def build_projection(resolver, config, *, registration_id: str, endpoint: str, interpreter: str,
@@ -662,6 +678,7 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
             if path.exists():
                 raise DomainError("projection_conflict", "Existing project configuration needs an explicit migration preview")
     registration_id = registration["id"] if registration else new_id()
+    instance_guidance = seed_instance_guidance(resolver, data)
     projection = build_projection(resolver, config, registration_id=registration_id, endpoint=endpoint,
         interpreter=interpreter, capture_transcripts=capture_transcripts,
         checkpoint_protocol=checkpoint_protocols(versions, reports),
@@ -744,7 +761,7 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
     result = resolver.resolve_agent_config(principal)
     return {"agent_id": principal.id, "profile_revision": data["profile_revision"], "effective_config_id": result.effective_config_id,
             "workspace": str(workspace), "connection_status": projection.metadata["connection_status"],
-            **result.to_dict()["preparation"]}
+            "instance_guidance": instance_guidance, **result.to_dict()["preparation"]}
 
 
 def prepare_claude_agent(resolver, principal, *, claude_version, **kwargs):

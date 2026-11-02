@@ -497,16 +497,9 @@ class HTTPAPI:
                     # Raw Global sources (scope=shared) and the exact-input and document commands of the source status UI: only these eight.
                     "context_list", "context_get", "context_search", "context_retry", "context_retract",
                     "context_queue_get", "context_queue_retry", "context_queue_discard",
-                    "email_conversation_get", "email_conversations_list",
                     # The record panel's Global note reader: the existing owner-only READ, which declares only ``document_id`` (the
                     # route supplies the scope). No note write and no scope input is added here.
-                    "notes_get",
-                    "account_email_capabilities_get", "account_email_folders_list", "account_email_identities_list",
-                    "account_email_search", "account_email_message_get", "account_email_thread_get", "account_email_attachment_get",
-                    "account_email_message_update", "account_email_message_delete", "account_email_folder_create",
-                    "account_email_folder_update", "account_email_folder_delete", "account_email_draft_create",
-                    "account_email_send", "account_email_reply", "account_email_forward", "account_email_vacation_set",
-                    "account_email_masked_email_set"} and request.method == "POST":
+                    "notes_get"} and request.method == "POST":
                 context, _ = self.context(actor)
                 # workspace_get is the one owner cross-scope read that names its
                 # target business as a domain field, not a scope selector.
@@ -633,8 +626,6 @@ class HTTPAPI:
                     rows = await anyio.to_thread.run_sync(registry.list, business["id"])
                     return response(OperationResult.ok({"previews": [{"port": row["workload_port"], "url": row["origin"]}
                         for row in rows]}, request_id=request_id))
-                if tail[:1] == ["email"]:
-                    return await self.email_route(request, context, tail)
                 if len(tail) == 3 and tail[0] == "data-uploads" and tail[2] == "download" and request.method == "GET":
                     return await self.data_upload_download(context, tail[1])
                 if tail[:1] == ["signoffs"]:
@@ -811,27 +802,6 @@ class HTTPAPI:
         name, data = await anyio.to_thread.run_sync(read)
         return Response(data, media_type="application/octet-stream", headers={"Cache-Control": "no-store",
             "Content-Disposition": "attachment; filename*=UTF-8''" + quote(name, safe="")})
-
-    async def email_route(self, request, context, tail):
-        if request.method != "GET" or len(tail) != 4 or tail[1] != "messages" or tail[3] not in {"attachments", "attachment"}:
-            raise DomainError("not_found", "Email endpoint is not registered")
-        email = self.runtime.domains.email
-        def selected():
-            with self.runtime.database.read() as uow:
-                email.access(context, uow)
-                message = uow.repository("email_messages", business_id=context.business_id).get(tail[2], required=True)
-                if message["deleted"]: raise DomainError("not_found", "Email is no longer available")
-                return message
-        message = await anyio.to_thread.run_sync(selected)
-        if email.client is None: raise DomainError("operation_unavailable", "Email engine is not connected")
-        result = await anyio.to_thread.run_sync(lambda: email.client.attachments(message["mailbox"], message["provider_id"]))
-        if tail[3] == "attachments": return JSONResponse(result)
-        attachment = next((item for item in result["attachments"] if item["id"] == request.query_params.get("attachment_id")), None)
-        if attachment is None: raise DomainError("not_found", "Attachment not found")
-        body = await anyio.to_thread.run_sync(lambda: email.client.attachment(message["mailbox"], message["provider_id"], attachment["id"]))
-        from urllib.parse import quote
-        return Response(body, media_type="application/octet-stream", headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store",
-            "Content-Disposition": "attachment; filename*=UTF-8''" + quote(attachment.get("name") or "attachment", safe="")})
 
     async def signoff_route(self, request, context, tail):
         if request.method == "GET":

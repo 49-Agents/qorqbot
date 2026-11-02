@@ -50,8 +50,11 @@ SCHEMAS = {
 
 
 class CalendarOperations:
-    def __init__(self, runtime, *, config=None, transport=None):
+    def __init__(self, runtime, *, config=None, transport=None, providers=None):
+        """``providers`` maps a connection ``provider`` name to its adapter class: the selected extensions' calendar
+        providers. Google is always available; any other name is ``provider_unavailable`` until an extension supplies it."""
         self.runtime, self.config_override, self.transport = runtime, config, transport
+        self.providers = dict(providers or {})
         self.outcomes = {}
         self.lock = threading.Lock()
 
@@ -72,7 +75,7 @@ class CalendarOperations:
 
     def register(self):
         descriptions = {
-            READS[0]: "List connected Google/Fastmail calendars and organizer addresses. Credentials are never returned.",
+            READS[0]: "List connected calendars and organizer addresses. Credentials are never returned.",
             READS[1]: "Read current events in a date range from one calendar, including recurring occurrences and invitation response status.",
             READS[2]: "Read one current event, including its revision. Use a series_id to read a recurring master before editing the series.",
             WRITES[0]: "Create an event immediately. Attendees receive invitations. Supports recurrence, popup reminders, and Google Meet on Google events.",
@@ -113,13 +116,16 @@ class CalendarOperations:
             raise DomainError("invalid_configuration", "Calendar configuration must be valid private JSON (chmod 600)") from None
 
     def provider(self, connection_id):
-        from .providers import GoogleCalendar, FastmailCalendar
+        from .providers import GoogleCalendar
         config = self.config().get(connection_id)
         if not config:
             raise DomainError("not_found", "Calendar connection is not configured")
-        provider = {"google": GoogleCalendar, "fastmail": FastmailCalendar}.get(config.get("provider"))
+        name = config.get("provider")
+        provider = GoogleCalendar if name == "google" else self.providers.get(name)
         if not provider:
-            raise DomainError("invalid_configuration", "Unsupported calendar provider")
+            # A connection type no selected extension supplies is unavailable on this host, never an import or startup error.
+            label = name[:40] if isinstance(name, str) and name.isidentifier() else "configured"
+            raise DomainError("provider_unavailable", f"The {label} calendar provider is not installed on this host")
         return provider(connection_id, config, transport=self.transport)
 
     def read(self, ctx, args, uow, operation):

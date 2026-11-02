@@ -16,7 +16,7 @@ from bazarlyk.extensions import NO_SOURCES
 from .events import ITEM_TYPES
 from .messages import Messages
 
-SOURCES = ('tasks', 'actions', 'signoffs', 'documents', 'email_conversations')
+SOURCES = ('tasks', 'actions', 'signoffs', 'documents')
 # Tasks and Actions are followed through the discussion's follow state (a personal, sticky preference), not through
 # a subscription row; every other source keeps its subscription.
 THREAD_SOURCES = {'tasks': 'task', 'actions': 'action'}
@@ -126,7 +126,7 @@ class InboxService:
         require_worker_manager(ctx, uow, target)
         return self.context(self.resolver.runtime_context(Principal(target, 'agent'), business_id=ctx.business_id), uow)
 
-    def visible(self, ctx, source_type, identity, business, uow, *, email_access_cache=None):
+    def visible(self, ctx, source_type, identity, business, uow):
         """Use current domain authorization; unavailable objects disclose no summary."""
         if source_type == 'owner_conversations':
             # Private rows are not an inbox item type and cannot be subscribed
@@ -154,41 +154,12 @@ class InboxService:
                 self.domains.items.resolve(selected,
                     {'type': ITEM_TYPES[source_type], 'id': identity}, uow, allow_busy=True)
                 return True
-            if source_type == 'email_conversations' and business is None:
-                # Ordubashy's Global mailbox: the configured coordinator and owner only.
-                selected = replace(selected, business_id=None, review_business_id=None)
-                self.app.authorize(selected, self.app.registry.get('email_conversation_get'), (), uow, namespace='global')
-                self.email_discussion_access(selected, uow, email_access_cache)
-                return bool(self.domains.email.conversation(uow, None, identity))
-            if source_type == 'email_conversations':
-                self.app.authorize(selected, self.app.registry.get(self.domains.email.read_operation(selected)), (), uow, namespace='business:'+business)
-                self.email_discussion_access(selected, uow, email_access_cache)
-                return bool(self.domains.email.conversation(uow, business, identity))
             self.domains.related.get(selected, uow, 'action_logs' if source_type == 'actions' else source_type, identity, allow_busy=True)
             return True
         except DomainError as error:
             if error.code in {'not_found', 'forbidden', 'policy_denied', 'busy', 'document_unavailable', 'operation_unavailable', 'invalid_assignee'}:
                 return False
             raise
-
-    def email_discussion_access(self, ctx, uow, cache=None):
-        """Reuse permission validation only within one read snapshot and recipient.
-
-        Conversation existence and each event's visibility are still checked
-        separately. Never retain this cache across nudge passes or transactions.
-        """
-        if cache is None:
-            return self.domains.email.discussion_access(ctx, uow)
-        key = (id(uow), ctx.principal_id, ctx.business_id, ctx.profile_revision)
-        if key not in cache:
-            try:
-                self.domains.email.discussion_access(ctx, uow)
-            except DomainError as error:
-                cache[key] = error
-            else:
-                cache[key] = None
-        if cache[key] is not None:
-            raise cache[key]
 
     @staticmethod
     def business_member(ctx, business, uow):
@@ -296,7 +267,7 @@ class InboxService:
             return {'inbox_consumer_id':consumer,'inbox_generation':generation,
                     'inbox_desired_state':row['desired_state'] if row else 'running'}
 
-    def event_visible(self, ctx, row, uow, *, email_access_cache=None):
+    def event_visible(self, ctx, row, uow):
         handler = self.sources.get(row['source_type'])
         if handler is not None and handler.event_visible is not None:
             return bool(handler.event_visible(self, ctx, row, uow))
@@ -342,8 +313,7 @@ class InboxService:
             installation = uow.repository('installation').get('service')
             return bool(installation and installation['management_coordinator_id'] == ctx.principal_id
                         and uow.connection.execute('SELECT 1 FROM context_inputs WHERE id=?', (row['source_id'],)).fetchone())
-        if self.visible(ctx, row['source_type'], row['source_id'], row['business_id'], uow,
-                        email_access_cache=email_access_cache):
+        if self.visible(ctx, row['source_type'], row['source_id'], row['business_id'], uow):
             return True
         if row['event_type'] != 'deleted' or row['source_type'] not in {'tasks', 'documents'}:
             return False

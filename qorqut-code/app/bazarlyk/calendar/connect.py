@@ -2,7 +2,6 @@
 
 import argparse
 import base64
-import getpass
 import hashlib
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
@@ -88,23 +87,16 @@ def google(client_path, port):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("provider", choices=["google", "fastmail"])
+    parser.add_argument("provider", choices=["google"])
     parser.add_argument("--config", type=Path, required=True, help="Private output calendar.json, outside Git")
     parser.add_argument("--name", required=True, help="Connection name, e.g. personal or business")
     parser.add_argument("--google-client", type=Path, help="Downloaded Desktop OAuth client JSON")
     parser.add_argument("--port", type=int, default=8765, help="Google loopback callback port")
     args = parser.parse_args()
     try:
-        if args.provider == "google":
-            if not args.google_client:
-                parser.error("Google requires --google-client")
-            connection = google(args.google_client, args.port)
-        else:
-            username = input("Fastmail login email: ").strip()
-            password = getpass.getpass("Fastmail calendar app password: ")
-            identities = input("Your invitation addresses, comma-separated (blank uses login email): ").strip()
-            connection = {"provider": "fastmail", "username": username, "app_password": password,
-                          "identities": [a.strip() for a in identities.split(",") if a.strip()] or [username]}
+        if not args.google_client:
+            parser.error("Google requires --google-client")
+        connection = google(args.google_client, args.port)
         save_connection(args.config, args.name, connection)
         print(f"Saved {args.name} in {args.config}. No events were created.")
     except (OSError, ValueError, KeyError, httpx.HTTPError):

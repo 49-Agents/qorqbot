@@ -87,7 +87,6 @@ class HostVisibility:
         if ctx is None:
             return set()
         granted: set[int] = set()
-        email_access_cache = {}
         source_visibility = {}
         for row in events:
             try:
@@ -97,9 +96,9 @@ class HostVisibility:
                 # Other event kinds can have event-specific authorization.
                 key = ((row['business_id'], row['source_type'], row['source_id'],
                         row['event_type'], row['visibility_json'])
-                       if row['source_type'] in {'tasks', 'documents', 'email_conversations'} else None)
+                       if row['source_type'] in {'tasks', 'documents'} else None)
                 if key is None or key not in source_visibility:
-                    visible = self.inbox.event_visible(ctx, row, uow, email_access_cache=email_access_cache)
+                    visible = self.inbox.event_visible(ctx, row, uow)
                     if key is not None:
                         source_visibility[key] = visible
                 else:

@@ -2,7 +2,7 @@
 and enumerated, with each domain's private-source, availability and membership rules.
 
 Registering these kinds with the Operations ``ItemResolver`` grants nothing: ``resource`` keeps the owner-only journal,
-excluded working-memory, Global-mailbox discussion, active-member and active-agent guards, ``resolve`` authorizes the
+excluded working-memory, active-member and active-agent guards, ``resolve`` authorizes the
 domain's own read operation (``authorize_item_read``) at the original read-check points, and ``fingerprint`` first
 performs that same authorized read. The dependencies are explicit; nothing here constructs or reaches the Task
 service, and published shared Context readability grants none of these private operational reads.
@@ -52,11 +52,10 @@ def stored_profile(row):
 
 class HostItems:
     """``ItemLookup`` over the retained domains. ``related`` is the host's related-resource resolver, ``documents``
-    the document service (its store reads files and hashes) and ``email`` the email domain whose Global-mailbox
-    discussion access guards mailbox rows."""
+    the document service (its store reads files and hashes)."""
 
-    def __init__(self, application, documents, email, related):
-        self.application, self.documents, self.email, self.related = application, documents, email, related
+    def __init__(self, application, documents, related):
+        self.application, self.documents, self.related = application, documents, related
 
     def authorize(self, ctx, operation, uow):
         authorize_item_read(self.application, ctx, operation, uow)
@@ -71,13 +70,6 @@ class HostItems:
                 raise DomainError('not_found', 'Context item does not exist in this project')
             if row and document_type(row) == kind:
                 return "documents", row
-            if kind == "material":
-                for table in ("email_conversations", "email_messages"):
-                    row = uow.repository(table, business_id=ctx.business_id).get(identity)
-                    if row and ctx.business_id is None:
-                        # Ordubashy's Global mailbox: only its readers resolve these rows.
-                        self.email.discussion_access(ctx, uow)
-                    if row: return table, row
             if kind == "person":
                 member = uow.repository("business_memberships", business_id=ctx.business_id).get(identity)
                 row = uow.repository("principals").get(identity)
@@ -119,7 +111,7 @@ class HostItems:
                 builder.expect(ref(table, item["id"], None if table == "principals" else ctx.business_id), row)
         metadata = row.get("metadata_json", {})
         material = classification(row, table)
-        subtype = material.get("material_type") or row.get("kind") or ("message" if table == "email_messages" else None)
+        subtype = material.get("material_type") or row.get("kind")
         archived = bool(row.get("archived") or metadata.get("archived") or
                         (table == "agent_profiles" and not current_agent(uow, row)) or
                         (table == "principals" and (not row["active"] or not uow.repository("business_memberships", business_id=ctx.business_id).get(item["id"])["active"])))
@@ -139,11 +131,7 @@ class HostItems:
                 "summary": metadata.get("filer_summary") or metadata.get("summary", ""), "created_at": row.get("created_at"), "updated_at": row.get("updated_at"), **person}
 
     def relationship_item(self, ctx, item, uow):
-        table, row = self.resource(ctx, item, uow)
-        if table == "email_messages":
-            return {"type": "material", "id": row["conversation_id"]}
-        if table == "documents" and row["kind"] == "email_message":
-            return {"type": "material", "id": row["metadata_json"]["conversation_id"]}
+        self.resource(ctx, item, uow)
         return item
 
     def fingerprint(self, ctx, item, uow, builder=None):
@@ -167,10 +155,7 @@ class HostItems:
         if table == "signoffs":
             # payload_hash already identifies the immutable binary prepared proposal.
             content.pop("change_set", None)
-        if table == "email_conversations":
-            content["messages"] = [{"id": message["id"], "message": {key: value for key, value in message["message_json"].items() if key not in {"is_read", "url"}}, "deleted": message["deleted"]}
-                for message in sorted(rows(uow, "email_messages", ctx.business_id, where="conversation_id=?", parameters=(row["id"],)), key=lambda value: value["id"])]
-        elif table == "principals":
+        if table == "principals":
             content["person"] = details(row, uow, business_id=ctx.business_id)
         elif table == "tasks":
             content["notes"] = rows(uow, "thread_messages", ctx.business_id, where="item_type='task' AND item_id=?", parameters=(row["id"],))
@@ -193,7 +178,6 @@ class HostItemCandidates:
 
     def candidates(self, ctx, uow, kind=None):
         for table, item_type in RESOURCE_TYPES.items():
-            if table == "email_messages" or table == "email_conversations" and ctx.business_id is None: continue
             if kind and kind != item_type: continue
             if table == "action_logs":
                 for identity in linked_action_items(ctx, uow):

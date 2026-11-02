@@ -8,6 +8,8 @@ checker verifies, and never installs, repairs or modifies anything in the export
 environments (every interpreter runs ``-I -B``), and contacts no service or provider:
 
 * the manifest components equal the receipt's ``source_components`` and own each wheel's source directory, commit and tree;
+* the receipt carries the wheels and environments of the extensions it selected (``content``, ``paper``, ``fastmail``) and none
+  of an extension it did not: a standard preparation has the host environment only, with no email engine or Fastmail package;
 * every receipt wheel exists under ``wheels/`` with the recorded SHA-256, name and version;
 * in each environment the receipt lists (its owned ``bin/python``), every first-party distribution is one of the receipt's
   wheels, was installed from that exact local wheel file (a missing wheel, another file, a VCS/directory/URL origin or an
@@ -36,10 +38,12 @@ import zipfile
 PROBE = Path(__file__).with_name("installed_host_probe.py")
 HEX40 = re.compile(r"[0-9a-f]{40}")
 # The wheels every preparation builds, and the ones added by each selected extension (prepare-local.py's receipt keys).
-BASE_WHEELS = ("qorqut-operations", "qorqut-context", "document-history", "learning-library", "host", "email-engine")
-SELECTED_WHEELS = {"paper": ("paper-service", "qorqut-paper"), "content": ("content-library", "qorqut-content")}
-BASE_ENVIRONMENTS = ("venv", "email-engine-venv")
-PAPER_ENVIRONMENT = "paper-service-venv"
+BASE_WHEELS = ("qorqut-operations", "qorqut-context", "document-history", "learning-library", "host")
+SELECTED_WHEELS = {"paper": ("paper-service", "qorqut-paper"), "content": ("content-library", "qorqut-content"),
+                   "fastmail": ("email-engine", "qorqut-fastmail")}
+BASE_ENVIRONMENTS = ("venv",)
+# The environments a selected extension adds (the host environment always holds the extension bridges).
+SELECTED_ENVIRONMENTS = {"paper": "paper-service-venv", "fastmail": "email-engine-venv"}
 NOT_CHECKED = ["installed behavior (final assembly's acceptance)", "third-party package contents",
                "services, providers and live data (never contacted)"]
 
@@ -157,11 +161,12 @@ class Verifier:
             self.fail("the receipt records no environments")
             return
         selection = self.receipt.get("selection") or {}
-        required = set(BASE_ENVIRONMENTS) | ({PAPER_ENVIRONMENT} if selection.get("paper") else set())
+        required = set(BASE_ENVIRONMENTS) | {name for option, name in SELECTED_ENVIRONMENTS.items() if selection.get(option)}
         if required - set(recorded):
             self.fail(f"the receipt records no environment for: {', '.join(sorted(required - set(recorded)))}")
-        if PAPER_ENVIRONMENT in recorded and not selection.get("paper"):
-            self.fail(f"the receipt records {PAPER_ENVIRONMENT} without selecting Paper")
+        for option, name in SELECTED_ENVIRONMENTS.items():
+            if name in recorded and not selection.get(option):
+                self.fail(f"the receipt records {name} without selecting {option.title()}")
         installed_somewhere = set()
         for name, record in sorted(recorded.items()):
             python = self.prepared / name / "bin" / "python"

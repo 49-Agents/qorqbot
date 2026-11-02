@@ -67,7 +67,6 @@ KIND_BY_TABLE = {
     "signoffs": "signoffs", "signoff_attention": "signoffs", "signoff_notes": "signoffs",
     "documents": "documents", "context_entities": "documents",
     "action_logs": "action_logs", "action_businesses": "action_logs",
-    "email_conversations": "email", "email_messages": "email", "email_comments": "email",
     "agent_profiles": "agents", "principals": "agents", "business_memberships": "agents",
     "data_tables": "tables", "data_rows": "tables",
 }

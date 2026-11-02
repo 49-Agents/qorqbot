@@ -1,17 +1,20 @@
 """Supported default-grant plugins, as exact newest published pins with their default configs.
-Add a future default plugin to DEFAULT_PLUGINS. Ordubashy selects the plugins a permanent worker holds."""
+Add a future default plugin to DEFAULT_PLUGINS (and DEFAULT_PLUGIN_ROLES). Ordubashy selects the plugins a permanent worker holds."""
 
 from __future__ import annotations
 
 import copy
 
 from qorqut_operations.contracts import DomainError
+from .roles import ORDUBASHY_ROLE
 
+# Email Management is instruction-only (v3): no tools, no mailbox configuration, an empty default config.
 EMAIL_PLUGIN = "email-management"
+EMAIL_MAJOR = 3
 # Plugin id -> (supported major version, default config).
-DEFAULT_PLUGINS = {EMAIL_PLUGIN: (2, {"mailboxes": []})}
-# Every global except a permanent worker reaches every active business and keeps only the email toolkit default.
-BUSINESS_ACCESS_DEFAULTS = (EMAIL_PLUGIN,)
+DEFAULT_PLUGINS = {EMAIL_PLUGIN: (EMAIL_MAJOR, {})}
+# Plugin id -> the roles that receive it by default at ecosystem scope. Every other agent needs an explicit grant.
+DEFAULT_PLUGIN_ROLES = {EMAIL_PLUGIN: (ORDUBASHY_ROLE,)}
 
 
 def default_config(plugin_id: str) -> dict:
@@ -66,10 +69,9 @@ def usable_pin(resolver, connection, plugin_id: str, scope_kind: str) -> dict | 
 
 def default_plugin_ids(role_id: str, scope: dict) -> tuple[str, ...]:
     """Plugins a new profile receives when its creator does not select plugins."""
-    if role_id == "global-worker":
+    if scope["kind"] != "ecosystem":
         return ()
-    # Global business access is derived for every active business, never a saved list.
-    return BUSINESS_ACCESS_DEFAULTS if scope["kind"] == "ecosystem" else ()
+    return tuple(plugin_id for plugin_id, role_ids in DEFAULT_PLUGIN_ROLES.items() if role_id in role_ids)
 
 
 def default_grants(resolver, connection, role_id: str, scope: dict) -> list[dict]:
@@ -80,13 +82,3 @@ def default_grants(resolver, connection, role_id: str, scope: dict) -> list[dict
         if pin is not None:
             grants.append({**pin, "config": default_config(plugin_id)})
     return grants
-
-
-def sending_mailboxes(connection, business_id: str, role_id: str | None, config) -> list[str]:
-    """Mailbox IDs this email grant may send from in the business."""
-    if role_id == "ordubashy":
-        # The owner delegates every registered mailbox in the selected business,
-        # including routes added later, without self-editing the agent profile.
-        return [row[0] for row in connection.execute(
-            "SELECT id FROM email_mailboxes WHERE business_id=? ORDER BY id", (business_id,))]
-    return list((config or {}).get("mailboxes") or [])

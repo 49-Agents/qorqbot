@@ -29,7 +29,6 @@ GUIDANCE = (
     ("Context review", ("context_reviews_list", "context_review", "context_review_reopen")),
     ("Decisions and outcomes", ("signoffs_list", "signoffs_get")),
     ("Completed actions", ("actions_record", "actions_list", "actions_get", "actions_config_get")),
-    ("Email", ("email_mailboxes_list", "email_conversations_list", "email_conversation_get", "email_attachments_list", "email_assign")),
 )
 
 
@@ -212,7 +211,7 @@ class _Briefing:
         guidance = ["## How To Operate", "agent_config_get refreshes this briefing; select business_id explicitly when changing project.",
             "List/search first, get the full item, then edit with its current expected_revision and an idempotency_key. Follow all continuation cursors.",
             "Relationships are independent directional records. Prefer predefined roles; custom roles and duplicate edges are allowed. A mention is not an assignment or permission grant.",
-            "Use task/email assignment tools for assignment edges and the relevant domain tools for item content. Archive items; removing an edge does not delete an item.",
+            "Use task assignment tools for assignment edges and the relevant domain tools for item content. Archive items; removing an edge does not delete an item.",
             "Read related evidence before acting. Only explicitly record Incorporated or No change needed with an explanation after evaluating it; loading, reading or refreshing never acknowledges it.",
             "The lists below describe current grants, not permission to bypass approval. signoff means prepare and await the owner's decision."]
         for label, names in GUIDANCE:

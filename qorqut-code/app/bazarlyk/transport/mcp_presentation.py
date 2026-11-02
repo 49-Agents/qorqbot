@@ -20,7 +20,7 @@ TASK_WRITES = frozenset({"tasks_create", "tasks_update", "tasks_assign", "tasks_
 # focus_show/focus_clear/focus_browser_input trio always answers upgrade_required
 # and is deliberately not projected.
 FOCUS_CARD_WRITES = frozenset({"focus_present", "focus_edit", "focus_move", "focus_set_archived"})
-SIGNOFF_COMPLETION_WRITES = frozenset({"signoffs_email_approve",
+SIGNOFF_COMPLETION_WRITES = frozenset({
     "signoffs_reject", "signoffs_input_cancel", "signoffs_input_answer_delegated"})
 RECEIPT_WRITES = frozenset({"agents_message_send", "signoffs_input_create"}) | FOCUS_CARD_WRITES
 INDEX_READS = frozenset({"signoffs_list", "signoffs_get", "inbox_list", "agents_activity_list",

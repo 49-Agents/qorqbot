@@ -10,11 +10,7 @@ from .assets import AssetOperations
 from .documents import DocumentOperations
 from .context_sources import ContextSourceOperations
 from bazarlyk.context_questions import ContextQuestionOperations, QuestionStore
-from .email import EmailOperations
-from .email.purposes import MailboxPurposes
-from .account_email import AccountEmailOperations
 from .whatsapp_send import WhatsAppSendOperations
-from .platform_actions.operations import PlatformActions
 from .tasks import task_ports
 from .tables import TableOperations
 from .tables.uploads import DataUploadOperations
@@ -49,8 +45,6 @@ class BusinessDomains:
     activity: ActionWriteback
     documents: DocumentOperations
     assets: AssetOperations
-    platform_actions: PlatformActions
-    email: EmailOperations
     tables: TableOperations
     data_uploads: DataUploadOperations
     relationships: RelationshipOperations
@@ -74,18 +68,13 @@ class BusinessDomains:
         return self.documents.store.resolve_file_target(resource)
 
 
-def register_business_domains(registry, application, paths, *, catalog, agent_resolver, clock=utc_clock, job_programs=None, filing=None,
+def register_business_domains(registry, application, paths, *, agent_resolver, catalog=None, clock=utc_clock, job_programs=None, filing=None,
                               graph_edits=None, queue=None, extensions=NO_EXTENSIONS):
     tables = TableOperations(application.database, paths, clock=clock, job_programs=job_programs)
     activity = ActionWriteback(clock=clock)
     documents = DocumentOperations(application.database, paths, clock=clock, job_programs=job_programs, filing=filing)
     assets = AssetOperations(documents.store, clock=clock)
     data_uploads = DataUploadOperations(documents.store, clock=clock)
-    email = EmailOperations(application=application, resolver=agent_resolver, documents=documents, clock=clock, programs=job_programs,
-                            purposes=MailboxPurposes(extensions.mailbox_purposes.values()))
-    account_email = AccountEmailOperations(email, job_programs)
-    # The Task service is built once the neutral items exist.
-    platform_actions = PlatformActions(application=application, catalog=catalog, agent_resolver=agent_resolver, documents=documents, tasks=None, activity=activity, clock=clock, job_programs=job_programs, email=email)
     DevTickets().register(registry)
     viewbox = AgentViewbox(application, clock=clock).register(registry)
     IncidentOperations(application).register(registry)
@@ -107,14 +96,8 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     documents.journal = JournalOperations(documents).register(registry)
     assets.register(registry)
     data_uploads.register(registry)
-    platform_actions.register(registry)
-    email.register(registry)
-    account_email.register(registry)
     WhatsAppSendOperations(application, paths, job_programs).register(registry)
-    from .email.unified import UnifiedEmailOperations
-    UnifiedEmailOperations(email=email, account=account_email, platform=platform_actions,
-                           resolver=agent_resolver).register(registry)
-    neutral = build_neutral_items(application, documents=documents, email=email, clock=clock, extensions=extensions.item_kinds())
+    neutral = build_neutral_items(application, documents=documents, clock=clock, extensions=extensions.item_kinds())
     # The engine's operational records: the shared tag catalog, Tasks (over the neutral items and the host's ports),
     # Actions and the Context input queue. Their handlers install here.
     tags = TagOperations(clock=clock)
@@ -126,7 +109,6 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
         queue = ContextQueueOperations(outcomes=FilingOutcomes(), clock=clock, executions=ExecutionFacts())
     for contribution in (tags.contribution(), tasks.contribution(), actions.contribution(), queue.contribution()):
         install_contribution(registry, contribution)
-    platform_actions.tasks = tasks
     OwnerActions(paths, clock=clock).register(registry)
     install_contribution(registry, neutral.relationships.contribution())
     archive = BusinessArchive(application)
@@ -135,9 +117,9 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     business_creation = BusinessCreationOperations(application, paths)
     business_creation.register(registry)
     CostOperations(clock=clock).register(registry)
-    memory = WorkingMemory(application, documents, email, agent_resolver, clock=clock)
+    memory = WorkingMemory(application, documents, agent_resolver, clock=clock)
     memory.register(registry)
     if agent_resolver is not None:
         agent_resolver.working_memory = memory
     documents.working_memory = memory
-    return BusinessDomains(tasks, activity, documents, assets, platform_actions, email, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, business_creation, memory, archive, context_sources=context_sources, context_questions=context_questions, shared_context=shared_context, viewbox=viewbox, actions=actions, tags=tags, queue=queue)
+    return BusinessDomains(tasks, activity, documents, assets, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, business_creation, memory, archive, context_sources=context_sources, context_questions=context_questions, shared_context=shared_context, viewbox=viewbox, actions=actions, tags=tags, queue=queue)

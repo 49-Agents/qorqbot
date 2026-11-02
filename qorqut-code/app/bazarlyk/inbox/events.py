@@ -9,10 +9,8 @@ required/optional deliveries in the applying transaction. The captures below cov
 an edge that touches a Task or an Action is announced by the engine operation that wrote it.
 """
 import json
-import logging
 
 from bazarlyk.agents.global_scope import active_global, reaches_business
-from bazarlyk.agents.roles import ORDUBASHY_ROLE
 from bazarlyk.composition.capture import CAPTURED as FEED_ONLY
 from bazarlyk.extensions import NO_SOURCES
 from qorqut_operations.contracts import utc_now
@@ -20,10 +18,7 @@ from qorqut_operations.discussion import emit_event
 
 from .related import routed
 
-LOGGER = logging.getLogger(__name__)
-
-ITEM_TYPES = {'signoffs': 'signoff',
-              'email_conversations': 'material', 'documents': 'material',
+ITEM_TYPES = {'signoffs': 'signoff', 'documents': 'material',
               'data_tables': 'table',
               'agent_profiles': 'agent', 'context_entities': 'entity', 'principals': 'person'}
 RESOURCE_TYPES = {v: k for k, v in ITEM_TYPES.items() if k != 'documents'}
@@ -34,18 +29,6 @@ def assigned(uow, business, kind, identity):
     return {r[0] for r in uow.connection.execute(
         "SELECT to_id FROM relationships WHERE business_id IS ? AND from_type=? AND from_id=? "
         "AND to_type='agent' AND role='assigned_to'", (business, kind, identity))}
-
-
-def intake_coordinator(uow, business, reader):
-    """The configured management coordinator when it is an active supported Ordubashy that reaches this business and may
-    read its email now; otherwise None. No other role holder, the owner or a broadcast stands in."""
-    installation = uow.repository('installation').get('service')
-    coordinator = installation['management_coordinator_id'] if installation else None
-    profile = active_global(uow.connection, coordinator)
-    if (profile is None or profile['role']['id'] != ORDUBASHY_ROLE
-            or not reaches_business(uow.connection, coordinator, business)):
-        return None
-    return coordinator if reader(coordinator, business, uow) else None
 
 
 def item_type_for(table, sources=NO_SOURCES):
@@ -86,8 +69,7 @@ def source_summary(record, table):
 FOCUS_FIELD_LABELS = {'display_name': 'name', 'reason': 'reason', 'requested_response': 'requested action',
                       'blocker': 'blocker flag', 'urgent': 'urgent flag', 'references': 'references',
                       'title': 'title', 'target': 'opening link'}
-FOCUS_SOURCE_TABLES = {'signoff': 'signoffs', 'email': 'email_conversations'}
-FOCUS_ASSIGNEE_KINDS = {'email_conversations': 'material'}
+FOCUS_SOURCE_TABLES = {'signoff': 'signoffs'}
 
 
 def focus_reader(uow, agent):
@@ -128,8 +110,6 @@ def focus_edit_targets(uow, data, actor):
     record = row_for(uow, table, binding['business_id'], binding['id']) if table else None
     if record:
         # The canonical source row keeps its own revision and read authorization.
-        if table in FOCUS_ASSIGNEE_KINDS:
-            recipients |= assigned(uow, binding['business_id'], FOCUS_ASSIGNEE_KINDS[table], binding['id'])
         if table == 'signoffs' and record.get('proposer_agent_id'):
             recipients.add(record['proposer_agent_id'])
         title = source_summary(record, table)
@@ -213,14 +193,6 @@ def targets(uow, capture, sources=NO_SOURCES):
     if table == 'signoff_attention':
         row = uow.connection.execute('SELECT * FROM signoffs WHERE id=?', (data['signoff_id'],)).fetchone()
         return [('signoffs', dict(row), actor, 'attention_changed', set())] if row else []
-    if table == 'email_comments':
-        record = row_for(uow, 'email_conversations', business, data['conversation_id'])
-        installation = uow.repository('installation').get('service')
-        recipients = {installation['management_coordinator_id']} if installation and installation['management_coordinator_id'] else set()
-        return [('email_conversations', record, data['created_by'], 'note_added', recipients)] if record else []
-    if table == 'email_messages':
-        record = row_for(uow, 'email_conversations', business, data['conversation_id'])
-        return [('email_conversations', record, actor, 'message_changed', set())] if record else []
     if table == 'documents' and after.get('availability') not in (None, 'ready'):
         return []  # File effects are announced only after durable finalization.
     if (table == 'documents' and before.get('availability') not in (None, 'ready')
@@ -256,46 +228,18 @@ def finalize_events(uow, sources=NO_SOURCES):
     attention_enabled=bool(uow.connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='focus_cards'").fetchone())
     grouped = {}
     noted_signoffs={json.loads(c['after_json'])['signoff_id'] for c in captures if c['source_type']=='signoff_notes' and c['after_json']}
-    created = {(c['source_type'], (_json(c['after_json']) or {}).get('business_id'),
-                (_json(c['after_json']) or {}).get('id')) for c in captures
-               if c['action'] == 'insert' and c['source_type'] == 'email_conversations'}
     for capture in captures:
-        responsible = True
-        if capture['source_type'] == 'email_messages':
-            # Mailbox synchronization also updates read flags and outgoing mail.
-            # Those remain subscription events, but do not summon the assignee.
-            data = _json(capture['after_json']) or {}
-            responsible = capture['action'] == 'insert' and not data.get('deleted')
-            if responsible:
-                from bazarlyk.domains.email.attribution import outgoing
-                from bazarlyk.domains.email.purposes import NO_PURPOSES
-                message = uow.repository('email_messages', business_id=data['business_id']).get(data['id'])
-                # Baseline rows mark mail that predates the first sync; they summon no one.
-                responsible = bool(message and message.get('origin') != 'baseline' and not outgoing(message, uow, getattr(uow.database, 'mailbox_purposes', NO_PURPOSES)))
         for table, record, actor, event_type, direct in targets(uow, capture, sources):
             business = record.get('business_id', record.get('review_business_id'))
-            if capture['source_type']=='email_messages' and responsible:
-                reader=getattr(uow.database,'email_reader',None)
-                if reader:
-                    # The configured coordinator is told of every new incoming business message, whoever else is assigned;
-                    # assignees keep their own delivery below. The assignment edges are never rewritten.
-                    coordinator=intake_coordinator(uow,business,reader)
-                    if coordinator:
-                        direct.add(coordinator)
-                    elif not any(reader(agent,business,uow) for agent in assigned(uow,business,'material',record['id'])):
-                        LOGGER.warning('Incoming project email has no eligible intake recipient: business=%s conversation=%s',
-                                       business, record['id'])
             edge = _json(capture['after_json']) or _json(capture['before_json']) or {}
             assignment = capture['source_type'] == 'relationships' and edge.get('role') == 'assigned_to'
-            if assignment and (table, business, record['id']) in created:
-                continue  # The creation event already routes to final assignees.
             key = (business, table, record['id'], 'assignment' if assignment else capture['id'])
             if table == 'signoffs' and record['id'] in noted_signoffs and capture['source_type'] != 'focus_edits':
                 key = (business,table,record['id'],'signoff_note_change')
             if table == 'data_tables':
                 key = (business, table, record['id'], 'table_change')
             if key not in grouped:
-                grouped[key] = {'record': record, 'actor': actor, 'types': [], 'direct': set(), 'responsible': responsible,
+                grouped[key] = {'record': record, 'actor': actor, 'types': [], 'direct': set(),
                                 'presentation': capture['source_type'] == 'focus_edits'}
             group = grouped[key]
             group['record'] = record
@@ -317,15 +261,6 @@ def finalize_events(uow, sources=NO_SOURCES):
                     AND json_extract(r.value,'$.id')=? AND json_extract(r.value,'$.business_id') IS ?) LIMIT 1''',
                 (kind,identity,business)*3).fetchone()
             if focused: recipients.add(installation['management_coordinator_id'])
-        if change['responsible'] and table == 'email_conversations':
-            recipients.update(assigned(uow, business, ITEM_TYPES[table], identity))
-        email_link=None
-        if table=='signoffs' and record.get('category')=='input_request':
-            email_link=uow.connection.execute('SELECT * FROM email_decisions WHERE signoff_id=?',(identity,)).fetchone()
-            if email_link:
-                if installation and installation['management_coordinator_id']:recipients.add(installation['management_coordinator_id'])
-                if 'response_submitted' in change['types']:
-                    recipients.update(assigned(uow,business,'material',email_link['conversation_id']))
         if table == 'signoffs' and {'response_submitted','action_outcome'} & set(change['types']):
             recipients.update(r[0] for r in uow.connection.execute(
                 "SELECT DISTINCT a.to_id FROM thread_messages n JOIN json_each(n.refs_json) j "
@@ -354,9 +289,6 @@ def finalize_events(uow, sources=NO_SOURCES):
             else:
                 # Derived access: every active business, no agent membership row.
                 allowed = reaches_business(uow.connection, agent, business)
-            reader=getattr(uow.database,'email_reader',None)
-            if allowed and reader and (table=='email_conversations' or email_link):
-                allowed=reader(agent,business,uow)
             if allowed: active.add(agent)
         if not active: continue
         title = record.get('focus_summary') or source_summary(record, table)

@@ -74,20 +74,12 @@ attribution when your judgment calls for team follow-through. Owner inbox
 acknowledgement does not mark that conversation read.
 
 Use `inbox_subscribe` with an exact `source_type` and `source_id`. Supported
-sources are `tasks`, `signoffs`, `documents` and
-`email_conversations`. Use the target's project context; use `scope: global`
+sources are `tasks`, `signoffs` and `documents`. Use the target's project context; use `scope: global`
 only for an authorized Global target. A Task follow defaults to the Task
 itself, including its discussion. `include_related: true` on a Task also
 follows its child Tasks and directly linked items, including links added
 later, without recursion. Your own changes do not wake you. Responsibility events such as
 owner responses also arrive without a subscription.
-
-New incoming project email notifies the configured intake coordinator, the active
-Ordubashy, when that agent may read the project's email, whoever else is
-assigned. Each existing assignee who may read it keeps its own notification. The
-notified agent reads the email before routing it, then takes ownership or assigns
-it with `email_assign`; an inbox notification does not grant new assignment
-permissions or change an assignment.
 
 Subscriptions survive restarts and have no timed expiry. Review them with
 `inbox_subscriptions_list`; remove unwanted subscriptions with
