@@ -122,6 +122,7 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   // Threads is permanently adjacent to Focus regardless of registry ordering.
   if(leading.includes('threads')){leading.splice(leading.indexOf('threads'),1);leading.splice(Math.max(0,leading.indexOf('focus')),0,'threads');}
   // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
+  if (roleId === "learning-applier") leading.push("changes");
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
   return [...new Set([...leading, ...base, ...(agentId ? ["viewbox"] : []), ...trailing, "status"])];
@@ -218,6 +219,7 @@ function agpadWorkspaceViewsSync(p) {
 }
 
 function agpadWorkspaceMount(p, view) {
+  if (view === "changes" && p.workspaceRole === "learning-applier") { overseerMount(p); return; }
   if (typeof agentWorkspaceMount === 'function' && agentWorkspaceMount(p, view)) return;
   if (view === "desktop" && p.workspaceRole === "ordubashy") { agfocusDesktopMount(p); return; }
   if (view === "browser" && typeof agbrowserMount === "function") { agbrowserMount(p); return; }

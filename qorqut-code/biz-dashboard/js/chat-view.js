@@ -331,6 +331,11 @@ function chatViewTypedMount(ref, host, options) {
     item.update = next => { item.el.replaceChildren(...chatViewTypedChip(next, 'gchat-project-reference').childNodes); return true; };
     return item;
   }
+  if (ref.type === 'delta') {
+    const el = document.createElement('button'); el.type = 'button'; el.className = 'gchat-reference';
+    el.textContent = ref.label || 'Change'; el.onclick = () => window.overseerOpenDelta?.(ref.id);
+    return {el, update(next) { el.textContent = next.label || 'Change'; return true; }, dispose() { el.remove(); }};
+  }
   if (ref.type === 'browser') {
     const url = chatViewViewerUrl(ref.viewer_url);
     return url ? chatViewBrowserCard(ref, url) : unavailable();
