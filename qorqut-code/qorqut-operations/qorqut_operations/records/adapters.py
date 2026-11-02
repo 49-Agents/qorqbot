@@ -41,7 +41,7 @@ REVIEW_EDITS = {
     "notes_update": ReviewEdit("material", "document_id"),
 }
 # The refusal of a resource that is not a classifiable Material (the host's refusals of its own records use the same words).
-NOT_A_MATERIAL = "Use the item's dedicated tools; classify email conversations rather than individual messages"
+NOT_A_MATERIAL = "Use the item's dedicated tools to classify it"
 
 
 class MaterialHost(Protocol):

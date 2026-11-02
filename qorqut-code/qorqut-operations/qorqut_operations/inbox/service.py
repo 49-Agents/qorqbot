@@ -6,7 +6,7 @@ authorization; a read or a nudge never acknowledges anything.
 The generic algorithms live here: the inbox operations and their schemas, the current-context and subject checks, the visibility
 of a subscription and of a delivered event, the pending page and its cursor, the exact acknowledgement rows, the sticky Task and
 Action follows and the related-work subscription. Everything that depends on the host (managed workers, private owner channels,
-the email integration, Focus cards, incidents, delegated assignments and the automatic owner-task follows) is a named call on a
+integrated sources, Focus cards, incidents, delegated assignments and the automatic owner-task follows) is a named call on a
 required host adapter, made at the point the flow always made it. There is no default adapter, and the selected extensions'
 source handlers are an explicit required argument: this module neither imports nor builds a registry of its own."""
 
@@ -51,7 +51,7 @@ class InboxHost(Protocol):
     def private_visible(self, ctx, source_type, identity, business, uow):
         """Whether the private ``source_type`` item is visible, or None when the host has no such private source."""
 
-    def integration_visible(self, selected, source_type, identity, business, uow, email_access_cache):
+    def integration_visible(self, selected, source_type, identity, business, uow):
         """Whether an item of an integrated source is visible (inside the caller's denial handling), or None when it is not one."""
 
     def event_visible(self, ctx, row, uow):
@@ -143,7 +143,7 @@ class InboxService:
         """Current business access, decided by the host at every call."""
         return self.host.business_member(ctx, business, uow)
 
-    def visible(self, ctx, source_type, identity, business, uow, *, email_access_cache=None):
+    def visible(self, ctx, source_type, identity, business, uow):
         """Use current domain authorization; unavailable objects disclose no summary."""
         private = self.host.private_visible(ctx, source_type, identity, business, uow)
         if private is not None:
@@ -167,7 +167,7 @@ class InboxService:
                 self.items.resolve(selected,
                     {'type': self.item_types[source_type], 'id': identity}, uow, allow_busy=True)
                 return True
-            integrated = self.host.integration_visible(selected, source_type, identity, business, uow, email_access_cache)
+            integrated = self.host.integration_visible(selected, source_type, identity, business, uow)
             if integrated is not None:
                 return integrated
             self.related.get(selected, uow, 'action_logs' if source_type == 'actions' else source_type, identity, allow_busy=True)
@@ -177,7 +177,7 @@ class InboxService:
                 return False
             raise
 
-    def event_visible(self, ctx, row, uow, *, email_access_cache=None):
+    def event_visible(self, ctx, row, uow):
         handler = self.sources.get(row['source_type'])
         if handler is not None and handler.event_visible is not None:
             return bool(handler.event_visible(self, ctx, row, uow))
@@ -189,8 +189,7 @@ class InboxService:
             # Deliveries follow the current recipient; read-only collapsed history never notifies.
             return bool(message and message["current_recipient_id"] == ctx.principal_id
                         and not self.messages.collapsed(message) and self.messages.visible(ctx, message))
-        if self.visible(ctx, row['source_type'], row['source_id'], row['business_id'], uow,
-                        email_access_cache=email_access_cache):
+        if self.visible(ctx, row['source_type'], row['source_id'], row['business_id'], uow):
             return True
         if row['event_type'] != 'deleted' or row['source_type'] not in {'tasks', 'documents'}:
             return False

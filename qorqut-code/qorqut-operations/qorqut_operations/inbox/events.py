@@ -9,7 +9,7 @@ Tasks and Actions are not announced here: their one discussion writer is this pa
 thread entry, the follow state and the event with its required/optional deliveries in the applying transaction. The captures
 cover every other retained item, and an edge that touches a Task or an Action is announced by the operation that wrote it.
 
-Everything that depends on the host (Focus cards, the email integration, the coordinator and active-global eligibility) is a
+Everything that depends on the host (Focus cards, the coordinator and active-global eligibility) is a
 named call on the required ``EventRouting`` adapter, made where the flow always made it. There is no default adapter."""
 
 import json

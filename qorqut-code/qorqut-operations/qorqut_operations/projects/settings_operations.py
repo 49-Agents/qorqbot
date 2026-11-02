@@ -4,7 +4,7 @@ configuration row (``businesses.config_json``).
 The generic part is the engine's: reading the row with its revision, the replacement and the recursive patch
 (``merge_settings``), the revision check, the project name, stage, timezone, alias and registered-identity validation, the
 registration of the three operations and the plan that records the change. A project's configuration also holds host state
-(owner and workspace paths, delegation, browser, engineering and owner-session sections) with host authority rules; those
+(owner and workspace paths, browser, engineering and owner-session sections) with host authority rules; those
 come in through the required ``SettingsHost``, each method called at one fixed point of the flow below. Nothing is discovered
 by attribute or module and the host cannot replace the revision check or the generic validation."""
 
@@ -25,7 +25,7 @@ MUTATIONS = {
     "business_config_patch": ({"changes": {"type": "object", "minProperties": 1}}, ("changes",)),
 }
 DESCRIPTIONS = {
-    "business_config_patch": "Patch editable settings in the selected project with current expected_revision. Nested objects merge; null removes a value. Unmentioned fields are preserved. Read business_config_get first. Email-engine registration uses business_email_update.",
+    "business_config_patch": "Patch editable settings in the selected project with current expected_revision. Nested objects merge; null removes a value. Unmentioned fields are preserved. Read business_config_get first.",
     "business_config_update": "Replace editable settings in the selected project using the current expected_revision. Preserve unrelated config fields. The owner and scoped Ordubashy may directly manage engineering organizations/repositories/deployment targets and browser settings; other agents cannot. Registered identity, owner, paths and generated browser identity remain protected. Tool overrides still apply.",
 }
 OPERATIONS = ("business_config_get", *MUTATIONS)

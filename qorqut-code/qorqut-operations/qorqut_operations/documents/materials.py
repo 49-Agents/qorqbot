@@ -10,8 +10,6 @@ FILTERS = {"material_type": {"enum": list(MATERIAL_TYPES)}, "origin": {"type": "
 
 
 def classification(row, resource="documents"):
-    if resource == "email_conversations":
-        return {"material_type": "conversation", "origin": "email", "tags": list(row.get("tags_json", []))}
     if resource != "documents" or row.get("kind") not in DOCUMENT_KINDS or row.get("owning_agent_id") \
             or not (row.get("business_id") or row.get("namespace") == "global"):
         return {}

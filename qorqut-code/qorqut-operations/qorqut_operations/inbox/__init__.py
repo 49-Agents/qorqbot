@@ -1,7 +1,7 @@
 """The operational inbox: the inbox service, event finalization, direct messages, broadcasts and related-work routing.
 
-The host supplies the facts and effects this module does not own: managed workers, private owner channels, the email
-integration, Focus cards, incidents and delegated assignments (``InboxHost``), the routing of the captures it alone understands
+The host supplies the facts and effects this module does not own: managed workers, private owner channels, integrated
+sources, Focus cards, incidents and delegated assignments (``InboxHost``), the routing of the captures it alone understands
 (``EventRouting``), who is directed to the owner, delegated worker bindings, the forwarding of an accepted message to its owner,
 terminal delivery and input (``MessageHost``), and which agents are active globals (the ``Broadcasts``/``BroadcastDispatch``
 arguments). The selected extensions' source handlers are an explicit argument too. None of them has a default, so a module
