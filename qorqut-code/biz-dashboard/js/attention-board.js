@@ -60,7 +60,7 @@ function attentionBoardTask(ref, task) {
 }
 function attentionBoardMount(p) {
   const body = $('#agpad-body', p.el);
-  body.innerHTML = '<section class="agfocus" data-attention-board><header><div class="agfocus-heading"><div class="global-eyebrow">Attention board</div></div><div data-attention-focus></div><p class="agfocus-error" data-attention-error role="alert" hidden></p></header><div class="agfocus-layout"><div data-attention-list></div><aside class="agfocus-dock" data-attention-record hidden><div class="agfocus-dock-content"></div></aside></div></section>';
+  body.innerHTML = '<section class="agfocus" data-attention-board><header><div class="agfocus-heading"><div class="global-eyebrow">Attention board</div></div><div data-attention-focus></div><p class="agfocus-error" data-attention-error role="alert" hidden></p></header><section class="attention-queue" aria-label="New attention"></section><div class="agfocus-layout"><div data-attention-list></div><aside class="agfocus-dock" data-attention-record hidden><div class="agfocus-dock-content"></div></aside></div></section>';
   const board = body.firstElementChild, dock = board.querySelector('[data-attention-record]');
   const mountWorkspace = () => recordWorkspaceMount(dock.firstElementChild, {entry:'focus', paired:false, visible:()=>agpadActive(p) && p.view === 'attentionBoard', onClose:()=>{
     dock.hidden=true;
@@ -68,6 +68,7 @@ function attentionBoardMount(p) {
     agfocusOverlayClose(p);
     board.querySelector(`[data-attention-member="${p.attentionBoard?.selected || ''}"]`)?.focus({preventScroll:true});
   }});
+  const disposeQueue = agfocusQueueMount(p, board.querySelector('.attention-queue'));
   p.attentionBoard = {board, workspace:mountWorkspace(), mountWorkspace, next:0, busy:false, data:null};
   const unsubscribe=taskStateSubscribe((scope,id,snapshot)=>{
     if (!snapshot.pending && p.attentionBoard === boardState && boardState.data?.items.some(item => item.task_ref.id === id && attentionBoardScope(item.task_ref,item.task) === scope)) {
@@ -75,7 +76,7 @@ function attentionBoardMount(p) {
     }
   });
   const boardState=p.attentionBoard;
-  p.workspaceDispose = () => {unsubscribe(); agfocusOverlayClose(p); clearTimeout(boardState.repaint); boardState.workspace.dispose(); p.attentionBoard = null;};
+  p.workspaceDispose = () => {unsubscribe(); disposeQueue(); agfocusOverlayClose(p); clearTimeout(boardState.repaint); boardState.workspace.dispose(); p.attentionBoard = null;};
   attentionBoardTick(p);
 }
 function attentionBoardTick(p) {

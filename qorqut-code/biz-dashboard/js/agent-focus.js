@@ -258,6 +258,23 @@ function agfocusWorkspaceTools(p,board) {
   return ()=>tools.remove();
 }
 
+// The Browser/Desktop launchers and the owner Signoff queue shared by Focus and the Attention board.
+// `queue` is the .attention-queue section; the returned function releases the strip, subscription and listeners.
+function agfocusQueueMount(p,queue) {
+  // An agent with Focus gets the Browser, Desktop and pending Signoffs in one strip; agents without Focus keep their views and queue.
+  p.focusSurfaces=agpadFocusSurfaces(p) && typeof agviewboxSurfacesMount==='function'?agviewboxSurfacesMount(p,queue):null;
+  const strip=p.focusSurfaces;
+  const disposeAttention=strip?()=>{strip.dispose();if(p.focusSurfaces===strip)p.focusSurfaces=null;}
+    :typeof attentionQueue!=='undefined'?attentionQueue.mount(queue):()=>{};
+  const signoffQueue=strip?.signoffHost || document.createElement('section');
+  if(!strip){
+    signoffQueue.className='focus-signoff-queue';signoffQueue.setAttribute('aria-label','Signoff queue');signoffQueue.hidden=true;
+    queue.after(signoffQueue);
+  }
+  const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,id=>p.focus?.items.find(item=>item.source?.type==='signoff' && item.source.id===id)?.display_name):()=>{};
+  return ()=>{disposeAttention();disposeSignoffs();if(!strip)signoffQueue.remove();};
+}
+
 function agfocusMount(p) {
   const body = $('#agpad-body', p.el);
   body.innerHTML = `<div class="agfocus"><p class="agfocus-error" role="alert" hidden></p><button type="button" class="quiet" data-focus-retry-move hidden>Retry same move</button><p class="agfocus-sr" data-focus-announcement role="status" aria-live="polite"></p><span class="agfocus-sr" id="agfocus-move-instructions">Use Alt+ArrowUp or Alt+ArrowDown to move one visible row.</span>
@@ -277,16 +294,7 @@ function agfocusMount(p) {
     todayCalendar=calendarTodayMount(excerpt);
     excerpt.classList.add('agfocus-calendar');
   }
-  // An agent with Focus gets the Browser, Desktop and pending Signoffs in one strip; agents without Focus keep their views and queue.
-  p.focusSurfaces=agpadFocusSurfaces(p) && typeof agviewboxSurfacesMount==='function'?agviewboxSurfacesMount(p,board.querySelector('.attention-queue')):null;
-  const disposeAttention=p.focusSurfaces?()=>{p.focusSurfaces.dispose();p.focusSurfaces=null;}
-    :typeof attentionQueue!=='undefined'?attentionQueue.mount(board.querySelector('.attention-queue')):()=>{};
-  const signoffQueue=p.focusSurfaces?.signoffHost || document.createElement('section');
-  if(!p.focusSurfaces){
-    signoffQueue.className='focus-signoff-queue';signoffQueue.setAttribute('aria-label','Signoff queue');signoffQueue.hidden=true;
-    board.querySelector('.attention-queue').after(signoffQueue);
-  }
-  const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,id=>p.focus?.items.find(item=>item.source?.type==='signoff' && item.source.id===id)?.display_name):()=>{};
+  const disposeQueue=agfocusQueueMount(p,board.querySelector('.attention-queue'));
   // Focus uses the shared record workspace. Its header owns Back, the type and
   // Chat icon tabs and Close; selecting a row no longer mounts a conversation inside it.
   p.focusWorkspacePaired=false;
@@ -320,8 +328,7 @@ function agfocusMount(p) {
     p.el.classList.remove('agfocus-record-selected');
     disposeTools();
     todayCalendar?.dispose();
-    disposeAttention();
-    disposeSignoffs();
+    disposeQueue();
     document.removeEventListener('reply-notifications-changed',repliesChanged);
     agfocusOverlayClose(p);disposeResize();disposeOrdering();disposeText();p.focusSnoozePopup?.close();p.focusSnoozePopup=null;
     p.focusWorkspace?.dispose();p.focusWorkspace=null;
