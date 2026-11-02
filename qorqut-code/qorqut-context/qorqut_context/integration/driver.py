@@ -20,7 +20,7 @@ reinterprets either:
   then recorded once. A published event is never discarded, rerun or blocked.
 * Failures of SQLite recording leave the queue head ``processing`` with the publication intact: the next ``recover`` or
   ``process_next`` records it mechanically, with no second model call.
-* The coordinator is the configured Ordubashy (any runtime). Without one no attempt starts and no model runs
+* The coordinator is the host's configured coordinator agent (any runtime). Without one no attempt starts and no model runs
   (``not_ready``); if it disappears after publication the exact publication stays pending for recovery and nothing is
   retried or fabricated. Only a committed, nonempty handoff note produces the queue's normal deduplicated notice.
 
