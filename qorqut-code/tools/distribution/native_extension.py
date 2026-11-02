@@ -159,12 +159,17 @@ def inspect_wheel(path):
         if wheel.getinfo(metadata_files[0]).file_size > 4 * 1024 * 1024 or wheel.getinfo(record_name).file_size > 16 * 1024 * 1024:
             raise ValueError('Oversized wheel metadata')
         metadata_raw = wheel.read(metadata_files[0])
+        scripts = {}
         if prefix + '/entry_points.txt' in names:
             import configparser
             entries = configparser.ConfigParser()
+            entries.optionxform = str
             entries.read_string(wheel.read(prefix + '/entry_points.txt').decode())
-            if any(entries.has_section(section) and entries.items(section) for section in ('console_scripts', 'gui_scripts')):
-                raise ValueError('Connector bundles may not replace launcher scripts')
+            for section in ('console_scripts', 'gui_scripts'):
+                for name, value in entries.items(section) if entries.has_section(section) else ():
+                    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', name) or name in scripts:
+                        raise ValueError('Unsafe or duplicate wheel launcher name')
+                    scripts[name] = value
         metadata = BytesParser().parsebytes(metadata_raw)
         name, version = metadata.get('Name'), metadata.get('Version')
         if not name or not version or len(metadata.get_all('Name', [])) != 1 or len(metadata.get_all('Version', [])) != 1:
@@ -192,7 +197,7 @@ def inspect_wheel(path):
             if hashed != digest or size != str(len(raw)):
                 raise ValueError('Wheel RECORD checksum mismatch')
         return {'filename':path.name, 'name':canonical_name(name), 'version':version,
-                'files':sorted(file_names), 'requires':metadata.get_all('Requires-Dist', []), 'requires_python':metadata.get('Requires-Python')}
+                'files':sorted(file_names), 'scripts':scripts, 'requires':metadata.get_all('Requires-Dist', []), 'requires_python':metadata.get('Requires-Python')}
 
 
 def inspect_resources(path, extension_id):
@@ -251,6 +256,7 @@ def inspect_resources(path, extension_id):
 
 CHECK_ENVIRONMENT = r'''
 import importlib.metadata as m,json,sys
+from pathlib import Path
 from pip._vendor.packaging.requirements import Requirement
 from pip._vendor.packaging.specifiers import SpecifierSet
 from pip._vendor.packaging.tags import sys_tags
@@ -263,13 +269,16 @@ if before is None:
 elif any(installed.get(name)!=version for name,version in before.items()):
     raise SystemExit('Installed baseline changed since the interrupted extension install')
 merged=dict(installed)
-owned={}
+owned={}; script_owners={}
 for distribution in m.distributions():
     name=canonicalize_name(distribution.metadata.get('Name',''))
     if name in before:
         for path in distribution.files or ():
             owned[str(path)]=name
-incoming=set()
+    for entry in distribution.entry_points:
+        if entry.group in ('console_scripts','gui_scripts'):
+            script_owners[entry.name]=name
+incoming=set(); incoming_scripts=set()
 for wheel in wheels:
     name=wheel['name']; version=wheel['version']
     if name in before:
@@ -278,6 +287,10 @@ for wheel in wheels:
         raise SystemExit('Interrupted installation conflicts with installed distribution: '+name)
     if any(path in owned or path in incoming for path in wheel['files']):
         raise SystemExit('Wheel would overwrite another distribution file: '+name)
+    for script in wheel['scripts']:
+        if script in incoming_scripts or ((Path(sys.prefix)/'bin'/script).exists() and script_owners.get(script)!=name):
+            raise SystemExit('Wheel would overwrite an existing launcher: '+script)
+        incoming_scripts.add(script)
     incoming.update(wheel['files'])
     _,parsed,_,tags=parse_wheel_filename(wheel['filename'])
     if parsed != Version(version) or not tags.intersection(set(sys_tags())):
@@ -413,7 +426,7 @@ def install(root, archive, expected, *, config=None, resume=False):
             request = stage / 'dependency-check.json'
             launcher.save_json(request, {'wheels':wheels, 'before':journal['installed_before']})
             python = runtime / 'venv/bin/python'
-            check = subprocess.run([python, '-I', '-c', CHECK_ENVIRONMENT, request], env=env, cwd=root, capture_output=True, text=True)
+            check = subprocess.run([python, '-I', '-B', '-c', CHECK_ENVIRONMENT, request], env=env, cwd=root, capture_output=True, text=True)
             if check.returncode:
                 journal['phase'] = 'refused'
                 launcher.save_json(journal_path, journal)
@@ -422,16 +435,16 @@ def install(root, archive, expected, *, config=None, resume=False):
             journal['phase'] = 'installing-wheels'
             launcher.save_json(journal_path, journal)
             with plain(stage / 'pip.log').open('ab') as log:
-                subprocess.run([python, '-I', '-m', 'pip', 'install', '--no-index', '--no-deps', '--no-compile', '--force-reinstall',
+                subprocess.run([python, '-I', '-B', '-m', 'pip', 'install', '--no-index', '--no-deps', '--no-compile', '--force-reinstall',
                                 *(stage / 'wheels' / wheel['filename'] for wheel in wheels)],
                                env=env, cwd=root, stdout=log, stderr=subprocess.STDOUT, check=True)
-                subprocess.run([python, '-I', '-m', 'pip', 'check'], env=env, cwd=root, stdout=log, stderr=subprocess.STDOUT, check=True)
+                subprocess.run([python, '-I', '-B', '-m', 'pip', 'check'], env=env, cwd=root, stdout=log, stderr=subprocess.STDOUT, check=True)
             journal['phase'] = 'applying'
             launcher.save_json(journal_path, journal)
             # The app lock remains held; the additive installer owns the instance
             # lock and its schema/Agentic transaction, backups and resume journal.
             instance_lock.close(); instance_lock = None
-            command = [python, '-I', '-m', 'bazarlyk.bootstrap.extension_install', '--prepared-root', runtime,
+            command = [python, '-I', '-B', '-m', 'bazarlyk.bootstrap.extension_install', '--prepared-root', runtime,
                        '--instance-root', instance, '--factory', value['factory'], '--bundle-sha256', expected, '--config', config_path]
             adoption_journal = plain(instance / 'config/extension-install.json')
             if resume and adoption_journal.exists() and read_json(adoption_journal).get('request', {}).get('bundle_sha256') == expected:
@@ -442,6 +455,11 @@ def install(root, archive, expected, *, config=None, resume=False):
             launcher.save_json(journal_path, journal)
             print('Extension installed. Start Qorqbot normally; account setup remains explicit.')
             return 0
+        except BaseException:
+            if 'journal' in locals() and journal.get('phase') in {'staged', 'refused'}:
+                journal['phase'] = 'refused'
+                launcher.save_json(journal_path, journal)
+            raise
         finally:
             if instance_lock is not None:
                 instance_lock.close()

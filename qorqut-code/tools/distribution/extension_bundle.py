@@ -7,13 +7,15 @@ import io
 import json
 from pathlib import Path
 import tarfile
+import tempfile
+import zipfile
 
 spec = importlib.util.spec_from_file_location('native_extension', Path(__file__).with_name('native_extension.py'))
 contract = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(contract)
 
 
-def build(extension_id, wheels, output):
+def _build(extension_id, wheels, output):
     if extension_id not in contract.FACTORIES:
         raise ValueError('Unsupported connector')
     inspected = [contract.inspect_wheel(path) for path in wheels]
@@ -41,6 +43,34 @@ def build(extension_id, wheels, output):
     sha = contract.checksum(output)
     contract.inspect_bundle(output, sha)
     return {'path':str(output), 'sha256':sha, 'extension':value}
+
+
+def build(extension_id, wheels, output):
+    """Verify original wheels and retain only runtime payloads, using the core filter."""
+    spec = importlib.util.spec_from_file_location('native_build_filter', Path(__file__).with_name('native_build.py'))
+    filtering = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(filtering)
+    for path in wheels:
+        contract.inspect_wheel(path)
+    provenance = []
+    with tempfile.TemporaryDirectory(prefix='.extension-build-', dir=Path(output).absolute().parent) as temporary:
+        selected = []
+        for path in wheels:
+            with zipfile.ZipFile(path) as archive:
+                excluded = any(set(Path(name).parts) & filtering.DEV or Path(name).suffix in {'.pyc', '.pyo'} for name in archive.namelist())
+            if excluded:
+                target = Path(temporary) / path.name
+                record = filtering.strip_wheel(path, target)
+                provenance.append({'filename':path.name, 'original_sha256':record['original_sha256'],
+                                   'runtime_sha256':record['runtime_sha256'], 'removed_files':len(record['removed'])})
+                selected.append(target)
+            else:
+                selected.append(path)
+                provenance.append({'filename':path.name, 'original_sha256':contract.checksum(path),
+                                   'runtime_sha256':contract.checksum(path), 'removed_files':0})
+        result = _build(extension_id, selected, output)
+    result['source_wheels'] = provenance
+    return result
 
 
 def main(argv=None):
