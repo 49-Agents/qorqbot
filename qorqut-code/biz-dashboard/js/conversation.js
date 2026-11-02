@@ -99,32 +99,29 @@ function conversationRelatedRecords(s,source) {
   }
   return [...new Map(records.map(record=>[conversationRecordKey(record),record])).values()];
 }
-// Reuse the frozen, escaped Signoff renderers. This is a read-only projection, never a message or decision.
-async function conversationSignoffPreview(record) {
-  const slug=record.business_slug || (state.bizs || []).find(b=>b.id===record.business_id)?.slug;
-  if(record.business_id && !slug)throw new Error('Review scope unavailable');
-  const prefix=record.business_id?`/biz/${encodeURIComponent(slug)}`:'/root';
-  const s=coreData(await conversationRequest(api(`${prefix}/signoffs/${encodeURIComponent(record.id)}`))).signoff;
-  if(!s || s.id!==record.id)throw new Error('Signoff unavailable');
-  const effects=(s.preview?.effects || []).map(e=>typeof e==='string'?e:e?.description).filter(e=>typeof e==='string');
-  const proposal=sgProposal(s,effects);
-  const platform=s.category==='platform_action'?sgPlatformPreview(s):'';
-  const message=!!proposal || s.platform?.submission?.tool==='email.send';
-  const html=proposal?.html || platform || (s.input?`<p>${renderSafeLinks(s.input.explanation || '')}</p>`:
-    s.preview?.changes?sgChangesHtml(s.preview):'');
-  return {html:html || '<p>Preview unavailable. Open the signoff to review it.</p>',message,
-    label:s.title || record.label,state:sgItemStatus(s,{[s.state]:s.state}),created_at:s.created_at,
-    channel:s.operation_name==='whatsapp_send'?'WhatsApp':message?'Email':'Signoff'};
+// A related record is drawn by the existing reference components: the task chip, the inline Signoff card or an ordinary reference
+// button. It is a visual entry only, never a message, and an unresolvable review scope is shown as unavailable rather than rerouted.
+function conversationRecordEntry(record) {
+  const business=record.business_id?(state.bizs || []).find(b=>b.id===record.business_id || b.business_id===record.business_id):null;
+  const slug=record.business_slug || business?.slug || null;
+  const value=slug?{...record,business_slug:slug}:record;
+  const entry={key:`related:${conversationRecordKey(record)}`,speaker:'reference',referenceOnly:true,timestamp:record.created_at,references:[],typedReferences:[]};
+  const typed={type:record.type,id:record.id,business_id:record.business_id || null,business_slug:slug,label:record.label,state:record.state,
+    available:!record.unavailable && !(record.business_id && !slug)};
+  if(record.type==='signoff')entry.typedReferences.push(typed);
+  else if(record.type==='task'){
+    entry.typedReferences.push(typed);
+    if(typed.available)entry.references.push({key:'open',label:'Open task',value});
+  } else entry.references.push({key:'open',label:record.label || 'Related item',disabled:!!record.unavailable,value});
+  return entry;
 }
-function conversationTimeline(s,adapter,source,previews) {
+function conversationTimeline(s,adapter,source) {
   const entries=conversationEntries(s.notes,adapter);
   if(!adapter.related)return entries;
   const earliest=s.before?s.notes[0]?.created_at:null;
   for(const record of conversationRelatedRecords(s,source)) {
-    const preview=previews.get(conversationRecordKey(record));
-    if(earliest && (preview?.created_at || record.created_at)<earliest)continue;
-    entries.push({key:`related:${record.type}:${record.business_id || 'global'}:${record.id}`,speaker:'related',
-      timestamp:preview?.created_at || record.created_at,relatedRecord:record,relatedPreview:preview,references:[{key:'open',label:'Open record',value:record}]});
+    if(earliest && record.created_at<earliest)continue;
+    entries.push(conversationRecordEntry(record));
   }
   return entries.sort((a,b)=>(a.timestamp || '').localeCompare(b.timestamp || ''));
 }
@@ -138,8 +135,9 @@ function conversationMount(host,source,adapter={}) {
   host.dataset.conversation=key;host._source=source;
   const s=conversationState(source);
   const recordSource={...source,business_slug:source.biz,business_id:source.business_id ?? adapter.privateSource?.business_id ?? (state.bizs || []).find(b=>b.slug===source.biz)?.id ?? null};
-  let previews=new Map(),relatedReady=false;
-  host.classList.toggle('conversation-thread',!!adapter.related);
+  let relatedReady=false;
+  // Mounted Signoff cards keep their own reader lifecycle; this mount only refreshes and disposes them with the thread.
+  const signoffViews=new Set();
   const mountId=++conversationMountId;
   const panelId=`conversation-panel-${mountId}`;
   host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span><span class="conversation-unread" data-conversation-unread aria-hidden="true" hidden></span></button><section id="${panelId}" class="conversation-panel" role="region" aria-label="Conversation with Ordubashy" hidden><div class="conversation-view"></div></section>`;
@@ -173,10 +171,10 @@ function conversationMount(host,source,adapter={}) {
   const clearError=()=>{if(errorText)setError('');};
   let painted='';
   function paint(mode='auto') {
-    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,relatedReady,[...previews]]);
+    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,relatedReady]);
     if(painted===signature && mode==='auto')return;
     painted=signature;
-    chat.render({entries:conversationTimeline(s,{...adapter,related:adapter.related && relatedReady},recordSource,previews),older:{visible:!!s.before,disabled:false},empty:{text:s.loaded && !s.notes.length?'No messages yet':''}},{scroll:mode});
+    chat.render({entries:conversationTimeline(s,{...adapter,related:adapter.related && relatedReady},recordSource),older:{visible:!!s.before,disabled:false},empty:{text:s.loaded && !s.notes.length?'No messages yet':''}},{scroll:mode});
     if(adapter.inlineComposer)host.querySelectorAll('[title]').forEach(el=>el.removeAttribute('title'));
   }
   let relatedPending=false,relatedGeneration=0;
@@ -200,17 +198,11 @@ function conversationMount(host,source,adapter={}) {
       s.related=[...new Map(records.map(r=>[`${r.type}:${r.business_id || 'global'}:${r.id}`,r])).values()];
       s.relatedOffset=result.next_offset;s.relatedPages=pages;
       relatedMore.hidden=s.relatedOffset==null;relatedMore.textContent='More related items';
-      const signoffs=conversationRelatedRecords(s,recordSource).filter(r=>r.type==='signoff');
-      const loaded=await Promise.all(signoffs.map(async record=>{
-        try {return [conversationRecordKey(record),await conversationSignoffPreview(record)];}
-        catch(_) {return [conversationRecordKey(record),{html:'<p>Message preview unavailable. Open the signoff to review it.</p>',message:true}];}
-      }));
-      if(!current() || generation!==relatedGeneration)return;
-      previews=new Map(loaded);relatedReady=true;
+      relatedReady=true;
       paint();adapter.onRelated?.(s.related);
     } catch(e) {
       if(!current() || generation!==relatedGeneration)return;
-      s.related=[];previews=new Map();relatedReady=false;s.relatedOffset=null;s.relatedPages=0;paint();adapter.onRelated?.([]);
+      s.related=[];relatedReady=false;s.relatedOffset=null;s.relatedPages=0;paint();adapter.onRelated?.([]);
       relatedMore.hidden=false;relatedMore.textContent="Couldn't load related items · Retry";
     } finally {relatedPending=false;relatedMore.disabled=false;}
   }
@@ -266,7 +258,7 @@ function conversationMount(host,source,adapter={}) {
     } catch(e){
       if(!current())return;
       if(['forbidden','not_found','policy_denied','invalid_principal'].includes(e.code)){
-        s.notes=[];s.related=[];previews=new Map();relatedReady=false;relatedGeneration++;s.participants=[];s.loaded=false;s.before=null;adapter.onRelated?.([]);
+        s.notes=[];s.related=[];relatedReady=false;relatedGeneration++;s.participants=[];s.loaded=false;s.before=null;adapter.onRelated?.([]);
         paint();
         adapter.onUnavailable?.(e);
       }
@@ -352,6 +344,12 @@ function conversationMount(host,source,adapter={}) {
     onOlder:()=>{void load(true);},
     onViewportChange:()=>captureScroll(),
     // The view hands over the opaque reference value itself; an unavailable reference never reaches this callback.
+    mountSignoff:(ref,signoffHost)=>{
+      const card=sgChatMount(ref,signoffHost,{active:current,dropOnDenied:true,omitConversationFor:source.type==='signoff'?conversationKey(source):null});
+      if(!card)return null;
+      signoffViews.add(card);
+      return {dispose:()=>{signoffViews.delete(card);card.dispose();}};
+    },
     onReference:ref=>{
       if(ref)Promise.resolve(adapter.openReference?adapter.openReference(ref):taskProgressOpenReference(ref.business_slug ?? source.biz,ref)).catch(()=>setError(CONVERSATION_TEXT.load));
     },
@@ -362,7 +360,7 @@ function conversationMount(host,source,adapter={}) {
   chat.setDraft(s.text);
   view=host._conversation={
     dismissOnOutside:adapter.dismissOnOutside!==false,
-    refresh:()=>{if(expanded)return load(false);},
+    refresh:()=>{if(expanded){for(const view of signoffViews)void view.refresh();return load(false);}},
     isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),
     setUnread,
     hasDraft:()=>!!(s.text || s.files.length),

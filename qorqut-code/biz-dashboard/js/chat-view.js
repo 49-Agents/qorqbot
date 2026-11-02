@@ -327,6 +327,7 @@ function chatViewTypedMount(ref, host, options) {
     el.className = 'gchat-signoff-reference';
     host.append(el);
     const mounted = options.mountSignoff(ref, el);
+    if (!mounted) { el.remove(); return unavailable(); }
     return {el, update: () => true, dispose() { try { mounted?.dispose ? mounted.dispose() : mounted?.(); } finally { el.remove(); } }};
   }
   return unavailable();
@@ -514,7 +515,7 @@ function mountChatView(host, options = {}) {
 
   // ---- entries
   const entrySignature = entry => JSON.stringify([entry.speaker, entry.text, entry.partial === true, entry.timestamp, entry.title, entry.showAuthor,
-    entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.collapsedSource, entry.relatedRecord, entry.relatedPreview,
+    entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.collapsedSource, entry.referenceOnly === true,
     (entry.references || []).map(ref => [ref.key, ref.label, !!ref.disabled]), (entry.typedReferences || []).map(chatViewTypedSignature), (entry.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
   const authorHtml = entry => entry.author && entry.showAuthor !== false
     ? `<div class="gchat-author">${entry.author.avatarHtml ? `<span class="gchat-avatar" aria-hidden="true">${entry.author.avatarHtml}</span>` : ''}<small class="gchat-author-name">${esc(entry.author.name || '')}</small></div>` : '';
@@ -542,7 +543,8 @@ function mountChatView(host, options = {}) {
   function paintTimestamps() {
     let previous = NaN, previousEntry = null;
     for (const entry of model.entries) {
-      if(entry.relatedRecord)continue;
+      // A reference-only entry carries no message, author or time and does not break an author run.
+      if (entry.referenceOnly) { previousEntry = null; continue; }
       const at = entry.timestamp ? new Date(entry.timestamp).getTime() : NaN;
       const show = Number.isFinite(at) && (!Number.isFinite(previous) || at < previous || at - previous >= 3600000);
       const node = nodes.get(entry.key), time = node.querySelector('.gchat-time');
@@ -560,12 +562,22 @@ function mountChatView(host, options = {}) {
       previous = at; previousEntry = entry;
     }
   }
+  function referenceButtons(entry, refs) {
+    refs.className = 'gchat-references';
+    for (const ref of entry.references || []) {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'gchat-reference quiet'; button.dataset.refKey = ref.key; button.disabled = !!ref.disabled;
+      const label = document.createElement('span'); label.textContent = ref.label || '';
+      button.append(label); refs.append(button);
+    }
+    return refs;
+  }
   function paintEntry(entry) {
     let node = nodes.get(entry.key);
     const isNew = !node;
     if (isNew) { node = document.createElement('div'); nodes.set(entry.key, node); }
     const speaker = entry.speaker || 'agent';
-    node.className = `gchat-msg gchat-${speaker}`;
+    node.className = entry.referenceOnly ? 'gchat-msg gchat-reference-only' : `gchat-msg gchat-${speaker}`;
     node.dataset.id = entry.key;
     if (entry.position != null) node.dataset.position = String(entry.position); else delete node.dataset.position;
     node._entry = entry;
@@ -577,12 +589,13 @@ function mountChatView(host, options = {}) {
     const notice = entry.notice;
     if (speaker === 'notice' && notice && typeof notice.verified === 'boolean') node.dataset.verified = String(notice.verified); else delete node.dataset.verified;
     if (speaker === 'notice' && notice?.inputType) node.dataset.inputType = notice.inputType; else delete node.dataset.inputType;
-    if(entry.relatedRecord) {
-      const record=entry.relatedRecord,preview=entry.relatedPreview;
-      const opened=node._relatedOpen ?? node.querySelector('details')?.open ?? !!preview?.message;
-      node.innerHTML=`<details class="gchat-related-record"${opened?' open':''}><summary><span class="gchat-related-icon" aria-hidden="true">${record.type==='signoff'?'◇':record.type==='action'?'↗':'○'}</span><span>${esc(preview?.label || record.label || 'Related item')}</span><small>${esc([preview?.channel,preview?.state || record.state || record.type].filter(Boolean).join(' · '))}</small><span class="gchat-related-chevron" aria-hidden="true">›</span></summary><div class="gchat-related-detail">${preview?`<div class="gchat-related-preview">${preview.html}</div>`:`<span>${esc(record.summary || [record.type,record.business_name,record.state].filter(Boolean).join(' · '))}</span>`}<button type="button" class="quiet" data-ref-key="open">Open ${record.type==='signoff'?'signoff':'record'} ↗</button></div></details>`;
-      node.querySelector('summary').onclick=()=>{node._relatedOpen=!node.querySelector('details').open;};
-      return {node,isNew};
+    if (entry.referenceOnly) {
+      // Existing reference components only: no body, author, time or copy button.
+      for (const child of [...node.childNodes]) if (child !== node._typedHost) child.remove();
+      paintTyped(node, entry);
+      const buttons = referenceButtons(entry, document.createElement('div'));
+      if (buttons.childElementCount) node.append(buttons);
+      return {node, isNew};
     }
     let body;
     if (entry.collapsedSource === 'telegram') body = telegramBody(entry.text);
@@ -594,13 +607,7 @@ function mountChatView(host, options = {}) {
     else node.innerHTML = authorHtml(entry) + body;
     const refs = (speaker === 'user' ? chatViewOwnerReferences(node.querySelector('.gchat-body'))
       : speaker === 'agent' && entry.partial !== true && chatViewReferenceChips(node.querySelector('.gchat-body'))) || document.createElement('div');
-    refs.className = 'gchat-references';
-    for (const ref of entry.references || []) {
-      const button = document.createElement('button');
-      button.type = 'button'; button.className = 'gchat-reference quiet'; button.dataset.refKey = ref.key; button.disabled = !!ref.disabled;
-      const label = document.createElement('span'); label.textContent = ref.label || '';
-      button.append(label); refs.append(button);
-    }
+    referenceButtons(entry, refs);
     if (refs.childElementCount) { if (node._typedHost) node._typedHost.before(refs); else node.append(refs); }
     paintTyped(node, entry);
     if (entry.actions?.length) {
@@ -621,7 +628,7 @@ function mountChatView(host, options = {}) {
     node._typed?.clear(); node._typedHost?.remove(); node._typedHost = null;
   }
   function paintTyped(node, entry) {
-    const refs = entry.speaker === 'agent' && entry.partial !== true ? (entry.typedReferences || []) : [];
+    const refs = entry.referenceOnly || (entry.speaker === 'agent' && entry.partial !== true) ? (entry.typedReferences || []) : [];
     if (!refs.length) { if (node._typedHost) disposeTyped(node); return; }
     if (!node._typedHost) {
       node._typedHost = document.createElement('div'); node._typedHost.className = 'gchat-typed';

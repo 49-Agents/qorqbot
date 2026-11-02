@@ -266,7 +266,7 @@ function agfocusMount(p) {
   const body = $('#agpad-body', p.el);
   body.innerHTML = `<div class="agfocus"><p class="agfocus-error" role="alert" hidden></p><button type="button" class="quiet" data-focus-retry-move hidden>Retry same move</button><p class="agfocus-sr" data-focus-announcement role="status" aria-live="polite"></p><span class="agfocus-sr" id="agfocus-move-instructions">Use Alt+ArrowUp or Alt+ArrowDown to move one visible row.</span>
     <header><div class="agfocus-heading"><div class="global-eyebrow">Focus</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add to Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button><button class="quiet agfocus-icon" data-focus-refresh aria-label="Refresh Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 18 17"/></svg></button><div class="agfocus-controls"><button class="quiet" data-focus-archived aria-pressed="false">Archived</button><button class="quiet" data-focus-deferred aria-pressed="false">Postponed</button></div></div></div><p class="agfocus-empty muted" role="status">Loading Focus…</p></header>
-    <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><section class="agfocus-surface" aria-label="Browser, Desktop or Viewbox" hidden><div class="agfocus-surface-bar"><button type="button" class="quiet" data-surface-back aria-label="Back to Focus">← Focus</button></div><div class="agfocus-surface-body"></div></section><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected conversation" hidden><header class="agfocus-thread-heading"><span data-focus-thread-title></span><button type="button" class="quiet" data-focus-thread-close aria-label="Close thread"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Thread height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Focus pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
+    <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><section class="agfocus-surface" aria-label="Browser, Desktop or Viewbox" hidden><div class="agfocus-surface-bar"><button type="button" class="quiet" data-surface-back aria-label="Back to Focus">← Focus</button></div><div class="agfocus-surface-body"></div></section><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected conversation" hidden>${agfocusThreadHeading()}<div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Thread height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Focus pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
   p.focusDrafts ||= new Map();
   p.focusCards = new Map();
   p.focusWork=agfocusRestoreWork();
@@ -300,6 +300,7 @@ function agfocusMount(p) {
   p.focusMoveSubmission ||= null;
   $('[data-focus-retry-move]',board).onclick=()=>agfocusMove(p,null,null,null,true);
   $('[data-surface-back]',board).onclick=()=>agpadSurfaceClose(p);
+  $('[data-manage]',board).onclick=event=>p.focusCards.get(p.focusSelected)?._manage?.(event);
   $('[data-focus-thread-close]',board).onclick=()=>{
     const row=p.focusCards.get(p.focusSelected);
     agfocusSelect(p,null);
@@ -666,7 +667,7 @@ function agfocusPaint(p) {
     if(node?.dataset.unavailable && !item.unavailable){node.remove();p.focusCards.delete(item.id);node=null;}
     if(!node) {
       node=document.createElement('article');node.className='agfocus-card';node.dataset.cardId=item.id;
-      node.innerHTML='<div class="trow agfocus-row"><span class="agfocus-notification" aria-hidden="true"><span class="agfocus-unread" hidden></span></span><span class="agfocus-marker"></span><span class="task-business-column agfocus-scope"></span><div class="task-headline"><p class="ttl"></p><span class="agfocus-flag" hidden></span></div><div class="agfocus-actions"><button type="button" class="quiet" data-focus-snooze aria-label="Snooze Focus item" aria-haspopup="dialog" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg></button></div></div><div class="agfocus-region" hidden><div class="agfocus-thread-context" aria-label="Task details and context"><p class="agfocus-source-title"></p><button type="button" class="quiet" data-manage aria-label="Open details">Open details</button><div class="agfocus-task-details"></div><div class="agfocus-framing"><section data-framing="requested_response"><p class="agfocus-request"></p></section></div><p class="agfocus-context muted"></p><div class="agfocus-related"></div></div><div class="agfocus-conversation"></div></div>';
+      node.innerHTML='<div class="trow agfocus-row"><span class="agfocus-notification" aria-hidden="true"><span class="agfocus-unread" hidden></span></span><span class="agfocus-marker"></span><span class="task-business-column agfocus-scope"></span><div class="task-headline"><p class="ttl"></p><span class="agfocus-flag" hidden></span></div><div class="agfocus-actions"><button type="button" class="quiet" data-focus-snooze aria-label="Snooze Focus item" aria-haspopup="dialog" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg></button></div></div><div class="agfocus-region" hidden><details class="agfocus-thread-context"><summary>Context</summary><div class="agfocus-thread-context-body"><p class="agfocus-source-title"></p><div class="agfocus-task-details"></div><div class="agfocus-framing"><section data-framing="requested_response"><p class="agfocus-request"></p></section></div><p class="agfocus-context muted"></p><div class="agfocus-related"></div></div></details><div class="agfocus-conversation"></div></div>';
       node._region=node.querySelector('.agfocus-region');
       node._region.dataset.focusThreadId=item.id;
       node._conversationHost=node.querySelector('.agfocus-conversation');
@@ -739,7 +740,6 @@ function agfocusPaint(p) {
       if(event.target.closest('.agfocus-row'))toggleCard();
     };
     node.onkeydown=event=>{if(event.target===node && ['Enter',' '].includes(event.key)){event.preventDefault();toggleCard();}};
-    const open=()=>agfocusOpenItem(p,item.resolved_source || item.opening_target).catch(e=>toast(e.message));
     if(taskItem && taskShowsState(taskRecord)){
       const ball=node.querySelector('.agfocus-task-state');
       taskStateBind(ball, (item.resolved_source || item.source).business_slug || null, taskRecord, snapshot => {
@@ -747,7 +747,7 @@ function agfocusPaint(p) {
       });
       ball.onclick=event=>{event.stopPropagation();agfocusTaskState(p,item,ball);};
     }
-    node._region.querySelector('[data-manage]').onclick=event=>{event.stopPropagation();if((event.ctrlKey || event.metaKey) && !item._workParent)agfocusNewTab(item);else open();};
+    node._manage=event=>{event.stopPropagation();if((event.ctrlKey || event.metaKey) && !item._workParent)agfocusNewTab(item);else agfocusOpenRecord(p,item.resolved_source || item.opening_target);};
     node.setAttribute('aria-describedby','agfocus-move-instructions');
     actions.querySelector('[data-focus-snooze]').onclick=event=>{event.stopPropagation();agfocusSnoozePicker(p,node,event.currentTarget);};
     actions.querySelector('[data-focus-snooze]').setAttribute('aria-pressed',String(snoozed));
@@ -766,7 +766,7 @@ function agfocusPaint(p) {
     if(node._conversationBinding!==conversationBinding){conversationHost._conversation?.dispose();node._conversationBinding=conversationBinding;}
     const newConversation=!conversationHost._conversation;
     const conversation=conversationMount(conversationHost,{type:binding.type,id:binding.id,biz:item.resolved_source?.business_slug || item.context_business_slug || null,revision:item.source_revision},{
-      inlineComposer:true,related:true,openReference:ref=>agfocusOpenItem(p,ref),
+      inlineComposer:true,related:true,openReference:ref=>agfocusOpenRecord(p,ref),
       dismissOnOutside:false,
       isVisible:()=>p.focusMount===host && !host.hidden && p.focusSelected===item.id && p.view==='focus' && agpadActive(p),
       // Focus is a Global projection: the private channel names the owning
@@ -1283,4 +1283,17 @@ function agfocusOverlayOpen(p,board,dock,onClose=()=>agfocusSelect(p,null)) {
   window.addEventListener('resize',fit);document.addEventListener('keydown',escape);
   p.focusOverlay={fit,dispose:()=>{observer.disconnect();window.removeEventListener('resize',fit);document.removeEventListener('keydown',escape);terminal.inert=wasInert;dock.classList.remove('agfocus-chat-overlay');layout.classList.remove('agfocus-overlay-open');dock.removeAttribute('role');dock.setAttribute('aria-label','Selected conversation');for(const key of ['left','top','width','height'])dock.style[key]='';}};
   fit();
+}
+
+// One thread header for Focus and Threads: the title, a Details control for the source record and close.
+function agfocusThreadHeading() {
+  return '<header class="agfocus-thread-heading"><span data-focus-thread-title></span><button type="button" class="quiet agfocus-thread-details" data-manage>Details</button><button type="button" class="quiet" data-focus-thread-close aria-label="Close thread"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>';
+}
+
+// Opens a record's existing reader in a modal, so inspecting it never replaces the selected thread or its draft.
+function agfocusOpenRecord(p,item) {
+  let cleanup,host;
+  return modal({title:esc(item.label || 'Related record'),width:740,stack:true,body:'<div class="agfocus-detail-body"></div>',
+    onOpen:el=>{host=el.querySelector('.agfocus-detail-body');agfocusOpenItem(p,item,{host,current:()=>host.isConnected && agpadActive(p),onDispose:fn=>{cleanup=fn;},back:()=>{}}).catch(error=>{if(host.isConnected)host.textContent=error.message;});},
+    onClose:()=>cleanup?.()});
 }

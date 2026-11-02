@@ -468,13 +468,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     },
     onOlder: () => loadOlder(),
     // A Signoff reference is the existing single-item Signoff view: the owner session, exact proposal and decisions stay its own.
-    mountSignoff: (ref, host) => {
-      const signoff = sgCreateView({active: () => !disposed && host.isConnected, body: () => host, inline: true, execution: true, waitingOnly: false,
-        workspace: () => ref.business_slug || 'scope:global', global: !ref.business_id, item: () => ({id: ref.id, businessId: ref.business_id || null})});
-      // The message node joins the document at the end of this render; the view mounts only into a connected host.
-      queueMicrotask(() => { if (host.isConnected) signoff.paint(); });
-      return signoff;
-    },
+    mountSignoff: (ref, host) => sgChatMount(ref, host, {active: () => !disposed}),
     onViewportChange: scheduleRead,
     onPendingAction: (action, id) => {
       if (action === 'resend') void resendInput(id);

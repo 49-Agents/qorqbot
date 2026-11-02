@@ -16,8 +16,6 @@
 .agfocus .agfocus-related button{display:inline-flex;margin:0;max-width:100%;white-space:normal;text-align:left}
 .agfocus .agfocus-context{margin-top:8px;font-size:10px}
 .agfocus-conversation{cursor:default}
-/* The owner's message text matches the 12px agent paragraphs in a Focus thread; agent markdown and native Chat keep their own sizes. */
-.agfocus-conversation .gchat-user .gchat-body{font-size:12px}
 .agfocus .agfocus-pages{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;font-size:11px}
 .agfocus-detail{padding:14px;min-width:0}
 .agfocus-detail-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
@@ -98,12 +96,16 @@
 .agfocus-layout.agfocus-thread-open{grid-template-columns:repeat(2,minmax(0,1fr))}
 .agfocus-dock{position:sticky;top:0;display:flex;flex-direction:column;min-width:0;min-height:180px;box-sizing:border-box;border:1px solid var(--line-2);border-radius:10px;background:var(--bg);overflow:hidden;container:agfocus-thread/inline-size}
 .agfocus-dock[hidden],.agfocus-retained[hidden],.agfocus-region[hidden]{display:none}
-.agfocus .agfocus-thread-heading{display:flex;align-items:center;gap:4px;flex:none;margin:0;padding:5px 6px;min-width:0;font-size:11px}
+.agfocus-dock .agfocus-thread-heading{display:flex;align-items:center;gap:4px;flex:none;margin:0;padding:5px 6px;min-width:0;font-size:11px}
 .agfocus-thread-heading > span{flex:1;min-width:0;overflow-wrap:anywhere;max-height:3em;overflow:auto}
-.agfocus .agfocus-thread-heading button{display:grid;place-items:center;flex:none;width:24px;height:24px;min-height:24px;margin:0;padding:3px;border:0;background:transparent}
+.agfocus-dock .agfocus-thread-heading button{display:grid;place-items:center;flex:none;width:24px;height:24px;min-height:24px;margin:0;padding:3px;border:0;background:transparent}
 .agfocus-dock-content,.agfocus-region{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0}
 .agfocus-region{padding:0 6px}
-.agfocus-thread-context{flex:0 0 20%;min-height:0;max-height:20%;overflow:auto;box-sizing:border-box;border-bottom:1px solid var(--line-2);margin-bottom:8px;padding-bottom:6px}
+.agfocus-dock .agfocus-thread-heading button.agfocus-thread-details{width:auto;padding:0 6px;color:var(--fg-2)}
+/* Focus framing is a collapsed disclosure above the shared feed; it takes natural, bounded height only when opened. */
+.agfocus-thread-context{flex:none;box-sizing:border-box;border-bottom:1px solid var(--line-2);margin-bottom:6px;font-size:11px}
+.agfocus-thread-context>summary{cursor:pointer;color:var(--fg-2);padding:2px 0 5px}
+.agfocus-thread-context-body{max-height:min(30vh,240px);overflow:auto;padding-bottom:6px}
 .agfocus-source-title{font-weight:500;margin:0 0 5px;white-space:pre-wrap;overflow-wrap:anywhere}
 .agfocus-task-details{font-size:11px;color:var(--fg-2);margin-bottom:5px;white-space:pre-wrap;overflow-wrap:anywhere}
 .agfocus .agfocus-thread-context .agfocus-framing{margin:0 0 4px;gap:4px}
@@ -155,7 +157,7 @@
 .agfocus-layout.agfocus-overlay-open{grid-template-columns:minmax(0,1fr)}
 .agfocus-dock.agfocus-chat-overlay{position:fixed;z-index:40;box-sizing:border-box;min-height:0;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(10px);border-radius:12px;box-shadow:0 12px 40px #0005}
 .agfocus-chat-overlay .agfocus-thread-resize{display:none}
-.agfocus .agfocus-chat-overlay .agfocus-thread-heading{padding:12px 16px;font-size:14px}
+.agfocus-chat-overlay .agfocus-thread-heading{padding:12px 16px;font-size:14px}
 .agfocus-chat-overlay .agfocus-region{padding:0 16px 12px}
 
 /* The entire state column is a status hit target, never a row-open target. */
@@ -224,7 +226,6 @@
 .agfocus .focus-signoff-queue .focus-signoff-chip{display:flex;align-items:center;justify-content:center;flex:none;width:40px;max-width:100%;min-height:40px;margin:0;padding:8px;border:0;border-radius:5px;background:var(--hover);color:var(--fg-2);font-size:11px;text-align:left}
 .focus-signoff-chip .attention-signoff{width:18px;height:18px;border:0;border-radius:0}
 .focus-signoff-chip svg{width:18px;height:18px}
-.agfocus .agfocus-thread-context [data-manage]{font-size:11px;padding:0;border:0;background:none;margin:0 0 6px;color:var(--fg-2)}
 
 /* Fixed Browser/Desktop pair, a quiet divider, then the scrolling Signoff queue. */
 .agfocus-surfaces > .focus-signoff-queue{flex-wrap:nowrap;margin:0}
