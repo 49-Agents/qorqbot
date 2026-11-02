@@ -24,9 +24,10 @@ not apply to those components independently. In particular:
 - Python dependencies carry their own license files in their wheel metadata.
   Certifi is MPL-2.0; its Python and certificate source files are included in its
   wheel. Preserve their MPL rights and notices.
-- The optional WhatsApp native helper and its linked dependencies need separate
-  treatment; see `extensions/whatsapp/LICENSE-SCOPE.md`. Do not infer BSL coverage
-  from the adapter's containing directory.
+- The optional WhatsApp Python adapter, guidance and UI use Apache 2.0. Its
+  independent native helper uses GPL-3.0-only with matching corresponding source;
+  see `extensions/whatsapp/LICENSE-SCOPE.md`. These separately licensed programs
+  are excluded from the application's BSL grant.
 - User-installed browsers, agent clients and operating-system tools are not
   relicensed or redistributed by Qorqbot's application license.
 

@@ -49,7 +49,9 @@ def unpack(archive, stage):
             if member.name in names:
                 raise ValueError('Package contains duplicate paths')
             names.add(member.name)
-            if len(path.parts) > 1 and path.parts[1] not in {'runtime', 'qorqbot', 'README.txt'}:
+            public_files = {'qorqbot', 'README.txt', 'LICENSE', 'LICENSE-SCOPE.md',
+                            'RELEASE-LICENSES.json', 'LICENSES', 'LICENSES/Apache-2.0.txt'}
+            if len(path.parts) > 1 and path.parts[1] != 'runtime' and str(Path(*path.parts[1:])) not in public_files:
                 raise ValueError('Update package contains instance or unexpected files')
             if member.isdev() or member.isfifo():
                 raise ValueError('Package contains a special file')

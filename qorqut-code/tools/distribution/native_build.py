@@ -142,12 +142,14 @@ fi
 exec "$python" -I -B "$root/runtime/launch.py" "$@"
 """)
     launcher.chmod(0o755)
-    shutil.copy2(Path(__file__).resolve().parents[2] / 'docs/distribution/README.md',
-                 output / 'qorqbot/README.txt')
+    shutil.copy2(Path(__file__).resolve().parents[2] / 'docs/distribution/README.md', runtime / 'README.txt')
+    (output / 'qorqbot/README.txt').symlink_to('runtime/README.txt')
     for name in ('LICENSE', 'LICENSE-SCOPE.md', 'LICENSES/Apache-2.0.txt', 'RELEASE-LICENSES.json'):
         target = output / 'qorqbot' / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source / 'qorqut-code' / name, target)
+        # These links always follow the active runtime, including after an
+        # update or recovery, so notices cannot silently lag behind its code.
+        target.symlink_to(os.path.relpath(runtime / 'src/qorqut-code' / name, target.parent))
     locked = []
     for wheel_path in sorted((runtime / 'wheels').glob('*.whl')) + sorted((runtime / 'wheelhouse').glob('*.whl')):
         with zipfile.ZipFile(wheel_path) as wheel:
