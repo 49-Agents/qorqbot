@@ -50,7 +50,11 @@ class ExecutionPresentation(Protocol):
     ``execution_states`` -> ``EXECUTION_STATES`` (the ``signoffs_list`` filter enum, in order).
     ``execution_state(row, uow=None)`` -> one of those names for a stored Signoff row.
     ``execution_sql("s")`` -> a fixed SQL expression over alias ``s`` that mirrors ``execution_state`` for filtering;
-    the engine only embeds it (never caller values) and only to narrow a listing."""
+    the engine only embeds it (never caller values) and only to narrow a listing.
+    ``outcome(row, uow, *, detail)`` (optional) -> a bounded read model of the asynchronous work an approval started, or
+    ``None``; ``detail`` is true for a detail read and false for a list row, which carries only the bounded summary.
+    It is called only for a Signoff the caller's scope and visibility already admitted, so it must read nothing wider than
+    the records linked to that row; it only presents and never decides or changes anything."""
 
     execution_states: Sequence[str]
 

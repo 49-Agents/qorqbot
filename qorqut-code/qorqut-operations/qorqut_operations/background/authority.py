@@ -103,7 +103,12 @@ class BackgroundAuthority:
             # An action's business membership is part of the canonical action record it
             # belongs to, so declaring action_logs covers it without changing frozen digests.
             membership = resource.resource_type == "action_businesses" and "action_logs" in program.resource_types
-            if resource.business_id != row["business_id"] or (resource.resource_type not in program.resource_types and not membership):
+            # Tags are installation-wide labels, including on business-owned outputs.
+            # The program must still declare tags; item_tags and every other resource
+            # retain the job's business boundary. Keep frozen definitions unchanged.
+            shared_tag = resource.resource_type == "tags" and resource.business_id is None
+            if ((resource.business_id != row["business_id"] and not shared_tag)
+                    or (resource.resource_type not in program.resource_types and not membership)):
                 raise DomainError("forbidden", "Job output exceeds its declared resource kinds or project")
         return {"job_id": row["id"], "definition_digest": program.definition["digest"]}
 

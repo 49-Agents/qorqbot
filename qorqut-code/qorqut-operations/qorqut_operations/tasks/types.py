@@ -3,31 +3,78 @@
 The existing JSON payload stores these typed attributes under an engine-owned key
 that cannot be a custom field name. Public reads/writes expose normal Task fields;
 custom-field replacement never overwrites them. All changes use Task revisions,
-prepared plans, history and notifications. No separate Story/Email record exists.
+prepared plans, history and notifications. No separate Story/Customer/Email record exists.
+
+A Customer keeps a person/company kind, one free-text state label and a small contact
+profile in the same payload. They are valid only for the Customer type and never move
+the Task: the state is a label, not a lifecycle state.
 """
 from copy import deepcopy
+import unicodedata
 
 from qorqut_operations.contracts import DomainError
 
-TYPES = ("task", "story", "email")
+TYPES = ("task", "story", "customer", "email")
 KEY = "$task"
-DEFAULTS = {"task_type": "task", "overview": "", "email_conversation_id": None}
+CUSTOMER_KINDS = ("person", "company")
+STATE_LIMIT = 120
+NOTES_LIMIT = 20000
+PROFILE_LIMITS = {"company": 500, "contact_name": 500, "email": 500, "phone": 500, "website": 500, "notes": NOTES_LIMIT}
+DEFAULTS = {"task_type": "task", "overview": "", "email_conversation_id": None,
+            "customer_kind": None, "customer_state": "", "customer_profile": {}}
+# Stored whenever the Task is not all-default, exactly as before Customers existed, so a repeated write of an older
+# Story or Email Task stays a no-op. The customer attributes are stored only while they hold something.
+STORED_ALWAYS = ("task_type", "overview", "email_conversation_id")
+CUSTOMER = ("customer_kind", "customer_state", "customer_profile")
+
+KIND_SCHEMA = {"anyOf": [{"enum": list(CUSTOMER_KINDS)}, {"type": "null"}],
+               "description": "person or company for a Customer (a new Customer defaults to person); null for every other type."}
+# The raw bound only limits payload size; the 120-character limit applies after whitespace normalization.
+STATE_SCHEMA = {"type": "string", "maxLength": 1000,
+                "description": "Free-text Customer label of at most 120 characters after whitespace normalization; empty clears it. "
+                               "It is a label only and never completes, archives, snoozes or otherwise moves the Task."}
+PROFILE_SCHEMA = {"type": "object", "additionalProperties": False,
+                  "properties": {name: {"type": "string", "maxLength": limit} for name, limit in PROFILE_LIMITS.items()},
+                  "description": "Customer contact profile; replaced as a whole. The Task title is the customer name."}
+
+
+def normalize_state(value):
+    """The label with surrounding whitespace trimmed and every internal whitespace run collapsed to one space."""
+    return " ".join(value.split())
+
+
+def state_key(value):
+    """Comparison key of a label: whitespace-collapsed, Unicode-normalized and case-folded."""
+    folded = unicodedata.normalize("NFKC", normalize_state(value)).casefold()
+    return normalize_state(unicodedata.normalize("NFKC", folded))
+
+
+def resolve_state(value, known):
+    """The display spelling for a requested label: the first-introduced spelling of an equal one, else its own."""
+    shown = normalize_state(value)
+    key = state_key(shown)
+    return next((item for item in known if state_key(item) == key), shown)
 
 
 def attributes(task):
-    return {**DEFAULTS, **task.get("fields_json", {}).get(KEY, {})}
+    stored = task.get("fields_json", {}).get(KEY, {})
+    return {**deepcopy(DEFAULTS), **deepcopy(stored)} if isinstance(stored, dict) else deepcopy(DEFAULTS)
 
 
 def custom_fields(task):
     return {key: value for key, value in task["fields_json"].items() if key not in {KEY, "$task_links"}}
 
 
-def apply_attributes(current, edits):
+def apply_attributes(current, edits, states=()):
+    """Apply the typed edits (popping them) and the custom-field replacement; ``states`` is the scope's label vocabulary."""
     links = deepcopy(current.get("fields_json", {}).get("$task_links", []))
     values = attributes(current)
-    for key in DEFAULTS:
-        if key in edits:
-            values[key] = edits.pop(key)
+    given = {key: edits.pop(key) for key in DEFAULTS if key in edits}
+    values.update(given)
+    if isinstance(given.get("customer_state"), str):
+        values["customer_state"] = resolve_state(given["customer_state"], states)
+    if values["task_type"] == "customer" and values["customer_kind"] is None and "customer_kind" not in given:
+        values["customer_kind"] = "person"
     if "fields" in edits:
         fields = edits.pop("fields")
         if KEY in fields or "$task_links" in fields:
@@ -38,7 +85,27 @@ def apply_attributes(current, edits):
     if links:
         current["fields_json"]["$task_links"] = links
     if values != DEFAULTS:
-        current["fields_json"][KEY] = values
+        current["fields_json"][KEY] = {name: value for name, value in values.items()
+                                       if name in STORED_ALWAYS or value != DEFAULTS[name]}
+
+
+def validate_customer(values):
+    """The Customer attributes: kind, normalized state label and profile. Other types hold none of them."""
+    kind, state, profile = (values[name] for name in CUSTOMER)
+    if values["task_type"] != "customer":
+        if kind is not None or state != "" or profile != {}:
+            raise DomainError("validation_error", "Customer kind, state and profile belong to a Customer; clear them explicitly "
+                                                  "(customer_kind null, customer_state empty, customer_profile {}) when changing the type")
+        return
+    if kind not in CUSTOMER_KINDS:
+        raise DomainError("validation_error", "A Customer is a person or a company")
+    if not isinstance(state, str) or state != normalize_state(state) or len(state) > STATE_LIMIT:
+        raise DomainError("validation_error", f"Customer state must be a label of at most {STATE_LIMIT} characters with single spaces")
+    if not isinstance(profile, dict) or set(profile) - set(PROFILE_LIMITS):
+        raise DomainError("validation_error", "Customer profile may hold only " + ", ".join(PROFILE_LIMITS))
+    for name, value in profile.items():
+        if not isinstance(value, str) or len(value) > PROFILE_LIMITS[name]:
+            raise DomainError("validation_error", f"Customer profile {name} must be text up to {PROFILE_LIMITS[name]} characters")
 
 
 def validate_attributes(task):
@@ -53,7 +120,7 @@ def validate_attributes(task):
         raise DomainError("validation_error", "Invalid Task type attributes")
     values = attributes(task)
     if values["task_type"] not in TYPES:
-        raise DomainError("validation_error", "Task type must be task, story or email")
+        raise DomainError("validation_error", "Task type must be task, story, customer or email")
     if not isinstance(values["overview"], str) or len(values["overview"]) > 20000:
         raise DomainError("validation_error", "Task overview must be text up to 20000 characters")
     email = values["email_conversation_id"]
@@ -62,3 +129,4 @@ def validate_attributes(task):
             raise DomainError("validation_error", "Select an email conversation for an Email Task")
     elif email is not None:
         raise DomainError("validation_error", "Only an Email Task can bind an email conversation")
+    validate_customer(values)

@@ -99,6 +99,11 @@ class OperationDescriptor:
     replay_validator: Callable | None = None
     external_read: bool = False
     transport_only: bool = False
+    # Read-only widening of the Global gate. A caller in the global namespace is admitted when it holds
+    # ``global_capability`` OR one capability named here. The primary stays required of every declaration (it is what
+    # business policy, catalogs and bindings continue to name); an empty set, the default, leaves a descriptor exactly as
+    # before. Allowed only on a plain read with no composed effects, never on a mutation or platform action.
+    global_read_capability_alternatives: frozenset[str] = field(default_factory=frozenset)
 
     def __post_init__(self):
         CatalogEntry(self.name, self.supports_signoff, self.effect_kind, self.exposure, self.owner_only)
@@ -139,15 +144,45 @@ class OperationDescriptor:
         object.__setattr__(self, "alias_bindings", freeze(self.alias_bindings))
         if not self.scope_kinds or not self.scope_kinds <= {"business", "global", "agent_workspace"}:
             raise ValueError("Unknown operation scope kind")
+        alternatives = self.global_read_capability_alternatives
+        if isinstance(alternatives, (str, bytes)):
+            raise ValueError("Alternative global capabilities are a set of names")
+        alternatives = frozenset(alternatives)
+        if alternatives:
+            if (self.effect_kind != "read" or self.read is None or self.supports_signoff or self.derived_effects
+                    or self.signoff_category != "internal_change" or self.owner_only or self.transport_only):
+                raise ValueError("Alternative global capabilities are allowed only on plain read operations")
+            if not self.global_capability or "global" not in self.scope_kinds:
+                raise ValueError("Alternative global capabilities require the primary capability on a Global-capable operation")
+            if any(not isinstance(item, str) or not item or item == self.global_capability for item in alternatives):
+                raise ValueError("Alternative global capabilities must be other, nonempty names")
+        object.__setattr__(self, "global_read_capability_alternatives", alternatives)
 
     @property
     def metadata(self) -> CatalogEntry:
         return CatalogEntry(self.name, self.supports_signoff, self.effect_kind, self.exposure, self.owner_only)
 
+    def global_capability_selected(self, granted) -> str | None:
+        """The one declared capability that admits a caller holding ``granted``: the primary when held, otherwise the
+        first (by name) held alternative, else ``None``. The single eligibility rule shared by namespace validation,
+        policy resolution and discovery; composed effects and mutations only ever honour the primary."""
+        if self.global_capability in granted:
+            return self.global_capability
+        return next((item for item in sorted(self.global_read_capability_alternatives) if item in granted), None)
+
+    def global_capability_evidence(self, granted) -> dict[str, Any]:
+        """Policy-binding evidence of the capability gate; alternatives appear only on descriptors that declare them."""
+        evidence: dict[str, Any] = {"global_capability": self.global_capability}
+        if self.global_read_capability_alternatives:
+            evidence["global_capability_alternatives"] = sorted(self.global_read_capability_alternatives)
+            evidence["global_capability_selected"] = self.global_capability_selected(granted)
+        return evidence
+
     @cached_property
     def business_policy(self):
         """Reuse immutable operation metadata; authority is still resolved per call."""
-        return replace(self, global_capability=None) if self.global_capability else self
+        return (replace(self, global_capability=None, global_read_capability_alternatives=frozenset())
+                if self.global_capability else self)
 
     @cached_property
     def account_policy(self):

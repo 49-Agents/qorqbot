@@ -84,8 +84,10 @@ def read(operations, ctx, task, uow, cursor=None):
             raise
         seen.add(key)
         business = uow.repository("businesses").get(key[0]) if key[0] else None
+        shown = attributes(other)
         found.append({**target, "id": other["id"], "title": other["title"], "status": other["status"],
-                      "task_type": attributes(other)["task_type"], "archived": bool(other["archived"]),
+                      "task_type": shown["task_type"], "customer_kind": shown["customer_kind"],
+                      "customer_state": shown["customer_state"], "archived": bool(other["archived"]),
                       "business_slug": business["slug"] if business else None,
                       "business_name": business.get("name", business["slug"]) if business else "Global",
                       "link_source": {**origin, "revision": (origin_row or other)["revision"]}})

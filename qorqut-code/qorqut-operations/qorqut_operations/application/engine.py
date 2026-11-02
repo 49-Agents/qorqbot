@@ -162,7 +162,7 @@ class Application:
         if namespace == "global":
             if "global" not in descriptor.scope_kinds or not descriptor.global_capability:
                 raise DomainError("forbidden", "Operation has no registered global capability")
-            if descriptor.global_capability not in context.global_capabilities:
+            if descriptor.global_capability_selected(context.global_capabilities) is None:
                 raise DomainError("forbidden", "Global capability is not granted")
         elif namespace.startswith("business:"):
             if "business" not in descriptor.scope_kinds:

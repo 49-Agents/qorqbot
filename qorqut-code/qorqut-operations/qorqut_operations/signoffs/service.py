@@ -262,6 +262,13 @@ class SignoffService:
         if detail:
             value.update(preview=row["preview_json"], expected_targets=row["expected_targets_json"],
                          applied_at=row["applied_at"], apply_result=row["apply_result_json"], error=row["error_json"])
+        # Optional host read model of the asynchronous work this approval started: the bounded summary in a list row, the
+        # full model in a detail read. Built only for a row the caller's scope and visibility already admitted, from
+        # records the host links to it; it never decides anything.
+        outcome = getattr(self.ports.execution, "outcome", None)
+        outcome = outcome(row, uow, detail=detail) if callable(outcome) else None
+        if outcome is not None:
+            value["outcome"] = plain(outcome)
         return value
 
     def _get_operation(self, context, arguments, options, uow):

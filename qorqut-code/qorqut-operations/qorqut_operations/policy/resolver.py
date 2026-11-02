@@ -159,7 +159,7 @@ class PolicyResolver:
             return PolicyDecision("deny", "plugin_unavailable")
         return PolicyDecision(decision.mode, decision.provenance, {
             "profile_revision": basis.revision, "role": plain(basis.role),
-            "global_capability": descriptor.global_capability,
+            **descriptor.global_capability_evidence(context.global_capabilities),
             "plugin_requirement": descriptor.plugin_requirement,
         })
 
@@ -169,7 +169,7 @@ class PolicyResolver:
             resource = getattr(target, "resource", target)
             if resource.business_id and resource.business_id not in context.allowed_business_ids:
                 raise DomainError("forbidden", "Prepared resource is outside current scope")
-        if descriptor.global_capability and descriptor.global_capability not in context.global_capabilities:
+        if descriptor.global_capability and descriptor.global_capability_selected(context.global_capabilities) is None:
             raise DomainError("forbidden", "Global capability is not granted")
         if descriptor.owner_only:
             return PolicyDecision("deny", "owner_only")
@@ -182,19 +182,19 @@ class PolicyResolver:
                 if installation and installation["owner_principal_id"] == context.principal_id:
                     return PolicyDecision("allow", "installation_owner", {
                         "installation_revision": installation["revision"],
-                        "global_capability": descriptor.global_capability})
+                        **descriptor.global_capability_evidence(context.global_capabilities)})
                 return PolicyDecision("deny", "installation_owner_required")
             member = (uow.repository("business_memberships", business_id=context.business_id).get(context.principal_id)
                       if context.business_id else None)
             if not member or not member["active"] or (descriptor.effect_kind != "read" and not member["is_owner"]):
                 return PolicyDecision("deny", "owner_required")
             return PolicyDecision("allow", "owner" if member["is_owner"] else "business_member", {"membership_revision": member["revision"],
-                                  "global_capability": descriptor.global_capability})
+                                  **descriptor.global_capability_evidence(context.global_capabilities)})
         if context.principal_kind == "agent":
             return self._agent_decision(context, descriptor, uow)
         profile = self.worker_profile(context.principal_id, uow)
         decision = resolve_operation_policy(descriptor.name, profile.operations, {}, self.registry, rules=self.rules)
-        binding = {"worker_revision": profile.revision, "global_capability": descriptor.global_capability}
+        binding = {"worker_revision": profile.revision, **descriptor.global_capability_evidence(context.global_capabilities)}
         job_id = context.job_id
         verified = (self.job_consequence_verifier(context, descriptor, targets, uow)
                     if self.job_consequence_verifier is not None and (job_id or context.initiated_by_principal_id) else None)

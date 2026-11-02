@@ -87,9 +87,12 @@ class JobObserver(Protocol):
     ``job_result(row, error)`` is called outside any SQL transaction, after the engine has committed the
     state it reports: with ``error=None`` or the saved ``completion_error`` when a job's outputs have all been
     applied, with the error payload when a run raises ``DomainError`` (including ``busy``, ``cancelled`` and
-    ``service_stopping``), and with ``{"code": "background_failed"}`` for an unexpected exception. ``row`` is
-    the job row last read by the run (``None`` when the job could not be loaded). The observer cannot change
-    the saved outcome (its own exceptions are swallowed), authorize an output or start a writer."""
+    ``service_stopping``), and with ``{"code": "background_failed"}`` for an unexpected exception. For every
+    terminal outcome (completion, failure, cancellation) ``row`` is the job row re-read after that outcome
+    committed, so its ``state`` and ``error_json`` are the saved ones; nothing is observed when it cannot be
+    re-read. ``busy`` and ``service_stopping`` leave the job queued and are observed with the row the run last
+    read (``None`` when the job could not be loaded), before it is deferred. The observer cannot change the
+    saved outcome (its own exceptions are swallowed), authorize an output or start a writer."""
 
     def job_result(self, row, error=None) -> None: ...
 
@@ -148,6 +151,16 @@ class BackgroundService:
                 row = self._update(row, {"state": "cancelled" if error.code == "cancelled" else "failed",
                     "error_json": error.to_dict(), "claimed_by": None, "lease_until": None}, uow)
                 self._routine_finish(row, uow)
+
+    def _committed(self, row):
+        """The job row as currently saved, for an observer that reports a terminal state; ``None`` if unreadable."""
+        if not row:
+            return None
+        try:
+            with self.database.read() as uow:
+                return uow.repository("jobs", business_id=row["business_id"]).get(row["id"])
+        except Exception:
+            return None
 
     def _freeze(self, row, result):
         if not isinstance(result, ProgramResult):
@@ -300,10 +313,13 @@ class BackgroundService:
                     row = self._freeze(row, result)
                 done = self._apply_outputs(row, control)
                 if done:
-                    self._observe(row, row['result_json'].get('completion_error'))
+                    committed = self._committed(row)
+                    self._observe(committed, (committed["result_json"] or {}).get("completion_error") if committed else None)
                 return {"job_id": row["id"], "state": ("failed" if row["result_json"].get("completion_error") else "succeeded") if done else "waiting_signoff"}
         except DomainError as exc:
-            self._observe(locals().get('row'), exc.to_dict())
+            nonterminal = exc.code in {"busy", "service_stopping"}
+            if nonterminal:
+                self._observe(locals().get('row'), exc.to_dict())
             if exc.code == "busy":
                 if 'row' in locals() and row:
                     self._defer(row["id"], 5, state="applying" if "outputs" in (row["result_json"] or {}) else "queued")
@@ -315,12 +331,14 @@ class BackgroundService:
                 return {"job_id": row["id"], "state": "paused_for_restart"}
             if 'row' in locals() and row:
                 self._fail(row["id"], exc)
+            if not nonterminal:
+                self._observe(self._committed(locals().get('row')), exc.to_dict())
             self.last_error = exc.code
             return {"job_id": row["id"] if 'row' in locals() and row else job_id, "error": exc.to_dict()}
         except Exception:
-            self._observe(locals().get('row'), {'code': 'background_failed'})
             if 'row' in locals() and row:
                 self._fail(row["id"], DomainError("background_failed", "Registered background program failed"))
+            self._observe(self._committed(locals().get('row')), {'code': 'background_failed'})
             raise
 
     def tick(self):

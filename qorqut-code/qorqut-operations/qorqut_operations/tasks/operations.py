@@ -25,7 +25,7 @@ from qorqut_operations.items import ItemResolver
 from qorqut_operations.relationships import create_edge, related_rows
 from qorqut_operations.storage.assembly import AssemblyError
 from qorqut_operations.tags.catalog import LABELS_SCHEMA, canonical_labels, item_labels, labels_by_item, matches, plan_item_tags
-from qorqut_operations.tasks import events, links
+from qorqut_operations.tasks import customers, events, links
 from qorqut_operations.tasks.models import (DEFAULT_CONFIG, DEFAULT_STATE, full_config, normalize_snooze, snooze_view, stored_fields,
                                             validate_config, validate_dependencies, validate_parent, validate_task)
 from qorqut_operations.tasks.overview import TaskOverview
@@ -33,7 +33,8 @@ from qorqut_operations.tasks.ports import TaskPorts
 from qorqut_operations.tasks.scope import task_context, task_namespace
 from qorqut_operations.tasks.schema import CLOSED_STATES, KINDS, PAUSED_STATES, STATES
 from qorqut_operations.tasks.snooze import reconcile_snoozes
-from qorqut_operations.tasks.types import TYPES, apply_attributes, attributes, custom_fields
+from qorqut_operations.tasks.types import (KIND_SCHEMA, PROFILE_SCHEMA, STATE_SCHEMA, TYPES, apply_attributes, attributes,
+                                           custom_fields)
 from qorqut_operations.team_channel import reject_owner_team_write
 
 TASK_READS = ("tasks_list", "tasks_get", "tasks_thread_get", "tasks_notes_list", "tasks_config_get", "assignees_list", "tasks_overview")
@@ -48,9 +49,10 @@ TASK_ENTRIES = (
 ASSIGNEES = {"type": "array", "items": UUID, "maxItems": 100}
 SCOPE = {"scope": {"enum": ["business", "global"]}}
 TASK_FIELDS = {
-    "task_type": {"enum": list(TYPES), "description": "task for an actionable step; story for an ongoing relationship, opportunity or work group; email for one whole email conversation."},
+    "task_type": {"enum": list(TYPES), "description": "task for an actionable step; story for an ongoing relationship, opportunity or work group; customer for a person or company; email for one whole email conversation."},
     "overview": {"type": "string", "maxLength": 20000, "description": "Maintained current summary and next steps; history stays in the Task discussion and related items."},
     "email_conversation_id": {"anyOf": [IDENTITY, {"type": "null"}], "description": "Required for email type: an existing readable email conversation in the same owning scope. Clear when changing to another type."},
+    "customer_kind": KIND_SCHEMA, "customer_state": STATE_SCHEMA, "customer_profile": PROFILE_SCHEMA,
     "kind": {"enum": list(KINDS)}, "title": {"type": "string", "minLength": 1, "maxLength": 1000},
     "status": {"enum": list(STATES)}, "assignee_ids": ASSIGNEES, "archived": {"type": "boolean"}, "tags": LABELS_SCHEMA,
     "due": {"anyOf": [DATE, {"type": "null"}]}, "blocked_by": {"type": "array", "items": IDENTITY, "maxItems": 100, "uniqueItems": True},
@@ -277,7 +279,8 @@ class TaskOperations:
         ctx = task_context(ctx, arguments, uow)
         configuration, config_row = self.configuration(ctx, uow)
         if operation == "tasks_config_get":
-            return {"config": configuration, "revision": config_row["revision"] if config_row else None}
+            return {"config": configuration, "revision": config_row["revision"] if config_row else None,
+                    "customer_states": customers.read(uow, ctx.business_id)[0]}
         if operation == "assignees_list":
             return self.assignees_list(ctx, uow)
         repository = uow.repository("tasks", business_id=ctx.business_id)
@@ -416,7 +419,8 @@ class TaskOperations:
                 current["snoozed_until"] = requested
                 if requested is not None:
                     current["snooze_generation"] += 1
-        apply_attributes(current, edits)
+        states, states_row = customers.read(uow, ctx.business_id) if "customer_state" in edits else ([], None)
+        apply_attributes(current, edits, states)
         if link_edit is not None:
             links.edit(self, ctx, current, identity, link_edit, uow, builder)
         for key, value in edits.items():
@@ -437,6 +441,9 @@ class TaskOperations:
                 raise DomainError("validation_error", "Owner-request tasks must explicitly assign the installation owner")
         for assignee in assignees or ():
             self.assignee(ctx, assignee, uow, builder)
+        label = customers.introduced(attributes(before or {})["customer_state"], attributes(current)["customer_state"])
+        if label is not None:
+            customers.append(builder, states_row, states, label)
         values = {key: value for key, value in current.items() if key not in {"business_id", "revision"}}
         resource = ref("tasks", identity, ctx.business_id)
         mark = len(builder.changes)
@@ -509,7 +516,8 @@ class TaskOperations:
         configuration, _ = self.configuration(ctx, uow)
         fields = configuration["fields"]
         if plan.operation_name == "tasks_config_update":
-            proposed = plain(next(change.values["config_json"] for change in plan.changes if change.resource.resource_type == "business_configs"))
+            proposed = plain(next(change.values["config_json"] for change in plan.changes
+                                  if change.resource.resource_type == "business_configs" and change.resource.resource_id == "tasks"))
             for task in rows(uow, "tasks", ctx.business_id):
                 validate_task(task, proposed["fields"])
             return
@@ -518,6 +526,7 @@ class TaskOperations:
         current = uow.repository("tasks", business_id=ctx.business_id).get(task_id) or {}
         proposed = {**current, **plain(task_change.values)} if task_change else current
         validate_task(proposed, fields)
+        customers.check(plan, uow, ctx.business_id, attributes(current)["customer_state"], attributes(proposed)["customer_state"])
         link_edit = plan.arguments.get("changes", {}).get("related_task")
         if link_edit is not None:
             links.resolve(self, ctx, link_edit, uow)
