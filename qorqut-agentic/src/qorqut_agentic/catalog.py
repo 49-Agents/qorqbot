@@ -377,6 +377,7 @@ def _load_package(catalog: Catalog, dir_name: str, built: dict[str, Entry], decl
         if raw["id"] in seen:
             issues.append(Issue("duplicate_entry_id", f"duplicate entry id {raw['id']!r}", package_id=dir_name,
                                 entry_ref=ref, path=manifest_path))
+            built.pop(ref, None)
             continue
         seen.add(raw["id"])
         declared[ref] = "present"

@@ -72,6 +72,18 @@ class GitRunner:
             raise GitError("no Git executable is configured", code="git_unavailable")
         command = [self.executable, "-C", self.root, *_GIT_OPTIONS, *args]
         try:
+            # Local clean/process filters are executable repository configuration,
+            # just like hooks. Disable them even for status and add operations.
+            config = subprocess.run(
+                [self.executable, "-C", self.root, *_GIT_OPTIONS, "config", "--local", "--name-only",
+                 "--null", "--get-regexp", r"^filter\..*\.(clean|smudge|process|required)$"],
+                capture_output=True, env=self.env(), timeout=timeout, check=False,
+            )
+            overrides = []
+            for key in config.stdout.decode("utf-8", "replace").split("\0"):
+                if key:
+                    overrides.extend(["-c", key + ("=false" if key.endswith(".required") else "=")])
+            command = [self.executable, "-C", self.root, *_GIT_OPTIONS, *overrides, *args]
             completed = subprocess.run(  # noqa: S603 - explicit executable, no shell
                 command, input=input, capture_output=True, env=self.env(env), timeout=timeout, check=False
             )
@@ -293,6 +305,10 @@ class History:
             }
         with self.ctx.store.lock(exclusive=True):
             self.ctx.require_no_recovery()
+            branch = self.git.run(["symbolic-ref", "--quiet", "--short", "HEAD"], check=False)
+            if branch.returncode != 0 or branch.stdout.strip() in (b"main", b"master"):
+                raise InvalidRequestError("commits require a non-protected, attached authoring branch",
+                                          details={"branch": branch.stdout.decode().strip() or None})
             if author is None:
                 for key in ("user.name", "user.email"):
                     completed = self.git.run(["config", "--local", "--get", key], check=False)

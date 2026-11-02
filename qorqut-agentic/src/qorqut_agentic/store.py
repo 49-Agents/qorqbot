@@ -200,8 +200,13 @@ class Store:
         self.scratch_dir = self.state_dir / SCRATCH_DIR
 
     # -- connections -----------------------------------------------------------
-    def connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None)
+    def connect(self, *, readonly: bool = False, create: bool = False) -> sqlite3.Connection:
+        mode = "rwc" if create else ("ro" if readonly else "rw")
+        try:
+            conn = sqlite3.connect(self.db_path.absolute().as_uri() + f"?mode={mode}",
+                                   uri=True, timeout=30.0, isolation_level=None)
+        except sqlite3.OperationalError as exc:
+            raise StoreError("cannot open the existing runtime database", details={"state": str(self.state_dir)}) from exc
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout = 30000")
         conn.execute("PRAGMA foreign_keys = ON")
@@ -210,7 +215,7 @@ class Store:
 
     @contextmanager
     def reader(self) -> Iterator[sqlite3.Connection]:
-        conn = self.connect()
+        conn = self.connect(readonly=True)
         try:
             yield conn
         finally:
@@ -247,7 +252,7 @@ class Store:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(self.state_dir, 0o700)
         self.scratch_dir.mkdir(exist_ok=True)
-        conn = self.connect()
+        conn = self.connect(create=True)
         try:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.executescript(DDL)
@@ -290,15 +295,17 @@ class Store:
             with self.transaction() as conn:
                 conn.execute("UPDATE meta SET value = ? WHERE key = 'root_path'", (root_path,))
             meta["root_path"] = root_path
-        self.scratch_dir.mkdir(exist_ok=True)
-        self.lock_path.touch(mode=0o600, exist_ok=True)
         return meta
 
     # -- authoring lock ---------------------------------------------------------
     @contextmanager
     def lock(self, *, exclusive: bool, timeout: float = LOCK_TIMEOUT_SECONDS) -> Iterator[None]:
         """Cross-process advisory lock (flock). Shared for coherent reads, exclusive for mutation."""
-        fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+        try:
+            fd = os.open(self.lock_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        except OSError as exc:
+            raise StoreError("the initialized authoring lock is missing or unusable; open does not repair state",
+                             details={"path": str(self.lock_path)}) from exc
         try:
             deadline = time.monotonic() + timeout
             flag = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH

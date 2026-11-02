@@ -159,7 +159,7 @@ def _changed_entries(before: Catalog, after: Catalog) -> list[dict[str, str]]:
             state = "added"
         elif old is not None and new is None:
             state = "removed"
-        elif old is not None and new is not None and old.bundle_revision != new.bundle_revision:
+        elif old is not None and new is not None and old != new:
             state = "changed"
         else:
             continue
@@ -469,6 +469,11 @@ class Authoring:
             base = DiskSource(ctx.tree)
             before_catalog = load_catalog(base)
             batch = build(BuildContext(base=base, catalog=before_catalog))
+            # All entry/package helpers share the same bounds as raw apply.
+            if len(batch.ops) > MAX_BATCH_FILES or sum(len(op.content or b"") for op in batch.ops) > MAX_BATCH_BYTES:
+                raise AgenticError("batch exceeds authoring limits", code="limit_exceeded")
+            if any(len(op.content or b"") > MAX_FILE_BYTES for op in batch.ops):
+                raise AgenticError("file exceeds authoring limits", code="limit_exceeded")
             if not dry_run:
                 self._record_unobserved_edits({op.path for op in batch.ops})
             planned, unchanged = self._plan(batch.ops)
@@ -594,16 +599,21 @@ class Authoring:
             for row in rows:
                 self._write_one(row)
                 ctx.hook("after_file_write", change_id=change_id, path=row["path"])
+            ctx.hook("before_finalize", change_id=change_id)
+            return self.finalize(change_id)
         except Exception as exc:
             raise RecoveryRequiredError(
                 f"the batch was only partly applied ({type(exc).__name__}: {exc}); run recover",
                 details={"pending_change_ids": [change_id], "cause": f"{type(exc).__name__}: {exc}"},
             ) from exc
-        ctx.hook("before_finalize", change_id=change_id)
-        return self.finalize(change_id)
 
     def _write_one(self, row: Any) -> None:
         tree = self.ctx.tree
+        kind = tree.kind(row["path"])
+        current = tree.digest(row["path"]).sha256 if kind == "file" else None
+        if kind not in ("file", "missing") or current not in (row["before_sha256"], row["after_sha256"]):
+            raise RecoveryConflictError("file changed after the batch was recorded",
+                                        details={"path": row["path"], "current_sha256": current})
         if row["action"] == "delete":
             tree.delete(row["path"])
         else:
@@ -615,6 +625,12 @@ class Authoring:
         with ctx.store.transaction() as conn:
             pending = conn.execute("SELECT * FROM pending_changes WHERE change_id = ?", (change_id,)).fetchone()
             rows = conn.execute("SELECT * FROM pending_files WHERE change_id = ? ORDER BY ordinal", (change_id,)).fetchall()
+            for row in rows:
+                kind = ctx.tree.kind(row["path"])
+                actual = ctx.tree.digest(row["path"]).sha256 if kind == "file" else None
+                if kind not in ("file", "missing") or actual != row["after_sha256"]:
+                    raise RecoveryConflictError("file changed before its event could be finalized",
+                                                details={"path": row["path"], "current_sha256": actual})
             files = [
                 {
                     "path": r["path"],
@@ -653,8 +669,11 @@ class Authoring:
                     "SELECT path, action, before_sha256, after_sha256 FROM pending_files WHERE change_id = ? ORDER BY ordinal",
                     (pending["change_id"],),
                 ):
-                    kind = tree.kind(row["path"])
-                    current = tree.digest(row["path"]).sha256 if kind == "file" else None
+                    try:
+                        kind = tree.kind(row["path"])
+                        current = tree.digest(row["path"]).sha256 if kind == "file" else None
+                    except UnsafePathError:
+                        kind, current = "symlink", None
                     if kind in ("dir", "symlink", "other"):
                         state = "conflict"
                     elif current == row["after_sha256"]:
@@ -685,7 +704,8 @@ class Authoring:
         return result
 
     def recovery_status(self) -> dict[str, Any]:
-        pending = self._pending_state()
+        with self.ctx.store.lock(exclusive=False):
+            pending = self._pending_state()
         return {
             "required": bool(pending),
             "resolvable": all(f["state"] != "conflict" for p in pending for f in p["files"]),
@@ -745,30 +765,25 @@ def read_snapshot(snapshot: Any) -> dict[str, tuple[bytes, int]]:
             raise InvalidRequestError("snapshot.directory must be an absolute path")
         if not os.path.isdir(directory) or os.path.islink(directory):
             raise InvalidRequestError(f"snapshot.directory is not a directory: {directory}")
+        # Inspect every directory before SafeTree.walk (which intentionally skips
+        # Git metadata). Imports reject it instead of silently discarding it.
         for dirpath, dirnames, filenames in os.walk(directory, followlinks=False):
-            dirnames.sort()
-            for name in [*dirnames, *sorted(filenames)]:
-                full = os.path.join(dirpath, name)
-                rel = os.path.relpath(full, directory).replace(os.sep, "/")
-                info = os.lstat(full)
-                if stat.S_ISLNK(info.st_mode):
-                    raise UnsafePathError(f"snapshot contains a symlink: {rel}", details={"path": rel})
-                if stat.S_ISDIR(info.st_mode):
-                    split_path(rel, field="snapshot path")
-                    continue
-                if not stat.S_ISREG(info.st_mode):
-                    raise UnsafePathError(f"snapshot contains a special file: {rel}", details={"path": rel})
+            for name in [*dirnames, *filenames]:
+                rel = os.path.relpath(os.path.join(dirpath, name), directory).replace(os.sep, "/")
                 split_path(rel, field="snapshot path")
-                if info.st_size > MAX_FILE_BYTES:
-                    raise AgenticError(f"snapshot file is larger than {MAX_FILE_BYTES} bytes: {rel}", code="limit_exceeded",
-                                       details={"path": rel, "limit": MAX_FILE_BYTES})
-                with open(full, "rb") as handle:
-                    data = handle.read()
-                total += len(data)
-                files[rel] = (data, stat.S_IMODE(info.st_mode))
-                if len(files) > MAX_BATCH_FILES:
-                    raise AgenticError(f"snapshot has more than {MAX_BATCH_FILES} files", code="limit_exceeded",
-                                       details={"limit": MAX_BATCH_FILES})
+        from .files import SafeTree
+
+        tree = SafeTree(directory)
+        for rel, kind in tree.walk():
+            if kind != "file":
+                raise UnsafePathError(f"snapshot contains a {kind}: {rel}", details={"path": rel})
+            data = tree.read(rel, max_bytes=MAX_FILE_BYTES)
+            if data is None:
+                raise ConflictError("snapshot changed while reading", details={"path": rel})
+            total += len(data)
+            files[rel] = (data, tree.mode(rel) or 0o644)
+            if len(files) > MAX_BATCH_FILES or total > MAX_BATCH_BYTES:
+                raise AgenticError("snapshot exceeds authoring limits", code="limit_exceeded")
     else:
         items = snapshot["files"]
         if not isinstance(items, list):
@@ -785,6 +800,8 @@ def read_snapshot(snapshot: Any) -> dict[str, tuple[bytes, int]]:
             split_path(item.get("path"), field=f"snapshot.files[{index}].path")
             if item["path"] in files:
                 raise InvalidRequestError(f"snapshot.files repeats path {item['path']!r}")
+            if "executable" in item and not isinstance(item["executable"], bool):
+                raise InvalidRequestError(f"snapshot.files[{index}].executable must be a boolean")
             data = _decode_content(item, index)
             if len(data) > MAX_FILE_BYTES:
                 raise AgenticError(f"snapshot file is larger than {MAX_FILE_BYTES} bytes: {item['path']}",

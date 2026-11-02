@@ -61,7 +61,7 @@ class SafeTree:
 
     # -- directory descriptors -------------------------------------------------
     def _open_root(self) -> int:
-        return os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        return os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
 
     def _open_dir(self, parts: tuple[str, ...], *, create: bool = False) -> int | None:
         """Open the directory ``parts`` beneath the root; ``None`` if absent."""
@@ -160,10 +160,15 @@ class SafeTree:
                         details={"path": rel, "size": info.st_size, "limit": max_bytes},
                     )
                 chunks = []
+                size = 0
                 while True:
                     chunk = os.read(fd, _CHUNK)
                     if not chunk:
                         break
+                    size += len(chunk)
+                    if max_bytes is not None and size > max_bytes:
+                        raise AgenticError(f"file is larger than {max_bytes} bytes: {rel}", code="limit_exceeded",
+                                           details={"path": rel, "limit": max_bytes})
                     chunks.append(chunk)
                 return b"".join(chunks)
             finally:

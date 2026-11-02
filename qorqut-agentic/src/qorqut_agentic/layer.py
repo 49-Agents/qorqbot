@@ -56,6 +56,16 @@ class AgenticLayer:
         self.history = History(ctx, self.changes, self.authoring)
         self.catalog = CatalogReader(ctx)
         self.tools = Tools(ctx)
+        self._workflows = None
+
+    @property
+    def workflows(self):
+        """Load the persistent runner only when requested."""
+        if self._workflows is None:
+            from .workflows import Workflows
+
+            self._workflows = Workflows(self._ctx, self.tools)
+        return self._workflows
 
     # ---------------------------------------------------------------- lifecycle
     @classmethod
@@ -120,7 +130,7 @@ class AgenticLayer:
                                  code="invalid_root", details={"root": str(root_path), "toplevel": top})
         else:
             root_path.mkdir(parents=True, exist_ok=True)
-            runner.run(["init", "-q", "-b", "main"])
+            runner.run(["init", "-q", "-b", "agentic"])
         if git_user is not None:
             runner.run(["config", "--local", "user.name", git_user["name"]])
             runner.run(["config", "--local", "user.email", git_user["email"]])
@@ -151,6 +161,8 @@ class AgenticLayer:
         if not root_path.is_dir():
             raise StoreError("the authoring root does not exist or is not a directory", code="invalid_root",
                              details={"root": str(root_path)})
+        if _inside(state_path, root_path) or _inside(root_path, state_path):
+            raise StoreError("authoring root and runtime state must be separate", code="invalid_state_path")
         store = Store(state_path)
         store.verify(str(root_path), rebind_root=rebind_root)
         return cls._build(root_path, store, resolve_git(git_executable), runtimes, clock, attribution_source)

@@ -9,6 +9,7 @@ from .catalog import Selection, load_catalog
 from .core import LayerContext
 from .errors import InvalidRequestError, NotFoundError, UnavailableError
 from .files import DiskSource, split_path
+from .schemas import ENTRY_KINDS
 from .util import is_id, is_ref, sha256_hex, split_frontmatter
 
 MAX_RESOURCE_BYTES = 1024 * 1024
@@ -40,6 +41,13 @@ class CatalogReader:
         both returned; overlapping entries are exposed, not ranked.
         """
         chosen = Selection.from_value(selection)
+        if query is not None and not isinstance(query, str):
+            raise InvalidRequestError("query must be a string")
+        for field, values in (("kinds", kinds), ("package_ids", package_ids)):
+            if values is not None and (not isinstance(values, list) or not all(isinstance(v, str) for v in values)):
+                raise InvalidRequestError(f"{field} must be a list of strings")
+        if kinds is not None and any(kind not in ENTRY_KINDS for kind in kinds):
+            raise InvalidRequestError("unknown catalog kind")
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000:
             raise InvalidRequestError("limit must be an integer between 1 and 1000")
         if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
@@ -145,6 +153,8 @@ class CatalogReader:
 
     def validate(self, package_ids: list[str] | None = None) -> dict[str, Any]:
         """Validate the whole catalog; ``package_ids`` only narrows what is reported."""
+        if package_ids is not None and (not isinstance(package_ids, list) or not all(is_id(v) for v in package_ids)):
+            raise InvalidRequestError("package_ids must be a list of valid IDs")
         with self.ctx.store.lock(exclusive=False):
             catalog = self._load()
         wanted = set(package_ids) if package_ids else None
