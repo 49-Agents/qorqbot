@@ -13,19 +13,30 @@ from bazarlyk.catalog.packages import ID, VERSION, validate_policy
 from .roles import RETIRED_ROLE_IDS
 
 
-GLOBAL_CAPABILITIES = frozenset({"coordinate_businesses", "manage_ideas", "read_global_context", "read_personal_context", "manage_personal_context", "manage_fastmail", "manage_calendar", "manage_shared_instructions", "publish_roles", "publish_plugins", "manage_global_routines", "manage_ecosystem_agents", "manage_delegated_assignments"})
+GLOBAL_CAPABILITIES = frozenset({"coordinate_businesses", "manage_business_setup", "write_business_strategy", "read_global_context", "read_personal_context", "manage_personal_context", "manage_fastmail", "manage_calendar", "manage_shared_instructions", "publish_roles", "publish_plugins", "manage_global_routines", "manage_ecosystem_agents", "manage_delegated_assignments"})
+# Historical grant names that a saved profile may still carry. They authorize nothing, can never be granted, and a stored
+# or inactive record that holds one still parses unchanged.
+RETIRED_GLOBAL_CAPABILITIES = frozenset({"manage_ideas"})
 REFERENCE_SCHEMA = {"type": "object", "additionalProperties": False,
     "required": ["id", "version", "digest"], "properties": {
         "id": ID, "version": VERSION, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}}
-SCOPE_SCHEMA = {"oneOf": [
-    {"type": "object", "additionalProperties": False, "required": ["kind", "business_id"],
-     "properties": {"kind": {"const": "business"}, "business_id": {"type": "string", "format": "uuid"}}},
-    {"type": "object", "additionalProperties": False,
-     "required": ["kind", "allowed_business_ids", "global_capabilities"], "properties": {
-        "kind": {"const": "ecosystem"},
-        "allowed_business_ids": {"type": "array", "items": {"type": "string", "format": "uuid"}, "uniqueItems": True},
-        "global_capabilities": {"type": "array", "items": {"enum": sorted(GLOBAL_CAPABILITIES)}, "uniqueItems": True}}}
-]}
+
+
+def scope_schema(capabilities):
+    return {"oneOf": [
+        {"type": "object", "additionalProperties": False, "required": ["kind", "business_id"],
+         "properties": {"kind": {"const": "business"}, "business_id": {"type": "string", "format": "uuid"}}},
+        {"type": "object", "additionalProperties": False,
+         "required": ["kind", "allowed_business_ids", "global_capabilities"], "properties": {
+            "kind": {"const": "ecosystem"},
+            "allowed_business_ids": {"type": "array", "items": {"type": "string", "format": "uuid"}, "uniqueItems": True},
+            "global_capabilities": {"type": "array", "items": {"enum": sorted(capabilities)}, "uniqueItems": True}}}
+    ]}
+
+
+# What a caller may write, and what a saved profile may still hold.
+SCOPE_SCHEMA = scope_schema(GLOBAL_CAPABILITIES)
+STORED_SCOPE_SCHEMA = scope_schema(GLOBAL_CAPABILITIES | RETIRED_GLOBAL_CAPABILITIES)
 PLUGIN_GRANT_SCHEMA = {"type": "object", "additionalProperties": False,
     "required": ["id", "version", "digest", "config"],
     "properties": {**REFERENCE_SCHEMA["properties"], "config": {"type": "object"}}}
@@ -47,6 +58,7 @@ PROFILE_SCHEMA = {"type": "object", "additionalProperties": False,
             "color": {"type": "string", "maxLength": 50}}},
         "created_at": {"type": "string", "format": "date-time"},
     }}
+STORED_PROFILE_SCHEMA = {**PROFILE_SCHEMA, "properties": {**PROFILE_SCHEMA["properties"], "scope": STORED_SCOPE_SCHEMA}}
 
 
 @dataclass(frozen=True)
@@ -77,9 +89,14 @@ class AgentProfile:
     data: Mapping[str, Any]
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, Any], registry: Any) -> AgentProfile:
+    def from_dict(cls, value: Mapping[str, Any], registry: Any, *, stored: bool = False) -> AgentProfile:
+        """Validate one profile. A write is strict: it may grant only current capabilities. ``stored=True`` reads a saved
+        profile, and an inactive profile is always a historical record: either may still hold a retired capability name,
+        which authorizes nothing."""
         data = plain(value)
-        errors = sorted(Draft202012Validator(PROFILE_SCHEMA, format_checker=FormatChecker()).iter_errors(data),
+        historical = stored or (isinstance(data, dict) and data.get("status") == "inactive")
+        errors = sorted(Draft202012Validator(STORED_PROFILE_SCHEMA if historical else PROFILE_SCHEMA,
+                                             format_checker=FormatChecker()).iter_errors(data),
                         key=lambda err: str(err.path))
         if errors:
             raise DomainError("invalid_profile", errors[0].message)

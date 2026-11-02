@@ -33,7 +33,7 @@ from .items.resources import RelatedResources
 from qorqut_operations.application.plans import utc_clock
 from bazarlyk.composition.catalog import install_contribution
 from bazarlyk.shared_context import SharedContextReader, shared_context_contribution
-from .ideas import IdeaOperations
+from .business_creation import BusinessCreationOperations
 from .personal_context import PersonalContextOperations
 from .subscriptions import SubscriptionOperations
 from .costs import CostOperations
@@ -64,7 +64,7 @@ class BusinessDomains:
     items: ItemResolver
     related: RelatedResources
     reviews: ContextReviews
-    ideas: IdeaOperations
+    business_creation: BusinessCreationOperations
     personal_context: PersonalContextOperations
     subscriptions: SubscriptionOperations
     working_memory: WorkingMemory
@@ -79,8 +79,8 @@ class BusinessDomains:
     queue: ContextQueueOperations = None
 
     def resolve_file_target(self, resource):
-        if resource.resource_type == "idea_creation_files":
-            return self.ideas.conversion.file_target(resource)
+        if resource.resource_type == "business_creation_files":
+            return self.business_creation.creation.file_target(resource)
         return self.documents.store.resolve_file_target(resource)
 
 
@@ -156,8 +156,8 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     archive = BusinessArchive(application)
     archive.resolver = agent_resolver
     archive.register(registry)
-    ideas = IdeaOperations(application, agent_resolver, documents)
-    ideas.register(registry)
+    business_creation = BusinessCreationOperations(application, agent_resolver, documents)
+    business_creation.register(registry)
     personal_context = PersonalContextOperations(documents)
     personal_context.register(registry)
     subscriptions = SubscriptionOperations()
@@ -168,4 +168,4 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     if agent_resolver is not None:
         agent_resolver.working_memory = memory
     documents.working_memory = memory
-    return BusinessDomains(tasks, ledger, metrics, activity, documents, assets, platform_actions, email, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, ideas, personal_context, subscriptions, memory, archive, context_sources=context_sources, context_questions=context_questions, shared_context=shared_context, business_setup=business_setup, viewbox=viewbox, actions=actions, tags=tags, queue=queue)
+    return BusinessDomains(tasks, ledger, metrics, activity, documents, assets, platform_actions, email, tables, data_uploads, neutral.relationships, neutral.items, neutral.related, neutral.reviews, business_creation, personal_context, subscriptions, memory, archive, context_sources=context_sources, context_questions=context_questions, shared_context=shared_context, business_setup=business_setup, viewbox=viewbox, actions=actions, tags=tags, queue=queue)

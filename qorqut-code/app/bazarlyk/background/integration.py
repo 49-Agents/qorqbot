@@ -192,8 +192,8 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
         daily_reports=daily_reports or DailyReportProgram(paths=lambda: runtime.paths, on_completed=lambda row: _report_completed(runtime, row)),
         learning_engine=learning_engine)
     authority = runtime.authority
-    if getattr(runtime.domains, "ideas", None):
-        runtime.domains.ideas.conversion.worker_authority = authority
+    if getattr(runtime.domains, "business_creation", None):
+        runtime.domains.business_creation.worker_authority = authority
     runtime.policy.worker_profiles = authority.worker_profiles
     runtime.policy.job_consequence_verifier = authority.verify_consequence
     runtime.policy.job_plan_validator = authority.validate_plan

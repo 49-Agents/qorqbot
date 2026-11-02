@@ -274,7 +274,7 @@ class HTTPAPI:
         return parts[0] if parts and parts[0] in {"departments", "session", "me", "root"} else "request"
 
     # Every generated record id (tasks, learnings, jobs, signoffs, documents,
-    # routines, ideas, ...) is a uuid4 from contracts.new_id(), so `_UUID_RE`
+    # routines, ...) is a uuid4 from contracts.new_id(), so `_UUID_RE`
     # already collapses those regardless of nesting depth. What it cannot
     # collapse is authored, non-uuid, free-form text embedded in a path: an
     # asset's real file path (compatibility.py's `["asset", *path_parts]`
@@ -534,7 +534,7 @@ class HTTPAPI:
                     "relationships_update", "relationships_remove", "context_items_list", "context_items_get",
                     "tasks_follow", "actions_thread_get", "actions_follow", "actions_comment", "tags_list", "tags_create",
                     "tasks_list", "tasks_get", "tasks_notes_list", "agents_activity_list", "agent_work_update", "tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete", "tasks_config_get", "tasks_config_update", "assignees_list",
-                    "ideas_list", "ideas_get", "ideas_focus_get", "ideas_businesses_list", "ideas_tags_get", "ideas_create", "ideas_update", "ideas_focus", "ideas_start_business", "ideas_link_business", "ideas_handoff",
+                    "business_create",
                     "context_home", "context_object", "context_expand", "context_find", "context_changes", "context_upload_map", "context_filings", "context_filing_costs", "context_instruct", "context_edit",
                     # Raw Global sources (scope=shared) and the exact-input and document commands of the source status UI: only these eight.
                     "context_list", "context_get", "context_search", "context_retry", "context_retract",
@@ -558,15 +558,6 @@ class HTTPAPI:
                 if options.business_id is not None or options.review_business_id is not None:
                     raise DomainError("forbidden", "This endpoint requires Global scope")
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
-                return response(result)
-            if parts[:2] == ["root", "ideas"] and request.method == "GET" and len(parts) in {2, 3}:
-                context, _ = self.context(actor)
-                operation = "ideas_get" if len(parts) == 3 else "ideas_list"
-                args = {"idea_id": parts[2]} if len(parts) == 3 else dict(request.query_params)
-                if "limit" in args:
-                    from bazarlyk.transport.compatibility import integer_parameter
-                    args["limit"] = integer_parameter(args["limit"], "limit", 1, 200)
-                result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, operation, args))
                 return response(result)
             if len(parts) == 3 and parts[:2] == ["root", "operations"] and parts[2] in {
                     "agents_message_send", "agents_messages_list", "agents_message_recipients"} and request.method == "POST":

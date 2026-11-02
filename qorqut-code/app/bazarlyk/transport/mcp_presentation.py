@@ -16,7 +16,6 @@ from qorqut_operations.contracts import DomainError
 
 TASK_WRITES = frozenset({"tasks_create", "tasks_update", "tasks_assign", "tasks_complete", "tasks_comment",
     "campaign_responsible_set"})
-IDEA_WRITES = frozenset({"ideas_create", "ideas_update"})
 # Card writes return the touched card's identity/revision; focus_reply keeps its
 # note-thread payload because the new note is the receipt. The legacy
 # focus_show/focus_clear/focus_browser_input trio always answers upgrade_required
@@ -30,7 +29,7 @@ INDEX_READS = frozenset({"signoffs_list", "signoffs_get", "inbox_list", "agents_
     "tasks_get", "tasks_notes_list", "operations_describe"})
 # Already-lean reads gain default elision and the full-detail escape hatch only.
 ELIDE_ONLY_READS = frozenset({"tasks_overview", "focus_get", "assignees_list", "tables_list"})
-COMPACT_OPERATIONS = (TASK_WRITES | IDEA_WRITES | RECEIPT_WRITES | INDEX_READS | SIGNOFF_COMPLETION_WRITES
+COMPACT_OPERATIONS = (TASK_WRITES | RECEIPT_WRITES | INDEX_READS | SIGNOFF_COMPLETION_WRITES
     | ELIDE_ONLY_READS | {"tasks_list", "tables_rows_write", "agent_config_get"})
 SUMMARY_OPERATIONS = frozenset({"focus_get", "agents_activity_list"})
 DETAIL_SCHEMA = {"enum": ["compact", "full", "text"], "default": "compact",
@@ -69,8 +68,6 @@ SIGNOFF_FIELDS = ("id", "review_business_id", "review_scope", "proposal_revision
     "title", "proposer_principal_id", "proposer_agent_id", "proposer_display_name", "proposer_department",
     "initiated_by_principal_id", "initiated_by_display_name", "attention", "job_id",
     "created_at", "updated_at", "updated_sequence", "supersedes_id", "superseded_by_id", "legacy_review_routing")
-IDEA_FIELDS = ("id", "revision", "title", "summary", "status", "tags", "document_id", "content_hash",
-    "metadata_stale", "business_id", "business_slug", "parent_idea_id", "created_at", "updated_at")
 MESSAGE_RECEIPT_FIELDS = ("id", "event_id", "thread_id", "created_at", "recipient_id", "recipient_name", "terminal_delivery")
 FOCUS_ITEM_FIELDS = ("id", "revision", "archived", "unavailable")
 # Index rows keep identities/revisions the agent passes back and the human-readable
@@ -295,8 +292,6 @@ def description(name):
         return " Decision bindings and approval evidence are complete; change previews keep diffs and changed fields only, and mark bounded values. response_detail=full returns raw before/after."
     if name in SIGNOFF_COMPLETION_WRITES:
         return " Returns a short decision/execution receipt; approval may only queue execution. signoffs_get reads evidence; response_detail=full with the same idempotency key reads the canonical receipt without repeating the decision."
-    if name in IDEA_WRITES:
-        return " Returns identity, revision and content hash without echoing the draft/history. Read ideas_get for evidence, or replay with response_detail=full and the same write key."
     if name == "agents_message_send":
         return " Returns a delivery receipt (message/thread/event IDs), not the sent text; agents_messages_list reads history, or request response_detail=full."
     if name == "signoffs_input_create":
@@ -588,8 +583,6 @@ def present(name, value, detail="compact", *, tool_names=None, sections=None, ar
         if len(data["tools"]) > 1:
             data["tools"] = [{key: item for key, item in tool.items() if key != "input_schema"}
                              if isinstance(tool, dict) else tool for tool in data["tools"]]
-    elif name in IDEA_WRITES and isinstance(data.get("idea"), dict):
-        data["idea"] = select(data["idea"], IDEA_FIELDS)
     elif name in TASK_WRITES and isinstance(data.get("task"), dict):
         task = data["task"]
         data["task"] = select(task, TASK_FIELDS)

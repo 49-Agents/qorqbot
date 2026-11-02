@@ -151,7 +151,7 @@ class AgentConfigResolver:
         consistency check on each call. Failures are never cached."""
         registry = self.registry
         if getattr(registry, "frozen", False) is not True or not isinstance(profile_json, str):
-            return AgentProfile.from_dict(json.loads(profile_json), registry)
+            return AgentProfile.from_dict(json.loads(profile_json), registry, stored=True)
         key = (principal_id, profile_json)
         with self._profiles_lock:
             if self._profiles_registry is not registry:
@@ -161,7 +161,7 @@ class AgentConfigResolver:
             if cached is not None:
                 self._profiles.move_to_end(key)
                 return cached
-        profile = AgentProfile.from_dict(json.loads(profile_json), registry)
+        profile = AgentProfile.from_dict(json.loads(profile_json), registry, stored=True)
         with self._profiles_lock:
             if self._profiles_registry is registry:
                 self._profiles[key] = profile
