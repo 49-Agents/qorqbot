@@ -39,7 +39,7 @@
 .agent-workspace-app .global-agents .global-roster .item.agent { width:43px; height:43px; justify-content:center; border-radius:6px; padding:8px; }
 .agent-workspace-app .global-agents .global-roster .identity-avatar { width:24px; height:24px; background:none; border:0; }
 .agent-workspace-app .global-agents .global-roster .identity-avatar svg { width:22px; height:22px; }
-.agent-workspace-app .global-agents .global-workspace-terminals { margin-top:12px; padding-top:9px; }
+.agent-workspace-app .global-agents .global-workspace-terminals { padding-top:9px; }
 .agent-workspace-app .global-agents .global-workspace-terminals .item.agent { width:54px; min-height:52px; justify-content:center; padding:6px 3px; border-radius:6px; }
 .agent-workspace-app .global-agents .global-workspace-terminals .item.agent .nm { flex-direction:column; justify-content:center; gap:4px; width:100%; }
 .agent-workspace-app .global-agents .global-workspace-terminals .item.agent .tt { font-size:10px; }
