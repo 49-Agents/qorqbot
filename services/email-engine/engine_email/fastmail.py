@@ -33,6 +33,12 @@ HISTORY_BODY_FIELDS = ["partId", "blobId", "size", "name", "type", "charset", "d
     "cid", "language", "location", "headers"]
 ACCOUNT_READ_BODY_BYTES = 128 * 1024
 ACCOUNT_MAX_RESULTS = 100
+# RFC 5322 wire form for composed account mail: CRLF line ends (section 2.1), no raw 8-bit octets in headers or body
+# (section 2.1.1 / RFC 2045 quoted-printable or base64) and the 998-octet line ceiling, so a long References or
+# Message-ID token is never RFC 2047 encoded.
+ACCOUNT_MIME_POLICY = SMTP.clone(max_line_length=998, cte_type="7bit")
+DIAGNOSTIC_TEXT_LIMIT = 300
+DIAGNOSTIC_PROPERTIES_LIMIT = 10
 
 
 def internet_message_id(value):
@@ -70,10 +76,43 @@ def mime_content_digest(content):
     return hashlib.sha256(json.dumps([headers, parts], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def diagnostic_text(value, limit=DIAGNOSTIC_TEXT_LIMIT):
+    """Bounded single-line provider text: printable characters only, whitespace collapsed, never a stack of headers."""
+    if not isinstance(value, str):
+        return None
+    text = " ".join("".join(ch if ch.isprintable() else " " for ch in value).split())
+    return text[:limit] or None
+
+
+def provider_detail(data, kind=None):
+    """The safe, bounded part of a provider rejection (JMAP SetError/method error or RFC 7807 problem document).
+
+    Keeps the typed error name, a bounded human description and the names of the rejected properties. It never carries
+    request or response bodies, headers or credentials, and stays private to the durable engine receipt."""
+    if not isinstance(data, dict):
+        return None
+    detail = {}
+    name = diagnostic_text(kind or data.get("type"), 120)
+    if name:
+        detail["type"] = name
+    description = diagnostic_text(data.get("description") or data.get("detail") or data.get("title"))
+    if description:
+        detail["description"] = description
+    properties = data.get("properties")
+    if isinstance(properties, list):
+        names = [diagnostic_text(item, 60) for item in properties[:DIAGNOSTIC_PROPERTIES_LIMIT] if isinstance(item, str)]
+        names = [item for item in names if item]
+        if names:
+            detail["properties"] = names
+    return detail or None
+
+
 class ProviderError(Exception):
-    def __init__(self, code, *, status=None, uncertain=False, retry_after=None):
+    def __init__(self, code, *, status=None, uncertain=False, retry_after=None, detail=None):
         super().__init__(code)
         self.code, self.status, self.uncertain, self.retry_after = code, status, uncertain, retry_after
+        # Bounded provider diagnostics for the private durable receipt only (see provider_detail).
+        self.detail = detail
 
 
 def jmap_utc_date(value):
@@ -90,10 +129,11 @@ def jmap_utc_date(value):
 
 
 class Fastmail:
-    def __init__(self, settings, *, client=None):
+    def __init__(self, settings, *, client=None, clock=None):
         self.settings = settings
         self.client = client or httpx.Client(timeout=settings.timeout, follow_redirects=False, trust_env=False)
         self._session = None
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def close(self):
         self.client.close()
@@ -125,9 +165,15 @@ class Fastmail:
                         raise ProviderError("fastmail_response_too_large", uncertain=write)
                 if response.status_code not in {200, 201}:
                     retry = response.headers.get("Retry-After", "")
+                    problem = None
+                    if len(data) <= 16 * 1024:
+                        try:
+                            problem = provider_detail(json.loads(data))
+                        except (ValueError, UnicodeDecodeError):
+                            problem = None  # an HTML/plain error page is never retained
                     raise ProviderError("fastmail_request_failed", status=response.status_code,
                         uncertain=write and response.status_code >= 500,
-                        retry_after=min(int(retry), 3600) if retry.isdigit() else None)
+                        retry_after=min(int(retry), 3600) if retry.isdigit() else None, detail=problem)
                 if binary:
                     return bytes(data)
                 try:
@@ -434,40 +480,96 @@ class Fastmail:
             raise ProviderError("account_sender_identity_denied", status=403)
         return identity
 
-    def account_create_draft(self, action):
-        self._account_identity(action)
-        mail = EmailMessage()
+    @staticmethod
+    def account_message_id(account_id, action):
+        """The RFC 5322 msg-id of one account request. Stable per account request, so a replayed request names the same
+        Message-ID; the domain is the approved sender's, which the request validator already restricts to ASCII."""
+        digest = hashlib.sha256(f"{account_id}\0{action.request_id}".encode()).hexdigest()[:40]
+        identity = internet_message_id(f"qorqut.account.{digest}@{action.from_address.rsplit('@', 1)[1]}")
+        if identity is None:
+            raise ProviderError("account_message_id_invalid", status=400)
+        return identity
+
+    def account_mime(self, action, body, attachments, *, message_id, in_reply_to=None, references=()):
+        """Serialize the approved account message as RFC 5322 bytes (CRLF, 7-bit, Message-ID and Date), then prove the
+        bytes carry exactly the approved sender, recipients, subject, body and attachments before anything is uploaded."""
+        mail = EmailMessage(policy=ACCOUNT_MIME_POLICY)
+        sent_at = self.clock()
         mail["From"] = formataddr((action.from_name, action.from_address))
-        mail["X-Qorqut-Request"] = action.request_id
         mail["To"] = ", ".join(action.to)
         if action.cc:
             mail["Cc"] = ", ".join(action.cc)
         if action.bcc:
             mail["Bcc"] = ", ".join(action.bcc)
-        mail["Subject"], mail["Date"] = action.subject, formatdate(usegmt=True)
+        mail["Subject"], mail["Date"] = action.subject, sent_at
+        mail["Message-ID"] = message_id
+        mail["X-Qorqut-Request"] = action.request_id
+        if in_reply_to:
+            mail["In-Reply-To"] = in_reply_to
+            mail["References"] = " ".join([*references, in_reply_to])
+        mail.set_content(body)
+        for attachment in attachments:
+            main, sub = attachment["type"].split("/", 1)
+            mail.add_attachment(attachment["content"], maintype=main, subtype=sub, filename=attachment["name"])
+        content = mail.as_bytes()
+        self._verify_account_mime(content, action, body, attachments, message_id=message_id, sent_at=sent_at)
+        return content
+
+    @staticmethod
+    def _verify_account_mime(content, action, body, attachments, *, message_id, sent_at):
+        def invalid(reason):
+            raise ProviderError("account_mime_invalid", status=400, detail={"description": reason})
+        if re.search(rb"(?<!\r)\n|\r(?!\n)", content):
+            invalid("bare CR or LF line ending")
+        if any(octet > 127 for octet in content) or b"\0" in content:
+            invalid("non-ASCII or NUL octet")
+        if max(map(len, content.split(b"\r\n"))) > 998:
+            invalid("line longer than 998 octets")
+        parsed = BytesParser(policy=SMTP).parsebytes(content)
+        senders = parsed["From"].addresses if parsed["From"] is not None else ()
+        if (len(senders) != 1 or senders[0].addr_spec.lower() != action.from_address.lower()
+                or senders[0].display_name != action.from_name):
+            invalid("sender differs from the approved sender")
+        for key, approved in (("To", action.to), ("Cc", action.cc), ("Bcc", action.bcc)):
+            found = [item.addr_spec.lower() for item in parsed[key].addresses] if parsed[key] is not None else []
+            if found != [value.lower() for value in approved]:
+                invalid(key.lower() + " recipients differ from the approved recipients")
+        if str(parsed["Subject"]) != action.subject:
+            invalid("subject differs from the approved subject")
+        if str(parsed["Message-ID"]) != message_id or str(parsed["X-Qorqut-Request"]) != action.request_id:
+            invalid("request correlation headers differ")
+        date = parsed["Date"].datetime if parsed["Date"] is not None else None
+        if date is None or date.utcoffset() is None or date != sent_at.replace(microsecond=0):
+            invalid("Date is missing, naive or inconsistent")
+        canonical = lambda value: (value or "").replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+        text = parsed.get_body(preferencelist=("plain",))
+        if text is None or canonical(text.get_content()) != canonical(body):
+            invalid("body differs from the approved body")
+        found = list(parsed.iter_attachments())
+        if len(found) != len(attachments) or any(
+                part.get_filename() != expected["name"] or part.get_content_type() != expected["type"].lower()
+                or hashlib.sha256(part.get_payload(decode=True) or b"").hexdigest() != expected["sha256"]
+                for part, expected in zip(found, attachments)):
+            invalid("attachments differ from the approved attachments")
+
+    def account_create_draft(self, action):
+        self._account_identity(action)
         body, composed_attachments = self._account_composed_content(action)
+        in_reply_to, references = None, []
         if action.reply_message_id:
             parent = self.account_raw(action.reply_message_id)
             message_ids = parent.get("messageId") or []
             if not message_ids:
                 raise ProviderError("account_source_missing_message_id", status=409)
-            parent_id = internet_message_id(message_ids[0])
-            if parent_id is None:
+            in_reply_to = internet_message_id(message_ids[0])
+            if in_reply_to is None:
                 raise ProviderError("account_source_invalid_message_id", status=409)
-            if action.reply_message_id:
-                mail["In-Reply-To"] = parent_id
-                references = [value for value in (internet_message_id(item) for item in parent.get("references") or [])
-                    if value is not None]
-                mail["References"] = " ".join([*references, parent_id])
-        mail.set_content(body)
-        for attachment in composed_attachments:
-            content = attachment["content"]
-            content_type = attachment["type"]
-            filename = attachment["name"]
-            main, sub = content_type.split("/", 1)
-            mail.add_attachment(content, maintype=main, subtype=sub, filename=filename)
+            references = [value for value in (internet_message_id(item) for item in parent.get("references") or [])
+                if value is not None]
+        content = self.account_mime(action, body, composed_attachments,
+            message_id=self.account_message_id(self.account_id, action), in_reply_to=in_reply_to, references=references)
         upload = self.session()["uploadUrl"].replace("{accountId}", quote(self.account_id, safe=""))
-        blob = self.request("POST", upload, content=mail.as_bytes(), content_type="message/rfc822", write=True)
+        blob = self.request("POST", upload, content=content, content_type="message/rfc822", write=True)
         if not blob.get("blobId"):
             raise ProviderError("invalid_account_upload", uncertain=True)
         folders = {item["id"]: item for item in self.account_folders()}
@@ -599,7 +701,8 @@ class Fastmail:
             kind = "unknown"
         raise ProviderError("jmap_" + kind, uncertain=uncertain and kind in {"serverFail", "unknown"},
             status=429 if kind == "rateLimit" else 410 if kind == "cannotCalculateChanges"
-                else None if kind in {"serverFail", "unknown"} else 400)
+                else None if kind in {"serverFail", "unknown"} else 400,
+            detail=provider_detail(data, kind))
 
     def created(self, result):
         value = (result.get("created") or {}).get("prepared")

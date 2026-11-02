@@ -213,8 +213,10 @@ class AccountMailService:
         except ProviderError as exc:
             state = "uncertain" if exc.uncertain else "failed"
             prior = json.loads(self.store.account_operation(action.request_id)["result"])
+            # The bounded provider diagnostic belongs to this private ledger row only; it is never put in a log line.
             return self._json(self.store.save_account_operation(action.request_id, state,
-                result={**prior, "error": exc.code, **({"provider_status": exc.status} if exc.status else {})}))
+                result={**prior, "error": exc.code, **({"provider_status": exc.status} if exc.status else {}),
+                    **({"provider_error": exc.detail} if exc.detail else {})}))
         except (ValueError, KeyError) as exc:
             return self._json(self.store.save_account_operation(action.request_id, "failed",
                 result={"error": str(exc)[:120] or "invalid_account_action"}))
