@@ -64,8 +64,8 @@ function attentionBoardMount(p) {
   const board = body.firstElementChild, dock = board.querySelector('[data-attention-record]');
   const mountWorkspace = () => recordWorkspaceMount(dock.firstElementChild, {entry:'focus', paired:false, visible:()=>agpadActive(p) && p.view === 'attentionBoard', onClose:()=>{
     dock.hidden=true;
-    board.querySelector('.agfocus-layout').classList.remove('agfocus-paired-workspace');
-    board.querySelector('header').hidden=false;
+    board.querySelector('.agfocus-layout').classList.remove('agfocus-thread-open');
+    agfocusOverlayClose(p);
     board.querySelector(`[data-attention-member="${p.attentionBoard?.selected || ''}"]`)?.focus({preventScroll:true});
   }});
   p.attentionBoard = {board, workspace:mountWorkspace(), mountWorkspace, next:0, busy:false, data:null};
@@ -75,7 +75,7 @@ function attentionBoardMount(p) {
     }
   });
   const boardState=p.attentionBoard;
-  p.workspaceDispose = () => {unsubscribe(); clearTimeout(boardState.repaint); boardState.workspace.dispose(); p.attentionBoard = null;};
+  p.workspaceDispose = () => {unsubscribe(); agfocusOverlayClose(p); clearTimeout(boardState.repaint); boardState.workspace.dispose(); p.attentionBoard = null;};
   attentionBoardTick(p);
 }
 function attentionBoardTick(p) {
@@ -109,8 +109,8 @@ async function attentionBoardOpen(p, source) {
   if(!b.workspace.alive?.())b.workspace=b.mountWorkspace();
   const dock=b.board.querySelector('[data-attention-record]');
   dock.hidden=false;
-  b.board.querySelector('header').hidden=true;
-  b.board.querySelector('.agfocus-layout').classList.add('agfocus-paired-workspace');
+  b.board.querySelector('.agfocus-layout').classList.add('agfocus-thread-open');
+  agfocusOverlayOpen(p,b.board,dock,()=>{void p.attentionBoard?.workspace.close();});
   try { await b.workspace.open(record,{root:true,tab:record.can_thread?'chat':'dashboard'}); }
   catch(error) {toast(error.message);}
 }
@@ -184,7 +184,6 @@ function attentionBoardPaint(p) {
   const current=document.createElement('section');header.append(current);
   if (attention.state !== 'focused' || !attention.focus) {const text=document.createElement('p');text.textContent='Unfocused';current.append(text);}
   else {
-    const label=document.createElement('p'); label.textContent='Focused on';current.append(label);
     const focus=attention.focus;
     const workFor=ref=>data.items.find(item=>item.task_ref.id===ref.id && item.task_ref.business_id===ref.business_id);
     const reference=ref=>{
@@ -203,7 +202,7 @@ function attentionBoardPaint(p) {
       const text=document.createElement('p');text.textContent=focus.label || focus.id;current.append(text);
       if(attention.task)reference(attention.task);
     } else reference(focus);
-    const intent=document.createElement('p');intent.textContent='Intent: '+attention.intent;current.append(intent);
+    if(attention.intent){const intent=document.createElement('p');intent.className='attention-intent';intent.textContent=attention.intent;current.append(intent);}
   }
   list.replaceChildren();
   const rows=document.createElement('div');rows.className='agfocus-items';

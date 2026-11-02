@@ -124,7 +124,11 @@
 .agsplit.nav-off > .listcol{visibility:hidden;overflow:visible;padding:0;border:0;pointer-events:none}
 .agsplit.nav-off > .listcol .agent-nav-toggle{visibility:visible;pointer-events:auto;position:absolute;top:12px;left:12px;z-index:6;margin:0;background:var(--bg);border:1px solid var(--line);box-shadow:0 2px 8px #0003}
 
-.agpad .ttab{position:relative}
+/* One control size for the agent pane's navigation tabs and the chat/terminal/refresh controls. */
+.agsplit{--ag-ctl:55px;--ag-ctl-icon:23.75px}
+.agpad .ttab,.gchat-session-switch .ttab{position:relative;flex:0 0 var(--ag-ctl);width:var(--ag-ctl);height:var(--ag-ctl)}
+.agpad .ttab svg,.gchat-session-switch .ttab svg{width:var(--ag-ctl-icon);height:var(--ag-ctl-icon)}
+.agpad .tind{height:var(--ag-ctl)}
 .agpad-tab-dot{position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;background:var(--fg-3);pointer-events:none}
 .agpad-tab-dot[data-state="running"]{background:#30D158}
 .agpad-tab-dot[data-state="idle"]{background:#c8912a}
@@ -132,7 +136,7 @@
 /* Ordubashy auto-ping switch at the right end of the pane's tab row. */
 .agpad .thead.agpad-ping-head { display:flex; align-items:flex-start; gap:12px; padding-right:28px; }
 .agpad-ping-head > .ttabs { flex:1 1 auto; min-width:0; }
-.agpad-ping.switch { flex:none; height:44px; padding:0 4px; border-radius:8px; background:none; color:var(--fg-3); font-weight:400; font-size:12px; }
+.agpad-ping.switch { flex:none; height:var(--ag-ctl); padding:0 4px; border-radius:8px; background:none; color:var(--fg-3); font-weight:400; font-size:12px; }
 .agpad-ping.switch:hover { background:none; color:var(--fg-2); transform:none; }
 .agpad-ping.switch.on { color:var(--fg); }
 .agpad-ping.switch:focus-visible { outline:2px solid var(--fg-2); outline-offset:-2px; }

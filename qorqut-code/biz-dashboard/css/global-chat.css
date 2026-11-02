@@ -1,6 +1,6 @@
 /* Native agent chat shell (js/global-chat.js): floating header, Chat/Terminal switch, session line and the Terminal diagnostic frame.
    Messages, composer, previews and scrolling are the shared view (css/chat-view.css). Uses the dashboard's existing tokens. */
-.gchat { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; width: 100%; color: var(--fg); font-size: 15.75px; --chat-top-inset: 38px; }
+.gchat { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; width: 100%; color: var(--fg); font-size: 15.75px; --chat-top-inset: calc(var(--ag-ctl, 30px) + 8px); }
 .gchat-top { position:absolute; top:4px; left:4px; z-index:2; display:flex; align-items:center; gap:8px; max-width:calc(100% - 8px); padding:5px 9px; border:0; border-radius:6px; background:color-mix(in srgb, var(--bg) 68%, transparent); backdrop-filter:blur(8px); pointer-events:none; font-size:12px; }
 .gchat-name { font-weight: 500; letter-spacing: -.011em; }
 .gchat-top.gchat-identity { padding:4px; background:none; backdrop-filter:none; }
@@ -29,20 +29,19 @@
 .gchat-working-dots i:nth-child(3) { animation-delay:.36s; }
 @keyframes gchat-working-pulse { 0%, 65%, 100% { opacity:.3; box-shadow:none; } 30% { opacity:1; box-shadow:0 0 4px currentColor; } }
 @media (prefers-reduced-motion:reduce) { .gchat-working-dots i { animation:none; opacity:.65; } }
-.gchat-diagnostic { position:relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
+.gchat-diagnostic { position:relative; box-sizing:border-box; padding-top:var(--ag-ctl, 30px); display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
 .gchat-diagnostic-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* Unread marker for a global agent's main chat: the navigation tab and the agent's roster row. */
 .chat-unread-dot { display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.45); flex: none; vertical-align: middle; }
 .chat-unread-dot[hidden] { display: none; }
 .gchat-view-toggle { display: inline-flex; flex: none; gap: 4px; }
-.gchat-view-toggle button, .gchat-refresh { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; min-height: 30px; padding: 6px; border: 0; border-radius: 6px; transform: none; }
-.gchat-view-toggle svg, .gchat-refresh svg { width: 18px; height: 18px; }
-.gchat-view-toggle button[aria-pressed="true"] { background: var(--hover); color: var(--fg); opacity: 1; cursor: default; }
+/* Chat/Terminal/Refresh are ordinary .ttab controls; the selected view takes the tab indicator's fill. */
+.gchat-view-toggle .ttab[aria-pressed="true"] { color: var(--fg); background: rgba(255,255,255,.05); opacity: 1; cursor: default; }
 
 /* Session controls stay over their own surface, outside chat scroll and terminal output. */
-.gchat-session-switch { display:flex; align-items:center; gap:4px; position:absolute; top:4px; right:4px; z-index:3; border-radius:6px; background:color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter:blur(8px); }
+.gchat-session-switch { display:flex; align-items:center; gap:4px; position:absolute; top:0; right:0; z-index:3; max-width:calc(100% - 8px); overflow-x:auto; scrollbar-width:thin; border-radius:12px; background:color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter:blur(8px); }
 .gchat:has(> .gchat-session-switch) > .gchat-top,
-.gchat-diagnostic > .gchat-top { max-width:calc(100% - 114px); }
+.gchat-diagnostic > .gchat-top { max-width:calc(100% - 3 * var(--ag-ctl, 30px) - 24px); }
 .gchat-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gchat-paired-record{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;height:100%;box-sizing:border-box}
 .gchat-paired-record .conversation-panel{display:flex;flex:1;flex-direction:column;min-height:0;padding:0;border:0;border-radius:0}
