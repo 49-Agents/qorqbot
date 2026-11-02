@@ -3,6 +3,9 @@
 .gchat { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; width: 100%; color: var(--fg); font-size: 15.75px; --chat-top-inset: 38px; }
 .gchat-top { position:absolute; top:4px; left:4px; z-index:2; display:flex; align-items:center; gap:8px; max-width:calc(100% - 8px); padding:5px 9px; border:0; border-radius:6px; background:color-mix(in srgb, var(--bg) 68%, transparent); backdrop-filter:blur(8px); pointer-events:none; font-size:12px; }
 .gchat-name { font-weight: 500; letter-spacing: -.011em; }
+.gchat-top.gchat-identity { padding:4px; background:none; backdrop-filter:none; }
+.gchat-identity .identity-avatar { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; padding:0; border:0; background:none; }
+.gchat-identity .identity-avatar svg { width:20px; height:20px; }
 .gchat-status { font-size: 11px; color: var(--fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gchat-status[data-state="error"] { color: var(--danger); }
 .gchat-status[data-state="ready"] { color: var(--fg); }

@@ -128,15 +128,11 @@ function mountGlobalChat(pane, agent, options = {}) {
 
   // Native shell: header, view switch and the session line stay here; every message, composer and preview is the shared view.
   pane.innerHTML = `<div class="gchat" data-global-chat="${esc(agentId)}">
-    <header class="gchat-top">
-      <span class="gchat-name">${esc(label)}</span>
-      <span class="gchat-status" role="status" aria-live="polite"></span>
-    </header>
+    <header class="gchat-top gchat-identity">${identityAvatar('agent', label, {...agent, ...agent.presentation})}</header>
     ${options.openTerminal ? `<div class="gchat-session-switch">${globalChatViewToggle()}</div>` : ''}
   </div>`;
   const root = pane.firstElementChild;
   const $q = selector => root.querySelector(selector);
-  const status = $q('.gchat-status');
   const sessionLine = document.createElement('div');
   sessionLine.className = 'gchat-session'; sessionLine.setAttribute('role', 'status'); sessionLine.setAttribute('aria-live', 'polite'); sessionLine.dataset.state = 'loading';
   sessionLine.innerHTML = `<span class="gchat-working-tag" role="img" aria-label="${esc(label)} is working" hidden><span aria-hidden="true">${identityAvatar('agent', label, {...agent, ...agent.presentation})}</span><span class="gchat-working-dots" aria-hidden="true"><i></i><i></i><i></i></span></span><span class="gchat-session-dot" aria-hidden="true"></span><span class="gchat-session-text">Loading…</span>`;
@@ -229,18 +225,18 @@ function mountGlobalChat(pane, agent, options = {}) {
   const canSend = () => !!session?.can_send && viewingLive() && !finished;
   const selectedFiles = () => GLOBAL_CHAT_FILES.get(composerScope) || [];
   function sessionSummary() {
-    if (!session) return {key: 'loading', short: 'Loading…', line: ''};
-    if (session.state === 'live' && session.can_send && !viewingLive()) return {key: 'starting', short: 'Connecting', line: ''};
+    if (!session) return {key: 'loading', line: ''};
+    if (session.state === 'live' && session.can_send && !viewingLive()) return {key: 'starting', line: ''};
     if (session.state === 'live') {
-      if (session.reason === 'capture_disabled') return {key: 'disabled', short: 'Chat unavailable', line: ''};
-      if (session.reason === 'binding_not_ready') return {key: 'starting', short: 'Connecting', line: ''};
-      if (session.reason === 'capture_not_ready') return {key: 'starting', short: 'Connecting', line: ''};
-      return session.working ? {key: 'working', short: 'Working', line: ''} : {key: 'live', short: 'Live', line: ''};
+      if (session.reason === 'capture_disabled') return {key: 'disabled', line: ''};
+      if (session.reason === 'binding_not_ready') return {key: 'starting', line: ''};
+      if (session.reason === 'capture_not_ready') return {key: 'starting', line: ''};
+      return {key: session.working ? 'working' : 'live', line: ''};
     }
     const direction = `Start or resume ${label} in Terminal to send.`;
-    if (session.reason === 'capture_disabled') return {key: 'disabled', short: 'Chat unavailable', line: ''};
-    if (session.reason === 'unsupported_runtime') return {key: 'offline', short: 'Chat unavailable', line: ''};
-    return {key: 'offline', short: 'Offline', line: direction};
+    if (session.reason === 'capture_disabled') return {key: 'disabled', line: ''};
+    if (session.reason === 'unsupported_runtime') return {key: 'offline', line: ''};
+    return {key: 'offline', line: direction};
   }
   function emptyState() {
     if (entries.size || shownInputs.length || !session) return {text: '', action: null};
@@ -259,8 +255,6 @@ function mountGlobalChat(pane, agent, options = {}) {
     sessionText.textContent = finished ? 'This chat is no longer available.' : summary.line;
     workingTag.hidden = !working;
     sessionLine.hidden = !working && !sessionText.textContent;
-    status.textContent = finished ? 'Unavailable' : summary.short;
-    status.dataset.state = !session ? 'loading' : ['live', 'working'].includes(summary.key) ? 'ready' : 'stopped';
     const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope);
     const pending = presentInputs();
     view.render({
@@ -447,7 +441,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       paintEntries(fresh ? 'bottom' : 'auto');
       if (!stream) connect();
     } catch (problem) {
-      if (live() && mine === generation) { paintSession(); showBanner("Couldn't load. Retry"); status.textContent = 'Unavailable'; retry(() => load()); }
+      if (live() && mine === generation) { paintSession(); showBanner("Couldn't load. Retry"); retry(() => load()); }
     } finally {
       if (mine === generation) { loading = false; if (again && live()) { again = false; void load(); } }
     }
