@@ -283,6 +283,18 @@ raise SystemExit(client.main(sys.argv[3:]))
     evidence["notices"]["reopen_duplicates"] = 0
     runtime.domains.shared_context.close()
     runtime.database.close()
+    record_path = paths.instance_root / "config/agentic-layer.json"
+    record_bytes = record_path.read_bytes()
+    without_fastmail = installed_selection({"extensions": [item for item in config["extensions"] if "fastmail" not in item["factory"]]})
+    disabled = build_runtime(prepared / "src", paths=paths, extensions=without_fastmail)
+    check("imported-fastmail-metadata" not in disabled.agentic_view.selection({})["package_ids"], "Trusted deactivation failed")
+    check(not disabled.registry.known("fastmail_send"), "Disabled native Fastmail operation survived")
+    disabled.domains.shared_context.close(); disabled.database.close()
+    enabled = build_runtime(prepared / "src", paths=paths, extensions=selection)
+    check("imported-fastmail-metadata" in enabled.agentic_view.selection({})["package_ids"], "Trusted reactivation failed")
+    enabled.domains.shared_context.close(); enabled.database.close()
+    check(record_path.read_bytes() == record_bytes, "Activation rewrote the host binding")
+    evidence["trusted_activation"] = "Fastmail disabled and re-enabled with unchanged record and Operations schema"
     evidence["seconds"] = round(time.monotonic() - started, 3)
     (scratch / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
     print(json.dumps(evidence, indent=2))
