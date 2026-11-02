@@ -484,7 +484,7 @@ class HTTPAPI:
                     "owner_reminder", "telegram_status", "telegram_delivery_get", "telegram_delivery_resolve", "telegram_notify",
                     "focus_get", "focus_present", "focus_edit", "focus_move", "focus_set_archived", "focus_reply", "signoffs_comment", "signoffs_notes_list", "tasks_thread_get",
                     "workspace_types", "workspace_get",
-                    "owner_conversation_get", "owner_conversation_send", "owner_conversation_mark_read", "owner_conversation_peers",
+                    "owner_conversation_get", "owner_conversation_send", "owner_conversation_mark_read", "owner_conversations_list", "owner_conversation_related", "owner_conversation_peers",
                     # Global work: the eight neutral relationship operations that take the business-or-Global namespace, and the
                     # Task follow and Action discussion/follow and shared-tag operations. Each is the normal application call; Tags and
                     # Actions declare no scope input, so a caller passes none.

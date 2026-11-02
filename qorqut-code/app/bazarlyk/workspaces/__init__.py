@@ -59,6 +59,8 @@ class WorkspaceType:
 # Focus keeps its own operations and authorization; the registry only records
 # that the host knows how to render it and which role it belongs to.
 WORKSPACE_TYPES = (
+    WorkspaceType("threads", "Threads", frozenset({"ordubashy"}), "threads", (),
+        "Private record conversations ordered by the latest owner or Ordubashy message."),
     WorkspaceType("focus", "Focus", frozenset({roles.ORDUBASHY_ROLE, roles.GLOBAL_WORKER_ROLE}), "focus_board",
         ("focus_show", "focus_clear", "focus_browser_input", "focus_present", "focus_edit",
          "focus_move", "focus_set_archived", "focus_reply"),

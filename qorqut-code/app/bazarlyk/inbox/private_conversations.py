@@ -139,6 +139,20 @@ class PrivateConversations:
             resolve_namespace=common['resolve_namespace'], prepare=self.prepare_mark, apply=self.apply_mark,
             replay_validator=self.validate_replay,
             description='Record the owner’s private read position up to a sequence the server already returned.'))
+        from .thread_views import directory, related
+        registry.register(OperationDescriptor('owner_conversations_list', schema({
+            'scope': {'const': 'global'}, 'before': {'type': 'integer', 'minimum': 1},
+            'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}),
+            supports_signoff=False, scope_kinds=frozenset({'global'}), global_capability='read_global_context',
+            resolve_namespace=lambda c, a: 'global', owner_only=True, exposure=frozenset({'dashboard', 'worker'}),
+            effect_kind='read', read=lambda c, a, o, u: directory(self, c, a, u),
+            description='List readable owner–Ordubashy threads by their last real message. Does not mark them read.'))
+        registry.register(OperationDescriptor('owner_conversation_related', schema({**FIELDS,
+            'offset': {'type': 'integer', 'minimum': 0},
+            'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, ('source',)),
+            **common, owner_only=True, exposure=frozenset({'dashboard', 'worker'}), effect_kind='read',
+            read=lambda c, a, o, u: related(self, c, a, u),
+            description='Read related records for visual thread context. Never creates conversation messages.'))
         self.app.private_conversations = self
         return self
 
