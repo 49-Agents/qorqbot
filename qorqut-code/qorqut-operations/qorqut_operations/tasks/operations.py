@@ -135,7 +135,10 @@ class TaskOperations:
                            "parent_id": {"anyOf": [IDENTITY, {"type": "null"}], "description": "Children of this parent, or null for top-level tasks."},
                            "snooze_filter": {"enum": ["active", "snoozed", "all"], "default": "active",
                                              "description": "Defaults to not currently snoozed. Snoozed tasks are the backlog. Closed/archived filters apply independently."}},
-            "tasks_get": {"task_id": IDENTITY, "related_cursor": PAGE["cursor"]}, "tasks_thread_get": {**PAGE, "task_id": IDENTITY},
+            "tasks_get": {"task_id": IDENTITY, "related_cursor": PAGE["cursor"],
+                          "notes_limit": {"type": "integer", "minimum": 0, "maximum": 10, "default": 7,
+                                          "description": "Comments per page, newest first (0 omits them). Keep it unchanged when paging."},
+                          "notes_cursor": PAGE["cursor"]}, "tasks_thread_get": {**PAGE, "task_id": IDENTITY},
             "tasks_notes_list": {**PAGE, "task_id": IDENTITY}, "tasks_config_get": {}, "assignees_list": {}, "workers_list": {},
         }
         descriptors = [self.overview.descriptor(), self.associated.descriptor()]
@@ -282,7 +285,7 @@ class TaskOperations:
 
     # -- reads -----------------------------------------------------------------------------------------------------
 
-    def detail(self, ctx, task, uow, fields, now, *, notes=True):
+    def detail(self, ctx, task, uow, fields, now, *, notes=True, notes_page=None):
         business_id, task_id = task["business_id"], task["id"]
         item = ThreadItem(business_id, "task", task_id)
         creator = uow.repository("principals").get(task.get("created_by")) if task.get("created_by") else None
@@ -312,10 +315,14 @@ class TaskOperations:
                 "closed": task["status"] in CLOSED_STATES, "paused": task["status"] in PAUSED_STATES,
                 "following": follow["following"], "follow_reason": follow["reason"]}
         view["notes"], view["notes_next_cursor"] = [], None
-        if notes:
-            history = read_messages(uow, item, {"limit": 20}, "tasks_get", ctx.principal_id, resolve_refs=self.message_refs(ctx, uow),
-                                    kinds=("comment",))
-            view["notes"], view["notes_next_cursor"] = history["messages"], history["next_cursor"]
+        notes_page = notes_page or {}
+        limit = notes_page.get("notes_limit", 7)
+        if notes and limit:
+            # Newest comments first; notes_next_cursor continues into older ones.
+            cursor = {"cursor": notes_page["notes_cursor"]} if notes_page.get("notes_cursor") else {}
+            history = read_messages(uow, item, {"limit": limit, **cursor}, "tasks_get", ctx.principal_id,
+                                    resolve_refs=self.message_refs(ctx, uow), kinds=("comment",))
+            view["notes"], view["notes_next_cursor"] = history["messages"][::-1], history["next_cursor"]
         return view
 
     @staticmethod
@@ -349,7 +356,7 @@ class TaskOperations:
                     "next_cursor": history["next_cursor"]}
         if operation == "tasks_get":
             task = self.require(ctx, uow, arguments["task_id"])
-            detail = self.detail(ctx, task, uow, configuration["fields"], now)
+            detail = self.detail(ctx, task, uow, configuration["fields"], now, notes_page=arguments)
             detail.update(links.read(self, ctx, task, uow, arguments.get("related_cursor")))
             return {"task": detail}
         return self.list_tasks(ctx, arguments, uow, configuration, now)
