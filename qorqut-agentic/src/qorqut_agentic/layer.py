@@ -14,6 +14,7 @@ from .core import LayerContext
 from .errors import InvalidRequestError, StoreError
 from .history import GitRunner, History
 from .store import Store
+from .tools import Tools
 from .util import Clock, iso, new_id, utc_now
 
 
@@ -40,8 +41,9 @@ def _inside(child: Path, parent: Path) -> bool:
 class AgenticLayer:
     """One opened authoring root plus its runtime state.
 
-    Components: ``catalog``, ``authoring``, ``history``, ``changes``, ``tools``,
-    ``workflows``. Importing this module does nothing; nothing is created
+    Components: ``catalog``, ``authoring``, ``history``, ``changes``, ``tools``
+    (and ``workflows``). ``runtimes`` maps a tool runtime alias to a runtime
+    object (see :mod:`qorqut_agentic.runtime`); none is registered by default. Importing this module does nothing; nothing is created
     unless :meth:`initialize` is called with explicit paths.
     """
 
@@ -53,6 +55,7 @@ class AgenticLayer:
         self.authoring = Authoring(ctx, self.changes)
         self.history = History(ctx, self.changes, self.authoring)
         self.catalog = CatalogReader(ctx)
+        self.tools = Tools(ctx)
 
     # ---------------------------------------------------------------- lifecycle
     @classmethod

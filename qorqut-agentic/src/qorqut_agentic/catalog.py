@@ -236,6 +236,7 @@ class Catalog:
             "source": package.source,
             "revision": entry.revision,
             "bundle_revision": entry.bundle_revision,
+            "code_revision": entry.code_revision,
             "available": available,
             "applicable": applicable,
             "diagnostics": unavailable + inapplicable,
