@@ -1,0 +1,756 @@
+{
+  "schema_version": 1,
+  "files": [
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "e80d8fd1a4fcb7bb1d3a0b76117b85463008a677",
+      "source_path": "roles/global-worker/BRIEF.md",
+      "defaults_path": "roles/imported-roles/native/roles/global-worker/BRIEF.md",
+      "source_sha256": "214a86e6e4cf9d060bd65614819bca42ab151e2e7868539e59730b75d359405a",
+      "defaults_sha256": "214a86e6e4cf9d060bd65614819bca42ab151e2e7868539e59730b75d359405a",
+      "old_ref": "imported-roles/asset-6b855cc4f4a0e06eca2f",
+      "new_ref": "imported-roles/asset-6b855cc4f4a0e06eca2f"
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "ac00fe4c8eb5e05f724988444def3873fa45d5b3",
+      "source_path": "roles/global-worker/role.yaml",
+      "defaults_path": "roles/imported-roles/native/roles/global-worker/role.yaml",
+      "source_sha256": "4d489a00ed60e8f78adc7b15de2b2df9869be18219a657f641dac2d51e9cb31a",
+      "defaults_sha256": "2aa234417f28b17564e8a7cc7a3cb6ba2321c4882af972fe79d601ed1b61c304",
+      "old_ref": null,
+      "new_ref": null
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "02c27f945216a14676b335847b490f92e057aa2c",
+      "source_path": "roles/learning-applier/BRIEF.md",
+      "defaults_path": "roles/imported-roles/native/roles/learning-applier/BRIEF.md",
+      "source_sha256": "ecb30d844e8338495356f4080af2b4906f48e4fd745fab9c8218295f21bd4275",
+      "defaults_sha256": "5a65c4b812b9b91e2d6ff4325b390264f2b130c2101ff57ba3a62fd10ddba899",
+      "old_ref": "imported-roles/asset-422c9025315fbc793afd",
+      "new_ref": "imported-roles/asset-422c9025315fbc793afd",
+      "transformation": "Keep the bundled line break before \"Do not file accepted Context twice\"; the wording is otherwise identical to the canonical brief.",
+      "previous_sources": [
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "ecfb8cc1101e4202aab27b56bfacf853b733072c",
+          "source_path": "roles/learning-applier/BRIEF.md",
+          "source_sha256": "b3c82a59eae08d38cd3ba6dd41e3b695e1c77e613d101537ea140a0775671e1f",
+          "defaults_sha256": "b3c82a59eae08d38cd3ba6dd41e3b695e1c77e613d101537ea140a0775671e1f"
+        },
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "5795177464d79452a15ddb3fd81f483faa2cee53",
+          "source_path": "roles/learning-applier/BRIEF.md",
+          "source_sha256": "7ae289f32b0d0bd6e9b9ebb070da49c560c1a5d5e70f158d3e4fbb09045f74e6",
+          "defaults_sha256": "73347d321fbc46463806e38826cd80d257d70b8f698fcee91dd52d9988a621da",
+          "transformation": "Combine current direct-instruction Signoff and complete legacy inventory guidance with the relocated brief."
+        }
+      ]
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "660282bd36a7d565b841d95996a1c1d816606f34",
+      "source_path": "roles/learning-applier/role.yaml",
+      "defaults_path": "roles/imported-roles/native/roles/learning-applier/role.yaml",
+      "source_sha256": "36ea4489b7d7fd871a202764637be4503f3793a18ed546c6e7b2e70cab3787fa",
+      "defaults_sha256": "37546d533bf5d6530a137e067b4bb6e5db4ed184e96b6b94f87617c6b3ce360f",
+      "old_ref": null,
+      "new_ref": null,
+      "transformation": "Retain relocated paths and the outside-observation grants (overseer_outside_delta_record, overseer_outside_delta_get, overseer_outside_deltas_list).",
+      "previous_sources": [
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "ecfb8cc1101e4202aab27b56bfacf853b733072c",
+          "source_path": "roles/learning-applier/role.yaml",
+          "source_sha256": "d6d1a38ba474df3c934fb8e579d4e271e390d7558ce53fc0869de8d9c2a76bb7",
+          "defaults_sha256": "c2d0aa48be40426c189a10b62248cba0eaf825aa82066d6012be7b6b7e121998"
+        },
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "5795177464d79452a15ddb3fd81f483faa2cee53",
+          "source_path": "roles/learning-applier/role.yaml",
+          "source_sha256": "6bfed4be8fe2ad242f2dc5e6ddba155a6b5a46f67fd8caef28b288ecff54f201",
+          "defaults_sha256": "35b8e750f62f5a0cb4b1e63467d320ce2021f731c59ec657bf1dfd96e619d390",
+          "transformation": "Retain relocated paths, version and outside-observation grants; add current change and evidence reads and remove retired learning work grants."
+        },
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "ac00fe4c8eb5e05f724988444def3873fa45d5b3",
+          "source_path": "roles/learning-applier/role.yaml",
+          "source_sha256": "9f070c84e30dda891f1f81990c901f38bfdd299fd9232cf6078976a2eccc4b1c",
+          "defaults_sha256": "edb75232467f5a6a7ceb099ad7a843aae47167a766581967ed8beb649aefb277"
+        }
+      ]
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "ac00fe4c8eb5e05f724988444def3873fa45d5b3",
+      "source_path": "roles/ordubashy/BRIEF.md",
+      "defaults_path": "roles/imported-roles/native/roles/ordubashy/BRIEF.md",
+      "source_sha256": "46d4727e57020c629f0c924a957ca9287da987d66055e27adc7d6b0fa3495ea5",
+      "defaults_sha256": "9d558d8e798b2488eb359902d7df6a02b136e3b8122c684b5b045504438edc01",
+      "old_ref": "imported-roles/asset-8842dde77cae97b63d89",
+      "new_ref": "imported-roles/asset-8842dde77cae97b63d89",
+      "transformation": "Retain report-and-takeover, duplicate-execution reconciliation, direct-instruction Signoff and Attention guidance as bundled, with the earlier ticket-closing and worker-browser wording; the reminders, provider, Telegram and System Dev changes match the canonical source.",
+      "previous_sources": [
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "ecfb8cc1101e4202aab27b56bfacf853b733072c",
+          "source_path": "roles/ordubashy/BRIEF.md",
+          "source_sha256": "def2032913a75a13abf6a0c752def3435cee5d340e79e09df0761864a5d02561",
+          "defaults_sha256": "a062420a289fb21a010fdbbc3eac5e9b251a5e70f889be1771a568d99e465aa5",
+          "transformation": "Report unavailable dispatch, then perform the authorized assignment within existing tools and permissions."
+        },
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "5795177464d79452a15ddb3fd81f483faa2cee53",
+          "source_path": "roles/ordubashy/BRIEF.md",
+          "source_sha256": "1408c1bb2b3086c7c193b8d4e3574c81dded3eb12d663212f9367948e2d144a0",
+          "defaults_sha256": "de5a7a684084331efe32d3ccd4b17e2bc160bc2784594ef67bb7ce43b78eac18",
+          "transformation": "Retain report-and-takeover and duplicate-execution reconciliation while adding current direct-instruction Signoff guidance."
+        },
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "58939c7f56d1ff4c8332248fdc8501f431a80f1a",
+          "source_path": "roles/ordubashy/BRIEF.md",
+          "source_sha256": "b055de457288f51a3733673fb32a6b43361f59aeb8dc1c33588909aca4e6e7ed",
+          "defaults_sha256": "a0f71145c59eaa74e66f077f2debdb57cba9ccfc1e9e4a8ef9812ddb0825432a"
+        },
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "ab76bfab529c9598fc8e0d66aa6ca477c01731a7",
+          "source_path": "roles/ordubashy/BRIEF.md",
+          "source_sha256": "a5f395cef0e6ee2f1cea0fcff7addb0111cb906a37a348c607e6308f3ff63215",
+          "defaults_sha256": "770b4a4e02cb0c463adb4d1e40303ca8678dedde57aa2854cb045143b96e3344",
+          "transformation": "Retain report-and-takeover, duplicate-execution reconciliation and direct-instruction Signoff guidance alongside current Attention guidance."
+        },
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "ac00fe4c8eb5e05f724988444def3873fa45d5b3",
+          "source_path": "roles/ordubashy/BRIEF.md",
+          "source_sha256": "46d4727e57020c629f0c924a957ca9287da987d66055e27adc7d6b0fa3495ea5",
+          "defaults_sha256": "7b4c10b6ed6abbd3179f466c31b761d4ed100b26a0a10321d977386602feb28b",
+          "transformation": "Retain report-and-takeover, duplicate-execution reconciliation, direct-instruction Signoff and Attention guidance as bundled; keep the single owner_reminder instruction and the earlier ticket wording instead of the canonical reminders_* sentences. The provider, Telegram and System Dev removals match the canonical source."
+        }
+      ]
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "660282bd36a7d565b841d95996a1c1d816606f34",
+      "source_path": "roles/ordubashy/role.yaml",
+      "defaults_path": "roles/imported-roles/native/roles/ordubashy/role.yaml",
+      "source_sha256": "5d946f533f23ebcc334096b65461c18c7a6406eb09c69a281bf274fd2bd0021d",
+      "defaults_sha256": "3c27329926d1c42c8dbfa67328ffb377f1cf1c178c466200209f33520ce10be6",
+      "old_ref": null,
+      "new_ref": null,
+      "previous_sources": [
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "ecfb8cc1101e4202aab27b56bfacf853b733072c",
+          "source_path": "roles/ordubashy/role.yaml",
+          "source_sha256": "595ab5e5cf8cab9b432571ec180cb92140b3605358d39c99845e344adf811cad",
+          "defaults_sha256": "ed9cbc6b035108199536d73780bff2f68ab2060c659cfcc0e19786f3ad31b1fa"
+        },
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "5795177464d79452a15ddb3fd81f483faa2cee53",
+          "source_path": "roles/ordubashy/role.yaml",
+          "source_sha256": "a1f54912991a0bb5fd500e95cc05a6461c3df233157d4b4f1ea244e0bc85e3b5",
+          "defaults_sha256": "a9ad1bfc7bdfc3e6a93cddc9ec1b0389aed717140d3d07df34f08c83cd2fde68",
+          "transformation": "Retain relocated paths and increment version; add current shared agentic change grants."
+        },
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "58939c7f56d1ff4c8332248fdc8501f431a80f1a",
+          "source_path": "roles/ordubashy/role.yaml",
+          "source_sha256": "adf97534d8ceda54de64a2055e2576a210135612777b3a9a5646fa88413dff3a",
+          "defaults_sha256": "a69ded66af8940f413a3adb85b7abd04a49df7f36e54ec3828431ea125156cf4"
+        },
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "ab76bfab529c9598fc8e0d66aa6ca477c01731a7",
+          "source_path": "roles/ordubashy/role.yaml",
+          "source_sha256": "1e3903cfe2d4caad5e0bfd457f4cd781acb68530cad04cfb9c9f575f8741094b",
+          "defaults_sha256": "99e7f1f3fb66075bdf7c2565df6685ed5121edebb57076d0def1f2282ed005f7",
+          "transformation": "Retain relocated paths and increment version; preserve current shared agentic change and Attention grants."
+        },
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "ac00fe4c8eb5e05f724988444def3873fa45d5b3",
+          "source_path": "roles/ordubashy/role.yaml",
+          "source_sha256": "e2df0341af7807958c3457cb19e5d8fcd974cd8109f94b0a663a4e4df7ee1008",
+          "defaults_sha256": "76f2d999946416b4ff096476274d5fa109a68a6eb2998fdea745452c0b66202f",
+          "transformation": "Retain relocated paths, the bundled version 1.75.0 and the owner_reminder grant without the canonical reminders_* grants; preserve current shared agentic change and Attention grants. The provider and Telegram grant removals match the canonical source."
+        },
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "ac00fe4c8eb5e05f724988444def3873fa45d5b3",
+          "source_path": "roles/ordubashy/role.yaml",
+          "source_sha256": "e2df0341af7807958c3457cb19e5d8fcd974cd8109f94b0a663a4e4df7ee1008",
+          "defaults_sha256": "8b9a2709f5f2697153be49ee355857d8da2a49b48b6d94784432b1fcd46a343c"
+        }
+      ]
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "660282bd36a7d565b841d95996a1c1d816606f34",
+      "source_path": "skills/action-recording/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/action-recording/SKILL.md",
+      "source_sha256": "83bae5c7e71d5474c54513e417c6a55731fdb1659fb186cad1f79f3f5bd671d8",
+      "defaults_sha256": "83bae5c7e71d5474c54513e417c6a55731fdb1659fb186cad1f79f3f5bd671d8",
+      "old_ref": "imported-roles/asset-b6a7a666d69edf128ff0",
+      "new_ref": "imported-role-skills/asset-b6a7a666d69edf128ff0",
+      "previous_sources": [
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "ac00fe4c8eb5e05f724988444def3873fa45d5b3",
+          "source_path": "skills/action-recording/SKILL.md",
+          "source_sha256": "5934e0e9437aaf9bf652c2729641372131d57892bba675c998303c713a04cda4",
+          "defaults_sha256": "5934e0e9437aaf9bf652c2729641372131d57892bba675c998303c713a04cda4"
+        }
+      ]
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "ac00fe4c8eb5e05f724988444def3873fa45d5b3",
+      "source_path": "skills/business-operations/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/business-operations/SKILL.md",
+      "source_sha256": "f8f3d4aa4c6428494f75aef29f5c6dc6023d96140b457294babd84d315e4c67c",
+      "defaults_sha256": "f8f3d4aa4c6428494f75aef29f5c6dc6023d96140b457294babd84d315e4c67c",
+      "old_ref": "imported-roles/asset-580b179fb8f7f2085bdb",
+      "new_ref": "imported-role-skills/asset-580b179fb8f7f2085bdb"
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "ecfb8cc1101e4202aab27b56bfacf853b733072c",
+      "source_path": "skills/business-tables/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/business-tables/SKILL.md",
+      "source_sha256": "d49f5ff8fc6e6cc213967f568db91bf149a43780fe90e66cbe0076644ea58f31",
+      "defaults_sha256": "d49f5ff8fc6e6cc213967f568db91bf149a43780fe90e66cbe0076644ea58f31",
+      "old_ref": "imported-roles/asset-4ce12da680f2bb107eda",
+      "new_ref": "imported-role-skills/asset-4ce12da680f2bb107eda"
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "ac00fe4c8eb5e05f724988444def3873fa45d5b3",
+      "source_path": "skills/calendar/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/calendar/SKILL.md",
+      "source_sha256": "d07eac1cb77284ec978269c384e8d16480d2f3ce1fb7c0193cf1a5ef21b440d5",
+      "defaults_sha256": "d07eac1cb77284ec978269c384e8d16480d2f3ce1fb7c0193cf1a5ef21b440d5",
+      "old_ref": "imported-roles/asset-cf11f76cb7384beadca4",
+      "new_ref": "imported-role-skills/asset-cf11f76cb7384beadca4"
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "08880bb20bcfdf5963dd78c02ce1055224e86480",
+      "source_path": "skills/chat-references/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/chat-references/SKILL.md",
+      "source_sha256": "6ce21217e3182a90713e9e012b0fec34bb9b62b5174c4eecdbd692381b263dfc",
+      "defaults_sha256": "6ce21217e3182a90713e9e012b0fec34bb9b62b5174c4eecdbd692381b263dfc",
+      "old_ref": "imported-roles/asset-da350cf43d15c553a310",
+      "new_ref": "imported-role-skills/asset-da350cf43d15c553a310"
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "7d04d7053b3c08d522d2236d03443dfa93765c11",
+      "source_path": "skills/context-relationships/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/context-relationships/SKILL.md",
+      "source_sha256": "430918780d9358cf2a69e03d4689b5d248d91c55d35bdd0d715c67f09db65979",
+      "defaults_sha256": "430918780d9358cf2a69e03d4689b5d248d91c55d35bdd0d715c67f09db65979",
+      "old_ref": "imported-roles/asset-ce65b6ff912f3eb1a965",
+      "new_ref": "imported-role-skills/asset-ce65b6ff912f3eb1a965"
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "ac00fe4c8eb5e05f724988444def3873fa45d5b3",
+      "source_path": "skills/ecosystem-review/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/ecosystem-review/SKILL.md",
+      "source_sha256": "7d6449dfbfc0eb5b874d10ed0e32120dcb1774849afc5031177fb7e30d16ce94",
+      "defaults_sha256": "7d6449dfbfc0eb5b874d10ed0e32120dcb1774849afc5031177fb7e30d16ce94",
+      "old_ref": "imported-roles/asset-247835e1589f1ccf83f6",
+      "new_ref": "imported-role-skills/asset-247835e1589f1ccf83f6"
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "ac00fe4c8eb5e05f724988444def3873fa45d5b3",
+      "source_path": "skills/ecosystem-review/references/owner-actions.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/ecosystem-review/references/owner-actions.md",
+      "source_sha256": "718912b1676352cef66ac5aa04d13a29353b3ac6abd5a8e0b226d132e6f3f162",
+      "defaults_sha256": "718912b1676352cef66ac5aa04d13a29353b3ac6abd5a8e0b226d132e6f3f162",
+      "old_ref": null,
+      "new_ref": null
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "7d04d7053b3c08d522d2236d03443dfa93765c11",
+      "source_path": "skills/learning-application/SKILL.md",
+      "defaults_path": "overseer/overseer-role-skills/native/skills/learning-application/SKILL.md",
+      "source_sha256": "473f3f1773a9cd9d0f91cd6f1b75bed6f773d60eb084821b9edb9a6ed9825b45",
+      "defaults_sha256": "04b125847dcab8fc288eca58a92f1353b30056de4191a5b4fd96110a2c5e367c",
+      "old_ref": "imported-roles/asset-62a64c8c7ec4380b32db",
+      "new_ref": "overseer-role-skills/asset-62a64c8c7ec4380b32db",
+      "transformation": "Replace automatic external task routing with outside observation handling."
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "ecfb8cc1101e4202aab27b56bfacf853b733072c",
+      "source_path": "skills/learning-application/references/issues.md",
+      "defaults_path": "overseer/overseer-role-skills/native/skills/learning-application/references/issues.md",
+      "source_sha256": "77a968225707bf92ad7519409845b7227294933554067fa5a2a04b923c2ae38a",
+      "defaults_sha256": "77a968225707bf92ad7519409845b7227294933554067fa5a2a04b923c2ae38a",
+      "old_ref": null,
+      "new_ref": null
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "ecfb8cc1101e4202aab27b56bfacf853b733072c",
+      "source_path": "skills/learning-application/references/review.md",
+      "defaults_path": "overseer/overseer-role-skills/native/skills/learning-application/references/review.md",
+      "source_sha256": "256c2fc610e71bb7adeb559dc990d0201dcc9380b76f82168f249a270d76ed6c",
+      "defaults_sha256": "256c2fc610e71bb7adeb559dc990d0201dcc9380b76f82168f249a270d76ed6c",
+      "old_ref": null,
+      "new_ref": null
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "7d04d7053b3c08d522d2236d03443dfa93765c11",
+      "source_path": "skills/learning-application/references/workflow.md",
+      "defaults_path": "overseer/overseer-role-skills/native/skills/learning-application/references/workflow.md",
+      "source_sha256": "9f08024a966ac289e72ec13669804d64fd716f4c4385bc20cbecf004bae5d385",
+      "defaults_sha256": "8d40a91829b57a4c77c5830ec19b3fe7a16ed7562dcddb135e336e96b55011c1",
+      "old_ref": null,
+      "new_ref": null,
+      "transformation": "Route outside observations without automatic tasks while retaining outcome safeguards."
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "02c27f945216a14676b335847b490f92e057aa2c",
+      "source_path": "skills/managed-browser-control/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/managed-browser-control/SKILL.md",
+      "source_sha256": "52b37afcd706aaf34b0d0ad3a9c9c7395286c8d718ecb752cc381f50e11cf81c",
+      "defaults_sha256": "52b37afcd706aaf34b0d0ad3a9c9c7395286c8d718ecb752cc381f50e11cf81c",
+      "old_ref": "imported-roles/asset-99280e17c59527767821",
+      "new_ref": "imported-role-skills/asset-99280e17c59527767821"
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "ac00fe4c8eb5e05f724988444def3873fa45d5b3",
+      "source_path": "skills/operations-delegation/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/operations-delegation/SKILL.md",
+      "source_sha256": "6c6449f5f160c593143523051af6b20eaa9b0bcea9b47c4220829e9c8d55dc7e",
+      "defaults_sha256": "26b20b1f106bb62713bcd3f0d0251c8c5dcaaec4dea3918f13cf172da390f1cf",
+      "old_ref": "imported-roles/asset-15e8b29ba53f81706f01",
+      "new_ref": "imported-role-skills/asset-15e8b29ba53f81706f01",
+      "transformation": "Apply the report-and-takeover rule to unavailable initial dispatch while preserving records and preventing duplicate execution."
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "02c27f945216a14676b335847b490f92e057aa2c",
+      "source_path": "skills/ordubashy-browser-control/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/ordubashy-browser-control/SKILL.md",
+      "source_sha256": "eb2999bc54ee135b3f7e1c621c62dc1378f87b4d1a399a4012d9067ab9739c2a",
+      "defaults_sha256": "eb2999bc54ee135b3f7e1c621c62dc1378f87b4d1a399a4012d9067ab9739c2a",
+      "old_ref": "imported-roles/asset-dc836f9e4e79b90ca724",
+      "new_ref": "imported-role-skills/asset-dc836f9e4e79b90ca724"
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "c367375ba43aea84a333067377c4e9654f3f9e99",
+      "source_path": "skills/owner-focus/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/owner-focus/SKILL.md",
+      "source_sha256": "035742b18aebdc7a0b141957b6232abf42c970b66f08c3769183848f9d3e9ddf",
+      "defaults_sha256": "fd0850d26ed993be6c23adeab9f5ceb7ffe61fe781add1aa19a57f007a34c48a",
+      "old_ref": "imported-roles/asset-b200e2018e7701f089c9",
+      "new_ref": "imported-role-skills/asset-b200e2018e7701f089c9",
+      "transformation": "Retain corrected private record channels and source kinds, relay and acknowledgement rules alongside current Pinned and Attention separation. Apply the same narrow completion-guidance correction: replace the obsolete whole-board completion-hook snapshot with targeted updates of affected Focus cards.",
+      "previous_sources": [
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "ecfb8cc1101e4202aab27b56bfacf853b733072c",
+          "source_path": "skills/owner-focus/SKILL.md",
+          "source_sha256": "4b0d129d86e1891971013cba9375afb3f7b86cef44462d26efafd46235ebf422",
+          "defaults_sha256": "6cff7b8ef0d44b38969447366eeeda2dc989c63a2edc84626e413cd904023883",
+          "transformation": "Correct the private record channel and source kinds to owner and Ordubashy while preserving relay and acknowledgement rules."
+        },
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "58939c7f56d1ff4c8332248fdc8501f431a80f1a",
+          "source_path": "skills/owner-focus/SKILL.md",
+          "source_sha256": "c1fc51a047ea7ef8d0a6960f45c84aac86773f1dc367a8318772bf3c12ba02f2",
+          "defaults_sha256": "496145d1dcfd6028d0442986c0dabf11e61f4e8286e3ca693503b7698f43d756",
+          "transformation": "Retain corrected private record channels and source kinds, relay and acknowledgement rules alongside current Pinned and Attention separation."
+        }
+      ]
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "ecfb8cc1101e4202aab27b56bfacf853b733072c",
+      "source_path": "skills/owner-focus/references/browser-input.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/owner-focus/references/browser-input.md",
+      "source_sha256": "14eeb31fb87cd2550b66a51e4a3483a68eabd27edf3777e5966332cae41fc425",
+      "defaults_sha256": "14eeb31fb87cd2550b66a51e4a3483a68eabd27edf3777e5966332cae41fc425",
+      "old_ref": null,
+      "new_ref": null
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "660282bd36a7d565b841d95996a1c1d816606f34",
+      "source_path": "skills/owner-input/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/owner-input/SKILL.md",
+      "source_sha256": "0a2568e84ea508d79559b7b0dafe300c403b88ff3d2314dfc4f06eee6b65e397",
+      "defaults_sha256": "0a2568e84ea508d79559b7b0dafe300c403b88ff3d2314dfc4f06eee6b65e397",
+      "old_ref": "imported-roles/asset-e7fd82311103ade31a44",
+      "new_ref": "imported-role-skills/asset-e7fd82311103ade31a44",
+      "previous_sources": [
+        {
+          "source_repository": "agent-roles",
+          "source_commit": "ecfb8cc1101e4202aab27b56bfacf853b733072c",
+          "source_path": "skills/owner-input/SKILL.md",
+          "source_sha256": "1b67f46facc6a7203f6aa6fd95d27764c7b9cc95367f26eacabded645e37903a",
+          "defaults_sha256": "1b67f46facc6a7203f6aa6fd95d27764c7b9cc95367f26eacabded645e37903a"
+        }
+      ]
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "ecfb8cc1101e4202aab27b56bfacf853b733072c",
+      "source_path": "skills/owner-journal/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/owner-journal/SKILL.md",
+      "source_sha256": "51573cc8eba4cd82c9d17a58cf254c3089f8216b811ec6466c75417df6a343cf",
+      "defaults_sha256": "51573cc8eba4cd82c9d17a58cf254c3089f8216b811ec6466c75417df6a343cf",
+      "old_ref": "imported-roles/asset-a7f07f0886b0b094ccce",
+      "new_ref": "imported-role-skills/asset-a7f07f0886b0b094ccce"
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "e80d8fd1a4fcb7bb1d3a0b76117b85463008a677",
+      "source_path": "skills/owner-reminders/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/owner-reminders/SKILL.md",
+      "source_sha256": "73752cda18d5109389e912af0bf7d8791448cbdc62164408b93bfe69b96fb862",
+      "defaults_sha256": "73752cda18d5109389e912af0bf7d8791448cbdc62164408b93bfe69b96fb862",
+      "old_ref": "imported-roles/asset-30b92b906dba622ac1c2",
+      "new_ref": "imported-role-skills/asset-30b92b906dba622ac1c2"
+    },
+    {
+      "source_repository": "agent-roles",
+      "source_commit": "ac00fe4c8eb5e05f724988444def3873fa45d5b3",
+      "source_path": "skills/project-creation/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/project-creation/SKILL.md",
+      "source_sha256": "1ac23065c79f09d4320aec61c76bf6f9e42898e3ddb386eda3b0803af5bbe2ea",
+      "defaults_sha256": "1ac23065c79f09d4320aec61c76bf6f9e42898e3ddb386eda3b0803af5bbe2ea",
+      "old_ref": "imported-roles/asset-99bf41d25a6be7f04e67",
+      "new_ref": "imported-role-skills/asset-99bf41d25a6be7f04e67"
+    },
+    {
+      "source_repository": "qorqut-agentic",
+      "source_commit": "523c1a1d1150f0b996c3210b21c513d33253f9a2",
+      "source_path": "src/qorqut_agentic/resources/management/agentic.yaml",
+      "defaults_path": "operations/agentic-management/agentic.yaml",
+      "source_sha256": "887f9bb623a506485d856597fd8e93c8170b8ceb617401ff42e64e377b2a90e2",
+      "defaults_sha256": "887f9bb623a506485d856597fd8e93c8170b8ceb617401ff42e64e377b2a90e2",
+      "old_ref": null,
+      "new_ref": null,
+      "previous_sources": [
+        {
+          "source_repository": "qorqut-agentic",
+          "source_commit": "2a848e0",
+          "source_path": "src/qorqut_agentic/resources/management/agentic.yaml",
+          "source_sha256": "628f223e519ba15247576f56a31f9b841b29251057f6c21cdfd0500b9f0e0b5c",
+          "defaults_sha256": "628f223e519ba15247576f56a31f9b841b29251057f6c21cdfd0500b9f0e0b5c"
+        }
+      ]
+    },
+    {
+      "source_repository": "qorqut-agentic",
+      "source_commit": "523c1a1d1150f0b996c3210b21c513d33253f9a2",
+      "source_path": "src/qorqut_agentic/resources/management/bootstrap.md",
+      "defaults_path": "operations/agentic-management/bootstrap.md",
+      "source_sha256": "2670e0a0ad8ff0ae90073d17017102ed03cce48b8846d41e346b078f9f80ab8d",
+      "defaults_sha256": "b77e0587b8415efd8b0c2054fb31285baebab294bf40071fb0076654f82e2a43",
+      "old_ref": "agentic-management/bootstrap",
+      "new_ref": "agentic-management/bootstrap",
+      "transformation": "Combine current Signoff guidance with editable targets, discovery authority and API boundary.",
+      "previous_sources": [
+        {
+          "source_repository": "qorqut-agentic",
+          "source_commit": "2a848e0",
+          "source_path": "src/qorqut_agentic/resources/management/bootstrap.md",
+          "source_sha256": "27a8c0f6b9e8635f68454fe3eb72f185f40748372d54e3d283681f6023d8d269",
+          "defaults_sha256": "ea77175b1ff09d0be0645e7ad7b469309a0eed4f50ba8e70ae0b33517be96a8e",
+          "transformation": "Clarify editable targets, discovery authority and API boundary."
+        }
+      ]
+    },
+    {
+      "source_repository": "qorqut-agentic",
+      "source_commit": "523c1a1d1150f0b996c3210b21c513d33253f9a2",
+      "source_path": "src/qorqut_agentic/resources/management/skills/manage/SKILL.md",
+      "defaults_path": "operations/agentic-management/skills/manage/SKILL.md",
+      "source_sha256": "7248348eee9ea12b2c8d9d5ffc3ad494db3a4f5df18e4b1afc0cefd0a8fff520",
+      "defaults_sha256": "9f67b8eb9426b4d06b4980f5d17f7d763ca3ed41e8b86df3dde599c0722e2e06",
+      "old_ref": "agentic-management/manage",
+      "new_ref": "agentic-management/manage",
+      "transformation": "Combine current direct-instruction Signoff workflow with editable targets, refresh, delivery and discovery semantics. State the same commit, file-preservation and local-operation requirements in neutral wording.",
+      "previous_sources": [
+        {
+          "source_repository": "qorqut-agentic",
+          "source_commit": "2a848e0",
+          "source_path": "src/qorqut_agentic/resources/management/skills/manage/SKILL.md",
+          "source_sha256": "af4e56020208ebdb47bb63e8b20103c6ee7a017deb311417f8a8d76a2d35ca41",
+          "defaults_sha256": "a665008e1daf28f0669446fe4d51b154de252e14e8dd2d7b2a525d12fa09e105",
+          "transformation": "Clarify editable targets, refresh, delivery and discovery semantics."
+        }
+      ]
+    },
+    {
+      "source_repository": "qorqut-agentic",
+      "source_commit": "2a848e0",
+      "source_path": "src/qorqut_agentic/resources/overseer/agentic.yaml",
+      "defaults_path": "overseer/overseer/agentic.yaml",
+      "source_sha256": "66cdfd59a330c5889a20173d6a6062538162fc2d5c9a8287753700227b9ad1ab",
+      "defaults_sha256": "66cdfd59a330c5889a20173d6a6062538162fc2d5c9a8287753700227b9ad1ab",
+      "old_ref": null,
+      "new_ref": null
+    },
+    {
+      "source_repository": "qorqut-agentic",
+      "source_commit": "2a848e0",
+      "source_path": "src/qorqut_agentic/resources/overseer/instructions/apply.md",
+      "defaults_path": "overseer/overseer/instructions/apply.md",
+      "source_sha256": "aac5fa5910209bc86e94a81a0d9851c117a002e35d2b981912aefdfae35db103",
+      "defaults_sha256": "d0438c51887b64880b3072bf8ea7f55a1e9538c0abc3be05a06a69f42aa8e166",
+      "old_ref": "overseer/apply-instructions",
+      "new_ref": "overseer/apply-instructions",
+      "transformation": "Route protected and host observations outside while retaining outcome safeguards. State the same single-delta commit requirement in neutral wording."
+    },
+    {
+      "source_repository": "qorqut-agentic",
+      "source_commit": "523c1a1d1150f0b996c3210b21c513d33253f9a2",
+      "source_path": "src/qorqut_agentic/resources/overseer/instructions/extract.md",
+      "defaults_path": "overseer/overseer/instructions/extract.md",
+      "source_sha256": "5e0738dba0ed5cc61c11e92037f57aeb9303b2ed27b8ad8934ddf2f6a84fc232",
+      "defaults_sha256": "bce4d4a2022ceb1b4d4dcad7b1779f978cbcb815a1b8896dbea822bd306c710e",
+      "old_ref": "overseer/extract-instructions",
+      "new_ref": "overseer/extract-instructions",
+      "previous_sources": [
+        {
+          "source_repository": "qorqut-agentic",
+          "source_commit": "2a848e0",
+          "source_path": "src/qorqut_agentic/resources/overseer/instructions/extract.md",
+          "source_sha256": "b89143835a2256b25e69038923d24aa5466845e1cec8d683c12d1f24910f2506",
+          "defaults_sha256": "b89143835a2256b25e69038923d24aa5466845e1cec8d683c12d1f24910f2506"
+        }
+      ],
+      "transformation": "Combine focused episode and continuation guidance with protected outside-observation routing."
+    },
+    {
+      "source_repository": "qorqut-agentic",
+      "source_commit": "523c1a1d1150f0b996c3210b21c513d33253f9a2",
+      "source_path": "src/qorqut_agentic/resources/overseer/instructions/record-direct-instruction.md",
+      "defaults_path": "overseer/overseer/instructions/record-direct-instruction.md",
+      "source_sha256": "d55aebd51d403b4fade96db821b9183180964263498da7603afc09cccec456a0",
+      "defaults_sha256": "d55aebd51d403b4fade96db821b9183180964263498da7603afc09cccec456a0",
+      "old_ref": "overseer/record-direct-instruction",
+      "new_ref": "overseer/record-direct-instruction",
+      "previous_sources": [
+        {
+          "source_repository": "qorqut-agentic",
+          "source_commit": "2a848e0",
+          "source_path": "src/qorqut_agentic/resources/overseer/instructions/record-direct-instruction.md",
+          "source_sha256": "9f27277d173649b2205723c7b67e2f0496a691b6492e836f5edac8f5ba2a5871",
+          "defaults_sha256": "9f27277d173649b2205723c7b67e2f0496a691b6492e836f5edac8f5ba2a5871"
+        }
+      ]
+    },
+    {
+      "source_repository": "qorqut-agentic",
+      "source_commit": "2a848e0",
+      "source_path": "src/qorqut_agentic/resources/overseer/instructions/review.md",
+      "defaults_path": "overseer/overseer/instructions/review.md",
+      "source_sha256": "2f878d927a6777e00818a3ba425ec60e53b73a7f95b6d19b9b228783e392079c",
+      "defaults_sha256": "2f878d927a6777e00818a3ba425ec60e53b73a7f95b6d19b9b228783e392079c",
+      "old_ref": "overseer/review-instructions",
+      "new_ref": "overseer/review-instructions"
+    },
+    {
+      "source_repository": "qorqut-agentic",
+      "source_commit": "2a848e0",
+      "source_path": "src/qorqut_agentic/resources/overseer/workflows/apply.yaml",
+      "defaults_path": "overseer/overseer/workflows/apply.yaml",
+      "source_sha256": "445ebfa0a37c6ab046e0b97ca7c10c9cba939b7b88cfe04dff80c680f4bc2d6a",
+      "defaults_sha256": "1da308e910558b1a656a106b57401184e1f6bdcb080c3e124a38b08425d40f4e",
+      "old_ref": "overseer/apply",
+      "new_ref": "overseer/apply",
+      "transformation": "State the same single-delta commit requirement in neutral wording."
+    },
+    {
+      "source_repository": "qorqut-agentic",
+      "source_commit": "2a848e0",
+      "source_path": "src/qorqut_agentic/resources/overseer/workflows/extract.yaml",
+      "defaults_path": "overseer/overseer/workflows/extract.yaml",
+      "source_sha256": "866033c9ab1e41ebb89d725227fc8584ca19462fd59c78a52d459af83da1895b",
+      "defaults_sha256": "866033c9ab1e41ebb89d725227fc8584ca19462fd59c78a52d459af83da1895b",
+      "old_ref": "overseer/extract",
+      "new_ref": "overseer/extract"
+    },
+    {
+      "source_repository": "qorqut-agentic",
+      "source_commit": "2a848e0",
+      "source_path": "src/qorqut_agentic/resources/overseer/workflows/review.yaml",
+      "defaults_path": "overseer/overseer/workflows/review.yaml",
+      "source_sha256": "6af4f9d23e78e6a914abbebe4bdf0761e7ae63effb917170419fbaf21928fce1",
+      "defaults_sha256": "6af4f9d23e78e6a914abbebe4bdf0761e7ae63effb917170419fbaf21928fce1",
+      "old_ref": "overseer/review",
+      "new_ref": "overseer/review"
+    }
+  ],
+  "native_manifest_field_rewrites": [
+    {
+      "source_path": "roles/global-worker/role.yaml",
+      "defaults_path": "roles/imported-roles/native/roles/global-worker/role.yaml",
+      "fields": {
+        "brief": {
+          "from": "roles/global-worker/BRIEF.md",
+          "to": "roles/imported-roles/native/roles/global-worker/BRIEF.md"
+        },
+        "skills": [
+          {
+            "id": "browser-control",
+            "from": "skills/managed-browser-control/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/managed-browser-control/SKILL.md"
+          },
+          {
+            "id": "owner-reminders",
+            "from": "skills/owner-reminders/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/owner-reminders/SKILL.md"
+          }
+        ]
+      }
+    },
+    {
+      "source_path": "roles/learning-applier/role.yaml",
+      "defaults_path": "roles/imported-roles/native/roles/learning-applier/role.yaml",
+      "fields": {
+        "brief": {
+          "from": "roles/learning-applier/BRIEF.md",
+          "to": "roles/imported-roles/native/roles/learning-applier/BRIEF.md"
+        },
+        "skills": [
+          {
+            "id": "owner-input",
+            "from": "skills/owner-input/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/owner-input/SKILL.md"
+          },
+          {
+            "id": "learning-application",
+            "from": "skills/learning-application/SKILL.md",
+            "to": "overseer/overseer-role-skills/native/skills/learning-application/SKILL.md"
+          },
+          {
+            "id": "action-recording",
+            "from": "skills/action-recording/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/action-recording/SKILL.md"
+          },
+          {
+            "id": "browser-control",
+            "from": "skills/ordubashy-browser-control/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/ordubashy-browser-control/SKILL.md"
+          },
+          {
+            "id": "owner-reminders",
+            "from": "skills/owner-reminders/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/owner-reminders/SKILL.md"
+          }
+        ]
+      }
+    },
+    {
+      "source_path": "roles/ordubashy/role.yaml",
+      "defaults_path": "roles/imported-roles/native/roles/ordubashy/role.yaml",
+      "fields": {
+        "version": {
+          "from": "1.74.1",
+          "to": "1.75.1"
+        },
+        "brief": {
+          "from": "roles/ordubashy/BRIEF.md",
+          "to": "roles/imported-roles/native/roles/ordubashy/BRIEF.md"
+        },
+        "skills": [
+          {
+            "id": "owner-reminders",
+            "from": "skills/owner-reminders/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/owner-reminders/SKILL.md"
+          },
+          {
+            "id": "owner-journal",
+            "from": "skills/owner-journal/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/owner-journal/SKILL.md"
+          },
+          {
+            "id": "operations-delegation",
+            "from": "skills/operations-delegation/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/operations-delegation/SKILL.md"
+          },
+          {
+            "id": "business-operations",
+            "from": "skills/business-operations/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/business-operations/SKILL.md"
+          },
+          {
+            "id": "owner-focus",
+            "from": "skills/owner-focus/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/owner-focus/SKILL.md"
+          },
+          {
+            "id": "browser-control",
+            "from": "skills/managed-browser-control/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/managed-browser-control/SKILL.md"
+          },
+          {
+            "id": "owner-input",
+            "from": "skills/owner-input/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/owner-input/SKILL.md"
+          },
+          {
+            "id": "chat-references",
+            "from": "skills/chat-references/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/chat-references/SKILL.md"
+          },
+          {
+            "id": "context-relationships",
+            "from": "skills/context-relationships/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/context-relationships/SKILL.md"
+          },
+          {
+            "id": "business-tables",
+            "from": "skills/business-tables/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/business-tables/SKILL.md"
+          },
+          {
+            "id": "ecosystem-review",
+            "from": "skills/ecosystem-review/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/ecosystem-review/SKILL.md"
+          },
+          {
+            "id": "project-creation",
+            "from": "skills/project-creation/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/project-creation/SKILL.md"
+          },
+          {
+            "id": "action-recording",
+            "from": "skills/action-recording/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/action-recording/SKILL.md"
+          },
+          {
+            "id": "calendar",
+            "from": "skills/calendar/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/calendar/SKILL.md"
+          }
+        ]
+      }
+    }
+  ]
+}
