@@ -246,8 +246,21 @@ class Attention:
         except DomainError:
             return False
 
+    def related_reminder(self, uow, agent_id, event):
+        """A genuine reminder occurrence while Focused: the current occurrence addressed to this agent passes when it is
+        explicitly time-critical or when its linked item is related to the work by the same structured matching as any other
+        event. Nothing is inferred from its text or due time, and nothing here changes focus, work or any task."""
+        from bazarlyk.reminders.delivery import current_payload
+        payload = current_payload(self.app, uow, event)
+        if payload is None or payload.get('recipient_id') != agent_id: return False
+        if not self.state(uow, agent_id)['focus_json'] or payload.get('time_critical') is True: return True
+        link = payload.get('linked_item')
+        if not isinstance(link, dict) or not link.get('type') or not link.get('id'): return False
+        return self.related_event(uow, agent_id, {'source_type': link['type'], 'source_id': link['id'], 'business_id': link.get('business_id')})
+
     def related_event(self, uow, agent_id, event):
         event = dict(event)
+        if event.get('source_type') == 'reminders': return self.related_reminder(uow, agent_id, event)
         state = self.state(uow, agent_id)
         if not state['focus_json']: return True
         installation = uow.repository('installation').get('service')

@@ -97,6 +97,12 @@ class HostInbox:
             installation = uow.repository('installation').get('service')
             return bool(installation and installation['management_coordinator_id'] == ctx.principal_id
                         and uow.connection.execute('SELECT 1 FROM context_inputs WHERE id=?', (row['source_id'],)).fetchone())
+        if row['source_type'] == 'reminders':
+            # The notice follows its occurrence: only the recipient, only while the occurrence is current and its link is
+            # readable by that recipient now. Manager read rights never make another recipient's reminder visible, and
+            # reading or acknowledging the event leaves the reminder as it is.
+            from bazarlyk.reminders.delivery import visible_payload
+            return visible_payload(app, ctx, row, uow) is not None
         return None
 
     def decorate_before_extensions(self, ctx, row, item, uow):
@@ -113,6 +119,11 @@ class HostInbox:
             reference = request_reference(self.inbox.app, ctx, row['source_id'], uow)
             if reference is not None:
                 item['overseer_extraction_due'] = reference
+        if row['source_type'] == 'reminders':
+            from bazarlyk.reminders.delivery import pointer, visible_payload
+            payload = visible_payload(self.inbox.app, ctx, row, uow)
+            if payload is not None:
+                item['reminder'] = pointer(payload)
 
     def decorate_after_extensions(self, ctx, row, item, uow):
         if row['source_type'] == 'operational_assignments':
