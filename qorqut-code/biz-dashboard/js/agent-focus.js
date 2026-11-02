@@ -280,12 +280,15 @@ function agfocusMount(p) {
     board.querySelector('.attention-queue').before(excerpt);
     todayCalendar=calendarTodayMount(excerpt,event=>{event.stopPropagation();ovOpen('calendar');});
   }
-  // An agent with Focus gets the Browser, Desktop and its own Viewbox board strip; agents without Focus keep their views and queue.
+  // An agent with Focus gets the Browser, Desktop and pending Signoffs in one strip; agents without Focus keep their views and queue.
   p.focusSurfaces=agpadFocusSurfaces(p) && typeof agviewboxSurfacesMount==='function'?agviewboxSurfacesMount(p,board.querySelector('.attention-queue')):null;
   const disposeAttention=p.focusSurfaces?()=>{p.focusSurfaces.dispose();p.focusSurfaces=null;}
     :typeof attentionQueue!=='undefined'?attentionQueue.mount(board.querySelector('.attention-queue')):()=>{};
-  const signoffQueue=document.createElement('section');signoffQueue.className='focus-signoff-queue';signoffQueue.setAttribute('aria-label','Signoff queue');signoffQueue.hidden=true;
-  board.querySelector('.attention-queue').after(signoffQueue);
+  const signoffQueue=p.focusSurfaces?.signoffHost || document.createElement('section');
+  if(!p.focusSurfaces){
+    signoffQueue.className='focus-signoff-queue';signoffQueue.setAttribute('aria-label','Signoff queue');signoffQueue.hidden=true;
+    board.querySelector('.attention-queue').after(signoffQueue);
+  }
   const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,id=>p.focus?.items.find(item=>item.source?.type==='signoff' && item.source.id===id)?.display_name):()=>{};
   const storedHeight=Number(ls(AGFOCUS_THREAD_HEIGHT_KEY));
   p.focusThreadHeight=Number.isFinite(storedHeight) && storedHeight>=AGFOCUS_THREAD_MIN_HEIGHT ? storedHeight : 320;
@@ -336,7 +339,6 @@ function agfocusMount(p) {
 
 function agfocusTick(p) {
   if (p.view !== 'focus') return;
-  p.focusSurfaces?.tick();
   if (!p.focusPending && Date.now() >= (p.nextFocus || 0)) agfocusRefresh(p);
   else if (!p.focusPending) agfocusRecoverWork(p);
   if (p.view === 'focus') agfocusPaint(p);
