@@ -178,30 +178,16 @@ async def revalidated_async(request, changes, kinds, scope, produce):
 
 
 class HTTPAPI:
-    def __init__(self, runtime, authentication, origins, *, compatibility=None, terminals=None, integrations=None):
+    def __init__(self, runtime, authentication, origins, *, compatibility=None, terminals=None):
         self.runtime, self.authentication, self.origins = runtime, authentication, origins
         self.compatibility, self.terminals = compatibility, terminals
-        self.host, self._assertions = integrations, None
         self.route_counters = RouteCounters()
-
-    def assertions(self):
-        """Build the owner-boundary minter only when the host is configured."""
-        if self._assertions is None and self.host is not None:
-            from bazarlyk.integrations.assertions import AssertionService
-            self._assertions = AssertionService(self.runtime.database, self.host)
-        return self._assertions
-
-    def registrations(self):
-        """The runtime's Outreach registration worker, or one built for this host."""
-        if self.host is None:
-            return None
-        if getattr(self.runtime, "outreach_registrations", None) is None:
-            from bazarlyk.bootstrap.preparation import OUTREACH_TOKEN_ROOT
-            from bazarlyk.integrations.registrations import OutreachRegistrations
-            self.runtime.outreach_registrations = OutreachRegistrations(self.runtime.database, self.host,
-                email_client=lambda: self.runtime.domains.email.client, token_root=OUTREACH_TOKEN_ROOT,
-                resolver=self.runtime.resolver)
-        return self.runtime.outreach_registrations
+        # The selected extensions' routes are exact keys on the frozen selection; a route grants no authority, the
+        # dispatch below still applies its own owner, bearer and origin checks before any handler is called.
+        selection = runtime.selection
+        self.statuses = selection.error_statuses
+        self.guards = selection.operation_guards()
+        self.owner_routes, self.integration_routes, self.agent_routes = selection.routes()
 
     def context(self, actor, slug=None, *, owner=False):
         with self.runtime.database.read() as uow:
@@ -372,37 +358,12 @@ class HTTPAPI:
             if parts == ["session"] and request.method in {"GET", "POST"}:
                 return response(OperationResult.ok(self.session_data(actor), request_id=request_id))
             await anyio.to_thread.run_sync(self.runtime.require_authority)
-            if parts == ["root", "integrations", "outreach", "assertion"] and request.method == "POST":
-                # Owner-boundary minting: one single-use, 60-second assertion for
-                # the chosen allowed business. No specialist credential is involved.
-                if self.assertions() is None:
-                    raise DomainError("configuration_missing", "The Outreach workspace host is not configured")
-                body = await read_json(request, limit=4096)
-                checked_fields(body, {"business_id"}, {"business_id"})
-                data = await anyio.to_thread.run_sync(partial(self.assertions().mint_for,
-                    actor.principal, body["business_id"]))
-                result = response(OperationResult.ok(data, request_id=request_id))
-                result.headers["Cache-Control"] = "no-store"
-                return result
-            if parts == ["root", "integrations", "outreach"] and request.method == "POST":
-                # Owner-only registration, rotation and revocation. The secret is
-                # returned once and never stored or logged in cleartext.
-                body = await read_json(request, limit=65536)
-                checked_fields(body, {"action", "display_name", "business_ids", "agent_id", "enabled",
-                                      "engine_client_id", "sender_ref", "outreach_method_id", "mailbox_overrides"},
-                               {"action"})
-                if body["action"] == "reconcile_businesses":
-                    # Registers the integration's allowlisted, owned, unarchived businesses
-                    # in Outreach (idempotent on the shared id); never widens the allowlist.
-                    checked_fields(body, {"action"}, {"action"})
-                    if self.registrations() is None:
-                        raise DomainError("configuration_missing", "The Outreach workspace host is not configured")
-                    data = await anyio.to_thread.run_sync(partial(self.registrations().reconcile, actor.principal))
-                    return response(OperationResult.ok(data, request_id=request_id))
-                from bazarlyk.integrations import outreach as integration
-                data = await anyio.to_thread.run_sync(partial(integration.owner_action,
-                    self.runtime.database, actor.principal.id, body, resolver=self.runtime.resolver))
-                return response(OperationResult.ok(data, request_id=request_id))
+            if parts == ["root", "extensions"] and request.method == "GET":
+                # The enabled UI assets of the selected extensions only: no configuration, path or secret.
+                return response(OperationResult.ok(self.runtime.selection.shell_assets(), request_id=request_id))
+            owner_route = self.owner_routes.get((request.method, tuple(parts)))
+            if owner_route is not None:
+                return await owner_route(self, request, actor, request_id)
             if parts == ["root", "attention-queue"] and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Attention queue is for the owner's dashboard")
@@ -694,15 +655,13 @@ class HTTPAPI:
                 if len(tail) == 2 and tail[0] == "operations" and request.method == "POST":
                     body = await read_json(request, limit=28 * 1024 * 1024 if tail[1] == "data_uploads_upload" else 2 * 1024 * 1024)
                     args, options = split_options(body)
-                    if tail[1].startswith('content_session') and tail[1] not in {'content_sessions_list', 'content_session_get'}:
-                        if request.headers.get('authorization') is not None:
-                            raise DomainError('forbidden', 'Content owner operations require the dashboard owner boundary')
-                        if options.idempotency_key is None:
-                            options = replace(options, idempotency_key=args.get('request_id'))
+                    for guard in self.guards:
+                        if guard.names(tail[1]):
+                            options = guard.check(request, tail[1], args, options)
                     if options.business_id is not None and options.business_id != context.business_id:
                         raise DomainError("forbidden", "The body cannot change the URL's selected project")
                     result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, tail[1], args, options))
-                    return response(result)
+                    return response(result, statuses=self.statuses)
                 if tail[:1] == ["chat"]:
                     raise DomainError("legacy_chat_retired", "Project chat execution is retired; use the registered Claude Code terminal")
                 if tail[:1] in (["terminal"], ["terminals"]) and self.terminals:
@@ -714,7 +673,7 @@ class HTTPAPI:
                 return await self.compatibility.global_route(request, context, parts)
             raise DomainError("not_found", "Endpoint is not registered")
         except DomainError as exc:
-            return failure(exc, request_id)
+            return failure(exc, request_id, statuses=self.statuses)
         except Exception as exc:
             request.scope["bazarlyk.transport_failed"] = True
             if (request.scope.get("bazarlyk.transport_operation") != "agent.technical-observation"
@@ -924,36 +883,19 @@ class HTTPAPI:
         raise DomainError("not_found", "Signoff endpoint is not registered")
 
     async def integration_route(self, request, parts):
-        """The narrow cross-application surface; bearer integration identity only."""
+        """The narrow cross-application surface; bearer integration identity only. The generic credential dispatch is
+        core's; the identity lookup and every route belong to the selected extension that registered the slug."""
+        if not self.integration_routes:
+            raise DomainError("not_found", "Endpoint is not registered")
         await anyio.to_thread.run_sync(self.runtime.require_authority)
         actor = await anyio.to_thread.run_sync(lambda: self.authentication.integration(request.headers.get("authorization")))
         request.scope["bazarlyk.auth"] = actor
         if len(parts) < 2 or parts[1] != actor.integration_slug:
             raise DomainError("forbidden", "The integration credential does not own this route")
-        if request.method != "POST":
+        route = self.integration_routes.get((parts[1], request.method, tuple(parts[2:])))
+        if route is None:
             raise DomainError("not_found", "Integration endpoint is not registered")
-        from bazarlyk.integrations import outreach as integration
-        context = integration.IntegrationActor(actor.principal, actor.integration_id, actor.integration_slug, actor.business_ids)
-        request_id = request.scope.get("bazarlyk.request_id", new_id())
-        if parts[2:] == ["events"]:
-            body = await read_json(request, limit=65536)
-            data = await anyio.to_thread.run_sync(partial(integration.record_event, self.runtime.database, context, body))
-            return response(OperationResult.ok(data, request_id=request_id))
-        if parts[2:] == ["sends"]:
-            body = await read_json(request, limit=4096)
-            data = await anyio.to_thread.run_sync(partial(integration.record_send, self.runtime.database, context, body))
-            return response(OperationResult.ok(data, request_id=request_id))
-        if parts[2:] == ["handoffs"]:
-            body = await read_json(request, limit=262144)
-            data = await anyio.to_thread.run_sync(partial(integration.accept_handoff, self.runtime, context, body))
-            return response(OperationResult.ok(data, request_id=request_id))
-        if parts[2:] == ["context"]:
-            # Read-only work context for the allowlisted business; schedules nothing.
-            from bazarlyk.integrations import context as focused
-            body = await read_json(request, limit=16384)
-            data = await anyio.to_thread.run_sync(partial(focused.bundle, self.runtime, context, body))
-            return response(OperationResult.ok(data, request_id=request_id))
-        raise DomainError("not_found", "Integration endpoint is not registered")
+        return await route(self, request, actor, request.scope.get("bazarlyk.request_id", new_id()))
 
     async def viewbox_board(self, request, context, agent_id, request_id):
         """Owner-only bounded read of one agent's Viewbox board; conditional so a visible pane can refresh cheaply.
@@ -1016,10 +958,10 @@ class HTTPAPI:
         return result
 
     async def agent_route(self, request, parts):
-        if parts == ['agent', 'content', 'files']:
+        agent_route = self.agent_routes.get((request.method, tuple(parts))) or self.agent_routes.get((None, tuple(parts)))
+        if agent_route is not None:
             await anyio.to_thread.run_sync(self.runtime.require_authority)
-            from bazarlyk.content_sessions.http import agent_file
-            return await agent_file(self, request)
+            return await agent_route(self, request)
         if request.method == "POST" and parts == ["agent", "technical-observation"]:
             # This endpoint is deliberately a narrow authenticated write port
             # for prepared hooks.  It does not invoke the application registry

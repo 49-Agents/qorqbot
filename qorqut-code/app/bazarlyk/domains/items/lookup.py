@@ -106,9 +106,7 @@ class HostItems:
 
     def resolve(self, ctx, item, uow, builder=None, *, allow_busy=False):
         table, row = self.resource(ctx, item, uow)
-        if table == "outreach_events":
-            view = {"label": row["summary"], "revision": row["record_revision"]}
-        elif table == "context_entities":
+        if table == "context_entities":
             self.authorize(ctx, "context_items_get", uow)
             view = {"label": row["label"], "url": row["url"], "revision": row["revision"]}
         elif table in {"principals", "agent_profiles"}:
@@ -201,7 +199,11 @@ class HostItems:
 
 class HostItemCandidates:
     """``ItemCandidates``: enumeration in v1's order (resource tables, then documents, then human members). Listing a
-    candidate grants nothing; the relationship service resolves each one before it exposes any detail."""
+    candidate grants nothing; the relationship service resolves each one before it exposes any detail. A selected extension's
+    lookup that enumerates its own kinds (``candidates(ctx, uow, kind)``) is listed after the resource tables."""
+
+    def __init__(self, extensions=()):
+        self.extensions = tuple(extensions)
 
     def candidates(self, ctx, uow, kind=None):
         for table, item_type in RESOURCE_TYPES.items():
@@ -219,6 +221,9 @@ class HostItemCandidates:
                 continue
             for row in rows(uow, table, ctx.business_id):
                 yield {"type": item_type, "id": row.get("id", row.get("agent_id"))}
+        for contribution in self.extensions:
+            if (not kind or kind in contribution.kinds) and callable(getattr(contribution.lookup, "candidates", None)):
+                yield from contribution.lookup.candidates(ctx, uow, kind)
         if not kind or kind in {"person", "topic", "material"}:
             for row in rows(uow, "documents", ctx.business_id):
                 if row["kind"] in NOT_CANDIDATES: continue

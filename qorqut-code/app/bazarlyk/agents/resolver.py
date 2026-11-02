@@ -126,7 +126,7 @@ def _stat(path: Path) -> tuple:
 
 class AgentConfigResolver:
     def __init__(self, database: Any, paths: InstancePaths, registry: Any, *, catalog: Catalog | None = None,
-                 plugin_handlers: Mapping[str, Any] | None = None):
+                 plugin_handlers: Mapping[str, Any] | None = None, native_connections: Mapping[str, Any] | None = None):
         self.database = database
         self.paths = paths
         self.root = paths.operations
@@ -135,6 +135,8 @@ class AgentConfigResolver:
         self.catalog = catalog or Catalog(database, paths.runtime, registry)
         # Trusted domain callbacks have signature validate(package: ArtifactPackage) -> None.
         self.plugin_handlers = dict(plugin_handlers or {})
+        # The installed extensions' native MCP connections, by the name a role declares in ``external_connections``.
+        self.native_connections = dict(native_connections or {})
         self._cache: OrderedDict[str, EffectiveAgentConfig] = OrderedDict()
         self._lock = RLock()
         self._profiles: OrderedDict[tuple[str, str], AgentProfile] = OrderedDict()

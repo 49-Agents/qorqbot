@@ -22,9 +22,8 @@ def record_contributions() -> tuple[StorageContribution, ...]:
     """The engine's operational-record storage, first and in the order its DDL needs: the tag catalog and the discussion,
     Tasks on both, Actions on those, the Context queue on the Action revisions, and the three Context companions that
     sit on that one queue (source filings and completion receipts, controlled graph edits, the model-call usage
-    ledger). One contribution per owner: the host runtime builds exactly one queue over these tables. The host objects
-    that sit on these tables (the content-session event index) and the host tables that reference them are created
-    after them."""
+    ledger). One contribution per owner: the host runtime builds exactly one queue over these tables. The host tables
+    that reference them are created after them."""
     return (tags.storage_contribution(), discussion.storage_contribution(), tasks.storage_contribution(),
             actions.storage_contribution(), context_queue.storage_contribution(), context_filing.storage_contribution(),
             context_graph_edits.storage_contribution(), context_usage.storage_contribution())

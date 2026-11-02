@@ -12,25 +12,29 @@ from qorqut_operations.application.plans import UUID, PlanBuilder, schema, utc_c
 from qorqut_operations.discussion import ThreadItem, set_follow
 from qorqut_operations.tasks.scope import task_context
 from bazarlyk.agents.worker_access import require_worker_manager
+from bazarlyk.extensions import NO_SOURCES
 from .events import ITEM_TYPES
 from .messages import Messages
 
-SOURCES = ('tasks', 'actions', 'signoffs', 'documents', 'email_conversations', 'outreach_events')
+SOURCES = ('tasks', 'actions', 'signoffs', 'documents', 'email_conversations')
 # Tasks and Actions are followed through the discussion's follow state (a personal, sticky preference), not through
 # a subscription row; every other source keeps its subscription.
 THREAD_SOURCES = {'tasks': 'task', 'actions': 'action'}
 VISIBLE_TYPES = {**ITEM_TYPES, 'tasks': 'task', 'actions': 'action'}
 CONSUMER = {'type': 'string', 'format': 'uuid'}
 SCOPE = {'scope': {'enum': ['business', 'global']}}
-TARGET = {'source_type': {'enum': list(SOURCES)}, 'source_id': {'type': 'string', 'minLength': 1, 'maxLength': 200}}
+SOURCE_ID = {'type': 'string', 'minLength': 1, 'maxLength': 200}
 # The installation owner or Ordubashy may manage a global worker's subscriptions; omitted, the caller's own.
 WORKER = {'agent_id': UUID}
 
 
 class InboxService:
-    def __init__(self, application, domains, *, resolver=None, clock=utc_clock):
+    def __init__(self, application, domains, *, resolver=None, clock=utc_clock, sources=NO_SOURCES):
         self.app, self.domains, self.clock = application, domains, clock
         self.resolver = resolver
+        # The selected extensions' exact-key source handlers; a source without one is unavailable, never visible.
+        self.sources = sources
+        self.subscribable = (*SOURCES, *sources.subscribable)
         self.messages = Messages(self)
         # Where an agent's inbox notice stands (the nudge backend's read-only status); the host replaces this when it wires the backend.
         self.delivery = lambda agent_id: {'state': 'unknown', 'reason': 'nudge_backend_not_running', 'last_attempt_at': None}
@@ -79,6 +83,7 @@ class InboxService:
     def register(self):
         common = dict(supports_signoff=False, scope_kinds=frozenset({'business', 'global'}), global_capability='read_global_context',
             resolve_namespace=lambda ctx, args: 'global' if ctx.business_id is None else 'business:' + ctx.business_id)
+        TARGET = {'source_type': {'enum': list(self.subscribable)}, 'source_id': SOURCE_ID}
         operations = {
             'inbox_list': ({'consumer_id': CONSUMER, 'after': {'type': 'integer', 'minimum': 0},
                 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, (),
@@ -90,7 +95,7 @@ class InboxService:
             'inbox_subscribe': ({**TARGET, **WORKER, 'include_related': {'type': 'boolean'}}, ('source_type', 'source_id'),
                 'Follow an authorized item. A Task or Action follow is the same preference as tasks_follow/actions_follow and is removed the same way. Only a Task follow can include its directly related work (its child Tasks and the items it is linked to, one hop); that routing lasts while the Task is followed, with no recursive following or time expiry. Remove it with inbox_unsubscribe. The installation owner or Ordubashy may pass agent_id to follow for a global worker; the item must then be readable by that worker.'),
             'inbox_unsubscribe': ({**WORKER, 'subscription_id': {'type': 'string', 'format': 'uuid'},
-                'source_type': {'enum': list(THREAD_SOURCES)}, 'source_id': TARGET['source_id']}, (),
+                'source_type': {'enum': list(THREAD_SOURCES)}, 'source_id': SOURCE_ID}, (),
                 'Remove an explicit subscription by subscription_id, or a Task or Action follow by source_type and source_id (the same preference as tasks_follow/actions_follow); automatic owner-task following is independent. The installation owner or Ordubashy may pass agent_id to remove a global worker\'s. Already delivered updates remain pending until acknowledged.'),
         }
         for name, (fields, required, description) in operations.items():
@@ -130,9 +135,9 @@ class InboxService:
             # A retired per-worker row is never visible to anyone.
             from .private_conversations import visible_conversation
             return visible_conversation(self.app, ctx, identity, uow)
-        if source_type == 'outreach_events':
-            # A subscription names the campaign and can precede the first event.
-            return business is not None and self.business_member(ctx, business, uow)
+        handler = self.sources.get(source_type)
+        if handler is not None:
+            return bool(handler.subscription_visible and handler.subscription_visible(self, ctx, identity, business, uow))
         if source_type not in VISIBLE_TYPES: return False
         # Request records are historical only; current canonical source reads
         # use Signoffs and no longer accept the retired requests table.
@@ -295,9 +300,9 @@ class InboxService:
                     'inbox_desired_state':row['desired_state'] if row else 'running'}
 
     def event_visible(self, ctx, row, uow, *, email_access_cache=None):
-        if row['source_type'] == 'content_sessions':
-            content = getattr(self.app,'content_sessions',None)
-            return bool(content and content.event_visible(ctx,row,uow))
+        handler = self.sources.get(row['source_type'])
+        if handler is not None and handler.event_visible is not None:
+            return bool(handler.event_visible(self, ctx, row, uow))
         if row['source_type'] == 'operational_assignments':
             if ctx.delegation_assignment_id is not None:
                 return False
@@ -450,9 +455,12 @@ class InboxService:
         if row['source_type'] == 'owner_conversations':
             # Event columns and the bound source only; never a body.
             item['source'] = json.loads(row['visibility_json'] or '{}').get('source')
-        if row['source_type'] == 'content_sessions':
-            content = getattr(self.app,'content_sessions',None)
-            if content is not None:item['content_session'] = content.event_pointer(ctx,row,uow)
+        handler = self.sources.get(row['source_type'])
+        if handler is not None and handler.pointer is not None:
+            field, decorate = handler.pointer
+            value = decorate(ctx, row, uow)
+            if value is not None:
+                item[field] = value
         if row['source_type'] == 'operational_assignments':
             assignment = uow.repository('operational_assignments').get(row['source_id'])
             if assignment is not None and assignment['parent_principal_id'] == ctx.principal_id:

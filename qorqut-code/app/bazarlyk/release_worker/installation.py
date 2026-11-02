@@ -30,20 +30,13 @@ def validate_config(config):
     errors=sorted(Draft202012Validator(schema).iter_errors(config),key=lambda error:str(list(error.path)))
     if errors:
         raise ReleaseError('Invalid installation field: '+'.'.join(map(str,errors[0].path)))
-    from bazarlyk.content_sessions.config import validate as validate_content
+    # The extension selection is structural here: each package validates its own configuration when the host starts it.
+    from bazarlyk.extensions import validate_entries
     from qorqut_operations.contracts import DomainError
     try:
-        content = validate_content(config.get('content_sessions'))
+        validate_entries(config.get('extensions'))
     except DomainError as exc:
-        raise ReleaseError('Invalid content_sessions installation selection') from exc
-    if content['enabled'] and 'content-sessions' not in config.get('extras', []):
-        raise ReleaseError('Enabled content_sessions requires the pinned content-sessions dependency extra')
-    if content['enabled']:
-        references = set(config.get('reference_files', []))
-        for channel in content['channels'].values():
-            for selection in channel['instructions']:
-                if selection['kind'] == 'source' and selection['evidence']['receipt_path'] not in references:
-                    raise ReleaseError('Content source receipt must be selected in reference_files')
+        raise ReleaseError('Invalid extensions installation selection') from exc
     from bazarlyk.bootstrap.client import service_url
     service_url(config['origin'])
     return config

@@ -14,6 +14,7 @@ import logging
 from bazarlyk.agents.global_scope import active_global, reaches_business
 from bazarlyk.agents.roles import ORDUBASHY_ROLE
 from bazarlyk.composition.capture import CAPTURED as FEED_ONLY
+from bazarlyk.extensions import NO_SOURCES
 from qorqut_operations.contracts import utc_now
 from qorqut_operations.discussion import emit_event
 
@@ -24,8 +25,7 @@ LOGGER = logging.getLogger(__name__)
 ITEM_TYPES = {'signoffs': 'signoff',
               'email_conversations': 'material', 'documents': 'material',
               'data_tables': 'table', 'requests': 'request',
-              'agent_profiles': 'agent', 'context_entities': 'entity', 'principals': 'person',
-              'outreach_events': 'outreach'}
+              'agent_profiles': 'agent', 'context_entities': 'entity', 'principals': 'person'}
 RESOURCE_TYPES = {v: k for k, v in ITEM_TYPES.items() if k != 'documents'}
 IGNORED_FIELDS = {'revision', 'status_revision', 'sequence'}
 
@@ -48,16 +48,15 @@ def intake_coordinator(uow, business, reader):
     return coordinator if reader(coordinator, business, uow) else None
 
 
-def row_for(uow, table, business, identity):
-    if table == 'outreach_events':
-        # A campaign subscription names the campaign; a direct item names the row.
-        row = uow.connection.execute(
-            'SELECT * FROM outreach_events WHERE business_id IS ? AND id=?', (business, identity)).fetchone()
-        if row is None:
-            row = uow.connection.execute(
-                'SELECT * FROM outreach_events WHERE business_id IS ? AND campaign_id=? '
-                'ORDER BY created_at DESC, id DESC LIMIT 1', (business, identity)).fetchone()
-        return dict(row) if row else None
+def item_type_for(table, sources=NO_SOURCES):
+    """The typed reference name of a source key: a core table, or a selected extension's exact registered key."""
+    return ITEM_TYPES.get(table) or sources.item_types.get(table)
+
+
+def row_for(uow, table, business, identity, sources=NO_SOURCES):
+    handler = sources.get(table)
+    if handler is not None:
+        return handler.row(uow, business, identity) if handler.row else None
     if table == 'agent_profiles':
         row = uow.connection.execute('SELECT *,agent_id AS id,home_business_id AS business_id FROM agent_profiles WHERE home_business_id IS ? AND agent_id=?', (business, identity)).fetchone()
         return dict(row) if row else None
@@ -146,7 +145,7 @@ def focus_edit_targets(uow, data, actor):
     return [(table, record, actor, kind, set(recipients)) for kind in types]
 
 
-def targets(uow, capture):
+def targets(uow, capture, sources=NO_SOURCES):
     """Return canonical changed records, without persisting private note bodies."""
     table, action = capture['source_type'], capture['action']
     before = _json(capture['before_json']) or {}
@@ -163,11 +162,9 @@ def targets(uow, capture):
     actor = capture['actor_id']
     if action == 'update' and all(before.get(k) == after.get(k) for k in set(before) | set(after) if k not in IGNORED_FIELDS):
         return []
-    if table == 'outreach_events':
-        # Route to Global Marketing's campaign subscription; no body, no recipients.
-        return [('outreach_events', data, actor, 'updated', {row[0] for row in uow.connection.execute(
-            "SELECT agent_id FROM inbox_subscriptions WHERE business_id IS ? AND source_type='outreach_events' "
-            "AND source_id=?", (business, data.get('campaign_id')))})]
+    handler = sources.get(table)
+    if handler is not None and handler.targets is not None:
+        return handler.targets(uow, data, business, actor)
     if table == 'agent_profiles':
         data = {**data, 'id': data['agent_id'], 'business_id': data['home_business_id']}
     if table == 'principals':
@@ -182,13 +179,14 @@ def targets(uow, capture):
         return [('data_tables', record, actor, 'rows_changed', set())] if record else []
     if table == 'relationships':
         result = []
+        resource_types = {**RESOURCE_TYPES, **{kind: source for source, kind in sources.item_types.items()}}
         for edge in (before, after):
             if not edge: continue
             for prefix in ('from', 'to'):
                 kind = edge[prefix + '_type']
-                source_type = RESOURCE_TYPES.get(kind)
+                source_type = resource_types.get(kind)
                 if source_type:
-                    record = row_for(uow, source_type, business, edge[prefix + '_id'])
+                    record = row_for(uow, source_type, business, edge[prefix + '_id'], sources)
                     if record:
                         result.append((source_type, record, actor or edge.get('created_by'), 'relationship_changed', set()))
                 if kind in {'topic', 'person', 'material'} and not (source_type and record):
@@ -196,9 +194,9 @@ def targets(uow, capture):
                     if record:
                         result.append(('documents', record, actor or edge.get('created_by'), 'relationship_changed', set()))
             if edge['role'] == 'assigned_to' and edge['to_type'] == 'agent':
-                source_type = RESOURCE_TYPES.get(edge['from_type'])
+                source_type = resource_types.get(edge['from_type'])
                 if source_type:
-                    record = row_for(uow, source_type, business, edge['from_id'])
+                    record = row_for(uow, source_type, business, edge['from_id'], sources)
                     if record:
                         result.append((source_type, record, actor or edge.get('created_by'), 'assignment_changed', {edge['to_id']}))
         return result
@@ -254,7 +252,7 @@ def targets(uow, capture):
     return [(table, data, actor, event_type, recipients)]
 
 
-def finalize_events(uow):
+def finalize_events(uow, sources=NO_SOURCES):
     captures = uow.connection.execute('SELECT * FROM inbox_changes ORDER BY id').fetchall()
     if not captures: return
     attention_enabled=bool(uow.connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='focus_cards'").fetchone())
@@ -272,10 +270,11 @@ def finalize_events(uow):
             responsible = capture['action'] == 'insert' and not data.get('deleted')
             if responsible:
                 from bazarlyk.domains.email.attribution import outgoing
+                from bazarlyk.domains.email.purposes import NO_PURPOSES
                 message = uow.repository('email_messages', business_id=data['business_id']).get(data['id'])
                 # Baseline rows mark mail that predates the first sync; they summon no one.
-                responsible = bool(message and message.get('origin') != 'baseline' and not outgoing(message, uow))
-        for table, record, actor, event_type, direct in targets(uow, capture):
+                responsible = bool(message and message.get('origin') != 'baseline' and not outgoing(message, uow, getattr(uow.database, 'mailbox_purposes', NO_PURPOSES)))
+        for table, record, actor, event_type, direct in targets(uow, capture, sources):
             business = record.get('business_id', record.get('review_business_id'))
             if capture['source_type']=='email_messages' and responsible:
                 reader=getattr(uow.database,'email_reader',None)
@@ -336,7 +335,7 @@ def finalize_events(uow):
                 "AND a.from_id=n.item_id AND a.role='assigned_to' AND a.to_type='agent' "
                 "WHERE n.business_id IS ? AND n.item_type='task' AND n.kind='comment' AND n.refs_json<>'[]' "
                 "AND json_extract(j.value,'$.type')='signoff' AND json_extract(j.value,'$.id')=?", (business,identity)))
-        item_type = ITEM_TYPES.get(table)
+        item_type = item_type_for(table, sources)
         if table == 'documents':
             item_type = {'context_topic': 'topic', 'context_person': 'person'}.get(record.get('kind'), 'material')
         subscriptions = uow.connection.execute('SELECT * FROM inbox_subscriptions WHERE business_id IS ?', (business,)).fetchall()

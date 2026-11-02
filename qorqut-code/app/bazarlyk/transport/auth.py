@@ -82,12 +82,15 @@ class AuthenticatedPrincipal:
 
 
 class Authentication:
-    def __init__(self, database, paths, *, bootstrap_token="", signing_key=None, clock=time.time):
+    def __init__(self, database, paths, *, bootstrap_token="", signing_key=None, clock=time.time, integration_adapter=None):
         self.database = database
         self.paths = paths
         self.bootstrap_token = bootstrap_token
         self._key = signing_key
         self.clock = clock
+        # The selected extension's lookup of a registered integration: ``adapter(uow, credential_row)`` returns
+        # ``(integration_id, slug, business_ids)``, or None when the integration is not registered or is disabled.
+        self.integration_adapter = integration_adapter
 
     def _signing_key(self):
         if self._key is None:
@@ -229,7 +232,10 @@ class Authentication:
         return row["kind"] if row else None
 
     def integration(self, authorization):
-        """Resolve a registered application integration's own bearer credential."""
+        """Resolve a registered application integration's own bearer credential. The credential dispatch is generic;
+        which integrations exist, and what they may reach, is the selected extension's adapter."""
+        if self.integration_adapter is None:
+            raise DomainError("unauthenticated", "No integration is registered")
         if not isinstance(authorization, str) or not authorization.startswith("Bearer "):
             raise DomainError("unauthenticated", "An integration bearer credential is required")
         token = authorization[7:]
@@ -249,15 +255,12 @@ class Authentication:
                     raise DomainError("unauthenticated", "Integration credential expiry is invalid") from None
                 if expires <= self.clock():
                     raise DomainError("unauthenticated", "Integration credential has expired")
-            integration = uow.connection.execute(
-                "SELECT * FROM integration_principals WHERE principal_id=? AND enabled=1",
-                (row["principal_id"],)).fetchone()
-            if integration is None:
+            identity = self.integration_adapter(uow, row)
+            if identity is None:
                 raise DomainError("unauthenticated", "The integration is not registered or is disabled")
-            businesses = frozenset(item[0] for item in uow.connection.execute(
-                "SELECT business_id FROM integration_businesses WHERE integration_id=?", (integration["id"],)))
+            integration_id, slug, businesses = identity
         return AuthenticatedPrincipal(Principal(row["principal_id"], "integration", row["display_name"]),
-            row["id"], integration_id=integration["id"], integration_slug=integration["slug"], business_ids=businesses)
+            row["id"], integration_id=integration_id, integration_slug=slug, business_ids=frozenset(businesses))
 
 
 def normalize_origin(value):

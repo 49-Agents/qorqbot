@@ -13,7 +13,6 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from qorqut_operations.contracts import DomainError, OperationResult, new_id
-from bazarlyk.integrations.proxy import OutreachProxy
 from bazarlyk.transport.auth import Authentication, OriginPolicy
 from bazarlyk.transport.http import HTTPAPI
 from bazarlyk.transport.mcp import MCPTransport
@@ -29,17 +28,21 @@ FILE_VIEWER_POLICY = ("default-src 'none'; script-src 'self'; style-src 'self' '
 
 
 class ServiceBoundary:
-    def __init__(self, app, origins, *, frame_prefix=None, frame_origin=None):
+    def __init__(self, app, origins, *, frame_rules=()):
         self.app, self.origins = app, origins
-        self.frame_prefix, self.frame_origin = frame_prefix, frame_origin
+        # Exact paths and prefixes the selected extensions may be framed on, each with its one allowed origin.
+        self.frame_rules = tuple(frame_rules)
 
     # The standalone owner viewers the Viewbox shows in a same-origin frame. Owner APIs, downloads and every other path
     # stay unframeable, and there is no prefix rule for either viewer.
     SAME_ORIGIN_FRAMED = frozenset({FILE_VIEWER_PATH, "/tables/view"})
 
     def framed(self, path):
-        return bool(self.frame_prefix) and (path == self.frame_prefix
-            or path.startswith(self.frame_prefix + "/"))
+        """The allowed frame origin of a path an extension declared framable, else None."""
+        for rule in self.frame_rules:
+            if path == rule.path or (rule.prefix and path.startswith(rule.path + "/")):
+                return rule.origin
+        return None
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -52,8 +55,9 @@ class ServiceBoundary:
         async def headers(message):
             if message["type"] == "http.response.start":
                 path = scope.get("path", "")
-                if self.framed(path):
-                    framing = [(b"content-security-policy", b"frame-ancestors " + self.frame_origin.encode("ascii"))]
+                frame_origin = self.framed(path)
+                if frame_origin:
+                    framing = [(b"content-security-policy", b"frame-ancestors " + frame_origin.encode("ascii"))]
                 elif path in self.SAME_ORIGIN_FRAMED:
                     # Only the standalone file/table viewers may sit in a same-origin frame. Owner APIs, downloads and
                     # every other path stay unframeable; there is no prefix rule.
@@ -130,7 +134,7 @@ class SelectiveGZip:
 
     @staticmethod
     def _compressible(path):
-        if path in ("/", "/app.css") or path.startswith("/js/") or path.startswith("/css/"):
+        if path in ("/", "/app.css") or path.startswith(("/js/", "/css/", "/extensions/")):
             return True
         if not path.startswith("/api/"):
             return False  # /mcp, /mcp/owner, /health/*, the agent browser proxy.
@@ -148,15 +152,14 @@ class SelectiveGZip:
 
 def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
                authentication=None, compatibility=None, terminals=None, manage_lifecycle=True,
-               agent_only=False, integrations=None, integration_client=None):
+               agent_only=False):
     origins = OriginPolicy(origins)
     viewbox = getattr(getattr(runtime, "domains", None), "viewbox", None)
     if viewbox is not None:
         viewbox.configure_origins(origins.origins)
-    authentication = authentication or Authentication(runtime.database, runtime.paths, bootstrap_token=bootstrap_token)
-    api = HTTPAPI(runtime, authentication, origins, compatibility=compatibility, terminals=terminals,
-                  integrations=integrations)
-    proxy = OutreachProxy(integrations, client=integration_client) if integrations is not None else None
+    authentication = authentication or Authentication(runtime.database, runtime.paths, bootstrap_token=bootstrap_token,
+                                                      integration_adapter=runtime.selection.integration_adapter)
+    api = HTTPAPI(runtime, authentication, origins, compatibility=compatibility, terminals=terminals)
     mcp = MCPTransport(runtime, authentication, origins)
     owner_mcp = None
     if not agent_only:
@@ -270,35 +273,29 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
     mcp_routes = [MCPRoute(mcp, {"/mcp", "/mcp/"})]
     if owner_mcp is not None:
         mcp_routes.append(MCPRoute(owner_mcp, {"/mcp/owner", "/mcp/owner/"}))
-    class IntegrationProxyRoute(BaseRoute):
-        """One fixed prefix; the proxy itself refuses every other destination."""
-
-        def matches(self, scope):
-            return (Match.FULL, {}) if scope["type"] == "http" and proxy.owns(scope.get("path", "")) else (Match.NONE, {})
-
-        async def handle(self, scope, receive, send):
-            await proxy(scope, receive, send)
-
-        def url_path_for(self, name, **path_params):
-            from starlette.routing import NoMatchFound
-            raise NoMatchFound(name, path_params)
-    proxy_routes = [IntegrationProxyRoute()] if proxy is not None else []
-    content_routes = []
+    # The selected extensions' ASGI routes (an embedded proxy, a canvas) go before the wildcard API route. A route
+    # contribution grants no authority: each extension handler applies the owner and bearer checks it needs.
+    contributions = [extension.web(api, agent_only=agent_only) for extension in runtime.selection.extensions]
+    extension_routes = [route for contribution in contributions for route in contribution.routes]
+    frame_rules = [rule for contribution in contributions for rule in contribution.framing]
+    asset_routes = []
     if not agent_only:
-        from bazarlyk.content_sessions.http import ContentCanvas
-        canvas = ContentCanvas(api)
-        content_routes = [Route('/content/sessions/{session_id}/{content_path:path}', canvas.__call__, methods=['GET','HEAD','POST'])]
+        async def extension_asset(request):
+            """A declared, package-owned asset beneath /extensions/<id>/assets/ only; read-only, no directory mount."""
+            path = runtime.selection.asset_file(request.path_params["extension_id"], request.path_params["asset_name"])
+            if path is None:
+                return failure(DomainError("not_found", "Endpoint is not registered"))
+            kind = "text/javascript" if path.suffix == ".js" else "text/css" if path.suffix == ".css" else "application/octet-stream"
+            return FileResponse(path, media_type=kind, headers={"Cache-Control": "no-cache"})
+        asset_routes = [Route("/extensions/{extension_id}/assets/{asset_name}", extension_asset, methods=["GET", "HEAD"])]
 
-    application = Starlette(routes=[*mcp_routes, *proxy_routes, *content_routes, *routes], lifespan=lifespan)
+    application = Starlette(routes=[*mcp_routes, *extension_routes, *asset_routes, *routes], lifespan=lifespan)
     application.state.runtime = runtime
     application.state.authentication = authentication
     application.state.mcp = mcp
     application.state.owner_mcp = owner_mcp
     application.state.http_api = api
-    application.state.integration_proxy = proxy
-    application.add_middleware(ServiceBoundary, origins=origins,
-        frame_prefix=proxy.prefix if proxy is not None else None,
-        frame_origin=integrations.dashboard_origin if proxy is not None else None)
+    application.add_middleware(ServiceBoundary, origins=origins, frame_rules=frame_rules)
     # Added after ServiceBoundary: Starlette's add_middleware inserts at the
     # front of its stack, and the stack is built outermost-last, so the
     # middleware added last ends up outermost. Gzip must wrap ServiceBoundary

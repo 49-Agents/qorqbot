@@ -8,14 +8,17 @@ from qorqut_operations.contracts import DomainError, InvocationOptions, new_id, 
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp
 from bazarlyk.agents.global_scope import active_global
 from bazarlyk.agents.roles import ORDUBASHY_ROLE
-from bazarlyk.domains.items.vocabulary import ITEM_TYPES
 from qorqut_operations.items import UNAVAILABLE
 
 UUID = {'type': 'string', 'format': 'uuid'}
 TEXT = {'type': 'string', 'minLength': 1, 'maxLength': 2000}
-ITEM = schema({'type': {'enum': list(ITEM_TYPES)}, 'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
-    'business_id': {'anyOf': [UUID, {'type': 'null'}]}, 'reason': TEXT, 'needs_input': {'type': 'boolean'}},
-    ('type', 'id', 'business_id', 'reason'))
+
+
+def item_schema(kinds):
+    """A Focus reference of any registered item kind (the neutral kinds and the selected extensions' typed ones)."""
+    return schema({'type': {'enum': list(kinds)}, 'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
+        'business_id': {'anyOf': [UUID, {'type': 'null'}]}, 'reason': TEXT, 'needs_input': {'type': 'boolean'}},
+        ('type', 'id', 'business_id', 'reason'))
 
 
 class FocusService:
@@ -31,7 +34,7 @@ class FocusService:
             'expected_focus_revision': {'type': 'integer', 'minimum': 0}}
         operations = {
             'focus_show': ({'status': {'type': 'string', 'maxLength': 2000},
-                'items': {'type': 'array', 'maxItems': 20, 'items': ITEM}}, ('status', 'items'),
+                'items': {'type': 'array', 'maxItems': 20, 'items': item_schema(self.items.kinds)}}, ('status', 'items'),
                 'Replace your ordered Focus cards with current object references and why they matter. Keeps any pending browser input. Use your session inbox consumer_id and freshly read revision.'),
             'focus_clear': ({}, (), 'Clear Focus and explicitly cancel pending browser input. Does not complete tasks, dismiss signoffs or approve actions.'),
             'focus_browser_input': ({'prompt': TEXT, 'app': {'type': 'string', 'minLength': 1, 'maxLength': 200},
@@ -77,16 +80,8 @@ class FocusService:
             row = email.conversation(uow, business, item['id'])
             resolved = {'label': row['subject'], 'revision': row['revision'],
                 'resource_type': 'email_conversations', 'resource_id': item['id']}
-        elif item['type'] == 'outreach':
-            if business is None or not self.inbox.business_member(ctx, business, uow):
-                raise DomainError('not_found', 'Focus item is unavailable')
-            row = uow.connection.execute('SELECT * FROM outreach_events WHERE business_id IS ? AND id=?',
-                (business, item['id'])).fetchone()
-            if row is None:
-                raise DomainError('not_found', 'Focus item is unavailable')
-            from bazarlyk.integrations.outreach import deep_link
-            resolved = {'label': row['summary'], 'revision': row['record_revision'],
-                'resource_type': 'outreach_events', 'resource_id': item['id'], 'deep_link': deep_link(item['id'])}
+        elif (handler := self.inbox.sources.for_type(item['type'])) is not None and handler.reference is not None:
+            resolved = handler.reference(self.inbox, ctx, item, business, uow)
         elif item['type'] == 'signoff':
             self.items.authorize(selected, 'signoffs_get', uow)
             row = self.signoffs._row(selected, item['id'], uow)

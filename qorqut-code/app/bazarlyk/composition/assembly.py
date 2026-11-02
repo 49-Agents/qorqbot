@@ -19,6 +19,7 @@ from qorqut_operations.storage.assembly import (Assembly, AssemblyBuilder, Assem
                                                 TransactionContribution)
 from qorqut_operations.storage.database import Database
 
+from bazarlyk.extensions import NO_EXTENSIONS
 from bazarlyk.instance_paths import InstancePaths
 from bazarlyk.native_chat.schema import storage_contribution as native_chat_storage
 from bazarlyk.telegram.media_schema import storage_contribution as telegram_media_storage
@@ -59,8 +60,9 @@ class HostComposition:
         return self._builder.freeze()
 
 
-def host_contributions(change_feed):
-    """Every contribution of the retained host domains, in registration order. The Operations engine owns the Signoff,
+def host_contributions(change_feed, extensions=NO_EXTENSIONS):
+    """Every contribution of the retained host domains, in registration order, then the selected extensions' own (their
+    tables, triggers and indexes sit on the host tables they reference, so they come last and in id order). The Operations engine owns the Signoff,
     routine, job and neutral Context relationship/review tables; its Signoff and background machinery state the host
     tables they read (``inbox_changes``, ``documents``) as required-table contributions, checked when the store is
     composed, initialised and validated. The inbox nudge engine owns its three tables and reads ``inbox_events`` and
@@ -71,14 +73,17 @@ def host_contributions(change_feed):
             agent_work_storage(), telegram_media_storage(),
             FileEffectContribution("documents", {DOCUMENTS: DocumentLifecycle()}, DocumentReceiptHistory()),
             RecordEffectContribution("records", HostRecordEffects()),
-            TransactionContribution("inbox", finalizers=inbox_finalizers()),
-            TransactionContribution("change-feed", change_publisher=require_change_feed(change_feed)))
+            TransactionContribution("inbox", finalizers=inbox_finalizers(extensions.sources)),
+            TransactionContribution("change-feed", change_publisher=require_change_feed(change_feed)),
+            *extensions.storage())
 
 
-def host_assembly(change_feed) -> Assembly:
-    """The frozen assembly of the retained host. ``change_feed`` is the process's one ``ChangeFeed``."""
+def host_assembly(change_feed, extensions=NO_EXTENSIONS) -> Assembly:
+    """The frozen assembly of the retained host and the selected extensions. ``change_feed`` is the process's one
+    ``ChangeFeed``. The selected storage is part of the target fingerprint, so a store prepared for another extension
+    set is refused when it is opened."""
     composition = HostComposition()
-    for contribution in host_contributions(change_feed):
+    for contribution in host_contributions(change_feed, extensions):
         composition.add(contribution)
     return composition.freeze()
 
@@ -88,9 +93,9 @@ def open_database(paths: InstancePaths, assembly: Assembly) -> Database:
     return Database(paths.database, assembly=assembly).open_existing()
 
 
-def initialize_empty_target(paths: InstancePaths, assembly: Assembly) -> Database:
+def initialize_empty_target(paths: InstancePaths, assembly: Assembly, extensions=NO_EXTENSIONS) -> Database:
     """Explicitly create an empty target store at ``paths.database`` (isolated synthetic instances and tests only)."""
     database = Database(paths.database, assembly=assembly).initialize_target()
     from bazarlyk.operations_history.composition import history_for
-    history_for(database, paths).initialize()
+    history_for(database, paths, extensions.history()).initialize()
     return database

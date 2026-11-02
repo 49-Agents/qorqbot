@@ -20,12 +20,12 @@ def registered_areas(uow):
     return areas
 
 
-def history_for(database, paths):
-    return History(database, paths=paths, catalog=catalog(), areas=registered_areas, clock=utc_now)
+def history_for(database, paths, extensions=()):
+    return History(database, paths=paths, catalog=catalog(extensions), areas=registered_areas, clock=utc_now)
 
 
 def bind(runtime):
-    runtime.history = history_for(runtime.database, runtime.paths)
+    runtime.history = history_for(runtime.database, runtime.paths, runtime.selection.history())
     runtime.history_observer = HistoryObserver(runtime.history.snapshot)
     runtime.changes.add_commit_listener(runtime.history_observer.notify_commit)
 

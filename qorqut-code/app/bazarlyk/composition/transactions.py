@@ -6,12 +6,15 @@ either rolls the unit back. ``ChangeFeed.publish_commit`` runs once after the co
 
 from __future__ import annotations
 
+from functools import partial
+
 from bazarlyk.inbox.events import finalize_events
 from bazarlyk.service.changes import ChangeFeed
 
 
-def inbox_finalizers():
-    return (finalize_events,)
+def inbox_finalizers(sources=None):
+    """The one inbox finalizer, over the frozen source handlers of the selected extensions (none for a core-only host)."""
+    return (partial(finalize_events, sources=sources) if sources else finalize_events,)
 
 
 def require_change_feed(publisher) -> ChangeFeed:

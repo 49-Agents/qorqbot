@@ -58,13 +58,15 @@ class HostIncidents:
 
 
 class HostNoteReferences:
-    """``dev_ticket`` notes and the outreach handoff email link; every other reference is a neutral item."""
+    """``dev_ticket`` notes and the derived references the selected extensions resolve on read; every other reference is
+    a neutral item."""
 
     types = TASK_NOTE_REF_TYPES
     host_types = ("dev_ticket",)
 
-    def __init__(self, application):
+    def __init__(self, application, derivations=()):
         self.application = application
+        self.derivations = tuple(derivations)
 
     def resolve(self, ctx, item, uow, builder=None):
         tickets = DevTickets()
@@ -80,11 +82,12 @@ class HostNoteReferences:
         return {"label": ticket["title"], "state": ticket["status"]}
 
     def derived(self, ctx, uow, message: Mapping):
-        """A handoff's initial note also carries its email link, resolved on read."""
-        from bazarlyk.integrations.outreach import handoff_email_reference
-        if ctx.business_id is None:
-            return None
-        return handoff_email_reference(uow, ctx.business_id, {"task_id": message["item_id"], "created_by": message["author_id"]})
+        """A message's derived reference (an extension's, such as a handoff's email link), resolved on read."""
+        for derive in self.derivations:
+            value = derive(ctx, uow, message)
+            if value is not None:
+                return value
+        return None
 
 
 class HostRouting:
@@ -130,9 +133,9 @@ class HostRouting:
         return sorted(required)
 
 
-def task_ports(application) -> TaskPorts:
+def task_ports(application, derivations=()) -> TaskPorts:
     return TaskPorts(assignees=HostAssignees(), focus=HostFocus(application), incidents=HostIncidents(),
-                     references=HostNoteReferences(application), routing=HostRouting())
+                     references=HostNoteReferences(application, derivations), routing=HostRouting())
 
 
 __all__ = ["HostAssignees", "HostFocus", "HostIncidents", "HostNoteReferences", "HostRouting", "NOTE_REFS",

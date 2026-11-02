@@ -4,7 +4,8 @@ from qorqut_operations.contracts import DomainError, OperationResult, new_id
 from starlette.responses import JSONResponse
 
 
-def http_status(result, *, created=False):
+def http_status(result, *, created=False, statuses=None):
+    """``statuses`` is the selected extensions' own ``{error code: HTTP status}`` mapping; core codes are not overridden."""
     if result.status in {"accepted", "signoff_required"}:
         return 202
     if result.status != "error":
@@ -22,25 +23,27 @@ def http_status(result, *, created=False):
         return 413
     if code == "legacy_chat_retired":
         return 410
-    if code in {"revision_conflict", "idempotency_conflict", "stale_signoff", "document_conflict", "artifact_conflict", "duplicate_agent_name", "dispatch_in_progress", "memory_drift", "legacy_plan_conflict", "plan_migrated", "content_conflict", "stale_binding"}:
+    if code in {"revision_conflict", "idempotency_conflict", "stale_signoff", "document_conflict", "artifact_conflict", "duplicate_agent_name", "dispatch_in_progress", "memory_drift", "legacy_plan_conflict", "plan_migrated", "stale_binding"}:
         return 409
-    if code in {"busy", "maintenance", "authority_invalid", "authority_not_ready", "operation_unavailable", "bootstrap_unavailable", "apply_incomplete", "creator_unavailable", "content_sessions_unavailable", "content_instruction_source_unavailable"}:
+    if code in {"busy", "maintenance", "authority_invalid", "authority_not_ready", "operation_unavailable", "bootstrap_unavailable", "apply_incomplete", "creator_unavailable"}:
         return 503
-    if code in {"internal_error", "operation_failed", "content_storage_error"}:
+    if code in {"internal_error", "operation_failed"}:
         return 500
+    if statuses and code in statuses:
+        return statuses[code]
     # 422 covers request-content outcomes, including validation_error and
     # channel_required (a well-formed write sent to the wrong channel).
     return 422
 
 
-def response(result, *, created=False):
+def response(result, *, created=False, statuses=None):
     headers = {"Cache-Control": "no-store"}
     if result.status == "error" and result.error.get("retryable"):
         headers["Retry-After"] = "2"
-    return JSONResponse(result.to_dict(), status_code=http_status(result, created=created), headers=headers)
+    return JSONResponse(result.to_dict(), status_code=http_status(result, created=created, statuses=statuses), headers=headers)
 
 
-def failure(error, request_id=None):
+def failure(error, request_id=None, *, statuses=None):
     if not isinstance(error, DomainError):
         error = DomainError("internal_error", "The request failed; use its correlation ID for diagnosis")
-    return response(OperationResult.failure(error, request_id=request_id or new_id()))
+    return response(OperationResult.failure(error, request_id=request_id or new_id()), statuses=statuses)
