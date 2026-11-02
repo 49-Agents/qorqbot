@@ -103,7 +103,7 @@ async function ntDeleteReq(id, version = ntById(id) || {}, biz = ntScope()) {
 // called by tasks.js's tSetView(v) on tab-entry ("notes") and by its 500ms business-change interval
 function tPaintNotes() { ntOpenView(); }
 function ntOpenView() {
-  if (innerWidth <= 760) ntListOff = true;
+  if (ls("ntlistoff") == null && innerWidth <= 760) ntListOff = true;
   let justRestored = false;
   if(ntRestoredBiz!==ntListKey()){ntNotes=[];ntSel=null;ntSearch="";ntLoadedScope=null;const body=$("#tbody");if(body)body.innerHTML='<p class="muted">Loading notes…</p>';}
   if (ntScope() && ntRestoredBiz !== ntListKey()) {
@@ -290,7 +290,7 @@ function ntPatchMeta() {
 // ---- detail: full build (selection change / tab open / create-new only)
 function ntDetailHtml(n) {
   return `<div class="nted">
-    <div class="ntside ${ntListOff ? "off" : ""}" id="ntside">
+    <div class="ntside ${ntListOff ? "off" : ""}" id="ntside" aria-label="Journal pages" ${ntListOff ? "hidden inert" : ""}>
       ${ntReadOnly() ? "" : `<div class="ntsidectrl">
         <button id="ntnew2" class="btn" type="button">${ICO_PLUS}New page</button>
       </div>`}
@@ -302,6 +302,7 @@ function ntDetailHtml(n) {
     <div class="nteditor" id="nteditor" tabindex="-1">
       <div class="ntedinner">
         <div class="ntedhead">
+          <button id="ntnavtoggle" class="nticon ntnavtoggle" type="button" aria-controls="ntside" aria-expanded="${!ntListOff}" aria-label="${ntListOff ? 'Show' : 'Hide'} Journal pages">${aicon('list','currentColor',16)}</button>
           <textarea id="nttitle" class="nttitlein" rows="1" placeholder="Untitled"></textarea>
           <div class="ntedctrls" id="ntedctrls">
             <button id="ntdiscard" class="btn quiet" type="button" hidden>Discard</button>
@@ -329,6 +330,19 @@ function ntDetailHtml(n) {
 }
 function ntWireDetail(root, n) {
   const editor = root.querySelector('#nteditor'), content = root.querySelector('#ntlinewrap');
+  const navigation = root.querySelector('#ntside'), toggle = root.querySelector('#ntnavtoggle');
+  const setNavigation = collapsed => {
+    ntListOff = collapsed; ls('ntlistoff', collapsed ? '1' : '0');
+    navigation.hidden = collapsed; navigation.inert = collapsed;
+    navigation.classList.toggle('off', collapsed);
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.setAttribute('aria-label', `${collapsed ? 'Show' : 'Hide'} Journal pages`);
+    requestAnimationFrame(() => { ntGrow(root.querySelector('#nttitle')); ntPlaceBalls(); });
+  };
+  toggle.onclick = () => setNavigation(!ntListOff);
+  navigation.onkeydown = event => {
+    if(event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setNavigation(true); toggle.focus(); }
+  };
   const zoomKey = JSON.stringify([ntScope(), n.id]);
   content.style.zoom = (ntContentZoom.get(zoomKey) || 100) / 100;
   editor.onkeydown = e => {
