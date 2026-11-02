@@ -42,7 +42,9 @@ def environment(root, home):
     env = dict(os.environ)
     for key in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'QORQUT_INSTALLATION_CONFIG',
                 'QORQUT_APP_MANIFEST', 'QORQUT_TELEGRAM_CONFIG_FILE', 'BIZ_DASH_TOKEN',
-                'BAZARLYK_MCP_URL', 'QORQUT_TERMINAL_WORKSPACE'):
+                'BAZARLYK_MCP_URL', 'QORQUT_TERMINAL_WORKSPACE', 'PIP_TARGET',
+                'PIP_PREFIX', 'PIP_ROOT', 'PIP_USER', 'PYTHONUSERBASE',
+                'CODEX_HOME', 'CLAUDE_CONFIG_DIR'):
         env.pop(key, None)
     paths = {
         'HOME': home, 'XDG_CONFIG_HOME': home / 'config', 'XDG_CACHE_HOME': home / 'cache',
@@ -66,6 +68,7 @@ def environment(root, home):
         'QORQUT_CALENDAR_CONFIG': str(root / 'instance/config/calendar.json'),
         'BIZ_DASH_HOST': '127.0.0.1', 'BIZ_TMUX_SOCKET': 'bazarlyk',
         'PYTHONDONTWRITEBYTECODE': '1', 'PIP_DISABLE_PIP_VERSION_CHECK': '1',
+        'PIP_CONFIG_FILE': os.devnull, 'PIP_NO_INDEX': '1',
         'npm_config_update_notifier': 'false', 'LANG': 'C.UTF-8',
     })
     timezone_file = root / 'instance/config/operational-timezone'
@@ -169,6 +172,18 @@ def active(path):
         return None
 
 
+def require_completed_extension_installs(runtime):
+    for journal in sorted((runtime / 'optional-install').glob('*/install.json')):
+        if read_json(journal).get('phase') not in {'complete', 'refused'}:
+            raise RuntimeError('An optional extension installation is incomplete. Resume the same extension-install command with --resume before starting Qorqbot.')
+
+
+def require_completed_update(root):
+    journal = root / '.run/update.json'
+    if journal.exists() and read_json(journal).get('phase') not in {'complete', 'restored-before-start'}:
+        raise RuntimeError('An update was interrupted. Run ./qorqbot update --recover before starting Qorqbot.')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Run Qorqbot in this folder.')
     parser.add_argument('command', nargs='?', choices=('start', 'stop', 'status', 'verify', 'setup', 'calendar-connect'), default='start')
@@ -211,6 +226,8 @@ def main(argv=None):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError('Qorqbot is already starting or running from this folder') from None
+        require_completed_extension_installs(runtime)
+        require_completed_update(root)
         env = environment(root, runtime / 'setup-state')
         prepare(root, env)
         record = initialize(root, env)

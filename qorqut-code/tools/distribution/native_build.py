@@ -134,6 +134,7 @@ def main(argv=None):
     wheel_records = [strip_wheel(w, runtime / 'wheelhouse' / w.name) for w in sorted(downloads.glob('*.whl'))]
     shutil.copy2(Path(__file__).with_name('native_launch.py'), runtime / 'launch.py')
     shutil.copy2(Path(__file__).with_name('native_update.py'), runtime / 'update.py')
+    shutil.copy2(Path(__file__).with_name('native_extension.py'), runtime / 'extension_install.py')
     launcher = output / 'qorqbot/qorqbot'
     launcher.write_text('''#!/bin/sh
 set -eu
@@ -142,7 +143,14 @@ export LD_LIBRARY_PATH="$root/runtime/native/lib"
 unset PYTHONHOME PYTHONPATH
 if [ "${1-}" = update ]; then
     shift
-    exec "$root/runtime/native/bin/python3.12" -I "$root/runtime/update.py" "$@"
+    updater="$root/runtime"
+    if [ ! -d "$updater" ]; then updater="$root/.previous-runtime"; fi
+    export LD_LIBRARY_PATH="$updater/native/lib"
+    exec "$updater/native/bin/python3.12" -I "$updater/update.py" "$@"
+fi
+if [ "${1-}" = extension-install ]; then
+    shift
+    exec "$root/runtime/native/bin/python3.12" -I "$root/runtime/extension_install.py" "$@"
 fi
 exec "$root/runtime/native/bin/python3.12" -I "$root/runtime/launch.py" "$@"
 ''')
@@ -153,6 +161,9 @@ Ubuntu 24.04, Intel/AMD 64-bit. Extract to a short writable folder and run:
   ./qorqbot
 Open the printed local address in your browser. Press Ctrl+C to stop.
 You can also run ./qorqbot status or ./qorqbot stop from another terminal.
+Install a downloaded optional connector while Qorqbot and its agents are stopped:
+  ./qorqbot extension-install /path/to/connector.tar.gz --sha256 VERIFIED_HASH
+An interrupted installation can be continued with the same command and --resume.
 
 The first launch installs bundled dependencies offline. Your work is stored in
 instance/operations; settings, logs and profiles also stay inside this folder.

@@ -17,6 +17,7 @@ import sqlite3
 import subprocess
 import sys
 import tarfile
+import uuid
 from urllib.parse import quote
 
 
@@ -25,6 +26,20 @@ def load_launcher(runtime):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def runtime_processes(runtime):
+    """Own-UID processes still executing this runtime, including detached browsers/helpers."""
+    found = []
+    for process in Path('/proc').iterdir():
+        if not process.name.isdigit() or int(process.name) == os.getpid():
+            continue
+        try:
+            if process.stat().st_uid == os.getuid() and (process / 'exe').resolve().is_relative_to(runtime):
+                found.append(int(process.name))
+        except (OSError, ValueError):
+            continue
+    return found
 
 
 def unpack(archive, stage):
@@ -48,29 +63,83 @@ def unpack(archive, stage):
         tar.extractall(stage, filter='data')
 
 
+def retain_completed(root, launcher):
+    journal = root / '.run/update.json'
+    if not journal.exists():
+        return
+    record = launcher.read_json(journal)
+    if record.get('phase') not in {'complete', 'restored-before-start'}:
+        raise ValueError('An interrupted update remains. Run ./qorqbot update --recover first')
+    archive = root / '.updates' / uuid.uuid4().hex
+    archive.mkdir(parents=True)
+    for name in ('.previous-runtime', '.update-staging'):
+        if (root / name).exists():
+            (root / name).rename(archive / name.lstrip('.'))
+    journal.rename(archive / 'update.json')
+
+
+def recover(root, launcher):
+    """Restore only a runtime whose replacement has never been admitted to start."""
+    journal = root / '.run/update.json'
+    if not journal.exists():
+        raise ValueError('There is no recorded update to recover')
+    record = launcher.read_json(journal)
+    if record.get('phase') in {'complete', 'restored-before-start'}:
+        retain_completed(root, launcher)
+        print('Completed update records retained in .updates. Qorqbot can start normally.')
+        return
+    if record.get('phase') not in {'prepared', 'switched'}:
+        raise ValueError('Unrecognized update recovery state; no files were changed')
+    runtime, previous = root / 'runtime', root / '.previous-runtime'
+    if previous.exists():
+        if runtime.exists():
+            runtime.rename(root / '.update-staging/failed-runtime')
+        previous.rename(runtime)
+    elif record['phase'] != 'prepared' or not runtime.exists():
+        raise ValueError('The previous runtime is missing; no automatic recovery is safe')
+    record['phase'] = 'restored-before-start'
+    launcher.save_json(journal, record)
+    retain_completed(root, launcher)
+    print('Previous runtime restored. Instance data was unchanged; start Qorqbot normally.')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('archive', type=Path)
-    parser.add_argument('--sha256', required=True)
+    parser.add_argument('archive', type=Path, nargs='?')
+    parser.add_argument('--sha256')
+    parser.add_argument('--recover', action='store_true')
     args = parser.parse_args(argv)
     root = Path(__file__).resolve().parent.parent
     runtime, instance = root / 'runtime', root / 'instance'
-    launcher = load_launcher(runtime)
+    launcher = load_launcher(runtime if runtime.exists() else root / '.previous-runtime')
     os.umask(0o077)
-    with args.archive.open('rb') as stream:
-        actual = hashlib.file_digest(stream, 'sha256').hexdigest()
-    if actual != args.sha256.lower():
-        raise ValueError('Update archive checksum mismatch')
+    if args.recover:
+        if args.archive or args.sha256:
+            parser.error('--recover takes no archive or checksum')
+    else:
+        if not args.archive or not args.sha256:
+            parser.error('An archive and --sha256 are required')
+        with args.archive.open('rb') as stream:
+            actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if actual != args.sha256.lower():
+            raise ValueError('Update archive checksum mismatch')
     stage, previous = root / '.update-staging', root / '.previous-runtime'
     journal = root / '.run/update.json'
-    if stage.exists() or previous.exists() or journal.exists():
-        raise ValueError('A previous update or recovery remains; inspect it before another update')
     root.joinpath('.run').mkdir(mode=0o700, exist_ok=True)
     with (root / '.run/app.lock').open('a') as app_lock:
         fcntl.flock(app_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         lifetime = instance / 'operations/.runtime/instance-lifetime.lock'
         with lifetime.open('a') as instance_lock:
             fcntl.flock(instance_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if args.recover:
+                if runtime_processes(runtime) or runtime_processes(previous):
+                    raise ValueError('Stop this installation’s remaining processes before recovery')
+                recover(root, launcher)
+                return 0
+            retain_completed(root, launcher)
+            if stage.exists() or previous.exists():
+                raise ValueError('Unrecorded update files remain; inspect them before another update')
+            launcher.require_completed_extension_installs(runtime)
             env = launcher.environment(root, instance / 'home')
             tmux = subprocess.run([runtime / 'native/bin/tmux', '-L', 'bazarlyk', 'list-sessions'],
                                   env=env, capture_output=True, text=True)
@@ -78,6 +147,8 @@ def main(argv=None):
                 raise ValueError('Stop this installation’s agent terminals before updating')
             if not any(text in tmux.stderr.lower() for text in ('no server running', 'no such file or directory')):
                 raise ValueError('Could not prove that this installation’s agent terminals are stopped')
+            if runtime_processes(runtime):
+                raise ValueError('Stop this installation’s remaining browsers and helper processes before updating')
             config = launcher.read_json(instance / 'config/extensions.json')
             if any(item.get('factory') != 'qorqut_google_calendar.extension:create' for item in config.get('extensions', ())):
                 raise ValueError('Selected optional extensions need a compatible update bundle; this bundle supports core and the bundled calendar provider')
@@ -116,7 +187,8 @@ def main(argv=None):
                     previous.rename(runtime)
                     launcher.save_json(journal, {'format': 1, 'phase': 'restored-before-start', 'archive_sha256': actual})
                     raise
-                shutil.copy2(stage / 'qorqbot/qorqbot', root / 'qorqbot')
+                shutil.copy2(stage / 'qorqbot/qorqbot', root / '.qorqbot-new')
+                (root / '.qorqbot-new').replace(root / 'qorqbot')
                 launcher.save_json(journal, {'format': 1, 'phase': 'complete', 'archive_sha256': actual,
                                               'before': old.get('version'), 'after': new.get('version')})
                 print('Update installed. Your instance data was preserved. Start Qorqbot normally.')
