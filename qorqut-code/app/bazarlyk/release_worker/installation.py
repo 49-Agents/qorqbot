@@ -16,6 +16,11 @@ import zipfile
 from .errors import ReleaseError
 from .lifetime import atomic_json, exclusion
 
+# What a staged core artifact must carry: the committed host storage contribution, recovery code and packaged resources.
+CORE_RESOURCES = [("bazarlyk.composition", "schema_ddl.py"), ("bazarlyk.storage", "recovery.py"),
+    ("bazarlyk.bootstrap", "instructions/agent-foundation.md"), ("bazarlyk.bootstrap", "instructions/ecosystem.md"),
+    ("bazarlyk.bootstrap", "instructions/operating/ecosystem-agent.md"), ("bazarlyk.release_worker", "installation.schema.json")]
+
 HELPERS = ["bazarlyk.bootstrap." + name for name in
     ("claude_session", "codex_session", "mcp_headers", "mcp_reconnect", "transcript_snapshot",
      "activity_hook", "browser_entry", "supervisor", "migration", "reference_probe")]
@@ -260,13 +265,18 @@ def stage_initial(root,config,sources,python,*,run=subprocess.run,recovery_name=
             'helper_compatibility':helper_compatibility,
             'runtime_references':[str(browser),config['package_sources']]}
         atomic_json(target/'manifest.json',manifest)
-        run([str(python),'-I','-B','-c',
-            'import sys,importlib.metadata,importlib.resources;sys.path.insert(0,sys.argv[1]);import bazarlyk.service;'
-            'assert bazarlyk.service.__file__.startswith(sys.argv[1]);importlib.metadata.version("bazarlyk-core");'
-            'assert importlib.resources.files("bazarlyk.storage").joinpath("migrations/113_content_sessions.sql").is_file()',
-            components['core']['path']],check=True,capture_output=True)
+        probe_core(python,components['core']['path'],run=run)
         staging.ready()
     return target,manifest
+
+
+def probe_core(python,path,*,run=subprocess.run):
+    """The staged core imports from its own path, is installed-distribution metadata and carries its current resources."""
+    return run([str(python),'-I','-B','-c',
+        'import sys,importlib.metadata,importlib.resources;sys.path.insert(0,sys.argv[1]);import bazarlyk.service;'
+        'assert bazarlyk.service.__file__.startswith(sys.argv[1]);importlib.metadata.version("bazarlyk-core");'
+        'assert all(importlib.resources.files(package).joinpath(name).is_file() for package,name in '+repr(CORE_RESOURCES)+')',
+        str(path)],check=True,capture_output=True)
 
 
 def select_recovery(root,manifest_path,*,kind='cold_start',locked=False):
@@ -288,7 +298,11 @@ def select_recovery(root,manifest_path,*,kind='cold_start',locked=False):
 
 
 def validate_dependencies(python,inputs,*,run=subprocess.run):
-    """Check source requirements, extras, transitive metadata and exact VCS commits.
+    """Check source requirements, extras, transitive metadata and the provenance a requirement names.
+
+    A plain version pin needs only a satisfying installed version. A ``git+`` requirement needs its exact commit; any other
+    direct URL (an explicit local wheel) needs the recorded URL and, when the requirement supplies ``#sha256=``, the
+    recorded (or, failing that, the file's own) SHA-256.
 
     pip check alone does not know the application requirements because application
     code is deliberately absent from the dependency environment.
@@ -312,6 +326,14 @@ while pending:
    url,commit=r.url[4:].rsplit('@',1)
    if direct.get('url')!=url or direct.get('vcs_info',{}).get('commit_id')!=commit:raise ValueError('Incorrect immutable source: '+r.name)
   elif direct.get('url')!=r.url.split('#',1)[0]:raise ValueError('Incorrect direct dependency source: '+r.name)
+  else:
+   supplied=dict(part.split('=',1) for part in r.url.partition('#')[2].split('&') if '=' in part).get('sha256')
+   if supplied:
+    recorded=direct.get('archive_info',{}).get('hashes',{}).get('sha256')
+    if recorded is None and direct['url'].startswith('file://'):
+     import hashlib,urllib.parse
+     recorded=hashlib.sha256(open(urllib.parse.unquote(urllib.parse.urlparse(direct['url']).path),'rb').read()).hexdigest()
+    if recorded!=supplied.lower():raise ValueError('Incorrect direct dependency hash: '+r.name)
  for text in d.requires or []:
   child=Requirement(text)
   if not child.marker or any(child.marker.evaluate({**default_environment(),'extra':extra}) for extra in ('',*r.extras)):

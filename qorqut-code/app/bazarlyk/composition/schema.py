@@ -1,9 +1,9 @@
-"""The retained host domains' storage contributions: source-derived DDL plus the v1 repository specifications.
+"""The retained host domains' storage contributions: the committed DDL plus the repository specifications.
 
-The DDL is ``schema_ddl`` (generated from the deployed v1 migration source by ``tools/derive_host_schema.py``; no
-migration runs here), the table specifications and immutable columns are ``tables``. Every table belongs to exactly
-one owner and the engine's own tables are never redefined: the engine refuses a duplicate table, and this module
-checks before it hands the contributions over that the generated ownership and the specifications agree."""
+The DDL is ``schema_ddl`` (committed and authoritative; no migration runs here), the table specifications and immutable
+columns are ``tables``. Every table belongs to exactly one owner and the engine's own tables are never redefined: the
+engine refuses a duplicate table, and this module checks before it hands the contributions over that the declared
+ownership and the specifications agree."""
 
 from __future__ import annotations
 

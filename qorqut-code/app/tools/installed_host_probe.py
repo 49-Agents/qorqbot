@@ -1,88 +1,140 @@
-"""Installed-package identity and focused composition checks; invoked by check_installed_host.py under python -I."""
-from contextlib import redirect_stderr, redirect_stdout
+"""Installed identity, metadata and import probe of one prepared environment; run by check_installed_host.py as ``python -I -B``.
+
+It reads one JSON configuration and prints one JSON object. It runs no test, installs and repairs nothing, writes nothing and
+imports only the top-level packages of the first-party wheels it is given. Everything it finds wrong is returned as a failure.
+"""
 import hashlib
 import importlib
-import importlib.util
-import io
+import importlib.metadata as metadata
 import json
-import os
 from pathlib import Path
+import re
 import sys
+from urllib.parse import unquote, urlparse
 
+FIRST_PARTY = re.compile(r"(qorqut|bazarlyk)-")
 config = json.loads(Path(sys.argv[1]).read_text())
-checkout = Path(config['checkout']).resolve()
-work = Path(config['work']).resolve()
-work.mkdir(parents=True, exist_ok=True)
-expected = config['expected']
+wheels = config["wheels"]
+wheel_directory = Path(config["wheel_directory"]).resolve()
+failures = []
 
 
-def installed_identity():
-    locations = {}
-    for package, files in expected.items():
-        module = importlib.import_module(package)
-        directory = Path(module.__file__).resolve().parent
-        assert Path(sys.prefix).resolve() in directory.parents, (package, directory)
-        assert checkout not in directory.parents, (package, directory)
-        for relative, digest in files.items():
-            path = directory / relative
-            assert path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == digest, (package, relative)
-        locations[package] = {'directory': str(directory), 'verified_python_files': sum(1 for name in files if name.endswith('.py')),
-            'verified_resource_files': sum(1 for name in files if not name.endswith('.py'))}
-    for name in config['removed_modules']:
+def canonical(name):
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def inside(path, parent):
+    return path == parent or parent in path.parents
+
+
+def listing(names, limit=8):
+    return ", ".join(sorted(names)[:limit]) + (f" (and {len(names) - limit} more)" if len(names) > limit else "")
+
+
+# --- the interpreter is the owned, isolated environment and reaches nothing outside it ------------------------------------
+prefix = Path(sys.prefix).resolve()
+if prefix != Path(config["environment"]).resolve():
+    failures.append(f"the interpreter belongs to {prefix}, not to the environment {config['environment']}")
+if sys.prefix == sys.base_prefix:
+    failures.append("the interpreter is not a virtual environment")
+if not sys.flags.isolated:
+    failures.append("the probe did not run isolated (-I)")
+if sys.version.split()[0] != config["python"]:
+    failures.append(f"the interpreter is Python {sys.version.split()[0]}, the receipt records {config['python']}")
+try:
+    settings = {key.strip(): value.strip().lower() for key, _, value in
+                (line.partition("=") for line in (prefix / "pyvenv.cfg").read_text().splitlines())}
+    if settings.get("include-system-site-packages") == "true":
+        failures.append("the environment includes the system site-packages")
+except OSError:
+    failures.append("the environment has no pyvenv.cfg")
+bases = {Path(sys.base_prefix).resolve(), Path(sys.base_exec_prefix).resolve()}
+for entry in sys.path:
+    path = Path(entry).resolve()
+    standard_library = any(inside(path, base) for base in bases) and not {"site-packages", "dist-packages"} & set(path.parts)
+    if not (inside(path, prefix) or standard_library):
+        failures.append(f"sys.path entry outside the environment: {entry}")
+
+# --- installed first-party distributions come only from the receipt's wheels --------------------------------------------
+installed = {}
+for distribution in metadata.distributions():
+    if distribution.metadata["Name"]:
+        installed.setdefault(canonical(distribution.metadata["Name"]), []).append(distribution)
+checked = {}
+for name, group in sorted(installed.items()):
+    if len(group) > 1:
+        failures.append(f"{name} is installed {len(group)} times")
+    distribution, wheel = group[0], wheels.get(name)
+    if FIRST_PARTY.match(name) and wheel is None:
+        failures.append(f"first-party distribution {name} {distribution.version} is not recorded for this environment")
+    text = distribution.read_text("direct_url.json")
+    if text is None:
+        if FIRST_PARTY.match(name):
+            failures.append(f"{name} has no direct-URL record: it was not installed from a local wheel file")
+        continue
+    origin = json.loads(text)
+    url = urlparse(origin.get("url", ""))
+    if wheel is None:
+        failures.append(f"{name} has a direct-URL origin ({origin.get('url')}) that no receipt wheel explains")
+    elif "vcs_info" in origin or "dir_info" in origin or url.scheme != "file":
+        failures.append(f"{name} was installed from a direct-URL origin that is not a local wheel file: {origin.get('url')}")
+    elif Path(unquote(url.path)).resolve() != wheel_directory / wheel["file"]:
+        failures.append(f"{name} was installed from {unquote(url.path)}, not from the receipt wheel {wheel['file']}")
+    else:
+        recorded = origin.get("archive_info", {}).get("hashes", {}).get("sha256")
+        if recorded is not None and recorded != wheel["sha256"]:
+            failures.append(f"{name} records archive SHA-256 {recorded}, the receipt wheel has {wheel['sha256']}")
+for name in sorted(set(wheels) - set(installed)):
+    failures.append(f"receipt wheel {name} {wheels[name]['version']} is not installed in this environment")
+
+# --- the installed Python and package resource bytes equal the wheel's -------------------------------------------------
+for name, wheel in sorted(wheels.items()):
+    if name not in installed:
+        continue
+    distribution = installed[name][0]
+    if distribution.version != wheel["version"]:
+        failures.append(f"{name} is installed as version {distribution.version}, the receipt wheel is {wheel['version']}")
+    missing, changed, outside = [], [], []
+    for member, expected in wheel["members"].items():
+        location = Path(distribution.locate_file(member))
         try:
-            spec = importlib.util.find_spec(name)
-        except ModuleNotFoundError:
-            spec = None
-        assert spec is None, ('removed_module_is_installed', name)
-    return locations
+            actual = hashlib.sha256(location.read_bytes()).hexdigest()
+        except OSError:
+            missing.append(member)
+            continue
+        if actual != expected:
+            changed.append(member)
+        if not inside(location.resolve(), prefix):
+            outside.append(member)
+    for what, names in (("missing from the installation", missing), ("different from the wheel", changed),
+                        ("located outside the environment", outside)):
+        if names:
+            failures.append(f"{name}: {len(names)} wheel file(s) {what}: {listing(names)}")
+    members = wheel["members"]
+    checked[name] = {"version": distribution.version, "wheel": wheel["file"],
+                     "python_files_verified": sum(1 for member in members if member.endswith(".py")) - sum(1 for member in missing + changed if member.endswith(".py")),
+                     "resource_files_verified": sum(1 for member in members if not member.endswith(".py")) - sum(1 for member in missing + changed if not member.endswith(".py")),
+                     "imported": []}
 
+# --- the wheel's top-level packages import from the environment ------------------------------------------------------------
+owned = {}
+for name, wheel in sorted(wheels.items()):
+    for top in wheel["top_level"]:
+        owned[top] = name
+        try:
+            module = importlib.import_module(top)
+        except BaseException as error:
+            failures.append(f"{name}: importing {top} failed: {type(error).__name__}: {error}")
+            continue
+        locations = [module.__file__] if getattr(module, "__file__", None) else list(getattr(module, "__path__", []))
+        if not locations or not all(inside(Path(location).resolve(), prefix) for location in locations):
+            failures.append(f"{name}: {top} was imported from outside the environment: {locations}")
+        elif name in checked:
+            checked[name]["imported"].append(top)
+for module_name, module in tuple(sys.modules.items()):
+    path = getattr(module, "__file__", None)
+    if module_name.split(".")[0] in owned and path and not inside(Path(path).resolve(), prefix):
+        failures.append(f"module {module_name} was imported from outside the environment: {path}")
 
-locations = installed_identity()
-# Only fixture/test helpers are importable from source. No application directory is added to sys.path.
-# Their explicit component paths select tool resources, never Python engine imports.
-tests = checkout / 'app/tests'
-sys.path.insert(0, str(tests))
-os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
-os.environ['QORQUT_TEST_ROLE_ROOT'] = config['roles']
-checks = [
- 'test_combined_host_lifetime.py',
- 'test_host_history_composition.py',
- 'test_host_instance_ownership.py::test_another_process_cannot_take_the_lock_of_a_running_backend',
- 'test_host_retained_operations.py::test_a_protected_proposal_is_applied_once_after_the_owners_exact_decision',
- 'test_host_retained_operations.py::test_a_non_context_program_runs_only_under_its_registered_worker_authority',
- 'test_host_retained_operations.py::test_chat_reply_read_and_attention_metadata_stay_independent',
- 'test_host_parent_tasks.py::test_completing_or_reopening_a_parent_never_changes_its_children',
- 'test_host_parent_tasks.py::test_a_retained_signoff_applies_the_exact_task_backed_campaign_plan',
- 'test_host_parent_tasks.py::test_the_active_operation_catalog_has_no_story_handlers',
- 'test_host_context_services.py::test_an_upload_and_an_action_revision_reach_one_ordered_queue_and_publish_with_exact_receipts',
- 'test_host_business_create.py::test_the_configured_ordubashy_creates_an_empty_project_from_a_name_alone_and_the_owner_keeps_it',
- 'test_host_business_create.py::test_the_owner_is_refused_over_the_real_http_endpoint_and_by_direct_calls_with_nothing_changed',
- 'test_host_instruction_seeds.py',
- 'test_context_recovery_host.py::test_restore_into_other_paths_reproduces_the_authoritative_hashes_and_the_exact_pending_state',
- 'test_nightly_capture_host.py::test_the_coordinator_captures_under_quiescence_and_the_job_then_returns_its_one_final_result',
- 'test_inbox_nudges.py::test_a_busy_session_gets_the_notice_at_once_without_inferring_processing',
- 'test_inbox_nudges.py::test_an_offline_event_waits_for_a_manual_session_start_and_nothing_launches_one',
- 'test_inbox_nudges.py::test_an_uncertain_submission_survives_a_restart_and_is_never_resent',
-]
-checks = config.get("checks", checks)
-import pytest
-output = io.StringIO()
-with redirect_stdout(output), redirect_stderr(output):
-    result = pytest.main(['-q', '-c', '/dev/null', '-o', 'pythonpath=', '-p', 'no:cacheprovider',
-        '--basetemp', str(work / 'synthetic-instances'), '--maxfail=4', *[str(tests / case) for case in checks]])
-(work / 'focused-checks.log').write_text(output.getvalue())
-locations = installed_identity()
-for name, module in tuple(sys.modules.items()):
-    if name.split('.')[0] in expected and getattr(module, '__file__', None):
-        assert Path(sys.prefix).resolve() in Path(module.__file__).resolve().parents, (name, module.__file__)
-evidence = {'format': 'qorqut-v1.2-installed-check', 'host_commit': config['host_commit'],
-    'operations_commit': config['engine_commit'], 'context_commit': config['context_commit'],
-    'dashboard_commit': config['dashboard_commit'], 'dirty': config['dirty'],
-    'passed': result == 0, 'pytest_exit': int(result), 'checks': checks, 'packages': locations,
-    'details': str(work / 'focused-checks.log'), 'provider_validation': 'synthetic adapters and injected runners only',
-    'live_state_touched': False, 'migration_executed': False}
-(work / 'receipt.json').write_text(json.dumps(evidence, indent=2) + '\n')
-print(json.dumps(evidence))
-if result:
-    print(output.getvalue(), file=sys.stderr)
-    raise SystemExit(result)
+print(json.dumps({"interpreter": sys.executable, "python": sys.version.split()[0], "prefix": str(prefix), "distributions": checked,
+                  "failures": failures}))
