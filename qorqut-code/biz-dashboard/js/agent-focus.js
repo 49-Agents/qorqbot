@@ -291,7 +291,7 @@ function agfocusMount(p) {
   if(p.workspaceScope === 'global' && p.workspaceRole === 'ordubashy') {
     const excerpt=document.createElement('section');
     board.querySelector('.attention-queue').before(excerpt);
-    todayCalendar=calendarTodayMount(excerpt);
+    todayCalendar=calendarTodayMount(excerpt,()=>agpadSetView(p,'calendar'));
     excerpt.classList.add('agfocus-calendar');
   }
   const disposeQueue=agfocusQueueMount(p,board.querySelector('.attention-queue'));

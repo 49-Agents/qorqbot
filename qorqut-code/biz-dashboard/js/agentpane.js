@@ -130,13 +130,13 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   const leading = [], trailing = [];
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_RENDERERS.get(type.renderer)?.leading ? leading : trailing).push(type.key);
   const personal = typeof agentWorkspaceViews === 'function' ? agentWorkspaceViews(scope, roleId) : [];
-  leading.unshift(...personal.filter(view => view !== 'journal'));
+  leading.unshift(...personal.filter(view => !['journal', 'calendar'].includes(view)));
   // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
   if (roleId === "ordubashy") leading.push("attentionBoard");
   if (roleId === "learning-applier") leading.push("changes");
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
-  return [...new Set([...leading, ...base, ...personal.filter(view => view === 'journal'), ...(agentId ? ["viewbox"] : []), ...trailing, "status"])]
+  return [...new Set([...leading, ...base, ...personal.filter(view => ['calendar', 'journal'].includes(view)), ...(agentId ? ["viewbox"] : []), ...trailing, "status"])]
     .filter(view => agentPaneViewAllowed(roleId, view));
 }
 // The workspace preview groups the existing Activity and Inbox renderers behind
@@ -283,8 +283,8 @@ function agTakeLinkedWorkspace(hash) {
 function agpadRequestView(p, view) {
   if (typeof view !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(view)) return false;
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return false;
-  // Calendar and Tables live in the shared drawer: retired keys never add a tab (links translate first).
-  if (view === "calendar" || view === "tables") return false;
+  // Tables lives in the shared drawer: the retired key never adds a tab (links translate first).
+  if (view === "tables") return false;
   // The retired System Dev keys likewise never add a tab.
   if (view === "system_dev" || view === "incidents") return false;
   if (!p.views.includes(view) && !workspaceType(view)) {

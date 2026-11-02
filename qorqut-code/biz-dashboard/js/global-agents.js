@@ -199,6 +199,12 @@ async function renderGlobalAgents(c) {
   const linkedAgent = params.get('agent');
   if (linkedAgent) { const url = new URL(location.href); url.searchParams.delete('agent'); history.replaceState(null, '', url); }
   let request = agentWorkspaceTakeRequest();
+  // ?workspace=calendar opens the coordinator's Calendar view; without that agent it is explicitly unavailable.
+  if (!request && linkedWorkspace === 'calendar') {
+    const coordinator = agents.find(a => a.role?.id === 'ordubashy');
+    if (!coordinator) { c.innerHTML = `<section class="pane global-content"><div class="global-eyebrow">Global</div><h1>Agents</h1><p role="alert">${esc(GLOBAL_AGENT_UNAVAILABLE)}</p></section>`; return; }
+    request = {agentId: coordinator.agent_id, view: 'calendar'};
+  }
   const fresh = !!request;
   if (!request && !linkedAgent && !linkedFocus) request = agentWorkspaceRehydrate();
   const remembered = request?.agentId || linkedAgent || (linkedFocus ? agents.find(a => a.role?.id === 'ordubashy')?.agent_id : ls('ag:scope:global'));
@@ -218,9 +224,9 @@ async function renderGlobalAgents(c) {
   }
   // A saved or linked agent that is no longer an active global opens nothing of its own.
   if (remembered && !target) toast(GLOBAL_AGENT_UNAVAILABLE);
-  // ?workspace= links translate at this boundary: Calendar and Tables are drawer tabs (Tables opens Global's list).
+  // ?workspace= links translate at this boundary: Tables is a drawer tab (it opens Global's list); Calendar became a request above.
   let linkedView = linkedWorkspace;
-  if (linkedView === 'calendar') { linkedView = null; globalThis.ovOpen?.('calendar'); }
+  if (linkedView === 'calendar') linkedView = null;
   else if (linkedView === 'tables') { linkedView = null; globalThis.ovOpen?.('tables', {scope: 'global'}); }
   agentWorkspaceRequest = request;
   agentWorkspaceApplied = JSON.stringify(request || null);

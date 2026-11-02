@@ -87,6 +87,12 @@
 .calendar-embedded .calendar-toolbar { margin-bottom:22px; }
 .calendar-today { flex:none; padding:0 0 8px; margin:0 0 6px; border-bottom:1px solid var(--line-2); }
 .calendar-today .calendar-status { font-size:12px; margin:0 0 6px; }
+.calendar-today-row { display:flex; align-items:flex-start; gap:8px; }
+.calendar-today-row .calendar-today-queue { flex:1 1 auto; min-width:0; }
+.calendar-today button.calendar-today-open { flex:none; display:inline-grid; place-items:center; width:40px; height:40px; padding:0; margin-left:auto; border-radius:5px; background:transparent; color:var(--fg-2); }
+.calendar-today button.calendar-today-open:hover { background:var(--hover); color:var(--fg); }
+.calendar-today button.calendar-today-open svg { width:18px; height:18px; }
+.agent-calendar-host { flex:1 1 auto; min-height:0; overflow:auto; }
 .calendar-today-queue { display:flex; gap:8px; overflow-x:auto; overscroll-behavior-x:contain; list-style:none; margin:0; padding:0 0 5px; }
 .calendar-today-queue[hidden] { display:none; }
 .calendar-today-queue > li { flex:0 0 auto; min-width:0; }

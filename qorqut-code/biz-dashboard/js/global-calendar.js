@@ -331,11 +331,12 @@ function calendarTodayLoad(force = false) {
   flight.then(clear, clear);
   return flight;
 }
-function calendarTodayMount(host) {
+function calendarTodayMount(host, openCalendar) {
   host.className = 'calendar-page calendar-today';
   host.setAttribute('aria-label', "Today's calendar");
-  host.innerHTML = `<p class="calendar-status" role="status">Loading calendar…</p><ul class="calendar-today-queue" aria-label="Today's events" hidden></ul>`;
+  host.innerHTML = `<p class="calendar-status" role="status">Loading calendar…</p><div class="calendar-today-row"><ul class="calendar-today-queue" aria-label="Today's events" hidden></ul>${openCalendar ? `<button type="button" class="quiet calendar-today-open" aria-label="Open today's calendar" title="Open today's calendar">${T_VIEW_ICON.calendar}</button>` : ''}</div>`;
   const status = $('.calendar-status',host), queue = $('.calendar-today-queue',host);
+  if (openCalendar) $('.calendar-today-open',host).onclick = () => openCalendar();
   let active = true, pending = false, refreshAgain = false, loadedDay, snapshot, timer, data = null, refreshError = '';
   const current = () => active && host.isConnected;
   // Paints from the last provider read, so a status change never needs another provider call.

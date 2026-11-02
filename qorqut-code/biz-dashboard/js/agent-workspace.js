@@ -31,26 +31,27 @@ const agentWorkspaceSectionIcon = key => ({overview: GLOBAL_ICONS.globe, costs: 
 // navigation or editor state. The child still uses native authenticated reads.
 function agentWorkspaceSnapshot() { return structuredClone({bizs: state.bizs, session: state.session}); }
 
-Object.assign(T_VIEW_LABEL, {business: 'Project management', global_context: 'Context', journal: 'Journal'});
+Object.assign(T_VIEW_LABEL, {business: 'Project management', global_context: 'Context', journal: 'Journal', calendar: 'Calendar'});
 Object.assign(T_VIEW_ICON, {
   business: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12a24 24 0 0 0 18 0M10 13h4"/></svg>',
   global_context: SVG_BRAIN,
   journal: T_VIEW_ICON.notes,
 });
 
-// The old standalone Context page is a view of one registered agent, selected by stable role id (Calendar and Tables are
-// shared-drawer tabs; Business management keeps its own contextual Tables section). A missing agent is an explicit
+// The old standalone Context page is a view of one registered agent, selected by stable role id (Tables is a
+// shared-drawer tab; Business management keeps its own contextual Tables section). A missing agent is an explicit
 // unavailable state, never another agent's content.
 const AGENT_PANE_DESTINATIONS = {
   context: {role: 'learning-applier', view: 'global_context', label: 'Context'},
+  calendar: {role: 'ordubashy', view: 'calendar', label: 'Calendar'},
   journal: {role: 'ordubashy', view: 'journal', label: 'Journal'},
   notes: {role: 'ordubashy', view: 'journal', label: 'Journal'},
 };
 let agentWorkspaceRequest = null, agentWorkspaceApplied = 'null';
 // Only a role whose pane offers the view may store or restore its descriptor; no role inherits another's.
-const AGENT_PANE_DESCRIPTOR_VIEWS = ['global_context', 'business', 'journal'];
+const AGENT_PANE_DESCRIPTOR_VIEWS = ['global_context', 'business', 'journal', 'calendar'];
 const agentWorkspaceDescriptorRole = (view, role) => view === 'global_context' ? role === 'learning-applier'
-  : view === 'journal' ? role === 'ordubashy'
+  : view === 'journal' || view === 'calendar' ? role === 'ordubashy'
   : view === 'business' && agentWorkspaceViews('global', role).includes('business');
 // Map an old top-level destination (including the legacy Context aliases) to its agent view and sub-route.
 function agentWorkspaceLegacyDestination(tab, hash) {
@@ -92,8 +93,7 @@ function agentWorkspaceStore(descriptor) {
 function agentWorkspaceRehydrate() {
   let descriptor = history.state?.agentPane;
   if (!descriptor || typeof descriptor !== 'object' || location.hash !== '#/global/agents') return null;
-  // Retired keys translate here: Calendar and standalone Tables are drawer tabs (a retired Tables record was always Global's).
-  if (descriptor.view === 'calendar') { agentWorkspaceStore(null); globalThis.ovOpen?.('calendar'); return null; }
+  // The retired standalone Tables key translates here (a retired Tables record was always Global's).
   if (descriptor.view === 'tables') {
     agentWorkspaceStore(null);
     globalThis.ovOpen?.('tables', {scope: 'global', id: descriptor.table, mode: descriptor.mode});
@@ -153,7 +153,7 @@ async function agentWorkspaceEscape({agent, business, table, signoffs}) {
 function agentWorkspaceViews(scope, role) {
   if (scope !== 'global') return [];
   if (role === 'learning-applier') return ['global_context'];
-  if (role === 'ordubashy') return ['journal'];
+  if (role === 'ordubashy') return ['calendar', 'journal'];
   return [];
 }
 // Ordubashy opens Focus and Learning Applier Context; a general worker opens its saved allowed browser choice or inbox/status.
@@ -277,6 +277,16 @@ function agentWorkspaceMount(p, view) {
   body.classList.add('agent-workspace-body');
   // A redirected old URL carries its sub-route and record selection to the view it opens.
   const hint = agentWorkspaceRequest?.view === view && agentWorkspaceRequest.agentId === p.agentId ? agentWorkspaceRequest : null;
+  if (view === 'calendar') {
+    // The existing Calendar page, mounted natively (no frame): it shares this document's personal-status store with Focus, and its
+    // disposer stops its polling and listeners whenever the pane leaves the view.
+    const host = document.createElement('div');
+    host.className = 'agent-calendar-host';
+    body.replaceChildren(host);
+    const dispose = calendarMount(host, {embedded: true, isCurrent: () => _agpad === p && p.view === 'calendar' && host.isConnected});
+    p.workspaceDispose = () => { dispose(); host.remove(); };
+    return true;
+  }
   if (view !== 'business') {
     const frame = agentWorkspaceFrame(view, undefined, undefined, hint);
     body.replaceChildren(frame);
