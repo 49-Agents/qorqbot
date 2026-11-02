@@ -7,5 +7,5 @@
 .wfpanel-chevron { flex: none; display: inline-flex; color: var(--fg); transition: transform .15s ease; }
 .wfpanel-collapsed .wfpanel-chevron { transform: rotate(-90deg); }
 .wfpanel-head:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; border-radius: 4px; }
-.wfpanel-steps { list-style: none; margin: 0; padding: 0 0 8px; max-height: min(30vh, 220px); overflow-y: auto; }
+.wfpanel-steps { list-style: none; margin: 0; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: 14px; background: color-mix(in srgb, var(--bg) 72%, transparent); backdrop-filter: blur(8px); max-height: min(30vh, 220px); overflow-y: auto; }
 @media (max-width: 600px) { .wfpanel-steps { max-height: 26vh; } }
