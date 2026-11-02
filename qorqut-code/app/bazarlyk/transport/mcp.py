@@ -74,6 +74,16 @@ def split_options(arguments, *, domain_fields=()):
     return {key: value for key, value in arguments.items() if key not in options}, InvocationOptions.from_mapping(options)
 
 
+def validation_hint(value, operation):
+    """Point a rejected call of a known operation to its current schema; never replaces an existing hint."""
+    error = value.get("error")
+    if (operation is None or "agent_hint" in value or value.get("status") != "error"
+            or not isinstance(error, dict) or error.get("code") != "validation_error"):
+        return value
+    return {**value, "agent_hint": (f"Read operations_describe(names={json.dumps([operation])}) for the current schema, "
+                                    "correct this call, and preserve its idempotency key if present.")}
+
+
 def tool_schema(registry, name):
     descriptor = registry.get(name)
     schema = plain(descriptor.input_schema)
@@ -353,6 +363,7 @@ class MCPTransport:
         request_id = new_id()
         detail = "full"
         canonical_name = name
+        known_operation = None
         context = None
         try:
             actor = actor or self._request_actor()
@@ -365,6 +376,7 @@ class MCPTransport:
                 raise DomainError("validation_error", "Nested transport operations are not supported")
             canonical_name = descriptor.name
             self.caller.check_operation(canonical_name)
+            known_operation = canonical_name
             arguments, detail = mcp_presentation.split_detail(canonical_name, arguments)
             arguments, tool_names = mcp_presentation.split_tool_names(canonical_name, arguments, detail)
             arguments, sections = mcp_presentation.split_sections(canonical_name, arguments, detail)
@@ -461,7 +473,7 @@ class MCPTransport:
             if presented.get("status") == "ok":
                 self._report_transport_success(operation=canonical_name, request_id=request_id,
                     actor=actor, context=context)
-            return presented
+            return validation_hint(presented, known_operation)
         except DomainError as exc:
             result = OperationResult.failure(exc, request_id=request_id)
         except Exception as exc:
@@ -474,7 +486,7 @@ class MCPTransport:
                     actor=actor, context=context)
             logger.exception("MCP operation failed: %s", request_id)
             result = OperationResult.failure(DomainError("internal_error", "The operation failed; use its correlation ID for diagnosis"), request_id=request_id)
-        return result.to_dict()
+        return validation_hint(result.to_dict(), known_operation)
 
     async def _authorize_batch(self):
         bound = self._request_actor()
