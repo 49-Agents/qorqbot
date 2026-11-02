@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Mapping
@@ -66,6 +67,15 @@ class AgenticLayer:
 
             self._workflows = Workflows(self._ctx, self.tools)
         return self._workflows
+
+    @property
+    def instance_id(self) -> str:
+        """The stable identity created by initialize; reading never binds or repairs it."""
+        with self._ctx.store.reader() as conn:
+            row = conn.execute("SELECT value FROM meta WHERE key = 'instance_id'").fetchone()
+        if row is None or not isinstance(row["value"], str) or re.fullmatch(r"inst_[0-9a-f]{32}", row["value"]) is None:
+            raise StoreError("the stored instance identity is missing or invalid", code="state_mismatch")
+        return row["value"]
 
     # ---------------------------------------------------------------- lifecycle
     @classmethod
