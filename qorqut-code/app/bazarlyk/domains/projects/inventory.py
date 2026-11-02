@@ -650,6 +650,7 @@ class Inventory:
             if not heads:
                 break
             source, kind, row, key = min(heads, key=lambda entry: order_key(entry[3]))
+            previous_after = after
             after = list(key)
             budget -= 1
             if source == "sql":
@@ -682,13 +683,16 @@ class Inventory:
                 continue
             if args.get("query") and not self._matches(item, args["query"]):
                 continue
-            if args.get("root_tasks_only") and item["type"] == "task":
-                # The parent probe may perform another canonical resolution; charge it to the same request budget.
-                # If this request is exhausted, keep the resolved item rather than losing the examined source range.
-                if budget > 0:
-                    budget -= 1
-                    if self.represented_parent(ctx, project_id, item, args, uow):
-                        continue
+            if args.get("root_tasks_only") and item["type"] == "task" and item.get("parent_id"):
+                # A Task with a parent requires its represented-parent check before it can be emitted as a root.
+                # If this request's shared canonical budget cannot complete that required check, defer the candidate:
+                # leave the cursor at the prior frontier and let the next request examine it with a fresh budget.
+                if budget <= 0:
+                    after = previous_after
+                    break
+                budget -= 1
+                if self.represented_parent(ctx, project_id, item, args, uow):
+                    continue
             items.append(self._clean(item))
         more = False
         if selects and self._window(uow, selects, params, after, 1, probe=True):
