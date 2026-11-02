@@ -779,6 +779,10 @@ def preflight(endpoint: str) -> None:
 
 
 def validate_arguments(args: list[str]) -> None:
+    try:
+        args = agent_browser.normalize_arguments(args)
+    except ValueError as exc:
+        raise BrowserError(str(exc)) from exc
     if not args or args[0] not in COMMANDS:
         raise BrowserError("Use attach, detach, or a supported page command; browser launch, shutdown and global management are disabled.")
     if args[0] in {"attach", "detach"} and len(args) != 1:

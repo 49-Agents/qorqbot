@@ -5,9 +5,18 @@ from pathlib import Path
 VERSION = "0.38.1"
 
 
+def normalize_arguments(args):
+    """Accept the dialog syntax advertised by agent-browser's blocking errors."""
+    if args and args[0] == "dialog":
+        if len(args) < 2 or args[1] not in {"accept", "dismiss"}:
+            raise ValueError("Use dialog accept [text] or dialog dismiss.")
+        return ["dialog-" + args[1], *args[2:]]
+    return args
+
+
 def command(executable, session, endpoint, directory, args):
     """Translate the prepared launcher surface without exposing lifecycle overrides."""
-    action, *values = args
+    action, *values = normalize_arguments(args)
     aliases = {
         "attach": ["connect", endpoint], "detach": ["close"],
         "goto": ["open"], "tab-list": ["tab", "list"],
