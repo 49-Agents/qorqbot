@@ -18,9 +18,9 @@ function workflowPanelMount(composer, agentId) {
   const head = document.createElement('button');
   head.type = 'button'; head.className = 'quiet wfpanel-head';
   const name = document.createElement('span'); name.className = 'wfpanel-name';
-  const now = document.createElement('span'); now.className = 'wfpanel-now';
+  const symbol = document.createElement('span'); symbol.className = 'wfpanel-symbol'; symbol.innerHTML = T_VIEW_ICON.workflow;
   const chevron = document.createElement('span'); chevron.className = 'wfpanel-chevron'; chevron.innerHTML = WORKFLOW_PANEL_ICON;
-  head.append(name, now, chevron);
+  head.append(symbol, name, chevron);
   const list = document.createElement('ol'); list.className = 'wfpanel-steps agfocus-items';
   panel.append(head, list);
   composer.before(panel);
@@ -31,7 +31,6 @@ function workflowPanelMount(composer, agentId) {
     panel.hidden = hidden;
     if (hidden) { list.replaceChildren(); return; }
     name.textContent = summary.name || 'Workflow';
-    now.textContent = open ? 'Hide steps' : 'Show steps';
     head.setAttribute('aria-expanded', String(open));
     head.setAttribute('aria-label', (open ? 'Hide steps of ' : 'Show steps of ') + name.textContent);
     panel.classList.toggle('wfpanel-collapsed', !open);
