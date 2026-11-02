@@ -35,16 +35,16 @@ const attentionQueue=(()=>{
     return [...groups.values()];
   }
   // Classify from operation metadata, never the editable title or Focus display name.
-  const messageOperations=new Set(['whatsapp_send','telegram_send','telegram_send_file','agents_message_send']);
+  const messageOperations=new Set(['telegram_send','telegram_send_file','agents_message_send']);
   const signoffPaths={
     message:'M21 11.5a8.5 8.5 0 0 1-8.5 8.5 9 9 0 0 1-4-.9L3 21l1.9-5.5a9 9 0 0 1-.9-4A8.5 8.5 0 0 1 12.5 3H13a8.5 8.5 0 0 1 8 8v.5Z',
     email:'M3 5h18v14H3zM3 5l9 7 9-7',
     approval:'M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6',
   };
   const signoffIcon=s=>{
-    const kind=/^(account_email_|email_|fastmail_)(send|reply|forward)$/.test(s.operation_name || '')
+    const kind=(window.signoffMessageRenderer?.(s.operation_name)?.email || /^(account_email_|email_)(send|reply|forward)$/.test(s.operation_name || ''))
       || ['email.send','email.batch'].includes(s.platform?.submission?.tool) ? 'email'
-      : messageOperations.has(s.operation_name) ? 'message' : 'approval';
+      : (messageOperations.has(s.operation_name) || window.signoffMessageRenderer?.(s.operation_name)?.message) ? 'message' : 'approval';
     return `<span class="attention-signoff" data-signoff-kind="${kind}" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="${signoffPaths[kind]}"/></svg></span>`;
   };
   const icon=item=>item.kind==='signoff'

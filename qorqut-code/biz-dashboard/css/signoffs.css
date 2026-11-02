@@ -129,7 +129,6 @@
 .sg-content h3 { margin: 0 0 8px; }
 .sg-content h4 { margin: 10px 0 6px; font-size: 11px; font-weight: 600; color: var(--fg-3); overflow-wrap: anywhere; }
 .sg-content-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; margin: 4px 0; overflow-wrap: anywhere; }
-.sg-whatsapp .sg-content-row { grid-template-columns: 2em minmax(0, 1fr); }
 .sg-content-label { display: block; font-size: 11px; color: var(--fg-3); margin: 4px 0 4px; }
 .sg-content-row .sg-content-label { margin: 2px 0 0; }
 .sg-content-value { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -170,10 +169,7 @@
 
 /* Keep compact message cards focused on the recipient and proposed text. */
 .sg-inline .sg-row:not(.sg-open) .sg-message-rationale { display: none; }
-.sg-whatsapp .sg-content-row { margin: 0 0 8px; }
-.sg-whatsapp .sg-text { padding: 4px 10px; border-left: 2px solid var(--line-2); background: var(--wash); }
-.sg-whatsapp .sg-text, .sg-email .sg-text { max-height: none; overflow: visible; }
-.sg-inline .sg-whatsapp { margin-bottom: 12px; }
+.sg-email .sg-text { max-height: none; overflow: visible; }
 
 /* The message itself is the edit target; retain its quiet left edge. */
 .sg textarea.sg-message-editor{display:block;box-sizing:border-box;width:100%;min-height:0;max-height:none;margin:0;resize:none;overflow:hidden;border:0;border-left:2px solid var(--line-2);border-radius:0;font:inherit;line-height:1.6;color:var(--fg);background:var(--wash);cursor:text}
