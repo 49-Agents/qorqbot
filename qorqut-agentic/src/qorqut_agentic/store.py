@@ -17,7 +17,7 @@ from typing import Iterator
 
 from .errors import AgenticError, StoreError
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DB_NAME = "state.sqlite3"
 LOCK_NAME = "authoring.lock"
 SCRATCH_DIR = "scratch"
@@ -257,6 +257,8 @@ class Store:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.executescript(DDL)
             conn.execute("BEGIN IMMEDIATE")
+            from .overseer.schema import install
+            install(conn)
             for key, value in (
                 ("schema_version", str(SCHEMA_VERSION)),
                 ("root_path", root_path),
@@ -282,7 +284,7 @@ class Store:
         if meta.get("schema_version") != str(SCHEMA_VERSION):
             raise StoreError(
                 f"unsupported state schema version {meta.get('schema_version')!r}",
-                code="state_mismatch",
+                code="migration_required" if meta.get("schema_version") == "1" else "state_mismatch",
                 details={"found": meta.get("schema_version"), "supported": SCHEMA_VERSION},
             )
         if meta.get("root_path") != root_path:
@@ -296,6 +298,28 @@ class Store:
                 conn.execute("UPDATE meta SET value = ? WHERE key = 'root_path'", (root_path,))
             meta["root_path"] = root_path
         return meta
+
+    def migrate_v1_to_v2(self, root_path: str, completed_at: str) -> dict[str, object]:
+        """Explicit offline upgrade; DDL, version and receipt commit together."""
+        if not self.exists():
+            raise StoreError("no initialized agentic state", code="store_not_initialized")
+        with self.lock(exclusive=True):
+            with self.transaction() as conn:
+                meta = {row["key"]: row["value"] for row in conn.execute("SELECT key, value FROM meta")}
+                if meta.get("root_path") != root_path:
+                    raise StoreError("the state store is bound to a different authoring root", code="state_mismatch")
+                if meta.get("schema_version") == "2":
+                    receipt = conn.execute("SELECT completed_at FROM overseer_migrations WHERE from_version = 1 AND to_version = 2").fetchone()
+                    if receipt is None:
+                        raise StoreError("state was not migrated from schema 1", code="state_mismatch")
+                    return {"from_version": 1, "to_version": 2, "completed_at": receipt["completed_at"], "replayed": True}
+                if meta.get("schema_version") != "1":
+                    raise StoreError("unsupported state schema version", code="state_mismatch", details={"found": meta.get("schema_version")})
+                from .overseer.schema import install
+                install(conn)
+                conn.execute("INSERT INTO overseer_migrations VALUES (1, 2, ?)", (completed_at,))
+                conn.execute("UPDATE meta SET value = '2' WHERE key = 'schema_version'")
+                return {"from_version": 1, "to_version": 2, "completed_at": completed_at, "replayed": False}
 
     # -- authoring lock ---------------------------------------------------------
     @contextmanager

@@ -30,10 +30,17 @@ OPERATIONS = {
     **{f"tools.{name}": ("tools", name) for name in ("invoke", "test", "receipt", "reconcile")},
     **{f"workflows.{name}": ("workflows", name) for name in
        ("start", "get", "list", "supply_arguments", "start_step", "complete_step", "pause", "resume", "cancel")},
+    **{f"overseer.proposals.{name}": ("overseer.proposals", name) for name in ("record", "get", "list")},
+    **{f"overseer.deltas.{name}": ("overseer.deltas", name) for name in ("create", "revise", "get", "list")},
+    **{f"overseer.{group}.{name}": (f"overseer.{group}", name)
+       for group in ("coverage", "materials") for name in ("record", "get")},
+    **{f"overseer.inputs.{name}": ("overseer.inputs", name) for name in ("bind", "get")},
+    **{f"overseer.review.{name}": ("overseer.review", name) for name in ("save_batch", "get_batch")},
+    **{f"overseer.applications.{name}": ("overseer.applications", name) for name in ("get", "list", "save_plan")},
     "lifecycle.recovery_status": (None, "recovery_status"),
     "lifecycle.recover": (None, "recover"),
 }
-LIFECYCLE_OPERATIONS = {"lifecycle.initialize", "lifecycle.open"}
+LIFECYCLE_OPERATIONS = {"lifecycle.initialize", "lifecycle.open", "lifecycle.migrate_state"}
 
 
 def _object(pairs):
@@ -107,7 +114,11 @@ def dispatch(layer: AgenticLayer, request: Any) -> Any:
     if operation in LIFECYCLE_OPERATIONS:
         raise InvalidRequestError("lifecycle initialize/open require explicit CLI paths")
     component, name = OPERATIONS[operation]
-    return _call(getattr(getattr(layer, component) if component else layer, name), arguments)
+    target = layer
+    if component:
+        for part in component.split("."):
+            target = getattr(target, part)
+    return _call(getattr(target, name), arguments)
 
 
 def load_runtimes(path: str | None) -> dict[str, LocalProcessRuntime]:
@@ -133,6 +144,10 @@ def execute(request: Any, *, root: str, state: str, git_executable: str | None =
             runtimes: Mapping[str, Any] | None = None) -> Any:
     operation, arguments = request_parts(request)
     options = {"git_executable": git_executable, "runtimes": runtimes}
+    if operation == "lifecycle.migrate_state":
+        if arguments:
+            raise InvalidRequestError("migration takes no arguments")
+        return AgenticLayer.migrate_state(root, state)
     if operation in LIFECYCLE_OPERATIONS:
         allowed = {"git_user"} if operation == "lifecycle.initialize" else {"rebind_root"}
         if set(arguments) - allowed:

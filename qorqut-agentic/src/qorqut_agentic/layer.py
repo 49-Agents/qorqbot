@@ -58,6 +58,8 @@ class AgenticLayer:
         self.catalog = CatalogReader(ctx)
         self.tools = Tools(ctx)
         self._workflows = None
+        from .overseer import Overseer
+        self.overseer = Overseer(ctx, lambda: self.workflows)
 
     @property
     def workflows(self):
@@ -78,6 +80,15 @@ class AgenticLayer:
         return row["value"]
 
     # ---------------------------------------------------------------- lifecycle
+    @classmethod
+    def migrate_state(cls, root: str | os.PathLike[str], state: str | os.PathLike[str], *,
+                      clock: Clock | None = None) -> dict[str, object]:
+        """Upgrade schema 1 explicitly while the instance is offline."""
+        root_path, state_path = _real(root, "root"), _real(state, "state")
+        if not root_path.is_dir() or _inside(state_path, root_path) or _inside(root_path, state_path):
+            raise StoreError("invalid or overlapping authoring root and state", code="invalid_state_path")
+        return Store(state_path).migrate_v1_to_v2(str(root_path), iso((clock or utc_now)()))
+
     @classmethod
     def initialize(
         cls,
