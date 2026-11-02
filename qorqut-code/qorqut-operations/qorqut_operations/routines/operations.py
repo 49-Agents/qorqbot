@@ -180,12 +180,10 @@ class RoutineOperations:
             return [row["business_id"]]
         if row["target"] == "root":
             return [None]
-        businesses = [x[0] for x in uow.connection.execute("SELECT id FROM businesses ORDER BY id")
-                      if x[0] in ctx.allowed_business_ids]
-        # One schedule/run group, with isolated outputs and cursors per workspace.
-        if row["job_kind"] == "learnings.extract":
-            return [None, *businesses]
-        return businesses
+        # One schedule/run group, with isolated outputs and cursors per business. A saved target keeps its meaning: an
+        # each-business routine never also runs in Global, and a root one never fans out.
+        return [x[0] for x in uow.connection.execute("SELECT id FROM businesses ORDER BY id")
+                if x[0] in ctx.allowed_business_ids]
 
     def add_run(self, builder, row, business_id, uow, *, trigger="manual", slot=None, missed=0, group_id=None):
         run_id, job_id = new_id(), new_id()

@@ -79,8 +79,6 @@ def review_scope(context, plan, exceptions=()):
     """The review destination of ``plan`` from its target ownership; business content in a global plan is
     refused unless a trusted exception permits that exact resource."""
     business = plan.target_namespace.removeprefix("business:") if plan.target_namespace.startswith("business:") else None
-    if plan.target_namespace.startswith("agent:"):
-        business = context.home_business_id
     scope = {"kind": "business", "business_id": business} if business else {"kind": "global"}
     for change in plan.changes:
         target = change.resource

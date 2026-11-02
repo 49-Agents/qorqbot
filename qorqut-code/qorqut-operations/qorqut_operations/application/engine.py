@@ -8,6 +8,7 @@ import json
 
 from qorqut_operations.contracts import (ChangeSet, DomainError, InvocationContext, InvocationOptions,
     OperationResult, PolicyDecision, canonical_hash, plain)
+from qorqut_operations.global_agents import effective_business_ids, global_profile
 from qorqut_operations.storage.receipts import ApplyReceipts, IdempotencyReceipts
 from .delegation import authorize_delegation, creation_groups
 from .registry import OperationRegistry
@@ -117,20 +118,22 @@ class Application:
         if actor is None or not actor["active"] or actor["kind"] != current.principal_kind:
             raise DomainError("invalid_principal", "Principal is missing or inactive")
         if current.principal_kind == "agent":
-            profile = uow.connection.execute("SELECT status, revision, home_business_id, profile_json FROM agent_profiles WHERE agent_id = ?",
+            profile = uow.connection.execute("SELECT status, revision FROM agent_profiles WHERE agent_id = ?",
                                              (current.principal_id,)).fetchone()
             if profile is None or profile["status"] != "active":
                 raise DomainError("inactive_agent", "Agent profile is missing or inactive")
+            found = global_profile(uow.connection, current.principal_id)
+            # Only current supported globals act; a business-home, unsupported-role, inactive or malformed profile is
+            # history, never an executable registration.
+            if found is None or current.home_business_id is not None:
+                raise DomainError("forbidden", "Only active global agents may invoke operations")
+            scope = found["profile"]["scope"]
             if profile["revision"] != current.profile_revision:
                 raise DomainError("context_refresh_required", "Agent configuration changed", retryable=True,
                                   current_revision=profile["revision"])
-            scope = json.loads(profile["profile_json"]).get("scope", {})
-            allowed = ({profile["home_business_id"]} if profile["home_business_id"]
-                       else set(scope.get("allowed_business_ids", ())))
-            if not current.allowed_business_ids <= allowed or current.home_business_id != profile["home_business_id"]:
+            # A global agent's business access is the active directory in this transaction, never its stored list.
+            if not current.allowed_business_ids <= effective_business_ids(uow.connection, current.principal_id):
                 raise DomainError("forbidden", "Invocation scope is not granted by the current profile")
-            if current.global_capabilities and scope.get("kind") != "ecosystem":
-                raise DomainError("forbidden", "Business agents cannot use global capabilities")
             if not current.global_capabilities <= set(scope.get("global_capabilities", ())):
                 raise DomainError("forbidden", "Invocation global capabilities are not granted by the current profile")
         uow.actor_id = current.principal_id
@@ -309,8 +312,8 @@ class Application:
             elif resource.namespace == "global":
                 if resource in written and plan.target_namespace != "global":
                     raise DomainError("forbidden", "Business operations cannot mutate global resources")
-            elif resource.namespace == "ecosystem" and plan.target_namespace == "global":
-                pass
+            elif resource.namespace == "ecosystem" and (plan.target_namespace == "global" or resource not in written):
+                pass  # A business plan may pin, never write, an ecosystem record such as a global assignee's profile.
             elif resource.namespace and resource.namespace != plan.target_namespace:
                 raise DomainError("forbidden", "Prepared resource namespace differs from operation scope")
             elif resource.resource_type in tables and tables[resource.resource_type].scope_column:
@@ -515,8 +518,6 @@ class Application:
                 if options.supersedes_signoff_id and not needs_signoff:
                     raise DomainError("validation_error", "Replacing a signoff requires the current policy to stage a new proposal; policy now permits immediate execution")
                 review_business = namespace.removeprefix("business:") if namespace.startswith("business:") else None
-                if namespace.startswith("agent:"):
-                    review_business = context.home_business_id
                 if options.review_business_id and options.review_business_id != review_business:
                     raise DomainError("validation_error", "Review destination is determined by resource ownership")
                 review_scope = self._review_scope(context, plan)

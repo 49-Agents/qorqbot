@@ -1,8 +1,10 @@
 """Who may read, record and change an Action. Storage namespace owns an Action; business links only widen reading.
 
-These are the retained v1 rules, moved as they were: a business agent records for its home business; the owner and
-granted global agents use Global storage; a Global business-operational Action names the businesses allowed to read
-its shared text. Recorder, owner and grants decide who may change one, never a link or a tag."""
+These are the retained v1 rules, moved as they were: a business-selected caller without ``read_global_context`` records
+for that business; the owner and granted global agents use Global storage; a Global business-operational Action names the
+businesses allowed to read its shared text. Only global agents act, so no caller has a home business here; Actions that
+business-home agents recorded remain history in their owning scope. Recorder, owner and grants decide who may change
+one, never a link or a tag."""
 
 from __future__ import annotations
 
@@ -20,10 +22,9 @@ def is_owner(ctx, uow) -> bool:
 
 def reader_scope(ctx, uow) -> dict:
     """Which memberships a read may see; storage namespace never grants scope."""
-    if ctx.home_business_id is not None:
-        return {"kind": "business", "businesses": frozenset({ctx.home_business_id}), "global_storage": False}
     if ctx.business_id is not None:
-        # A non-root business invocation (for example a business member) sees that business only.
+        # A business-selected invocation (a business member, or a global agent working in that business) sees that
+        # business only.
         return {"kind": "business", "businesses": frozenset({ctx.business_id}), "global_storage": False}
     if ctx.principal_kind == "human":
         if not is_owner(ctx, uow):
@@ -31,13 +32,12 @@ def reader_scope(ctx, uow) -> dict:
         return {"kind": "owner", "businesses": frozenset(ctx.allowed_business_ids), "global_storage": True}
     if ctx.principal_kind == "agent" and "read_global_context" in ctx.global_capabilities:
         return {"kind": "ecosystem", "businesses": frozenset(ctx.allowed_business_ids), "global_storage": True}
-    raise DomainError("forbidden", "Actions require an owner, a business agent or an authorized global agent")
+    raise DomainError("forbidden", "Actions require an owner, a business member or an authorized global agent")
 
 
 def action_namespace(ctx, args) -> str:
-    """Business agents record in their home business; owner and ecosystem invocations use Global storage."""
-    if ctx.home_business_id is not None:
-        return "business:" + ctx.home_business_id
+    """A business-selected caller without ``read_global_context`` records in that business; owner and granted global
+    invocations use Global storage."""
     if ctx.business_id and "read_global_context" not in ctx.global_capabilities:
         return "business:" + ctx.business_id
     return "global"
@@ -98,12 +98,12 @@ def scope_clause(scope):
 def classify(ctx, uow, category, business_ids, *, owner_category_optional=True):
     """Resolve ``(category, businesses)`` for the caller; any inaccessible business rejects the whole call."""
     requested = list(dict.fromkeys(business_ids or []))
-    home = ctx.home_business_id or (ctx.business_id if action_namespace(ctx, {}) != "global" else None)
+    home = ctx.business_id if action_namespace(ctx, {}) != "global" else None
     if home is not None:
         if category not in (None, "business-operational"):
-            raise DomainError("forbidden", "Business actions are business-operational for your home business")
+            raise DomainError("forbidden", "Business actions are business-operational for the selected business")
         if requested and requested != [home]:
-            raise DomainError("forbidden", "Business agents cannot select other or additional businesses")
+            raise DomainError("forbidden", "Business-stored actions cannot select other or additional businesses")
         return "business-operational", [home]
     if ctx.principal_kind == "agent":
         if category is None:

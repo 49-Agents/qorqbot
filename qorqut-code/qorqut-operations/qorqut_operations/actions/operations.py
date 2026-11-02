@@ -7,7 +7,8 @@ the storage namespace, exactly as in v1, and a withdrawn Action stays readable w
 
 An Action's discussion is the canonical item discussion (``qorqut_operations.discussion``). ``actions_thread_get`` is
 authorized exactly like ``actions_get``, retained business read links included. ``actions_comment`` is a separate
-mutation that needs its own policy and membership of the Action's owning namespace: a read link is never a write.
+mutation that needs its own policy and participation in the Action's owning namespace (an active human member, or the
+owner for Global, or an active global agent invoking in that namespace): a read link is never a write.
 A comment writes one ``thread_messages`` row, the commenter's (and a relay's represented speaker's) default follow and
 one optional event; it creates no Action revision and no Context input."""
 
@@ -54,9 +55,10 @@ RECORD_DESCRIPTION = (
     "Record one atomic COMPLETED result (not a task description, plan, proposal, status change or failed attempt) "
     "in the canonical action log. Text is the result in at most 20 words for agents; no task, title or time is "
     "required. Omitted real_time means now; supplied real_time is always San Juan (America/Puerto_Rico) time, "
-    "YYYY-MM-DD or YYYY-MM-DDTHH. Business agents: text only; category and your home business are inferred. "
-    "Global agents: category is required (global-operational or business-operational); business-operational "
-    "needs business_ids of currently authorized businesses, and one inaccessible business rejects the whole call. "
+    "YYYY-MM-DD or YYYY-MM-DDTHH. Agents holding read_global_context record in Global: category is required "
+    "(global-operational or business-operational); business-operational needs business_ids of currently authorized, "
+    "active businesses, and one inaccessible business rejects the whole call. An agent without read_global_context "
+    "records only with a business selected: text only; the action is business-operational for that business. "
     "Tags come from the shared tag catalog (tags_list); a new label is created by using it, and a tag grants no access. "
     "related_objects are optional suggestions of Context objects the result concerns. Every accepted record is queued for "
     "Context as revision 1. You are the performer and recorder of your own work; never record another actor's work as "
@@ -76,16 +78,17 @@ WITHDRAW_DESCRIPTION = (
     "Action and its history stay readable, marked withdrawn; the withdrawal is queued for Context as a removal and the "
     "Action accepts no later change.")
 LIST_DESCRIPTION = ("List authorized completed actions by occurrence (newest first) with date (San Juan), category, "
-                    "business, performer and tag filters; withdrawn actions are omitted unless requested. Business agents see "
-                    "actions linked to their home business; Global agents see global-operational and their accessible "
-                    "business-operational actions. " + models.SHARING)
+                    "business, performer and tag filters; withdrawn actions are omitted unless requested. With a business "
+                    "selected you see the actions linked to that business; without one, agents holding read_global_context "
+                    "see global-operational and their accessible business-operational actions. " + models.SHARING)
 THREAD_DESCRIPTION = (
     "Read one bounded page of an authorized action's discussion (oldest first within the page; next_cursor continues to older "
     "messages). Authorized exactly like actions_get: unauthorized or unknown actions are not found, and a business that can read a "
     "shared action reads its discussion. Reading never follows the action. " + models.SHARING)
 COMMENT_DESCRIPTION = (
     "Add a comment to an action's discussion (it changes neither the action nor its revisions, and queues nothing for Context). "
-    "Needs its own permission and membership of the action's owning namespace: being linked to an action is read access only. "
+    "Needs its own permission and an active participant invoking in the action's owning namespace: being linked to an action "
+    "is read access only. "
     "You follow the discussion by default unless you explicitly unfollowed it. The registered coordinator may relay an explicit "
     "installation-owner statement or another agent's report with relay; the recorder is always kept and a relay is never approval.")
 FOLLOW = schema({"action_id": ACTION_ID, "following": {"type": "boolean"}}, ("action_id", "following"))

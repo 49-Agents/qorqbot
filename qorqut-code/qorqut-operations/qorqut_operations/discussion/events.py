@@ -6,8 +6,8 @@ dependent work, the owner-task coordinator, a coordinator notice) or *optional* 
 two sets are independent: an optional follower who has unfollowed never receives optional deliveries, and no follow
 state ever removes a required one. The acting principal is never woken by its own change, exactly as in v1.
 
-Recipient eligibility is v1's: an active registered agent whose profile reaches the record's namespace and who is
-still an active member of that business (a Global record needs an ecosystem agent holding global capabilities).
+Recipient eligibility: only an active global agent is addressed, in Global when it holds a global capability and in
+every active business without a membership row. Business-home profiles are never addressed.
 The writer runs inside the caller's write transaction; a failure rolls the record and its notifications back
 together."""
 
@@ -16,29 +16,28 @@ from __future__ import annotations
 from collections.abc import Iterable
 import json
 
+from qorqut_operations.business_lifecycle import active_business_ids
 from qorqut_operations.contracts import DomainError, utc_now
+from qorqut_operations.global_agents import global_profile
 
 SUMMARY_LIMIT = 500
 
 
 def eligible_agents(uow, business_id, agents: Iterable[str]) -> set[str]:
-    """The registered agents that may currently be addressed about a record of this namespace (v1's filter)."""
-    active = set()
+    """The registered agents that may currently be addressed about a record of this namespace.
+
+    Only an active global agent is addressable: in Global with a global capability, and in every active business without
+    a membership row. A business-home or non-ecosystem profile is never addressable, whatever its membership rows say."""
+    active, businesses = set(), None
     for agent in sorted({a for a in agents if a}):
-        profile = uow.connection.execute(
-            "SELECT a.home_business_id, a.profile_json FROM agent_profiles a JOIN principals p ON p.id=a.agent_id "
-            "WHERE a.agent_id=? AND a.status='active' AND p.active=1 AND p.kind='agent'", (agent,)).fetchone()
-        if profile is None:
+        found = global_profile(uow.connection, agent)
+        if found is None:
             continue
-        scope = json.loads(profile["profile_json"]).get("scope", {})
         if business_id is None:
-            allowed = scope.get("kind") == "ecosystem" and bool(scope.get("global_capabilities"))
+            allowed = bool(found["profile"]["scope"].get("global_capabilities"))
         else:
-            allowed = business_id == profile["home_business_id"] or business_id in scope.get("allowed_business_ids", [])
-            member = uow.connection.execute(
-                "SELECT active FROM business_memberships WHERE business_id=? AND principal_id=?",
-                (business_id, agent)).fetchone()
-            allowed = allowed and bool(member and member["active"])
+            businesses = active_business_ids(uow.connection) if businesses is None else businesses
+            allowed = business_id in businesses
         if allowed:
             active.add(agent)
     return active

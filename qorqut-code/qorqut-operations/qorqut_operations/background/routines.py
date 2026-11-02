@@ -55,7 +55,9 @@ class RoutineScheduler:
                         business_id=row["business_id"], allowed_business_ids=businesses & memberships)
                     targets = [target for target in self.operations.targets(context, row, uow)
                         if target is None or target in context.allowed_business_ids]
-                    if any(("business" if target else "global") not in program.scope_kinds for target in targets):
+                    # The saved target itself must suit the program, even when no business is currently reachable.
+                    kinds = {"global" if row["target"] == "root" else "business", *("business" if target else "global" for target in targets)}
+                    if not kinds <= set(program.scope_kinds):
                         raise DomainError("forbidden", "Routine program does not support its registered target")
                     slot = self.due(row, now)
                 except (DomainError, RoutineError) as exc:

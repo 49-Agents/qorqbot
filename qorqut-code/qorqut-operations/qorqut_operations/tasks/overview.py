@@ -7,6 +7,7 @@ from dataclasses import replace
 from qorqut_operations.application.plans import PAGE, page, schema, timestamp
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.global_agents import effective_business_ids, is_global_agent
 from qorqut_operations.roles import ORDUBASHY_ROLE
 from qorqut_operations.tags.catalog import labels_by_item
 from qorqut_operations.tasks.models import snooze_view
@@ -37,8 +38,8 @@ class TaskOverview:
     def read(self, ctx, args, options, uow):
         ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
         profile = uow.repository("agent_profiles", business_id=None).get(ctx.principal_id)
-        if (ctx.principal_kind != "agent" or not profile or profile["status"] != "active"
-                or profile["profile_json"]["role"]["id"] != ORDUBASHY_ROLE or profile["profile_json"]["scope"]["kind"] != "ecosystem"):
+        if (ctx.principal_kind != "agent" or not profile or not is_global_agent(uow.connection, ctx.principal_id)
+                or profile["profile_json"]["role"]["id"] != ORDUBASHY_ROLE):
             raise DomainError("forbidden", "Task overview requires an active ecosystem Ordubashy")
         ctx = task_context(ctx, {"scope": "global"}, uow)
         installation = uow.repository("installation").get("service")
@@ -51,12 +52,9 @@ class TaskOverview:
         filters = {"assignee": args.get("assignee", "both"), "snooze_filter": args.get("snooze_filter", "all"),
                    "include_closed": args.get("include_closed", False)}
         matches, scopes = [], {}
-        for business_id in [None, *sorted(ctx.allowed_business_ids)]:
+        # The caller is an active global agent: its businesses are the active directory, not membership rows.
+        for business_id in [None, *sorted(ctx.allowed_business_ids & effective_business_ids(uow.connection, ctx.principal_id))]:
             selected = replace(ctx, business_id=business_id, review_business_id=business_id)
-            if business_id is not None:
-                membership = uow.repository("business_memberships", business_id=business_id).get(ctx.principal_id)
-                if not membership or not membership["active"]:
-                    continue
             self.app.authorize(selected, descriptor, (), uow, namespace="business:" + business_id if business_id else "global")
             business = uow.repository("businesses").get(business_id) if business_id else None
             if business_id and not business:

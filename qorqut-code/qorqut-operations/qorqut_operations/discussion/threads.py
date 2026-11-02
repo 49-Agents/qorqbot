@@ -2,7 +2,7 @@
 
 A message is append-only. It records the actual recorder (the authenticated principal that wrote it) and the
 attributed speaker; they differ only for a supported relay, where the registered coordinator reports an explicit
-statement of the installation owner or a report from another registered agent. That is attribution, never a grant:
+statement of the installation owner or a report from another current global agent. That is attribution, never a grant:
 the relay carries no permission to decide, approve or write anything the recorder could not write itself, and the
 operation that carries it is authorized for the recorder exactly as for any other comment.
 
@@ -19,6 +19,7 @@ from qorqut_operations.application.plans import IDENTITY, PAGE, page, page_posit
 from qorqut_operations.contracts import DomainError, new_id, utc_now
 from qorqut_operations.conversations import author, normalize_summary
 from qorqut_operations.discussion.follows import ThreadItem
+from qorqut_operations.global_agents import global_profile
 from qorqut_operations.roles import ORDUBASHY_ROLE
 
 BODY = {"type": "string", "minLength": 1, "maxLength": 20000}
@@ -56,13 +57,9 @@ class DiscussionReferences:
 
 
 def _registered_coordinator(uow, principal_id) -> bool:
-    row = uow.connection.execute(
-        "SELECT a.profile_json FROM agent_profiles a JOIN principals p ON p.id=a.agent_id "
-        "WHERE a.agent_id=? AND a.status='active' AND p.active=1 AND p.kind='agent'", (principal_id,)).fetchone()
-    if row is None:
-        return False
-    profile = json.loads(row["profile_json"])
-    return profile.get("role", {}).get("id") == ORDUBASHY_ROLE and profile.get("scope", {}).get("kind") == "ecosystem"
+    """Whether the principal is a current global holding the Ordubashy role (a current global has an ecosystem scope)."""
+    found = global_profile(uow.connection, principal_id)
+    return found is not None and found["profile"]["role"]["id"] == ORDUBASHY_ROLE
 
 
 def attribution(ctx, uow, relay: Mapping | None) -> tuple[str, dict]:
@@ -80,12 +77,10 @@ def attribution(ctx, uow, relay: Mapping | None) -> tuple[str, dict]:
         stored = {"kind": kind, "owner_id": relay["owner_id"], "statement_text": relay["statement_text"]}
         speaker = relay["owner_id"]
     elif kind == "agent_report":
+        # A new report names another current global; a stored report keeps its attribution whatever its speaker became.
         speaker = relay["agent_id"]
-        agent = uow.connection.execute(
-            "SELECT 1 FROM agent_profiles a JOIN principals p ON p.id=a.agent_id WHERE a.agent_id=? AND a.status='active' "
-            "AND p.active=1 AND p.kind='agent'", (speaker,)).fetchone()
-        if speaker == ctx.principal_id or agent is None:
-            raise DomainError("validation_error", "An agent report must name another active registered agent")
+        if speaker == ctx.principal_id or global_profile(uow.connection, speaker) is None:
+            raise DomainError("validation_error", "An agent report must name another current global agent")
         stored = {"kind": kind, "agent_id": speaker, "report_text": relay["report_text"]}
     else:
         raise DomainError("validation_error", "Unknown relay kind")
