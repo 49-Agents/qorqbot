@@ -527,7 +527,7 @@ function agfocusProjectWorkRow(parent,project,item) {
   return {id:agfocusWorkId(parent,'work',source),revision:item.revision || 1,label:item.label || 'Task',source,resolved_source:source,
     state:item.state,source_revision:item.revision,unavailable:false,archived:!!item.archived,
     conversation:{type:'task',id:item.id,business_id:item.business_id ?? null},references:[],
-    _workParent:parent.id,_workBusinessId:item.business_id,_workKind:'project',_depth:(parent._depth || 0)+1};
+    _workParent:parent.id,_workBusinessId:project.business_id ?? project.id,_workKind:'project',_depth:(parent._depth || 0)+1};
 }
 function agfocusBuildProjectWork(item,project,snapshot) {
   const seen=new Set([agfocusWorkKey(project)]),items=[],references=[];
@@ -876,8 +876,10 @@ function agfocusWorkspaceUnread(p,source,unread) {
 }
 function agfocusWorkspaceTitle(p,record) {
   if(!agfocusActive(p)||!record)return;
-  for(const item of agfocusWorkspaceRows(p,record)) {
-    if(item.source?.type!=='project')continue;
+  for(const item of agfocusWorkspaceRows(p,record.source || record)) {
+    if((item.resolved_source || item.source)?.type!=='project')continue;
+    if(item.resolved_source)item.resolved_source={...item.resolved_source,label:record.label};
+    if(item.source)item.source={...item.source,label:record.label};
     item.label=record.label;
     const node=p.focusCards.get(item.id);
     if(node)agfocusText(node.querySelector('.ttl'),record.label);

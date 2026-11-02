@@ -141,7 +141,7 @@ async function taskLinksMount(host,biz,task,{open=taskLinkOpen}={}) {
     for(const link of items){
       const wrap=document.createElement('span');wrap.className='task-link-pair';
       const chip=document.createElement('button');chip.type='button';chip.className='chip task-link-chip';
-      chip.innerHTML=taskTypeIcon(link.task_type)+esc(tChipLabel(link.title))+customerStateChip(link);
+      chip.innerHTML=taskTypeIcon(link.task_type)+esc(link.title)+customerStateChip(link);
       chip.title=link.title+' · '+(link.business_name || 'Global');
       chip.onclick=()=>Promise.resolve(open(link)).catch(e=>toast(uiFailure(e,{load:true})));
       const remove=document.createElement('button');remove.type='button';remove.className='quiet task-link-remove';remove.textContent='×';remove.setAttribute('aria-label','Unlink '+link.title);

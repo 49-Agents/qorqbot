@@ -7,7 +7,11 @@ let recordPanelSequence = 0;
 
 // Global reads of relationships and Context items name their scope; Task operations never do.
 const recordScope = biz => biz ? {} : {scope: 'global'};
-const recordTaskLink = (ctx, task) => ({task_id: task.id, business_id: task.business_id ?? null, business_slug: ctx.biz, title: task.title, task_type: task.task_type, status: task.status});
+const recordTaskLink = (ctx, task) => {
+  // Explicit null means Global; an omitted scope inherits the parent Task's scope.
+  const business_id = Object.hasOwn(task, 'business_id') ? task.business_id : (ctx.task?.business_id ?? null);
+  return {task_id: task.id, business_id, business_slug: business_id == null ? null : ctx.biz, title: task.title, task_type: task.task_type, status: task.status};
+};
 
 async function recordLoadTask(ctx) {
   return (await workCall(ctx.biz, 'tasks_get', {task_id: ctx.task.id})).task;
@@ -78,10 +82,17 @@ function recordChildren(box, ctx) {
       if (own !== generation || !ctx.current()) return;
       if (!next) list.replaceChildren();
       for (const child of data.tasks || []) {
-        const chip = recordNode('button', 'chip task-link-chip'); chip.type = 'button'; chip.title = child.title;
-        chip.innerHTML = (taskShowsState(child) ? `<span class="task-state-chip"><span class="sdot ${esc(child.status)}" aria-hidden="true"></span>${esc(T_LABEL[child.status] || child.status)}</span> ` : taskTypeIcon(child.task_type)) + esc(tChipLabel(child.title)) + customerStateChip(child);
-        chip.onclick = () => Promise.resolve(ctx.openTask(recordTaskLink(ctx, child))).catch(error => toast(uiFailure(error, {load: true})));
-        list.append(chip, ' ');
+        // Full-width, fully wrapped rows: a Story's hierarchy is the dashboard's primary content.
+        const row = recordNode('button', 'record-child-row'); row.type = 'button'; row.title = child.title;
+        const meta = recordNode('span', 'record-child-meta');
+        if (taskShowsState(child)) meta.innerHTML = `<span class="task-state-chip"><span class="sdot ${esc(child.status)}" aria-hidden="true"></span>${esc(T_LABEL[child.status] || child.status)}</span>`; else meta.innerHTML = taskTypeIcon(child.task_type);
+        const state = recordNode('span', 'record-child-state', T_LABEL[child.status] || child.status || '');
+        if (!taskShowsState(child)) meta.append(state);
+        const name = recordNode('strong', 'record-child-title', child.title || 'Untitled task');
+        row.append(meta, name);
+        if (customerStateChip(child)) row.insertAdjacentHTML('beforeend', customerStateChip(child));
+        row.onclick = () => Promise.resolve(ctx.openTask(recordTaskLink(ctx, child))).catch(error => toast(uiFailure(error, {load: true})));
+        list.append(row);
       }
       cursor = data.next_cursor || null; more.hidden = !cursor;
       empty.hidden = !!list.children.length;
@@ -116,7 +127,11 @@ function recordRelated(box, ctx, kind) {
       if (!matches(other)) continue;
       const row = recordNode('div', 'record-link');
       const open = recordNode('button', 'quiet record-link-open', other.label || 'Unavailable'); open.type = 'button';
-      open.onclick = () => Promise.resolve(email ? historicalEmailOpen(other.label) : recordOpenContext(ctx, other)).catch(failure => toast(uiFailure(failure, {load: true})));
+      open.onclick = () => {
+        // Presence selects the route: a callback that returns nothing must never fall through to a modal.
+        const routed = ctx.openRelated ? ctx.openRelated(other) : (email ? historicalEmailOpen(other.label) : recordOpenContext(ctx, other));
+        return Promise.resolve(routed).catch(failure => toast(uiFailure(failure, {load: true})));
+      };
       const kindLabel = recordNode('span', 'muted', email ? 'Historical email' : contextItemType(other));
       const remove = recordNode('button', 'quiet record-link-remove', 'Unlink'); remove.type = 'button'; remove.setAttribute('aria-label', 'Unlink ' + (other.label || 'item'));
       let key = null;
@@ -172,59 +187,80 @@ function recordContextModal(title, body, onOpen) {
 function recordUnavailable(title, message = 'This item is unavailable. It may have been removed, or you may not have access to it.') {
   recordContextModal(title, `<p class="muted" role="status" data-record-unavailable>${esc(message)}</p>`);
 }
-async function recordOpenContext(ctx, other) {
+async function recordOpenContext(ctx, other, options = {}) {
   if (recordIsEmail(other)) return historicalEmailOpen(other.label);
   const title = other.label || 'Context';
+  const host = options.host || null;
+  const unavailable = message => {
+    if (host) {
+      host.replaceChildren(recordNode('p', 'muted', message || 'This item is unavailable. It may have been removed, or you may not have access to it.'));
+      host.firstChild.dataset.recordUnavailable = '';
+      return {dirty: () => false, dispose() { host.replaceChildren(); }};
+    }
+    return recordUnavailable(title, message);
+  };
   let item;
   try {
     item = (await workCall(ctx.biz, 'context_items_get', {item: {type: other.type, id: other.id}, ...recordScope(ctx.biz)})).item;
   } catch (failure) {
     if (!ctx.current()) return;
-    if (['not_found', 'forbidden', 'policy_denied'].includes(failure.code)) return recordUnavailable(title);
+    if (['not_found', 'forbidden', 'policy_denied'].includes(failure.code)) return unavailable();
     throw failure;
   }
   if (!ctx.current()) return;
-  if (!item) return recordUnavailable(title);
+  if (!item) return unavailable();
   const kind = item.kind || item.subtype || '';
-  const isDocument = (item.resource_type || other.resource_type) === 'documents' || ['material', 'topic'].includes(item.type || other.type);
+  const isDocument = (item.resource_type || other.resource_type) === 'documents' || ['document', 'material', 'topic'].includes(item.type || other.type);
   if (isDocument && RECORD_SOURCE_KINDS.includes(kind) && typeof srcMountSource === 'function') {
     const scope = ctx.biz ? {kind: 'business', id: ctx.biz} : {kind: 'root'};
+    if (host) {
+      const box = recordNode('div', 'record-context-source');
+      host.replaceChildren(box);
+      srcMountSource(box, scope, other.id, {live: () => box.isConnected});
+      return {dirty: () => false, dispose() { host.replaceChildren(); }};
+    }
     return recordContextModal(title, '<div class="record-context-source"></div>', el => {
-      const host = el.querySelector('.record-context-source');
-      srcMountSource(host, scope, other.id, {live: () => host.isConnected});
+      const box = el.querySelector('.record-context-source');
+      srcMountSource(box, scope, other.id, {live: () => box.isConnected});
     });
   }
-  if (isDocument) return recordOpenDocument(ctx, other, item);
+  if (isDocument) return recordOpenDocument(ctx, other, item, options);
   if (['person', 'entity'].includes(item.type || other.type)) {
     const lines = [item.role, item.org, item.about, item.summary, item.email, item.phone].filter(Boolean);
-    return recordContextModal(item.label || title, '<div class="record-context-detail"></div>', el => {
-      const box = el.querySelector('.record-context-detail');
+    const paintDetail = box => {
       box.append(recordNode('p', '', lines.join(' · ') || 'No further detail is recorded.'));
       if (/^https?:\/\//.test(item.url || '')) {
         const link = recordNode('a', '', 'Open link'); link.href = item.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; box.append(link);
       }
-    });
+    };
+    if (host) {
+      const box = recordNode('div', 'record-context-detail');
+      host.replaceChildren(box); paintDetail(box);
+      return {dirty: () => false, dispose() { host.replaceChildren(); }};
+    }
+    return recordContextModal(item.label || title, '<div class="record-context-detail"></div>', el => paintDetail(el.querySelector('.record-context-detail')));
   }
+  if (host) return unavailable('This kind of Context cannot be opened from here.');
   if (ctx.biz && typeof contextOpenItem === 'function') return contextOpenItem(ctx.biz, other, ctx.beforeNavigate);
-  return recordUnavailable(title, 'This kind of Context cannot be opened from here.');
+  return unavailable('This kind of Context cannot be opened from here.');
 }
 // Plain document text, read by the document's actual kind. Notes have one whole-note reader (the route supplies the
 // scope, so only the document id is sent). Registered Context documents are read in bounded chunks bound to one
 // scope, document and content version: a More control continues with the returned cursor, appends only the matching
 // chunk and, if the document changed underneath, offers a clean restart instead of mixing versions.
 const RECORD_NOTE_KINDS = ['business_note', 'agent_note', 'journal', 'global_note', 'business_owned_note'];
-function recordOpenDocument(ctx, other, item) {
+function recordOpenDocument(ctx, other, item, options = {}) {
   const title = other.label || item.label || 'Context';
   const note = RECORD_NOTE_KINDS.includes(item.kind || '');
-  return recordContextModal(title, '<div class="record-context-document" aria-live="polite">Loading…</div>', el => {
-    const box = el.querySelector('.record-context-document');
-    const alive = () => box.isConnected && ctx.current();
+  let own = 0;
+  function mount(box) {
+    const alive = () => box.isConnected && (options.alive ? options.alive() : ctx.current());
     const unavailable = () => {
       box.replaceChildren(recordNode('p', 'muted', 'This item is unavailable. It may have been removed, or you may not have access to it.'));
       box.firstChild.dataset.recordUnavailable = '';
     };
     const gone = failure => ['not_found', 'forbidden', 'policy_denied'].includes(failure.code);
-    let own = 0, text = null, loaded = 0, hash = null;
+    let text = null, loaded = 0, hash = null;
     const read = async (more, cursor) => {
       const mine = ++own;
       if (!more) { box.textContent = 'Loading…'; text = null; loaded = 0; hash = null; }
@@ -261,6 +297,16 @@ function recordOpenDocument(ctx, other, item) {
       box.append(again);
     };
     read(false);
+    return {onShow: () => read(false)};
+  }
+  if (options.host) {
+    const box = recordNode('div', 'record-context-document'); box.setAttribute('aria-live', 'polite');
+    options.host.replaceChildren(box);
+    const mounted = mount(box);
+    return {dirty: () => false, onShow: mounted?.onShow, dispose() { own++; options.host?.replaceChildren(); }};
+  }
+  return recordContextModal(title, '<div class="record-context-document" aria-live="polite">Loading…</div>', el => {
+    mount(el.querySelector('.record-context-document'));
   });
 }
 
@@ -308,7 +354,10 @@ function recordAssociated(box, ctx, type) {
       if (!other || other.type !== type || other.unavailable) continue;
       const row = recordNode('div', 'record-link');
       const open = recordNode('button', 'quiet record-link-open', other.label || 'Unavailable'); open.type = 'button';
-      open.onclick = () => Promise.resolve(ctx.openRelated?.(other) || (typeof taskProgressOpenReference === 'function' ? taskProgressOpenReference(ctx.biz, other) : null)).catch(failure => toast(uiFailure(failure, {load: true})));
+      open.onclick = () => {
+        const routed = ctx.openRelated ? ctx.openRelated(other) : (typeof taskProgressOpenReference === 'function' ? taskProgressOpenReference(ctx.biz, other) : null);
+        return Promise.resolve(routed).catch(failure => toast(uiFailure(failure, {load: true})));
+      };
       row.append(open, recordNode('span', 'muted', [type === 'signoff' ? 'Signoff' : 'Action', other.state].filter(Boolean).join(' · ')));
       list.append(row);
     }

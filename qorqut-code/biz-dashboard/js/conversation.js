@@ -109,8 +109,12 @@ function conversationRecordEntry(record) {
   // A Project's canonical scope is its own id; unlike a business-scoped Signoff it needs no business slug.
   const typed={type:record.type,id:record.id,business_id:record.business_id || null,business_slug:slug,label:record.label,state:record.state,
     available:!record.unavailable && (record.type==='project' || !(record.business_id && !slug))};
-  if(record.type==='signoff'||record.type==='project')entry.typedReferences.push(typed);
-  else if(record.type==='task'){
+  if(record.type==='signoff')entry.typedReferences.push(typed);
+  else if(record.type==='project'){
+    entry.typedReferences.push(typed);
+    // The chip stays informational. An explicit action opens the Project reader without inventing a private channel.
+    if(typed.available)entry.references.push({key:'open',label:'Open Project',value});
+  } else if(record.type==='task'){
     entry.typedReferences.push(typed);
     if(typed.available)entry.references.push({key:'open',label:'Open task',value});
   } else entry.references.push({key:'open',label:record.label || 'Related item',disabled:!!record.unavailable,value});

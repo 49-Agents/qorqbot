@@ -32,6 +32,13 @@ function rwSourceKey(source) {
   return [source.type, source.business_id ?? 'global', source.id].join(':');
 }
 function rwRecordKey(record) { return rwSourceKey(record.source); }
+// Existing dashboard controllers differ: Story has hasUnsaved(), Customer exposes dirty().
+function rwDirty(dashboard) {
+  if (!dashboard) return false;
+  if (typeof dashboard.hasUnsaved === 'function') return !!dashboard.hasUnsaved();
+  if (typeof dashboard.dirty === 'function') return !!dashboard.dirty();
+  return false;
+}
 function rwTypeLabel(record) {
   const source = record.source || {};
   if (source.type === 'project') return 'Project';
@@ -39,6 +46,7 @@ function rwTypeLabel(record) {
   if (source.type === 'task') return TASK_TYPE_LABELS[record.task_type || source.task_type] || 'Task';
   if (source.type === 'email') return 'Email';
   if (source.type === 'reference') return 'Reference';
+  if (source.type === 'action') return 'Action';
   if (source.type === 'job') return 'Job';
   return ({data_tables: 'Table', documents: 'Document', action_logs: 'Action', agent_profiles: 'Agent', context_entities: 'Reference',
     owner_reminders: 'Reminder', routines: 'Routine', routine_runs: 'Routine run', jobs: 'Job'}
@@ -54,6 +62,7 @@ function rwTypeIcon(record) {
   if (source.type === 'email') return `<span class="task-type-icon task-type-icon-email" role="img" aria-label="Email"></span>`;
   if (record.resource_type === 'data_tables') return RW_TABLE_ICON;
   if (record.resource_type === 'documents') return RW_FILE_ICON;
+  if (source.type === 'action' || record.resource_type === 'action_logs') return T_VIEW_ICON.activity;
   if (record.resource_type === 'owner_reminders') return T_VIEW_ICON.calendar;
   if (record.resource_type === 'routines') return (typeof RT_ICONS === 'object' && RT_ICONS.active) || T_VIEW_ICON.calendar;
   if (source.type === 'job' || record.resource_type === 'jobs') return (typeof RT_ICONS === 'object' && RT_ICONS.logs) || T_VIEW_ICON.calendar;
@@ -67,8 +76,20 @@ function rwRecordFromItem(item, options = {}) {
   const source = item.resolved_source || item.source
     || (binding?.type === 'reference' ? {...binding, label: item.reference?.title || item.label, resource_type: 'focus_cards'} : null);
   if (!source || !source.type || !source.id) return null;
-  const businessId = source.business_id ?? item.source?.business_id ?? item.conversation?.business_id ?? null;
-  const biz = source.business_slug || item.context_business_slug || options.biz || null;
+  // Explicit null is Global and must not fall through to a binding or parent context.
+  const businessId = Object.hasOwn(source, 'business_id') ? source.business_id
+    : item.source && Object.hasOwn(item.source, 'business_id') ? item.source.business_id
+    : item.conversation && Object.hasOwn(item.conversation, 'business_id') ? item.conversation.business_id : null;
+  // A link or reference can carry a business id without a slug. Resolve the slug from the loaded
+  // business list instead of falling back to the Project's or a fixed local slug.
+  const knownSlug = businessId != null && typeof state !== 'undefined'
+    ? (state.bizs || []).find(b => b.id === businessId || b.business_id === businessId || b.slug === businessId)?.slug || null
+    : null;
+  const explicitSlug = source.business_slug || item.context_business_slug || null;
+  // A non-null business id without an accessible slug must be reported, never routed to /root.
+  // A context slug is only a fallback for an item that has no explicit business id.
+  const biz = explicitSlug || knownSlug || (businessId == null ? options.biz || null : null);
+  const scopeMissing = businessId != null && !biz;
   const taskType = source.task_type || item.task_type || '';
   const label = source.type === 'project'
     ? (source.label || source.business_name || 'Project')
@@ -84,6 +105,7 @@ function rwRecordFromItem(item, options = {}) {
     revision: item.source_revision ?? source.revision ?? null,
     project_id: options.project_id || null,
     project_item: options.project_item || null,
+    scopeMissing,
   };
 }
 // A Project inventory row names both its owning Project and the target's own scope.
@@ -103,13 +125,28 @@ function rwConfirmDiscard(entry) {
   return new Promise(resolve => {
     let settled = false;
     const finish = value => { if (settled) return; settled = true; resolve(value); };
-    const actions = [{label: 'Keep editing', onClick: close => { close(); finish(false); }}];
+    // core.modal calls onClose synchronously while closing, so settle the intended result first.
+    const actions = [{label: 'Keep editing', onClick: close => { finish(false); close(); }}];
     if (typeof entry?.dashboard?.save === 'function') actions.push({label: 'Save', primary: true, onClick: async (close, el) => {
       const error = el.querySelector('[role="alert"]');
-      try { await entry.dashboard.save(); close(); finish(true); }
-      catch (failure) { if (error) { error.textContent = uiFailure(failure); error.hidden = false; } }
+      try {
+        const saved = await entry.dashboard.save();
+        if (saved === false) throw new Error('The dashboard could not save. Your edits are still here.');
+        if (!entry.alive) { finish(false); close(); return; }
+        finish(true); close();
+      } catch (failure) {
+        if (!entry.alive) { finish(false); close(); return; }
+        // Keep the dashboard and its retry/conflict UI alive. Close the confirmation as a
+        // canceled navigation, never as a successful save.
+        if (entry.dashboard) {
+          const dashboardError = entry.dashHost?.querySelector('[data-story-error], [data-customer-error], .ferr');
+          if (dashboardError) { dashboardError.textContent = uiFailure(failure); dashboardError.hidden = false; }
+        }
+        if (error) { error.textContent = uiFailure(failure); error.hidden = false; }
+        finish(false); close();
+      }
     }});
-    actions.push({label: 'Discard', onClick: close => { close(); finish(true); }});
+    actions.push({label: 'Discard', onClick: close => { finish(true); close(); }});
     modal({stack: true, width: 460, title: 'Unsaved changes', body: '<p>This record dashboard has unsaved changes.</p><p class="ferr" role="alert" hidden></p>',
       actions, onClose: () => finish(false)});
   });
@@ -127,7 +164,7 @@ function recordWorkspaceMount(host, options = {}) {
   host.replaceChildren();
   const recordsHost = rwNode('div', 'rw-records');
   host.append(recordsHost);
-  let stack = [], disposed = false;
+  let stack = [], disposed = false, pendingEviction = false;
   const api = {
     open, navigate, back, close, dispose, current, refresh, hasUnsaved, updateTitle, isOpen: () => stack.length > 0,
     entry, root: () => stack[0] || null, alive: () => !disposed,
@@ -213,51 +250,89 @@ function recordWorkspaceMount(host, options = {}) {
   async function open(record, {tab = null, root = true} = {}) {
     if (disposed || !record) return false;
     const key = rwRecordKey(record);
-    const existing = stack.find(item => rwRecordKey(item.record) === key);
     if (root && stack.length) {
       const last = entry();
       if (rwRecordKey(last.record) === key) {
         if (tab) selectTab(last, tab);
         return true;
       }
+      // A different Focus/Threads selection starts a fresh Chat-first root path even when that
+      // record already exists deeper in the old path. Its edits are guarded by discardAny().
+      if (!await discardAny()) return false;
+      if (disposed) return false;
+      clearEntries();
+    } else if (!root) {
+      const existing = stack.find(item => rwRecordKey(item.record) === key);
       if (existing) {
-        // A record already on this path is restored, not duplicated.
-        while (stack.length && rwRecordKey(entry().record) !== key) removeEntry(stack.pop());
+        const above = [];
+        while (stack.length && entry() !== existing) above.push(entry());
+        if (above.length && !await confirmDiscardEntries(above)) return false;
+        if (disposed || !existing.alive) return false;
+        while (stack.length && entry() !== existing) removeEntry(stack.pop());
         reveal();
         return true;
       }
-      if (hasUnsaved() && !await discardAny()) return false;
-      clearEntries();
-    } else if (!root && existing) {
-      while (stack.length && rwRecordKey(entry().record) !== key) removeEntry(stack.pop());
+    }
+    return pushEntry(record, tab);
+  }
+  async function navigate(record, {tab = null} = {}) {
+    if (disposed || !record) return false;
+    const existing = stack.find(item => rwRecordKey(item.record) === rwRecordKey(record));
+    if (existing) {
+      const above = [];
+      while (stack.length && entry() !== existing) above.push(entry());
+      if (above.length && !await confirmDiscardEntries(above)) return false;
+      if (disposed || !existing.alive) return false;
+      while (stack.length && entry() !== existing) removeEntry(stack.pop());
       reveal();
       return true;
     }
-    pushEntry(record, tab);
-    return true;
+    return pushEntry(record, tab);
   }
-  function navigate(record, {tab = null} = {}) {
-    if (disposed || !record) return Promise.resolve(false);
-    const existing = stack.find(item => rwRecordKey(item.record) === rwRecordKey(record));
-    if (existing) {
-      while (stack.length && entry() !== existing) removeEntry(stack.pop());
-      reveal();
-      return Promise.resolve(true);
+  async function pushEntry(record, tab) {
+    if (disposed) return false;
+    if (stack.length >= RW_MAX_STACK) {
+      const oldest = stack[0];
+      if (rwDirty(oldest.dashboard)) {
+        // Do not silently evict a dirty dashboard. The confirmation is non-blocking so a
+        // scroll/animation loop cannot be held hostage; a real Discard/Save completes the
+        // requested navigation once the owner has chosen.
+        if (pendingEviction) return false;
+        pendingEviction = true;
+        void rwConfirmDiscard(oldest).then(chosen => {
+          pendingEviction = false;
+          if (!chosen || disposed || !oldest.alive) return;
+          if (stack[0] !== oldest) return;
+          removeEntry(stack.shift());
+          if (!disposed) void pushEntry(record, tab);
+        });
+        reveal();
+        return false;
+      }
+      if (disposed || !oldest.alive) return false;
+      removeEntry(stack.shift());
     }
-    pushEntry(record, tab);
-    return Promise.resolve(true);
-  }
-  function pushEntry(record, tab) {
-    if (stack.length >= RW_MAX_STACK) removeEntry(stack.shift());
+    // Leaving a dashboard for another record keeps the exact scroll it was hidden at.
+    captureScroll(entry());
     const item = makeEntry(record);
     stack.push(item);
     recordsHost.append(item.recordEl);
     showEntry(item, {tab});
     paintBack();
     options.onTitleChange?.(record);
-    return item;
+    return true;
+  }
+  // Prompt only for entries that would actually be removed; cancellation keeps the stack intact.
+  async function confirmDiscardEntries(items) {
+    for (const item of items) {
+      if (!item?.alive || !rwDirty(item.dashboard)) continue;
+      if (!await rwConfirmDiscard(item)) { reveal(); return false; }
+      if (disposed || !item.alive) return false;
+    }
+    return true;
   }
   function reveal() {
+    if (disposed) return;
     stack.forEach((item, index) => { item.recordEl.hidden = index !== stack.length - 1; });
     const item = entry();
     if (!item) return;
@@ -265,8 +340,9 @@ function recordWorkspaceMount(host, options = {}) {
     paintTabs(item);
     paintBack();
     restoreScroll(item);
+    if (item.tab === 'dashboard') { try { item.dashboard?.onShow?.(); } catch (_) { /* its own error state */ } }
     mountChat(item);
-    if (item.tab === 'chat') showChat(item);
+    if (item.tab === 'chat') { showChat(item); void item.chat?.refresh?.(); }
     options.onTitleChange?.(item.record);
     syncChatVisibility();
   }
@@ -317,36 +393,41 @@ function recordWorkspaceMount(host, options = {}) {
     if (disposed || stack.length < 2) return false;
     const leaving = entry();
     // Back restores the prior record; leaving a dashboard with unsaved edits still asks first.
-    if (leaving.dashboard?.hasUnsaved?.()) {
-      selectTab(leaving, 'dashboard', {initial: true});
+    if (rwDirty(leaving.dashboard)) {
       if (!await rwConfirmDiscard(leaving)) { reveal(); return false; }
+      if (disposed || !leaving.alive || entry() !== leaving) return false;
     }
     captureScroll(leaving);
     collapseChat(leaving);
     stack.pop();
     removeEntry(leaving);
+    if (disposed) return false;
     const item = entry();
+    if (!item?.alive) return false;
     item.recordEl.hidden = false;
     restoreScroll(item);
     paintBack();
     paintTabs(item);
     selectTab(item, item.tab, {initial: true, restore: true});
     options.onTitleChange?.(item.record);
+    try { item.dashboard?.onShow?.(); } catch (_) { /* its own error state */ }
+    if (item.tab === 'chat') void item.chat?.refresh?.();
     item.tabs.querySelector('[data-rw-tab]')?.focus({preventScroll: true});
     return true;
   }
   function hasUnsaved() {
-    return stack.some(item => !item.alive ? false : !!item.dashboard?.hasUnsaved?.());
+    return stack.some(item => !item.alive ? false : rwDirty(item.dashboard));
   }
   async function discardAny() {
     // More than one dashboard on the Back path can be dirty; each gets its own explicit choice.
     const handled = new Set();
     for (;;) {
-      const dirty = stack.find(item => !handled.has(item) && item.dashboard?.hasUnsaved?.()) || null;
+      if (disposed) return false;
+      const dirty = stack.find(item => !handled.has(item) && rwDirty(item.dashboard)) || null;
       if (!dirty) return true;
       handled.add(dirty);
-      selectTab(dirty, 'dashboard', {initial: true});
       if (!await rwConfirmDiscard(dirty)) { reveal(); return false; }
+      if (disposed || !dirty.alive) return false;
     }
   }
   function refresh() {
@@ -363,6 +444,7 @@ function recordWorkspaceMount(host, options = {}) {
   async function close() {
     if (disposed) return;
     if (!await discardAny()) return;
+    if (disposed) return;
     dispose();
     options.onClose?.();
   }
@@ -506,11 +588,23 @@ function recordWorkspaceMount(host, options = {}) {
 async function rwDashboardMount(host, record, ctx) {
   host.replaceChildren();
   host.classList.add('rw-dashboard-panel');
+  if (record.scopeMissing) throw new Error('This record’s Project scope is unavailable.');
+  // Every Project inventory entry is authorized through the same read model before any
+  // dashboard-specific read. A row opened from a stale inventory page cannot bypass it.
+  if (record.project_id && !record.project_item_prefetched) {
+    const authorized = await coreData(await post('/root/operations/project_item_get', {scope: 'global', project_id: record.project_id,
+      item: {type: record.source.type, id: record.source.id, business_id: record.source.business_id ?? null}}));
+    if (!ctx.alive()) return null;
+    if (!authorized.item) throw new Error('This record is no longer in this Project.');
+    record.project_item_prefetched = authorized;
+  }
   const source = record.source;
   const path = !record.biz ? '/root' : `/biz/${encodeURIComponent(record.biz)}`;
   const call = async (operation, args = {}, options = {}) => coreData(await post(`${path}/operations/${operation}`, {...args, ...options}));
   if (source.type === 'project') return rwProjectDashboard(host, record, ctx, call);
   if (source.type === 'signoff') return rwSignoffDashboard(host, record, ctx);
+  if (source.type === 'action' && !record.project_id) return rwActionDashboard(host, record, ctx, call);
+  if ((source.type === 'table' || record.resource_type === 'data_tables') && !record.project_id) return rwTableDashboard(host, record, ctx, call);
   if (source.type === 'job') return rwJobDashboard(host, record, ctx);
   if (source.type === 'task') return rwTaskDashboard(host, record, ctx, call);
   if (source.type === 'email' || record.resource_type === 'email_conversations') {
@@ -541,10 +635,12 @@ async function rwTaskDashboard(host, record, ctx, call) {
       openTask: link => { void ctx.navigate(rwRecordFromItem({source: {type: 'task', id: link.task_id, business_id: link.business_id ?? null, business_slug: link.business_slug, label: link.label || link.title}}, {biz: link.business_slug})); },
       // Associated Signoffs/Actions open on the same stack; Back returns to this Story/record dashboard.
       openRelated: other => {
-        const target = rwRecordFromItem({source: {type: other.type, id: other.id, business_id: other.business_id ?? record.source.business_id ?? null,
-          business_slug: other.business_slug || record.biz, business_name: other.business_name, label: other.label || other.title,
+        // Explicit null means Global and is preserved; an omitted scope inherits the Task's scope.
+        const business_id = Object.hasOwn(other, 'business_id') ? other.business_id : (record.source.business_id ?? null);
+        const target = rwRecordFromItem({source: {type: other.type, id: other.id, business_id,
+          business_slug: other.business_slug ?? null, business_name: other.business_name, label: other.label || other.title,
           resource_type: other.resource_type, revision: other.revision, state: other.state}});
-        if (target) void ctx.navigate(target);
+        return target ? ctx.navigate(target) : null;
       },
       beforeNavigate: () => {},
       navigate: link => ctx.navigate(link),
@@ -552,12 +648,65 @@ async function rwTaskDashboard(host, record, ctx, call) {
     controller = dashboard;
     return controller;
   }
+  const navigate = target => ctx.navigate(rwRecordFromItem({source: {
+    type: target.type, id: target.id, business_id: target.business_id ?? null, business_slug: target.business_slug ?? null,
+    business_name: target.business_name, label: target.label, resource_type: target.resource_type, state: target.state,
+    task_type: target.task_type}}, {biz: null}));
+  const relatedMount = (relatedHost, fresh) => rwTaskRelatedMount(relatedHost, record, fresh, ctx);
   if (record.source.business_id == null && typeof globalTasksMount === 'function') {
-    globalTasksMount(host, {initialTaskId: task.id, onBack: () => {}});
-    return {dirty: () => false, hasUnsaved: () => false, dispose() { host._globalTasks?.dispose?.(); host.replaceChildren(); }};
+    const token = globalTasksMount(host, {initialTaskId: task.id, onBack: () => {}, embedded: true, onNavigate: navigate, renderRelated: relatedMount});
+    return {dirty: () => !!token?.dirty?.(), hasUnsaved: () => !!token?.dirty?.(), dispose() { token?.dispose?.(); host.replaceChildren(); }};
   }
-  const mounted = tDetail(task, {host, onClose: () => {}});
-  return {dirty: () => false, hasUnsaved: () => false, dispose() { mounted?.close?.(); host.replaceChildren(); }};
+  const mounted = tDetail(task, {host, onClose: () => {}, embedded: true, navigate, relatedMount});
+  return {dirty: () => !!mounted?.dirty?.(), hasUnsaved: () => !!mounted?.dirty?.(), dispose() { mounted?.close?.(); host.replaceChildren(); }};
+}
+
+// The Task dashboard and global-task editor share one direct related-record reader. It never opens
+// the legacy Related-context modal: every row is the same in-pane workspace navigation.
+function rwTaskRelatedMount(host, record, task, ctx) {
+  let generation = 0;
+  const path = !record.biz ? '/root' : `/biz/${encodeURIComponent(record.biz)}`;
+  const call = async (operation, args) => coreData(await post(`${path}/operations/${operation}`, args));
+  async function load() {
+    const own = ++generation;
+    host.innerHTML = '<span class="muted">Loading related records…</span>';
+    try {
+      const data = await call('relationships_list', {item: {type: 'task', id: task.id}, direction: 'both', include_archived: false, limit: 50});
+      if (own !== generation || !host.isConnected || !ctx.alive()) return;
+      host.replaceChildren();
+      const seen = new Set();
+      for (const edge of data.items || []) {
+        const other = edge.source?.type === 'task' && edge.source?.id === task.id ? edge.target_item : edge.source_item;
+        if (!other || !other.id || other.type === 'agent') continue;
+        const key = `${other.type}:${other.business_id ?? 'global'}:${other.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const row = rwNode('div', 'rw-related-row');
+        const open = rwNode('button', 'quiet rw-related-open');
+        open.type = 'button';
+        open.innerHTML = `${rwTypeIcon({source: {type: other.type}, resource_type: other.resource_type, task_type: other.task_type})}<span>${esc(rwTypeLabel({source: {type: other.type}, resource_type: other.resource_type, task_type: other.task_type}))}</span> ${esc(other.label || other.title || other.id)}`;
+        open.onclick = () => {
+          const target = rwRecordFromItem({source: {type: other.type, id: other.id, business_id: other.business_id ?? null,
+            business_slug: other.business_slug ?? null, business_name: other.business_name, label: other.label || other.title,
+            resource_type: other.resource_type, revision: other.revision, state: other.state, task_type: other.task_type}},
+            {biz: null});
+          if (target) void ctx.navigate(target);
+        };
+        row.append(open);
+        host.append(row);
+      }
+      if (!host.children.length) host.innerHTML = '<p class="muted">No related records.</p>';
+    } catch (error) {
+      if (own !== generation || !host.isConnected) return;
+      host.replaceChildren();
+      host.append(rwNode('span', 'muted', uiFailure(error, {load: true}) + ' '));
+      const retry = rwNode('button', 'quiet', 'Retry related records'); retry.type = 'button';
+      retry.onclick = () => { void load(); };
+      host.append(retry);
+    }
+  }
+  void load();
+  return {refresh: load, dispose() { generation++; }};
 }
 
 // ---------------------------------------------------------------- Signoff
@@ -577,7 +726,40 @@ function rwSignoffDashboard(host, record, ctx) {
     dropOnDenied: true,
   });
   queueMicrotask(() => { if (ctx.alive() && host.isConnected) view.paint(); });
-  return {dirty: () => false, hasUnsaved: () => false, dispose() { view.dispose(); host.replaceChildren(); }};
+  return {dirty: () => view.hasUnsaved(), hasUnsaved: () => view.hasUnsaved(), save: () => view.save(),
+    dispose() { view.dispose(); host.replaceChildren(); }};
+}
+
+// ---------------------------------------------------------------- Action
+function rwActionContent(host, action) {
+  const when = action.occurred?.instant || action.occurred?.date || action.occurred_at || '';
+  const person = action.performed_by?.name || action.recorded_by?.name || '';
+  host.innerHTML = `<section class="rw-reader rw-action"><h3>Action</h3>
+    <p class="rw-action-text">${esc(action.text || 'No action text available.')}</p>
+    <dl class="rw-action-meta">
+      <div><dt>Category</dt><dd>${esc(action.category || 'Unclassified')}</dd></div>
+      <div><dt>When</dt><dd>${esc(when ? rwFormatTime(when) : 'Undated')}</dd></div>
+      ${person ? `<div><dt>Recorded by</dt><dd>${esc(person)}</dd></div>` : ''}
+      <div><dt>Revision</dt><dd>${esc(String(action.revision ?? '—'))}</dd></div>
+    </dl>
+    ${action.withdrawn ? '<p class="rw-reader-note">This Action was withdrawn.</p>' : ''}
+    ${action.detail ? `<section class="rw-reader-section"><h4>Details</h4><p>${esc(action.detail)}</p></section>` : ''}
+    ${action.refs && Object.keys(action.refs).length ? `<section class="rw-reader-section"><h4>References</h4>${Object.entries(action.refs).map(([key, value]) => `<div class="rw-action-ref"><span class="muted">${esc(key)}</span> ${esc(String(value))}</div>`).join('')}</section>` : ''}
+  </section>`;
+}
+async function rwActionDashboard(host, record, ctx, call) {
+  host.classList.add('record-panel');
+  const data = await call('actions_get', {action_id: record.source.id});
+  if (!ctx.alive()) return null;
+  const action = data.action;
+  if (!action) throw new Error('Action is no longer available.');
+  rwActionContent(host, action);
+  return {dirty: () => false, onShow: async () => {
+    try {
+      const next = await call('actions_get', {action_id: record.source.id});
+      if (ctx.alive() && next.action) rwActionContent(host, next.action);
+    } catch (_) { /* the existing authorized read remains until a new one succeeds */ }
+  }, dispose() { host.replaceChildren(); }};
 }
 
 // ---------------------------------------------------------------- reminder / routine / job readers
@@ -711,15 +893,94 @@ async function rwReferenceDashboard(host, record, ctx, call) {
   host.classList.add('record-panel');
   // A Project inventory record is authorized and read through project_item_get before any content is shown.
   let item = {}, content = {}, authorized = false;
+  let revalidate = null;
   if (record.project_id) {
-    const data = await coreData(await post('/root/operations/project_item_get', {scope: 'global', project_id: record.project_id,
+    const data = record.project_item_prefetched || await coreData(await post('/root/operations/project_item_get', {scope: 'global', project_id: record.project_id,
       item: {type: record.source.type, id: record.source.id, business_id: record.source.business_id ?? null}}));
     if (!ctx.alive()) return null;
     item = data.item || {}; content = data.record || {}; authorized = true;
-    const before = record.label;
-    if (item.label) record.label = item.label;
-    if (content.label && !record.label) record.label = content.label;
-    if (record.label !== before) ctx.title?.(record);
+    const nextLabel = item.label || content.label;
+    if (nextLabel && nextLabel !== record.label) {
+      // title() compares against the entry's current label; call it before mutating the descriptor.
+      ctx.title?.({label: nextLabel});
+      if (record.label !== nextLabel) record.label = nextLabel;
+    }
+    revalidate = async () => {
+      try {
+        const check = await coreData(await post('/root/operations/project_item_get', {scope: 'global', project_id: record.project_id,
+          item: {type: record.source.type, id: record.source.id, business_id: record.source.business_id ?? null}}));
+        if (!ctx.alive()) return;
+        if (!check.item) throw Object.assign(new Error('Unavailable'), {code: 'not_found'});
+      } catch (failure) {
+        if (!ctx.alive() || !(accessLost(failure) || sourceGone(failure))) return;
+        host.replaceChildren(rwNode('p', 'muted rw-unavailable', 'This record is unavailable. It may have been removed, or you may not have access to it.'));
+      }
+    };
+  }
+  // A Focus Reference is resolved from the authorized Focus item when the cached DTO has no target.
+  if (record.source.type === 'reference' && !record.url && !record.opening_target?.url) {
+    const focused = await coreData(await post('/root/operations/focus_get', {scope: 'global', item_id: record.source.id}));
+    if (!ctx.alive()) return null;
+    const target = focused.item?.reference?.target || focused.item?.opening_target;
+    if (target?.url) record.url = target.url;
+    else if (focused.item?.reference?.title) record.summary = 'This Reference has no openable target.';
+  }
+  // Ordinary (non-Project) documents, Context entities and people use the same authorized readers,
+  // mounted in this pane instead of a modal. Project inventory records were authorized above.
+  if (!record.project_id && ['document', 'documents', 'material', 'topic', 'person', 'entity', 'context_entities'].includes(record.source.type)
+    || !record.project_id && ['documents', 'context_entities'].includes(record.resource_type)) {
+    const refCtx = {...ctx, biz: record.biz || null, current: () => ctx.alive()};
+    const reader = await recordOpenContext(refCtx, {type: ['documents', 'context_entities'].includes(record.source.type) ? (record.source.type === 'documents' ? 'document' : 'entity') : record.source.type,
+      id: record.source.id, label: record.label, resource_type: record.resource_type}, {host, alive: () => ctx.alive()});
+    return reader || {dirty: () => false, dispose() { host.replaceChildren(); }};
+  }
+  // Project inventory envelopes: these are the per-family records, never a flat preview blob.
+  if (content.action) {
+    rwActionContent(host, content.action);
+    return {dirty: () => false, onShow: revalidate, dispose() { host.replaceChildren(); }};
+  }
+  if (content.document || content.note) {
+    const doc = content.document || content.note;
+    if ((doc.body || doc.text) && !doc.next_cursor) {
+      host.innerHTML = `<section class="rw-reader rw-document"><h3>${esc(doc.title || item.label || record.label || 'Document')}</h3>
+        <div class="work-source">${esc(doc.body || doc.text)}</div>
+        <p class="muted small">${doc.kind ? esc(doc.kind) + ' · ' : ''}Revision ${esc(String(doc.revision ?? '—'))}</p></section>`;
+      return {dirty: () => false, onShow: revalidate, dispose() { host.replaceChildren(); }};
+    }
+    const reader = await recordOpenDocument({...ctx, biz: record.biz || null, current: () => ctx.alive()}, record,
+      {label: record.label, ...doc}, {host, alive: () => ctx.alive()});
+    return reader || {dirty: () => false, dispose() { host.replaceChildren(); }};
+  }
+  if (content.table) {
+    const box = rwNode('section', 'rw-reader rw-table-reader');
+    box.append(rwNode('h3', '', content.table.title || item.label || record.label || 'Table'));
+    host.append(box);
+    const controller = await rwTableBody(box, record, ctx, call);
+    return {dirty: () => false, onShow: revalidate, dispose() { controller?.dispose?.(); host.replaceChildren(); }};
+  }
+  if (content.asset || content.entity || content.person) {
+    const nested = content.asset || content.entity || content.person;
+    const box = rwNode('section', 'rw-reader');
+    box.append(rwNode('h3', '', nested.label || nested.title || item.label || 'Context'));
+    const body = nested.body || nested.summary || nested.about || nested.text;
+    if (body) box.append(rwNode('div', 'work-source', String(body)));
+    const lines = [];
+    for (const [label, key] of [['Kind', 'kind'], ['Role', 'role'], ['Organisation', 'org'], ['Email', 'email'], ['Phone', 'phone'], ['Revision', 'revision']]) {
+      const value = nested[key];
+      if (value != null && value !== '') lines.push(`${label}: ${value}`);
+    }
+    if (lines.length) box.append(rwNode('p', 'muted', lines.join(' · ')));
+    if (/^https?:\/\//.test(nested.url || '')) {
+      const link = rwNode('a', '', 'Open link'); link.href = nested.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; box.append(link);
+    }
+    if (!body && !lines.length) box.append(rwNode('p', 'muted', 'No further detail is recorded.'));
+    host.append(box);
+    return {dirty: () => false, onShow: revalidate, dispose() { host.replaceChildren(); }};
+  }
+  if (content.email || record.resource_type === 'email_conversations') {
+    host.classList.add('record-panel');
+    historicalEmailMount(host);
+    return {dirty: () => false, dispose() { host.replaceChildren(); }};
   }
   const target = record.opening_target;
   const url = record.url || item.url || content.url || (target && target.type === 'url' ? target.url : null);
@@ -730,18 +991,15 @@ async function rwReferenceDashboard(host, record, ctx, call) {
     return {dirty: () => false, hasUnsaved: () => false, dispose() { host.replaceChildren(); }};
   }
   if ((record.resource_type || item.resource_type) === 'data_tables') {
-    const box = rwNode('section', 'rw-reader');
+    const box = rwNode('section', 'rw-reader rw-table-reader');
     box.append(rwNode('h3', '', item.label || record.label || 'Table'));
-    box.append(rwNode('p', 'muted', content.summary || item.summary || 'This table keeps its rows in the existing table reader.'));
-    const open = rwNode('button', 'quiet', 'Open table');
-    open.type = 'button';
-    open.onclick = () => tablesOpen(record.biz || null, record.source.id);
-    box.append(open); host.append(box);
-    return {dirty: () => false, hasUnsaved: () => false, dispose() { host.replaceChildren(); }};
+    host.append(box);
+    const controller = await rwTableBody(box, record, ctx, call);
+    return {dirty: () => false, hasUnsaved: () => false, onShow: revalidate, dispose() { controller?.dispose?.(); host.replaceChildren(); }};
   }
   if (authorized) {
-    if (content.reminder) return rwReminderReader(host, record, item, content.reminder);
-    if (content.routine) return rwRoutineReader(host, record, ctx, content.routine);
+    if (content.reminder) { const reader = rwReminderReader(host, record, item, content.reminder); if (revalidate) reader.onShow = revalidate; return reader; }
+    if (content.routine) { const reader = rwRoutineReader(host, record, ctx, content.routine); if (revalidate) reader.onShow = revalidate; return reader; }
     const box = rwNode('section', 'rw-reader');
     box.append(rwNode('h3', '', item.label || record.label || 'Record'));
     const summary = content.summary || content.overview || content.body || item.summary || '';
@@ -754,7 +1012,7 @@ async function rwReferenceDashboard(host, record, ctx, call) {
     if (lines.length) box.append(rwNode('p', 'muted', lines.join(' · ')));
     if (!summary && !lines.length) box.append(rwNode('p', 'muted', 'No preview available.'));
     host.append(box);
-    return {dirty: () => false, hasUnsaved: () => false, dispose() { host.replaceChildren(); }};
+    return {dirty: () => false, hasUnsaved: () => false, onShow: revalidate, dispose() { host.replaceChildren(); }};
   }
   const box = rwNode('section', 'rw-reader');
   box.append(rwNode('p', 'work-source', record.summary || 'No preview available.'));
@@ -767,6 +1025,73 @@ function rwSafeUrl(value) {
     const url = new URL(value);
     return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : null;
   } catch (_) { return null; }
+}
+
+// The existing Tables workspace writes to the global drawer. A record dashboard keeps the
+// canonical table read in this pane instead: same operations and columns, no exit button.
+async function rwTableBody(host, record, ctx, call) {
+  const id = record.source.id;
+  const tableData = await call('tables_get', {table_id: id, ...(record.biz ? {} : {scope: 'global'})});
+  if (!ctx.alive()) return null;
+  const table = tableData.table;
+  if (!table) throw new Error('This table is no longer available.');
+  const title = rwNode('h4', '', table.title || record.label || 'Table');
+  const description = table.description ? rwNode('p', 'muted', table.description) : null;
+  const status = rwNode('p', 'muted', `Loading rows…`);
+  const wrap = rwNode('div', 'rw-table-wrap');
+  const grid = rwNode('table', 'rw-table');
+  const more = rwNode('button', 'quiet', 'More rows'); more.type = 'button'; more.hidden = true;
+  // The Project reader already prints the table title as its h3; do not repeat it.
+  const alreadyTitled = [...host.children].some(child => child.tagName === 'H3');
+  host.append(...(alreadyTitled ? [] : [title]), ...(description ? [description] : []), status, wrap, more);
+  wrap.append(grid);
+  let cursor = null, rows = [];
+  const value = raw => raw == null ? '' : typeof raw === 'object' ? JSON.stringify(raw) : String(raw);
+  const paint = () => {
+    grid.replaceChildren();
+    const head = rwNode('thead'), hr = rwNode('tr');
+    for (const column of table.columns || []) { const th = rwNode('th', '', column.name || column.id); hr.append(th); }
+    head.append(hr); grid.append(head);
+    const body = rwNode('tbody');
+    for (const row of rows) {
+      const tr = rwNode('tr');
+      for (const column of table.columns || []) {
+        const td = rwNode('td', '', value(row.cells && Object.hasOwn(row.cells, column.id) ? row.cells[column.id] : null));
+        tr.append(td);
+      }
+      body.append(tr);
+    }
+    grid.append(body);
+    status.textContent = rows.length ? `${rows.length}${cursor ? '+' : ''} rows` : 'No rows';
+  };
+  try {
+    const data = await call('tables_rows_list', {table_id: id, limit: 50, ...(record.biz ? {} : {scope: 'global'})});
+    if (!ctx.alive()) return null;
+    if (data.table_revision != null && table.revision != null && data.table_revision !== table.revision) throw new Error('This table changed while loading. Open it again to read the current version.');
+    rows = data.items || []; cursor = data.next_cursor || null;
+    paint();
+    more.hidden = !cursor;
+    more.onclick = async () => {
+      more.disabled = true;
+      try {
+        const next = await call('tables_rows_list', {table_id: id, limit: 50, ...(cursor ? {cursor} : {}), ...(record.biz ? {} : {scope: 'global'})});
+        if (!ctx.alive()) return;
+        rows = [...rows, ...(next.items || [])]; cursor = next.next_cursor || null; paint(); more.hidden = !cursor;
+      } catch (failure) {
+        if (!ctx.alive()) return;
+        status.textContent = uiFailure(failure, {load: true});
+      } finally { more.disabled = false; }
+    };
+  } catch (failure) {
+    if (!ctx.alive()) return null;
+    status.textContent = uiFailure(failure, {load: true});
+  }
+  return {dirty: () => false, hasUnsaved: () => false, dispose() { host.replaceChildren(); }};
+}
+async function rwTableDashboard(host, record, ctx, call) {
+  host.classList.add('record-panel');
+  const body = await rwTableBody(host, record, ctx, call);
+  return body || {dirty: () => false, hasUnsaved: () => false, dispose() { host.replaceChildren(); }};
 }
 
 // ---------------------------------------------------------------- Project
@@ -782,9 +1107,10 @@ async function rwProjectDashboard(host, record, ctx) {
   if (!data.project) throw new Error('This Project is unavailable.');
   Object.assign(project, data.project);
   // The real Project row supplies the exact name; a Focus display-name override never renames it.
+  // Pass the authoritative name as a separate descriptor so the workspace sees the old/new difference.
   if (project.name && project.name !== record.label) {
-    record.label = project.name;
-    ctx.title?.(record);
+    ctx.title?.({label: project.name});
+    if (record.label !== project.name) record.label = project.name;
   }
   const sectionState = {};
   let activeSection = 'work', generation = 0, disposed = false;
@@ -807,7 +1133,7 @@ async function rwProjectDashboard(host, record, ctx) {
   const filters = () => JSON.stringify([shell.querySelector('[data-project-closed]').getAttribute('aria-pressed') === 'true', shell.querySelector('[data-project-archived]').getAttribute('aria-pressed') === 'true']);
   function paintSections() {
     shell.querySelectorAll('[data-project-section]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.projectSection === activeSection)));
-    shell.querySelector('[data-project-archived]').setAttribute('aria-pressed', String(!!shell.dataset.includeArchived));
+    shell.querySelector('[data-project-archived]').setAttribute('aria-pressed', String(shell.dataset.includeArchived === 'true'));
   }
   function rowFor(item) {
     const row = rwNode('div', 'rw-project-row');
@@ -859,9 +1185,15 @@ async function rwProjectDashboard(host, record, ctx) {
     const key = filters();
     if (state.loading) { if (!append) state.pending = true; return; }
     if (!append && state.loaded && state.key === key && !fresh) { paint(section); return; }
-    if (!append && (state.key !== key || fresh)) { state.items = []; state.cursor = null; state.loaded = false; state.key = key; }
+    if (!append && (state.key !== key || fresh)) {
+      // Revalidating a visible, already-authorized page keeps its rows until the fresh read
+      // succeeds or explicitly revokes them; it never flashes an empty cache.
+      const preserve = fresh && state.loaded && state.key === key;
+      if (!preserve) state.items = [];
+      state.cursor = null; state.loaded = false; state.key = key;
+    }
     state.loading = true;
-    if (section === activeSection) { more.disabled = true; errorBox.hidden = true; paint(section); }
+    if (section === activeSection) { more.disabled = true; errorBox.hidden = true; errorBox.replaceChildren(); paint(section); }
     const own = ++generation;
     try {
       let data, pages = 0;
@@ -878,16 +1210,27 @@ async function rwProjectDashboard(host, record, ctx) {
       if (section === activeSection) paint(section);
     } catch (failure) {
       if (disposed || own !== generation) return;
-      if (!append) state.items = [];
+      // A revoked read invalidates the previously readable page too; keeping those rows would
+      // leave denied content visible after access was lost.
+      if (accessLost(failure) || sourceGone(failure)) { state.items = []; state.cursor = null; }
+      else if (!append) state.items = [];
       state.loaded = true;
       if (section === activeSection) {
-        errorBox.textContent = accessLost(failure) || sourceGone(failure) ? 'This project inventory is unavailable.' : uiFailure(failure, {load: true});
+        const unavailable = accessLost(failure) || sourceGone(failure);
+        errorBox.replaceChildren(rwNode('span', '', unavailable ? 'This project inventory is unavailable.' : uiFailure(failure, {load: true}) + ' '));
+        const retry = rwNode('button', 'quiet', 'Retry'); retry.type = 'button';
+        retry.onclick = () => {
+          if (disposed) return;
+          state.loaded = false; state.key = ''; state.items = []; state.cursor = null;
+          void load(section, false, true);
+        };
+        errorBox.append(retry);
         errorBox.hidden = false;
         paint(section);
       }
     } finally {
       state.loading = false;
-      if (!disposed && section === activeSection) { more.disabled = false; }
+      if (!disposed && section === activeSection) { more.disabled = false; paint(section); }
       if (!disposed && state.pending) { state.pending = false; void load(section, false, true); }
     }
   }
@@ -911,7 +1254,8 @@ async function rwProjectDashboard(host, record, ctx) {
     const state = stateFor(section);
     if (!state.loaded) { list.replaceChildren(); empty.hidden = false; empty.textContent = 'Loading…'; more.hidden = true; }
     else paint(section);
-    void load(section);
+    // Re-read a section when it becomes visible; a cached page must not outlive revoked access.
+    void load(section, false, true);
   }
   shell.querySelector('.rw-project-sections').onclick = event => {
     const button = event.target.closest('[data-project-section]');
@@ -926,7 +1270,7 @@ async function rwProjectDashboard(host, record, ctx) {
   shell.querySelector('[data-project-archived]').onclick = event => {
     const button = event.currentTarget;
     button.setAttribute('aria-pressed', String(button.getAttribute('aria-pressed') !== 'true'));
-    shell.dataset.includeArchived = button.getAttribute('aria-pressed');
+    shell.dataset.includeArchived = String(button.getAttribute('aria-pressed') === 'true');
     stateFor(activeSection).key = '';
     void load(activeSection, false, true);
   };
@@ -938,8 +1282,31 @@ async function rwProjectDashboard(host, record, ctx) {
   ctx.title?.(record);
   paint(activeSection);
   void load(activeSection);
+  async function revalidate() {
+    if (disposed) return;
+    try {
+      const fresh = await rwProjectCall('project_record_get', {project_id: projectId});
+      if (disposed) return;
+      if (!fresh.project) throw Object.assign(new Error('This Project is unavailable.'), {code: 'not_found'});
+      if (fresh.project.name && fresh.project.name !== record.label) {
+        ctx.title?.({label: fresh.project.name});
+        if (record.label !== fresh.project.name) record.label = fresh.project.name;
+      }
+      shell.querySelector('.rw-project-name').textContent = fresh.project.name || record.label || 'Project';
+      shell.querySelector('.rw-project-summary').textContent = fresh.project.summary || '';
+      shell.querySelector('.rw-project-archived').hidden = !fresh.project.archived;
+      await load(activeSection, false, true);
+    } catch (failure) {
+      if (disposed) return;
+      stateFor(activeSection).items = []; stateFor(activeSection).cursor = null;
+      list.replaceChildren();
+      errorBox.replaceChildren(rwNode('span', '', accessLost(failure) || sourceGone(failure) ? 'This project inventory is unavailable.' : uiFailure(failure, {load: true})));
+      errorBox.hidden = false;
+      paint(activeSection);
+    }
+  }
   return {
-    dirty: () => false, hasUnsaved: () => false,
+    dirty: () => false, hasUnsaved: () => false, onShow: revalidate,
     dispose() { disposed = true; generation++; host.replaceChildren(); },
   };
 }
@@ -1001,6 +1368,9 @@ function rwProjectLinkDialog(project, onLinked) {
           if (!append) empty.textContent = 'No matching records.';
         } catch (failure) {
           if (!el.isConnected || own !== generation) return;
+          if (accessLost(failure) || sourceGone(failure)) {
+            results.replaceChildren(); cursor = null; more.hidden = true; empty.hidden = true;
+          }
           error.textContent = uiFailure(failure, {load: true}); error.hidden = false;
         }
       };
