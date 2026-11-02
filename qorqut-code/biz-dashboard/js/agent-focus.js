@@ -819,6 +819,8 @@ function agfocusPaint(p) {
         toggle.onpointerdown=event=>event.stopPropagation();
         toggle.onclick=event=>{event.stopPropagation();agfocusToggleWork(p,item);};
       } else agfocusHtml(marker,`<span class="task-type-marker" role="img" aria-label="Table">${RW_TABLE_ICON}</span>`);
+    } else if(source.type==='reference' && item.opening_target?.type==='table') {
+      agfocusHtml(marker,`<span class="task-type-marker" role="img" aria-label="${item.opening_target.table_kind==='crm'?'CRM':'Table'}">${RW_TABLE_ICON}</span>`);
     } else if(taskItem && !taskShowsState(taskRecord)){
       if(taskRecord.task_type==='story'){
         const expanded=!!p.focusWork?.get(item.id)?.expanded;

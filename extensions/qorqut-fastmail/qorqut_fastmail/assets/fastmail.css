@@ -1,0 +1,11 @@
+/* Loaded only with the optional original-email reader. */
+.conversation-mail{height:min(560px,70vh);min-height:260px}
+.conversation-mail-scroll{height:100%;overflow:auto;padding-right:4px}
+.conversation-mail-bar{display:flex;gap:10px;align-items:center;margin-bottom:8px}
+.conversation-mail-message{border:1px solid var(--line-2,rgba(255,255,255,.2));border-radius:10px;padding:8px 10px;margin:8px 0}
+.conversation-mail-message.selected{border-color:var(--accent,#66d9e8)}
+.conversation-mail-subject{margin:0 0 4px}
+.conversation-mail-head{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;margin:0 0 6px;font-size:12px}
+.conversation-mail-head dt{opacity:.7}.conversation-mail-head dd{margin:0;overflow-wrap:anywhere}
+.conversation-mail-body{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;margin:0}
+.conversation-mail-note,.conversation-mail-status{opacity:.7;margin:4px 0;font-size:12px}

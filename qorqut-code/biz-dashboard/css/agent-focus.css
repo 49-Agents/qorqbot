@@ -259,6 +259,7 @@
 .agfocus-dock .agfocus-conversation{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0}
 .agfocus-dock .conversation-panel{display:flex;flex:1;flex-direction:column;min-height:0;padding:0;border:0;border-radius:0}
 .agfocus-dock .conversation-view{flex:1;height:auto;min-height:0}
+.agfocus-dock .conversation-reference-reader{flex:1;height:auto;min-height:0}
 .agfocus-dock .conversation-panel[hidden]{display:none}
 .agfocus-dock .conversation-inline-compose{flex:none;margin-top:5px;min-width:0}
 .agfocus-dock .conversation-inline-compose:not(:has(.gchat-composer:not([hidden]))){display:none}

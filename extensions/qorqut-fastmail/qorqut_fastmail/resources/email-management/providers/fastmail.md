@@ -33,6 +33,20 @@ account (`account_id`, as reported by `fastmail_capabilities_get`).
 - Do not delete or rename addresses, folders or messages, or move existing mail, unless that is
   part of the request.
 
+## Linking original email to a Task or Story
+
+For email-based work, read `fastmail_capabilities_get` to obtain the account's `account_id`.
+Read the original with `fastmail_message_get`, passing that same `account_id`. Cite the returned
+`message.id` (the provider message ID, not `internetMessageId`) in a Task progress note using
+`note_refs`: `{type: "email", id: "fastmail:<account_id>:<message.id>"}`. Percent-escape each ID
+component like JavaScript `encodeURIComponent`; keep the two separating colons literal.
+`conversationId` identifies the chain for `fastmail_thread_get`, not the cited message.
+
+The owner can open that reference as the original incoming and outgoing chain while this
+connector is selected. A reference grants no mailbox access and may become unavailable if the
+account, permissions or connector changes. Keep the overview factual and concise; do not copy
+an entire email chain into a note or invent a link from an internet Message-ID.
+
 ## Sending with the native tools
 
 - Name the account and the sender identity explicitly: `identity_id` and the matching

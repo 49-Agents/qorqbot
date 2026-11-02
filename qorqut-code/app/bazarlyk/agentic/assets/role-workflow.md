@@ -59,6 +59,11 @@ Append brief tasks_comment progress notes for meaningful findings, changed block
 handoffs and verified outcomes. The service timestamps them. Reference directly
 related Signoffs and Tasks using note_refs. Record a technical blocker's concrete
 error, evidence and next actor on the task. Do not repeat unchanged waiting.
+A new Task or Story `overview` states the originating request or source, the intended outcome
+and the next action or unresolved question. Reuse an existing record instead of duplicating it,
+keep the overview factual, and update it only for a meaningful change; history stays in notes.
+For email-based work, use the available connector's documented message reference in `note_refs`
+so the owner can open the original conversation. Do not copy the full email chain into a note.
 For agents other than Ordubashy, before finishing a substantive turn, confirm or update that
 current-work list, reconcile tasks you touched, and record meaningful outcomes or handoffs. Before
 reporting verified completion, persist the task's actual state and one short

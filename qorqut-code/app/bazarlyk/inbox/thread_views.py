@@ -4,6 +4,8 @@ import json
 from qorqut_operations.contracts import DomainError, InvocationOptions
 from .private_conversations import UNAVAILABLE, has_unread, read_cursor
 
+CONTEXT_NOTES = 5
+
 
 def owner_context(service, ctx, uow):
     ctx = service.app.current_context(ctx, uow)
@@ -36,6 +38,22 @@ def project(service, ctx, source, uow):
         action = service.app.registry.get('actions_get').read(selected, {'action_id': source['id']}, InvocationOptions(), uow)['action']
         result.update(label=action['summary'], summary=action['text'])
     return result
+
+
+def task_context(service, ctx, source, uow):
+    """What an opened Task/Story conversation shows first: the current overview and the newest progress notes.
+
+    The one canonical ``tasks_get`` read in the source's own scope (the caller's read policy for it was already checked by
+    ``service.resolve``), so field projection, note authors, dates and references are exactly the Task's own. Writes nothing."""
+    business = source['business_id']
+    selected = service.select(ctx, business, uow)
+    task = service.app.registry.get('tasks_get').read(
+        selected, {'task_id': source['id'], 'notes_limit': CONTEXT_NOTES, **({'scope': 'global'} if business is None else {})},
+        InvocationOptions(), uow)['task']
+    project = uow.repository('businesses').get(business) if business else None
+    return {'title': task['title'], 'task_type': task['task_type'], 'status': task['status'], 'overview': task['overview'],
+            'revision': task['revision'], 'business_slug': project['slug'] if project else None,
+            'notes': task['notes'], 'notes_next_cursor': task['notes_next_cursor']}
 
 
 def directory(service, ctx, args, uow):
@@ -119,4 +137,7 @@ def related(service, ctx, args, uow):
                 continue
             raise
         items.append({**view, 'created_at': row['created_at']})
-    return {'items': items, 'next_offset': args.get('offset', 0) + limit if len(rows) > limit else None}
+    result = {'items': items, 'next_offset': args.get('offset', 0) + limit if len(rows) > limit else None}
+    if kind == 'task' and not args.get('offset', 0):
+        result['context'] = task_context(service, ctx, source, uow)
+    return result
