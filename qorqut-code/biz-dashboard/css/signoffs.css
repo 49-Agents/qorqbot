@@ -195,6 +195,13 @@
 .sg .sg-actions .sg-approve, .sg .sg-actions .sg-reject { background:var(--wash); border:1px solid var(--line-2); color:var(--fg); }
 .sg textarea.sg-message-editor, .sg textarea.sg-message-editor[data-sg-edit-field="subject"] { padding:1.5px; border:0; border-left:2px solid var(--line-2); background:var(--wash); }
 .sg-email textarea.sg-message-editor, .sg-email textarea.sg-message-editor[data-sg-edit-field="subject"] { padding-left:12px; }
+/* Compact inline email: recipient and subject stay, the body becomes a three-line preview button. */
+.sg-email-peek { display:none; }
+.sg-email-collapsed .sg-email-peek { width:100%; margin:6px 0 0; padding:1.5px 12px; border:0; border-left:2px solid var(--line-2); border-radius:0; background:var(--wash); color:var(--fg-2); font:inherit; line-height:1.6; text-align:left; white-space:pre-wrap; overflow-wrap:anywhere; cursor:pointer; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.sg-email-collapsed .sg-email-peek:focus-visible { outline:2px solid var(--fg-2); outline-offset:2px; }
+.sg-email-collapsed .sg-email [data-sg-field="from"], .sg-email-collapsed .sg-email [data-sg-field="cc"], .sg-email-collapsed .sg-email [data-sg-field="bcc"],
+.sg-email-collapsed .sg-email [data-sg-field="attachments"], .sg-email-collapsed .sg-email .sg-email-body-label, .sg-email-collapsed .sg-email [data-sg-edit-field="body"],
+.sg-email-collapsed .sg-email .sg-email-source { display:none; }
 
 .sg-inline .sg-rowtitle { display:flex; align-items:center; gap:8px; }
 .sg-reference-icon { display:inline-flex; flex:none; }
