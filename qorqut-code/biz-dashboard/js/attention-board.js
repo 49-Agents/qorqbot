@@ -69,39 +69,86 @@ function attentionBoardMount(p) {
     board.querySelector(`[data-attention-member="${p.attentionBoard?.selected || ''}"]`)?.focus({preventScroll:true});
   }});
   const disposeQueue = agfocusQueueMount(p, board.querySelector('.attention-queue'));
-  p.attentionBoard = {board, workspace:mountWorkspace(), mountWorkspace, next:0, busy:false, data:null};
+  const cache = attentionBoardCache(p);
+  p.attentionBoard = {board, workspace:mountWorkspace(), mountWorkspace, data:cache.data};
   const unsubscribe=taskStateSubscribe((scope,id,snapshot)=>{
     if (!snapshot.pending && p.attentionBoard === boardState && boardState.data?.items.some(item => item.task_ref.id === id && attentionBoardScope(item.task_ref,item.task) === scope)) {
       clearTimeout(boardState.repaint); boardState.repaint=setTimeout(()=>{if(p.attentionBoard === boardState) attentionBoardPaint(p);},0);
     }
   });
   const boardState=p.attentionBoard;
-  p.workspaceDispose = () => {unsubscribe(); disposeQueue(); agfocusOverlayClose(p); clearTimeout(boardState.repaint); boardState.workspace.dispose(); p.attentionBoard = null;};
-  attentionBoardTick(p);
+  p.workspaceDispose = () => {
+    const layout=board.querySelector('.agfocus-layout');
+    if (layout) cache.scroll=layout.scrollTop;
+    unsubscribe(); disposeQueue(); agfocusOverlayClose(p); clearTimeout(boardState.repaint); boardState.workspace.dispose(); p.attentionBoard = null;
+  };
+  // Paint the cached snapshot synchronously and restore the scroll position, then refresh only if it is stale.
+  if (cache.data) {
+    attentionBoardPaint(p);
+    board.querySelector('.agfocus-layout').scrollTop=cache.scroll;
+    if (cache.error) attentionBoardShowError(p, cache.error);
+  }
+  if (cache.run || cache.partial || Date.now() - cache.at >= ATTENTION_POLL_MS) void attentionBoardRefresh(p);
+}
+const ATTENTION_POLL_MS = 12000;
+// The persistent per-pane/agent snapshot and its single in-flight request. The mounted board is disposable and only reads it.
+function attentionBoardCache(p) {
+  if (!p.attentionCache || p.attentionCache.agentId !== p.agentId) p.attentionCache = {agentId:p.agentId, data:null, at:0, retryAt:0, partial:false, error:null, run:null, scroll:0};
+  return p.attentionCache;
+}
+function attentionBoardLive(p, cache) {
+  return p.attentionCache === cache && !!p.attentionBoard && p.view === 'attentionBoard' && agpadActive(p);
+}
+function attentionBoardShowError(p, error) {
+  const el = p.attentionBoard?.board.querySelector('[data-attention-error]');
+  if (el) { el.hidden=false; el.textContent='Could not load Attention board. ' + error.message; }
 }
 function attentionBoardTick(p) {
-  const board = p.attentionBoard;
-  if (!board || board.busy || Date.now() < board.next || !agpadActive(p)) return;
+  const cache = attentionBoardCache(p);
+  if (!p.attentionBoard || cache.run || Date.now() < cache.retryAt || !agpadActive(p)) return;
+  if (!cache.partial && Date.now() - cache.at < ATTENTION_POLL_MS) return;
   void attentionBoardRefresh(p);
 }
-async function attentionBoardRefresh(p) {
-  const board = p.attentionBoard;
-  if (!board || board.busy) return;
-  board.busy = true;
-  try {
-    let cursor = null, data, items = [], seen = new Set();
-    do {
-      const page = coreData(await post('/root/operations/attention_get', {scope:'global', agent_id:p.agentId, limit:100, ...(cursor ? {cursor} : {})}));
-      if (!data) data = page;
-      items.push(...page.items); cursor = page.next_cursor;
-      if (cursor && seen.has(cursor)) throw Error('Attention pagination did not advance.');
-      if (cursor) seen.add(cursor);
-    } while (cursor);
-    if (p.attentionBoard !== board) return;
-    board.data = {...data, items}; attentionBoardPaint(p);
-  } catch (error) {
-    if (p.attentionBoard === board) { const el = board.board.querySelector('[data-attention-error]'); el.hidden=false; el.textContent='Could not load Attention board. ' + error.message; }
-  } finally { board.busy=false; board.next=Date.now()+12000; }
+// Rapid switches share one request. The first load paints each page as it arrives; a refresh keeps the complete old list
+// until the full replacement is ready. Leaving the view stops at the next page boundary and leaves the snapshot stale.
+function attentionBoardRefresh(p) {
+  const cache = attentionBoardCache(p);
+  if (cache.run) return cache.run.promise;
+  const run = {};
+  cache.run = run;
+  const progressive = !cache.data;
+  const show = () => { if (cache.run === run && attentionBoardLive(p, cache)) { p.attentionBoard.data = cache.data; attentionBoardPaint(p); } };
+  run.promise = (async () => {
+    try {
+      let cursor = null, data, items = [], seen = new Set();
+      do {
+        const page = coreData(await post('/root/operations/attention_get', {scope:'global', agent_id:p.agentId, limit:100, ...(cursor ? {cursor} : {})}));
+        if (cache.run !== run) return;
+        if (!data) data = page;
+        items.push(...page.items); cursor = page.next_cursor;
+        if (cursor && seen.has(cursor)) throw Error('Attention pagination did not advance.');
+        if (cursor) seen.add(cursor);
+        if (cursor && progressive) { cache.data = {...data, items:[...items]}; cache.partial = true; show(); }
+        if (cursor && !attentionBoardLive(p, cache)) { cache.at = 0; return; }
+      } while (cursor);
+      cache.data = {...data, items}; cache.partial = false; cache.error = null; cache.at = Date.now(); cache.retryAt = Date.now() + ATTENTION_POLL_MS;
+      show();
+    } catch (error) {
+      if (cache.run !== run) return;
+      cache.at = 0; cache.retryAt = Date.now() + ATTENTION_POLL_MS; cache.error = error;
+      if (accessLost(error)) { cache.data = null; cache.partial = false; if (p.attentionBoard) { p.attentionBoard.data = null; p.attentionBoard.board.querySelector('[data-attention-list]')?.replaceChildren(); } }
+      if (attentionBoardLive(p, cache)) attentionBoardShowError(p, error);
+    } finally { if (cache.run === run) cache.run = null; }
+  })();
+  return run.promise;
+}
+// A removed membership leaves the snapshot at once; any older in-flight request is discarded and replaced.
+function attentionBoardForget(p, membershipId) {
+  const cache = attentionBoardCache(p);
+  if (cache.data) cache.data = {...cache.data, items:cache.data.items.filter(item => item.membership_id !== membershipId)};
+  cache.run = null; cache.at = 0; cache.retryAt = 0;
+  if (p.attentionBoard) { p.attentionBoard.data = cache.data; if (cache.data) attentionBoardPaint(p); }
+  return attentionBoardRefresh(p);
 }
 async function attentionBoardOpen(p, source) {
   const b=p.attentionBoard, record=rwRecordFromItem({source});
@@ -217,7 +264,7 @@ function attentionBoardPaint(p) {
       const actions=row.querySelector('.agfocus-actions');
       if (!unavailable && (task.workers?.length || task.user_needed)) taskWorkerMount(actions,scope,task,p.agentId);
       const remove=document.createElement('button'); remove.type='button'; remove.className='quiet'; remove.innerHTML=SVG_X; remove.setAttribute('aria-label','Remove '+(task.title || 'task')+' from Attention board');
-      remove.onclick=async()=>{remove.disabled=true; try { coreData(await post('/root/operations/attention_remove',{scope:'global',membership_id:item.membership_id,expected_membership_revision:item.membership_revision,idempotency_key:newRequestId()})); await attentionBoardRefresh(p); } catch(error) {toast(error.message); remove.disabled=false;}};
+      remove.onclick=async()=>{remove.disabled=true; try { coreData(await post('/root/operations/attention_remove',{scope:'global',membership_id:item.membership_id,expected_membership_revision:item.membership_revision,idempotency_key:newRequestId()})); await attentionBoardForget(p,item.membership_id); } catch(error) {toast(error.message); remove.disabled=false;}};
       actions.append(remove); rows.append(row);
     }
   }
