@@ -1,8 +1,8 @@
 // Terminal mirror: one live xterm bound to an agent's background PTY on the server.
 // Output = base64 SSE frames -> xterm; keystrokes -> POST input (coalesced per flight). The PTY lives on the
 // server and persists (survives tab switches / reconnects); reconnecting replays scrollback.
-// The mirror fills the pane and re-fits on resize. Floating controls reconnect a broken
-// stream and toggle the agent overview; all agent execution control stays in the shell.
+// The mirror fills the pane and re-fits on resize. Viewer controls live in the shared
+// Chat/Terminal header; all agent execution control stays in the shell.
 // The PTY is a plain shell in agents/<name>/: the owner types `claude` to start the agent. The shell
 // itself lives in a tmux session on the server and outlives the dashboard; "ended" means the
 // session is gone (Stop, or the shell exited), not that the mirror dropped.
@@ -17,8 +17,6 @@ function b64ToBytes(b64) {
 }
 
 let _termES = null, _term = null, _termRO = null;
-// Local drafts are scoped to the terminal endpoint, never persisted to storage.
-const terminalDrafts = new Map();
 
 function teardownTerm() {
   if (_termRO) { _termRO.disconnect(); _termRO = null; }
@@ -34,7 +32,6 @@ function teardownTerm() {
 // The main view uses the shared session; compact viewers pass an independent session.
 // Closing a viewer leaves the server PTY running.
 function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComponent(state.biz)}/terminal/${encodeURIComponent(agent)}`, session = null) {
-  const isolated=!!session;
   session ||= {
     get term(){return _term;},set term(value){_term=value;},
     get es(){return _termES;},set es(value){_termES=value;},
@@ -48,24 +45,8 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
   dispose();
   pane.innerHTML = `<div class="termpane">
     <div class="termhost" id="termhost"></div>
-    <form class="termcomposer" hidden>
-      <input type="text" aria-label="Local terminal input" maxlength="16000" autocomplete="off" spellcheck="false">
-      <button type="submit">Send</button>
-      <button type="button" data-terminal-key="interrupt" aria-label="Send Ctrl+C to terminal">Ctrl+C</button>
-      <button type="button" data-terminal-key="escape" aria-label="Send Escape to terminal">Esc</button>
-    </form>
-    <div class="termtools"><button type="button" class="ttab" id="termcompose-toggle" aria-label="Toggle local composer" aria-expanded="false" aria-controls="termcomposer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 9h.01M11 9h.01M15 9h.01M7 12h.01M11 12h.01M15 12h.01M8 15h8"/></svg></button><button class="ttab tref" id="tref" title="Reconnect the stream" aria-label="Reconnect the stream"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0-2.3 5.7M20 12l-3-4"/></svg></button></div>
   </div>`;
-  const host = $("#termhost", pane), btn = $("#tref", pane);
-  const composer = $(".termcomposer", pane), composeToggle = $("#termcompose-toggle", pane);
-  composer.id = "termcomposer";
-  const input = $("input", composer), send = $("button[type=submit]", composer);
-  const controls = [...composer.querySelectorAll('[data-terminal-key]')];
-  const disableSend = disabled => { send.disabled = disabled; controls.forEach(button => { button.disabled = disabled; }); };
-  const draft = terminalDrafts.get(terminalBase) || { text: '' };
-  terminalDrafts.set(terminalBase, draft);
-  input.value = draft.text;
-  input.oninput = () => { draft.text = input.value; };
+  const host = $("#termhost", pane);
 
   const term = new Terminal({
     fontFamily: "var(--mono, ui-monospace, monospace)",
@@ -115,12 +96,11 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
 
   const setStat = t => {
     if (session.term !== term) return;
-    if (btn) btn.classList.toggle("warn", t === "disconnected" || t === "ended");
     if (onStat) { try { onStat(t); } catch (e) {} }
   };
 
   // output: base64 SSE frames -> xterm. On a real drop, close (no auto-retry, which would
-  // replay the whole scrollback and duplicate it) and flag the button so the user can reconnect.
+  // replay the whole scrollback and duplicate it) and report the disconnected state.
   const es = new EventSource(evUrl(`${terminalBase}/stream`));
   session.es = es;
   // The first layout pass can precede server-side preparation; size again once attached.
@@ -185,69 +165,6 @@ function mountTerminal(agent, pane, onStat, terminalBase = `/biz/${encodeURIComp
     sendInput(d);
   });
 
-  let composerOpen = true;
-  const showComposer = open => {
-    composerOpen = open;
-    composer.hidden = !open;
-    composeToggle.setAttribute('aria-expanded', String(open));
-    composeToggle.classList.toggle('on', open);
-    requestAnimationFrame(fit);
-    if (open) input.focus(); else term.focus();
-  };
-  composeToggle.onclick = () => showComposer(!composerOpen);
-  input.addEventListener('keydown', event => {
-    // IME Enter finishes composition, not the terminal command.
-    if (event.isComposing || event.keyCode === 229) {
-      if (event.key === 'Enter') event.preventDefault();
-      return;
-    }
-    if (event.key === 'Enter' && event.ctrlKey) {
-      event.preventDefault();
-      submitComposer(true);
-    }
-    if (event.key === 'Escape') { event.preventDefault(); showComposer(false); }
-  });
-  const submitComposer = async pressEnter => {
-    if (send.disabled || (!input.value && !pressEnter) || session.term !== term) return;
-    // Single-line local editing. Control characters from pasted text must not
-    // become hidden terminal commands. This appends to the current remote prompt.
-    const text = input.value;
-    if (/[\x00-\x1f\x7f]/.test(text)) {
-      toast('Remove control characters before sending.');
-      return;
-    }
-    // Keep an explicit focus handoff made while delivery is in flight. The
-    // owner may click the desktop iframe (or another editor) before the PTY
-    // acknowledges the input; completion must not pull focus back here.
-    const focusBeforeSend = document.activeElement;
-    disableSend(true);
-    input.readOnly = true;
-    const sent = await sendInput(text + (pressEnter ? '\r' : ''));
-    if (sent && draft.text === text) draft.text = '';
-    if (session.term !== term) return;
-    input.readOnly = false;
-    input.value = draft.text;
-    disableSend(!sent);
-    if (!sent) toast('Delivery unconfirmed. Check the terminal before reconnecting and retrying.');
-    if (!composer.hidden && document.activeElement === focusBeforeSend) input.focus();
-  };
-  controls.forEach(button => button.onclick = async () => {
-    if (send.disabled || session.term !== term) return;
-    const focusBeforeSend = document.activeElement;
-    disableSend(true);
-    const sent = await sendInput(button.dataset.terminalKey === 'interrupt' ? '\x03' : '\x1b');
-    if (session.term !== term) return;
-    disableSend(!sent);
-    if (!sent) toast('Delivery unconfirmed. Check the terminal before reconnecting and retrying.');
-    if (!composer.hidden && document.activeElement === focusBeforeSend) input.focus();
-  });
-  composer.onsubmit = event => { event.preventDefault(); submitComposer(false); };
-  showComposer(!isolated);
-  if(isolated){composer.hidden=true;composeToggle.hidden=true;btn?.removeAttribute('title');}
-
-  // reconnect: re-open the stream. The PTY persists, so this replays scrollback; if the shell
-  // had exited, the server spawns a fresh one. It is NOT a kill/restart.
-  if (btn) btn.onclick = () => mountTerminal(agent, pane, onStat, terminalBase, isolated ? session : null);
   return dispose;
 }
 

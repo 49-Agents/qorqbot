@@ -104,8 +104,7 @@
 .mbody .ferr[hidden] { display: none; }
 
 /* ------------------------------------------------ live terminal (Agents + Terminal tabs) */
-/* No chrome: the mirror fills the pane to the bottom. One floating button reconnects a
-   broken stream (top-right, turns red on drop); all other control is done in the shell. */
+/* The mirror fills the pane; viewer controls belong to the shared Chat/Terminal header. */
 .chat.termmode { padding: 50px; background: var(--bg); }
 /* the terminal is a rounded card inset 50px on every side of the workspace. The inner
    padding on the host shrinks its clientWidth/Height, so the measured-cell fit math stays
@@ -113,23 +112,8 @@
 .termpane { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: #0b0e14;
   min-width: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .termhost { flex: 1; min-width: 0; min-height: 0; width: 100%; box-sizing: border-box; padding: 12px 20px 12px 12px; overflow: hidden; }
-.termtools { position: absolute; top: 8px; right: 8px; z-index: 5; display: flex; align-items: center; gap: 6px; }
-.tref.warn { color: #ff7a7a; }
 
 #agentrows .cn { display:flex; align-items:center; gap:7px; }
-
-/* Local editing takes its own space so it never covers the remote prompt. */
-.termcomposer { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-  margin: 0 12px 12px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--wash); }
-.termcomposer[hidden] { display: none; }
-.termcomposer input { flex: 1; min-width: 0; width: 0; padding: 8px 10px; border: 1px solid var(--line);
-  border-radius: 7px; background: #0b0e14; color: var(--fg); font: 13px var(--mono, monospace); }
-.termcomposer input:focus { outline: 1px solid var(--accent, #7dd3fc); }
-.termcomposer button { padding: 7px 12px; border-radius: 7px; }
-
-.termcomposer [data-terminal-key] { padding: 7px 8px; background: transparent; color: var(--fg-2); border: 1px solid var(--line); font-size: 11px; }
-.termcomposer [data-terminal-key]:hover { background: var(--hover); color: var(--fg); }
-@media (max-width: 600px) { .termcomposer input { flex-basis: 100%; width: 100%; } }
 
 .listcol button.item.agent {width:calc(100% - 20px);height:auto;min-height:44px;border:0;background:transparent;color:var(--fg-2);text-align:left;font-weight:400;transform:none;}
 .listcol button.item.agent:hover {background:var(--wash);color:var(--fg);}

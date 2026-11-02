@@ -14,7 +14,6 @@ body:has(#workspace-composer) #content{padding-bottom:78px}
 @media(max-width:600px){#workspace-composer{bottom:6px;right:6px;width:calc(100vw - 12px)}#workspace-composer form{gap:4px}#workspace-composer [data-terminal]{max-width:62px}.workspace-terminal{height:200px}}
 
 #workspace-composer [data-recipient],#workspace-composer [data-terminal]{background:transparent;color:var(--fg);border:1px solid var(--line)}
-.workspace-terminal .termtools svg{width:18px;height:18px}
 
 #workspace-composer [type=submit]{min-width:70px;padding-inline:16px}
 #workspace-composer [data-terminal]{width:36px;padding:4px;display:grid;place-items:center}
