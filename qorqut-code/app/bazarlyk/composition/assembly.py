@@ -21,6 +21,7 @@ from qorqut_operations.storage.database import Database
 
 from bazarlyk.instance_paths import InstancePaths
 from bazarlyk.native_chat.schema import storage_contribution as native_chat_storage
+from .agent_work import storage_contribution as agent_work_storage
 from .documents import DocumentLifecycle, DocumentReceiptHistory, RESOURCE_TYPE as DOCUMENTS
 from .records import HostRecordEffects
 from .schema import storage_contributions
@@ -62,8 +63,10 @@ def host_contributions(change_feed):
     routine, job and neutral Context relationship/review tables; its Signoff and background machinery state the host
     tables they read (``inbox_changes``, ``documents``) as required-table contributions, checked when the store is
     composed, initialised and validated. The inbox nudge engine owns its three tables and reads ``inbox_events`` and
-    ``inbox_deliveries``."""
+    ``inbox_deliveries``. A worker's one current assignment (``agent_current_work``) is its own host table beside the
+    generated ``agent_activity`` observations."""
     return (*storage_contributions(), signoff_storage(), background_storage(), native_chat_storage(), inbox_nudges_storage(),
+            agent_work_storage(),
             FileEffectContribution("documents", {DOCUMENTS: DocumentLifecycle()}, DocumentReceiptHistory()),
             RecordEffectContribution("records", HostRecordEffects()),
             TransactionContribution("inbox", finalizers=inbox_finalizers()),

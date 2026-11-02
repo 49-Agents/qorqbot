@@ -8,9 +8,10 @@ from dataclasses import replace
 from qorqut_operations.actions import action_key, one_line
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, Principal, new_id, plain
-from qorqut_operations.application.plans import PlanBuilder, schema, utc_clock, timestamp
+from qorqut_operations.application.plans import UUID, PlanBuilder, schema, utc_clock, timestamp
 from qorqut_operations.discussion import ThreadItem, set_follow
 from qorqut_operations.tasks.scope import task_context
+from bazarlyk.agents.worker_access import is_worker, require_worker_manager
 from .events import ITEM_TYPES
 from .messages import Messages
 
@@ -22,6 +23,8 @@ VISIBLE_TYPES = {**ITEM_TYPES, 'tasks': 'task', 'actions': 'action'}
 CONSUMER = {'type': 'string', 'format': 'uuid'}
 SCOPE = {'scope': {'enum': ['business', 'global']}}
 TARGET = {'source_type': {'enum': list(SOURCES)}, 'source_id': {'type': 'string', 'minLength': 1, 'maxLength': 200}}
+# The installation owner or Ordubashy may manage a global worker's subscriptions; omitted, the caller's own.
+WORKER = {'agent_id': UUID}
 
 
 class InboxService:
@@ -80,14 +83,15 @@ class InboxService:
             'inbox_list': ({'consumer_id': CONSUMER, 'after': {'type': 'integer', 'minimum': 0},
                 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, (),
                 'Read a batch of your pending updates. For a fresh reconciliation omit after (or use 0); use next_cursor as after only to continue that bounded pass. A notification watermark does not prove earlier events were handled. Reading never acknowledges. Your authenticated agent identity selects the inbox; consumer_id is accepted for older clients but is unnecessary.'),
-            'inbox_subscriptions_list': ({}, (), 'List authorized subscriptions, including automatic owner-task follows for Ordubashy. An ID identifies a removable manual follow; id=null means automatic-only. Removing a manual follow never disables automatic following.'),
+            'inbox_subscriptions_list': (WORKER, (), 'List authorized subscriptions, including automatic owner-task follows for Ordubashy. An ID identifies a removable manual follow; id=null means automatic-only. Removing a manual follow never disables automatic following. The installation owner or Ordubashy may pass agent_id to list a global worker\'s subscriptions, authorized as that worker.'),
             'inbox_acknowledge': ({'consumer_id': CONSUMER, 'event_ids': {'type': 'array', 'minItems': 1, 'maxItems': 100,
                 'uniqueItems': True, 'items': {'type': 'integer', 'minimum': 1}}, 'outcome': {'type': 'string', 'maxLength': 2000}},
                 ('event_ids',), 'Acknowledge exact handled events; a read or a nudge never clears them.'),
-            'inbox_subscribe': ({**TARGET, 'include_related': {'type': 'boolean'}}, ('source_type', 'source_id'),
-                'Follow an authorized item. A Task or Action follow is the same preference as tasks_follow/actions_follow and is removed the same way. Only a Task follow can include its directly related work (its child Tasks and the items it is linked to, one hop); that routing lasts while the Task is followed, with no recursive following or time expiry. Remove it with inbox_unsubscribe.'),
-            'inbox_unsubscribe': ({'subscription_id': {'type': 'string', 'format': 'uuid'}}, ('subscription_id',),
-                'Remove your explicit subscription. A Task or Action follow is removed with tasks_follow/actions_follow instead; automatic owner-task following is independent. Already delivered updates remain pending until acknowledged.'),
+            'inbox_subscribe': ({**TARGET, **WORKER, 'include_related': {'type': 'boolean'}}, ('source_type', 'source_id'),
+                'Follow an authorized item. A Task or Action follow is the same preference as tasks_follow/actions_follow and is removed the same way. Only a Task follow can include its directly related work (its child Tasks and the items it is linked to, one hop); that routing lasts while the Task is followed, with no recursive following or time expiry. Remove it with inbox_unsubscribe. The installation owner or Ordubashy may pass agent_id to follow for a global worker; the item must then be readable by that worker.'),
+            'inbox_unsubscribe': ({**WORKER, 'subscription_id': {'type': 'string', 'format': 'uuid'},
+                'source_type': {'enum': list(THREAD_SOURCES)}, 'source_id': TARGET['source_id']}, (),
+                'Remove an explicit subscription by subscription_id, or a Task or Action follow by source_type and source_id (the same preference as tasks_follow/actions_follow); automatic owner-task following is independent. The installation owner or Ordubashy may pass agent_id to remove a global worker\'s. Already delivered updates remain pending until acknowledged.'),
         }
         for name, (fields, required, description) in operations.items():
             args = schema({**SCOPE, **fields}, required)
@@ -107,6 +111,15 @@ class InboxService:
         if ctx.principal_kind != 'agent':
             raise DomainError('forbidden', 'An agent can consume only its own inbox')
         return ctx
+
+    def subject(self, ctx, args, uow):
+        """The agent whose subscriptions an operation reads or changes: the caller, or the global worker the installation owner or
+        Ordubashy names. Sources are then authorized as that worker, never with the manager's own access."""
+        target = args.get('agent_id')
+        if target is None or (ctx.principal_kind == 'agent' and target == ctx.principal_id):
+            return self.context(ctx, uow)
+        require_worker_manager(ctx, uow, target)
+        return self.context(self.resolver.runtime_context(Principal(target, 'agent'), business_id=ctx.business_id), uow)
 
     def visible(self, ctx, source_type, identity, business, uow, *, email_access_cache=None):
         """Use current domain authorization; unavailable objects disclose no summary."""
@@ -376,7 +389,7 @@ class InboxService:
         return {'items': found[:limit], 'next_cursor': found[limit - 1]['id'] if more else None}
 
     def pending_owner_conversations(self, ctx, session_id, uow, *, page_size=100):
-        """Whether this exact configured coordinator session has visible pending owner deliveries.
+        """Whether this exact configured coordinator or worker session has visible pending owner deliveries.
 
         Inspect a finite, keyset-paginated snapshot, stopping at the first
         currently visible private source. The method returns only a boolean and
@@ -389,9 +402,8 @@ class InboxService:
             raise DomainError('validation_error', 'Private inbox page size must be between 1 and 200')
         ctx = self.context(ctx, uow)
         private = getattr(self.app, 'private_conversations', None)
-        from bazarlyk.agents.global_peers import marketing_peer
         if private is None or (private.participants(uow)[1] != ctx.principal_id
-                               and not marketing_peer(uow, ctx.principal_id)):
+                               and not is_worker(uow.connection, ctx.principal_id)):
             return False
         try:
             self.session_owner(ctx, session_id, uow)
@@ -524,12 +536,12 @@ class InboxService:
         return result
 
     def read(self, operation, ctx, args, uow):
-        ctx = self.context(ctx, uow)
+        ctx = self.subject(ctx, args, uow)
         if operation == 'inbox_subscriptions_list': return {'items': self.subscriptions(ctx, uow)}
         return self.pending(ctx, uow, after=args.get('after', 0), limit=args.get('limit', 20))
 
     def validate_mutation(self, operation, ctx, args, uow):
-        ctx = self.context(ctx, uow)
+        ctx = self.subject(ctx, args, uow)
         if operation == 'inbox_subscribe':
             # `owner_conversations` is not in the TARGET enum above, so a private
             # conversation is refused by argument validation before this runs.
@@ -547,16 +559,23 @@ class InboxService:
                     raise DomainError('event_owned_by_assignment',
                         'A live delegated assignment owns this event; the parent cannot acknowledge it')
         elif operation == 'inbox_unsubscribe':
-            row = uow.connection.execute('SELECT agent_id FROM inbox_subscriptions WHERE id=?', (args['subscription_id'],)).fetchone()
-            if row and row['agent_id'] != ctx.principal_id:
-                raise DomainError('not_found', 'Subscription is unavailable')
+            if ('subscription_id' in args) == ('source_type' in args) or ('source_type' in args) != ('source_id' in args):
+                raise DomainError('validation_error', 'Name a subscription_id, or a Task or Action source_type with its source_id')
+            if 'source_type' in args:
+                if not self.visible(ctx, args['source_type'], args['source_id'], ctx.business_id, uow):
+                    raise DomainError('not_found', 'Subscription target is unavailable')
+            else:
+                row = uow.connection.execute('SELECT agent_id FROM inbox_subscriptions WHERE id=?', (args['subscription_id'],)).fetchone()
+                if row and row['agent_id'] != ctx.principal_id:
+                    raise DomainError('not_found', 'Subscription is unavailable')
         return ctx
 
     def prepare(self, operation, ctx, args, uow):
-        ctx = self.validate_mutation(operation, ctx, args, uow)
-        # These self-service commands carry exact arguments and use the ordinary
-        # operation policy/idempotency contract; application revalidates every ID.
-        builder = PlanBuilder(ctx, operation, args, 'Manage my inbox', clock=self.clock,
+        self.validate_mutation(operation, ctx, args, uow)
+        # These commands carry exact arguments and use the ordinary operation policy/idempotency contract; the plan belongs
+        # to the caller even when a manager names a worker, and application revalidates every ID.
+        ctx = self.app.current_context(ctx, uow)
+        builder = PlanBuilder(ctx, operation, args, 'Manage inbox', clock=self.clock,
             namespace='business:' + ctx.business_id if ctx.business_id else 'global',
             affected_scope={'kind': 'business', 'business_id': ctx.business_id} if ctx.business_id else {'kind': 'global'})
         return builder.build()
@@ -569,6 +588,8 @@ class InboxService:
                 [(timestamp(self.clock), args.get('outcome', ''), ctx.principal_id, identity) for identity in args['event_ids']])
             return {'acknowledged': args['event_ids']}
         if plan.operation_name == 'inbox_unsubscribe':
+            if 'source_type' in args:
+                return self.unfollow(ctx, args, uow)
             uow.connection.execute('DELETE FROM inbox_subscriptions WHERE id=? AND agent_id=?', (args['subscription_id'], ctx.principal_id))
             return {'unsubscribed': args['subscription_id']}
         if args['source_type'] in THREAD_SOURCES:
@@ -581,21 +602,28 @@ class InboxService:
             (identity, ctx.principal_id, ctx.business_id, args['source_type'], args['source_id'], int(args.get('include_related', False)), timestamp(self.clock)))
         return {'subscription_id': identity}
 
-    def follow(self, ctx, args, uow):
-        """Following a Task or an Action is the discussion's own follow state: personal, explicit and sticky."""
+    def thread_item(self, ctx, args, uow):
+        """The Task or Action discussion a follow names, as this agent's workspace sees it."""
         from bazarlyk.domains.activity import linked_action
         if args['source_type'] == 'tasks':
-            item = ThreadItem(ctx.business_id, 'task', args['source_id'])
-        else:
-            action = linked_action(ctx, uow, args['source_id'])
-            if action is None:
-                raise DomainError('not_found', 'Subscription target is unavailable')
-            item = ThreadItem(action['business_id'], 'action', action['id'])
-        state = set_follow(uow, item, ctx.principal_id, True)
+            return ThreadItem(ctx.business_id, 'task', args['source_id'])
+        action = linked_action(ctx, uow, args['source_id'])
+        if action is None:
+            raise DomainError('not_found', 'Subscription target is unavailable')
+        return ThreadItem(action['business_id'], 'action', action['id'])
+
+    def follow(self, ctx, args, uow):
+        """Following a Task or an Action is the discussion's own follow state: personal, explicit and sticky."""
+        state = set_follow(uow, self.thread_item(ctx, args, uow), ctx.principal_id, True)
         result = {'following': state['following'], 'source_type': args['source_type'], 'source_id': args['source_id']}
         if args['source_type'] == 'tasks' and 'include_related' in args:
             result['subscription_id'] = self.related_work(ctx, args, bool(args['include_related']), uow)
         return result
+
+    def unfollow(self, ctx, args, uow):
+        """The same sticky unfollow as tasks_follow/actions_follow, applied to this agent's own follow."""
+        state = set_follow(uow, self.thread_item(ctx, args, uow), ctx.principal_id, False)  # Related-work routing follows the Task follow.
+        return {'following': state['following'], 'source_type': args['source_type'], 'source_id': args['source_id']}
 
     def related_work(self, ctx, args, wanted, uow):
         """The Task follow's related-work subscription row (one per agent and Task), or None once it is turned off."""

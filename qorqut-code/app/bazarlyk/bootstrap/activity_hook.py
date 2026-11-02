@@ -36,8 +36,8 @@ def checkpoint_error(payload):
     code = 'invalid_credential' if code == 'unauthenticated' else code
     return CheckpointError(code if code in _EXPECTED_CHECKPOINT else 'checkpoint_unavailable')
 
-REMINDER = ('Update agent_work_update if your current tasks or action changed. Keep descriptions brief; '
-    'several concurrent tasks are allowed. Append tasks_comment only for meaningful progress, a new blocker, '
+REMINDER = ('Update agent_work_update if your current work changed. Keep descriptions brief; a permanent worker has '
+    'one current assignment, other agents may list several concurrent tasks. Append tasks_comment only for meaningful progress, a new blocker, '
     'handoff or completion; do not repeat unchanged waiting. Use note_refs for directly related signoffs.')
 ACTIONS = frozenset({'PreToolUse', 'PostToolUse', 'PostToolUseFailure'})
 # Record saves that answer a completion reminder never make the turn dirty again,

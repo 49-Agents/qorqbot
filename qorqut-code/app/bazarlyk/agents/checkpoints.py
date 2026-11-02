@@ -6,6 +6,7 @@ import uuid
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.tasks import CLOSED_STATES
 from qorqut_operations.application.plans import timestamp, utc_clock
+from bazarlyk.agents.worker_access import is_worker
 from bazarlyk.bootstrap.activity_hook import safe_path
 from bazarlyk.composition.locations import agent_workspace_of
 
@@ -80,6 +81,10 @@ class AgentCheckpoints:
 
     def _findings(self, ctx, row, native, uow, *, focus_only=False):
         items = row['items_json']  # Repository rows already decode JSON columns.
+        if is_worker(uow.connection, ctx.principal_id):
+            # A worker's one shared assignment, not its observed session list, is the work these checks look at.
+            assignment = uow.repository('agent_current_work').get(ctx.principal_id)
+            items = [assignment['item_json']] if assignment and assignment['item_json'] else []
         issues = {}
         for item in ([] if focus_only else items[:10]):
             task_id, business = item.get('task_id'), item['business_id']

@@ -12,7 +12,8 @@ and nothing else:
   notice: only an event not yet announced to the conversation makes one due. The ``Observation`` it passes is diagnostic only.
 
 Nothing here starts, resumes or stops an agent, acknowledges an event, or changes a Task, Action, Signoff or routine. An offline
-agent keeps its pending need and is nudged only after someone starts a session by hand. ``submitted`` is the transport's report,
+agent keeps its pending need and is nudged only after someone starts a session by hand; so does an agent whose recorded intent
+(``native_session_owners.desired_state``) is paused or stopped. ``submitted`` is the transport's report,
 never proof that the agent read its inbox.
 
 The drain is bounded: ``stop`` joins the thread within its timeout and raises ``TimeoutError`` when it survives, keeping the
@@ -304,8 +305,11 @@ class NudgeBackend:
             with self.database.read() as uow:
                 fingerprint, session = self._fingerprint(uow.connection, agent_id)
                 chat_waiting = bool(store.waiting_inputs(uow.connection, agent_id))
+                owner = uow.connection.execute("SELECT desired_state FROM native_session_owners WHERE agent_id=?", (agent_id,)).fetchone()
             if chat_waiting:
                 return "chat_input_first"  # a direct Chat input is ahead of any advisory; user work keeps its priority
+            if owner is not None and owner["desired_state"] in {"paused", "stopped"}:
+                return "desired_" + owner["desired_state"]  # an explicit stop or pause is not undone by an inbox event
             if self._quiet(agent_id, fingerprint):
                 return "quiet"
             binding, working = None, False

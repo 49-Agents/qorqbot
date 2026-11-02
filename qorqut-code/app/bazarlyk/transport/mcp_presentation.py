@@ -87,7 +87,7 @@ MESSAGE_ITEM_FIELDS = ("id", "event_id", "thread_id", "reply_to", "sender_id", "
     "current_recipient_name", "counterpart_id", "body", "summary", "created_at", "acknowledged_at", "outcome",
     "delegation_attribution", "terminal_delivery", "read_only", "retirement_backlog")
 ACTIVITY_AGENT_FIELDS = ("agent_id", "name", "role_id", "business_id", "business_slug",
-    "state", "last_seen_at", "sessions", "inbox")
+    "state", "last_seen_at", "sessions", "inbox", "current_work")
 ACTIVITY_SESSION_FIELDS = ("session_id", "runtime", "state", "last_seen_at", "work_revision",
     "items", "item_keys", "items_complete", "items_replacement_safe", "checkpoint", "inbox_owner", "work_stale")
 RECIPIENT_FIELDS = ("agent_id", "name", "role_id", "business_id", "business_slug", "group")
@@ -398,6 +398,11 @@ def _activity_summary(data):
             continue
         row = select(agent, ("agent_id", "name", "role_id", "business_id",
             "business_slug", "state", "last_seen_at", "inbox"))
+        if isinstance(agent.get("current_work"), dict):
+            # A worker's one shared assignment is small and authoritative; only its expanded blocker records are left out.
+            work = agent["current_work"]
+            row["current_work"] = {**select(work, ("revision", "item_key", "updated_at", "reviewed_at", "stale")),
+                "item": _activity_work_item(work.get("item"))}
         sessions = []
         findings = {}
         identities_available = True
