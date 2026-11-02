@@ -199,7 +199,16 @@ class OverseerOperations:
             # Retried transports must not race inventory cursors or publish a
             # duplicate page presentation. Refuse before provider/admission work.
             if not self._evidence_scan_lock.acquire(blocking=False):
-                raise DomainError('evidence_busy', 'Evidence reading is still in progress. Retry this same cursor shortly; progress is preserved.')
+                raise DomainError('evidence_busy',
+                    'Evidence reading is still in progress; this request did not advance progress. '
+                    'Automatically retry this exact request after waits of 5, 10, 20, 30 and 30 seconds, '
+                    'with at most five retries and a 120-second total budget from the first busy response. '
+                    'Keep the same run, selection, frontier, cursor and limits; do not restart the inventory. '
+                    'Stop retrying on any different error. If still busy when the budget is exhausted, '
+                    'save progress and report a service fault, not a request for owner permission to resume.',
+                    retryable=True, details={'retry_delays_seconds': [5, 10, 20, 30, 30],
+                                            'max_retries': 5, 'retry_budget_seconds': 120,
+                                            'request_dispatched': False})
             try:
                 return self._evidence_delivery(name, context, args, uow)
             finally:
