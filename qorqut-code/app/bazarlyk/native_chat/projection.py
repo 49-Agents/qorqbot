@@ -15,6 +15,10 @@ Provenance rules, applied to every record:
   are further scoped by the ``Lineage`` they belong to (agent, provider, native conversation and the immutable archive lineage),
   because a native id or a raw offset is only unique inside one conversation. Never a capture id, a timestamp, a generation, a
   page position or a hash of text.
+* A successful outgoing agent message is derived from the provider's own tool result for ``agents_message_send`` (Codex: a
+  completed ``bazarlyk`` MCP tool call; Claude: a ``tool_result`` JSON envelope). It is a notice entry that carries only the
+  message IDs the result named; the reader checks them against the stored messages. It is never a user input, a reply, a turn
+  origin or user work, and it changes no projector state.
 * A reply is complete only at the provider's own end-of-turn evidence. Narration before a tool call, tool-only records, owner
   echoes and system notices are never completions.
 * Every completion is a visible assistant entry of its own record, so a client can show the reply it acknowledges. The one
@@ -60,6 +64,10 @@ _LEADING_SPACE = " \t\n\r\x0b\x0c"
 _OPENING_TAG = re.compile(r"<[A-Za-z].*>", re.S)
 _COMMAND_PREFIXES = ("<local-command-", "<command-name>", "<system-reminder>")
 MAX_ENTRY_CHARS = 200_000
+SEND_SERVER = "bazarlyk"
+SEND_TOOL = "agents_message_send"
+MAX_RECEIPTS = 20            # successful sends one record can show
+MAX_RECEIPT_CHARS = 100_000  # a full-detail receipt echoes the message body; anything larger is not a receipt
 COMPLETING_STOPS = frozenset({"end_turn", "stop_sequence"})
 CODEX_TURN_END = frozenset({"task_complete", "turn_complete"})
 CODEX_TURN_START = frozenset({"task_started", "turn_started"})
@@ -115,6 +123,58 @@ def text_blocks(content: Any) -> str:
                      and block.get("type") in {"text", "input_text", "output_text"} and isinstance(block.get("text"), str))
 
 
+def _send_receipt(text: Any) -> str | None:
+    """The message ID of one successful send, or ``None``. Only a text that is itself the JSON success envelope counts, never
+    quoted or embedded JSON: ``status`` ok and ``data.message`` carrying the send receipt fields."""
+    if not isinstance(text, str) or len(text) > MAX_RECEIPT_CHARS or '"recipient_id"' not in text:
+        return None  # the cheap tests first: nearly every tool result is some other output
+    try:
+        value = json.loads(text)
+    except (ValueError, RecursionError):  # not JSON, or nested so deeply that no tool could have written it
+        return None
+    data = value.get("data") if isinstance(value, dict) and value.get("status") == "ok" else None
+    message = data.get("message") if isinstance(data, dict) else None
+    if not isinstance(message, dict) or type(message.get("event_id")) is not int:
+        return None
+    complete = all(isinstance(message.get(name), str) and message[name] for name in ("id", "thread_id", "created_at", "recipient_id"))
+    return message["id"] if complete else None
+
+
+def _result_receipts(content: Any) -> list[str]:
+    """The send receipts in one tool result's content: a JSON string, or text blocks each holding its own JSON envelope."""
+    if isinstance(content, str):
+        texts = [content]
+    elif isinstance(content, list):
+        texts = [block["text"] for block in content
+                 if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)]
+    else:
+        texts = []
+    return [found for found in map(_send_receipt, texts) if found]
+
+
+def _unique_receipts(found: Iterable[str]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(found))[:MAX_RECEIPTS]
+
+
+def _claude_receipts(content: Any) -> tuple[str, ...]:
+    """The unique successful send receipts of one Claude user record's ``tool_result`` blocks, in block order."""
+    if not isinstance(content, list):
+        return ()
+    return _unique_receipts(found for block in content
+                           if isinstance(block, dict) and block.get("type") == "tool_result"
+                           and not block.get("is_error") and not block.get("isError")
+                           for found in _result_receipts(block.get("content")))
+
+
+def _codex_receipts(item: dict) -> tuple[str, ...]:
+    """The unique successful send receipts of one completed Codex ``McpToolCall`` item; a failed call or MCP error has none."""
+    result = item.get("result")
+    if (item.get("server") != SEND_SERVER or item.get("tool") != SEND_TOOL or item.get("status") != "completed"
+            or item.get("error") or not isinstance(result, dict) or result.get("isError")):
+        return ()
+    return _unique_receipts(_result_receipts(result.get("content")))
+
+
 @dataclass(frozen=True)
 class Lineage:
     """The immutable identity scope of one native conversation's records.
@@ -155,6 +215,7 @@ class Entry:
     marker: str | None = None
     marker_type: str | None = None
     turn_end: bool = False
+    receipts: tuple[str, ...] = ()  # message IDs a successful ``agents_message_send`` result named (a notice without text)
 
     def public_id(self, lineage: Lineage) -> str:
         return lineage.entry_id(self.identity_kind, self.key)
@@ -278,7 +339,12 @@ class Projector:
             return Result()
         text = text_blocks(message.get("content"))
         if kind == "user":
-            return self._user(identity, unwrap_claude_paste(text), value, record)
+            result = self._user(identity, unwrap_claude_paste(text), value, record)
+            if result.entry is not None:
+                return result  # visible user text in the record always wins over a receipt
+            # A tool result carries no user text, or only hidden harness text (which changes no state).
+            notice = self._receipt_notice(identity, _claude_receipts(message.get("content")), value, record)
+            return notice if notice.entry is not None else result
         final = message.get("stop_reason") in COMPLETING_STOPS
         if not text.strip():
             if final:
@@ -318,6 +384,15 @@ class Projector:
             self.state.origin = ORIGIN_USER if system is None else ORIGIN_NUDGE if system == NUDGE_TYPE else ORIGIN_SYSTEM
         return Result(entry=entry)
 
+    @staticmethod
+    def _receipt_notice(identity, receipts, value, record) -> Result:
+        """A successful outgoing message as a text-free notice of its own record. It touches no turn state: not an input, a reply,
+        the turn's origin or user work."""
+        if not receipts:
+            return Result()
+        return Result(entry=Entry(identity[0], identity[1], SPEAKER_NOTICE, "", record.offset, record.length, _timestamp(value),
+                                  receipts=receipts))
+
     def _proven_type(self, entry: Entry) -> str | None:
         """The application's input type this entry is proven to be, or ``None`` for anything a person (or a program) typed."""
         if entry.speaker != SPEAKER_NOTICE or entry.marker is None or self.resolver is None:
@@ -353,6 +428,11 @@ class Projector:
                     native = item.get("id") if isinstance(item.get("id"), str) and item.get("id") else None
                     identity = (KIND_NATIVE, native) if native else (KIND_RAW, f"{record.offset}#0")
                     return self._user(identity, text_blocks(item.get("content")), value, record)
+                thread = payload.get("thread_id")
+                if isinstance(item, dict) and item.get("type") == "McpToolCall" and thread in (None, self.conversation_id):
+                    native = item.get("id") if isinstance(item.get("id"), str) and item.get("id") else None
+                    identity = (KIND_NATIVE, native) if native else (KIND_RAW, f"{record.offset}#0")
+                    return self._receipt_notice(identity, _codex_receipts(item), value, record)
                 return Result()
             if inner in CODEX_TURN_ABORT:
                 state.turn_open, state.turn_done, state.candidate = False, False, None

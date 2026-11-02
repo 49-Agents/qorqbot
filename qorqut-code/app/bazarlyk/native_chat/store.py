@@ -402,6 +402,47 @@ def input_view(row: dict, binding: dict | None) -> dict:
             "evidence": evidence, "created_at": row["created_at"], "settled_at": row["settled_at"]}
 
 
+# ----- outgoing agent messages ----------------------------------------------------------------------------------------
+
+LOOKUP_CHUNK = 500
+
+
+def sent_messages(conn, agent_id: str, message_ids) -> dict[str, dict]:
+    """The agent-to-agent messages, among the given IDs, that this exact agent originally sent, each with its recipient as the
+    Chat marker shows it. The original sender and recipient are used, never the current routing participants; a message to a
+    human is not one, and no body is read. The recipient's minimal presentation comes from its stored profile, historical or
+    not; a missing profile leaves the principal's display name alone."""
+    wanted = sorted({identity for identity in message_ids if identity})
+    found = {}
+    for start in range(0, len(wanted), LOOKUP_CHUNK):
+        chunk = wanted[start:start + LOOKUP_CHUNK]
+        for row in rows(conn.execute(
+                "SELECT m.id,m.recipient_id,pr.display_name,ap.profile_json FROM agent_messages m "
+                "JOIN principals pr ON pr.id=m.recipient_id AND pr.kind='agent' "
+                "LEFT JOIN agent_profiles ap ON ap.agent_id=m.recipient_id "
+                "WHERE m.sender_id=? AND m.id IN (" + ",".join("?" * len(chunk)) + ")", (agent_id, *chunk))):
+            found[row["id"]] = _recipient(row)
+    return found
+
+
+def _recipient(row: dict) -> dict:
+    try:
+        data = json.loads(row["profile_json"]) if row["profile_json"] else {}
+    except ValueError:
+        data = {}
+    data = data if isinstance(data, dict) else {}
+    recipient = {"agent_id": row["recipient_id"], "display_name": data.get("display_name") or row["display_name"]}
+    role = data.get("role")
+    if isinstance(role, dict) and isinstance(role.get("id"), str):
+        recipient["role"] = {"id": role["id"]}
+    presentation = data.get("presentation")
+    shown = {name: presentation[name] for name in ("department", "icon")
+             if isinstance(presentation, dict) and isinstance(presentation.get(name), str)}
+    if shown:
+        recipient["presentation"] = shown
+    return recipient
+
+
 # ----- reply completions ----------------------------------------------------------------------------------------------
 
 def insert_reply(conn, *, lineage: Lineage, kind: str, key: str, session_id: str | None, receipt_id: str, offset: int, length: int,

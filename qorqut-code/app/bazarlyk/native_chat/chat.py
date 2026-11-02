@@ -211,7 +211,8 @@ class NativeChat:
 
     def _entries(self, profile, capture, before, limit):
         """One page of the selected conversation, with the facts that belong to exactly the entries it returns: the verified
-        provenance of the system markers on it, the durable completion bound to each assistant entry, and
+        provenance of the system markers on it, the stored outgoing agent messages its notices name, the durable completion
+        bound to each assistant entry, and
         ``rendered_boundary`` -- the newest completion sequence among the completed assistant entries this page actually returns
         after projection and pagination (0 when it returns none). A client acknowledges that value, never the agent's newest
         sequence, so a page that did not display a reply cannot acknowledge it."""
@@ -234,9 +235,11 @@ class NativeChat:
                                                  [entry.marker for entry in window.entries], capture["transcript_path"])
             replies = {row["raw_offset"]: row for row in store.replies_at(
                 uow.connection, agent_id, provider, conversation, [entry.offset for entry in window.entries])}
-        shown = visible(window.entries, replies)
+            sends = store.sent_messages(uow.connection, agent_id,
+                                        [identity for entry in window.entries for identity in entry.receipts])
+        shown = visible(window.entries, replies, sends)
         rendered = max((row["completion_sequence"] for entry, row in shown if row is not None and entry.speaker == SPEAKER_AGENT), default=0)
-        return [entry_view(entry, lineage, markers, row) for entry, row in shown], window.older, info, rendered
+        return [entry_view(entry, lineage, markers, row, sends) for entry, row in shown], window.older, info, rendered
 
     # ----- stream ----------------------------------------------------------------------------------------------------
 

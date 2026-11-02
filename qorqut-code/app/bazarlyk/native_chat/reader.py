@@ -142,28 +142,42 @@ def bound_completion(entry: Entry, replies: dict) -> dict | None:
     return row
 
 
-def visible(entries: list[Entry], replies: dict) -> list[tuple[Entry, dict | None]]:
+def visible(entries: list[Entry], replies: dict, sends: dict | None = None) -> list[tuple[Entry, dict | None]]:
     """The entries an owner sees, each with the completion bound to it. A turn-end entry stands in for a reply only when the
     complete-stream index completed that exact record: a window that starts mid-turn cannot tell a lone turn-end message from a
     repeat of an assistant message that was already shown (or lies on an older page), so without the durable completion it is
-    dropped rather than shown twice or under an identity the index never gave it."""
-    shown = []
+    dropped rather than shown twice or under an identity the index never gave it. An outgoing-message candidate is shown only
+    while ``sends`` (the stored messages this agent originally sent to agents) still holds one of its receipts."""
+    shown, sends = [], sends or {}
     for entry in entries:
         row = bound_completion(entry, replies)
         if entry.turn_end and row is None:
+            continue
+        if entry.receipts and not any(identity in sends for identity in entry.receipts):
             continue
         shown.append((entry, row))
     return shown
 
 
-def entry_view(entry: Entry, lineage: Lineage, inputs: dict, completion: dict | None) -> dict:
-    """One entry as the owner sees it. ``inputs`` maps the marker ids this page shows to their stored system inputs and
-    ``completion`` is the durable completion bound to this entry's record (``bound_completion``); an entry that completed a reply
-    carries that reply's durable completion sequence and id."""
+def agent_message(entry: Entry, sends: dict) -> dict:
+    """The successful outgoing messages of one entry: the receipts still stored as this agent's messages to agents, in receipt
+    order, and their distinct recipients in the order first seen. No body, raw receipt or profile is carried."""
+    found = [identity for identity in entry.receipts if identity in sends]
+    recipients = {sends[identity]["agent_id"]: sends[identity] for identity in found}
+    return {"message_ids": found, "recipients": list(recipients.values())}
+
+
+def entry_view(entry: Entry, lineage: Lineage, inputs: dict, completion: dict | None, sends: dict | None = None) -> dict:
+    """One entry as the owner sees it. ``inputs`` maps the marker ids this page shows to their stored system inputs,
+    ``completion`` is the durable completion bound to this entry's record (``bound_completion``) and ``sends`` the stored
+    messages the page's outgoing-message notices name; an entry that completed a reply carries that reply's durable completion
+    sequence and id, and an outgoing-message notice carries its ``agent_message``."""
     view = {"id": entry.public_id(lineage), "kind": "message", "speaker": entry.speaker, "text": entry.text,
             "timestamp": entry.timestamp, "position": entry.offset, "partial": entry.partial,
             "identity": entry.identity_kind, "system": None, "completion_sequence": None, "completion_id": None}
-    if entry.speaker == SPEAKER_NOTICE:
+    if entry.receipts:
+        view["agent_message"] = agent_message(entry, sends or {})
+    elif entry.speaker == SPEAKER_NOTICE:
         view["text"] = unwrap_marker(entry.text)
         view["system"] = provenance(entry, inputs.get(entry.marker))
     elif completion is not None and entry.speaker == SPEAKER_AGENT:
