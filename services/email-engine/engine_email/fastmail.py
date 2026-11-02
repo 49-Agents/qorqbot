@@ -556,6 +556,46 @@ class Fastmail:
                 for part, expected in zip(found, attachments)):
             invalid("attachments differ from the approved attachments")
 
+    def _unchanged_draft_state(self, identity, since_state):
+        """Advance an account-wide state only with proof this draft did not change.
+
+        Incoming mail can invalidate ifInState without touching the selected draft.
+        Email/changes is the provider's authoritative delta, not a blind fresh-state
+        retry. Missing/expired history, changed drafts and incomplete pages fail closed.
+        """
+        state = since_state
+        for _ in range(4):
+            result = self.call("Email/changes", {"sinceState": state, "maxChanges": 500})
+            next_state = result.get("newState")
+            more = result.get("hasMoreChanges")
+            if (result.get("oldState") != state or not isinstance(next_state, str)
+                    or not next_state or type(more) is not bool):
+                raise ProviderError("account_draft_changes_invalid", status=409)
+            for key in ("created", "updated", "destroyed"):
+                identities = result.get(key)
+                if not isinstance(identities, list) or any(not isinstance(item, str) for item in identities):
+                    raise ProviderError("account_draft_changes_invalid", status=409)
+                if identity in identities:
+                    raise ProviderError("account_draft_changed", status=409)
+            if not more:
+                return next_state
+            if next_state == state:
+                raise ProviderError("account_draft_changes_invalid", status=409)
+            state = next_state
+        raise ProviderError("account_draft_changes_incomplete", status=409)
+
+    def _draft_conditional_write(self, method, arguments, identity, since_state):
+        # Only a definite method-level stateMismatch (no effects) can be retried.
+        # Reuse the same uploaded blob/request; never retry an uncertain provider write.
+        for attempt in range(2):
+            current = self._unchanged_draft_state(identity, since_state)
+            try:
+                return self.call(method, {**arguments, "ifInState": current}, write=True)
+            except ProviderError as exc:
+                if exc.code != "jmap_stateMismatch" or exc.uncertain or attempt:
+                    raise
+        raise AssertionError("bounded draft write exhausted")
+
     def account_create_draft(self, action):
         self._account_identity(action)
         body, composed_attachments = self._account_composed_content(action)
@@ -580,9 +620,13 @@ class Fastmail:
         drafts = next((item["id"] for item in folders.values() if item.get("role") == "drafts"), None)
         if drafts is None:
             raise ProviderError("account_drafts_folder_missing", status=503)
-        result = self.call("Email/import", {"emails": {"prepared": {"blobId": blob["blobId"],
-            "mailboxIds": {drafts: True}, "keywords": {"$draft": True}}},
-            **({"ifInState": action.expected_state} if action.action == "update_draft" else {})}, write=True)
+        arguments = {"emails": {"prepared": {"blobId": blob["blobId"],
+            "mailboxIds": {drafts: True}, "keywords": {"$draft": True}}}}
+        if action.action == "update_draft":
+            result = self._draft_conditional_write("Email/import", arguments,
+                action.message_id, action.expected_state)
+        else:
+            result = self.call("Email/import", arguments, write=True)
         return {"draft": self.created(result), "expected_state": result.get("newState")}
 
     def account_update_draft(self, action):
@@ -595,7 +639,10 @@ class Fastmail:
         if not replacement.get("draft", {}).get("id") or not replacement.get("expected_state"):
             raise ProviderError("account_draft_replacement_unconfirmed", uncertain=True)
         try:
-            deleted = self.account_delete_message(action.message_id, expected_state=replacement["expected_state"])
+            result = self._draft_conditional_write("Email/set", {"destroy": [action.message_id]},
+                action.message_id, replacement["expected_state"])
+            deleted = {"partial": bool(result.get("notDestroyed"))
+                or action.message_id not in result.get("destroyed", [])}
         except ProviderError:
             return {**replacement, "replaces": action.message_id, "old_draft_retained": True}
         return {**replacement, "replaces": action.message_id,
