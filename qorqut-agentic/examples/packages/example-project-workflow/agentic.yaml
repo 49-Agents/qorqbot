@@ -1,0 +1,28 @@
+schema_version: 1
+id: example-project-workflow
+name: Example project workflow
+description: "EXAMPLE (synthetic): a data-transform tool, a verifier tool and a landing-page preparation workflow."
+source:
+  kind: example
+  note: Synthetic example shipped with qorqut-agentic; not copied from any real installation.
+entries:
+  - id: normalize-results
+    kind: tool
+    description: "EXAMPLE: normalize a list of scored rows (trim and lowercase names, round scores)."
+    when_to_use: Use when scored result rows must be cleaned before they are compared or reported.
+    path: tools/normalize-results.yaml
+  - id: check-landing-page
+    kind: tool
+    description: "EXAMPLE: verifier that checks a landing-page preparation output."
+    when_to_use: Used as the verifier of the assemble step of the landing-page workflow.
+    path: tools/check-landing-page.yaml
+  - id: brief
+    kind: instruction
+    description: "EXAMPLE: how to write the landing-page brief."
+    when_to_use: First step of the landing-page workflow.
+    path: instructions/brief.md
+  - id: landing-page
+    kind: workflow
+    description: "EXAMPLE: prepare a landing page: brief, copy and assets in parallel, then assemble and verify."
+    when_to_use: Use to prepare (not publish) a landing page for a product.
+    path: workflows/landing-page.yaml

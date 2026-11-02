@@ -1,0 +1,41 @@
+schema_version: 1
+id: landing-page
+description: "EXAMPLE: prepare a landing page. Copy and assets proceed in parallel; assembly is verified."
+arguments:
+  - name: product_name
+    schema: {type: string, minLength: 1}
+    prompt: What is the product called?
+    acquisition: ask_before_start
+  - name: tone
+    schema: {enum: [plain, playful, formal]}
+    default: plain
+    prompt: Which tone should the copy use?
+    acquisition: default
+  - name: audience
+    schema: {type: string, minLength: 1}
+    default: small business owners
+    prompt: Is this the intended audience?
+    acquisition: confirm_default
+  - name: launch_date
+    schema: {type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
+    prompt: What is the launch date (YYYY-MM-DD)?
+    acquisition: ask_at_step
+    step: assemble
+  - name: primary_keyword
+    schema: {type: string, minLength: 1}
+    prompt: Derive the primary search keyword from the brief and say where it came from.
+    acquisition: derive
+    step: draft-copy
+steps:
+  - id: brief
+    instruction_ref: example-project-workflow/brief
+  - id: draft-copy
+    instructions: Draft the headline, sub-headline and call to action in the requested tone.
+    depends_on: [brief]
+  - id: collect-assets
+    instructions: List the images and proof points the page needs, with where each comes from.
+    depends_on: [brief]
+  - id: assemble
+    instructions: Assemble the sections (hero, proof, cta) into a page outline with a title containing the product name.
+    depends_on: [draft-copy, collect-assets]
+    verifier: example-project-workflow/check-landing-page

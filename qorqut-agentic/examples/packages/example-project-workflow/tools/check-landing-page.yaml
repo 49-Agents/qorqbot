@@ -1,0 +1,43 @@
+schema_version: 1
+description: Verify a landing-page preparation output.
+runtime: python
+code: tools/check_landing_page.py
+limits:
+  timeout_seconds: 10
+input_schema:
+  type: object
+  required: [run_id, step_id, arguments, output, completion_note]
+  properties:
+    run_id: {type: string}
+    step_id: {type: string}
+    arguments: {type: object}
+    output: {}
+    completion_note: {type: string}
+output_schema:
+  type: object
+  additionalProperties: false
+  required: [passed, feedback]
+  properties:
+    passed: {type: boolean}
+    feedback: {type: string}
+tests:
+  - name: passes a complete outline
+    input:
+      run_id: run_test
+      step_id: assemble
+      arguments: {product_name: Acme}
+      output: {title: "Acme for everyone", sections: [hero, proof, cta]}
+      completion_note: done
+    expect:
+      status: succeeded
+      output: {passed: true, feedback: ok}
+  - name: fails when the call to action is missing
+    input:
+      run_id: run_test
+      step_id: assemble
+      arguments: {product_name: Acme}
+      output: {title: "Acme for everyone", sections: [hero, proof]}
+      completion_note: done
+    expect:
+      status: succeeded
+      output: {passed: false, feedback: "missing sections: cta"}

@@ -1,0 +1,60 @@
+schema_version: 1
+description: Normalize scored rows.
+runtime: python
+code: tools/normalize_results.py
+resources:
+  - tools/lib
+  - tools/data
+limits:
+  timeout_seconds: 10
+  max_output_bytes: 65536
+input_schema:
+  type: object
+  additionalProperties: false
+  required: [rows]
+  properties:
+    rows:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required: [name, score]
+        properties:
+          name: {type: string}
+          score: {type: number}
+    digits: {type: integer, minimum: 0, maximum: 6}
+output_schema:
+  type: object
+  additionalProperties: false
+  required: [rows, count]
+  properties:
+    rows:
+      type: array
+      items:
+        type: object
+        required: [name, score]
+        properties:
+          name: {type: string}
+          score: {type: number}
+    count: {type: integer}
+tests:
+  - name: trims, lowercases, applies aliases and rounds
+    input:
+      rows:
+        - {name: "  Alpha ", score: 1.23456}
+        - {name: "BETA", score: 2}
+        - {name: "gamma", score: 0.5}
+      digits: 2
+    expect:
+      status: succeeded
+      output:
+        rows:
+          - {name: alpha, score: 1.23}
+          - {name: beta, score: 2}
+          - {name: gamma-ray, score: 0.5}
+        count: 3
+  - name: rejects input that does not match the schema
+    input: {rows: [{name: "x"}]}
+    expect:
+      status: rejected
+      error_code: validation_failed

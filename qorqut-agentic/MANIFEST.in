@@ -1,0 +1,5 @@
+include README.md
+recursive-include src/qorqut_agentic/resources *
+recursive-include examples *
+recursive-include docs *
+recursive-include tests *.py
