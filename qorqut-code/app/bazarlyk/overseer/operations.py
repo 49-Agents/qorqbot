@@ -33,6 +33,8 @@ READS = {
         'cursor': {'type': 'string', 'maxLength': 4096}, 'max_chars': {'type': 'integer', 'minimum': 1}},
         ('run_id', 'episode_ref', 'frontier')),
     'overseer_proposals_list': (_PAGE, ()),
+    'overseer_outside_delta_get': ({'id': _UUID}, ('id',)),
+    'overseer_outside_deltas_list': (_PAGE, ()),
     'overseer_delta_get': ({'id': _UUID, 'revision': {'type': 'integer', 'minimum': 1}}, ('id',)),
     'overseer_deltas_list': ({**_PAGE, 'decision': {'enum': ['undecided', 'accepted', 'rejected']}}, ()),
     'overseer_application_get': ({'id': _UUID, 'plan_revision': {'type': 'integer', 'minimum': 1}}, ('id',)),
@@ -54,6 +56,11 @@ WRITE = {
         ('request_key', 'instruction_text', 'summary', 'change_direction', 'scope', 'target_refs')),
     'agentic_change_reconcile': ({'submission_id': _UUID, 'response': _OBJ, 'operation_id': _STR},
         ('submission_id', 'response', 'operation_id')),
+    'overseer_outside_delta_record': ({'id': _UUID, 'summary': {'type': 'string', 'minLength': 1, 'maxLength': 8000},
+        'sources': {'type': 'array', 'minItems': 1, 'maxItems': 100, 'items': _OBJ},
+        'suggested_improvement': {'type': ['string', 'null'], 'minLength': 1, 'maxLength': 8000}, 'operation_id': _STR},
+        ('id', 'summary', 'sources', 'operation_id')),
+
     'overseer_extract_request': (START, ('invocation', 'interpretation', 'operation_id')),
     'overseer_review_start': (START, ('invocation', 'interpretation', 'operation_id')),
     'overseer_application_start': (START, ('invocation', 'interpretation', 'operation_id')),
@@ -208,6 +215,16 @@ class OverseerOperations:
                 self._evidence_scan_lock.release()
         ctx, _ = current_overseer(self.runtime, context, uow)
         layer = self.runtime.agentic_layer
+        if name in ('overseer_outside_delta_get', 'overseer_outside_deltas_list'):
+            ctx, _ = current_overseer(self.runtime, ctx, uow, capability='manage_agentic_layer')
+            from .outside import authorize
+            if name == 'overseer_outside_delta_get':
+                return authorize(self.runtime, ctx, layer.overseer.outside.get(args['id']))
+            page = layer.overseer.outside.list(limit=args.get('limit', 50), cursor=args.get('cursor'))
+            for item in page['items']:
+                authorize(self.runtime, ctx, item)
+            return page
+
         if name == 'overseer_proposals_list':
             page = layer.overseer.proposals.list(limit=args.get('limit', 20), cursor=args.get('cursor'))
             access = EvidenceAccess(self.runtime, ctx)
@@ -322,6 +339,10 @@ class OverseerOperations:
         if name in ('agentic_change_propose', 'agentic_change_reconcile'):
             from . import direct
             return (direct.propose if name == 'agentic_change_propose' else direct.reconcile)(self.runtime, context, **args)
+        if name == 'overseer_outside_delta_record':
+            from .outside import record
+            return record(self.runtime, context, args)
+
         kinds = {'overseer_extract_request': 'extraction', 'overseer_review_start': 'review', 'overseer_application_start': 'application'}
         if name in kinds:
             return start_from_owner(self.runtime, context, kinds[name], args['invocation'], args['interpretation'], args['operation_id'],

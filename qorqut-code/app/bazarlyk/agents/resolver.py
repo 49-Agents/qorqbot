@@ -358,9 +358,9 @@ class AgentConfigResolver:
         from bazarlyk.agentic.view import CONSISTENCY_ATTEMPTS
         for _ in range(CONSISTENCY_ATTEMPTS):
             try:
-                return self.require_agentic_view().consistent(
-                    lambda: self._resolve_agent_config(principal, business_id=business_id,
-                                                       session_registration=session_registration))
+                with self.require_agentic_view().read_snapshot():
+                    return self._resolve_agent_config(principal, business_id=business_id,
+                                                      session_registration=session_registration)
             except DomainError as exc:
                 if exc.code != "agentic_revision_conflict":
                     raise
@@ -511,6 +511,8 @@ class AgentConfigResolver:
             sources[key] = ContextSource(doc["id"], read(doc).decode("utf-8"), doc["revision"], doc["content_hash"],
                 str(doc["absolute_path"]))
         view = self.require_agentic_view()
+        from .preferences import load_preferences
+        sources["user-preferences/preferences"] = load_preferences(view)
         selection = view.selection(profile, project_id=snapshot["business"]["id"] if snapshot["business"] else None)
         skills, _ = self.managed_skills(profile, selection=selection)
         native_guidance_digest = self.native_guidance_digest(profile.to_dict())
@@ -632,8 +634,9 @@ class AgentConfigResolver:
                   last_effective_config_id: str | None = None, runtime: str = "claude-code") -> dict:
         from bazarlyk.bootstrap.tool_permissions import preparation_lock
         with preparation_lock(self.paths, principal.id):
-            return self._bootstrap(principal, registration_id=registration_id, session_id=session_id,
-                event=event, last_effective_config_id=last_effective_config_id, runtime=runtime)
+            with self.require_agentic_view().read_snapshot():
+                return self._bootstrap(principal, registration_id=registration_id, session_id=session_id,
+                    event=event, last_effective_config_id=last_effective_config_id, runtime=runtime)
 
     def _bootstrap(self, principal: Principal, *, registration_id: str, session_id: str, event: str,
                    last_effective_config_id: str | None, runtime: str) -> dict:
@@ -701,7 +704,7 @@ class AgentConfigResolver:
                     "error": {"code": "reprepare_required", "message": message},
                     "preparation": preparation}
         changed = last_effective_config_id != config.effective_config_id or data["context_refresh_required"]
-        result = {"ready": True, "effective_config_id": config.effective_config_id, "refresh_required": changed,
+        result = {"ready": True, "effective_config_id": config.effective_config_id, "agentic_catalog_revision": data["agentic_catalog_revision"], "refresh_required": changed,
                   "reload_skills": event != "prompt", "preparation": data["preparation"]}
         result["inbox_available"] = any(tool["canonical_operation"] == "inbox_list" and tool["available"] for tool in data["tools"])
         if result["inbox_available"]:

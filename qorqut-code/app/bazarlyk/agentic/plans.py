@@ -7,6 +7,7 @@ from collections.abc import Mapping
 
 import yaml
 
+from .inventory import package_path
 from .support import ImportFailure, decoded, digest, encoded, identifier, relative
 
 
@@ -40,21 +41,31 @@ def _validate_manifest(manifest):
 
 
 def _desired(inventory):
-    if not isinstance(inventory, dict) or inventory.get("schema_version") != 1:
-        raise ImportFailure("invalid_inventory", "Expected a version 1 source inventory")
+    if not isinstance(inventory, dict) or inventory.get("schema_version") != 2:
+        raise ImportFailure("invalid_inventory", "Expected a version 2 source inventory; older layouts require an explicit upgrade")
     if inventory.get("source_digest") != digest(inventory.get("sources")):
         raise ImportFailure("invalid_inventory", "Source digest does not match provenance records")
-    files, package_ids = {}, set()
+    files, package_ids, destinations = {}, set(), set()
     for package in inventory["packages"]:
         package_id = identifier(package["id"])
         if package_id in package_ids:
             raise ImportFailure("invalid_inventory", "Duplicate package ID", package_id=package_id)
         package_ids.add(package_id)
-        prefix = f"packages/{package_id}/"
+        destination = relative(package["path"])
+        if destination != package_path(package_id) or destination in destinations:
+            raise ImportFailure("invalid_inventory", "Invalid or duplicate package destination", path=destination)
+        destinations.add(destination)
+        prefix = destination + "/"
+        if package_id == "user-preferences":
+            entries = package["entries"]
+            if (len(entries) != 1 or entries[0].get("id") != "preferences"
+                    or entries[0].get("kind") != "skill" or entries[0].get("path") != "SKILL.md"
+                    or "SKILL.md" not in package["files"]):
+                raise ImportFailure("invalid_inventory", "Malformed user-preferences singleton")
         source_ids = set()
         for path, item in package["files"].items():
             relative(path)
-            if not (path.startswith("native/") or (package_id == "imported-email-management" and path.startswith("guidance/email/"))):
+            if not (path.startswith("native/") or (package_id == "user-preferences" and path == "SKILL.md") or (package_id == "imported-email-management" and path.startswith("guidance/email/"))):
                 raise ImportFailure("invalid_inventory", "Imported paths must be native assets or the canonical email guide", path=path)
             body = decoded(item["content_base64"])
             if item["sha256"] != digest(body):
@@ -65,7 +76,14 @@ def _desired(inventory):
                         entries=package["entries"], native=package["native"],
                         source={"import_adapter": "v1.3-offline", "sources": [record for record in inventory["sources"]
                                                                                if record["id"] in source_ids]})
-        files[prefix + "agentic.yaml"] = yaml.safe_dump(manifest, sort_keys=True, allow_unicode=True).encode()
+        if "manifest_file" in package:
+            supplied = package["manifest_file"]
+            body = decoded(supplied["content_base64"])
+            if digest(body) != supplied["sha256"]:
+                raise ImportFailure("invalid_inventory", "Bundle manifest digest does not match")
+            files[prefix + "agentic.yaml"] = body
+        else:
+            files[prefix + "agentic.yaml"] = yaml.safe_dump(manifest, sort_keys=True, allow_unicode=True).encode()
     return files
 
 

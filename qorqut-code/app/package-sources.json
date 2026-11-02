@@ -1,0 +1,27 @@
+{
+  "ordubashy": {
+    "kind": "role",
+    "path": "qorqut-agentic/src/qorqut_agentic/resources/defaults",
+    "manifest": "roles/imported-roles/native/roles/ordubashy/role.yaml"
+  },
+  "global-worker": {
+    "kind": "role",
+    "path": "qorqut-agentic/src/qorqut_agentic/resources/defaults",
+    "manifest": "roles/imported-roles/native/roles/global-worker/role.yaml"
+  },
+  "learning-applier": {
+    "kind": "role",
+    "path": "qorqut-agentic/src/qorqut_agentic/resources/defaults",
+    "manifest": "roles/imported-roles/native/roles/learning-applier/role.yaml"
+  },
+  "agent-terminal-control": {
+    "kind": "plugin",
+    "path": "qorqut-code/app",
+    "manifest": "plugins/agent-terminal-control/plugin.yaml"
+  },
+  "email-management": {
+    "kind": "plugin",
+    "path": "dependencies/email-management",
+    "manifest": "plugin.yaml"
+  }
+}

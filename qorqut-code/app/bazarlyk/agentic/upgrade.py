@@ -178,29 +178,53 @@ def _state_status(paths):
     except Exception as exc:
         code = getattr(exc, "code", None)
         if code == "migration_required":
-            return {"migration_required": True, "openable": False, "reason": "module state schema 1 requires its "
-                                                                              "explicit offline v1->v2 migration"}
+            return {"migration_required": True, "openable": False, "reason": "module state requires an explicit offline schema migration"}
         return {"migration_required": False, "openable": False, "reason": code or type(exc).__name__}
 
 
-def _profile_grants(paths):
+def _profile_grants(paths, *, immutable=False):
     """Read-only report of the active Learning Applier profile's host capability grants (never a write)."""
     database = paths.database
     if not database.is_file() or database.is_symlink():
         return {"agent_id": None, "required": list(REQUIRED_CAPABILITIES), "missing": [],
                 "reason": "No installed operational database was found for grant inspection"}
+    descriptor = None
     try:
-        connection = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
+        if immutable:
+            import stat
+            if not database.is_absolute() or any(part.is_symlink() for part in database.parents):
+                raise OSError("unsafe database path")
+            wal = database.with_name(database.name + "-wal")
+            if os.path.lexists(wal):
+                info = os.stat(wal, follow_symlinks=False)
+                if not stat.S_ISREG(info.st_mode) or info.st_size:
+                    raise OSError("database WAL requires offline checkpoint")
+            descriptor = os.open(database, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or info.st_size > 1024 * 1024 * 1024:
+                raise OSError("unsafe or oversized database")
+            uri = f"file:/proc/self/fd/{descriptor}?mode=ro&immutable=1"
+        else:
+            uri = database.resolve().as_uri() + "?mode=ro"
+        connection = sqlite3.connect(uri, uri=True)
         connection.row_factory = sqlite3.Row
         try:
-            rows = connection.execute(
-                "SELECT agent_id,profile_json,revision FROM agent_profiles "
-                "WHERE home_business_id IS NULL AND status='active' ORDER BY agent_id").fetchall()
+            if immutable:
+                connection.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 16 * 1024 * 1024)
+            fields = "agent_id,substr(profile_json,1,1048577) AS profile_json,revision" if immutable else "agent_id,profile_json,revision"
+            query = ("SELECT " + fields + " FROM agent_profiles "
+                     "WHERE home_business_id IS NULL AND status='active' ORDER BY agent_id")
+            rows = connection.execute(query + (" LIMIT 101" if immutable else "")).fetchall()
+            if immutable and (len(rows) > 100 or any(len(row["profile_json"] or "") > 1048576 for row in rows)):
+                raise ValueError("profile limit exceeded")
         finally:
             connection.close()
-    except sqlite3.Error as exc:
+    except (sqlite3.Error, OSError, ValueError) as exc:
         return {"agent_id": None, "required": list(REQUIRED_CAPABILITIES), "missing": [],
                 "reason": "Grant inspection could not read the profile: " + type(exc).__name__}
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
     holders = []
     for row in rows:
         try:
@@ -273,6 +297,10 @@ def prepare_upgrade(paths, export_root, selected_extensions=None, *, acknowledge
     different one is a separate explicit installation/update decision, never an implicit change to this upgrade.
     """
     record, record_sha256 = read_binding(paths)
+    inventory = record.get("inventory")
+    if isinstance(inventory, dict) and inventory.get("schema_version") == 2:
+        from .managed_plan import prepare
+        return prepare(paths, export_root, selected_extensions, acknowledge_grants=acknowledge_grants)
     installed = _installed_selection(record)
     if selected_extensions is None:
         selected = installed
@@ -296,6 +324,9 @@ def prepare_upgrade(paths, export_root, selected_extensions=None, *, acknowledge
                               details={"missing_components": missing,
                                        "selected_extensions": installed}) from exc
         raise
+    if isinstance(inventory, dict) and inventory.get("schema_version") == 1:
+        from .layout_upgrade import prepare_layout
+        return prepare_layout(paths, record, record_sha256, prepared)
     old_management = record.get("management_seed", {}).get("files", {})
     old_overseer = record.get("overseer_seed", {}).get("files", {})
     if not isinstance(old_management, dict) or not isinstance(old_overseer, dict):
@@ -358,9 +389,45 @@ def _unsafe_management_metadata(record):
 
 def apply_upgrade(paths, plan, *, attribution, acknowledge_grants=False):
     """Revalidate the exact plan, then perform it offline. Never repairs a conflict and never spends a live grant."""
+    if isinstance(plan, dict) and plan.get("kind") == "agentic_managed_update_v2":
+        from .managed_update import apply
+        return apply(paths, plan, attribution=attribution, acknowledge_grants=acknowledge_grants)
+    if isinstance(plan, dict) and plan.get("kind") == "agentic_layout_v2":
+        if plan.get("layout_change") is False:
+            from qorqut_agentic.changes import normalize_attribution
+            normalize_attribution(attribution, trust="host_installer")
+            recorded = {key: value for key, value in plan.items() if key != "plan_digest"}
+            if (plan.get("schema_version") != 2 or not isinstance(plan.get("plan_digest"), str)
+                    or digest(recorded) != plan["plan_digest"]):
+                raise DomainError("invalid_plan", "The offline layout plan digest changed")
+            from qorqut_agentic.store import Store
+            with Store(paths.agentic_runtime).lock(exclusive=False, timeout=10):
+                from .layout_intent import incomplete_intents
+                if incomplete_intents(paths):
+                    raise DomainError("operation_conflict", "An unfinished layout upgrade requires explicit offline resume")
+                try:
+                    from .layout_upgrade import prepare_layout
+                    record, record_sha = read_binding(paths)
+                    prepared = prepare_installation(plan["export"]["root"], plan["selected_extensions"])
+                    current = prepare_layout(paths, record, record_sha, prepared)
+                except (KeyError, TypeError) as exc:
+                    raise DomainError("invalid_plan", "The offline layout plan is malformed") from exc
+                if current != plan:
+                    raise DomainError("operation_conflict", "The instance changed since layout preparation")
+                if not current["complete"] or current["conflicts"]:
+                    raise DomainError("import_conflict", "The offline layout plan has unresolved conflicts",
+                                      details={"conflicts": current["conflicts"]})
+                return {"schema_version": 2, "kind": "agentic_layout_v2", "no_change": True,
+                        "plan_digest": plan["plan_digest"], "binding_sha256": plan["binding"]["record_sha256"]}
+        from .layout_activation import apply
+        return apply(paths, plan, attribution=attribution)
     if (not isinstance(plan, dict) or plan.get("schema_version") != 1 or "plan_digest" not in plan
             or not isinstance(attribution, dict)):
         raise DomainError("invalid_plan", "An explicit offline upgrade plan and attribution are required")
+    binding, _ = read_binding(paths)
+    inventory = binding.get("inventory")
+    if not isinstance(inventory, dict) or inventory.get("schema_version") in (1, 2):
+        raise DomainError("application_not_implemented", "Applying an agentic layout upgrade is not yet implemented")
     recorded = {key: value for key, value in plan.items() if key not in {"plan_digest", "_prepared"}}
     if hashlib.sha256(canonical(recorded)).hexdigest() != plan["plan_digest"]:
         raise DomainError("invalid_plan", "The offline upgrade plan digest changed")

@@ -19,7 +19,7 @@ from bazarlyk.installation import installation_config
 from .client import path_has_symlink, write_json_private
 from .recovery import locked
 
-HOOK_WAIT = 2.0
+HOOK_WAIT = 4.0
 IDENTITY = ('registration_id', 'session_id', 'owner', 'runtime')
 
 
@@ -63,26 +63,30 @@ def pending_path(root, item):
     return root / 'state/agent-recovery' / f"{item['registration_id']}-{item['session_id']}.json"
 
 
-def offer(root, registration_path, registration, native, body):
-    """Reuse the same in-flight attempt or the undelivered result after a restart."""
+def offer(root, registration_path, registration, native, body, revision=None):
+    """Reuse only a result or in-flight request for this identity and revision."""
     result = result_path(root, native)
     pending = pending_path(root, native)
     with locked(registration, native['session_id']):
         saved = read(result)
         item = read(pending)
-        recent = (same(saved, native) and saved.get('consumed') and not saved.get('error')
+        saved_revision = ((saved.get('response') or {}).get('agentic_catalog_revision')
+                          if not saved.get('error') else saved.get('catalog_revision'))
+        usable = body.get('event') == 'prompt' or bool((saved.get('response') or {}).get('mandatory_context')) or bool(saved.get('error'))
+        matching_result = (same(saved, native) and usable and (revision is None or saved_revision == revision)
+                           and (not item.get('request_id') or item.get('request_id') == saved.get('request_id')))
+        recent = (revision is not None and matching_result and saved.get('consumed') and not saved.get('error')
                   and body.get('event') == 'prompt' and body.get('last_effective_config_id')
                   == (saved.get('response') or {}).get('effective_config_id')
                   and 0 <= time.time() - saved.get('published_at', 0) < 30)
-        if recent:
+        if recent or (matching_result and not saved.get('consumed')):
             return result
-        usable = (body.get('event') == 'prompt' or bool((saved.get('response') or {}).get('mandatory_context')))
-        if not (same(saved, native) and not saved.get('consumed') and usable):
-            if not (same(item, native) and item.get('request_id')
-                    and item.get('request_id') != saved.get('request_id')):
-                item = {**native, 'registration_path': str(registration_path),
-                    'request_id': str(uuid.uuid4()), 'bootstrap_body': dict(body)}
-                write_json_private(pending, item)
+        if not (same(item, native) and item.get('request_id')
+                and item.get('request_id') != saved.get('request_id')
+                and (revision is None or item.get('catalog_revision') == revision)):
+            item = {**native, 'registration_path': str(registration_path),
+                    'request_id': str(uuid.uuid4()), 'bootstrap_body': dict(body), 'catalog_revision': revision}
+            write_json_private(pending, item)
     return result
 
 
@@ -90,29 +94,49 @@ def request(registration_path, registration, native, body):
     config = installation_config()
     if not native or not config or not running(Path(config['root'])):
         return None
+    from .catalog_revision import open_observer
     root = Path(config['root'])
-    result = offer(root,registration_path,registration,native,body)
-    warm = body.get('event') == 'prompt' and bool(body.get('last_effective_config_id'))
-    deadline = time.monotonic() + (0 if warm else HOOK_WAIT)
+    deadline = time.monotonic() + HOOK_WAIT
+    with open_observer(root, deadline) as observer:
+        return _request_with_observer(root, registration_path, registration, native, body, deadline, observer)
+
+
+def _request_with_observer(root, registration_path, registration, native, body, deadline, observer):
+    revision = observer.observe()
+    result = offer(root, registration_path, registration, native, body, revision)
     while True:
         saved = read(result)
-        usable = (body.get('event') == 'prompt' or bool((saved.get('response') or {}).get('mandatory_context')) or saved.get('error'))
-        if same(saved, native) and not saved.get('consumed') and usable:
-            if saved.get('error'):
-                consume(root, registration, saved)
-                error = saved['error']
-                raise DomainError(error['code'], error['message'], retryable=error.get('retryable', False))
-            return saved['response'], saved
+        response = saved.get('response') or {}
+        usable = (body.get('event') == 'prompt' or bool(response.get('mandatory_context')) or saved.get('error'))
+        pending = read(pending_path(root, native))
+        matching = (same(saved, native) and usable and response.get('agentic_catalog_revision') == revision
+                    and (not pending.get('request_id') or pending.get('request_id') == saved.get('request_id')))
+        if matching and not saved.get('consumed'):
+            current = observer.observe()
+            if current != revision:
+                revision = current
+                offer(root, registration_path, registration, native, body, revision)
+                continue
+            return response, saved
+        if matching and saved.get('consumed') and body.get('event') == 'prompt' and not saved.get('error'):
+            if (body.get('last_effective_config_id') == response.get('effective_config_id')
+                    and 0 <= time.time() - saved.get('published_at', 0) < 30):
+                current = observer.observe()
+                if current != revision:
+                    revision = current
+                    offer(root, registration_path, registration, native, body, revision)
+                    continue
+                return {**response, 'refresh_required': False}, {**native, 'registration_path': str(registration_path), 'deferred': True}
+        # A permanent error belongs to the current offered request, not a stale result.
+        if (same(saved, native) and saved.get('error') and not saved.get('consumed')
+                and saved.get('catalog_revision') == revision
+                and (not pending.get('request_id') or pending.get('request_id') == saved.get('request_id'))):
+            consume(root, registration, saved)
+            error = saved['error']
+            raise DomainError(error['code'], error['message'], retryable=error.get('retryable', False))
         if time.monotonic() >= deadline:
-            if warm:
-                # A background freshness check does not invalidate already delivered instructions.
-                cached = saved.get('response') or {}
-                if not same(saved, native) or cached.get('effective_config_id') != body['last_effective_config_id']:
-                    cached = {}
-                return {**cached, 'ready': True, 'effective_config_id': body['last_effective_config_id'],
-                        'refresh_required': False}, {**native, 'registration_path': str(registration_path), 'deferred': True}
             raise DomainError('bootstrap_pending', 'The helper is refreshing this session in the background', retryable=True)
-        time.sleep(.025)
+        time.sleep(min(.025, max(0, deadline - time.monotonic())))
 
 
 def publish(root, registration, item, *, response=None, error=None):
@@ -129,7 +153,7 @@ def publish(root, registration, item, *, response=None, error=None):
             return False
         write_json_private(result_path(root, item), {**{k: item[k] for k in IDENTITY},
             'registration_path': item['registration_path'], 'request_id': item['request_id'],
-            'response': response, 'error': error, 'consumed': False, 'published_at': time.time()})
+            'catalog_revision': item.get('catalog_revision'), 'response': response, 'error': error, 'consumed': False, 'published_at': time.time()})
         return True
 
 

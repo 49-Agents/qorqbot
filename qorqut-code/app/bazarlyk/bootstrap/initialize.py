@@ -4,7 +4,7 @@
         [--owner-name NAME] [--extensions-config FILE]
 
 ``--prepared-root`` is the output of ``tools/prepare-local.py``: its preparation receipt and the ``src/SOURCE-MANIFEST.json`` of
-its source copy name the five code and role components and the package-source workspace, and the command must run in the
+its source copy name the code components and the package-source workspace, and the command must run in the
 prepared host environment. ``--extensions-config`` is a JSON object with an ``extensions`` list in the trusted factory format;
 without it no extension is selected. Nothing is read from an existing installation, owner configuration or native session.
 
@@ -54,7 +54,7 @@ MANIFEST = "SOURCE-MANIFEST.json"
 MAX_JSON = 4 * 1024 * 1024
 # InstancePaths component -> (source component name in SOURCE-MANIFEST.json, subdirectory of its destination).
 COMPONENT_SOURCES = {"app": ("qorqut-code", "app"), "operations_engine": ("qorqut-operations", ""),
-                     "context_engine": ("qorqut-context", ""), "dashboard": ("biz-dashboard", ""), "roles": ("agent-roles", "")}
+                     "context_engine": ("qorqut-context", ""), "dashboard": ("biz-dashboard", ""), "roles": ("qorqut-agentic", "src/qorqut_agentic/resources/defaults")}
 # The authored role sources published into the catalog; only the first and last are registered as agents.
 ROLES = ("ordubashy", "global-worker", "learning-applier")
 AGENTS = (("ordubashy", "ordubashy", "Ordubashy", "Coordinate the owner's work across projects and register workers when asked."),

@@ -17,7 +17,7 @@ from qorqut_operations.contracts import DomainError, canonical_bytes
 from .models import AgentProfile
 from .roles import SUPPORTED_GLOBAL_ROLES
 from . import role_workflow
-from bazarlyk.agentic.text import bundled, read_resource, render
+from bazarlyk.agentic.text import bundled, render
 
 # A generous total delivery budget, roughly 20k tokens for ordinary English.
 # This is a character bound, not an assertion about a model's tokenizer.
@@ -37,11 +37,12 @@ class ContextSource:
     source_path: str
     source_kind: str = "document"
     section_selector: str | None = None
+    preserve_text: bool = False
 
     def selected_text(self) -> str:
         if self.section_selector:
             return markdown_section(self.text, self.section_selector)
-        return self.text.strip()
+        return self.text if self.preserve_text else self.text.strip()
 
 
 def markdown_section(text: str, title: str = "Agent Brief") -> str:
@@ -152,10 +153,11 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
     identity += "\nGlobal capabilities: " + (", ".join(profile.scope.global_capabilities) or "none") + "."
     derived("Identity And Assignment", identity, "profile:" + profile.agent_id, "Mandatory current identity and assignment")
     add("Universal Foundation", required("foundation"), "Common rules for every registered agent")
+    add("User Preferences", required("user-preferences/preferences"), "Canonical preferences for every agent")
     add("Scope Operating Brief", required(role.manifest["scope_brief"]), "Selected scope has no implicit exceptions")
-    role_body = read_resource(agentic_view, "roles", role.manifest["brief"])["content"]
-    add("Role Brief", ContextSource(f"role:{role.id}@{role.version}", role_body,
-        role.version, content_hash(role_body.encode()), role.manifest["brief"], "artifact"), "Current authored mandatory responsibilities")
+    brief = agentic_view.role_brief(role)
+    add("Role Brief", ContextSource(f"role:{role.id}@{role.version}", brief["body"],
+        brief["revision"], brief["sha256"], brief["path"], "agentic"), "Current authored mandatory responsibilities")
     role_instructions = render(agentic_view, "host", "app/bazarlyk/agentic/assets/role-workflow.md")
     add("Role Work Loop", ContextSource("core:role-workflow", role_instructions, 1,
         content_hash(role_instructions.encode()), "qorqut-core:role-workflow", "core"),
@@ -193,6 +195,8 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
     orientation = [render(agentic_view, "host", "app/bazarlyk/agentic/assets/workspace.md", WORKSPACE=str(workspace))]
     orientation.append(render(agentic_view, "host", "app/bazarlyk/agentic/assets/software-ownership.md"))
     orientation.append(render(agentic_view, "host", "app/bazarlyk/agentic/assets/startup.md"))
+    from .preferences import plugin_discovery_guidance
+    orientation.append(plugin_discovery_guidance())
     orientation.append(
         render(agentic_view, "host", "app/bazarlyk/agentic/assets/completion-report.md"))
     orientation.append(

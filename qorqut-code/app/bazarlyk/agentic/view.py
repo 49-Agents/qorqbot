@@ -8,6 +8,7 @@ permissions. All tree reads go through the module's public catalog API.
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
 from copy import deepcopy
 import hashlib
 import posixpath
@@ -17,7 +18,8 @@ from qorqut_operations.contracts import DomainError
 
 from bazarlyk.agents.roles import LEARNING_APPLIER_ROLE
 
-from .support import MAX_FILE_BYTES, ImportFailure, decoded, digest, identifier, relative
+from .inventory import package_path
+from .support import MAX_FILE_BYTES, ImportFailure, decoded, digest, identifier, relative, read_yaml
 
 
 CONSISTENCY_ATTEMPTS = 3
@@ -61,8 +63,8 @@ class HostAgenticView:
 
     def _validate_inventory(self):
         inv = self._inventory
-        if inv["schema_version"] != 1 or inv["coverage"]["complete"] is not True:
-            _invalid("A complete version 1 offline inventory is required")
+        if inv["schema_version"] != 2 or inv["coverage"]["complete"] is not True:
+            _invalid("A complete version 2 inventory is required; older layouts require an explicit upgrade")
         if inv["source_digest"] != digest(inv["sources"]):
             _invalid("Inventory source digest does not match")
         if any(row["severity"] in {"error", "pending"} for row in inv["diagnostics"]):
@@ -73,11 +75,34 @@ class HostAgenticView:
             if source_id in self._sources or type(source["enabled"]) is not bool:
                 _invalid("Duplicate or invalid inventory source")
             self._sources[source_id] = source
+        destinations = set()
         for package in inv["packages"]:
             package_id = identifier(package["id"])
             if package_id in self._packages or type(package["native"]["enabled"]) is not bool:
                 _invalid("Duplicate or invalid inventory package")
+            destination = relative(package["path"])
+            if destination != package_path(package_id) or destination in destinations:
+                _invalid("Invalid or duplicate package destination")
+            destinations.add(destination)
             self._packages[package_id] = package
+            if package_id == "user-preferences":
+                entries = package["entries"]
+                if (len(entries) != 1 or entries[0].get("id") != "preferences"
+                        or entries[0].get("kind") != "skill" or entries[0].get("path") != "SKILL.md"
+                        or "SKILL.md" not in package["files"]):
+                    _invalid("Malformed user-preferences singleton")
+            if "manifest_file" in package:
+                item = package["manifest_file"]
+                body = decoded(item["content_base64"])
+                source = self._sources.get(item["source_id"])
+                manifest = read_yaml(body)
+                expected = {(e["id"], e["kind"], e["path"]) for e in package["entries"]}
+                supplied = {(e.get("id"), e.get("kind"), e.get("path")) for e in manifest.get("entries", [])}
+                if (source is None or item["source_path"] != destination + "/agentic.yaml"
+                        or item["sha256"] != digest(body) or source["files"].get(item["source_path"]) != item["sha256"]
+                        or manifest.get("id") != package_id or expected != supplied
+                        or len(supplied) != len(manifest.get("entries", []))):
+                    _invalid("Invalid bundled package manifest or provenance")
             for path, item in package["files"].items():
                 relative(path)
                 if item["sha256"] != digest(decoded(item["content_base64"])):
@@ -92,13 +117,17 @@ class HostAgenticView:
                     _invalid("Imported templates must be isolated in inactive packages")
                 self._entries[ref] = entry
         self._assets = {}
+        asset_destinations = set()
         for asset in inv["assets"]:
             source_id, path = asset["source_id"], relative(asset["path"])
             package_id = asset["package_id"]
-            prefix = "packages/" + package_id + "/"
+            prefix = self._packages[package_id]["path"] + "/"
             destination = relative(asset["destination"])
             if source_id not in self._sources or package_id not in self._packages or not destination.startswith(prefix):
                 _invalid("Asset has an unknown source, package or destination")
+            if destination in asset_destinations:
+                _invalid("Duplicate asset destination")
+            asset_destinations.add(destination)
             item = self._packages[package_id]["files"][destination[len(prefix):]]
             if item["sha256"] != asset["sha256"]:
                 _invalid("Asset and package digests differ")
@@ -157,7 +186,7 @@ class HostAgenticView:
                 known = self._packages.get(package_id)
                 if known is not None and not known["native"]["enabled"]:
                     continue
-                if package_id == OVERSEER_PACKAGE and role_id != OVERSEER_ROLE:
+                if package.get("area") == "overseer" and role_id != OVERSEER_ROLE:
                     continue
                 if not report["valid"] and not self.layer.catalog.validate(package_ids=[package_id])["valid"]:
                     continue
@@ -168,10 +197,22 @@ class HostAgenticView:
 
     @property
     def catalog_revision(self) -> str:
-        result = self.layer.catalog.list(limit=1)
+        result = self.layer.catalog.revision()
         if result["recovery_required"]:
             raise DomainError("agentic_unavailable", "Managed instruction recovery is required")
         return result["catalog_revision"]
+
+    @contextmanager
+    def read_snapshot(self):
+        """Bind a request to one catalogue and validate it before returning."""
+        try:
+            with self.layer.catalog.read_snapshot():
+                yield
+        except AgenticError as exc:
+            if exc.code == "revision_conflict":
+                raise DomainError("agentic_revision_conflict", "Managed instructions changed during projection; retry",
+                                  retryable=True) from exc
+            raise DomainError("agentic_unavailable", exc.message, details={"agentic_code": exc.code}) from exc
 
     def consistent(self, reader, *, revision=None):
         """Return a whole projection from one observed revision, or fail boundedly.
@@ -189,8 +230,9 @@ class HostAgenticView:
                     result = reader()
                 except AgenticError as exc:
                     error = exc
-            # At the outer boundary this is a fresh read. Nested projections
-            # share the caller's snapshot and its final revision check.
+            if error is not None and error.code == "revision_conflict":
+                raise DomainError("agentic_revision_conflict", "Managed instructions changed during projection; retry", retryable=True) from error
+
             if self.catalog_revision == before:
                 if error is not None:
                     raise DomainError("agentic_unavailable", error.message,
@@ -207,13 +249,46 @@ class HostAgenticView:
             raise DomainError("agentic_resource_unavailable", "Managed source has no unique imported asset",
                               details={"source_id": source_id, "path": source_path, "symbol": symbol})
         asset = assets[0]
-        prefix = "packages/" + asset["package_id"] + "/"
+        prefix = self._packages[asset["package_id"]]["path"] + "/"
         try:
             return self.layer.catalog.read_resource(asset["package_id"], asset["destination"][len(prefix):],
                                                     max_bytes=MAX_FILE_BYTES)
         except AgenticError as exc:
+            if exc.code == "revision_conflict":
+                raise DomainError("agentic_revision_conflict", "Managed instructions changed during projection; retry", retryable=True) from exc
             raise DomainError("agentic_resource_unavailable", exc.message,
                               details={"source_id": source_id, "path": source_path, "agentic_code": exc.code}) from exc
+
+    def role_brief(self, native_package) -> dict:
+        """Read the current role instruction through its trusted native binding."""
+        if native_package.kind != "role":
+            _invalid("Native package kind does not match its requested binding")
+        binding = self._bindings.get(("role", native_package.id))
+        if not binding or not binding["enabled"] or binding["template"]:
+            raise DomainError("agentic_role_unavailable", "Native role has no active host-owned binding")
+        refs = [ref for ref in binding["entry_refs"]
+                if self._entries[ref]["kind"] == "instruction"
+                and self._packages[ref.split("/", 1)[0]]["path"].startswith("roles/")]
+        if len(refs) != 1:
+            _invalid("Native role has no unique canonical instruction")
+        ref = refs[0]
+        entry = self._entries[ref]
+        if entry.get("native", {}).get("template"):
+            raise DomainError("agentic_role_unavailable", "Template cannot become a native role instruction")
+        expected_root = self._packages[ref.split("/", 1)[0]]["path"] + "/" + entry["path"]
+
+        def read():
+            current = self.layer.catalog.read_entry(ref)
+            described, body = current["entry"], current["body"]
+            if (described["ref"] != ref or described["kind"] != "instruction"
+                    or described["path"] != entry["path"] or described["root_path"] != expected_root
+                    or not isinstance(body, str) or not body.strip()
+                    or not isinstance(described["revision"], str) or not described["revision"]):
+                raise DomainError("agentic_role_unavailable", "Canonical role instruction moved or is invalid")
+            return {"body": body, "path": described["root_path"], "revision": described["revision"],
+                    "sha256": "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()}
+
+        return self.consistent(read)
 
     def skill_files(self, kind, native_package, native_skill_id, *, selection) -> dict[str, bytes]:
         if kind != native_package.kind:

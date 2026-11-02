@@ -81,14 +81,14 @@ def validate_manifest(value):
     return value
 
 
-def snapshot_sha256(root, *, exclude=()):
-    """Hash sorted path/kind/content/mode records, without following any symlink.
+def _snapshot_walk(root, *, exclude=()):
+    """Collect sorted path/kind/content/mode records without following symlinks.
 
     Exclusions are relative descendant component roots, validated as directories.
     File descriptors pin the directories and reject replacements with symlinks.
     """
     excludes = {relative(p) for p in exclude}
-    records, total, entries = [], 0, 0
+    records, directories, total, entries = [], [], 0, 0
     root = Path(root)
     def walk(fd, prefix=""):
         nonlocal total, entries
@@ -103,6 +103,7 @@ def snapshot_sha256(root, *, exclude=()):
                     raise SnapshotError("Nested component is not a real directory: " + path)
                 continue
             if stat.S_ISDIR(info.st_mode):
+                directories.append(path)
                 child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
                 try:
                     walk(child, path + "/")
@@ -145,17 +146,33 @@ def snapshot_sha256(root, *, exclude=()):
         walk(fd)
     finally:
         os.close(fd)
-    return hashlib.sha256(canonical(sorted(records, key=lambda r: r["path"]))).hexdigest()
+    return sorted(records, key=lambda r: r["path"]), sorted(directories)
 
 
-def component_digest(root, component, components):
+def _snapshot_records(root, *, exclude=()):
+    return _snapshot_walk(root, exclude=exclude)[0]
+
+
+def snapshot_sha256(root, *, exclude=()):
+    return hashlib.sha256(canonical(_snapshot_records(root, exclude=exclude))).hexdigest()
+
+
+def component_observations(root, component, components):
     dest = component["destination"]
     descendants = [c["destination"][len(dest) + 1:] for c in components if c["destination"].startswith(dest + "/")]
     # A descendant may have intervening path components; all must be real directories.
     for child in descendants:
         fd = _directory(Path(root) / dest / child)
         os.close(fd)
-    return snapshot_sha256(Path(root) / dest, exclude=descendants)
+    return _snapshot_walk(Path(root) / dest, exclude=descendants)
+
+
+def component_records(root, component, components):
+    return component_observations(root, component, components)[0]
+
+
+def component_digest(root, component, components):
+    return hashlib.sha256(canonical(component_records(root, component, components))).hexdigest()
 
 
 def validate_export(root):

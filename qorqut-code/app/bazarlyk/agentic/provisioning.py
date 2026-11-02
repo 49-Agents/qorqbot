@@ -73,6 +73,33 @@ def plan(paths) -> dict:
             "complete": not unsafe, "conflicts": [{"path": item["path"], "reason": item["state"]} for item in unsafe]}
 
 
+def _create_root(paths, name):
+    """Create one explicitly named missing root, leaving journaling to the caller."""
+    roots = dict(ROOTS)
+    if name not in roots:
+        raise DomainError("overseer_storage_unavailable", "Unknown private provisioning root")
+    path = roots[name](paths)
+    if inspect(path, BASES[name](paths)) != 'missing':
+        raise DomainError("overseer_storage_unavailable", "The private provisioning root is no longer missing")
+    parent = path.parent
+    if not parent.is_absolute() or any(p.is_symlink() for p in (parent, *parent.parents)):
+        raise DomainError("overseer_storage_unavailable", "Unsafe private provisioning parent")
+    parentfd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        os.mkdir(path.name, MODE, dir_fd=parentfd)
+        child = os.open(path.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parentfd)
+        try:
+            os.fchmod(child, MODE)
+            os.fsync(child)
+            info = os.fstat(child)
+            os.fsync(parentfd)
+            return {'device': info.st_dev, 'inode': info.st_ino, 'mode': stat.S_IMODE(info.st_mode), 'uid': info.st_uid}
+        finally:
+            os.close(child)
+    finally:
+        os.close(parentfd)
+
+
 def apply(paths) -> dict:
     """Create the missing roots with mode 0700; preserve every correct existing one; refuse anything else."""
     runtime_parent = paths.operations / ".runtime"

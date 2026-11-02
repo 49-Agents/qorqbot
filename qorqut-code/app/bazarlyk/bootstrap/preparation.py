@@ -227,7 +227,7 @@ def seed_instance_guidance(resolver, data) -> dict:
     for grant in data["plugins"]:
         if grant["id"] == email_guidance.PLUGIN_ID:
             root = email_guidance.home(resolver.paths, agentic_view=view)
-            prefix = "packages/imported-email-management/guidance/email/"
+            prefix = "plugins/imported-email-management/guidance/email/"
             for name in sorted(email_guidance.TEMPLATE_FILES):
                 resource = view.layer.catalog.read_resource("imported-email-management", "guidance/email/" + name,
                                                             selection=data["agentic_selection"])

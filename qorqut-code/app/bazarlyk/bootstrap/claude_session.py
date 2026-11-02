@@ -255,7 +255,17 @@ def run(hook: dict, registration_path: Path, *, stream=sys.stdout, diagnostics=s
             from .handoff import read as read_state
             native = read_state(Path(selected['workspace'])/'.bazarlyk/native-binding.json')
             owner = native.get('owner') if native.get('session_id') == hook.get('session_id') else None
-            if code not in {'inbox_generation_stale','inbox_session_superseded'}:
+            receipt_path = Path(selected['workspace']) / '.bazarlyk/delivery' / (hashlib.sha256(hook.get('session_id', '').encode()).hexdigest() + '.json')
+            delivered = False
+            if pending and not path_has_symlink(receipt_path):
+                try:
+                    previous = json.loads(receipt_path.read_text())
+                    delivered = (previous.get('registration_id') == selected['registration_id']
+                                 and previous.get('session_id') == hook.get('session_id')
+                                 and bool(previous.get('effective_config_id')))
+                except (OSError, ValueError):
+                    pass
+            if code not in {'inbox_generation_stale','inbox_session_superseded'} and not delivered:
                 record(selected, hook.get('session_id'), runtime, code, owner=owner,
                     details=exc.details if isinstance(exc,DomainError) else None)
         except (OSError, ValueError, DomainError):

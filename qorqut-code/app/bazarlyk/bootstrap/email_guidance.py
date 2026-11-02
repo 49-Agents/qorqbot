@@ -83,7 +83,7 @@ def home(paths, *, agentic_view):
         raise DomainError("invalid_email_guidance", "Canonical email guide must be nonempty UTF-8")
     if len(resource["content"].encode("utf-8")) > MAX_FILE_BYTES:
         raise DomainError("invalid_email_guidance", "Canonical email guide exceeds its byte limit")
-    expected = "packages/imported-email-management/guidance/email/SKILL.md"
+    expected = "plugins/imported-email-management/guidance/email/SKILL.md"
     root_path = resource.get("root_path")
     if relative(root_path) != expected:
         raise DomainError("invalid_email_guidance", "Canonical email guide returned an unexpected path")
