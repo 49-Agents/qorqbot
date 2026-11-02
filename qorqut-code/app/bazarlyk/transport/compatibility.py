@@ -247,23 +247,14 @@ class DashboardCompatibility:
                 tasks.extend({**self.task_view(selected, task, members=members), "business": business} for task in rows)
             return JSONResponse({"principal_id": context.principal_id, "tasks": tasks})
         if parts == ["biz"]:
-            from bazarlyk.sandbox.state import environment_status
             with self.runtime.database.read() as uow:
                 registered = uow.connection.execute("SELECT b.* FROM businesses b JOIN business_memberships m ON m.business_id=b.id WHERE m.principal_id=? AND m.active=1 AND b.archived_at IS NULL ORDER BY b.slug", (context.principal_id,)).fetchall()
-                environments = {row["id"]: environment_status(uow, row["id"]) for row in registered}
             businesses = []
             for row in registered:
                 selected = context.select_business(row["id"])
                 profiles = self.data(selected, "agents_list")["agents"]
                 metadata = json.loads(row["config_json"])
-                environment = environments[row["id"]]
-                viewer = getattr(getattr(self.runtime, "previews", None), "browser_viewers", None)
-                if viewer is not None:
-                    link = viewer.link(row["id"])
-                    if link is not None:
-                        environment = {**environment, "browser_viewer_url": link}
                 businesses.append({"slug": row["slug"], "path": str(business_hq(self.runtime.paths, row)), "name": row["name"], "id": row["id"], "business_id": row["id"],
-                    "environment": environment,
                     "one_liner": metadata.get("one_liner", metadata.get("description", "")), "stage": row["stage"], "website": metadata.get("website"),
                     "owner": context.principal.display_name, "agents": [profile["name"] for profile in profiles],
                     "agent_meta": {profile["name"]: self.appearance(profile) for profile in profiles}})

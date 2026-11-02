@@ -1,0 +1,12 @@
+{
+  "name": "qorqut-browser-runtime",
+  "private": true,
+  "version": "1.0.0",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
+  },
+  "dependencies": {
+    "agent-browser": "0.38.1"
+  }
+}

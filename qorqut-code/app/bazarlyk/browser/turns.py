@@ -414,24 +414,18 @@ class BrowserTurnQueue:
         if turn is None or turn["parent_principal_id"] != parent_principal_id \
                 or turn["requester_id"] != requester_id:
             raise DomainError("forbidden", "Browser turn is not owned by this requester")
-        coordinated = turn["requester_kind"] == "agent" and requester_id.startswith("coordinator:")
-        if coordinated:
-            # The explicit Ordubashy handle that began the action settles it; it never adopts a newer lease.
-            if turn["state"] == "owning" and turn["lease_id"] != lease_id:
-                raise DomainError("stale_worker", "Recovery must come from the lease that started the action")
-        elif turn['requester_kind'] == 'agent':
+        if turn['requester_kind'] == 'agent':
             recovered = self.recover_rejected_action(uow, turn_id,
                 parent_principal_id=parent_principal_id, requester_id=requester_id,
                 generation=generation, lease_id=lease_id, action_id=action_id, now=now)
             if recovered is not None:
                 return recovered
             raise DomainError('browser_reconcile', 'Native action may have executed; operator reconciliation is required')
-        if not coordinated:
-            assignment = uow.connection.execute(
-                "SELECT * FROM operational_assignments WHERE id=?", (requester_id,)).fetchone()
-            if assignment is None or assignment["parent_principal_id"] != parent_principal_id \
-                    or assignment["state"] != "running" or assignment["execution_generation"] != generation:
-                raise DomainError("stale_worker", "Recovery must come from the current assignment generation")
+        assignment = uow.connection.execute(
+            "SELECT * FROM operational_assignments WHERE id=?", (requester_id,)).fetchone()
+        if assignment is None or assignment["parent_principal_id"] != parent_principal_id \
+                or assignment["state"] != "running" or assignment["execution_generation"] != generation:
+            raise DomainError("stale_worker", "Recovery must come from the current assignment generation")
         if action["state"] == "reconciled":
             return dict(action)
         if action["state"] not in {"pending", "running", "uncertain"}:

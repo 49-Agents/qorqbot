@@ -632,25 +632,6 @@ class HTTPAPI:
             if parts[:1] == ["biz"] and len(parts) >= 2:
                 context, business = await anyio.to_thread.run_sync(lambda: self.context(actor, parts[1], owner=request.method != "GET"))
                 tail = parts[2:]
-                if tail == ["browser-surfaces"] and request.method == "GET" and self.compatibility:
-                    data = await anyio.to_thread.run_sync(lambda: self.compatibility.local_files.business_browser_surfaces(context))
-                    return JSONResponse(data, headers={"Cache-Control": "no-store"})
-                if tail == ["previews"]:
-                    if self.runtime.previews is None:
-                        raise DomainError("configuration_missing", "Private previews are unavailable")
-                    registry = self.runtime.previews.registry
-                    if request.method == "POST":
-                        body = await read_json(request, limit=2048)
-                        checked_fields(body, {"action", "port"}, {"action", "port"})
-                        if body["action"] not in {"register", "disable"}:
-                            raise DomainError("validation_error", "Unsupported preview action")
-                        operation = registry.register if body["action"] == "register" else registry.disable
-                        await anyio.to_thread.run_sync(operation, business["id"], body["port"])
-                    elif request.method != "GET":
-                        raise DomainError("not_found", "Preview endpoint is unavailable")
-                    rows = await anyio.to_thread.run_sync(registry.list, business["id"])
-                    return response(OperationResult.ok({"previews": [{"port": row["workload_port"], "url": row["origin"]}
-                        for row in rows]}, request_id=request_id))
                 if len(tail) == 3 and tail[0] == "data-uploads" and tail[2] == "download" and request.method == "GET":
                     return await self.data_upload_download(context, tail[1])
                 if tail[:1] == ["signoffs"]:
@@ -1084,7 +1065,7 @@ class HTTPAPI:
             if actor.delegation_assignment_id is None:
                 raise DomainError("forbidden", "Only a bound durable worker may use assignment browser access")
             body = await read_json(request, limit=128 * 1024)
-            checked_fields(body, {"action", "business_id", "turn_id", "lease_id", "turn_token", "command",
+            checked_fields(body, {"action", "turn_id", "lease_id", "turn_token", "command",
                                   "checkpoint", "last_action", "pending_outcome", "next_action", "lease_seconds", "reason"},
                            {"action"})
             access = self.runtime.browser_access

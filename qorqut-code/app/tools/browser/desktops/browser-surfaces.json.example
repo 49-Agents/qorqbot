@@ -1,0 +1,15 @@
+{
+  "schema_version": 2,
+  "surfaces": {
+    "ordubashy-browser": {"label": "Ordubashy", "kind": "browser",
+      "viewer_url": "https://GUACAMOLE-HOST/#/client/CONNECTION-IDENTIFIER", "width": 1440, "height": 900},
+    "outlook-browser": {"label": "Outlook", "kind": "browser",
+      "viewer_url": "https://GUACAMOLE-HOST/#/client/CONNECTION-IDENTIFIER", "width": 1440, "height": 900},
+    "ordubashy-desktop": {"label": "Desktop", "kind": "desktop",
+      "viewer_url": "https://GUACAMOLE-HOST/#/client/CONNECTION-IDENTIFIER"}
+  },
+  "agents": {
+    "7f3a1c52-9d4e-4b68-8a2f-5c1e0d9b3a47": {"browsers": ["ordubashy-browser"], "desktop": "ordubashy-desktop"},
+    "c2e6b8d4-1a53-4f97-b0e8-6d3a9f2c7e15": {"browsers": ["outlook-browser"]}
+  }
+}

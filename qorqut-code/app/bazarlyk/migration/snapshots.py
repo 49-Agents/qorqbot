@@ -140,7 +140,7 @@ def inventory_sources(businesses_root: str | Path) -> SourceManifest:
         if entry.is_symlink() or hq.is_symlink():
             raise AuthorityError("source_symlink", "Business discovery cannot follow a symbolic link.")
         businesses.append({"slug": entry.name, "hq": hq.relative_to(root).as_posix()})
-        # hq/browser is the isolated browser's live profile: private runtime state, never migration input.
+        # hq/browser held a removed per-project browser's live profile: private runtime state, never migration input.
         paths.extend(_regular_files(hq, top_skip=frozenset({"browser"})))
         repositories[hq.relative_to(root).as_posix()] = _git_head(hq)
     for name in ROOT_ENTRIES:

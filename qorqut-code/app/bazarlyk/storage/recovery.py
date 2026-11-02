@@ -39,8 +39,8 @@ def _identity(value):
     return value
 
 
-# A business's isolated browser keeps its live Chrome profile, downloads and setup projection here. They are
-# private runtime state: not authored context, and full of sockets, links and cookies a backup must never read.
+# Older installations kept a removed per-project browser's live Chrome profile, downloads and setup projection here.
+# They are private runtime state: not authored context, and full of sockets, links and cookies a backup must never read.
 PRIVATE_HQ_DIRECTORIES = frozenset({"browser"})
 
 

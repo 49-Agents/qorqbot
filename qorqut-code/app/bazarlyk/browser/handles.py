@@ -10,7 +10,7 @@ from qorqut_operations.contracts import DomainError
 
 
 _PRIVATE = {"turn_id", "lease_id", "turn_token"}
-_SELECTORS = {"consumer_id", "business_id", "browser_key"}
+_SELECTORS = {"consumer_id", "browser_key"}
 
 
 def binding_for(actor):
@@ -124,22 +124,11 @@ class BrowserHandles:
         with self.database.read() as uow:
             row = uow.connection.execute("SELECT * FROM browser_handles WHERE id=?", (handle,)).fetchone()
         if row is not None and json.loads(row["arguments_json"]).get("coordinator"):
-            return self._coordinated(actor, action, body, handle, row)
+            # A former project-browser lease; projects have no browsers any more.
+            raise DomainError("stale_browser_handle", "This browser handle named a project browser, which no longer exists")
         if self.access.native_target(actor.principal.id, handle) is None:
             # Handles issued before configured browsers became lease-free stay usable by their principal.
             if row is None or json.loads(row["binding_json"]).get("principal_id") != actor.principal.id:
                 raise DomainError("forbidden", "Browser handle is unavailable for this caller")
         arguments = {key: value for key, value in body.items() if key != "handle"}
         return self.access.worker(actor, action, arguments, handle=handle)
-
-    def _coordinated(self, actor, action, body, handle, row):
-        """A leased business browser chosen explicitly by the global Ordubashy; only its handle selects it."""
-        if binding_for(actor) != json.loads(row["binding_json"]):
-            raise DomainError("forbidden", "Browser handle is unavailable for this caller")
-        saved = json.loads(row["arguments_json"])
-        if any(body.get(key) is not None and body[key] != saved.get(key) for key in _SELECTORS):
-            raise DomainError("forbidden", "Browser handle selectors cannot be changed")
-        arguments = {key: value for key, value in body.items() if key != "handle"}
-        value = self.access.coordinator.call(actor, action, arguments, row, saved)
-        result = _compact(value, handle, operation=action)
-        return json.loads(json.dumps(result).replace(saved["turn_token"], "[browser-token]"))

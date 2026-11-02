@@ -13,9 +13,7 @@ from qorqut_operations.contracts import DomainError
 from bazarlyk.transport.auth import Authentication
 from bazarlyk.transport.compatibility import DashboardCompatibility
 from bazarlyk.transport.terminals import TerminalService
-from bazarlyk.sandbox.terminal import SandboxTerminalProvider
 from .local import LocalFiles
-from .egress import BusinessEgress
 from .instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from .runtime import build_runtime
 from .web import create_app
@@ -23,22 +21,15 @@ from .web import create_app
 _DEFAULT_MAINTENANCE = object()
 
 
-def background_model_factory(local_files, sandbox, defaults=None, *, client_factory=None):
-    """Compose business model clients without lending host credentials to overrides."""
+def background_model_factory(local_files, defaults=None, *, client_factory=None):
+    """Compose business model clients from the trusted defaults, Global settings and the project's own overrides."""
     defaults = dict(defaults or {})
     client_factory = BackgroundModelClient if client_factory is None else client_factory
-    egress = BusinessEgress(local_files, sandbox)
 
     def resolve(business_id):
         trusted = {**defaults, **local_files.environment()}
         own = {row["key"]: row["value"] for row in local_files.environment_pairs(business_id)} if business_id else {}
-        values = {**trusted, **own}
-        destination = values.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-        proxy = egress.proxy_for(business_id, destination=destination,
-                                 trusted_destination=trusted.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-                                 own_values=own, token_key="DEEPSEEK_API_KEY", require_https=True)
-        options = {"proxy": proxy} if proxy is not None else {}
-        return client_factory(ProviderConfig.from_environment(values), **options)
+        return client_factory(ProviderConfig.from_environment({**trusted, **own}))
     return resolve
 
 
@@ -65,7 +56,7 @@ def load_terminal_broker(paths):
 def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="/bin/bash",
              model_client_factory=None, broker=None, database=None, signing_key=None,
              nightly_maintenance=_DEFAULT_MAINTENANCE, capture_transcripts=None, terminal_workspace=None,
-             execution_provider=None, sandbox_factory=None, recovery_config=None,
+             execution_provider=None, recovery_config=None,
              context=None, extensions=None):
     from bazarlyk.background.integration import attach_background
     from qorqut_operations.background.programs import ProgramRegistry
@@ -84,39 +75,13 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
     runtime.owner_bootstrap.context_home = published_context.home_text
     runtime.owner_bootstrap.context_status = published_context.status
     broker = broker or load_terminal_broker(paths)
-    from bazarlyk.sandbox.service import BusinessSandboxService
-    from qorqut_operations.storage.quiescence import BoundedWriter
-    from bazarlyk.sandbox.quiescence import DockerFreezer
-    runtime.sandbox = (sandbox_factory or BusinessSandboxService)(runtime)
-    runtime.recovery_quiescer.sandbox_writers = BoundedWriter(runtime.sandbox.worker, "sandbox")
-    runtime.recovery_quiescer.container_writers.freezer = DockerFreezer(runtime.sandbox.docker)
-    from bazarlyk.sandbox.preview_service import BusinessPreviews
-    from bazarlyk.sandbox.legacy_writers import HostTerminalWriters, LegacyBrowserWriters, LegacyHostWriters
-    runtime.previews = BusinessPreviews(runtime, runtime.sandbox.docker, origins)
-    from bazarlyk.browser.access import BusinessBrowserAccess
-    runtime.browser_access = BusinessBrowserAccess(runtime)
-    # Browser lifecycle and lease mutations participate in shared admission;
-    # legacy browser processes are inventoried separately, and confined Chrome
-    # is covered by the exact-container freezer. Preview listeners have their
-    # own bounded service thread and must drain before container capture.
-    runtime.recovery_quiescer.browser_writers = BoundedWriter(runtime.previews, "private_previews")
-    host_terminals = HostTerminalWriters(getattr(broker, "TMUX", None) or "/usr/bin/tmux")
-    host_browsers = LegacyBrowserWriters(runtime.database, runtime.paths,
-        owns_sandbox_lock=lambda identity: runtime.sandbox.owns_browser_lock(identity))
-    host_writers = LegacyHostWriters(host_terminals, host_browsers)
-    runtime.recovery_quiescer.host_writers = host_writers
-    session_prefix = getattr(broker, "session_prefix", None)
-    if callable(session_prefix):
-        def adoption_inventory(business, paths, *, timeout):
-            # The broker owns terminal naming; do not infer a prefix from a
-            # mutable display field while moving this business to sandbox mode.
-            runtime.require_authority()
-            host_writers.adoption_inactive(business, paths, timeout=timeout,
-                                           session_prefix=session_prefix(business["slug"]))
-        runtime.sandbox.lifecycle.set_adoption_inventory(adoption_inventory)
-    if execution_provider is None:
-        execution_provider = SandboxTerminalProvider(runtime.database, runtime.paths, runtime.sandbox.docker, broker,
-            local_files=local)
+    from qorqut_operations.storage.quiescence import KnownZeroWriters
+    from bazarlyk.storage.host_writers import HostTerminalWriters, LegacyHostWriters
+    from bazarlyk.browser.access import BrowserAccess
+    runtime.browser_access = BrowserAccess(runtime)
+    # Browser lease mutations participate in shared admission; the browser class has no separate writer service.
+    runtime.recovery_quiescer.browser_writers = KnownZeroWriters("browser")
+    runtime.recovery_quiescer.host_writers = LegacyHostWriters(HostTerminalWriters(getattr(broker, "TMUX", None) or "/usr/bin/tmux"))
     terminals = TerminalService(runtime, broker, service_url=endpoint, shell=shell,
         environment=local.environment, global_environment=local.environment,
         agent_environment=local.agent_environment, capture_transcripts=capture_transcripts,
@@ -127,19 +92,18 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
     runtime.terminal_control.backend = AgentTerminalBackend(terminals)
     from bazarlyk.inbox.broadcasts import BroadcastDispatcher
     runtime.broadcast_dispatcher = BroadcastDispatcher(runtime, runtime.broadcasts, terminals)
-    egress = BusinessEgress(local, runtime.sandbox)
     if model_client_factory is None:
         service_provider = {key: os.environ[key] for key in ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "BIZ_BACKGROUND_MODEL") if key in os.environ}
-        model_client_factory = background_model_factory(local, runtime.sandbox, service_provider)
+        model_client_factory = background_model_factory(local, service_provider)
 
     from bazarlyk.background.backups import BackupDownloader
     attach_background(runtime, programs, model_client_factory=model_client_factory, transcript_source=local.iter_transcripts,
         maintenance=nightly_maintenance,
-        backup_downloader=BackupDownloader(egress.provider_environment, proxy_resolver=runtime.sandbox.account_proxy))
+        backup_downloader=BackupDownloader(local.environment))
     if nightly_maintenance is not None:
         runtime.maintenance_capture = nightly_maintenance.bind_runtime(runtime)
     if recovery_config is not None:
-        from bazarlyk.sandbox.recovery_admin import RecoveryAdminConfig, RecoveryAdministration
+        from bazarlyk.storage.recovery_admin import RecoveryAdminConfig, RecoveryAdministration
         selected = RecoveryAdminConfig.load(recovery_config, paths=paths)
         runtime.recovery_admin = RecoveryAdministration(runtime.database, selected,
             lambda: runtime.recovery_quiescence(timeout=60), background_worker=runtime.background)

@@ -35,7 +35,6 @@ include = ["bazarlyk*"]
 "bazarlyk.agents" = ["skills/role/SKILL.md", "skills/cleanup/SKILL.md"]
 "bazarlyk.bootstrap" = ["browser_init.cjs", "learning_removal_predecessor.json", "instructions/*.md", "instructions/operating/*.md"]
 "bazarlyk.migration" = ["crm_baseline_fingerprint.json", "crm_release_fingerprints.json"]
-"bazarlyk.sandbox" = ["browser-seccomp-moby-29.1.3.json"]
 "bazarlyk.release_worker" = ["installation.schema.json"]
 
 [tool.pytest.ini_options]

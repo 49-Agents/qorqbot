@@ -94,8 +94,8 @@ def protect_owner_session_configuration(config, previous, *, owner_session=False
     """Preserve authority and identity controls during owner-session settings writes.
 
     A full replacement must retain protected sections, while a patch/replacement
-    that attempts to alter or delete one is rejected. Engineering and browser
-    settings intentionally remain editable by this route.
+    that attempts to alter or delete one is rejected. Engineering settings
+    intentionally remain editable by this route.
     """
     if not owner_session:
         return

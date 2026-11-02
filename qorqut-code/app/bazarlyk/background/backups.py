@@ -30,9 +30,9 @@ SUFFIX = ".sqlite3.gz"
 
 
 class BackupDownloader:
-    """Stream one backup to a file, using the business's own secrets and egress route."""
-    def __init__(self, environment, *, proxy_resolver=None):
-        self.environment, self.proxy_resolver = environment, proxy_resolver
+    """Stream one backup to a file, using the business's own secrets."""
+    def __init__(self, environment):
+        self.environment = environment
 
     def __call__(self, business_id, endpoint_env, token_env, stream, timeout):
         env = self.environment(business_id)
@@ -42,11 +42,10 @@ class BackupDownloader:
             raise DomainError("invalid_configuration", "Backup endpoint must be an HTTPS URL without embedded credentials")
         if not token:
             raise DomainError("invalid_configuration", "Backup token is not configured")
-        proxy = self.proxy_resolver(business_id) if self.proxy_resolver else None
         budget = max(1, min(timeout, 600))
         deadline, size = time.monotonic() + budget, 0
         try:
-            with httpx.Client(timeout=min(budget, 60), follow_redirects=False, trust_env=False, proxy=proxy) as client:
+            with httpx.Client(timeout=min(budget, 60), follow_redirects=False, trust_env=False) as client:
                 with client.stream("GET", endpoint, headers={"Authorization": "Bearer " + token}) as response:
                     if response.status_code != 200:
                         raise DomainError("collection_failed", f"Backup endpoint returned HTTP {response.status_code}")

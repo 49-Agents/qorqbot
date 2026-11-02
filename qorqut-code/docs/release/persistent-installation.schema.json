@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Persistent Qorqut installation selection",
+  "type": "object",
+  "required": [
+    "format",
+    "root",
+    "businesses_root",
+    "database",
+    "private_config",
+    "package_sources",
+    "browser_runtime",
+    "build_python",
+    "origin",
+    "service"
+  ],
+  "properties": {
+    "format": {
+      "const": 1
+    },
+    "root": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "businesses_root": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "database": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "private_config": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "package_sources": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "browser_runtime": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "build_python": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "python": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "origin": {
+      "type": "string",
+      "pattern": "^https?://"
+    },
+    "service": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.@-]+\\.service$"
+    },
+    "systemd_prefix": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "extras": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "health_timeout": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 60
+    },
+    "legacy_poll_window": {
+      "type": "number",
+      "minimum": 30,
+      "maximum": 900
+    },
+    "drain_timeout": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 5
+    },
+    "registrations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^/"
+      }
+    },
+    "reference_files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^/"
+      }
+    },
+    "execution_observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "verified"
+        ],
+        "properties": {
+          "verified": {
+            "type": "boolean"
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "worker_manifest": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "service_user": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "service_environment": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[^\\r\\n]*$"
+      }
+    },
+    "recovery_file": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "extensions": {
+      "type": "array",
+      "maxItems": 16,
+      "description": "Trusted startup selection of installed extensions: a factory (module:attribute) and its own configuration.",
+      "items": {
+        "type": "object",
+        "required": [
+          "factory"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "factory": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*:[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "config": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

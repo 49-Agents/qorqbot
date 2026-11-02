@@ -1,42 +1,16 @@
 """Fresh reference attestations through configured authenticated target adapters."""
 from __future__ import annotations
 import json
-from contextlib import contextmanager
 from pathlib import Path
 import time
 from uuid import uuid4
 
-from .lifetime import atomic_json, reference_lock, local_instance
-
-
-class DockerReferenceAdapter:
-    """Use the existing owned Docker transport and fixed installed helper only."""
-    def __init__(self, config, *, docker=None):
-        from bazarlyk.sandbox.docker import Ownership, trusted_host_docker
-        self.config = config
-        self.docker = docker or trusted_host_docker()
-        self.ownership = Ownership(config['installation'], config['business_id'])
-        self.target = config['target']
-        self.instance = local_instance()['target_instance']+':'+config['container_id']
-
-    def probe(self, request):
-        from bazarlyk.sandbox.tmux import DockerTmuxBroker
-        broker = DockerTmuxBroker(self.docker,self.ownership,self.config['container_id'],self.config['generation'],None)
-        return json.loads(broker.reference_probe(request, timeout=1))
-
-    @contextmanager
-    def launch_exclusion(self, candidate):
-        # Existing sandbox boot/native clients do not honor host deployment.lock.
-        # A nonce/fresh PID scan cannot close that remote launch race.
-        yield False, 'docker_remote_launch_exclusion_unsupported'
+from .lifetime import atomic_json, reference_lock
 
 
 def configured_adapters(config):
-    result = {}
-    for value in config.get('execution_targets', []):
-        if value.get('transport') == 'docker':
-            result[value['target']] = DockerReferenceAdapter(value)
-    return result
+    """No remote execution-target transport is installed: every non-local reference stays unknown."""
+    return {}
 
 
 def request_for(adapter, records):

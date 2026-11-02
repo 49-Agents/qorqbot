@@ -42,11 +42,11 @@ from .agent_supervisor import port_free
 from .control import owns_listener, process_identity
 
 ACTIONS = ("status", "ensure", "repair", "restart", "stop")
-PORTS = range(20400, 21400)          # reserved for agents' own managed browsers; business CDP ports are 19400-20399
+PORTS = range(20400, 21400)          # reserved for agents' own managed browsers
 CHROME = "/usr/bin/google-chrome-stable"
 SYSTEMCTL, SUDO, SYSTEMD_RUN = "/usr/bin/systemctl", "/usr/bin/sudo", "/usr/bin/systemd-run"
 UNIT_RUNNING = {"active", "activating", "reloading"}
-DEPLOYMENT_DIRECTORIES = (Path("/etc/qorqut-browser-desktops"), Path("/etc/qorqut-browser-isolated"))
+DEPLOYMENT_DIRECTORIES = (Path("/etc/qorqut-browser-desktops"),)
 UNIT = re.compile(r"[A-Za-z0-9][A-Za-z0-9:_.@-]{0,150}\.service")
 KEY = re.compile(r"[\x21-\x7e]{1,200}")
 META_LIMIT, RECEIPT_LIMIT = 16384, 32
@@ -841,11 +841,6 @@ class AgentBrowserManager:
             profiles = uow.connection.execute(
                 "SELECT p.agent_id,p.home_business_id,b.slug FROM agent_profiles p "
                 "LEFT JOIN businesses b ON b.id=p.home_business_id").fetchall()
-            for row in uow.connection.execute("SELECT config_json FROM businesses"):
-                try:
-                    used.add(int(json.loads(row[0]).get("browser", {}).get("cdp_port")))
-                except (TypeError, ValueError, AttributeError):
-                    continue
         for row in profiles:
             try:
                 used.add(_port(browser.read_target(agent_workspace_of(self.paths, row["agent_id"], row["home_business_id"],

@@ -218,7 +218,7 @@ class TerminalService:
 
         It intentionally has no owner check because the dispatcher has already
         persisted an authorized broadcast.  It never calls open/ensure_session.  A host-native agent's input goes through the
-        shared native input arbiter (``key`` is the broadcast delivery's idempotency key); a sandbox or remote target keeps
+        shared native input arbiter (``key`` is the broadcast delivery's idempotency key); a remote target keeps
         its broker transport.
         """
         if not isinstance(data, str) or len(data) > 65536:

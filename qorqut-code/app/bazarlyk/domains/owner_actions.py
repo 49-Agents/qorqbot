@@ -10,13 +10,11 @@ import json
 from bazarlyk.agents.engineering import validate_authority
 from bazarlyk.agents.global_scope import reaches_business
 from qorqut_operations.application import OperationDescriptor
-from bazarlyk.browser.config import prepare_settings, validate_applied
 from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.application.plans import PlanBuilder, apply_records, require_revision, schema, utc_clock
 
 OPERATION = "owner_action_propose"
 ENGINEERING = "engineering_update"
-BROWSER = "browser_update"
 NAMES = {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 300},
          "maxItems": 100, "uniqueItems": True}
 
@@ -29,10 +27,6 @@ class OwnerActions:
         actions = {
             ENGINEERING: schema({key: NAMES for key in ("github_organizations", "repositories", "deployment_targets")},
                                 ("github_organizations", "repositories", "deployment_targets")),
-            BROWSER: schema({"enabled": {"type": "boolean"}, "proxy_server": {"type": "string", "maxLength": 2048},
-                             "mode": {"enum": ["isolated-desktop-v1", "legacy"]},
-                             "expected_exit_ip": {"type": "string", "maxLength": 45}},
-                            ("enabled", "proxy_server")),
         }
         arguments = schema({"action": {"enum": list(actions)}, "parameters": {"type": "object"},
                             "rationale": {"type": "string", "minLength": 1, "maxLength": 4000}},
@@ -40,11 +34,9 @@ class OwnerActions:
         arguments["oneOf"] = [{"properties": {"action": {"const": action}, "parameters": fields}}
                               for action, fields in actions.items()]
         registry.register(OperationDescriptor(OPERATION, arguments,
-            description="Ordubashy only: propose engineering_update or browser_update "
+            description="Ordubashy only: propose engineering_update "
                 "in an authorized project. Supply expected_revision of the project config, parameters "
-                "and rationale. browser_update takes enabled and proxy_server; the explicit isolated desktop mode "
-                "adds mode 'isolated-desktop-v1' and a required expected_exit_ip (an IPv4 proxy already assigned to "
-                "another project is refused; a mode change needs the browser stopped and unleased). "
+                "and rationale. "
                 "Always stages an exact-change owner Signoff; never applies on chat consent or "
                 "an allow override. No signoff approvals, credentials, shell commands or arbitrary owner actions.",
             prepare=self.prepare, apply=self.apply, validate_targets=self.guard))
@@ -57,13 +49,6 @@ class OwnerActions:
         # Derived reach of the active global, not an agent membership row.
         if not reaches_business(uow.connection, ctx.principal_id, ctx.business_id):
             raise DomainError("forbidden", "Delegated owner actions require current project reach")
-        if plan is not None and plan.arguments.get("action") == BROWSER:
-            # A Signoff can be approved long after preparation, and another
-            # business may have claimed the same proxy IP meanwhile.
-            before = uow.repository("businesses").get(ctx.business_id, required=True)["config_json"]
-            proposed = next((plain(change.values["config_json"]).get("browser") for change in plan.changes
-                             if change.resource.resource_type == "businesses"), None)
-            validate_applied(proposed, before.get("browser"), paths=self.paths, business_id=ctx.business_id, uow=uow)
 
     def prepare(self, ctx, args, options, uow):
         self.guard(ctx, None, uow)
@@ -78,16 +63,6 @@ class OwnerActions:
             key, updated = "engineering", parameters
             effects = ["GitHub organizations authorize all repositories in each listed organization. "
                        "Repository entries authorize those explicit repositories. Empty deployment targets grant no standing deployment authority."]
-        elif action == BROWSER:
-            key = "browser"
-            updated = prepare_settings(parameters, config.get(key), paths=self.paths, business_id=ctx.business_id, uow=uow)
-            effects = ["Updates only saved browser settings. Ports and persona paths are assigned by the service. "
-                       "Does not launch/restart Chrome, provision proxy credentials, or authorize browser use."]
-            if updated.get("mode") == "isolated-desktop-v1":
-                effects.append("Selects the isolated desktop browser: one persistent Chrome in a loopback-only network "
-                               "namespace, reachable only through the fixed proxy " + updated["proxy_server"]
-                               + " (expected exit " + updated["expected_exit_ip"] + "). The operator provisions its host "
-                               "services and credentials separately; a proxy IP already assigned to another project is refused.")
         else:
             raise DomainError("validation_error", "Unsupported delegated owner action")
         builder = PlanBuilder(ctx, OPERATION, args, "Update " + before["name"] + " " + key + " settings", clock=self.clock)
@@ -106,5 +81,5 @@ class OwnerActions:
         apply_records(ctx, plan, uow)
         action = plan.arguments["action"]
         business = uow.repository("businesses").get(ctx.business_id, required=True)
-        key = "engineering" if action == ENGINEERING else "browser"
+        key = "engineering"
         return {"action": action, "business_id": ctx.business_id, "revision": business["revision"], key: business["config_json"][key]}

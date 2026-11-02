@@ -13,9 +13,6 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
 
-from qorqut_operations.contracts import DomainError
-from bazarlyk.sandbox.account_proxy import RequiredAccountProxy
-
 
 DEFAULT_MODEL = "deepseek-v4-flash"
 # Preserve the deployed cost estimates; these are configuration, not live prices.
@@ -89,18 +86,10 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 class BackgroundModelClient:
     def __init__(self, config: ProviderConfig, *, opener: Callable | None = None,
-                 proxy: str | None = None,
                  sleep: Callable[[float], None] = time.sleep,
                  monotonic: Callable[[], float] = time.monotonic):
         self.config = config
-        if proxy is not None and urlsplit(config.base_url).scheme != "https":
-            # urllib's ProxyHandler only installs an HTTPS CONNECT route here;
-            # do not leave an HTTP provider request with a direct-handler path.
-            raise DomainError("invalid_configuration", "Custom sandbox model provider URL must use HTTPS")
-        # A custom selected-business destination must use this explicit handler;
-        # it overrides ambient NO_PROXY rather than falling back to host egress.
-        self._open = opener or urllib.request.build_opener(
-            _NoRedirect(), *([RequiredAccountProxy(proxy)] if proxy is not None else [])).open
+        self._open = opener or urllib.request.build_opener(_NoRedirect()).open
         self._sleep = sleep
         self._monotonic = monotonic
 

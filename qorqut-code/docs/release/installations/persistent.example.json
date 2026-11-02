@@ -1,0 +1,26 @@
+{
+  "format": 1,
+  "root": "/absolute/path/to/qorqut",
+  "businesses_root": "/absolute/path/to/businesses",
+  "database": "/absolute/path/to/businesses/.bazarlyk/state.sqlite3",
+  "private_config": "/absolute/path/to/qorqut/config/dashboard.env",
+  "package_sources": "/absolute/path/to/qorqut/config/package-sources.json",
+  "browser_runtime": "/absolute/path/to/qorqut/runtime/browser/<verified-existing-runtime>",
+  "build_python": "/absolute/path/to/qorqut/runtime/python/<validated-build-dependencies>/bin/python",
+  "origin": "http://qorqut.example:1071",
+  "service": "qorqut-dashboard.service",
+  "extras": [
+    "service"
+  ],
+  "checks": {},
+  "health_timeout": 5,
+  "drain_timeout": 2,
+  "registrations": [],
+  "reference_files": [],
+  "execution_observations": [],
+  "service_user": "qorqut",
+  "service_environment": {
+    "PATH": "/absolute/path/to/node/bin:/absolute/path/to/qorqut/bin:/usr/local/bin:/usr/bin:/bin"
+  },
+  "extensions": []
+}

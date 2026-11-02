@@ -30,8 +30,8 @@ DESCRIPTION = (
     "(name only). Returns at once; it asks nothing, creates no request, waits for no answer and grants no approval. references are "
     "{type: task|signoff|browser|agent|project|delta, id, business_id}: a task, signoff, agent, project or delta by its UUID, a browser by the "
     "id from browser_turn action=list, a Project by its actual UUID with business_id equal to that same UUID, and business_id the "
-    "record's owning business (null or omitted for Global and always for an agent; a business browser and a project always "
-    "need their exact scope; a delta has no business_id). At most 8 references; the message is at most 4000 characters. Read the "
+    "record's owning business (null or omitted for Global and always for an agent and a browser; a project always "
+    "needs its exact scope; a delta has no business_id). At most 8 references; the message is at most 4000 characters. Read the "
     "record first and reuse the exact ids; an unknown or unreadable one is refused.")
 SCHEMA = schema({
     "message": {"type": "string", "minLength": 1, "maxLength": refs.MAX_MESSAGE_CHARS},

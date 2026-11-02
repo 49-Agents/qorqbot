@@ -434,9 +434,8 @@ class MCPTransport:
                     with self.runtime.database.read() as uow:
                         self.runtime.application.authorize(context, descriptor, (), uow,
                             namespace=namespace, arguments=args)
+                    # Projects have no browsers: a call's project context never selects one.
                     body = dict(args)
-                    if options.business_id is not None and body.get("business_id") is None:
-                        body["business_id"] = options.business_id
                     body["idempotency_key"] = options.idempotency_key
                     value = self.runtime.browser_access.tool(actor, body["action"], body)
                     return OperationResult.ok(value, request_id=request_id)
