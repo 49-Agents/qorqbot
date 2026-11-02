@@ -11,8 +11,11 @@ import time
 LOG = logging.getLogger(__name__)
 PREPARED_IMPORT_TIMEOUT = 5
 
+# Preparation always generates .bazarlyk/agentic through the stable helper, so
+# bazarlyk.agentic.client is as required as the bootstrap modules; a stable
+# manifest that omits it is rejected by the launcher before agentic execution.
 HELPER_MODULES = ("bazarlyk.bootstrap.claude_session", "bazarlyk.bootstrap.mcp_reconnect",
-                  "bazarlyk.bootstrap.transcript_snapshot")
+                  "bazarlyk.bootstrap.transcript_snapshot", "bazarlyk.agentic.client")
 
 
 def helper_probe(executable, *, run=subprocess.run, timeout=2):
@@ -84,6 +87,14 @@ def prepared_helpers(projection,workspace=None):
             import json
             selected=executable.parent.parent/'runtime/agent-tools/current'
             manifest=json.loads(selected.resolve(strict=True).joinpath('manifest.json').read_text())
+            # The launcher enforces this allowlist before agentic execution, so readiness
+            # must match it. Read it on every call; only the import probe is cached, and
+            # correcting the allowlist has to recover without a restart or reprepare.
+            modules=manifest.get('modules') if isinstance(manifest,dict) else None
+            if not isinstance(modules,list) or not all(isinstance(name,str) for name in modules):
+                return {'ready':False,'reason':'helper_manifest_invalid'}
+            missing=sorted(set(HELPER_MODULES)-set(modules))
+            if missing:return {'ready':False,'reason':'helper_module_unsupported','missing_modules':missing}
             python=Path(manifest['python'])
             if not python.is_file() or not os.access(python,os.X_OK):return {'ready':False,'reason':'missing_executable'}
             stat=python.stat()
