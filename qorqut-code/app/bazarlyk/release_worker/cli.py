@@ -63,6 +63,9 @@ def build_parser() -> argparse.ArgumentParser:
     host_update = commands.add_parser("v12-host-deploy", help="apply a same-schema host update preserving native sessions and pinned helpers")
     host_update.add_argument("--selection", type=Path, required=True)
     host_update.add_argument("--confirm-deploy", action="store_true")
+    app_update = commands.add_parser("v12-app-deploy", help="apply a same-schema host, Operations and dashboard update preserving native sessions and pinned helpers")
+    app_update.add_argument("--selection", type=Path, required=True)
+    app_update.add_argument("--confirm-deploy", action="store_true")
     helper_update = commands.add_parser("v12-helper-activate", help="activate explicitly selected same-protocol native helpers without restarting sessions")
     helper_update.add_argument("--selection", type=Path, required=True)
     helper_update.add_argument("--confirm-adopt", action="store_true")
@@ -124,6 +127,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "v12-host-deploy":
             from .v12_repair import host_deploy
             _json(host_deploy(args.selection, confirm=args.confirm_deploy))
+            return 0
+        if args.command == "v12-app-deploy":
+            from .v12_repair import app_deploy
+            _json(app_deploy(args.selection, confirm=args.confirm_deploy))
             return 0
         if args.command == "v12-repair":
             from .v12_repair import repair
