@@ -1493,7 +1493,7 @@ def _pending_signoffs(connection, extensions=None, target=None):
     counts = {"engine": 0, "incompatible": 0, "factual": 0, "unrelated": 0, "unclassified": 0, "unverified": 0,
               "details": []}
     registry = target.registry if target is not None else _pending_registry(extensions or NO_EXTENSIONS)
-    rows = connection.execute("SELECT id, operation_name, payload_hash, change_set FROM signoffs WHERE " +
+    rows = connection.execute("SELECT id, operation_name, payload_hash, change_set, category FROM signoffs WHERE " +
                               ACTIVE_SIGNOFF_PREDICATE).fetchall()
     for row in rows:
         signoff_id, operation = row[0], row[1]
@@ -1506,11 +1506,22 @@ def _pending_signoffs(connection, extensions=None, target=None):
             counts["details"].append({"signoff_id": signoff_id, "operation": operation,
                                       "references": ["unreadable_pending_plan"]})
             continue
-        status = _classify_pending_plan(connection, operation, plan, registry,
-                                        target_validation=target is not None and target.runtime is not None)
-        reason = None
-        if status == "factual":
-            status, reason = _prove_factual(target, connection, "signoff", signoff_id)
+        if row[4] == "input_request":
+            from bazarlyk.bootstrap import learning_removal_pending as pending
+            try:
+                pending.prove_input_request(target, connection, signoff_id)
+                status, reason = "factual", None
+            except DomainError as exc:
+                status = "unverified" if exc.code == "unverified_pending_plan" else "incompatible"
+                reason = exc.code
+            except Exception:
+                status, reason = "unverified", "target_input_validation_failed"
+        else:
+            status = _classify_pending_plan(connection, operation, plan, registry,
+                                            target_validation=target is not None and target.runtime is not None)
+            reason = None
+            if status == "factual":
+                status, reason = _prove_factual(target, connection, "signoff", signoff_id)
         counts[status] += 1
         if status in ("incompatible", "engine", "unclassified", "unverified"):
             counts["details"].append({"signoff_id": signoff_id, "operation": operation, "status": status,

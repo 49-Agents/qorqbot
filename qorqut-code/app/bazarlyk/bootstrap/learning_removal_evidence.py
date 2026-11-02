@@ -328,9 +328,10 @@ def _verify_profile(intent, result, connection, paths, attempt) -> dict:
     rows = {("agent_profiles", canonical_bytes([agent["agent_id"]]).decode("utf-8")),
             ("idempotency_receipts", idempotency_row(intent["actor"], intent["namespace"], intent["operation"],
                                                       intent["options"]["idempotency_key"]))}
-    profile = next((item for item in result["rows"] if item["table"] == "agent_profiles"), None)
-    if profile is None:
+    profiles = [item for item in result["rows"] if item["table"] == "agent_profiles"]
+    if len(profiles) != 1 or profiles[0]["keys"] != [agent["agent_id"]]:
         raise DomainError("operation_conflict", "The adoption step records no profile row effect")
+    profile = profiles[0]
     before, after = profile.get("before_image"), profile.get("after_image")
     if image_fingerprint(before) != profile["before"] or image_fingerprint(after) != profile["after"]:
         raise DomainError("operation_conflict", "The recorded profile row images do not match their fingerprints")
@@ -356,6 +357,29 @@ def _verify_profile(intent, result, connection, paths, attempt) -> dict:
     if json.dumps(expected, sort_keys=True) != json.dumps(new, sort_keys=True):
         raise DomainError("operation_conflict", "The adopted profile changes more than the reviewed role pin and the "
                           "approved retired overrides", details={"agent_id": agent["agent_id"]})
+    captures = [item for item in result["rows"] if item["table"] == "inbox_changes"]
+    if len(captures) != 1:
+        raise DomainError("operation_conflict", "The profile adoption must record exactly one inbox capture")
+    capture = captures[0]
+    key = manifest_key(capture["keys"])
+    stored = row_image(connection, attempt.transition.predecessor, "inbox_changes", key)
+    if (len(capture["keys"]) != 1 or type(capture["keys"][0]) is not int or capture["keys"][0] < 1
+            or capture["before"] is not None or capture["after"] is None
+            or stored is None or image_fingerprint(stored) != capture["after"]):
+        raise DomainError("operation_conflict", "The profile inbox capture is not an unchanged fresh insertion")
+    captured = dict(stored)
+    fields = ("agent_id", "home_business_id", "name", "status", "profile_json", "revision")
+    try:
+        projected_before = json.loads(captured["before_json"])
+        projected_after = json.loads(captured["after_json"])
+    except (TypeError, ValueError) as exc:
+        raise DomainError("operation_conflict", "The profile inbox capture is malformed") from exc
+    if ((captured["source_type"], captured["action"], captured["actor_id"]) !=
+            ("agent_profiles", "update", intent["actor"])
+            or projected_before != {field: dict(before)[field] for field in fields}
+            or projected_after != {field: dict(after)[field] for field in fields}):
+        raise DomainError("operation_conflict", "The profile inbox capture does not match the reviewed mutation")
+    rows.add(("inbox_changes", key))
     return {"rows": rows, "files": set()}
 
 

@@ -20,6 +20,8 @@ maintenance state: the ordinary owned entry (``Runtime.own_instance``) validates
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import replace
+from functools import partial
 from pathlib import Path
 
 from qorqut_operations.contracts import DomainError
@@ -47,7 +49,16 @@ def _require_active(attempt) -> None:
         raise DomainError("unsupported_schema", "The store is not the exact recognised predecessor", details={"state": state})
 
 
-def _compose(paths, transition, workspace, *, historical, agentic, context=None):
+def _defer_inbox_finalizer(assembly):
+    from bazarlyk.inbox.events import finalize_events
+    matches = [hook for hook in assembly.finalizers
+               if hook is finalize_events or (isinstance(hook, partial) and hook.func is finalize_events)]
+    if len(matches) != 1:
+        raise DomainError("invalid_configuration", "The offline runtime cannot identify the host inbox finalizer")
+    return replace(assembly, finalizers=tuple(hook for hook in assembly.finalizers if hook is not matches[0]))
+
+
+def _compose(paths, transition, workspace, *, historical, agentic, context=None, defer_inbox=False):
     from qorqut_operations.background.programs import ProgramRegistry
     from qorqut_operations.storage.database import Database
     workspace = Path(workspace)
@@ -58,7 +69,8 @@ def _compose(paths, transition, workspace, *, historical, agentic, context=None)
     if historical:
         for entry in removal.retired_operation_entries():
             registry.declare(entry)
-    database = Database(paths.database, assembly=transition.predecessor)
+    assembly = _defer_inbox_finalizer(transition.predecessor) if defer_inbox else transition.predecessor
+    database = Database(paths.database, assembly=assembly)
     layer, view = agentic
     return compose_runtime(workspace, paths=paths, database=database, selection=selection, agentic_layer=layer,
                            agentic_view=view, registry=registry, job_programs=ProgramRegistry(), context=context)
@@ -97,7 +109,8 @@ def offline_runtime(attempt, workspace, *, historical, context=None):
     from bazarlyk.agentic.installation import open_installation
     paths, transition = attempt.paths, attempt.transition
     agentic = open_installation(paths, transition.extensions.ids)
-    runtime = _compose(paths, transition, workspace, historical=historical, agentic=agentic, context=context)
+    runtime = _compose(paths, transition, workspace, historical=historical, agentic=agentic, context=context,
+                       defer_inbox=True)
     try:
         runtime.ownership = attempt.owner
         runtime.own_instance()
