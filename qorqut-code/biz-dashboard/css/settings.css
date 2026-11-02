@@ -1,15 +1,5 @@
 /* ============================================================ settings tab */
 .settingspane { max-width: 720px; }
-.env-runtime { margin: 0 0 22px; padding: 14px 16px; border: 1px solid var(--line-2); border-radius: var(--r-md); background: var(--wash); }
-.env-runtime-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.env-runtime h2 { margin: 0; font-size: 14px; font-weight: 600; }
-.env-runtime h3 { margin: 14px 0 6px; font-size: 12px; font-weight: 600; }
-.env-runtime-state { color: var(--fg-2); font-size: 12px; }
-.env-runtime p { margin: 5px 0 0; }
-.env-runtime-links ul { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.env-runtime-links li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
-.env-runtime a { color: var(--accent); text-decoration: none; }
-.env-runtime a:hover { text-decoration: underline; }
 .set-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
 .set-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
 .set-head .small { max-width: 480px; }
