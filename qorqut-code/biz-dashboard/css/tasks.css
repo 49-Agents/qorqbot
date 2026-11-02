@@ -1,5 +1,5 @@
 :root { --task-blocked-color: #FF453A; --task-needs-input-color: #FFD60A; }
- 
+
 
 /* ---------------------------------------------------------------- shell */
 .tasks {
@@ -112,7 +112,7 @@
 
 /* Task rows share aligned status, title and metadata columns. */
 .trow {
-  display: flex; align-items: center; height: auto; min-height: 48px; padding: 2px 12px; border-radius: 14px;  
+  display: flex; align-items: center; height: auto; min-height: 48px; padding: 2px 12px; border-radius: 14px;
   cursor: pointer; transition: background .15s ease;
 }
 .trow:hover { background: rgba(255,255,255,.03); }
@@ -190,7 +190,7 @@
 .taddbtn:hover { color: var(--fg); opacity: 1; }
 .taddbtn svg { font-size: 14px; }
 
- 
+
 .tempty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 80px 20px; }
 .tempty .ic {
   width: 48px; height: 48px; border-radius: var(--r-full); display: flex; align-items: center; justify-content: center;
