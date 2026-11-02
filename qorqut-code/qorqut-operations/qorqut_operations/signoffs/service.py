@@ -255,6 +255,13 @@ class SignoffService:
             if message:
                 field='notes' if value['decision']['kind']=='respond' else 'feedback'
                 value['decision']={**value['decision'],field:message[0]}
+        if detail and row["state"] == "pending" and not row["superseded_by_id"] and row["legacy_evidence_json"] is None:
+            try:
+                descriptor = self.app.registry.get(row["operation_name"])
+            except DomainError:
+                descriptor = None
+            if descriptor and descriptor.revise:
+                value["editable_fields"] = list(descriptor.editable_fields)
         if detail:
             value.update(preview=row["preview_json"], expected_targets=row["expected_targets_json"],
                          applied_at=row["applied_at"], apply_result=row["apply_result_json"], error=row["error_json"])
@@ -520,6 +527,61 @@ class SignoffService:
             note = uow.connection.execute('SELECT body FROM signoff_notes WHERE id=?', (decision['message_id'],)).fetchone()
             return note[0] if note else None
         return decision.get('feedback')
+
+    def amend(self, context, signoff_id, *, changes, proposal_revision, payload_hash,
+              expected_status_revision, idempotency_key):
+        """Owner-authored revision of a pending proposal; never approves or applies it.
+
+        The domain rebuilds the exact plan under the original proposer's current authority.
+        The owner's identity is independently sealed in its preview and recorded in its notes.
+        Replacement and receipt commit together, so retries cannot create another proposal.
+        """
+        try:
+            InvocationOptions(expected_revision=expected_status_revision, idempotency_key=idempotency_key)
+            if not idempotency_key or type(proposal_revision) is not int or proposal_revision < 1 or not isinstance(changes, dict):
+                raise DomainError("validation_error", "Editing requires the current proposal binding and changed fields")
+            input_hash = canonical_hash({"id": signoff_id, "changes": changes, "proposal_revision": proposal_revision,
+                "payload_hash": payload_hash, "expected_status_revision": expected_status_revision})
+            with self.database.transaction() as uow:
+                context = self._context(context, uow, owner=True)
+                self.app.ensure_writes_open(uow)
+                row = self._row(context, signoff_id, uow)
+                receipts = IdempotencyReceipts(uow)
+                namespace = "business:" + context.business_id if context.business_id else "global"
+                replay = receipts.lookup(context.principal_id, namespace, "signoffs_amend", idempotency_key, input_hash)
+                if replay:
+                    revised = self._row(context, replay.data["signoff"]["id"], uow)
+                    return self._decision_result(context, revised, uow, replayed=True)
+                if (row["legacy_evidence_json"] is not None or row["state"] != "pending" or row["superseded_by_id"]
+                        or row["status_revision"] != expected_status_revision
+                        or not self._binding_matches(row, proposal_revision, payload_hash)):
+                    raise self._stale(context, row, uow, "This proposal changed; reload it before editing")
+                descriptor = self.app.registry.get(row["operation_name"])
+                if not descriptor.revise or not changes or set(changes) - set(descriptor.editable_fields):
+                    raise DomainError("validation_error", "These proposal fields cannot be edited")
+                proposer, original = self._validate(row, uow)
+                plan = descriptor.revise(proposer, original, changes, uow)
+                if (plan.operation_name != original.operation_name or plan.principal_id != original.principal_id
+                        or plan.target_namespace != original.target_namespace):
+                    raise DomainError("invalid_plan", "Amended proposal changed its operation or owner")
+                decisions = self.app._decisions(proposer, descriptor, plan.expected_targets, plan.changes,
+                                               uow, namespace=plan.target_namespace)
+                plan = replace(plan, policy_binding=self.app._binding(proposer, decisions),
+                    review_scope=self.app._review_scope(proposer, plan), review_business_id=original.review_business_id,
+                    encoding_version=2, proposer_agent_id=proposer.agent_id,
+                    initiated_by_principal_id=proposer.initiated_by_principal_id,
+                    preview={**plain(plan.preview), "owner_edit": {
+                    "by": context.principal_id, "at": self.clock(), "previous_id": row["id"]}})
+                self.app.validate_prepared(proposer, plan, uow, require_approval=False)
+                staged = self.stage(proposer, descriptor, plan, InvocationOptions(
+                    supersedes_signoff_id=row["id"], expected_superseded_status_revision=row["status_revision"]), uow)
+                revised = self._row(context, staged.signoff["id"], uow)
+                self.notes.append(context, revised, "Edited the proposed message. Approval is still required.", uow)
+                result = self._decision_result(context, revised, uow)
+                receipts.save(context.principal_id, namespace, "signoffs_amend", idempotency_key, input_hash, result)
+            return result
+        except DomainError as exc:
+            return OperationResult.failure(exc, request_id=context.request_id)
 
     def review(self, context, signoff_id, *, decision, proposal_revision, payload_hash,
                expected_status_revision, idempotency_key, feedback=None):
