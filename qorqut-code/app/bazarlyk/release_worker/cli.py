@@ -102,6 +102,10 @@ def build_parser() -> argparse.ArgumentParser:
     rehearsal.add_argument("--interrupt-after", action="append", default=[], metavar="PHASE")
     rehearsal.add_argument("--interrupt-after-every-phase", action="store_true")
     rehearsal.add_argument("--confirm-rehearsal", action="store_true")
+    customer_states = commands.add_parser("v12-customer-states", help="inspect, prepare, apply and verify the offline Customer-states schema transition of the stopped v1.2 operational database after the Telegram media transition and before a coordinated update")
+    customer_states.add_argument("--selection", type=Path, required=True)
+    customer_states.add_argument("--stage", choices=("inspect", "prepare", "apply", "verify"), required=True)
+    customer_states.add_argument("--confirm-upgrade", action="store_true")
     helper_update = commands.add_parser("v12-helper-activate", help="activate explicitly selected same-protocol native helpers without restarting sessions")
     helper_update.add_argument("--selection", type=Path, required=True)
     helper_update.add_argument("--confirm-adopt", action="store_true")
@@ -214,6 +218,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "v12-telegram-media":
             from .v12_telegram_media import telegram_media
             _json(telegram_media(args.selection, stage=args.stage, confirm=args.confirm_upgrade))
+            return 0
+        if args.command == "v12-customer-states":
+            from .v12_customer_states import customer_states
+            _json(customer_states(args.selection, stage=args.stage, confirm=args.confirm_upgrade))
             return 0
         if args.command == "v12-repair":
             from .v12_repair import repair
