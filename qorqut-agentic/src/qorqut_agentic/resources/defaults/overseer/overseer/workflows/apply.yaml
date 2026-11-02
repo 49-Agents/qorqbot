@@ -1,0 +1,24 @@
+schema_version: 1
+id: apply
+description: Owner-invoked application of accepted work with an agreed plan and isolated publication.
+arguments:
+  - name: application_id
+    schema: {type: [string, "null"]}
+    default: null
+    prompt: Which accepted application did the owner explicitly select, if any?
+    acquisition: default
+steps:
+  - id: select-and-inspect
+    instruction_ref: overseer/apply-instructions
+  - id: agree-plan
+    instructions: Select accepted work and agree an exact plan through owner-only input Signoffs; use overseer.applications.save_plan and reconcile the canonical response before proceeding. Each plan revision keeps its own application-event history; read it with overseer_application_get and plan_revision.
+    depends_on: [select-and-inspect]
+  - id: worktree
+    instructions: When managed changes are needed, use overseer_application_prepare for isolated state and worktree, implement the agreed changes and run draft checks. Track external source changes as linked development tasks with overseer_development_task_create and overseer_development_task_link, and reconcile their real completion with overseer_development_tasks_reconcile; for already-satisfied or external-only work, record why no worktree was needed through the exact close-satisfied input.
+    depends_on: [agree-plan]
+  - id: merge
+    instructions: When there are managed changes, use overseer_application_prepare_merge and overseer_application_publish for the single new commit containing only the agreed delta, one publication event and finalized changefeed while preserving concurrent edits. Re-planning, pausing or cancelling wins before publication admission and never lands inside it. Otherwise record that no merge occurred; never fabricate a commit.
+    depends_on: [worktree]
+  - id: checks
+    instructions: If merged, run agreed quick checks on the actual merged revision and record them with overseer_application_record_checks and its phase. Report refresh from the durable merge fact; never claim the native session reread instructions. An interrupted or unknown check stays uncertain until an authoritative receipt or explicit owner disposition. If post-merge checks failed or are uncertain, retain the merge and request the next owner choice through a failure Signoff; there is no post-merge replan and revert is a follow-up plan, never an automatic rollback. Before merge only, a failed or uncertain check uses its failure Signoff, and the owner-authorized replan through overseer_application_replan returns the working draft to planning; never replay the interrupted attempt. Otherwise record the applicable owner-confirmed outcome or outstanding dependency without inventing checks.
+    depends_on: [merge]

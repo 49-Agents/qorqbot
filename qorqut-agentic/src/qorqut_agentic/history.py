@@ -2,7 +2,8 @@
 
 Git runs with an explicit executable and a scrubbed environment: no global or
 system configuration, no hooks, no external diff/textconv, no fsmonitor and no
-prompts. The layer never pushes, resets, cleans, or rewrites history.
+prompts. Ordinary commits and approved restores preserve earlier commits and
+unrelated files; all operations remain local.
 """
 
 from __future__ import annotations
