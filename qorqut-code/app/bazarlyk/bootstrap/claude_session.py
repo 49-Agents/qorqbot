@@ -139,7 +139,7 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     # A system input typed by the application (an inbox notice or a recovery wake) starts with its marker and is never owner input.
     system_input = leading_marker(hook.get("prompt")) is not None
     owner_input = (event == "UserPromptSubmit" and not system_input
-                   and hook.get("prompt") != review_cadence.continuation(registration["workspace"], registration["registration_id"], session_id))
+                   and not review_cadence.is_continuation(registration["workspace"], registration["registration_id"], session_id,hook.get("prompt")))
     review_note = _review_note(hook, registration, response, runtime, owner_input=owner_input)
     if (event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required")
             and not recovery.read(registration,session_id)):
@@ -312,8 +312,8 @@ def main() -> int:
     parser.add_argument("--runtime", choices=("claude-code", "codex"), default="claude-code")
     args = parser.parse_args()
     try:
-        raw = sys.stdin.read(262_145)
-        if len(raw) > 262_144:
+        raw = sys.stdin.read(4 * 1024 * 1024 + 1)
+        if len(raw) > 4 * 1024 * 1024:
             raise ValueError("Hook input exceeds its limit")
         hook = json.loads(raw)
         if not isinstance(hook, dict):
