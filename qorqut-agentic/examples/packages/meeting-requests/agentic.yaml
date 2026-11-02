@@ -1,0 +1,25 @@
+schema_version: 1
+id: meeting-requests
+name: Meeting requests (example)
+description: "EXAMPLE (synthetic): rules that apply only to meeting requests. Not an installed owner preference."
+source:
+  kind: example
+  note: Synthetic example shipped with qorqut-agentic; not copied from any real installation.
+entries:
+  - id: request
+    kind: skill
+    description: "EXAMPLE: write a first message that requests a meeting."
+    when_to_use: Use only when drafting a meeting request, never for other email.
+    path: skills/request/SKILL.md
+    requires:
+      - email-composition/style
+      - meeting-requests/timing-rule
+    applicability:
+      work_types: [meeting-requests]
+  - id: timing-rule
+    kind: preference
+    description: "EXAMPLE: do not propose a fixed time in a first meeting request."
+    when_to_use: Load with the request skill. Does not apply to any other kind of email.
+    path: preferences/timing-rule.md
+    applicability:
+      work_types: [meeting-requests]
