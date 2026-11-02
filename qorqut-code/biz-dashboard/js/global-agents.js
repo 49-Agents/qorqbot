@@ -201,8 +201,8 @@ async function renderGlobalAgents(c) {
   let request = agentWorkspaceTakeRequest();
   // ?workspace=calendar opens the coordinator's Calendar view; without that agent it is explicitly unavailable.
   if (!request && linkedWorkspace === 'calendar') {
-    const coordinator = agents.find(a => a.role?.id === 'ordubashy');
-    if (!coordinator) { c.innerHTML = `<section class="pane global-content"><div class="global-eyebrow">Global</div><h1>Agents</h1><p role="alert">${esc(GLOBAL_AGENT_UNAVAILABLE)}</p></section>`; return; }
+    const coordinator = agents.find(a => (a.role?.id || a.role_id) === 'ordubashy');
+    if (!coordinator) { agentWorkspaceUnavailable(c, 'calendar'); return; }
     request = {agentId: coordinator.agent_id, view: 'calendar'};
   }
   const fresh = !!request;
