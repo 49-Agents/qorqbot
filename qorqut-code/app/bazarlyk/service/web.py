@@ -25,6 +25,63 @@ UUID_SELECTOR = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a
 FILE_VIEWER_PATH = "/files/view"
 FILE_VIEWER_POLICY = ("default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
                       "connect-src 'self'; frame-src 'none'; base-uri 'none'; form-action 'none'")
+# Core's own URL namespaces: API, MCP, health, dashboard static files and extension assets. No extension route sits in one.
+CORE_NAMESPACES = ("/api", "/mcp", "/health", "/js", "/css", "/icons", "/extensions")
+
+
+def route_claim(owner, route):
+    """What one extension route reserves, as ``(path, subtree)``. A fixed path reserves itself; a parameterized path
+    (``{name}``), a ``Mount`` or a route that declares ``prefix`` reserves its static prefix and everything beneath it. A route
+    without an inspectable absolute path, or one that would reserve the whole site, is refused."""
+    path = getattr(route, "path", None)
+    if not isinstance(path, str) or not path.startswith("/") or "//" in path or ".." in path.split("/"):
+        raise DomainError("invalid_installation", f"{owner} has a route without an inspectable absolute path")
+    subtree, static = bool(getattr(route, "prefix", False)) or isinstance(route, Mount), []
+    for segment in path.split("/")[1:]:
+        if "{" in segment or "}" in segment:
+            if not (segment.startswith("{") and segment.endswith("}")):
+                raise DomainError("invalid_installation", f"{owner} route {path} mixes a parameter into a path segment")
+            subtree = True
+            break
+        static.append(segment)
+    claim = "/" + "/".join(static)
+    claim = claim.rstrip("/") if subtree else claim
+    if subtree and not claim:
+        raise DomainError("invalid_installation", f"{owner} route {path} would reserve the whole site")
+    return claim, subtree
+
+
+def within(path, prefix):
+    return path == prefix or path.startswith(prefix.rstrip("/") + "/")
+
+
+def overlaps(first, second):
+    (path, subtree), (other, other_subtree) = first, second
+    if subtree and other_subtree:
+        return within(path, other) or within(other, path)
+    if subtree or other_subtree:
+        return within(other, path) if subtree else within(path, other)
+    return path == other
+
+
+def reserve_extension_routes(extensions, contributions, core_routes):
+    """Refuse an extension route that overlaps core's namespaces or pages (taken from the routes core serves) or another
+    route, and a frame rule that the same contribution's own routes do not cover. Coverage keeps framing inside the route
+    space the contribution won, so it cannot reach core's or another extension's paths."""
+    claimed = [("core " + namespace, (namespace, True)) for namespace in CORE_NAMESPACES]
+    claimed += [("core " + route.path, route_claim("core", route)) for route in core_routes]
+    for extension, contribution in zip(extensions, contributions):
+        owner, own = "Extension " + extension.id, []
+        for route in contribution.routes:
+            claim = route_claim(owner, route)
+            for name, other in claimed:
+                if overlaps(claim, other):
+                    raise DomainError("invalid_installation", f"{owner} route {claim[0]} overlaps {name}")
+            claimed.append((owner + " route " + claim[0], claim))
+            own.append(claim)
+        for rule in contribution.framing:
+            if not any(within(rule.path, path) if subtree else not rule.prefix and rule.path == path for path, subtree in own):
+                raise DomainError("invalid_installation", f"{owner} frame rule {rule.path} is not covered by its own routes")
 
 
 class ServiceBoundary:
@@ -275,6 +332,7 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
     # contribution grants no authority: each extension handler applies the owner and bearer checks it needs.
     contributions = [extension.web(api, agent_only=agent_only) for extension in runtime.selection.extensions]
     extension_routes = [route for contribution in contributions for route in contribution.routes]
+    reserve_extension_routes(runtime.selection.extensions, contributions, routes)
     frame_rules = [rule for contribution in contributions for rule in contribution.framing]
     asset_routes = []
     if not agent_only:

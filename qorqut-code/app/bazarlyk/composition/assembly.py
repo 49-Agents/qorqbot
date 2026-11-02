@@ -17,6 +17,7 @@ from qorqut_operations.signoffs.service import storage_contribution as signoff_s
 from qorqut_operations.storage.assembly import (Assembly, AssemblyBuilder, AssemblyError, CONTRIBUTION_TYPES,
                                                 FileEffectContribution, RecordEffectContribution,
                                                 TransactionContribution)
+from qorqut_operations.contracts import DomainError
 from qorqut_operations.storage.database import Database
 
 from bazarlyk.extensions import NO_EXTENSIONS
@@ -86,6 +87,48 @@ def host_assembly(change_feed, extensions=NO_EXTENSIONS) -> Assembly:
     for contribution in host_contributions(change_feed, extensions):
         composition.add(contribution)
     return composition.freeze()
+
+
+def require_selected_storage(assembly: Assembly, extensions) -> None:
+    """Refuse an opened store whose extension storage is not the selected extensions' own: the same owner names are not
+    enough, so the ordered owner/DDL entries, table specifications, immutable columns and required table / lifecycle
+    metadata of ``extensions.storage()`` must be the ones this assembly carries, and it may carry no other non-core owner,
+    table or immutable column. A deliberately incomplete core assembly (isolated checks) is judged by the same rule."""
+    core = host_assembly(assembly.change_publisher, NO_EXTENSIONS)
+    expected = extensions.storage()
+    core_owners = {owner for owner, _ in core.schema}
+    entries = [(owner, tuple(statements)) for owner, statements in assembly.schema if owner not in core_owners]
+    tables = {name for item in expected for name in item.tables}
+    immutable = {name for item in expected for name in item.immutable_fields}
+    valid = (entries == [(item.owner, tuple(item.schema)) for item in expected]
+             and set(assembly.tables) - set(core.tables) == tables
+             and set(assembly.immutable_fields) - set(core.immutable_fields) == immutable)
+    for item in expected:
+        valid = valid and all(assembly.tables.get(name) == spec for name, spec in item.tables.items())
+        valid = valid and all(assembly.immutable_fields.get(name) == fields for name, fields in item.immutable_fields.items())
+        valid = valid and item.required_lifecycles <= assembly.required_lifecycles
+        valid = valid and all(item.owner in assembly.required_tables.get(name, ()) for name in item.required_tables)
+    if not valid:
+        raise DomainError("invalid_configuration", "The database was not opened for the selected extension set")
+
+
+def require_additive_registrations(assembly: Assembly, extensions, core_validators) -> None:
+    """Refuse a selected extension that would replace core behavior instead of adding to it: a package validator for a plugin
+    core already validates (``core_validators``), an inbox source keyed like a core table or source, or a typed reference
+    named like a core item kind. Core's own vocabulary decides: its assembly tables and inbox source / item tables."""
+    from bazarlyk.inbox.events import FOCUS_SOURCE_TABLES, ITEM_TYPES
+    from bazarlyk.inbox.service import SOURCES, THREAD_SOURCES, VISIBLE_TYPES
+    from qorqut_operations.storage.inventory import compile_target
+    core_sources = {*compile_target(host_assembly(assembly.change_publisher, NO_EXTENSIONS)).columns, *SOURCES, *THREAD_SOURCES,
+                    *ITEM_TYPES, *FOCUS_SOURCE_TABLES.values()}
+    core_kinds = {*VISIBLE_TYPES.values(), *FOCUS_SOURCE_TABLES}
+    replaced = sorted(set(extensions.package_validators) & set(core_validators))
+    if replaced:
+        raise DomainError("invalid_installation", "An extension cannot replace a core package validator: " + ", ".join(replaced))
+    for key in extensions.sources.sources:
+        handler = extensions.sources.get(key)
+        if key in core_sources or handler.item_type in core_kinds:
+            raise DomainError("invalid_installation", f"An extension source cannot replace a core source or item kind: {key}")
 
 
 def open_database(paths: InstancePaths, assembly: Assembly) -> Database:
