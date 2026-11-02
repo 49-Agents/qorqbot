@@ -12,6 +12,7 @@ a default: it exists only when the caller constructs and registers it.
 
 from __future__ import annotations
 
+import math
 import os
 import selectors
 import signal
@@ -84,7 +85,7 @@ class LocalProcessRuntime:
       ``QORQUT_AGENTIC_PACKAGE_DIR`` and ``QORQUT_AGENTIC_SCRATCH_DIR`` are added.
       The caller's environment is never inherited.
     * Timeout, stdout and stderr are bounded while reading; the process group is
-      killed on timeout or stdout overflow. Requested limits above the maxima
+      killed on timeout or either stream overflowing. Requested limits above the maxima
       configured here are lowered to them.
     """
 
@@ -97,7 +98,7 @@ class LocalProcessRuntime:
         max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
         max_stderr_bytes: int = DEFAULT_MAX_STDERR_BYTES,
     ) -> None:
-        if not interpreters:
+        if not isinstance(interpreters, Mapping) or not interpreters:
             raise InvalidRequestError("LocalProcessRuntime needs at least one interpreter")
         checked: dict[str, str] = {}
         for alias, path in interpreters.items():
@@ -108,8 +109,18 @@ class LocalProcessRuntime:
                 raise InvalidRequestError(f"interpreter for alias {alias!r} is not an executable file: {path}",
                                           details={"alias": alias, "path": path})
             checked[alias] = path
-        if max_timeout_seconds <= 0 or max_output_bytes < 1 or max_stderr_bytes < 0:
+        if (isinstance(max_timeout_seconds, bool)
+                or not isinstance(max_timeout_seconds, (int, float))
+                or not math.isfinite(max_timeout_seconds) or max_timeout_seconds <= 0
+                or isinstance(max_output_bytes, bool) or not isinstance(max_output_bytes, int)
+                or max_output_bytes < 1 or isinstance(max_stderr_bytes, bool)
+                or not isinstance(max_stderr_bytes, int) or max_stderr_bytes < 0):
             raise InvalidRequestError("runtime limits must be positive")
+        if env is not None and (not isinstance(env, Mapping) or not all(
+            isinstance(k, str) and k and "=" not in k and "\0" not in k
+            and isinstance(v, str) and "\0" not in v for k, v in env.items()
+        )):
+            raise InvalidRequestError("env must map environment names to strings without NULs")
         self.interpreters = checked
         self.env = dict(env or {})
         self.max_timeout_seconds = float(max_timeout_seconds)
@@ -183,8 +194,9 @@ class LocalProcessRuntime:
                         open_streams -= 1
                         continue
                     if key.data == "out":
-                        out += chunk
-                        if len(out) > out_cap:
+                        room = out_cap - len(out)
+                        out += chunk[:room]
+                        if len(chunk) > room:
                             overflow = True
                     else:
                         room = err_cap - len(err)
@@ -192,6 +204,7 @@ class LocalProcessRuntime:
                             err += chunk[:room]
                         if len(chunk) > max(room, 0):
                             err_truncated = True
+                            overflow = True
                 if overflow:
                     outcome = "output_overflow"
                     break

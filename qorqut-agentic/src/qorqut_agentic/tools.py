@@ -35,7 +35,7 @@ from .errors import (
 )
 from .files import DiskSource
 from .runtime import ExecutionRequest, ExecutionResult
-from .schemas import validate_instance
+from .schemas import TOOL_DEFINITION_SCHEMA, validate_instance
 from .util import canonical_json, check_operation_id, dumps, is_ref, json_digest, loads, sha256_hex
 
 DIAGNOSTIC_STDERR_BYTES = 8192
@@ -124,18 +124,21 @@ class Tools:
         ctx = self.ctx
         check_operation_id(invocation_id, "invocation_id")
         actor = normalize_actor(actor)
+        chosen = Selection.from_value(selection)
         try:
-            fingerprint = json_digest({"ref": ref, "arguments": arguments})
+            fingerprint = json_digest({"ref": ref, "arguments": arguments, "actor": actor,
+                                       "expected_definition_revision": expected_definition,
+                                       "expected_code_revision": expected_code})
             stdin = canonical_json(arguments).encode("utf-8")
         except (TypeError, ValueError) as exc:
             raise InvalidRequestError(f"arguments must be a JSON value: {exc}", details={"field": "arguments"}) from exc
-        existing = self._fetch(invocation_id)
+        existing = self._fetch(invocation_id, actor=actor, selection=chosen)
         if existing is not None:
             return self._replay(existing, fingerprint)
-        chosen = Selection.from_value(selection)
         scratch = self._scratch_dir(invocation_id)
         try:
             with ctx.store.lock(exclusive=False):
+                ctx.require_no_recovery()
                 catalog = load_catalog(DiskSource(ctx.tree))
                 entry = self.locate(catalog, ref, chosen)
                 definition = entry.definition
@@ -176,7 +179,7 @@ class Tools:
                          "in_flight", "possible", started, _process_token(), dumps(dict(limits))),
                     )
             except sqlite3.IntegrityError:
-                row = self._fetch(invocation_id)
+                row = self._fetch(invocation_id, actor=actor, selection=chosen)
                 assert row is not None
                 return self._replay(row, fingerprint)
             ctx.hook("after_receipt_recorded", invocation_id=invocation_id)
@@ -187,14 +190,16 @@ class Tools:
             self._finish(invocation_id, result, definition)
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
-        row = self._fetch(invocation_id)
+        row = self._fetch(invocation_id, actor=actor, selection=chosen)
         assert row is not None
         return self._receipt(row)
 
     def _scratch_dir(self, invocation_id: str) -> Path:
         base = self.ctx.store.scratch_dir / "invocations"
         base.mkdir(parents=True, exist_ok=True)
-        return base / sha256_hex(invocation_id.encode())[:24]
+        # Racing retries may both stage before one wins the receipt INSERT.
+        # They must never remove or rewrite each other's staged code.
+        return base / (sha256_hex(invocation_id.encode())[:24] + "-" + uuid.uuid4().hex)
 
     def _stage(self, catalog: Catalog, entry: Entry, scratch: Path) -> tuple[str, str, str, str]:
         """Copy the code and declared resources into a fresh scratch directory.
@@ -202,7 +207,6 @@ class Tools:
         The bytes copied here are the bytes hashed into the recorded code
         revision and the bytes that run; later edits cannot change them.
         """
-        shutil.rmtree(scratch, ignore_errors=True)
         package_dir, work_dir = scratch / "package", scratch / "work"
         package_dir.mkdir(parents=True, mode=0o700)
         work_dir.mkdir(mode=0o700)
@@ -224,13 +228,33 @@ class Tools:
 
     # -------------------------------------------------------------- results
     def _finish(self, invocation_id: str, result: ExecutionResult, definition: dict[str, Any]) -> None:
+        if not isinstance(result, ExecutionResult):
+            result = ExecutionResult("runtime_error", message="runtime returned an invalid result")
+        if (not isinstance(result.outcome, str)
+                or result.outcome not in {"exited", "spawn_failed", "runtime_error", "timeout", "output_overflow"}
+                or not isinstance(result.stdout, bytes) or not isinstance(result.stderr, bytes)
+                or not isinstance(result.stderr_truncated, bool)
+                or not isinstance(result.limits, dict)
+                or (result.outcome == "exited" and type(result.exit_code) is not int)):
+            result = ExecutionResult("runtime_error", message="runtime returned an invalid outcome or stream")
+        try:
+            dumps(result.limits).encode("utf-8")
+        except (TypeError, ValueError, RecursionError, OverflowError):
+            result = ExecutionResult("runtime_error", message="runtime returned invalid limits")
+        limits = definition["limits"]
+        if (len(result.stdout) > limits["max_output_bytes"]
+                or len(result.stderr) > limits["max_stderr_bytes"]):
+            result.outcome = "output_overflow"
+            result.stderr_truncated |= len(result.stderr) > limits["max_stderr_bytes"]
+            result.stdout = result.stdout[:limits["max_output_bytes"]]
+            result.stderr = result.stderr[:limits["max_stderr_bytes"]]
         status, failure_code, effect = "failed", None, "possible"
         output_json: str | None = None
         diagnostics: dict[str, Any] = {
             "stderr": _bounded_text(result.stderr, DIAGNOSTIC_STDERR_BYTES),
             "stderr_truncated": result.stderr_truncated or len(result.stderr) > DIAGNOSTIC_STDERR_BYTES,
             "stdout_excerpt": None,
-            "message": result.message,
+            "message": str(result.message)[:4096] if result.message is not None else None,
             "issues": [],
         }
         if result.outcome == "spawn_failed":
@@ -249,21 +273,36 @@ class Tools:
             diagnostics["stdout_excerpt"] = _bounded_text(result.stdout, DIAGNOSTIC_STDOUT_EXCERPT)
             diagnostics["message"] = diagnostics["message"] or f"the tool exited with status {result.exit_code}"
         else:
-            parsed, problem = self._parse_output(result.stdout)
-            if problem:
-                failure_code = "invalid_output"
-                diagnostics["stdout_excerpt"] = _bounded_text(result.stdout, DIAGNOSTIC_STDOUT_EXCERPT)
-                diagnostics["message"] = problem
-            else:
-                issues = validate_instance(parsed, definition["output_schema"])
-                if issues:
-                    failure_code = "output_schema_violation"
+            try:
+                parsed, problem = self._parse_output(result.stdout)
+                if problem:
+                    failure_code = "invalid_output"
                     diagnostics["stdout_excerpt"] = _bounded_text(result.stdout, DIAGNOSTIC_STDOUT_EXCERPT)
-                    diagnostics["message"] = "the output does not match the output schema"
-                    diagnostics["issues"] = issues
+                    diagnostics["message"] = problem
                 else:
-                    status, effect = "succeeded", "completed"
-                    output_json = dumps(parsed)
+                    issues = validate_instance(parsed, definition["output_schema"])
+                    if issues:
+                        failure_code = "output_schema_violation"
+                        diagnostics["stdout_excerpt"] = _bounded_text(result.stdout, DIAGNOSTIC_STDOUT_EXCERPT)
+                        diagnostics["message"] = "the output does not match the output schema"
+                        diagnostics["issues"] = [
+                            _bounded_text(issue.encode("utf-8", "replace"), 1024) for issue in issues[:20]]
+                    else:
+                        output_json = dumps(parsed)
+                        output_json.encode("utf-8")  # SQLite TEXT must be representable, too.
+                        status, effect = "succeeded", "completed"
+            except Exception as exc:
+                # Untrusted output may exceed the decoder/validator/encoder's
+                # recursion or representation limits. The process already ran;
+                # finish its receipt. Process-crash BaseExceptions still escape.
+                status, effect, failure_code, output_json = "failed", "possible", "invalid_output", None
+                diagnostics["stdout_excerpt"] = _bounded_text(result.stdout, DIAGNOSTIC_STDOUT_EXCERPT)
+                diagnostics["message"] = (
+                    f"tool output could not be processed ({type(exc).__name__}): "
+                    + _bounded_text(str(exc).encode("utf-8", "replace"), 1024))
+                diagnostics["issues"] = []
+        if diagnostics["message"] is not None:
+            diagnostics["message"] = _bounded_text(diagnostics["message"].encode("utf-8", "replace"), 4096)
         with self.ctx.store.transaction() as conn:
             conn.execute(
                 "UPDATE invocations SET status = ?, failure_code = ?, effect_state = ?, ended_at = ?, exit_code = ?,"
@@ -291,9 +330,20 @@ class Tools:
             return None, f"the output is not exactly one JSON value: {exc}"
 
     # -------------------------------------------------------------- receipts
-    def _fetch(self, invocation_id: str) -> sqlite3.Row | None:
+    @staticmethod
+    def _access(row, actor, selection):
+        if actor is not None and normalize_actor(actor) != loads(row["actor"]):
+            raise UnavailableError("invocation is owned by another actor")
+        chosen = Selection.from_value(selection)
+        package_id = row["tool_ref"].split("/", 1)[0]
+        if chosen.package_ids is not None and package_id not in chosen.package_ids:
+            raise UnavailableError("invocation package is not allowed by this selection")
+
+    def _fetch(self, invocation_id: str, *, actor=None, selection=None) -> sqlite3.Row | None:
         with self.ctx.store.reader() as conn:
             row = conn.execute("SELECT * FROM invocations WHERE invocation_id = ?", (invocation_id,)).fetchone()
+        if row is not None:
+            self._access(row, actor, selection)
         if row is not None and row["status"] == "in_flight" and not _runner_alive(row["runner"]):
             with self.ctx.store.transaction() as conn:
                 conn.execute(
@@ -303,7 +353,6 @@ class Tools:
                 )
             with self.ctx.store.reader() as conn:
                 row = conn.execute("SELECT * FROM invocations WHERE invocation_id = ?", (invocation_id,)).fetchone()
-            shutil.rmtree(self._scratch_dir(invocation_id), ignore_errors=True)
         return row
 
     def _replay(self, row: sqlite3.Row, fingerprint: str) -> dict[str, Any]:
@@ -336,15 +385,19 @@ class Tools:
             "replayed": replayed,
         }
 
-    def receipt(self, invocation_id: str) -> dict[str, Any]:
+    def receipt(self, invocation_id: str, *, actor=None, selection=None) -> dict[str, Any]:
         """The stored receipt; an interrupted call reads ``indeterminate``."""
         check_operation_id(invocation_id, "invocation_id")
-        row = self._fetch(invocation_id)
+        if actor is not None:
+            actor = normalize_actor(actor)
+        selection = Selection.from_value(selection)
+        row = self._fetch(invocation_id, actor=actor, selection=selection)
         if row is None:
             raise NotFoundError(f"no invocation {invocation_id!r}", details={"invocation_id": invocation_id})
         return {"receipt": self._receipt(row)}
 
-    def reconcile(self, invocation_id: str, resolution: str, note: str, actor: dict[str, str]) -> dict[str, Any]:
+    def reconcile(self, invocation_id: str, resolution: str, note: str, actor: dict[str, str], *,
+                  selection=None) -> dict[str, Any]:
         """Record what the caller learned about an ``indeterminate`` (or stuck ``in_flight``) call.
 
         The call is never re-run; use a new invocation ID to try again.
@@ -355,7 +408,7 @@ class Tools:
             raise InvalidRequestError(f"resolution must be one of {list(RECONCILE_RESOLUTIONS)}")
         if not isinstance(note, str) or not note.strip():
             raise InvalidRequestError("note must say how the outcome was established")
-        row = self._fetch(invocation_id)
+        row = self._fetch(invocation_id, actor=actor, selection=selection)
         if row is None:
             raise NotFoundError(f"no invocation {invocation_id!r}", details={"invocation_id": invocation_id})
         if row["status"] not in ("indeterminate", "in_flight"):
@@ -371,8 +424,7 @@ class Tools:
             ).rowcount
         if not changed:
             raise StateConflictError(f"invocation {invocation_id!r} changed state while reconciling")
-        shutil.rmtree(self._scratch_dir(invocation_id), ignore_errors=True)
-        return self.receipt(invocation_id)
+        return self.receipt(invocation_id, actor=actor, selection=selection)
 
     # ----------------------------------------------------------------- tests
     def test(
@@ -391,6 +443,7 @@ class Tools:
         actor = normalize_actor(actor)
         chosen = Selection.from_value(selection)
         with self.ctx.store.lock(exclusive=False):
+            self.ctx.require_no_recovery()
             catalog = load_catalog(DiskSource(self.ctx.tree))
             entry = self.locate(catalog, ref, chosen)
         fixtures = cases if cases is not None else (entry.definition or {}).get("tests", [])
@@ -399,6 +452,9 @@ class Tools:
         if not fixtures:
             raise ValidationFailedError(f"{ref} has no test cases; define tests in the definition or pass cases",
                                         details={"ref": ref, "issues": ["no test cases"]})
+        issues = validate_instance(fixtures, TOOL_DEFINITION_SCHEMA["properties"]["tests"])
+        if issues:
+            raise InvalidRequestError("invalid tool test cases", details={"issues": issues})
         batch = uuid.uuid4().hex[:12]
         outcomes = []
         for index, case in enumerate(fixtures):
