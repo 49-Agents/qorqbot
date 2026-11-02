@@ -145,7 +145,7 @@ class Attention:
     def cancel_reminders(self, uow, agent, now, *, focus_only=False):
         uow.connection.execute("UPDATE attention_reminders SET state=CASE WHEN emission_started_at IS NOT NULL THEN 'uncertain' ELSE 'cancelled' END,updated_at=?,revision=revision+1 WHERE agent_id=? AND state IN ('pending','claimed')" + (" AND kind IN ('focus','workflow_detach')" if focus_only else ''), (now, agent))
 
-    def task(self, ctx, ref, uow, *, lifecycle_only=False):
+    def task(self, ctx, ref, uow, *, lifecycle_only=False, notes=True):
         if ctx.principal_kind == 'human':
             memo = getattr(uow, 'memo', None) if not getattr(uow, 'writable', True) else None
             key = ('attention_coordinator_context', id(self))
@@ -162,7 +162,7 @@ class Attention:
         descriptor = self.app.registry.get('tasks_get')
         if ref['business_id'] is not None: descriptor = replace(descriptor, global_capability=None)
         self.app.authorize(selected, descriptor, (), uow, namespace='business:'+ref['business_id'] if ref['business_id'] else 'global')
-        args = {'task_id': ref['id'], **({'scope': 'global'} if ref['business_id'] is None else {})}
+        args = {'task_id': ref['id'], **({'scope': 'global'} if ref['business_id'] is None else {}), **({} if notes else {'notes_limit': 0})}
         if lifecycle_only:
             from qorqut_operations.tasks.scope import task_context
             selected = task_context(selected, args, uow)
@@ -329,7 +329,7 @@ class Attention:
             **{key: typed[key] for key in ('task_type', 'customer_kind', 'customer_state')},
             **project_workers(uow, task)}
 
-    def read(self, ctx, args, uow):
+    def read(self, ctx, args, uow, *, notes=True):
         ctx, agent = self.context(ctx, args, uow)
         state = self.state(uow, agent)
         projection = args.get('projection', 'detail')
@@ -360,7 +360,7 @@ class Attention:
         # and the workflow header opts into focus only instead of reading a board.
         for item in selected:
             item['task'] = (self.task_summary(item['task'], uow) if projection == 'summary'
-                            else self.task(ctx, item['task_ref'], uow))
+                            else self.task(ctx, item['task_ref'], uow, notes=notes))
         focus = state['focus_json']
         intent, task_ref = state['intent'], state['work_task_json']
         if focus:
@@ -390,7 +390,7 @@ class Attention:
         if 'expected_revision' in args and args['expected_revision'] != state['revision']:
             raise DomainError('revision_conflict', 'Attention changed; reread it', current_revision=state['revision'])
         if op in ('attention_add','attention_focus_set'):
-            task = self.task(ctx, args['task'], uow)
+            task = self.task(ctx, args['task'], uow, notes=False)
             if task.get('task_type') != 'task' or task.get('archived'):
                 raise DomainError('validation_error', 'Board work requires an unarchived ordinary Task')
             if op == 'attention_focus_set':
@@ -441,7 +441,8 @@ class Attention:
         return None
 
     def add_result(self, ctx, task, uow):
-        result = self.read(ctx, {}, uow)
+        # The full board, without each Task's comment thread.
+        result = self.read(ctx, {}, uow, notes=False)
         if ctx.principal_kind == 'agent':
             result['agent_hint'] = BOARD_TRANSITION_HINT
             if not task.get('worker_ids'):
@@ -453,7 +454,7 @@ class Attention:
         ctx, agent, state = self.validate(op, ctx, args, uow)
         now = timestamp(self.clock)
         if op == 'attention_add':
-            task = self.task(ctx,args['task'],uow)
+            task = self.task(ctx,args['task'],uow,notes=False)
             if self.task_membership(uow,agent,args['task']): return self.add_result(ctx,task,uow)
             self.ensure(uow,agent)
             membership_id = new_id()
