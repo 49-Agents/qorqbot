@@ -107,6 +107,7 @@ async function renderGlobalAgents(c) {
         </div>
         <div class="crows global-workspace-terminals">
           <button class="item agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}" aria-pressed="false" aria-label="Terminal"><span class="nm">${GLOBAL_TERMINAL_ICON}</span></button>
+          <button class="item agent global-workspace-settings" type="button" data-global-settings title="Settings" aria-label="Settings"><span class="nm">${GLOBAL_ICONS.settings}</span></button>
         </div>
       </div></div>
     <section class="global-agent-session" aria-label="Agent session"><div class="chat termmode" id="global-agent-terminal"></div></section>
@@ -167,6 +168,7 @@ async function renderGlobalAgents(c) {
       isCurrent: () => current() && selected === agent.agent_id,
     });
   };
+  nav.querySelector('[data-global-settings]').onclick = () => goGlobalTab('settings');
   nav.querySelector('.global-nav-body').onclick = event => {
     const button = event.target.closest('[data-global-agent]');
     if (!button) return;

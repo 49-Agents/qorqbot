@@ -182,4 +182,4 @@
   .agent-workspace-app .split.global-agents.agsplit.pad-off > .agpad { display:none; }
 }
 
-.agent-workspace-app .global-agents .global-workspace-terminal svg { width:24px; height:24px; }
+.agent-workspace-app .global-agents .global-workspace-terminal svg, .agent-workspace-app .global-agents .global-workspace-settings svg { width:24px; height:24px; }
