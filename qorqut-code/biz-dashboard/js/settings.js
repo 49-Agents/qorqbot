@@ -24,12 +24,10 @@ function environmentStatusHtml(p) {
     const url = envHttpUrl(preview.url);
     return url ? `<li><span>Port ${preview.port}</span><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open private preview</a></li>` : "";
   }).filter(Boolean).join("") : "";
-  const browser = envHttpUrl(environment.browser_viewer_url);
   return `<section class="env-runtime" aria-label="Project environment status">
     <div class="env-runtime-head"><h2>Project environment</h2><span class="env-runtime-state">${sandbox ? esc(envStateLabel(environment.state)) : "Host"}</span></div>
     <p class="muted small">${sandbox ? "The private project workspace is managed separately from the dashboard." : "This project uses the existing host workspace."}</p>
     ${previews ? `<div class="env-runtime-links"><h3>Private previews</h3><ul>${previews}</ul></div>` : ""}
-    ${browser ? `<div class="env-runtime-links"><h3>Browser viewer</h3><a href="${esc(browser)}" target="_blank" rel="noopener noreferrer">Open browser viewer</a></div>` : ""}
   </section>`;
 }
 function paintEnvironmentStatus(p) {
