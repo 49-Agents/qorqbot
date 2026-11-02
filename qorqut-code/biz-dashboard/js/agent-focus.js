@@ -322,7 +322,7 @@ async function agfocusRefresh(p) {
         const rows=agfocusVisibleItems(p,data.items).filter(item=>item.source?.type==='task' && !item.unavailable && p.focusWork?.get(item.id)?.expanded && !restored.has(item.id));
         if(!rows.length)break;
         rows.forEach(item=>restored.add(item.id));
-        await Promise.all(rows.map(item=>agfocusToggleWork(p,item,true)));
+        await Promise.all(rows.map(item=>agfocusExpandWork(p,item,true)));
       }
     } catch (error) {
       if (agpadActive(p) && (!focusMount || p.focusMount===focusMount)) p.focusError = 'Could not refresh Focus. ' + error.message;
@@ -415,10 +415,10 @@ async function agfocusLoadWork(p,item,branch,more=false) {
   }
   branch.items=items;branch.references=references;
 }
-async function agfocusToggleWork(p,item,refresh=false) {
+async function agfocusExpandWork(p,item,refresh=false) {
   p.focusWork ||= new Map();
   let branch=p.focusWork.get(item.id);
-  if(branch?.expanded && !refresh){branch.expanded=false;agfocusSaveWork(p);agfocusPaint(p);return;}
+  if(branch?.expanded && !refresh)return;
   branch={expanded:true,items:[],references:[],children:[],related:[],childCursor:null,relationCursor:null,pending:true};p.focusWork.set(item.id,branch);
   if(!refresh)agfocusSaveWork(p);
   agfocusPaint(p);agfocusAnnounce(p,'Loading related work…');
@@ -447,11 +447,10 @@ function agfocusWorkExtras(p,node,item) {
   const branch=p.focusWork?.get(item.id);
   if(!branch?.expanded)return;
   const hasMore=!!(branch.childCursor || branch.relationCursor);
-  if(!branch.references?.length && !hasMore && !branch.pending && branch.items?.length)return;
+  if(!branch.references?.length && !hasMore && !branch.pending)return;
   const row=document.createElement('div');row.className='agfocus-work-extras';row.setAttribute('aria-label','Related work');
   node.querySelector('.agfocus-row').after(row);
   if(branch.pending){const loading=document.createElement('span');loading.className='muted';loading.textContent='Loading related work…';row.append(loading);return;}
-  if(!branch.items.length && !branch.references.length && !hasMore){const none=document.createElement('span');none.className='muted';none.textContent='No related work';row.append(none);return;}
   const icons={file:'M14 3H5v18h14V8z M14 3v5h5 M8 13h8 M8 17h8',table:'M3 4h18v16H3z M3 10h18 M9 4v16',link:'M10 14l4-4 M8 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0 M16 8l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0'};
   for(const ref of branch.references){
     const target=ref.resolved_source,kind=target.type==='table'?'table':['material','email'].includes(target.type)?'file':'link';
@@ -518,7 +517,7 @@ function agfocusPaint(p) {
     if(node?.dataset.unavailable && !item.unavailable){node.remove();p.focusCards.delete(item.id);node=null;}
     if(!node) {
       node=document.createElement('article');node.className='agfocus-card';node.dataset.cardId=item.id;
-      node.innerHTML='<div class="trow agfocus-row"><span class="agfocus-notification" aria-hidden="true"><span class="agfocus-unread" hidden></span></span><span class="agfocus-marker"></span><span class="task-business-column agfocus-scope"></span><div class="task-headline"><p class="ttl"></p><button type="button" class="quiet agfocus-work-toggle" aria-expanded="false" aria-label="Show related work" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M6 3v12M6 9h6a4 4 0 0 1 4 4v2"/><circle cx="6" cy="18" r="2.4"/><circle cx="16" cy="18" r="2.4"/></svg></button><span class="agfocus-flag" hidden></span></div><div class="agfocus-actions"><button type="button" class="quiet" data-focus-snooze aria-label="Snooze Focus item" aria-haspopup="dialog" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg></button></div></div><div class="agfocus-region" hidden><div class="agfocus-thread-context" aria-label="Task details and context"><p class="agfocus-source-title"></p><button type="button" class="quiet" data-manage aria-label="Open details">Open details</button><div class="agfocus-task-details"></div><div class="agfocus-framing"><section data-framing="requested_response"><p class="agfocus-request"></p></section></div><p class="agfocus-context muted"></p><div class="agfocus-related"></div></div><div class="agfocus-conversation"></div></div>';
+      node.innerHTML='<div class="trow agfocus-row"><span class="agfocus-notification" aria-hidden="true"><span class="agfocus-unread" hidden></span></span><span class="agfocus-marker"></span><span class="task-business-column agfocus-scope"></span><div class="task-headline"><p class="ttl"></p><span class="agfocus-flag" hidden></span></div><div class="agfocus-actions"><button type="button" class="quiet" data-focus-snooze aria-label="Snooze Focus item" aria-haspopup="dialog" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg></button></div></div><div class="agfocus-region" hidden><div class="agfocus-thread-context" aria-label="Task details and context"><p class="agfocus-source-title"></p><button type="button" class="quiet" data-manage aria-label="Open details">Open details</button><div class="agfocus-task-details"></div><div class="agfocus-framing"><section data-framing="requested_response"><p class="agfocus-request"></p></section></div><p class="agfocus-context muted"></p><div class="agfocus-related"></div></div><div class="agfocus-conversation"></div></div>';
       node._region=node.querySelector('.agfocus-region');
       node._region.dataset.focusThreadId=item.id;
       node._conversationHost=node.querySelector('.agfocus-conversation');
@@ -556,10 +555,6 @@ function agfocusPaint(p) {
     agfocusWorkExtras(p,node,item);
     node.classList.toggle('agfocus-work-child',!!item._workParent);
     node.style.setProperty('--focus-depth',item._depth || 0);
-    const workToggle=node.querySelector('.agfocus-work-toggle'),workOpen=!!p.focusWork?.get(item.id)?.expanded;
-    workToggle.hidden=!taskItem;
-    workToggle.setAttribute('aria-expanded',String(workOpen));workToggle.setAttribute('aria-label',workOpen?'Hide related work':'Show related work');
-    workToggle.onclick=event=>{event.stopPropagation();agfocusToggleWork(p,item);};
     agfocusContext(node,item);
     const flag=node.querySelector('.agfocus-flag');
     const snoozed=agfocusSnoozed(item);
@@ -679,6 +674,7 @@ function agfocusSelect(p,id) {
     agfocusThreadHeight(p);
     next._conversationHost._conversation?.expand();
     agfocusLoadThreadContext(p,next);
+    if(next._item.source?.type==='task')agfocusExpandWork(p,next._item);
   }
 }
 
