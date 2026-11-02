@@ -13,10 +13,10 @@
 .gchat-user { align-self: flex-end; align-items: flex-end; }
 .gchat-agent { align-self: flex-start; }
 .gchat-notice { align-self: center; align-items: center; max-width: 80%; font-size: 12px; color: var(--fg-2); }
-.gchat-body { font-size: 13.25px; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: 12px; overflow-wrap: anywhere; line-height: 1.5; }
-.gchat-user .gchat-body { background: rgba(255,255,255,.08); white-space: pre-wrap; border-radius: 8px; line-height: 1.75; }
+.gchat-body { font-size: 13.25px; padding: 12px 18px; border: 1px solid var(--line-2); border-radius: 24px; overflow-wrap: anywhere; line-height: 1.5; }
+.gchat-user .gchat-body { background: #126bd4; color: #fff; white-space: pre-wrap; line-height: 1.65; }
 .gchat-user .gchat-body, .gchat-agent .gchat-body { border: 0; }
-.gchat-agent .gchat-body { background: none; text-align: left; padding-left: 0; line-height: 1.85; }
+.gchat-agent .gchat-body { background: color-mix(in srgb, var(--fg, #f7f7f7) 7%, var(--bg, #090909)); text-align: left; line-height: 1.65; }
 .gchat-notice .gchat-body { padding: 4px 10px; border: 1px dashed var(--line-2); border-radius: 8px; background: none; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
 /* Optional sender label and title: the same primitives for every conversation, never a second message style. */
 .gchat-author { display: flex; align-items: center; gap: 8px; padding: 0 12px; min-width: 0; font-size: 11px; color: var(--fg-2); }
