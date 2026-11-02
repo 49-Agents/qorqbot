@@ -186,7 +186,10 @@ class PrivateConversations:
         if args.get('peer_role') == 'global-worker' and not selected:
             raise DomainError('validation_error', 'Select one active worker by agent_id')
         selected = selected or coordinator
+        # The retained peer_role must agree with the selected UUID; nothing falls back to another channel.
         if args.get('peer_role') == 'ordubashy' and selected != coordinator:
+            raise DomainError('forbidden', 'Selected peer does not match this channel')
+        if args.get('peer_role') == 'global-worker' and selected == coordinator:
             raise DomainError('forbidden', 'Selected peer does not match this channel')
         if selected != coordinator and not worker_peer(uow, selected):
             raise DomainError('forbidden', 'Select an active worker for this source')
