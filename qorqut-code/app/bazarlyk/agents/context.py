@@ -218,7 +218,6 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
             content_hash(inbox_instructions.encode()), "qorqut-core:agent-inbox", "core"),
             "Built-in agent startup and inbox handling")
     for required_tools, guidance in (
-        ({"dev_tickets_create"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/system-dev.md")),
         ({"viewbox_place"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/viewbox-guidance.md")),
         ({"environment_set"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/environment-set.md")),
         ({"environment_get"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/environment-get.md")),

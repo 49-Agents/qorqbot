@@ -248,7 +248,8 @@ def run(hook: dict, registration_path: Path, *, stream=sys.stdout, diagnostics=s
                 "independent owner-authorized repository work may continue.")
         if not pending:
             reason += (' agent_runtime_get and operations_describe are diagnostic reads, not delivery confirmation. '
-                'Report a persistent fault once with dev_tickets_create. Saved context does not grant current service permission.')
+                'Record a persistent fault once on the existing task with its request/receipt ID and who acts next. '
+                'Saved context does not grant current service permission.')
         try:
             from .recovery import record
             selected = load_registration(registration_path)

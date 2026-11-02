@@ -9,7 +9,6 @@ from qorqut_operations.application.plans import schema
 from .models import REFERENCE_SCHEMA
 from .resolver import INTERNAL_ONLY_OPERATIONS
 
-# Repair-ticket removal, phase 1: the repair interface no longer carries the retired ticket tools.
 DIAGNOSTIC_OPERATIONS = frozenset({'agent_runtime_get', 'operations_describe'})
 
 
@@ -126,5 +125,5 @@ class AgentDiagnostics:
             'applications': recovery, 'more_applications': len(receipts) > 20,
             'guidance': 'The session helper recovers automatically and the trusted hook delivers refreshed instructions. '
                 'Do not rerun startup hooks or restart the conversation. Temporary connection failures do not cancel authorized local work. '
-                'Configuration readiness and an inbox notice do not establish context delivery. Report a persistent fault once via dev_tickets_create; '
-                'retain the request/receipt ID and never resend an external action to repair its status.'}
+                'Configuration readiness and an inbox notice do not establish context delivery. Record a persistent fault once '
+                'on the existing task with its request/receipt ID and who acts next; never resend an external action to repair its status.'}
