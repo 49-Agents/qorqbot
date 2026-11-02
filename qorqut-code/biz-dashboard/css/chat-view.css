@@ -27,7 +27,7 @@
 .gchat-user .gchat-body { background: #126bd4; color: #fff; white-space: pre-wrap; line-height: 1.65; }
 .gchat-user .gchat-body, .gchat-agent .gchat-body { border: 0; }
 .gchat-agent .gchat-body { background: color-mix(in srgb, var(--fg, #f7f7f7) 7%, var(--bg, #090909)); text-align: left; line-height: 1.65; }
-.gchat-notice .gchat-body { padding: 4px 10px; border: 1px dashed var(--line-2); border-radius: 8px; background: none; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
+.gchat-notice .gchat-body { padding: 2px 10px; border: 0; border-radius: 0; background: none; font-size: 12px; line-height: 1.45; text-align: center; white-space: pre-wrap; }
 /* Optional sender label and title: the same primitives for every conversation, never a second message style. */
 .gchat-author { display: flex; align-items: center; gap: 8px; padding: 0 12px; min-width: 0; font-size: 11px; color: var(--fg-2); }
 .gchat-agent .gchat-author { padding-left: 0; }
@@ -35,10 +35,16 @@
 .gchat-author-name { min-width: 0; overflow-wrap: anywhere; }
 .gchat-title { display: block; margin-bottom: .25em; font-weight: 600; }
 /* Qorqut's own label for a system-originated input; it is not a provider role. Unverified lookalikes keep a visibly different mark. */
-.gchat-marker { display: inline-block; margin-right: 8px; padding: 0 6px; border: 1px solid var(--line-2); border-radius: 4px; font-size: 11px; line-height: 1.6; color: var(--fg-2); vertical-align: baseline; }
+.gchat-marker { display: inline; margin-right: 8px; padding: 0; border: 0; font-size: 12px; line-height: 1.45; color: var(--fg-2); vertical-align: baseline; }
 .gchat-notice .gchat-body:has(> .gchat-marker:only-child) { display:flex; align-items:center; justify-content:center; }
 .gchat-notice .gchat-marker:only-child { margin-right:0; }
-.gchat-notice[data-verified="false"] .gchat-marker { border-style: dashed; color: var(--danger); }
+.gchat-notice[data-verified="false"] .gchat-marker { color: var(--danger); }
+.gchat-agent-message { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 9px; }
+.gchat-recipients { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; }
+.gchat-recipient { display: inline-flex; }
+.gchat-recipient + .gchat-recipient { margin-left: -6px; }
+.gchat-recipient svg { width: 25px; height: 25px; display: block; }
+.gchat-pending.gchat-notice .gchat-state { text-align: center; }
 .gchat-partial .gchat-body { opacity: .8; }
 .gchat-body.md > :first-child { margin-top: 0; }
 .gchat-body.md > :last-child { margin-bottom: 0; }

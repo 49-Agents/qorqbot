@@ -54,8 +54,8 @@ const GLOBAL_CHAT_INPUT_STATE = {
   failed: 'Not delivered',
   undelivered: 'Not delivered',
 };
-// The expanded text of an inbox nudge is system-generated and technical: the timeline shows only its compact marker.
-const globalChatMarkerOnly = type => type === 'inbox_nudge';
+// The expanded text of an inbox nudge or session recovery is system-generated and technical: the timeline shows only its compact marker.
+const globalChatMarkerOnly = type => type === 'inbox_nudge' || type === 'bootstrap_recovery';
 const globalChatNoticeLabel = system => !system ? 'System notice'
   : system.verified ? GLOBAL_CHAT_INPUT_LABEL[system.input_type] || 'System notice'
   : 'Unverified notice';
@@ -185,7 +185,33 @@ function mountGlobalChat(pane, agent, options = {}) {
     ...(entry.speaker === 'notice' ? {notice: {label: globalChatNoticeLabel(entry.system), verified: !!entry.system?.verified, inputType: entry.system?.input_type || null,
       markerOnly: !!entry.system?.verified && globalChatMarkerOnly(entry.system.input_type)}} : {}),
   });
-  const orderedEntries = () => [...entries.values()].sort((a, b) => a.position - b.position).map(presentEntry);
+  // A successful outgoing agent message: recipients come from the backend DTO, glyphs from the existing trusted renderer.
+  const agentMessageRecipient = recipient => {
+    const name = String(recipient?.display_name || 'Agent');
+    return {id: String(recipient?.agent_id || ''), name, glyphHtml: agentGlyph({...(recipient?.presentation || {}), role: recipient?.role}, 25)};
+  };
+  const isAgentMessage = entry => entry.speaker === 'notice' && Array.isArray(entry.agent_message?.recipients);
+  // Adjacent outgoing-message entries share one row: first entry's key and position, distinct recipients in first-seen order.
+  // Recomputed from the per-conversation entry map on every render, so replay and older pages never double-count.
+  function groupAgentMessages(sorted) {
+    const rows = [];
+    for (const entry of sorted) {
+      const last = rows[rows.length - 1];
+      if (!isAgentMessage(entry)) { rows.push(entry); continue; }
+      if (last?.group) { last.group.push(entry); continue; }
+      rows.push({group: [entry]});
+    }
+    return rows.map(row => {
+      if (!row.group) return presentEntry(row);
+      const first = row.group[0], seen = new Set(), recipients = [];
+      for (const entry of row.group) for (const raw of entry.agent_message.recipients) {
+        const recipient = agentMessageRecipient(raw), key = recipient.id || `name:${recipient.name}`;
+        if (!seen.has(key)) { seen.add(key); recipients.push(recipient); }
+      }
+      return {...presentEntry(first), text: '', notice: {label: 'Messaged', verified: true, inputType: null, markerOnly: true, agentMessage: {recipients}}};
+    });
+  }
+  const orderedEntries = () => groupAgentMessages([...entries.values()].sort((a, b) => a.position - b.position));
   const newestPosition = () => { let top = -1; for (const entry of entries.values()) top = Math.max(top, entry.position); return top; };
   const viewedKey = () => globalChatKey(conversation);
   // The live session's exact binding; a conversation is sendable only when it is the one displayed.
