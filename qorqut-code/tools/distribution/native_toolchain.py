@@ -29,9 +29,10 @@ CODEX_NOTICES = {
 
 def codex_notices(output):
     """Retain exact upstream notices; this does not decide redistribution approval."""
-    for package in ('codex', 'codex-linux-x64'):
+    packages = {'codex': CODEX_VERSION, 'codex-linux-x64': CODEX_VERSION + '-linux-x64'}
+    for package, version in packages.items():
         metadata = json.loads((output / 'clis/node_modules/@openai' / package / 'package.json').read_text())
-        if metadata['version'] != CODEX_VERSION:
+        if metadata['version'] != version:
             raise ValueError('Codex notice selection does not match the installed CLI version')
     contents, records = {}, []
     for name, expected in CODEX_NOTICES.items():
@@ -47,7 +48,7 @@ def codex_notices(output):
     for name, content in contents.items():
         (destination / name).write_bytes(content)
     record = {'format': 1, 'version': CODEX_VERSION, 'tag': CODEX_TAG,
-              'commit': CODEX_COMMIT, 'files': records}
+              'commit': CODEX_COMMIT, 'packages': packages, 'files': records}
     (destination / 'SOURCE.json').write_text(json.dumps(record, indent=2) + '\n')
     return record
 
