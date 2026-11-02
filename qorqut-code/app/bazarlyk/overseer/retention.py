@@ -83,7 +83,17 @@ class Retention:
                     or run_ref.get('namespace') != {'kind': 'global', 'business_id': None}):
                 raise DomainError('forbidden', 'The saved continuing conversation is unavailable')
             run_id = run_ref.get('run_id')
-            if run_id is not None:
+            if isinstance(run_id, str) and run_id.startswith('direct-instruction:'):
+                from .direct import binding_for
+                saved = self.runtime.agentic_layer.overseer.materials.get(run_id.split(':', 1)[1])
+                expected = binding_for(saved)
+                bound = self.runtime.agentic_layer.overseer.inputs.get(expected['id'])
+                association = uow.connection.execute('SELECT 1 FROM overseer_signoffs WHERE binding_id=? AND run_id=?',
+                                                      (bound['id'], run_id)).fetchone()
+                if (saved.get('kind') != 'direct_instruction_submission' or association is None
+                        or {**bound, 'request_ref': None} != expected):
+                    raise DomainError('forbidden', 'The saved direct-instruction review is unavailable')
+            elif run_id is not None:
                 admission = Views(self.runtime.agentic_layer).get_admitted_run(run_id)
                 invocation = admission and admission.get('invocation', {})
                 if (not admission or invocation.get('conversation_id') != session['conversation_id']

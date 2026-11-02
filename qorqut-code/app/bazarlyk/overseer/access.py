@@ -85,6 +85,9 @@ class EvidenceAccess:
     def authorize_source(self, ref):
         if not isinstance(ref, dict) or not isinstance(ref.get('locator'), dict):
             _forbidden()
+        if ref.get('kind') == 'owner_instruction':
+            from .direct import authorize_source
+            return authorize_source(self.runtime, self.context, ref)
         kind, provider, identity, loc = ref.get('kind'), ref.get('provider'), ref.get('record_id'), ref['locator']
         if not isinstance(identity, str) or not identity:
             _forbidden()

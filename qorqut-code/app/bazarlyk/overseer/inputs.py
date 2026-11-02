@@ -12,8 +12,9 @@ from .authority import current_overseer
 class OwnerInputGateway:
     """Re-read the real Signoff with the authenticated Overseer's current access."""
 
-    def __init__(self, runtime, context):
+    def __init__(self, runtime, context, *, authority=None):
         self.runtime, self.context = runtime, context
+        self.authority = authority or current_overseer
 
     def resolve_response(self, binding, reference):
         runtime = self.runtime
@@ -21,7 +22,7 @@ class OwnerInputGateway:
         business = scope['business_id']
         namespace = 'business:' + business if business else 'global'
         with runtime.database.read() as uow:
-            ctx, _ = current_overseer(runtime, self.context, uow)
+            ctx, _ = self.authority(runtime, self.context, uow)
             if business and business not in ctx.allowed_business_ids:
                 raise DomainError('forbidden', 'The Signoff review scope is unavailable')
             ctx = replace(ctx, business_id=business, review_business_id=business)
@@ -78,7 +79,7 @@ class OwnerInputGateway:
                     'selected_choice_ids': choices, 'notes': notes, 'answered_at': decision['at']}
 
 
-def create_input_request(runtime, context, binding, form, operation_id):
+def create_input_request(runtime, context, binding, form, operation_id, *, direct_submission=None):
     """Bind once, create/recover the real Signoff, then attach its exact identity."""
     from copy import deepcopy
     from qorqut_operations.contracts import plain
@@ -101,6 +102,16 @@ def create_input_request(runtime, context, binding, form, operation_id):
     if {choice['id'] for choice in form['choices']} != set(binding['choice_actions']):
         raise DomainError('validation_error', 'Every choice must match the saved binding')
     layer = runtime.agentic_layer
+    def authorize(uow):
+        if direct_submission is not None:
+            from .direct import authorize_binding
+            return authorize_binding(runtime, context, uow, binding, direct_submission)
+        return current_overseer(runtime, context, uow, capability='manage_agentic_layer')
+
+    # The narrow direct-submission authority is internal, never accepted in the
+    # public Overseer input request. Validate it before material is read.
+    with runtime.database.read() as uow:
+        authorize(uow)
     targets = binding['targets']
     if binding['purpose'] == 'close_satisfied':
         if (not callable(getattr(layer.overseer.applications, 'inspect_satisfaction', None))
@@ -141,14 +152,14 @@ def create_input_request(runtime, context, binding, form, operation_id):
     form['explanation'] = explanation
     namespace = 'business:' + business if business else 'global'
     with runtime.database.read() as uow:
-        ctx, _ = current_overseer(runtime, context, uow, capability='manage_agentic_layer')
+        ctx, _ = authorize(uow)
         if business and business not in ctx.allowed_business_ids:
             raise DomainError('forbidden', 'The requested review scope is unavailable')
         ctx = replace(ctx, business_id=business, review_business_id=business)
         session = store.latest_session(uow.connection, ctx.principal_id)
         admission = Views(layer).get_admitted_run(binding['run_id'])
         invocation = admission and admission.get('invocation', {})
-        if (session is None or not admission or invocation.get('conversation_id') != session['conversation_id']
+        if direct_submission is None and (session is None or not admission or invocation.get('conversation_id') != session['conversation_id']
                 or invocation.get('executor') != {'actor_id': ctx.principal_id, 'actor_kind': 'agent'}):
             raise DomainError('owner_input_required', 'A matching admitted Overseer workflow is required')
         runtime.application.authorize(ctx, runtime.registry.get('signoffs_get'), (), uow, namespace=namespace)
@@ -180,7 +191,7 @@ def create_input_request(runtime, context, binding, form, operation_id):
         signoff_id = existing['id']
     with runtime.database.transaction(operation='overseer.input-association') as uow:
         runtime.application.ensure_writes_open(uow)
-        current, _ = current_overseer(runtime, context, uow, capability='manage_agentic_layer')
+        current, _ = authorize(uow)
         current = replace(current, business_id=business, review_business_id=business)
         runtime.application.authorize(current, runtime.registry.get('signoffs_get'), (), uow, namespace=namespace)
         row = runtime.signoffs._row(current, signoff_id, uow)

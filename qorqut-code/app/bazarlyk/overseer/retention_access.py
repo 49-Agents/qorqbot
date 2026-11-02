@@ -115,7 +115,17 @@ class RetentionEventAccess:
                     raise DomainError('forbidden', 'The Signoff is not a linked amendment')
             elif source.get('parent_event') is not None:
                 raise DomainError('forbidden', 'The root Signoff has no predecessor event')
-            if binding['run_id'] is not None:
+            if binding['run_id'] and binding['run_id'].startswith('direct-instruction:'):
+                from .direct import binding_for
+                saved_input = self.runtime.agentic_layer.overseer.inputs.get(binding['binding_id'])
+                submission_id = saved_input.get('direct_submission_id')
+                material = self.runtime.agentic_layer.overseer.materials.get(submission_id)
+                expected = binding_for(material)
+                if (material.get('kind') != 'direct_instruction_submission'
+                        or {**saved_input, 'request_ref': None} != expected
+                        or binding['run_id'] != expected['run_id']):
+                    raise DomainError('forbidden', 'The direct instruction review binding changed')
+            elif binding['run_id'] is not None:
                 admission = Views(self.runtime.agentic_layer).get_admitted_run(binding['run_id'])
                 invocation = admission and admission.get('invocation', {})
                 if (not admission or invocation.get('conversation_id') != session['conversation_id']
@@ -219,6 +229,12 @@ class RetentionEventAccess:
                     or ref['locator'].get('signoff_id') != source.get('signoff_id')):
                 if ref not in self.linked_sources():
                     raise DomainError('forbidden', 'The source is not linked to this input')
+                if ref.get('kind') == 'owner_instruction':
+                    from .direct import authorize_source
+                    # _resolve verified this Overseer's real native credential;
+                    # only the exact source linked to the retained input is read.
+                    authorize_source(self.runtime, replace(ctx, source='mcp'), ref)
+                    return
                 from .access import EvidenceAccess
                 gate = self
                 class EventEvidenceAccess(EvidenceAccess):

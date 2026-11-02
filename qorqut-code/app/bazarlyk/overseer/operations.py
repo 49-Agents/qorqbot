@@ -27,6 +27,7 @@ def _schema(properties, required=()):
 
 
 READS = {
+    'agentic_change_get': ({'submission_id': _UUID}, ('submission_id',)),
     'overseer_evidence_list': ({'run_id': _STR, 'selection': _OBJ, **_PAGE}, ('run_id', 'selection')),
     'overseer_episode_get': ({'run_id': _STR, 'episode_ref': _OBJ, 'frontier': _OBJ, 'cursor': _STR, 'max_chars': {'type': 'integer', 'minimum': 1}}, ('run_id', 'episode_ref', 'frontier')),
     'overseer_proposals_list': (_PAGE, ()),
@@ -43,6 +44,14 @@ READS = {
 START = {'invocation': _OBJ, 'interpretation': _OBJ, 'operation_id': _STR,
          'response_interpretation': {'type': ['object', 'null']}}
 WRITE = {
+    'agentic_change_propose': ({'request_key': _STR,
+        'instruction_text': {'type': 'string', 'minLength': 1, 'maxLength': 17000},
+        'source_id': _UUID, 'summary': {'type': 'string', 'minLength': 1, 'maxLength': 160},
+        'change_direction': {'type': 'string', 'minLength': 1, 'maxLength': 4000},
+        'scope': _OBJ, 'target_refs': {'type': 'array', 'items': _STR, 'maxItems': 20}},
+        ('request_key', 'instruction_text', 'summary', 'change_direction', 'scope', 'target_refs')),
+    'agentic_change_reconcile': ({'submission_id': _UUID, 'response': _OBJ, 'operation_id': _STR},
+        ('submission_id', 'response', 'operation_id')),
     'overseer_extract_request': (START, ('invocation', 'interpretation', 'operation_id')),
     'overseer_review_start': (START, ('invocation', 'interpretation', 'operation_id')),
     'overseer_application_start': (START, ('invocation', 'interpretation', 'operation_id')),
@@ -88,7 +97,8 @@ class OverseerOperations:
             self.runtime.registry.register(OperationDescriptor(name, _schema(properties, required), effect_kind='read',
                 supports_signoff=False, exposure=frozenset({'mcp'}), scope_kinds=frozenset({'global'}),
                 global_capability=capability, resolve_namespace=lambda c, a: 'global',
-                description='Read authorized Overseer records and current source availability.',
+                description=('Read your submitted instruction, exact review Signoff and decision; performs no application.'
+                             if name == 'agentic_change_get' else 'Read authorized Overseer records and current source availability.'),
                 read=lambda c, a, o, u, n=name: self.safe_read(n, c, a, u)))
         from .due import DueRecord, OUTPUT as DUE_OUTPUT, ARGUMENTS as DUE_ARGUMENTS
         due = DueRecord(self.runtime)
@@ -106,7 +116,9 @@ class OverseerOperations:
             self.runtime.registry.register(OperationDescriptor(name, _schema(properties, required), effect_kind='compound',
                 supports_signoff=False, exposure=frozenset({'mcp'}), scope_kinds=frozenset({'global'}),
                 global_capability='manage_agentic_layer', transport_only=True, external_read=True,
-                description='Run an authorized Overseer bridge operation with its exact saved binding.'))
+                description=({'agentic_change_propose': 'Submit an explicit owner Chat instruction as a proposed delta with an owner-only review Signoff. Supply the exact full original message, proposed change, scope (description, project_ids, work_types, workflow_refs, conditions, exceptions), and catalog target references. Reuse request_key on retry. Creates no active edit; acceptance queues separate application.',
+                              'agentic_change_reconcile': 'Read the actual owner answer to your exact proposal Signoff and update the shared delta queue. Response contains reference (provider, signoff_id, proposal_revision, payload_hash, status_revision) and interpretation (null for a choice without notes; otherwise clarity/action/rationale). Never applies active files.'}.get(name,
+                             'Run an authorized Overseer bridge operation with its exact saved binding.'))))
         from .executor import configure
         from qorqut_agentic.errors import AgenticError
         try:
@@ -177,6 +189,9 @@ class OverseerOperations:
         return {**result, 'presentation_ref': presentation_ref}
 
     def read(self, name, context, args, uow):
+        if name == 'agentic_change_get':
+            from .direct import get
+            return get(self.runtime, context, **args)
         ctx, _ = current_overseer(self.runtime, context, uow)
         layer = self.runtime.agentic_layer
         if name == 'overseer_evidence_list':
@@ -294,6 +309,9 @@ class OverseerOperations:
                 'availability': 'available', 'gaps': []}
 
     def mutate(self, name, context, args):
+        if name in ('agentic_change_propose', 'agentic_change_reconcile'):
+            from . import direct
+            return (direct.propose if name == 'agentic_change_propose' else direct.reconcile)(self.runtime, context, **args)
         kinds = {'overseer_extract_request': 'extraction', 'overseer_review_start': 'review', 'overseer_application_start': 'application'}
         if name in kinds:
             return start_from_owner(self.runtime, context, kinds[name], args['invocation'], args['interpretation'], args['operation_id'],

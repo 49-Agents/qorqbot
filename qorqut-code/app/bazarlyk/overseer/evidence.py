@@ -651,6 +651,10 @@ class HostScanner:
 
     def _current_origin_excluded(self, ref):
         """Recheck an Action's linked Task ancestry using current source access."""
+        if isinstance(ref, Mapping) and ref.get('provider') == 'operations' and ref.get('kind') in (
+                'signoff', 'signoff_note', 'signoff_response', 'execution_outcome'):
+            with self.runtime.database.read() as uow:
+                return self._review_signoff(ref.get('locator', {}).get('signoff_id') or ref.get('record_id'), uow)
         if not isinstance(ref, Mapping) or ref.get("provider") != "operations" or ref.get("kind") != "task":
             return False
         namespace = ref.get("namespace") or {}
@@ -818,6 +822,8 @@ class HostScanner:
                     return "excluded", []
                 source_ns = ({"kind": "business", "business_id": row[2]} if row[2]
                              else {"kind": "global", "business_id": None})
+                if self._review_signoff(ref['id'], uow):
+                    return 'excluded', []
                 pre = self._locator(source_ns, "signoff", ref["id"], signoff_id=ref["id"])
                 try:
                     self.access.authorize_source(pre)
@@ -881,7 +887,18 @@ class HostScanner:
             gaps.append({"code": "task_relations_truncated"})
         return result, gaps
 
+    @staticmethod
+    def _review_signoff(identity, uow):
+        # Review feedback (including Ordubashy's shared submissions and later
+        # amendments) is retained separately, never fresh learning evidence.
+        return uow.connection.execute('''WITH RECURSIVE ancestry(id) AS (
+            SELECT ? UNION SELECT s.supersedes_id FROM signoffs s JOIN ancestry a ON s.id=a.id
+            WHERE s.supersedes_id IS NOT NULL)
+            SELECT 1 FROM ancestry a JOIN overseer_signoffs x ON x.signoff_id=a.id LIMIT 1''', (identity,)).fetchone() is not None
+
     def _signoff(self, selection_key, namespace, identity, uow, *, depth=0):
+        if self._review_signoff(identity, uow):
+            return [], []
         pre = self._locator(namespace, "signoff", identity, signoff_id=identity)
         ops = self._ops(namespace)
         args = {"signoff_id": identity, **({"scope": "global"} if namespace["kind"] == "global" else {})}

@@ -91,6 +91,11 @@ class AgenticAccess:
         }
         if operation in MANAGEMENT_OPERATIONS and not can_manage:
             raise DomainError("forbidden", "Toolkit management requires the current manager identity and capability")
+        if operation.startswith('authoring.') or operation == 'history.restore':
+            raise DomainError('owner_input_required',
+                'Active agentic changes require a specific owner Signoff and the approved application workflow; use agentic_change_propose')
+        if operation.startswith('overseer.') and profile.agent_id != active_role_holder(uow.connection, LEARNING_APPLIER_ROLE):
+            raise DomainError('forbidden', 'Use shared agentic_change tools to submit and review your direct instructions')
         selection = self.view.selection(profile, **context)
         layer = self.view.layer
         return {"operation": operation, "actor": {"actor_id": profile.agent_id, "actor_kind": "agent"},
