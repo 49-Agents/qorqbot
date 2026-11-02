@@ -79,8 +79,8 @@ def main(argv=None):
             if not any(text in tmux.stderr.lower() for text in ('no server running', 'no such file or directory')):
                 raise ValueError('Could not prove that this installation’s agent terminals are stopped')
             config = launcher.read_json(instance / 'config/extensions.json')
-            if config.get('extensions'):
-                raise ValueError('This updater requires a core-only instance; selected extensions need a compatible update bundle')
+            if any(item.get('factory') != 'qorqut_google_calendar.extension:create' for item in config.get('extensions', ())):
+                raise ValueError('Selected optional extensions need a compatible update bundle; this bundle supports core and the bundled calendar provider')
             stage.mkdir(mode=0o700)
             try:
                 unpack(args.archive, stage)

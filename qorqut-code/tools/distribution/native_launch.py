@@ -171,9 +171,11 @@ def active(path):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Run Qorqbot in this folder.')
-    parser.add_argument('command', nargs='?', choices=('start', 'stop', 'status', 'verify', 'setup'), default='start')
+    parser.add_argument('command', nargs='?', choices=('start', 'stop', 'status', 'verify', 'setup', 'calendar-connect'), default='start')
     parser.add_argument('--port', type=int, default=1049)
-    args = parser.parse_args(argv)
+    args, remaining = parser.parse_known_args(argv)
+    if remaining and args.command != 'calendar-connect':
+        parser.error('Unrecognized arguments: ' + ' '.join(remaining))
     root = Path(__file__).resolve().parent.parent
     runtime = root / 'runtime'
     if platform.system() != 'Linux' or platform.machine() != 'x86_64':
@@ -212,6 +214,18 @@ def main(argv=None):
         env = environment(root, runtime / 'setup-state')
         prepare(root, env)
         record = initialize(root, env)
+        if args.command == 'calendar-connect':
+            env = environment(root, root / 'instance/home')
+            run([runtime / 'venv/bin/python', '-I', '-m', 'qorqut_google_calendar.connect',
+                 *remaining, '--config', root / 'instance/config/calendar.json'], env=env, cwd=root)
+            config = root / 'instance/config/extensions.json'
+            selected = read_json(config)
+            factory = 'qorqut_google_calendar.extension:create'
+            if not any(item.get('factory') == factory for item in selected['extensions']):
+                selected['extensions'].append({'factory': factory, 'config': {}})
+                save_json(config, selected)
+            print('Google Calendar is connected. Start Qorqbot normally.')
+            return 0
         if args.command == 'setup':
             print('Qorqbot is ready. Run ./qorqbot to start.')
             return 0
