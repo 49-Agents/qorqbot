@@ -12,12 +12,13 @@ import json
 import re
 import time
 from functools import partial
+from urllib.parse import unquote_to_bytes
 
 import anyio
 from starlette.responses import StreamingResponse
 
 from qorqut_operations.contracts import DomainError, OperationResult
-from bazarlyk.transport.http import checked_fields, read_json
+from bazarlyk.transport.http import check_body_length, checked_fields, read_json
 from bazarlyk.transport.results import response
 
 from .contracts import PROVIDERS
@@ -81,6 +82,25 @@ async def route(runtime, request, principal_id, parts, request_id):
         raise DomainError("not_found", "Chat endpoint is not registered")
     if request.method != "POST":
         raise DomainError("not_found", "Chat endpoint is not registered")
+    if tail == ["attachments"]:
+        from .uploads import MAX_BYTES
+        # Authorize before reading any bytes; the facade repeats the check at
+        # the save boundary and pins the upload to the exact live conversation.
+        await run(partial(chat.check_events, principal_id, agent_id))
+        check_body_length(request, MAX_BYTES)
+        encoded = request.headers.get("x-file-name", "")
+        try:
+            name = unquote_to_bytes(encoded).decode("utf-8")
+        except UnicodeError:
+            raise DomainError("validation_error", "The filename is invalid") from None
+        body, size = [], 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > MAX_BYTES:
+                raise DomainError("payload_too_large", "Files must be 25 MB or smaller")
+            body.append(chunk)
+        return ok(await run(partial(chat.upload, principal_id, agent_id, request.headers.get("idempotency-key"),
+                                    request.headers.get("x-chat-binding"), name, b"".join(body))))
     body = await read_json(request, limit=64 * 1024)
     if tail == ["messages"]:
         fields = {"text", "idempotency_key", "expected_binding"}

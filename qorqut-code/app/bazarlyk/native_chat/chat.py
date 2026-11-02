@@ -259,6 +259,21 @@ class NativeChat:
 
     # ----- owner actions ---------------------------------------------------------------------------------------------
 
+    def upload(self, principal_id, agent_id, key, expected_binding, name, data):
+        from . import uploads
+        uploads.validate(key, name, data)
+        with self.runtime.application.writer_admission.writer(), self.arbiter.locks(agent_id):
+            with self.database.read() as uow:
+                profile = self._target(uow, principal_id, agent_id)
+                self.runtime.application.ensure_writes_open(uow)
+                persisted = store.live_session(uow.connection, agent_id)
+            session = self.session_view(profile, persisted)
+            if not session["can_send"]:
+                raise DomainError("terminal_offline", "Start the agent in Terminal before sending files")
+            if not expected_binding or session["binding"]["binding_id"] != expected_binding:
+                raise DomainError("terminal_changed", "The agent conversation changed; send again")
+            return uploads.save(self.runtime.root, profile, principal_id, expected_binding, key, name, data)
+
     def send(self, principal_id: str, agent_id: str, text: str, key: str, expected_binding: str) -> dict:
         """Admit one owner message for the exact native session ``expected_binding`` names and return at once; the backend types
         it when that same conversation's composer is ready. The pin is the ``binding_id`` the owner's page last saw. After the
