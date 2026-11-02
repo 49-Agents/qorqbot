@@ -51,11 +51,7 @@ class MemorySources:
         if kind == 'document':
             if row['kind'] in {'working_memory', 'legacy_working_plan', 'asset', 'data_upload'}:
                 raise DomainError('forbidden', 'This document is not working-memory evidence')
-            if row['kind'] == 'personal_context':
-                operation = 'personal_context_get'
-                from .personal_context import PersonalContextOperations
-                PersonalContextOperations.access(ctx, uow)
-            elif row['kind'] in {'agent_note', 'business_note', 'journal', 'global_note', 'business_owned_note'}:
+            if row['kind'] in {'agent_note', 'business_note', 'journal', 'global_note', 'business_owned_note'}:
                 operation = 'notes_get'
                 if row['kind'] == 'global_note' and ctx.agent_id:
                     raise DomainError('not_found', 'Owner notebook is not agent evidence')

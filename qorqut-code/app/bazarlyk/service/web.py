@@ -26,9 +26,6 @@ UUID_SELECTOR = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a
 FILE_VIEWER_PATH = "/files/view"
 FILE_VIEWER_POLICY = ("default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
                       "connect-src 'self'; frame-src 'none'; base-uri 'none'; form-action 'none'")
-# A completed daily report's own page (bazarlyk/reports/web.py): the dashboard shows it in a same-origin, script-free iframe.
-# Only this exact owner-only route may be framed, and only by this origin; every other response stays unframeable.
-REPORT_PAGE = re.compile(r"/api/root/daily-reports/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/html")
 
 
 class ServiceBoundary:
@@ -44,10 +41,6 @@ class ServiceBoundary:
         return bool(self.frame_prefix) and (path == self.frame_prefix
             or path.startswith(self.frame_prefix + "/"))
 
-    @staticmethod
-    def report_page(path):
-        return REPORT_PAGE.fullmatch(path) is not None
-
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
@@ -61,9 +54,9 @@ class ServiceBoundary:
                 path = scope.get("path", "")
                 if self.framed(path):
                     framing = [(b"content-security-policy", b"frame-ancestors " + self.frame_origin.encode("ascii"))]
-                elif path in self.SAME_ORIGIN_FRAMED or self.report_page(path):
-                    # Only the standalone file/table viewers and a completed report's page may sit in a same-origin
-                    # frame. Owner APIs, downloads and every other path stay unframeable; there is no prefix rule.
+                elif path in self.SAME_ORIGIN_FRAMED:
+                    # Only the standalone file/table viewers may sit in a same-origin frame. Owner APIs, downloads and
+                    # every other path stay unframeable; there is no prefix rule.
                     framing = [(b"x-frame-options", b"SAMEORIGIN"), (b"content-security-policy", b"frame-ancestors 'self'")]
                 else:
                     framing = [(b"x-frame-options", b"DENY"), (b"content-security-policy", b"frame-ancestors 'none'")]

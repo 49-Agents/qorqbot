@@ -37,7 +37,6 @@ GLOBAL_TABLE_OPERATIONS = frozenset({"tables_list", "tables_get", "tables_rows_l
 # Operations whose Global rule differs from the business one, so effective-configuration discovery evaluates both scopes.
 GLOBAL_DISCOVERY_OPERATIONS = GLOBAL_TABLE_OPERATIONS | {"whatsapp_send"}
 CONTEXT_QUESTION_OPERATIONS = frozenset({"context_questions", "context_question_edit"})
-MILESTONE_OPERATIONS = frozenset({"milestones_list", "milestones_create", "milestones_update", "milestones_status_set"})
 DEV_AND_INCIDENT_READS = frozenset({"dev_tickets_create", "dev_tickets_agent_list", "dev_tickets_get",
                                     "dev_tickets_follow_up", "dev_tickets_resolve", "system_incidents_agent_list",
                                     "system_incidents_agent_get"})
@@ -155,9 +154,6 @@ def _marketing_business_mail(name, defaults, overrides, registry, *, role_id, sc
 
 
 def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, resolve):
-    if name in MILESTONE_OPERATIONS:
-        return PolicyDecision(defaults.get(name, "allow") if role_id in {"ordubashy", "global-marketing"}
-                              else "deny", "milestone_role")
     if name == "viewbox_place":
         # Every active registered agent may place on its own board; the handler derives the board from the
         # authenticated principal. An explicit deny override was already honored above.

@@ -330,9 +330,6 @@ class InboxService:
                 return IncidentOperations.visible(selected,row['source_id'],uow)
             except DomainError:
                 return False
-        if row["source_type"] == "daily_reports":
-            from bazarlyk.reports.service import event_visible
-            return event_visible(self.app, ctx, row, uow)
         if row["source_type"] == "agent_messages":
             message = uow.connection.execute("SELECT * FROM agent_messages WHERE id=?", (row["source_id"],)).fetchone()
             # Deliveries follow the current recipient; read-only collapsed history never notifies.
@@ -450,9 +447,6 @@ class InboxService:
             message = uow.connection.execute('SELECT * FROM agent_messages WHERE id=?', (row['source_id'],)).fetchone()
             if message is not None:
                 item['message'] = self.messages.view(message, uow, ctx.principal_id)
-        if row['source_type'] == 'daily_reports':
-            from bazarlyk.reports.service import event_summary
-            item['report'] = event_summary(uow, row)  # State only; the frozen evidence is read with daily_report_get.
         if row['source_type'] == 'owner_conversations':
             # Event columns and the bound source only; never a body.
             item['source'] = json.loads(row['visibility_json'] or '{}').get('source')

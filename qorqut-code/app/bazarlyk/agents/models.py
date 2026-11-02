@@ -13,10 +13,10 @@ from bazarlyk.catalog.packages import ID, VERSION, validate_policy
 from .roles import RETIRED_ROLE_IDS
 
 
-GLOBAL_CAPABILITIES = frozenset({"coordinate_businesses", "write_business_strategy", "read_global_context", "read_personal_context", "manage_personal_context", "manage_fastmail", "manage_calendar", "manage_shared_instructions", "publish_roles", "publish_plugins", "manage_global_routines", "manage_ecosystem_agents", "manage_delegated_assignments"})
+GLOBAL_CAPABILITIES = frozenset({"coordinate_businesses", "write_business_strategy", "read_global_context", "manage_fastmail", "manage_calendar", "manage_shared_instructions", "publish_roles", "publish_plugins", "manage_global_routines", "manage_ecosystem_agents", "manage_delegated_assignments"})
 # Historical grant names that a saved profile may still carry. They authorize nothing, can never be granted, and a stored
 # or inactive record that holds one still parses unchanged.
-RETIRED_GLOBAL_CAPABILITIES = frozenset({"manage_ideas", "manage_business_setup"})
+RETIRED_GLOBAL_CAPABILITIES = frozenset({"manage_ideas", "manage_business_setup", "read_personal_context", "manage_personal_context"})
 REFERENCE_SCHEMA = {"type": "object", "additionalProperties": False,
     "required": ["id", "version", "digest"], "properties": {
         "id": ID, "version": VERSION, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}}

@@ -20,11 +20,7 @@ PURPOSE = "owner_session"
 METADATA_VERSION = 1
 CONFIG_KEY = "owner_sessions"
 
-# Personal context is Global-only: these run with an explicitly Global owner
-# context and never receive the credential's business binding.
-GLOBAL_CONTEXT_OPERATIONS = frozenset({"personal_context_list", "personal_context_get"})
-
-READ_OPERATIONS = GLOBAL_CONTEXT_OPERATIONS | frozenset({
+READ_OPERATIONS = frozenset({
     "operations_describe", "owner_session_bootstrap",
     "context_list", "context_search", "context_get",
     "context_home", "context_object", "context_expand", "context_find",
@@ -35,7 +31,7 @@ READ_OPERATIONS = GLOBAL_CONTEXT_OPERATIONS | frozenset({
     "tables_history", "data_uploads_list", "data_uploads_get",
     "content_list", "content_get", "notes_list", "notes_get",
     "assets_list", "assets_get", "actions_list", "actions_get", "actions_config_get", "tags_list",
-    "milestones_list", "business_progress_get",
+    "business_progress_get",
     "environment_list", "environment_get", "business_config_get",
     "tasks_list", "tasks_get", "tasks_notes_list", "tasks_thread_get",
     "tasks_config_get", "assignees_list",
@@ -57,8 +53,7 @@ WRITE_OPERATIONS = frozenset({
     "tables_create", "tables_update", "tables_rows_write", "tables_history_retry",
     "data_uploads_upload", "assets_upload", "assets_update", "assets_delete",
     "notes_create", "notes_update", "notes_delete", "notes_upload",
-    "actions_record", "milestones_create", "milestones_update",
-    "milestones_status_set", "business_config_update", "business_config_patch", "environment_set",
+    "actions_record", "business_config_update", "business_config_patch", "environment_set",
     "agents_message_send",
 })
 

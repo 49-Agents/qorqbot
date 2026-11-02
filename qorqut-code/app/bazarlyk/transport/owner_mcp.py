@@ -89,17 +89,12 @@ class OwnerSessionCaller:
                 raise DomainError("forbidden", "Task focus must remain inside the owner-session project")
 
     def validate_options(self, actor, canonical_name, options):
-        if canonical_name in owner_sessions.GLOBAL_CONTEXT_OPERATIONS:
-            if options.business_id is not None or options.review_business_id is not None:
-                raise DomainError("forbidden", "Personal context is Global; owner sessions must not select a project for it")
-            return
         for value in (options.business_id, options.review_business_id):
             if value is not None and value != actor.business_id:
                 raise DomainError("forbidden", "Owner sessions are bound to their configured project")
 
     def invocation_context(self, actor, *, canonical_name, options):
-        business_id = (None if canonical_name in owner_sessions.GLOBAL_CONTEXT_OPERATIONS
-                       else actor.business_id)
+        business_id = actor.business_id
         with self.runtime.database.read() as uow:
             self._require_enabled(actor, uow)
             context = self.runtime.policy.context_for(actor.principal.id, business_id=business_id,

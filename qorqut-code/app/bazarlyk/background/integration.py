@@ -12,7 +12,6 @@ from bazarlyk.composition.catalog import install_contribution
 from qorqut_operations.application.plans import IDENTITY, UUID, schema
 from bazarlyk.domains.learnings.operations import EXTRACT_ARGUMENTS, LearningOperations
 from qorqut_operations.routines.operations import RoutineOperations
-from bazarlyk.reports.service import DailyReportOperations, DailyReportProgram
 from .context_filing import FilingPrograms
 from .email import EmailProgram
 from .account_email import AccountEmailProgram
@@ -29,15 +28,9 @@ from qorqut_operations.background.service import BackgroundService
 ACCOUNT_MAIL_JOB_KINDS = frozenset({"email.account_mutation", "email.scoped_mutation"})
 
 
-def _report_completed(runtime, row):
-    """Wake the Telegram bridge after a report's artifacts and completed state are committed (no I/O, no write)."""
-    from bazarlyk.telegram.reports import notify_completed
-    notify_completed(runtime, row)
-
-
 def register_programs(programs, *, models=None, transcript_source=None,
                       platform_actions=None, file_applier=None, maintenance=None, email=None, tables=None,
-                      backup_downloader=None, daily_reports=None, learning_engine=None, whatsapp_send=None):
+                      backup_downloader=None, learning_engine=None, whatsapp_send=None):
     models = models or ModelCalls(None)
     learning = LearningProgram(models, transcript_source, learning_engine)
 
@@ -63,8 +56,6 @@ def register_programs(programs, *, models=None, transcript_source=None,
     pull = BackupPullProgram(backup_downloader).run
     add("backups.pull", BACKUP_ARGUMENTS, pull, timeout_seconds=900, external=True, recover=pull)
     add("repository.status", schema({}), repository_status)
-    if daily_reports is not None:
-        programs.register(daily_reports.definition())
     if tables is not None:
         # Business jobs keep this registration byte-for-byte: queued and running jobs carry its frozen digest.
         add("tables.version", schema({"version_id": UUID}, ("version_id",)), tables.history.run,
@@ -201,7 +192,6 @@ def register_operations(runtime, programs, authority, *, clock=None):
 
     from .owner_email import register_record
     register_record(runtime.registry)
-    DailyReportOperations(programs, paths=lambda: runtime.paths).register(runtime.registry)
     runtime.registry.register(OperationDescriptor("jobs_get", schema({"job_id": UUID, "scope": {"enum": ["business", "global"]}}, ["job_id"]),
         effect_kind="read", supports_signoff=False, scope_kinds={"business", "global"},
         resolve_namespace=lambda c,a: "global" if a.get("scope") == "global" else "business:" + c.business_id,
@@ -214,7 +204,7 @@ def register_operations(runtime, programs, authority, *, clock=None):
 
 
 def attach_background(runtime, programs, *, model_client_factory=None, transcript_source=None,
-                      clock=None, maintenance=None, backup_downloader=None, daily_reports=None, learning_engine=None):
+                      clock=None, maintenance=None, backup_downloader=None, learning_engine=None):
     if runtime.background is not None:
         raise ValueError("Background service is already attached")
     if programs is not runtime.programs:
@@ -224,7 +214,6 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
         file_applier=runtime.file_applier,
         maintenance=maintenance, email=runtime.domains.email, tables=runtime.domains.tables,
         backup_downloader=backup_downloader,
-        daily_reports=daily_reports or DailyReportProgram(paths=lambda: runtime.paths, on_completed=lambda row: _report_completed(runtime, row)),
         learning_engine=learning_engine, whatsapp_send=getattr(runtime.application, "whatsapp_send", None))
     authority = runtime.authority
     if getattr(runtime.domains, "business_creation", None):

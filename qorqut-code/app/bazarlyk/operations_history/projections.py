@@ -23,7 +23,7 @@ def attribution():
 
 # Closed list: a future event source does not automatically export a private
 # message summary. Delivery state is filtered through the exact same event set.
-ITEM_SOURCES = ("task", "tasks", "action", "action_logs", "signoff", "signoffs", "milestone", "milestones",
+ITEM_SOURCES = ("task", "tasks", "action", "action_logs", "signoff", "signoffs",
                 "table", "data_tables", "document", "documents", "routine", "routines")
 MARKS = ",".join("?" for _ in ITEM_SOURCES)
 

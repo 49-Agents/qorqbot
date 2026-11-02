@@ -24,8 +24,6 @@ from .mcp import split_options
 from .results import failure, response
 
 _UUID_RE = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
-# The owner's archive and attention to the daily report (bazarlyk/reports/attention.py): owner-only operations that refuse an agent credential.
-OWNER_ONLY_REPORT_OPERATIONS = frozenset({"daily_report_archive", "daily_report_owner_attention_get", "daily_report_owner_attention_update"})
 
 
 class RouteCounters:
@@ -496,8 +494,6 @@ class HTTPAPI:
             if parts == ["root", "perf"] and request.method == "GET":
                 # Dashboard-only observability, not a registered operation: never exposed to MCP.
                 return response(OperationResult.ok({"routes": self.route_counters.snapshot()}, request_id=request_id))
-            if parts[:2] == ["root", "daily-reports"]:
-                return await self.daily_report_page(request, parts[2:])
             if parts[:2] == ["root", "files"]:
                 return await self.files_route(request, actor, parts[2:])
             if parts == ["root", "events"] and request.method == "GET":
@@ -524,10 +520,7 @@ class HTTPAPI:
                     "system_incidents_list", "system_incidents_get",
                     "dashboard_summary_get", "global_progress_get",
                     "actions_record", "actions_list", "actions_get", "actions_correct", "actions_withdraw", "actions_config_get", "working_memory_get", "working_memory_update", "agent_context_get",
-                    "personal_context_list", "personal_context_get", "personal_context_create", "personal_context_update", "personal_context_archive",
                     "subscriptions_list", "subscriptions_create", "subscriptions_update", "subscriptions_delete", "costs_overview",
-                    "daily_report_generate", "daily_report_get", "daily_report_list",
-                    "daily_report_archive", "daily_report_owner_attention_get", "daily_report_owner_attention_update",
                     "calendar_calendars_list", "calendar_events_list", "calendar_event_get",
                     "calendar_event_create", "calendar_event_update", "calendar_event_delete", "calendar_event_respond",
                     "owner_reminder", "telegram_status", "telegram_delivery_get", "telegram_delivery_resolve", "telegram_notify",
@@ -556,10 +549,6 @@ class HTTPAPI:
                     "account_email_folder_update", "account_email_folder_delete", "account_email_draft_create",
                     "account_email_send", "account_email_reply", "account_email_forward", "account_email_vacation_set",
                     "account_email_masked_email_set"} and request.method == "POST":
-                if parts[2] in OWNER_ONLY_REPORT_OPERATIONS:
-                    # The owner's own report attention: the owner route otherwise ignores a bearer credential, so an agent holding its
-                    # own token must be refused here, before any application call.
-                    await self._require_human_credential(request, "Report attention belongs to the installation owner")
                 context, _ = self.context(actor)
                 # workspace_get is the one owner cross-scope read that names its
                 # target business as a domain field, not a scope selector.
@@ -733,34 +722,6 @@ class HTTPAPI:
                 self._report_transport_failure(request, request.scope["bazarlyk.transport_operation"])
             logger.exception("HTTP request failed: %s", request_id)
             return failure(DomainError("internal_error", "The request failed; use its correlation ID for diagnosis"), request_id)
-
-    async def _require_human_credential(self, request, message):
-        """Refuse a request that carries any registered non-human bearer credential, before anything is read or written."""
-        authorization = request.headers.get("authorization")
-        credential_kind = getattr(self.authentication, "credential_kind", None)
-        if (authorization and credential_kind is not None
-                and await anyio.to_thread.run_sync(lambda: credential_kind(authorization)) not in (None, "human")):
-            raise DomainError("forbidden", message)
-
-    async def daily_report_page(self, request, tail):
-        """A completed daily report's saved HTML for the owner: ``latest.html`` or ``{report_id}/html``.
-
-        Reached only after the owner's Host/Origin and authority checks. Agent and integration credentials are refused first, and
-        the database and disk are read only after that. Never a registered operation, so it is not exposed to MCP; GET only
-        reads (no generation, no write), and no other path under it exists (no listing, no evidence file).
-        """
-        await self._require_human_credential(request, "Agent and integration credentials cannot open the owner's report pages")
-        if request.method != "GET" or (tail != ["latest.html"] and not (len(tail) == 2 and tail[1] == "html")):
-            raise DomainError("not_found", "Report endpoint is not registered")
-        report_id = None if tail == ["latest.html"] else tail[0]
-        if report_id is not None and not _UUID_RE.fullmatch(report_id):
-            raise DomainError("invalid_request", "The report id must be a report UUID")
-        from bazarlyk.reports.artifacts import reports_directory
-        from bazarlyk.reports.web import read_html
-        page = await anyio.to_thread.run_sync(
-            lambda: read_html(self.runtime.database, reports_directory(self.runtime.paths.runtime), report_id))
-        # ServiceBoundary (service/web.py) adds nosniff, no-referrer and no-framing headers to every response.
-        return Response(page, headers={"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"})
 
     async def files_route(self, request, actor, tail):
         """The owner's file viewer reads: ``metadata``, ``content`` (preview), ``download`` and saved ``history``.

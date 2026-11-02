@@ -39,7 +39,7 @@ SQL_DOCUMENTS = {
 }
 # Tables whose committed changes record history or business activity.
 # Append-only source facts summarised as business activity.
-FACT_TABLES = ("action_logs", "milestone_events", "learning_history")
+FACT_TABLES = ("action_logs", "learning_history")
 TRACKED_TABLES = frozenset({*SQL_DOCUMENTS, *FACT_TABLES, "documents", "tasks"})
 SOURCE_KINDS = {"learning_candidate": "learning_candidates", "learning_decision": "learning_decisions"}
 
@@ -547,10 +547,6 @@ def task_event(connection, before, after, *, actor_id, data):
         "previous_status": before["status"] if before else None, "revision": after["revision"]})
 
 
-def milestone_event(connection, row, *, operation):
-    return append_event(connection, **fact_event("milestone_events", row, operation=operation))
-
-
 def fact_event(table, row, *, operation):
     """The summary event for one committed append-only source fact; its ID is the source row's."""
     if table == "action_logs":
@@ -563,11 +559,6 @@ def fact_event(table, row, *, operation):
                 "actor_id": row["actor_id"], "summary": "Learning changed", "subject_type": "learning",
                 "subject_id": row["candidate_id"], "occurred_at": row["created_at"], "data": {"learning_id": row["candidate_id"],
                 "learning_history_id": row["id"], "event": row["event"], "operation": operation}}
-    if table == "milestone_events":
-        return {"business_id": row["business_id"], "event_id": f"milestone-event:{row['id']}", "kind": "milestone.changed",
-                "actor_id": row["actor_id"], "summary": "Milestone changed", "subject_type": "milestone",
-                "subject_id": row["milestone_id"], "occurred_at": row["created_at"], "data": {"milestone_id": row["milestone_id"],
-                "milestone_event_id": row["id"], "status": row["status"], "operation": operation}}
     raise ValueError(table)
 
 
