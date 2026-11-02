@@ -1,0 +1,27 @@
+/* Shared reminders: strip chips, detail, editor and upcoming list reuse the app's dialog, button and input styles. */
+.agfocus .focus-signoff-queue .focus-reminder-chip{border:1px solid var(--fg);color:var(--fg)}
+.focus-reminder-chip svg,.focus-reminders-button svg{width:18px;height:18px}
+.rem-fields{display:grid;grid-template-columns:110px minmax(0,1fr);gap:6px 12px;margin:0 0 14px;font-size:12px}
+.rem-fields dt{color:var(--fg-3)}
+.rem-fields dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.rem-text{margin:0 0 12px}
+.rem-actions,.rem-snooze-presets,.rem-snooze-custom,.rem-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.rem-toolbar{margin-bottom:12px}
+.rem-snooze{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.rem-snooze-custom .inp{width:auto;flex:1;min-width:0}
+.rem-note{margin:8px 0 0;font-size:11px}
+.rem-error{margin:0 0 12px}
+.rem-form{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.rem-form>label,.rem-link>label{display:flex;flex-direction:column;gap:6px;font:12px var(--sans);color:var(--fg-2);min-width:0}
+.rem-form>label[hidden]{display:none}
+.rem-form .rem-wide{grid-column:1/-1}
+.rem-form textarea{min-height:64px;resize:vertical}
+.rem-form .rem-check{flex-direction:row;align-items:center}
+.rem-form .rem-check input,.rem-inline input{width:auto;margin-right:6px}
+.rem-inline{margin-left:12px}
+.rem-link{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.rem-list{display:flex;flex-direction:column;gap:2px}
+.rem-row{display:flex;flex-direction:column;gap:2px;width:100%;padding:9px 10px;border:0;border-radius:10px;background:none;color:var(--fg);text-align:left}
+.rem-row:hover,.rem-row:focus-visible{background:var(--hover)}
+.rem-row-text{font:500 13px/20px var(--sans);overflow-wrap:anywhere}
+.rem-row-meta{font-size:11px}

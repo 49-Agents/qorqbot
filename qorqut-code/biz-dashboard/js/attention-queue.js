@@ -5,6 +5,9 @@ const attentionQueue=(()=>{
   const mounts=new Set(),lists=new Set(),acknowledged=new Set(),signoffMounts=new Map();
   let queueOkAt=0,signoffOkAt=0;
   let signoffs=[],signoffsLoading=false,signoffsError='',signoffTimer,signoffPromise=null,signoffAgain=false;
+  // Due reminders addressed to the owner. Opening or reading one never changes it; only an explicit dismiss/snooze/cancel does.
+  let dueReminders=[],remindersError='',remindersAvailable=true;
+  const reminderIcon=typeof T_VIEW_ICON==='object' && T_VIEW_ICON.calendar || '';
   const viewedIds=item=>item.viewed_ids?.length?item.viewed_ids:[item.id];
   const remaining=()=>items.filter(item=>!viewedIds(item).every(id=>acknowledged.has(id)));
   const destination=item=>{
@@ -59,10 +62,13 @@ const attentionQueue=(()=>{
   function paintSignoffs(){
     for(const [host,mount] of signoffMounts){
       if(!host.isConnected){signoffMounts.delete(host);continue;}
-      const markup=signoffs.map(s=>{const title=mount.name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
-      const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'');
+      // Due reminders lead the strip, ahead of Signoff and email chips, until explicitly handled.
+      const due=dueReminders.map(r=>`<button type="button" class="focus-signoff-chip focus-reminder-chip" data-reminder-key="${esc(r.reminder_id)}" data-reminder-state="due" aria-label="${esc('Reminder due: '+r.text)}" title="${esc(r.text)}">${reminderIcon}</button>`).join('');
+      const button=remindersAvailable?'<button type="button" class="focus-signoff-chip focus-reminders-button" data-reminders-open aria-label="Reminders" title="Reminders">'+reminderIcon+'</button>':'';
+      const markup=button+due+signoffs.map(s=>{const title=mount.name?.(s.id)||s.title;return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" aria-label="Review ${esc(title)}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
+      const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'')+(remindersError?'<button type="button" class="quiet" data-reminders-retry>Retry reminders</button>':'');
       if(host._signoffHTML!==html){host.innerHTML=html;host._signoffHTML=html;}
-      host.hidden=!signoffs.length&&!signoffsError;
+      host.hidden=!markup && !signoffsError && !remindersError;
     }
   }
   async function loadSignoffs(){
@@ -81,6 +87,14 @@ const attentionQueue=(()=>{
     }catch(e){signoffsError=e.message;if(accessLost(e)){signoffs=[];signoffOkAt=0;}}
     finally{signoffsLoading=false;paintSignoffs();}
   }
+  // A failed or denied reminder read keeps the last list; losing access hides reminders entirely.
+  async function loadReminders(){
+    try{dueReminders=await remindersOwnerDue();remindersError='';remindersAvailable=true;}
+    catch(e){
+      if(accessLost(e)){dueReminders=[];remindersError='';remindersAvailable=false;}
+      else remindersError=e.message||'Reminders unavailable';
+    }
+  }
   // One read at a time; an explicit call in flight records a single trailing read.
   // `ordinary` is a mount: it reuses an in-flight read or a recent success and never records a trailing read.
   function refreshSignoffs(ordinary=false){
@@ -93,13 +107,20 @@ const attentionQueue=(()=>{
     }
     if(signoffPromise){signoffAgain=true;return signoffPromise;}
     signoffPromise=(async()=>{
-      try{do{signoffAgain=false;await loadSignoffs();}while(signoffAgain && signoffMounts.size);}
+      try{do{signoffAgain=false;await Promise.all([loadSignoffs(),typeof remindersOwnerDue==='function'?loadReminders():null]);paintSignoffs();}while(signoffAgain && signoffMounts.size);}
       finally{signoffPromise=null;clearTimeout(signoffTimer);if(signoffMounts.size)signoffTimer=setTimeout(()=>{void (signoffPromise||refreshSignoffs());},60000);}
     })();
     return signoffPromise;
   }
   function signoffClick(event){
-    if(event.target.closest('[data-signoffs-retry]')){void refreshSignoffs();return;}
+    if(event.target.closest('[data-signoffs-retry],[data-reminders-retry]')){void refreshSignoffs();return;}
+    if(event.target.closest('[data-reminders-open]')){if(typeof remindersOpenUpcoming==='function')remindersOpenUpcoming({onChange:()=>{void refreshSignoffs();}});return;}
+    const reminderKey=event.target.closest('[data-reminder-key]')?.dataset.reminderKey;
+    if(reminderKey){
+      const reminder=dueReminders.find(r=>r.reminder_id===reminderKey);
+      if(reminder)remindersOpenDetail(reminder,{onChange:(next,op)=>{if(op!=='reminders_get' || next?.state!=='due' || next.occurrence_id!==reminder.occurrence_id)void refreshSignoffs();}});
+      return;
+    }
     const key=event.target.closest('[data-signoff-key]')?.dataset.signoffKey,s=signoffs.find(item=>item.id===key);
     if(!s)return;
     const mount=signoffMounts.get(event.currentTarget);

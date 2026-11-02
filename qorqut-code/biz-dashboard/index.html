@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qorqut</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/css/brand/favicon-32.png">
+<link rel="icon" type="image/svg+xml" sizes="any" href="/css/brand/favicon.svg">
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/css/agents.css">
+<link rel="stylesheet" href="/css/agentpane.css">
+<link rel="stylesheet" href="/css/overseer.css">
+<link rel="stylesheet" href="/css/global-tasks.css">
+<link rel="stylesheet" href="/css/tasks.css">
+<link rel="stylesheet" href="/css/conversation.css">
+<link rel="stylesheet" href="/css/safe-links.css">
+<link rel="stylesheet" href="/css/agent-focus.css">
+<link rel="stylesheet" href="/css/agent-viewbox.css">
+<link rel="stylesheet" href="/css/workspace-composer.css">
+<link rel="stylesheet" href="/css/writing.css">
+<link rel="stylesheet" href="/css/notes.css">
+<link rel="stylesheet" href="/css/work-groups.css">
+<link rel="stylesheet" href="/css/record-panel.css">
+<link rel="stylesheet" href="/css/record-workspace.css">
+<link rel="stylesheet" href="/css/task-move.css">
+<link rel="stylesheet" href="/css/signoffs.css">
+<link rel="stylesheet" href="/css/uploads.css">
+<link rel="stylesheet" href="/css/side.css">
+<link rel="stylesheet" href="/css/context.css">
+<link rel="stylesheet" href="/css/review-cards.css">
+<link rel="stylesheet" href="/css/business-progress.css">
+<link rel="stylesheet" href="/css/tables.css">
+<link rel="stylesheet" href="/css/crm.css">
+<link rel="stylesheet" href="/css/learning.css">
+<link rel="stylesheet" href="/css/ctxmap.css">
+<link rel="stylesheet" href="/css/context-source.css">
+<link rel="stylesheet" href="/css/settings.css">
+<link rel="stylesheet" href="/css/xterm.css">
+<link rel="stylesheet" href="/css/routines.css">
+<link rel="stylesheet" href="/css/reminders.css">
+<link rel="stylesheet" href="/css/global.css">
+<link rel="stylesheet" href="/css/chat-view.css">
+<link rel="stylesheet" href="/css/workflow-panel.css">
+<link rel="stylesheet" href="/css/global-chat.css">
+<link rel="stylesheet" href="/css/global-progress.css">
+<link rel="stylesheet" href="/css/agent-fleet.css">
+<link rel="stylesheet" href="/css/global-calendar.css">
+<link rel="stylesheet" href="/css/global-filing-costs.css">
+<link rel="stylesheet" href="/css/global-costs.css">
+<link rel="stylesheet" href="/css/actions.css">
+<link rel="stylesheet" href="/css/ui-surfaces.css">
+<link rel="stylesheet" href="/css/broadcast.css">
+<link rel="stylesheet" href="/css/agent-workspace.css">
+<link rel="stylesheet" href="/css/agent-workspace-nav.css">
+</head>
+<body>
+<script>
+// Choose the shell before parsing visible markup, not after loading the app scripts.
+document.body.classList.add(new URLSearchParams(location.search).has('agent-pane-embed') ? 'agent-pane-embedded' : 'agent-workspace-app');
+</script>
+<div class="app">
+  <section class="main">
+    <div class="workspace-back" id="workspace-back" hidden><button type="button" class="quiet">← Back to agents</button></div>
+    <div class="content" id="content"></div>
+  </section>
+</div>
+<div class="toasts" id="toasts"></div>
+
+<script src="/js/xterm.js"></script>
+<script src="/js/core.js"></script>
+<script src="/js/safe-links.js"></script>
+<script src="/js/chat-view.js"></script>
+<script src="/js/san-juan-time.js"></script>
+<script src="/js/store.js"></script>
+<script src="/js/events.js"></script>
+<script src="/js/agents.js"></script>
+<script src="/js/ctxmap.js"></script>
+<script src="/js/ctxgraph.js"></script>
+<script src="/js/global-context-graph.js"></script>
+<script src="/js/global-context-graph-renderer.js"></script>
+<script src="/js/context-published.js"></script>
+<script src="/js/context-source.js"></script>
+<script src="/js/context.js"></script>
+<script src="/js/side.js"></script>
+<script src="/js/business-progress.js"></script>
+<script src="/js/learning.js"></script>
+<script src="/js/writing.js"></script>
+<script src="/js/notes.js"></script>
+<script src="/js/conversation.js"></script>
+<script src="/js/work-groups.js"></script>
+<script src="/js/relationships.js"></script>
+<script src="/js/uploads.js"></script>
+<script src="/js/tables.js"></script>
+<script src="/js/crm.js"></script>
+<script src="/js/tables-crm.js"></script>
+<script src="/js/routines.js"></script>
+<script src="/js/signoffs.js"></script>
+<script src="/js/task-snooze.js"></script>
+<script src="/js/tags.js"></script>
+<script src="/js/task-state.js"></script>
+<script src="/js/task-move.js"></script>
+<script src="/js/overview-drawer.js"></script>
+<script src="/js/tasks.js"></script>
+<script src="/js/business-tasks.js"></script>
+<script src="/js/actions.js"></script>
+<script src="/js/task-progress.js"></script>
+<script src="/js/record-panel.js"></script>
+<script src="/js/record-workspace.js"></script>
+<script src="/js/global-tasks.js"></script>
+<script src="/js/overseer.js"></script>
+<script src="/js/agentpane.js"></script>
+<script src="/js/focus-text.js"></script>
+<script src="/js/agent-focus.js"></script>
+<script src="/js/attention-board.js"></script>
+<script src="/js/agent-viewbox.js"></script>
+<script src="/js/agent-browser.js"></script>
+<script src="/js/working-memory.js"></script>
+<script src="/js/settings.js"></script>
+<script src="/js/terminal.js"></script>
+<script src="/js/workflow-panel.js"></script>
+<script src="/js/global-chat.js"></script>
+<script src="/js/global-agents.js"></script>
+<script src="/js/broadcast.js"></script>
+<script src="/js/agent-fleet.js"></script>
+<script src="/js/global-calendar.js"></script>
+<script src="/js/global-filing-costs.js"></script>
+<script src="/js/global-costs.js"></script>
+<script src="/js/global-progress.js"></script>
+<script src="/js/global-context-base.js"></script>
+<script src="/js/business-restore.js"></script>
+<script src="/js/global.js"></script>
+<script src="/js/signoff-attention.js"></script>
+<script src="/js/ui-surfaces.js"></script>
+<script src="/js/workspace-composer.js"></script>
+<script src="/js/agent-shortcuts.js"></script>
+<script src="/js/reply-notifications.js"></script>
+<script src="/js/reminders.js"></script>
+<script src="/js/attention-queue.js"></script>
+<script src="/js/agent-workspace.js"></script>
+<script src="/js/main.js"></script>
+</body>
+</html>

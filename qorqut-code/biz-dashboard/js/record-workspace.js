@@ -1148,16 +1148,20 @@ function rwFormatTime(value) {
   try { return new Intl.DateTimeFormat('en-US', {weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false}).format(new Date(value)); }
   catch (_) { return String(value); }
 }
-// A safe, read-only reminder: text, schedule and state. Scheduling/cancellation stay in their existing UI.
+// The shared reminder detail (js/reminders.js): the same view and controls as the owner strip. A legacy result without an
+// id/revision stays read-only there; without that module this falls back to the plain text/time/state view.
 function rwReminderReader(host, record, item, reminder) {
   const box = rwNode('section', 'rw-reader rw-reminder');
   box.append(rwNode('h3', '', 'Reminder'));
+  host.append(box);
+  if (typeof remindersDetailMount === 'function') {
+    const view = remindersDetailMount(box, {text: item.label || record.label, ...reminder}, {biz: record.biz || null});
+    return {dirty: () => false, hasUnsaved: () => false, onShow: () => view.refresh(), dispose() { view.dispose(); host.replaceChildren(); }};
+  }
   box.append(rwNode('p', 'rw-reminder-text', reminder.text || item.label || record.label || 'Reminder'));
   const fields = [['Scheduled for', rwFormatTime(reminder.at)], ['State', reminder.state || '—']];
   if (reminder.revision != null) fields.push(['Revision', String(reminder.revision)]);
-  const meta = rwNode('p', 'muted rw-reminder-meta', fields.map(([label, value]) => `${label}: ${value}`).join(' · '));
-  box.append(meta);
-  host.append(box);
+  box.append(rwNode('p', 'muted rw-reminder-meta', fields.map(([label, value]) => `${label}: ${value}`).join(' · ')));
   return {dirty: () => false, hasUnsaved: () => false, dispose() { host.replaceChildren(); }};
 }
 // A routine is the Project automation item; its runs are read from the existing scoped routine history,
