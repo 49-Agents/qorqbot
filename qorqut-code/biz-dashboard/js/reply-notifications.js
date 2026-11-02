@@ -1,6 +1,6 @@
 // Owner reply notifications and shared unread markers, independent of the current page.
 const replyNotifications=(()=>{
-  let loaded=false,pending=false,items=[],seen=new Set(),timer;
+  let loaded=false,inflight=null,trailing=false,items=[],signature='',seen=new Set(),timer;
   try{seen=new Set(JSON.parse(sessionStorage.getItem('reply-notifications:seen') || '[]'));}catch(_){}
   const key=s=>`${s?.type}:${s?.business_id || 'global'}:${s?.id}`;
   const unread=source=>loaded?items.some(item=>item.kind==='thread' && item.unread && key(item.source)===key(source)):null;
@@ -36,14 +36,16 @@ const replyNotifications=(()=>{
         const host=el.querySelector('.reply-notification-thread');
         conversation=conversationMount(host,{type:item.source.type,id:item.source.id,biz:item.biz},{dismissOnOutside:false});
         try{await conversation.openPeer(item.agent_id);}catch(error){toast(error.message);}
-      },onClose:()=>{conversation?.dispose();void poll();}});
+      },onClose:()=>{conversation?.dispose();void refresh();}});
   }
-  async function poll(){
-    if(pending)return;
-    pending=true;
+  // Order-independent comparison of every field, so a changed flag or preview counts as well as a new ID.
+  const canonical=value=>JSON.stringify(value,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([x],[y])=>x<y?-1:x>y?1:0)):v);
+  async function load(){
     try{
       const data=coreData(await api('/root/reply-notifications'));
-      const first=!loaded;items=data.items || [];loaded=true;
+      const first=!loaded,next=data.items || [],nextSignature=canonical(next);
+      const changed=first || nextSignature!==signature;
+      items=next;signature=nextSignature;loaded=true;
       for(const item of items){
         if(seen.has(item.id))continue;
         seen.add(item.id);
@@ -53,11 +55,26 @@ const replyNotifications=(()=>{
       }
       seen=new Set([...seen].slice(-1000));
       try{sessionStorage.setItem('reply-notifications:seen',JSON.stringify([...seen]));}catch(_){}
-      paintDots();
-      document.dispatchEvent(new Event('reply-notifications-changed'));
+      if(changed){
+        paintDots();
+        document.dispatchEvent(new Event('reply-notifications-changed'));
+      }
     }catch(_){/* Retain the last known unread state; retry without toast spam. */}
-    finally{pending=false;clearTimeout(timer);timer=setTimeout(poll,document.hidden?30000:10000);}
   }
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden)void poll();});
-  return {start:poll,refresh:poll,unread,unreadAgent,unreadChat,paint:paintDots,open};
+  // One request at a time. An explicit refresh arriving in flight records a single trailing
+  // read and resolves after it; timer ticks never do.
+  function run(){
+    inflight=(async()=>{
+      try{do{trailing=false;await load();}while(trailing);}
+      finally{inflight=null;clearTimeout(timer);timer=setTimeout(poll,document.hidden?30000:10000);}
+    })();
+    return inflight;
+  }
+  const poll=()=>inflight || run();
+  function refresh(){
+    if(inflight){trailing=true;return inflight;}
+    return run();
+  }
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)void refresh();});
+  return {start:poll,refresh,unread,unreadAgent,unreadChat,paint:paintDots,open};
 })();

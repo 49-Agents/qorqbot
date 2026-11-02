@@ -1,9 +1,9 @@
 // Shared owner queue. Message read cursors and Signoff decisions remain independent.
 const attentionQueue=(()=>{
   const visibleLimit=6;
-  let items=[],loading=false,error='',timer,generation=0,saving=0,refreshAfterSave=false,writes=Promise.resolve();
+  let items=[],loading=false,error='',timer,loadPromise=null,loadAgain=false,generation=0,saving=0,refreshAfterSave=false,writes=Promise.resolve();
   const mounts=new Set(),lists=new Set(),acknowledged=new Set(),signoffMounts=new Map();
-  let signoffs=[],signoffsLoading=false,signoffsError='',signoffTimer;
+  let signoffs=[],signoffsLoading=false,signoffsError='',signoffTimer,signoffPromise=null,signoffAgain=false;
   const viewedIds=item=>item.viewed_ids?.length?item.viewed_ids:[item.id];
   const remaining=()=>items.filter(item=>!viewedIds(item).every(id=>acknowledged.has(id)));
   const destination=item=>{
@@ -51,8 +51,7 @@ const attentionQueue=(()=>{
       host.hidden=!signoffs.length&&!signoffsError;
     }
   }
-  async function refreshSignoffs(){
-    if(signoffsLoading || !signoffMounts.size)return;
+  async function loadSignoffs(){
     signoffsLoading=true;
     try{
       const rows=[],seen=new Set();let cursor=null;
@@ -66,20 +65,42 @@ const attentionQueue=(()=>{
       }while(cursor);
       signoffs=[...new Map(rows.filter(s=>s.state==='pending').map(s=>[s.id,s])).values()];signoffsError='';
     }catch(e){signoffsError=e.message;}
-    finally{signoffsLoading=false;paintSignoffs();clearTimeout(signoffTimer);if(signoffMounts.size)signoffTimer=setTimeout(refreshSignoffs,60000);}
+    finally{signoffsLoading=false;paintSignoffs();}
+  }
+  // One read at a time; an explicit call in flight records a single trailing read.
+  function refreshSignoffs(){
+    if(!signoffMounts.size)return Promise.resolve();
+    if(signoffPromise){signoffAgain=true;return signoffPromise;}
+    signoffPromise=(async()=>{
+      try{do{signoffAgain=false;await loadSignoffs();}while(signoffAgain && signoffMounts.size);}
+      finally{signoffPromise=null;clearTimeout(signoffTimer);if(signoffMounts.size)signoffTimer=setTimeout(()=>{void (signoffPromise||refreshSignoffs());},60000);}
+    })();
+    return signoffPromise;
   }
   function signoffClick(event){
     if(event.target.closest('[data-signoffs-retry]')){void refreshSignoffs();return;}
     const key=event.target.closest('[data-signoff-key]')?.dataset.signoffKey,s=signoffs.find(item=>item.id===key);
     if(s)void open({kind:'signoff',signoff_id:s.id,business_id:s.review_business_id,category:s.category,globalReview:true}).catch(e=>toast(e.message));
   }
-  async function refresh(){
-    if(saving){refreshAfterSave=true;return;}
-    if(loading)return;
+  async function loadQueue(){
     loading=true;const request=++generation;
     try{const data=coreData(await api('/root/attention-queue'));if(request===generation){items=distinctDestinations(data.items || []);error='';}}
     catch(e){if(request===generation)error=e.message;}
-    finally{loading=false;paintAll();clearTimeout(timer);if(mounts.size)timer=setTimeout(refresh,10000);}
+    finally{loading=false;paintAll();}
+  }
+  // One read at a time. Explicit triggers (mount, focus, reply change, retry) arriving in flight
+  // record a single trailing read and resolve after it; the poll timer never does.
+  function refresh(){
+    // During a save the caller gets the write chain: the deferred read starts after it settles and is not awaited.
+    if(saving){refreshAfterSave=true;return writes;}
+    if(loadPromise){loadAgain=true;return loadPromise;}
+    loadPromise=(async()=>{
+      try{
+        do{loadAgain=false;await loadQueue();}while(loadAgain && !saving && mounts.size);
+        if(loadAgain && saving)refreshAfterSave=true;
+      }finally{loadPromise=null;clearTimeout(timer);if(mounts.size)timer=setTimeout(()=>{void (loadPromise||refresh());},10000);}
+    })();
+    return loadPromise;
   }
   function acknowledge(ids){
     const keys=[...new Set(ids || [])].filter(id=>!acknowledged.has(id));
