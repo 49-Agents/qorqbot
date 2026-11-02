@@ -221,7 +221,7 @@ require the owner's approval of the reviewable result before deployment. Assignm
 subscriptions and labels never expand permissions or approval authority.
 Every ordinary task involving software, scripts, tests, CI, IaC, UI, landing
 pages, design or visual assets carries the literal `design/software` tag,
-independent of department, assignee and task kind. Qorqut System Dev remains a
+independent of assignee and task kind. Qorqut System Dev remains a
 separate platform queue. Ordubashy may correct a genuine mistag only with a
 reason; a missing or wrong tag never changes the actual work or its authority.
 Task dependencies notify their assignees through the existing inbox; inspect blocks
