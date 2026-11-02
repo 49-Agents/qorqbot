@@ -506,7 +506,7 @@ class HTTPAPI:
                     "relationship_roles_list", "relationships_list", "relationships_get", "relationships_create",
                     "relationships_update", "relationships_remove", "context_items_list", "context_items_get",
                     "tasks_follow", "actions_thread_get", "actions_follow", "actions_comment", "tags_list", "tags_create",
-                    "tasks_list", "tasks_get", "tasks_notes_list", "agents_activity_list", "agent_work_update", "tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete", "tasks_config_get", "tasks_config_update", "assignees_list",
+                    "tasks_list", "tasks_get", "tasks_notes_list", "tasks_associated_records", "agents_activity_list", "agent_work_update", "tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete", "tasks_config_get", "tasks_config_update", "assignees_list",
                     "business_create",
                     "context_home", "context_object", "context_expand", "context_find", "context_changes", "context_upload_map", "context_filings", "context_filing_costs", "context_instruct", "context_edit",
                     # Raw Global sources (scope=shared) and the exact-input and document commands of the source status UI: only these eight.

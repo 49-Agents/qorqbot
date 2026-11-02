@@ -28,7 +28,7 @@ from qorqut_operations.tables import GLOBAL_TABLE_OPERATIONS, global_tables
 
 from bazarlyk.agents.roles import LEARNING_APPLIER_ROLE, ORDUBASHY_ROLE
 
-READS_AS_TASK = frozenset({"tasks_notes_list", "tasks_thread_get"})
+READS_AS_TASK = frozenset({"tasks_notes_list", "tasks_thread_get", "tasks_associated_records"})
 TELEGRAM_AGENT_OPERATIONS = frozenset({"telegram_send", "telegram_send_file", "telegram_history", "telegram_delivery_get"})
 TELEGRAM_ROLES = frozenset({ORDUBASHY_ROLE})
 # Project records: one existing Project's inventory and explicit links. The handler itself admits only the installation
