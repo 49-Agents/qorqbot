@@ -319,13 +319,20 @@ class Attention:
             for ref in args.get('related_refs', []): self.resolve(ctx, agent, ref, uow)
         return ctx, agent, state
 
+    def add_result(self, ctx, task, uow):
+        result = self.read(ctx, {}, uow)
+        if ctx.principal_kind == 'agent' and not task.get('worker_ids'):
+            result['agent_hint'] = ('Set Workers to whoever must act next: you, another agent, and/or the user. '
+                                    'Sending an assignment message does not update Workers.')
+        return result
+
     def apply(self, ctx, plan, uow):
         args, op = plain(plan.arguments), plan.operation_name
         ctx, agent, state = self.validate(op, ctx, args, uow)
         now = timestamp(self.clock)
         if op == 'attention_add':
-            if self.task_membership(uow,agent,args['task']): return self.read(ctx,{},uow)
             task = self.task(ctx,args['task'],uow)
+            if self.task_membership(uow,agent,args['task']): return self.add_result(ctx,task,uow)
             self.ensure(uow,agent)
             membership_id = new_id()
             uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_business_id,task_id,task_created_at,created_at) VALUES(?,?,?,?,?,?)', (membership_id,agent,args['task']['business_id'],args['task']['id'],task['created_at'],now))
@@ -358,7 +365,7 @@ class Attention:
             else:
                 self.ensure(uow,agent)
                 uow.connection.execute('UPDATE agent_attention SET revision=revision+1,updated_at=? WHERE agent_id=?',(now,agent))
-        return self.read(ctx,{},uow)
+        return self.add_result(ctx,task,uow) if op == 'attention_add' else self.read(ctx,{},uow)
 
 
 def register_attention(runtime):
