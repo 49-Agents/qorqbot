@@ -493,7 +493,8 @@ class Attention:
         if op == 'attention_remove':
             return {'agent_id': agent, 'membership_id': args['membership_id'],
                     'removed': True, 'revision': self.state(uow, agent)['revision']}
-        result = self.read(ctx,{},uow)
+        # A mutation receipt confirms focus and revision; it does not rebuild the board.
+        result = self.read(ctx,{'projection':'focus'},uow)
         if op == 'attention_focus_set' and ctx.principal_kind == 'agent':
             result['agent_hint'] = BOARD_TRANSITION_HINT
         return result
