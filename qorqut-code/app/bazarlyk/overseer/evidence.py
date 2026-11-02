@@ -1526,7 +1526,7 @@ class HostScanner:
                 if existing is not None and existing["content_hash"] == content_hash(value):
                     # An immutable earlier observation may predate knowledge of
                     # its excluded Task ancestry. Keep its exact metadata and
-                    # recheck that ancestry instead of rewriting the record.
+                    # recheck that ancestry and preserve the saved record.
                     saved = {key: data for key, data in existing.items() if key != "material_ref"}
                     previous = self.journal.observe(selection_key, _key([namespace, "action_revision", identity]), saved, value)
                     completed, excluded_history = number, True

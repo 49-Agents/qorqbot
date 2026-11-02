@@ -123,11 +123,11 @@ def _verify_events(intent, paths, old, new, head, retained, receipt):
     from bazarlyk.agentic import managed_feed
     before, after = _rows(old, "changes"), _rows(new, "changes")
     if any(after.get(key) != row for key, row in before.items()):
-        _refuse("The managed upgrade rewrote existing change history")
+        _refuse("The managed upgrade did not preserve existing change records")
     added = {key: row for key, row in after.items() if key not in before}
     before_files, after_files = _rows(old, "change_files"), _rows(new, "change_files")
     if any(after_files.get(key) != row for key, row in before_files.items()):
-        _refuse("The managed upgrade rewrote existing change-file history")
+        _refuse("The managed upgrade did not preserve existing change-file records")
     added_files = {key: row for key, row in after_files.items() if key not in before_files}
     changes = intent["changes"]
     if changes:
