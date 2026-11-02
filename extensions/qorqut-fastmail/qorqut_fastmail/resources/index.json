@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "fastmail-email-guidance",
+      "path": "qorqut_fastmail/resources/email-management/providers/fastmail.md",
+      "parameters": [],
+      "source_site": "qorqut_fastmail/extension.py:guidance"
+    }
+  ]
+}

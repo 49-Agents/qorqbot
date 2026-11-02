@@ -14,11 +14,17 @@ operations and, for Paper's explicit optional sender route, a narrow ``route_cli
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 
 from qorqut_operations.application.catalog import CatalogContribution
 
-from bazarlyk.extensions import CalendarProvider, Extension
+from bazarlyk.extensions import Assets, CalendarProvider, Extension
+from bazarlyk.agentic.text import render
+from qorqut_operations.contracts import PolicyDecision
+
+from .outcome import email_outcome
 
 from . import operations, program
 from .calendar import FastmailCalendar
@@ -28,6 +34,16 @@ from .config import from_config
 ID = "fastmail"
 # Stable HTTP statuses for this extension's own refusals; unlisted codes keep the host's defaults.
 STATUSES = {"account_mismatch": 409, "request_conflict": 409, "sender_identity_denied": 403}
+
+
+def sending_policy(name, defaults, overrides, registry, *, role_id, scope, resolve):
+    # Exact-content owner review remains mandatory even with an allow override.
+    denied = overrides.get(name, defaults.get(name)) == "deny"
+    return PolicyDecision("deny" if denied or scope != "global" else "signoff", "email_owner_approval")
+
+
+def guidance(agentic_view):
+    return render(agentic_view, "fastmail", "qorqut_fastmail/resources/email-management/providers/fastmail.md")
 
 
 class Fastmail(Extension):
@@ -44,6 +60,24 @@ class Fastmail(Extension):
 
     def calendar_providers(self):
         return (CalendarProvider("fastmail", FastmailCalendar),)
+
+    def global_capabilities(self):
+        return (operations.CAPABILITY,)
+
+    def policy_rules(self):
+        return {name: sending_policy for name in operations.SENDING}
+
+    def global_discovery_operations(self):
+        return tuple(operations.SENDING)
+
+    def signoff_outcomes(self):
+        return {name: email_outcome for name in operations.SENDING}
+
+    def operation_guidance(self):
+        return {entry.name: guidance for entry in operations.catalog_entries()}
+
+    def assets(self):
+        return Assets(Path(__file__).parent / "assets", scripts=("fastmail.js",))
 
     def error_statuses(self):
         return dict(STATUSES)

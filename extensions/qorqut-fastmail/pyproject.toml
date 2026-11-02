@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qorqut-fastmail"
-version = "0.1.0"
+version = "0.2.0"
 description = "Optional Fastmail mail and calendar provider for a Qorqbot host"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -19,7 +19,6 @@ test = ["pytest>=7.4"]
 where = ["."]
 include = ["qorqut_fastmail*"]
 
-# The Email Management provider guide ships as package data. Nothing installs or injects it into an
-# instance automatically; a later optional installer copies it without overwriting an authored file.
+# Only the selected extension imports this managed guide and loads these approval assets.
 [tool.setuptools.package-data]
-qorqut_fastmail = ["resources/email-management/providers/*.md"]
+qorqut_fastmail = ["resources/index.json", "resources/email-management/providers/*.md", "assets/*.js"]

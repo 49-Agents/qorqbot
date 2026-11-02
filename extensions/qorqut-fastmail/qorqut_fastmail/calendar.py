@@ -72,7 +72,7 @@ class FastmailCalendar(Provider):
             if response.find(f".//{{{CAL}}}calendar") is None:
                 continue
             href = response.findtext(f"{{{DAV}}}href")
-            rows.append({"connection_id": self.identity, "id": self.url(href), "provider": "fastmail",
+            rows.append({"connection_id": self.identity, "id": self.url(href), "provider": "fastmail", "provider_name": "Fastmail",
                          "name": response.findtext(f".//{{{DAV}}}displayname") or href,
                          "organizers": self.identities, "writable": response.find(f".//{{{DAV}}}write") is not None})
         return rows
@@ -117,7 +117,7 @@ class FastmailCalendar(Provider):
             "description": str(component.get("DESCRIPTION", "")), "location": str(component.get("LOCATION", "")),
             "organizer": str(component.get("ORGANIZER", "")).removeprefix("mailto:"),
             "attendees": [{"email": str(a).removeprefix("mailto:"), "status": str(a.params.get("PARTSTAT", "NEEDS-ACTION")).lower().replace("needs-action", "needsAction")} for a in attendees],
-            "recurrence": recurrence, "series_id": href if component.get("RECURRENCE-ID") is not None or recurrence else None,
+            "recurrence": recurrence, "recurrence_edit_scope": "series", "series_id": href if component.get("RECURRENCE-ID") is not None or recurrence else None,
             "reminders": reminders, "default_reminders": False,
             "status": str(component.get("STATUS", "CONFIRMED")).lower(), "meet_url": ""}, calendar_id)
 
