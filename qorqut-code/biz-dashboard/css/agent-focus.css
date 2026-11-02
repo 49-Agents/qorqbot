@@ -16,8 +16,6 @@
 .agfocus .agfocus-related button{display:inline-flex;margin:0;max-width:100%;white-space:normal;text-align:left}
 .agfocus .agfocus-context{margin-top:8px;font-size:10px}
 .agfocus-conversation{cursor:default}
-.agfocus .conversation-panel button{display:inline-flex;margin:6px 0 0}
-.agfocus .conversation-panel .conversation-channels button{margin:0}
 .agfocus .agfocus-pages{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;font-size:11px}
 .agfocus-detail{padding:14px;min-width:0}
 .agfocus-detail-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
@@ -42,9 +40,7 @@
 .agfocus-desktop-view .agfocus-desktop-frame{flex:none}
 .agfocus-desktop-view .agfocus-desktop-completion{flex:none}
 .agfocus-toolbar .agfocus-controls{margin:0;gap:5px}
-.agfocus .conversation-inline-compose .conversation-send{height:36px;border-radius:8px;margin:0}
 
-.agfocus .conversation-inline-compose textarea{background:transparent}
 .agfocus-desktop-help{margin-bottom:10px;font-size:12px;line-height:1.5}
 .agfocus-desktop-help p{margin:4px 0;color:var(--fg-2);font-size:11px}
 .agfocus-desktop-completion{display:grid;gap:8px;margin-top:10px}
@@ -111,21 +107,12 @@
 .agfocus .agfocus-related button{min-height:22px;padding:2px 5px;font-size:10px}
 .agfocus-dock .agfocus-conversation{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0}
 .agfocus-dock .conversation-panel{display:flex;flex:1;flex-direction:column;min-height:0;padding:0;border:0;border-radius:0}
+.agfocus-dock .conversation-view{flex:1;height:auto;min-height:0}
 .agfocus-dock .conversation-panel[hidden]{display:none}
 .agfocus-dock .conversation-channels{flex:none;flex-wrap:wrap;gap:2px;margin:0 0 4px}
 .agfocus-dock .conversation-channels button{min-width:28px;height:28px;min-height:28px;padding:0 4px}
-.agfocus-dock .conversation-older{flex:none;align-self:flex-start;font-size:10px;padding:2px 4px;min-height:20px}
-.agfocus-dock .conversation-feed{flex:1;min-width:0;min-height:0;max-height:none;padding:2px;overscroll-behavior:contain}
-.agfocus-dock .conversation-group{max-width:100%;min-width:0;font-size:11px}
-.agfocus-dock .conversation-bubble{padding:3px 5px}
-.agfocus-dock .conversation-agent-header{gap:4px;min-width:0}
-.agfocus-dock .conversation-agent-header small{min-width:0;overflow-wrap:anywhere}
-.agfocus-dock .conversation-avatar{width:24px;height:24px}
-.agfocus-dock .conversation-inline-compose{flex:none;gap:4px;margin-top:5px;min-width:0}
-.agfocus-dock .conversation-inline-compose:not(:has(.conversation-compose:not([hidden]))){display:none}
-.agfocus-dock .conversation-inline-compose textarea{resize:none;min-height:32px;height:32px;max-height:32px;padding:7px 5px;font-size:11px}
-.agfocus-dock .conversation-inline-compose .conversation-send{height:32px;min-height:32px;padding:5px 7px;font-size:11px}
-.agfocus-dock .ferr{flex:none;max-height:3em;overflow:auto;font-size:10px;margin:2px 0}
+.agfocus-dock .conversation-inline-compose{flex:none;margin-top:5px;min-width:0}
+.agfocus-dock .conversation-inline-compose:not(:has(.gchat-composer:not([hidden]))){display:none}
 .agfocus-thread-resize{flex:none;height:12px;cursor:ns-resize;touch-action:none;user-select:none;display:grid;place-items:center}
 .agfocus-thread-resize::after{content:"";height:2px;width:30px;border-radius:2px;background:var(--line-2)}
 .agfocus-thread-resize:hover::after,.agfocus-thread-resize:focus-visible::after{background:var(--fg-2)}
@@ -167,10 +154,6 @@
 .agfocus-chat-overlay .agfocus-thread-resize{display:none}
 .agfocus .agfocus-chat-overlay .agfocus-thread-heading{padding:12px 16px;font-size:14px}
 .agfocus-chat-overlay .agfocus-region{padding:0 16px 12px}
-.agfocus-chat-overlay .conversation-group{font-size:13px;max-width:85%}
-.agfocus-chat-overlay .conversation-bubble{padding:8px 12px}
-.agfocus-chat-overlay .conversation-inline-compose textarea{height:64px;max-height:160px;min-height:64px;font-size:13px;resize:vertical;padding:10px}
-.agfocus-chat-overlay .conversation-inline-compose .conversation-send{height:40px;padding:8px 12px}
 
 /* The entire state column is a status hit target, never a row-open target. */
 .agfocus .agfocus-row .agfocus-task-state{width:26px;height:26px;padding:0;flex:none}

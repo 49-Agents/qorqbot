@@ -54,16 +54,8 @@
 .agent-workspace-app .global-agents .nm > .chat-unread-dot { width:6px; height:6px; top:-2px; right:-4px; }
 .agent-workspace-app .global-agents .global-pinned-list .nm > .chat-unread-dot { right:5px; }
 
-/* Chat keeps its native history, composer, attachments and session controls. */
+/* Chat keeps its native history, composer, attachments and session controls (message and composer styling: css/chat-view.css). */
 .agent-workspace-app .global-agent-session .chat.termmode { padding:20px 24px; }
-.agent-workspace-app .gchat-log { gap:22px; }
-.agent-workspace-app .gchat-agent .gchat-body { padding-left:0; line-height:1.85; }
-.agent-workspace-app .gchat-agent .gchat-references { padding-left:0; }
-.agent-workspace-app .gchat-agent .gchat-time { padding-left:0; }
-.agent-workspace-app .gchat-user .gchat-body { border-radius:8px; line-height:1.75; }
-.agent-workspace-app .gchat-composer { gap:6px; padding:6px; border:1px solid var(--line); border-radius:8px; background:var(--surface); }
-.agent-workspace-app .gchat-composer textarea { border:0; background:none; box-shadow:none; font-size:15.75px; }
-.agent-workspace-app .gchat-composer .gchat-send { border-radius:6px; min-height:32px; height:32px; padding:5px 11px; }
 .agent-workspace-app .agpad .thead { display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:13px 18px 10px; }
 .agent-workspace-app .agpad .thead.agpad-ping-head { gap:4px; padding-right:18px; }
 .agent-workspace-app .agpad .thead .ttabs { flex:1 1 180px; min-width:0; gap:4px; margin:0; padding:0; overflow-y:hidden; }

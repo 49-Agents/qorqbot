@@ -1,14 +1,13 @@
-.conversation-panel{padding:14px;box-sizing:border-box;width:100%;border:1px solid rgba(255,255,255,.2);border-radius:14px}.conversation-feed{max-height:420px;overflow:auto;display:flex;flex-direction:column;gap:0;padding:4px}.conversation-group{max-width:85%;display:flex;flex-direction:column;gap:4px}.conversation-agent{align-self:flex-start}.conversation-owner{align-self:flex-end}.conversation-agent-header{display:flex;align-items:center;gap:8px}.conversation-avatar{border:1px solid var(--line-2);border-radius:50%;width:33.15px;height:33.15px;display:grid;place-items:center;font-size:14px;flex:none}.conversation-bubble{white-space:pre-wrap;overflow-wrap:anywhere;padding:2.5px 12px;margin:3px 0;border:1px solid var(--line-2);border-radius:10px;background:color-mix(in srgb,var(--surface) 90%,#fff 10%);color:#fff}.conversation-bubble details{border-top:0;box-shadow:none}.conversation-bubble details summary{border-top:0;box-shadow:none;padding:3px 0;color:#fff}.conversation-owner .conversation-bubble{background:color-mix(in srgb,var(--hover) 90%,#fff 10%)}.conversation-group small,.conversation-panel time{font-size:11px;color:var(--fg-2)}.conversation-panel time{display:block;margin-top:4px}.conversation-system{font-size:12px;text-align:center;color:var(--fg-2)}.conversation-compose{display:block;margin:14px 0 8px;font-size:12px}.conversation-compose textarea{display:block;width:100%;margin-top:5px}.conversation-toggle{margin-top:8px;display:inline-flex;align-items:center;justify-content:center;padding:5px}.conversation-toggle-icon{display:inline-flex;line-height:0}.conversation-toggle:focus-visible{outline:2px solid var(--accent,#66d9e8);outline-offset:2px}
+.conversation-panel{padding:14px;box-sizing:border-box;width:100%;border:1px solid rgba(255,255,255,.2);border-radius:14px}
+/* The shared Chat view owns the feed and composer; this only bounds its height inside the panel. */
+.conversation-view{display:flex;flex-direction:column;height:min(560px,70vh);min-height:260px}
+.conversation-view>.chat-view{flex:1 1 auto;min-height:0}
+.conversation-toggle{margin-top:8px;display:inline-flex;align-items:center;justify-content:center;padding:5px}.conversation-toggle-icon{display:inline-flex;line-height:0}.conversation-toggle:focus-visible{outline:2px solid var(--accent,#66d9e8);outline-offset:2px}
 
 .conversation-toggle{width:34px;height:34px;min-height:34px;padding:7px}.conversation-toggle svg{width:20px;height:20px}
 
-.conversation-inline-compose{display:flex;align-items:flex-end;gap:8px;margin-top:12px}
-.conversation-inline-compose .conversation-compose{flex:1;min-width:0;margin:0}
-.conversation-inline-compose textarea{margin:0;min-height:36px;max-height:140px;resize:vertical;padding:9px 11px;font-size:12px;line-height:16px}
-.conversation-inline-compose .conversation-send{flex:none;min-height:36px;padding:7px 13px;font-size:12px}
-
-.conversation-feed > * + *{margin-top:8px}
-.conversation-feed > .conversation-group + .conversation-group{margin-top:19px}
+/* Placement only: the form inside is the shared Chat composer. */
+.conversation-inline-compose{margin-top:12px;min-width:0}
 
 /* Two channels per object: the owner's private thread with Ordubashy first, the
    read-only agent discussion second. Icon-only toasts, matching the pane's other

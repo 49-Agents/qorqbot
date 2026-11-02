@@ -73,8 +73,7 @@
 .ac-revisions { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; margin: 8px 0; }
 .ac-revision-text { min-width: 0; flex: 1 1 200px; overflow-wrap: anywhere; color: var(--fg-2); }
 .ac-follow { display: flex; gap: 8px; margin-bottom: 8px; }
-.ac-thread { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.ac-message p { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.ac-message time { color: var(--fg-3); font-size: 11px; }
-.ac-message.system { color: var(--fg-2); }
+/* The shared Chat view owns every message visual; this only sizes its container. */
+.ac-chat { display: flex; flex-direction: column; height: min(60vh, 420px); min-height: 200px; min-width: 0; }
+.ac-chat > .chat-view { flex: 1; min-height: 0; }
 .ac-private-note { font-size: 11px; }

@@ -358,57 +358,82 @@ function acRowHtml(action, i) {
 
 // The shared discussion of one action plus its immutable revisions. A comment belongs to the discussion only: it
 // never creates an action or approves anything, and the installation owner's side conversation stays in the
-// private channel, so no shared comment box is offered here (the backend refuses it with channel_required).
+// private channel, so the shared Chat view is mounted read-only (its whole composer hidden; the backend refuses
+// a shared comment with channel_required). Revisions and Follow stay here: they are not Chat controls.
+const acDiscussions = new Set();
+function acDiscussionsDispose({ detachedOnly = false } = {}) {
+  for (const handle of [...acDiscussions]) if (!detachedOnly || !handle.host.isConnected) handle.dispose();
+}
 function acDiscussionMount(host, action) {
-  if (host.dataset.mounted) return;
-  host.dataset.mounted = "true";
-  const view = { messages: [], participants: [], cursor: null, loading: false };
+  if (host._acDiscussion) return host._acDiscussion;
+  acDiscussionsDispose({ detachedOnly: true });
+  const data = { messages: [], participants: [], cursor: null, loading: false };
+  let alive = true, seq = 0;
   host.innerHTML = `<div class="ac-revisions"><label>Version<select aria-label="Action version">${Array.from({ length: action.revision }, (_, i) => action.revision - i).map(n => `<option value="${n}">${n === action.revision ? "Current" : `Version ${n}`}</option>`).join("")}</select></label><div class="ac-revision-text" role="status"></div></div>
     <div class="ac-follow"><button type="button" class="quiet" data-follow="true">Follow</button><button type="button" class="quiet" data-follow="false">Unfollow</button></div>
-    <div class="ac-thread" aria-label="Action discussion"></div><button type="button" class="quiet ac-older" hidden>Older messages</button><p class="muted ac-private-note">Comments from the owner go through the private conversation with Ordubashy.</p><p class="ferr" role="alert" hidden></p>`;
-  const error = host.querySelector(".ferr"), thread = host.querySelector(".ac-thread"), older = host.querySelector(".ac-older");
-  const fail = (e, load = false) => { error.textContent = uiFailure(e, {load}); error.hidden = false; };
-  const person = id => view.participants.find(p => p.id === id);
+    <div class="ac-chat"></div><p class="muted ac-private-note">Comments from the owner go through the private conversation with Ordubashy.</p><p class="ferr" role="alert" hidden></p>`;
+  const error = host.querySelector(".ferr");
+  const fail = (e, load = false) => { if (alive) { error.textContent = uiFailure(e, {load}); error.hidden = false; } };
+  const person = id => data.participants.find(p => p.id === id);
   const name = id => { const p = person(id); return p ? (p.display_name || p.name || "Unknown") : "Unknown"; };
-  const paint = () => {
-    thread.replaceChildren();
-    if (!view.messages.length) { const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "No discussion yet."; thread.append(empty); }
-    for (const message of view.messages) {
-      const item = document.createElement("div"); item.className = "ac-message" + (message.kind === "system" ? " system" : "");
-      const who = document.createElement("strong"), when = document.createElement("time"), body = document.createElement("p");
-      const speaker = message.author_id ? name(message.author_id) : "System";
-      const recorded = message.author_id && message.recorder_id && message.author_id !== message.recorder_id ? ` · recorded by ${name(message.recorder_id)}` : "";
-      who.textContent = speaker + recorded; when.textContent = ` ${sjDateTime(message.created_at)}`; when.setAttribute("datetime", message.created_at);
-      body.textContent = message.body || "";
-      item.append(who, when, body); thread.append(item);
-    }
-    older.hidden = !view.cursor;
+  const chat = mountChatView(host.querySelector(".ac-chat"), {
+    logLabel: "Action discussion", olderLabel: "Older messages",
+    onOlder: () => load(true),
+  });
+  const paint = scroll => {
+    if (!alive) return;
+    const self = state.session?.principal_id;
+    chat.render({
+      entries: data.messages.map(message => {
+        const system = message.kind === "system";
+        const speaker = message.author_id ? name(message.author_id) : "System";
+        const recorded = message.author_id && message.recorder_id && message.author_id !== message.recorder_id ? ` · recorded by ${name(message.recorder_id)}` : "";
+        return { key: message.id, speaker: system ? "notice" : message.author_id && message.author_id === self ? "user" : "agent",
+          text: message.body || "", timestamp: message.created_at, author: { name: speaker + recorded }, showAuthor: true };
+      }),
+      composer: { hidden: true },
+      older: { visible: Boolean(data.cursor), disabled: data.loading, label: "Older messages" },
+      empty: { text: data.messages.length ? "" : "No discussion yet." },
+    }, { scroll });
   };
   const load = async (more = false) => {
-    if (view.loading) return; view.loading = true;
+    if (!alive || data.loading) return;
+    data.loading = true; const mine = ++seq;
+    if (more) paint("preserve");
     try {
-      const data = await acOp("actions_thread_get", { action_id: action.action_id, limit: 20, ...(more && view.cursor ? { cursor: view.cursor } : {}) });
-      const merged = new Map((more ? [...data.messages, ...view.messages] : data.messages).map(m => [m.id, m]));
-      view.messages = [...merged.values()]; view.participants = data.participants || view.participants; view.cursor = data.next_cursor; error.hidden = true; paint();
-    } catch (e) { fail(e, true); } finally { view.loading = false; }
+      const result = await acOp("actions_thread_get", { action_id: action.action_id, limit: 20, ...(more && data.cursor ? { cursor: data.cursor } : {}) });
+      if (!alive || mine !== seq) return;
+      const merged = new Map((more ? [...result.messages, ...data.messages] : result.messages).map(m => [m.id, m]));
+      data.messages = [...merged.values()]; data.participants = result.participants || data.participants; data.cursor = result.next_cursor; error.hidden = true;
+      data.loading = false; paint(more ? "prepend" : "auto");
+    } catch (e) {
+      if (!alive || mine !== seq) return;
+      data.loading = false; fail(e, true); if (more) paint("preserve");
+    }
   };
-  older.onclick = () => load(true);
   host.querySelector("select").onchange = async event => {
     const out = host.querySelector(".ac-revision-text"), revision = Number(event.target.value);
     try {
-      const data = await acOp("actions_get", { action_id: action.action_id, revision });
-      out.textContent = data.action.text;
-    } catch (e) { out.textContent = ""; fail(e, true); }
+      const result = await acOp("actions_get", { action_id: action.action_id, revision });
+      if (alive) out.textContent = result.action.text;
+    } catch (e) { if (alive) out.textContent = ""; fail(e, true); }
   };
   host.querySelectorAll("[data-follow]").forEach(button => button.onclick = async () => {
-    try { await acOp("actions_follow", { action_id: action.action_id, following: button.dataset.follow === "true", idempotency_key: newRequestId() }); toast(button.dataset.follow === "true" ? "Following this action." : "Unfollowed this action."); error.hidden = true; }
+    try { await acOp("actions_follow", { action_id: action.action_id, following: button.dataset.follow === "true", idempotency_key: newRequestId() }); toast(button.dataset.follow === "true" ? "Following this action." : "Unfollowed this action."); if (alive) error.hidden = true; }
     catch (e) { fail(e); }
   });
+  const handle = { host, layout: () => { if (alive) chat.layout(); },
+    dispose() { if (!alive) return; alive = false; acDiscussions.delete(handle); delete host._acDiscussion; chat.dispose(); } };
+  host._acDiscussion = handle; acDiscussions.add(handle);
+  paint("auto"); chat.layout();
   load();
+  return handle;
 }
 function acListPaint() {
   if (typeof tView === "undefined" || tView !== "activity") return;
   const body = $("#tbody"); if (!body) return;
+  // Mounted discussions belong to the rows about to be replaced; none may outlive them or paint late.
+  acDiscussionsDispose();
   // A scope or business switch invalidates the rows on screen; never show another scope's list.
   if (acList.key !== JSON.stringify(acListArgs()) && !acList.loading) { acList.rows = []; acList.cursor = null; acList.error = ""; acListRefresh(); }
   const global = state.scope === "global";
@@ -430,7 +455,11 @@ function acListPaint() {
   body.querySelectorAll("[data-ac-row]").forEach(row => {
     const action = acList.rows[Number(row.dataset.acRow)];
     const discussion = row.querySelector("[data-ac-discussion]");
-    discussion.addEventListener("toggle", () => { if (discussion.open) acDiscussionMount(discussion.querySelector(".ac-discussion-body"), action); });
+    discussion.addEventListener("toggle", () => {
+      if (!discussion.open) return;
+      const host = discussion.querySelector(".ac-discussion-body");
+      if (host._acDiscussion) host._acDiscussion.layout(); else acDiscussionMount(host, action);
+    });
     row.querySelector("[data-ac-edit]")?.addEventListener("click", event => acOpen(document.querySelector("[data-ac-capture]:not([hidden])") || event.currentTarget, action));
     row.querySelector("[data-ac-task]")?.addEventListener("click", () => acOpenTask(action));
   });
