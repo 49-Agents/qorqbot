@@ -293,8 +293,23 @@ function agfocusMount(p) {
 function agfocusTick(p) {
   if (p.view !== 'focus') return;
   if (!p.focusPending && Date.now() >= (p.nextFocus || 0)) agfocusRefresh(p);
+  else if (!p.focusPending) agfocusRecoverWork(p);
   if (p.view === 'focus') agfocusPaint(p);
 }
+
+// An expanded branch (board row or nested row) whose first read was discarded (no flight, never loaded) starts that read again on the next
+// visible tick instead of waiting for the next full-board poll. A genuine first-load failure collapses the branch, so
+// this never loops; branches that already have a read in flight are left alone and nothing is expanded recursively.
+function agfocusRecoverWork(p) {
+  if (!agpadActive(p) || !p.focusMount?.isConnected || !p.focusWork?.size) return;
+  for (const item of agfocusVisibleItems(p, p.focus?.items || [])) {
+    if (item.source?.type !== 'task' || item.unavailable) continue;
+    const branch = p.focusWork.get(item.id);
+    if (branch?.expanded && !branch.loaded && !branch.flight) agfocusExpandWork(p, item);
+  }
+}
+
+const agfocusRestorable=(p,item)=>item.source?.type==='task' && !item.unavailable && !!p.focusWork?.get(item.id)?.expanded;
 
 async function agfocusRefresh(p) {
   if (!agpadActive(p)) return;
@@ -306,7 +321,8 @@ async function agfocusRefresh(p) {
     const pageKey=agfocusPageKey(p);
     try {
       const data = coreData(await post("/root/operations/focus_get",{scope:"global",include_archived:!!p.focusIncludearchived,include_deferred:!!p.focusIncludedeferred,offset:p.focusOffset||0}));
-      if (!agpadActive(p) || pageKey!==agfocusPageKey(p) || (focusMount && p.focusMount!==focusMount)) {
+      // A completed read for this exact pane survives the tab being hidden; only starting a read needs visibility.
+      if (!agpadActive(p,true) || pageKey!==agfocusPageKey(p) || (focusMount && p.focusMount!==focusMount)) {
         if(agpadActive(p) && p.view==='focus')p.focusRefreshAgain=true;
         return;
       }
@@ -317,13 +333,19 @@ async function agfocusRefresh(p) {
       for(const [id,seq] of p.focusPrivateUnread || [])
         if(requestSeq>seq && !data.items.some(item=>item.id===id && item.private_unread))p.focusPrivateUnread.delete(id);
       p.focusRefreshThreads=true;
-      const restored=new Set();
-      while(true){
-        const rows=agfocusVisibleItems(p,data.items).filter(item=>item.source?.type==='task' && !item.unavailable && p.focusWork?.get(item.id)?.expanded && !restored.has(item.id));
-        if(!rows.length)break;
-        rows.forEach(item=>restored.add(item.id));
-        await Promise.all(rows.map(item=>agfocusExpandWork(p,item,true)));
-      }
+      // Each expanded branch is restored on its own: once a parent settles its already-expanded visible children start at
+      // once, so a slow sibling never delays a completed parent's descendants. Every row is read at most once per refresh.
+      const visited=new Set();
+      const same=()=>agpadActive(p,true) && pageKey===agfocusPageKey(p) && (!focusMount || p.focusMount===focusMount);
+      const restore=async item=>{
+        if(visited.has(item.id))return;
+        visited.add(item.id);
+        await agfocusExpandWork(p,item,true);
+        // Descendants come from the parent's current snapshot only: a removed, collapsed, denied or unread parent has none.
+        if(!same() || !agpadActive(p) || !p.focusWork?.get(item.id)?.expanded)return;
+        await Promise.all(agfocusVisibleItems(p,data.items).filter(row=>row._workParent===item.id && agfocusRestorable(p,row)).map(restore));
+      };
+      await Promise.all(agfocusVisibleItems(p,data.items).filter(row=>!row._workParent && agfocusRestorable(p,row)).map(restore));
     } catch (error) {
       if (agpadActive(p) && (!focusMount || p.focusMount===focusMount)) p.focusError = 'Could not refresh Focus. ' + error.message;
       else if(agpadActive(p) && p.view==='focus')p.focusRefreshAgain=true;
@@ -436,7 +458,7 @@ function agfocusBuildWork(item,source,snapshot) {
 async function agfocusRunWork(p,item,branch,kind) {
   const source=item.resolved_source || item.source,key=agfocusWorkKey(source),mount=p.focusMount,token={kind};
   branch.flight=token;if(kind==='more'){branch.moving=true;agfocusPaint(p);}
-  const current=()=>branch.flight===token && p.focusWork?.get(item.id)===branch && branch.expanded && !!mount?.isConnected && p.focusMount===mount && agpadActive(p) &&
+  const current=()=>branch.flight===token && p.focusWork?.get(item.id)===branch && branch.expanded && !!mount?.isConnected && p.focusMount===mount && agpadActive(p,true) &&
     agfocusVisibleItems(p,p.focus?.items || []).some(row=>row.id===item.id && !row.unavailable && agfocusWorkKey(row.resolved_source || row.source)===key);
   const empty={children:[],related:[],childCursor:null,relationCursor:null,childPages:0,relationPages:0};
   let applied=false;
@@ -478,12 +500,15 @@ async function agfocusExpandWork(p,item,refresh=false) {
   let branch=p.focusWork.get(item.id);
   // A collapsed branch or one bound to a different resolved source never carries its snapshot forward.
   if(branch && (!branch.expanded || (branch.sourceKey && branch.sourceKey!==key)))branch=null;
-  if(branch && !refresh)return;
+  // Only a branch that is loaded or already being read is left alone; an idle unloaded one starts its first read.
+  if(branch && !refresh && (branch.loaded || branch.flight))return;
+  // Only an in-flight read may finish while hidden; a new read starts on the next visible tick.
+  if(!agpadActive(p))return;
   if(!branch){branch=agfocusNewBranch();p.focusWork.set(item.id,branch);agfocusSaveWork(p);}
   if(branch.flight) {
     const kind=branch.flight.kind;
     await branch.flight.promise;
-    if(kind!=='more' || p.focusWork.get(item.id)!==branch || !branch.expanded)return;
+    if(kind!=='more' || p.focusWork.get(item.id)!==branch || !branch.expanded || !agpadActive(p))return;
   }
   const kind=branch.loaded?'refresh':'first';
   if(kind==='first'){agfocusPaint(p);agfocusAnnounce(p,'Loading related work…');}
@@ -696,7 +721,6 @@ function agfocusPaint(p) {
     // Focus has no actionable Comment toggle. Its title carries unread state.
     if(newConversation)conversationHost.querySelector('.conversation-toggle')?.remove();
     agfocusUnread(p,node,item);
-    if(newConversation)conversation.preload();
     node.classList.toggle('agfocus-collapsed',p.focusSelected!==item.id);
     node.setAttribute('aria-expanded',String(p.focusSelected===item.id));
     if(p.focusSelected===item.id){agfocusText($('[data-focus-thread-title]',host),name);if(!conversation.isExpanded())conversation.expand();}
@@ -783,7 +807,8 @@ async function agfocusLoadThreadContext(p,node) {
 function agfocusRefreshThreads(p) {
   if(!p.focusRefreshThreads)return;
   p.focusRefreshThreads=false;
-  for(const item of agfocusVisibleItems(p,p.focus?.items || []))p.focusCards.get(item.id)?._conversationHost?._conversation?.refresh();
+  // Only the open conversation is read; collapsed rows load when selected.
+  if(p.focusSelected)p.focusCards.get(p.focusSelected)?._conversationHost?._conversation?.refresh();
 }
 
 function agfocusThreadHeight(p,height) {
