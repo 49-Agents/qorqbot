@@ -235,3 +235,17 @@
 /* Fixed Browser/Desktop pair, a quiet divider, then the scrolling Viewbox queue. */
 .agfocus-fixed{display:flex;align-items:center;gap:6px;flex:none}
 .agfocus-divider{flex:none;align-self:center;width:1px;height:30px;margin:0 2px;background:var(--line-2);pointer-events:none}
+
+/* Browser, Desktop or a Viewbox item replaces only the items list, below the queue strip; the list stays mounted but hidden. */
+.agfocus-surface[hidden]{display:none}
+.agpad .tbody > .agfocus > .agfocus-surface{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0}
+.agfocus-surface-bar{flex:none;display:flex;align-items:center;gap:8px;padding:4px 0}
+.agfocus-surface-bar button{height:28px;font-size:11px;padding:4px 9px}
+.agfocus-surface-body{flex:1;min-height:0;min-width:0;max-width:100%;overflow:auto;display:flex;flex-direction:column}
+.agfocus-surface-body > .agvb{flex:1;min-height:0}
+.agfocus-surface-body .agvb-frameview{min-height:240px}
+.agfocus-surface-body .agfocus-desktop-view{padding:0 0 10px}
+.agfocus.agfocus-surface-open > .agfocus-layout,.agfocus.agfocus-surface-open > .agfocus-pages{display:none}
+.agfocus-surfaces .agfocus-surface-chip[aria-pressed="true"]{border-color:var(--fg-2);background:var(--hover)}
+.agpad .tbody > .agfocus.agfocus-surface-open{overflow-y:auto}
+.agpad .tbody > .agfocus.agfocus-surface-open > .agfocus-surface{flex:1 0 260px}

@@ -70,10 +70,16 @@ function agviewboxReveal(p, id) {
   else void agviewboxRefresh(p);
 }
 
-function agviewboxMount(p) {
-  const body = $('#agpad-body', p.el);
+// The board is current while it is the pane's shown view, or while its nested surface context says so.
+function agviewboxLive(p, vb) {
+  return !vb.dead && p.vb === vb && (vb.ctx ? vb.ctx.current() : agpadActive(p) && p.view === 'viewbox');
+}
+
+// A nested surface passes its mount context (host, currentness, cleanup registration); without one the pane body is the host.
+function agviewboxMount(p, ctx = null) {
+  const body = ctx ? ctx.host : $('#agpad-body', p.el);
   if (!body || !p.agentId) return;
-  const vb = p.vb = { agentId: p.agentId, abort: null, pending: false, next: 0, items: null, error: false, mode: 'list',
+  const vb = p.vb = { agentId: p.agentId, ctx, body, abort: null, pending: false, next: 0, items: null, error: false, mode: 'list',
     selected: null, signature: null, listScroll: 0, size: agvbStoredSize(p), frame: null,
     linkedItem: p.viewboxOpen || new URL(location.href).searchParams.get('viewbox_item') };
   // A Focus-strip click hands over the items it already shows so the detail opens without a list detour.
@@ -86,7 +92,7 @@ function agviewboxMount(p) {
     const row = event.target.closest('.agvb-row');
     if (row) agviewboxOpen(p, row.dataset.id);
   };
-  p.workspaceDispose = () => agviewboxDispose(p, vb);
+  if (ctx) ctx.onDispose(() => agviewboxDispose(p, vb)); else p.workspaceDispose = () => agviewboxDispose(p, vb);
   if (seeded && vb.linkedItem && seeded.some(item => item.id === vb.linkedItem)) {
     vb.items = seeded;
     agviewboxOpen(p, vb.linkedItem);
@@ -105,7 +111,7 @@ function agviewboxDispose(p, vb = p.vb) {
 
 async function agviewboxRefresh(p) {
   const vb = p.vb;
-  if (!vb || vb.pending || vb.dead || !agpadActive(p) || p.view !== 'viewbox') return;
+  if (!vb || vb.pending || vb.dead || !agviewboxLive(p, vb)) return;
   vb.pending = true;
   const controller = vb.abort = new AbortController();
   try {
@@ -146,7 +152,7 @@ function agviewboxAges(p) {
 }
 
 function agviewboxPaint(p) {
-  const vb = p.vb, root = $('.agvb', p.el);
+  const vb = p.vb, root = vb && $('.agvb', vb.body);
   if (!vb || !root || vb.mode !== 'list') return;
   const status = $('.agvb-status', root), empty = $('.agvb-empty', root), list = $('.agvb-list', root);
   status.hidden = !vb.error;
@@ -157,7 +163,7 @@ function agviewboxPaint(p) {
   if (vb.items && signature !== vb.signature) {
     vb.signature = signature;
     const focused = document.activeElement?.closest?.('.agvb-row')?.dataset.id;
-    const body = $('#agpad-body', p.el), scroll = body.scrollTop;
+    const body = vb.body, scroll = body.scrollTop;
     list.innerHTML = vb.items.map(item => {
       const label = AGVB_KIND_LABEL[item.kind];
       return `<li><button type="button" class="agvb-row" data-id="${esc(item.id)}" data-kind="${esc(item.kind)}"
@@ -180,9 +186,9 @@ function agviewboxCloseFrame(vb) {
 }
 
 function agviewboxOpen(p, id) {
-  const vb = p.vb, item = vb?.items?.find(entry => entry.id === id), root = $('.agvb', p.el);
+  const vb = p.vb, item = vb?.items?.find(entry => entry.id === id), root = vb && $('.agvb', vb.body);
   if (!vb || !item || !root || vb.mode !== 'list') return;
-  const body = $('#agpad-body', p.el);
+  const body = vb.body;
   vb.listScroll = body.scrollTop;
   vb.mode = 'frame';
   vb.selected = item;
@@ -191,7 +197,7 @@ function agviewboxOpen(p, id) {
   $('.agvb-listview', root).hidden = true;
   view.hidden = false;
   body.classList.add('agvb-framed');
-  view.innerHTML = `<div class="agvb-bar"><button type="button" class="agvb-back" aria-label="${agpadFocusSurfaces(p) ? 'Back to Focus' : 'Back to Viewbox list'}">${AGVB_ICON.back}</button>
+  view.innerHTML = `<div class="agvb-bar"><button type="button" class="agvb-back" aria-label="Back to Viewbox list"${vb.ctx ? ' hidden' : ''}>${AGVB_ICON.back}</button>
     <strong class="agvb-name">${esc(item.title)}</strong>
     <button type="button" class="agvb-fit" aria-label="Fill pane">${AGVB_ICON.fit}</button>
     <a class="agvb-open" target="_blank" rel="noopener noreferrer" aria-label="Open in new tab">${AGVB_ICON.open}<span>Open in new tab</span></a></div>
@@ -203,7 +209,7 @@ function agviewboxOpen(p, id) {
     fallback = $('.agvb-fallback', view), announce = $('.agvb-size', view);
   if (target) open.href = target.href; else open.hidden = true;
   const markViewed = () => {
-    if (!vb.dead && p.vb === vb && vb.selected === item && agpadActive(p) && p.view === 'viewbox'
+    if (vb.selected === item && agviewboxLive(p, vb)
       && typeof attentionQueue !== 'undefined') attentionQueue.viewboxViewed(item);
   };
   open.onclick = markViewed;
@@ -294,15 +300,16 @@ function agviewboxOpen(p, id) {
     showFallback();
   }
   $('.agvb-back', view).onclick = () => agviewboxBack(p);
-  $('.agvb-back', view).focus({ preventScroll: true });
+  if (!vb.ctx) $('.agvb-back', view).focus({ preventScroll: true });
+  agpadSurfacePaint(p);
 }
 
-// With Focus, an agent's Viewbox is a detail of its Focus board, so Back returns there unless a newly linked item replaces this one.
+// With Focus, an agent's Viewbox is a nested surface of its Focus board, so Back closes it unless a newly linked item replaces this one.
 function agviewboxBack(p, toList = false) {
-  const vb = p.vb, root = $('.agvb', p.el);
+  const vb = p.vb, root = vb && $('.agvb', vb.body);
   if (!vb || !root || vb.mode !== 'frame') return;
-  if (!toList && agpadFocusSurfaces(p)) { agpadSetView(p, 'focus'); return; }
-  const body = $('#agpad-body', p.el), selected = vb.selected;
+  if (!toList && vb.ctx) { agpadSurfaceClose(p); return; }
+  const body = vb.body, selected = vb.selected;
   agviewboxCloseFrame(vb);
   vb.mode = 'list';
   vb.selected = null;
@@ -320,6 +327,7 @@ function agviewboxBack(p, toList = false) {
   const rows = root.querySelectorAll('.agvb-row');
   const row = [...rows].find(entry => entry.dataset.id === selected?.id) || rows[0];
   row?.focus({ preventScroll: true });
+  agpadSurfacePaint(p);
 }
 
 // ------------------------------------------------------------ Focus surfaces strip
@@ -359,7 +367,7 @@ function agvbDismissSave(agentId, attentionId) {
 
 function agviewboxSurfacesMount(p, host) {
   if (!host || !p.agentId) return null;
-  const strip = { agentId: p.agentId, abort: null, pending: false, next: 0, items: null, error: false, signature: null, dead: false, discovery: 'checking', surfaces: null };
+  const strip = { agentId: p.agentId, abort: null, pending: false, next: 0, items: null, error: false, signature: null, dead: false, discovery: 'checking', surfaces: null, active: { kind: null, id: null } };
   host.setAttribute('aria-label', 'Browser, Desktop and Viewbox');
   host.innerHTML = `<div class="attention-stack agfocus-surfaces"><div class="agfocus-fixed" role="group" aria-label="Browser and Desktop">${AGVB_SURFACES.map(([view, label]) =>
     `<button type="button" class="attention-chip agfocus-surface-chip" data-focus-surface="${view}" aria-disabled="true">${agvbSurfaceIcon(view)}<span class="attention-label">${label}</span></button>`).join('')}</div>
@@ -429,6 +437,10 @@ function agviewboxSurfacesMount(p, host) {
       paint(); strip.next = 0; void refresh();
     });
   };
+  const applyActive = () => {
+    for (const chip of host.querySelectorAll('[data-focus-surface]')) chip.setAttribute('aria-pressed', String(strip.active.kind === chip.dataset.focusSurface));
+    for (const chip of board.querySelectorAll('[data-viewbox-item]')) chip.setAttribute('aria-pressed', String(strip.active.kind === 'viewbox' && strip.active.id === chip.dataset.viewboxItem));
+  };
   const paint = () => {
     const items = visibleItems();
     const signature = `${agvbSignature(items)}|${items ? 1 : 0}|${strip.error ? 1 : 0}`;
@@ -441,6 +453,7 @@ function agviewboxSurfacesMount(p, host) {
         title="${esc(`${item.title}\n${label}${item.attention_id ? '\nRight-click to dismiss' : ''}`)}" aria-label="${esc(`${item.title}, ${label}`)}"><span class="attention-viewbox" aria-hidden="true">${AGVB_ICON[item.kind]}</span><span class="attention-label">${esc(item.title)}</span></button>`;
     }).join('') + (!items?.length ? `<span class="attention-empty">${strip.error ? 'Viewbox unavailable' : items ? '' : 'Loading Viewbox…'}</span>` : '');
     board.scrollLeft = scroll;
+    applyActive();
     if (focused) board.querySelector(`[data-viewbox-item="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
   };
   const refresh = async () => {
@@ -464,10 +477,13 @@ function agviewboxSurfacesMount(p, host) {
     paint();
     agfocusDesktopTab(p);
   };
+  strip.setActive = (kind, id = null) => { strip.active = { kind, id }; applyActive(); };
+  strip.chip = kind => host.querySelector(`[data-focus-surface="${kind}"]`);
   strip.refresh = () => { if (strip.discovery === 'failed') discover(true); void refresh(); };
   strip.tick = () => { if (!strip.pending && Date.now() >= strip.next) void refresh(); };
   strip.dispose = () => { strip.dead = true; strip.abort?.abort(); host.onclick = null; host.oncontextmenu = null; host.innerHTML = ''; };
   paint();
+  applyActive();
   discover(false);
   void refresh();
   return strip;

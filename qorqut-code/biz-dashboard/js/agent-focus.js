@@ -227,7 +227,7 @@ function agfocusMount(p) {
   const body = $('#agpad-body', p.el);
   body.innerHTML = `<div class="agfocus"><p class="agfocus-error" role="alert" hidden></p><button type="button" class="quiet" data-focus-retry-move hidden>Retry same move</button><p class="agfocus-sr" data-focus-announcement role="status" aria-live="polite"></p><span class="agfocus-sr" id="agfocus-move-instructions">Use Alt+ArrowUp or Alt+ArrowDown to move one visible row.</span>
     <header><div class="agfocus-heading"><div class="global-eyebrow">Focus</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add to Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button><button class="quiet agfocus-icon" data-focus-refresh aria-label="Refresh Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 18 17"/></svg></button><div class="agfocus-controls"><button class="quiet" data-focus-archived aria-pressed="false">Archived</button><button class="quiet" data-focus-deferred aria-pressed="false">Postponed</button></div></div></div><p class="agfocus-empty muted" role="status">Loading Focus…</p></header>
-    <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected conversation" hidden><header class="agfocus-thread-heading"><span data-focus-thread-title></span><button type="button" class="quiet" data-focus-thread-close aria-label="Close thread"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Thread height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Focus pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
+    <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><section class="agfocus-surface" aria-label="Browser, Desktop or Viewbox" hidden><div class="agfocus-surface-bar"><button type="button" class="quiet" data-surface-back aria-label="Back to Focus">← Focus</button></div><div class="agfocus-surface-body"></div></section><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected conversation" hidden><header class="agfocus-thread-heading"><span data-focus-thread-title></span><button type="button" class="quiet" data-focus-thread-close aria-label="Close thread"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Thread height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Focus pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
   p.focusDrafts ||= new Map();
   p.focusCards = new Map();
   p.focusWork=agfocusRestoreWork();
@@ -256,6 +256,7 @@ function agfocusMount(p) {
   p.focusOrderPending ||= false;
   p.focusMoveSubmission ||= null;
   $('[data-focus-retry-move]',board).onclick=()=>agfocusMove(p,null,null,null,true);
+  $('[data-surface-back]',board).onclick=()=>agpadSurfaceClose(p);
   $('[data-focus-thread-close]',board).onclick=()=>{
     const row=p.focusCards.get(p.focusSelected);
     agfocusSelect(p,null);
@@ -983,7 +984,7 @@ function agfocusDesktopFrameFit(detail, display) {
     // Otherwise scrolling the detail upward makes the remaining height appear
     // larger and can produce a frame that no longer fits the pane.
     const scrollOffset = body?.scrollTop || 0;
-    const availableHeight = Math.max(0, bodyBox.bottom - bottomPadding - frameBox.top - scrollOffset - footerHeight - (completion ? 10 : 0));
+    const availableHeight = Math.max(detail.minHeight || 0, bodyBox.bottom - bottomPadding - frameBox.top - scrollOffset - footerHeight - (completion ? 10 : 0));
     const size = agfocusDesktopFit(availableWidth, availableHeight, display.width, display.height);
     frame.style.width = `${size.width}px`;
     frame.style.height = `${size.height}px`;
@@ -1002,37 +1003,42 @@ function agfocusDesktopFrameFit(detail, display) {
   schedule();
 }
 
-function agfocusDesktopError(p, body, message) {
+function agfocusDesktopError(p, body, message, ctx = null) {
   body.innerHTML = '<section class="agfocus-desktop-view"><div class="agbrowser-bar">' + agbrowserModeToggle(p, 'desktop') +
     '<span class="agbrowser-actions">' + agbrowserReconnectButton('data-desktop-retry') + '</span></div><p class="ferr" role="alert">' + esc(message) + '</p></section>';
-  $('[data-desktop-retry]', body).onclick = () => agfocusDesktop(p, true);
+  $('[data-desktop-retry]', body).onclick = () => agfocusDesktop(p, true, ctx);
   agbrowserWireMode(p, body);
 }
 
 // Ordubashy's full desktop: its explicit desktop binding, or core's validated
 // DESKTOP_CONTROL_URL fallback. Focus supplies only the pending-input request.
-async function agfocusDesktop(p, reconnect = false) {
-  const body = $('#agpad-body', p.el);
-  if (!body || !agpadActive(p) || p.view !== 'desktop') return;
+// A nested surface passes its mount context (host, currentness, cleanup registration); without one the pane body is the host.
+async function agfocusDesktop(p, reconnect = false, ctx = null) {
+  const body = ctx ? ctx.host : $('#agpad-body', p.el);
+  const live = () => ctx ? ctx.current() : agpadActive(p) && p.view === 'desktop';
+  const own = fn => ctx ? ctx.onDispose(fn) : (p.workspaceDispose = fn);
+  if (!body || !live()) return;
+  if (ctx) ctx.reset(); else { p.workspaceDispose?.(); p.workspaceDispose = null; }
   const request = p.desktopRequest = (p.desktopRequest || 0) + 1;
-  p.workspaceDispose?.();
-  p.workspaceDispose = null;
+  if (ctx) ctx.onDispose(() => { p.desktopRequest++; });
   body.innerHTML = '<section class="agfocus-desktop-view"><div class="agbrowser-bar">' + agbrowserModeToggle(p, 'desktop') + '</div><p class="muted" role="status">Connecting to Ordubashy’s desktop…</p></section>';
   agbrowserWireMode(p, body);
   let data, surfaces;
   try {
     [data, surfaces] = await Promise.all([api(agfocusPath(p)).then(coreData), agbrowserSurfaces(p, reconnect)]);
-    if (!agpadActive(p) || p.view !== 'desktop' || p.desktopRequest !== request || !body.isConnected) return;
-    p.focus = data; agfocusDesktopTab(p);
+    if (!live() || p.desktopRequest !== request || !body.isConnected) return;
+    // Focus owns p.focus while mounted; the standalone Desktop view still publishes its read.
+    if (!ctx) p.focus = data;
+    agfocusDesktopTab(p);
   } catch (error) {
-    if (body.isConnected && p.view === 'desktop' && p.desktopRequest === request) agfocusDesktopError(p, body, error.message);
+    if (body.isConnected && live() && p.desktopRequest === request) agfocusDesktopError(p, body, error.message, ctx);
     return;
   }
   const surface = surfaces.desktop;
   const desktop = surface && agfocusDesktopURL(surface.url);
   if (!desktop) {
     body.innerHTML = '<section class="agfocus-desktop-view"><div class="agbrowser-bar">' + agbrowserModeToggle(p, 'desktop') + '<span class="agbrowser-actions">' + agbrowserReconnectButton('data-desktop-retry') + '</span></div><p class="muted" role="status">Desktop is not configured. Set DESKTOP_CONTROL_URL in Global Settings or add Ordubashy’s desktop binding.</p></section>';
-    $('[data-desktop-retry]', body).onclick = () => agfocusDesktop(p, true);
+    $('[data-desktop-retry]', body).onclick = () => agfocusDesktop(p, true, ctx);
     agbrowserWireMode(p, body);
     return;
   }
@@ -1058,14 +1064,14 @@ async function agfocusDesktop(p, reconnect = false) {
   const instruction = document.createElement('p');
   instruction.textContent = pending ? 'Complete the input in the desktop, then click “I’m done”.' : (browser?.note || 'No browser input is currently pending.');
   help.appendChild(instruction);
-  $('[data-desktop-retry]', host).onclick = () => agfocusDesktop(p, true);
+  $('[data-desktop-retry]', host).onclick = () => agfocusDesktop(p, true, ctx);
   agbrowserWireMode(p, host);
   const frame = $('.agfocus-desktop-frame', host);
   frame.dataset.surface = surface.id;
   frame.src = desktop.url;
   const disposers = [];
-  p.workspaceDispose = () => { disposers.splice(0).forEach(fn => fn()); frame.src = 'about:blank'; frame.remove(); };
-  agfocusDesktopFrameFit({host, onDispose: fn => disposers.push(fn)}, desktop);
+  own(() => { disposers.splice(0).forEach(fn => fn()); frame.src = 'about:blank'; frame.remove(); });
+  agfocusDesktopFrameFit({host, minHeight: ctx?.minHeight, onDispose: fn => disposers.push(fn)}, desktop);
   if (pending) {
     const input = $('.agfocus-note', host);
     input.value = draft.note;
@@ -1075,11 +1081,11 @@ async function agfocusDesktop(p, reconnect = false) {
   }
 }
 
-function agfocusDesktopMount(p) {
+function agfocusDesktopMount(p, ctx = null) {
   p.focusDrafts ||= new Map();
-  agfocusDesktop(p).catch(error => {
-    const body = $('#agpad-body', p.el);
-    if (body && p.view === 'desktop') agfocusDesktopError(p, body, error.message);
+  agfocusDesktop(p, false, ctx).catch(error => {
+    const body = ctx ? ctx.host : $('#agpad-body', p.el);
+    if (body && (ctx ? ctx.current() : p.view === 'desktop')) agfocusDesktopError(p, body, error.message, ctx);
   });
 }
 

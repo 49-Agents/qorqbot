@@ -186,10 +186,10 @@ async function renderGlobalAgents(c) {
     const agent = agents.find(candidate => candidate.agent_id === id);
     if (!agent) throw new Error(GLOBAL_AGENT_UNAVAILABLE);
     if (selected === id) {
-      if (view && _agpad?.agentId === id && _agpad.view !== view) await agpadSetView(_agpad, view);
+      if (view && _agpad?.agentId === id && agpadShownView(_agpad) !== view) await agpadSetView(_agpad, view);
     } else await select(agent, view);
     // A cancelled unsaved-edit prompt or a newer selection must stay where it is.
-    if (!current() || selected !== id || (view && _agpad?.view !== view)) return;
+    if (!current() || selected !== id || (view && agpadShownView(_agpad) !== view)) return;
     if (viewboxItem) agviewboxReveal(_agpad, viewboxItem);
     if (chat) {
       pane.querySelector('[data-chat-return]:not(:disabled)')?.click();

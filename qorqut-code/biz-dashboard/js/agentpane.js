@@ -142,7 +142,10 @@ function agpadWorkspaceViewsSync(p) {
   if (!p.workspaceRole) return;
   const views = agentPaneViews(p.workspaceScope, p.workspaceRole, p.workspaceBase, agpadBrowserTab(p), p.agentId);
   if (views.join("\u0000") === p.views.join("\u0000")) return;
+  const before = agpadHeadViews(p).join("\u0000");
   p.views = views;
+  // A nested Browser/Desktop/Viewbox surface survives view changes that leave the Focus header as it was.
+  if (agpadFocusSurfaces(p) && p.view === "focus" && before === agpadHeadViews(p).join("\u0000")) return;
   agpadSetView(p, views.includes(p.view) ? p.view : views[0]);
 }
 
@@ -218,7 +221,7 @@ function agpadRequestView(p, view) {
 }
 
 function agpadWorkspaceTick(p) {
-  if (p.view === "viewbox" && typeof agviewboxTick === "function") agviewboxTick(p);
+  if ((p.view === "viewbox" || p.surface?.kind === "viewbox") && typeof agviewboxTick === "function") agviewboxTick(p);
   for (const view of p.views) {
     const type = workspaceType(view);
     const tick = type && WORKSPACE_TICKS[type.renderer];
@@ -324,6 +327,7 @@ function agentPaneDividerMount(root) {
 }
 
 function agpadDispose() {
+  if (_agpad) agpadSurfaceDispose(_agpad);
   _agpad?.focusDetail?.dispose?.();
   _agpad?.workspaceDispose?.();
   if (typeof cmpDispose === "function") cmpDispose(_agpad);
@@ -355,6 +359,7 @@ function agpadActive(p, allowHidden = false) {
 }
 
 function agpadMount(name, el, options = {}) {
+  if (_agpad) agpadSurfaceDispose(_agpad);
   _agpad?.focusDetail?.dispose?.();
   _agpad?.workspaceDispose?.();
   _agpad?.dividerDispose?.();
@@ -404,12 +409,18 @@ function agpadRememberView(p, view) {
 
 function agpadSetView(p, view, leaveChecked = false) {
   if (_agpad !== p || !p.views.includes(view)) return;
+  if (agpadFocusSurfaces(p)) {
+    // Browser, Desktop and Viewbox items open inside the mounted Focus shell; Focus itself closes them.
+    if (AGPAD_FOCUS_SURFACES.has(view)) return agpadSurfaceRequest(p, view, leaveChecked);
+    if (view === "focus" && p.view === "focus" && p.surface) { agpadSurfaceClose(p); return; }
+  }
   if (!leaveChecked && p.workspaceFrame && typeof agentWorkspaceCanLeave === 'function') {
     const frame = p.workspaceFrame;
     return agentWorkspaceCanLeave(p).then(ok => {
       if (ok && _agpad === p && p.workspaceFrame === frame) agpadSetView(p, view, true);
     });
   }
+  agpadSurfaceDispose(p);
   p.focusDetail?.dispose?.();
   p.focusDetail = null;
   p.workspaceDispose?.();
@@ -444,11 +455,11 @@ function agpadSetView(p, view, leaveChecked = false) {
     agpadOverviewMount(p);
     tWireHead(p.el, agpadHeadActive(p, from), next => {
       const view = agpadTabView(p, next);
-      if (view !== p.view) agpadSetView(p, view);
+      if (view !== p.view || (view === "focus" && p.surface)) agpadSetView(p, view);
     });
-    // Inside a Focus detail the Focus entry is highlighted but still returns to the Focus board.
-    const focusTab = agpadFocusSurfaces(p) && view !== "focus" ? $('.ttab[data-v="focus"]', p.el) : null;
-    if (focusTab) focusTab.onclick = () => agpadSetView(p, "focus");
+    // The selected Focus entry still closes a nested surface and returns to the Focus items.
+    const focusTab = agpadFocusSurfaces(p) ? $('.ttab[data-v="focus"]', p.el) : null;
+    if (focusTab) focusTab.onclick = () => { if (p.view !== "focus" || p.surface) agpadSetView(p, "focus"); };
     agpadPingMount(p);
   }
   if (view === 'status') agentCurrentWorkMount(p);
@@ -461,6 +472,79 @@ function agpadSetView(p, view, leaveChecked = false) {
   if (view === 'globalTasks') globalTasksMount($('#agpad-body', p.el), {agentId: p.agentId, compact: true});
   agpadPaint(p);
   agpadTick();
+}
+
+// ------------------------------------------------------------ Focus nested surfaces
+// For panes with Focus, Browser, Desktop and a Viewbox item render inside the mounted Focus shell, in place of the items list.
+// The surface has its own mount context, so closing or switching it never touches the Focus workspace's own teardown.
+function agpadShownView(p) { return p.surface ? p.surface.kind : p.view; }
+
+function agpadSurfaceRequest(p, kind, leaveChecked) {
+  const open = () => { if (_agpad === p && p.view === "focus" && p.focusMount?.isConnected) agpadSurfaceOpen(p, kind); };
+  if (p.view === "focus" && p.focusMount?.isConnected) { open(); return; }
+  const moved = agpadSetView(p, "focus", leaveChecked);
+  if (moved?.then) return moved.then(open);
+  open();
+}
+
+function agpadSurfaceOpen(p, kind) {
+  const board = p.focusMount, host = board?.querySelector(":scope > .agfocus-surface");
+  if (!host || (kind === "desktop" && p.workspaceRole !== "ordubashy")) return;
+  p.focusDetail?.back?.();
+  const layout = board.querySelector(".agfocus-layout"), switching = !!p.surface;
+  if (!switching) p.surfaceScroll = layout?.scrollTop || 0;
+  agpadSurfaceDispose(p);
+  const body = $(".agfocus-surface-body", host), surface = {kind, dead: false, cleanups: []};
+  surface.ctx = {kind, host: body, minHeight: 240,
+    current: () => !surface.dead && p.surface === surface && p.view === "focus" && agpadActive(p) && body.isConnected,
+    onDispose: fn => surface.cleanups.push(fn),
+    reset: () => surface.cleanups.splice(0).reverse().forEach(fn => fn())};
+  p.surface = surface;
+  board.classList.add("agfocus-surface-open");
+  host.hidden = false;
+  p.pendingView = null;
+  if (kind === "browser" || kind === "desktop") {
+    p.browserMode = kind;
+    const modeKey = agpadModeKey(p);
+    if (modeKey) ls(modeKey, kind);
+  }
+  agpadRememberView(p, kind);
+  if (kind === "desktop") agfocusDesktopMount(p, surface.ctx);
+  else if (kind === "browser" && typeof agbrowserMount === "function") agbrowserMount(p, false, surface.ctx);
+  else if (kind === "viewbox" && typeof agviewboxMount === "function") agviewboxMount(p, surface.ctx);
+  agpadSurfacePaint(p);
+  if (!switching) $("[data-surface-back]", host)?.focus({preventScroll: true});
+}
+
+// Everything the surface owns (frames, observers, listeners, requests) is released here; Focus's own DOM and state stay.
+function agpadSurfaceDispose(p) {
+  const surface = p.surface;
+  if (!surface) return;
+  p.surface = null;
+  surface.dead = true;
+  for (const fn of surface.cleanups.splice(0).reverse()) { try { fn(); } catch (_) { /* a failed cleanup must not keep the rest alive */ } }
+  surface.ctx.host.replaceChildren();
+  surface.ctx.host.className = "agfocus-surface-body";
+}
+
+function agpadSurfaceClose(p) {
+  const surface = p.surface, board = p.focusMount;
+  if (!surface) return;
+  agpadSurfaceDispose(p);
+  agpadRememberView(p, "focus");
+  agpadSurfacePaint(p);
+  if (!board) return;
+  board.classList.remove("agfocus-surface-open");
+  $(":scope > .agfocus-surface", board).hidden = true;
+  const layout = board.querySelector(".agfocus-layout");
+  if (layout) layout.scrollTop = p.surfaceScroll || 0;
+  agfocusPaint(p);
+  const opener = p.focusSurfaces?.chip(surface.kind) || $('.ttab[data-v="focus"]', p.el);
+  opener?.focus({preventScroll: true});
+}
+
+function agpadSurfacePaint(p) {
+  p.focusSurfaces?.setActive(p.surface ? p.surface.kind : null, p.surface?.kind === "viewbox" ? p.vb?.selected?.id : null);
 }
 
 // ------------------------------------------------------------ Ordubashy auto-ping

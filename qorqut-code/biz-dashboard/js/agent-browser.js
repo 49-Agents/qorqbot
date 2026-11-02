@@ -89,7 +89,7 @@ function agbrowserStatus(p, body, message, role = 'status', retry = null) {
 
 // The frame and its size observers are removed before another stream mounts, so
 // a switch or teardown never leaves two viewer connections open.
-function agbrowserFrame(p, host, surface, fit) {
+function agbrowserFrame(p, host, surface, fit, ctx = null) {
   p.browserFrameDispose?.();
   const stage = $('.agbrowser-stage', host);
   const frame = document.createElement('iframe');
@@ -102,7 +102,7 @@ function agbrowserFrame(p, host, surface, fit) {
   const display = agfocusDesktopURL(surface.url);
   frame.src = display.url;
   const disposers = [];
-  fit({host, onDispose: fn => disposers.push(fn)}, {width: surface.width || display.width, height: surface.height || display.height});
+  fit({host, minHeight: ctx?.minHeight, onDispose: fn => disposers.push(fn)}, {width: surface.width || display.width, height: surface.height || display.height});
   p.browserFrameDispose = () => {
     p.browserFrameDispose = null;
     disposers.splice(0).forEach(fn => fn());
@@ -111,7 +111,7 @@ function agbrowserFrame(p, host, surface, fit) {
   };
 }
 
-function agbrowserShow(p, body, surfaces, selected) {
+function agbrowserShow(p, body, surfaces, selected, ctx = null) {
   const several = surfaces.browsers.length > 1;
   body.innerHTML = `<section class="agfocus-desktop-view agbrowser"><div class="agfocus-desktop-help agbrowser-bar">
     ${agbrowserModeToggle(p, 'browser')}
@@ -122,37 +122,40 @@ function agbrowserShow(p, body, surfaces, selected) {
   const choose = surface => {
     for (const button of host.querySelectorAll('[data-browser-surface]')) button.setAttribute('aria-pressed', String(button.dataset.browserSurface === surface.id));
     ls(agbrowserSelectionKey(surfaces.agentId), surface.id);
-    agbrowserFrame(p, host, surface, agfocusDesktopFrameFit);
+    agbrowserFrame(p, host, surface, agfocusDesktopFrameFit, ctx);
   };
   for (const button of host.querySelectorAll('[data-browser-surface]')) button.onclick = () => {
     const surface = surfaces.browsers.find(item => item.id === button.dataset.browserSurface);
     if (surface && button.getAttribute('aria-pressed') !== 'true') choose(surface);
   };
-  $('[data-browser-reconnect]', host).onclick = () => agbrowserMount(p, true);
+  $('[data-browser-reconnect]', host).onclick = () => agbrowserMount(p, true, ctx);
   agbrowserWireMode(p, host);
   choose(selected);
 }
 
-async function agbrowserMount(p, reconnect = false) {
-  const body = $('#agpad-body', p.el);
+// A nested surface passes its mount context (host, currentness, cleanup registration); without one the pane body is the host.
+async function agbrowserMount(p, reconnect = false, ctx = null) {
+  const body = ctx ? ctx.host : $('#agpad-body', p.el);
   if (!body) return;
+  if (ctx) ctx.reset();
   p.browserFrameDispose?.();
   const request = p.browserRequest = (p.browserRequest || 0) + 1;
-  p.workspaceDispose = () => { p.browserRequest++; p.browserFrameDispose?.(); };
-  const current = () => agpadActive(p) && p.view === 'browser' && p.browserRequest === request && body.isConnected;
+  const dispose = () => { p.browserRequest++; p.browserFrameDispose?.(); };
+  if (ctx) ctx.onDispose(dispose); else p.workspaceDispose = dispose;
+  const current = () => (ctx ? ctx.current() : agpadActive(p) && p.view === 'browser') && p.browserRequest === request && body.isConnected;
   agbrowserStatus(p, body, 'Loading browser…');
   let surfaces;
   try { surfaces = await agbrowserSurfaces(p, reconnect); } catch (error) {
-    if (current()) agbrowserStatus(p, body, "Couldn't load. Retry", 'alert', () => agbrowserMount(p, true));
+    if (current()) agbrowserStatus(p, body, "Couldn't load. Retry", 'alert', () => agbrowserMount(p, true, ctx));
     return;
   }
   if (!current() || surfaces.agentId !== p.agentId) return;
   if (!surfaces.browsers.length) {
-    agbrowserStatus(p, body, 'Browser unavailable.', 'status', () => agbrowserMount(p, true));
+    agbrowserStatus(p, body, 'Browser unavailable.', 'status', () => agbrowserMount(p, true, ctx));
     return;
   }
   const saved = ls(agbrowserSelectionKey(surfaces.agentId));
-  agbrowserShow(p, body, surfaces, surfaces.browsers.find(item => item.id === saved) || surfaces.browsers[0]);
+  agbrowserShow(p, body, surfaces, surfaces.browsers.find(item => item.id === saved) || surfaces.browsers[0], ctx);
 }
 
 // Business Browser: the selected business's one browser. Read on entry or Reconnect, never
