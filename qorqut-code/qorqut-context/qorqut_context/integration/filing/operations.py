@@ -68,8 +68,20 @@ class FilingOperations:
     """``sources`` is the Operations source service; ``filing`` the host's ``ContextFiling`` or None when filing is not composed
     (the filing operations are then registered but unavailable, exactly as before)."""
 
-    def __init__(self, sources, filing):
+    def __init__(self, sources, filing, *, global_upload_agent=None):
         self.sources, self.store, self.filing = sources, sources.store, filing
+        # Optional trusted host resolver: return the current authorized agent ID from this transaction.
+        # Without it Global uploads retain the owner-only boundary. Role names never confer this authority.
+        self.global_upload_agent = global_upload_agent
+
+    def require_global_upload(self, ctx, uow):
+        if is_installation_owner(ctx, uow):
+            return
+        if ctx.principal_kind == "agent" and self.global_upload_agent is not None:
+            identity = self.global_upload_agent(uow)
+            if identity is not None and ctx.principal_id == identity:
+                return
+        raise DomainError("forbidden", "Only the owner or the authorized Global coordinator can upload Global context")
 
     def require_filing(self):
         if self.filing is None:
@@ -158,8 +170,7 @@ class FilingOperations:
         if operation == 'context_retract' and ctx.principal_kind != 'human':
             raise DomainError('forbidden', 'Only the owner retracts a Context source')
         if operation == 'context_upload' and ctx.business_id is None:
-            if not is_installation_owner(ctx, uow):
-                raise DomainError('forbidden', 'Only the owner can upload Global context')
+            self.require_global_upload(ctx, uow)
             if args.get('task_ids'):
                 raise DomainError('validation_error', 'Task associations are per project')
         self.sources.check_global_notes(operation, ctx, args, uow, GLOBAL_NOTES)
@@ -234,6 +245,8 @@ class FilingOperations:
         return self.sources.finalize(builder, uow, operation, args)
 
     def validate_targets(self, ctx, plan, uow):
+        if plan.operation_name == "context_upload" and ctx.business_id is None:
+            self.require_global_upload(ctx, uow)
         self.sources.validate_targets(ctx, plan, uow, global_note_operations=GLOBAL_NOTES)
 
     def apply(self, ctx, plan, uow):
