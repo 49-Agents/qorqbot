@@ -48,6 +48,18 @@ def _retained_plan(plan):
     return {k: deepcopy(v) for k, v in plan.items() if k not in ('_prepared', 'grants')}
 
 
+def _witness_size(witnesses):
+    """Count retained metadata and decoded inputs for both source representations."""
+    size = 0
+    for name, witness in witnesses.items():
+        if name.startswith('installed:'):
+            size += len(canonical(witness['distribution']))
+        else:
+            size += len(canonical(witness['records'])) + len(canonical(witness['directories']))
+        size += sum(len(_decode(item)) for item in witness['used_files'].values())
+    return size
+
+
 def _scan(paths):
     files, metadata = {}, {}
     for area in managed_plan._AREAS:
@@ -105,8 +117,7 @@ def capture(paths, plan, *, attribution):
                         for p, body in sorted(files.items())}
             index = _read_index(paths.agentic_root, wanted['git']['index_sha256'])
             raw_total = sum(map(len, files.values())) + len(index) + sum(len(b) for v in seeds.values() for b in v.values())
-            raw_total += sum(len(base64.b64decode(v['content_base64'])) for w in witnesses.values() for v in w['used_files'].values())
-            raw_total += sum(len(canonical(w['records'])) + len(canonical(w['directories'])) for w in witnesses.values())
+            raw_total += _witness_size(witnesses)
             if raw_total > MAX_CAPTURE_BYTES:
                 raise ValueError('Managed capture exceeds raw size bound')
             changed = [c['path'] for c in wanted['changes']]
@@ -203,8 +214,7 @@ def _validate(paths, intent, prior_raw, prior):
         metadata[path] = {'sha256': item['sha256'], 'mode': item['mode'], 'bytes': len(body)}
         size += len(body)
     size += len(_decode(intent['index'])) + sum(len(b) for values in seeds.values() for b in values.values())
-    size += sum(len(canonical(w['records'])) + len(canonical(w['directories'])) + sum(len(_decode(v)) for v in w['used_files'].values())
-                for w in intent['source_witnesses'].values())
+    size += _witness_size(intent['source_witnesses'])
     if size > MAX_CAPTURE_BYTES or intent['absent'] != _absent(plan, files):
         raise ValueError('Invalid authored capture bounds or absent paths')
     observed = {p: {'sha256': digest(body), 'bytes': len(body)} for p, body in sorted(files.items())}
