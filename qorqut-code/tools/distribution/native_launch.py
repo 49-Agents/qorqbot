@@ -34,6 +34,11 @@ def save_json(path, value):
         stream.flush()
         os.fsync(stream.fileno())
     temp.replace(path)
+    descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def environment(root, home):
@@ -261,7 +266,10 @@ def main(argv=None):
         logdir.mkdir(mode=0o700, exist_ok=True)
         with (logdir / 'application.log').open('ab') as log:
             child = subprocess.Popen(list(map(str, argv)), env=env, cwd=root, stdout=log, stderr=log)
+            stop_requested = False
             def stop(signum, frame):
+                nonlocal stop_requested
+                stop_requested = True
                 if child.poll() is None:
                     child.send_signal(signal.SIGTERM)
             signal.signal(signal.SIGTERM, stop)
@@ -272,6 +280,8 @@ def main(argv=None):
                 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
                 for _ in range(300):
                     if child.poll() is not None:
+                        if stop_requested and child.returncode in (0, -signal.SIGTERM, -signal.SIGINT):
+                            return 0
                         raise RuntimeError('Qorqbot exited during startup. Details are in instance/logs/application.log')
                     try:
                         with opener.open(url, timeout=1) as response:
@@ -284,7 +294,12 @@ def main(argv=None):
                     child.wait(timeout=30)
                     raise RuntimeError('Qorqbot did not become ready. Details are in instance/logs/application.log')
                 print(f'Qorqbot is running at {url}\nPress Ctrl+C to stop.', flush=True)
-                return child.wait()
+                code = child.wait()
+                # Uvicorn can finish graceful shutdown by re-raising the received
+                # signal. An owner-requested stop is a successful launcher exit.
+                if stop_requested and code in (0, -signal.SIGTERM, -signal.SIGINT):
+                    return 0
+                return code if code >= 0 else 128 - code
             finally:
                 if child.poll() is None:
                     child.terminate()
