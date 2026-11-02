@@ -1,0 +1,5 @@
+# Exact reviewed scanner false positives.
+# Entries identify a schema fingerprint and a vendored JavaScript symbol.
+
+968efb9fea7e3ff6a0f7689d41b0ab725add0281:qorqut-code/app/bazarlyk/migration/crm_baseline_fingerprint.json:generic-api-key:821
+354ee4e301e48cf8e8855af536186a5abe78932b:qorqut-code/biz-dashboard/js/xterm.js:generic-api-key:1

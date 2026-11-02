@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Assemble an offline Linux folder download from verified runtime preparation.
+"""Assemble a Linux folder download using system tools and standard Python wheels.
 
-Build tooling only. Inputs are a prepare-local output of the filtered export and
-the clean native tool bundle. Never point this at an initialized installation.
+Build tooling only. Input is a prepare-local output of the filtered export. Never point this at an initialized installation.
 No venv, configuration, HOME, build log or instance is copied from either input.
 """
 from __future__ import annotations
@@ -13,6 +12,7 @@ import csv
 import hashlib
 import importlib.util
 import io
+from email.parser import BytesParser
 import re
 import json
 import os
@@ -32,19 +32,6 @@ def sha(path):
 
 
 DEV = {'tests', 'test', '__tests__', '__pycache__', '.github', '.git', '.gitlab', '.pytest_cache'}
-
-
-def native_exclusions(directory, names):
-    directory = Path(directory)
-    interpreter_examples = ('_test', '_ctypes_test.', '_xxtestfuzz.', 'xxlimited.', 'xxlimited_35.', 'xxsubtype.')
-    return [name for name in names if name in DEV or name in {'build_runtime.py', '.package-lock.json', 'sdk-tools.d.ts'}
-            or directory.name == 'lib-dynload' and name.startswith(interpreter_examples)
-            or directory.name == 'node_modules' and name == 'corepack'
-            or directory.name == '@anthropic-ai' and name == 'claude-code-linux-x64-musl'
-            or directory.name == 'bin' and directory.parent.name == 'agent-browser'
-               and name.startswith('agent-browser-') and name != 'agent-browser-linux-x64'
-            or directory.name == 'node' and name == 'CHANGELOG.md'
-            or directory.name == 'hooks' and directory.parent.name == 'templates' and name.endswith('.sample')]
 
 
 def strip_wheel(source, target):
@@ -84,17 +71,16 @@ def strip_wheel(source, target):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--prepared', type=Path, required=True)
-    parser.add_argument('--native', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--version', required=True)
     args = parser.parse_args(argv)
     if not re.fullmatch(r'[0-9A-Za-z][0-9A-Za-z._-]{0,79}', args.version):
         raise ValueError('Invalid package version')
-    prepared, native, output, report = (p.resolve() for p in (args.prepared, args.native, args.output, args.report))
+    prepared, output, report = (p.resolve() for p in (args.prepared, args.output, args.report))
     if output.exists() or report.exists():
         raise ValueError('Output and report must be new paths')
-    for a in (prepared, native):
+    for a in (prepared,):
         if output.is_relative_to(a) or a.is_relative_to(output):
             raise ValueError('Build inputs and output must be disjoint')
     if report.is_relative_to(output):
@@ -107,24 +93,12 @@ def main(argv=None):
         raise ValueError('Expected a core-only prepared environment')
     audit = runtime_source.audit(source, wheels=prepared / 'wheels')
     # Qualification is handled by the release gate; this assembler never publishes.
-    blockers = [f for f in audit['findings'] if not (f.get('kind') == 'missing-required-asset' and f.get('path') == 'LICENSE')]
+    blockers = audit['findings']
     if blockers:
         raise ValueError('Runtime source audit is not clean: ' + json.dumps(blockers[:5]))
     runtime = output / 'qorqbot/runtime'
     runtime.mkdir(parents=True)
     shutil.copytree(source, runtime / 'src', symlinks=True)
-    copied_inodes = {}
-    def copy_native(source, destination):
-        stat = os.stat(source)
-        key = (stat.st_dev, stat.st_ino)
-        if key in copied_inodes:
-            os.link(copied_inodes[key], destination)
-        else:
-            shutil.copy2(source, destination)
-            copied_inodes[key] = destination
-        return destination
-    shutil.copytree(native, runtime / 'native', symlinks=True, copy_function=copy_native,
-                    ignore=native_exclusions)
     shutil.copytree(prepared / 'wheels', runtime / 'wheels')
     shutil.copy2(prepared / 'PREPARATION-RECEIPT.json', runtime / 'PREPARATION-RECEIPT.json')
     for row in receipt['wheels']:
@@ -135,10 +109,7 @@ def main(argv=None):
     normalize = lambda value: value.lower().replace('_', '-').replace('.', '-')
     own = {normalize(row['name']) for row in receipt['wheels']}
     requirements = sorted(f'{name}=={version}' for name, version in packages.items()
-                          if normalize(name) not in own and normalize(name) not in {'pytest'})
-    if not any(r.startswith('pip==') for r in requirements):
-        requirements.append(subprocess.check_output([python, '-I', '-c',
-            'import importlib.metadata as m; print("pip=="+m.version("pip"))'], text=True).strip())
+                          if normalize(name) not in own and normalize(name) not in {'pytest', 'pip'})
     downloads = report.parent / (report.stem + '-downloads')
     downloads.mkdir(parents=True, exist_ok=False)
     subprocess.run([python, '-I', '-m', 'pip', 'download', '--only-binary=:all:', '--no-deps', '--dest', downloads,
@@ -149,48 +120,56 @@ def main(argv=None):
     shutil.copy2(Path(__file__).with_name('native_update.py'), runtime / 'update.py')
     shutil.copy2(Path(__file__).with_name('native_extension.py'), runtime / 'extension_install.py')
     launcher = output / 'qorqbot/qorqbot'
-    launcher.write_text('''#!/bin/sh
+    launcher.write_text("""#!/bin/sh
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
-export LD_LIBRARY_PATH="$root/runtime/native/lib"
+python=${QORQUT_PYTHON:-python3.12}
+if ! command -v "$python" >/dev/null 2>&1; then
+    echo "Qorqbot requires Python 3.12 and python3.12-venv. Install them using your system package manager." >&2
+    exit 1
+fi
 unset PYTHONHOME PYTHONPATH
 if [ "${1-}" = update ]; then
     shift
     updater="$root/runtime"
     if [ ! -d "$updater" ]; then updater="$root/.previous-runtime"; fi
-    export LD_LIBRARY_PATH="$updater/native/lib"
-    exec "$updater/native/bin/python3.12" -I -B "$updater/update.py" "$@"
+    exec "$python" -I -B "$updater/update.py" "$@"
 fi
 if [ "${1-}" = extension-install ]; then
     shift
-    exec "$root/runtime/native/bin/python3.12" -I -B "$root/runtime/extension_install.py" "$@"
+    exec "$python" -I -B "$root/runtime/extension_install.py" "$@"
 fi
-exec "$root/runtime/native/bin/python3.12" -I -B "$root/runtime/launch.py" "$@"
-''')
+exec "$python" -I -B "$root/runtime/launch.py" "$@"
+""")
     launcher.chmod(0o755)
-    (output / 'qorqbot/README.txt').write_text('''Qorqbot — Linux development candidate
-
-Ubuntu 24.04, Intel/AMD 64-bit. Extract to a short writable folder and run:
-  ./qorqbot
-Open the printed local address in your browser. Press Ctrl+C to stop.
-You can also run ./qorqbot status or ./qorqbot stop from another terminal.
-Install a downloaded optional connector while Qorqbot and its agents are stopped:
-  ./qorqbot extension-install /path/to/connector.tar.gz --sha256 VERIFIED_HASH
-An interrupted installation can be continued with the same command and --resume.
-
-The first launch installs bundled dependencies offline. Your work is stored in
-instance/operations; settings, logs and profiles also stay inside this folder.
-Keep this folder at the same location after first launch. Back it up while the
-application and its agents are stopped. Deleting the folder deletes its data.
-
-Ubuntu 24.04 may restrict Chrome's sandbox at an arbitrary extraction path.
-The core app works independently; browser automation requires a host-approved
-sandbox configuration. This package does not alter AppArmor or disable Chrome's
-sandbox. See the distribution documentation for this platform prerequisite.
-
-This candidate is private and unqualified for publication. License selection,
-extension distribution and release qualification must be completed separately.
-''')
+    shutil.copy2(Path(__file__).resolve().parents[2] / 'docs/distribution/README.md',
+                 output / 'qorqbot/README.txt')
+    for name in ('LICENSE', 'LICENSE-SCOPE.md', 'LICENSES/Apache-2.0.txt', 'RELEASE-LICENSES.json'):
+        target = output / 'qorqbot' / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / 'qorqut-code' / name, target)
+    locked = []
+    for wheel_path in sorted((runtime / 'wheels').glob('*.whl')) + sorted((runtime / 'wheelhouse').glob('*.whl')):
+        with zipfile.ZipFile(wheel_path) as wheel:
+            paths = [n for n in wheel.namelist() if n.endswith('.dist-info/METADATA')]
+            if len(paths) != 1:
+                raise ValueError('Wheel needs one METADATA: ' + wheel_path.name)
+            metadata = BytesParser().parsebytes(wheel.read(paths[0]))
+        # First-party initialization verifies pip's direct-URL provenance against
+        # the receipt wheel. A named find-links requirement does not produce it.
+        requirement = ('./runtime/wheels/' + wheel_path.name if wheel_path.parent.name == 'wheels'
+                       else f"{metadata['Name']}=={metadata['Version']}")
+        locked.append(f"{requirement} --hash=sha256:{sha(wheel_path)}")
+    (runtime / 'requirements.lock').write_text('\n'.join(sorted(locked)) + '\n')
+    (runtime / 'DEPENDENCIES.json').write_text(json.dumps({
+        'platform': 'Ubuntu 24.04 x86_64',
+        'required': {'python': '3.12.x with venv/pip support', 'git': '2.43 or newer'},
+        'optional': {'tmux': '3.4 or newer for agent terminals', 'agent_client': 'user-installed Codex or Claude Code',
+                     'browser': 'user-installed compatible Chrome and agent-browser',
+                     'node': 'as required by the selected external client/browser tool',
+                     'desktop': 'TigerVNC, Openbox, X11, D-Bus and keyring if a desktop is configured'},
+        'python_libraries': 'requirements.lock', 'external_tools_bundled': False,
+    }, indent=2) + '\n')
     files = {}
     for path in sorted(runtime.rglob('*')):
         if path.is_file():
@@ -212,7 +191,7 @@ extension distribution and release qualification must be completed separately.
         return member
     with tarfile.open(archive, 'w:gz', compresslevel=6) as tar:
         tar.add(output / 'qorqbot', arcname='qorqbot', filter=public_header)
-    record = {'format': 1, 'version': args.version, 'qualified': False, 'archive': str(archive),
+    record = {'format': 1, 'version': args.version, 'qualified': False, 'external_tools_bundled': False, 'archive': str(archive),
               'sha256': sha(archive), 'third_party_wheels': wheel_records, 'source_audit': audit}
     report.write_text(json.dumps(record, indent=2) + '\n')
     print(archive)

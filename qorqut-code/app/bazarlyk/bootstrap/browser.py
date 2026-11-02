@@ -743,10 +743,28 @@ def load_target(workspace: Path) -> tuple[str, Path]:
         raise BrowserConfigurationInvalid(str(exc)) from exc
 
 
+def installed_runtime():
+    """The installed agent-browser command for a folder installation, resolved on demand."""
+    from bazarlyk.native_paths import installed_executable
+    executable = installed_executable("agent-browser", override="QORQUT_AGENT_BROWSER_EXECUTABLE")
+    if not executable:
+        raise BrowserError("Install agent-browser and make it available on PATH, or set "
+                           "QORQUT_AGENT_BROWSER_EXECUTABLE to its absolute executable path.")
+    return executable
+
+
 def runtime_executable(runtime):
+    """Accept the legacy managed runtime directory or a user-installed executable."""
     runtime_path = Path(runtime)
     if not runtime_path.is_absolute():
-        raise BrowserError("Browser runtime directory must be absolute.")
+        raise BrowserError("Browser runtime directory or executable must be absolute.")
+    if runtime_path.is_file():
+        if not os.access(runtime_path, os.X_OK):
+            raise BrowserError("The configured agent-browser command is not executable.")
+        from .features import browser_supported
+        if not browser_supported(runtime_path, runtime_path.parent):
+            raise BrowserError("The installed agent-browser lacks the required scoped command contract.")
+        return runtime_path
     try:
         package = json.loads((runtime_path / "node_modules/agent-browser/package.json").read_text())
         if package.get("name") != "agent-browser" or not isinstance(package.get("version"),str):
@@ -777,9 +795,13 @@ def runtime_executable(runtime):
 
 
 def runtime_directory(executable):
-    """The runtime directory ``runtime_executable`` selected this executable from."""
+    """The saved runtime reference: legacy directory or installed executable path."""
     executable = Path(executable)
-    return executable.parent if executable.name == RUNTIME_WRAPPER else executable.parent.parent.parent
+    if executable.name == RUNTIME_WRAPPER and (executable.parent / 'node_modules/agent-browser/package.json').is_file():
+        return executable.parent
+    if executable.parent.name == '.bin' and executable.parent.parent.name == 'node_modules':
+        return executable.parent.parent.parent
+    return executable
 
 
 def preflight(endpoint: str) -> None:

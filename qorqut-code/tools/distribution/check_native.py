@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Qualify a private native archive in disposable, offline Ubuntu 24.04.
+"""Qualify a folder archive in Ubuntu 24.04 with user-installed system prerequisites.
 
 Build/test tooling only. Docker is needed here, never in the customer download.
 All records are synthetic; no account, service or existing instance is used.
@@ -16,7 +16,7 @@ import sys
 import time
 import uuid
 
-IMAGE = 'ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac'
+IMAGE = 'qorqbot-check-prerequisites:ubuntu24'
 INSTALL = '/install/qorqbot'
 
 
@@ -32,14 +32,20 @@ def inside(phase):
         launcher = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(launcher)
         env = launcher.environment(root, root / 'instance/home')
-        for name, flag in (('git', '--version'), ('tmux', '-V'), ('node', '--version'),
-                           ('codex', '--version'), ('claude', '--version')):
+        assert not (root / 'runtime/native').exists()
+        for name, flag in (('git', '--version'), ('tmux', '-V')):
             path = shutil.which(name, path=env['PATH'])
-            assert path and Path(path).is_relative_to(root), name
+            assert path and not Path(path).is_relative_to(root), name
             subprocess.run([path, flag], env=env, cwd=root, check=True, timeout=60)
-        subprocess.run([root / 'runtime/native/node/bin/node',
-                        root / 'runtime/native/browser/node_modules/agent-browser/bin/agent-browser.js', '--version'],
-                       env=env, cwd=root, check=True, timeout=60)
+        assert sys.version_info[:2] == (3, 12)
+        assert not any(shutil.which(name, path=env['PATH']) for name in ('chrome', 'google-chrome', 'node', 'codex', 'claude'))
+        missing = dict(env, PATH='/nonexistent')
+        try:
+            launcher.require_prerequisites(missing)
+        except RuntimeError as error:
+            assert 'Git is required' in str(error)
+        else:
+            raise AssertionError('Missing Git was not reported')
         return
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     def request(path, body=None):
@@ -116,8 +122,7 @@ def main():
         return completed
     def execute(argv, label, **kwargs):
         return command(['docker', 'exec', '-w', INSTALL, name, *argv], label, **kwargs)
-    python = ['env', 'LD_LIBRARY_PATH=' + INSTALL + '/runtime/native/lib',
-              INSTALL + '/runtime/native/bin/python3.12', '-I', '-B', '/check.py', '--inside']
+    python = ['/usr/bin/python3.12', '-I', '-B', '/check.py', '--inside']
     def start(label):
         nonlocal application
         with (output / (label + '-app.log')).open('ab') as log:
@@ -139,7 +144,11 @@ def main():
             raise RuntimeError('Application did not shut down cleanly: ' + label)
         application = None
     try:
+        command(['docker', 'build', '-f', Path(__file__).with_name('check-native.Dockerfile'),
+                 '-t', IMAGE, Path(__file__).parent], 'prerequisite-image')
+        result['image_id'] = subprocess.check_output(['docker', 'image', 'inspect', IMAGE, '--format', '{{.Id}}'], text=True).strip()
         command(['docker', 'run', '-d', '--name', name, '--network', 'none', '--user', f'{os.getuid()}:{os.getgid()}',
+            '-e', 'QORQUT_TIMEZONE=UTC',
             '--mount', f'type=bind,src={archive},dst=/download.tar.gz,readonly',
             '--mount', f'type=bind,src={installation},dst=/install',
             '--mount', f'type=bind,src={Path(__file__).resolve()},dst=/check.py,readonly',
@@ -150,7 +159,7 @@ def main():
         command(['docker', 'exec', name, 'tar', '-xzf', '/download.tar.gz', '-C', '/install'], 'extract')
         execute(['./qorqbot', 'verify'], 'verify')
         execute(['./qorqbot', 'setup'], 'offline-setup')
-        execute(python + ['tools'], 'bundled-tools')
+        execute(python + ['tools'], 'system-tools-and-missing-dependency')
         execute(['./qorqbot', 'status'], 'stopped-status', expected=1)
         start('first-start')
         execute(python + ['write'], 'write')

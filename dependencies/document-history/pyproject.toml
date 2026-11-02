@@ -1,8 +1,10 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
+license = "BUSL-1.1"
+license-files = ["LICENSE", "LICENSES/Apache-2.0.txt", "RELEASE-LICENSES.json"]
 name = "qorqut-business-docs-versioning"
 version = "0.2.0"
 description = "Immutable text document versions and an append-only business activity log on a caller-owned SQLite connection."

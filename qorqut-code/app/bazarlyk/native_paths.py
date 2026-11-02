@@ -1,6 +1,26 @@
-"""Tool locations supplied by the native launcher; ordinary deployments keep their defaults."""
+"""Folder-installation locations and legacy bundled-tool compatibility."""
 import os
 from pathlib import Path
+import shutil
+
+
+def folder_root():
+    """The writable application folder, independent of where its tools are installed."""
+    value = os.environ.get('QORQUT_FOLDER_ROOT')
+    if not value:
+        return None
+    path = Path(value)
+    if not path.is_absolute() or not path.is_dir():
+        raise ValueError('QORQUT_FOLDER_ROOT must name the application folder')
+    return path
+
+
+def installed_executable(name, *alternatives, override=None):
+    """Select a user-installed tool; an explicit path never silently falls back."""
+    if override and os.environ.get(override):
+        return os.environ[override]
+    return next((os.path.abspath(found) for candidate in (name, *alternatives)
+                 if (found := shutil.which(candidate))), None)
 
 
 def root():
@@ -24,8 +44,11 @@ def executable(name, default=None):
 
 
 def environment(base):
-    """Retain each caller's restricted environment, adding only bundled tool locations."""
+    """Retain the caller's restricted environment and the selected installation paths."""
     result = dict(base)
+    folder = folder_root()
+    if folder is not None:
+        result['QORQUT_FOLDER_ROOT'] = str(folder)
     native = root()
     if native is not None:
         result.update({'QORQUT_NATIVE_ROOT': str(native), 'LD_LIBRARY_PATH': str(native / 'lib'),

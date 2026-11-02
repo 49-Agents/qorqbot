@@ -128,10 +128,12 @@ def serve(state: Path, stop: threading.Event) -> int:
         if not port_free(managed["port"]):
             raise RuntimeError("port_in_use")
         from bazarlyk import native_paths
-        env = native_paths.environment({"PATH": "/usr/bin:/bin", "HOME": str(state), "LANG": "C.UTF-8"})
+        folder, native = native_paths.folder_root(), native_paths.root()
+        search_path = os.environ.get('PATH', os.defpath) if folder is not None else "/usr/bin:/bin"
+        env = native_paths.environment({"PATH": search_path, "HOME": str(state), "LANG": "C.UTF-8"})
         for key, name in (("TMPDIR", "tmp"), ("XDG_CACHE_HOME", "cache"), ("XDG_CONFIG_HOME", "config"), ("XDG_RUNTIME_DIR", "run")):
-            native = native_paths.root()
-            directory = native.parent.parent / ".run/c" if key == "TMPDIR" and native is not None else state / name
+            installation = folder or (native.parent.parent if native is not None else None)
+            directory = installation / ".run/c" if key == "TMPDIR" and installation is not None else state / name
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
             env[key] = str(directory)
         child = subprocess.Popen(chrome_command(meta), cwd=state, env=env, stdin=subprocess.DEVNULL,

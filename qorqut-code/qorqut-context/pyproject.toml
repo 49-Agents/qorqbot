@@ -1,8 +1,10 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
+license = "BUSL-1.1"
+license-files = ["LICENSE", "LICENSES/Apache-2.0.txt", "RELEASE-LICENSES.json"]
 name = "qorqut-context"
 version = "0.1.0"
 description = "Qorqut shared context engine: Git-backed context, propagation pipeline and Codex app-server runner"

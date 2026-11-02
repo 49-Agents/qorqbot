@@ -29,17 +29,9 @@ def load_launcher(runtime):
 
 
 def runtime_processes(runtime):
-    """Own-UID processes still executing this runtime, including detached browsers/helpers."""
-    found = []
-    for process in Path('/proc').iterdir():
-        if not process.name.isdigit() or int(process.name) == os.getpid():
-            continue
-        try:
-            if process.stat().st_uid == os.getuid() and (process / 'exe').resolve().is_relative_to(runtime):
-                found.append(int(process.name))
-        except (OSError, ValueError):
-            continue
-    return found
+    root = runtime.parent
+    available = root / 'runtime' if (root / 'runtime').exists() else root / '.previous-runtime'
+    return load_launcher(available).installation_processes(root)
 
 
 def unpack(archive, stage):
@@ -162,12 +154,7 @@ def main(argv=None):
                 raise ValueError('Unrecorded update files remain; inspect them before another update')
             launcher.require_completed_extension_installs(runtime)
             env = launcher.environment(root, instance / 'home')
-            tmux = subprocess.run([runtime / 'native/bin/tmux', '-L', 'bazarlyk', 'list-sessions'],
-                                  env=env, capture_output=True, text=True)
-            if tmux.returncode == 0:
-                raise ValueError('Stop this installation’s agent terminals before updating')
-            if not any(text in tmux.stderr.lower() for text in ('no server running', 'no such file or directory')):
-                raise ValueError('Could not prove that this installation’s agent terminals are stopped')
+            launcher.require_stopped_terminals(root, env)
             if runtime_processes(runtime):
                 raise ValueError('Stop this installation’s remaining browsers and helper processes before updating')
             config = launcher.read_json(instance / 'config/extensions.json')
@@ -205,7 +192,7 @@ def main(argv=None):
                              'm=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);'
                              'env=m.environment(root,root/"runtime/setup-state");'
                              'm.prepare(root,env);m.initialize(root,env)')
-                    subprocess.run([runtime / 'native/bin/python3.12', '-I', '-B', '-c', setup, root],
+                    subprocess.run([sys.executable, '-I', '-B', '-c', setup, root],
                                    env=env, cwd=root, check=True)
                     subprocess.run([runtime / 'venv/bin/python', '-I', '-B', '-m', 'bazarlyk.bootstrap.native_update_check',
                                     '--prepared-root', runtime, '--instance-root', instance], env=env, cwd=root, check=True)
