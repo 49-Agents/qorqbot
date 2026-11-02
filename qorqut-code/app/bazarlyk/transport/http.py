@@ -445,6 +445,8 @@ class HTTPAPI:
                     return response(result)
                 if len(parts) == 4 and parts[1] == "agents" and parts[3] == "viewbox" and request.method == "GET":
                     return await self.viewbox_board(request, context, parts[2], request_id)
+                if len(parts) == 5 and parts[1] == "agents" and parts[3:] == ["viewbox", "dismiss"] and request.method == "POST":
+                    return await self.viewbox_dismiss(request, context, parts[2], request_id)
                 if len(parts) == 4 and parts[1] == "agents" and parts[3] == "browser-surfaces" and request.method == "GET" and self.compatibility:
                     data = await anyio.to_thread.run_sync(lambda: self.compatibility.local_files.browser_surfaces(context, parts[2]))
                     return JSONResponse(data, headers={"Cache-Control": "no-store"})
@@ -989,13 +991,31 @@ class HTTPAPI:
         """
         if request.headers.get("authorization") is not None:
             raise DomainError("forbidden", "The Viewbox board is for the owner's dashboard and takes no bearer credential")
-        data = await anyio.to_thread.run_sync(partial(self.runtime.domains.viewbox.owner_board, context, agent_id))
-        etag = f'W/"viewbox-{data["agent_id"]}-{data["revision"]}"'
+        from bazarlyk.viewbox_preferences import board_with_dismissals, revision
+        data = await anyio.to_thread.run_sync(partial(
+            board_with_dismissals, self.runtime.domains.viewbox, self.runtime.paths.runtime, context, agent_id))
+        # The owner's dismissals are part of what the pane shows, so they are part of the tag.
+        etag = f'W/"viewbox-{data["agent_id"]}-{data["revision"]}-{revision(data["dismissed_attention_ids"])}"'
         candidates = {value.strip() for value in request.headers.get("if-none-match", "").split(",")}
         if etag in candidates:
             return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-store"})
         result = response(OperationResult.ok(data, request_id=request_id))
         result.headers["ETag"] = etag
+        result.headers["Cache-Control"] = "private, no-store"
+        return result
+
+    async def viewbox_dismiss(self, request, context, agent_id, request_id):
+        """Owner-only, idempotent: remember that one exact current placement is dismissed from the Focus queue.
+
+        Same bearer refusal as the board read. The board, its source and the viewed acknowledgements are untouched.
+        """
+        if request.headers.get("authorization") is not None:
+            raise DomainError("forbidden", "The Viewbox board is for the owner's dashboard and takes no bearer credential")
+        from bazarlyk.viewbox_preferences import dismiss
+        body = await read_json(request, limit=4096)
+        data = await anyio.to_thread.run_sync(partial(
+            dismiss, self.runtime.domains.viewbox, self.runtime.paths.runtime, context, agent_id, body))
+        result = response(OperationResult.ok(data, request_id=request_id))
         result.headers["Cache-Control"] = "private, no-store"
         return result
 
