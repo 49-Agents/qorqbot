@@ -16,6 +16,10 @@ class Receiver:
     def start(self):
         if self.process is not None and self.process.poll() is None:
             return
+        self.process = None
+        if self.log is not None:
+            self.log.close()
+            self.log = None
         settings = binding.load_binding(self.paths.instance_root)
         if settings is None:
             return  # Explicitly installed but not yet paired/bound.
