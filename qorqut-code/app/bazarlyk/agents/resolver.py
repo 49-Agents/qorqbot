@@ -575,6 +575,13 @@ class AgentConfigResolver:
                 "tool_configuration_changed": "Generated Claude tool permissions need refreshing",
             }
             drift = preparation.get("projection_drift", [])
+            if (set(drift) == {"helper_probe_unavailable"} and not repair_error
+                    and selected and selected.get("compatibility", {}).get("supported")):
+                preparation["status"] = "bootstrap_unavailable"
+                return {"ready": False, "effective_config_id": config.effective_config_id,
+                        "error": {"code": "bootstrap_unavailable", "retryable": True,
+                                  "message": "The native helper readiness check is temporarily unavailable; retry automatically"},
+                        "preparation": preparation}
             details = [reasons.get(item, "Generated file changed: " + item) for item in drift[:6]]
             if selected and not selected.get("compatibility", {}).get("supported"):
                 details.append("The installed " + runtime + " version does not meet the preparation requirements")

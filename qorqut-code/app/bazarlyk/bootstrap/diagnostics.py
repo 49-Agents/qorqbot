@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import os
+import logging
 from pathlib import Path
 import shlex
 import subprocess
 import time
+
+LOG = logging.getLogger(__name__)
+PREPARED_IMPORT_TIMEOUT = 5
 
 HELPER_MODULES = ("bazarlyk.bootstrap.claude_session", "bazarlyk.bootstrap.mcp_reconnect",
                   "bazarlyk.bootstrap.transcript_snapshot")
@@ -64,7 +68,6 @@ def integration_facts(*, helper, nudge=None, process="unknown", backend="unknown
 
 def prepared_helpers(projection,workspace=None):
     """Inspect prepared helper executables separately from projection hashes."""
-    from functools import lru_cache
     runtime=projection.get('helper_runtime')
     if not runtime:
         try:
@@ -97,15 +100,42 @@ def prepared_helpers(projection,workspace=None):
 
 
 from functools import lru_cache
-@lru_cache(maxsize=32)
-def _prepared_imports(executable,inode,mtime,code=None):
-    import json
+
+
+class _ImportProbeFailure(Exception):
+    def __init__(self, reason):
+        self.reason = reason
+
+
+def _prepared_imports(executable, inode, mtime, code=None):
+    # Cache successful imports only. Transient failures must recover on the next
+    # check without re-preparing the agent or restarting the application.
     try:
-        result=subprocess.run([executable,'-I','-B','-c',
-            'import importlib,json,sys;'+('sys.path.insert(0,'+repr(code)+');' if code else '')+
-            '[importlib.import_module(name) for name in '+repr(list(HELPER_MODULES))+'];'
+        return _verified_imports(executable, inode, mtime, code)
+    except _ImportProbeFailure as exc:
+        return {"ready": False, "reason": exc.reason}
+
+
+@lru_cache(maxsize=32)
+def _verified_imports(executable, inode, mtime, code):
+    import json
+    started = time.monotonic()
+    try:
+        result = subprocess.run([executable, '-I', '-B', '-c',
+            'import importlib,json,sys;' + ('sys.path.insert(0,' + repr(code) + ');' if code else '') +
+            '[importlib.import_module(name) for name in ' + repr(list(HELPER_MODULES)) + '];'
             'print(json.dumps(sorted({m.__file__ for m in sys.modules.values() if getattr(m,"__file__",None) and not m.__file__.startswith("<")})))'],
-            capture_output=True,text=True,timeout=1)
-        if result.returncode==0:return {'ready':True,'reason':'helper_import_verified','imports':json.loads(result.stdout)}
-    except (OSError,ValueError,subprocess.SubprocessError):pass
-    return {'ready':False,'reason':'helper_import_failed'}
+            capture_output=True, text=True, timeout=PREPARED_IMPORT_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as exc:
+        LOG.warning("Native helper probe unavailable: interpreter=%s elapsed=%.3fs error=%s",
+                    executable, time.monotonic() - started, type(exc).__name__)
+        raise _ImportProbeFailure("helper_probe_unavailable") from exc
+    try:
+        imports = json.loads(result.stdout) if result.returncode == 0 else None
+        if not isinstance(imports, list) or not imports or not all(isinstance(path, str) for path in imports):
+            raise ValueError("Invalid helper import inventory")
+    except ValueError as exc:
+        LOG.warning("Native helper import failed: interpreter=%s elapsed=%.3fs exit=%s stderr=%s",
+                    executable, time.monotonic() - started, result.returncode, result.stderr[-2000:])
+        raise _ImportProbeFailure("helper_import_failed") from exc
+    return {"ready": True, "reason": "helper_import_verified", "imports": imports}
