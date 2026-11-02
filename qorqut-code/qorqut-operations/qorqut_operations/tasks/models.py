@@ -1,8 +1,10 @@
 """Task vocabulary and validation: fixed states, typed custom fields, dependencies, parents and the single snooze.
 
-State handling is deliberately thin. The six states are a fixed enum; they gate nothing: unfinished children or
-dependencies never block a state change, and a parent's state never moves its children. Only the owning scope's custom
-field definitions are configurable, and the label vocabulary is the shared catalog, not a per-scope list."""
+State handling is deliberately thin. The seven states are a fixed enum; they gate nothing: unfinished children or
+dependencies never block a state change, and a parent's state never moves its children. ``needs_input`` records that
+progress needs the owner's answer, decision or approval; it is unfinished and neither closed nor paused. Only the owning
+scope's custom field definitions are configurable, and the label vocabulary is the shared catalog, not a per-scope
+list."""
 
 from __future__ import annotations
 
@@ -53,7 +55,7 @@ def validate_config(value) -> dict:
     if not isinstance(value, dict) or value.get("v") != 1 or set(value) - CONFIG_KEYS:
         invalid("Task configuration is {v:1, fields}; states are fixed and tags come from the shared catalog")
     if "states" in value and value["states"] != list(STATE_DEFINITIONS):
-        invalid("Task states are fixed (open, working, blocked, waiting, done, cancelled) and cannot be reconfigured")
+        invalid("Task states are fixed (" + ", ".join(STATES) + ") and cannot be reconfigured")
     if "tags" in value and value["tags"] != TAG_REFERENCE:
         invalid("Task tags come from the shared tag catalog (tags_list/tags_create) and cannot be configured per scope")
     fields = value.get("fields", {})

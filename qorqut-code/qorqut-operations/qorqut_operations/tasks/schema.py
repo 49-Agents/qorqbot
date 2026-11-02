@@ -1,8 +1,10 @@
 """Storage of Tasks: one record per Task in its single owning namespace.
 
 ``business_id`` NULL is the Global namespace; the key stays ``(business_id, id)`` as in v1 so the domain tables that
-reference a Task by that pair keep their foreign keys. A Task's state is one of six fixed values. Parent and child
-states are independent; ``parent_id`` is an ancestry link inside the same namespace and cannot form a cycle.
+reference a Task by that pair keep their foreign keys. A Task's state is one of seven fixed values. ``needs_input``
+marks progress that cannot continue without the owner's answer, decision or approval; it is unfinished, neither closed
+nor paused, and it gates nothing. Parent and child states are independent; ``parent_id`` is an ancestry link inside the
+same namespace and cannot form a cycle.
 Assignees and informational dependencies are ``assigned_to`` / ``blocked_by`` relationship edges (the engine's
 relationship store), exactly as before. Labels live in the shared catalog (``item_tags``), the discussion in
 ``thread_messages``, and a Task's single snooze is the one ``snoozed_until`` time with a generation counter.
@@ -15,7 +17,7 @@ from __future__ import annotations
 from qorqut_operations.storage.assembly import StorageContribution
 from qorqut_operations.storage.specs import TableSpec
 
-STATES = ("open", "working", "blocked", "waiting", "done", "cancelled")
+STATES = ("open", "working", "blocked", "waiting", "done", "cancelled", "needs_input")
 CLOSED_STATES = ("done", "cancelled")
 PAUSED_STATES = ("waiting",)
 KINDS = ("ordinary", "owner_request")
@@ -25,7 +27,7 @@ SCHEMA = (
     business_id TEXT REFERENCES businesses(id),
     id TEXT NOT NULL,
     title TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('open','working','blocked','waiting','done','cancelled')),
+    status TEXT NOT NULL CHECK(status IN ('open','working','blocked','waiting','done','cancelled','needs_input')),
     due TEXT,
     worker_ids_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(worker_ids_json) AND json_type(worker_ids_json)='array'),
     latest_completed_at TEXT,
