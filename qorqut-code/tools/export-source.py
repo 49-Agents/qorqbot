@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Export exact committed source from explicit local Git repositories into one new directory.
 
-    export-source.py --manifest INPUT.json --output NEW_DIRECTORY
+    export-source.py --manifest INPUT.json --output NEW_DIRECTORY [--require-gitlink-pins]
+    export-source.py --manifest INPUT.json --check-only [--require-gitlink-pins]
 
 Input manifest: {"format": 1, "components": [{"name", "repository", "commit", "destination"}, ...]}
 ``repository`` is an absolute local Git repository (work tree or bare), ``commit`` a full 40-character commit id and
@@ -11,8 +12,17 @@ may be nested inside another only at the parent's gitlink (submodule) path, whic
 directory. Symlinks must stay inside their own component. The output receives ``SOURCE-MANIFEST.json`` with each
 component's name, destination, commit and tree only; local repository paths are never written to it.
 
+``--require-gitlink-pins`` additionally requires every nested component's commit to equal the gitlink recorded in its
+parent's selected commit, at every nesting level; without it a nested commit may deliberately differ from that pin.
+
 The output must not exist or must be an empty directory, and must not lie inside an input repository or Git directory.
 The export is built in a sibling staging directory and renamed into place only when complete.
+
+``--check-only`` (instead of ``--output``) runs just the read-only source selection checks that every export starts with:
+manifest shape, repository roots, full commit objects, destinations and each nested parent gitlink (plus its exact pin
+under ``--require-gitlink-pins``). It extracts nothing, writes no file, and prints one JSON object (state
+``source-checked-not-built``) with each component's name, destination, commit and tree only. It does not run the archive
+content and symlink checks of a real export and is not a ``SOURCE-MANIFEST.json``.
 """
 from __future__ import annotations
 
@@ -206,12 +216,20 @@ def extract(component, repository, root):
             raise ExportError(f"{name}: git archive failed: {errors.read().decode(errors='replace').strip()}")
 
 
-def check_nested(component, parent, parent_repository, staging):
-    """A nested component needs the parent's gitlink at its location, and nothing real already there."""
+def check_nested(component, parent, parent_repository, require_pin=False):
+    """A nested component needs the parent's gitlink at its location; with ``require_pin`` that gitlink must name its commit."""
     relative = PurePosixPath(component["destination"]).relative_to(parent["destination"]).as_posix()
-    entry = run_git(parent_repository, "ls-tree", parent["commit"], "--", relative)
-    if not entry.startswith("160000 commit "):
+    records = [record for record in run_git(parent_repository, "ls-tree", "-z", parent["commit"], "--", relative).split("\0") if record]
+    meta, _, path = records[0].partition("\t") if len(records) == 1 else ("", "", "")
+    if path != relative or not meta.startswith("160000 commit "):
         raise ExportError(f"{component['name']}: {relative} is not a gitlink in {parent['name']}; nested components may only fill a gitlink location")
+    pinned = meta.split()[2]
+    if require_pin and pinned != component["commit"]:
+        raise ExportError(f"{component['name']}: {parent['name']} pins {relative} at {pinned}, not the selected {component['commit']}")
+
+
+def check_location(component, staging):
+    """The gitlink location in the freshly extracted parent must still be nothing real."""
     location = staging / component["destination"]
     if location.is_symlink() or (location.exists() and (not location.is_dir() or any(location.iterdir()))):
         raise ExportError(f"{component['name']}: gitlink location is not an empty directory")
@@ -232,7 +250,8 @@ def verify_links(staging, components):
                 raise ExportError(f"{owner['name']}: symlink {relative} escapes its component")
 
 
-def export(manifest_path, output):
+def check_sources(manifest_path, require_pins=False):
+    """Read-only source selection checks shared by export and ``--check-only``; nothing is written or fetched."""
     components = load_manifest(manifest_path)
     located, protected = {}, []
     for component in components:
@@ -240,20 +259,42 @@ def export(manifest_path, output):
         located[component["name"]] = repository
         protected += paths
         component["tree"] = verify_commit(component, repository)
-    final = check_output(output, protected)
     ordered = sorted(components, key=lambda c: len(c["destination"].split("/")))
     parents = {}
     for component in ordered:
         prefix = [other for other in ordered if component["destination"].startswith(other["destination"] + "/")]
         if prefix:
             parents[component["name"]] = max(prefix, key=lambda other: len(other["destination"]))
+    for component in ordered:
+        parent = parents.get(component["name"])
+        if parent:
+            check_nested(component, parent, located[parent["name"]], require_pins)
+    return components, located, protected, ordered, parents
+
+
+def public_text(public, located):
+    text = json.dumps(public, indent=2) + "\n"
+    if any(str(path) in text for path in located.values()):
+        raise ExportError("internal error: a local path reached the public output")
+    return text
+
+
+def check(manifest_path, require_pins=False):
+    components, located, _, _, _ = check_sources(manifest_path, require_pins)
+    public = {"format": 1, "state": "source-checked-not-built", "gitlink_policy": "exact" if require_pins else "override-permitted",
+              "components": [{key: component[key] for key in ("name", "destination", "commit", "tree")} for component in components]}
+    return public_text(public, located)
+
+
+def export(manifest_path, output, require_pins=False):
+    components, located, protected, ordered, parents = check_sources(manifest_path, require_pins)
+    final = check_output(output, protected)
     staging = Path(tempfile.mkdtemp(prefix=f".{final.name}.partial-", dir=final.parent))
     try:
         os.chmod(staging, 0o755)
         for component in ordered:
-            parent = parents.get(component["name"])
-            if parent:
-                check_nested(component, parent, located[parent["name"]], staging)
+            if component["name"] in parents:
+                check_location(component, staging)
             root = ensure_directory(staging, component["destination"].split("/"))
             extract(component, located[component["name"]], root)
         verify_links(staging, components)
@@ -261,10 +302,7 @@ def export(manifest_path, output):
             component["snapshot_sha256"] = _snapshot.component_digest(staging, component, components)
         public = {"format": 1, "components": [{key: component[key] for key in ("name", "destination", "commit", "tree", "snapshot_sha256")}
                                               for component in components]}
-        text = json.dumps(public, indent=2) + "\n"
-        if any(str(path) in text for path in located.values()):
-            raise ExportError("internal error: a local path reached the public manifest")
-        (staging / "SOURCE-MANIFEST.json").write_text(text)
+        (staging / "SOURCE-MANIFEST.json").write_text(public_text(public, located))
         if final.exists():
             final.rmdir()
         os.rename(staging, final)
@@ -277,10 +315,17 @@ def export(manifest_path, output):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Export exact committed source from explicit local Git repositories.")
     parser.add_argument("--manifest", required=True, help="input manifest JSON")
-    parser.add_argument("--output", required=True, help="new or empty output directory")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--output", help="new or empty output directory")
+    mode.add_argument("--check-only", action="store_true", help="read-only source selection preflight; print a JSON summary and write nothing")
+    parser.add_argument("--require-gitlink-pins", action="store_true",
+                        help="require each nested component's commit to equal the gitlink in its parent's selected commit")
     arguments = parser.parse_args(argv)
     try:
-        public = export(arguments.manifest, arguments.output)
+        if arguments.check_only:
+            sys.stdout.write(check(arguments.manifest, arguments.require_gitlink_pins))
+            return 0
+        public = export(arguments.manifest, arguments.output, arguments.require_gitlink_pins)
     except (ExportError, _snapshot.SnapshotError, OSError, ValueError) as exc:
         print(f"export-source: error: {exc}", file=sys.stderr)
         return 2
