@@ -14,14 +14,14 @@ function workflowPanelStepBall(step, blocked) {
 
 function workflowPanelMount(composer, agentId) {
   const panel = document.createElement('section');
-  panel.className = 'wfpanel'; panel.hidden = true; panel.setAttribute('aria-label', 'Workflow steps');
+  panel.className = 'wfpanel agfocus'; panel.hidden = true; panel.setAttribute('aria-label', 'Workflow steps');
   const head = document.createElement('button');
   head.type = 'button'; head.className = 'quiet wfpanel-head';
   const name = document.createElement('span'); name.className = 'wfpanel-name';
   const now = document.createElement('span'); now.className = 'wfpanel-now';
   const chevron = document.createElement('span'); chevron.className = 'wfpanel-chevron'; chevron.innerHTML = WORKFLOW_PANEL_ICON;
   head.append(name, now, chevron);
-  const list = document.createElement('ol'); list.className = 'wfpanel-steps';
+  const list = document.createElement('ol'); list.className = 'wfpanel-steps agfocus-items';
   panel.append(head, list);
   composer.before(panel);
   let open = true, disposed = false, busy = false, token = 0, last = 0, dirty = false, trailing = null, summary = null;
@@ -41,14 +41,15 @@ function workflowPanelMount(composer, agentId) {
     for (const step of summary.steps) {
       const blocked = !!(step.current && summary.blocked);
       const row = document.createElement('li');
-      row.className = 'wfpanel-step' + (step.current ? ' wfpanel-current' : '') + (blocked ? ' wfpanel-blocked' : '');
+      row.className = 'agfocus-card agfocus-collapsed';
       if (step.current) row.setAttribute('aria-current', 'step');
-      const label = document.createElement('span'); label.className = 'wfpanel-label'; label.textContent = step.label;
-      const status = document.createElement('span'); status.className = 'wfpanel-status';
-      status.textContent = blocked ? 'Blocked' : step.current && summary.paused ? 'Paused' : WORKFLOW_PANEL_TEXT[step.status] || step.status;
-      row.append(workflowPanelStepBall(step, blocked), label, status);
+      const status = blocked ? 'Blocked' : step.current && summary.paused ? 'Paused' : WORKFLOW_PANEL_TEXT[step.status] || step.status;
+      row.setAttribute('aria-label', step.label + ': ' + status);
+      row.innerHTML = agfocusRowHtml();
+      row.querySelector('.ttl').textContent = step.label;
+      row.querySelector('.agfocus-marker').append(workflowPanelStepBall(step, blocked));
       if (blocked && summary.blocker_reason) {
-        const reason = document.createElement('p'); reason.className = 'wfpanel-reason'; reason.textContent = summary.blocker_reason; row.append(reason);
+        const reason = document.createElement('p'); reason.className = 'agfocus-error'; reason.textContent = summary.blocker_reason; row.append(reason);
       }
       rows.push(row);
     }
