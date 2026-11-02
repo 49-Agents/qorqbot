@@ -17,11 +17,11 @@ function filingCostMoney(value) {
   return '$' + whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + fraction.padEnd(2, '0');
 }
 
-// Compact San Juan timestamp for a call; unparsable values pass through.
+// Compact installation timestamp for a call; unparsable values pass through.
 function filingCostWhen(value) {
   const date = value ? new Date(value) : null;
   if (!date || Number.isNaN(date.getTime())) return value || FILING_COST_UNAVAILABLE;
-  return sjDateTime(date, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hourCycle:'h23'}) + ' San Juan';
+  return sjDateTime(date, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hourCycle:'h23'}) + ' ' + SJ_ZONE;
 }
 
 function filingCostRange(period) {

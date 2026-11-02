@@ -40,16 +40,17 @@ function logHeadline(entry){
   return Array.from(text).length>100?Array.from(text).slice(0,97).join('')+'...':text;
 }
 // When an entry happened, precision-aware: a backfilled day has no time, an hour shows HH:00, and the
-// stored anchor of either is never shown as an exact time. Dates are San Juan dates.
+// stored anchor of either is never shown as an exact time. Stored dates retain the record's timezone.
 function logWhen(e) {
   const raw = String(e.ts || ""), precision = e.time_precision || "instant";
-  const day = e.occurred_date || sjDate(raw);
+  const zone = e.time_zone || e.occurred?.time_zone || SJ_ZONE;
+  const day = e.occurred_date || sjDate(raw, zone);
   if (precision === "day") return { day, time: "", full: day ? `${day}, time unknown` : "" };
   if (precision === "hour") { const time = `${String(e.occurred_hour).padStart(2, "0")}:00`; return { day, time, full: `${day} ${time}` }; }
-  return { day, time: sjTime(raw), full: sjDateTime(raw) || raw };
+  return { day, time: sjTime(raw, zone), full: sjDateTime(raw, {dateStyle:"medium", timeStyle:"short"}, zone) || raw };
 }
 function logHtml(rows) {
-  // Day groups and times are San Juan time (sjDate/sjTime), never the browser's zone or raw UTC.
+  // Day groups retain stored action dates; instant times use the record's zone.
   const today = sjToday(), yday = sjAddDays(today, -1);
   const dayLabel = k => !k ? "undated" : k === today ? "today" : k === yday ? "yesterday"
     : new Date(k + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
@@ -80,7 +81,7 @@ function logTips(el, rows) {
     tip(row, () => {
       const who = String(e.actor || "").replace(/^(agent|human|system):/, "");
       const det = e.detail ? String(e.detail).slice(0, 600) : "";
-      return `<div class="tip-le"><div class="tlab">${esc(e.tag || "")} · ${esc(who)} · ${esc(logWhen(e).full)} ${esc(SJ_LABEL)}</div>` +
+      return `<div class="tip-le"><div class="tlab">${esc(e.tag || "")} · ${esc(who)} · ${esc(logWhen(e).full)} ${esc(e.time_zone || e.occurred?.time_zone || SJ_ZONE)}</div>` +
         `<div class="tsum">${esc(e.summary || "")}</div>` + (det ? `<div class="tdet">${esc(det)}</div>` : "") + `</div>`;
     });
   });

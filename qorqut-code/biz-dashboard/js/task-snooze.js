@@ -1,5 +1,5 @@
 // Shared by business and Global tasks. One shared `snoozed_until` timestamp (UTC) hides a task until then;
-// inputs and labels use San Juan time. Snoozing never changes the state, due date or archive flag.
+// inputs and labels use installation time. Snoozing never changes the state, due date or archive flag.
 function taskSnoozed(task, now = Date.now()) {
   return Boolean(task.snoozed_until && Date.parse(task.snoozed_until) > now);
 }
@@ -16,7 +16,7 @@ function taskSnoozePicker(task = {}) {
   return `<div class="task-snooze-picker"><label>Snooze<select data-snooze-mode data-initial="${mode}" aria-label="Snooze">
     ${[['none','Not snoozed'],['until','Until a date/time']].map(([value,label])=>`<option value="${value}" ${value===mode?'selected':''}>${label}</option>`).join('')}</select></label>
     <div class="task-snooze-shortcuts">${[['1','Tomorrow'],['7','Next week'],['pick','Pick date']].map(([value,label])=>`<button type="button" class="quiet" data-snooze-shortcut="${value}">${label}</button>`).join('')}</div>
-    <label data-snooze-date ${mode==='until'?'':'hidden'}>Until (San Juan time)<input data-snooze-until aria-label="Snooze until" type="datetime-local" value="${esc(taskSnoozeLocal(task.snoozed_until))}" ${mode==='until'?'required':''}></label></div>`;
+    <label data-snooze-date ${mode==='until'?'':'hidden'}>Until (${esc(SJ_LABEL)})<input data-snooze-until aria-label="Snooze until" type="datetime-local" value="${esc(taskSnoozeLocal(task.snoozed_until))}" ${mode==='until'?'required':''}></label></div>`;
 }
 function taskSnoozeWire(host) {
   const mode = host.querySelector('[data-snooze-mode]'), date = host.querySelector('[data-snooze-date]'), input = host.querySelector('[data-snooze-until]');

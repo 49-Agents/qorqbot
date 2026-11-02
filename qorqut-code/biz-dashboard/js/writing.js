@@ -75,7 +75,7 @@ const writingHeatFromKey = key => { const [y, m, d] = key.split("-").map(Number)
 const writingHeatLevel = n => n <= 0 ? 0 : n === 1 ? 1 : n === 2 ? 2 : n === 3 ? 3 : 4;  // memo-heatmap.tsx:15-21
 function writingHeatmapData(entries) {
   const counts = new Map();
-  // Instants bucket on their San Juan day; literal dates stay as written.
+  // Instants bucket on their installation day; literal dates stay as written.
   (entries || []).forEach(m => { const raw = String(m.date || ""), k = raw.length > 10 ? sjDate(raw) : raw; if (k) counts.set(k, (counts.get(k) || 0) + 1); });
   const today = writingHeatFromKey(sjToday());
   const todayKey = writingHeatKey(today);

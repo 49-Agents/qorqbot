@@ -3,7 +3,7 @@
 // the owner's root route. Every save after the first is a correction (a new immutable revision, checked
 // against the revision the owner last saw) and removal is a withdrawal; both preserve existing versions.
 // Nothing here infers a category from the page that is open: the owner chooses.
-// Times are San Juan time (js/san-juan-time.js); the server owns the recording instant.
+// Times follow the installation timezone (js/san-juan-time.js); the server owns the recording instant.
 const AC_CATEGORIES = [
   ["global-systems", AICONS.code],
   ["global-operational", AICONS.globe],
@@ -172,7 +172,7 @@ function acOpen(opener, action = null) {
   document.querySelectorAll("[data-ac-capture]").forEach(b => b.setAttribute("aria-expanded", String(b === opener)));
   acPaint();
   pop.querySelector("#ac-text").focus();
-  if (!ac.config) acOp("actions_config_get", {}).then(config => { ac.config = config; acPaint(); }).catch(() => {});
+  if (!ac.config) acOp("actions_config_get", {}).then(config => { ac.config = config; sjConfigure(config); acPaint(); }).catch(() => {});
   setTimeout(() => document.addEventListener("pointerdown", acOutside, true));
 }
 function acPlace() {
@@ -331,7 +331,7 @@ async function acListRefresh({ more = false } = {}) {
 function acOccurred(action) {
   const o = action.occurred || {}, today = sjToday();
   const day = !o.date ? "Undated" : o.date === today ? "Today" : o.date === sjAddDays(today, -1) ? "Yesterday" : sjDayLabel(o.date, { year: "numeric" });
-  if (o.precision === "instant" && o.instant) return `${day} · ${sjTime(o.instant)}`;
+  if (o.precision === "instant" && o.instant) return `${day} · ${sjTime(o.instant, o.time_zone || SJ_ZONE)}`;
   if (o.precision === "hour") return `${day} · ${String(o.hour).padStart(2, "0")}:00`;
   return `${day}${o.precision === "day" ? " · time unknown" : ""}`;
 }
