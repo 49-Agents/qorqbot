@@ -29,6 +29,19 @@ def _focus(value):
     return json.loads(value) if isinstance(value, str) else value
 
 
+def _age(started_at, now):
+    """Whole elapsed time since the focus began; unavailable (None) when it cannot be derived."""
+    try:
+        minutes = int((_time(now) - _time(started_at)).total_seconds()) // 60
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if minutes < 0:
+        return None
+    days, minutes = divmod(minutes, 1440)
+    hours, minutes = divmod(minutes, 60)
+    return ' '.join(part for part in (days and '%dd' % days, (days or hours) and '%dh' % hours, '%dm' % minutes) if part)
+
+
 def record_attention_activity(uow, agent_id, kind, at, event_key, *, attention):
     """Record a genuine source timestamp, using that timestamp as watermark."""
     if kind not in ('agent_activity', 'owner_message') or not isinstance(event_key, str) or not 0 < len(event_key) <= 200:
@@ -87,20 +100,73 @@ class AttentionRuntime:
         return _stamp(datetime.now(timezone.utc))
 
     def _text(self, uow, agent_id, kind):
-        if kind.startswith('board_'):
-            return 'Review the Attention board and choose useful work, or reassess the blocked and waiting commitments.'
-        focus = _focus(self.attention.state(uow, agent_id).get('focus_json'))
-        detail = ''
-        if isinstance(focus, dict) and focus.get('type') == 'workflow':
+        """The one reminder text shared by the hook and chat routes; reads only, never changes Attention state."""
+        from bazarlyk.agents import attention_prompt
+        state = self.attention.state(uow, agent_id)
+        focus = _focus(state.get('focus_json'))
+        focus = focus if isinstance(focus, dict) else None
+        if not focus and not kind.startswith('board_'):
+            return attention_prompt.render(kind, None)
+        snapshot = self._snapshot(uow, agent_id, state, focus)
+        if focus and focus.get('type') == 'workflow':
             workflow = uow.connection.execute('SELECT workflow_name,run_id FROM attention_workflows '
                 'WHERE agent_id=? AND run_id=?', (agent_id, focus.get('id'))).fetchone()
             if workflow:
-                detail = '\nWorkflow data: ' + json.dumps({'name': workflow['workflow_name'], 'run_id': workflow['run_id']})
-        if kind == 'workflow_detach':
-            return ('This workflow remains blocked. Save the blocker and resume context, then detach your focus '
-                    'if you cannot progress.' + detail)
-        return ('Update your precise focus and immediate intent, record meaningful task or workflow progress, '
-                'and continue useful work.' + detail)
+                snapshot['workflow'] = {'name': workflow['workflow_name'], 'run_id': workflow['run_id']}
+        return attention_prompt.render(kind, snapshot)
+
+    def _snapshot(self, uow, agent_id, state, focus):
+        """Bounded projection through scoped, lifecycle-only Task reads.
+
+        Whatever cannot be read as the coordinator is left unavailable (None) rather than reported as empty. The
+        board's default full read, Task threads, relationships and unchecked source labels are never touched."""
+        from qorqut_operations.contracts import DomainError
+        from qorqut_operations.tasks.types import attributes
+        from qorqut_operations.tasks.workers import project_workers
+        from bazarlyk.agents import attention_prompt as prompt
+        from bazarlyk.agents.attention import UNREADABLE
+        work_ref = state.get('work_task_json')
+        snapshot = {'focus': {key: focus.get(key) for key in ('type', 'id', 'business_id')} if focus else None,
+                    'focused_for': _age(state.get('focus_started_at'), self._now()) if focus else None,
+                    'work': None, 'intent': None, 'candidates': None, 'more': False}
+        try:
+            ctx = self.runtime.application.policy.context_for(agent_id, business_id=None, review_business_id=None, uow=uow)
+        except DomainError:
+            return snapshot
+
+        def member(ref, created_at):
+            """The lifecycle record of a still-authorized, unarchived ordinary Task with this membership identity."""
+            try:
+                task = self.attention.task(ctx, ref, uow, lifecycle_only=True)
+            except DomainError as error:
+                if error.code not in UNREADABLE:
+                    raise
+                return None
+            if task.get('created_at') != created_at or task.get('archived') or attributes(task)['task_type'] != 'task':
+                return None
+            return task
+
+        if focus and isinstance(work_ref, dict):
+            membership = self.attention.task_membership(uow, agent_id, work_ref)
+            task = member(work_ref, membership['task_created_at']) if membership else None
+            if task is not None:
+                snapshot['work'] = prompt.describe(work_ref, task, project_workers(uow, task))
+                snapshot['intent'] = state.get('intent')
+        candidates = []
+        for row in uow.connection.execute('SELECT * FROM attention_memberships WHERE agent_id=? ORDER BY created_at,id', (agent_id,)):
+            ref = {'type': 'task', 'id': row['task_id'], 'business_id': row['task_business_id']}
+            if isinstance(work_ref, dict) and (ref['id'], ref['business_id']) == (work_ref.get('id'), work_ref.get('business_id')):
+                continue
+            task = member(ref, row['task_created_at'])
+            # Filter on lifecycle first; Workers are projected only for tasks that will be shown.
+            if task is None or task['status'] not in ('open', 'working'):
+                continue
+            if len(candidates) == prompt.CANDIDATES:
+                snapshot['more'] = True
+                break
+            candidates.append(prompt.describe(ref, task, project_workers(uow, task)))
+        snapshot['candidates'] = candidates
+        return snapshot
 
     def _verified_consumer(self, agent_id, consumer_id):
         from bazarlyk.native_chat import store
