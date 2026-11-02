@@ -274,13 +274,10 @@ class Inventory:
                 add("SELECT updated_at ts,'dev_ticket' type,COALESCE(business_id,'') scope,id,1 owned,0 linked,NULL link_id,"
                     "NULL link_revision FROM dev_tickets WHERE business_id IS ?", (scan,))
             if not wanted or wanted == "reminder":
-                namespace = "business:" + scan if scan else "global"
-                clause, values = "source_kind='owner_reminder' AND source_key LIKE ?", [namespace + "/%"]
-                if ctx.principal_kind != "human" or ctx.delegation_assignment_id is not None:
-                    clause += " AND agent_id=?"
-                    values.append(ctx.principal_id)
+                # The owner's reminders in this one scope; the caller's identity gate (owner or configured Ordubashy) already ran.
                 add("SELECT created_at ts,'reminder' type,? scope,id,1 owned,0 linked,NULL link_id,NULL link_revision "
-                    "FROM telegram_outbox WHERE " + clause, [_scope(scan), *values])
+                    "FROM reminders WHERE business_id IS ? AND recipient_id=(SELECT owner_principal_id FROM installation WHERE id='service')",
+                    [_scope(scan), scan])
         if projects and (not wanted or wanted == access.PROJECT_TYPE):
             add("SELECT updated_at ts,'project' type,id scope,id,0 owned,0 linked,NULL link_id,NULL link_revision "
                 "FROM businesses WHERE archived_at IS NULL")
@@ -335,7 +332,7 @@ class Inventory:
                                  WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
             WHEN 'dev_ticket' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM dev_tickets x
                                     WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
-            WHEN 'reminder' THEN (SELECT x.created_at FROM telegram_outbox x WHERE x.id=l.target_id)
+            WHEN 'reminder' THEN (SELECT x.created_at FROM reminders x WHERE x.id=l.target_id)
             WHEN 'project' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM businesses x WHERE x.id=l.target_id)
             ELSE NULL END"""
 

@@ -201,8 +201,9 @@ def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, r
     if name == "tags_list":
         # Listing the shared tag catalog follows the Task read grant; a tag never grants access to anything.
         return resolve("tasks_get")
-    if name == "owner_reminders_list":
-        # The narrow Project reminder read follows the existing owner_reminder grant (an explicit deny on either name wins).
+    if name == "owner_reminders_list" or name.startswith("reminders_"):
+        # The narrow Project reminder read and the shared reminder operations follow the existing owner_reminder grant until a
+        # role names them (an explicit deny on either name wins).
         return resolve("owner_reminder")
     if name == "agents_icons_list":
         # Static metadata for choosing a worker icon; whoever may list agents may list the icons, with no role republish.
