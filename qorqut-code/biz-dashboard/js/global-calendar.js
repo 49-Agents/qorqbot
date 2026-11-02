@@ -219,7 +219,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       if (!current()) return;
       calendars = result.calendars;
       result.errors.forEach(e => failures.set(e.connection_id,`${e.connection_id}: ${e.message}`));
-      $('.calendar-sources > div',page).innerHTML = calendars.map(calendar => `<div class="calendar-source"><span class="calendar-dot"></span><span>${esc(calendar.name)} · ${esc(calendar.provider === 'google' ? 'Google' : calendar.provider === 'fastmail' ? 'Fastmail' : calendar.provider)}</span></div>`).join('');
+      $('.calendar-sources > div',page).innerHTML = calendars.map(calendar => `<div class="calendar-source"><span class="calendar-dot"></span><span>${esc(calendar.name)} · ${esc(calendar.provider_name || calendar.provider)}</span></div>`).join('');
       if (!result.configured) { fixedMessage = 'Connect a calendar (for example Google Calendar) to get started.'; paint(); return; }
       $('[data-calendar-add]',page).disabled = !calendars.some(c => c.writable);
       $('[data-calendar-add]',page).onclick = () => calendarEdit(null,calendars,reload,calendarDate);
@@ -411,7 +411,7 @@ async function calendarOpen(event, calendars, refresh, clicked = event) {
       }}); }) : [];
     modal({title:esc(event.title || 'Event'), width:600, body:`<div class="calendar-detail">
       <p>${esc(calendarEventWhen(event))}</p><p>${esc(calendar?.name || '')} · ${esc(event.organizer || '')}</p>
-      ${recurring ? `<p class="muted">${calendar?.provider === 'fastmail' || event.recurrence.length ? 'Recurring series. Changes here apply to the series.' : 'Occurrence of a recurring event.'}</p>` : ''}
+      ${recurring ? `<p class="muted">${event.recurrence_edit_scope === 'series' || event.recurrence.length ? 'Recurring series. Changes here apply to the series.' : 'Occurrence of a recurring event.'}</p>` : ''}
       ${event.location ? `<p>${esc(event.location)}</p>` : ''}
       ${event.meet_url && /^https:\/\/meet\.google\.com\//.test(event.meet_url) ? `<p><a href="${esc(event.meet_url)}" target="_blank" rel="noopener">Join Google Meet</a></p>` : ''}
       ${event.description ? `<p class="calendar-description">${esc(event.description)}</p>` : ''}
