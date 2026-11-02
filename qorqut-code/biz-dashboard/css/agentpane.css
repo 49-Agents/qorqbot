@@ -144,4 +144,3 @@
 
 /* Reduce the gap below the right-pane tabs without changing other tab bars. */
 .agpad .thead .ttabs { margin-bottom:4px; padding-bottom:4px; overflow-y:hidden; }
-.global-pinned-list:not(:empty) { margin-top:20px; }

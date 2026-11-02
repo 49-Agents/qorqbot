@@ -1,5 +1,5 @@
 // Owner restore of archived businesses in Global Overview. Restore returns the
-// business with its Onbashy and Dev peers; nothing else is started.
+// business and its resources; no agent is restored or started.
 const businessRestoreKeys = new Map();   // business id -> idempotency key kept until success
 
 function businessRestoreRows(data) {
@@ -21,7 +21,7 @@ async function businessRestoreMount(host) {
   } catch (error) {
     if (!host.isConnected) return;
     host.hidden = false;
-    host.innerHTML = `<h2>Archived businesses</h2><p role="alert">${esc(error.message || 'Archived businesses are unavailable.')}</p>`;
+    host.innerHTML = `<h2>Archived businesses</h2><p role="alert">${esc(uiFailure(error, {load: true}))}</p>`;
     return;
   }
   if (!host.isConnected || !rows.length) return;
@@ -40,8 +40,8 @@ function businessRestoreConfirm(row, host) {
   let busy = false;
   modal({
     title: `Restore ${name}?`, width: 460,
-    body: `<p>${esc(name)} returns to the business menu with Onbashy and Dev.</p>
-      <p class="muted">Their saved work is preserved and no session starts.</p>
+    body: `<p>${esc(name)} returns to the business menu with its resources.</p>
+      <p class="muted">Its saved work is preserved. No agent is restored and no session starts.</p>
       <p class="ferr" id="business-restore-error" role="alert" hidden></p>`,
     actions: [
       { label: 'Cancel', onClick: close => close() },
@@ -57,10 +57,7 @@ function businessRestoreConfirm(row, host) {
             idempotency_key: businessRestoreKeys.get(row.id)}));
           businessRestoreKeys.delete(row.id);
           close();
-          const peerNames = Array.isArray(data.agents) && data.agents.length
-            ? data.agents.map(agent => agent.display_name).filter(Boolean)
-            : data.display_name ? [data.display_name] : [];
-          toast(peerNames.length ? `${name} restored with ${peerNames.join(' and ')}` : `${name} restored`);
+          toast(`${name} restored`);
           await loadBiz({preserveNavigation: true});
           if (state.scope === 'global' && state.globalTab === 'overview') renderTab();
           else if (host.isConnected) businessRestoreMount(host);
@@ -68,7 +65,7 @@ function businessRestoreConfirm(row, host) {
           // A changed business needs a fresh read and a new attempt.
           if (failure.code === 'revision_conflict' || failure.code === 'business_not_archived') businessRestoreKeys.delete(row.id);
           error.hidden = false;
-          error.textContent = failure.message || 'Could not restore this business.';
+          error.textContent = uiFailure(failure);
         } finally {
           busy = false;
           if (button) button.disabled = false;

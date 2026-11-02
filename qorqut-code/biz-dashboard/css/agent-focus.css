@@ -59,6 +59,10 @@
 .agbrowser-switch .agbrowser-seg[aria-pressed="true"]{background:var(--hover);color:var(--fg);box-shadow:inset 0 -2px 0 var(--fg-2)}
 .agbrowser-switch .agbrowser-seg:focus-visible,.agbrowser-reconnect:focus-visible{outline:2px solid var(--fg-2);outline-offset:-2px}
 .agbrowser-actions{display:inline-flex;align-items:center;margin-left:auto}
+/* The business Browser page sits in the content column. */
+.business-browser{padding:30px 28px 24px}
+.business-browser .agbrowser-bar h1{margin:0}
+.business-browser .agbrowser-stage{margin-top:12px}
 .agfocus-desktop-view .agbrowser-reconnect{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;min-height:30px;margin:0;padding:0;border:0;border-radius:8px;background:transparent;color:var(--fg-2);cursor:pointer}
 .agbrowser-reconnect:hover{background:var(--hover);color:var(--fg)}
 .agbrowser-stage{display:flex;flex:none;justify-content:center}

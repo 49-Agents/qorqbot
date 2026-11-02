@@ -39,20 +39,11 @@
 .agent-workspace-app .global-agents .global-roster .item.agent { width:43px; height:43px; justify-content:center; border-radius:6px; padding:8px; }
 .agent-workspace-app .global-agents .global-roster .identity-avatar { width:24px; height:24px; background:none; border:0; }
 .agent-workspace-app .global-agents .global-roster .identity-avatar svg { width:22px; height:22px; }
-.agent-workspace-app .global-agents .global-pinned-list .global-biz-agent { width:54px; min-height:55px; justify-content:center; padding:6px 3px; border-radius:6px; }
-.agent-workspace-app .global-agents .global-pinned-list .nm { flex-direction:column; justify-content:center; gap:4px; width:100%; }
-.agent-workspace-app .global-agents .global-pinned-list .global-biz-text { width:100%; justify-content:center; }
-.agent-workspace-app .global-agents .global-pinned-list .global-biz-name { font-size:10px; }
-.agent-workspace-app .global-agents .global-pinned-list .global-biz-pin { top:8px; right:0; width:18px; height:18px; }
-.agent-workspace-app .global-agents .global-biz-nav { position:relative; border:0; padding:4px 0; margin-top:9px; max-height:300px; }
-.agent-workspace-app .global-agents .global-biz-tools { margin:0; justify-content:center; }
-.agent-workspace-app .global-agents .biz-collapsed .global-biz-toggle { flex:none; width:36px; justify-content:center; padding:0; border:0; }
-.agent-workspace-app .global-agents .biz-collapsed .global-biz-chevron { display:none; }
-.agent-workspace-app .global-agents .listcol:not(.biz-collapsed) .global-biz-nav { position:absolute; left:66px; top:12px; width:260px; max-height:min(380px,80vh); padding:10px; border:1px solid var(--line-2); background:var(--surface); border-radius:9px; box-shadow:var(--shadow-float); }
-.agent-workspace-app .global-agents .global-biz-list .item.agent .nm { flex-direction:row; }
-.agent-workspace-app .global-agents .global-biz-list .item.agent { padding-right:26px; }
+.agent-workspace-app .global-agents .global-workspace-terminals { margin-top:12px; padding-top:9px; }
+.agent-workspace-app .global-agents .global-workspace-terminals .item.agent { width:54px; min-height:52px; justify-content:center; padding:6px 3px; border-radius:6px; }
+.agent-workspace-app .global-agents .global-workspace-terminals .item.agent .nm { flex-direction:column; justify-content:center; gap:4px; width:100%; }
+.agent-workspace-app .global-agents .global-workspace-terminals .item.agent .tt { font-size:10px; }
 .agent-workspace-app .global-agents .nm > .chat-unread-dot { width:6px; height:6px; top:-2px; right:-4px; }
-.agent-workspace-app .global-agents .global-pinned-list .nm > .chat-unread-dot { right:5px; }
 
 /* Chat keeps its native history, composer, attachments and session controls (message and composer styling: css/chat-view.css). */
 .agent-workspace-app .global-agent-session .chat.termmode { padding:20px 24px; }
@@ -190,7 +181,6 @@
   .agent-workspace-app .global-agent-session { grid-column:2; grid-row:1; }
   .agent-workspace-app .global-agents > .agpad { grid-column:2; grid-row:2; display:flex; border-top:1px solid var(--line); }
   .agent-workspace-app .global-agents > .agent-pane-divider { display:none; }
-  .agent-workspace-app .global-agents .global-pinned-list .global-biz-agent { width:48px; }
   .agent-workspace-app .global-agents .global-primary { max-height:calc(100vh - 165px); }
   .agent-workspace-app .split.global-agents.agsplit.pad-off { grid-template-rows:1fr; }
   .agent-workspace-app .split.global-agents.agsplit.pad-off > .agpad { display:none; }

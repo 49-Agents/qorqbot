@@ -113,7 +113,6 @@
   min-width: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .termhost { flex: 1; min-width: 0; min-height: 0; width: 100%; box-sizing: border-box; padding: 12px 20px 12px 12px; overflow: hidden; }
 
-#agentrows .cn { display:flex; align-items:center; gap:7px; }
 
 .listcol button.item.agent {width:calc(100% - 20px);height:auto;min-height:44px;border:0;background:transparent;color:var(--fg-2);text-align:left;font-weight:400;transform:none;}
 .listcol button.item.agent:hover {background:var(--wash);color:var(--fg);}

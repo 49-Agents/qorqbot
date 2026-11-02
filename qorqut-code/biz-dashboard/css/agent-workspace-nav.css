@@ -1,23 +1,4 @@
-/* Keep lookup's rail control in place; only the panel floats over the chat. */
-.agent-workspace-app .global-agents .global-biz-nav,
-.agent-workspace-app .global-agents .listcol:not(.biz-collapsed) .global-biz-nav {
-  position:relative; inset:auto; width:auto; max-height:none; margin:0 0 10px;
-  padding:0; border:0; border-radius:0; background:none; box-shadow:none;
-}
-.agent-workspace-app .global-agents .global-biz-toggle,
-.agent-workspace-app .global-agents .listcol:not(.biz-collapsed) .global-biz-toggle {
-  flex:none; width:36px; min-width:36px; padding:0; border:0; justify-content:center;
-}
-.agent-workspace-app .global-agents .global-biz-toggle .global-biz-chevron { display:none; }
-.agent-workspace-app .global-agents .listcol:not(.biz-collapsed) .global-biz-find { display:block; }
-.agent-workspace-app .global-agents .global-biz-toggle[aria-expanded="true"] { color:var(--fg); background:var(--hover); }
-.agent-workspace-app .global-agents .global-biz-region {
-  position:absolute; left:calc(100% + 3px); top:0; width:min(280px,calc(100vw - 82px));
-  max-height:min(380px,calc(100vh - 125px)); padding:10px; box-sizing:border-box;
-  border:1px solid var(--line-2); border-radius:9px; background:var(--surface); box-shadow:var(--shadow-float);
-}
-.agent-workspace-app .global-agents .global-biz-region[hidden] { display:none; }
-.agent-workspace-app .global-agents .global-biz-search { flex:none; width:100%; margin-bottom:6px; }
+/* The roster leaves room for the workspace Terminal entry below it. */
 .agent-workspace-app .global-agents .global-primary { max-height:calc(100vh - 190px); }
 
 /* Activity and Inbox share one main icon tab; their switch belongs to that view. */

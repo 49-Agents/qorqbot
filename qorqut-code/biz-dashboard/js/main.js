@@ -69,7 +69,8 @@ drbStart();
     else if (k === "r") { e.preventDefault(); openTasks(true); tSetView("routines"); }
     else if (k === "m") { e.preventDefault(); goTab("marketing"); }
     else if (k === "c") { e.preventDefault(); goTab("context"); }
-    else if (k === "a") { e.preventDefault(); goTab("agents"); }
+    // Agents are global: Tab+A opens the Global Agents page.
+    else if (k === "a") { e.preventDefault(); selectGlobal("agents"); }
   });
 
   document.addEventListener("keyup", e => {

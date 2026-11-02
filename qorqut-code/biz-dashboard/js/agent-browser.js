@@ -1,6 +1,6 @@
-// Owner Browser view: the selected agent's configured browser desktops, streamed
-// through their exact Guacamole connection URLs. The binding read is owner-only
-// presentation; it grants no automation and never changes Chrome itself.
+// Owner Browser views, streamed through exact Guacamole connection URLs: a global agent's
+// own browser desktops in its pane, and each business's one browser as a business resource.
+// The binding reads are owner-only presentation; they grant no automation and never change Chrome.
 function agbrowserPath(agentId) { return `/root/agents/${encodeURIComponent(agentId)}/browser-surfaces`; }
 function agbrowserSelectionKey(agentId) { return `agpad:browser:${agentId}`; }
 
@@ -33,16 +33,14 @@ function agbrowserSurfaces(p, force = false) {
   }).finally(() => { if (p.surfacesPending === pending) p.surfacesPending = null; });
 }
 
-// Mount-time discovery only decides whether a Browser tab is offered. Global agents and a
-// business's own agents use the same owner-only read; a business agent gets Browser only (its
-// Desktop toggle stays Ordubashy's). Anyone the read refuses simply never sees the tab.
-const AGBROWSER_SCOPES = new Set(['global', 'business']);
+// Mount-time discovery only decides whether a global agent's own Browser tab is offered.
+// Business browsers are business resources, never discovered through an agent pane.
 function agbrowserDiscover(p) {
-  if (!p.agentId || !AGBROWSER_SCOPES.has(p.workspaceScope)) return;
+  if (!p.agentId || p.workspaceScope !== 'global') return;
   agbrowserSurfaces(p).then(() => { if (_agpad === p) agpadWorkspaceViewsSync(p); }).catch(() => {});
 }
 
-function agbrowserTab(p) { return !!(p.browserRequested || p.surfaces?.browsers.length); }
+function agbrowserTab(p) { return p.workspaceScope === 'global' && !!(p.browserRequested || p.surfaces?.browsers.length); }
 
 const AGBROWSER_ICON_RECONNECT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.5-4.4L4 8.5M4 4v4.5h4.5M4 13a8 8 0 0 0 14.5 4.4l1.5-1.9M20 20v-4.5h-4.5"/></svg>';
 const AGBROWSER_ICON_MAIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 6 8.5-6"/></svg>';
@@ -57,12 +55,9 @@ function agbrowserToggle(label, items) {
 function agbrowserSurfaceIcon(p, surface) {
   if (p.workspaceRole !== 'ordubashy') return /outlook|mail/i.test(surface.id + ' ' + surface.label) ? AGBROWSER_ICON_MAIL : agbrowserIcon('browser');
   if (surface.id === 'ordubashy-browser') return identityAvatar('agent', surface.label, {role: {id: 'ordubashy'}});
-  // Business bindings use their business name as the label. Reuse its Onbashy's
-  // look when the roster identifies it; otherwise keep the shared business initial.
+  // Business bindings use their business name as the label; the icon is that business's initial.
   const matches = (typeof state === 'undefined' ? [] : state.bizs || []).filter(b => b.name === surface.label || b.slug === surface.label);
-  const business = matches.length === 1 ? matches[0] : null;
-  const onbashy = Object.values(business?.agent_meta || {}).find(agent => (agent.role?.id || agent.kind) === 'business-agent');
-  return identityAvatar('agent', surface.label, {...onbashy, role: {id: 'business-agent'}, business_name: business?.name || surface.label});
+  return identityAvatar('business', matches.length === 1 ? matches[0].name : surface.label);
 }
 
 // Ordubashy alone can switch between its Browser and its full Desktop.
@@ -148,15 +143,48 @@ async function agbrowserMount(p, reconnect = false) {
   agbrowserStatus(p, body, 'Loading browser…');
   let surfaces;
   try { surfaces = await agbrowserSurfaces(p, reconnect); } catch (error) {
-    if (current()) agbrowserStatus(p, body, 'The browser configuration could not be read. ' + error.message, 'alert', () => agbrowserMount(p, true));
+    if (current()) agbrowserStatus(p, body, "Couldn't load. Retry", 'alert', () => agbrowserMount(p, true));
     return;
   }
   if (!current() || surfaces.agentId !== p.agentId) return;
   if (!surfaces.browsers.length) {
-    agbrowserStatus(p, body, surfaces.configured ? 'No browser is configured for this agent.'
-      : 'Browser viewing is not configured yet. An installation owner adds this agent’s browser binding.', 'status', () => agbrowserMount(p, true));
+    agbrowserStatus(p, body, 'Browser unavailable.', 'status', () => agbrowserMount(p, true));
     return;
   }
   const saved = ls(agbrowserSelectionKey(surfaces.agentId));
   agbrowserShow(p, body, surfaces, surfaces.browsers.find(item => item.id === saved) || surfaces.browsers[0]);
+}
+
+// Business Browser: the selected business's one browser. Read on entry or Reconnect, never
+// polled. The response must name this business and hold at most one browser; anything else is
+// refused, and no other business's, agent's or global browser is ever substituted.
+const businessBrowser = {request: 0};
+function businessBrowserDispose() { businessBrowser.request++; businessBrowser.browserFrameDispose?.(); }
+
+async function businessBrowserRead(business) {
+  const id = business && (business.id || business.business_id);
+  const data = await api(`/biz/${encodeURIComponent(business.slug)}/browser-surfaces`);
+  if (!id || !data || data.business_id !== id || !Array.isArray(data.browsers) || data.browsers.length > 1) throw new Error('Business browser mismatch');
+  const surface = data.browsers.length ? agbrowserSurface(data.browsers[0], 'browser') : null;
+  return surface && {...surface, label: business.name || business.slug};
+}
+
+async function renderBusinessBrowser(c) {
+  businessBrowserDispose();
+  const request = businessBrowser.request, biz = state.biz;
+  const business = (state.bizs || []).find(b => b.slug === biz);
+  c.innerHTML = `<section class="pane business-browser agfocus-desktop-view agbrowser" data-business-browser aria-label="Browser">
+    <div class="agfocus-desktop-help agbrowser-bar"><h1>Browser</h1><span class="agbrowser-actions">${agbrowserReconnectButton('data-browser-reconnect')}</span></div>
+    <div class="agbrowser-stage"><p class="muted" role="status">Loading browser…</p></div></section>`;
+  const host = $('[data-business-browser]', c), stage = $('.agbrowser-stage', host);
+  $('[data-browser-reconnect]', host).onclick = () => renderBusinessBrowser(c);
+  const current = () => request === businessBrowser.request && host.isConnected && state.biz === biz && state.tab === 'browser';
+  let surface;
+  try { surface = await businessBrowserRead(business); } catch (_) {
+    if (current()) stage.innerHTML = '<p class="ferr" role="alert">Couldn\'t load. Retry</p>';
+    return;
+  }
+  if (!current()) return;
+  if (!surface) { stage.innerHTML = '<p class="muted" role="status">Browser unavailable.</p>'; return; }
+  agbrowserFrame(businessBrowser, host, surface, agfocusDesktopFrameFit);
 }

@@ -8,11 +8,11 @@
     navigating=true;
     try {
       const agents=await loadGlobalAgentProfiles();
-      const agent=agents.find(agent=>agent.role?.id===role && globalActiveProfile(agent));
+      const agent=agents.find(agent=>agent.role?.id===role && globalRosterAgent(agent));
       if(!agent){toast('This agent is not available.');return;}
       ls('ag:scope:global',agent.agent_id);
       await selectGlobal('agents');
-    } catch(error){toast(error.message || 'Could not open agent.');}
+    } catch(error){toast(uiFailure(error, {load: true}));}
     finally {navigating=false;}
   }
   document.addEventListener('keydown',event=>{
@@ -20,11 +20,10 @@
     if(event.key==='Tab') {
       if(event.repeat)return;
       const blocked=typing(event.target) || !!document.querySelector('.overlay');
-      if(event.shiftKey && !blocked && ((state.scope==='global' && state.globalTab==='agents') || (state.scope!=='global' && state.tab==='agents'))) {
-        const candidates=[...document.querySelectorAll('.global-agents [data-global-agent],.global-agents [data-business-agent],#agentrows .agent[data-a]')]
-          .filter(node=>!node.disabled && !node.classList.contains('global-workspace-terminal') && node.getClientRects().length);
-        // A pinned agent can also appear in lookup: cycle each identity once.
-        const seen=new Set(),rows=candidates.filter(node=>{const id=node.dataset.globalAgent || node.dataset.businessAgent || node.dataset.a;if(seen.has(id))return false;seen.add(id);return true;});
+      if(event.shiftKey && !blocked && state.scope==='global' && state.globalTab==='agents') {
+        // Global agents, then the owner's workspace Terminal, in roster order.
+        const rows=[...document.querySelectorAll('.global-agents [data-global-agent]')]
+          .filter(node=>!node.disabled && node.getClientRects().length);
         if(rows.length){event.preventDefault();event.stopImmediatePropagation();const index=rows.findIndex(row=>row.classList.contains('on'));const next=rows[(index+1)%rows.length];next.click();next.focus({preventScroll:true});reset();return;}
       }
       tabHeld=true;chordAllowed=!blocked && !event.shiftKey;return;

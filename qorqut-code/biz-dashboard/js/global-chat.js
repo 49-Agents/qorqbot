@@ -46,6 +46,16 @@ const globalChatNoticeLabel = system => !system ? 'System notice'
   : system.verified ? GLOBAL_CHAT_INPUT_LABEL[system.input_type] || 'System notice'
   : 'Unverified notice';
 const globalChatBase = id => `/root/agents/${encodeURIComponent(id)}/chat`;
+// One transcript entry's body: sanitized agent Markdown, literal owner text, or a system notice whose
+// label tells verified Qorqut inputs from unverified lookalikes. Shared with the retired-agent reader.
+function globalChatEntryBody(entry) {
+  if (entry.speaker === 'agent') return `<div class="gchat-body md">${chatViewMarkdown(entry.text)}</div>`;
+  if (entry.speaker === 'notice') {
+    const system = entry.system, markerOnly = !!system?.verified && globalChatMarkerOnly(system.input_type);
+    return `<div class="gchat-body"><span class="gchat-marker">${esc(globalChatNoticeLabel(system))}</span>${markerOnly ? '' : `<span class="gchat-text">${esc(entry.text)}</span>`}</div>`;
+  }
+  return `<div class="gchat-body"><span class="gchat-text">${esc(entry.text)}</span></div>`;
+}
 
 // ---- the mount
 function globalChatViewToggle(terminal = false) {

@@ -68,52 +68,14 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-agents .item.agent { width: calc(100% - 20px); text-align: left; height: auto; background: none; color: var(--fg-2); font-weight: 400; transform: none; }
 .global-agents .item.agent:hover { background: var(--hover); color: var(--fg); }
 .global-agents .item.agent.on { background: rgba(247,247,247,.06); color: var(--fg); }
-/* Global agents and pinned agents are one roster: no heading, divider or gap between them. It takes the height it needs and
-   scrolls when the navigation body is short. Below it a compact lookup (business agents and Terminal) sits collapsed by default;
-   expanded it is capped at half the body, and never more than 240px, so the roster stays dominant. */
+/* The global agents form one roster that takes the height it needs and scrolls when the navigation body is short.
+   The owner's workspace Terminal is a separate, plainly named entry below it. */
 .global-agents .global-nav-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 .global-agents .listcol .global-primary { flex: 0 1 auto; min-height: 64px; overflow-y: auto; }
 .global-agents .global-roster { display: flex; flex-direction: column; }
-.global-agents .global-biz-nav { flex: none; box-sizing: border-box; max-height: min(240px, 50%); display: flex; flex-direction: column; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
-.global-agents .global-biz-tools { flex: none; display: flex; align-items: center; gap: 6px; margin: 0 10px 4px; }
-.global-agents .global-biz-toggle { flex: none; height: 30px; min-width: 30px; padding: 0 8px; gap: 7px; color: var(--fg-3); border-color: var(--line); border-radius: var(--r-sm); font: 400 12.5px var(--sans); transform: none; }
-.global-agents .global-biz-toggle:hover { color: var(--fg); transform: none; }
-.global-agents .global-biz-toggle:active { transform: none; }
-.global-agents .global-biz-toggle svg { width: 15px; height: 15px; }
-.global-agents .global-biz-toggle .global-biz-chevron { width: 14px; height: 14px; transition: transform .14s ease; }
-.global-agents .global-biz-find-text { white-space: nowrap; }
-/* Expanded, the control shrinks to a chevron (pointing up to collapse) beside the search field. */
-.global-agents .listcol:not(.biz-collapsed) .global-biz-toggle { width: 30px; padding: 0; }
-.global-agents .listcol:not(.biz-collapsed) .global-biz-find { display: none; }
-.global-agents .listcol:not(.biz-collapsed) .global-biz-toggle .global-biz-chevron { transform: rotate(180deg); }
-.global-agents .global-biz-region { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-.global-agents .global-biz-search { flex: 1 1 auto; min-width: 0; box-sizing: border-box; width: auto; height: 30px; margin: 0; padding: 0 10px; color: var(--fg); background: transparent;
-  border: 1px solid var(--line); border-radius: var(--r-sm); font: 12.5px var(--sans); outline: none; }
-.global-agents .global-biz-search::placeholder { color: var(--fg-3); }
-.global-agents .global-biz-search:focus { border-color: var(--line-2); background: var(--wash); }
-.global-agents .global-biz-status { flex: none; display: flex; align-items: center; gap: 8px; margin: 2px 10px; padding: 4px 10px; font-size: 11.5px; line-height: 1.35; color: var(--fg-2); border-radius: var(--r-sm); background: var(--wash); }
-.global-agents .global-biz-status[hidden] { display: none; }
-.global-agents .global-biz-status span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.global-agents .global-biz-status button { flex: none; height: 24px; padding: 0 8px; font-size: 11.5px; }
-.global-agents .listcol .global-biz-list { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: block; padding: 4px 0 6px; }
-.global-agents .global-biz-row { position: relative; }
-.global-agents .item.global-biz-agent { min-height: 46px; padding-right: 34px; }
-.global-agents .global-biz-icons { display: inline-flex; align-items: center; flex: none; width: 36px; }
-.global-agents .global-biz-icons .identity-business { position: relative; z-index: 2; }
-.global-agents .global-biz-icons .identity-department { position: relative; z-index: 1; width: 17px; height: 17px; margin-left: -6px; border-color: var(--department-color, var(--line-2)); }
-.global-agents .global-biz-icons .identity-department svg { width: 11px; height: 11px; }
-.global-agents .global-biz-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
-.global-agents .global-biz-text .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.global-agents .global-biz-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-size: 11px; }
-.global-agents .global-biz-pin { position: absolute; top: 50%; right: 16px; width: 24px; height: 24px; padding: 0; transform: translateY(-50%); display: inline-flex; align-items: center; justify-content: center;
-  opacity: 0; color: var(--fg-3); background: none; border: 0; border-radius: var(--r-sm); }
-.global-agents .global-biz-pin svg { width: 13px; height: 13px; }
-.global-agents .global-biz-row:hover .global-biz-pin, .global-agents .global-biz-row:focus-within .global-biz-pin { opacity: 1; }
-.global-agents .global-biz-pin:hover, .global-agents .global-biz-pin:focus-visible { color: var(--fg); background: var(--hover); transform: translateY(-50%); }
-.global-agents .global-biz-pin[aria-pressed="true"] { color: var(--fg); }
-.global-agents .global-biz-pin[aria-pressed="true"] svg { fill: currentColor; }
-@media (hover: none) { .global-agents .global-biz-pin { opacity: .7; } }
-.global-agents .global-workspace-terminal svg { width: 20px; height: 20px; flex: none; }
+.global-agents .global-workspace-terminals { flex: none; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.global-agents .global-workspace-terminal svg, .global-agents .global-agent-history svg { width: 20px; height: 20px; flex: none; }
+.global-agents .global-agent-history { color: var(--fg-2); }
 .agsplit.nav-off > .listcol .global-nav-body { display: none; }
 .global-agent-session { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .global-agent-session .chat.termmode { flex: 1; min-height: 180px; padding: 24px; }
@@ -133,30 +95,26 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 
 .workspace-choice .sg-attention-badge { grid-column:4; grid-row:1; justify-self:end; }
 
-.global-agents .global-biz-icons .identity-avatar { border:0; box-shadow:none; background:none; }
-.global-agents .global-biz-icons.pinned { width:24px; }
-.global-agents .global-biz-icons.pinned .identity-department { width:24px; height:24px; margin-left:0; }
-.global-agents .global-biz-icons.pinned .identity-department svg { width:16px; height:16px; }
-
 /* Compact Global navigation: an icon strip (114px, 134px on wide screens). Agent names are accessible labels only;
-   business rows keep just the business name beside their icon, and no presence or connection balls are drawn. */
+   no presence or connection balls are drawn. */
 .global-agents .listcol .ctop { padding: 12px 10px 8px; align-items: flex-start; text-align: left; }
 .global-agents .agent-nav-heading { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 6px; margin-bottom: 4px; }
 .global-agents .agent-nav-heading h1 { font-size: 16px; }
 .global-agents .agent-nav-actions { justify-content: flex-start; }
 .global-agents .listcol button.item.agent { width: calc(100% - 12px); margin: 0 auto; padding-left: 4px; padding-right: 4px; }
 .global-agents .item.agent .nm { position: relative; flex: 0 1 auto; max-width: 100%; justify-content: flex-start; }
-.global-agents .global-roster .item.agent, .global-agents .item.global-biz-agent { justify-content: flex-start; }
+.global-agents .global-roster .item.agent { justify-content: flex-start; }
 .global-agents .nm > .chat-unread-dot { position: absolute; top: -3px; right: -6px; margin: 0; }
-.global-agents .item.global-biz-agent { padding-right: 4px; min-height: 40px; }
-.global-agents .global-biz-icons { width: auto; }
-.global-agents .global-biz-icons.pinned { width: 24px; }
-.global-agents .global-biz-text { flex-direction: row; align-items: center; }
-.global-agents .global-biz-name { color: var(--fg-2); font-size: 11.5px; }
 .global-agents .global-workspace-terminal .nm { gap: 6px; }
-.global-agents .global-biz-tools { margin: 0 6px 4px; justify-content: flex-start; }
-.global-agents .listcol.biz-collapsed .global-biz-toggle { flex: 1 1 auto; justify-content: flex-start; }
-.global-agents .global-biz-search { padding: 0 6px; }
-.global-agents .global-biz-pin { right: 8px; background: var(--wash); }
-.global-agents .global-biz-status { margin: 2px 6px; }
-.global-agents .global-biz-status { flex-direction: column; align-items: stretch; gap: 4px; text-align: center; }
+
+/* Retired agent History (js/agent-history.js): a read-only modal reusing the Chat transcript styles. */
+.agent-history { display: flex; flex-direction: column; gap: 10px; min-height: 120px; }
+.agent-history-back { align-self: flex-start; }
+.agent-history-heading { margin: 0; text-transform: none; letter-spacing: normal; font-size: 15px; font-weight: 500; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.agent-history-heading time, .agent-history-row time, .agent-history-business { font-size: 12px; font-weight: 400; color: var(--fg-2); }
+.agent-history-list { display: flex; flex-direction: column; }
+.agent-history-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 10px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; color: var(--fg); text-align: left; cursor: pointer; }
+.agent-history-row:hover { background: var(--hover); }
+.agent-history-more { align-self: center; margin-top: 8px; }
+.agent-history-transcript { max-height: 60vh; overflow-y: auto; padding: 4px 2px; overscroll-behavior: contain; }
+.agent-history-status { margin: 10px 0 0; }

@@ -50,8 +50,10 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   const leading = [], trailing = [];
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_PANE_FIRST.has(type.renderer) ? leading : trailing).push(type.key);
   const personal = typeof agentWorkspaceViews === 'function' ? agentWorkspaceViews(scope, roleId) : [];
-  if (personal.includes('business')) leading.splice(Math.max(0, leading.indexOf('focus') + 1), 0, 'business');
-  else leading.unshift(...personal);
+  const own = personal.filter(view => view !== 'business');
+  leading.unshift(...own);
+  // Business follows Focus where the agent has it, otherwise the agent's own views.
+  if (personal.includes('business')) leading.splice(leading.includes('focus') ? leading.indexOf('focus') + 1 : own.length, 0, 'business');
   if (scope === 'global' && roleId === 'ordubashy') leading.splice(Math.max(0, leading.indexOf('focus') + 1), 0, 'calendar');
   // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
   if (browser || roleId === "ordubashy") leading.push("browser");
@@ -760,14 +762,10 @@ async function agpadOpenInboxSource({ inboxSource: id, sourceType: type, busines
     const { document: source } = coreData(await api(`/me/agents/${encodeURIComponent(agentId)}/inbox/documents/${encodeURIComponent(id)}`));
     return modal({ title: esc(source.metadata?.title || source.path), body: `<div class="work-source">${esc(source.body || '')}</div>`, actions: [] });
   }
+  if (type === 'agent_profiles') return agentProfileOpen(id);
   if (biz && (state.scope === 'global' || state.biz !== biz)) await selectBiz(biz);
   if (biz && state.biz !== biz) return;
   if (type === 'data_tables') return tablesOpen(biz || null, id);
-  if (type === 'agent_profiles') {
-    const { agent } = coreData(await api(`/biz/${encodeURIComponent(biz)}/agents/${encodeURIComponent(id)}`));
-    if (agent.status !== 'active') return modal({ title: esc(agent.display_name || agent.name), body: `<p>${esc(agent.status)}</p>`, actions: [] });
-    state.agent = agent.name; return goTab('agents');
-  }
   if (type === 'principals' || type === 'context_entities') {
     const { item } = await workCall(biz, 'context_items_get', { item: { type: type === 'principals' ? 'person' : 'entity', id }, ...(biz ? {} : { scope: 'global' }) });
     if (type === 'context_entities' && /^https?:\/\//.test(item.url || '')) return workOpenLink({biz}, {resource_type:'entity',resource_id:id,current:item});

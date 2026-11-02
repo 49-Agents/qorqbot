@@ -1,4 +1,5 @@
-// Workspace-scoped terminal input; viewing the terminal is explicitly opt-in.
+// Workspace-scoped Chat messages to the global agents; viewing the terminal is explicitly opt-in.
+// A message goes to the agent's current native Chat binding, exactly as the Chat view sends it.
 const workspaceComposer = {generation:0, drafts:new Map(), selections:new Map(), scope:null, dispose:null};
 function workspaceComposerCloseTerminal() {
   workspaceComposer.dispose?.();workspaceComposer.dispose=null;
@@ -70,8 +71,7 @@ async function workspaceComposerRefresh() {
     if(w.dispose){workspaceComposerCloseTerminal();return;}
     const host=root.querySelector('.workspace-terminal');host.hidden=false;resize.hidden=false;
     setHeight(w.terminalHeight || (window.innerWidth<=600?200:240));
-    const base=selected.business_slug?`/biz/${encodeURIComponent(selected.business_slug)}/terminal/${encodeURIComponent(selected.name)}`:`/root/terminal/${encodeURIComponent(selected.agent_id)}`;
-    w.dispose=mountTerminal(selected.name,host,null,base,{});
+    w.dispose=mountTerminal(selected.name,host,null,`/root/terminal/${encodeURIComponent(selected.agent_id)}`,{});
     toggle.setAttribute('aria-expanded','true');toggle.setAttribute('aria-label','Hide terminal');
   };
   root.querySelector('form').onsubmit=async event=>{
@@ -84,45 +84,32 @@ async function workspaceComposerRefresh() {
     const focusBeforeSend=document.activeElement;
     saved.sending=true;send.disabled=true;picker.disabled=true;input.readOnly=true;status.textContent='Sending…';
     try {
-      let chat = false;
-      if (!target.business_slug) {
-        const data = coreData(await api(`/root/agents/${encodeURIComponent(target.agent_id)}/chat`));
-        chat = data.runtime.enabled;
+      // A retry of the same text reuses its key and binding; a new text reads the current binding.
+      if (!saved.attempt || saved.attempt.text !== text) {
+        let data;
+        try { data = coreData(await api(globalChatBase(target.agent_id)+'?limit=1')); }
+        catch (_) { throw Object.assign(new Error('Chat state unavailable'), {code:'operation_unavailable'}); }
+        const binding = data.session?.binding?.binding_id;
+        if (!binding) throw Object.assign(new Error('No current Chat binding'), {code:'binding_not_ready'});
+        saved.attempt = {text, key:newRequestId(), pin:binding};
       }
-      if (chat) {
-        if (!saved.attempt || saved.attempt.text !== text) saved.attempt = {text, key:newRequestId()};
-        coreData(await post(`/root/agents/${encodeURIComponent(target.agent_id)}/chat/messages`,
-          {text, idempotency_key:saved.attempt.key}));
-        saved.attempt = null;
-      } else {
-      const base=target.business_slug?`/biz/${encodeURIComponent(target.business_slug)}/terminal/${encodeURIComponent(target.name)}`:`/root/terminal/${encodeURIComponent(target.agent_id)}`;
-      const write=async(action,body)=>{
-        const result=await post(base+'/'+action,body,{signal:AbortSignal.timeout(15000)});
-        if(!result?.ok || result.error)throw new Error(result.error || 'Terminal delivery unconfirmed.');
-      };
-      // Attach the existing terminal on explicit Send, without opening a viewer.
-      await write('start',{});
-      await write('input',{data:text});
-      await new Promise(resolve=>setTimeout(resolve,200));
-      await write('input',{data:'\r'});
-      }
+      coreData(await post(globalChatBase(target.agent_id)+'/messages', {text, idempotency_key:saved.attempt.key, expected_binding:saved.attempt.pin}));
+      saved.attempt = null;
       saved.text='';if(current()){input.value='';status.textContent='Sent';}
-    } catch(error){if(current())status.textContent='Delivery unconfirmed. Chat retries reuse the same message; check terminal delivery before retrying. '+(error.message || '');}
+    } catch(error){
+      // A refusal stored nothing, so the next send starts fresh; any other outcome is unknown and keeps its key.
+      if (GLOBAL_CHAT_REFUSALS.has(error.code)) saved.attempt = null;
+      if(current())status.textContent=GLOBAL_CHAT_REFUSALS.has(error.code) ? GLOBAL_CHAT_REFUSAL_TEXT[error.code] || "Couldn't send. Try again" : "Couldn't confirm. Try again";
+    }
     finally{saved.sending=false;w.sync?.();if(current() && document.activeElement===focusBeforeSend)input.focus();}
   };
   try {
-    const [global,local]=await Promise.all([
-      api('/root/agents').then(response=>coreData(response).agents),
-      key==='global'?Promise.resolve([]):api(`/biz/${encodeURIComponent(key)}/agents?summary=1`)
-    ]);
-    if(!Array.isArray(global) || !Array.isArray(local))throw new Error('Could not load agents.');
+    const global=coreData(await api('/root/agents')).agents;
+    if(!Array.isArray(global))throw new Error('Invalid agent list');
     if(!current())return;
-    agents=key==='global'?global:[...global.filter(a=>['ordubashy','global-marketing'].includes(a.role_id || a.role?.id))
-      .map(agent=>(agent.role_id || agent.role?.id)==='global-marketing'
-        ? {...agent,display_name:(agent.display_name || agent.name)+' (Global)'} : agent),
-      ...local.map(agent=>({...agent,business_slug:key}))];
-    if(!Array.isArray(agents) || !agents.length)throw new Error('No agents available.');
+    agents=global.filter(globalRosterAgent);
+    if(!agents.length){status.textContent='No agents available.';w.scope=null;return;}
     picker.disabled=false;
     choose(w.selections.get(key) && agents.some(a=>a.agent_id===w.selections.get(key))?w.selections.get(key):(agents.find(a=>(a.role_id || a.role?.id)==='ordubashy') || agents[0]).agent_id);
-  } catch(error){if(current()){status.textContent=error.message || 'Could not load agents.';w.scope=null;}}
+  } catch(error){if(current()){status.textContent="Couldn't load. Retry";w.scope=null;}}
 }
