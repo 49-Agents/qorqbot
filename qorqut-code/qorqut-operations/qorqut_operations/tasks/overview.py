@@ -76,7 +76,8 @@ class TaskOverview:
             assignment_parameters = (["person", owner["id"]] if owner_present else []) + ["agent", ctx.principal_id]
             predicate = {"both": "(owner_assigned OR self_assigned)", "owner": "owner_assigned", "self": "self_assigned"}[filters["assignee"]]
             found = uow.connection.execute(
-                "SELECT t.id,t.revision,t.title,t.status,t.due,t.snoozed_until,t.snooze_generation," + owner_sql + " AS owner_assigned," + assigned
+                "SELECT t.id,t.revision,t.title,t.status,t.due,t.snoozed_until,t.snooze_generation,"
+                "COALESCE(json_extract(t.fields_json,'$.\"$task\".task_type'),'task') AS task_type," + owner_sql + " AS owner_assigned," + assigned
                 + " AS self_assigned FROM tasks t WHERE " + " AND ".join(clauses) + " AND " + predicate + " LIMIT ?",
                 [*assignment_parameters, *parameters, MAX_MATCHES + 1 - len(matches)]).fetchall()
             labels = labels_by_item(uow, business_id, "task")
@@ -97,7 +98,7 @@ class TaskOverview:
         for task in selected:
             business_id = task["business_id"]
             group = groups.setdefault(business_id, {"business_id": business_id, "name": scopes[business_id], "active": [], "snoozed": []})
-            brief = {key: task[key] for key in ("id", "revision", "title", "status", "due")}
+            brief = {key: task[key] for key in ("id", "revision", "title", "status", "due", "task_type")}
             if len(brief["title"]) > 180:
                 brief.update(title=brief["title"][:179] + "…", title_truncated=True)
             brief["assignees"] = [name for name in ("owner", "self") if task[name + "_assigned"]]

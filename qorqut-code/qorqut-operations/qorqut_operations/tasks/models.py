@@ -13,6 +13,7 @@ import re
 from qorqut_operations.application.plans import timestamp
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.tasks.schema import CLOSED_STATES, KINDS, PAUSED_STATES, STATES
+from qorqut_operations.tasks.types import custom_fields, validate_attributes
 
 NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 FIELD_TYPES = ("string", "int", "bool", "date", "enum")
@@ -87,7 +88,8 @@ def validate_task(task, fields):
     values = task["fields_json"]
     if not isinstance(values, dict):
         invalid("Task fields must be an object")
-    for name, value in values.items():
+    validate_attributes(task)
+    for name, value in custom_fields(task).items():
         spec = fields.get(name)
         if spec is None:
             invalid("Unknown custom task field: " + name)
