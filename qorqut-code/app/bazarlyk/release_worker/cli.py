@@ -75,6 +75,9 @@ def build_parser() -> argparse.ArgumentParser:
     coordinated = commands.add_parser("v12-coordinated-deploy", help="activate a same-schema full release after an approved cutoff and offline conversion")
     coordinated.add_argument("--selection", type=Path, required=True)
     coordinated.add_argument("--confirm-deploy", action="store_true")
+    team_upgrade = commands.add_parser("v12-team-upgrade", help="convert the stopped v1.2 operational database to the Ordubashy team target before a coordinated update")
+    team_upgrade.add_argument("--selection", type=Path, required=True)
+    team_upgrade.add_argument("--confirm-upgrade", action="store_true")
     helper_update = commands.add_parser("v12-helper-activate", help="activate explicitly selected same-protocol native helpers without restarting sessions")
     helper_update.add_argument("--selection", type=Path, required=True)
     helper_update.add_argument("--confirm-adopt", action="store_true")
@@ -160,6 +163,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "v12-coordinated-deploy":
             from .v12_repair import coordinated_deploy
             _json(coordinated_deploy(args.selection, confirm=args.confirm_deploy))
+            return 0
+        if args.command == "v12-team-upgrade":
+            from .v12_team_upgrade import team_upgrade
+            _json(team_upgrade(args.selection, confirm=args.confirm_upgrade))
             return 0
         if args.command == "v12-repair":
             from .v12_repair import repair
