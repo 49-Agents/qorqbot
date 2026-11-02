@@ -2,7 +2,7 @@
 
 This module is the one current-global eligibility authority of the engine and the host; it imports nothing from the
 host. A current global is an active ``agent`` principal whose registered profile row is active, has no home business
-and stores a decoded profile that is itself active, has an ecosystem scope without a business and holds one of the four
+and stores a decoded profile that is itself active, has an ecosystem scope without a business and holds one of the
 supported global roles. Missing or malformed profile JSON and wrong field types fail closed. Its business access is
 every business active in the reading transaction. The profile's stored ``allowed_business_ids`` list and its own
 membership rows are not consulted: a business registered later is included immediately and an archived business is
@@ -20,10 +20,13 @@ import json
 
 from qorqut_operations.business_lifecycle import active_business_ids
 from qorqut_operations.contracts import plain
-from qorqut_operations.roles import FOUNDER_ROLE, GLOBAL_MARKETING_ROLE, LEARNING_APPLIER_ROLE, ORDUBASHY_ROLE
+from qorqut_operations.roles import (FOUNDER_ROLE, GLOBAL_MARKETING_ROLE, GLOBAL_WORKER_ROLE, LEARNING_APPLIER_ROLE,
+                                     ORDUBASHY_ROLE)
 
 # The only roles a current global may hold. Retired and unknown role ids stay readable in history, never current.
-SUPPORTED_GLOBAL_ROLES = frozenset({ORDUBASHY_ROLE, FOUNDER_ROLE, GLOBAL_MARKETING_ROLE, LEARNING_APPLIER_ROLE})
+SUPPORTED_GLOBAL_ROLES = frozenset({ORDUBASHY_ROLE, FOUNDER_ROLE, GLOBAL_MARKETING_ROLE, LEARNING_APPLIER_ROLE, GLOBAL_WORKER_ROLE})
+# The one role several current globals may hold at once; every other supported role has at most one active holder.
+REPEATABLE_GLOBAL_ROLES = frozenset({GLOBAL_WORKER_ROLE})
 
 _GLOBAL_PROFILES = ("SELECT a.agent_id, a.revision, a.status, a.home_business_id, a.profile_json, p.kind, p.active "
                     "FROM agent_profiles a JOIN principals p ON p.id=a.agent_id")
@@ -89,5 +92,5 @@ def effective_business_ids(connection, agent_id) -> frozenset:
     return active_business_ids(connection) if is_global_agent(connection, agent_id) else frozenset()
 
 
-__all__ = ["SUPPORTED_GLOBAL_ROLES", "current_global_data", "current_global_row", "effective_business_ids",
+__all__ = ["REPEATABLE_GLOBAL_ROLES", "SUPPORTED_GLOBAL_ROLES", "current_global_data", "current_global_row", "effective_business_ids",
            "global_agent_ids", "global_profile", "is_global_agent"]
