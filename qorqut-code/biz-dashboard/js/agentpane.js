@@ -615,7 +615,7 @@ function agpadSurfacePaint(p) {
 // ------------------------------------------------------------ Ordubashy auto-ping
 // The switch pauses or resumes one saved Global inbox broadcast to this agent.
 const AGPAD_PING_NAME = "Focus check-in";
-const AGPAD_PING_MESSAGE = "Scheduled check-in from Alp. Review the items on the Focus board (focus_get) " +
+const AGPAD_PING_MESSAGE = "Scheduled check-in from the owner. Review the items on the Focus board (focus_get) " +
   "and the open tasks assigned to me. Take on and complete every item you can. Keep each task's status current: " +
   "doing for what you are working on, waiting for what you are waiting on others for, and blocked for what you are " +
   "waiting on me for. If you are blocked on an item, reply in that item's thread and state clearly why you are blocked " +

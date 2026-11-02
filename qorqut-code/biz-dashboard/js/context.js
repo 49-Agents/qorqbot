@@ -497,7 +497,7 @@ async function jSave() {
   }
 }
 
-
+// a file: pillar, note, _topic.md, INDEX.md, upload — an always-editable writing column
 async function openCtx(p) {
   const biz = state.biz;
   const v = $("#ctxview");
