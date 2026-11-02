@@ -2,13 +2,16 @@
 
 ``owner_reminder`` (schedule/list/update/cancel) and ``owner_reminders_list`` keep their arguments and plain results, but the
 target is always the installation owner and every mutation now needs the owner or the configured Ordubashy: another agent can
-no longer use them to remind the owner. Reminders are stable rows now, so an update keeps its reminder_id. Nothing here
-touches the Telegram outbox except admitting a queued legacy row, which the shared service has already taken over."""
+no longer use them to remind the owner. Every call is also authorized as the matching shared ``reminders_*`` operation (a deny
+there is not bypassed here), including when a saved result is replayed. Reminders are stable rows now, so an update keeps its
+reminder_id. Nothing here touches the Telegram outbox except admitting a queued legacy row, which the shared service has already
+taken over."""
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, page_position, schema
 from qorqut_operations.contracts import DomainError, plain
 from bazarlyk.management.identity import installation_owner, is_active_installation_owner
 
+from . import service as shared
 from .views import legacy
 
 NAME = "owner_reminder"
@@ -18,6 +21,8 @@ DEFAULT_PAGE, MAX_PAGE = 25, 100
 FIELDS = {"schedule": {"action", "text", "at"}, "list": {"action"}, "update": {"action", "reminder_id", "revision", "text", "at"},
           "cancel": {"action", "reminder_id", "revision"}}
 SHAPE = ("reminder_id", "revision", "text", "at", "state")
+# The shared operation each legacy action is authorized as.
+SHARED = {"schedule": shared.CREATE, "list": shared.LIST, "update": shared.UPDATE, "cancel": shared.CANCEL}
 
 
 class LegacyReminders:
@@ -37,7 +42,7 @@ class LegacyReminders:
             description="Short alias for the owner's own one-off reminders; prefer the reminders_* tools, which also support "
                         "recurrence and other recipients. When the owner asks to be reminded, schedule one concise reminder with text and "
                         "at; list, update or cancel with reminder_id and revision. Only the owner and Ordubashy may use it.",
-            prepare=self.prepare, apply=self.apply))
+            prepare=self.prepare, apply=self.apply, replay_validator=self.replay))
         self.app.registry.register(OperationDescriptor(READ, schema({
             "scope": {"enum": ["business", "global"]},
             "reminder_id": {"type": "string", "format": "uuid"},
@@ -54,26 +59,38 @@ class LegacyReminders:
 
     # ----- owner_reminder -----------------------------------------------------------------------------------------
 
-    def manager(self, ctx, uow):
+    def manager(self, ctx, uow, operation):
         access = self.service.caller(ctx, uow)
         if not access.manager:
             raise DomainError("forbidden", "Only the owner and the configured Ordubashy may manage owner reminders")
+        # The wrapper never sidesteps the shared operation's own policy decision, an explicit deny included.
+        self.service.authorize_operation(access.ctx, operation, uow)
         owner = installation_owner(uow)
         if owner is None:
             raise DomainError("operation_unavailable", "No installation owner is registered", retryable=True)
         return access, owner
 
     def prepare(self, ctx, args, options, uow):
-        access, owner = self.manager(ctx, uow)
+        access, owner = self.manager(ctx, uow, SHARED[args["action"]])
         self.run(access, owner, args, uow, apply=False)
         return PlanBuilder(access.ctx, NAME, args, "Manage owner reminder", namespace=self.service.namespace(access.ctx)).build()
 
     def apply(self, ctx, plan, uow):
-        access, owner = self.manager(ctx, uow)
-        return self.run(access, owner, plain(plan.arguments), uow, apply=True)
+        arguments = plain(plan.arguments)
+        access, owner = self.manager(ctx, uow, SHARED[arguments["action"]])
+        return self.run(access, owner, arguments, uow, apply=True)
+
+    def replay(self, ctx, args, replay, uow):
+        """Before a saved result is returned again: the caller must still be the owner or configured Ordubashy, still pass the
+        shared operation's policy, and the saved reminder must still be one of the owner's."""
+        args = plain(args)
+        access, owner = self.manager(ctx, uow, SHARED[args["action"]])
+        reminder_id = args.get("reminder_id") or plain(replay.data or {}).get("reminder_id")
+        row = self.service.load(uow, reminder_id) if reminder_id else None
+        if reminder_id and (row is None or row["recipient_id"] != owner or not self.service.reachable(access, row, uow)):
+            raise DomainError("not_found", "No such reminder")
 
     def run(self, access, owner, args, uow, *, apply):
-        from . import service as shared
         action = args["action"]
         if set(args) != FIELDS[action]:
             raise DomainError("validation_error", "Required fields for " + action + ": " + ", ".join(sorted(FIELDS[action])))
@@ -110,7 +127,7 @@ class LegacyReminders:
 
     def read(self, ctx, args, options, uow):
         """Bounded, stable read of the owner's reminders in exactly one scope; never touches delivery state."""
-        access, owner = self.manager(ctx, uow)
+        access, owner = self.manager(ctx, uow, shared.LIST)
         ctx = access.ctx
         namespace = self.read_namespace(ctx, args)
         if args.get("scope") == "global" and ctx.business_id is not None:

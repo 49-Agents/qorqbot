@@ -13,9 +13,10 @@ Nothing here runs from the service: normal startup never creates a table or impo
 2. The two reminder tables and their indexes and triggers are created from the contribution's own DDL and the stored target
    identity digest is advanced; the compiled inventory must then equal the target object for object.
 3. Only legacy owner reminders still ``queued`` in ``telegram_outbox`` are imported, with the exact id, revision, text, time,
-   scope and creator; the owner is the recipient. Each imported outbox row is cancelled in the same transaction, so the legacy
-   path can never send it as well (the legacy admit hook also cancels any imported row still queued). Sent, failed and already
-   cancelled legacy rows are history and are left untouched; nothing is replayed.
+   scope and creator (who is also the initial authorizing principal); the owner is the recipient. Each imported outbox row is
+   cancelled in the same transaction, so the legacy path can never send it as well (the legacy admit hook also cancels any
+   imported row still queued). Sent, failed and already cancelled legacy rows are history and are left untouched; nothing is
+   replayed.
 4. A legacy row that is in flight (``dispatching``/``uncertain``) or malformed has no safe automatic disposition: the whole
    upgrade is refused, listing only ids and codes. Resolve those rows through the existing Telegram delivery resolution first.
 5. ``foreign_key_check`` must be clean before commit; any failure rolls the entire transaction back, schema included.
@@ -48,9 +49,9 @@ TRANSFORM = "v1.3-shared-reminders-1"
 LEGACY_KIND = "owner_reminder"
 IN_FLIGHT = ("dispatching", "uncertain")
 MAX_REPORTED = 20
-COLUMNS = ("id", "revision", "business_id", "creator_id", "recipient_id", "text", "linked_item_json", "time_critical", "schedule",
-           "timezone", "state", "generation", "next_at", "snoozed_until", "due_at", "current_occurrence_id", "defer_until",
-           "created_at", "updated_at")
+COLUMNS = ("id", "revision", "business_id", "creator_id", "authority_principal_id", "recipient_id", "text", "linked_item_json",
+           "time_critical", "schedule", "timezone", "state", "generation", "next_at", "snoozed_until", "due_at",
+           "current_occurrence_id", "defer_until", "created_at", "updated_at")
 
 
 def compositions(extensions=NO_EXTENSIONS):
@@ -117,7 +118,7 @@ def convert(connection, row, owner):
         raise DomainError("invalid_text", "The legacy reminder text is outside the reminder limits")
     at = timing.stamp(timing.parse_at(row["part"]))
     return {"id": row["id"], "revision": row["revision"], "business_id": business, "creator_id": row["agent_id"],
-            "recipient_id": owner, "text": text, "linked_item_json": None, "time_critical": 0, "schedule": None, "timezone": None,
+            "authority_principal_id": row["agent_id"], "recipient_id": owner, "text": text, "linked_item_json": None, "time_critical": 0, "schedule": None, "timezone": None,
             "state": "scheduled", "generation": 1, "next_at": at, "snoozed_until": None, "due_at": None,
             "current_occurrence_id": None, "defer_until": None, "created_at": row["created_at"], "updated_at": row["updated_at"]}
 

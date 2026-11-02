@@ -2,7 +2,8 @@
 
 ``reminders`` is the definition and its current presentation (recipient, schedule, snooze, the next durable due boundary and
 the current due occurrence). ``reminder_occurrences`` is the immutable history of each due moment with the one durable
-delivery receipt it earned. A partial index serves the idle reconcile pass, so finding nothing due costs one indexed probe."""
+delivery receipt it earned. ``creator_id`` is the immutable origin; ``authority_principal_id`` is the principal that last
+authorized the schedule or recipient and is the one delivery rechecks. A partial index serves the idle reconcile pass, so finding nothing due costs one indexed probe."""
 from qorqut_operations.storage.assembly import StorageContribution
 from qorqut_operations.storage.specs import TableSpec
 
@@ -21,6 +22,7 @@ SCHEMA = (
         revision INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1),
         business_id TEXT REFERENCES businesses(id),
         creator_id TEXT NOT NULL REFERENCES principals(id),
+        authority_principal_id TEXT NOT NULL REFERENCES principals(id),
         recipient_id TEXT NOT NULL REFERENCES principals(id),
         text TEXT NOT NULL CHECK(length(text) BETWEEN 1 AND 240),
         linked_item_json TEXT CHECK(linked_item_json IS NULL OR (json_valid(linked_item_json) AND json_type(linked_item_json)='object')),

@@ -7,8 +7,10 @@ occurrences and hands each to ``ReminderDelivery``, which writes the existing in
 transaction. The service never sends anything itself.
 
 Authority: the installation owner and the configured Ordubashy manage every reminder; any other agent manages only the
-reminders addressed to itself. Recipient and creator authority are rechecked when a delivery is published, when a queued
-Telegram row is admitted and when an inbox event is read; delegated identities never manage reminders."""
+reminders addressed to itself. ``creator_id`` stays the origin; ``authority_principal_id`` is whoever last authorized the
+schedule, recipient or a snooze, and is the principal delivery rechecks. Recipient, scheduling authority and the linked item's
+readability for both are rechecked when a delivery is published, when a queued Telegram row is admitted and when an inbox event
+is read; delegated identities never manage reminders."""
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import timedelta
@@ -108,9 +110,8 @@ class ReminderService:
                      "Stop the whole reminder or series and discard any pending delivery."),
         }
         for name, (fields, required, description) in write_fields.items():
-            # A saved receipt carries reminder text, so a replay is refused once the caller is no longer allowed to manage reminders.
             self.app.registry.register(OperationDescriptor(name, schema(fields, required), **common, description=description,
-                replay_validator=lambda ctx, args, replay, uow: self.caller(ctx, uow),
+                replay_validator=lambda ctx, args, replay, uow, op=name: self.replay(op, ctx, args, replay, uow),
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, uow), apply=self.apply))
         self.app.registry.register(OperationDescriptor(GET, schema({"reminder_id": UUID}, ("reminder_id",)), **common, effect_kind="read",
             description="Read one reminder you may see: its state, next time, current occurrence_id and revision.", read=self.get))
@@ -146,6 +147,28 @@ class ReminderService:
         if ctx.principal_kind != "agent":
             raise DomainError("forbidden", "Only the installation owner and registered agents manage reminders")
         return Access(ctx, "coordinator" if ctx.principal_id == configured_ordubashy(uow, require_codex=False) else "agent")
+
+    def authorize_operation(self, ctx, operation, uow):
+        """The normal policy decision for ``operation`` in the caller's scope; an explicit deny or a missing grant refuses."""
+        decision = self.app.authorize(ctx, self.app.registry.get(operation), (), uow, namespace=self.namespace(ctx))
+        if decision.mode != "allow":
+            raise DomainError("forbidden", "That operation is not permitted by the active policy")
+
+    def replay(self, operation, ctx, args, replay, uow):
+        """Before a saved reminder result is returned again: the caller must still be allowed the operation, still reach the
+        reminder (a readdressed reminder is no longer an agent's), and still read the linked item the saved view carries."""
+        access = self.caller(ctx, uow)
+        self.authorize_operation(access.ctx, operation, uow)
+        self.check_saved(access, plain(args), plain(replay.data or {}).get("reminder"), uow)
+
+    def check_saved(self, access, args, saved, uow):
+        reminder_id = (saved or {}).get("reminder_id") or args.get("reminder_id")
+        if not reminder_id:
+            return
+        self.required(access, reminder_id, uow)
+        link = (saved or {}).get("linked_item")
+        if link is not None and self.read_link(access.ctx, link, uow) is None:
+            raise DomainError("forbidden", "The linked item is no longer readable; read the reminder again")
 
     def require_recipient(self, access, recipient_id):
         if not access.manager and recipient_id != access.ctx.principal_id:
@@ -187,22 +210,36 @@ class ReminderService:
             return False
         return decision.mode == "allow"
 
-    def creator_ok(self, uow, row):
-        """The creator may still manage this recipient: the owner, Ordubashy, or the agent itself while not denied."""
-        creator = row["creator_id"]
-        principal = uow.connection.execute("SELECT kind,active FROM principals WHERE id=?", (creator,)).fetchone()
+    def authority_ok(self, uow, row):
+        """The principal that last authorized the schedule or recipient may still do so: the owner, Ordubashy, or the agent
+        itself for its own reminder, and not denied. ``creator_id`` is origin only and grants nothing over a new recipient."""
+        authority = row["authority_principal_id"]
+        principal = uow.connection.execute("SELECT kind,active FROM principals WHERE id=?", (authority,)).fetchone()
         if principal is None or not principal["active"]:
             return False
         if principal["kind"] == "human":
-            return is_active_installation_owner(uow, creator, "human")
+            return is_active_installation_owner(uow, authority, "human")
         if principal["kind"] != "agent":
             return False
-        if creator != row["recipient_id"] and creator != configured_ordubashy(uow, require_codex=False):
+        if authority != row["recipient_id"] and authority != configured_ordubashy(uow, require_codex=False):
             return False
-        return self.permitted(uow, creator, row["business_id"], CREATE)
+        return self.permitted(uow, authority, row["business_id"], CREATE)
+
+    def link_ok(self, uow, row):
+        """The saved linked item, when there is one, is readable *now* by the authorizing principal and the recipient."""
+        link = stored_link(row)
+        if link is None:
+            return True
+        for principal_id in sorted({row["authority_principal_id"], row["recipient_id"]}):
+            ctx = self.principal_context(uow, principal_id)
+            if ctx is None or self.read_link(ctx, link, uow) is None:
+                return False
+        return True
 
     def deliverable(self, uow, row):
-        return self.recipient_ok(uow, row["recipient_id"], row["business_id"]) and self.creator_ok(uow, row)
+        """The one shared delivery-eligibility rule; delivery and Telegram admission only consult it through the occurrence."""
+        return (self.recipient_ok(uow, row["recipient_id"], row["business_id"]) and self.authority_ok(uow, row)
+                and self.link_ok(uow, row))
 
     def reachable(self, access, row, uow, memo=None):
         """Managers reach every reminder; any other agent only its own, while it can still act in that scope."""
@@ -215,7 +252,7 @@ class ReminderService:
         """The Focus card of a reference as ``ctx`` may read it, or None. The existing item resolver decides readability."""
         focus = getattr(self.runtime, "focus", None)
         if focus is None:
-            raise DomainError("operation_unavailable", "Linked item checks are unavailable", retryable=True)
+            return None
         try:
             return focus.resolve(ctx, {"type": link["type"], "id": link["id"], "business_id": link["business_id"]}, uow)
         except (DomainError, KeyError, TypeError, ValueError, LookupError):
@@ -226,12 +263,16 @@ class ReminderService:
         if self.read_link(access.ctx, link, uow) is None:
             raise DomainError("validation_error", "The linked item is unavailable to you")
         if recipient_id != access.ctx.principal_id:
-            try:
-                peer = self.app.policy.context_for(recipient_id, business_id=None, review_business_id=None, uow=uow)
-            except DomainError:
-                peer = None
+            peer = self.principal_context(uow, recipient_id)
             if peer is None or self.read_link(peer, link, uow) is None:
                 raise DomainError("validation_error", "The linked item is unavailable to the recipient")
+
+    def principal_context(self, uow, principal_id):
+        """The principal's current invocation context from stored authority, or None when it cannot act."""
+        try:
+            return self.app.policy.context_for(principal_id, business_id=None, review_business_id=None, uow=uow)
+        except DomainError:
+            return None
 
     def names(self, uow, rows, memo):
         wanted = {identity for row in rows for identity in (row["recipient_id"], row["creator_id"]) if identity not in memo}
@@ -241,7 +282,7 @@ class ReminderService:
         return memo
 
     def view(self, ctx, row, uow, memo):
-        """The caller's view; the linked item's label appears only while this caller can read it right now."""
+        """The caller's view; the linked reference and label appear only while this caller can read the item right now."""
         link, available = stored_link(row), True
         if link is not None:
             key = (ctx.principal_id, link["type"], link["id"], link["business_id"])
@@ -249,8 +290,8 @@ class ReminderService:
                 memo["links"][key] = self.read_link(ctx, link, uow)
             card = memo["links"][key]
             available = card is not None
-            if card is not None:
-                link = {**link, "label": card.get("label")}
+            # A reference this viewer cannot read now is not shown at all, only flagged unavailable.
+            link = {**link, "label": card.get("label")} if card is not None else None
         return record(row, names=self.names(uow, [row], memo["names"]), link=link, link_available=available)
 
     @staticmethod
@@ -362,7 +403,7 @@ class ReminderService:
         elif operation == CANCEL:
             changes = self.cancellation(row)
         elif operation == SNOOZE:
-            changes = self.snoozing(row, args, now)
+            changes = self.snoozing(row, args, now, access.ctx.principal_id)
         else:
             changes = self.edit(access, row, args, now, uow)
         if not apply or not changes:
@@ -385,8 +426,9 @@ class ReminderService:
         if link is not None:
             self.check_link(access, recipient, link, uow)
         stamp = timing.stamp(now)
-        return {"id": new_id(), "revision": 1, "business_id": ctx.business_id, "creator_id": ctx.principal_id, "recipient_id": recipient,
-                "text": text, "linked_item_json": json.dumps(link, sort_keys=True) if link is not None else None,
+        return {"id": new_id(), "revision": 1, "business_id": ctx.business_id, "creator_id": ctx.principal_id,
+                "authority_principal_id": ctx.principal_id, "recipient_id": recipient, "text": text,
+                "linked_item_json": json.dumps(link, sort_keys=True) if link is not None else None,
                 "time_critical": int(bool(args.get("time_critical"))), "schedule": schedule, "timezone": name, "state": "scheduled",
                 "generation": 1, "next_at": timing.stamp(upcoming), "snoozed_until": None, "due_at": None,
                 "current_occurrence_id": None, "defer_until": None, "created_at": stamp, "updated_at": stamp}
@@ -450,6 +492,9 @@ class ReminderService:
             when = timing.stamp(self.future(args["at"], now))
             if when != row["next_at"] or row["state"] == "due":
                 changes["next_at"], retime = when, True
+        if retime or moved:
+            # Origin stays creator_id; the actor who authorized this schedule or recipient is the one delivery rechecks.
+            changes["authority_principal_id"] = access.ctx.principal_id
         if retime:
             changes.update(schedule=schedule, timezone=name, state="scheduled", current_occurrence_id=None, snoozed_until=None,
                            generation=row["generation"] + 1, close="rescheduled")
@@ -464,12 +509,13 @@ class ReminderService:
         return changes
 
     @staticmethod
-    def snoozing(row, args, now):
+    def snoozing(row, args, now, actor):
         if row["state"] not in ACTIVE:
             raise DomainError("invalid_transition", "Only an active reminder can be snoozed")
         until = ReminderService.future(args["at"], now, "Snooze time")
         return {"state": "scheduled", "snoozed_until": timing.stamp(until), "next_at": timing.stamp(until),
-                "current_occurrence_id": None, "generation": row["generation"] + 1, "defer_until": None, "close": "snoozed"}
+                "current_occurrence_id": None, "generation": row["generation"] + 1, "defer_until": None,
+                "authority_principal_id": actor, "close": "snoozed"}
 
     @staticmethod
     def dismissal(row, args):
@@ -511,9 +557,10 @@ class ReminderService:
                 "time_critical": bool(row["time_critical"]), "recurring": row["schedule"] is not None}
 
     def current_occurrence(self, uow, occurrence_id):
-        """The canonical payload while the occurrence is still the reminder's current due one and its recipient and creator
-        remain authorized; None for anything stale, superseded, snoozed, dismissed, cancelled or revoked. An internal validity
-        lookup, not public authorization."""
+        """The canonical payload while the occurrence is still the reminder's current due one, its recipient and scheduling
+        authority remain allowed and both can still read the saved link; None for anything stale, superseded, snoozed, dismissed,
+        cancelled or revoked. The due record and pending delivery are kept while it is None. An internal validity lookup, not
+        public authorization."""
         occurrence = uow.connection.execute("SELECT * FROM reminder_occurrences WHERE id=?", (occurrence_id,)).fetchone()
         if occurrence is None or occurrence["close_reason"] is not None:
             return None
@@ -524,8 +571,9 @@ class ReminderService:
         return self.payload(row, occurrence)
 
     def visible_occurrence(self, ctx, uow, occurrence_id):
-        """The payload for the occurrence's own recipient under current permissions, with a link the recipient can no longer
-        read withheld. Manager read rights never make another recipient's notice visible."""
+        """The payload for the occurrence's own recipient under current permissions; None when the recipient cannot currently read
+        the saved link (``current_occurrence`` has already required the same of the authorizing principal). Manager read rights
+        never make another recipient's notice visible."""
         payload = self.current_occurrence(uow, occurrence_id)
         if payload is None or ctx.principal_id != payload["recipient_id"]:
             return None
@@ -543,7 +591,7 @@ class ReminderService:
             return None
         link = payload["linked_item"]
         if link is not None and self.read_link(ctx, link, uow) is None:
-            return {**payload, "linked_item": None, "link_available": False}
+            return None
         return {**payload, "link_available": True}
 
     # ----- the bounded reconcile pass -------------------------------------------------------------------------------------
