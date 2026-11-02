@@ -7,7 +7,33 @@ from bazarlyk.management.identity import installation_owner, private_participant
 from bazarlyk.native_chat import store as native_store
 
 
-def replies(runtime, ctx):
+COMMUNICATION_PAGE = 200
+
+
+def _communications(uow, after):
+    """Visibility hints for stored agent-to-agent messages. Never reads bodies; the cursor is agent_messages.event_id."""
+    connection = uow.connection
+    newest = connection.execute('SELECT COALESCE(MAX(event_id),0) FROM agent_messages').fetchone()[0]
+    if after is None:
+        return {'items': [], 'next_cursor': newest, 'has_more': False}
+    rows = connection.execute("""SELECT m.event_id,m.id,m.sender_id,m.recipient_id,m.created_at,
+        COALESCE(NULLIF(sp.display_name,''),NULLIF(s.display_name,''),'Agent') AS sender_name,
+        COALESCE(NULLIF(rp.display_name,''),NULLIF(r.display_name,''),'Agent') AS recipient_name
+        FROM agent_messages m JOIN principals s ON s.id=m.sender_id AND s.kind='agent'
+        JOIN principals r ON r.id=m.recipient_id AND r.kind='agent'
+        LEFT JOIN (SELECT agent_id,json_extract(profile_json,'$.display_name') AS display_name FROM agent_profiles) sp ON sp.agent_id=m.sender_id
+        LEFT JOIN (SELECT agent_id,json_extract(profile_json,'$.display_name') AS display_name FROM agent_profiles) rp ON rp.agent_id=m.recipient_id
+        WHERE m.event_id>? AND m.sender_id<>m.recipient_id ORDER BY m.event_id LIMIT ?""",
+        (after, COMMUNICATION_PAGE + 1)).fetchall()
+    more = len(rows) > COMMUNICATION_PAGE
+    rows = rows[:COMMUNICATION_PAGE]
+    items = [{key: row[key] for key in ('event_id', 'id', 'sender_id', 'recipient_id', 'sender_name', 'recipient_name', 'created_at')} for row in rows]
+    return {'items': items, 'next_cursor': items[-1]['event_id'] if more else max(newest, after), 'has_more': more}
+
+
+def replies(runtime, ctx, include_communications=False, communications_after=None):
+    if communications_after is not None and (isinstance(communications_after, bool) or not isinstance(communications_after, int) or communications_after < 0):
+        raise DomainError('validation_error', 'communications_after must be a non-negative integer')
     service = runtime.application.private_conversations
     with runtime.database.read() as uow:
         if ctx.principal_kind != 'human' or ctx.principal_id != installation_owner(uow):
@@ -63,4 +89,8 @@ def replies(runtime, ctx):
             AND m.sensitive=0 AND m.body_redacted=0 ORDER BY m.created_at DESC LIMIT 30""", current):
             items.append({'id': 'telegram:' + row['id'], 'kind': 'global', 'agent_id': row['agent_id'],
                           'agent_name': row['chat_name'], 'text': (row['body'] or '')[:180], 'created_at': row['created_at']})
-    return {'items': sorted(items, key=lambda item: (item['created_at'], item['id']))}
+        communications = _communications(uow, communications_after) if include_communications else None
+    result = {'items': sorted(items, key=lambda item: (item['created_at'], item['id']))}
+    if include_communications:
+        result['communications'] = communications
+    return result

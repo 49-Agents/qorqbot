@@ -420,7 +420,12 @@ class HTTPAPI:
                     raise DomainError("forbidden", "Reply notifications are for the owner's dashboard")
                 from bazarlyk.reply_notifications import replies
                 context, _ = self.context(actor)
-                data = await anyio.to_thread.run_sync(partial(replies, self.runtime, context))
+                after = request.query_params.get("communications_after")
+                if after is not None:
+                    if not after.isdigit():
+                        raise DomainError("validation_error", "communications_after must be a non-negative integer")
+                    after = int(after)
+                data = await anyio.to_thread.run_sync(partial(replies, self.runtime, context, True, after))
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
