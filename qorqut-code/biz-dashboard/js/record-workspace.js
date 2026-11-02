@@ -657,7 +657,10 @@ function recordWorkspaceMount(host, options = {}) {
 async function rwDashboardMount(host, record, ctx) {
   host.replaceChildren();
   host.classList.add('rw-dashboard-panel');
-  if (record.scopeMissing) throw new Error('This record’s Project scope is unavailable.');
+  // A standalone Dev report is read through the owner root selector; its canonical business_id
+  // is checked there. It does not need a business slug, unlike a Project-scoped record.
+  if (record.scopeMissing && !(record.source.type === 'dev_ticket' && !record.project_id))
+    throw new Error('This record’s Project scope is unavailable.');
   // Every Project inventory entry is authorized through the same read model before any
   // dashboard-specific read. A row opened from a stale inventory page cannot bypass it.
   if (record.project_id && !record.project_item_prefetched) {
@@ -1520,6 +1523,9 @@ async function rwProjectDashboard(host, record, ctx) {
   void load(activeSection);
   async function revalidate() {
     if (disposed) return;
+    // A reveal starts a fresh authorization read; keep the paging control busy until i
+    // completes so a row click cannot race the retained page while it is being revalidated.
+    more.disabled = true;
     try {
       const fresh = await rwProjectCall('project_record_get', {project_id: projectId});
       if (disposed) return;
@@ -1539,6 +1545,7 @@ async function rwProjectDashboard(host, record, ctx) {
       list.replaceChildren();
       errorBox.replaceChildren(rwNode('span', '', uiFailure(failure, {load: true})));
       errorBox.hidden = false;
+      more.disabled = false;
       paint(activeSection);
     }
   }
