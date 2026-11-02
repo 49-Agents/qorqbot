@@ -28,8 +28,8 @@ HISTORY_REF = "refs/heads/bazarlyk-history"
 PROGRAM = "maintenance.nightly"
 PENDING_SECONDS = 5  # how soon a yielded nightly job looks again for its capture
 HQ_ENTRIES = frozenset({"business.yaml", "CLAUDE.md", "README.md", ".gitignore", ".gitattributes",
-    "context", "assets", "marketing-content", "agents", "notes", "journal", "tasks", "requests",
-    "log", "finance", "analytics", "learnings", "routines", "exports", "tables"})
+    "context", "assets", "agents", "notes", "journal", "tasks",
+    "log", "analytics", "learnings", "routines", "exports", "tables"})
 PRIVATE_PARTS = SKIP_DIRECTORIES - {"exports"} | {"sessions", "transcripts", "logs", "cache", ".cache", "work", "code"}
 OBJECT_ID = re.compile(r"^[a-f0-9]{40}(?:[a-f0-9]{24})?$")
 

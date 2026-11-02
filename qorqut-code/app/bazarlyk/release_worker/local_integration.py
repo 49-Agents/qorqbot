@@ -161,8 +161,6 @@ def validate_declaration(component: dict[str, Any]) -> tuple[Path, str, str]:
         raise ReleaseError(f"{identifier}: {FIELD} is only supported for the engine category with the independent-engine adapter")
     if component.get("target_branch") != target:
         raise ReleaseError(f"{identifier}: {FIELD} requires target_branch {target} (the integrated_ref branch)")
-    if component.get("unchanged"):
-        raise ReleaseError(f"{identifier}: {FIELD} cannot be combined with unchanged")
     if not isinstance(component.get("source_commit"), str) or not SHA.fullmatch(component["source_commit"]):
         raise ReleaseError(f"{identifier}: {FIELD} requires an explicit full source_commit")
     source_ref = component.get("source_ref") or component.get("branch") or "HEAD"

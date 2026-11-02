@@ -14,7 +14,7 @@ from qorqut_operations.contracts import (ChangePreview, ChangeSet, DomainError, 
 from bazarlyk.composition.locations import agent_workspace, document_root
 from . import plugin_defaults, roles
 from .global_scope import with_effective_scope
-from .models import AgentProfile, EDITABLE_PRESENTATION, PLUGIN_GRANT_SCHEMA, PROFILE_SCHEMA, REFERENCE_SCHEMA, RETIRED_ROLE_IDS, SCOPE_SCHEMA
+from .models import AgentProfile, PLUGIN_GRANT_SCHEMA, PROFILE_SCHEMA, REFERENCE_SCHEMA, RETIRED_ROLE_IDS, SCOPE_SCHEMA
 from bazarlyk.storage import history
 from qorqut_operations.storage.files import RegisteredFileTarget, file_hash, file_values
 from bazarlyk.management.identity import configured_ordubashy, installation_owner, require_protected_control
@@ -28,7 +28,6 @@ EMAIL_MANAGEMENT_PLUGIN_ID = plugin_defaults.EMAIL_PLUGIN
 DEFAULT_EMAIL_MANAGEMENT_CONFIG = plugin_defaults.default_config(EMAIL_MANAGEMENT_PLUGIN_ID)
 EDITABLE = {key: value for key, value in PROFILE_SCHEMA["properties"].items()
             if key in {"name", "display_name", "runtime", "role", "scope", "assignment_brief", "plugins", "tool_policy", "presentation"}}
-EDITABLE["presentation"] = EDITABLE_PRESENTATION
 # A new worker reads the shared Context and reaches every business like any global; further access is chosen explicitly.
 WORKER_DEFAULT_SCOPE = {"kind": "ecosystem", "allowed_business_ids": [], "global_capabilities": ["read_global_context"]}
 # Agent, role and shared-instruction administration and the old peer authority never pass to a worker; every other

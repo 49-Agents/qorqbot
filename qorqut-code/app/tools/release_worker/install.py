@@ -8,8 +8,6 @@ It never discovers a development checkout or follows a moving symlink.
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
-import fcntl
 import hashlib
 import json
 import os
@@ -18,7 +16,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import socket
 from typing import NoReturn
 
 
@@ -243,7 +240,7 @@ except (OSError, KeyError, TypeError, ValueError) as exc:
     raise SystemExit(f"release-worker: invalid installation metadata {{CONFIG}}: {{exc}}")
 if not manifest_path.is_file():
     raise SystemExit(f"release-worker: installed manifest is missing: {{manifest_path}}")
-if metadata.get("manifest") != str(manifest_path) or any(metadata.get(key) != manifest.get(key) for key in ("version", "source", "source_commit", "source_subdirectory", "python", "worker_digest", "docs_path", "installer_path", "docs_digest", "installer_digest", "installation_config")):
+if metadata.get("manifest") != str(manifest_path) or any(metadata.get(key) != manifest.get(key) for key in ("version", "source", "source_commit", "source_subdirectory", "python", "worker_digest", "docs_path", "installer_path", "docs_digest", "installer_digest")):
     raise SystemExit(f"release-worker: active metadata does not match manifest: {{manifest_path}}")
 if not source.is_dir():
     raise SystemExit(f"release-worker: installed source is missing or invalid: {{source}}")
@@ -299,27 +296,6 @@ if len(sys.argv) == 2 and sys.argv[1] == "--docs-path":
 if len(sys.argv) == 2 and sys.argv[1] == "--installer-path":
     print(manifest["installer_path"])
     raise SystemExit(0)
-installation = manifest.get("installation_config")
-if installation:
-    os.environ["QORQUT_INSTALLATION_CONFIG"] = installation
-    import fcntl
-    app_config = json.loads(Path(installation).read_text())
-    app_root = Path(app_config["root"])
-    lock_path = app_root / "state/deployment.lock"
-    lock_path.parent.mkdir(parents=True,exist_ok=True)
-    with lock_path.open("a") as lock:
-        fcntl.flock(lock,fcntl.LOCK_SH)
-        if (source.parent / ".unavailable").exists():raise SystemExit("release-worker: artifact unavailable for launches")
-        fields = Path(f"/proc/{{os.getpid()}}/stat").read_text().rsplit(")",1)[1].split()
-        directory = app_root / "state/process-pins";directory.mkdir(parents=True,exist_ok=True)
-        descriptor,temporary = tempfile.mkstemp(dir=directory)
-        with os.fdopen(descriptor,"w") as stream:
-            json.dump({{"pid":os.getpid(),"started":fields[19],"host":__import__('socket').gethostname(),"references":[str(source),str(python.parent.parent),str(docs_dir)],
-                "target":"local","target_instance":Path('/etc/machine-id').read_text().strip(),
-                "boot_id":Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
-                "pid_namespace":str(Path('/proc/self/ns/pid').readlink())}},stream)
-            stream.flush();os.fsync(stream.fileno())
-        os.replace(temporary,directory/f"{{__import__('socket').gethostname()}}-{{os.getpid()}}-{{fields[19]}}.json")
 command = [str(python), "-I", "-c",
            "import sys; source=sys.argv.pop(1); sys.path.insert(0, source); from bazarlyk.release_worker.cli import main; raise SystemExit(main(sys.argv[1:]))",
            str(source), *sys.argv[1:]]
@@ -330,41 +306,6 @@ with tempfile.TemporaryDirectory(prefix="release-worker-run-") as cache:
     command[1:1] = ["-B", "-X", f"pycache_prefix={{cache}}"]
     raise SystemExit(subprocess.run(command).returncode)
 '''
-
-
-@contextmanager
-def saved_installation_guard(args):
-    """Standalone installer joins the saved installation's existing exclusion.
-
-    It cannot import an unverified or development application for locking. The
-    on-disk lock and staging record use the same standard-library contract.
-    """
-    if not args.installation_config:
-        yield None
-        return
-    root=Path(json.loads(args.installation_config.read_text())['root']).resolve()
-    state=root/'state';state.mkdir(parents=True,exist_ok=True)
-    with (state/'deployment.lock').open('a') as lock:
-        fcntl.flock(lock,fcntl.LOCK_EX)
-        path=state/'active-builds'/('worker-'+args.version+'.json')
-        prior=json.loads(path.read_text()) if path.exists() else {}
-        references=sorted(set(prior.get('references',[]))|{str(args.source.resolve()),str(args.python.absolute()),
-            str(args.root.resolve()/'versions'/args.version)})
-        started=Path('/proc/self/stat').read_text().rsplit(')',1)[1].split()[19]
-        value={'build_id':'worker-'+args.version,'state':'building','references':references,
-            'owner':{'pid':os.getpid(),'started':started,'host':socket.gethostname(),'target':'local',
-                'target_instance':Path('/etc/machine-id').read_text().strip(),
-                'boot_id':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
-                'pid_namespace':str(Path('/proc/self/ns/pid').readlink())}}
-        atomic_json(path,value)
-        yield path
-        # install() wrote the complete selected worker metadata before this
-        # transfer. Interrupted/failed installs retain the root for retry or
-        # explicit dead-owner abandonment through the installed worker.
-        path.unlink()
-        descriptor=os.open(path.parent,os.O_RDONLY|os.O_DIRECTORY)
-        try:os.fsync(descriptor)
-        finally:os.close(descriptor)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -380,21 +321,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--bin", type=Path, default=DEFAULT_BIN)
     parser.add_argument("--python", type=Path, required=True, help="persistent interpreter outside disposable app releases")
-    parser.add_argument("--installation-config",type=Path,help="saved app installation inputs for short commands")
     parser.add_argument("--activate", action="store_true", help="make this validated version current")
     args = parser.parse_args(argv)
     if not args.activate:
         fail("refusing to install without --activate; updates must be explicit")
     if not args.version or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" for ch in args.version):
         fail("--version contains unsupported characters")
-    if args.installation_config:
-        app_config=json.loads(args.installation_config.read_text())
-        if app_config.get("format")!=1:fail("saved installation format is unsupported")
-        app_root=Path(app_config["root"])
-        if args.root==DEFAULT_ROOT:args.root=app_root/"runtime/release-worker"
-        if args.config==DEFAULT_CONFIG:args.config=app_root/"config/release-worker.json"
-        if args.bin==DEFAULT_BIN:args.bin=app_root/"bin/release-worker"
-    with saved_installation_guard(args):return install(args)
+    return install(args)
 
 
 def install(args):
@@ -422,7 +355,6 @@ def install(args):
         # Preserve the venv launcher path. Resolving this symlink to the base
         # interpreter would silently discard the release's site-packages.
         "python": str(args.python.absolute()),
-        "installation_config":str(args.installation_config.absolute()) if args.installation_config else None,
         "worker_files": worker_files,
         "worker_digest": worker_digest,
         "provenance_repository": str(args.provenance_repository.expanduser().resolve()),

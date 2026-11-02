@@ -6,7 +6,6 @@ import argparse
 import json
 from pathlib import Path
 import sys
-import os
 
 from .errors import ReleaseError
 from .manifest import load_manifest, plan_manifest
@@ -54,26 +53,6 @@ def build_parser() -> argparse.ArgumentParser:
         _common(command)
         if name in {"deploy", "adopt", "recover", "cleanup", "merge"}:
             command.add_argument(f"--confirm-{name}", action="store_true")
-        if name == 'deploy':
-            command.add_argument('--recover-from',help='explicit recovery of the active failed short-path operation ID')
-            command.add_argument('--migrate',action='store_true')
-            command.add_argument('--backup-before-migration',action='store_true')
-            for component in ('core','dashboard'):
-                command.add_argument('--'+component,help='changed /absolute/repository@ref; unchanged partners come from current')
-    activate = commands.add_parser('activate',help='first activation of the persistent installation from a legacy service')
-    _common(activate);activate.add_argument('--release',type=Path,required=True,help='absolute installer-staged application directory')
-    mode = activate.add_mutually_exclusive_group()
-    mode.add_argument('--prepare',action='store_true',help='freeze and record exact inputs and effects; change nothing')
-    mode.add_argument('--prepared',help='execute the exact prepared activation ID')
-    mode.add_argument('--recover-from',help='explicitly replace the failed activation operation ID with this staged application')
-    activate.add_argument('--migrate',action='store_true')
-    activate.add_argument('--backup-before-migration',action='store_true')
-    rollback = commands.add_parser('rollback',help='restore a retained schema/binding-compatible app')
-    _common(rollback);rollback.add_argument('--release',type=Path,required=True)
-    prune = commands.add_parser('prune',help='reference-based retention, report-only by default')
-    _common(prune);prune.add_argument('--delete',action='store_true')
-    abandon = commands.add_parser('abandon',help='retire an unfinished build after its exact owner process exits')
-    _common(abandon);abandon.add_argument('--build-id',required=True)
     authorize = commands.add_parser("authorize", help="record supplied owner authorization evidence")
     _common(authorize)
     authorize.add_argument("--scope", choices=("merge", "deploy", "adopt", "recover", "cleanup"), required=True)
@@ -84,32 +63,6 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        if args.command=='deploy' and args.recover_from and (args.plan or args.manifest):
-            raise ReleaseError('--recover-from uses the saved-installation short path, not a coordinated plan')
-        if args.command in {'deploy','status','rollback','prune','resume','abandon','activate'} and not args.plan and not args.manifest:
-            path=args.installation_config or os.environ.get('QORQUT_INSTALLATION_CONFIG')
-            if not path:raise ReleaseError('Saved installation configuration is required for the short path')
-            config=json.loads(Path(path).read_text())
-            from .installation import validate_config
-            validate_config(config)
-            from .ordinary import AppRelease
-            worker=AppRelease(config)
-            if args.command=='deploy':
-                _json(worker.deploy({name:getattr(args,name) for name in ('core','dashboard') if getattr(args,name)},migrate=args.migrate,backup_before_migration=args.backup_before_migration,recover_from=args.recover_from))
-            elif args.command=='activate':
-                from .activation import Activation
-                _json(Activation(worker).activate(args.release,migrate=args.migrate,backup_before_migration=args.backup_before_migration,
-                    prepare=args.prepare,prepared=args.prepared,recover_from=args.recover_from))
-            elif args.command=='resume':_json(worker.reconcile())
-            elif args.command=='status':_json(worker.status())
-            elif args.command=='rollback':_json(worker.rollback(args.release))
-            elif args.command=='abandon':
-                from .staging import abandon
-                _json(abandon(worker.root,args.build_id))
-            else:
-                from .retention import Pruner
-                _json(Pruner(config).prune(delete=args.delete))
-            return 0
         if args.command == "plan":
             manifest = load_manifest(args.manifest)
             if args.installation_config:

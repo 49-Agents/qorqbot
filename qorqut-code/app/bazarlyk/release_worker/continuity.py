@@ -33,13 +33,3 @@ def snapshot(runtime):
         'components':{name:item['commit'] for name,item in manifest['components'].items()} if manifest else {},
         'integrations':integrations}
 
-
-def verify(before, after):
-    """Integrations whose behavior regressed: one that was healthy must still be healthy under the same session owner,
-    generation, native process and target. An integration that was not healthy before is not compared."""
-    failures=[]
-    for agent,old in before.get('integrations',{}).items():
-        new=after.get('integrations',{}).get(agent,{})
-        if old['healthy'] and (not new.get('healthy') or any(new.get(key)!=old.get(key) for key in ('session_id','generation','native_owner','target'))):
-            failures.append(agent)
-    return failures

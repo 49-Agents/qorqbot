@@ -632,11 +632,8 @@ class DashboardCompatibility:
             # of the ETag's own identity, so the three variants never collide.
             return revalidated(request, self.runtime.changes, {"documents", "jobs_routines", "context_queue"}, context.business_id, produce)
         if tail == ["context", "file"]:
-            tree = request.query_params.get("dir", "context")
-            if tree not in {"context", "marketing-content"}:
-                raise DomainError("validation_error", "Unknown document tree")
-            doc = self.document_selector(context, request.query_params.get("p", ""), "context_list" if tree == "context" else "content_list", prefix=tree)
-            return JSONResponse({"path": request.query_params["p"], "dir": tree, "text": doc["body"], "document_id": doc["id"], "revision": doc["revision"], "content_hash": doc["content_hash"],
+            doc = self.document_selector(context, request.query_params.get("p", ""), "context_list", prefix="context")
+            return JSONResponse({"path": request.query_params["p"], "dir": "context", "text": doc["body"], "document_id": doc["id"], "revision": doc["revision"], "content_hash": doc["content_hash"],
                 "material": {key: doc[key] for key in ("material_type", "origin", "tags") if key in doc},
                 **({"filing": doc["filing"]} if "filing" in doc else {})})
         if tail == ["context", "search"]:
@@ -658,7 +655,7 @@ class DashboardCompatibility:
                         ref.get("resource_type") == "documents" and ref.get("resource_id") == upload["id"] for ref in row.get("source_refs", [])))]}
             notes = [self.context_item(documents[identity]) for identity in filed.get("notes", []) if identity in documents]
             topics = sorted({str(PurePosixPath(documents[key]["path"]).parent).removeprefix("context/") for key in filed.get("topics", []) if key in documents}
-                | {("marketing-content/" if note.get("tree") == "marketing-content" else "") + str(PurePosixPath(note["path"]).parent) for note in notes})
+                | {str(PurePosixPath(note["path"]).parent) for note in notes})
             person_refs = {key: row for row in documents.values() if row["kind"] == "context_person" for key in (row["id"], PurePosixPath(row["path"]).stem)}
             people = {person_refs[key]["id"]: {"slug": PurePosixPath(person_refs[key]["path"]).stem, "name": person_refs[key]["metadata"].get("name", "")}
                 for key in [*filed.get("people", []), *(key for note in notes for key in note.get("people", []))] if key in person_refs}
@@ -669,8 +666,6 @@ class DashboardCompatibility:
                     "notes": notes, "topics": topics, "people": list(people.values()), "map": bool(maps)},
                 "mapping": bool(current and current["state"] in {"queued", "running", "applying", "waiting_signoff"}),
                 "error": (current.get("error_json") or {}).get("message", "") if current else ""})
-        if tail == ["content"]:
-            return JSONResponse(self.content_view(context, request.query_params))
         raise DomainError("not_found", "Endpoint is not registered")
 
     @staticmethod
@@ -806,48 +801,6 @@ class DashboardCompatibility:
         return {**row, "id": row["action_id"], "detail": "" if row["text"] == row["summary"] else row["text"], "labels": row["tags"],
             "occurred_at": instant, "occurred_date": occurred.get("date"), "ts": instant, "refs_json": row["refs"],
             "refs": row["refs"], "actor_id": actor, "actor": actor}
-
-    def content_view(self, context, query):
-        documents = self.collection(context, "content_list")
-        logs = [self.log_view(row) for row in self.collection(context, "actions_list", {"tags": ["marketing"]}, key="actions")]
-        items, by_path = [], {}
-        for document in documents:
-            meta = document["metadata"]
-            relative = str(PurePosixPath(document["path"]).relative_to("marketing-content"))
-            item = {"kind": "note", "id": relative, "document_id": document["id"], "date": meta.get("date", document.get("created_at", "")[:10]),
-                "ts": document.get("created_at", ""), "platform": meta.get("platform", relative.split("/")[0]), "channel": meta.get("channel", ""),
-                "target": meta.get("target", ""), "title": meta.get("title", ""), "kindTag": meta.get("kind", ""), "url": meta.get("url", ""),
-                "signoff_id": document.get("signoff_id"), "by": meta.get("by", ""),
-                "actor": meta.get("filed_by", meta.get("by", "")), "log": "", "logId": "", "logSummary": "", "logDetail": "",
-                "labels": [], "preview": " ".join(document["body"].split())[:160], "_body": document["body"]}
-            items.append(item)
-            by_path[document["path"]] = item
-        for entry in logs:
-            refs = entry.get("refs_json", {})
-            item = by_path.get(refs.get("file"))
-            if item and not item["logId"]:
-                item.update(log=entry["id"][-7:], logId=entry["id"], logSummary=entry["summary"], logDetail=entry["detail"],
-                    labels=entry["labels"], actor=entry["actor_id"], ts=entry["occurred_at"])
-            else:
-                items.append({"kind": "log", "id": entry["id"], "date": entry.get("occurred_date") or entry["occurred_at"][:10], "ts": entry["occurred_at"],
-                    "platform": refs.get("channel", "").split("-")[0], "channel": refs.get("channel", ""), "target": refs.get("target", ""),
-                    "title": entry["summary"], "kindTag": refs.get("kind", ""), "url": refs.get("url", ""), "signoff_id": refs.get("signoff_id", ""),
-                    "by": entry["actor_id"], "actor": entry["actor_id"], "log": entry["id"][-7:],
-                    "logId": entry["id"], "logSummary": entry["summary"], "logDetail": entry["detail"], "labels": entry["labels"], "preview": "", "_body": ""})
-        labels = sorted({label for item in items for label in item["labels"]})
-        filters = {key: set(query.get(key, "").split(",")) - {""} for key in ("platform", "channel", "kind", "label")}
-        needle = query.get("q", "").strip().casefold()
-        out = []
-        for item in items:
-            if any(values and item["kindTag" if key == "kind" else key] not in values for key, values in filters.items() if key != "label"):
-                continue
-            if filters["label"] and not filters["label"].intersection(item["labels"]):
-                continue
-            if needle and needle not in (item["title"] + " " + item["target"] + " " + item["_body"]).casefold():
-                continue
-            out.append({key: value for key, value in item.items() if key != "_body"})
-        return {"items": sorted(out, key=lambda item: (item["date"], item["ts"]), reverse=True), "labels": labels,
-            "kinds": ["post", "comment", "reply", "dm", "email", "ad", "video", "image", "launch", "decision"]}
 
     def select_business(self, context, selector):
         if not isinstance(selector, str) or not selector:

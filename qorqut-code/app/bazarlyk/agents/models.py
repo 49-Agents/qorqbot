@@ -54,14 +54,9 @@ PROFILE_SCHEMA = {"type": "object", "additionalProperties": False,
         "tool_policy": {"type": "object", "additionalProperties": False, "required": ["overrides"],
             "properties": {"overrides": {"type": "object", "additionalProperties": {"enum": ["allow", "signoff", "deny"]}}}},
         "presentation": {"type": "object", "additionalProperties": False, "properties": {
-            "icon": {"type": "string", "maxLength": 50}, "color": {"type": "string", "maxLength": 50},
-            # Retired free-text label: inert imported metadata that nothing reads and no write can set (agents_create and
-            # agents_update take EDITABLE_PRESENTATION); a saved profile keeps it until its presentation is replaced.
-            "department": {"type": "string", "maxLength": 50}}},
+            "icon": {"type": "string", "maxLength": 50}, "color": {"type": "string", "maxLength": 50}}},
         "created_at": {"type": "string", "format": "date-time"},
     }}
-EDITABLE_PRESENTATION = {**PROFILE_SCHEMA["properties"]["presentation"], "properties": {
-    key: value for key, value in PROFILE_SCHEMA["properties"]["presentation"]["properties"].items() if key != "department"}}
 STORED_PROFILE_SCHEMA = {**PROFILE_SCHEMA, "properties": {**PROFILE_SCHEMA["properties"], "scope": STORED_SCOPE_SCHEMA}}
 
 

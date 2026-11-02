@@ -86,29 +86,11 @@ def merge_component(
         # nothing here may fetch, push or write a ref or object.
         return local_integration.merge_result(component, intent)
     if intent is None:
-        intent = (
-            {
-                "unchanged": True,
-                "target": component["target_branch"],
-                "source_commit": component["source_commit"],
-                "base_commit": component["base_commit"],
-            }
-            if component.get("unchanged")
-            else prepare_merge(component, confirm=confirm)
-        )
+        intent = prepare_merge(component, confirm=confirm)
     _reject_local_intent(component, intent)
     repo = Path(component["repository"])
     branch = component.get("checked_out_branch")
     target = component["target_branch"]
-    if intent.get("unchanged"):
-        if intent.get("target") != target or intent.get("source_commit") != component["source_commit"] or intent.get("base_commit") != component["base_commit"]:
-            raise ReleaseError(f"{component['id']}: unchanged runtime input no longer matches the frozen target")
-        git(repo, "fetch", "origin", target)
-        head = git(repo, "rev-parse", "HEAD")
-        base = git(repo, "rev-parse", f"refs/remotes/origin/{target}")
-        if head != component["source_commit"] or base != component["base_commit"] or head != base:
-            raise ReleaseError(f"{component['id']}: unchanged runtime input moved; re-plan before continuing")
-        return {"merged": False, "unchanged": True, **intent}
     if not branch or protected_ref(branch) or branch in {"HEAD", target}:
         raise ReleaseError(f"{component['id']}: merge requires a dedicated development branch")
     if git(repo, "status", "--porcelain"):
@@ -166,8 +148,6 @@ def reconcile_merge(component: dict[str, Any], intent: dict[str, Any]) -> dict[s
     repo = Path(component["repository"])
     target = str(intent.get("target", component.get("target_branch", "")))
     merge_commit = str(intent.get("merge_commit", ""))
-    if intent.get("unchanged"):
-        return {"already_succeeded": True, "safe_to_retry": False, "unchanged": True}
     if not target or not merge_commit:
         return {"safe_to_retry": False, "reason": "merge intent is incomplete"}
     git(repo, "fetch", "origin", target)

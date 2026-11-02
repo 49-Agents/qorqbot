@@ -34,6 +34,7 @@ import shlex
 import stat
 import sys
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 from qorqut_operations.contracts import DomainError, InvocationContext, InvocationOptions, Principal, new_id, utc_now
 
@@ -111,19 +112,76 @@ def load_prepared(prepared: Path):
 
 
 def require_installed(prepared: Path, receipt, factories):
-    """The host and the top-level package of every selected extension are installed distributions the receipt recorded for the
-    host environment, at that version, and are not imported from the prepared source copy."""
-    recorded = {_canonical(name): version for name, version in receipt["environments"]["venv"]["packages"].items()}
-    owners = metadata.packages_distributions()
-    source = (prepared / "src").resolve()
+    """This process runs in the prepared host environment, and the host, its first-party dependencies and every selected extension are
+    that environment's own receipt wheels: the installed distribution has the receipt version and a direct-URL origin that is exactly
+    the receipt wheel file (not an editable, VCS, directory or other-wheel origin), the wheel file still has its recorded SHA-256, and
+    its top-level packages are imported from inside the environment, never from the prepared source copy or anywhere else. These are
+    the installed probe's short checks (``tools/installed_host_probe.py``); extensions the environment does not have stay absent."""
+    try:
+        environment, wheels = receipt["environments"]["venv"], {_canonical(entry["name"]): entry for entry in receipt["wheels"]}
+        first_party = [_canonical(name) for name in environment["first_party"]]
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise InitializationError("The preparation receipt records no host environment with its wheels") from exc
+    prefix = Path(sys.prefix).resolve()
+    if sys.prefix == sys.base_prefix or prefix != (prepared / "venv").resolve():
+        raise InitializationError("The initializer must run in the prepared host environment (prepared/venv), not another interpreter")
+    owners, source = metadata.packages_distributions(), (prepared / "src").resolve()
     for module in ("bazarlyk", *dict.fromkeys(factory.partition(":")[0].partition(".")[0] for factory in factories)):
-        distributions = {_canonical(name) for name in owners.get(module, ())}
-        installed = next((name for name in distributions if name in recorded), None)
-        spec = importlib.util.find_spec(module)
-        if installed is None or metadata.version(installed) != recorded[installed]:
+        if not {_canonical(name) for name in owners.get(module, ())} & set(first_party):
             raise InitializationError(f"The package {module} is not installed from the prepared environment at its recorded version")
-        if spec is None or spec.origin is None or _inside(Path(spec.origin).resolve(), source):
-            raise InitializationError(f"The package {module} is imported from the source copy, not from its installed wheel")
+    for name in first_party:
+        wheel = wheels.get(name)
+        if wheel is None:
+            raise InitializationError(f"The first-party distribution {name} is not one of the receipt wheels")
+        _require_wheel_origin(prepared, name, wheel)
+        for module in sorted(module for module, distributions in owners.items() if name in map(_canonical, distributions)):
+            spec = importlib.util.find_spec(module)
+            locations = [] if spec is None else [spec.origin] if getattr(spec, "origin", None) else list(getattr(spec, "submodule_search_locations", None) or ())
+            if not locations:
+                raise InitializationError(f"The package {module} cannot be located in the prepared environment")
+            for location in map(lambda item: Path(item).resolve(), locations):
+                if _inside(location, source):
+                    raise InitializationError(f"The package {module} is imported from the source copy, not from its installed wheel")
+                if not _inside(location, prefix):
+                    raise InitializationError(f"The package {module} is imported from outside the prepared environment")
+            loaded = getattr(sys.modules.get(module), "__file__", None)
+            if loaded and not _inside(Path(loaded).resolve(), prefix):
+                raise InitializationError(f"The package {module} is already imported from outside the prepared environment")
+
+
+def _require_wheel_origin(prepared: Path, name: str, wheel) -> None:
+    """The installed distribution is the receipt wheel: its version, direct-URL origin, the wheel file and that file's SHA-256."""
+    try:
+        distribution = metadata.distribution(name)
+    except metadata.PackageNotFoundError:
+        raise InitializationError(f"The first-party distribution {name} is not installed in the prepared environment") from None
+    if distribution.version != wheel["version"]:
+        raise InitializationError(f"{name} is installed as version {distribution.version}, the receipt wheel is {wheel['version']}")
+    parts = Path(wheel["file"]).parts
+    if len(parts) != 2 or parts[0] != "wheels":
+        raise InitializationError(f"The receipt wheel of {name} is not a file directly under wheels/")
+    path = prepared / wheel["file"]
+    try:
+        actual = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() and not path.is_symlink() else None
+    except OSError:
+        actual = None
+    if actual != wheel["sha256"]:
+        raise InitializationError(f"The receipt wheel {wheel['file']} of {name} is missing or no longer has its recorded SHA-256")
+    text = distribution.read_text("direct_url.json")
+    if text is None:
+        raise InitializationError(f"{name} has no direct-URL record: it was not installed from the receipt wheel file")
+    try:
+        origin = json.loads(text)
+        url = urlparse(origin["url"])
+    except (ValueError, KeyError, TypeError):
+        raise InitializationError(f"{name} has an unreadable direct-URL record") from None
+    if "vcs_info" in origin or "dir_info" in origin or url.scheme != "file":
+        raise InitializationError(f"{name} was installed from an editable, VCS or other origin, not from the receipt wheel file")
+    if Path(unquote(url.path)).resolve() != path.resolve():
+        raise InitializationError(f"{name} was installed from {unquote(url.path)}, not from the receipt wheel {wheel['file']}")
+    recorded = (origin.get("archive_info") or {}).get("hashes", {}).get("sha256")
+    if recorded is not None and recorded != wheel["sha256"]:
+        raise InitializationError(f"{name} records archive SHA-256 {recorded}, the receipt wheel has {wheel['sha256']}")
 
 
 def check_destination(instance: Path, prepared: Path) -> None:

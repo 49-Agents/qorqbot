@@ -98,8 +98,6 @@ def register_programs(programs, *, models=None, transcript_source=None,
         global_capabilities=("manage_fastmail",), timeout_seconds=300)
     add("email.attachment", schema({"message_id": UUID, "attachment_id": IDENTITY}, ("message_id", "attachment_id")),
         EmailProgram(email).attachment, ("assets_upload",), ("documents", "managed_document_files"))
-    add("learnings.apply_accepted", schema({}), None, unavailable_reason=
-        "The preserved learn-apply routine references a program that was never implemented.", scope_kinds=("global",))
     if platform_actions is not None:
         PlatformPrograms(platform_actions, file_applier).register(programs)
     if maintenance is not None:

@@ -1116,22 +1116,6 @@ class LeaseCheckedExecutor:
             with self._delegate_scope():
                 return self.delegate.entry_exists(path)
 
-    def verify_entries(self, destination: Path, expected_entries: list[list[Any]]) -> None:
-        """Verify a whole manifest under one command scope, never one per entry.
-
-        The scope writes owner-record bookkeeping once.  A local delegate gets
-        the lock's read-only ownership check to run during its loop; an SSH
-        delegate checks the destination-side owner record from its own
-        process.  There is deliberately no per-entry fallback.
-        """
-
-        verify = getattr(self.delegate, "verify_entries", None)
-        if not callable(verify):
-            raise ReleaseError("destination executor cannot verify artifact entries")
-        with self.lock.command_scope("verify-entries:" + str(destination)):
-            with self._delegate_scope():
-                verify(destination, expected_entries, ownership_check=self.lock.assert_owned)
-
 
 def _merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     result = copy.deepcopy(base)

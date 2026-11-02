@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qorqut.invalid/release/manifest-v1.json",
+  "type": "object",
+  "required": ["schema_version", "release_id", "installation", "components"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "release_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,95}$"},
+    "installation": {"type": "object", "required": ["id"], "additionalProperties": true},
+    "checks": {"type": "array", "items": {"type": "object", "oneOf": [{"required": ["command"], "properties": {"command": {"type": "array"}}}, {"required": ["note"], "properties": {"note": {"type": "string"}}}]}},
+    "migration": {"type": "object"},
+    "recovery": {"type": "object"},
+    "configuration_requirements": {"type": "array", "items": {"type": "object", "required": ["name", "check"], "properties": {"name": {"type": "string"}, "check": {"type": "array"}}}},
+    "adoption": {"type": "array"},
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "category", "repository"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,95}$"},
+          "category": {"enum": ["role", "plugin", "engine", "documentation", "outreach", "library"]},
+          "repository": {"type": "string"},
+          "source_ref": {"type": "string"},
+          "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+          "local_integration": {"type": "object", "required": ["workspace_root", "integrated_ref"], "additionalProperties": false, "properties": {"workspace_root": {"type": "string", "pattern": "^/"}, "integrated_ref": {"type": "string", "pattern": "^refs/heads/.+$"}}},
+          "target_branch": {"type": "string"},
+          "dependencies": {"type": "array", "items": {"type": "string"}},
+          "tests": {"type": "array"},
+          "build": {"type": "array"},
+          "build_outputs": {"type": "array"},
+          "checks": {"type": "array"},
+          "migration": {"type": "object"},
+          "configuration": {"type": "object"},
+          "deployment_recipe": {"type": "object"},
+          "adoption": {"type": "object"},
+          "adoption_recipe": {"type": "object"},
+          "recovery_recipe": {"type": "object"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

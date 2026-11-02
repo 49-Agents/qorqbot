@@ -163,7 +163,7 @@ class HostItems:
                 builder.targets[file] = ExpectedTarget(file, content_hash=document["content_hash"], exists=True)
             return canonical_hash(content)
         # Review decisions and their counters are intentionally excluded from content.
-        content = {key: value for key, value in row.items() if key not in {"revision", "created_at", "updated_at", "sequence", "assignees_json", "pending_request_id", "pending_signoff_id"}}
+        content = {key: value for key, value in row.items() if key not in {"revision", "created_at", "updated_at", "sequence", "assignees_json", "pending_signoff_id"}}
         if table == "signoffs":
             # payload_hash already identifies the immutable binary prepared proposal.
             content.pop("change_set", None)

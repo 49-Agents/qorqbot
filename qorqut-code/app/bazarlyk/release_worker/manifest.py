@@ -22,10 +22,8 @@ SCHEMA_VERSION = 1
 HISTORY_REFS = {"qorqut-tables", "bazarlyk-history"}
 BRANCH = re.compile(r"^[A-Za-z0-9._/-]+$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
-COMPONENT_CATEGORIES = {"core", "dashboard", "role", "plugin", "engine", "documentation", "outreach", "library"}
+COMPONENT_CATEGORIES = {"role", "plugin", "engine", "documentation", "outreach", "library"}
 ADAPTERS = {
-    "core": "qorqut-dashboard",
-    "dashboard": "qorqut-dashboard",
     "role": "immutable-package",
     "plugin": "immutable-package",
     "engine": "independent-engine",
@@ -130,7 +128,7 @@ def _validate_declared_commands(value: Any, *, field: str) -> None:
 def _validate_command_secrets(value: dict[str, Any]) -> None:
     installation = value.get("installation", {})
     if isinstance(installation, dict):
-        for key in ("launcher", "stopper", "quiescence_command", "runtime_install_command", "runtime_validate_command"):
+        for key in ("quiescence_command",):
             if key in installation:
                 _validate_command_value(installation[key], field=f"installation.{key}")
     checks = value.get("checks", [])
@@ -199,9 +197,6 @@ def validate_manifest(value: dict[str, Any]) -> dict[str, Any]:
     installation = value.get("installation")
     if not isinstance(installation, dict) or not installation.get("id"):
         raise ReleaseError("installation.id is required")
-    for option in ("sudo_systemd", "allow_stopped_service"):
-        if option in installation and type(installation[option]) is not bool:
-            raise ReleaseError(f"installation.{option} must be a boolean")
     if installation.get("lock_path") is not None and (
         not isinstance(installation["lock_path"], str) or not Path(installation["lock_path"]).is_absolute()
     ):
@@ -239,10 +234,8 @@ def validate_manifest(value: dict[str, Any]) -> dict[str, Any]:
         if "experience_binding" in component:
             from .experience_binding import validate_selection
             validate_selection(component["experience_binding"], component, installation)
-        if "unchanged" in component and not isinstance(component["unchanged"], bool):
-            raise ReleaseError(f"{identifier}.unchanged must be a boolean")
-        if component.get("unchanged") and category not in {"core", "dashboard"}:
-            raise ReleaseError(f"{identifier}.unchanged is only supported for pinned runtime inputs")
+        if "unchanged" in component:
+            raise ReleaseError(f"{identifier}.unchanged is not supported; every component is merged or built from its exact commit")
         _require_branch(component.get("target_branch", "main"), field=f"{identifier}.target_branch", allow_target=True)
         adapter_name = component.get("adapter", ADAPTERS[category])
         if adapter_name not in KNOWN_ADAPTERS:
@@ -263,25 +256,6 @@ def validate_manifest(value: dict[str, Any]) -> dict[str, Any]:
             for field in ("health_command", "inspect_command"):
                 if not isinstance(recipe[field], list) or not any("{release}" in str(item) for item in recipe[field]):
                     raise UnsupportedAdapter(f"component {identifier}: deployment_recipe.{field} must explicitly target {{release}}")
-        if category in {"core", "dashboard"}:
-            missing = {"host", "port", "service", "release_root", "database", "private_config"} - set(installation)
-            if missing:
-                raise UnsupportedAdapter(f"component {identifier}: Qorqut installation config is missing {sorted(missing)}")
-            if int(installation["port"]) != 1071:
-                raise UnsupportedAdapter(f"component {identifier}: production adapter requires the current port 1071, not {installation['port']}")
-            launcher = installation.get("launcher")
-            if not isinstance(launcher, list) or not launcher or any(not isinstance(item, str) or not item for item in launcher):
-                raise UnsupportedAdapter(f"component {identifier}: installation.launcher must name the complete release executable argv")
-            if not any("{release}" in item for item in launcher):
-                raise UnsupportedAdapter(f"component {identifier}: installation.launcher must explicitly target {{release}}")
-            stopper = installation.get("stopper")
-            if not isinstance(stopper, list) or not stopper or any(not isinstance(item, str) or not item for item in stopper):
-                raise UnsupportedAdapter(f"component {identifier}: installation.stopper must name the complete release stop argv")
-            if not any("{release}" in item for item in stopper):
-                raise UnsupportedAdapter(f"component {identifier}: installation.stopper must explicitly target {{release}}")
-            runtime_required = {"runtime_venv_source", "runtime_install_command", "runtime_validate_command"}
-            if runtime_required - set(installation):
-                raise UnsupportedAdapter(f"component {identifier}: Qorqut runtime assembly is missing {sorted(runtime_required - set(installation))}")
         dependencies = component.get("dependencies", [])
         if not isinstance(dependencies, list) or any(not isinstance(item, str) for item in dependencies):
             raise ReleaseError(f"{identifier}.dependencies must be a list of component ids")
@@ -312,11 +286,6 @@ def validate_manifest(value: dict[str, Any]) -> dict[str, Any]:
         missing = set(component.get("dependencies", [])) - ids
         if missing:
             raise ReleaseError(f"{component['id']} depends on unknown component(s): {sorted(missing)}")
-    runtime_categories = [component["category"] for component in components if component["category"] in {"core", "dashboard"}]
-    if runtime_categories and (
-        runtime_categories.count("core") != 1 or runtime_categories.count("dashboard") != 1
-    ):
-        raise UnsupportedAdapter("runtime plans must contain exactly one core and one dashboard component; pin unchanged inputs explicitly")
     if value.get("adoption") is not None and not isinstance(value["adoption"], list):
         raise ReleaseError("adoption must be a list of explicit selections")
     by_id = {item["id"]: item for item in components}
@@ -413,8 +382,6 @@ def resolve_component(component: dict[str, Any]) -> dict[str, Any]:
         if type(session_format) is not int or session_format not in (2, 3) or contract != {"schema_version": 1, "channel_id": resolved["id"], "session_format": session_format,
                         "binding": "experiences/sessions", "dataset_layout": f"plugin-experiences/{resolved['id']}/sessions"}:
             raise ReleaseError("unsupported experience sidecar at source commit")
-    if resolved.get("unchanged") and source_commit != base_commit:
-        raise ReleaseError(f"{component['id']}: unchanged runtime input must pin the current target commit")
     return resolved
 
 

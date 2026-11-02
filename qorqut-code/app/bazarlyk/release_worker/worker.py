@@ -142,11 +142,7 @@ class ReleaseWorker:
         groups: dict[str, list[dict[str, Any]]] = {}
         order: list[str] = []
         for component in self._components():
-            adapter = adapter_for(component)
-            if adapter.name == "qorqut-dashboard":
-                group = str(component.get("runtime_group", "qorqut-dashboard"))
-            else:
-                group = component["id"]
+            group = component["id"]
             if group not in groups:
                 order.append(group)
                 groups[group] = []
@@ -196,8 +192,6 @@ class ReleaseWorker:
             groups: dict[str, list[dict[str, Any]]] = {}
             order: list[str] = []
             for component in self._components():
-                if component.get("unchanged"):
-                    continue
                 key = str(Path(component["repository"]).resolve())
                 if key not in groups:
                     groups[key] = []
@@ -399,16 +393,7 @@ class ReleaseWorker:
             if action == "merge":
                 merge_intent = existing.get("before", {}).get("merge_intent")
                 if merge_intent is None:
-                    merge_intent = (
-                        {
-                            "unchanged": True,
-                            "target": component["target_branch"],
-                            "source_commit": component["source_commit"],
-                            "base_commit": component["base_commit"],
-                        }
-                        if component.get("unchanged")
-                        else prepare_merge(component, confirm=confirm)
-                    )
+                    merge_intent = prepare_merge(component, confirm=confirm)
             elif action == "cleanup":
                 cleanup_intent = existing.get("before", {}).get("cleanup_intent") or prepare_cleanup(component, confirm=confirm)
             before = {
