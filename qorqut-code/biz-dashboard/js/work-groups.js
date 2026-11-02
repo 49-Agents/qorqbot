@@ -130,11 +130,26 @@ async function taskLinkOpen(link) {
   }
 }
 
-async function taskLinksMount(host,biz,task,{open=taskLinkOpen}={}) {
+// The shared chain-link glyph already used for record links; the add control is one icon button with an
+// accessible name, never a second visible label competing with the section heading.
+const TASK_LINK_ICON = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14 14 10M8 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0M16 8l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0"/></svg>';
+
+// `controlHost` puts the one add control in a caller's section heading; without it the control stays in the
+// list, so the existing Task detail callers keep their layout.
+async function taskLinksMount(host,biz,task,{open=taskLinkOpen,controlHost=null}={}) {
   if(!host)return;
   const token={};host._taskLinks=token;
   host.classList.add('task-links');
+  if(controlHost)controlHost.replaceChildren();
   let current=task,items=[],cursor=null;
+  // One add control per mount. It opens the unchanged picker and writes against the freshest revision.
+  const add=document.createElement('button');add.type='button';add.className='quiet task-link-add';add.dataset.taskLinkAdd='';
+  add.setAttribute('aria-label','Link task');add.title='Link task';add.innerHTML=TASK_LINK_ICON;
+  add.onclick=()=>taskLinkChoose(current,async target=>{
+    const result=await workCall(biz,'tasks_update',{task_id:current.id,changes:{related_task:{...target,linked:true}}},{expected_revision:current.revision});
+    current=result.task;await load();
+  });
+  if(controlHost)controlHost.append(add);
   const present=()=>{
     if(host._taskLinks!==token || !host.isConnected)return;
     host.replaceChildren();
@@ -159,11 +174,7 @@ async function taskLinksMount(host,biz,task,{open=taskLinkOpen}={}) {
       };
       wrap.append(chip,remove);host.append(wrap);
     }
-    const add=document.createElement('button');add.type='button';add.className='quiet';add.textContent='Link task';
-    add.onclick=()=>taskLinkChoose(current,async target=>{
-      const result=await workCall(biz,'tasks_update',{task_id:current.id,changes:{related_task:{...target,linked:true}}},{expected_revision:current.revision});
-      current=result.task;await load();
-    });host.append(add);
+    if(!controlHost)host.append(add);
     if(cursor){const more=document.createElement('button');more.type='button';more.className='quiet';more.textContent='More links';more.onclick=()=>load(true).catch(e=>toast(uiFailure(e,{load:true})));host.append(more);}
   };
   const load=async(more=false)=>{
@@ -174,7 +185,7 @@ async function taskLinksMount(host,biz,task,{open=taskLinkOpen}={}) {
   };
   // Reuse a detail response when available; mutation responses may omit links.
   if(Array.isArray(task.related_tasks)){items=task.related_tasks;cursor=task.related_tasks_next_cursor;present();}
-  else try{await load();}catch(error){if(host.isConnected){host.textContent='';const retry=document.createElement('button');retry.className='quiet';retry.textContent='Retry links';retry.onclick=()=>taskLinksMount(host,biz,task,{open});host.append(retry);}}
+  else try{await load();}catch(error){if(host.isConnected){host.textContent='';const retry=document.createElement('button');retry.className='quiet';retry.textContent='Retry links';retry.onclick=()=>taskLinksMount(host,biz,task,{open,controlHost});host.append(retry);}}
 }
 
 function taskLinkChoose(source,onChoose) {
