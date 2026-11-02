@@ -27,7 +27,7 @@ from .attachment import AttachmentService
 from .arbiter import AgentLocks, InputArbiter
 from .captures import Indexer
 from .contracts import (InputRequest, NativeChatError, PROVIDER_RUNTIMES, PROVIDERS, RESULT_DEFERRED, RESULT_REJECTED,
-                        RUNTIME_PROVIDERS, TYPE_CHAT)
+                        TYPE_CHAT)
 from .probe import (BINDING, ProbeResult, REASON_CAPTURE_DISABLED, REASON_CAPTURE_NOT_READY, REASON_LIVE, REASON_UNSUPPORTED,
                     REASON_UNSUPPORTED_RUNTIME, SessionProbe)
 from .projection import Lineage, SPEAKER_AGENT
@@ -424,8 +424,8 @@ class NativeChat:
                 require_protected_control(uow, principal_id, "human", [agent_id])
                 self.runtime.application.ensure_writes_open(uow)
                 current = selection.selected(uow.connection, agent_id)
-            if RUNTIME_PROVIDERS.get(store.profile_runtime(profile)) != provider:
-                raise DomainError("validation_error", "That conversation is not of this agent's runtime")
+            # Any supported runtime the terminal verifiably runs may be selected; the profile runtime only says what a
+            # fresh start launches, so switching the terminal between Claude and Codex is followed like any other change.
             if (current.generation if current is not None else 0) != expected_generation:
                 raise DomainError("revision_conflict", "The selected conversation changed; reload and try again")
             observed = self.probe.observe(profile)

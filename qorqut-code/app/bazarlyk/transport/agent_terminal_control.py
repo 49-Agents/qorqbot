@@ -80,6 +80,14 @@ class AgentTerminalBackend:
         self.screen_settle, self.paste_settle, self.submit_settle = screen_settle, paste_settle, submit_settle
         self._owner_locks = {}
 
+    def selected_client(self, row):
+        """The client of the agent's selected conversation, which may differ from the profile runtime after a terminal
+        switch between Claude and Codex; None when nothing is selected."""
+        from bazarlyk.native_chat import selection
+        with self.runtime.database.read() as uow:
+            chosen = selection.selected(uow.connection, row['agent_id'])
+        return chosen.provider if chosen is not None and chosen.provider in ('claude', 'codex') else None
+
     def selected(self, row):
         with self.runtime.database.read() as uow:
             business = uow.repository('businesses').get(row['home_business_id']) if row['home_business_id'] else None
@@ -397,7 +405,7 @@ class AgentTerminalBackend:
         ``workdir`` is a private (0700) directory for the short-lived paste file, which never carries the text in argv.
         """
         self.validate_owner_text(text)
-        client = runtime_client(row)
+        client = self.selected_client(row) or runtime_client(row)
         if client is None:
             return OwnerInputOutcome('failed', 'unsupported_runtime')
         lock = self._owner_locks.setdefault(row['agent_id'], threading.Lock())

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from qorqut_operations.contracts import DomainError
 from bazarlyk.bootstrap import codex_session, features
-from bazarlyk.transport.agent_terminal_control import NATIVE_ONLY, runtime_client
+from bazarlyk.transport.agent_terminal_control import NATIVE_ONLY
 
 from . import codex_control, codex_viewer, liveness, selection, store
 from .probe import REASON_LIVE, REASON_UNSUPPORTED, REASON_UNSUPPORTED_RUNTIME
@@ -187,7 +187,7 @@ class AttachmentService:
                          "No conversation is selected for this agent yet", action=ACTION_SELECT if candidate else None,
                          candidate=candidate)
         client = chosen.provider
-        if client is None or runtime_client(profile) != client:
+        if client not in ("claude", "codex"):
             return _view(agent_id, chosen, UNSUPPORTED, "runtime_changed",
                          "The agent's runtime no longer matches its selected conversation")
         backend = self._backend()
