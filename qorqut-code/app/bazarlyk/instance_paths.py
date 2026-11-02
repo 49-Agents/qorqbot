@@ -243,7 +243,12 @@ class InstancePaths:
         return self._checked(base / "agents" / agent)
 
     def global_agent_workspaces(self) -> dict[str, str]:
-        """Explicit ID-to-folder mapping, never a display-name or directory lookup."""
+        """Explicit historical ID-to-folder binding, never role or display-name authority.
+
+        A migrated general worker may still occupy ``marketing`` and retired
+        Founder transcripts still occupy ``founder``. Keep these locations:
+        eligibility and permissions are independently decided from profiles.
+        """
         path = self._checked(self._root / "config" / "global-agent-workspaces.json")
         try:
             with path.open("rb") as stream:
@@ -255,8 +260,8 @@ class InstancePaths:
             if len(raw) > 8192 or not isinstance(value, dict) or set(value) != {"version", "agents"} or value["version"] != 1:
                 raise ValueError
             agents = value["agents"]
-            allowed = {"ordubashy", "learning-applier"}
-            if not isinstance(agents, dict) or len(agents) > 2 or len(set(agents.values())) != len(agents):
+            allowed = {"ordubashy", "learning-applier", "founder", "marketing"}
+            if not isinstance(agents, dict) or len(agents) > len(allowed) or len(set(agents.values())) != len(agents):
                 raise ValueError
             for identity, folder in agents.items():
                 if str(UUID(identity)) != identity or folder not in allowed:
