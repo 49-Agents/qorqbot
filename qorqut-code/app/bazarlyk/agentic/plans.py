@@ -54,8 +54,8 @@ def _desired(inventory):
         source_ids = set()
         for path, item in package["files"].items():
             relative(path)
-            if not path.startswith("native/"):
-                raise ImportFailure("invalid_inventory", "Imported native paths must start with native/", path=path)
+            if not (path.startswith("native/") or (package_id == "imported-email-management" and path.startswith("guidance/email/"))):
+                raise ImportFailure("invalid_inventory", "Imported paths must be native assets or the canonical email guide", path=path)
             body = decoded(item["content_base64"])
             if item["sha256"] != digest(body):
                 raise ImportFailure("invalid_inventory", "Resource digest does not match its bytes", path=path)

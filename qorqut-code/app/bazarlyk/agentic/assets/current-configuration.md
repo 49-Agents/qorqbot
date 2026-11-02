@@ -1,0 +1,1 @@
+Current configuration: {{CONFIGURATION}}. Generated files are projections; use current application operations for changes.

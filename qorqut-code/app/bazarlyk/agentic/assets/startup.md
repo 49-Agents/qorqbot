@@ -1,0 +1,1 @@
+Startup includes compact working memory and current attention. Refresh work with agent_context_get. Before acting in another project, read its agent_config_get(response_detail=context) for exact mandatory rules and its Context Home. Check named capabilities with tool_names; full is diagnostic detail. Read current item revisions before edits.

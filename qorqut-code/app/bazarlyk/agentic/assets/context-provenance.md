@@ -1,0 +1,1 @@
+Bounded view of the shared published Context graph: revision, node and relationship references

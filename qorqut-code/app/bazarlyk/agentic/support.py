@@ -139,7 +139,7 @@ class Source:
                 self.issue("dirty_source", "Source must be a clean committed snapshot")
         except (OSError, subprocess.CalledProcessError):
             self.issue("unversioned_snapshot", "No Git commit; provenance uses the supplied snapshot digest",
-                       severity="info" if self.id.startswith("custom-") else "error")
+                       severity="info" if self.id.startswith("custom-") or self.id == "email-guidance" else "error")
 
     def git(self, *args):
         if self._git_root is None:
@@ -314,6 +314,6 @@ class Source:
         return sorted(found)
 
     def record(self):
-        return dict(id=self.id, owner=self.owner, enabled=self.enabled, commit=self.commit,
+        return dict(id=self.id, owner=self.owner, enabled=self.enabled, commit=self.commit, root=str(self.root),
                     repository_prefix=self.repo_prefix, clean=self.clean,
                     files=dict(sorted(self.used.items())), snapshot_digest=digest(self.used))

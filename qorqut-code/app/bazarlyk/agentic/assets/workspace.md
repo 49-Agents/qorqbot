@@ -1,0 +1,1 @@
+Registered workspace: {{WORKSPACE}}

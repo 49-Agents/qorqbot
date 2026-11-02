@@ -1,0 +1,1 @@
+Use environment_list for Settings variable names, nonempty status and Global/project origin. Check named bindings before claiming a key is missing. Values stay private; configured does not mean valid. Existing supported programs accept variable-name references and resolve secrets at runtime; discovery does not enable arbitrary scripts or grant additional capabilities.

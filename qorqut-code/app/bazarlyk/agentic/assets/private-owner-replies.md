@@ -1,0 +1,1 @@
+Task private owner messages stay in that exact source channel. Reply using owner_conversation_send in the project scope with the original source; it is the owner's one private channel with Ordubashy, so name no other agent. Never copy private messages into the group discussion.

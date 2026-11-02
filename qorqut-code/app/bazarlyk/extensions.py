@@ -31,6 +31,8 @@ There is no marketplace, no event bus and no second policy engine here; a hook a
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from typing import Protocol
+
 from dataclasses import dataclass
 import importlib
 from pathlib import Path
@@ -144,6 +146,14 @@ class CalendarProvider:
             raise _invalid("A calendar provider adapter is a class")
 
 
+class NativeOrientation(Protocol):
+    def __call__(self, prepared: bool, ordubashy: bool, *, agentic_view) -> str: ...
+
+
+class NativeGuidance(Protocol):
+    def __call__(self, *, agentic_view) -> str: ...
+
+
 @dataclass(frozen=True)
 class NativeConnection:
     """One managed MCP server an installed extension can prepare for an agent whose role declares ``name`` among its
@@ -153,17 +163,18 @@ class NativeConnection:
 
     ``status(paths, agent_id)`` says ``{"prepared": bool, "reason": ...}`` without reading a secret;
     ``entry(paths, workspace, agent_id)`` returns the Claude/Codex server entry; ``files(paths, workspace, agent_id)`` the
-    generated helper files, each under the managed integration directory; ``orientation(prepared, ordubashy)`` and
-    ``guidance()`` the readiness and instruction fragments. ``retires`` names older managed server names removed on
-    refresh."""
+    generated helper files, each under the managed integration directory; ``orientation(prepared, ordubashy, *, agentic_view)`` and
+    ``guidance(*, agentic_view)`` the readiness and instruction fragments. ``retires`` names older managed server names removed on
+    refresh. The injected view supplies current authored prose. Callbacks must not fall back to pinned text
+    when a managed resource is absent; native readiness, helpers and credentials remain native authority."""
 
     name: str
     server: str
     status: Callable
     entry: Callable
     files: Callable
-    orientation: Callable
-    guidance: Callable
+    orientation: NativeOrientation
+    guidance: NativeGuidance
     retires: tuple = ()
     roles: tuple = ()
 

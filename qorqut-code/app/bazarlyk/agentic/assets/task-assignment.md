@@ -1,0 +1,1 @@
+Tasks may be assigned to yourself, teammates, or the owner.

@@ -1,0 +1,1 @@
+Expanded evidence: the shared published Context graph. Context Home above shows one bounded page; context_home pages the rest, context_find searches, and context_object(ref) and context_expand(ref) read an object and its neighbourhood by node:ID, edge:ID or source:ID. Materials through context_items_list; uploads are not policy.

@@ -1,25 +1,18 @@
-"""The Email Management instruction package: validation, one-time instance seeding and native skill rendering.
+"""Email discovery rendering and validation of the imported canonical procedural guide.
 
-Email Management is guidance only. The v3 package declares no tools and the ``owner_input`` approval rule; it carries a small
-native discovery skill and an ``instance-template/`` that preparation copies once into the instance-owned directory
-``<operations>/extensions/email-management``. That directory is the owner-editable source of mailbox, provider and inbox
-guidance, shared by every agent granted the package. Re-preparation never overwrites it. The generated ``.claude/skills`` and
-``.agents/skills`` files are a discovery entry whose ``{{EMAIL_MANAGEMENT_HOME}}`` placeholder names that explicit directory.
-Mail and calendar provider code lives in optional extension packages, never here."""
+Original instance-template files are inactive provenance. Installation imports fresh
+seeds or an explicit offline guide snapshot. Preparation never copies another guide.
+"""
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
-from pathlib import Path, PurePosixPath
-import secrets
-import stat
+from pathlib import Path
 
 from bazarlyk.agents.plugin_defaults import EMAIL_MAJOR, EMAIL_PLUGIN
 from bazarlyk.catalog.packages import declared_plugin_tools, parse_yaml
-from qorqut_operations.contracts import DomainError, utc_now
-from qorqut_operations.storage import safe_io
+from qorqut_operations.contracts import DomainError
+from bazarlyk.agentic.text import read_resource, render_text
+from bazarlyk.agentic.support import relative
 
 PLUGIN_ID = EMAIL_PLUGIN
 SKILL_ID = "email-management"
@@ -29,9 +22,14 @@ SUBTREE = "skills/email-management"
 TEMPLATE_DIRECTORY = "instance-template"
 TEMPLATE_FILES = frozenset({"SKILL.md", "instructions.md", "inboxes/README.md", "providers/gmail.md", "providers/fastmail.md"})
 RULES = {"channel": "email", "approval": "owner_input"}
-# Recorded inside the seeded directory, so the record and the seeding are one atomic rename.
-ORIGIN_FILE = ".origin.json"
 MAX_FILE_BYTES = 262_144
+EMAIL_COMPOSITION = {
+    "schema_version": 1,
+    "parameters": ["EMAIL_MANAGEMENT_HOME"],
+    "discovery_source": "skills/email-management/SKILL.md",
+    "canonical_package": "imported-email-management",
+    "canonical_path": "guidance/email/SKILL.md",
+}
 
 
 def _invalid(message: str):
@@ -76,79 +74,35 @@ def is_package(package) -> bool:
     return getattr(package, "kind", None) == "plugin" and package.id == PLUGIN_ID
 
 
-def home(paths):
-    """The explicit instance directory, validated by InstancePaths (absolute, no traversal, no symlink)."""
-    return paths.extension_home(PLUGIN_ID)
+def home(paths, *, agentic_view):
+    """Validate the active canonical guide and return its directory under the opened layer."""
+    if agentic_view is None:
+        raise DomainError("missing_agentic_view", "Email guidance requires an agentic view")
+    resource = agentic_view.layer.catalog.read_resource("imported-email-management", "guidance/email/SKILL.md")
+    if resource.get("encoding") != "utf-8" or not isinstance(resource.get("content"), str) or not resource["content"].strip():
+        raise DomainError("invalid_email_guidance", "Canonical email guide must be nonempty UTF-8")
+    if len(resource["content"].encode("utf-8")) > MAX_FILE_BYTES:
+        raise DomainError("invalid_email_guidance", "Canonical email guide exceeds its byte limit")
+    expected = "packages/imported-email-management/guidance/email/SKILL.md"
+    root_path = resource.get("root_path")
+    if relative(root_path) != expected:
+        raise DomainError("invalid_email_guidance", "Canonical email guide returned an unexpected path")
+    return Path(agentic_view.layer.root) / Path(root_path).parent
 
 
-def render(body: bytes, paths) -> bytes:
-    """Resolve the placeholder to the explicit instance directory; no other text changes."""
-    return body.replace(PLACEHOLDER.encode(), str(home(paths)).encode())
+def render(body: bytes, paths, *, agentic_view) -> bytes:
+    """Resolve only EMAIL_MANAGEMENT_HOME, preserving Unicode and actual newlines."""
+    text = body.decode("utf-8", "strict")
+    parameters = ("EMAIL_MANAGEMENT_HOME",) if PLACEHOLDER in text else ()
+    values = {"EMAIL_MANAGEMENT_HOME": str(home(paths, agentic_view=agentic_view))} if parameters else {}
+    return render_text(text, parameters, values).encode("utf-8")
 
 
-def skill_files(package, paths) -> dict[str, bytes]:
-    """The generated native skill's files relative to its directory: the discovery entry only, placeholder resolved.
-
-    The ``instance-template/`` is a seed for the instance directory, not part of the generated skill."""
+def skill_files(package, paths, *, agentic_view) -> dict[str, bytes]:
+    """Read the managed discovery files; the canonical guide is never seeded during preparation."""
+    home(paths, agentic_view=agentic_view)
     prefix = SUBTREE + "/"
     template = prefix + TEMPLATE_DIRECTORY + "/"
-    return {name[len(prefix):]: render(body, paths) for name, body in package.files.items()
-            if name.startswith(prefix) and not name.startswith(template)}
-
-
-def _entry_state(directory, name):
-    try:
-        return os.lstat(name, dir_fd=directory)
-    except FileNotFoundError:
-        return None
-
-
-def seed(package, paths) -> bool:
-    """Copy the instance template into the instance directory once; return whether it was created now.
-
-    An existing directory is never touched. The template is written into a hidden staging directory beside it and renamed
-    into place, so an interrupted seeding leaves no half-populated owner directory."""
-    target = home(paths)
-    staging_name = f".{PLUGIN_ID}.seeding-{secrets.token_hex(8)}"
-    prefix = f"{SUBTREE}/{TEMPLATE_DIRECTORY}/"
-    safe_io.mkdir(target.parent)
-    with safe_io.directory(target.parent) as parent:
-        state = _entry_state(parent, target.name)
-        if state is not None:
-            if not stat.S_ISDIR(state.st_mode):
-                raise DomainError("projection_conflict", "The Email Management instance path is not a directory")
-            return False
-        staging = target.parent / staging_name
-        written = {}
-        try:
-            for name in sorted(TEMPLATE_FILES):
-                body = render(package.files[prefix + name], paths)
-                written[name] = hashlib.sha256(body).hexdigest()
-                safe_io.atomic_write(staging / PurePosixPath(name), body, mode=0o644)
-            origin = {"schema_version": 1, "package": package.ref, "seeded_at": utc_now(), "files": written,
-                      "note": "Seeded once from the package template. Preparation never overwrites this directory."}
-            safe_io.atomic_write(staging / ORIGIN_FILE, (json.dumps(origin, indent=2, sort_keys=True) + "\n").encode(), mode=0o644)
-            try:
-                os.rename(staging_name, target.name, src_dir_fd=parent, dst_dir_fd=parent)
-            except OSError:
-                # Another preparation seeded it first; the existing directory wins and stays untouched.
-                if _entry_state(parent, target.name) is None:
-                    raise
-                return False
-            return True
-        finally:
-            _discard(staging)
-
-
-def _discard(staging: Path) -> None:
-    """Remove this call's own staging directory if the rename did not consume it; never follows links."""
-    try:
-        with safe_io.directory(staging.parent) as parent:
-            if _entry_state(parent, staging.name) is None:
-                return
-    except FileNotFoundError:
-        return
-    for directory, _, names in os.walk(staging, followlinks=False):
-        for name in names:
-            safe_io.unlink(Path(directory) / name, missing_ok=True)
-    safe_io.remove_empty_tree(staging)
+    return {name[len(prefix):]: render(read_resource(agentic_view, "email", name)["content"].encode("utf-8"),
+                                      paths, agentic_view=agentic_view)
+            for name in package.files if name.startswith(prefix) and not name.startswith(template)}

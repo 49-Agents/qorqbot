@@ -1,0 +1,1 @@
+Inbox: nothing needs to be started, polled or kept alive. Your authenticated agent identity selects your inbox. Qorqut may type one short advisory inbox notice into this session when updates are pending; keep priority on any direct user request, review pending updates with your MCP inbox tools at a suitable checkpoint, and acknowledge only the exact events you handled.

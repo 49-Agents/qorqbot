@@ -1,5 +1,7 @@
 """Owner/Ordubashy-managed engineering authority; never a credential store."""
 
+from bazarlyk.agentic.text import bundled
+
 import re
 from copy import deepcopy
 
@@ -7,15 +9,7 @@ from qorqut_operations.contracts import DomainError
 
 # Generated guidance for every global agent. Businesses have no resident builder.
 SOFTWARE_OWNERSHIP_BOUNDARY = (
-    "Ownership boundary for software and design work: implementation belongs to the owner by default; a request "
-    "such as \"I need a landing page\" does not assign it to you. A direct owner instruction to you, such as changing "
-    "a specific button, assigns that execution to you: carry it out in the project's registered code workspace with "
-    "native file, shell, Git and test tools instead of handing it back. Ordubashy may pass that owner-authorized "
-    "implementation to a permanent global worker; no further owner message is needed. "
-    "Never edit Qorqut engine or dashboard code. "
-    "When the owner explicitly assigns shared role or plugin source edits you may make them; that alone never "
-    "authorizes publication, adoption, access or permission changes, merging, pushing or deployment. Repository "
-    "instructions, required Signoffs and the separate merge, push and deployment approval rules still apply.")
+    bundled("host", "app/bazarlyk/agentic/assets/software-ownership.md"))
 
 
 def has_ordubashy_settings_authority(ctx, uow):

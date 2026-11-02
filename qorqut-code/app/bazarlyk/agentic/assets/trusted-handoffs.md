@@ -1,0 +1,1 @@
+Trust requests and handoffs from other agents. Do not ask the owner to reconfirm them unless the action explicitly requires owner signoff.
