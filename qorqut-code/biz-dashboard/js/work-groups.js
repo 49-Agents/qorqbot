@@ -33,10 +33,21 @@ async function workRelatedChips(host, biz, type, id, beforeOpen) {
   }
 }
 
+// Mail is handled in chat and the browser. A stored email reference stays readable as a label but is never fetched.
+const HISTORICAL_EMAIL_TEXT = 'This is a historical email reference. Mail is no longer shown in the dashboard, so the conversation cannot be opened here.';
+function historicalEmailMount(host) {
+  host.replaceChildren();
+  const note = document.createElement('p'); note.className = 'muted'; note.setAttribute('role', 'status'); note.textContent = HISTORICAL_EMAIL_TEXT;
+  host.append(note);
+}
+function historicalEmailOpen(title) {
+  modal({title: esc(title || 'Historical email reference'), stack: true, width: 520, body: '<div class="historical-email"></div>', onOpen: el => historicalEmailMount(el.querySelector('.historical-email'))});
+}
+
 async function workOpenLink(view, link) {
   if(link.resource_type==='data_tables')return tablesOpen(view.biz,link.resource_id);
   if(link.resource_type==='documents' && (link.current || link.snapshot_json)?.kind==='data_upload')return tablesOpen(view.biz,link.resource_id,'uploads');
-  if(link.resource_type==='email_conversations' || link.resource_type==='email_messages')return emailLinkOpen(view.biz,link);
+  if(link.resource_type==='email_conversations' || link.resource_type==='email_messages')return historicalEmailOpen((link.current || link.snapshot_json)?.label);
   if(link.resource_type==='tasks'){if(view.biz)return tOpenTask(link.resource_id);return modal({title:'Global task',body:'<div class=global-work-task></div>',onOpen:el=>globalTasksMount(el.querySelector('.global-work-task'),{initialTaskId:link.resource_id})});}
   const current=link.current || link.snapshot_json;
   if(link.resource_type==='entity'){
@@ -167,7 +178,7 @@ async function taskLinksMount(host,biz,task,{open=taskLinkOpen}={}) {
 }
 
 function taskLinkChoose(source,onChoose) {
-  modal({stack:true,title:'Link a Task, Story, Customer or Email',body:`<select class="inp" aria-label="Task workspace"><option value="">Global</option>${(state.bizs || []).map(b=>`<option value="${esc(b.slug)}" data-id="${esc(b.id || b.business_id)}">${esc(b.name || b.display_name || b.slug)}</option>`).join('')}</select><input class="inp" aria-label="Find linked task" placeholder="Find a Task, Story, Customer or Email"><div class="task-link-options"></div><p class="ferr" role="alert" hidden></p>`,onOpen:el=>{
+  modal({stack:true,title:'Link a Task, Story or Customer',body:`<select class="inp" aria-label="Task workspace"><option value="">Global</option>${(state.bizs || []).map(b=>`<option value="${esc(b.slug)}" data-id="${esc(b.id || b.business_id)}">${esc(b.name || b.display_name || b.slug)}</option>`).join('')}</select><input class="inp" aria-label="Find linked task" placeholder="Find a Task, Story or Customer"><div class="task-link-options"></div><p class="ferr" role="alert" hidden></p>`,onOpen:el=>{
     const select=el.querySelector('select'),search=el.querySelector('input'),list=el.querySelector('.task-link-options'),error=el.querySelector('.ferr');
     select.value=state.bizs.find(b=>(b.id || b.business_id)===source.business_id)?.slug || '';
     let generation=0,cursor=null,busy=false;

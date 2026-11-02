@@ -33,7 +33,6 @@
 .record-activity-title{font-weight:600}
 .record-activity-body{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--fg)}
 .record-activity-system .record-activity-body{color:var(--fg-2)}
-.record-email-body .email-messages{max-width:100%;overflow-wrap:anywhere}
 .customer-state-chip{display:inline-block;margin-left:6px;padding:0 7px;border:1px solid var(--line-2);border-radius:9px;font-size:10px;line-height:16px;color:var(--fg-2);vertical-align:middle;white-space:nowrap}
 .task-customer-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0 10px}
 .task-customer-fields>.global-task-wide,.task-customer-fields>p,.task-customer-fields>legend{grid-column:1/-1}

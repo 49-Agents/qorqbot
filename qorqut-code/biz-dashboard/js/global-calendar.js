@@ -1,4 +1,4 @@
-// One time grid over provider calendars; events stay in Google and Fastmail.
+// One time grid over provider calendars; events stay in the provider.
 const calendarZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 const calendarDateString = date => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 const calendarAddDays = (date, days) => { const next = new Date(date); next.setDate(next.getDate()+days); return next; };
@@ -23,7 +23,7 @@ const calendarEventWhen = event => {
 const calendarProviderClass = calendar => calendar?.provider === 'fastmail' ? 'calendar-business' : 'calendar-personal';
 const calendarIcon = name => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${AICONS[name] || ''}</svg>`;
 
-// Personal status is an owner preference over a provider event; it never writes to Google or Fastmail.
+// Personal status is an owner preference over a provider event; it never writes to the provider.
 const calendarStatusLabels = {pending:'Pending',completed:'Completed',cancelled:'Cancelled',rescheduled:'Rescheduled'};
 const calendarStatusMarks = {
   completed:'<path d="M5 12.5l4.5 4.5L19 7.5"/>', cancelled:'<path d="M6 6l12 12M18 6L6 18"/>',
@@ -202,7 +202,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       calendars = result.calendars;
       result.errors.forEach(e => failures.set(e.connection_id,`${e.connection_id}: ${e.message}`));
       $('.calendar-sources > div',page).innerHTML = calendars.map(calendar => `<div class="calendar-source ${calendarProviderClass(calendar)}"><span class="calendar-dot"></span><span>${esc(calendar.name)} · ${esc(calendar.provider === 'google' ? 'Google' : calendar.provider === 'fastmail' ? 'Fastmail' : calendar.provider)}</span></div>`).join('');
-      if (!result.configured) { fixedMessage = 'Connect Google and Fastmail calendars to get started.'; paint(); return; }
+      if (!result.configured) { fixedMessage = 'Connect Google Calendar to get started.'; paint(); return; }
       $('[data-calendar-add]',page).disabled = !calendars.some(c => c.writable);
       $('[data-calendar-add]',page).onclick = () => calendarEdit(null,calendars,reload,calendarDate);
       await Promise.all(calendars.map(async calendar => {

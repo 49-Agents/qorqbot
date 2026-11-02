@@ -913,7 +913,7 @@ async function agfocusLoadThreadContext(p,node) {
       ...(task.tags || []),...Object.entries(task.fields || {}).map(([key,value])=>`${key}: ${String(value)}`)].filter(Boolean);
     target.textContent=details.join(' · ');
     if(task.overview){const overview=document.createElement('p');overview.className='task-overview-text';overview.textContent=task.overview;target.appendChild(overview);}
-    if(task.email_conversation_id){const button=document.createElement('button');button.type='button';button.className='quiet';button.textContent='Read email conversation';button.onclick=()=>taskEmailOpen(task,biz);target.appendChild(button);}
+    if(task.email_conversation_id){const button=document.createElement('button');button.type='button';button.className='quiet';button.textContent='Historical email reference';button.onclick=()=>taskEmailOpen(task,biz);target.appendChild(button);}
     const links=document.createElement('div');target.appendChild(links);
     taskLinksMount(links,biz,task,{open:link=>agfocusOpenItem(p,{type:'task',id:link.task_id,business_id:link.business_id,business_slug:link.business_slug})});
     if(task.title)agfocusText(node._region.querySelector('.agfocus-source-title'),task.title);
@@ -1235,11 +1235,8 @@ async function agfocusOpenItem(p,item) {
       detail.host.innerHTML=`<iframe class="agfocus-reference-frame" aria-label="${esc(item.label || 'Reference')}" src="${esc(url)}" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads" allow="clipboard-read; clipboard-write; fullscreen"></iframe><p class="muted agfocus-reference-help">If this site prevents embedding, <a href="${esc(url)}" target="_blank" rel="noopener noreferrer">open it in a new tab</a>.</p>`;
       return;
     }
-    if(item.type==='email' && item.business_slug) {
-      await emailThreadMount(detail.host,item.business_slug,item.id,{active:detail.current});return;
-    }
-    if(item.type==='email' && !item.business_id) {
-      await emailGlobalThreadMount(detail.host,item.id,{active:detail.current});return;
+    if(item.type==='email') {
+      historicalEmailMount(detail.host);return;
     }
     if(item.type==='task') {
       if(!item.business_id){globalTasksMount(detail.host,{initialTaskId:item.id,onBack:detail.back});return;}

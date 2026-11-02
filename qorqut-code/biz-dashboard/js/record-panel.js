@@ -2,7 +2,7 @@
 // Global Task details, linked records) mounts the same surface: the record's own Ordubashy conversation stays
 // where it is, and a labelled button reveals this panel on its left. Nothing here touches the conversation
 // mount, so its draft, scroll position and exact source survive opening, closing and saving.
-const RECORD_PANELS = {story: 'Story dashboard', customer: 'Customer context', email: 'Email chain'};
+const RECORD_PANELS = {story: 'Story dashboard', customer: 'Customer context', email: 'Email reference'};
 let recordPanelSequence = 0;
 
 // Global reads of relationships and Context items name their scope; Task operations never do.
@@ -58,6 +58,8 @@ function recordSaver(ctx, {error, latest, setBusy}) {
 }
 
 const recordNode = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; };
+// Stored email links of either kind are historical references; they are never fetched, offered or opened as Context.
+const recordIsEmail = other => ['email_conversations', 'email_messages'].includes(other?.resource_type);
 function recordRetry(box, message, retry) {
   box.replaceChildren(recordNode('span', 'muted', message + ' '));
   const button = recordNode('button', 'quiet', 'Retry'); button.type = 'button'; button.onclick = retry;
@@ -65,15 +67,6 @@ function recordRetry(box, message, retry) {
 }
 
 // ---------------------------------------------------------------- Story
-function recordOpenEmail(biz, id) {
-  modal({title: 'Email conversation', stack: true, width: 800, body: '<div class="record-email-modal"></div>',
-    onOpen: el => {
-      const host = el.querySelector('.record-email-modal');
-      if (biz) emailThreadMount(host, biz, id, {active: () => host.isConnected});
-      else emailGlobalThreadMount(host, id, {active: () => host.isConnected});
-    }});
-}
-
 function recordChildren(box, ctx) {
   let generation = 0, cursor = null;
   box.innerHTML = '<div class="record-child-list"></div><button type="button" class="quiet" data-children-more hidden>More child tasks</button><p class="muted" data-children-empty hidden>No child tasks.</p>';
@@ -107,16 +100,15 @@ function recordTaskLinks(box, ctx) {
   return {refresh: mount, dispose() { box._taskLinks = null; }};
 }
 
-// Related email conversations and Context material are `concerns` relationships to this Task, in this Task's scope.
+// Historical email references and Context material are `concerns` relationships to this Task, in this Task's scope. Email references are read-only labels.
 function recordRelated(box, ctx, kind) {
   const email = kind === 'email';
   let generation = 0, cursor = null, edges = [];
-  box.innerHTML = `<div class="record-link-list"></div><p class="muted" data-related-empty hidden>${email ? 'No linked email conversations.' : 'No linked Context.'}</p>
-    <div class="record-actions"><button type="button" class="quiet" data-related-add>${email ? 'Link email conversation' : 'Link Context'}</button><button type="button" class="quiet" data-related-more hidden>More links</button></div><p class="ferr" role="alert" data-related-error hidden></p>`;
+  box.innerHTML = `<div class="record-link-list"></div><p class="muted" data-related-empty hidden>${email ? 'No historical email references.' : 'No linked Context.'}</p>
+    <div class="record-actions">${email ? '' : '<button type="button" class="quiet" data-related-add>Link Context</button>'}<button type="button" class="quiet" data-related-more hidden>More links</button></div><p class="ferr" role="alert" data-related-error hidden></p>`;
   const list = box.querySelector('.record-link-list'), empty = box.querySelector('[data-related-empty]'), more = box.querySelector('[data-related-more]'), error = box.querySelector('[data-related-error]');
   const item = () => ({type: 'task', id: ctx.task.id});
-  const isEmail = other => other?.resource_type === 'email_conversations';
-  const matches = other => other && other.type !== 'task' && (email ? isEmail(other) : !isEmail(other) && other.type !== 'agent');
+    const matches = other => other && other.type !== 'task' && (email ? recordIsEmail(other) : !recordIsEmail(other) && other.type !== 'agent');
   const present = () => {
     list.replaceChildren();
     for (const edge of edges) {
@@ -124,8 +116,8 @@ function recordRelated(box, ctx, kind) {
       if (!matches(other)) continue;
       const row = recordNode('div', 'record-link');
       const open = recordNode('button', 'quiet record-link-open', other.label || 'Unavailable'); open.type = 'button';
-      open.onclick = () => Promise.resolve(email ? recordOpenEmail(ctx.biz, other.id) : recordOpenContext(ctx, other)).catch(failure => toast(uiFailure(failure, {load: true})));
-      const kindLabel = recordNode('span', 'muted', email ? 'Email' : contextItemType(other));
+      open.onclick = () => Promise.resolve(email ? historicalEmailOpen(other.label) : recordOpenContext(ctx, other)).catch(failure => toast(uiFailure(failure, {load: true})));
+      const kindLabel = recordNode('span', 'muted', email ? 'Historical email' : contextItemType(other));
       const remove = recordNode('button', 'quiet record-link-remove', 'Unlink'); remove.type = 'button'; remove.setAttribute('aria-label', 'Unlink ' + (other.label || 'item'));
       let key = null;
       remove.onclick = async () => {
@@ -163,7 +155,7 @@ function recordRelated(box, ctx, kind) {
     request.signature = null;
     if (ctx.current()) load();
   }
-  box.querySelector('[data-related-add]').onclick = () => (email ? recordPickEmail(ctx, link) : recordPickContext(ctx, link));
+  const add = box.querySelector('[data-related-add]'); if (add) add.onclick = () => recordPickContext(ctx, link);
   more.onclick = () => load(true);
   load();
   return {refresh: () => load(), dispose() { generation++; }};
@@ -181,6 +173,7 @@ function recordUnavailable(title, message = 'This item is unavailable. It may ha
   recordContextModal(title, `<p class="muted" role="status" data-record-unavailable>${esc(message)}</p>`);
 }
 async function recordOpenContext(ctx, other) {
+  if (recordIsEmail(other)) return historicalEmailOpen(other.label);
   const title = other.label || 'Context';
   let item;
   try {
@@ -271,37 +264,6 @@ function recordOpenDocument(ctx, other, item) {
   });
 }
 
-function recordPickEmail(ctx, onChoose) {
-  modal({stack: true, title: 'Link an email conversation', body: '<input class="inp" type="search" aria-label="Find email conversation" placeholder="Search email…"><div class="work-association-list"></div><button type="button" class="quiet" data-pick-more hidden>More</button><p class="ferr" role="alert" hidden></p>',
-    onOpen: el => {
-      const input = el.querySelector('input'), list = el.querySelector('.work-association-list'), more = el.querySelector('[data-pick-more]'), error = el.querySelector('.ferr');
-      let generation = 0, cursor = null, busy = false;
-      const load = async (next = false) => {
-        const own = ++generation; error.hidden = true;
-        try {
-          const data = await workCall(ctx.biz, 'email_conversations_list', {...recordScope(ctx.biz), limit: 50, ...(input.value.trim() ? {query: input.value.trim()} : {}), ...(next && cursor ? {cursor} : {})});
-          if (!el.isConnected || own !== generation) return;
-          if (!next) list.replaceChildren();
-          for (const row of data.items || []) {
-            const button = recordNode('button', 'quiet record-pick-option'); button.type = 'button';
-            button.textContent = [row.subject || '(No subject)', row.last_message_at ? new Date(row.last_message_at).toLocaleDateString() : ''].filter(Boolean).join(' · ');
-            button.onclick = async () => {
-              if (busy) return; busy = true; button.disabled = true;
-              try { await onChoose({type: 'material', id: row.id}); el.querySelector('.mx')?.click(); }
-              catch (failure) { error.textContent = uiFailure(failure); error.hidden = false; }
-              finally { busy = false; button.disabled = false; }
-            };
-            list.append(button);
-          }
-          cursor = data.next_cursor || null; more.hidden = !cursor;
-          if (!list.children.length) list.textContent = 'No conversations found.';
-        } catch (failure) { if (own === generation && el.isConnected) { error.textContent = uiFailure(failure, {load: true}); error.hidden = false; } }
-      };
-      let timer; input.oninput = () => { clearTimeout(timer); timer = setTimeout(() => load(), 200); };
-      more.onclick = () => load(true); load();
-    }});
-}
-
 function recordPickContext(ctx, onChoose) {
   modal({stack: true, title: 'Link existing Context', body: `<select class="inp" aria-label="Context type">${[['person', 'Person'], ['topic', 'Topic'], ['material', 'Material'], ['entity', 'Entity']].map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select><input class="inp" type="search" aria-label="Find Context" placeholder="Search Context…"><div class="work-association-list"></div><p class="ferr" role="alert" hidden></p>`,
     onOpen: el => {
@@ -313,7 +275,7 @@ function recordPickContext(ctx, onChoose) {
           const data = await workCall(ctx.biz, 'context_items_list', {type: type.value, limit: 50, ...(input.value.trim() ? {query: input.value.trim()} : {}), ...recordScope(ctx.biz)});
           if (!el.isConnected || own !== generation) return;
           list.replaceChildren();
-          for (const found of (data.items || []).filter(other => other.resource_type !== 'email_conversations')) {
+          for (const found of (data.items || []).filter(other => !recordIsEmail(other))) {
             const button = recordNode('button', 'quiet record-pick-option', found.label || 'Untitled'); button.type = 'button';
             button.onclick = async () => {
               if (busy) return; busy = true; button.disabled = true;
@@ -397,7 +359,7 @@ function recordStoryMount(el, ctx) {
     if (!dirty) field.value = base;
   };
   overview.querySelector('[data-story-latest]').onclick = () => saver.adoptLatest(adopt);
-  const children = recordSection('Child tasks'), links = recordSection('Linked tasks'), emails = recordSection('Email conversations'), activity = recordSection('Recent activity');
+  const children = recordSection('Child tasks'), links = recordSection('Linked tasks'), emails = recordSection('Historical email references'), activity = recordSection('Recent activity');
   el.replaceChildren(overview, children.section, links.section, emails.section, activity.section);
   parts.children = recordChildren(children.body, ctx);
   parts.links = recordTaskLinks(links.body, ctx);
@@ -514,24 +476,11 @@ function recordCustomerMount(el, ctx) {
 }
 
 // ---------------------------------------------------------------- Email
-function recordEmailMount(el, ctx) {
-  const id = ctx.task.email_conversation_id;
-  if (!id) {
-    el.innerHTML = '<p class="muted">No email conversation is linked to this record. Choose one from the record\'s type controls.</p>';
-    return {dirty: () => false, onShow() {}, dispose() {}};
-  }
-  el.innerHTML = '<div class="record-email-body"></div><div class="record-actions"><button type="button" class="quiet" data-email-reload>Reload email</button></div>';
-  const body = el.querySelector('.record-email-body');
-  let generation = 0;
-  const mount = () => {
-    const own = ++generation;
-    body.replaceChildren();
-    const active = () => own === generation && ctx.current() && body.isConnected;
-    return ctx.biz ? emailThreadMount(body, ctx.biz, id, {active, correspondenceOnly: true}) : emailGlobalThreadMount(body, id, {active, correspondenceOnly: true});
-  };
-  el.querySelector('[data-email-reload]').onclick = mount;
-  mount();
-  return {dirty: () => false, onShow() {}, dispose() { generation++; }};
+// An Email record keeps its stored link only as a historical reference; the conversation is never fetched.
+function recordEmailMount(el) {
+  el.innerHTML = '<div class="record-email-body"></div>';
+  historicalEmailMount(el.querySelector('.record-email-body'));
+  return {dirty: () => false, onShow() {}, dispose() {}};
 }
 
 const RECORD_RENDERERS = {story: recordStoryMount, customer: recordCustomerMount, email: recordEmailMount};

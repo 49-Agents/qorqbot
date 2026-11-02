@@ -9,15 +9,14 @@ async function contextOpenGlobalItem(item, beforeOpen) {
   if (item.type === 'task') {
     return modal({title:'Global task',width:700,stack:true,body:'<div class="global-work-task"></div>',onOpen:el=>globalTasksMount(el.querySelector('.global-work-task'),{initialTaskId:item.id})});
   }
-  if (item.resource_type === 'email_conversations' && typeof emailGlobalThreadMount === 'function') {
-    return modal({title:esc(item.label || 'Email'),width:700,stack:true,body:'<div class="global-work-email"></div>',onOpen:el=>emailGlobalThreadMount(el.querySelector('.global-work-email'),item.id,{active:()=>el.isConnected})});
-  }
+  if (['email_conversations', 'email_messages'].includes(item.resource_type)) return historicalEmailOpen(item.label);
   modal({title:esc(item.label || 'Related item'),stack:true,body:`<p class="muted">${esc(contextItemType(item))}</p>`,actions:[]});
 }
 
 async function contextOpenItem(biz, item, beforeOpen) {
   if (!biz) return contextOpenGlobalItem(item, beforeOpen);
   if (await beforeOpen?.() === false) return;
+  if (['email_conversations', 'email_messages'].includes(item.resource_type)) return historicalEmailOpen(item.label);
   if (state.biz !== biz || state.scope === 'global') await selectBiz(biz);
   if (item.type === 'topic' && item.path?.startsWith('context/')) {
     state.ctx=item.path.slice(8).replace(/\/_topic\.md$/, '');

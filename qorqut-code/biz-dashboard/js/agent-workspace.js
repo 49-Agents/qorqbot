@@ -3,7 +3,7 @@
 const AGENT_WORKSPACE_BIZ_KEY = 'agent-workspace:business:v1';
 const AGENT_WORKSPACE_SECTION_KEY = 'agent-workspace:section:v1';
 const AGENT_WORKSPACE_SECTIONS = [
-  ['tasks', 'Tasks'], ['email', 'Mail'], ['progress', 'Progress'], ['tables', 'Tables'], ['browser', 'Browser'],
+  ['tasks', 'Tasks'], ['progress', 'Progress'], ['tables', 'Tables'], ['browser', 'Browser'],
 ];
 const AGENT_WORKSPACE_GLOBAL_SECTIONS = [
   ['overview', 'Overview'], ['costs', 'Costs'], ['context', 'Context'], ['tables', 'Tables'],
@@ -24,7 +24,7 @@ const agentWorkspaceSection = (business, section = ls(agentWorkspaceSectionKey(b
   return sections.some(([key]) => key === section) ? section : sections[0][0];
 };
 const agentWorkspaceSectionIcon = key => ({overview: GLOBAL_ICONS.globe, costs: GLOBAL_ICONS.costs,
-  context: SVG_BRAIN, tables: GLOBAL_ICONS.tables, email: aicon('mail', 'currentColor', 18),
+  context: SVG_BRAIN, tables: GLOBAL_ICONS.tables,
   progress: GLOBAL_ICONS.analytics, tasks: T_VIEW_ICON.tasks, browser: T_VIEW_ICON.browser})[key];
 
 // Copy only the shared directory and owner session, never the parent's mutable
@@ -344,7 +344,7 @@ async function agentWorkspaceNavigateEmbedded(view, business = 'global', section
     state.globalTab = 'tables';
     hash = state.scope === 'global' ? '#/global/tables' : '#' + business;
   } else if (state.scope === 'business') {
-    state.tab = ['email', 'tasks', 'browser'].includes(section) ? section : 'progress';
+    state.tab = ['tasks', 'browser'].includes(section) ? section : 'progress';
     hash = '#' + business;
   } else {
     state.globalTab = view === 'business' ? section : 'context';

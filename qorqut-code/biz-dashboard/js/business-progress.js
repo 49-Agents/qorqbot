@@ -1,5 +1,5 @@
 // Read-only evidence-based progress of a project's Tasks and Actions; no background polling.
-const PROGRESS_METRICS = [['emails_sent','Emails sent'],['tasks_done','Tasks done'],['actions','Actions'],['signoffs_approved','Signoffs approved']];
+const PROGRESS_METRICS = [['tasks_done','Tasks done'],['actions','Actions'],['signoffs_approved','Signoffs approved']];
 function progressChart(series, key) {
   const maximum = Math.max(1,...series.map(d => d[key]));
   const width = 520, height = 116, step = width / Math.max(1,series.length);
