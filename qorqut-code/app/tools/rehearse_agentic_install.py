@@ -27,6 +27,7 @@ from bazarlyk.agentic.support import digest
 from bazarlyk.bootstrap import preparation, skill_refresh
 from bazarlyk.bootstrap.initialize import initialize, load_prepared, owner_context
 from bazarlyk.bootstrap.mcp_reconnect import ReconnectBridge
+from bazarlyk.bootstrap.bridge_binding import BridgeBinding as ProcessBinding
 from bazarlyk.extensions import installed_selection
 from bazarlyk.instance_paths import InstancePaths
 from bazarlyk.service.runtime import build_runtime
@@ -96,7 +97,8 @@ def run(prepared, scratch):
     evidence["inventory"] = inventory["coverage"]
     evidence["module_runtime_registry"] = "No host execution adapter registered; native client owns LocalProcessRuntime"
     with runtime.owned_preparation(), patch.dict(os.environ, {"SYNTHETIC_SECRET": "not inherited by tools"}), patch("bazarlyk.installation.helper_launcher", return_value=None), \
-            patch.object(preparation, "checkpoint_protocols", return_value={"claude-code": 0, "codex": 0}):
+            patch.object(preparation, "checkpoint_protocols", return_value={"claude-code": 0, "codex": 0}), \
+            patch("bazarlyk.bootstrap.bridge_binding.BridgeBinding", side_effect=lambda registration: ProcessBinding(registration, ancestor=lambda runtime: None)):
         from qorqut_agentic import util as agentic_util
         evidence["yaml_loader"] = agentic_util._StrictLoader.__mro__[1].__name__
         resolution_started = time.perf_counter()
