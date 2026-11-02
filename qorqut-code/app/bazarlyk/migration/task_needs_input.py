@@ -10,8 +10,10 @@ transaction and the connection's previous mode restored afterwards:
 
 1. The store must be exactly this release's predecessor (the current host composition carrying the previous six-value
    Task CHECK, rebuilt in memory from the trusted Task contribution) or, on a repeat, exactly the target. Any other
-   schema, a hand-edited store or a different extension selection is refused with the objects named. A leftover Task
-   stash is refused and left untouched rather than deleted.
+   schema, a hand-edited store or a different extension selection is refused with the objects named. The stored
+   ``user_version`` marker must be that composition's own as well: a store normal startup would reject for its version
+   is refused here unchanged, in both the predecessor and the target state. A leftover Task stash is refused and left
+   untouched rather than deleted.
 2. SQLite cannot alter a CHECK, so the Task table is rebuilt from the target composition's own DDL: every column is
    stashed unchanged, the table is dropped and recreated, and the rows are copied back *before* its indexes and
    triggers are restored, so a copy never re-fires Done backfills or completion history. Its own and external triggers
@@ -101,7 +103,10 @@ def compositions(extensions=NO_EXTENSIONS):
         composition.add(contribution)
     if replaced != 1:
         _refuse("The host composition has no single Tasks storage contribution")
-    return composition.freeze(), target
+    predecessor = composition.freeze()
+    if (predecessor.target.name, predecessor.target.version) != (target.target.name, target.target.version):
+        _refuse("This conversion only widens the Task status CHECK; it does not change the target identity")
+    return predecessor, target
 
 
 def _pair(predecessor, target):
@@ -121,16 +126,19 @@ def recognise(connection, predecessor, target):
     if connection.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
         _refuse("The database is not an Operations target store")
     before, after = _pair(predecessor, target)
+    version = connection.execute("PRAGMA user_version").fetchone()[0]
     identity = [tuple(row) for row in connection.execute(f'SELECT name, version, digest FROM "{IDENTITY_TABLE}"')]
     objects, problems = read_objects(connection), {}
     for label, assembly, expected in (("predecessor", predecessor, before), ("target", target, after)):
         wanted = assembly.target
         found = differences(expected, objects)
+        if version != wanted.version:
+            found = [*found, f"changed user_version (expected {wanted.version}, found {version})"]
         if identity == [(wanted.name, wanted.version, wanted.digest)] and not found:
             return label
         problems[label] = found
     raise DomainError("invalid_database", "The store is neither this release's predecessor schema nor its target schema",
-                      details={"identity": [list(row[:2]) for row in identity],
+                      details={"identity": [list(row[:2]) for row in identity], "user_version": version,
                                "predecessor": describe(problems["predecessor"]), "target": describe(problems["target"])})
 
 
