@@ -18,3 +18,8 @@ test = ["pytest>=7.4"]
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["qorqut_fastmail*"]
+
+# The Email Management provider guide ships as package data. Nothing installs or injects it into an
+# instance automatically; a later optional installer copies it without overwriting an authored file.
+[tool.setuptools.package-data]
+qorqut_fastmail = ["resources/email-management/providers/*.md"]
