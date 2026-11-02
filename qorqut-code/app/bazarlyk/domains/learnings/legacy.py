@@ -17,10 +17,13 @@ and again before the domain apply.
 A reconciliation deliberately removes a fresh same-run earlier item from its batch and keeps only a complete copy in the
 surviving candidate's ``reconciliations[].earlier``. Stored or prepared candidate/decision state stays authoritative for
 every referenced identity. Only a full ``earlier`` copy whose identity has no such state is proved from the copy itself:
-an explicit factual bucket, no engine marker, the relation's scope, and the existing pure item validator against the
-frozen extraction core of its own run (the exact prepared run effect of the same plan, else the stored run). A bare
-identifier, an identity-only stub, unsupported or mismatched evidence and conflicting copies of one identity are refused,
-and a copy never resolves any other reference.
+an explicit factual bucket, no engine marker, the relation's scope (checked at every occurrence, cached copy or not),
+and the existing pure item validator against the frozen extraction core of its own run (the exact prepared run effect of
+the same plan, else the stored run). That core must itself be complete: a retained transcript core with its Markdown, or a
+structured contribution core with well-formed role/text blocks and the same actual source in the core and the copy;
+a missing or half-structured core is refused, never validated without its quote gate. A bare identifier, an
+identity-only stub, unsupported or mismatched evidence and conflicting copies of one identity are refused, and a copy never
+resolves any other reference.
 """
 
 import base64
@@ -285,6 +288,39 @@ def _hex_digest(value, what):
     return text
 
 
+def _frozen_evidence(core, evidence, session):
+    """Prove that one frozen extraction core is complete, usable evidence before the item validator reads it.
+
+    ``analysis.validate_item`` assumes a core built by the retained builders and silently skips its quote gate when no
+    Markdown is given, so a trust boundary must establish those assumptions itself. A structured contribution core needs
+    well-formed role/text blocks and the same actual source in the core and the item. A retained transcript core has none
+    of the structured members and needs its non-empty Markdown; a core that is half of either shape is refused rather than
+    downgraded. Returns the Markdown the validator should check quotes against.
+    """
+    header = core.get("header")
+    if not isinstance(header, dict) or header.get("session") != session:
+        _forbidden("An embedded earlier learning snapshot names another session than its frozen core.")
+    if "evidence_blocks" in core:
+        blocks = core["evidence_blocks"]
+        if not isinstance(blocks, dict) or not blocks or any(
+                not isinstance(block, dict) or not isinstance(block.get("role"), str) or not isinstance(block.get("text"), str)
+                for block in blocks.values()):
+            _forbidden("An embedded earlier learning snapshot has malformed contribution blocks in its frozen core.")
+        source = core.get("source")
+        if (not isinstance(source, dict) or not isinstance(source.get("kind"), str) or not source["kind"]
+                or not isinstance(source.get("id"), str) or not source["id"]):
+            _forbidden("An embedded earlier learning snapshot has no actual source in its frozen core.")
+        if evidence.get("source") != source:
+            _forbidden("An embedded earlier learning snapshot carries another source than its frozen core.")
+        return core.get("markdown")
+    if "source" in core or "source_key" in core or "source" in evidence:
+        _forbidden("An embedded earlier learning snapshot has an incomplete structured source in its frozen core.")
+    markdown = core.get("markdown")
+    if not isinstance(markdown, str) or not markdown.strip():
+        _forbidden("An embedded earlier learning snapshot has no frozen transcript to check its quotes against.")
+    return markdown
+
+
 class _Effects:
     """The exact prepared effects of one plan, resolved against stored rows in the caller's own scope."""
 
@@ -508,8 +544,11 @@ class _Effects:
         canonical = json.dumps(copy, sort_keys=True, separators=(",", ":"))
         known = self._embedded.get((business, identity))
         if known is not None:
+            # The cache reuses the proof of the evidence only; every relation still answers for its own owner's scope.
             if known != canonical:
                 _forbidden("A prepared learning plan embeds conflicting copies of one earlier learning record.")
+            if copy.get("scope") != (owner or {}).get("scope"):
+                _forbidden("An embedded earlier learning snapshot belongs to another scope than its relation.")
             return
         if copy.get("bucket") != CONTEXT_BUCKET:
             _forbidden("An embedded earlier learning snapshot must explicitly be a complete factual Context item.")
@@ -525,13 +564,9 @@ class _Effects:
             _forbidden("An embedded earlier learning snapshot names two different runs.")
         session = _text(evidence.get("session"), "An embedded earlier learning session")
         core = self.frozen_core(business, run_id, session)
-        header = core.get("header")
-        if not isinstance(header, dict) or header.get("session") != session:
-            _forbidden("An embedded earlier learning snapshot names another session than its frozen core.")
-        if "evidence_blocks" in core and evidence.get("source") != core.get("source"):
-            _forbidden("An embedded earlier learning snapshot carries another source than its frozen core.")
+        markdown = _frozen_evidence(core, evidence, session)
         try:
-            analysis.validate_item(copy, core.get("markdown"), source_core=core)
+            analysis.validate_item(copy, markdown, source_core=core)
         except ValueError as exc:
             _forbidden("An embedded earlier learning snapshot is not supported by its frozen evidence: " + str(exc))
         self._embedded[(business, identity)] = canonical
