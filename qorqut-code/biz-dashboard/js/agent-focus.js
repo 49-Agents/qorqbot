@@ -311,7 +311,7 @@ function agfocusMount(p) {
     disposeSignoffs();
     document.removeEventListener('reply-notifications-changed',repliesChanged);
     agfocusOverlayClose(p);disposeResize();disposeOrdering();disposeText();p.focusSnoozePopup?.close();p.focusSnoozePopup=null;
-    for(const node of p.focusCards.values()){node._conversationHost?._conversation?.dispose();node._referenceObserver?.disconnect();}
+    for(const node of p.focusCards.values()){node._region?._recordSurface?.dispose();node._conversationHost?._conversation?.dispose();node._referenceObserver?.disconnect();}
     p.focusCards.clear();p.focusSelected=null;p.focusMount=null;
   };
   p.focusPrivateUnread ||= new Map();
@@ -673,6 +673,7 @@ function agfocusPaint(p) {
     if(item.unavailable) {
       if(p.focusSelected===item.id)agfocusSelect(p,null);
       node._conversationHost?._conversation?.dispose();
+      node._region._recordSurface?.dispose();
       node._region.replaceChildren();
       node.dataset.unavailable='true';node.classList.add('agfocus-unavailable','agfocus-collapsed');
       node.removeAttribute('tabindex');node.removeAttribute('aria-expanded');node.onclick=null;node.onkeydown=null;
@@ -711,7 +712,9 @@ function agfocusPaint(p) {
     const flag=node.querySelector('.agfocus-flag');
     const snoozed=agfocusSnoozed(item);
     node.classList.toggle('agfocus-snoozed',snoozed);
-    agfocusText(flag,item.archived?'Archived':'');flag.hidden=!item.archived;
+    const stateLabel=taskItem?customerStateText({task_type:taskRecord.task_type,customer_state:(item.resolved_source || item.source).customer_state}):'';
+    const flagText=[stateLabel,item.archived?'Archived':''].filter(Boolean).join(' · ');
+    agfocusText(flag,flagText);flag.hidden=!flagText;
     agfocusText(node._region.querySelector('.agfocus-source-title'),item.resolved_source?.label || item.label);
     node._region.querySelector('.agfocus-request').textContent=item.requested_response || '';
     node._region.querySelector('[data-framing="requested_response"]').hidden=!item.requested_response;
@@ -748,6 +751,7 @@ function agfocusPaint(p) {
       const button=document.createElement('button');button.className='quiet';button.textContent=ref.unavailable?'Related item unavailable':ref.label;button.disabled=!!ref.unavailable;
       button.onclick=()=>agfocusOpenItem(p,ref).catch(e=>toast(e.message));related.appendChild(button);
     }
+    agfocusRecordSurface(p,node,item,taskRecord);
     const binding=item.conversation;
     if(!binding){node.classList.add('agfocus-collapsed');continue;}
     const conversationHost=node._conversationHost;
@@ -765,8 +769,6 @@ function agfocusPaint(p) {
       onUnavailable:()=>{if(p.focusMount!==host || p.focusCards.get(item.id)!==node)return;node._item.unavailable=true;const current=agfocusVisibleItems(p,p.focus?.items || []).find(other=>other.id===item.id);if(current)current.unavailable=true;agfocusPaint(p);},
       onRead:()=>{agfocusUnread(p,node,{...node._item,private_unread:false},false);item.private_unread=false;p.focusPrivateUnread?.delete(item.id);p.focusPrivateRead?.set(item.id,p.focusBoardSeq || 0);const current=agfocusVisibleItems(p,p.focus?.items || []).find(other=>other.id===item.id);if(current)current.private_unread=false;},
       onUnread:()=>{agfocusUnread(p,node,{...node._item,private_unread:true},true);item.private_unread=true;p.focusPrivateUnread?.set(item.id,p.focusBoardSeq || 0);p.focusPrivateRead?.delete(item.id);const current=agfocusVisibleItems(p,p.focus?.items || []).find(other=>other.id===item.id);if(current)current.private_unread=true;},
-      ...(!item._workParent?{read:async pagination=>coreData(await post('/root/operations/focus_get',{scope:'global',item_id:item.id,conversation:true,...pagination})).item.thread,
-      send:async request=>coreData(await post('/root/operations/focus_reply',{scope:'global',item_id:item.id,text:request.text,idempotency_key:request.idempotency_key,...(request.revision?{expected_source_revision:request.revision}:{})}))}:{}),
     });
     // Focus has no actionable Comment toggle. Its title carries unread state.
     if(newConversation)conversationHost.querySelector('.conversation-toggle')?.remove();
@@ -783,6 +785,16 @@ function agfocusPaint(p) {
   $('[data-focus-previous]',host).hidden=!p.focusPages?.length;
   $('[data-focus-page]',host).textContent=(p.focusPages?.length || data.next_offset!=null)?'Page '+((p.focusPages?.length||0)+1):'';
   agfocusDesktopTab(p);
+}
+
+// Story, Customer and Email tasks share one optional information panel beside the selected record's conversation.
+function agfocusRecordSurface(p,node,item,taskRecord) {
+  const region=node._region,source=item.resolved_source || item.source;
+  if(!taskRecord || !TASK_SPECIAL_TYPES.includes(taskRecord.task_type) || typeof recordSurfaceMount!=='function'){region._recordSurface?.dispose();return;}
+  recordSurfaceMount(region,{task:{id:source.id,task_type:taskRecord.task_type,business_id:source.business_id ?? null},
+    biz:source.business_slug || item.context_business_slug || null,
+    onTask:()=>{if(p.focusMount?.isConnected)void agfocusRefresh(p);},
+    openTask:link=>agfocusOpenItem(p,{type:'task',id:link.task_id,business_id:link.business_id,business_slug:link.business_slug})});
 }
 
 function agfocusNewTab(item) {
@@ -812,6 +824,7 @@ function agfocusSelect(p,id) {
   p.focusSelected=id;
   if(previous){
     previous._conversationHost?._conversation?.collapse();
+    previous._region._recordSurface?.close();
     previous._region.hidden=true;previous.appendChild(previous._region);
     previous.classList.add('agfocus-collapsed');previous.setAttribute('aria-expanded','false');
   }
@@ -842,7 +855,7 @@ async function agfocusLoadThreadContext(p,node) {
       {task_id:source.id}));
     if(node._contextRequest!==request || node._item.unavailable || p.focusSelected!==item.id)return;
     const task=data.task;
-    const details=[task.task_type && task.task_type!=='task' && TASK_TYPE_LABELS[task.task_type],task.status && (T_LABEL[task.status] || task.status),task.due && `Due ${task.due}`,
+    const details=[task.task_type && task.task_type!=='task' && TASK_TYPE_LABELS[task.task_type],customerStateText(task),task.status && (T_LABEL[task.status] || task.status),task.due && `Due ${task.due}`,
       ...(task.tags || []),...Object.entries(task.fields || {}).map(([key,value])=>`${key}: ${String(value)}`)].filter(Boolean);
     target.textContent=details.join(' · ');
     if(task.overview){const overview=document.createElement('p');overview.className='task-overview-text';overview.textContent=task.overview;target.appendChild(overview);}

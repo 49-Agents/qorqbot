@@ -1,22 +1,13 @@
-// One source-owned group discussion and isolated owner–agent private channels.
-// Business task peers are discovered by exact identity. Local drafts only, and
-// no viewing telemetry beyond the explicit private read acknowledgment.
+// One owner–Ordubashy private conversation per source. Local drafts only, and no viewing telemetry
+// beyond the explicit private read acknowledgment. Record threads have exactly one channel: the owner's
+// default Ordubashy conversation. No request names an agent, peer or team channel; the host rejects any
+// other selector separately.
 const conversationStates = new Map();
 let conversationMountId = 0;
-const CONVERSATION_CHANNELS = [['private', 'Private with Ordubashy'], ['team', 'Agent discussion']];
-// Omitting the peer keeps the original Ordubashy channel. Every other private channel is one explicit agent
-// UUID: a task participant (`agent:<channel>`) or a worker (`worker:<agent_id>`, the service reports channel
-// 'worker' for each). Every read, send, acknowledgment, page and retry names that agent.
-const conversationIsPeer=channel=>channel.startsWith('agent:') || channel.startsWith('worker:');
-const conversationPeerKey=peer=>peer.channel==='worker'?`worker:${peer.agent_id}`:peer.channel;
-const conversationPeer=s=>conversationIsPeer(s.channel)?{agent_id:s.peer}:{};
-const CONVERSATION_CHANGED = 'The agent changed or is no longer available.';
-// Refusals that mean this exact peer channel cannot be used now.
-const CONVERSATION_LOST = ['forbidden','not_found','policy_denied','revision_conflict','invalid_principal'];
+const CONVERSATION_CHANGED = 'The conversation changed or is no longer available.';
 // Inline Focus conversations dismiss on outside clicks, while their contents stay interactive.
 document.addEventListener('click',event=>{
-  // composedPath() is frozen at dispatch time: a reactive re-render (the team
-  // tab's avatar stack can replace itself between dispatch and here) can leave
+  // composedPath() is frozen at dispatch time: a reactive re-render can leave
   // event.target detached, which would make a plain .contains(event.target)
   // check wrongly read as "outside" and collapse the panel the click opened.
   const path=event.composedPath();
@@ -26,22 +17,14 @@ document.addEventListener('click',event=>{
   }
 });
 function conversationKey(source) { return `${source.type}:${source.biz || 'global'}:${source.id}`; }
-// Shared state is keyed by source, channel and the exact peer, so one agent's history, cursors, draft and retry
-// can never be shown to, or sent to, another.
-function conversationStateKey(source,channel,peer=null) { return `${conversationKey(source)}:${channel}${peer?`:${peer}`:''}`; }
-function conversationNewState(source,channel,peer=null) {
-  return {source:conversationKey(source),channel,peer,text:'',files:[],notes:[],participants:[],loaded:false,cursor:null,before:null,mounts:new Set(),conversation:null,readState:null,unavailable:null};
+// Shared state is keyed by source only: one draft, cursor and retry per record thread.
+function conversationNewState(source) {
+  return {source:conversationKey(source),text:'',files:[],notes:[],participants:[],loaded:false,before:null,mounts:new Set(),conversation:null,readState:null};
 }
-function conversationState(source,channel='private',peer=null) {
-  const key=conversationStateKey(source,channel,peer);
-  if (!conversationStates.has(key)) conversationStates.set(key,conversationNewState(source,channel,peer));
+function conversationState(source) {
+  const key=conversationKey(source);
+  if (!conversationStates.has(key)) conversationStates.set(key,conversationNewState(source));
   return conversationStates.get(key);
-}
-// The dashboard is the owner interface. A session that explicitly reports another
-// human keeps the old team composer and never sees the owner's private channel.
-function conversationViewerIsOwner() {
-  const session=typeof state==='object' && state?state.session:null;
-  return !session || session.is_owner!==false;
 }
 function conversationPersonName(person) {
   const profile=typeof globalAgentProfile==='function'?globalAgentProfile(person.created_by || person.actor_id):null;
@@ -52,23 +35,6 @@ function conversationGlyph(person,size) {
   return person.author_kind==='agent' && typeof agentGlyph==='function'
     ? agentGlyph({...person.presentation,...profile},size)
     : esc(conversationPersonName(person).slice(0,2));
-}
-// Same defensive fallback as conversationGlyph, for a harness that doesn't load core.js.
-function conversationOrdubashyGlyph(size) {
-  return typeof agentGlyph==='function' ? agentGlyph({role:{id:'ordubashy'}},size) : 'O';
-}
-// Up to 4 overlapping avatars for the team-channel toast; no overflow count.
-function conversationChannelAvatars(people) {
-  if(!people.length) return '<span class="conversation-channel-avatar conversation-channel-avatar-empty" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 20v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1"/><circle cx="9" cy="7" r="3"/><path d="M22 20v-1a3.99 3.99 0 0 0-3-3.85"/><path d="M16 3.13a3.99 3.99 0 0 1 0 7.75"/></svg></span>';
-  return people.slice(0,4).map(person=>`<span class="conversation-channel-avatar" aria-hidden="true">${conversationGlyph(person,18)}</span>`).join('');
-}
-function conversationPeople(s) {
-  const people=new Map();
-  for (const n of [...(s.participants || []),...s.notes]) if(n.entry_kind!=='system') {
-    const participantId=n.created_by || n.actor_id || n.author_id || conversationPersonName(n);
-    if(!people.has(participantId))people.set(participantId,n);
-  }
-  return [...people.values()];
 }
 // Presentation only: canonical bodies and transport payloads stay complete.
 function messagePreview(body, summary) {
@@ -82,12 +48,6 @@ async function conversationRequest(promise) {
       timer=setTimeout(()=>reject(Object.assign(new Error('The request took too long. Try again.'),{code:'request_timeout'})),15000);
     })]);
   } finally {clearTimeout(timer);}
-}
-async function conversationCall(source,operation,args,options={}) {
-  const path=source.biz?`/biz/${encodeURIComponent(source.biz)}`:'/root';
-  // Task and Action thread operations infer Global from the root route and their schemas reject `scope`;
-  // only the private conversation operations below declare it.
-  return coreData(await conversationRequest(post(`${path}/operations/${operation}`,{...args,...options})));
 }
 // A private call is Global whenever the mount has no business slug of its own
 // (Focus cards), and then names the owning business inside the canonical source.
@@ -109,8 +69,7 @@ async function conversationPrivateCall(source,adapter,operation,args,options={})
 // Fixed, user-facing text for thread failures. Transport errors never reach the UI.
 const CONVERSATION_TEXT = {load:"Couldn't load. Try again",unconfirmed:"Couldn't confirm delivery. Retry Send",changed:'Conversation changed. Review it before sending again',blocked:"Can't send here"};
 // Send refusals that mean the source changed under the draft: the retry is dropped and the owner must review.
-const CONVERSATION_REVIEW = ['revision_conflict','stale_signoff','not_found','forbidden','policy_denied'];
-const conversationLostText = s => s.channel.startsWith('agent:')?'This agent is no longer available for this task.':CONVERSATION_CHANGED;
+const CONVERSATION_REVIEW = ['revision_conflict','stale_signoff','not_found','forbidden','policy_denied','invalid_principal'];
 // Normalizes canonical notes (already in controller order) into shared view entries.
 function conversationEntries(notes,adapter) {
   let previous=null;
@@ -136,26 +95,12 @@ function conversationMount(host,source,adapter={}) {
   let expanded=false;
   if (host.dataset.conversation===key) { host._source=source; return host._conversation; }
   host._conversation?.dispose?.();
-  let disposed=false,view,chat,errorText='',restoring=false;
-  // Last real scroll position of each channel, captured only while the panel is shown.
-  const saved={};
+  let disposed=false,view,chat,errorText='',restoring=false,saved=null;
   host.dataset.conversation=key;host._source=source;
-  // The session can arrive after a mount, so the owner test is read on demand
-  // rather than frozen: a late non-owner session restores the team composer.
-  const viewerIsOwner=()=>conversationViewerIsOwner();
-  const channels={private:conversationState(source,'private'),team:conversationState(source,'team')};
-  let channel=adapter.channel || (viewerIsOwner()?'private':'team');
-  const st=()=>channels[channel];
-  const businessSource=()=>!!(source.biz || source.business_id || adapter.privateSource?.business_id);
-  const readOnly=()=>channel==='team' && viewerIsOwner() && !(businessSource() && source.type==='task');
-  const lost=()=>channel!=='team' && !!st().unavailable;
+  const s=conversationState(source);
   const mountId=++conversationMountId;
   const panelId=`conversation-panel-${mountId}`;
-  const tabId=name=>`conversation-tab-${mountId}-${name}`;
-  // Icon-only, matching the pane's .ttab icon tabs: the label stays as the
-  // accessible name (aria-label) instead of visible text.
-  const tabs=CONVERSATION_CHANNELS.map(([name,label])=>`<button type="button" role="tab" id="${tabId(name)}" class="quiet conversation-channel" data-channel="${name}" aria-selected="false" tabindex="-1" aria-controls="${panelId}" aria-label="${esc(label)}"><span class="conversation-channel-icon" data-channel-icon="${name}">${name==='private'?conversationOrdubashyGlyph(18):conversationChannelAvatars([])}</span><span class="conversation-unread" data-peer-unread hidden></span></button>`).join('');
-  host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span><span class="conversation-unread" data-conversation-unread aria-hidden="true" hidden></span></button><section id="${panelId}" class="conversation-panel" role="tabpanel" aria-labelledby="${tabId('private')}" hidden><div class="conversation-channels" role="tablist" aria-label="Conversation channel">${tabs}</div><div class="conversation-view"></div></section>`;
+  host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span><span class="conversation-unread" data-conversation-unread aria-hidden="true" hidden></span></button><section id="${panelId}" class="conversation-panel" role="region" aria-label="Conversation with Ordubashy" hidden><div class="conversation-view"></div></section>`;
   const toggle=host.querySelector('.conversation-toggle'),panel=host.querySelector('.conversation-panel');
   const unreadDot=host.querySelector('[data-conversation-unread]');
   // Focus keeps its composer reachable while the feed is collapsed: the same shared form is placed outside the panel.
@@ -166,85 +111,50 @@ function conversationMount(host,source,adapter={}) {
     host.append(composerHost);
   }
   const composerLabel=adapter.inlineComposer?(adapter.ariaLabel ?? 'Leave a comment'):'Message';
-  const defaultPlaceholder=()=>adapter.inlineComposer?(adapter.placeholder ?? (channel==='private'?'Private message to Ordubashy…':conversationIsPeer(channel)?'Private message…':'Message the group…')):'Message…';
-  st().mounts.add(host);
-  host.dataset.conversationChannel=channel;host.dataset.conversationPeer=st().peer || '';
-  const sameState=(mount,s)=>mount.isConnected && mount.dataset.conversation===key && mount.dataset.conversationChannel===s.channel && mount.dataset.conversationPeer===(s.peer || '');
+  const defaultPlaceholder=()=>adapter.inlineComposer?(adapter.placeholder ?? 'Private message to Ordubashy…'):'Message…';
+  s.mounts.add(host);
+  const sameState=mount=>mount.isConnected && mount.dataset.conversation===key;
   // Silent for every mounted view of this exact state; a view whose text already matches keeps its caret.
-  const syncDraft=(s=st())=>{for(const mount of [...s.mounts]){if(!sameState(mount,s)){s.mounts.delete(mount);continue;}mount._conversation?._setDraft(s.text);}};
+  const syncDraft=()=>{for(const mount of [...s.mounts]){if(!sameState(mount)){s.mounts.delete(mount);continue;}mount._conversation?._setDraft(s.text);}};
   const current=()=>!disposed && host.isConnected && host.dataset.conversation===key && host._conversation===view;
-  const captureScroll=()=>{if(expanded && !restoring)saved[channel]=chat.getScrollState();};
+  const captureScroll=()=>{if(expanded && !restoring)saved=chat.getScrollState();};
   function composerState() {
-    const s=st();
-    return {hidden:readOnly() || lost(),inputDisabled:!!s.sending || !!s.submission,sendDisabled:!!s.sending,
-      filesDisabled:!!s.sending || !!s.submission || readOnly() || lost(),attachments:s.files.map(item=>({key:item.key,name:item.file.name})),
+    return {hidden:false,inputDisabled:!!s.sending || !!s.submission,sendDisabled:!!s.sending,
+      filesDisabled:!!s.sending || !!s.submission,attachments:s.files.map(item=>({key:item.key,name:item.file.name})),
       sendLabel:s.submission?'Retry Send':'Send',placeholder:defaultPlaceholder(),ariaLabel:composerLabel,maxLength:20000};
   }
   function renderComposer() {if(!disposed)chat.render({composer:composerState()},{scroll:'preserve'});}
   function syncSending() {
-    const s=st();
-    for(const mount of s.mounts)if(sameState(mount,s))mount._conversation?._renderComposer();
+    for(const mount of s.mounts)if(sameState(mount))mount._conversation?._renderComposer();
   }
   function setError(text) {errorText=text;if(!disposed)chat.render({banner:{text,role:'alert'}},{scroll:'preserve'});}
   const clearError=()=>{if(errorText)setError('');};
-  function syncChannel() {
-    for(const tab of host.querySelectorAll('.conversation-channel')) {
-      const selected=tab.dataset.channel===channel;
-      tab.setAttribute('aria-selected',String(selected));
-      tab.tabIndex=selected?0:-1;
-    }
-    panel.setAttribute('aria-labelledby',tabId(channel));
-    // Only the composer goes away: the inline wrapper still carries the Focus
-    // message icon, which must stay reachable in the read-only team view.
-    renderComposer();
-  }
-  // The team tab's avatar stack reflects whoever has actually posted, which can
-  // arrive after mount (or already be cached from an earlier mount of the same source).
-  function paintTeamIcon() {
-    const icon=host.querySelector('[data-channel-icon="team"]');
-    if(icon)icon.innerHTML=conversationChannelAvatars(conversationPeople(channels.team));
-  }
   let painted='';
   function paint(mode='auto') {
-    const s=st();
-    const signature=JSON.stringify([channel,s.peer,s.unavailable,!!s.text,!!s.loaded,s.notes,s.participants,s.cursor,s.before]);
+    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before]);
     if(painted===signature && mode==='auto')return;
     painted=signature;
-    const emptyText=s.unavailable?`${s.unavailable}${s.text?' Your unsent draft for that agent is kept separately and is not sent to anyone else.':''}`:s.loaded && !s.notes.length?'No messages yet':'';
-    chat.render({entries:conversationEntries(s.notes,adapter),older:{visible:!!(s.cursor || s.before),disabled:false},empty:{text:emptyText}},{scroll:mode});
-    if(chat.elements.empty){if(s.unavailable)chat.elements.empty.dataset.peerUnavailable='';else delete chat.elements.empty.dataset.peerUnavailable;}
+    chat.render({entries:conversationEntries(s.notes,adapter),older:{visible:!!s.before,disabled:false},empty:{text:s.loaded && !s.notes.length?'No messages yet':''}},{scroll:mode});
     if(adapter.inlineComposer)host.querySelectorAll('[title]').forEach(el=>el.removeAttribute('title'));
   }
-  // The exact agent is gone or changed: show the channel as unavailable and never fall back to another agent.
-  // The old draft stays in that agent's own state; nothing is re-sent or shown elsewhere.
-  function markUnavailable(s,message) {
-    s.unavailable=message || CONVERSATION_CHANGED;
-    s.notes=[];s.participants=[];s.loaded=false;s.cursor=null;s.before=null;s.conversation=null;s.readState=null;
-    if(st()===s && current()){syncChannel();syncSending();painted='';paint();}
-  }
   // Acknowledge only what the server has already returned to this owner, and only
-  // after an interactive private load that included the newest page.
-  async function acknowledge(s) {
-    const stillPrivateVisible=()=>viewerIsOwner() && expanded && st()===s && channel!=='team' && current() && adapter.isVisible?.()!==false;
-    if(!stillPrivateVisible() || s.marking || s.unavailable)return;
+  // after an interactive load that included the newest page.
+  async function acknowledge() {
+    const stillVisible=()=>expanded && current() && adapter.isVisible?.()!==false;
+    if(!stillVisible() || s.marking)return;
     const latest=s.conversation?.latest_sequence || 0;
     if(!latest || latest<=(s.readState?.last_read_sequence || 0))return;
     s.marking=true;
     try {
-      // Do not acknowledge a load that the owner has already closed or switched
-      // away from while the private history request was in flight.
-      if(!stillPrivateVisible())return;
-      const data=await conversationPrivateCall(source,adapter,'owner_conversation_mark_read',{sequence:latest,...conversationPeer(s)},{idempotency_key:newRequestId()});
+      // Do not acknowledge a load that the owner has already closed while the history request was in flight.
+      if(!stillVisible())return;
+      const data=await conversationPrivateCall(source,adapter,'owner_conversation_mark_read',{sequence:latest},{idempotency_key:newRequestId()});
       if(!current())return;
-      // A receipt for a different agent than the one this channel is pinned to never updates its read state.
-      if(s.peer && data?.conversation?.agent_id!==s.peer){markUnavailable(s);return;}
       const readState=data?.read_state;
       s.readState=readState || {last_read_sequence:latest,unread:false};
-      void loadPeers();
       if(typeof replyNotifications!=='undefined')void replyNotifications.refresh();
-      // A coordinator reply can arrive between GET and mark-read. The server's
-      // unread result is authoritative: keep or restore the dot and projection.
-      if(!stillPrivateVisible())return;
+      // A reply can arrive between GET and mark-read. The server's unread result is authoritative.
+      if(!stillVisible())return;
       if(readState?.unread===true || readState?.any_unread===true || Number(readState?.last_read_sequence ?? latest)<latest) {
         setUnread(true);
         adapter.onUnread?.(latest);
@@ -257,76 +167,46 @@ function conversationMount(host,source,adapter={}) {
     } finally {s.marking=false;}
   }
   async function load(more=false,options={}) {
-    if(!current())return;
-    const target=options.channel || channel,origin=channels[target];
-    let s=origin;
-    // A lost agent is never re-read or replaced here.
-    if(s.unavailable){if(target===channel && current())paint();return;}
-    if(s.loading)return;
-    s.loading=true;s.loadOwner=view;if(target===channel)clearError();
+    if(!current() || s.loading)return;
+    s.loading=true;s.loadOwner=view;clearError();
     s.refreshAfterSend=false;
     try {
-      let data;
-      const pagination=more?{...(s.cursor?{cursor:s.cursor}:{}),...(s.before?{before:s.before}:{})}:{};
-      if(target!=='team') {
-        const result=await conversationPrivateCall(source,adapter,'owner_conversation_get',{limit:20,...conversationPeer(s),...(more && s.before?{before:s.before}:{})});
-        if(!current())return;
-        if(conversationIsPeer(target) && result.conversation?.agent_id!==s.peer)throw Object.assign(new Error('The selected agent changed.'),{code:'revision_conflict'});
-        s.conversation=result.conversation || null;s.readState=result.read_state || null;
-        const dot=host.querySelector(`[data-channel="${CSS.escape(target)}"] [data-peer-unread]`);if(dot)dot.hidden=!s.readState?.unread;
-        data={notes:result.messages || [],next_before:result.next_before,participants:result.participants};
-      }
-      else if(adapter.read) data=await conversationRequest(adapter.read(pagination));
-      else data=await conversationCall(source,source.type==='email'?'email_comments_list':source.type==='task'?'tasks_thread_get':'signoffs_notes_list',{[source.type==='email'?'conversation_id':source.type+'_id']:source.id,limit:20,...pagination});
+      const result=await conversationPrivateCall(source,adapter,'owner_conversation_get',{limit:20,...(more && s.before?{before:s.before}:{})});
       if(!current())return;
+      s.conversation=result.conversation || null;s.readState=result.read_state || null;
+      const data={notes:result.messages || [],next_before:result.next_before,participants:result.participants};
       s.participants=data.participants || s.participants;
       const merged=new Map((more?[...data.notes,...s.notes]:[...s.notes,...data.notes]).map(n=>[n.id,n]));
       s.notes=[...merged.values()].sort((a,b)=>a.sequence!=null && b.sequence!=null?a.sequence-b.sequence:(a.created_at||'').localeCompare(b.created_at||'') || a.id.localeCompare(b.id));
-      const missingPrivateHistory=target!=='team' && s.notes.length<(s.conversation?.message_count || 0);
-      if(more || !s.loaded || (!s.cursor && !s.before && missingPrivateHistory)){s.cursor=data.next_cursor;s.before=data.next_before;}
+      const missingHistory=s.notes.length<(s.conversation?.message_count || 0);
+      if(more || !s.loaded || (!s.before && missingHistory))s.before=data.next_before;
       s.loaded=true;
-      if(target===channel && channels[target]===s && current())paint(more?'prepend':'auto');
-      for(const mount of s.mounts)if(mount!==host && sameState(mount,s) && mount._conversation?.isExpanded())mount._conversation._paint?.();
-      s.rejectionRequiresMessage=data.rejection_requires_message;
-      // Card-level people projections describe the team, not the private pair,
-      // and stay current even while the private channel is the one on screen.
-      if(target==='team'){adapter.onParticipants?.(conversationPeople(s));paintTeamIcon();}
-      if(target!=='team' && !more && options.acknowledge)await acknowledge(s);
+      if(!more && !expanded && s.readState)setUnread(s.readState.unread===true);
+      if(current())paint(more?'prepend':'auto');
+      for(const mount of s.mounts)if(mount!==host && sameState(mount) && mount._conversation?.isExpanded())mount._conversation._paint?.();
+      if(!more && options.acknowledge)await acknowledge();
     } catch(e){
       if(!current())return;
-      if(target!=='team' && s.peer && CONVERSATION_LOST.includes(e.code))markUnavailable(s,conversationLostText(s));
-      else if(['forbidden','not_found'].includes(e.code)){
-        s.notes=[];s.participants=[];s.loaded=false;s.cursor=null;s.before=null;
-        if(target===channel && current())paint();
+      if(['forbidden','not_found'].includes(e.code)){
+        s.notes=[];s.participants=[];s.loaded=false;s.before=null;
+        paint();
         adapter.onUnavailable?.(e);
       }
-      if(target===channel && channels[target]===s && current() && !s.unavailable)setError(CONVERSATION_TEXT.load);
+      setError(CONVERSATION_TEXT.load);
     } finally{
-      if(origin.loadOwner===view){origin.loading=false;origin.loadOwner=null;}
+      if(s.loadOwner===view){s.loading=false;s.loadOwner=null;}
       // A send may finish while an earlier read is still in flight. Fetch again
       // afterwards so that response cannot leave the new message out of view.
-      if(current() && origin.refreshAfterSend)void load(false,{channel:target});
+      if(current() && s.refreshAfterSend)void load(false);
     }
   }
   async function submit() {
-    // A tab switch mid-send must not redirect the message: the channel and its
-    // state are fixed for the whole submission.
-    const sending=channel,s=channels[sending];
-    if(!current() || s.sending || (!s.text.trim() && !s.files.length) || readOnly() || lost())return;
-    if(conversationIsPeer(sending) && !s.peer){setError(CONVERSATION_TEXT.blocked);return;}
+    if(!current() || s.sending || (!s.text.trim() && !s.files.length))return;
     s.sending=true;syncSending();clearError();
     let saved_=false;
     try {
-      if(!s.submission) {
-        let revision=host._source.revision;
-        if(sending==='team' && source.type==='task') {
-          const data=await conversationCall(source,'tasks_get',{task_id:source.id});revision=data.task.revision;
-        }
-        s.submission={text:s.text,files:[...s.files],idempotency_key:newRequestId(),peer:s.peer,...(sending==='team'?{revision}:{})};
-      }
+      if(!s.submission)s.submission={text:s.text,files:[...s.files],idempotency_key:newRequestId()};
       const request=s.submission;
-      // A retry belongs to the agent it was first sent for.
-      if(request.peer!==s.peer)throw Object.assign(new Error(CONVERSATION_CHANGED),{code:'revision_conflict'});
       const references=[];
       for(const item of request.files) {
         if(!item.saved) {
@@ -338,54 +218,19 @@ function conversationMount(host,source,adapter={}) {
       }
       const text=references.length?[request.text,references.join('\n')].filter(part=>part.trim()).join('\n\n'):request.text;
       if(text.length>20000)throw Object.assign(new Error('Message too long'),{code:'message_too_long',attachment:true});
-      if(sending!=='team') await conversationPrivateCall(source,adapter,'owner_conversation_send',{text,...conversationPeer(s)},{idempotency_key:request.idempotency_key});
-      else if(adapter.send) await conversationRequest(adapter.send({...request,text}));
-      else await conversationCall(source,{task:'tasks_comment',signoff:'signoffs_comment',email:'email_comment'}[source.type],
-        {[source.type==='email'?'conversation_id':source.type+'_id']:source.id,text},
-        {idempotency_key:request.idempotency_key,...(request.revision?{expected_revision:request.revision}:{})});
+      await conversationPrivateCall(source,adapter,'owner_conversation_send',{text},{idempotency_key:request.idempotency_key});
       const sent=new Set(request.files.map(item=>item.key));s.files=s.files.filter(item=>!sent.has(item.key));
-      s.text='';s.submission=null;saved_=true;syncDraft(s);
+      s.text='';s.submission=null;saved_=true;syncDraft();
     } catch(e){
-      // The server owns the channel rule: move the draft to the private channel
-      // rather than losing it or retrying a write the owner may not make.
-      if(e.attachment){if(e.code==='message_too_long')s.submission=null;if(current() && channel===sending)setError(e.code==='message_too_long'?'Shorten your message and try again.':"Couldn't attach the file. Retry Send");}
-      else if(e.code==='channel_required'){
-        const draft=s.text;s.submission=null;s.text='';
-        channels.private.text=draft;
-        selectChannel('private',{acknowledge:false});
-        if(current()){chat.setDraft(draft);setError(CONVERSATION_TEXT.blocked);}
-      }
-      else if(conversationIsPeer(sending) && CONVERSATION_LOST.includes(e.code) && s.peer){
-        // The pinned agent can no longer be written to: keep the draft with that agent, drop the retry, and never re-aim.
-        s.submission=null;markUnavailable(s,conversationLostText(s));
-      }
-      else if(current() && channel===sending){
+      if(e.attachment){if(e.code==='message_too_long')s.submission=null;if(current())setError(e.code==='message_too_long'?'Shorten your message and try again.':"Couldn't attach the file. Retry Send");}
+      else if(current()){
         if(CONVERSATION_REVIEW.includes(e.code)){s.submission=null;setError(CONVERSATION_TEXT.changed);}
         else setError(s.submission?CONVERSATION_TEXT.unconfirmed:CONVERSATION_TEXT.blocked);
       }
     } finally{s.sending=false;syncSending();adapter.onInput?.();}
     // A confirmed write is complete. Refresh history without holding the
     // composer disabled, and preserve the same submission key on uncertain writes.
-    if(saved_){s.refreshAfterSend=true;void load(false,{channel:s.channel});}
-  }
-  function selectChannel(next,options={}) {
-    if(!channels[next] || next===channel)return;
-    captureScroll();
-    channels[channel].mounts.delete(host);
-    channel=next;host.dataset.conversationChannel=next;host.dataset.conversationPeer=channels[next].peer || '';
-    channels[next].mounts.add(host);
-    // The channel's own reading position wins over the shared bottom-follow default; take it before any repaint re-measures the feed.
-    const target=saved[channel];
-    restoring=true;
-    try {
-      syncChannel();
-      chat.setDraft(st().text);
-      syncSending();
-      painted='';paint('bottom');
-      if(target)chat.setScrollState(target);
-    } finally {restoring=false;}
-    if(expanded)void load(false,{acknowledge:options.acknowledge!==false && next!=='team'});
-    void loadPeers();
+    if(saved_){s.refreshAfterSend=true;void load(false);}
   }
   function setUnread(value) {
     unreadDot.hidden=!value;
@@ -393,83 +238,38 @@ function conversationMount(host,source,adapter={}) {
     // A button's aria-label replaces its subtree, so the state belongs in the name.
     toggle.setAttribute('aria-label',value?'Comment, unread private reply':'Comment');
   }
-  function expand(value,notify=true,explicit=false) {
+  function expand(value,notify=true) {
     if(disposed)return;
     if(!value)captureScroll();
     expanded=value;panel.hidden=!value;toggle.setAttribute('aria-expanded',String(value));
     if(notify)adapter.onToggle?.(value);
     if(value) {
-      void loadPeers();
       // Opening re-lays the feed out at the top; the closed position is taken first and put back afterwards.
-      const target=saved[channel];
+      const target=saved;
       restoring=true;
       try {
-        if(st().loaded)paint();
+        if(s.loaded)paint();
         chat.layout();
         if(target)chat.setScrollState(target);
       } finally {restoring=false;}
-      void load(false,{acknowledge:channel!=='team'});
+      void load(false,{acknowledge:true});
     }
   }
-  toggle.onclick=()=>expand(!expanded,true,true);
-  const tablist=host.querySelector('.conversation-channels');
-  tablist.onclick=event=>{const tab=event.target.closest('[data-channel]');if(tab)selectChannel(tab.dataset.channel);};
-  tablist.onkeydown=event=>{
-    const tabs=[...tablist.querySelectorAll('[data-channel]')].filter(tab=>!tab.disabled),tab=event.target.closest('[data-channel]'),index=tabs.indexOf(tab);
-    const next=event.key==='ArrowRight'?tabs[(index+1)%tabs.length]:event.key==='ArrowLeft'?tabs[(index+tabs.length-1)%tabs.length]:event.key==='Home'?tabs[0]:event.key==='End'?tabs.at(-1):null;
-    if(next){event.preventDefault();selectChannel(next.dataset.channel);next.focus();}
-  };
-  let peersPending=false,peersAgain=false,peerWaiters=[];
-  async function loadPeers() {
-    if(!current() || !viewerIsOwner())return;
-    if(peersPending){peersAgain=true;return new Promise(resolve=>peerWaiters.push(resolve));}
-    peersPending=true;
-    try {
-      const data=await conversationPrivateCall(source,adapter,'owner_conversation_peers',{});
-      if(!current())return;
-      const peers=(data.peers || []).map(peer=>({...peer,key:conversationPeerKey(peer)})),available=new Set(peers.map(peer=>peer.key));
-      for(const peer of peers) {
-        let tab=tablist.querySelector(`[data-channel="${CSS.escape(peer.key)}"]`);
-        if(conversationIsPeer(peer.key) && !channels[peer.key]) {
-          channels[peer.key]=conversationState(source,peer.key,peer.agent_id);
-        }
-        if(!tab && conversationIsPeer(peer.key)) {
-          tab=document.createElement('button');tab.type='button';tab.className='quiet conversation-channel';tab.dataset.channel=peer.key;tab.id=tabId(peer.key);tab.setAttribute('role','tab');tab.setAttribute('aria-controls',panelId);
-          tab.innerHTML=`<span class="conversation-channel-icon"></span><span class="conversation-unread" data-peer-unread hidden></span>`;
-          tablist.insertBefore(tab,tablist.querySelector('[data-channel="team"]'));
-        }
-        // The glyph and name follow the agent's current profile on every refresh; the tab node and its state stay.
-        const profile=typeof globalAgentProfile==='function'?globalAgentProfile(peer.agent_id):null;
-        if(tab && conversationIsPeer(peer.key)) {
-          const glyph=typeof agentGlyph==='function'?agentGlyph(profile || {role:{id:peer.role}},18):esc(peer.name.slice(0,2));
-          const iconHost=tab.querySelector('.conversation-channel-icon');
-          if(iconHost.dataset.glyph!==glyph){iconHost.dataset.glyph=glyph;iconHost.innerHTML=glyph;}
-        }
-        if(tab){tab.dataset.agentId=peer.agent_id;const label=profile?.display_name || peer.name;tab.title=label;tab.setAttribute('aria-label','Private with '+label+(peer.unread?', unread messages':''));tab.querySelector('[data-peer-unread]').hidden=!peer.unread;}
-      }
-      for(const [key,s] of Object.entries(channels))if(conversationIsPeer(key)) {
-        const tab=tablist.querySelector(`[data-channel="${CSS.escape(key)}"]`);
-        if(!available.has(key)){markUnavailable(s,'This agent is no longer available for this task.');if(tab){tab.disabled=true;tab.querySelector('[data-peer-unread]').hidden=true;}}
-        else {s.unavailable=null;if(tab)tab.disabled=false;}
-      }
-      setUnread(peers.some(peer=>peer.unread));syncChannel();syncSending();
-    } catch(_) { /* Keep the existing indicators on an unavailable metadata read. */ }
-    finally {peersPending=false;peerWaiters.splice(0).forEach(resolve=>resolve());if(peersAgain){peersAgain=false;void loadPeers();}}
-  }
+  toggle.onclick=()=>expand(!expanded,true);
   // The shared view owns the feed, composer, keyboard and scrolling; this mount only supplies state and callbacks.
   chat=mountChatView(panel.querySelector('.conversation-view'),{
     logLabel:'Conversation',composerLabel,placeholder:defaultPlaceholder(),maxLength:20000,
     // A collapsed inline composer keeps the same shared banner beside its form so a failed send stays visible.
     ...(composerHost?{composerHost,bannerHost:composerHost}:{}),
-    onDraft:text=>{if(!current())return;st().text=text;syncDraft();adapter.onInput?.();},
+    onDraft:text=>{if(!current())return;s.text=text;syncDraft();adapter.onInput?.();},
     onSubmit:()=>{void submit();},
     ...(source.type==='task'?{
       onFiles:files=>{
-        const s=st();if(!current() || s.sending || s.submission || readOnly() || lost() || !files.length)return;
+        if(!current() || s.sending || s.submission || !files.length)return;
         if(s.files.length+files.length>10 || files.some(file=>file.size>25*1024*1024)){setError('Choose up to 10 files, each 25 MB or smaller.');return;}
         s.files.push(...files.map(file=>({key:newRequestId(),file})));clearError();syncSending();adapter.onInput?.();
       },
-      onAttachmentRemove:key=>{const s=st();if(s.sending || s.submission)return;s.files=s.files.filter(item=>item.key!==key);syncSending();adapter.onInput?.();},
+      onAttachmentRemove:key=>{if(s.sending || s.submission)return;s.files=s.files.filter(item=>item.key!==key);syncSending();adapter.onInput?.();},
     }:{}),
     onOlder:()=>{void load(true);},
     onViewportChange:()=>captureScroll(),
@@ -478,42 +278,29 @@ function conversationMount(host,source,adapter={}) {
       if(ref)taskProgressOpenReference(source.biz,ref).catch(()=>setError(CONVERSATION_TEXT.load));
     },
     onEntryAction:(actionKey,entryKey)=>{
-      const note=actionKey==='parent'?st().notes.find(n=>n.id===entryKey):null;
+      const note=actionKey==='parent'?s.notes.find(n=>n.id===entryKey):null;
       if(note && adapter.openParent)Promise.resolve().then(()=>adapter.openParent(note)).catch(()=>setError(CONVERSATION_TEXT.load));
     }});
-  chat.setDraft(st().text);
-  paintTeamIcon();
+  chat.setDraft(s.text);
   view=host._conversation={
     dismissOnOutside:adapter.dismissOnOutside!==false,
-    refresh:()=>{if(expanded)void loadPeers();return expanded || adapter.inlineComposer?load(false,{channel:expanded?channel:'team'}):null;},
-    // Preloading is a background read of the team discussion only: it never
-    // acknowledges private messages and never reads the private channel.
-    preload:()=>load(false,{channel:'team'}),
+    refresh:()=>expanded?load(false):null,
     isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),
-    channel:()=>channel,selectChannel,setUnread,
-    openPeer:async peer=>{
-      await loadPeers();
-      const tab=[...tablist.querySelectorAll('[data-agent-id]')].find(tab=>tab.dataset.agentId===peer && !tab.disabled);
-      if(!tab)throw new Error('This agent thread is no longer available.');
-      selectChannel(tab.dataset.channel);expand(true);
-    },
-    // A draft kept for a lost agent still counts: it is preserved, just never re-aimed.
-    hasDraft:()=>[...conversationStates.values()].some(state=>state.source===key && (state.text || state.files.length)),
+    setUnread,
+    hasDraft:()=>!!(s.text || s.files.length),
     dispose:()=>{
       if(disposed)return;
       disposed=true;expanded=false;
-      for(const s of Object.values(channels)){
-        s.mounts.delete(host);
-        if(s.loadOwner===view){s.loading=false;s.loadOwner=null;}
-      }
+      s.mounts.delete(host);
+      if(s.loadOwner===view){s.loading=false;s.loadOwner=null;}
       chat.dispose();
-      toggle.onclick=null;tablist.onclick=tablist.onkeydown=null;
+      toggle.onclick=null;
       if(host._conversation===view){delete host._conversation;delete host.dataset.conversation;}
       toggle.remove();host.replaceChildren();
     },
-    get state(){return st();},
-    states:channels,_paint:paint,_setDraft:text=>chat.setDraft(text),_renderComposer:renderComposer};
-  syncChannel();
+    get state(){return s;},
+    _paint:paint,_setDraft:text=>chat.setDraft(text),_renderComposer:renderComposer};
+  renderComposer();
   syncSending();
   // Collapsed by default at the component level: mounting is not itself an
   // explicit open (Focus mounts every card up front, long before any of them

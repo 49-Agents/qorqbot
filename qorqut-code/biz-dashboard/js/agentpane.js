@@ -861,9 +861,7 @@ async function agpadOpenInboxSource({ inboxSource: id, sourceType: type, busines
     conversationMount(document.querySelector('#focus-inbox-conversation'),
       {type:binding.type,id:binding.id,biz:item.resolved_source?.business_slug || item.context_business_slug || null,revision:item.source_revision},{
       privateGlobal:true,
-      privateSource:{type:binding.type,id:binding.id,...(binding.business_id?{business_id:binding.business_id}:{})},
-      read:async pagination=>coreData(await post('/root/operations/focus_get',{scope:'global',item_id:id,conversation:true,...pagination})).item.thread,
-      send:async request=>coreData(await post('/root/operations/focus_reply',{scope:'global',item_id:id,text:request.text,idempotency_key:request.idempotency_key}))
+      privateSource:{type:binding.type,id:binding.id,...(binding.business_id?{business_id:binding.business_id}:{})}
     }).expand();
     return;
   }

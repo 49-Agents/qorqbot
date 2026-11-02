@@ -9,23 +9,7 @@
 /* Placement only: the form inside is the shared Chat composer. */
 .conversation-inline-compose{margin-top:12px;min-width:0}
 
-/* Two channels per object: the owner's private thread with Ordubashy first, the
-   read-only agent discussion second. Icon-only toasts, matching the pane's other
-   icon tabs (.ttab in css/tasks.css, .pf in css/marketing.css) rather than a
-   text segmented control: the label lives in aria-label only. */
-.conversation-channels{display:flex;align-items:center;gap:4px;margin:0 0 12px}
-.conversation-channel{display:flex;align-items:center;justify-content:center;gap:0;height:34px;min-width:34px;margin:0;padding:0 8px;border:0;border-radius:17px;background:transparent;color:var(--fg-2);transition:color .14s ease,background .14s ease}
-.conversation-channel:hover{color:var(--fg);background:var(--hover)}
-.conversation-channel[aria-selected="true"]{background:rgba(255,255,255,.1);color:var(--fg)}
-.conversation-channel[aria-selected="true"]:hover{background:rgba(255,255,255,.1)}
-.conversation-channel-icon{display:inline-flex;align-items:center}
-.conversation-channel-icon svg{display:block}
-.conversation-channel-avatar{display:grid;place-items:center;flex:none;width:20px;height:20px;border:1.5px solid var(--bg);border-radius:50%;background:var(--surface);overflow:hidden;font-size:8px}
-.conversation-channel-avatar+.conversation-channel-avatar{margin-left:-6px}
 .conversation-readonly{margin:0 0 10px;font-size:11px;color:var(--fg-2)}
 .conversation-toggle{position:relative}
 .conversation-unread{position:absolute;top:3px;right:3px;width:8px;height:8px;border-radius:50%;background:#fff;border:1px solid var(--line-2);box-shadow:0 0 0 1px rgba(0,0,0,.35)}
 .conversation-unread[hidden]{display:none}
-
-.conversation-channel{position:relative}
-.conversation-channel .conversation-unread{width:6px;height:6px;top:2px;right:2px}
