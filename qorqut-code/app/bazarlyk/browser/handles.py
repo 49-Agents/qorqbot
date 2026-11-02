@@ -114,7 +114,8 @@ class BrowserHandles:
         return json.loads(json.dumps(result).replace(saved["turn_token"], "[browser-token]"))
 
     def _native(self, actor, action, body):
-        """A native handle only names the caller's own lease-free configured browser session."""
+        """A native handle only names a lease-free configured browser session: the caller's own, or the managed desktop the
+        configured Ordubashy selected (the handle itself carries that choice)."""
         handle = body.get("handle")
         if handle is None or action == "acquire":
             if handle is not None:
@@ -124,7 +125,7 @@ class BrowserHandles:
             row = uow.connection.execute("SELECT * FROM browser_handles WHERE id=?", (handle,)).fetchone()
         if row is not None and json.loads(row["arguments_json"]).get("coordinator"):
             return self._coordinated(actor, action, body, handle, row)
-        if not self.access.owns_native_handle(actor.principal.id, handle):
+        if self.access.native_target(actor.principal.id, handle) is None:
             # Handles issued before configured browsers became lease-free stay usable by their principal.
             if row is None or json.loads(row["binding_json"]).get("principal_id") != actor.principal.id:
                 raise DomainError("forbidden", "Browser handle is unavailable for this caller")

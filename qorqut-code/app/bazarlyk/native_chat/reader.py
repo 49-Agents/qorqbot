@@ -15,6 +15,7 @@ from bazarlyk.native_archive import CaptureError, MAX_READ_BYTES
 
 from .contracts import STATE_SUBMITTED, STATE_SUBMITTING, STATE_UNCERTAIN
 from .projection import Entry, Lineage, Projector, SPEAKER_AGENT, SPEAKER_NOTICE, unwrap_marker
+from .references import unavailable
 
 FIRST_WINDOW = 1 << 20
 MAX_WINDOW = 32 << 20
@@ -75,9 +76,14 @@ class ConversationReader:
             if start == 0 or len(entries) >= limit or size >= MAX_WINDOW:
                 break
             size *= 4
-        page = entries[-limit:]
+        first = max(0, len(entries) - limit)
+        # One record can yield several entries (a result with several presentations); a page never splits a record, because the
+        # cursor for the page before it is the record's offset.
+        while 0 < first < len(entries) and entries[first - 1].offset == entries[first].offset:
+            first -= 1
+        page = entries[first:]
         # More history exists when the window held more entries than the page, or does not reach the start of the payload.
-        more = len(entries) > limit or (begin is not None and begin > 0)
+        more = first > 0 or (begin is not None and begin > 0)
         return Window(page, page[0].offset if page and more else None, receipt.record_boundary)
 
     @staticmethod
@@ -104,9 +110,7 @@ class ConversationReader:
             for record in records:
                 if record.kind == "partial" or record.end > end:
                     break
-                result = projector.feed(record)
-                if result.entry is not None:
-                    entries.append(result.entry)
+                entries.extend(projector.feed(record).entries)
         return entries
 
 
@@ -167,16 +171,21 @@ def agent_message(entry: Entry, sends: dict) -> dict:
     return {"message_ids": found, "recipients": list(recipients.values())}
 
 
-def entry_view(entry: Entry, lineage: Lineage, inputs: dict, completion: dict | None, sends: dict | None = None) -> dict:
+def entry_view(entry: Entry, lineage: Lineage, inputs: dict, completion: dict | None, sends: dict | None = None,
+               references: dict | None = None) -> dict:
     """One entry as the owner sees it. ``inputs`` maps the marker ids this page shows to their stored system inputs,
     ``completion`` is the durable completion bound to this entry's record (``bound_completion``) and ``sends`` the stored
-    messages the page's outgoing-message notices name; an entry that completed a reply carries that reply's durable completion
-    sequence and id, and an outgoing-message notice carries its ``agent_message``."""
+    messages the page's outgoing-message notices name and ``references`` the owner's resolved view of the references the page's
+    presentations name (``resolve_references``); an entry that completed a reply carries that reply's durable completion sequence
+    and id, an outgoing-message notice carries its ``agent_message`` and a presentation its ``references``."""
     view = {"id": entry.public_id(lineage), "kind": "message", "speaker": entry.speaker, "text": entry.text,
             "timestamp": entry.timestamp, "position": entry.offset, "partial": entry.partial,
             "identity": entry.identity_kind, "system": None, "completion_sequence": None, "completion_id": None}
     if entry.receipts:
         view["agent_message"] = agent_message(entry, sends or {})
+    elif entry.references is not None:
+        # A presentation is an ordinary agent message, never a completion: nothing here binds it to a reply.
+        view["references"] = [(references or {}).get(ref) or unavailable(*ref) for ref in entry.references]
     elif entry.speaker == SPEAKER_NOTICE:
         view["text"] = unwrap_marker(entry.text)
         view["system"] = provenance(entry, inputs.get(entry.marker))

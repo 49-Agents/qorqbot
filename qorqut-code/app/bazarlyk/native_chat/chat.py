@@ -152,7 +152,7 @@ class NativeChat:
         selected = default if pair is None else self._explicit(captures, pair)
         entries, older, info, rendered = [], None, None, 0
         if selected is not None:
-            entries, older, info, rendered = self._entries(profile, selected, before, limit)
+            entries, older, info, rendered = self._entries(principal_id, profile, selected, before, limit)
         return {"agent_id": agent_id, "name": store.profile_label(profile), "session": view, "revision": counters["revision"],
                 "cursor": counters["revision"], "conversation": info,
                 "conversations": [{"conversation_id": c["conversation_id"], "provider": c["provider"], "updated_at": c["updated_at"],
@@ -172,7 +172,7 @@ class NativeChat:
         selected = self._default(captures, latest) if pair is None else self._explicit(captures, pair)
         if selected is None:
             return {"entries": [], "older": None, "rendered_boundary": 0}
-        entries, older, _, rendered = self._entries(profile, selected, before, limit)
+        entries, older, _, rendered = self._entries(principal_id, profile, selected, before, limit)
         return {"entries": entries, "older": older, "rendered_boundary": rendered}
 
     @staticmethod
@@ -209,10 +209,10 @@ class NativeChat:
                 return found
         return max(captures, key=lambda c: c["updated_at"], default=None)
 
-    def _entries(self, profile, capture, before, limit):
+    def _entries(self, principal_id, profile, capture, before, limit):
         """One page of the selected conversation, with the facts that belong to exactly the entries it returns: the verified
-        provenance of the system markers on it, the stored outgoing agent messages its notices name, the durable completion
-        bound to each assistant entry, and
+        provenance of the system markers on it, the stored outgoing agent messages its notices name, the owner's current view of
+        the references its presentations name, the durable completion bound to each assistant entry, and
         ``rendered_boundary`` -- the newest completion sequence among the completed assistant entries this page actually returns
         after projection and pagination (0 when it returns none). A client acknowledges that value, never the agent's newest
         sequence, so a page that did not display a reply cannot acknowledge it."""
@@ -237,9 +237,13 @@ class NativeChat:
                 uow.connection, agent_id, provider, conversation, [entry.offset for entry in window.entries])}
             sends = store.sent_messages(uow.connection, agent_id,
                                         [identity for entry in window.entries for identity in entry.receipts])
-        shown = visible(window.entries, replies, sends)
+            shown = visible(window.entries, replies, sends)
+            named = [reference for entry, _ in shown if entry.references for reference in entry.references]
+            user_input = getattr(self.runtime, "user_input", None)
+            references = user_input.owner_references(principal_id, named, uow) if named and user_input is not None else {}
         rendered = max((row["completion_sequence"] for entry, row in shown if row is not None and entry.speaker == SPEAKER_AGENT), default=0)
-        return [entry_view(entry, lineage, markers, row, sends) for entry, row in shown], window.older, info, rendered
+        return ([entry_view(entry, lineage, markers, row, sends, references) for entry, row in shown],
+                window.older, info, rendered)
 
     # ----- stream ----------------------------------------------------------------------------------------------------
 

@@ -19,6 +19,10 @@ Provenance rules, applied to every record:
   completed ``bazarlyk`` MCP tool call; Claude: a ``tool_result`` JSON envelope). It is a notice entry that carries only the
   message IDs the result named; the reader checks them against the stored messages. It is never a user input, a reply, a turn
   origin or user work, and it changes no projector state.
+* A successful ``request_user_input`` result is the archived source of an agent presentation: an ordinary agent message with
+  identity-only references below it (``Entry.references``). It is derived only from the provider's own tool result for that
+  tool (Codex: a completed ``bazarlyk`` MCP tool call; Claude: a ``tool_result`` JSON envelope), never from assistant prose, quoted
+  JSON, a failed result or user text. It is never a completion, a user input or a turn origin, and changes no projector state.
 * A reply is complete only at the provider's own end-of-turn evidence. Narration before a tool call, tool-only records, owner
   echoes and system notices are never completions.
 * Every completion is a visible assistant entry of its own record, so a client can show the reply it acknowledges. The one
@@ -35,6 +39,8 @@ import hashlib
 import json
 import re
 from typing import Any, Callable, Iterable, Iterator
+
+from . import references as user_input
 
 SPEAKER_USER = "user"
 SPEAKER_AGENT = "agent"
@@ -66,6 +72,8 @@ _COMMAND_PREFIXES = ("<local-command-", "<command-name>", "<system-reminder>")
 MAX_ENTRY_CHARS = 200_000
 SEND_SERVER = "bazarlyk"
 SEND_TOOL = "agents_message_send"
+INPUT_TOOL = "request_user_input"
+MAX_INPUTS = 8               # presentations one record can show
 MAX_RECEIPTS = 20            # successful sends one record can show
 MAX_RECEIPT_CHARS = 100_000  # a full-detail receipt echoes the message body; anything larger is not a receipt
 COMPLETING_STOPS = frozenset({"end_turn", "stop_sequence"})
@@ -140,39 +148,81 @@ def _send_receipt(text: Any) -> str | None:
     return message["id"] if complete else None
 
 
-def _result_receipts(content: Any) -> list[str]:
-    """The send receipts in one tool result's content: a JSON string, or text blocks each holding its own JSON envelope."""
+def _result_texts(content: Any) -> list[str]:
+    """The text blocks of one tool result's content: a JSON string, or blocks each holding its own JSON envelope."""
     if isinstance(content, str):
-        texts = [content]
-    elif isinstance(content, list):
-        texts = [block["text"] for block in content
-                 if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)]
-    else:
-        texts = []
-    return [found for found in map(_send_receipt, texts) if found]
+        return [content]
+    if isinstance(content, list):
+        return [block["text"] for block in content
+                if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)]
+    return []
+
+
+def _result_receipts(content: Any) -> list[str]:
+    """The send receipts in one tool result's content."""
+    return [found for found in map(_send_receipt, _result_texts(content)) if found]
+
+
+def _user_input(text: Any) -> dict | None:
+    """The presentation of one successful ``request_user_input`` result, or ``None``. Only a text that is itself the JSON success
+    envelope counts (``status`` ok and ``data`` holding exactly ``user_input``), never quoted or embedded JSON."""
+    if not isinstance(text, str) or len(text) > MAX_RECEIPT_CHARS or '"user_input"' not in text:
+        return None  # the cheap tests first: nearly every tool result is some other output
+    try:
+        value = json.loads(text)
+    except (ValueError, RecursionError):
+        return None
+    data = value.get("data") if isinstance(value, dict) and value.get("status") == "ok" else None
+    if not isinstance(data, dict) or set(data) != {"user_input"}:
+        return None
+    return user_input.presentation(data["user_input"])
+
+
+def _result_inputs(content: Any) -> list[dict]:
+    return [found for found in map(_user_input, _result_texts(content)) if found]
 
 
 def _unique_receipts(found: Iterable[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(found))[:MAX_RECEIPTS]
 
 
+def _claude_results(content: Any, found: Callable[[Any], list]) -> list:
+    """What ``found`` reads from the successful ``tool_result`` blocks of one Claude user record, in block order."""
+    if not isinstance(content, list):
+        return []
+    return [item for block in content
+            if isinstance(block, dict) and block.get("type") == "tool_result"
+            and not block.get("is_error") and not block.get("isError")
+            for item in found(block.get("content"))]
+
+
 def _claude_receipts(content: Any) -> tuple[str, ...]:
     """The unique successful send receipts of one Claude user record's ``tool_result`` blocks, in block order."""
-    if not isinstance(content, list):
-        return ()
-    return _unique_receipts(found for block in content
-                           if isinstance(block, dict) and block.get("type") == "tool_result"
-                           and not block.get("is_error") and not block.get("isError")
-                           for found in _result_receipts(block.get("content")))
+    return _unique_receipts(_claude_results(content, _result_receipts))
+
+
+def _claude_inputs(content: Any) -> tuple[dict, ...]:
+    """The presentations of one Claude user record's successful ``request_user_input`` results, in block order."""
+    return tuple(_claude_results(content, _result_inputs)[:MAX_INPUTS])
+
+
+def _codex_result(item: dict, tool: str) -> Any:
+    """The result content of one completed Codex ``McpToolCall`` item of ``tool``; a failed call or MCP error has none."""
+    result = item.get("result")
+    if (item.get("server") != SEND_SERVER or item.get("tool") != tool or item.get("status") != "completed"
+            or item.get("error") or not isinstance(result, dict) or result.get("isError")):
+        return None
+    return result.get("content")
 
 
 def _codex_receipts(item: dict) -> tuple[str, ...]:
-    """The unique successful send receipts of one completed Codex ``McpToolCall`` item; a failed call or MCP error has none."""
-    result = item.get("result")
-    if (item.get("server") != SEND_SERVER or item.get("tool") != SEND_TOOL or item.get("status") != "completed"
-            or item.get("error") or not isinstance(result, dict) or result.get("isError")):
-        return ()
-    return _unique_receipts(_result_receipts(result.get("content")))
+    """The unique successful send receipts of one completed Codex ``McpToolCall`` item."""
+    return _unique_receipts(_result_receipts(_codex_result(item, SEND_TOOL)))
+
+
+def _codex_inputs(item: dict) -> tuple[dict, ...]:
+    """The presentations of one completed Codex ``request_user_input`` call."""
+    return tuple(_result_inputs(_codex_result(item, INPUT_TOOL))[:MAX_INPUTS])
 
 
 @dataclass(frozen=True)
@@ -216,6 +266,9 @@ class Entry:
     marker_type: str | None = None
     turn_end: bool = False
     receipts: tuple[str, ...] = ()  # message IDs a successful ``agents_message_send`` result named (a notice without text)
+    # A ``request_user_input`` presentation: ``text`` is its message and these are its identity-only references, each
+    # ``(type, id, business_id)`` in order. ``None`` for every other entry; an empty tuple is a message with no references.
+    references: tuple[user_input.Key, ...] | None = None
 
     def public_id(self, lineage: Lineage) -> str:
         return lineage.entry_id(self.identity_kind, self.key)
@@ -271,9 +324,17 @@ class ProjectorState:
 
 @dataclass
 class Result:
+    """What one record means. A record whose tool results hold several presentations yields the first as ``entry`` and the rest as
+    ``extra``, all at the record's offset in block order."""
+
     entry: Entry | None = None
     completion: Completion | None = None
     hidden: bool = False
+    extra: tuple[Entry, ...] = ()
+
+    @property
+    def entries(self) -> tuple[Entry, ...]:
+        return ((self.entry,) if self.entry is not None else ()) + self.extra
 
 
 def _timestamp(record: dict) -> str | None:
@@ -315,7 +376,7 @@ class Projector:
     def feed_all(self, records: Iterable) -> Iterator[Result]:
         for record in records:
             result = self.feed(record)
-            if result.entry or result.completion:
+            if result.entry or result.completion or result.extra:
                 yield result
 
     # ----- Claude Code -----------------------------------------------------------------------------------------------
@@ -343,8 +404,9 @@ class Projector:
             if result.entry is not None:
                 return result  # visible user text in the record always wins over a receipt
             # A tool result carries no user text, or only hidden harness text (which changes no state).
-            notice = self._receipt_notice(identity, _claude_receipts(message.get("content")), value, record)
-            return notice if notice.entry is not None else result
+            notice = self._record_entries(identity, _claude_receipts(message.get("content")),
+                                          _claude_inputs(message.get("content")), value, record)
+            return notice if notice.entries else result
         final = message.get("stop_reason") in COMPLETING_STOPS
         if not text.strip():
             if final:
@@ -385,13 +447,20 @@ class Projector:
         return Result(entry=entry)
 
     @staticmethod
-    def _receipt_notice(identity, receipts, value, record) -> Result:
-        """A successful outgoing message as a text-free notice of its own record. It touches no turn state: not an input, a reply,
+    def _record_entries(identity, receipts, inputs, value, record) -> Result:
+        """The entries of one tool-result record, in block order: a successful outgoing message as a text-free notice, then each
+        ``request_user_input`` presentation as an agent message of its own. None of them touches turn state: not an input, a reply,
         the turn's origin or user work."""
-        if not receipts:
-            return Result()
-        return Result(entry=Entry(identity[0], identity[1], SPEAKER_NOTICE, "", record.offset, record.length, _timestamp(value),
-                                  receipts=receipts))
+        entries = []
+        if receipts:
+            entries.append(Entry(identity[0], identity[1], SPEAKER_NOTICE, "", record.offset, record.length, _timestamp(value),
+                                 receipts=receipts))
+        for index, shown in enumerate(inputs):
+            # One identity per presentation, scoped by its record's own: stable across windows, pages and re-reads.
+            entries.append(Entry(identity[0], f"{identity[1]}#input{index}", SPEAKER_AGENT, _entry_text(shown["message"]),
+                                 record.offset, record.length, _timestamp(value), partial=False,
+                                 references=tuple(map(user_input.key, shown["references"]))))
+        return Result(entry=entries[0], extra=tuple(entries[1:])) if entries else Result()
 
     def _proven_type(self, entry: Entry) -> str | None:
         """The application's input type this entry is proven to be, or ``None`` for anything a person (or a program) typed."""
@@ -432,7 +501,7 @@ class Projector:
                 if isinstance(item, dict) and item.get("type") == "McpToolCall" and thread in (None, self.conversation_id):
                     native = item.get("id") if isinstance(item.get("id"), str) and item.get("id") else None
                     identity = (KIND_NATIVE, native) if native else (KIND_RAW, f"{record.offset}#0")
-                    return self._receipt_notice(identity, _codex_receipts(item), value, record)
+                    return self._record_entries(identity, _codex_receipts(item), _codex_inputs(item), value, record)
                 return Result()
             if inner in CODEX_TURN_ABORT:
                 state.turn_open, state.turn_done, state.candidate = False, False, None

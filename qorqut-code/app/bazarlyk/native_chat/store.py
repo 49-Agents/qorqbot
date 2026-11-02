@@ -425,6 +425,14 @@ def sent_messages(conn, agent_id: str, message_ids) -> dict[str, dict]:
     return found
 
 
+def agent_identity(conn, agent_id: str) -> dict | None:
+    """One registered agent as Chat names it in an outgoing-message marker (the same ``_recipient`` projection): its current
+    display name, role id and safe presentation, or ``None`` when no agent is registered under that identity."""
+    row = conn.execute("SELECT pr.id AS recipient_id,pr.display_name,ap.profile_json FROM principals pr "
+                       "LEFT JOIN agent_profiles ap ON ap.agent_id=pr.id WHERE pr.id=? AND pr.kind='agent'", (agent_id,)).fetchone()
+    return _recipient(dict(row)) if row else None
+
+
 def _recipient(row: dict) -> dict:
     try:
         data = json.loads(row["profile_json"]) if row["profile_json"] else {}
