@@ -100,3 +100,21 @@
 .calendar-today .calendar-queue-event strong { display:block; white-space:nowrap; text-overflow:ellipsis; }
 .calendar-today .calendar-queue-event > span { flex:none; font-size:11px; line-height:14px; white-space:nowrap; opacity:.85; }
 .calendar-today .calendar-queue-event:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+
+/* Personal status: muted, never color alone (mark + label), and only Focus chips collapse. */
+.calendar-status-mark { display:inline-flex; flex:none; align-items:center; font-style:normal; }
+.calendar-event.calendar-status-completed,.calendar-event.calendar-status-cancelled { opacity:.55; }
+.calendar-event.calendar-status-cancelled strong { text-decoration:line-through; }
+.calendar-page button.calendar-event .calendar-status-mark { margin-right:4px; vertical-align:-1px; }
+.calendar-page button.calendar-event:not(.calendar-queue-event) .calendar-status-mark { align-self:flex-start; position:absolute; right:5px; top:5px; margin:0; }
+.calendar-page button.calendar-event.calendar-status-rescheduled { box-shadow:inset 0 0 0 1px currentColor; }
+.calendar-today button.calendar-queue-event.calendar-collapsed { gap:4px; padding:6px 8px; }
+.calendar-today .calendar-collapsed strong { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+.calendar-today .calendar-collapsed .calendar-status-mark { order:-1; margin:0; }
+.calendar-today button.calendar-queue-event .calendar-status-mark { margin:0; }
+.calendar-today-queue > li:has(.calendar-collapsed) { max-width:none; }
+.calendar-personal-status { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px 10px; align-items:end; margin-top:14px; padding-top:12px; border-top:1px solid var(--line-2); }
+.calendar-personal-status label { display:grid; gap:5px; font-size:13px; }
+.calendar-personal-status .calendar-status-help,.calendar-personal-status .calendar-status-note { grid-column:1 / -1; margin:0; font-size:12px; color:var(--fg-2); }
+.calendar-status-note:empty { display:none; }
+.calendar-page button.calendar-event:not(.calendar-queue-event)[class*=calendar-status-] strong { padding-right:16px; }

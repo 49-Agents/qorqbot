@@ -23,6 +23,80 @@ const calendarEventWhen = event => {
 const calendarProviderClass = calendar => calendar?.provider === 'fastmail' ? 'calendar-business' : 'calendar-personal';
 const calendarIcon = name => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${AICONS[name] || ''}</svg>`;
 
+// Personal status is an owner preference over a provider event; it never writes to Google or Fastmail.
+const calendarStatusLabels = {pending:'Pending',completed:'Completed',cancelled:'Cancelled',rescheduled:'Rescheduled'};
+const calendarStatusMarks = {
+  completed:'<path d="M5 12.5l4.5 4.5L19 7.5"/>', cancelled:'<path d="M6 6l12 12M18 6L6 18"/>',
+  rescheduled:'<path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20 4v4.5h-4.5"/>'};
+const calendarStatusMark = status => calendarStatusMarks[status] ? `<i class="calendar-status-mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">${calendarStatusMarks[status]}</svg></i>` : '';
+const calendarIsRecurring = event => !!event.series_id || (event.recurrence?.length || 0) > 0;
+// connection + calendar + event + occurrence; nonrecurring events use an empty occurrence so moving them keeps the label.
+function calendarStatusTarget(event) {
+  let occurrence_start = '';
+  if (calendarIsRecurring(event) && event.start) occurrence_start = event.start.length === 10 ? event.start : new Date(event.start).toISOString();
+  return {connection_id:event.connection_id, calendar_id:event.calendar_id, event_id:event.id, occurrence_start};
+}
+const calendarStatusKey = t => JSON.stringify([t.connection_id,t.calendar_id,t.event_id,t.occurrence_start]);
+const calendarStatusConflict = error => error?.httpStatus === 409 || /conflict|stale|revision|precondition/i.test(String(error?.code || ''));
+
+// One owner-wide cache shared by every mounted Focus pane and Calendar drawer.
+const calendarStatuses = (() => {
+  const items = new Map(), savedAt = new Map(), listeners = new Set();
+  let known = false, denied = false, error = '', epoch = 0, generation = 0, inflight = null;
+  const notify = () => [...listeners].forEach(listener => { try { listener(); } catch (e) { console.error(e); } });
+  const reset = () => { items.clear(); savedAt.clear(); known = false; generation++; inflight = null; clearEtagCache(); };
+  const valid = item => item && typeof item.connection_id === 'string' && typeof item.calendar_id === 'string' && typeof item.event_id === 'string'
+    && typeof item.occurrence_start === 'string' && calendarStatusLabels[item.status] && Number.isInteger(item.revision) && item.revision > 0;
+  const lost = e => { reset(); denied = true; error = 'Personal statuses are unavailable; sign in again.'; };
+  const store = {
+    get state() { return {known, denied, error}; },
+    get: target => items.get(calendarStatusKey(target)) || null,
+    // null means unknown (never loaded), not Pending.
+    statusOf(event) { if (!known) return null; return items.get(calendarStatusKey(calendarStatusTarget(event)))?.status || 'pending'; },
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    refresh() {
+      if (inflight) return inflight;
+      const gen = generation, started = ++epoch;
+      const run = (async () => {
+        try {
+          const data = coreData(await api('/root/calendar-statuses'));
+          if (gen !== generation) return;
+          if (!Array.isArray(data.items) || !data.items.every(valid)) throw new Error('The server returned an invalid response.');
+          const next = new Map(data.items.map(item => [calendarStatusKey(item),item]));
+          // A save finished after this read began is newer than the read.
+          for (const [key,local] of items) if ((savedAt.get(key) || 0) > started && local.revision > (next.get(key)?.revision || 0)) next.set(key,local);
+          items.clear(); next.forEach((item,key) => items.set(key,item));
+          known = true; denied = false; error = '';
+        } catch (e) {
+          if (gen !== generation) return;
+          if (accessLost(e)) lost(e);
+          else error = known ? `Couldn’t refresh statuses; showing the last known ones. ${e.message}` : `Personal statuses unavailable. ${e.message}`;
+        } finally { if (inflight === run) inflight = null; }
+        notify();
+      })();
+      inflight = run; return run;
+    },
+    async save(target, status, expectedRevision, requestId) {
+      const gen = generation;
+      let item;
+      try {
+        item = coreData(await post('/root/calendar-statuses',{...target,status,expected_revision:expectedRevision,request_id:requestId})).item;
+      } catch (e) { if (accessLost(e)) { lost(e); notify(); } throw e; }
+      if (!valid(item) || calendarStatusKey(item) !== calendarStatusKey(target) || item.status !== status) {
+        const bad = new Error('The server returned an invalid response.'); bad.code = 'invalid_response'; throw bad;
+      }
+      if (gen === generation) {
+        const key = calendarStatusKey(item);
+        if (item.revision >= (items.get(key)?.revision || 0)) items.set(key,item);
+        savedAt.set(key,++epoch); known = true; denied = false; error = '';
+        notify();
+      }
+      return item;
+    }};
+  return store;
+})();
+const calendarStatusNotice = () => calendarStatuses.state.error;
+
 // Split a timed event at local midnight, retaining its position on each day's clock.
 function calendarDaySpan(event, day) {
   if (!event.start || event.start.length === 10 || event.status === 'cancelled') return null;
@@ -49,7 +123,7 @@ function calendarEventLanes(spans) {
 
 // Each pane owns its navigation and lifecycle; embedding never changes the route.
 function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
-  let calendarDate = new Date(), calendarViewDays = embedded ? 1 : 3, calendarGeneration = 0, active = true;
+  let calendarDate = new Date(), calendarViewDays = embedded ? 1 : 3, calendarGeneration = 0, active = true, repaint = () => {};
   let calendarMonth = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1), dispose = () => {};
   const render = async () => {
     dispose();
@@ -112,21 +186,23 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     observer.observe(host);
 
     const status = $('.calendar-status',page), allEvents = [], failures = new Map();
-    let calendars = [], loading = true;
+    let calendars = [], loading = true, fixedMessage = '';
     const eventButton = (event,allDay) => calendarEventButton(event,calendars,reload,allDay);
     const paint = () => {
       if (!current()) return;
-      status.textContent = [...failures.values()].join(' · ') || (loading ? 'Loading events…' : '');
+      status.textContent = fixedMessage || [...failures.values(),calendarStatusNotice()].filter(Boolean).join(' · ') || (loading ? 'Loading events…' : '');
       calendarPaintGrid(page,dates,allEvents,eventButton);
     };
+    repaint = paint;
     paint();
+    void calendarStatuses.refresh();
     try {
       const result = await calendarCall('calendar_calendars_list');
       if (!current()) return;
       calendars = result.calendars;
       result.errors.forEach(e => failures.set(e.connection_id,`${e.connection_id}: ${e.message}`));
       $('.calendar-sources > div',page).innerHTML = calendars.map(calendar => `<div class="calendar-source ${calendarProviderClass(calendar)}"><span class="calendar-dot"></span><span>${esc(calendar.name)} · ${esc(calendar.provider === 'google' ? 'Google' : calendar.provider === 'fastmail' ? 'Fastmail' : calendar.provider)}</span></div>`).join('');
-      if (!result.configured) { status.textContent = 'Connect Google and Fastmail calendars to get started.'; return; }
+      if (!result.configured) { fixedMessage = 'Connect Google and Fastmail calendars to get started.'; paint(); return; }
       $('[data-calendar-add]',page).disabled = !calendars.some(c => c.writable);
       $('[data-calendar-add]',page).onclick = () => calendarEdit(null,calendars,reload,calendarDate);
       await Promise.all(calendars.map(async calendar => {
@@ -138,7 +214,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
             const result = await calendarCall('calendar_events_list',{connection_id:calendar.connection_id,calendar_id:calendar.id,
               start:first.toISOString(),end:last.toISOString(),limit:200,...(cursor ? {cursor} : {})});
             if (!current()) return;
-            result.events.forEach(event => { const index = allEvents.findIndex(old => old.id === event.id && old.connection_id === event.connection_id && old.calendar_id === event.calendar_id); if (index < 0) allEvents.push(event); else allEvents[index] = event; });
+            result.events.forEach(event => { const index = allEvents.findIndex(old => calendarStatusKey(calendarStatusTarget(old)) === calendarStatusKey(calendarStatusTarget(event))); if (index < 0) allEvents.push(event); else allEvents[index] = event; });
             cursor = result.next_cursor; failures.delete(failureKey);
             if (!more) { more = document.createElement('button'); more.type = 'button'; more.onclick = load; $('.calendar-more',page).append(more); }
             more.textContent = `Load more from ${calendar.name}`; more.hidden = !cursor; more.disabled = false;
@@ -148,20 +224,22 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
         await load();
       }));
       loading = false; paint();
-    } catch (error) { if (current()) status.textContent = error.message; }
+    } catch (error) { if (current()) { fixedMessage = error.message; paint(); } }
   };
+  const unsubscribe = calendarStatuses.subscribe(() => { if (active) repaint(); });
   void render();
-  return () => { active = false; dispose(); };
+  return () => { active = false; unsubscribe(); dispose(); };
 }
 
-function calendarEventButton(event, calendars, refresh, allDay = false) {
+function calendarEventButton(event, calendars, refresh, allDay = false, {collapse = false} = {}) {
   const calendar = calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id), pending = event.attendees?.some(a => calendar?.organizers?.some(email => email.toLowerCase() === a.email.toLowerCase()) && a.status === 'needsAction');
   const button = document.createElement('button'); button.type = 'button';
-  button.className = `calendar-event ${calendarProviderClass(calendar)}${allDay ? ' calendar-all-day-event' : ''}`;
+  const personal = calendarStatuses.statusOf(event), shown = personal && personal !== 'pending' ? personal : '';
+  button.className = `calendar-event ${calendarProviderClass(calendar)}${allDay ? ' calendar-all-day-event' : ''}${shown ? ` calendar-status-${shown}` : ''}${collapse && shown === 'completed' ? ' calendar-collapsed' : ''}`;
   const when = allDay ? 'All day' : `${calendarTime(new Date(event.start))} – ${calendarTime(new Date(event.end))}`;
-  const label = `${event.title || 'Untitled event'} · ${when} · ${calendar?.name || ''}${pending ? ' · Invitation' : ''}`;
+  const label = `${event.title || 'Untitled event'} · ${when} · ${calendar?.name || ''}${pending ? ' · Invitation' : ''}${shown ? ` · ${calendarStatusLabels[shown]}` : ''}`;
   button.setAttribute('aria-label',label); button.title = label;
-  button.innerHTML = `<strong>${esc(event.title || 'Untitled event')}</strong>`;
+  button.innerHTML = `${calendarStatusMark(shown)}<strong>${esc(event.title || 'Untitled event')}</strong>`;
   button.onclick = () => calendarOpen(event,calendars,refresh); return button;
 }
 
@@ -204,13 +282,36 @@ function calendarTodayMount(host, openCalendar) {
     <p class="calendar-status" role="status">Loading calendar…</p><ul class="calendar-today-queue" aria-label="Today's events" hidden></ul>`;
   $('[data-calendar-open]',host).onclick = openCalendar;
   const status = $('.calendar-status',host), queue = $('.calendar-today-queue',host);
-  let active = true, pending = false, loadedDay, snapshot, timer;
+  let active = true, pending = false, loadedDay, snapshot, timer, data = null, refreshError = '';
   const current = () => active && host.isConnected;
+  // Paints from the last provider read, so a status change never needs another provider call.
+  const paintQueue = () => {
+    if (!current() || !data) return;
+    const {key,calendars,visibleEvents,configured,errors} = data, notice = calendarStatusNotice();
+    status.textContent = [...errors,refreshError,notice].filter(Boolean).join(' · ') || (!configured ? 'Connect your calendars to see today.' : visibleEvents.length ? '' : 'No events today.');
+    queue.hidden = !configured || !visibleEvents.length;
+    queue.dataset.calendarDay = key;
+    const nextSnapshot = JSON.stringify([key,calendars,visibleEvents,visibleEvents.map(event => calendarStatuses.statusOf(event))]);
+    if (snapshot !== nextSnapshot) {
+      const left = loadedDay === key ? queue.scrollLeft : 0;
+      queue.replaceChildren(...visibleEvents.map(event => {
+        const allDay = event.start.length === 10;
+        const item = document.createElement('li'), button = calendarEventButton(event,calendars,refresh,allDay,{collapse:true});
+        button.classList.add('calendar-queue-event');
+        const time = document.createElement('span');
+        time.textContent = allDay ? 'All day' : calendarTime(new Date(event.start));
+        button.prepend(time); item.append(button); return item;
+      }));
+      queue.scrollLeft = left;
+      loadedDay = key; snapshot = nextSnapshot;
+    }
+  };
   const refresh = async () => {
     if (!current() || pending) return;
     pending = true;
     const now = new Date(), day = new Date(now.getFullYear(),now.getMonth(),now.getDate()), key = calendarDateString(day);
     const clock = $('.calendar-clock',host); clock.dateTime = now.toISOString(); clock.textContent = calendarTime(now);
+    const statuses = calendarStatuses.refresh();
     try {
       const result = await calendarCall('calendar_calendars_list');
       if (!current()) return;
@@ -232,27 +333,19 @@ function calendarTodayMount(host, openCalendar) {
         const allDayA = a.start.length === 10, allDayB = b.start.length === 10;
         return Number(allDayB)-Number(allDayA) || (allDayA ? a.start.localeCompare(b.start) : new Date(a.start)-new Date(b.start)) || a.id.localeCompare(b.id);
       });
-      status.textContent = errors.join(' · ') || (!result.configured ? 'Connect your calendars to see today.' : visibleEvents.length ? '' : 'No events today.');
-      queue.hidden = !result.configured || !visibleEvents.length;
-      queue.dataset.calendarDay = key;
-      const nextSnapshot = JSON.stringify([key,calendars,visibleEvents]);
-      if (snapshot !== nextSnapshot) {
-        const left = loadedDay === key ? queue.scrollLeft : 0;
-        queue.replaceChildren(...visibleEvents.map(event => {
-          const allDay = event.start.length === 10;
-          const item = document.createElement('li'), button = calendarEventButton(event,calendars,refresh,allDay);
-          button.classList.add('calendar-queue-event');
-          const time = document.createElement('span');
-          time.textContent = allDay ? 'All day' : calendarTime(new Date(event.start));
-          button.prepend(time); item.append(button); return item;
-        }));
-        queue.scrollLeft = left;
-        loadedDay = key; snapshot = nextSnapshot;
-      }
-    } catch (error) { if (current()) status.textContent = error.message; }
+      data = {key,calendars,visibleEvents,configured:result.configured,errors}; refreshError = '';
+      await statuses;
+      paintQueue();
+    } catch (error) {
+      if (!current()) return;
+      // A transient provider failure keeps the last loaded queue so a label save can still repaint it.
+      if (data && !accessLost(error)) { refreshError = error.message; paintQueue(); }
+      else { data = null; snapshot = undefined; refreshError = ''; queue.replaceChildren(); queue.hidden = true; status.textContent = error.message; }
+    }
     finally { pending = false; }
   };
-  const dispose = () => { active = false; clearInterval(timer); document.removeEventListener('visibilitychange',visible); };
+  const unsubscribe = calendarStatuses.subscribe(paintQueue);
+  const dispose = () => { active = false; unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange',visible); };
   timer = setInterval(() => { if (!current()) dispose(); else if (!document.hidden) void refresh(); },60000);
   const visible = () => { if (!document.hidden) void refresh(); };
   document.addEventListener('visibilitychange',visible);
@@ -260,7 +353,10 @@ function calendarTodayMount(host, openCalendar) {
   return {refresh,dispose};
 }
 
-async function calendarOpen(event, calendars, refresh) {
+async function calendarOpen(event, calendars, refresh, clicked = event) {
+  // Personal status always belongs to the occurrence that was clicked, even when detail returns the series master.
+  const statusTarget = calendarStatusTarget(clicked);
+  let unsubscribe;
   try {
     const result = await calendarCall('calendar_event_get', {connection_id:event.connection_id, calendar_id:event.calendar_id, event_id:event.id});
     event = result.event;
@@ -280,12 +376,69 @@ async function calendarOpen(event, calendars, refresh) {
       ${event.meet_url && /^https:\/\/meet\.google\.com\//.test(event.meet_url) ? `<p><a href="${esc(event.meet_url)}" target="_blank" rel="noopener">Join Google Meet</a></p>` : ''}
       ${event.description ? `<p class="calendar-description">${esc(event.description)}</p>` : ''}
       ${event.attendees.map(a => `<p>${esc(a.email)} · ${esc(a.status)}</p>`).join('')}
-      <p class="calendar-detail-error" role="alert"></p></div>`, actions:[
+      <div class="calendar-personal-status"><label>Personal status<select class="inp" name="personal_status" aria-label="Personal status">${Object.entries(calendarStatusLabels).map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select></label>
+        <button type="button" class="ghost" data-calendar-status-save>Save status</button>
+        <p class="muted calendar-status-help">Only for you; guests aren’t notified.${statusTarget.occurrence_start ? ` Applies to the ${esc(calendarDateLabel(new Date(statusTarget.occurrence_start.length === 10 ? statusTarget.occurrence_start+'T12:00:00' : statusTarget.occurrence_start)))} occurrence only.` : ''}</p>
+        <p class="calendar-status-note" role="status"></p></div>
+      <p class="calendar-detail-error" role="alert"></p></div>`, onClose:() => unsubscribe?.(), onOpen:el => { unsubscribe = calendarStatusEditor(el,statusTarget); }, actions:[
       {label:'Close', onClick:close => close()}, ...responseActions,
-      ...(event.series_id && event.series_id !== event.id ? [{label:'Open series', onClick:close => { close(); calendarOpen({...event,id:event.series_id},calendars,refresh); }}] : []),
+      ...(event.series_id && event.series_id !== event.id ? [{label:'Open series', onClick:close => { close(); calendarOpen({...event,id:event.series_id},calendars,refresh,clicked); }}] : []),
       ...(calendar?.writable ? [{label:'Delete', onClick:close => { close(); calendarDelete(event,refresh); }},
         {label:'Edit', primary:true, onClick:close => { close(); calendarEdit(event,calendars,refresh); }}] : [])]});
   } catch (error) { toast(error.message); }
+}
+
+// Personal status editor inside the existing detail modal; returns its store unsubscribe.
+function calendarStatusEditor(el, target) {
+  const select = $('select[name=personal_status]',el), save = $('[data-calendar-status-save]',el), note = $('.calendar-status-note',el);
+  let displayed = calendarStatuses.get(target), busy = false, dirty = false, lastPayload, requestId;
+  const status = () => displayed?.status || 'pending', revision = () => displayed?.revision || 0;
+  // Follow the store while the editor is unchanged; a dirty draft keeps its original revision and reports the change.
+  const adopt = () => {
+    const {known,denied} = calendarStatuses.state, fresh = calendarStatuses.get(target);
+    if (!known || denied || (fresh?.revision || 0) === revision()) return;
+    if (!dirty) { displayed = fresh; select.value = status(); note.textContent = ''; }
+    else note.textContent = `Changed elsewhere. Now ${calendarStatusLabels[fresh?.status || 'pending']}; saving your choice will ask you to review it.`;
+  };
+  const sync = () => {
+    const {known,denied,error} = calendarStatuses.state, usable = known && !denied;
+    if (usable && !busy) adopt();
+    if (usable && note.textContent.startsWith('Status unknown')) note.textContent = '';
+    if (!usable) { select.disabled = save.disabled = true; note.textContent = denied ? error : `Status unknown. ${error || 'Not loaded yet.'}`; ensureRetry(); return; }
+    $('[data-calendar-status-retry]',el)?.remove();
+    select.disabled = busy;
+    save.disabled = busy || select.value === status();
+  };
+  const ensureRetry = () => {
+    if (calendarStatuses.state.denied || $('[data-calendar-status-retry]',el)) return;
+    const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'ghost'; retry.textContent = 'Retry'; retry.dataset.calendarStatusRetry = '';
+    retry.onclick = async () => { retry.disabled = true; await calendarStatuses.refresh(); retry.disabled = false; sync(); };
+    note.after(retry);
+  };
+  select.value = status();
+  select.onchange = () => { dirty = select.value !== status(); note.textContent = ''; sync(); };
+  save.onclick = async () => {
+    if (busy || select.value === status()) return;
+    const chosen = select.value, payload = JSON.stringify([target,chosen,revision()]);
+    if (payload !== lastPayload) { requestId = newRequestId(); lastPayload = payload; }
+    busy = true; note.textContent = 'Saving…'; sync();
+    try {
+      displayed = await calendarStatuses.save(target,chosen,revision(),requestId); dirty = false;
+      note.textContent = `Saved: ${calendarStatusLabels[displayed.status]}.`;
+    } catch (error) {
+      if (calendarStatuses.state.denied) note.textContent = calendarStatuses.state.error;
+      else if (calendarStatusConflict(error)) {
+        await calendarStatuses.refresh();
+        displayed = calendarStatuses.get(target); select.value = status(); dirty = false;
+        note.textContent = calendarStatuses.state.known && !calendarStatuses.state.error ? `Changed elsewhere. Now ${calendarStatusLabels[status()]}; choose again to change it.` : 'Changed elsewhere and the current status couldn’t be loaded. Retry.';
+      } else {
+        const definite = error.httpStatus >= 400 && error.httpStatus < 500 && ![408,429].includes(error.httpStatus) && error.code !== 'invalid_response';
+        note.textContent = definite ? `Not saved: ${error.message} Save again to retry.` : `Couldn’t confirm the save. ${error.message || ''} Save again to retry.`;
+      }
+    } finally { busy = false; sync(); }
+  };
+  sync();
+  return calendarStatuses.subscribe(() => { if (!busy) sync(); });
 }
 
 function calendarDelete(event, refresh) {
