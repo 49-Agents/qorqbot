@@ -7,7 +7,7 @@ const attentionQueue=(()=>{
   let signoffs=[],signoffsLoading=false,signoffsError='',signoffTimer,signoffPromise=null,signoffAgain=false;
   // Due reminders addressed to the owner. Opening or reading one never changes it; only an explicit dismiss/snooze/cancel does.
   let dueReminders=[],remindersError='',remindersAvailable=true;
-  const reminderIcon=typeof T_VIEW_ICON==='object' && T_VIEW_ICON.calendar || '';
+  const reminderIcon=typeof SG_BELL==='string' ? SG_BELL : '';
   const viewedIds=item=>item.viewed_ids?.length?item.viewed_ids:[item.id];
   const remaining=()=>items.filter(item=>!viewedIds(item).every(id=>acknowledged.has(id)));
   const destination=item=>{
