@@ -56,9 +56,11 @@ TABLE_PREREQUISITE_OPERATIONS = frozenset(name for name, base in CRM_PREREQUISIT
 STRENGTH = {"allow": 0, "signoff": 1, "deny": 2}
 # Operations whose Global rule differs from the business one, so effective-configuration discovery evaluates both scopes.
 GLOBAL_DISCOVERY_OPERATIONS = GLOBAL_TABLE_OPERATIONS | TABLE_PREREQUISITE_OPERATIONS | {"whatsapp_send", "fastmail_send", "fastmail_reply", "fastmail_forward"}
-DEV_AND_INCIDENT_READS = frozenset({"dev_tickets_create", "dev_tickets_agent_list", "dev_tickets_get",
-                                    "dev_tickets_follow_up", "dev_tickets_resolve", "system_incidents_agent_list",
-                                    "system_incidents_agent_get"})
+# Repair-ticket removal, phase 1: the agent ticket/incident tools are gone. The one retained internal scoped
+# reader keeps its standing grant so surviving Task, Signoff and Project reference resolution still authorizes;
+# the agent MCP caller refuses it as a tool, so the grant exposes no callable agent operation. Phase 2 removes
+# the reader, this grant and the remaining owner views with the feature and its data.
+INTERNAL_TICKET_READS = frozenset({"dev_tickets_get"})
 WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace_present", "workspace_select",
                                   "workspace_attention"})
 # business_briefing composes other reads, each authorized again for the caller.
@@ -149,7 +151,7 @@ def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, r
         # Every active registered agent may place on its own board; the handler derives the board from the
         # authenticated principal. An explicit deny override was already honored above.
         return PolicyDecision("allow", "core_default")
-    if name in DEV_AND_INCIDENT_READS:
+    if name in INTERNAL_TICKET_READS:
         return PolicyDecision("allow", "core_default")
     if name == "signoffs_input_answer_delegated":
         return PolicyDecision("allow" if role_id == "ordubashy" else "deny", "management_delegated_input")

@@ -25,7 +25,6 @@ import fcntl
 from threading import Event, Thread
 import time
 import tempfile
-from bazarlyk.agents.global_scope import active_global, effective_business_ids, reaches_business
 from bazarlyk.bootstrap.activity_hook import safe_path
 
 from qorqut_operations.contracts import canonical_bytes, utc_now
@@ -559,16 +558,8 @@ class IncidentReporter:
                 (incident_id,'recovered',obs.observed_at,recovery_id,'Matching scoped operation succeeded; ticket remains open for verification.'))
             pending = conn.execute('SELECT 1 FROM system_incident_impacts WHERE incident_id=? AND operation IS NOT NULL AND recovered_at IS NULL LIMIT 1',(incident_id,)).fetchone()
             conn.execute("UPDATE system_incidents SET recovery_count=recovery_count+1,status=? WHERE id=?",('open' if pending else 'recovering',incident_id))
-            recipients = self.task_recipients(conn, incident_id, obs.business_id)
-            if obs.agent_id:
-                recipients.add(obs.agent_id)
-            recipients = {identity for identity in recipients if self.recipient_current(conn,identity,obs.business_id)}
-            if recipients:
-                event_id = conn.execute("INSERT INTO inbox_events(business_id,source_type,source_id,source_revision,actor_id,event_type,summary,created_at) VALUES(?,?,?,?,?,?,?,?)",
-                    (obs.business_id,'system_incidents',incident_id,episode,reporter_id,'system_incident_recovered',
-                     'A matching operation succeeded. Verify affected work before resuming or claiming completion.',obs.observed_at)).lastrowid
-                conn.executemany('INSERT OR IGNORE INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)',
-                    [(identity,event_id) for identity in sorted(recipients)])
+            # Repair-ticket removal, phase 1: recovery is still stored, but no agent-facing
+            # incident/recovery notice is produced. Phase 2 removes the producer and its rows.
             self._trim(conn, incident_id)
             recovered += 1
         conn.execute('DELETE FROM system_incident_fault_runs WHERE agent_key=? AND session_id=? AND business_id IS ? '
@@ -602,7 +593,6 @@ class IncidentReporter:
                     "skipped": True, "reason": obs.classification}
         existing = conn.execute("SELECT id,status,occurrence_count,recovery_count,ticket_id,last_seen FROM system_incidents WHERE fingerprint=?", (obs.fingerprint,)).fetchone()
         now = obs.observed_at
-        reopened = False
         if existing is None:
             incident_id, ticket_id = str(uuid.uuid4()), str(uuid.uuid4())
             title = f"System incident: {obs.component}/{obs.operation} ({obs.error_code})"[:200]
@@ -624,7 +614,6 @@ class IncidentReporter:
             recovered_at = conn.execute('SELECT max(observed_at) FROM system_incident_recoveries WHERE incident_id=?', (incident_id,)).fetchone()[0]
             ticket_closed_at = conn.execute('SELECT resolved_at FROM dev_tickets WHERE id=?',(existing['ticket_id'],)).fetchone()[0]
             if existing[1] in {'recovering','closed'} and now > max(existing['last_seen'], recovered_at or '', ticket_closed_at or ''):
-                reopened = existing['status'] == 'closed'
                 conn.execute("UPDATE system_incidents SET status='open' WHERE id=?", (incident_id,))
                 conn.execute("UPDATE dev_tickets SET status='open',resolved_at=NULL,resolved_by=NULL,resolution='',updated_at=?,revision=revision+1 WHERE id=?", (now, existing[4]))
                 from bazarlyk.domains.dev_tickets import DevTickets
@@ -641,38 +630,13 @@ class IncidentReporter:
                      (now, incident_id, obs.business_id, obs.agent_id, obs.session_id, obs.task_id, obs.operation, obs.job_id, obs.receipt_id, now))
         conn.execute("INSERT INTO system_incident_history(incident_id,event_kind,observed_at,observation_id,details) VALUES(?,?,?,?,?)",
                      (incident_id, event, now, obs.observation_id, obs.message))
-        if created or reopened:
-            coordinator = conn.execute("SELECT management_coordinator_id FROM installation WHERE id='service'").fetchone()
-            coordinator = coordinator[0] if coordinator else None
-            if coordinator and coordinator != obs.agent_id and self.recipient_current(conn,coordinator,obs.business_id):
-                event_id = conn.execute('INSERT INTO inbox_events(business_id,source_type,source_id,actor_id,event_type,summary,created_at) '
-                    'VALUES(?,?,?,?,?,?,?)',(obs.business_id,'system_incidents',incident_id,reporter_id,
-                    'system_incident_opened','A technical fault was automatically filed in System Dev. Inspect affected work and arrange repair.',now)).lastrowid
-                conn.execute('INSERT INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)',(coordinator,event_id))
+        # Repair-ticket removal, phase 1: a new or reopened incident is still recorded, but it no longer
+        # produces an agent-facing inbox notice. Phase 2 removes the producer and its rows.
         if not existing or now >= existing['last_seen']:
             conn.execute('UPDATE system_incidents SET representative_observation_id=? WHERE id=?',(obs.observation_id,incident_id))
         self._trim(conn, incident_id)
         return {"incident_id": incident_id, "ticket_id": existing[4] if existing else ticket_id,
                 "created": created, "updated": updated, "recovered": obs.recovered}
-
-    @staticmethod
-    def recipient_current(conn, agent_id, business_id):
-        # Only an active supported global receives current incident work: a business incident needs its derived reach to
-        # that active business (no membership row), a Global one its read_global_context grant.
-        profile = active_global(conn, agent_id)
-        if profile is None:
-            return False
-        if business_id:
-            return reaches_business(conn, agent_id, business_id)
-        return 'read_global_context' in profile['scope'].get('global_capabilities', [])
-
-    @staticmethod
-    def task_recipients(conn, incident_id, business_id):
-        return {row[0] for row in conn.execute(
-            "SELECT DISTINCT r.to_id FROM system_incident_impacts x JOIN tasks t ON t.business_id IS x.business_id AND t.id=x.task_id "
-            "JOIN relationships r ON r.business_id IS t.business_id AND r.from_type='task' AND r.from_id=t.id "
-            "WHERE x.incident_id=? AND x.business_id IS ? AND x.operation IS NULL AND t.archived=0 "
-            "AND r.role='assigned_to' AND r.to_type='agent'", (incident_id,business_id))}
 
     @staticmethod
     def link_task(uow, ticket_id, business_id, task_id, actor_id, at):
@@ -695,17 +659,10 @@ class IncidentReporter:
         conn.execute('UPDATE system_incidents SET status=? WHERE id=?', ('closed' if closed else 'open',incident['id']))
         if not closed or not verified or incident['status'] == 'closed':
             return
+        # Repair-ticket removal, phase 1: verified closure is still recorded, but it produces no
+        # agent-facing resolution notice. Phase 2 removes the producer and its rows.
         conn.execute('UPDATE system_incident_impacts SET recovered_at=coalesce(recovered_at,?) WHERE incident_id=?',
             (ticket['updated_at'],incident['id']))
-        recipients = {row[0] for row in conn.execute('SELECT DISTINCT agent_id FROM system_incident_impacts '
-            'WHERE incident_id=? AND agent_id IS NOT NULL',(incident['id'],))}
-        recipients.update(cls.task_recipients(conn,incident['id'],ticket['business_id']))
-        recipients = {identity for identity in recipients if cls.recipient_current(conn,identity,ticket['business_id'])}
-        if recipients:
-            event = conn.execute('INSERT INTO inbox_events(business_id,source_type,source_id,source_revision,actor_id,event_type,summary,created_at) '
-                'VALUES(?,?,?,?,?,?,?,?)',(ticket['business_id'],'system_incidents',incident['id'],ticket['revision'],actor_id,
-                'system_incident_resolved','Repair evidence recorded. Inspect the resolution and your task prerequisites before resuming.',ticket['updated_at'])).lastrowid
-            conn.executemany('INSERT OR IGNORE INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)',[(identity,event) for identity in sorted(recipients)])
 
     @staticmethod
     def _trim(conn, incident_id):
@@ -729,12 +686,14 @@ class IncidentReporter:
 
 
 class IncidentOperations:
-    """Read-only owner and agent projections for persisted incident DTOs."""
+    """Read-only owner projections for persisted incident DTOs.
+
+    Repair-ticket removal, phase 1: the agent incident readers are gone; only the owner's bounded
+    views remain until phase 2 removes the feature and its data."""
     def __init__(self, application=None):
         self.app=application
 
     def register(self, registry):
-        from qorqut_operations.tasks.scope import task_namespace
         registry.register(OperationDescriptor("system_incidents_list", schema({
             "status": {"enum": ["active", "open", "recovering", "closed", "all"]},
             "limit": {"type": "integer", "minimum": 1, "maximum": 200},
@@ -749,22 +708,6 @@ class IncidentOperations:
             global_capability="read_global_context", exposure=frozenset({"dashboard"}),
             effect_kind="read", read=self.owner_get,
             description="Owner: inspect one System Dev incident and bounded evidence."))
-        common = dict(scope_kinds=frozenset({"business", "global"}),
-                      supports_signoff=False,
-                      global_capability="read_global_context", exposure=frozenset({"mcp"}),
-                      effect_kind="read",resolve_namespace=task_namespace)
-        registry.register(OperationDescriptor("system_incidents_agent_list", schema({
-            'scope':{'enum':['business','global']},
-            "status": {"enum": ["active", "open", "recovering", "closed", "all"]},
-            "limit": {"type": "integer", "minimum": 1, "maximum": 100},
-            "offset": {"type": "integer", "minimum": 0}}),
-            **common, read=self.agent_list,
-            description="Read System Dev incidents impacting your authorized scope."))
-        registry.register(OperationDescriptor("system_incidents_agent_get", schema({
-            'scope':{'enum':['business','global']},
-            "incident_id": {"type": "string", "format": "uuid"}}, ("incident_id",)),
-            **common, read=self.agent_get,
-            description="Read one impacted System Dev incident in your authorized scope."))
 
     @staticmethod
     def _owner(ctx, uow):
@@ -773,7 +716,7 @@ class IncidentOperations:
             from qorqut_operations.contracts import DomainError
             raise DomainError("forbidden", "Only the installation owner can review incidents")
 
-    def _dto(self, uow, row, *, details=True, ctx=None):
+    def _dto(self, uow, row, *, details=True):
         incident = dict(row)
         ticket = uow.connection.execute('SELECT revision,status,resolution FROM dev_tickets WHERE id=?',(row['ticket_id'],)).fetchone()
         incident.update(revision=ticket['revision'],ticket_status=ticket['status'],resolution=ticket['resolution'])
@@ -782,25 +725,7 @@ class IncidentOperations:
         sample=json.loads(sample[0]) if sample else {}
         incident['representative_error']=str(sample.get('error_code',''))
         query = "SELECT incident_id,business_id,agent_id,session_id,task_id,operation,job_id,receipt_id,first_seen,last_seen,episode,recovered_at FROM system_incident_impacts x WHERE incident_id=?"
-        params = [row["id"]]
-        if ctx is not None and ctx.principal_kind == "agent":
-            clause,scope_params=IncidentOperations.impact_scope(ctx,uow)
-            query += ' AND ('+clause+')'; params.extend(scope_params)
-        impacts = [dict(x) for x in uow.connection.execute(query + " ORDER BY first_seen LIMIT 101", params)]
-        if ctx is not None and ctx.principal_kind == 'agent':
-            from qorqut_operations.contracts import DomainError
-            for index, impact in enumerate(impacts):
-                if not impact['task_id']:
-                    continue
-                selected = replace(ctx, business_id=impact['business_id'], review_business_id=impact['business_id'])
-                try:
-                    self.app.authorize(selected, self.app.registry.get('tasks_get'), (), uow,
-                        namespace='business:'+selected.business_id if selected.business_id else 'global')
-                    uow.repository('tasks', business_id=selected.business_id).get(impact['task_id'], required=True)
-                except DomainError as error:
-                    if error.code not in {'forbidden', 'policy_denied', 'not_found', 'operation_unavailable'}:
-                        raise
-                    impacts[index] = {'unavailable': True}
+        impacts = [dict(x) for x in uow.connection.execute(query + " ORDER BY first_seen LIMIT 101", [row["id"]])]
         result = {"incident": incident, "impacts": impacts[:100],'impacts_truncated':len(impacts)>100}
         if details:
             # Resolution/verification belong to the existing ticket event, not a
@@ -808,20 +733,12 @@ class IncidentOperations:
             resolved = uow.connection.execute("SELECT resolution,verification,deployment_ref,actor_id,created_at FROM dev_ticket_events "
                 "WHERE ticket_id=? AND event_kind='resolved' ORDER BY created_at DESC,id DESC LIMIT 1",(row['ticket_id'],)).fetchone()
             result['resolution'] = dict(resolved) if resolved else None
-            recovery_sql = "SELECT incident_id,observed_at,evidence,observation_id FROM system_incident_recoveries WHERE incident_id=?"
-            recovery_params = [row["id"]]
-            if (ctx is not None and ctx.principal_kind == "agent" and row['business_id'] is None
-                    and getattr(getattr(ctx, 'role_artifact_ref', None), 'id', None) != 'ordubashy'):
-                recovery_sql += " AND agent_id=?"; recovery_params.append(ctx.principal_id)
-            result["recoveries"] = [dict(x) for x in uow.connection.execute(recovery_sql + " ORDER BY observed_at DESC LIMIT 100", recovery_params)]
-            # Sanitized history contains no foreign business payloads. Global
-            # agents other than Ordubashy get only their own observations.
-            history='SELECT h.incident_id,h.event_kind,h.observed_at,h.observation_id,h.details FROM system_incident_history h '
-            history+='LEFT JOIN system_incident_observations o ON o.id=h.observation_id WHERE h.incident_id=?'
-            params=[row['id']]
-            if ctx is not None and ctx.principal_kind=='agent' and row['business_id'] is None and getattr(getattr(ctx,'role_artifact_ref',None),'id',None)!='ordubashy':
-                history+=" AND json_extract(o.payload_json,'$.agent_id')=?"; params.append(ctx.principal_id)
-            result['history']=[dict(x) for x in uow.connection.execute(history+' ORDER BY h.id DESC LIMIT 100',params)]
+            result["recoveries"] = [dict(x) for x in uow.connection.execute(
+                "SELECT incident_id,observed_at,evidence,observation_id FROM system_incident_recoveries WHERE incident_id=? "
+                "ORDER BY observed_at DESC LIMIT 100", (row["id"],))]
+            result['history']=[dict(x) for x in uow.connection.execute(
+                'SELECT h.incident_id,h.event_kind,h.observed_at,h.observation_id,h.details FROM system_incident_history h '
+                'WHERE h.incident_id=? ORDER BY h.id DESC LIMIT 100', (row['id'],))]
         return result
 
     def owner_list(self, ctx, args, opts, uow):
@@ -845,54 +762,7 @@ class IncidentOperations:
         if row is None:
             from qorqut_operations.contracts import DomainError
             raise DomainError("not_found", "Incident was not found")
-        return self._dto(uow, row, ctx=ctx)
-
-    @staticmethod
-    def impact_scope(ctx, uow):
-        if ctx.principal_kind != "agent":
-            from qorqut_operations.contracts import DomainError
-            raise DomainError("forbidden", "Incident reads require an authenticated agent")
-        # Business reach is the active global's derived set, never a membership; any other identity reads nothing.
-        current=active_global(uow.connection,ctx.principal_id) is not None
-        scopes=sorted(b for b in effective_business_ids(uow.connection,ctx.principal_id)
-            if b in ctx.allowed_business_ids and (ctx.business_id is None or b==ctx.business_id))
-        clause='x.business_id IN ('+','.join('?' for _ in scopes)+')' if scopes else '0'
-        params=list(scopes)
-        if current and ctx.business_id is None and 'read_global_context' in ctx.global_capabilities:
-            if getattr(getattr(ctx,'role_artifact_ref',None),'id',None)=='ordubashy':
-                clause+=' OR x.business_id IS NULL'
-            else:
-                clause+=' OR (x.business_id IS NULL AND x.agent_id=?)'; params.append(ctx.principal_id)
-        return '('+clause+')',params
-
-    @classmethod
-    def visible(cls,ctx,identity,uow):
-        clause,params=cls.impact_scope(ctx,uow)
-        return bool(uow.connection.execute('SELECT 1 FROM system_incident_impacts x WHERE x.incident_id=? AND '+clause+' LIMIT 1',
-            [identity,*params]).fetchone())
-
-    def agent_list(self, ctx, args, opts, uow):
-        clause,params = self.impact_scope(ctx,uow)
-        status, limit, offset = args.get("status", "open"), args.get("limit", 50), args.get("offset", 0)
-        clauses = ['EXISTS (SELECT 1 FROM system_incident_impacts x WHERE x.incident_id=system_incidents.id AND '+clause+')']
-        if status == 'active':
-            clauses.append("status IN ('open','recovering')")
-        elif status != "all":
-            clauses.append("status=?"); params.append(status)
-        rows = [dict(x) for x in uow.connection.execute("SELECT *,(SELECT revision FROM dev_tickets t WHERE t.id=system_incidents.ticket_id) AS revision,"
-            "(SELECT status FROM dev_tickets t WHERE t.id=system_incidents.ticket_id) AS ticket_status FROM system_incidents WHERE " + " AND ".join(clauses) + " ORDER BY first_seen,id LIMIT ? OFFSET ?", [*params, limit + 1, offset])]
-        return {"items": rows[:limit], "next_offset": offset + limit if len(rows) > limit else None,
-                'reporting_health': self.health()}
-
-    def agent_get(self, ctx, args, opts, uow):
-        if not self.visible(ctx,args['incident_id'],uow):
-            from qorqut_operations.contracts import DomainError
-            raise DomainError("forbidden", "Incident is outside your authorized scope")
-        row = uow.connection.execute("SELECT * FROM system_incidents WHERE id=?", (args["incident_id"],)).fetchone()
-        if row is None:
-            from qorqut_operations.contracts import DomainError
-            raise DomainError("not_found", "Incident was not found")
-        return self._dto(uow, row, ctx=ctx)
+        return self._dto(uow, row)
 
 
 def technical_session_binding(connection, session_id, principal_id, registration_id) -> str:

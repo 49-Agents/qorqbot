@@ -1,20 +1,18 @@
-"""Installation-wide System Dev reports with scoped agent follow-up.
+"""Installation-wide System Dev reports with scoped owner review.
 
-Agent tools serve active supported globals only. Their business reach is derived in the reading transaction and
-intersected with the invocation's businesses and selection; no agent membership, saved scope list or business home is
-read. The owner's queue and the system incident reporter keep their own rules."""
+Repair-ticket removal (phase 1) retired the agent tools (create, agent list, follow-up and resolve). The owner queue and
+the retained internal scoped reader keep their own rules; the system incident reporter still stores observations until
+phase 2 removes the feature and its data. The scoped reader serves the surviving Task, Signoff and Project references
+and is refused to agents by the MCP caller's discovery and dispatch."""
 
-from bazarlyk.agents.global_scope import active_global, effective_business_ids, reaches_business
+from bazarlyk.agents.global_scope import active_global, reaches_business
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id
 from qorqut_operations.application.plans import PlanBuilder, apply_records, require_revision, schema, timestamp, utc_clock
 
-TITLE = {"type": "string", "minLength": 1, "maxLength": 200, "pattern": r"\S"}
 DETAILS = {"type": "string", "maxLength": 12000}
-KIND = {"enum": ["bug", "feature", "tooling", "workflow"]}
 STATUS = {"enum": ["open", "closed"]}
 UUID = {"type": "string", "format": "uuid"}
-AGENT_SCOPE = {"scope": {"enum": ["business", "global"]}}
 
 
 class DevTickets:
@@ -22,11 +20,6 @@ class DevTickets:
         self.clock = clock
 
     def register(self, registry):
-        registry.register(OperationDescriptor("dev_tickets_create",
-            schema({"title": TITLE, "details": DETAILS, "kind": KIND}, ("title",)),
-            scope_kinds=frozenset({"business", "agent_workspace"}), supports_signoff=False,
-            description="File a Qorqut bug or feature/tooling/workflow request in the shared System Dev queue. A title is enough; optionally include what happened, what you needed, and known IDs/errors. Report for yourself or others with available context; no investigation required. Identity/business are automatic. Reuse the idempotency_key on retry. Filing does not assign or start development.",
-            prepare=self.prepare_create, apply=self.apply_create))
         common = dict(scope_kinds=frozenset({"global"}), supports_signoff=False,
                       owner_only=True, global_capability="read_global_context", exposure=frozenset({"dashboard"}))
         registry.register(OperationDescriptor("dev_tickets_list",
@@ -42,33 +35,17 @@ class DevTickets:
             **common, description="Owner: close or reopen a System Dev report using its current revision.",
             prepare=self.prepare_status, apply=self.apply_status, validate_targets=self.validate_owner))
 
-        # Agent-facing reads and lifecycle writes deliberately use separate
-        # descriptors from the owner dashboard queue. Their domain checks are
-        # narrower than the installation-wide owner routes.
-        agent_common = dict(scope_kinds=frozenset({"business", "global"}), supports_signoff=False,
-                            global_capability="read_global_context", exposure=frozenset({"mcp"}),
-                            resolve_namespace=self.agent_namespace)
-        registry.register(OperationDescriptor("dev_tickets_agent_list",
-            schema({**AGENT_SCOPE, "status": {"enum": ["open", "closed", "all"]},
-                    "details": {"type": "boolean"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100},
-                    "offset": {"type": "integer", "minimum": 0}}),
-            **agent_common, effect_kind="read", description="Read System Dev reports in your authorized scope; other agents can read their own reports.",
-            read=self.agent_list))
+        # Retained internal scoped reader: surviving Task, Signoff and Project references resolve through it,
+        # so it keeps its scope authorization and handler but is no longer an agent tool. The MCP caller refuses
+        # it in discovery and dispatch; phase 2 removes it with the remaining views and data.
         registry.register(OperationDescriptor("dev_tickets_get",
             schema({"ticket_id": UUID, "history_limit": {"type": "integer", "minimum": 1, "maximum": 100},
                     "history_offset": {"type": "integer", "minimum": 0}}, ("ticket_id",)),
-            **agent_common, effect_kind="read", description="Read one System Dev report and its follow-up/resolution history when authorized.",
+            scope_kinds=frozenset({"business", "global"}), supports_signoff=False,
+            global_capability="read_global_context", exposure=frozenset({"mcp"}),
+            resolve_namespace=self.agent_namespace, effect_kind="read",
+            description="Read one System Dev report and its follow-up/resolution history when authorized.",
             read=self.get))
-        registry.register(OperationDescriptor("dev_tickets_follow_up",
-            schema({"ticket_id": UUID, "details": DETAILS}, ("ticket_id", "details")),
-            **agent_common, description="Append concrete follow-up context to an open System Dev report you can access.",
-            prepare=self.prepare_follow_up, apply=self.apply_follow_up, validate_targets=self.validate_agent_plan))
-        registry.register(OperationDescriptor("dev_tickets_resolve",
-            schema({"ticket_id": UUID, "resolution": DETAILS, "verification": DETAILS,
-                    "deployment_ref": {"type": "string", "maxLength": 200}},
-                   ("ticket_id", "resolution", "verification")),
-            **agent_common, description="Close an authorized System Dev report with resolution and verification evidence; the actor and timestamp are recorded.",
-            prepare=self.prepare_resolve, apply=self.apply_resolve, validate_targets=self.validate_agent_plan))
 
     @staticmethod
     def owner(ctx, uow):
@@ -83,11 +60,6 @@ class DevTickets:
     @staticmethod
     def role(ctx):
         return ctx.role_artifact_ref.id if ctx.role_artifact_ref else None
-
-    @staticmethod
-    def current_agent(ctx, uow):
-        if ctx.principal_kind != "agent" or active_global(uow.connection, ctx.principal_id) is None:
-            raise DomainError("forbidden", "System Dev agent tools require an active global agent")
 
     def in_scope(self, ctx, ticket, uow):
         if active_global(uow.connection, ctx.principal_id) is None:
@@ -163,75 +135,12 @@ class DevTickets:
             [*params, limit + 1, offset])]
         return {"items": items[:limit], "next_offset": offset + limit if len(items) > limit else None}
 
-    def agent_list(self, ctx, args, opts, uow):
-        self.current_agent(ctx, uow)
-        status = args.get("status", "open")
-        requested_scope = args.get("scope", "business" if ctx.business_id is not None else "global")
-        clauses, params = [], []
-        if status != "all":
-            clauses.append("status=?")
-            params.append(status)
-        if self.role(ctx) == "ordubashy":
-            if requested_scope == "business":
-                if ctx.business_id is None or ctx.business_id not in ctx.allowed_business_ids:
-                    raise DomainError("scope_required", "Ordubashy project reads require an authorized project scope")
-                if not self.in_scope(ctx, {"business_id": ctx.business_id}, uow):
-                    raise DomainError("forbidden", "System Dev report is outside your authorized scope")
-                scopes = {ctx.business_id}
-            else:
-                if ctx.business_id is not None:
-                    raise DomainError("scope_required", "Ordubashy Global reads require Global scope")
-                scopes = set(ctx.allowed_business_ids) & effective_business_ids(uow.connection, ctx.principal_id)
-            global_scope = "read_global_context" in ctx.global_capabilities
-            scoped = ["business_id IN (" + ",".join("?" for _ in scopes) + ")"] if scopes else []
-            if requested_scope == "global" and global_scope:
-                scoped.append("business_id IS NULL")
-            clauses.append("(" + " OR ".join(scoped or ["0"]) + ")")
-            params.extend(sorted(scopes))
-        else:
-            if ctx.business_id is not None and not self.in_scope(ctx, {"business_id": ctx.business_id}, uow):
-                raise DomainError("forbidden", "System Dev report is outside your authorized scope")
-            if ctx.business_id is None:
-                clauses.append("business_id IS NULL")
-            else:
-                clauses.append('business_id=?')
-                params.append(ctx.business_id)
-            # Include explicitly linked system incidents for this business.
-            clauses.append("(reporter_id=? OR id IN (SELECT i.ticket_id FROM system_incidents i JOIN system_incident_impacts x ON x.incident_id=i.id WHERE x.business_id IS ? AND (x.business_id IS NOT NULL OR x.agent_id=?)))")
-            params.extend((ctx.principal_id, ctx.business_id, ctx.principal_id))
-        where = " WHERE " + " AND ".join(clauses)
-        columns = "*" if args.get("details", False) else "id,title,kind,status,reporter_id,business_id,created_at,updated_at,revision"
-        columns += ',(SELECT i.id FROM system_incidents i WHERE i.ticket_id=dev_tickets.id) AS incident_id'
-        limit, offset = args.get("limit", 50), args.get("offset", 0)
-        rows = [dict(row) for row in uow.connection.execute(
-            f"SELECT {columns} FROM dev_tickets{where} ORDER BY created_at,id LIMIT ? OFFSET ?",
-            [*params, limit + 1, offset])]
-        return {"items": rows[:limit], "next_offset": offset + limit if len(rows) > limit else None}
-
     def get(self, ctx, args, opts, uow):
         ticket = self.ticket(uow, args["ticket_id"])
         self.agent_access(ctx, ticket, uow, read_only=True)
         events, next_offset = self.event_rows(uow, ticket["id"], limit=args.get("history_limit", 50),
                                               offset=args.get("history_offset", 0))
         return {"ticket": ticket, "events": events, "events_next_offset": next_offset}
-
-    def prepare_create(self, ctx, args, opts, uow):
-        if ctx.principal_kind == "agent":
-            # A report is filed in the selected business (or the agent's own Global workspace), never a business home.
-            self.current_agent(ctx, uow)
-            if ctx.business_id is not None and not self.in_scope(ctx, {"business_id": ctx.business_id}, uow):
-                raise DomainError("forbidden", "System Dev report is outside your authorized scope")
-        business = ctx.business_id
-        namespace = "business:" + business if business else "agent:" + ctx.agent_id
-        scope = {"kind": "business", "business_id": business} if business else {"kind": "global"}
-        builder = PlanBuilder(ctx, "dev_tickets_create", args, "System Dev report", namespace=namespace,
-                              affected_scope=scope)
-        identity = new_id()
-        values = {"id": identity, "title": args["title"].strip(), "details": args.get("details", ""),
-                  "kind": args.get("kind", "bug"), "status": "open", "reporter_id": ctx.principal_id,
-                  "business_id": ctx.business_id, "created_at": builder.at, "updated_at": builder.at}
-        builder.record("dev_tickets", identity, None, values, business_id=None, namespace=namespace)
-        return builder.build()
 
     def prepare_status(self, ctx, args, opts, uow):
         self.owner(ctx, uow)
@@ -250,51 +159,8 @@ class DevTickets:
         builder.record("dev_tickets", args["ticket_id"], before, values, business_id=None, namespace="global")
         return builder.build()
 
-    def _prepare_agent_change(self, ctx, args, uow, operation, title, values):
-        ticket = self.ticket(uow, args["ticket_id"])
-        self.agent_access(ctx, ticket, uow)
-        namespace = self.agent_namespace(ctx, args)
-        builder = PlanBuilder(ctx, operation, args, title, namespace=namespace,
-                              affected_scope={"kind": "business", "business_id": ticket["business_id"]}
-                              if ticket["business_id"] else {"kind": "global"})
-        builder.record("dev_tickets", ticket["id"], ticket, values, business_id=None, namespace=namespace)
-        return builder.build()
-
-    def prepare_follow_up(self, ctx, args, opts, uow):
-        ticket = self.ticket(uow, args["ticket_id"])
-        self.agent_access(ctx, ticket, uow)
-        if ticket["status"] != "open":
-            raise DomainError("ticket_closed", "Follow-up requires an open System Dev report")
-        details = args["details"].strip()
-        if not details:
-            raise DomainError("validation_error", "Follow-up details cannot be blank")
-        return self._prepare_agent_change(ctx, args, uow, "dev_tickets_follow_up", "System Dev follow-up",
-                                          {"updated_at": timestamp(self.clock)})
-
-    def prepare_resolve(self, ctx, args, opts, uow):
-        ticket = self.ticket(uow, args["ticket_id"])
-        self.agent_access(ctx, ticket, uow)
-        if ticket["status"] != "open":
-            raise DomainError("ticket_closed", "System Dev report is already closed")
-        resolution, verification = args["resolution"].strip(), args["verification"].strip()
-        if not resolution or not verification:
-            raise DomainError("validation_error", "Resolution and verification evidence cannot be blank")
-        now = timestamp(self.clock)
-        return self._prepare_agent_change(ctx, args, uow, "dev_tickets_resolve", "Resolve System Dev report",
-                                          {"status": "closed", "resolved_at": now,
-                                           "resolved_by": ctx.principal_id, "resolution": resolution,
-                                           "updated_at": now})
-
     def validate_owner(self, ctx, plan, uow):
         self.owner(ctx, uow)
-
-    def validate_agent_plan(self, ctx, plan, uow):
-        ticket = self.ticket(uow, plan.arguments["ticket_id"])
-        self.agent_access(ctx, ticket, uow)
-
-    def apply_create(self, ctx, plan, uow):
-        ticket = apply_records(ctx, plan, uow)[0]
-        return {"ticket_id": ticket["id"], "status": ticket["status"], "revision": ticket["revision"], "queue": "System Dev"}
 
     def apply_status(self, ctx, plan, uow):
         self.owner(ctx, uow)
@@ -313,53 +179,3 @@ class DevTickets:
             IncidentReporter.ticket_status(uow,ticket,ctx.principal_id,verified=verified)
         return {"ticket_id": ticket["id"], "status": ticket["status"], "revision": ticket["revision"], "queue": "System Dev"}
 
-    def apply_follow_up(self, ctx, plan, uow):
-        before = self.ticket(uow, plan.arguments["ticket_id"])
-        self.agent_access(ctx, before, uow)
-        if before["status"] != "open":
-            raise DomainError("ticket_closed", "Follow-up requires an open System Dev report")
-        ticket = apply_records(ctx, plan, uow)[0]
-        self.insert_event(uow, ticket["id"], "follow_up", ctx.principal_id, details=plan.arguments["details"].strip(),
-                          created_at=ticket["updated_at"])
-        return {"ticket_id": ticket["id"], "status": ticket["status"], "revision": ticket["revision"],
-                "event": "follow_up"}
-
-    def apply_resolve(self, ctx, plan, uow):
-        before = self.ticket(uow, plan.arguments["ticket_id"])
-        self.agent_access(ctx, before, uow)
-        if before["status"] != "open":
-            raise DomainError("ticket_closed", "System Dev report is already closed")
-        ticket = apply_records(ctx, plan, uow)[0]
-        args = plan.arguments
-        self.insert_event(uow, ticket["id"], "resolved", ctx.principal_id, resolution=args["resolution"].strip(),
-                          verification=args["verification"].strip(), deployment_ref=args.get("deployment_ref", "").strip(),
-                          created_at=ticket["resolved_at"])
-        self.notify_reporter(uow, ticket, ctx, args)
-        from bazarlyk.incidents import IncidentReporter
-        IncidentReporter.ticket_status(uow,ticket,ctx.principal_id,verified=True)
-        return {"ticket_id": ticket["id"], "status": ticket["status"], "revision": ticket["revision"],
-                "event": "resolved", "resolved_at": ticket["resolved_at"], "resolved_by": ticket["resolved_by"]}
-
-    def notify_reporter(self, uow, ticket, ctx, args):
-        # Only the actual reporter, when it is an active supported global with current access to the ticket's scope
-        # (derived reach to its active business, or read_global_context for Global), and never the resolving caller.
-        from bazarlyk.incidents import IncidentReporter
-        if ticket["reporter_id"] == ctx.principal_id or not IncidentReporter.recipient_current(
-                uow.connection, ticket["reporter_id"], ticket["business_id"]):
-            return
-        now = timestamp(self.clock)
-        identity = new_id()
-        summary = "System Dev resolved: " + ticket["title"]
-        event_id = uow.connection.execute(
-            "INSERT INTO inbox_events(business_id,source_type,source_id,source_revision,actor_id,event_type,summary,created_at) "
-            "VALUES(?,?,?,?,?,?,?,?)", (ticket["business_id"], "agent_messages", identity, ticket["revision"],
-                                           ctx.principal_id, "dev_ticket_resolved", summary[:500], now)).lastrowid
-        body = "System Dev report resolved.\nResolution: " + args["resolution"].strip() + "\nVerification: " + args["verification"].strip()
-        if args.get("deployment_ref", "").strip():
-            body += "\nDeployment: " + args["deployment_ref"].strip()
-        uow.connection.execute(
-            "INSERT INTO agent_messages(id,event_id,business_id,sender_id,recipient_id,reply_to,thread_id,body,created_at,current_sender_id,current_recipient_id) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?)", (identity, event_id, ticket["business_id"], ctx.principal_id, ticket["reporter_id"],
-                                           None, identity, body, now, ctx.principal_id, ticket["reporter_id"]))
-        uow.connection.execute("INSERT INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)",
-                               (ticket["reporter_id"], event_id))

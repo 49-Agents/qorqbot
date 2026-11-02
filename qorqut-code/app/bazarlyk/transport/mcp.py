@@ -35,6 +35,10 @@ OVERSEER_SESSION_OPERATIONS = frozenset({
 
 ATTENTION_SESSION_OPERATIONS = frozenset({'attention_get', 'attention_add', 'attention_remove',
     'attention_focus_set', 'attention_focus_clear', 'attention_workflow_update'})
+# Repair-ticket removal, phase 1: these retained internal readers resolve surviving Task, Signoff and Project
+# references, so they stay installed and granted. Agent discovery and dispatch refuse them here, including
+# operations_batch entries and tool names a native client cached before the removal.
+INTERNAL_ONLY_OPERATIONS = frozenset({'dev_tickets_get'})
 
 
 def attention_binding(headers):
@@ -141,7 +145,8 @@ class RegisteredAgentCaller:
                 allowed = set(assignment["allowed_operations_json"]) | set(WORKER_OPERATIONS)
         try:
             rows = self.runtime.resolver.resolve_agent_config(actor.principal).data["tools"]
-            visible = [row for row in rows if allowed is None or row["canonical_operation"] in allowed]
+            visible = [row for row in rows if row["canonical_operation"] not in INTERNAL_ONLY_OPERATIONS
+                       and (allowed is None or row["canonical_operation"] in allowed)]
             if allowed is not None and BROWSER_OPERATION in allowed and not any(
                     row["canonical_operation"] == BROWSER_OPERATION for row in visible):
                 descriptor = self.runtime.registry.get(BROWSER_OPERATION)
@@ -179,7 +184,8 @@ class RegisteredAgentCaller:
 
     @staticmethod
     def exposes(descriptor):
-        return not descriptor.owner_only and "mcp" in descriptor.exposure
+        return (descriptor.name not in INTERNAL_ONLY_OPERATIONS
+                and not descriptor.owner_only and "mcp" in descriptor.exposure)
 
     def invocation_context(self, actor, *, canonical_name, options, native_binding=None):
         context = self.runtime.agent_context(actor.principal, diagnostic=canonical_name in DIAGNOSTIC_OPERATIONS,

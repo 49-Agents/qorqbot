@@ -18,6 +18,16 @@ from .events import ITEM_TYPES
 from .messages import Messages
 
 SOURCES = ('tasks', 'actions', 'signoffs', 'documents')
+# Repair-ticket removal, phase 1: the exact ticket/incident notices still stored for existing agents are no
+# longer delivered. Suppressing them here hides them from pending reads, acknowledgement and the nudge backend
+# without deleting rows, changing history or touching unrelated inbox traffic. Production of new ones stops in
+# ``domains.dev_tickets`` and ``incidents``; phase 2 removes the producer, views and rows.
+STOPPED_NOTICE_TYPES = frozenset({
+    ('system_incidents', 'system_incident_opened'),
+    ('system_incidents', 'system_incident_recovered'),
+    ('system_incidents', 'system_incident_resolved'),
+    ('agent_messages', 'dev_ticket_resolved'),
+})
 
 
 class HostInbox:
@@ -50,6 +60,8 @@ class HostInbox:
 
     def event_visible(self, ctx, row, uow):
         app = self.inbox.app
+        if (row['source_type'], row['event_type']) in STOPPED_NOTICE_TYPES:
+            return False
         if row['source_type'] == 'agentic_changes':
             bridge = getattr(self, 'agentic_inbox_bridge', None)
             return bridge is not None and bridge.visible_reference(ctx, row, uow) is not None
@@ -73,16 +85,6 @@ class HostInbox:
                 selected=board.context(ctx,uow)
                 app.authorize(selected,app.registry.get('focus_get'),(),uow,namespace='global')
                 return not board.projection(selected,board.row(row['source_id'],uow),uow).get('unavailable')
-            except DomainError:
-                return False
-        if row["source_type"] == "system_incidents":
-            from bazarlyk.incidents import IncidentOperations
-            try:
-                selected=ctx.select_business(row['business_id'])
-                descriptor=app.registry.get('system_incidents_agent_get')
-                namespace='business:'+row['business_id'] if row['business_id'] else 'global'
-                app.authorize(selected,descriptor,(),uow,namespace=namespace)
-                return IncidentOperations.visible(selected,row['source_id'],uow)
             except DomainError:
                 return False
         if row['source_type'] == 'overseer_extraction_due':

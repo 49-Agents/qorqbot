@@ -8,8 +8,8 @@ from qorqut_operations.storage.structured import parse_yaml
 from qorqut_operations.application.plans import schema
 from .models import REFERENCE_SCHEMA
 
-DIAGNOSTIC_OPERATIONS = frozenset({'agent_runtime_get', 'operations_describe', 'dev_tickets_create',
-    'dev_tickets_agent_list', 'dev_tickets_get', 'dev_tickets_follow_up'})
+# Repair-ticket removal, phase 1: the repair interface no longer carries the retired ticket tools.
+DIAGNOSTIC_OPERATIONS = frozenset({'agent_runtime_get', 'operations_describe'})
 
 
 class AgentDiagnostics:
@@ -44,7 +44,7 @@ class AgentDiagnostics:
         return self
 
     def describe(self, ctx, args, options, uow):
-        from bazarlyk.transport.mcp import tool_schema
+        from bazarlyk.transport.mcp import INTERNAL_ONLY_OPERATIONS, tool_schema
         owner_route = ctx.owner_session_business_id is not None
         tools = []
         for name in args['names']:
@@ -56,7 +56,8 @@ class AgentDiagnostics:
                     or (not descriptor.owner_only and "mcp" in descriptor.exposure))
                 if owner_route and not owner_tool_route:
                     raise DomainError('forbidden', 'Not exposed in the owner-session catalog')
-                if not owner_route and (descriptor.owner_only or 'mcp' not in descriptor.exposure):
+                if not owner_route and (descriptor.owner_only or 'mcp' not in descriptor.exposure
+                                        or descriptor.name in INTERNAL_ONLY_OPERATIONS):
                     raise DomainError('forbidden', 'Not exposed to agents')
                 decision = self.runtime.application.authorize(ctx,
                     descriptor.business_policy if ctx.business_id else descriptor, (), uow)
