@@ -52,7 +52,7 @@ SCHEMAS = {
 class CalendarOperations:
     def __init__(self, runtime, *, config=None, transport=None, providers=None):
         """``providers`` maps a connection ``provider`` name to its adapter class: the selected extensions' calendar
-        providers. Google is always available; any other name is ``provider_unavailable`` until an extension supplies it."""
+        providers (``google``, ``fastmail``). A name no selected extension supplies is ``provider_unavailable``."""
         self.runtime, self.config_override, self.transport = runtime, config, transport
         self.providers = dict(providers or {})
         self.outcomes = {}
@@ -116,12 +116,11 @@ class CalendarOperations:
             raise DomainError("invalid_configuration", "Calendar configuration must be valid private JSON (chmod 600)") from None
 
     def provider(self, connection_id):
-        from .providers import GoogleCalendar
         config = self.config().get(connection_id)
         if not config:
             raise DomainError("not_found", "Calendar connection is not configured")
         name = config.get("provider")
-        provider = GoogleCalendar if name == "google" else self.providers.get(name)
+        provider = self.providers.get(name) if isinstance(name, str) else None
         if not provider:
             # A connection type no selected extension supplies is unavailable on this host, never an import or startup error.
             label = name[:40] if isinstance(name, str) and name.isidentifier() else "configured"

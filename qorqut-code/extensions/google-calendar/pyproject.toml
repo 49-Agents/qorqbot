@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qorqut-google-calendar"
+version = "0.1.0"
+description = "Optional Google Calendar provider for a Qorqbot host"
+readme = "README.md"
+requires-python = ">=3.12"
+# The host (import package ``bazarlyk``) supplies the extension API, the common calendar provider helpers and the Operations
+# engine. The adapter talks to Google's Calendar and OAuth token HTTP APIs only through ``httpx``; no Google client library.
+dependencies = ["bazarlyk-core==1.3.0.dev0", "httpx>=0.27,<1"]
+
+[project.optional-dependencies]
+test = ["pytest>=7.4"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["qorqut_google_calendar*"]

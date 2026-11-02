@@ -129,7 +129,8 @@ class SourceHandlers:
 
 @dataclass(frozen=True)
 class CalendarProvider:
-    """One calendar connection type an extension supplies to the host's ``calendar_*`` operations (the host keeps Google).
+    """One calendar connection type an extension supplies to the host's ``calendar_*`` operations (``google``, ``fastmail``).
+    Core ships no adapter: a connection type no selected extension supplies is ``provider_unavailable``.
 
     ``name`` is the ``provider`` value of a connection in the private calendar configuration; ``adapter`` is a class built
     as ``adapter(connection_id, config, transport=None)`` that is a context manager with the host's calendar provider
@@ -140,8 +141,8 @@ class CalendarProvider:
     adapter: Callable
 
     def __post_init__(self):
-        if not isinstance(self.name, str) or not SOURCE_KEY.fullmatch(self.name) or self.name == "google":
-            raise _invalid("A calendar provider is a lowercase connection type other than the core provider")
+        if not isinstance(self.name, str) or not SOURCE_KEY.fullmatch(self.name):
+            raise _invalid("A calendar provider is a lowercase connection type")
         if not callable(self.adapter):
             raise _invalid("A calendar provider adapter is a class")
 
@@ -332,7 +333,7 @@ class Extension:
         return ()
 
     def calendar_providers(self):
-        """``CalendarProvider`` values: connection types the host's calendar operations can use (the host keeps Google)."""
+        """``CalendarProvider`` values: connection types the host's calendar operations can use."""
         return ()
 
     def native_connections(self):

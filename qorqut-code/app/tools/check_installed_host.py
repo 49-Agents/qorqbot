@@ -8,8 +8,9 @@ checker verifies, and never installs, repairs or modifies anything in the export
 environments (every interpreter runs ``-I -B``), and contacts no service or provider:
 
 * the manifest components equal the receipt's ``source_components`` and own each wheel's source directory, commit and tree;
-* the receipt carries the wheels and environments of the extensions it selected (``content``, ``paper``, ``fastmail``) and none
-  of an extension it did not: a standard preparation has the host environment only, with no email engine or Fastmail package;
+* the receipt carries the wheels and environments of the extensions it selected (``content``, ``paper``, ``fastmail``,
+  ``google_calendar``) and none of an extension it did not: a standard preparation has the host environment only, with no email
+  engine, Fastmail package or Google Calendar package;
 * every receipt wheel exists under ``wheels/`` with the recorded SHA-256, name and version;
 * in each environment the receipt lists (its owned ``bin/python``), every first-party distribution is one of the receipt's
   wheels, was installed from that exact local wheel file (a missing wheel, another file, a VCS/directory/URL origin or an
@@ -45,7 +46,7 @@ HEX40 = re.compile(r"[0-9a-f]{40}")
 # The wheels every preparation builds, and the ones added by each selected extension (prepare-local.py's receipt keys).
 BASE_WHEELS = ("qorqut-agentic", "qorqut-operations", "qorqut-context", "document-history", "host")
 SELECTED_WHEELS = {"paper": ("paper-service", "qorqut-paper"), "content": ("content-library", "qorqut-content"),
-                   "fastmail": ("email-engine", "qorqut-fastmail")}
+                   "fastmail": ("email-engine", "qorqut-fastmail"), "google_calendar": ("qorqut-google-calendar",)}
 BASE_ENVIRONMENTS = ("venv",)
 # The environments a selected extension adds (the host environment always holds the extension bridges).
 SELECTED_ENVIRONMENTS = {"paper": "paper-service-venv", "fastmail": "email-engine-venv"}

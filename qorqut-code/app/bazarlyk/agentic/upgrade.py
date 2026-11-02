@@ -246,7 +246,9 @@ def _profile_grants(paths, *, immutable=False):
                            "The active Overseer profile already holds the required capabilities"}
 
 
-SELECTION_IDS = frozenset({"content", "paper", "fastmail", "email-management", "agent-terminal-control"})
+# ``google_calendar`` is a provider-only extension id: it is recorded with the installation selection like any other, and it
+# adds no Agentic source, package or binding (``OPTIONAL`` has no entry for it).
+SELECTION_IDS = frozenset({"content", "paper", "fastmail", "google_calendar", "email-management", "agent-terminal-control"})
 
 
 def _installed_selection(record):
