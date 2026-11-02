@@ -15,7 +15,7 @@ from starlette.responses import JSONResponse, Response
 import yaml
 
 from bazarlyk.composition.locations import business_hq
-from qorqut_operations.contracts import DomainError, InvocationOptions, new_id, plain
+from qorqut_operations.contracts import DomainError, InvocationOptions, canonical_hash, new_id, plain
 from qorqut_operations.team_channel import is_installation_owner
 from qorqut_operations.storage.repositories import decode_row
 from .http import check_body_length, checked_fields, read_json, revalidated
@@ -64,6 +64,64 @@ class DashboardCompatibility:
                 return found
             args["cursor"] = page["next_cursor"]
         raise DomainError("collection_too_large", "Use the paginated operation endpoint for this collection")
+
+    # The retained history routes page like the operations do; each request is one bounded page and the browser
+    # follows the cursor itself, so this router never loops over the archive.
+    LEARNING_HISTORY_LIMIT = 50
+    LEARNING_CURSOR_MAX = 2000
+
+    def learning_page(self, context, operation, arguments):
+        """A bounded archive page is served directly: its own completeness fields are the contract, not a result envelope."""
+        return plain(self.invoke(context, operation, arguments).data)
+
+    @staticmethod
+    def learning_page_tag(request, context, data):
+        """The conditional tag proves the *authorized current* page, not a version counter.
+
+        These routes read scope-authorized historical source content; a learning-only change counter cannot
+        prove that visibility is unchanged (a revoked grant, access change or redacted source can return the
+        same counter). The tag hashes the bytes the current read just produced with the scope, path and
+        normalized query selection.
+        """
+        return 'W/"' + canonical_hash({"path": request.url.path, "query": sorted(request.query_params.items()),
+            "scope": context.business_id, "data": data}) + '"'
+
+    def learning_revalidated(self, request, context, operation, arguments):
+        """Recheck authority and selected content on every request, then decide a conditional 304.
+
+        Unlike the ordinary `revalidated` helper this never skips the operation: the domain read is what
+        rechecks authority and produces the current (possibly redacted) page. A matching If-None-Match still
+        returns 304 only after that same authorized read succeeds and its bytes equal the earlier page.
+        """
+        data = self.learning_page(context, operation, arguments)
+        tag = self.learning_page_tag(request, context, data)
+        headers = {"ETag": tag, "Cache-Control": "no-store"}
+        if request.headers.get("if-none-match") == tag:
+            return Response(status_code=304, headers=headers)
+        return JSONResponse(data, headers=headers)
+
+    @classmethod
+    def learning_cursor(cls, request, name):
+        value = request.query_params.get(name)
+        if value is None:
+            return None
+        if not value or len(value) > cls.LEARNING_CURSOR_MAX:
+            raise DomainError("validation_error", name + " must be a non-empty cursor under 2,000 characters")
+        return value
+
+    def learning_history_arguments(self, request):
+        limit = request.query_params.get("limit")
+        cursor = self.learning_cursor(request, "cursor")
+        return {"limit": self.LEARNING_HISTORY_LIMIT if limit in (None, "") else integer_parameter(limit, "limit", 1, 200),
+                **({"cursor": cursor} if cursor is not None else {})}
+
+    def learning_review_arguments(self, request, learning_id):
+        arguments = {"learning_id": learning_id}
+        for name in ("content_cursor", "evidence_cursor", "history_cursor"):
+            cursor = self.learning_cursor(request, name)
+            if cursor is not None:
+                arguments[name] = cursor
+        return arguments
 
     @staticmethod
     def options(body, *, revision=None):
@@ -296,10 +354,17 @@ class DashboardCompatibility:
         if tail == ["learnings"]:
             def produce():
                 items = self.collection(context, "learnings_list")
-                from bazarlyk.domains.learnings.work import STATES
+                from bazarlyk.domains.learnings.shared import STATES
                 counts = {state: sum(row["state"] == state for row in items) for state in STATES}
                 return JSONResponse({"items": items, "counts": counts})
             return revalidated(request, self.runtime.changes, {"learnings"}, context.business_id, produce)
+        # The literal history inventory is matched before the generic candidate-ID route: "history" is not an ID.
+        if tail == ["learnings", "history"]:
+            args = self.learning_history_arguments(request)
+            return self.learning_revalidated(request, context, "learnings_legacy_pending", args)
+        if len(tail) == 3 and tail[0] == "learnings" and tail[2] == "review":
+            args = self.learning_review_arguments(request, tail[1])
+            return self.learning_revalidated(request, context, "learnings_review_get", args)
         if len(tail) == 2 and tail[0] == "learnings":
             return response(self.invoke(context, "learnings_get", {"learning_id": tail[1]}))
         if len(tail) == 3 and tail[0] == "learnings" and tail[2] == "intake":

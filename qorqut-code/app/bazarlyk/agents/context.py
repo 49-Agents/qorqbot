@@ -230,7 +230,6 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
         ({"tasks_create", "tasks_update"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/task-relations.md")),
         ({"signoffs_list", "signoffs_get"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/signoff-evidence.md")),
         ({"learnings_review_list", "learnings_review_get"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/learning-review.md")),
-        ({"learnings_work_list", "learnings_work_get"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/learning-work.md")),
         ({"context_home", "context_find", "context_object", "context_expand"}, render(agentic_view, "host", "app/bazarlyk/agentic/assets/context-reads.md")),
     ):
         if required_tools <= available_operations:
