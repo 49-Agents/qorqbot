@@ -16,6 +16,42 @@ CHROME_URL = f'https://storage.googleapis.com/chrome-for-testing-public/{CHROME_
 CHROME_SHA256 = 'b711c720f774be355197f32edf37e0651418ba036d92446ee2da19ac017540a7'
 
 
+# Upstream annotated tag rust-v0.154.0 resolves to this exact commit. Notice
+# selection must change explicitly when the pinned native CLI version changes.
+CODEX_VERSION = '0.154.0'
+CODEX_TAG = 'rust-v0.154.0'
+CODEX_COMMIT = '6b9826e3aa83b1a5947db50f4332cb9c65f1b340'
+CODEX_NOTICES = {
+    'LICENSE': 'd17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc',
+    'NOTICE': '9d71575ecfd9a843fc1677b0efb08053c6ba9fd686a0de1a6f5382fd3c220915',
+}
+
+
+def codex_notices(output):
+    """Retain exact upstream notices; this does not decide redistribution approval."""
+    for package in ('codex', 'codex-linux-x64'):
+        metadata = json.loads((output / 'clis/node_modules/@openai' / package / 'package.json').read_text())
+        if metadata['version'] != CODEX_VERSION:
+            raise ValueError('Codex notice selection does not match the installed CLI version')
+    contents, records = {}, []
+    for name, expected in CODEX_NOTICES.items():
+        url = f'https://raw.githubusercontent.com/openai/codex/{CODEX_COMMIT}/{name}'
+        with urllib.request.urlopen(url, timeout=60) as source:
+            content = source.read(1024 * 1024 + 1)
+        if len(content) > 1024 * 1024 or hashlib.sha256(content).hexdigest() != expected:
+            raise ValueError('Codex notice content failed its pinned checksum: ' + name)
+        contents[name] = content
+        records.append({'file': name, 'url': url, 'sha256': expected, 'bytes': len(content)})
+    destination = output / 'notices/codex'
+    destination.mkdir(parents=True, exist_ok=False)
+    for name, content in contents.items():
+        (destination / name).write_bytes(content)
+    record = {'format': 1, 'version': CODEX_VERSION, 'tag': CODEX_TAG,
+              'commit': CODEX_COMMIT, 'files': records}
+    (destination / 'SOURCE.json').write_text(json.dumps(record, indent=2) + '\n')
+    return record
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True, type=Path)
@@ -57,6 +93,7 @@ def main():
                    npm_config_cache=str(work / 'npm-cache'), npm_config_audit='false', npm_config_fund='false')
         subprocess.run([output / 'node/bin/node', output / 'node/lib/node_modules/npm/bin/npm-cli.js', 'ci'],
                        cwd=clis, env=env, check=True)
+        codex_notice_record = codex_notices(output)
         archive = work / 'chrome.zip'
         digest, size = hashlib.sha256(), 0
         with urllib.request.urlopen(CHROME_URL, timeout=60) as source, archive.open('xb') as target:
@@ -99,6 +136,7 @@ exec "$root/chrome/chrome" "$@"
         (browser / 'build_runtime.py').unlink()
         image_id = subprocess.check_output(['docker', 'image', 'inspect', image, '--format', '{{.Id}}'], text=True).strip()
         record = {'format': 1, 'ubuntu_builder': image_id, 'chrome_version': CHROME_VERSION,
+                  'codex_notices': codex_notice_record,
                   'chrome_archive_sha256': CHROME_SHA256,
                   'native_cli_lock_sha256': hashlib.sha256((clis / 'package-lock.json').read_bytes()).hexdigest(),
                   'browser_lock_sha256': hashlib.sha256((browser / 'package-lock.json').read_bytes()).hexdigest()}

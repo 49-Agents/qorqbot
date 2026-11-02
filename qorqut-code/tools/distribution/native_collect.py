@@ -42,6 +42,8 @@ def collect(destination):
     copy('/usr/lib/python3.12', 'lib/python3.12')
     copy('/usr/lib/git-core', 'lib/git-core')
     copy('/usr/share/zoneinfo', 'share/zoneinfo')
+    # Debian copyright notices refer to these full texts; retain the same builder's copies.
+    copy('/usr/share/common-licenses', 'share/common-licenses')
     copy('/usr/share/doc/tigervnc-standalone-server/TIGERVNC-BUILD.json', 'TIGERVNC-BUILD.json')
     for source, target in (('/usr/share/git-core/templates', 'share/git-core/templates'),
                            ('/usr/share/fonts/X11', 'share/fonts/X11'),
