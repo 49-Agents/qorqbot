@@ -152,7 +152,7 @@ def snapshots(uow, seen, *, retry_failed=False, limit=50):
     active = "IN (SELECT id FROM businesses WHERE archived_at IS NULL)"
     sql = f'''SELECT COALESCE(s.review_business_id, '') scope, 'signoff_response' kind, s.id, json_extract(s.decision_json,'$.at') at
         FROM signoffs s WHERE (s.review_business_id IS NULL OR s.review_business_id {active}) AND s.decision_json IS NOT NULL
-        AND s.legacy_evidence_json IS NULL
+        AND s.legacy_evidence_json IS NULL AND s.operation_name <> 'whatsapp_send'
         UNION ALL SELECT COALESCE(n.business_id, ''), 'task_note', n.id, n.created_at FROM thread_messages n
         WHERE (n.business_id IS NULL OR n.business_id {active}) AND n.item_type='task' AND n.kind='comment'
         ORDER BY at, scope, kind, id'''

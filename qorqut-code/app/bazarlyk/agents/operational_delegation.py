@@ -25,7 +25,7 @@ _OPERATION = re.compile(r"^[a-z][a-z0-9_]{0,99}$")
 _PARENT_ONLY_OPERATIONS = frozenset({
     "agent_work_update", "agents_create", "agents_update", "agents_deactivate",
     "permissions_set", "plugins_enable", "plugins_disable", "signoffs_approve",
-    "signoffs_reject", "operations_batch", "owner_session_create",
+    "signoffs_reject", "operations_batch", "owner_session_create", "whatsapp_send",
 })
 WORKER_OPERATIONS = frozenset({"delegated_assignment_get", "delegated_assignment_checkpoint",
     "delegated_assignment_events_claim", "delegated_assignment_event_settle", "browser_turn"})

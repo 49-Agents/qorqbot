@@ -12,6 +12,7 @@ from .context_sources import ContextSourceOperations
 from bazarlyk.context_questions import ContextQuestionOperations, QuestionStore
 from .email import EmailOperations
 from .account_email import AccountEmailOperations
+from .whatsapp_send import WhatsAppSendOperations
 from .ledger import LedgerOperations
 from .metrics import MetricOperations
 from .platform_actions.operations import PlatformActions
@@ -124,6 +125,7 @@ def register_business_domains(registry, application, paths, *, catalog, agent_re
     platform_actions.register(registry)
     email.register(registry)
     account_email.register(registry)
+    WhatsAppSendOperations(application, paths, job_programs).register(registry)
     from .email.unified import UnifiedEmailOperations
     UnifiedEmailOperations(email=email, account=account_email, platform=platform_actions,
                            resolver=agent_resolver).register(registry)

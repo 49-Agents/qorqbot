@@ -40,6 +40,12 @@ def item_subscriptions(uow, request):
     return request.select(uow, f"source_type IN ({MARKS})", ITEM_SOURCES)
 
 
+def public_signoff_notes(uow, request):
+    """Discussion on a personal WhatsApp send quotes its exact recipient or text; it stays in the authoritative Signoff
+    notes and is never exported to the operational Git snapshot."""
+    return request.select(uow, "signoff_id NOT IN (SELECT id FROM signoffs WHERE operation_name = ?)", ("whatsapp_send",))
+
+
 def failed_routine_runs(uow, request):
     """Successful and in-progress execution bookkeeping stays in SQLite only."""
     return request.select(uow, "state = ?", ("failed",))

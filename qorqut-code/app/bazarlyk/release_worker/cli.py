@@ -48,10 +48,16 @@ def build_parser() -> argparse.ArgumentParser:
     v12.add_argument("--destination", type=Path, required=True)
     v12_verify = commands.add_parser("v12-verify", help="verify an already prepared v1.2 release")
     v12_verify.add_argument("--release", type=Path, required=True)
-    whatsapp_prepare = commands.add_parser("v12-whatsapp-prepare", help="build the personal read receiver from exact integrated source")
+    whatsapp_prepare = commands.add_parser("v12-whatsapp-prepare", help="build the personal WhatsApp receiver (first read-only install, or the selected managed-sending upgrade) from exact integrated source")
     whatsapp_prepare.add_argument("--selection", type=Path, required=True)
     for name, flag in (("deploy", "deploy"), ("connect", "connect")):
         command = commands.add_parser("v12-whatsapp-" + name, help="explicit personal WhatsApp " + name)
+        command.add_argument("--release", type=Path, required=True)
+        command.add_argument("--confirm-" + flag, action="store_true")
+    for name, flag, help in (
+            ("enable-signoffs", "deploy", "upgrade the installed read receiver to host-managed Signoff sending from a prepared upgrade artifact"),
+            ("recover-signoffs", "recover", "roll an unfinished or failed managed-sending upgrade back to the prior verified receiver")):
+        command = commands.add_parser("v12-whatsapp-" + name, help=help)
         command.add_argument("--release", type=Path, required=True)
         command.add_argument("--confirm-" + flag, action="store_true")
     dashboard_prepare = commands.add_parser("v12-dashboard-prepare", help="prepare a dashboard-only update of the completed v1.2 installation")
@@ -145,6 +151,10 @@ def main(argv: list[str] | None = None) -> int:
                 _json(whatsapp.prepare(args.selection))
             elif args.command == "v12-whatsapp-deploy":
                 _json(whatsapp.deploy(args.release, confirm=args.confirm_deploy))
+            elif args.command == "v12-whatsapp-enable-signoffs":
+                _json(whatsapp.enable_signoffs(args.release, confirm=args.confirm_deploy))
+            elif args.command == "v12-whatsapp-recover-signoffs":
+                _json(whatsapp.recover_signoffs(args.release, confirm=args.confirm_recover))
             else:
                 _json(whatsapp.connect(args.release, confirm=args.confirm_connect))
             return 0

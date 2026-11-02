@@ -16,6 +16,7 @@ from bazarlyk.reports.service import DailyReportOperations, DailyReportProgram
 from .context_filing import FilingPrograms
 from .email import EmailProgram
 from .account_email import AccountEmailProgram
+from .whatsapp_send import WhatsAppSendProgram
 from .metrics import MetricCollectionProgram
 from .learnings import LearningProgram
 from .models import ModelCalls
@@ -34,7 +35,7 @@ def _report_completed(runtime, row):
 
 def register_programs(programs, *, models=None, transcript_source=None,
                       platform_actions=None, file_applier=None, reddit_adapter=None, maintenance=None, email=None, tables=None, metric_collector=None,
-                      backup_downloader=None, stripe_revenue=None, daily_reports=None, learning_engine=None):
+                      backup_downloader=None, stripe_revenue=None, daily_reports=None, learning_engine=None, whatsapp_send=None):
     models = models or ModelCalls(None)
     learning = LearningProgram(models, transcript_source, learning_engine)
 
@@ -89,6 +90,13 @@ def register_programs(programs, *, models=None, transcript_source=None,
         "arguments": {"type": "object", "maxProperties": 30}}, ("scope", "account_id", "operation", "arguments")),
         account_email.run, (), (), (), scope_kinds=("global",), global_capabilities=("manage_fastmail",),
         external=True, recover=account_email.recover, timeout_seconds=120)
+    # Owner-approved personal WhatsApp sends. Queued only by the whatsapp_send operation's approved Signoff; the program
+    # refuses any job it cannot trace to that Signoff, and a routine can never name it.
+    whatsapp = WhatsAppSendProgram(whatsapp_send)
+    add("whatsapp.send", schema({"scope": {"const": "global"}, "account_ref": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "chat_id": {"type": "string", "minLength": 3, "maxLength": 160}, "text": {"type": "string", "minLength": 1, "maxLength": 16384}},
+        ("scope", "account_ref", "chat_id", "text")), whatsapp.run, (), (), (), scope_kinds=("global",),
+        external=True, recover=whatsapp.recover, timeout_seconds=120, routine_allowed=False)
     from .scoped_email import ScopedEmailProgram
     scoped_email = ScopedEmailProgram(email)
     add("email.scoped_mutation", schema({"scope": {"enum": ["business", "global"]},
@@ -133,6 +141,20 @@ def register_operations(runtime, programs, authority, *, clock=None):
     def job_get(ctx, args, options, uow):
         business_id = None if args.get("scope") == "global" else ctx.business_id
         row = uow.repository("jobs", business_id=business_id).get(args["job_id"], required=True)
+        if row["kind"] == "whatsapp.send":
+            # The frozen recipient and text live only in the job and its Signoff. The installation owner reads the job;
+            # every agent (the proposer included) gets status and error codes only.
+            installation = uow.repository("installation").get("service")
+            if ctx.principal_kind == "human" and installation and installation["owner_principal_id"] == ctx.principal_id:
+                return {"job": row, "details_available": True}
+            if ctx.principal_kind != "agent":
+                raise DomainError("forbidden", "Personal WhatsApp job details require the installation owner")
+            public = {key: row[key] for key in ("id", "business_id", "kind", "state", "created_at", "updated_at", "attempts",
+                                                "next_retry_at", "initiated_by_principal_id")}
+            error = row.get("error_json")
+            public["error_json"] = ({key: error[key] for key in ("code", "retryable") if key in error}
+                                    if isinstance(error, dict) else None)
+            return {"job": public, "details_available": False}
         private_account_job = (row["kind"] in {"email.account_mutation", "email.owner_sync"} or (row["kind"] == "email.scoped_mutation" and row["business_id"] is None)
                                or bool((row.get("definition_ref_json") or {}).get("account_email_operation")))
         private_access_revoked = False
@@ -190,7 +212,7 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
         maintenance=maintenance, email=runtime.domains.email, tables=runtime.domains.tables, metric_collector=metric_collector,
         backup_downloader=backup_downloader, stripe_revenue=stripe_revenue,
         daily_reports=daily_reports or DailyReportProgram(paths=lambda: runtime.paths, on_completed=lambda row: _report_completed(runtime, row)),
-        learning_engine=learning_engine)
+        learning_engine=learning_engine, whatsapp_send=getattr(runtime.application, "whatsapp_send", None))
     authority = runtime.authority
     if getattr(runtime.domains, "business_creation", None):
         runtime.domains.business_creation.worker_authority = authority

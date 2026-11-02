@@ -34,7 +34,7 @@ class SignoffDomains:
 
     Using a port before its domain is bound is a composition error, never a silent default."""
 
-    NAMES = ('platform_actions', 'email', 'management', 'focus_board')
+    NAMES = ('platform_actions', 'email', 'management', 'focus_board', 'whatsapp_send')
 
     def __init__(self):
         self._bound = {}
@@ -215,8 +215,30 @@ class HostFocus:
         self.domains.focus_board.release_signoff(row, updated, uow)
 
 
+class HostWhatsAppVisibility:
+    """Personal WhatsApp Signoffs carry the exact recipient and message text, so they are readable only by the installation
+    owner and by the agent the binding names right now (and only while it is an active Global Ordubashy). Every other
+    reader, proposers that are no longer bound included, sees no such Signoff in any read. A fixed predicate that can only
+    remove rows; it grants nothing, and the engine's own scope and policy checks still apply first."""
+
+    OPERATION = 'whatsapp_send'
+
+    def __init__(self, domains):
+        self.domains = domains
+
+    def narrow(self, context, uow):
+        installation = uow.repository('installation').get('service')
+        if (context.principal_kind == 'human' and installation and installation['owner_principal_id'] == context.principal_id):
+            return '', []
+        if context.principal_kind == 'agent' and context.delegation_assignment_id is None \
+                and self.domains.whatsapp_send.bound_agent(uow) == context.principal_id:
+            return '', []
+        return ' AND (s.operation_name <> ?)', [self.OPERATION]
+
+
 def signoff_ports(domains: SignoffDomains) -> SignoffPorts:
     """The one ``SignoffPorts`` of this host: every retained optional integration is enabled with its real domain."""
     return SignoffPorts(execution=HostExecution(), peers=HostPeers(), tasks=HostTasks(), references=HostReferences(),
                         platform=HostPlatform(domains), email=HostEmailDecisions(domains),
-                        campaigns=HostCampaigns(), management=HostManagement(domains), focus=HostFocus(domains))
+                        campaigns=HostCampaigns(), management=HostManagement(domains), focus=HostFocus(domains),
+                        narrowing=HostWhatsAppVisibility(domains))
