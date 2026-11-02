@@ -43,6 +43,11 @@ def _worker(args: argparse.Namespace) -> ReleaseWorker:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="release-worker", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    v12 = commands.add_parser("v12-prepare", help="assemble a local v1.2 release without activating data or services")
+    v12.add_argument("--selection", type=Path, required=True)
+    v12.add_argument("--destination", type=Path, required=True)
+    v12_verify = commands.add_parser("v12-verify", help="verify an already prepared v1.2 release")
+    v12_verify.add_argument("--release", type=Path, required=True)
     plan = commands.add_parser("plan", help="resolve exact commits and freeze a plan")
     plan.add_argument("--manifest", type=Path, required=True)
     plan.add_argument("--records-root", type=Path, default=Path(".qorqut-releases"))
@@ -84,6 +89,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "v12-prepare":
+            from .v12 import prepare
+            _json(prepare(args.selection, args.destination))
+            return 0
+        if args.command == "v12-verify":
+            from .v12 import verify
+            _json(verify(args.release))
+            return 0
         if args.command=='deploy' and args.recover_from and (args.plan or args.manifest):
             raise ReleaseError('--recover-from uses the saved-installation short path, not a coordinated plan')
         if args.command in {'deploy','status','rollback','prune','resume','abandon','activate'} and not args.plan and not args.manifest:

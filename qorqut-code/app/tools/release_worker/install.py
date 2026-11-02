@@ -56,7 +56,7 @@ def _git(repo: Path, *args: str) -> str:
         fail(f"trusted provenance lookup failed: {detail.strip()}")
 
 
-def validate_source(source: Path, expected_commit: str, provenance_repo: Path, trusted_ref: str, interpreter=None) -> tuple[str, dict[str, str], str]:
+def validate_source(source: Path, expected_commit: str, provenance_repo: Path, trusted_ref: str, interpreter=None, source_subdirectory="") -> tuple[str, dict[str, str], str]:
     source = source.expanduser().resolve()
     if not source.is_dir():
         fail(f"source artifact does not exist or is not a directory: {source}")
@@ -80,7 +80,14 @@ def validate_source(source: Path, expected_commit: str, provenance_repo: Path, t
         subprocess.run(["git", "-C", str(provenance_repo), "merge-base", "--is-ancestor", expected_commit, trusted_ref], check=True, capture_output=True)
     except subprocess.CalledProcessError:
         fail(f"source commit {expected_commit} is not an ancestor of trusted ref {trusted_ref}")
-    relative_files = [path for path in _git(provenance_repo, "ls-tree", "-r", "--name-only", expected_commit, "bazarlyk").splitlines() if path.endswith(".py")]
+    if source_subdirectory not in ("", "app"):
+        fail("--source-subdirectory must be app for v1.2, or omitted for a legacy artifact")
+    prefix = source_subdirectory + "/" if source_subdirectory else ""
+    relative_files = [path.removeprefix(prefix) for path in _git(
+        provenance_repo, "ls-tree", "-r", "--name-only", expected_commit, prefix + "bazarlyk"
+    ).splitlines() if path.endswith(".py")]
+    if not relative_files:
+        fail("trusted commit has no first-party Python files at the selected source subdirectory")
     expected_set = set(relative_files)
     actual_set = {path.relative_to(source).as_posix() for path in (source / "bazarlyk").rglob("*.py")}
     extras = sorted(actual_set - expected_set)
@@ -94,7 +101,7 @@ def validate_source(source: Path, expected_commit: str, provenance_repo: Path, t
         if not target.is_file():
             fail(f"source artifact is missing provenance-checked file: {target}")
         try:
-            expected = subprocess.run(["git", "-C", str(provenance_repo), "show", f"{expected_commit}:{relative}"], check=True, capture_output=True).stdout
+            expected = subprocess.run(["git", "-C", str(provenance_repo), "show", f"{expected_commit}:{prefix}{relative}"], check=True, capture_output=True).stdout
         except (OSError, subprocess.CalledProcessError):
             fail(f"trusted commit has no readable file: {relative}")
         actual = target.read_bytes()
@@ -236,7 +243,7 @@ except (OSError, KeyError, TypeError, ValueError) as exc:
     raise SystemExit(f"release-worker: invalid installation metadata {{CONFIG}}: {{exc}}")
 if not manifest_path.is_file():
     raise SystemExit(f"release-worker: installed manifest is missing: {{manifest_path}}")
-if metadata.get("manifest") != str(manifest_path) or any(metadata.get(key) != manifest.get(key) for key in ("version", "source", "source_commit", "python", "worker_digest", "docs_path", "installer_path", "docs_digest", "installer_digest", "installation_config")):
+if metadata.get("manifest") != str(manifest_path) or any(metadata.get(key) != manifest.get(key) for key in ("version", "source", "source_commit", "source_subdirectory", "python", "worker_digest", "docs_path", "installer_path", "docs_digest", "installer_digest", "installation_config")):
     raise SystemExit(f"release-worker: active metadata does not match manifest: {{manifest_path}}")
 if not source.is_dir():
     raise SystemExit(f"release-worker: installed source is missing or invalid: {{source}}")
@@ -367,6 +374,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--commit", required=True, help="full 40-character source commit recorded by the release")
     parser.add_argument("--provenance-repository", type=Path, required=True, help="trusted Git repository containing the source commit")
     parser.add_argument("--trusted-ref", default="origin/main", help="trusted ref that must contain the source commit")
+    parser.add_argument("--source-subdirectory", choices=("app",), default="", help="versioned host location in the provenance repository")
     parser.add_argument("--docs", type=Path, help="versioned release guide source (defaults to this repository's docs/release)")
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
@@ -391,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def install(args):
     source = args.source.expanduser().resolve()
-    _, worker_files, worker_digest = validate_source(source, args.commit, args.provenance_repository, args.trusted_ref, args.python)
+    _, worker_files, worker_digest = validate_source(source, args.commit, args.provenance_repository, args.trusted_ref, args.python, args.source_subdirectory)
     root = args.root.expanduser().resolve()
     version_dir = root / "versions" / args.version
     manifest = version_dir / "manifest.json"
@@ -410,6 +418,7 @@ def install(args):
         "version": args.version,
         "source": str(version_dir / "code"),
         "source_commit": args.commit,
+        "source_subdirectory": args.source_subdirectory,
         # Preserve the venv launcher path. Resolving this symlink to the base
         # interpreter would silently discard the release's site-packages.
         "python": str(args.python.absolute()),
