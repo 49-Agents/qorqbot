@@ -16,6 +16,8 @@
 .agfocus .agfocus-related button{display:inline-flex;margin:0;max-width:100%;white-space:normal;text-align:left}
 .agfocus .agfocus-context{margin-top:8px;font-size:10px}
 .agfocus-conversation{cursor:default}
+/* The owner's message text matches the 12px agent paragraphs in a Focus thread; agent markdown and native Chat keep their own sizes. */
+.agfocus-conversation .gchat-user .gchat-body{font-size:12px}
 .agfocus .agfocus-pages{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;font-size:11px}
 .agfocus-detail{padding:14px;min-width:0}
 .agfocus-detail-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}

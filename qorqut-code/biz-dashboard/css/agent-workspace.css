@@ -142,7 +142,7 @@
 /* Same-origin embedded native screens; the main application is untouched. */
 .agent-pane-embedded .app { padding:0; height:100vh; }
 .agent-pane-embedded > .rail, .agent-pane-embedded > .ac-capture,
-.agent-pane-embedded .workspace-composer, .agent-pane-embedded #process-tray { display:none; }
+.agent-pane-embedded .workspace-composer { display:none; }
 .agent-pane-embedded #content { display:flex; flex-direction:column; overflow:auto; padding:8px 20px 24px; width:100%; min-width:0; }
 .agent-pane-embedded .global-content, .agent-pane-embedded .business-progress-page { padding:0; max-width:none; width:100%; }
 .agent-pane-embedded .global-content > .global-eyebrow,

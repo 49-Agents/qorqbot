@@ -343,7 +343,7 @@ const AGFOCUS_WORK_KEY='agfocus:expanded-work:v1',AGFOCUS_WORK_PAGE=50;
 function agfocusRestoreWork(){
   try {
     const ids=JSON.parse(ls(AGFOCUS_WORK_KEY) || '[]');
-    return new Map((Array.isArray(ids)?ids:[]).filter(id=>typeof id==='string').slice(0,500).map(id=>[id,{expanded:true,items:[],references:[],childCursor:null,relationCursor:null}]));
+    return new Map((Array.isArray(ids)?ids:[]).filter(id=>typeof id==='string').slice(0,500).map(id=>[id,agfocusNewBranch()]));
   } catch(_){return new Map();}
 }
 function agfocusSaveWork(p){
@@ -361,7 +361,8 @@ function agfocusVisibleItems(p,items) {
     result.push(item);
     if(!source || item.unavailable)return;
     const branch=p.focusWork?.get(item.id);
-    if(!branch?.expanded)return;
+    // A snapshot read for another resolved source is never shown under this one.
+    if(!branch?.expanded || (branch.sourceKey && branch.sourceKey!==key))return;
     const path=new Set([...ancestors,key]);
     for(const child of branch.items || [])append(child,path);
   }
@@ -383,62 +384,117 @@ function agfocusWorkReference(parent,source,other) {
   return {id:`${parent.id}/${other.type}/${other.id}`,label:other.label || 'Related item',resolved_source:target,unavailable:false};
 }
 
-// One page of children and one page of `concerns` relationships, in the Task's own scope.
-async function agfocusLoadWork(p,item,branch,more=false) {
-  const source=item.resolved_source || item.source,biz=source.business_slug;
+// A branch keeps its last successful snapshot mounted. `loaded` is false only before the first successful read; a
+// background refresh reads a candidate snapshot offscreen and commits it only if this exact branch is still current.
+const agfocusNewBranch=()=>({expanded:true,loaded:false,items:[],references:[],children:[],related:[],childCursor:null,relationCursor:null,childPages:0,relationPages:0,moving:false,flight:null,sourceKey:null});
+
+// Reads pages into a copy of `base`, never the branch: `target` is the page count each route should reach (or end at).
+async function agfocusFetchWork(source,base,target) {
+  const biz=source.business_slug;
   // Task reads infer Global from the root route; the Global relationship read declares an explicit scope (section G contract).
   const scope=op=>!biz && op==='relationships_list'?{scope:'global'}:{};
   const path=op=>biz?`/biz/${encodeURIComponent(biz)}/operations/${op}`:`/root/operations/${op}`;
   const call=async(op,args)=>coreData(await post(path(op),{...args,...scope(op)}));
-  const calls=[];
-  if(!more || branch.childCursor)calls.push(call('tasks_list',{parent_id:source.id,include_closed:true,include_archived:true,snooze_filter:'all',limit:AGFOCUS_WORK_PAGE,...(more?{cursor:branch.childCursor}:{})}).then(data=>{
-    branch.childCursor=data.next_cursor || null;
-    for(const task of data.tasks || [])branch.children.push(task);
-  }));
-  if(!more || branch.relationCursor)calls.push(call('relationships_list',{item:{type:'task',id:source.id},role:'concerns',direction:'both',include_archived:true,limit:AGFOCUS_WORK_PAGE,...(more?{cursor:branch.relationCursor}:{})}).then(data=>{
-    branch.relationCursor=data.next_cursor || null;
-    for(const edge of data.items || []){
-      const other=edge.source?.type==='task' && edge.source.id===source.id ? edge.target_item : edge.source_item;
-      if(other)branch.related.push(other);
+  const snapshot={children:[...base.children],related:[...base.related],childCursor:base.childCursor,relationCursor:base.relationCursor,childPages:base.childPages,relationPages:base.relationPages};
+  const pull=async(pagesKey,cursorKey,limit,read,take)=>{
+    while(snapshot[pagesKey]<limit && (snapshot[pagesKey]===0 || snapshot[cursorKey])) {
+      const data=await read(snapshot[cursorKey]);
+      snapshot[cursorKey]=data.next_cursor || null;snapshot[pagesKey]++;take(data);
     }
-  }));
-  await Promise.all(calls);
-  // Children first (hierarchy); related work never repeats a child, this Task or an earlier related item.
+  };
+  // Both route chains settle before this returns, so the branch's flight stays occupied until no read of it is running.
+  const settled = await Promise.allSettled([
+    pull('childPages','childCursor',target.child,cursor=>call('tasks_list',{parent_id:source.id,include_closed:true,include_archived:true,snooze_filter:'all',limit:AGFOCUS_WORK_PAGE,...(cursor?{cursor}:{})}),
+      data=>{for(const task of data.tasks || [])snapshot.children.push(task);}),
+    pull('relationPages','relationCursor',target.relation,cursor=>call('relationships_list',{item:{type:'task',id:source.id},role:'concerns',direction:'both',include_archived:true,limit:AGFOCUS_WORK_PAGE,...(cursor?{cursor}:{})}),
+      data=>{for(const edge of data.items || []){
+        const other=edge.source?.type==='task' && edge.source.id===source.id ? edge.target_item : edge.source_item;
+        if(other)snapshot.related.push(other);
+      }}),
+  ]);
+  const failures = settled.filter(result => result.status === 'rejected').map(result => result.reason);
+  if (failures.length) throw failures.find(error => accessLost(error) || sourceGone(error)) || failures[0];
+  return snapshot;
+}
+// Children first (hierarchy); related work never repeats a child, this Task or an earlier related item.
+function agfocusBuildWork(item,source,snapshot) {
   const seen=new Set([source.id]),items=[],references=[];
-  for(const task of branch.children){if(seen.has(task.id))continue;seen.add(task.id);items.push(agfocusWorkRow(item,source,task,'child'));}
-  for(const other of branch.related){
+  for(const task of snapshot.children){if(seen.has(task.id))continue;seen.add(task.id);items.push(agfocusWorkRow(item,source,task,'child'));}
+  for(const other of snapshot.related){
     const key=other.type+':'+other.id;
     if(seen.has(other.id) && other.type==='task' || seen.has(key))continue;
     seen.add(key);if(other.type==='task')seen.add(other.id);
     if(other.type==='task')items.push(agfocusWorkRow(item,source,other,'related'));
     else references.push(agfocusWorkReference(item,source,other));
   }
-  branch.items=items;branch.references=references;
+  return {items,references};
+}
+// One read of a branch (first load, refresh of the loaded depth, or one more page), staged and committed atomically.
+// Returns true when the snapshot was applied, false when it failed or no longer matches; failures keep the loaded snapshot.
+async function agfocusRunWork(p,item,branch,kind) {
+  const source=item.resolved_source || item.source,key=agfocusWorkKey(source),mount=p.focusMount,token={kind};
+  branch.flight=token;if(kind==='more'){branch.moving=true;agfocusPaint(p);}
+  const current=()=>branch.flight===token && p.focusWork?.get(item.id)===branch && branch.expanded && !!mount?.isConnected && p.focusMount===mount && agpadActive(p) &&
+    agfocusVisibleItems(p,p.focus?.items || []).some(row=>row.id===item.id && !row.unavailable && agfocusWorkKey(row.resolved_source || row.source)===key);
+  const empty={children:[],related:[],childCursor:null,relationCursor:null,childPages:0,relationPages:0};
+  let applied=false;
+  try {
+    const base=kind==='more'?branch:empty;
+    const target=kind==='first'?{child:1,relation:1}:kind==='refresh'?{child:Math.max(1,branch.childPages),relation:Math.max(1,branch.relationPages)}:
+      {child:branch.childPages+(branch.childCursor?1:0),relation:branch.relationPages+(branch.relationCursor?1:0)};
+    const snapshot=await agfocusFetchWork(source,base,target);
+    if(!current())return false;
+    const built=agfocusBuildWork(item,source,snapshot);
+    // Unchanged data keeps the existing row objects so nothing downstream sees a different snapshot.
+    if(JSON.stringify(built.items)!==JSON.stringify(branch.items))branch.items=built.items;
+    if(JSON.stringify(built.references)!==JSON.stringify(branch.references))branch.references=built.references;
+    Object.assign(branch,{children:snapshot.children,related:snapshot.related,childCursor:snapshot.childCursor,relationCursor:snapshot.relationCursor,childPages:snapshot.childPages,relationPages:snapshot.relationPages,sourceKey:key});
+    const first=!branch.loaded;branch.loaded=true;applied=true;
+    if(first || kind==='more'){p.focusError='';agfocusAnnounce(p,branch.items.length+branch.references.length?`${branch.items.length+branch.references.length} related work items`:'No related work');}
+    return true;
+  } catch(error) {
+    if(current()) {
+      if(branch.loaded && !accessLost(error) && !sourceGone(error))p.focusError=(kind==='more'?'Could not load more related work. ':'Could not refresh related work. ')+error.message;
+      else {
+        // First load, lost access or a gone source: the branch and everything beneath it leaves the board.
+        branch.expanded=false;
+        Object.assign(branch,{loaded:false,items:[],references:[],children:[],related:[],childCursor:null,relationCursor:null,childPages:0,relationPages:0});
+        for(const id of [...p.focusWork.keys()])if(id.startsWith(item.id+'/'))p.focusWork.delete(id);
+        p.focusError='Could not load related work. '+error.message;agfocusSaveWork(p);
+      }
+    }
+    return false;
+  } finally {
+    const own=branch.flight===token;
+    if(own){branch.flight=null;branch.moving=false;}
+    if(p.focusMount===mount && mount?.isConnected && (own || applied))agfocusPaint(p);
+  }
 }
 async function agfocusExpandWork(p,item,refresh=false) {
   p.focusWork ||= new Map();
+  const key=agfocusWorkKey(item.resolved_source || item.source);
   let branch=p.focusWork.get(item.id);
-  if(branch?.expanded && !refresh)return;
-  branch={expanded:true,items:[],references:[],children:[],related:[],childCursor:null,relationCursor:null,pending:true};p.focusWork.set(item.id,branch);
-  if(!refresh)agfocusSaveWork(p);
-  agfocusPaint(p);agfocusAnnounce(p,'Loading related work…');
-  const mount=p.focusMount;
-  try {
-    await agfocusLoadWork(p,item,branch);
-    if(p.focusWork.get(item.id)!==branch || p.focusMount!==mount || !mount?.isConnected)return;
-    branch.pending=false;p.focusError='';agfocusAnnounce(p,branch.items.length+branch.references.length?`${branch.items.length+branch.references.length} related work items`:'No related work');
-    agfocusPaint(p);
-  } catch(error) {
-    branch.expanded=false;branch.pending=false;p.focusError='Could not load related work. '+error.message;agfocusSaveWork(p);agfocusPaint(p);
+  // A collapsed branch or one bound to a different resolved source never carries its snapshot forward.
+  if(branch && (!branch.expanded || (branch.sourceKey && branch.sourceKey!==key)))branch=null;
+  if(branch && !refresh)return;
+  if(!branch){branch=agfocusNewBranch();p.focusWork.set(item.id,branch);agfocusSaveWork(p);}
+  if(branch.flight) {
+    const kind=branch.flight.kind;
+    await branch.flight.promise;
+    if(kind!=='more' || p.focusWork.get(item.id)!==branch || !branch.expanded)return;
   }
+  const kind=branch.loaded?'refresh':'first';
+  if(kind==='first'){agfocusPaint(p);agfocusAnnounce(p,'Loading related work…');}
+  const flight=agfocusRunWork(p,item,branch,kind);
+  branch.flight.promise=flight;
+  await flight;
 }
 async function agfocusMoreWork(p,item) {
   const branch=p.focusWork?.get(item.id);
-  if(!branch || branch.pending)return;
-  branch.pending=true;agfocusPaint(p);
-  try {await agfocusLoadWork(p,item,branch,true);}
-  catch(error){p.focusError='Could not load more related work. '+error.message;}
-  branch.pending=false;agfocusPaint(p);
+  if(!branch || !branch.loaded || branch.flight)return;
+  const flight=agfocusRunWork(p,item,branch,'more');
+  branch.flight.promise=flight;
+  await flight;
 }
 
 function agfocusWorkExtras(p,node,item) {
@@ -447,10 +503,11 @@ function agfocusWorkExtras(p,node,item) {
   const branch=p.focusWork?.get(item.id);
   if(!branch?.expanded)return;
   const hasMore=!!(branch.childCursor || branch.relationCursor);
-  if(!branch.references?.length && !hasMore && !branch.pending)return;
+  if(!branch.references?.length && !hasMore && branch.loaded)return;
+  const moreFocused=node.contains(document.activeElement) && document.activeElement.classList.contains('agfocus-work-more');
   const row=document.createElement('div');row.className='agfocus-work-extras';row.setAttribute('aria-label','Related work');
   node.querySelector('.agfocus-row').after(row);
-  if(branch.pending){const loading=document.createElement('span');loading.className='muted';loading.textContent='Loading related work…';row.append(loading);return;}
+  if(!branch.loaded){const loading=document.createElement('span');loading.className='muted';loading.textContent='Loading related work…';row.append(loading);return;}
   const icons={file:'M14 3H5v18h14V8z M14 3v5h5 M8 13h8 M8 17h8',table:'M3 4h18v16H3z M3 10h18 M9 4v16',link:'M10 14l4-4 M8 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0 M16 8l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0'};
   for(const ref of branch.references){
     const target=ref.resolved_source,kind=target.type==='table'?'table':['material','email'].includes(target.type)?'file':'link';
@@ -461,8 +518,10 @@ function agfocusWorkExtras(p,node,item) {
     row.append(chip);
   }
   if(hasMore){
-    const more=document.createElement('button');more.type='button';more.className='quiet agfocus-work-more';more.textContent='More related work';
-    more.onclick=event=>{event.stopPropagation();agfocusMoreWork(p,item);};row.append(more);
+    const more=document.createElement('button');more.type='button';more.className='quiet agfocus-work-more';more.textContent=branch.moving?'Loading more related work…':'More related work';
+    more.setAttribute('aria-disabled',String(!!branch.moving));
+    more.onclick=event=>{event.stopPropagation();if(!branch.moving)agfocusMoreWork(p,item);};row.append(more);
+    if(moreFocused)more.focus({preventScroll:true});
   }
 }
 
@@ -495,7 +554,7 @@ function agfocusPaint(p) {
   }
   const list = $('.agfocus-items', host);
   host.dataset.revision=data.revision;
-  const signature=JSON.stringify([data.items,p.focusPageKey,data.next_offset,[...(p.focusWork || [])].map(([id,b])=>[id,b.expanded,b.pending,b.references,!!b.childCursor,!!b.relationCursor])]);
+  const signature=JSON.stringify([data.items,p.focusPageKey,data.next_offset,[...(p.focusWork || [])].map(([id,b])=>[id,b.expanded,b.loaded,b.moving,b.references,!!b.childCursor,!!b.relationCursor])]);
   if(list.dataset.signature===signature) {
     for(const item of data.items) {
       agfocusUnread(p,p.focusCards.get(item.id),item);
