@@ -44,6 +44,9 @@ def main():
     (package/'build.json').write_text(json.dumps({'platform':'linux_x86_64','go_image':IMAGE,'helper_sha256':hashlib.file_digest(helper.open('rb'),'sha256').hexdigest()},indent=2)+'\n')
     (stage/'setup.cfg').write_text('[bdist_wheel]\nplat_name = linux_x86_64\n')
     subprocess.run([sys.executable,'-m','pip','wheel','--no-deps','--wheel-dir',str(work/'dist'),str(stage)],check=True)
+    from source_archive import build_source_archive
+    archive = build_source_archive(source, native, work, IMAGE)
+    print(archive, hashlib.file_digest(archive.open('rb'), 'sha256').hexdigest())
     for wheel in (work/'dist').glob('*.whl'):
         print(wheel,hashlib.file_digest(wheel.open('rb'),'sha256').hexdigest())
 

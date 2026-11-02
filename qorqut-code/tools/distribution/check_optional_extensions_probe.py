@@ -62,5 +62,28 @@ else:
     assert saved['owner']==session['principal_id']
     assert saved['database_inode']==db.stat().st_ino
     assert saved['marker_sha256']==hashlib.sha256(marker.read_bytes()).hexdigest()
+if selected=={'whatsapp'}:
+    helper=root/'runtime/venv/lib/python3.12/site-packages/qorqut_whatsapp/bin/whatsapp-personal'
+    packets=[{'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2025-03-26','capabilities':{},'clientInfo':{'name':'synthetic-native-acceptance','version':'1'}}},
+             {'jsonrpc':'2.0','method':'notifications/initialized'},
+             {'jsonrpc':'2.0','id':2,'method':'tools/list'}]
+    process=subprocess.Popen([helper,'mcp','--socket',root/'instance/operations/.runtime/absent-synthetic-whatsapp.sock'],
+        stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    try:
+        with selectors.DefaultSelector() as ready:
+            ready.register(process.stdout,selectors.EVENT_READ)
+            process.stdin.write(json.dumps(packets[0])+'\n');process.stdin.flush()
+            assert ready.select(15),'Helper initialize timed out'
+            assert json.loads(process.stdout.readline())['id']==1
+            process.stdin.write(''.join(json.dumps(item)+'\n' for item in packets[1:]));process.stdin.flush()
+            assert ready.select(15),'Helper tools listing timed out'
+            listed=json.loads(process.stdout.readline())['result']['tools']
+    finally:
+        process.stdin.close()
+        try: process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill();process.wait()
+        process.stdout.close();process.stderr.close()
+    assert {tool['name'] for tool in listed}=={'whatsapp_read'},listed
 assert not list((root/'runtime/src').rglob('__pycache__'))
 print(json.dumps({'phase':args.mode,'selected':sorted(selected),'owner_session':'ok','task':'preserved','database_inode':db.stat().st_ino,'assets':'served','managed_packages':'present','source_bytecode':'absent'}))

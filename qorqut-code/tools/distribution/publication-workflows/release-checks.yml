@@ -65,6 +65,11 @@ jobs:
           wheel_args=()
           for wheel in "${fastmail_wheels[@]}"; do wheel_args+=(--wheel "$wheel"); done
           python qorqut-code/tools/distribution/extension_bundle.py --id fastmail "${wheel_args[@]}" --output "$optional/bundles/fastmail.tar.gz" > "$optional/fastmail.json"
-          python qorqut-code/tools/distribution/check_optional_extensions.py --archive "$RELEASE_WORK/package/qorqbot-1.3.0-check.${GITHUB_SHA:0:12}-ubuntu24-x86_64.tar.gz" --bundle "telegram=$optional/bundles/telegram.tar.gz" --bundle "fastmail=$optional/bundles/fastmail.tar.gz" --report-directory "$RELEASE_WORK/optional-acceptance"
+          python "$RELEASE_WORK/source/qorqut-code/extensions/whatsapp/tools/build.py" --work "$optional/whatsapp"
+          whatsapp_wheels=("$optional/whatsapp/dist"/qorqut_whatsapp-*.whl)
+          wheel_args=()
+          for wheel in "${whatsapp_wheels[@]}"; do wheel_args+=(--wheel "$wheel"); done
+          python qorqut-code/tools/distribution/extension_bundle.py --id whatsapp "${wheel_args[@]}" --output "$optional/bundles/whatsapp.tar.gz" > "$optional/whatsapp.json"
+          python qorqut-code/tools/distribution/check_optional_extensions.py --archive "$RELEASE_WORK/package/qorqbot-1.3.0-check.${GITHUB_SHA:0:12}-ubuntu24-x86_64.tar.gz" --bundle "whatsapp=$optional/bundles/whatsapp.tar.gz" --bundle "telegram=$optional/bundles/telegram.tar.gz" --bundle "fastmail=$optional/bundles/fastmail.tar.gz" --report-directory "$RELEASE_WORK/optional-acceptance"
       # These jobs validate locally built candidates. They never publish a GitHub
       # Release, modify repository settings, or deploy an installation.
