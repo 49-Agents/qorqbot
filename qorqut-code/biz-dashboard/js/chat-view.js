@@ -514,7 +514,7 @@ function mountChatView(host, options = {}) {
 
   // ---- entries
   const entrySignature = entry => JSON.stringify([entry.speaker, entry.text, entry.partial === true, entry.timestamp, entry.title, entry.showAuthor,
-    entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.collapsedSource, entry.relatedRecord,
+    entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.collapsedSource, entry.relatedRecord, entry.relatedPreview,
     (entry.references || []).map(ref => [ref.key, ref.label, !!ref.disabled]), (entry.typedReferences || []).map(chatViewTypedSignature), (entry.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
   const authorHtml = entry => entry.author && entry.showAuthor !== false
     ? `<div class="gchat-author">${entry.author.avatarHtml ? `<span class="gchat-avatar" aria-hidden="true">${entry.author.avatarHtml}</span>` : ''}<small class="gchat-author-name">${esc(entry.author.name || '')}</small></div>` : '';
@@ -578,8 +578,10 @@ function mountChatView(host, options = {}) {
     if (speaker === 'notice' && notice && typeof notice.verified === 'boolean') node.dataset.verified = String(notice.verified); else delete node.dataset.verified;
     if (speaker === 'notice' && notice?.inputType) node.dataset.inputType = notice.inputType; else delete node.dataset.inputType;
     if(entry.relatedRecord) {
-      const record=entry.relatedRecord,opened=node.querySelector('details')?.open;
-      node.innerHTML=`<details class="gchat-related-record"${opened?' open':''}><summary><span class="gchat-related-icon" aria-hidden="true">${record.type==='signoff'?'◇':record.type==='action'?'↗':'○'}</span><span>${esc(record.label || 'Related item')}</span><small>${esc(record.state || record.type)}</small></summary><div class="gchat-related-detail"><span>${esc(record.summary || [record.type,record.business_name,record.state].filter(Boolean).join(' · '))}</span><button type="button" class="quiet" data-ref-key="open">Open record</button></div></details>`;
+      const record=entry.relatedRecord,preview=entry.relatedPreview;
+      const opened=node._relatedOpen ?? node.querySelector('details')?.open ?? !!preview?.message;
+      node.innerHTML=`<details class="gchat-related-record"${opened?' open':''}><summary><span class="gchat-related-icon" aria-hidden="true">${record.type==='signoff'?'◇':record.type==='action'?'↗':'○'}</span><span>${esc(preview?.label || record.label || 'Related item')}</span><small>${esc([preview?.channel,preview?.state || record.state || record.type].filter(Boolean).join(' · '))}</small><span class="gchat-related-chevron" aria-hidden="true">›</span></summary><div class="gchat-related-detail">${preview?`<div class="gchat-related-preview">${preview.html}</div>`:`<span>${esc(record.summary || [record.type,record.business_name,record.state].filter(Boolean).join(' · '))}</span>`}<button type="button" class="quiet" data-ref-key="open">Open ${record.type==='signoff'?'signoff':'record'} ↗</button></div></details>`;
+      node.querySelector('summary').onclick=()=>{node._relatedOpen=!node.querySelector('details').open;};
       return {node,isNew};
     }
     let body;

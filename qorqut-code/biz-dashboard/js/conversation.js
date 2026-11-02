@@ -89,14 +89,42 @@ function conversationEntries(notes,adapter) {
   });
 }
 // Related records have their own identities and pagination; they never enter the message store.
-function conversationTimeline(s,adapter) {
+function conversationRecordKey(record) { return `${record.type}:${record.business_id || 'global'}:${record.id}`; }
+function conversationRelatedRecords(s,source) {
+  const records=[...(s.related || [])];
+  // The source signoff itself is not returned by the relationships query.
+  if(source.type==='signoff')records.unshift({...source,label:'Signoff'});
+  for(const note of s.notes)for(const ref of note.refs || []) {
+    if(ref.type==='signoff' && !ref.unavailable)records.push({...ref,created_at:note.created_at});
+  }
+  return [...new Map(records.map(record=>[conversationRecordKey(record),record])).values()];
+}
+// Reuse the frozen, escaped Signoff renderers. This is a read-only projection, never a message or decision.
+async function conversationSignoffPreview(record) {
+  const slug=record.business_slug || (state.bizs || []).find(b=>b.id===record.business_id)?.slug;
+  if(record.business_id && !slug)throw new Error('Review scope unavailable');
+  const prefix=record.business_id?`/biz/${encodeURIComponent(slug)}`:'/root';
+  const s=coreData(await conversationRequest(api(`${prefix}/signoffs/${encodeURIComponent(record.id)}`))).signoff;
+  if(!s || s.id!==record.id)throw new Error('Signoff unavailable');
+  const effects=(s.preview?.effects || []).map(e=>typeof e==='string'?e:e?.description).filter(e=>typeof e==='string');
+  const proposal=sgProposal(s,effects);
+  const platform=s.category==='platform_action'?sgPlatformPreview(s):'';
+  const message=!!proposal || s.platform?.submission?.tool==='email.send';
+  const html=proposal?.html || platform || (s.input?`<p>${renderSafeLinks(s.input.explanation || '')}</p>`:
+    s.preview?.changes?sgChangesHtml(s.preview):'');
+  return {html:html || '<p>Preview unavailable. Open the signoff to review it.</p>',message,
+    label:s.title || record.label,state:sgItemStatus(s,{[s.state]:s.state}),created_at:s.created_at,
+    channel:s.operation_name==='whatsapp_send'?'WhatsApp':message?'Email':'Signoff'};
+}
+function conversationTimeline(s,adapter,source,previews) {
   const entries=conversationEntries(s.notes,adapter);
   if(!adapter.related)return entries;
   const earliest=s.before?s.notes[0]?.created_at:null;
-  for(const record of s.related || []) {
-    if(earliest && record.created_at<earliest)continue;
+  for(const record of conversationRelatedRecords(s,source)) {
+    const preview=previews.get(conversationRecordKey(record));
+    if(earliest && (preview?.created_at || record.created_at)<earliest)continue;
     entries.push({key:`related:${record.type}:${record.business_id || 'global'}:${record.id}`,speaker:'related',
-      timestamp:record.created_at,relatedRecord:record,references:[{key:'open',label:'Open record',value:record}]});
+      timestamp:preview?.created_at || record.created_at,relatedRecord:record,relatedPreview:preview,references:[{key:'open',label:'Open record',value:record}]});
   }
   return entries.sort((a,b)=>(a.timestamp || '').localeCompare(b.timestamp || ''));
 }
@@ -109,6 +137,9 @@ function conversationMount(host,source,adapter={}) {
   let disposed=false,view,chat,errorText='',restoring=false,saved=null;
   host.dataset.conversation=key;host._source=source;
   const s=conversationState(source);
+  const recordSource={...source,business_slug:source.biz,business_id:source.business_id ?? adapter.privateSource?.business_id ?? (state.bizs || []).find(b=>b.slug===source.biz)?.id ?? null};
+  let previews=new Map(),relatedReady=false;
+  host.classList.toggle('conversation-thread',!!adapter.related);
   const mountId=++conversationMountId;
   const panelId=`conversation-panel-${mountId}`;
   host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span><span class="conversation-unread" data-conversation-unread aria-hidden="true" hidden></span></button><section id="${panelId}" class="conversation-panel" role="region" aria-label="Conversation with Ordubashy" hidden><div class="conversation-view"></div></section>`;
@@ -142,36 +173,44 @@ function conversationMount(host,source,adapter={}) {
   const clearError=()=>{if(errorText)setError('');};
   let painted='';
   function paint(mode='auto') {
-    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null]);
+    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,relatedReady,[...previews]]);
     if(painted===signature && mode==='auto')return;
     painted=signature;
-    chat.render({entries:conversationTimeline(s,adapter),older:{visible:!!s.before,disabled:false},empty:{text:s.loaded && !s.notes.length?'No messages yet':''}},{scroll:mode});
+    chat.render({entries:conversationTimeline(s,{...adapter,related:adapter.related && relatedReady},recordSource,previews),older:{visible:!!s.before,disabled:false},empty:{text:s.loaded && !s.notes.length?'No messages yet':''}},{scroll:mode});
     if(adapter.inlineComposer)host.querySelectorAll('[title]').forEach(el=>el.removeAttribute('title'));
   }
-  let relatedPending=false;
+  let relatedPending=false,relatedGeneration=0;
   const relatedMore=document.createElement('button');relatedMore.type='button';relatedMore.className='quiet conversation-related-more';relatedMore.hidden=true;
   panel.append(relatedMore);
   async function loadRelated(more=false) {
     if(!adapter.related || relatedPending || !current() || !expanded)return;
     relatedPending=true;relatedMore.disabled=true;
+    const generation=relatedGeneration;
     try {
       let result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,...(more?{offset:s.relatedOffset}:{})});
-      if(!current())return;
+      if(!current() || generation!==relatedGeneration)return;
       const records=more?[...(s.related || []),...(result.items || [])]:[...(result.items || [])];
       let pages=more?(s.relatedPages || 1)+1:1;
       // Refresh the depth already opened, so polling neither discards older related rows nor retains revoked ones.
       while(!more && pages<(s.relatedPages || 1) && result.next_offset!=null) {
         result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,offset:result.next_offset});
-        if(!current())return;
+        if(!current() || generation!==relatedGeneration)return;
         records.push(...(result.items || []));pages++;
       }
       s.related=[...new Map(records.map(r=>[`${r.type}:${r.business_id || 'global'}:${r.id}`,r])).values()];
       s.relatedOffset=result.next_offset;s.relatedPages=pages;
       relatedMore.hidden=s.relatedOffset==null;relatedMore.textContent='More related items';
+      const signoffs=conversationRelatedRecords(s,recordSource).filter(r=>r.type==='signoff');
+      const loaded=await Promise.all(signoffs.map(async record=>{
+        try {return [conversationRecordKey(record),await conversationSignoffPreview(record)];}
+        catch(_) {return [conversationRecordKey(record),{html:'<p>Message preview unavailable. Open the signoff to review it.</p>',message:true}];}
+      }));
+      if(!current() || generation!==relatedGeneration)return;
+      previews=new Map(loaded);relatedReady=true;
       paint();adapter.onRelated?.(s.related);
     } catch(e) {
-      if(!current())return;
-      if(['forbidden','not_found','policy_denied'].includes(e.code)){s.related=[];paint();adapter.onRelated?.([]);}
+      if(!current() || generation!==relatedGeneration)return;
+      s.related=[];previews=new Map();relatedReady=false;s.relatedOffset=null;s.relatedPages=0;paint();adapter.onRelated?.([]);
       relatedMore.hidden=false;relatedMore.textContent="Couldn't load related items · Retry";
     } finally {relatedPending=false;relatedMore.disabled=false;}
   }
@@ -221,13 +260,13 @@ function conversationMount(host,source,adapter={}) {
       if(more || !s.loaded || (!s.before && missingHistory))s.before=data.next_before;
       s.loaded=true;
       if(!more && !expanded && s.readState)setUnread(s.readState.unread===true);
-      if(current())paint(more?'prepend':'auto');
+      if(current()){paint(more?'prepend':'auto');void loadRelated();}
       for(const mount of s.mounts)if(mount!==host && sameState(mount) && mount._conversation?.isExpanded())mount._conversation._paint?.();
       if(!more && options.acknowledge)await acknowledge();
     } catch(e){
       if(!current())return;
       if(['forbidden','not_found','policy_denied','invalid_principal'].includes(e.code)){
-        s.notes=[];s.related=[];s.participants=[];s.loaded=false;s.before=null;adapter.onRelated?.([]);
+        s.notes=[];s.related=[];previews=new Map();relatedReady=false;relatedGeneration++;s.participants=[];s.loaded=false;s.before=null;adapter.onRelated?.([]);
         paint();
         adapter.onUnavailable?.(e);
       }
@@ -291,7 +330,7 @@ function conversationMount(host,source,adapter={}) {
         chat.layout();
         if(target)chat.setScrollState(target);
       } finally {restoring=false;}
-      void load(false,{acknowledge:true});void loadRelated();
+      void load(false,{acknowledge:true});
     }
   }
   toggle.onclick=()=>expand(!expanded,true);
@@ -323,7 +362,7 @@ function conversationMount(host,source,adapter={}) {
   chat.setDraft(s.text);
   view=host._conversation={
     dismissOnOutside:adapter.dismissOnOutside!==false,
-    refresh:()=>{if(expanded){void loadRelated();return load(false);}},
+    refresh:()=>{if(expanded)return load(false);},
     isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),
     setUnread,
     hasDraft:()=>!!(s.text || s.files.length),
