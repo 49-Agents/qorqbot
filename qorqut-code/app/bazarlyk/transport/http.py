@@ -489,6 +489,7 @@ class HTTPAPI:
                     "calendar_event_create", "calendar_event_update", "calendar_event_delete", "calendar_event_respond",
                     "owner_reminder", "telegram_status", "telegram_delivery_get", "telegram_delivery_resolve", "telegram_notify",
                     "focus_get", "focus_present", "focus_edit", "focus_move", "focus_set_archived", "focus_reply", "signoffs_comment", "signoffs_notes_list", "tasks_thread_get", "crm_activity_list", "crm_activity_record",
+                    "attention_get", "attention_add", "attention_remove", "workers_list",
                     "workspace_types", "workspace_get",
                     "owner_conversation_get", "owner_conversation_send", "owner_conversation_mark_read", "owner_conversations_list", "owner_conversation_related", "owner_conversation_peers",
                     # Project record reads and explicit links: the six project_* operations and the narrow reminder read.
