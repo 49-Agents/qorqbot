@@ -140,6 +140,7 @@ class ProjectRecords:
                   "include_closed": args.get("include_closed", True),
                   "include_archived": args.get("include_archived", False)}
         collected, cursor = [], args.get("cursor")
+        seen_cursors = {cursor} if cursor else set()
         while len(collected) < offset + limit:
             if cursor:
                 wanted["cursor"] = cursor
@@ -147,6 +148,9 @@ class ProjectRecords:
             collected.extend(page_items)
             if not cursor:
                 break
+            if cursor in seen_cursors:
+                break
+            seen_cursors.add(cursor)
             # A hidden/denied-only window is not the end: the inventory cursor continues at the real frontier.
         selected = collected[offset:offset + limit]
         return {"items": selected, "next_offset": offset + limit

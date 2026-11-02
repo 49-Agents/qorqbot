@@ -60,9 +60,6 @@ PAGE_EXAMINE = 4
 # per-request work budget, never a total cap: an empty visible page still returns a cursor so the next request
 # continues at the same reader frontier.
 AUTHORIZATION_BUDGET = 500
-# Extensions have no bounded sort-metadata hook; resolve at most this many of their candidates per request and let
-# the ordinary cursor boundary continue. Unrelated sections never enumerate extension families at all.
-EXTENSION_BUDGET = 100
 # The reason a candidate cannot be shown is never disclosed: only these mean "skip it silently".
 SKIP = frozenset(access.UNAVAILABLE) | ITEM_UNAVAILABLE | {"business_archived"}
 # A whole family the caller may not read is omitted, never disclosed and never fatal to the rest of the page.
@@ -297,11 +294,18 @@ class Inventory:
                     clause += " OR target_type NOT IN (" + ",".join("?" for _ in KNOWN_TYPES) + ")"
                     values += sorted(KNOWN_TYPES)
                 clause += ")"
+            core = tuple(sorted(TARGET_TYPES - set(self._extension_kind_names())))
+            clause += " AND l.target_type IN (" + ",".join("?" for _ in core) + ")"
+            values += list(core)
             add("SELECT COALESCE((" + self._link_ts_sql() + "),l.updated_at) ts,l.target_type type,"
                 "COALESCE(l.target_business_id,'') scope,l.target_id id,0 owned,1 linked,l.id link_id,l.revision "
                 "link_revision FROM project_item_links l WHERE l.business_id=?" + clause,
                 [scan, *values])
         return selects, params
+
+    def _extension_kind_names(self):
+        return {kind for contribution in self.items.contributions for kind in contribution.kinds
+                if kind not in KNOWN_TYPES}
 
     @staticmethod
     def _link_ts_sql():
@@ -539,73 +543,51 @@ class Inventory:
 
     # -- extension kinds -------------------------------------------------------------------------------------------
 
-    def extensions(self, ctx, scan, args, uow, *, budget=EXTENSION_BUDGET):
-        """The selected extension kinds, bounded by one per-request budget; returns ``(items, more, resolved)``.
-
-        Installed extension hooks expose candidate identities but no sort-metadata cursor. We therefore enumerate only
-        a bounded batch per request, resolve each candidate through its own authorized read, and report whether the
-        candidate stream has more. Unselected families are never enumerated, and a section that cannot contain an
-        extension kind never scans it.
-        """
+    def extension_sources(self, args):
+        """The selected extension contributions and their Project metadata ports, never the aggregate candidates."""
         wanted = args.get("type")
-        section = args.get("section", "all")
-        if section not in ("all", "other"):
-            return [], False, 0
-        if wanted and wanted in KNOWN_TYPES:
-            return [], False, 0
-        kinds = {kind for contribution in self.items.contributions
-                 for kind in contribution.kinds if kind not in KNOWN_TYPES}
-        if not kinds:
-            return [], False, 0
-        read_ctx = self.scope_context(ctx, scan)
-        seen, found, resolved = set(), [], 0
-        iterator = iter(self.items.candidates(read_ctx, uow, kind=wanted))
-        more = False
-        while True:
-            if resolved >= budget:
-                more = next(iterator, None) is not None
-                break
-            try:
-                candidate = next(iterator)
-            except StopIteration:
-                break
-            if candidate["type"] in KNOWN_TYPES or (wanted and candidate["type"] != wanted):
-                continue
-            if section != "all" and section_of(candidate) != section:
-                continue
-            key = (candidate["type"], candidate["id"])
-            if key in seen:
-                continue
-            seen.add(key)
-            try:
-                view = self.items.resolve(read_ctx, {"type": candidate["type"], "id": candidate["id"]}, uow,
-                                          allow_busy=True)
-            except DomainError as error:
-                if error.code in SKIP:
+        section = section_of({"type": wanted}) if wanted else args.get("section", "all")
+        if section not in ("all", "other") or (wanted and wanted in KNOWN_TYPES):
+            return []
+        sources = []
+        for contribution in self.items.contributions:
+            for kind in contribution.kinds:
+                if kind in KNOWN_TYPES or (wanted and kind != wanted):
                     continue
-                raise
-            resolved += 1
-            scope = view.get("business_id", scan)
-            if scope != scan:
-                continue
-            item = self.from_neutral(read_ctx, candidate, view, uow)
-            if not self.visible(item, args):
-                continue
-            if section != "all" and section_of(item) != section:
-                continue
-            found.append(item)
-        return found, more, resolved
+                lookup = contribution.lookup
+                if not callable(getattr(lookup, "project_inventory_window", None)):
+                    raise DomainError("operation_unavailable",
+                                      f"Project inventory metadata is unavailable for {kind}")
+                sources.append((kind, lookup))
+        return sources
+
+    @staticmethod
+    def _metadata_key(row):
+        return (row["updated_at"], row["type"], _scope(row.get("business_id")), row["id"])
+
+    def metadata_window(self, ctx, uow, sources, project_id, scan, include_links, after, limit):
+        """A bounded merged metadata window from every selected extension contributor."""
+        rows, has_more = [], False
+        for kind, lookup in sources:
+            result = lookup.project_inventory_window(
+                ctx, uow, kind=kind, project_id=project_id, source_business_id=scan,
+                include_links=include_links, after=after, limit=limit)
+            if not isinstance(result, dict) or not isinstance(result.get("rows"), list):
+                raise DomainError("operation_unavailable", f"Project inventory metadata is invalid for {kind}")
+            has_more = has_more or bool(result.get("has_more"))
+            for row in result["rows"]:
+                if row.get("type") != kind or not isinstance(row.get("id"), str) \
+                        or not isinstance(row.get("updated_at"), str):
+                    raise DomainError("operation_unavailable", f"Project inventory metadata is invalid for {kind}")
+                rows.append({"type": kind, "id": row["id"], "business_id": row.get("business_id"),
+                             "updated_at": row["updated_at"]})
+        rows.sort(key=lambda row: order_key(self._metadata_key(row)))
+        return rows, has_more
 
     # -- one page --------------------------------------------------------------------------------------------------
 
     def page(self, ctx, project_id, args, uow, *, scan, include_links, projects=False):
-        """One bounded page of the selected inventory scope, owned and explicitly linked, deduplicated by identity.
-
-        A SQL window carries only identity/sort metadata. Extension candidates are a separate bounded stream; an
-        older extra is never allowed to advance the global frontier past an unexamined SQL window. Canonical-read work
-        is capped per request, but the cursor always continues at the real frontier, so a page may legitimately be
-        empty with a non-null cursor while a reader still has hidden rows.
-        """
+        """One bounded page merging core SQL and provider metadata, then resolving each consumed identity."""
         limit = args.get("limit", DEFAULT_LIMIT)
         if type(limit) is not int or not 1 <= limit <= MAX_LIMIT:
             raise DomainError("validation_error", "limit must be between 1 and 100")
@@ -619,107 +601,105 @@ class Inventory:
                    "projects": projects}
         after = self._decode(args.get("cursor"), binding)
         selects, params = self._selects(ctx, scan, args, include_links=include_links, projects=projects)
-        budget = AUTHORIZATION_BUDGET
-        extras, extras_more, extension_reads = self.extensions(ctx, scan, args, uow,
-                                                              budget=min(EXTENSION_BUDGET, budget))
-        budget -= extension_reads
-        extras = sorted((item for item in extras if is_after(item_key(item), after)),
-                        key=lambda item: order_key(item_key(item)))
-        seen = set()
-        items = []
+        sources = self.extension_sources(args)
         window = max(limit * PAGE_EXAMINE, 50)
-        probe = False
+        budget = AUTHORIZATION_BUDGET
+        sql_rows, sql_done = [], not selects
+        provider_rows = {kind: [] for kind, _ in sources}
+        provider_more = {kind: True for kind, _ in sources}
+        provider_done = {kind: False for kind, _ in sources}
+        providers = dict(sources)
+        seen, items = set(), []
+
+        def load_sql():
+            nonlocal sql_rows, sql_done
+            if sql_rows or sql_done:
+                return
+            sql_rows = self._window(uow, selects, params, after, window) if selects else []
+            sql_done = not sql_rows
+
+        def load_provider(kind):
+            nonlocal provider_rows, provider_more, provider_done
+            if provider_rows[kind]:
+                return
+            if provider_done[kind] or not provider_more[kind]:
+                return
+            rows, more = self.metadata_window(ctx, uow, [(kind, providers[kind])], project_id, scan,
+                                               include_links, after, min(100, window))
+            provider_rows[kind] = sorted(
+                (row for row in rows if is_after(self._metadata_key(row), after)),
+                key=lambda row: order_key(self._metadata_key(row)))
+            provider_more[kind] = more
+            provider_done[kind] = not provider_rows[kind] and not more
+
         while len(items) < limit and budget > 0:
-            rows = self._window(uow, selects, params, after, window) if selects else []
-            exhausted = len(rows) < window
-            last_sql = (rows[-1]["ts"], rows[-1]["type"], _scope(rows[-1]["scope"]), rows[-1]["id"]) if rows else None
-            entries = []
-            for row in rows:
-                entries.append(("row", row, (row["ts"], row["type"], _scope(row["scope"]), row["id"])))
-            for item in extras:
-                key = item_key(item)
-                if not is_after(key, after):
-                    continue
-                # With more SQL rows behind this window, only extras up to its last key belong to the consumed
-                # frontier. An older extra waits; it must never jump over unexamined SQL rows.
-                if last_sql is not None and order_key(key) > order_key(last_sql):
-                    continue
-                entries.append(("item", item, key))
-            entries.sort(key=lambda entry: order_key(entry[2]))
-            if not entries:
-                if extras_more:
-                    probe = True
+            load_sql()
+            for kind in providers:
+                load_provider(kind)
+            heads = []
+            if sql_rows:
+                row = sql_rows[0]
+                key = (row["ts"], row["type"], _scope(row["scope"]), row["id"])
+                heads.append(("sql", None, row, key))
+            for kind in providers:
+                if provider_rows[kind]:
+                    row = provider_rows[kind][0]
+                    key = self._metadata_key(row)
+                    if is_after(key, after):
+                        heads.append(("extension", kind, row, key))
+            if not heads:
                 break
-            consumed_extras = set()
-            for kind, value, key in entries:
-                if budget <= 0:
-                    break
-                if not is_after(key, after):
+            source, kind, row, key = min(heads, key=lambda entry: order_key(entry[3]))
+            after = list(key)
+            budget -= 1
+            if source == "sql":
+                sql_rows.pop(0)
+                resolver_scope = _unscope(row["scope"])
+            else:
+                provider_rows[kind].pop(0)
+                resolver_scope = row.get("business_id")
+            try:
+                item = self.resolve_target(ctx, project_id, row["type"], row["id"], resolver_scope, uow,
+                                           allow_self=True)
+            except DomainError as error:
+                if error.code in SKIP:
                     continue
-                after = list(key)
-                budget -= 1
-                if kind == "item":
-                    consumed_extras.add(target_key(value))
-                    candidate = self._clean(value)
-                    candidate["association"] = self.association_for(ctx, uow, candidate, project_id)
-                    if args.get("query") and not self._matches(candidate, args["query"]):
+                raise
+            identity = target_key(item)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            if source == "sql" and include_links:
+                item["association"] = association(row["owned"], {"id": row["link_id"], "revision": row["link_revision"]}
+                                                  if row["linked"] and row["link_id"] else None)
+            else:
+                item["association"] = self.association_for(ctx, uow, item, project_id)
+            if not self.visible(item, args):
+                continue
+            if sections != "all" and section_of(item) != sections:
+                continue
+            if args.get("type") and item["type"] != args["type"]:
+                continue
+            if args.get("query") and not self._matches(item, args["query"]):
+                continue
+            if args.get("root_tasks_only") and item["type"] == "task":
+                # The parent probe may perform another canonical resolution; charge it to the same request budget.
+                # If this request is exhausted, keep the resolved item rather than losing the examined source range.
+                if budget > 0:
+                    budget -= 1
+                    if self.represented_parent(ctx, project_id, item, args, uow):
                         continue
-                    if sections != "all" and section_of(candidate) != sections:
-                        continue
-                    identity = target_key(candidate)
-                    if identity in seen:
-                        continue
-                    seen.add(identity)
-                    items.append(candidate)
-                    if len(items) >= limit:
-                        break
-                    continue
-                row = value
-                try:
-                    item = self.resolve_target(ctx, project_id, row["type"], row["id"], _unscope(row["scope"]), uow,
-                                               allow_self=True)
-                except DomainError as error:
-                    if error.code in SKIP:
-                        continue
-                    raise
-                key_identity = target_key(item)
-                if key_identity in seen:
-                    continue
-                seen.add(key_identity)
-                if include_links:
-                    item["association"] = association(row["owned"], {"id": row["link_id"], "revision": row["link_revision"]}
-                                                      if row["linked"] and row["link_id"] else None)
-                else:
-                    item["association"] = self.association_for(ctx, uow, item, project_id)
-                if not self.visible(item, args):
-                    continue
-                if sections != "all" and section_of(item) != sections:
-                    continue
-                if args.get("type") and item["type"] != args["type"]:
-                    continue
-                if args.get("query") and not self._matches(item, args["query"]):
-                    continue
-                if args.get("root_tasks_only") and item["type"] == "task" \
-                        and self.represented_parent(ctx, project_id, item, args, uow):
-                    continue
-                items.append(self._clean(item))
-                if len(items) >= limit:
-                    break
-            extras = [item for item in extras if target_key(item) not in consumed_extras]
-            if len(items) >= limit:
+            items.append(self._clean(item))
+        more = False
+        if selects and self._window(uow, selects, params, after, 1, probe=True):
+            more = True
+        for kind, _lookup in sources:
+            rows, extra = self.metadata_window(ctx, uow, [(kind, providers[kind])], project_id, scan,
+                                                include_links, after, 1)
+            if rows or extra or provider_rows[kind]:
+                more = True
                 break
-            if not exhausted:
-                continue
-            if extras:
-                # SQL is exhausted; process the remaining extras in the next loop with an empty window.
-                if budget <= 0:
-                    break
-                continue
-            break
-        more_rows = bool(self._window(uow, selects, params, after, 1, probe=True)) if selects else False
-        more_extras = extras_more or any(is_after(item_key(item), after) for item in extras)
-        probe = more_rows or more_extras
-        cursor = self._encode(binding, after) if probe and after is not None else None
+        cursor = self._encode(binding, after) if more and after is not None else None
         return items, cursor
 
     def associate(self, ctx, uow, item, project_id):
