@@ -58,9 +58,12 @@ WHEN NEW.parent_id IS NOT NULL AND (
         SELECT t.parent_id FROM tasks t JOIN up ON t.id=up.id AND t.business_id IS NEW.business_id WHERE t.parent_id IS NOT NULL)
       SELECT 1 FROM up WHERE id=NEW.id))
 BEGIN SELECT RAISE(ABORT,'A Task parent chain cannot contain a cycle or leave its owning scope'); END""",
+    # Only an armed relocation (``storage.relocation``) may change the owning scope, and nothing else about the identity.
     """CREATE TRIGGER tasks_scope_identity BEFORE UPDATE OF id,business_id,created_by,created_at ON tasks
-WHEN NEW.id IS NOT OLD.id OR NEW.business_id IS NOT OLD.business_id OR NEW.created_by IS NOT OLD.created_by
-  OR NEW.created_at IS NOT OLD.created_at
+WHEN (NEW.id IS NOT OLD.id OR NEW.business_id IS NOT OLD.business_id OR NEW.created_by IS NOT OLD.created_by
+  OR NEW.created_at IS NOT OLD.created_at)
+ AND NOT (NEW.id IS OLD.id AND NEW.created_by IS OLD.created_by AND NEW.created_at IS OLD.created_at
+  AND NEW.business_id IS NOT OLD.business_id AND relocation_permits(OLD.business_id,NEW.business_id,OLD.id))
 BEGIN SELECT RAISE(ABORT,'A Task keeps its identity, owning scope and creator'); END""",
     # A Task with a retained discussion is part of the record and is not deleted.
     """CREATE TRIGGER tasks_keep_discussion BEFORE DELETE ON tasks
@@ -103,15 +106,43 @@ END""",
 )""",
     """CREATE UNIQUE INDEX task_snooze_wakes_global_key ON task_snooze_wakes(task_id,snooze_generation) WHERE business_id IS NULL""",
     """CREATE TRIGGER task_snooze_wakes_immutable BEFORE UPDATE ON task_snooze_wakes
+WHEN NOT (NEW.business_id IS NOT OLD.business_id AND NEW.task_id IS OLD.task_id AND NEW.snooze_generation IS OLD.snooze_generation
+  AND NEW.snoozed_until IS OLD.snoozed_until AND NEW.event_id IS OLD.event_id AND NEW.created_at IS OLD.created_at
+  AND relocation_permits(OLD.business_id,NEW.business_id,OLD.task_id))
 BEGIN SELECT RAISE(ABORT,'A recorded snooze wake is immutable'); END""",
     """CREATE TRIGGER task_snooze_wakes_keep BEFORE DELETE ON task_snooze_wakes
 BEGIN SELECT RAISE(ABORT,'A recorded snooze wake is retained'); END""",
+    # The append-only record of every Task relocation: where one Task (identified across moves by its id and its immutable
+    # creation time) was, where it went and under whose authority. It is an audit and location aid for stale references,
+    # never a second Task store, and it is written only by the relocation helper in the same transaction as the move.
+    """CREATE TABLE task_moves (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    move_id TEXT NOT NULL CHECK(length(move_id)=36),
+    task_id TEXT NOT NULL,
+    source_business_id TEXT REFERENCES businesses(id),
+    destination_business_id TEXT NOT NULL REFERENCES businesses(id),
+    task_created_at TEXT NOT NULL,
+    previous_parent_id TEXT,
+    revision_before INTEGER NOT NULL CHECK(revision_before >= 1),
+    revision_after INTEGER NOT NULL CHECK(revision_after > revision_before),
+    actor_id TEXT NOT NULL REFERENCES principals(id),
+    moved_at TEXT NOT NULL,
+    UNIQUE(move_id,task_id),
+    CHECK(source_business_id IS NOT destination_business_id)
+)""",
+    """CREATE INDEX task_moves_source ON task_moves(source_business_id,task_id,seq)""",
+    """CREATE INDEX task_moves_destination ON task_moves(destination_business_id,task_id,seq)""",
+    """CREATE TRIGGER task_moves_immutable_update BEFORE UPDATE ON task_moves
+BEGIN SELECT RAISE(ABORT,'A recorded Task move is immutable'); END""",
+    """CREATE TRIGGER task_moves_keep BEFORE DELETE ON task_moves
+BEGIN SELECT RAISE(ABORT,'A recorded Task move is retained'); END""",
 )
 
 TABLES = {
     "tasks": TableSpec(("business_id", "id"), "business_id"),
     "task_completions": TableSpec(("business_id", "task_id"), "business_id", False, None),
     "task_snooze_wakes": TableSpec(("business_id", "task_id", "snooze_generation"), "business_id", False, None),
+    "task_moves": TableSpec(("seq",), mutable=False, revision_column=None),
 }
 # The per-scope configuration row (``business_configs`` domain ``tasks``: typed custom field definitions) stays in the
 # host's configuration table; the engine only requires it and the discussion/tag stores it writes beside.

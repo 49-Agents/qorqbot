@@ -158,7 +158,8 @@ def message_view(row, uow, resolve_refs: Callable | None = None) -> dict:
                 attribution=json.loads(row["attribution_json"]), refs=json.loads(row["refs_json"]),
                 change=json.loads(row["change_json"]) if row["change_json"] else None)
     if row["kind"] == "comment" and resolve_refs is not None:
-        view["refs"] = resolve_refs(view)
+        # The stored scope of the references travels beside the message, not inside its public shape.
+        view["refs"] = resolve_refs({**view, "reference_namespace": row["reference_namespace"] if "reference_namespace" in row.keys() else None})
     return author(view, uow)
 
 

@@ -6,6 +6,7 @@ from qorqut_operations.application.plans import IDENTITY, PlanBuilder, schema
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError, plain, new_id
 from qorqut_operations.conversations import SUMMARY, author, normalize_summary, participants
+from qorqut_operations.tasks.history import HistoricalReferences
 from qorqut_operations.team_channel import reject_owner_team_write
 
 
@@ -100,11 +101,24 @@ class SignoffNotes:
                 self.app.authorize(ctx,descriptor,(),uow,namespace='business:'+ctx.business_id if ctx.business_id else 'global')
                 args={target.argument:reference['id']}
                 descriptor.read(ctx,args,None,uow)
-                result.append(dict(reference))
-            except DomainError:
+                # A displayed Task reference always names the place it was read in; the stored note stays as written.
+                result.append({**reference, **HistoricalReferences.place(uow, ctx.business_id)} if kind=='task' and not strict else dict(reference))
+            except DomainError as error:
                 if strict: raise
-                result.append({'type':reference['type'],'id':reference['id'],'unavailable':True})
+                result.append(self.relocated(reference,error,uow) or {'type':reference['type'],'id':reference['id'],'unavailable':True})
         return result
+
+    @staticmethod
+    def relocated(reference,error,uow):
+        """The display of a stored reference to a Task that has since moved, for a reader who may read it where it is now.
+
+        Read-only and opt-in (``strict=False`` display): the note keeps naming the old scope, and ``record_moved`` is only ever
+        raised for a caller authorized at the destination, so nothing is disclosed to anyone else."""
+        if error.code!='record_moved' or reference.get('type')!='task': return None
+        task=(error.details or {}).get('task') or {}
+        project=uow.repository('businesses').get(task.get('business_id')) if task.get('business_id') else None
+        if project is None: return None
+        return {**reference,**HistoricalReferences.place(uow,project['id'])}
 
     def append(self, ctx, row, text, uow, *, refs=(), summary=None):
         self.validate(text)

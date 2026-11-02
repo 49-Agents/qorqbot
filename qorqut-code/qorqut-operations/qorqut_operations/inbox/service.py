@@ -20,6 +20,7 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import UUID, PlanBuilder, schema, timestamp, utc_clock
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.discussion import ThreadItem, set_follow
+from qorqut_operations.tasks.relocation import moved_location
 from qorqut_operations.tasks.scope import task_context
 
 from .events import row_for, source_summary
@@ -191,6 +192,12 @@ class InboxService:
                         and not self.messages.collapsed(message) and self.messages.visible(ctx, message))
         if self.visible(ctx, row['source_type'], row['source_id'], row['business_id'], uow):
             return True
+        if row['source_type'] == 'tasks':
+            # An event recorded before the Task moved keeps its original scope; it is delivered only if this agent may read the
+            # Task where it is now (the destination's own rules), never because of the scope it was recorded under.
+            location = moved_location(uow, row['business_id'], row['source_id'])
+            if location is not None and self.visible(ctx, 'tasks', row['source_id'], location, uow):
+                return True
         if row['event_type'] != 'deleted' or row['source_type'] not in {'tasks', 'documents'}:
             return False
         if row['business_id'] is not None and not self.host.business_member(ctx, row['business_id'], uow):

@@ -69,18 +69,26 @@ THREAD_SCHEMA = (
  change_json TEXT CHECK(change_json IS NULL OR json_valid(change_json)),
  event_id INTEGER REFERENCES inbox_events(id),
  created_at TEXT NOT NULL,
+ reference_namespace TEXT CHECK(reference_namespace IS NULL OR reference_namespace='global' OR reference_namespace LIKE 'business:_%'),
  PRIMARY KEY (business_id, id),
  CHECK((kind='system') = (author_id IS NULL))
 )""",
     """CREATE UNIQUE INDEX thread_messages_global_key ON thread_messages(id) WHERE business_id IS NULL""",
     """CREATE INDEX thread_messages_item ON thread_messages(business_id,item_type,item_id,created_at,id)""",
     """CREATE TRIGGER thread_messages_immutable_update BEFORE UPDATE ON thread_messages
-WHEN OLD.event_id IS NOT NULL OR NEW.id IS NOT OLD.id OR NEW.business_id IS NOT OLD.business_id
+WHEN (OLD.event_id IS NOT NULL OR NEW.id IS NOT OLD.id OR NEW.business_id IS NOT OLD.business_id
  OR NEW.item_type IS NOT OLD.item_type OR NEW.item_id IS NOT OLD.item_id OR NEW.kind IS NOT OLD.kind
  OR NEW.body IS NOT OLD.body OR NEW.summary IS NOT OLD.summary OR NEW.refs_json IS NOT OLD.refs_json
  OR NEW.author_id IS NOT OLD.author_id OR NEW.recorder_id IS NOT OLD.recorder_id
  OR NEW.attribution_json IS NOT OLD.attribution_json OR NEW.change_json IS NOT OLD.change_json
- OR NEW.created_at IS NOT OLD.created_at
+ OR NEW.created_at IS NOT OLD.created_at OR NEW.reference_namespace IS NOT OLD.reference_namespace)
+ AND NOT (OLD.item_type='task' AND NEW.business_id IS NOT OLD.business_id AND NEW.event_id IS OLD.event_id
+ AND NEW.id IS OLD.id AND NEW.item_type IS OLD.item_type AND NEW.item_id IS OLD.item_id AND NEW.kind IS OLD.kind
+ AND NEW.body IS OLD.body AND NEW.summary IS OLD.summary AND NEW.refs_json IS OLD.refs_json
+ AND NEW.author_id IS OLD.author_id AND NEW.recorder_id IS OLD.recorder_id
+ AND NEW.attribution_json IS OLD.attribution_json AND NEW.change_json IS OLD.change_json
+ AND NEW.created_at IS OLD.created_at AND relocation_permits(OLD.business_id,NEW.business_id,OLD.item_id)
+ AND NEW.reference_namespace IS COALESCE(OLD.reference_namespace, CASE WHEN OLD.business_id IS NULL THEN 'global' ELSE 'business:' || OLD.business_id END))
 BEGIN SELECT RAISE(ABORT,'Thread messages are immutable; only the delivering event is attached once'); END""",
     """CREATE TRIGGER thread_messages_immutable_delete BEFORE DELETE ON thread_messages
 BEGIN SELECT RAISE(ABORT,'Thread messages are immutable'); END""",

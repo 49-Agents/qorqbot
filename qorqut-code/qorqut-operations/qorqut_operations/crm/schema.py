@@ -73,10 +73,14 @@ WHEN NEW.stage_id IS NOT NULL AND NEW.stage_id IS NOT OLD.stage_id AND NOT EXIST
     WHERE t.business_id IS NEW.business_id AND t.id=NEW.table_id AND json_extract(s.value,'$.id')=NEW.stage_id)
 BEGIN SELECT RAISE(ABORT,'A membership stage must be configured on its CRM'); END""",
     """CREATE TRIGGER crm_entries_identity BEFORE UPDATE ON crm_entries
-WHEN NEW.id IS NOT OLD.id OR NEW.business_id IS NOT OLD.business_id OR NEW.table_id IS NOT OLD.table_id
+WHEN (NEW.id IS NOT OLD.id OR NEW.business_id IS NOT OLD.business_id OR NEW.table_id IS NOT OLD.table_id
   OR NEW.record_task_id IS NOT OLD.record_task_id OR NEW.record_business_id IS NOT OLD.record_business_id
   OR NEW.record_namespace IS NOT OLD.record_namespace OR NEW.created_by IS NOT OLD.created_by
-  OR NEW.created_at IS NOT OLD.created_at
+  OR NEW.created_at IS NOT OLD.created_at)
+ AND NOT (NEW.id IS OLD.id AND NEW.business_id IS OLD.business_id AND NEW.table_id IS OLD.table_id
+  AND NEW.record_task_id IS OLD.record_task_id AND NEW.created_by IS OLD.created_by AND NEW.created_at IS OLD.created_at
+  AND NEW.record_business_id IS NOT OLD.record_business_id
+  AND relocation_permits(OLD.record_business_id,NEW.record_business_id,OLD.record_task_id))
 BEGIN SELECT RAISE(ABORT,'A membership keeps its table, Task and creator; remove it and add the Task again to replace it'); END""",
     """CREATE TRIGGER crm_entries_keep BEFORE DELETE ON crm_entries
 BEGIN SELECT RAISE(ABORT,'A membership is retained; remove it softly'); END""",
@@ -140,6 +144,11 @@ WHEN NEW.corrects_event_id IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM crm_activity_events WHERE business_id IS NEW.business_id AND id=NEW.corrects_event_id AND task_id=NEW.task_id)
 BEGIN SELECT RAISE(ABORT,'A correction names an earlier observation of the same Task'); END""",
     """CREATE TRIGGER crm_activity_events_immutable_update BEFORE UPDATE ON crm_activity_events
+WHEN NOT (NEW.business_id IS NOT OLD.business_id AND NEW.id IS OLD.id AND NEW.task_id IS OLD.task_id
+  AND NEW.event_key IS OLD.event_key AND NEW.kind IS OLD.kind AND NEW.summary IS OLD.summary AND NEW.body IS OLD.body
+  AND NEW.occurred_at IS OLD.occurred_at AND NEW.recorded_at IS OLD.recorded_at AND NEW.recorded_by IS OLD.recorded_by
+  AND NEW.source_json IS OLD.source_json AND NEW.corrects_event_id IS OLD.corrects_event_id
+  AND NEW.content_hash IS OLD.content_hash AND relocation_permits(OLD.business_id,NEW.business_id,OLD.task_id))
 BEGIN SELECT RAISE(ABORT,'Recorded observations are immutable; record a correction instead'); END""",
     """CREATE TRIGGER crm_activity_events_immutable_delete BEFORE DELETE ON crm_activity_events
 BEGIN SELECT RAISE(ABORT,'Recorded observations are immutable'); END""",

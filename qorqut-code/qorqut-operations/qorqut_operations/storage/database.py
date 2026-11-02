@@ -25,6 +25,7 @@ import weakref
 from qorqut_operations.contracts import DomainError, utc_now
 from .assembly import Assembly
 from .inventory import CompiledTarget, IDENTITY_DDL, IDENTITY_TABLE, compile_target, describe, differences, read_objects
+from .relocation import RelocationGuard, permitted
 from .repositories import Repository, UNSET
 from .sqlfunctions import install_sql_functions
 
@@ -136,10 +137,13 @@ class UnitOfWork:
         # snapshot, so a pure derivation cannot change while they are open.
         # Writers must not rely on it: their own changes could make it stale.
         self.memo = {}
+        # The armed Task relocation of this unit, if any (see ``relocating``). Never carried to another unit.
+        self.relocation = None
         # SQLite holds this callback in C where gc cannot see it: a strong ref would pin
         # this unit and its Database for as long as the pooled connection lives.
         unit = weakref.ref(self)
         connection.create_function("inbox_actor", 0, lambda: getattr(unit(), "actor_id", None))
+        connection.create_function("relocation_permits", 3, lambda old, new, task_id: permitted(unit(), old, new, task_id))
 
     def require_write(self):
         if not self.writable:
@@ -147,6 +151,24 @@ class UnitOfWork:
 
     def repository(self, table: str, *, business_id=UNSET) -> Repository:
         return Repository(self, table, business_id)
+
+    @contextmanager
+    def relocating(self, source, destination, task_ids):
+        """Arm the relocation guard for exactly these Task ids and this scope pair, and defer reference checks to commit.
+
+        Only a writable unit can arm it, only once, and it is disarmed (with foreign-key deferral switched off) whether the
+        block succeeds or fails. The caller still owns the transaction: a failure inside rolls the whole unit back."""
+        self.require_write()
+        if self.relocation is not None:
+            raise DomainError("relocation_active", "A Task relocation is already in progress in this unit of work")
+        guard = RelocationGuard(source, destination, frozenset(task_ids))
+        self.relocation = guard
+        self.connection.execute("PRAGMA defer_foreign_keys = ON")
+        try:
+            yield guard
+        finally:
+            self.relocation = None
+            self.connection.execute("PRAGMA defer_foreign_keys = OFF")
 
     def next_sequence(self, name: str) -> int:
         self.require_write()

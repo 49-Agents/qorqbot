@@ -27,10 +27,12 @@ from qorqut_operations.storage.assembly import AssemblyError
 from qorqut_operations.tags.catalog import LABELS_SCHEMA, distinct_labels, item_labels, labels_by_item, matches, plan_item_tags
 from qorqut_operations.tasks import customers, events, links
 from qorqut_operations.tasks.associated import TaskAssociatedRecords
+from qorqut_operations.tasks.history import HistoricalReferences
 from qorqut_operations.tasks.models import (DEFAULT_CONFIG, DEFAULT_STATE, full_config, normalize_snooze, snooze_view, stored_fields,
                                             validate_config, validate_dependencies, validate_parent, validate_task)
 from qorqut_operations.tasks.overview import TaskOverview
 from qorqut_operations.tasks.ports import TaskPorts
+from qorqut_operations.tasks.relocation import TaskRelocation, moved_location
 from qorqut_operations.tasks.scope import task_context, task_namespace
 from qorqut_operations.tasks.schema import CLOSED_STATES, KINDS, PAUSED_STATES, STATES
 from qorqut_operations.tasks.snooze import reconcile_snoozes
@@ -78,10 +80,39 @@ class TaskOperations:
         self.application, self.items, self.ports, self.clock = application, items, ports, clock
         self.overview = TaskOverview(self, application)
         self.associated = TaskAssociatedRecords(self)
+        # The host adds the adapters for the references it owns; a Task move itself is a host-registered operation.
+        self.relocation = TaskRelocation(self)
+        self.history = HistoricalReferences(self)
         unknown = sorted(set(ports.references.types) - set(items.kinds) - set(ports.references.host_types))
         if unknown:
             raise AssemblyError("Note reference types are neither engine items nor host references: " + ", ".join(unknown))
         self.note_ref_types = list(ports.references.types)
+
+    # -- moved Tasks -----------------------------------------------------------------------------------------------
+
+    def missing(self, ctx, uow, task_id) -> DomainError:
+        """The refusal for a Task absent from the selected scope: a plain ``not_found``, or ``record_moved`` when the Task
+        was relocated and this caller may read it where it is now (nothing is disclosed otherwise, and nothing is written)."""
+        location = moved_location(uow, ctx.business_id, task_id)
+        if location is not None:
+            try:
+                links.resolve(self, ctx, {"business_id": location, "task_id": task_id}, uow)
+                project = uow.repository("businesses").get(location)
+            except DomainError:
+                project = None
+            if project is not None:
+                return DomainError("record_moved", "This Task moved to another project",
+                                   details={"destination": {"id": project["id"], "name": project.get("name", project["slug"]),
+                                                            "slug": project["slug"]},
+                                            "task": {"type": "task", "id": task_id, "business_id": location}})
+        return DomainError("not_found", "Task does not exist in this scope")
+
+    def require(self, ctx, uow, task_id):
+        """The Task of the selected scope, or the ``missing`` refusal."""
+        row = uow.repository("tasks", business_id=ctx.business_id).get(task_id)
+        if row is None:
+            raise self.missing(ctx, uow, task_id)
+        return row
 
     # -- registration ----------------------------------------------------------------------------------------------
 
@@ -227,14 +258,17 @@ class TaskOperations:
         return DiscussionReferences(tuple(self.note_ref_types), self.note_refs, self.message_refs)
 
     def message_refs(self, ctx, uow):
+        """The display resolver of a stored message's references: read-only, in the scope the note was written in (see
+        ``tasks.history``). Writes and strict validation use ``note_refs`` and never follow a relocated target."""
         def resolve(message):
             refs = list(message["refs"])
+            shown = self.history.show(ctx, refs, uow, message.get("reference_namespace"))
             link = self.ports.references.derived(ctx, uow, message) if message.get("item_type") == "task" else None
             if link is None or link in refs:
-                return self.note_refs(ctx, refs, uow)
+                return shown
             if link.get("unavailable"):
-                return [*self.note_refs(ctx, refs, uow), link]
-            return self.note_refs(ctx, [*refs, link], uow)
+                return [*shown, link]
+            return [*shown, *self.history.show(ctx, [link], uow)]
         return resolve
 
     # -- reads -----------------------------------------------------------------------------------------------------
@@ -287,21 +321,22 @@ class TaskOperations:
         repository = uow.repository("tasks", business_id=ctx.business_id)
         now = timestamp(self.clock)
         if operation in {"tasks_thread_get", "tasks_notes_list"}:
-            repository.get(arguments["task_id"], required=True)
+            self.require(ctx, uow, arguments["task_id"])
             item = ThreadItem(ctx.business_id, "task", arguments["task_id"])
             if operation == "tasks_notes_list":
                 history = read_messages(uow, item, arguments, operation, ctx.principal_id, resolve_refs=self.message_refs(ctx, uow),
                                         kinds=("comment",))
                 return {"thread_id": history["thread_id"], "notes": history["messages"], "next_cursor": history["next_cursor"]}
             history = read_messages(uow, item, arguments, operation, ctx.principal_id, resolve_refs=self.message_refs(ctx, uow))
-            task = repository.get(arguments["task_id"], required=True)
+            task = self.require(ctx, uow, arguments["task_id"])
             people = {task["created_by"], *(note["created_by"] for note in history["messages"]), *events.assigned(uow, ctx.business_id, task["id"])}
             return {"thread_id": history["thread_id"], "participants": participants(uow, people), "notes": history["messages"],
                     "next_cursor": history["next_cursor"]}
         if operation == "tasks_get":
-            task = self.detail(ctx, repository.get(arguments["task_id"], required=True), uow, configuration["fields"], now)
-            task.update(links.read(self, ctx, repository.get(arguments["task_id"], required=True), uow, arguments.get("related_cursor")))
-            return {"task": task}
+            task = self.require(ctx, uow, arguments["task_id"])
+            detail = self.detail(ctx, task, uow, configuration["fields"], now)
+            detail.update(links.read(self, ctx, task, uow, arguments.get("related_cursor")))
+            return {"task": detail}
         return self.list_tasks(ctx, arguments, uow, configuration, now)
 
     def assignees_list(self, ctx, uow):
@@ -394,7 +429,7 @@ class TaskOperations:
             raise DomainError("revision_conflict", "Task identity already exists", current_revision=before["revision"])
         if not creating:
             if before is None:
-                raise DomainError("not_found", "Task does not exist in this scope")
+                raise self.missing(ctx, uow, identity)
             require_revision(before, options.expected_revision)
         edits = {key: value for key, value in arguments.items() if key in TASK_FIELDS} if creating else plain(arguments.get("changes", {}))
         if operation == "tasks_assign":
@@ -611,9 +646,7 @@ class TaskOperations:
 
     def prepare_follow(self, ctx, arguments, options, uow):
         ctx = task_context(ctx, arguments, uow)
-        task = uow.repository("tasks", business_id=ctx.business_id).get(arguments["task_id"])
-        if task is None:
-            raise DomainError("not_found", "Task does not exist in this scope")
+        task = self.require(ctx, uow, arguments["task_id"])
         item = ThreadItem(ctx.business_id, "task", task["id"])
         if not can_follow(uow, item, ctx.principal_id):
             raise DomainError("forbidden", "Only an active participant of this namespace can follow its items")

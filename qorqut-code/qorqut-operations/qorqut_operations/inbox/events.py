@@ -249,8 +249,11 @@ class EventFinalizer:
                     "SELECT DISTINCT a.to_id FROM thread_messages n JOIN json_each(n.refs_json) j "
                     "JOIN relationships a ON a.business_id IS n.business_id AND a.from_type='task' "
                     "AND a.from_id=n.item_id AND a.role='assigned_to' AND a.to_type='agent' "
-                    "WHERE n.business_id IS ? AND n.item_type='task' AND n.kind='comment' AND n.refs_json<>'[]' "
-                    "AND json_extract(j.value,'$.type')='signoff' AND json_extract(j.value,'$.id')=?", (business, identity)))
+                    # A note names the Signoff in the scope it was written in; a moved Task keeps that scope beside the note.
+                    "WHERE COALESCE(n.reference_namespace, CASE WHEN n.business_id IS NULL THEN 'global' ELSE 'business:' || n.business_id END)=? "
+                    "AND n.item_type='task' AND n.kind='comment' AND n.refs_json<>'[]' "
+                    "AND json_extract(j.value,'$.type')='signoff' AND json_extract(j.value,'$.id')=?",
+                    ('global' if business is None else 'business:' + business, identity)))
             item_type = self.item_type_for(table)
             if table == 'documents':
                 item_type = {'context_topic': 'topic', 'context_person': 'person'}.get(record.get('kind'), 'material')

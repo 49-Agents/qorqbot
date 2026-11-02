@@ -24,6 +24,7 @@ import json
 
 from qorqut_operations.application.plans import PlanBuilder, apply_records, require_revision, timestamp
 from qorqut_operations.contracts import DomainError, canonical_bytes, canonical_hash, new_id, plain
+from qorqut_operations.tasks.relocation import journey_spans
 from qorqut_operations.tasks.scope import task_context, task_namespace
 from qorqut_operations.team_channel import reject_owner_team_write
 
@@ -247,11 +248,17 @@ class Activity:
         cache, found, position = ScopeCache(), [], after
         key = ("('crm_membership:' || (CASE WHEN business_id IS NULL THEN 'global' ELSE 'business:' || business_id END) "
                "|| ':' || id)")
+        # A development names its record by the scope the record had when it was written, and that payload is immutable. A
+        # record that has moved is found under every stay it had, within the time of that stay (an unrelated Task that reuses
+        # the bare id in a scope this one left or entered is another record).
+        spans = journey_spans(uow, business_id, task_id)
+        where = " OR ".join("(json_extract(change_json,'$.record.business_id') IS ? AND created_at>=?" + ("" if until is None else " AND created_at<=?") + ")"
+                            for _scope, _since, until in spans)
+        marks = [value for scope, since, until in spans for value in ((scope, since) if until is None else (scope, since, until))]
         sql = (f"SELECT *, {key} AS _key FROM thread_messages WHERE item_type='table' AND kind='system' "
-               "AND json_extract(change_json,'$.record.id')=? AND json_extract(change_json,'$.record.business_id') IS ? "
-               "AND created_at<=?")
+               f"AND json_extract(change_json,'$.record.id')=? AND ({where}) AND created_at<=?")
         while len(found) <= limit:
-            params, text = [task_id, business_id, as_of], sql
+            params, text = [task_id, *marks, as_of], sql
             if position:
                 text += f" AND (created_at, {key}) < (?, ?)"
                 params += list(position)
