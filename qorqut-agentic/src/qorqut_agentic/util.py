@@ -78,13 +78,20 @@ def check_operation_id(value: Any, field: str = "operation_id") -> str:
     return value
 
 
-class _StrictLoader(yaml.SafeLoader):
-    """SafeLoader that rejects duplicate keys and keeps dates/times as strings."""
+_SafeLoader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
+class _StrictLoader(_SafeLoader):
+    """Safe loader that rejects duplicate keys and keeps dates/times as strings.
+
+    LibYAML accelerates full catalog reads when available; the pure Python safe
+    loader preserves the same contract on platforms without that extension.
+    """
 
 
 _StrictLoader.yaml_implicit_resolvers = {
     key: [(tag, regexp) for tag, regexp in resolvers if tag != "tag:yaml.org,2002:timestamp"]
-    for key, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+    for key, resolvers in _SafeLoader.yaml_implicit_resolvers.items()
 }
 
 
@@ -131,7 +138,7 @@ def _check_json_compatible(value: Any, where: str = "$") -> None:
 def load_yaml(text: str) -> Any:
     """Parse YAML strictly into JSON-compatible data; raise ``ValueError`` otherwise."""
     try:
-        value = yaml.load(text, Loader=_StrictLoader)  # noqa: S506 - SafeLoader subclass
+        value = yaml.load(text, Loader=_StrictLoader)  # noqa: S506 - safe-loader subclass
     except yaml.YAMLError as exc:
         raise ValueError(f"invalid YAML: {exc}") from exc
     _check_json_compatible(value)
