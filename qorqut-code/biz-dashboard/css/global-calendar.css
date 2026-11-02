@@ -88,33 +88,31 @@
 .calendar-embedded .calendar-main { padding:16px 4px; }
 .calendar-embedded .calendar-toolbar { margin-bottom:22px; }
 .calendar-today { flex:none; padding:0 0 8px; margin:0 0 6px; border-bottom:1px solid var(--line-2); }
-.calendar-today-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:2px 0 5px; }
-.agfocus .calendar-today-heading button { display:flex; align-items:center; gap:8px; margin:0; border:0; background:transparent; color:var(--fg); padding:2px 0; height:auto; min-height:24px; font-size:13px; }
-.calendar-today-heading button > :last-child { color:var(--fg-2); }
-.calendar-today .calendar-clock { font-size:12px; }
 .calendar-today .calendar-status { font-size:12px; margin:0 0 6px; }
 .calendar-today-queue { display:flex; gap:8px; overflow-x:auto; overscroll-behavior-x:contain; list-style:none; margin:0; padding:0 0 5px; }
 .calendar-today-queue[hidden] { display:none; }
-.calendar-today-queue > li { flex:0 0 auto; max-width:260px; min-width:0; }
-.calendar-today button.calendar-queue-event { position:static; flex-direction:row; align-items:center; width:100%; height:34px; padding:6px 10px; gap:8px; font-size:13px; line-height:18px; }
-.calendar-today .calendar-queue-event strong { display:block; white-space:nowrap; text-overflow:ellipsis; }
-.calendar-today .calendar-queue-event > span { flex:none; font-size:11px; line-height:14px; white-space:nowrap; opacity:.85; }
+.calendar-today-queue > li { flex:0 0 auto; min-width:0; }
+/* Tiles follow the Signoff queue chips: 40px square, 18px icon, muted hover surface. */
+.calendar-today button.calendar-queue-event { position:relative; display:flex; flex-direction:row; align-items:center; justify-content:center; gap:8px; min-width:40px; height:40px; padding:8px; border-radius:5px; background:var(--hover); color:var(--fg-2); font-size:13px; line-height:18px; }
+.calendar-today button.calendar-queue-event:hover { filter:none; background:var(--line); color:var(--fg); }
+.calendar-today button.calendar-queue-event.calendar-queue-upcoming { background:color-mix(in srgb,var(--warn,#C9A064) 16%,transparent); color:var(--warn,#C9A064); }
+.calendar-today button.calendar-queue-event.calendar-queue-upcoming:hover { background:color-mix(in srgb,var(--warn,#C9A064) 26%,transparent); }
+.calendar-today button.calendar-queue-event.calendar-queue-past { color:var(--fg-2); opacity:.7; }
+.calendar-today button.calendar-queue-event.calendar-queue-all-day { color:var(--fg-2); }
+.calendar-today .calendar-queue-event svg { flex:none; width:18px; height:18px; }
+.calendar-today .calendar-queue-event strong { display:block; max-width:25ch; white-space:nowrap; font-weight:500; }
 .calendar-today .calendar-queue-event:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
 
-/* Personal status: muted, never color alone (mark + label), and only Focus chips collapse. */
+/* Personal status: muted, never color alone (mark + label). */
 .calendar-status-mark { display:inline-flex; flex:none; align-items:center; font-style:normal; }
 .calendar-event.calendar-status-completed,.calendar-event.calendar-status-cancelled { opacity:.55; }
 .calendar-event.calendar-status-cancelled strong { text-decoration:line-through; }
 .calendar-page button.calendar-event .calendar-status-mark { margin-right:4px; vertical-align:-1px; }
 .calendar-page button.calendar-event:not(.calendar-queue-event) .calendar-status-mark { align-self:flex-start; position:absolute; right:5px; top:5px; margin:0; }
 .calendar-page button.calendar-event.calendar-status-rescheduled { box-shadow:inset 0 0 0 1px currentColor; }
-.calendar-today button.calendar-queue-event.calendar-collapsed { gap:4px; padding:6px 8px; }
-.calendar-today .calendar-collapsed strong { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
-.calendar-today .calendar-collapsed .calendar-status-mark { order:-1; margin:0; }
-.calendar-today button.calendar-queue-event .calendar-status-mark { margin:0; }
-.calendar-today-queue > li:has(.calendar-collapsed) { max-width:none; }
 .calendar-personal-status { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px 10px; align-items:end; margin-top:14px; padding-top:12px; border-top:1px solid var(--line-2); }
 .calendar-personal-status label { display:grid; gap:5px; font-size:13px; }
 .calendar-personal-status .calendar-status-help,.calendar-personal-status .calendar-status-note { grid-column:1 / -1; margin:0; font-size:12px; color:var(--fg-2); }
 .calendar-status-note:empty { display:none; }
 .calendar-page button.calendar-event:not(.calendar-queue-event)[class*=calendar-status-] strong { padding-right:16px; }
+.calendar-today button.calendar-queue-event .calendar-status-mark { position:absolute; right:2px; top:2px; margin:0; }

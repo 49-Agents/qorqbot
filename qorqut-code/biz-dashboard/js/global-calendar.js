@@ -231,15 +231,19 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
   return () => { active = false; unsubscribe(); dispose(); };
 }
 
-function calendarEventButton(event, calendars, refresh, allDay = false, {collapse = false} = {}) {
+// Queue tiles show only the calendar icon; the one expanded tile adds its title, cut at 25 characters.
+const calendarQueueTitle = title => { const chars = [...(title || 'Untitled event')]; return chars.length > 25 ? chars.slice(0,25).join('')+'…' : chars.join(''); };
+
+function calendarEventButton(event, calendars, refresh, allDay = false, {queue = null} = {}) {
   const calendar = calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id), pending = event.attendees?.some(a => calendar?.organizers?.some(email => email.toLowerCase() === a.email.toLowerCase()) && a.status === 'needsAction');
   const button = document.createElement('button'); button.type = 'button';
   const personal = calendarStatuses.statusOf(event), shown = personal && personal !== 'pending' ? personal : '';
-  button.className = `calendar-event ${calendarProviderClass(calendar)}${allDay ? ' calendar-all-day-event' : ''}${shown ? ` calendar-status-${shown}` : ''}${collapse && shown === 'completed' ? ' calendar-collapsed' : ''}`;
+  button.className = `calendar-event ${calendarProviderClass(calendar)}${allDay ? ' calendar-all-day-event' : ''}${shown ? ` calendar-status-${shown}` : ''}${queue ? ` calendar-queue-event calendar-queue-${queue.state}${queue.expanded ? ' calendar-queue-expanded' : ''}` : ''}`;
   const when = allDay ? 'All day' : `${calendarTime(new Date(event.start))} – ${calendarTime(new Date(event.end))}`;
   const label = `${event.title || 'Untitled event'} · ${when} · ${calendar?.name || ''}${pending ? ' · Invitation' : ''}${shown ? ` · ${calendarStatusLabels[shown]}` : ''}`;
   button.setAttribute('aria-label',label); button.title = label;
-  button.innerHTML = `${calendarStatusMark(shown)}<strong>${esc(event.title || 'Untitled event')}</strong>`;
+  button.innerHTML = queue ? `${T_VIEW_ICON.calendar}${queue.expanded ? `<strong>${esc(calendarQueueTitle(event.title))}</strong>` : ''}${calendarStatusMark(shown)}`
+    : `${calendarStatusMark(shown)}<strong>${esc(event.title || 'Untitled event')}</strong>`;
   button.onclick = () => calendarOpen(event,calendars,refresh); return button;
 }
 
@@ -275,14 +279,10 @@ function calendarPaintGrid(page, dates, allEvents, eventButton, hourHeight = 64)
 }
 
 // Compact event queue above Focus attention; the Calendar tab keeps its time grid.
-function calendarTodayMount(host, openCalendar) {
+function calendarTodayMount(host) {
   host.className = 'calendar-page calendar-today';
   host.setAttribute('aria-label', "Today's calendar");
-  host.innerHTML = `<header class="calendar-today-heading"><button type="button" class="quiet" data-calendar-open aria-label="Open today's calendar"><span>Today</span><span aria-hidden="true">↗</span></button><time class="calendar-clock" aria-label="Current time"></time></header>
-    <p class="calendar-status" role="status">Loading calendar…</p><ul class="calendar-today-queue" aria-label="Today's events" hidden></ul>`;
-  const opener = $('[data-calendar-open]',host);
-  if (openCalendar) opener.onclick = openCalendar;
-  else { const label=document.createElement('span');label.textContent='Today';opener.replaceWith(label); }
+  host.innerHTML = `<p class="calendar-status" role="status">Loading calendar…</p><ul class="calendar-today-queue" aria-label="Today's events" hidden></ul>`;
   const status = $('.calendar-status',host), queue = $('.calendar-today-queue',host);
   let active = true, pending = false, loadedDay, snapshot, timer, data = null, refreshError = '';
   const current = () => active && host.isConnected;
@@ -293,16 +293,17 @@ function calendarTodayMount(host, openCalendar) {
     status.textContent = [...errors,refreshError,notice].filter(Boolean).join(' · ') || (!configured ? 'Connect your calendars to see today.' : visibleEvents.length ? '' : 'No events today.');
     queue.hidden = !configured || !visibleEvents.length;
     queue.dataset.calendarDay = key;
-    const nextSnapshot = JSON.stringify([key,calendars,visibleEvents,visibleEvents.map(event => calendarStatuses.statusOf(event))]);
+    // Timed events are past once started; the earliest later one (list is sorted) is the single expanded tile.
+    const now = Date.now(), timed = event => event.start.length !== 10;
+    const stateOf = event => !timed(event) ? 'all-day' : new Date(event.start) <= now ? 'past' : 'upcoming';
+    const nextEvent = visibleEvents.find(event => stateOf(event) === 'upcoming');
+    const nextSnapshot = JSON.stringify([key,calendars,visibleEvents,visibleEvents.map(event => calendarStatuses.statusOf(event)),visibleEvents.map(stateOf),nextEvent?.id,nextEvent?.connection_id,nextEvent?.calendar_id]);
     if (snapshot !== nextSnapshot) {
       const left = loadedDay === key ? queue.scrollLeft : 0;
       queue.replaceChildren(...visibleEvents.map(event => {
-        const allDay = event.start.length === 10;
-        const item = document.createElement('li'), button = calendarEventButton(event,calendars,refresh,allDay,{collapse:true});
-        button.classList.add('calendar-queue-event');
-        const time = document.createElement('span');
-        time.textContent = allDay ? 'All day' : calendarTime(new Date(event.start));
-        button.prepend(time); item.append(button); return item;
+        const item = document.createElement('li');
+        item.append(calendarEventButton(event,calendars,refresh,!timed(event),{queue:{state:stateOf(event),expanded:event === nextEvent}}));
+        return item;
       }));
       queue.scrollLeft = left;
       loadedDay = key; snapshot = nextSnapshot;
@@ -312,7 +313,6 @@ function calendarTodayMount(host, openCalendar) {
     if (!current() || pending) return;
     pending = true;
     const now = new Date(), day = new Date(now.getFullYear(),now.getMonth(),now.getDate()), key = calendarDateString(day);
-    const clock = $('.calendar-clock',host); clock.dateTime = now.toISOString(); clock.textContent = calendarTime(now);
     const statuses = calendarStatuses.refresh();
     try {
       const result = await calendarCall('calendar_calendars_list');
