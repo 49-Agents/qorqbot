@@ -3,7 +3,26 @@ const calendarZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 const calendarDateString = date => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 const calendarAddDays = (date, days) => { const next = new Date(date); next.setDate(next.getDate()+days); return next; };
 const calendarTarget = event => ({connection_id:event.connection_id, calendar_id:event.calendar_id, event_id:event.id, revision:event.revision});
-const calendarCall = async (operation, args = {}, key) => coreData(await post(`/root/operations/${operation}`, {...args, ...(key ? {idempotency_key:key} : {})}));
+const calendarCall = async (operation, args = {}, key) => {
+  try { return coreData(await post(`/root/operations/${operation}`, {...args, ...(key ? {idempotency_key:key} : {})})); }
+  catch (error) { if (accessLost(error)) { calendarDirectory = null; calendarTodayShared = null; } throw error; }
+};
+// Calendar names/IDs change much less often than events. Share one short-lived
+// directory across views instead of rediscovering every provider on each poll.
+// Explicit refresh bypasses it; event reads and all writes still go to the server.
+const CALENDAR_DIRECTORY_FRESH_MS = 5 * 60000;
+let calendarDirectory = null, calendarDirectoryFlight = null;
+function calendarDirectoryLoad(force = false) {
+  if (calendarDirectoryFlight) return calendarDirectoryFlight;
+  if (!force && calendarDirectory && Date.now() - calendarDirectory.at < CALENDAR_DIRECTORY_FRESH_MS) return Promise.resolve(calendarDirectory.data);
+  const flight = calendarDirectoryFlight = calendarCall('calendar_calendars_list').then(data => {
+    calendarDirectory = data.errors.length ? null : {data, at:Date.now()};
+    return data;
+  }, error => { calendarDirectory = null; throw error; });
+  const clear = () => { if (calendarDirectoryFlight === flight) calendarDirectoryFlight = null; };
+  flight.then(clear, clear);
+  return flight;
+}
 const calendarTime = date => date.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
 const calendarDateLabel = (date, now = new Date()) => {
   const key = calendarDateString(date);
@@ -125,7 +144,7 @@ function calendarEventLanes(spans) {
 function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
   let calendarDate = new Date(), calendarViewDays = embedded ? 1 : 3, calendarGeneration = 0, active = true, repaint = () => {};
   let calendarMonth = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1), dispose = () => {};
-  const render = async () => {
+  const render = async (force = false) => {
     dispose();
     const generation = ++calendarGeneration;
     const countForWidth = () => host.clientWidth <= 600 ? 1 : calendarViewDays;
@@ -150,7 +169,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     };
     sizePage();
     const current = () => active && page.isConnected && generation === calendarGeneration && isCurrent();
-    const reload = () => { if (current()) return render(); };
+    const reload = (force = false) => { if (current()) return render(force === true); };
     const chooseDate = date => { calendarDate = date; calendarMonth = new Date(date.getFullYear(),date.getMonth(),1); reload(); };
     const paintDates = () => {
       $('.calendar-range',page).textContent = count === 1 ? calendarDateLabel(first) : `${calendarDateLabel(first)} – ${calendarDateLabel(calendarAddDays(last,-1))}`;
@@ -168,7 +187,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     $('.calendar-view',page).onchange = event => { calendarViewDays = Number(event.target.value); reload(); };
     $('[data-calendar-prev]',page).onclick = () => chooseDate(calendarAddDays(first,-count));
     $('[data-calendar-next]',page).onclick = () => chooseDate(last);
-    $('[data-calendar-refresh]',page).onclick = reload;
+    $('[data-calendar-refresh]',page).onclick = () => reload(true);
     for (const [selector,offset] of [['[data-month-prev]',-1],['[data-month-next]',1]]) $(selector,page).onclick = () => {
       calendarMonth = new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+offset,1); paintDates();
     };
@@ -197,7 +216,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     paint();
     void calendarStatuses.refresh();
     try {
-      const result = await calendarCall('calendar_calendars_list');
+      const result = await calendarDirectoryLoad(force);
       if (!current()) return;
       calendars = result.calendars;
       result.errors.forEach(e => failures.set(e.connection_id,`${e.connection_id}: ${e.message}`));
@@ -284,10 +303,10 @@ function calendarPaintGrid(page, dates, allEvents, eventButton, hourHeight = 64)
 const CALENDAR_TODAY_FRESH_MS = 30000;
 let calendarTodayShared = null, calendarTodayFlight = null;
 function calendarTodayLoad(force = false) {
-  if (calendarTodayFlight) return force ? calendarTodayFlight.catch(() => {}).then(() => calendarTodayLoad()) : calendarTodayFlight;
+  if (calendarTodayFlight) return force ? calendarTodayFlight.catch(() => {}).then(() => { calendarDirectory = null; return calendarTodayLoad(); }) : calendarTodayFlight;
   const flight = calendarTodayFlight = (async () => {
     const now = new Date(), day = new Date(now.getFullYear(),now.getMonth(),now.getDate()), key = calendarDateString(day);
-    const result = await calendarCall('calendar_calendars_list');
+    const result = await calendarDirectoryLoad(force);
     const calendars = result.calendars, events = [], errors = result.errors.map(e => `${e.connection_id}: ${e.message}`);
     await Promise.all(calendars.map(async calendar => {
       let cursor;
