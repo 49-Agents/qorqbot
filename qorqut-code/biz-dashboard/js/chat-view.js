@@ -110,7 +110,34 @@ function chatViewReferenceTarget(href) {
   const path = viewer ? url.searchParams.get('path') || '' : url.pathname;
   const image = /\.(?:png|jpe?g|gif|webp)$/i.test(path);
   const kind = image ? 'Image' : viewer ? url.pathname === '/tables/view' ? 'Table' : 'File' : 'Web page';
-  return {url, viewer, image, kind};
+  return {url, viewer, image, kind, path};
+}
+
+// A selected upload and a reference to the saved file use exactly the same face.
+// Classification is presentation only; the existing viewer still decides how to open it.
+function chatViewFileKind(name) {
+  const ext = /\.([a-z0-9]+)$/i.exec(name)?.[1].toLowerCase() || '';
+  if (/^(png|jpe?g|gif|webp|svg|avif|heic|bmp|tiff?)$/.test(ext)) return ['image', 'Image'];
+  if (ext === 'pdf') return ['pdf', 'PDF'];
+  if (/^(csv|tsv|xlsx?|ods)$/.test(ext)) return ['sheet', 'Spreadsheet'];
+  if (/^(mp4|mov|webm|m4v|avi|mkv)$/.test(ext)) return ['video', 'Video'];
+  if (/^(mp3|wav|m4a|ogg|flac|aac)$/.test(ext)) return ['audio', 'Audio'];
+  if (/^(zip|gz|tgz|tar|7z|rar|bz2|xz)$/.test(ext)) return ['archive', 'Archive'];
+  if (/^(js|jsx|ts|tsx|py|rb|go|rs|java|c|cpp|h|sh|css|html?|jsonl?|ya?ml|toml|xml|sql)$/.test(ext)) return ['code', 'Code'];
+  if (/^(md|txt|docx?|odt|rtf|pages)$/.test(ext)) return ['document', ext === 'md' ? 'Markdown' : ext === 'txt' ? 'Text' : 'Document'];
+  return ['file', 'File'];
+}
+const CHAT_VIEW_FILE_ICONS = {
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h6"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+  sheet: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>',
+  code: '<path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16"/>',
+  video: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 8 6 4-6 4z"/>',
+  audio: '<path d="M9 18V5l12-2v13M9 9l12-2"/><ellipse cx="6" cy="18" rx="3" ry="3"/><ellipse cx="18" cy="16" rx="3" ry="3"/>',
+  archive: '<rect x="3" y="3" width="18" height="4" rx="1"/><path d="M5 7v13h14V7M10 11h4M12 7v4"/>',
+};
+function chatViewFileFace(name, kind) {
+  return `<span class="gchat-file-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${CHAT_VIEW_FILE_ICONS[kind[0]] || CHAT_VIEW_FILE_ICONS.file}</svg></span><span class="gchat-file-label"><span class="gchat-file-name">${esc(name)}</span><small>${kind[1]}</small></span>`;
 }
 
 // Chips represent rendered links, never code samples. No document/image request happens until a chip is opened.
@@ -125,10 +152,17 @@ function chatViewReferenceChips(body) {
     chip.type = 'button'; chip.className = 'gchat-reference';
     chip.dataset.previewHref = target.url.href; chip.dataset.previewTitle = link.textContent;
     chip.setAttribute('aria-label', `Preview ${link.textContent}`);
-    if (typeof AGVB_ICON !== 'undefined') chip.innerHTML = AGVB_ICON[target.kind === 'Table' ? 'table' : target.viewer || target.image ? 'file' : 'web'];
-    const label = document.createElement('span'); label.textContent = link.textContent;
-    const kind = document.createElement('small'); kind.textContent = target.kind;
-    chip.append(label, kind); chips.append(chip);
+    if ((target.viewer && target.url.pathname === '/files/view') || target.image) {
+      const kind = chatViewFileKind(target.path);
+      chip.classList.add('gchat-file-card'); chip.dataset.fileKind = kind[0];
+      chip.innerHTML = chatViewFileFace(link.textContent, kind);
+    } else {
+      if (typeof AGVB_ICON !== 'undefined') chip.innerHTML = AGVB_ICON[target.kind === 'Table' ? 'table' : 'web'];
+      const label = document.createElement('span'); label.textContent = link.textContent;
+      const kind = document.createElement('small'); kind.textContent = target.kind;
+      chip.append(label, kind);
+    }
+    chips.append(chip);
   }
   return chips.childElementCount ? chips : null;
 }
@@ -144,6 +178,7 @@ function chatViewOwnerReferences(body) {
   }
   if (removed) {
     const text = body.querySelector('.gchat-text');
+    text?.normalize();
     if (text?.lastChild?.nodeType === Node.TEXT_NODE) text.lastChild.textContent = text.lastChild.textContent.trimEnd();
     if (!body.textContent.trim()) body.hidden = true;
   }
@@ -404,7 +439,10 @@ function mountChatView(host, options = {}) {
     const signature = JSON.stringify([files, !!c.filesDisabled]);
     if (attachments.signature !== signature) {
       attachments.signature = signature;
-      attachments.innerHTML = files.map(file => `<span class="gchat-file-choice"><span>${esc(file.name)}</span><button type="button" data-remove-attachment="${esc(file.key)}" aria-label="Remove ${esc(file.name)}" ${c.filesDisabled ? 'disabled' : ''}>×</button></span>`).join('');
+      attachments.innerHTML = files.map(file => {
+        const kind = chatViewFileKind(file.name);
+        return `<span class="gchat-file-choice gchat-file-card" data-file-kind="${kind[0]}">${chatViewFileFace(file.name, kind)}<button type="button" data-remove-attachment="${esc(file.key)}" aria-label="Remove ${esc(file.name)}" ${c.filesDisabled ? 'disabled' : ''}>×</button></span>`;
+      }).join('');
     }
     if (send.textContent !== c.sendLabel) send.textContent = c.sendLabel;
     input.placeholder = c.placeholder; input.setAttribute('aria-label', c.ariaLabel);

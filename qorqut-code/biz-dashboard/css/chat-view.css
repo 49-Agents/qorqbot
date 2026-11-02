@@ -45,11 +45,26 @@
 .gchat-body.md .gc-heading { font-weight: 600; }
 .gchat-references { display:flex; flex-wrap:wrap; gap:6px; max-width:100%; padding:0 12px 8px; box-sizing:border-box; }
 .gchat-agent .gchat-references { padding-left:0; }
+.gchat-user .gchat-references { justify-content:flex-end; }
 .gchat-reference { display:inline-flex; align-items:center; gap:6px; min-width:0; max-width:100%; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:var(--hover); color:var(--fg); font:inherit; font-size:11px; }
 .gchat-reference svg { width:14px; height:14px; flex:none; }
 .gchat-reference>span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gchat-reference small { flex:none; font-size:10px; color:var(--fg-2); }
 .gchat-reference:disabled { opacity:.6; cursor:not-allowed; }
+/* One file card for existing references, uploaded references and pending choices.
+   Type accents reuse the dashboard palette; filenames stay the primary label. */
+.gchat-file-card { --file-color:var(--fg-2); display:inline-flex; align-items:center; justify-content:flex-start; gap:9px; min-width:0; max-width:100%; height:auto; padding:8px 10px; border:1px solid color-mix(in srgb, var(--file-color) 20%, transparent); border-radius:9px; background:color-mix(in srgb, var(--file-color) 5%, var(--surface)); color:var(--fg); text-align:left; font:inherit; font-size:12px; line-height:1.4; box-sizing:border-box; }
+.gchat-file-card[data-file-kind="image"], .gchat-file-card[data-file-kind="document"], .gchat-file-card[data-file-kind="audio"], .gchat-file-card[data-file-kind="video"] { --file-color:var(--link,#b9c7ff); }
+.gchat-file-card[data-file-kind="pdf"] { --file-color:var(--danger); }
+.gchat-file-card[data-file-kind="sheet"] { --file-color:var(--ok); }
+.gchat-file-card[data-file-kind="code"], .gchat-file-card[data-file-kind="archive"] { --file-color:var(--warn); }
+button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9%, var(--surface)); border-color:color-mix(in srgb, var(--file-color) 38%, transparent); color:var(--fg); transform:none; }
+.gchat-file-card:focus-visible, .gchat-file-card button:focus-visible { outline:2px solid var(--file-color); outline-offset:2px; }
+.gchat-file-card .gchat-file-icon { display:grid; place-items:center; flex:none; width:28px; height:32px; border-radius:5px; background:color-mix(in srgb, var(--file-color) 12%, transparent); color:var(--file-color); }
+.gchat-file-card .gchat-file-icon svg { width:18px; height:18px; }
+.gchat-file-card .gchat-file-label { display:flex; flex-direction:column; align-items:flex-start; gap:1px; min-width:0; overflow:hidden; }
+.gchat-file-name { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
+.gchat-file-card small { font-size:10px; font-weight:400; color:var(--file-color); }
 .gchat-entry-actions { display:flex; flex-wrap:wrap; gap:6px; padding:0 12px; }
 .gchat-agent .gchat-entry-actions { padding-left:0; }
 .gchat-entry-actions button { min-height: 26px; padding: 2px 9px; font-size: 11px; }
@@ -78,9 +93,8 @@
 .gchat-body[hidden] { display:none; }
 .gchat-attachments[hidden], .gchat-composer input[type="file"][hidden] { display:none; }
 .gchat-attachments { display:flex; flex-wrap:wrap; gap:6px; flex-basis:100%; padding:3px 5px; }
-.gchat-file-choice { display:inline-flex; align-items:center; gap:6px; max-width:100%; padding:3px 7px; border-radius:6px; background:var(--hover); font-size:12px; }
-.gchat-file-choice > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.gchat-file-choice button { flex:none; border:0; padding:0; min-height:20px; width:20px; background:none; color:var(--fg-2); }
+.gchat-file-choice button { flex:none; border:0; padding:0; min-height:22px; height:22px; width:22px; border-radius:5px; background:none; color:var(--fg-2); font-size:16px; font-weight:400; }
+.gchat-file-choice button:hover { background:var(--hover); color:var(--fg); transform:none; }
 .gchat-composer .gchat-attach { display:inline-flex; align-items:center; justify-content:center; flex:none; width:32px; height:32px; min-height:32px; padding:6px; border:0; border-radius:6px; }
 .gchat-attach:disabled { opacity:.4; }
 .chat-view.gchat-file-drop::after { content:'Drop files'; display:flex; align-items:center; justify-content:center; position:absolute; inset:5px; z-index:6; border:1px dashed var(--fg-2); border-radius:8px; background:color-mix(in srgb, var(--bg) 90%, transparent); pointer-events:none; font-size:14px; }
