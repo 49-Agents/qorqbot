@@ -128,14 +128,16 @@ def plan_comment(ctx, uow, builder, item: ThreadItem, *, note, summary, refs, re
     return values
 
 
-def system_entry(uow, item: ThreadItem, *, recorder_id, body, change, event_id=None) -> str:
-    """A derived account of what an operation changed (state, details), written beside the event it produced."""
+def system_entry(uow, item: ThreadItem, *, recorder_id, body, change, event_id=None, at=None) -> str:
+    """A derived account of what an operation changed (state, details), written beside the event it produced.
+
+    ``at`` is the operation's own timestamp when its domain keeps one clock for everything it writes; omitted, now."""
     identity = new_id()
     uow.connection.execute(
         "INSERT INTO thread_messages(business_id,id,item_type,item_id,kind,body,recorder_id,attribution_json,change_json,"
         "event_id,created_at) VALUES(?,?,?,?, 'system',?,?, '{\"kind\":\"system\"}',?,?,?)",
         (item.business_id, identity, item.item_type, item.item_id, body, recorder_id, json.dumps(change, sort_keys=True),
-         event_id, utc_now()))
+         event_id, at or utc_now()))
     return identity
 
 

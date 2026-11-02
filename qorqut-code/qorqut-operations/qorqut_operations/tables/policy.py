@@ -1,6 +1,7 @@
 """The Global-table permission rule, contributed to the policy evaluator as data.
 
-Global tables are a separate namespace from every business. The same eight operations (plus archive) serve both;
+Global tables are a separate namespace from every business. The same operations (the table ones, plus archive and the
+CRM membership and Table discussion ones) serve both;
 ``GLOBAL_TABLE_ROLES`` alone may use the Global one, whatever their business defaults. ``global_tables`` is a
 ``before_override`` rule: the host places it in that phase, at its existing position among the combined rules, and
 supplies the configured role and identity facts the evaluator passes in. It alters nothing but the decision it returns."""
@@ -12,7 +13,10 @@ from qorqut_operations.roles import ORDUBASHY_ROLE
 
 GLOBAL_TABLE_ROLES = frozenset({ORDUBASHY_ROLE})
 GLOBAL_TABLE_OPERATIONS = frozenset({"tables_list", "tables_get", "tables_rows_list", "tables_history", "tables_create",
-                                     "tables_update", "tables_rows_write", "tables_history_retry", "tables_archive"})
+                                     "tables_update", "tables_rows_write", "tables_history_retry", "tables_archive",
+                                     # A CRM's memberships and a Table's discussion: Table-scoped, so Global uses the same rule.
+                                     "crm_entries_list", "crm_entries_add", "crm_entries_update", "crm_entries_remove",
+                                     "tables_thread_get", "tables_comment", "tables_follow"})
 
 
 def global_tables(name, defaults, overrides, registry, *, role_id, scope, resolve):

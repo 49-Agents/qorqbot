@@ -1,8 +1,8 @@
 """History-export coverage of the agent-maintained tables.
 
 ``EXPORTS`` selects the exact scalar columns of ``data_tables`` that the operational snapshot carries (the column
-definitions, tags and every row stay out of it); ``CLASSIFICATIONS`` records that rows and revisions are versioned by
-the separate per-table history. The host adds them to its fixed catalog beside the documents export and the other
+definitions, tags, CRM configuration and every row stay out of it); ``CLASSIFICATIONS`` records that rows and revisions are
+versioned by the separate per-table history. The host adds them to its fixed catalog beside the documents export and the other
 separately versioned tables; nothing here discovers a table at runtime.
 """
 
@@ -15,6 +15,7 @@ EXPORTS = (
         'title': Text(),
         'description': Text(),
         'archived': Integer(),
+        'table_kind': Text(),
         'created_by': Text(),
         'revision': Integer(),
         'created_at': Text(),

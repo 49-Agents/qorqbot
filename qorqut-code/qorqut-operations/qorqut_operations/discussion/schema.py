@@ -1,7 +1,7 @@
 """Storage for the canonical inbox records and the shared item discussions.
 
 The Operations engine owns the immutable inbox event identity, the per-agent deliveries and the manual subscriptions
-(their v1 definitions, plus one ``required`` flag on a delivery), and the new shared discussion of a Task or Action:
+(their v1 definitions, plus one ``required`` flag on a delivery), and the new shared discussion of a Task, Action or Table:
 append-only messages and the follow state with its sticky unfollow. The private owner/peer conversations, broadcasts
 and the transport-facing inbox tables stay with the host; they reference ``inbox_events`` and keep writing their
 delivery rows directly, which is why ``required`` defaults to 1: a directly addressed delivery is a mandatory one.
@@ -15,8 +15,9 @@ from __future__ import annotations
 from qorqut_operations.storage.assembly import StorageContribution
 from qorqut_operations.storage.specs import TableSpec
 
-# The two item kinds a discussion can attach to. A DM is a different concept and never appears here.
-ITEM_TYPES = ("task", "action")
+# The item kinds a discussion can attach to. A DM is a different concept and never appears here. A Table discussion is
+# the shared thread of a CRM table (the ``crm`` package guards which tables may have one).
+ITEM_TYPES = ("task", "action", "table")
 
 INBOX_SCHEMA = (
     """CREATE TABLE inbox_events (
@@ -56,7 +57,7 @@ THREAD_SCHEMA = (
     """CREATE TABLE thread_messages (
  business_id TEXT REFERENCES businesses(id),
  id TEXT NOT NULL,
- item_type TEXT NOT NULL CHECK(item_type IN ('task','action')),
+ item_type TEXT NOT NULL CHECK(item_type IN ('task','action','table')),
  item_id TEXT NOT NULL,
  kind TEXT NOT NULL DEFAULT 'comment' CHECK(kind IN ('comment','system')),
  body TEXT NOT NULL CHECK(length(body) BETWEEN 1 AND 20000),
@@ -85,7 +86,7 @@ BEGIN SELECT RAISE(ABORT,'Thread messages are immutable; only the delivering eve
 BEGIN SELECT RAISE(ABORT,'Thread messages are immutable'); END""",
     """CREATE TABLE thread_follows (
  business_id TEXT REFERENCES businesses(id),
- item_type TEXT NOT NULL CHECK(item_type IN ('task','action')),
+ item_type TEXT NOT NULL CHECK(item_type IN ('task','action','table')),
  item_id TEXT NOT NULL,
  principal_id TEXT NOT NULL REFERENCES principals(id),
  following INTEGER NOT NULL CHECK(following IN (0,1)),

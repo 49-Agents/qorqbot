@@ -24,9 +24,9 @@ from qorqut_operations.tasks.scope import task_context
 
 from .events import row_for, source_summary
 
-# Tasks and Actions are followed through the discussion's follow state (a personal, sticky preference), not through
-# a subscription row; every other source keeps its subscription.
-THREAD_SOURCES = {'tasks': 'task', 'actions': 'action'}
+# Tasks, Actions and Tables are followed through the discussion's follow state (a personal, sticky preference), not
+# through a subscription row; every other source keeps its subscription.
+THREAD_SOURCES = {'tasks': 'task', 'actions': 'action', 'data_tables': 'table'}
 CONSUMER = {'type': 'string', 'format': 'uuid'}
 SCOPE = {'scope': {'enum': ['business', 'global']}}
 SOURCE_ID = {'type': 'string', 'minLength': 1, 'maxLength': 200}
@@ -107,10 +107,10 @@ class InboxService:
                 'uniqueItems': True, 'items': {'type': 'integer', 'minimum': 1}}, 'outcome': {'type': 'string', 'maxLength': 2000}},
                 ('event_ids',), 'Acknowledge exact handled events; a read or a nudge never clears them.'),
             'inbox_subscribe': ({**TARGET, **WORKER, 'include_related': {'type': 'boolean'}}, ('source_type', 'source_id'),
-                'Follow an authorized item. A Task or Action follow is the same preference as tasks_follow/actions_follow and is removed the same way. Only a Task follow can include its directly related work (its child Tasks and the items it is linked to, one hop); that routing lasts while the Task is followed, with no recursive following or time expiry. Remove it with inbox_unsubscribe. The installation owner or Ordubashy may pass agent_id to follow for a global worker; the item must then be readable by that worker.'),
+                'Follow an authorized item. A Task, Action or Table follow is the same preference as tasks_follow/actions_follow/tables_follow and is removed the same way. Only a Task follow can include its directly related work (its child Tasks and the items it is linked to, one hop); that routing lasts while the Task is followed, with no recursive following or time expiry. Remove it with inbox_unsubscribe. The installation owner or Ordubashy may pass agent_id to follow for a global worker; the item must then be readable by that worker.'),
             'inbox_unsubscribe': ({**WORKER, 'subscription_id': {'type': 'string', 'format': 'uuid'},
                 'source_type': {'enum': list(THREAD_SOURCES)}, 'source_id': SOURCE_ID}, (),
-                'Remove an explicit subscription by subscription_id, or a Task or Action follow by source_type and source_id (the same preference as tasks_follow/actions_follow); automatic owner-task following is independent. The installation owner or Ordubashy may pass agent_id to remove a global worker\'s. Already delivered updates remain pending until acknowledged.'),
+                'Remove an explicit subscription by subscription_id, or a Task, Action or Table follow by source_type and source_id (the same preference as tasks_follow/actions_follow/tables_follow); automatic owner-task following is independent. The installation owner or Ordubashy may pass agent_id to remove a global worker\'s. Already delivered updates remain pending until acknowledged.'),
         }
         for name, (fields, required, description) in operations.items():
             args = schema({**SCOPE, **fields}, required)
@@ -266,10 +266,10 @@ class InboxService:
                 'summary': source_summary(source, row['source_type'])})
         for follow in uow.connection.execute(
                 'SELECT * FROM thread_follows WHERE principal_id=? AND following=1 ORDER BY created_at,item_type,item_id', (ctx.principal_id,)):
-            table = 'tasks' if follow['item_type'] == 'task' else 'actions'
-            if table == 'tasks':
-                identity, source = follow['item_id'], row_for(uow, 'tasks', follow['business_id'], follow['item_id'])
-                summary = source_summary(source, 'tasks')
+            table = next(source for source, kind in THREAD_SOURCES.items() if kind == follow['item_type'])
+            if table in {'tasks', 'data_tables'}:
+                identity, source = follow['item_id'], row_for(uow, table, follow['business_id'], follow['item_id'])
+                summary = source_summary(source, table)
             else:
                 identity = action_key(follow['business_id'], follow['item_id'])
                 source = row_for(uow, 'action_logs', follow['business_id'], follow['item_id'])
@@ -313,7 +313,7 @@ class InboxService:
                         'A live delegated assignment owns this event; the parent cannot acknowledge it')
         elif operation == 'inbox_unsubscribe':
             if ('subscription_id' in args) == ('source_type' in args) or ('source_type' in args) != ('source_id' in args):
-                raise DomainError('validation_error', 'Name a subscription_id, or a Task or Action source_type with its source_id')
+                raise DomainError('validation_error', 'Name a subscription_id, or a Task, Action or Table source_type with its source_id')
             if 'source_type' in args:
                 if not self.visible(ctx, args['source_type'], args['source_id'], ctx.business_id, uow):
                     raise DomainError('not_found', 'Subscription target is unavailable')
@@ -356,16 +356,16 @@ class InboxService:
         return {'subscription_id': identity}
 
     def thread_item(self, ctx, args, uow):
-        """The Task or Action discussion a follow names, as this agent's workspace sees it."""
-        if args['source_type'] == 'tasks':
-            return ThreadItem(ctx.business_id, 'task', args['source_id'])
+        """The Task, Action or Table discussion a follow names, as this agent's workspace sees it."""
+        if args['source_type'] in {'tasks', 'data_tables'}:
+            return ThreadItem(ctx.business_id, THREAD_SOURCES[args['source_type']], args['source_id'])
         action = linked_action(ctx, uow, args['source_id'])
         if action is None:
             raise DomainError('not_found', 'Subscription target is unavailable')
         return ThreadItem(action['business_id'], 'action', action['id'])
 
     def follow(self, ctx, args, uow):
-        """Following a Task or an Action is the discussion's own follow state: personal, explicit and sticky."""
+        """Following a Task, an Action or a Table is the discussion's own follow state: personal, explicit and sticky."""
         state = set_follow(uow, self.thread_item(ctx, args, uow), ctx.principal_id, True)
         result = {'following': state['following'], 'source_type': args['source_type'], 'source_id': args['source_id']}
         if args['source_type'] == 'tasks' and 'include_related' in args:
@@ -374,7 +374,8 @@ class InboxService:
 
     def unfollow(self, ctx, args, uow):
         """The same sticky unfollow as tasks_follow/actions_follow, applied to this agent's own follow."""
-        state = set_follow(uow, self.thread_item(ctx, args, uow), ctx.principal_id, False)  # Related-work routing follows the Task follow.
+        # Related-work routing follows the Task follow; an old Table subscription goes with the follow (see set_follow).
+        state = set_follow(uow, self.thread_item(ctx, args, uow), ctx.principal_id, False)
         return {'following': state['following'], 'source_type': args['source_type'], 'source_id': args['source_id']}
 
     def related_work(self, ctx, args, wanted, uow):

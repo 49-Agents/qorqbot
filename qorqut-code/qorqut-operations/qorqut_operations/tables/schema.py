@@ -1,10 +1,15 @@
 """Storage of the agent-maintained tables: Project and Global tables, their rows and the per-revision history captures.
 
 ``SCHEMA`` is the DDL of the three tables (data_tables, data_rows, table_versions) with their indexes, the change-feed
-capture triggers, the Global-scope guards and the ``tables`` sequence seed, in exactly the statement order and text of the
-installation's ``documents`` schema group. ``TABLES`` and ``IMMUTABLE_FIELDS`` are the repository
-specifications. These are declarations only: the host assembles them into that same schema group, so the stored schema
-fingerprint is unchanged. They are deliberately not a ``StorageContribution`` of their own.
+capture triggers, the Global-scope guards and the ``tables`` sequence seed, in the statement order of the installation's
+``documents`` schema group. ``TABLES`` and ``IMMUTABLE_FIELDS`` are the repository specifications. These are declarations
+only: the host assembles them into that same schema group. They are deliberately not a ``StorageContribution`` of their own.
+
+A table has a fixed kind (``general`` or ``crm``) and, for a CRM only, a stage configuration. The two columns sit last in
+``data_tables`` (a general table stores ``'general'`` and no configuration), and they and the two guards that keep a general
+table row-only and a CRM free of rows are the only additions to the earlier text: the stored schema fingerprint of a host
+that adopts this module changes accordingly. The CRM membership and recorded-activity tables, which reference these, are the
+``crm`` package's own contribution.
 """
 
 from __future__ import annotations
@@ -26,7 +31,10 @@ SCHEMA = (
     revision INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    PRIMARY KEY(business_id,id)
+    table_kind TEXT NOT NULL DEFAULT 'general' CHECK(table_kind IN ('general','crm')),
+    crm_config_json TEXT CHECK(crm_config_json IS NULL OR json_valid(crm_config_json)),
+    PRIMARY KEY(business_id,id),
+    CHECK((table_kind='crm') = (crm_config_json IS NOT NULL))
 )""",
     """CREATE TABLE "data_rows" (
     business_id TEXT,
@@ -76,13 +84,13 @@ BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_js
 VALUES('data_rows','update',inbox_actor(),json_object('business_id',OLD.business_id,'id',OLD.id,'table_id',OLD.table_id,'position',OLD.position,'cells_json',OLD.cells_json,'source_upload_id',OLD.source_upload_id,'updated_by',OLD.updated_by,'revision',OLD.revision),json_object('business_id',NEW.business_id,'id',NEW.id,'table_id',NEW.table_id,'position',NEW.position,'cells_json',NEW.cells_json,'source_upload_id',NEW.source_upload_id,'updated_by',NEW.updated_by,'revision',NEW.revision)); END""",
     """CREATE TRIGGER inbox_capture_data_tables_delete AFTER DELETE ON data_tables
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('data_tables','delete',inbox_actor(),json_object('business_id',OLD.business_id,'id',OLD.id,'title',OLD.title,'description',OLD.description,'columns_json',OLD.columns_json,'tags_json',OLD.tags_json,'archived',OLD.archived,'revision',OLD.revision),NULL); END""",
+VALUES('data_tables','delete',inbox_actor(),json_object('business_id',OLD.business_id,'id',OLD.id,'title',OLD.title,'description',OLD.description,'columns_json',OLD.columns_json,'tags_json',OLD.tags_json,'archived',OLD.archived,'table_kind',OLD.table_kind,'crm_config_json',OLD.crm_config_json,'revision',OLD.revision),NULL); END""",
     """CREATE TRIGGER inbox_capture_data_tables_insert AFTER INSERT ON data_tables
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('data_tables','insert',inbox_actor(),NULL,json_object('business_id',NEW.business_id,'id',NEW.id,'title',NEW.title,'description',NEW.description,'columns_json',NEW.columns_json,'tags_json',NEW.tags_json,'archived',NEW.archived,'revision',NEW.revision)); END""",
+VALUES('data_tables','insert',inbox_actor(),NULL,json_object('business_id',NEW.business_id,'id',NEW.id,'title',NEW.title,'description',NEW.description,'columns_json',NEW.columns_json,'tags_json',NEW.tags_json,'archived',NEW.archived,'table_kind',NEW.table_kind,'crm_config_json',NEW.crm_config_json,'revision',NEW.revision)); END""",
     """CREATE TRIGGER inbox_capture_data_tables_update AFTER UPDATE ON data_tables
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('data_tables','update',inbox_actor(),json_object('business_id',OLD.business_id,'id',OLD.id,'title',OLD.title,'description',OLD.description,'columns_json',OLD.columns_json,'tags_json',OLD.tags_json,'archived',OLD.archived,'revision',OLD.revision),json_object('business_id',NEW.business_id,'id',NEW.id,'title',NEW.title,'description',NEW.description,'columns_json',NEW.columns_json,'tags_json',NEW.tags_json,'archived',NEW.archived,'revision',NEW.revision)); END""",
+VALUES('data_tables','update',inbox_actor(),json_object('business_id',OLD.business_id,'id',OLD.id,'title',OLD.title,'description',OLD.description,'columns_json',OLD.columns_json,'tags_json',OLD.tags_json,'archived',OLD.archived,'table_kind',OLD.table_kind,'crm_config_json',OLD.crm_config_json,'revision',OLD.revision),json_object('business_id',NEW.business_id,'id',NEW.id,'title',NEW.title,'description',NEW.description,'columns_json',NEW.columns_json,'tags_json',NEW.tags_json,'archived',NEW.archived,'table_kind',NEW.table_kind,'crm_config_json',NEW.crm_config_json,'revision',NEW.revision)); END""",
     """CREATE UNIQUE INDEX data_tables_global_key ON data_tables(id) WHERE business_id IS NULL""",
     """CREATE UNIQUE INDEX data_rows_global_key ON data_rows(id) WHERE business_id IS NULL""",
     """CREATE UNIQUE INDEX data_rows_global_position ON data_rows(table_id,position) WHERE business_id IS NULL""",
@@ -109,6 +117,12 @@ WHEN OLD.business_id IS NULL AND (NEW.id IS NOT OLD.id OR NEW.business_id IS NOT
 AND (EXISTS (SELECT 1 FROM data_rows WHERE business_id IS NULL AND table_id=OLD.id)
     OR EXISTS (SELECT 1 FROM table_versions WHERE business_id IS NULL AND table_id=OLD.id))
 BEGIN SELECT RAISE(ABORT,'Global table has retained rows or history'); END""",
+    """CREATE TRIGGER data_rows_general_only BEFORE INSERT ON data_rows
+WHEN EXISTS (SELECT 1 FROM data_tables WHERE business_id IS NEW.business_id AND id=NEW.table_id AND table_kind='crm')
+BEGIN SELECT RAISE(ABORT,'A CRM table holds memberships, not data rows'); END""",
+    """CREATE TRIGGER data_tables_kind_immutable BEFORE UPDATE OF table_kind ON data_tables
+WHEN NEW.table_kind IS NOT OLD.table_kind
+BEGIN SELECT RAISE(ABORT,'A table keeps the kind it was created with'); END""",
     """INSERT INTO change_sequences(name, value) VALUES ('tables', 0)""",
 )
 
@@ -119,6 +133,7 @@ TABLES = {
 }
 
 IMMUTABLE_FIELDS = {
+    "data_tables": frozenset({"table_kind"}),
     "data_rows": frozenset({"table_id"}),
     "table_versions": frozenset({"table_id", "table_revision", "sequence", "actor_id", "operation", "path", "snapshot_hash"}),
 }

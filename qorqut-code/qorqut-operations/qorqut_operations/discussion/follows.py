@@ -27,7 +27,7 @@ class ThreadItem:
 
     def __post_init__(self):
         if self.item_type not in ITEM_TYPES or not isinstance(self.item_id, str) or not self.item_id:
-            raise DomainError("validation_error", "A discussion belongs to a Task or an Action")
+            raise DomainError("validation_error", "A discussion belongs to a Task, an Action or a Table")
 
     @property
     def namespace(self) -> str:
@@ -74,6 +74,19 @@ def auto_follow(uow, item: ThreadItem, principal_ids, reason: str) -> list[str]:
     return added
 
 
+# A Table could be followed through an explicit inbox subscription before it had a discussion. That row is the same
+# preference as the follow, so every unfollow route removes it too: delivery would otherwise outlive the choice.
+LEGACY_SUBSCRIPTIONS = {"table": "data_tables"}
+
+
+def drop_legacy_subscription(uow, item: ThreadItem, principal_id: str) -> None:
+    """Remove this principal's old subscription to the item (other agents, scopes and delivered events are untouched)."""
+    source = LEGACY_SUBSCRIPTIONS.get(item.item_type)
+    if source is not None:
+        uow.connection.execute("DELETE FROM inbox_subscriptions WHERE agent_id=? AND business_id IS ? AND source_type=? AND source_id=?",
+                               (principal_id, item.business_id, source, item.item_id))
+
+
 def set_follow(uow, item: ThreadItem, principal_id: str, following: bool) -> dict:
     """The principal's own choice. Unfollowing leaves a sticky tombstone; following replaces it."""
     uow.require_write()
@@ -89,6 +102,8 @@ def set_follow(uow, item: ThreadItem, principal_id: str, following: bool) -> dic
         uow.connection.execute(
             "INSERT INTO thread_follows(business_id,item_type,item_id,principal_id,following,explicit,reason,created_at,"
             "updated_at) VALUES(?,?,?,?,?,1,'explicit',?,?)", (*key[:3], principal_id, int(following), now, now))
+    if not following:
+        drop_legacy_subscription(uow, item, principal_id)
     return follow_state(uow, item, principal_id)
 
 

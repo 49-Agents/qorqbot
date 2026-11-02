@@ -16,6 +16,7 @@ import json
 from typing import Protocol
 
 from qorqut_operations.contracts import utc_now
+from qorqut_operations.discussion.follows import ThreadItem, followers as follower_ids
 
 from .related import routed
 
@@ -149,6 +150,10 @@ class EventFinalizer:
         if table == 'data_rows':
             record = row_for(uow, 'data_tables', business, data['table_id'])
             return [('data_tables', record, actor, 'rows_changed', set())] if record else []
+        if table == 'crm_entries':
+            # A CRM entry is the CRM table's row: its membership, stage and local cells are announced as one data change.
+            record = row_for(uow, 'data_tables', business, data['table_id'])
+            return [('data_tables', record, actor, 'rows_changed', set())] if record else []
         if table == 'relationships':
             result = []
             resource_types = {**self.resource_types, **{kind: source for source, kind in self.sources.item_types.items()}}
@@ -249,6 +254,9 @@ class EventFinalizer:
             item_type = self.item_type_for(table)
             if table == 'documents':
                 item_type = {'context_topic': 'topic', 'context_person': 'person'}.get(record.get('kind'), 'material')
+            if table == 'data_tables':
+                # A Table's followers hear of its data changes as they hear of its comments (current access is rechecked on read).
+                recipients.update(follower_ids(uow, ThreadItem(business, 'table', identity)))
             subscriptions = uow.connection.execute('SELECT * FROM inbox_subscriptions WHERE business_id IS ?', (business,)).fetchall()
             for sub in subscriptions:
                 matched = sub['source_type'] == table and sub['source_id'] == identity

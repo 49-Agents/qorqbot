@@ -17,6 +17,19 @@ HISTORY_REF = "refs/heads/qorqut-tables"
 GLOBAL_DIRECTORY = "files/tables"
 # A Git object name as the table publisher accepts it: SHA-1 or SHA-256 hexadecimal.
 OBJECT_ID = re.compile(r"^[a-f0-9]{40}(?:[a-f0-9]{24})?$")
+# The columns a general table's snapshot never carried: a general snapshot keeps its original schema_version 1 bytes exactly.
+KIND_COLUMNS = ("table_kind", "crm_config_json")
+
+
+def snapshot(table, children):
+    """The exact per-revision snapshot of a table, dispatched by its kind.
+
+    A general table keeps ``schema_version`` 1 with its rows, byte-for-byte what it always was (the CRM columns are not part
+    of it). A CRM carries ``schema_version`` 2, its configuration and its memberships: scoped Task references and local
+    cells only, never a copy of a Task profile, a linked email or a private discussion."""
+    if table["table_kind"] == "crm":
+        return {"schema_version": 2, "table_kind": "crm", "table": table, "entries": children}
+    return {"schema_version": 1, "table": {key: value for key, value in table.items() if key not in KIND_COLUMNS}, "rows": children}
 
 
 class TableHistory:
@@ -71,11 +84,11 @@ class TableHistory:
         # Projection follows current SQLite state, not an older queued revision.
         with self.database.read() as uow:
             table = uow.repository("data_tables", business_id=business_id).get(table_id, required=True)
+            children = "crm_entries" if table["table_kind"] == "crm" else "data_rows"
             rows = [decode_row(row) for row in uow.connection.execute(
-                "SELECT * FROM data_rows WHERE business_id IS ? AND table_id=? ORDER BY id", (business_id, table_id))]
-            snapshot = {"schema_version": 1, "table": table, "rows": rows}
+                f"SELECT * FROM {children} WHERE business_id IS ? AND table_id=? ORDER BY id", (business_id, table_id))]
             path = self.location(business_id, table_id, uow)
-        atomic_write(registered_path(self.root, path), self.bytes(snapshot))
+        atomic_write(registered_path(self.root, path), self.bytes(snapshot(table, rows)))
 
     @staticmethod
     def bytes(snapshot):
