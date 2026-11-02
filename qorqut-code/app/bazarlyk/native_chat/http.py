@@ -86,6 +86,8 @@ async def route(runtime, request, principal_id, parts, request_id):
                 raise DomainError("validation_error", "before is required")
             return ok(await run(partial(chat.history, principal_id, agent_id, before=before,
                                         limit=_integer(request, "limit", 50, minimum=1), **_conversation(request))))
+        if tail == ["attachment"]:
+            return ok(await run(partial(chat.attachment_state, principal_id, agent_id)))
         if tail == ["events"]:
             return await _events(chat, request, principal_id, agent_id)
         raise DomainError("not_found", "Chat endpoint is not registered")
@@ -119,6 +121,12 @@ async def route(runtime, request, principal_id, parts, request_id):
         checked_fields(body, fields, fields)
         return ok(await run(partial(chat.send, principal_id, agent_id, body["text"], body["idempotency_key"],
                                     body["expected_binding"])))
+    if tail == ["select"]:
+        # The owner's explicit selection of the running native conversation: the one way to replace a selection.
+        fields = {"provider", "conversation_id", "expected_generation"}
+        checked_fields(body, fields, fields)
+        return ok(await run(partial(chat.select, principal_id, agent_id, body["provider"], body["conversation_id"],
+                                    body["expected_generation"])))
     if tail == ["read"]:
         checked_fields(body, {"sequence"}, {"sequence"})
         return ok(await run(partial(chat.mark_read, principal_id, agent_id, body["sequence"])))

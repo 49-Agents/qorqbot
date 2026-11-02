@@ -58,6 +58,13 @@ def runtime_client(row):
     return RUNTIME_CLIENTS.get(data.get('runtime')) if isinstance(data, dict) else None
 
 
+def agent_client(row):
+    """The client a registered agent's trusted profile runtime runs, for every role: Dev and a global worker per their own
+    launcher rules, every other agent (Ordubashy and the rest) by its profile runtime. None when the profile names no supported
+    runtime; the caller refuses then, and never assumes Codex."""
+    return dev_client(row) or worker_client(row) or runtime_client(row)
+
+
 class OwnerInputDeferred(Exception):
     """The terminal is not verifiably ready; nothing was typed. ``reason`` is a stable code for status."""
 
@@ -87,10 +94,13 @@ class AgentTerminalBackend:
 
     def snapshot(self, row, *, client=None):
         """The registered terminal's observation. ``client`` (owner input) names the client to verify for any role."""
-        selected = client or dev_client(row) or worker_client(row)
+        selected = client or agent_client(row)
         client = selected or 'codex'
+        native = getattr(self.runtime, 'native_chat', None)
+        revision = native.attachment.revision(row['agent_id']) if native is not None else None
         broker, _, session, _, _ = self.selected(row)
-        if not broker.session_alive(session): return {'state':'absent', **({'client':selected} if selected else {})}
+        if not broker.session_alive(session):
+            return {'state':'absent', 'selection_revision':revision, **({'client':selected} if selected else {})}
         code, output = broker.tmux('list-panes', '-t', '='+session, '-F', '#{pid}|#{session_id}|#{pane_id}|#{pane_pid}|#{pane_current_command}|#{pane_tty}')
         lines = output.strip().splitlines()
         if code or len(lines)!=1:
@@ -118,8 +128,10 @@ class AgentTerminalBackend:
                     if group != foreground or (process / 'comm').read_text().strip() not in CLIENT_PROCESSES[client]:
                         continue
                     args = (process / 'cmdline').read_bytes().split(b'\0')
-                    if b'--remote' in args or b'app-server' in args:
-                        raise DomainError('operation_unavailable', 'Remote app-server clients require a separate lifecycle adapter')
+                    # Lifecycle control owns the viewer pane, never the shared server.
+                    # Current-conversation proof for raw input lives in AttachmentService.
+                    if b'app-server' in args:
+                        raise DomainError('operation_unavailable', 'A shared app-server is not a terminal viewer')
                     command, verified = client, True
                     break
                 except (OSError, ValueError, IndexError):
@@ -130,7 +142,87 @@ class AgentTerminalBackend:
             # An unverified foreground program is never reported as the selected client.
             command = 'unrecognized'
         return {'foreground_pid':foreground, 'foreground_started':started, 'state':'present', 'server_pid':fields[0], 'session_id':fields[1], 'pane_id':fields[2], 'pane_pid':fields[3], 'command':command,
-                **({'client':selected} if selected else {})}
+                'selection_revision':revision, **({'client':selected} if selected else {})}
+
+    def pane_observation(self, row, client):
+        """A read-only account of the registered pane for the selected-conversation attachment, by process identity and never by
+        a label: ``absent``, or the one pane with ``kind`` =
+
+        * ``shell``  the pane's registered shell (tmux's pane process, a known interactive shell) is itself the terminal's
+                     foreground process group and the only process in it: an idle prompt. A nested shell, a suspended or
+                     background job's group, or any other foreground is not this.
+        * ``client`` exactly one process of ``client`` is in the foreground process group, descends from the pane shell and
+                     shares its session and controlling terminal. ``client`` carries its pid, start ticks and argv.
+        * ``other``  anything else, including an ambiguous foreground.
+
+        Unlike ``snapshot`` it also describes a Codex client attached to a shared server (``--remote``), which control and input
+        never act on. Nothing is typed or changed; an observation that cannot be made raises, and a caller fails closed."""
+        broker, _, session, _, _ = self.selected(row)
+        if not broker.session_alive(session):
+            return {'state': 'absent'}
+        code, output = broker.tmux('list-panes', '-t', '='+session, '-F', '#{session_id}|#{pane_id}|#{pane_pid}|#{pane_current_command}|#{pane_title}')
+        lines = output.strip().splitlines()
+        if code or len(lines) != 1:
+            raise DomainError('operation_unavailable', 'Expected exactly one registered terminal pane')
+        fields = lines[0].split('|', 4)
+        if len(fields) != 5 or not fields[2].isdigit():
+            raise DomainError('operation_unavailable', 'Invalid terminal observation')
+        session_id, pane_id, command = fields[0], fields[1], fields[3]
+        shell = int(fields[2])
+        try:
+            shell_fields = self._stat(shell)
+            shell_comm = (Path(f'/proc/{shell}/comm')).read_text().strip()
+            foreground = int(shell_fields[5])
+            if foreground <= 0:
+                raise ValueError('No foreground process')
+            members = {}
+            for process in Path('/proc').iterdir():
+                if not process.name.isdigit():
+                    continue
+                try:
+                    parts = self._stat(int(process.name))
+                    if int(parts[2]) == foreground:
+                        members[int(process.name)] = parts
+                except (OSError, ValueError, IndexError):
+                    continue
+            kind, found = 'other', None
+            if foreground == shell:
+                if shell_comm in SHELLS and int(shell_fields[2]) == shell and set(members) == {shell}:
+                    kind = 'shell'
+            else:
+                matches = []
+                for pid, parts in sorted(members.items()):
+                    if parts[3] != shell_fields[3] or parts[4] != shell_fields[4]:
+                        continue
+                    if (Path(f'/proc/{pid}/comm')).read_text().strip() not in CLIENT_PROCESSES[client]:
+                        continue
+                    if not self._descends(pid, shell):
+                        continue
+                    argv = [item.decode('utf-8', 'replace') for item in (Path(f'/proc/{pid}/cmdline')).read_bytes().split(b'\0') if item]
+                    matches.append({'pid': pid, 'started': parts[19], 'argv': argv})
+                if len(matches) == 1:
+                    kind, found = 'client', matches[0]
+        except (OSError, IndexError, ValueError) as exc:
+            raise DomainError('operation_unavailable', 'Cannot identify the foreground terminal process') from exc
+        return {'state': 'present', 'session_id': session_id, 'pane_id': pane_id, 'pane_pid': shell, 'shell_started': shell_fields[19],
+                'command': command, 'kind': kind, 'client': found, 'title': fields[4]}
+
+    @staticmethod
+    def _stat(pid):
+        """The fields of ``/proc/<pid>/stat`` after the command name: [0] state, [1] ppid, [2] pgrp, [3] session, [4] tty,
+        [5] foreground group of that tty, [19] start ticks."""
+        text = Path(f'/proc/{pid}/stat').read_text()
+        return text[text.rfind(')')+2:].split()
+
+    def _descends(self, pid, ancestor):
+        """Whether ``ancestor`` is on ``pid``'s parent chain (the exact pane ancestry), within a bounded depth."""
+        for _ in range(24):
+            if pid == ancestor:
+                return True
+            pid = int(self._stat(pid)[1])
+            if pid <= 1:
+                return False
+        return False
 
     @staticmethod
     def validate(action, snapshot):
@@ -165,13 +257,24 @@ class AgentTerminalBackend:
         raise DomainError('operation_unavailable', f"{CLIENT_NAMES[client]} did not reach its input prompt; inspect terminal")
 
     def execute(self, row, action, message, expected, input_key=None):
+        """One owner-authorized terminal action. It runs under the agent's one lock (shared with Chat sends, selection,
+        reconnect and raw terminal input), so none of them can land between the checks below and the change to the terminal."""
+        from contextlib import nullcontext
+        native = getattr(self.runtime, 'native_chat', None)
+        with native.arbiter.locks(row['agent_id']) if native is not None else nullcontext():
+            return self._execute(row, action, message, expected, input_key, native)
+
+    def _execute(self, row, action, message, expected, input_key, native):
         if self.snapshot(row)!=expected:
             raise DomainError('revision_conflict', 'Terminal changed before dispatch')
         self.validate(action, expected)
         dev = dev_client(row)
-        launcher = dev or worker_client(row)
+        launcher = agent_client(row)
         if launcher and expected.get('client') != launcher:
             raise DomainError('revision_conflict', 'Agent runtime changed before dispatch')
+        # The selection this action was authorized against, read before the old pane is touched; start/restart may resume only
+        # exactly this one, never whichever selection exists after the old terminal is gone.
+        authorized = expected.get('selection_revision')
         broker, key, session, _, business = self.selected(row)
         if action=='ping':
             return self._ping(row, message, input_key or f"terminal-action:{uuid4()}", launcher)
@@ -190,6 +293,16 @@ class AgentTerminalBackend:
         snap = self.snapshot(row)
         if snap.get('command') not in SHELLS:
             raise DomainError('invalid_transition', 'Terminal is not an idle shell')
+        # Every agent runs the client its trusted profile runtime names; there is no Codex default, and nothing is typed for one
+        # whose runtime is not a supported client.
+        if launcher is None:
+            raise DomainError('unsupported_runtime', 'Terminal control supports Claude Code and Codex agents only')
+        # An agent with a selected native conversation is resumed as exactly that conversation, with no role bootstrap; a
+        # launch that cannot be proved safe is refused, never replaced by a fresh conversation. That path verifies the pane's
+        # shell by process identity and does its own line-clear, so nothing is typed before it has.
+        resumed = native.attachment.resume_selected(row['agent_id'], authorized) if native is not None else None
+        if resumed is not None:
+            return resumed
         # Clear any partially typed shell command before entering the fixed launcher.
         code, _ = broker.tmux('send-keys','-t',snap['pane_id'],'C-u')
         if code: raise DomainError('operation_failed', 'Could not prepare shell input')
@@ -197,8 +310,7 @@ class AgentTerminalBackend:
             # Dev is owner-project-led: no role, work prompt or readiness scraping follows.
             broker.submit_input(session, dev)
             return 'Startup command submitted; readiness/work is not confirmed'
-        # A worker runs its profile's client; every other target keeps Codex.
-        client = launcher or 'codex'
+        client = launcher
         name, role_command = CLIENT_NAMES[client], '/role' if client=='claude' else '$role'
         broker.submit_input(session, client)
         self.wait_ready(row, client)
@@ -305,7 +417,7 @@ class AgentTerminalBackend:
         except NativeChatError as error:
             raise DomainError('not_delivered', error.message) from None
         if result.state == STATE_SUBMITTED:
-            return f"Direct message submitted to {CLIENT_NAMES[client or 'codex']}; processing is not confirmed"
+            return f"Direct message submitted to {CLIENT_NAMES.get(client, 'the native client')}; processing is not confirmed"
         if result.state == STATE_UNCERTAIN:
             raise DomainError('operation_failed', 'Direct message outcome could not be confirmed')
         raise DomainError('not_delivered', f"Direct message was not typed: {result.reason or 'the native session is not ready'}")

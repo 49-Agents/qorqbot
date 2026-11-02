@@ -44,10 +44,10 @@ def control_socket(owner):
 
 
 class RPC:
-    def __init__(self, connection):
+    def __init__(self, connection, timeout=10):
         self.connection = connection
         self.sequence = 0
-        self.deadline = time.monotonic() + 10
+        self.deadline = time.monotonic() + timeout
 
     def request(self, method, params):
         self.sequence += 1
@@ -69,13 +69,13 @@ class RPC:
 
 
 @contextmanager
-def connect(owner):
+def connect(owner, *, timeout=10):
     from websockets.sync.client import unix_connect
-    with unix_connect(control_socket(owner), open_timeout=3, close_timeout=1, max_size=2**21) as connection:
+    with unix_connect(control_socket(owner), open_timeout=min(3, timeout), close_timeout=min(1, timeout), max_size=2**21) as connection:
         peer, _, _ = struct.unpack('3i', connection.socket.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
         if peer != int(owner.split(':')[0]) or not codex_session.owner_alive(owner):
             raise OSError('Native control socket belongs to another process')
-        rpc = RPC(connection)
+        rpc = RPC(connection, timeout)
         rpc.request('initialize', {'clientInfo': {'name': 'qorqut_native_input', 'version': '1.2'}})
         connection.send(json.dumps({'method': 'initialized'}))
         yield rpc

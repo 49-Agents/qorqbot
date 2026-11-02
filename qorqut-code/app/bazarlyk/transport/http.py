@@ -1247,7 +1247,7 @@ class HTTPAPI:
                 ownership = await anyio.to_thread.run_sync(bind_native)
                 value.update(ownership)
             except DomainError as error:
-                if error.code not in {'inbox_binding_required','inbox_binding_ambiguous','inbox_session_superseded','inbox_generation_stale'}:
+                if error.code not in {'inbox_binding_required','inbox_binding_ambiguous','inbox_session_superseded','inbox_generation_stale','inbox_selection_required'}:
                     raise
                 value['inbox_available'] = False
                 value['inbox_binding_error'] = error.code

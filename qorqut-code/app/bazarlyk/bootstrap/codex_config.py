@@ -81,6 +81,9 @@ def configuration(*, workspace, endpoint, header_command, command, snapshot_comm
     config = {
         "default_permissions": "qorqut-agent",
         "approval_policy": "never",
+        # Native current-view metadata for Chat/Terminal attachment. Unlike the
+        # launch arguments, Codex updates this when the owner changes threads.
+        "tui": {"terminal_title": ["session-id"]},
         # Preserve the operator-provided terminal environment for shell tools.
         # Never serialize credential values into this generated configuration.
         "shell_environment_policy": {"inherit": "all", "ignore_default_excludes": True},

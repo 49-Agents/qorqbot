@@ -260,8 +260,14 @@ class InboxService(OperationsInboxService):
         return ctx
 
     def start_session(self, ctx, registration_id, session_id, event, *, binding=None,
-                      old_state='unknown', expected_generation=None):
-        """One transaction; native verification happens in the trusted transport adapter."""
+                      old_state='unknown', expected_generation=None, owner_selection=False):
+        """One transaction; native verification happens in the trusted transport adapter.
+
+        The owner row is the agent's selected native conversation. Once it exists, a bootstrap of any *other* conversation is
+        only a candidate and is refused (``inbox_selection_required``): it never replaces the selection, whether or not the
+        old process is gone. The same conversation may renew its process and generation after the old one is verified dead.
+        ``owner_selection`` is the one explicit authority that replaces the selection: the installation owner selected exactly
+        this verified conversation (``NativeChat.select``). Ordinary agent bootstrap calls never carry it."""
         import uuid
         try:
             consumer = str(uuid.UUID(session_id))
@@ -278,8 +284,10 @@ class InboxService(OperationsInboxService):
                 raise DomainError('inbox_generation_stale', 'Inbox ownership changed during verification')
             same = row and row['consumer_id'] == consumer
             rebound = False
-            if not same and self.startup_owned(ctx.principal_id, consumer, uow):
+            if not same and not owner_selection and self.startup_owned(ctx.principal_id, consumer, uow):
                 raise DomainError('inbox_session_superseded', 'This session was replaced; retire its helpers')
+            if owner_selection and binding is None:
+                raise DomainError('inbox_binding_required', 'An owner selection needs a verified native process')
             if binding is None:
                 if not same:
                     raise DomainError('inbox_binding_required', 'Startup requires a verified native process and selection')
@@ -292,9 +300,9 @@ class InboxService(OperationsInboxService):
                         raise DomainError('inbox_binding_ambiguous', 'Same session has a different live or unknown native process identity')
                     generation += 1
                     rebound = True
-                if not same and row and old_state != 'dead' and (
-                        event not in {'startup','resume','clear','fork'} or binding.get('event') != event):
-                    raise DomainError('inbox_binding_ambiguous', 'Existing owner is not confirmed dead and no native selection is verified')
+                if not same and row and not owner_selection:
+                    raise DomainError('inbox_selection_required',
+                        'Another conversation is selected for this agent; the owner must select this one explicitly')
             if rebound and row:
                 delegation = getattr(self.app, 'operational_delegation', None)
                 if delegation is not None:

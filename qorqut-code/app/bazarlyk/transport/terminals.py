@@ -1,6 +1,7 @@
 """Owner-only mirrors of registered Claude workspaces; shutdown never kills tmux."""
 
 import base64
+from contextlib import nullcontext
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -248,6 +249,34 @@ class TerminalService:
             return {"state": "uncertain", "detail": "Terminal write outcome is uncertain"}
         return {"state": "delivered"}
 
+    def attachment(self):
+        """The runtime's shared selected-conversation attachment service, or None when native Chat is not composed."""
+        native = getattr(self.runtime, "native_chat", None)
+        return native.attachment if native is not None else None
+
+    def reconnect_selected(self, context, business, selector, execution, revision, *, cols=120, rows=32):
+        """The owner's explicit reconnect of this agent's Terminal to its selected native conversation.
+
+        The one mutation behind the attachment view: reads and stream reconnects never come here. A registered shell is made
+        present (attach or create a plain shell; this never starts an agent client), then exactly the selected conversation is
+        resumed into it by the attachment service, which refuses everything it cannot prove safe and never starts a fresh
+        conversation."""
+        service = self.attachment()
+        if service is None:
+            raise DomainError("operation_unavailable", "Native conversation attachment is unavailable")
+        _, row = self.agent(context, selector)
+        view = service.state(row["agent_id"])
+        if view["mode"] != "selected":
+            raise DomainError("selection_required", "No conversation is selected for this agent yet; start the agent in its terminal first")
+        if view["selection"]["revision"] != revision:
+            raise DomainError("revision_conflict", "The selected conversation changed; reload and try again")
+        if view["state"] in ("attached", "reconnecting"):
+            return view
+        if view["action"] != "reconnect":
+            raise DomainError("invalid_transition", view["detail"] or "The terminal cannot be reconnected")
+        self.open(context, business, selector, cols=cols, rows=rows, execution=execution)
+        return service.reconnect(row["agent_id"], revision)
+
     def _native_input(self, agent_id, data, key):
         """One broadcast delivery to a host-native session through the arbiter, reported in the dispatcher's vocabulary."""
         from bazarlyk.native_chat.contracts import InputRequest, NativeChatError, STATE_FAILED, STATE_SUBMITTED, STATE_UNCERTAIN, TYPE_BROADCAST
@@ -314,9 +343,24 @@ class TerminalService:
             broker = execution.broker
         open_target = (lambda: (self.open_workspace(context, slot=slot), None, None)) if workspace_terminal else (lambda: self.open(context, business, selector, execution=execution, reconnect=action == "stream"))
         binding_target = (lambda: self.workspace_binding(context, slot)) if workspace_terminal else (lambda: self.binding(business, row, broker))
+        if agent_terminal and action == "attachment" and request.method == "GET":
+            service = self.attachment()
+            if service is None:
+                raise DomainError("operation_unavailable", "Native conversation attachment is unavailable")
+            return JSONResponse({"ok": True, "attachment": await anyio.to_thread.run_sync(lambda: service.state(row["agent_id"]))},
+                                headers={"Cache-Control": "no-store"})
         if action == "stream" and request.method == "GET":
             if request.headers.get("sec-fetch-site") not in (None, "same-origin"):
                 raise DomainError("csrf_required", "Terminal streams must originate in this dashboard")
+            # A registered agent's stream is either the explicit diagnostic one (``mode=diagnostic``, which makes no claim) or a
+            # view of its selected conversation. With a selection the stream must name its attachment: it is checked before
+            # anything is streamed and again on every recheck below, an unclaimed or stale request is refused, and the stream
+            # ends with ``detached`` the moment it stops being true. Never silently downgraded to an unclaimed stream.
+            claimed = request.query_params.get("attachment") if agent_terminal else None
+            diagnostic = agent_terminal and request.query_params.get("mode") == "diagnostic"
+            service = self.attachment() if agent_terminal and not diagnostic else None
+            if service is not None:
+                await anyio.to_thread.run_sync(lambda: service.check_input(row["agent_id"], claimed))
             terminal, profile, row = await anyio.to_thread.run_sync(open_target)
             async def events():
                 current = terminal
@@ -334,13 +378,18 @@ class TerminalService:
                     if time.monotonic() - checked_at >= 5:
                         try:
                             await anyio.to_thread.run_sync(check_target)
+                            if service is not None:
+                                await anyio.to_thread.run_sync(lambda: service.check_input(row["agent_id"], claimed))
                             if not workspace_terminal and self.execution_provider is not None:
                                 selected = await anyio.to_thread.run_sync(lambda: self.execution(business))
                                 if not self._same_execution(execution, selected):
                                     yield b"event: done\ndata: {}\n\n"
                                     return
-                        except DomainError:
-                            yield b"event: done\ndata: {}\n\n"
+                        except DomainError as error:
+                            if service is not None and error.code in ("terminal_not_attached", "terminal_changed"):
+                                yield b"event: detached\ndata: {}\n\n"
+                            else:
+                                yield b"event: done\ndata: {}\n\n"
                             return
                         checked_at = time.monotonic()
                     chunk, cursor = current.tail_from(cursor)
@@ -367,7 +416,9 @@ class TerminalService:
         if request.method != "POST":
             raise DomainError("not_found", "Terminal endpoint is not registered")
         body = await read_json(request, limit=128 * 1024)
-        allowed = {"start": {"cols", "rows"}, "resize": {"cols", "rows"}, "input": {"data"}, "stop": set()}
+        allowed = {"start": {"cols", "rows"}, "resize": {"cols", "rows"}, "input": {"data", "mode", "attachment"}, "stop": set()}
+        if agent_terminal:
+            allowed["attach"] = {"revision", "cols", "rows"}
         if action not in allowed:
             raise DomainError("not_found", "Terminal action is not registered")
         checked_fields(body, allowed[action])
@@ -379,6 +430,13 @@ class TerminalService:
         if broker is None:
             raise DomainError("operation_unavailable", "Terminal backend is unavailable")
         key, session, cwd = binding_target()
+        if action == "attach":
+            if body.get("revision") is None:
+                raise DomainError("validation_error", "revision is required")
+            cols, rows = self.size(body)
+            view = await anyio.to_thread.run_sync(lambda: self.reconnect_selected(
+                context, business, selector, execution, body["revision"], cols=cols, rows=rows))
+            return JSONResponse({"ok": True, "attachment": view}, headers={"Cache-Control": "no-store"})
         if action == "start":
             cols, rows = self.size(body)
             if workspace_terminal:
@@ -390,12 +448,19 @@ class TerminalService:
                 target = {"agent": profile.data["name"]}
             return JSONResponse({"ok": True, **target, "cols": terminal.cols, "rows": terminal.rows, "done": False})
         if action == "stop":
-            stopped = False
-            try:
-                stopped = await anyio.to_thread.run_sync(lambda: broker.kill_session(session))
-            finally:
-                stopped = broker.stop(key) or stopped
-            return JSONResponse({"ok": bool(stopped)})
+            # An agent's stop is a controller lifecycle change like start and restart: it waits for the agent's one lock, so it
+            # never lands between a selected input check and its write or inside a reconnect.
+            service = self.attachment() if agent_terminal else None
+
+            def stop_terminal():
+                with service.locks(row["agent_id"]) if service is not None else nullcontext():
+                    stopped = False
+                    try:
+                        stopped = broker.kill_session(session)
+                    finally:
+                        stopped = broker.stop(key) or stopped
+                    return stopped
+            return JSONResponse({"ok": bool(await anyio.to_thread.run_sync(stop_terminal))})
         terminal = broker.get(key)
         if terminal is None:
             raise DomainError("not_found", "No live terminal mirror is attached")
@@ -403,7 +468,18 @@ class TerminalService:
             data = body.get("data")
             if not isinstance(data, str) or len(data) > 65536:
                 raise DomainError("validation_error", "Terminal input requires bounded text")
-            terminal.write(data.encode("utf-8"))
+            mode = body.get("mode", "selected")
+            if mode not in ("selected", "diagnostic"):
+                raise DomainError("validation_error", "Terminal input mode must be selected or diagnostic")
+            service = self.attachment() if agent_terminal and mode == "selected" else None
+            if service is not None:
+                # Raw keystrokes are accepted as the selected conversation only while the terminal is positively attached to it.
+                # The check and the write both happen under the agent's one lock, so a selection change, reconnect or restart
+                # cannot land between them; a refusal carries its reason and is never dropped silently.
+                await anyio.to_thread.run_sync(lambda: service.guarded(row["agent_id"], body.get("attachment"),
+                                                                       lambda: terminal.write(data.encode("utf-8"))))
+            else:
+                terminal.write(data.encode("utf-8"))
         else:
             cols, rows = self.size(body)
             terminal.resize(rows, cols)

@@ -26,7 +26,7 @@ from .codex_session import owner_alive
 HELPER_MODULE = 'bazarlyk.bootstrap.supervisor'  # the stable launcher runs it as __main__, so __name__ is not this allowlisted name
 PERMANENT = {'forbidden','invalid_principal','inactive_agent','invalid_credential',
              'missing_credential','missing_registration','invalid_registration',
-             'registration_conflict','inbox_session_superseded','inbox_generation_stale'}
+             'registration_conflict','inbox_session_superseded','inbox_generation_stale','inbox_selection_required'}
 
 
 def register_pending(registration_path,native):

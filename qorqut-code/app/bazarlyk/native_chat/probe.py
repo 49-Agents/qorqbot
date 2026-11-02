@@ -13,6 +13,7 @@ import json
 import logging
 from pathlib import Path
 import re
+import sqlite3
 
 from qorqut_operations.contracts import DomainError
 from bazarlyk.bootstrap import codex_session
@@ -21,6 +22,7 @@ from bazarlyk.bootstrap.terminal_chat import CODEX_SUFFIX, NATIVE_IDENTITY, proc
 from bazarlyk.bootstrap.transcript_snapshot import SESSION_ID
 from bazarlyk.transport.agent_terminal_control import NATIVE_ONLY
 
+from . import liveness
 from .contracts import RUNTIME_PROVIDERS
 
 LOG = logging.getLogger(__name__)
@@ -60,11 +62,15 @@ class Observation:
 
 @dataclass(frozen=True)
 class ProbeResult:
-    """``observation`` is set only for ``reason == 'live'``; every other reason says why the agent has no usable session."""
+    """``observation`` is set only for ``reason == 'live'``; every other reason says why the agent has no usable session.
+
+    ``candidate`` is a second, different live conversation seen in the workspace marker while ``observation`` is the selected
+    shared Codex thread, verified independently of that marker (see ``SessionProbe.observe``). It is never an input target."""
 
     reason: str
     observation: Observation | None = None
     marker: dict | None = None
+    candidate: Observation | None = None
 
 
 def _read_json(path: Path) -> dict | None:
@@ -88,12 +94,70 @@ class SessionProbe:
     attached to the runtime after construction). ``marker_reader`` and ``process_probe`` are injection points for synthetic
     checks; the defaults read the workspace marker and the real ``/proc`` and tmux state."""
 
-    def __init__(self, backend=lambda: None, *, marker_reader=None, process_probe=None):
+    def __init__(self, backend=lambda: None, *, marker_reader=None, process_probe=None, selected_reader=None):
         self._backend = backend
         self._marker_reader = marker_reader or self._read_marker
         self._process_probe = process_probe or self._verify_process
+        # ``selected_reader(profile) -> (Selection | None, open native_sessions row | None)``; without it the marker decides.
+        self._selected_reader = selected_reader
 
     def observe(self, profile: dict) -> ProbeResult:
+        """What the agent's native client is doing now, for every producer of input and for the registry.
+
+        The workspace has one newest-hook marker, so starting an unselected terminal conversation overwrites the marker of a
+        selected conversation that is still running. For a selected shared Codex thread the marker is therefore not the only
+        evidence: the owner row's own process and exact thread-writer lock are verified directly, and the selected
+        conversation stays observable while a different conversation is reported separately as ``candidate``. A terminal-owned
+        conversation (Claude Code, foreground Codex) is identified only by its hook marker and is never synthesized from a
+        stale one; if that marker names something else it stays disconnected."""
+        result = self._observe_marker(profile)
+        if self._selected_reader is None:
+            return result
+        try:
+            chosen, latest = self._selected_reader(profile)
+        except (OSError, DomainError, sqlite3.Error):
+            return result
+        if chosen is None or not chosen.shared_server:
+            return result
+        if result.reason == REASON_LIVE and chosen.holds(result.observation):
+            return result
+        if (result.reason == REASON_SESSION_END and (result.marker or {}).get("session_id") == chosen.conversation_id
+                and RUNTIME_PROVIDERS.get((result.marker or {}).get("runtime")) == chosen.provider):
+            return result
+        selected = self._observe_selected(profile, chosen, latest)
+        if selected is None:
+            return result
+        return ProbeResult(REASON_LIVE, selected, result.marker, result.observation if result.reason == REASON_LIVE else None)
+
+    def _observe_selected(self, profile: dict, chosen, latest: dict | None) -> Observation | None:
+        """The selected shared Codex thread, from the owner row alone: its server process still exists with the recorded start
+        ticks, is an app-server, and still holds this thread's exact writer lock as the adopted owner tuple. ``None`` when
+        any of that is not positively verified; an unreadable process is not evidence."""
+        pid, started, owner = chosen.pid, chosen.started, chosen.owner
+        if liveness.of_binding(chosen.binding) != liveness.ALIVE or owner is None:
+            return None
+        try:
+            argv = (codex_session.PROC_ROOT / str(pid) / "cmdline").read_bytes().split(b"\0")
+            if b"app-server" not in argv or codex_session.thread_owner(pid, chosen.conversation_id) != owner:
+                return None
+            workspace = Path(profile["workspace"])
+            config = _read_json(workspace / REGISTRATION)
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+        if not config or config.get("agent_id") != profile["agent_id"]:
+            return None
+        transcript = None
+        if latest is not None and chosen.matches(latest.get("provider"), latest.get("conversation_id")):
+            transcript = latest.get("transcript_path")
+        stand_in = {"agent_id": profile["agent_id"], "session_id": chosen.conversation_id, "runtime": chosen.runtime,
+                    "pid": pid, "started": started}
+        return Observation(
+            agent_id=profile["agent_id"], runtime=chosen.runtime, provider=chosen.provider, conversation_id=chosen.conversation_id,
+            transcript_path=transcript, pid=pid, started=started, transport="codex_queue", owner=owner,
+            working=self._working(profile, stand_in, {"owner": owner}), capture=bool(transcript),
+            capture_enabled=config.get("capture_transcripts") is True)
+
+    def _observe_marker(self, profile: dict) -> ProbeResult:
         runtime = _runtime(profile)
         if runtime is None:
             return ProbeResult(REASON_UNSUPPORTED_RUNTIME)

@@ -3,8 +3,14 @@
 ``SessionRegistry.reconcile`` turns one probe result into the agent's binding state. A binding is created only from a verified
 live observation (hook marker plus the live process and pane/thread-lock), is reused while the same conversation is still
 held by the same process, and ends only on evidence: the client's own ``SessionEnd``, the bound process or thread writer
-being gone, or a different verified session replacing it. A momentary failure to verify (a tmux hiccup, a screen read) never
-ends a binding; waiting inputs then simply keep waiting for the same session.
+being gone, or the selected conversation being re-held by a new process after the old one is verified gone. A momentary
+failure to verify (a tmux hiccup, a screen read) never ends a binding; waiting inputs then simply keep waiting for the same
+session.
+
+Which conversation may hold a binding is decided by the agent's selection (``selection.py``, the ``native_session_owners``
+row), not by whichever conversation was observed last: an observation of any other conversation is only a candidate. It
+creates and supersedes nothing; it is bound only after the owner explicitly selects it. With no selection yet nothing is
+bound either (the first verified registration creates the selection).
 """
 
 from __future__ import annotations
@@ -15,11 +21,9 @@ from datetime import datetime, timezone
 
 from qorqut_operations.contracts import utc_now
 
-from bazarlyk.bootstrap import codex_session
-
-from . import store
+from . import liveness, selection, store
 from .contracts import RUNTIME_PROVIDERS, SessionBinding
-from .probe import ProbeResult, REASON_LIVE, REASON_SESSION_END, process_alive
+from .probe import ProbeResult, REASON_LIVE, REASON_SESSION_END
 
 LOG = logging.getLogger(__name__)
 REFRESH_SECONDS = 60
@@ -42,10 +46,10 @@ class Reconciled:
 
 
 def session_gone(row: dict) -> bool:
-    """Whether the process (or Codex thread writer) a binding was made for no longer exists."""
-    if row["transport"] == "codex_queue":
-        return not (row["owner"] and codex_session.owner_alive(row["owner"]))
-    return not process_alive(row["process_pid"], row["process_started"])
+    """Whether the process (or Codex thread writer) a binding was made for is *verifiably* gone. ``liveness`` has three answers:
+    only ``dead`` ends a binding. A process that cannot be read (permission, I/O, malformed evidence) is ``unknown``, which is
+    neither alive nor gone, so it neither ends the binding nor lets another process replace it."""
+    return liveness.of_session(row) == liveness.DEAD
 
 
 def _age(text: str) -> float:
@@ -73,7 +77,17 @@ class SessionRegistry:
         agent_id = profile["agent_id"]
         with self.database.read() as uow:
             latest = store.live_session(uow.connection, agent_id)
+            chosen = selection.selected(uow.connection, agent_id)
         observation = result.observation if result.reason == REASON_LIVE else None
+        if observation is not None and (chosen is None or not chosen.holds(observation)):
+            # Not bindable: another conversation (a candidate), or the selected conversation held by a process the owner row
+            # was not adopted for. The latter waits for the authoritative bootstrap/adoption (``start_session``) to renew the
+            # owner row; until then the earlier binding ends only on its own evidence below, and nothing new is created.
+            observation = None
+        if (observation is not None and latest is not None and not store.same_session(latest, observation)
+                and chosen.matches(latest["provider"], latest["conversation_id"]) and not self._ended_by_gone(latest)):
+            # The selected conversation is still held by its earlier process: a second holder is never adopted.
+            return Reconciled(latest, False, result)
         if observation is not None and latest is not None and store.same_session(latest, observation):
             attach = bool(observation.transcript_path and latest["transcript_path"] is None)
             if attach or _age(latest["verified_at"]) >= REFRESH_SECONDS:
@@ -121,6 +135,12 @@ class SessionRegistry:
                 and RUNTIME_PROVIDERS.get(marker.get("runtime")) == latest["provider"]
                 and type(marker.get("pid")) is int and marker["pid"] == latest["process_pid"]
                 and isinstance(started, str) and started == latest["process_started"])
+
+    def _ended_by_gone(self, row: dict) -> bool:
+        try:
+            return bool(self._gone(row))
+        except OSError:
+            return False
 
     def _ended(self, latest: dict, result: ProbeResult) -> bool:
         """Evidence that the open binding is over: the client reported ``SessionEnd`` from this binding's own process, or what
