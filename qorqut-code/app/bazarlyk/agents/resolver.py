@@ -79,6 +79,8 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
             # Workflow ops belong to the one email toolkit for business agents;
             # the ecosystem coordinator keeps its native inbox discovery.
             continue
+        if metadata.name.startswith("calendar_") and "manage_calendar" not in profile.scope.global_capabilities:
+            mode = "deny"
         if metadata.name.startswith("account_email_") and "manage_fastmail" not in profile.scope.global_capabilities:
             # Ruling 2A: central defaults never grant alone. Account-scope
             # spellings require the explicit Global account grant; the runtime
