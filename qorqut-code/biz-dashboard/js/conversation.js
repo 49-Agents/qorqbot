@@ -116,7 +116,12 @@ function conversationRecordEntry(record) {
     // The chip stays informational. An explicit action opens the Project reader without inventing a private channel.
     if(typed.available)entry.references.push({key:'open',label:'Open Project',value});
   } else if(record.type==='task'){
+    // Presentation only: the shared view draws contiguous related Task/Action records as compact rows in one group.
+    entry.referenceRow='task';
     entry.typedReferences.push({...value,...typed});
+  } else if(record.type==='action'){
+    entry.referenceRow='action';
+    entry.references.push({key:'open',label:record.label || 'Action',disabled:!!record.unavailable,value});
   } else entry.references.push({key:'open',label:record.label || 'Related item',disabled:!!record.unavailable,value});
   return entry;
 }
@@ -183,35 +188,50 @@ function conversationMount(host,source,adapter={}) {
     if(adapter.inlineComposer)host.querySelectorAll('[title]').forEach(el=>el.removeAttribute('title'));
   }
   let relatedPending=false,relatedGeneration=0;
-  const relatedMore=document.createElement('button');relatedMore.type='button';relatedMore.className='quiet conversation-related-more';relatedMore.hidden=true;
-  panel.append(relatedMore);
+  // Later related pages follow the existing feed viewport: reaching the end again after leaving it loads exactly
+  // one page. There is no button, retry banner or toast; a failed later page waits for the next normal refresh or
+  // reopen instead of retrying while the owner keeps scrolling.
+  let relatedBottom=true,relatedBlocked=false;
+  function maybeLoadRelatedPage() {
+    if(!expanded || !current())return;
+    const bottom=chat.isAtBottom();
+    const reached=bottom && !relatedBottom;
+    relatedBottom=bottom;
+    if(reached && !relatedBlocked && s.relatedOffset!=null)void loadRelated(true);
+  }
   async function loadRelated(more=false) {
     if(!adapter.related || relatedPending || !current() || !expanded)return;
-    relatedPending=true;relatedMore.disabled=true;
-    const generation=relatedGeneration;
+    if(more && s.relatedOffset==null)return;
+    if(!more)relatedBlocked=false;
+    relatedPending=true;
+    const generation=relatedGeneration,offset=more?s.relatedOffset:null;
     try {
-      let result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,...(more?{offset:s.relatedOffset}:{})});
+      let result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,...(more?{offset}:{})});
       if(!current() || generation!==relatedGeneration)return;
       const records=more?[...(s.related || []),...(result.items || [])]:[...(result.items || [])];
       let pages=more?(s.relatedPages || 1)+1:1;
       // Refresh the depth already opened, so polling neither discards older related rows nor retains revoked ones.
       while(!more && pages<(s.relatedPages || 1) && result.next_offset!=null) {
-        result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,offset:result.next_offset});
+        const next=result.next_offset;
+        result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,offset:next});
         if(!current() || generation!==relatedGeneration)return;
         records.push(...(result.items || []));pages++;
+        // A repeated cursor stops the refresh instead of issuing the same read again.
+        if(result.next_offset!=null && result.next_offset<=next){result={...result,next_offset:null};break;}
       }
       s.related=[...new Map(records.map(r=>[`${r.type}:${r.business_id || 'global'}:${r.id}`,r])).values()];
-      s.relatedOffset=result.next_offset;s.relatedPages=pages;
-      relatedMore.hidden=s.relatedOffset==null;relatedMore.textContent='More related items';
+      // A later page must advance; an absent or repeated cursor stops incremental paging.
+      s.relatedOffset=more && result.next_offset!=null && result.next_offset<=offset ? null : result.next_offset;
+      s.relatedPages=pages;
       relatedReady=true;
       paint();adapter.onRelated?.(s.related);
     } catch(e) {
       if(!current() || generation!==relatedGeneration)return;
-      s.related=[];relatedReady=false;s.relatedOffset=null;s.relatedPages=0;paint();adapter.onRelated?.([]);
-      relatedMore.hidden=false;relatedMore.textContent="Couldn't load related items · Retry";
-    } finally {relatedPending=false;relatedMore.disabled=false;}
+      s.related=[];relatedReady=false;s.relatedOffset=null;s.relatedPages=0;
+      if(more)relatedBlocked=true;
+      paint();adapter.onRelated?.([]);
+    } finally {relatedPending=false;}
   }
-  relatedMore.onclick=()=>loadRelated(s.relatedOffset!=null);
   // Acknowledge only what the server has already returned to this owner, and only
   // after an interactive load that included the newest page.
   async function acknowledge() {
@@ -334,6 +354,11 @@ function conversationMount(host,source,adapter={}) {
   // The shared view owns the feed, composer, keyboard and scrolling; this mount only supplies state and callbacks.
   chat=mountChatView(panel.querySelector('.conversation-view'),{
     logLabel:'Conversation',composerLabel,placeholder:defaultPlaceholder(),maxLength:20000,
+    // Record threads present contiguous related Task/Action records as compact rows; the source's own resolved title
+    // is presentation supplied by the owner of the record, never another read or a scraped label.
+    recordReferences:true,
+    sourceTitle:adapter.sourceTitle,
+    sourceKey:key,
     // A collapsed inline composer keeps the same shared banner beside its form so a failed send stays visible.
     ...(composerHost?{composerHost,bannerHost:composerHost}:{}),
     onDraft:text=>{if(!current())return;s.text=text;syncDraft();adapter.onInput?.();},
@@ -347,7 +372,7 @@ function conversationMount(host,source,adapter={}) {
       onAttachmentRemove:key=>{if(s.sending || s.submission)return;s.files=s.files.filter(item=>item.key!==key);syncSending();adapter.onInput?.();},
     }:{}),
     onOlder:()=>{void load(true);},
-    onViewportChange:()=>captureScroll(),
+    onViewportChange:()=>{captureScroll();maybeLoadRelatedPage();},
     // The view hands over the opaque reference value itself; an unavailable reference never reaches this callback.
     mountSignoff:(ref,signoffHost)=>{
       const card=sgChatMount(ref,signoffHost,{active:current,dropOnDenied:true,omitConversationFor:source.type==='signoff'?conversationKey(source):null});

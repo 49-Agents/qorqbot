@@ -1,6 +1,8 @@
 // The one Chat presentation: message list, markdown, timestamps, reference chips and previews, scrolling, pending receipts and
 // composer. Native Chat (js/global-chat.js), item discussions (js/conversation.js) and Action discussions (js/actions.js) all render
 // through mountChatView; docs/SHARED-CHAT-VIEW-CONTRACT.md is its interface.
+// Record threads opt into reference rows (options.recordReferences): contiguous related Task/Action entries share one compact
+// group and a message's own Task/Action references share the same row inside that message. Grouping is presentation only.
 // Presentation only: this module makes no request, stores no draft, never sorts, never decides who may write and never acknowledges
 // anything. Controllers hand it normalized data and receive plain callbacks.
 const CHAT_VIEW_TIME = new Intl.DateTimeFormat(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
@@ -212,6 +214,16 @@ const CHAT_VIEW_ICONS = {
   project: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12a24 24 0 0 0 18 0M10 13h4"/></svg>',
 };
 const CHAT_VIEW_TASK_STATES = {open: 'Open', working: 'Working', waiting: 'Waiting', done: 'Done', cancelled: 'Cancelled'};
+// A related Action has no execution state of its own, but the existing Action reader does call a withdrawn one
+// "Withdrawn"; only a supplied, known state is labelled. Anything else stays its honest raw value or is omitted.
+const CHAT_VIEW_REFERENCE_STATES = {...CHAT_VIEW_TASK_STATES, withdrawn: 'Withdrawn'};
+// Record threads draw a related Task/Action as one compact row. The glyph is the existing activity/heartbeat icon
+// (T_VIEW_ICON.activity), kept local so the shared view never depends on tasks.js having loaded first.
+const CHAT_VIEW_ACTIVITY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>';
+const chatViewStateText = state => !state ? '' : (CHAT_VIEW_REFERENCE_STATES[state] || String(state));
+const chatViewStateClass = state => state && Object.hasOwn(CHAT_VIEW_TASK_STATES, state) ? ` ${state}` : '';
+// Ordinary message references expose their opaque value; only an authorized Task/Action becomes a compact row.
+const chatViewReferenceKind = ref => ref?.value?.type === 'task' || ref?.value?.type === 'action' ? ref.value.type : '';
 const chatViewTypedKey = ref => `${ref.type}:${ref.business_id || ''}:${ref.id}`;
 // Same rule as the Focus browser frame: an absolute http(s) URL without credentials; anything else is unavailable.
 function chatViewViewerUrl(value) {
@@ -377,6 +389,12 @@ function mountChatView(host, options = {}) {
   };
   const nodes = new Map();                       // entry key -> element
   const pendingNodes = new Map();                // pending key -> element
+  // Record-thread rows: each contiguous related Task/Action run has one group node and one local collapse state.
+  // Identity is source + first record key; collapse is never stored or sent anywhere.
+  const referenceRows = options.recordReferences === true;
+  const groupNodes = new Map();                  // group key -> {el, title, counts, toggle, rows}
+  const collapsedGroups = new Set();
+  let groupSequence = 0;
   const cleanups = [];
   const copyTimers = new Set();
   cleanups.push(() => { copyTimers.forEach(clearTimeout); copyTimers.clear(); });
@@ -452,7 +470,9 @@ function mountChatView(host, options = {}) {
   const shown = () => !disposed && root.isConnected && !root.closest('[inert]') && scroller.getClientRects().length > 0 && scroller.clientHeight > 0
     && getComputedStyle(root).visibility !== 'hidden';
   const nearBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48;
-  const entryNodes = () => [...log.children];
+  // Related rows live inside their group; a document-order selector keeps capture, visible keys and anchoring
+  // on the real entries without ever reaching into a nested Signoff card's own conversation.
+  const entryNodes = () => [...log.querySelectorAll(':scope > .gchat-msg[data-id], :scope > .gchat-ref-group > .gchat-ref-rows > .gchat-msg[data-id]')];
   function capture() {
     const edge = scroller.getBoundingClientRect().top;
     let anchorKey = null, anchorOffset = 0;
@@ -464,7 +484,7 @@ function mountChatView(host, options = {}) {
   }
   function restoreAnchor(anchor) {
     const node = anchor?.anchorKey != null && nodes.get(anchor.anchorKey);
-    if (!node?.isConnected) return false;
+    if (!node?.isConnected || !node.getClientRects().length) return false;
     const delta = node.getBoundingClientRect().top - scroller.getBoundingClientRect().top - anchor.anchorOffset;
     if (delta) scroller.scrollTop += delta;
     return true;
@@ -543,8 +563,9 @@ function mountChatView(host, options = {}) {
 
   // ---- entries
   const entrySignature = entry => JSON.stringify([entry.speaker, entry.text, entry.partial === true, entry.timestamp, entry.title, entry.showAuthor, entry.showAuthorName,
-    entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.collapsedSource, entry.referenceOnly === true,
-    (entry.references || []).map(ref => [ref.key, ref.label, !!ref.disabled]), (entry.typedReferences || []).map(chatViewTypedSignature), (entry.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
+    entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.collapsedSource, entry.referenceOnly === true, entry.referenceRow,
+    (entry.references || []).map(ref => [ref.key, ref.label, !!ref.disabled, ref.value?.type, ref.value?.label, ref.value?.state, ref.value?.unavailable === true]),
+    (entry.typedReferences || []).map(chatViewTypedSignature), (entry.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
   const authorHtml = entry => entry.author && entry.showAuthor !== false
     ? `<div class="gchat-author">${entry.author.avatarHtml ? `<span class="gchat-avatar" aria-hidden="true">${entry.author.avatarHtml}</span>` : ''}<small class="gchat-author-name${entry.showAuthorName === false ? ' gchat-author-name-hidden' : ''}">${esc(entry.author.name || '')}</small></div>` : '';
   const titleHtml = entry => entry.title ? `<strong class="gchat-title">${esc(entry.title)}</strong>` : '';
@@ -590,9 +611,157 @@ function mountChatView(host, options = {}) {
       previous = at; previousEntry = entry;
     }
   }
+  // ---- record-thread reference rows and groups
+  // A row is still the same authorized reference: the Task opener (or the existing reference opener through
+  // data-ref-key) is the only navigation, and an unavailable row stays inert. Nothing is fetched here.
+  const relatedGroupTitle = () => String(options.sourceTitle || '').trim() || 'Related work';
+  const relatedGroupKey = firstKey => `${options.sourceKey || ''}|${firstKey}`;
+  const relatedGroupCounts = entries => {
+    const tasks = entries.filter(entry => entry.referenceRow === 'task').length;
+    const actions = entries.filter(entry => entry.referenceRow === 'action').length;
+    return [tasks ? `${tasks} ${tasks === 1 ? 'task' : 'tasks'}` : '',
+      actions ? `${actions} ${actions === 1 ? 'action' : 'actions'}` : ''].filter(Boolean).join(' · ');
+  };
+  // The Focus status ball (Task) or the shared activity glyph (Action) leads the title. A missing state stays unknown:
+  // the Task ball keeps its hollow unknown face and the Action meta simply omits a state word. Nothing defaults to Done.
+  function paintReferenceRow(row, kind, label, state, available) {
+    row.classList.add('gchat-ref-row', `gchat-ref-row-${kind}`);
+    if (!available) row.classList.add('gchat-ref-row-unavailable');
+    if (kind === 'task' && available) {
+      const dot = document.createElement('span');
+      dot.className = 'ball gchat-task-state' + chatViewStateClass(state);
+      dot.setAttribute('aria-hidden', 'true');
+      const core = document.createElement('span'); core.className = 'core'; dot.append(core);
+      row.append(dot);
+    } else if (kind === 'action') {
+      const icon = document.createElement('span'); icon.className = 'gchat-ref-row-icon'; icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = CHAT_VIEW_ACTIVITY_ICON; row.append(icon);
+    } else {
+      // An unavailable Task has no trustworthy state face; the placeholder keeps its title aligned with the other rows.
+      const icon = document.createElement('span'); icon.className = 'gchat-ref-row-icon'; icon.setAttribute('aria-hidden', 'true'); row.append(icon);
+    }
+    const title = document.createElement('span'); title.className = 'gchat-ref-row-title';
+    title.textContent = label || (kind === 'task' ? 'Task' : 'Action'); row.append(title);
+    const stateText = available ? chatViewStateText(state) : '';
+    if (kind === 'task') {
+      if (stateText || !available) {
+        // The ball already shows a known Task state; its word stays clipped text for the accessible name.
+        const hidden = document.createElement('small'); hidden.className = 'gchat-reference-state-hidden';
+        hidden.textContent = available ? stateText : 'Unavailable reference'; row.append(hidden);
+      }
+    } else {
+      const meta = document.createElement('span'); meta.className = 'gchat-ref-row-meta';
+      meta.textContent = ['Action', available ? stateText : 'Unavailable'].filter(Boolean).join(' · ');
+      row.append(meta);
+    }
+    return row;
+  }
+  const referenceRowSpan = (kind, label, state, available) => paintReferenceRow(document.createElement('div'), kind, label, state, available);
+  function referenceRowButton(kind, label, state, available, refKey) {
+    const button = document.createElement('button'); button.type = 'button';
+    paintReferenceRow(button, kind, label, state, available);
+    if (refKey != null) button.dataset.refKey = refKey;
+    button.disabled = !available;
+    return button;
+  }
+  // One reference-only entry becomes exactly one row. A related Task uses the existing typed Task opener; a related
+  // Action keeps the ordinary reference descriptor (and its canonical value) so the existing onReference path opens it.
+  function paintReferenceEntry(node, entry) {
+    if (entry.referenceRow === 'action') {
+      const reference = (entry.references || [])[0];
+      if (!reference) { node.append(referenceRowSpan('action', entry.title || 'Action', '', false)); return; }
+      const value = reference.value || {};
+      node.append(referenceRowButton('action', reference.label || value.label, value.state, !reference.disabled && value.unavailable !== true, reference.key));
+      return;
+    }
+    const ref = (entry.typedReferences || [])[0] || {};
+    const available = ref.type === 'task' && ref.available !== false;
+    const opener = options.onTask === undefined ? options.onReference : options.onTask;
+    if (available && typeof opener === 'function') {
+      const button = referenceRowButton('task', ref.label, ref.state, true, null);
+      button.onclick = () => { const selected = ref; Promise.resolve().then(() => opener(selected, entry.key)).catch(() => toast(uiFailure(new Error('Couldn’t open this Task.')))); };
+      node.append(button);
+      return;
+    }
+    node.append(referenceRowButton('task', ref.label, ref.state, available, null));
+  }
+  // One group per contiguous run of related Task/Action rows. The header names the record already open in this
+  // thread (supplied by its controller) and counts only the rows loaded here; it is informational, with a separate
+  // keyboard-accessible collapse control. No routing is invented for the header itself.
+  function relatedGroupNode(group) {
+    let item = groupNodes.get(group.key);
+    if (!item) {
+      const el = document.createElement('div');
+      el.className = 'gchat-ref-group gchat-ref-group-related';
+      el.setAttribute('role', 'group');
+      const head = document.createElement('div'); head.className = 'gchat-ref-group-head';
+      const title = document.createElement('span'); title.className = 'gchat-ref-group-title';
+      const counts = document.createElement('span'); counts.className = 'gchat-ref-group-counts';
+      const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'quiet gchat-ref-group-toggle';
+      toggle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+      const rows = document.createElement('div'); rows.className = 'gchat-ref-rows';
+      head.append(title, counts, toggle); el.append(head, rows);
+      item = {el, title, counts, toggle, rows, key: group.key};
+      groupNodes.set(group.key, item);
+      // Collapse is local to this view and keyed by the same group identity, so a repaint or refresh keeps it.
+      toggle.onclick = () => {
+        const expanded = rows.hidden;
+        rows.hidden = !expanded;
+        if (expanded) collapsedGroups.delete(group.key); else collapsedGroups.add(group.key);
+        toggle.setAttribute('aria-expanded', String(expanded));
+        toggle.setAttribute('aria-label', expanded ? 'Collapse related work' : 'Expand related work');
+      };
+    }
+    const title = relatedGroupTitle();
+    item.title.textContent = title;
+    item.counts.textContent = relatedGroupCounts(group.entries);
+    item.el.setAttribute('aria-label', title === 'Related work' ? 'Related work' : `Related work in ${title}`);
+    const expanded = !collapsedGroups.has(group.key);
+    item.rows.hidden = !expanded;
+    item.toggle.setAttribute('aria-expanded', String(expanded));
+    item.toggle.setAttribute('aria-label', expanded ? 'Collapse related work' : 'Expand related work');
+    return item;
+  }
+  // Layout: groups preserve canonical entry order. Any other entry — a message, Signoff, Project or other record
+  // kind — ends the run, so no unrelated content is swept into a parent group.
+  function entryLayout(entries) {
+    const groups = [], groupOf = new Map();
+    let current = null;
+    for (const entry of entries) {
+      if (referenceRows && entry.referenceOnly && entry.referenceRow) {
+        if (!current) { current = {key: relatedGroupKey(entry.key), entries: []}; groups.push(current); }
+        current.entries.push(entry); groupOf.set(entry.key, current);
+      } else current = null;
+    }
+    const items = [], seen = new Set();
+    for (const entry of entries) {
+      const group = groupOf.get(entry.key);
+      if (!group) { items.push({entry}); continue; }
+      if (seen.has(group.key)) continue;
+      seen.add(group.key); items.push({group});
+    }
+    return {items, groups};
+  }
   function referenceButtons(entry, refs) {
     refs.className = 'gchat-references';
+    let run = null, previousKind = '';
     for (const ref of entry.references || []) {
+      const kind = referenceRows && !entry.referenceOnly ? chatViewReferenceKind(ref) : '';
+      if (kind) {
+        // A message's own consecutive Task/Action references share one compact group inside that message only.
+        if (!run) {
+          run = document.createElement('div');
+          run.className = 'gchat-ref-group gchat-ref-group-inline';
+          run.setAttribute('role', 'group'); run.setAttribute('aria-label', 'Related work');
+          refs.append(run); previousKind = '';
+        }
+        const available = !ref.disabled && ref.value?.unavailable !== true;
+        const row = referenceRowButton(kind, ref.label, ref.value?.state, available, ref.key);
+        if (previousKind && previousKind !== kind) row.classList.add('gchat-ref-split');
+        previousKind = kind; run.append(row);
+        continue;
+      }
+      run = null; previousKind = '';
       const button = document.createElement('button');
       button.type = 'button'; button.className = 'gchat-reference quiet'; button.dataset.refKey = ref.key; button.disabled = !!ref.disabled;
       const label = document.createElement('span'); label.textContent = ref.label || '';
@@ -605,7 +774,10 @@ function mountChatView(host, options = {}) {
     const isNew = !node;
     if (isNew) { node = document.createElement('div'); nodes.set(entry.key, node); }
     const speaker = entry.speaker || 'agent';
-    node.className = entry.referenceOnly ? 'gchat-msg gchat-reference-only' : `gchat-msg gchat-${speaker}`;
+    node.className = entry.referenceOnly
+      ? `gchat-msg gchat-reference-only${referenceRows && entry.referenceRow ? ' gchat-reference-row' : ''}`
+      : `gchat-msg gchat-${speaker}`;
+    node.classList.remove('gchat-ref-split');
     node.dataset.id = entry.key;
     if (entry.position != null) node.dataset.position = String(entry.position); else delete node.dataset.position;
     node._entry = entry;
@@ -618,8 +790,14 @@ function mountChatView(host, options = {}) {
     if (speaker === 'notice' && notice && typeof notice.verified === 'boolean') node.dataset.verified = String(notice.verified); else delete node.dataset.verified;
     if (speaker === 'notice' && notice?.inputType) node.dataset.inputType = notice.inputType; else delete node.dataset.inputType;
     if (entry.referenceOnly) {
-      // Existing reference components only: no body, author, time or copy button.
+      // Existing reference components only: no body, author, time or copy button. A related Task/Action is one
+      // compact row in a record thread; every other record kind keeps its typed component or reference buttons.
       for (const child of [...node.childNodes]) if (child !== node._typedHost) child.remove();
+      if (referenceRows && entry.referenceRow) {
+        disposeTyped(node);
+        paintReferenceEntry(node, entry);
+        return {node, isNew};
+      }
       paintTyped(node, entry);
       const buttons = referenceButtons(entry, document.createElement('div'));
       if (buttons.childElementCount) node.append(buttons);
@@ -692,6 +870,32 @@ function mountChatView(host, options = {}) {
     for (const item of list) {
       const {node} = paint(item);
       if (node === cursor) cursor = cursor.nextSibling; else host.insertBefore(node, cursor);
+    }
+  }
+  // Group containers wrap their existing entry nodes; no entry is recreated, so typed components and Signoff
+  // controllers survive a regroup. Removed groups release their only listener before the node is dropped.
+  function reconcileEntries(entries) {
+    const {items, groups} = entryLayout(entries);
+    const live = new Set(groups.map(group => group.key));
+    for (const [key, item] of groupNodes) if (!live.has(key)) { item.toggle.onclick = null; item.el.remove(); groupNodes.delete(key); }
+    const keep = new Set(entries.map(entry => entry.key));
+    for (const [key, node] of nodes) if (!keep.has(key)) { disposeTyped(node); node.remove(); nodes.delete(key); }
+    let cursor = log.firstChild;
+    for (const item of items) {
+      if (item.group) {
+        const group = relatedGroupNode(item.group);
+        let rowCursor = group.rows.firstChild, previousKind = '';
+        for (const entry of item.group.entries) {
+          const {node} = paintEntry(entry);
+          node.classList.toggle('gchat-ref-split', !!previousKind && previousKind !== entry.referenceRow);
+          previousKind = entry.referenceRow;
+          if (node === rowCursor) rowCursor = rowCursor.nextSibling; else group.rows.insertBefore(node, rowCursor);
+        }
+        if (group.el === cursor) cursor = cursor.nextSibling; else log.insertBefore(group.el, cursor);
+        continue;
+      }
+      const {node} = paintEntry(item.entry);
+      if (node === cursor) cursor = cursor.nextSibling; else log.insertBefore(node, cursor);
     }
   }
 
@@ -788,7 +992,7 @@ function mountChatView(host, options = {}) {
     let appended = 0;
     if (patch.entries) {
       model.entries = patch.entries;
-      reconcile(model.entries, log, nodes, paintEntry);
+      reconcileEntries(model.entries);
       paintTimestamps();
       let last = -1;
       model.entries.forEach((entry, index) => { if (before.has(entry.key)) last = index; });
@@ -926,6 +1130,8 @@ function mountChatView(host, options = {}) {
       cleanups.splice(0).forEach(cleanup => cleanup());
       for (const node of nodes.values()) disposeTyped(node);
       nodes.clear(); pendingNodes.clear();
+      for (const item of groupNodes.values()) item.toggle.onclick = null;
+      groupNodes.clear(); collapsedGroups.clear();
       input.disabled = true; send.disabled = true;
       form.remove(); banner.remove(); root.remove();
     },

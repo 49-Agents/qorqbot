@@ -650,6 +650,8 @@ function recordWorkspaceMount(host, options = {}) {
     const host = item.conversationHost;
     item.chat = conversationMount(host, binding, {
       inlineComposer: true, related: true, dismissOnOutside: false,
+      // The related-work header may name the record already open here; it is a presentation field, not a read.
+      sourceTitle: record.label,
       // Focus is a Global projection; the canonical source names the owning Project.
       privateGlobal: true, privateSource,
       isVisible: () => item.alive && item.tab === 'chat' && !item.chatHost.hidden && !document.hidden
