@@ -405,9 +405,8 @@ class Attention:
             ref = {'type':'task','id':row['task_id'],'business_id':row['task_business_id']}
             task = self.task(ctx, ref, uow, lifecycle_only=True)
             if task['created_at'] != row['task_created_at']: raise DomainError('not_found', 'Task is unavailable')
-            if ctx.principal_kind == 'agent' and task['status'] == 'blocked': raise DomainError('forbidden', 'Blocked work cannot be discarded')
-            if ctx.principal_kind == 'agent' and task['status'] == 'done' and (args.get('owner_requested') is not True or not args.get('rationale','').strip()):
-                raise DomainError('forbidden', 'Done removal requires an owner instruction and rationale')
+            if ctx.principal_kind == 'agent' and task['status'] in ('blocked','done') and (args.get('owner_requested') is not True or not args.get('rationale','').strip()):
+                raise DomainError('forbidden', ('Blocked' if task['status'] == 'blocked' else 'Done') + ' removal requires an owner instruction and rationale (owner_requested: true)')
         if op == 'attention_workflow_update':
             row = uow.connection.execute('SELECT * FROM attention_workflows WHERE agent_id=? AND run_id=?', (agent,args['run_id'])).fetchone()
             if not row: raise DomainError('not_found', 'Workflow association is unavailable')
