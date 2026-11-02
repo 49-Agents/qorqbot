@@ -219,7 +219,7 @@ function mountChatView(host, options = {}) {
       </section></div>`;
   const form = document.createElement('form');
   form.className = 'gchat-composer';
-  form.innerHTML = '<textarea rows="2" autocomplete="off"></textarea><button type="submit" class="gchat-send">Send</button>';
+  form.innerHTML = '<textarea rows="1" autocomplete="off"></textarea><button type="submit" class="gchat-send">Send</button>';
   const attachments = document.createElement('div');
   attachments.className = 'gchat-attachments'; attachments.hidden = true;
   form.prepend(attachments);
@@ -244,6 +244,31 @@ function mountChatView(host, options = {}) {
 
   const listen = (target, type, handler, opts) => { target.addEventListener(type, handler, opts); cleanups.push(() => target.removeEventListener(type, handler, opts)); };
   const emit = (name, ...args) => { if (!disposed && ready) options[name]?.(...args); };
+
+  // Measure at the compact width first so wrapping never oscillates between layouts.
+  // Refreshes with an unchanged draft leave selection and textarea scrolling alone.
+  let composerMeasure = '';
+  function resizeComposer() {
+    if (disposed || form.hidden || !input.clientWidth) return;
+    const signature = JSON.stringify([input.value, form.clientWidth, attachments.hidden, model.composer.sendLabel]);
+    if (signature === composerMeasure) return;
+    composerMeasure = signature;
+    const top = input.scrollTop;
+    form.classList.remove('gchat-composer-expanded');
+    input.style.height = '0px'; input.style.overflowY = 'hidden';
+    const style = getComputedStyle(input), min = parseFloat(style.minHeight), max = parseFloat(style.maxHeight);
+    const expanded = input.scrollHeight > min + 1 || input.value.includes('\n');
+    form.classList.toggle('gchat-composer-expanded', expanded);
+    const height = input.scrollHeight;
+    input.style.height = Math.min(max, Math.max(min, height)) + 'px';
+    input.style.overflowY = height > max ? 'auto' : 'hidden';
+    input.scrollTop = document.activeElement === input && input.selectionEnd === input.value.length ? input.scrollHeight : top;
+  }
+  if (typeof ResizeObserver === 'function') {
+    const composerResize = new ResizeObserver(resizeComposer);
+    composerResize.observe(form);
+    cleanups.push(() => composerResize.disconnect());
+  }
 
   // ---- geometry
   const shown = () => !disposed && root.isConnected && !root.closest('[inert]') && scroller.getClientRects().length > 0 && scroller.clientHeight > 0
@@ -444,9 +469,14 @@ function mountChatView(host, options = {}) {
         return `<span class="gchat-file-choice gchat-file-card" data-file-kind="${kind[0]}">${chatViewFileFace(file.name, kind)}<button type="button" data-remove-attachment="${esc(file.key)}" aria-label="Remove ${esc(file.name)}" ${c.filesDisabled ? 'disabled' : ''}>×</button></span>`;
       }).join('');
     }
-    if (send.textContent !== c.sendLabel) send.textContent = c.sendLabel;
+    if (send.dataset.label !== c.sendLabel) {
+      send.dataset.label = c.sendLabel; send.setAttribute('aria-label', c.sendLabel);
+      send.classList.toggle('gchat-icon-send', c.sendLabel === 'Send');
+      send.innerHTML = c.sendLabel === 'Send' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-7 7 7-7 7 7"/></svg>' : esc(c.sendLabel);
+    }
     input.placeholder = c.placeholder; input.setAttribute('aria-label', c.ariaLabel);
     if (input.maxLength !== c.maxLength) input.maxLength = c.maxLength;
+    resizeComposer();
   }
   function paintOlder() {
     olderButton.hidden = !model.older.visible;
@@ -533,7 +563,7 @@ function mountChatView(host, options = {}) {
   });
   olderButton.onclick = () => emit('onOlder');
   cleanups.push(() => { olderButton.onclick = null; });
-  listen(input, 'input', () => emit('onDraft', input.value));
+  listen(input, 'input', () => { resizeComposer(); emit('onDraft', input.value); });
   if (picker) {
     listen(attach, 'click', () => picker.click());
     listen(picker, 'change', () => { emit('onFiles', [...picker.files]); picker.value = ''; });
@@ -569,7 +599,7 @@ function mountChatView(host, options = {}) {
     root,
     elements: {scroll: scroller, log, pending: pendingHost, composer: form, input, send, older: olderButton, jump, banner, empty: emptyNote},
     render,
-    setDraft(text) { const value = String(text ?? ''); if (!disposed && input.value !== value) input.value = value; },
+    setDraft(text) { const value = String(text ?? ''); if (!disposed && input.value !== value) { input.value = value; resizeComposer(); } },
     getDraft: () => input.value,
     focusComposer() { if (!disposed && !input.disabled && !form.hidden) input.focus(); },
     getScrollState() { if (!disposed && shown()) lastState = capture(); return {...lastState}; },
@@ -579,7 +609,7 @@ function mountChatView(host, options = {}) {
       initial = false; deferBottom = false;
       settle();
     },
-    layout() { if (disposed) return; settle(); emit('onViewportChange'); },
+    layout() { if (disposed) return; resizeComposer(); settle(); emit('onViewportChange'); },
     scrollToBottom() { if (!disposed && shown()) { toBottom(); lastState = capture(); emit('onViewportChange'); } else if (!disposed) deferBottom = true; },
     isAtBottom: () => (shown() ? nearBottom() : atBottom),
     getVisibleKeys() {
