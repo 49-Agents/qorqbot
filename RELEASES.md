@@ -18,8 +18,9 @@ GitHub Releases is the selected first download channel. No public repository or
 download URL is configured yet. A release page can host both the application and separate
 connector assets, with a short index linking to each connector's setup guide.
 This requires no separate marketplace or automatic extension registry. The
-WhatsApp native helper binary is currently withheld pending dependency licensing;
-do not list it as an available release download until that is resolved.
+WhatsApp bundle must be accompanied by the exact helper corresponding-source
+archive and its build instructions. Preserve the separate Apache 2.0 adapter/UI
+and GPL-3.0-only helper notices alongside dependency notices.
 
 Verify the checksum from the trusted release channel before installation. A
 checksum detects file changes; its authenticity depends on how it is obtained.

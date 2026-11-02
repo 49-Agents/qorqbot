@@ -20,10 +20,11 @@ This repository contains the application and everyday connector sources:
 | `extensions/qorqut-fastmail/` | Optional Fastmail/CalDAV connector |
 | `services/email-engine/` | Optional email engine used with Fastmail |
 
-Google Calendar is included without an active account connection. Fastmail and
-Telegram are separate optional installations. WhatsApp adapter/helper source is
-included, but its binary download remains withheld pending resolution of the
-helper dependency licensing described in its LICENSE-SCOPE.md. Paper outreach
+Google Calendar is included without an active account connection. Fastmail,
+Telegram and WhatsApp are separate optional installations. The WhatsApp adapter
+and UI use Apache License 2.0; its separate native helper uses GPL version 3 only. Any helper binary download must include its complete
+matching corresponding source. See the connector
+[license scope](qorqut-code/extensions/whatsapp/LICENSE-SCOPE.md). Paper outreach
 and content creation are outside this repository.
 
 See [release artifacts](RELEASES.md), [contributing](CONTRIBUTING.md),
