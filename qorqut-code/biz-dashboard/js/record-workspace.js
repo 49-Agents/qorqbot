@@ -1123,16 +1123,20 @@ async function rwReferenceDashboard(host, record, ctx, call) {
       ctx.title?.({label: nextLabel});
       if (record.label !== nextLabel) record.label = nextLabel;
     }
+    // true = the child/revealed reader may continue; false = this entry was invalidated or
+    // its host is gone. A transient failure keeps the last authorized reader, so its nested
+    // onShow still runs; an authorization denial removes the whole entry.
     revalidate = async () => {
       try {
         const check = await coreData(await post('/root/operations/project_item_get', {scope: 'global', project_id: record.project_id,
           item: {type: record.source.type, id: record.source.id, business_id: record.source.business_id ?? null}}));
-        if (!ctx.alive()) return;
+        if (!ctx.alive()) return false;
         if (!check.item) throw Object.assign(new Error('Unavailable'), {code: 'not_found'});
+        return true;
       } catch (failure) {
-        if (!ctx.alive()) return;
-        if (accessLost(failure) || sourceGone(failure)) { await ctx.unavailable?.(); return; }
-        // A transient failure leaves the last authorized reader in place.
+        if (!ctx.alive()) return false;
+        if (accessLost(failure) || sourceGone(failure)) { await ctx.unavailable?.(); return false; }
+        return true;
       }
     };
   }
@@ -1160,15 +1164,27 @@ async function rwReferenceDashboard(host, record, ctx, call) {
   }
   if (content.document || content.note) {
     const doc = content.document || content.note;
-    if ((doc.body || doc.text) && !doc.next_cursor) {
-      host.innerHTML = `<section class="rw-reader rw-document"><h3>${esc(doc.title || item.label || record.label || 'Document')}</h3>
-        <div class="work-source">${esc(doc.body || doc.text)}</div>
-        <p class="muted small">${doc.kind ? esc(doc.kind) + ' · ' : ''}Revision ${esc(String(doc.revision ?? '—'))}</p></section>`;
-      return {dirty: () => false, onShow: revalidate, dispose() { host.replaceChildren(); }};
-    }
-    const reader = await recordOpenDocument({...ctx, biz: record.biz || null, current: () => ctx.alive()}, record,
-      {label: record.label, ...doc}, {host, alive: () => ctx.alive(), onUnavailable: () => { void ctx.unavailable?.(); }});
-    return reader || {dirty: () => false, dispose() { host.replaceChildren(); }};
+    // recordOpenDocument consumes the exact typed source, not the workspace descriptor,
+    // and can start from the authorized top-level envelope already returned by
+    // project_item_get. Its own complete/next_cursor, id, offset/hash and scope checks are
+    // preserved; only the paged projection wrapper and heading live here.
+    const sourceRef = {id: record.source.id, type: record.source.type, label: record.label,
+      resource_type: record.resource_type};
+    const wrapper = rwNode('section', 'rw-reader rw-document');
+    wrapper.append(rwNode('h3', '', doc.title || item.label || record.label || 'Document'));
+    const mount = rwNode('div', 'rw-document-mount');
+    wrapper.append(mount);
+    host.append(wrapper);
+    const initial = content.document ? {document: doc, complete: content.complete, next_cursor: content.next_cursor}
+      : {note: doc, complete: true};
+    if (content.document && doc.next_cursor && content.next_cursor == null) initial.next_cursor = doc.next_cursor;
+    if (content.document && doc.complete != null && content.complete == null) initial.complete = doc.complete;
+    const reader = await recordOpenDocument({...ctx, biz: record.biz || null, current: () => ctx.alive()}, sourceRef,
+      {label: record.label, ...doc}, {host: mount, alive: () => ctx.alive(), initial,
+        onUnavailable: () => { void ctx.unavailable?.(); }});
+    return {dirty: () => false, hasUnsaved: () => false,
+      async onShow() { if (revalidate && !await revalidate()) return; await reader?.onShow?.(); },
+      dispose() { reader?.dispose?.(); wrapper.remove(); host.replaceChildren(); }};
   }
   if (content.table) {
     const box = rwNode('section', 'rw-reader rw-table-reader');
@@ -1265,15 +1281,16 @@ async function rwTableBody(host, record, ctx, call) {
   if (!table) throw new Error('This table is no longer available.');
   const title = rwNode('h4', '', table.title || record.label || 'Table');
   const description = table.description ? rwNode('p', 'muted', table.description) : null;
-  const status = rwNode('p', 'muted', `Loading rows…`);
+  const status = rwNode('p', 'muted', 'Loading rows…');
   const wrap = rwNode('div', 'rw-table-wrap');
   const grid = rwNode('table', 'rw-table');
   const more = rwNode('button', 'quiet', 'More rows'); more.type = 'button'; more.hidden = true;
+  const retry = rwNode('button', 'quiet', 'Retry'); retry.type = 'button'; retry.hidden = true;
   // The Project reader already prints the table title as its h3; do not repeat it.
   const alreadyTitled = [...host.children].some(child => child.tagName === 'H3');
-  host.append(...(alreadyTitled ? [] : [title]), ...(description ? [description] : []), status, wrap, more);
+  host.append(...(alreadyTitled ? [] : [title]), ...(description ? [description] : []), status, wrap, more, retry);
   wrap.append(grid);
-  let cursor = null, rows = [];
+  let cursor = null, rows = [], generation = 0, disposed = false, loading = false;
   const value = raw => raw == null ? '' : typeof raw === 'object' ? JSON.stringify(raw) : String(raw);
   const paint = () => {
     grid.replaceChildren();
@@ -1292,39 +1309,54 @@ async function rwTableBody(host, record, ctx, call) {
     grid.append(body);
     status.textContent = rows.length ? `${rows.length}${cursor ? '+' : ''} rows` : 'No rows';
   };
-  try {
-    const data = await call('tables_rows_list', {table_id: id, limit: 50, ...(record.biz ? {} : {scope: 'global'})});
-    if (!ctx.alive()) return null;
-    if (data.table_revision != null && table.revision != null && data.table_revision !== table.revision) throw new Error('This table changed while loading. Open it again to read the current version.');
-    rows = data.items || []; cursor = data.next_cursor || null;
-    paint();
-    more.hidden = !cursor;
-    more.onclick = async () => {
-      more.disabled = true;
-      try {
-        const next = await call('tables_rows_list', {table_id: id, limit: 50, ...(cursor ? {cursor} : {}), ...(record.biz ? {} : {scope: 'global'})});
-        if (!ctx.alive()) return;
-        rows = [...rows, ...(next.items || [])]; cursor = next.next_cursor || null; paint(); more.hidden = !cursor;
-      } catch (failure) {
-        if (!ctx.alive()) return;
-        if (accessLost(failure) || sourceGone(failure)) { await ctx.unavailable?.(); return; }
-        status.textContent = uiFailure(failure, {load: true});
-      } finally { more.disabled = false; }
-    };
-  } catch (failure) {
-    if (!ctx.alive()) return null;
-    if (accessLost(failure) || sourceGone(failure)) { await ctx.unavailable?.(); return null; }
-    status.textContent = uiFailure(failure, {load: true});
-  }
+  let retryIsAppend = false;
+  const loadRows = async (append = false) => {
+    if (loading || disposed || !ctx.alive()) return;
+    loading = true;
+    const own = ++generation;
+    retryIsAppend = append;
+    retry.hidden = true;
+    more.disabled = true;
+    if (!append) status.textContent = 'Loading rows…';
+    const previousRows = rows.slice(), previousCursor = cursor;
+    try {
+      const data = await call('tables_rows_list', {table_id: id, limit: 50,
+        ...(append && cursor ? {cursor} : {}), ...(record.biz ? {} : {scope: 'global'})});
+      if (disposed || own !== generation || !ctx.alive()) return;
+      if (data.table_revision != null && table.revision != null && data.table_revision !== table.revision)
+        throw new Error('This table changed while loading. Open it again to read the current version.');
+      rows = append ? [...previousRows, ...(data.items || [])] : (data.items || []);
+      cursor = data.next_cursor || null;
+      paint();
+      more.hidden = !cursor;
+    } catch (failure) {
+      if (disposed || own !== generation || !ctx.alive()) return;
+      if (accessLost(failure) || sourceGone(failure)) { await ctx.unavailable?.(); return; }
+      // An append failure retains already-authorized rows and the same cursor. A failed
+      // first/refresh read likewise keeps any prior authorized rows and exposes Retry.
+      rows = previousRows; cursor = previousCursor;
+      status.textContent = uiFailure(failure, {load: true});
+      more.hidden = true;
+      retry.hidden = false;
+    } finally {
+      if (disposed || own !== generation) return;
+      loading = false;
+      more.disabled = false;
+    }
+  };
+  more.onclick = () => { if (!loading) void loadRows(true); };
+  retry.onclick = () => { if (!loading) void loadRows(retryIsAppend); };
+  await loadRows(false);
   const controller = {dirty: () => false, hasUnsaved: () => false,
     async onShow() {
       try {
         await call('tables_get', {table_id: id, ...(record.biz ? {} : {scope: 'global'})});
-        if (!ctx.alive()) return;
+        if (!ctx.alive() || disposed) return;
+        await loadRows(false);
       } catch (failure) {
-        if (ctx.alive() && (accessLost(failure) || sourceGone(failure))) await ctx.unavailable?.();
+        if (!disposed && ctx.alive() && (accessLost(failure) || sourceGone(failure))) await ctx.unavailable?.();
       }
-    }, dispose() { host.replaceChildren(); }};
+    }, dispose() { disposed = true; generation++; host.replaceChildren(); }};
   return controller;
 }
 async function rwTableDashboard(host, record, ctx, call) {
@@ -1368,7 +1400,18 @@ async function rwProjectDashboard(host, record, ctx) {
   const more = shell.querySelector('[data-project-more]');
   const empty = shell.querySelector('.rw-project-empty');
   const errorBox = shell.querySelector('[data-project-error]');
-  const stateFor = section => sectionState[section] ||= {items: [], cursor: null, loaded: false, loading: false, key: ''};
+  const stateFor = section => sectionState[section] ||= {items: [], cursor: null, loaded: false, loading: false, pending: false, request: 0, key: ''};
+  // A forbidden inventory read revokes this Project's whole inventory authorization, not
+  // just the section that happened to be active. Clear every cached section and invalidate
+  // every in-flight section generation/proxy cursor so another switch cannot flash a stale
+  // page while its own refresh is pending.
+  function invalidateInventorySections() {
+    generation++;
+    for (const state of Object.values(sectionState)) {
+      state.items = []; state.cursor = null; state.loaded = false; state.loading = false;
+      state.pending = false; state.request = 0; state.key = '';
+    }
+  }
   const filters = () => JSON.stringify([shell.querySelector('[data-project-closed]').getAttribute('aria-pressed') === 'true', shell.querySelector('[data-project-archived]').getAttribute('aria-pressed') === 'true']);
   function paintSections() {
     shell.querySelectorAll('[data-project-section]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.projectSection === activeSection)));
@@ -1424,6 +1467,7 @@ async function rwProjectDashboard(host, record, ctx) {
     const key = filters();
     if (state.loading) { if (!append) state.pending = true; return; }
     if (!append && state.loaded && state.key === key && !fresh) { paint(section); return; }
+    const previous = {items: state.items.slice(), cursor: state.cursor};
     if (!append && (state.key !== key || fresh)) {
       // Revalidating a visible, already-authorized page keeps its rows until the fresh read
       // succeeds or explicitly revokes them; it never flashes an empty cache.
@@ -1432,8 +1476,9 @@ async function rwProjectDashboard(host, record, ctx) {
       state.cursor = null; state.loaded = false; state.key = key;
     }
     state.loading = true;
-    if (section === activeSection) { more.disabled = true; errorBox.hidden = true; errorBox.replaceChildren(); paint(section); }
     const own = ++generation;
+    state.request = own;
+    if (section === activeSection) { more.disabled = true; errorBox.hidden = true; errorBox.replaceChildren(); paint(section); }
     try {
       let data, pages = 0;
       const [includeClosed, includeArchived] = JSON.parse(key);
@@ -1449,25 +1494,44 @@ async function rwProjectDashboard(host, record, ctx) {
       if (section === activeSection) paint(section);
     } catch (failure) {
       if (disposed || own !== generation) return;
-      // A revoked read invalidates the previously readable page too; keeping those rows would
-      // leave denied content visible after access was lost.
-      if (accessLost(failure) || sourceGone(failure)) { state.items = []; state.cursor = null; }
-      else if (!append) state.items = [];
+      const denied = accessLost(failure) || sourceGone(failure);
+      if (denied) {
+        invalidateInventorySections();
+        const current = stateFor(section);
+        current.loaded = true;
+        current.key = key;
+      } else if (!append) {
+        // Transient failures keep previously authorized rows (and their cursor) available
+        // with a Retry; they are not permission to expose denied content.
+        state.items = previous.items;
+        state.cursor = previous.cursor;
+      }
       state.loaded = true;
       if (section === activeSection) {
-        const unavailable = accessLost(failure) || sourceGone(failure);
-        errorBox.replaceChildren(rwNode('span', '', unavailable ? 'This project inventory is unavailable.' : uiFailure(failure, {load: true}) + ' '));
+        more.disabled = false;
+        errorBox.replaceChildren(rwNode('span', '', denied ? 'This project inventory is unavailable.' : uiFailure(failure, {load: true}) + ' '));
         const retry = rwNode('button', 'quiet', 'Retry'); retry.type = 'button';
         retry.onclick = () => {
           if (disposed) return;
-          state.loaded = false; state.key = ''; state.items = []; state.cursor = null;
-          void load(section, false, true);
+          if (denied) {
+            const reset = stateFor(section);
+            reset.loaded = false; reset.key = ''; reset.items = []; reset.cursor = null;
+            void load(section, false, true);
+          } else if (append) {
+            // Retry the same continuation; the previously authorized rows and cursor are kept.
+            void load(section, true);
+          } else {
+            state.loaded = false; state.key = ''; state.items = []; state.cursor = null;
+            void load(section, false, true);
+          }
         };
         errorBox.append(retry);
         errorBox.hidden = false;
         paint(section);
+        more.hidden = true;
       }
     } finally {
+      if (disposed || state.request !== own) return;
       state.loading = false;
       if (!disposed && section === activeSection) { more.disabled = false; paint(section); }
       if (!disposed && state.pending) { state.pending = false; void load(section, false, true); }

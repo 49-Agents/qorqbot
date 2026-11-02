@@ -262,15 +262,20 @@ function recordOpenDocument(ctx, other, item, options = {}) {
       if (options.host) options.onUnavailable?.();
     };
     const gone = failure => ['not_found', 'forbidden', 'policy_denied'].includes(failure.code);
-    let text = null, loaded = 0, hash = null;
+    let text = null, loaded = 0, hash = null, initial = options.initial || null;
     const read = async (more, cursor) => {
       const mine = ++own;
       if (!more) { box.textContent = 'Loading…'; text = null; loaded = 0; hash = null; }
       else box.querySelector('[data-record-more]')?.setAttribute('disabled', '');
       let data;
       try {
-        data = note ? await workCall(ctx.biz, 'notes_get', {document_id: other.id})
-          : await workCall(ctx.biz, 'context_get', {document_id: other.id, scope: ctx.biz ? 'business' : 'shared', ...(more ? {cursor} : {})});
+        // A Project inventory read already carries the authorized first context_get/notes_get
+        // envelope. Consume it once instead of issuing a second first-page read; continuation
+        // still goes through the bounded reader's own scope/cursor/version checks.
+        const supplied = !more && initial ? initial : null;
+        initial = null;
+        data = supplied || (note ? await workCall(ctx.biz, 'notes_get', {document_id: other.id})
+          : await workCall(ctx.biz, 'context_get', {document_id: other.id, scope: ctx.biz ? 'business' : 'shared', ...(more ? {cursor} : {})}));
       } catch (failure) {
         if (mine !== own || !alive()) return;
         if (gone(failure)) return unavailable();
