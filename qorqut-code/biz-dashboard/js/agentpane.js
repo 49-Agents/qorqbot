@@ -64,8 +64,12 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
 const agpadOverviewView = view => ["status", "inbox", "activity"].includes(view);
 function agpadCombinedOverview(p) { return !!document.body?.classList?.contains("agent-workspace-app"); }
 // The header shows one Browser entry for Ordubashy's Browser and Desktop modes.
+// For any agent with the Focus workspace, Browser, Desktop and Viewbox are details of its Focus: the Focus strip opens them, so they have no header entries.
+const AGPAD_FOCUS_SURFACES = new Set(["browser", "desktop", "viewbox"]);
+function agpadFocusSurfaces(p) { return !!p.agentId && p.views.includes("focus"); }
 function agpadHeadViews(p) {
-  const views = p.workspaceRole === "ordubashy" ? p.views.filter(view => view !== "desktop") : p.views;
+  const views = agpadFocusSurfaces(p) ? p.views.filter(view => !AGPAD_FOCUS_SURFACES.has(view))
+    : p.workspaceRole === "ordubashy" ? p.views.filter(view => view !== "desktop") : p.views;
   if (!agpadCombinedOverview(p)) return views;
   const header = [...new Set(views.map(view => agpadOverviewView(view) ? "status" : view))];
   if (header.includes("focus") && header.includes("viewbox")) {
@@ -80,6 +84,7 @@ function agpadHeadViews(p) {
 }
 function agpadHeadActive(p, view) {
   if (agpadCombinedOverview(p) && agpadOverviewView(view)) return "status";
+  if (agpadFocusSurfaces(p) && AGPAD_FOCUS_SURFACES.has(view)) return "focus";
   return view === "desktop" && p.workspaceRole === "ordubashy" ? "browser" : view;
 }
 function agpadModeKey(p) { return p.agentId ? `agpad:mode:${p.agentId}` : null; }
@@ -425,6 +430,9 @@ function agpadSetView(p, view, leaveChecked = false) {
       const view = agpadTabView(p, next);
       if (view !== p.view) agpadSetView(p, view);
     });
+    // Inside a Focus detail the Focus entry is highlighted but still returns to the Focus board.
+    const focusTab = agpadFocusSurfaces(p) && view !== "focus" ? $('.ttab[data-v="focus"]', p.el) : null;
+    if (focusTab) focusTab.onclick = () => agpadSetView(p, "focus");
     agpadPingMount(p);
   }
   if (view === 'status') agentCurrentWorkMount(p);

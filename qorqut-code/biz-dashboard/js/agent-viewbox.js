@@ -66,7 +66,7 @@ function agviewboxReveal(p, id) {
   vb.linkedItem = id;
   // Reuse a pending board read, or refresh an existing board before opening the
   // placement. Its native frame load still owns unread acknowledgement.
-  if (vb.mode === 'frame') agviewboxBack(p);
+  if (vb.mode === 'frame') agviewboxBack(p, true);
   else void agviewboxRefresh(p);
 }
 
@@ -75,7 +75,9 @@ function agviewboxMount(p) {
   if (!body || !p.agentId) return;
   const vb = p.vb = { agentId: p.agentId, abort: null, pending: false, next: 0, items: null, error: false, mode: 'list',
     selected: null, signature: null, listScroll: 0, size: agvbStoredSize(p), frame: null,
-    linkedItem: new URL(location.href).searchParams.get('viewbox_item') };
+    linkedItem: p.viewboxOpen || new URL(location.href).searchParams.get('viewbox_item') };
+  // A Focus-strip click hands over the items it already shows so the detail opens without a list detour.
+  const seeded = p.viewboxSeed; p.viewboxOpen = p.viewboxSeed = null;
   body.classList.add('agvb-body');
   body.classList.remove('agvb-framed');
   body.innerHTML = `<div class="agvb"><div class="agvb-listview"><p class="agvb-status" role="alert" hidden></p>
@@ -85,6 +87,10 @@ function agviewboxMount(p) {
     if (row) agviewboxOpen(p, row.dataset.id);
   };
   p.workspaceDispose = () => agviewboxDispose(p, vb);
+  if (seeded && vb.linkedItem && seeded.some(item => item.id === vb.linkedItem)) {
+    vb.items = seeded;
+    agviewboxOpen(p, vb.linkedItem);
+  }
   agviewboxRefresh(p);
 }
 
@@ -185,7 +191,7 @@ function agviewboxOpen(p, id) {
   $('.agvb-listview', root).hidden = true;
   view.hidden = false;
   body.classList.add('agvb-framed');
-  view.innerHTML = `<div class="agvb-bar"><button type="button" class="agvb-back" aria-label="Back to Viewbox list">${AGVB_ICON.back}</button>
+  view.innerHTML = `<div class="agvb-bar"><button type="button" class="agvb-back" aria-label="${agpadFocusSurfaces(p) ? 'Back to Focus' : 'Back to Viewbox list'}">${AGVB_ICON.back}</button>
     <strong class="agvb-name">${esc(item.title)}</strong>
     <button type="button" class="agvb-fit" aria-label="Fill pane">${AGVB_ICON.fit}</button>
     <a class="agvb-open" target="_blank" rel="noopener noreferrer" aria-label="Open in new tab">${AGVB_ICON.open}<span>Open in new tab</span></a></div>
@@ -291,9 +297,11 @@ function agviewboxOpen(p, id) {
   $('.agvb-back', view).focus({ preventScroll: true });
 }
 
-function agviewboxBack(p) {
+// With Focus, an agent's Viewbox is a detail of its Focus board, so Back returns there unless a newly linked item replaces this one.
+function agviewboxBack(p, toList = false) {
   const vb = p.vb, root = $('.agvb', p.el);
   if (!vb || !root || vb.mode !== 'frame') return;
+  if (!toList && agpadFocusSurfaces(p)) { agpadSetView(p, 'focus'); return; }
   const body = $('#agpad-body', p.el), selected = vb.selected;
   agviewboxCloseFrame(vb);
   vb.mode = 'list';
@@ -312,4 +320,101 @@ function agviewboxBack(p) {
   const rows = root.querySelectorAll('.agvb-row');
   const row = [...rows].find(entry => entry.dataset.id === selected?.id) || rows[0];
   row?.focus({ preventScroll: true });
+}
+
+// ------------------------------------------------------------ Focus surfaces strip
+// For an agent with Focus: Browser and Desktop launchers, then the agent's actual Viewbox board, in the compact attention-chip styling.
+// Reads the owner board (not the notification queue), so viewed placements stay while they remain on the board.
+const AGVB_SURFACES = [['browser', 'Browser'], ['desktop', 'Desktop']];
+const agvbSurfaceIcon = name => (typeof T_VIEW_ICON === 'object' && T_VIEW_ICON[name]) || '';
+
+function agviewboxSurfacesMount(p, host) {
+  if (!host || !p.agentId) return null;
+  const strip = { agentId: p.agentId, abort: null, pending: false, next: 0, items: null, error: false, signature: null, dead: false, discovery: 'checking', surfaces: null };
+  host.setAttribute('aria-label', 'Browser, Desktop and Viewbox');
+  host.innerHTML = `<div class="attention-stack agfocus-surfaces">${AGVB_SURFACES.map(([view, label]) =>
+    `<button type="button" class="attention-chip agfocus-surface-chip" data-focus-surface="${view}" aria-disabled="true">${agvbSurfaceIcon(view)}<span class="attention-label">${label}</span></button>`).join('')}
+    <div class="agfocus-surface-board" role="list" aria-label="Viewbox"></div></div>`;
+  const board = $('.agfocus-surface-board', host);
+  // A launcher is enabled only by this agent's own resolved browser-surface binding (the existing cached discovery),
+  // within the scope discovery covers; Desktop is also limited to Ordubashy. Pending, failed and empty read differently.
+  const launcher = view => {
+    const name = view === 'browser' ? 'Browser' : 'Desktop', found = strip.surfaces;
+    if (p.workspaceScope !== 'global') return [false, `${name} unavailable: not offered for this agent here`];
+    if (strip.discovery === 'checking') return [false, `${name}: checking this agent’s configuration`];
+    if (strip.discovery === 'failed') return [false, `${name} could not be checked. Refresh Focus to retry`];
+    if (view === 'desktop' && p.workspaceRole !== 'ordubashy') return [false, 'Desktop unavailable: only Ordubashy has a desktop'];
+    const bound = view === 'browser' ? found.browsers.length > 0 : !!found.desktop;
+    return bound ? [true, name] : [false, `${name} unavailable: no configured ${view} for this agent`];
+  };
+  const paintLaunchers = () => {
+    for (const chip of host.querySelectorAll('[data-focus-surface]')) {
+      const [on, text] = launcher(chip.dataset.focusSurface);
+      chip.title = text; chip.setAttribute('aria-label', text);
+      if (on) chip.removeAttribute('aria-disabled'); else chip.setAttribute('aria-disabled', 'true');
+    }
+    agfocusDesktopTab(p);
+  };
+  // Reuses the pane's cached or pending discovery; only an explicit retry after failure forces another read.
+  const discover = force => {
+    if (p.workspaceScope !== 'global') { strip.discovery = 'ready'; paintLaunchers(); return; }
+    const cached = !force && p.surfaces?.agentId === strip.agentId ? p.surfaces : null;
+    if (cached) { strip.surfaces = cached; strip.discovery = 'ready'; paintLaunchers(); return; }
+    strip.discovery = 'checking'; paintLaunchers();
+    agbrowserSurfaces(p, force).then(found => {
+      if (strip.dead || p.focusSurfaces !== strip || found.agentId !== strip.agentId) return;
+      strip.surfaces = found; strip.discovery = 'ready';
+    }, () => {
+      if (strip.dead || p.focusSurfaces !== strip) return;
+      strip.discovery = 'failed';
+    }).then(() => { if (!strip.dead && p.focusSurfaces === strip) paintLaunchers(); });
+  };
+  host.onclick = event => {
+    const button = event.target.closest('button');
+    if (!button || !host.contains(button)) return;
+    if (button.dataset.focusSurface) { if (button.getAttribute('aria-disabled') !== 'true') agpadRequestView(p, button.dataset.focusSurface); return; }
+    const id = button.dataset.viewboxItem;
+    if (!id || !strip.items?.some(item => item.id === id)) return;
+    p.viewboxOpen = id; p.viewboxSeed = strip.items;
+    agpadSetView(p, 'viewbox');
+  };
+  const paint = () => {
+    const signature = `${agvbSignature(strip.items)}|${strip.items ? 1 : 0}|${strip.error ? 1 : 0}`;
+    if (signature === strip.signature) return;
+    strip.signature = signature;
+    const scroll = board.scrollLeft, focused = document.activeElement?.closest?.('[data-viewbox-item]')?.dataset.viewboxItem;
+    board.innerHTML = (strip.items || []).map(item => {
+      const label = AGVB_KIND_LABEL[item.kind];
+      return `<button type="button" role="listitem" class="attention-chip agfocus-surface-chip" data-viewbox-item="${esc(item.id)}" data-kind="${esc(item.kind)}"
+        title="${esc(`${item.title}\n${label}`)}" aria-label="${esc(`${item.title}, ${label}`)}"><span class="attention-viewbox" aria-hidden="true">${AGVB_ICON[item.kind]}</span><span class="attention-label">${esc(item.title)}</span></button>`;
+    }).join('') + (!strip.items?.length ? `<span class="attention-empty">${strip.error ? 'Viewbox unavailable' : strip.items ? '' : 'Loading Viewbox…'}</span>` : '');
+    board.scrollLeft = scroll;
+    if (focused) board.querySelector(`[data-viewbox-item="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+  };
+  const refresh = async () => {
+    if (strip.dead) return;
+    strip.abort?.abort();
+    const controller = strip.abort = new AbortController();
+    strip.pending = true;
+    try {
+      const data = coreData(await api(`/root/agents/${encodeURIComponent(strip.agentId)}/viewbox`, { signal: controller.signal }));
+      if (strip.abort !== controller || strip.dead) return;
+      if (data.agent_id !== strip.agentId || !Array.isArray(data.items)) throw new Error('Viewbox response does not match this agent');
+      strip.items = data.items.map(agvbItem).filter(Boolean).slice(0, AGVB_LIMIT);
+      strip.error = false;
+    } catch (_) {
+      if (strip.abort !== controller || strip.dead) return;
+      strip.error = true;
+    }
+    strip.pending = false; strip.next = Date.now() + AGPAD_POLL_MS;
+    paint();
+    agfocusDesktopTab(p);
+  };
+  strip.refresh = () => { if (strip.discovery === 'failed') discover(true); void refresh(); };
+  strip.tick = () => { if (!strip.pending && Date.now() >= strip.next) void refresh(); };
+  strip.dispose = () => { strip.dead = true; strip.abort?.abort(); host.onclick = null; host.innerHTML = ''; };
+  paint();
+  discover(false);
+  void refresh();
+  return strip;
 }

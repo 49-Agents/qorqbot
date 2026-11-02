@@ -241,7 +241,10 @@ function agfocusMount(p) {
     board.querySelector('.attention-queue').before(excerpt);
     todayCalendar=calendarTodayMount(excerpt,event=>{event.stopPropagation();ovOpen('calendar');});
   }
-  const disposeAttention=typeof attentionQueue!=='undefined'?attentionQueue.mount(board.querySelector('.attention-queue')):()=>{};
+  // An agent with Focus gets the Browser, Desktop and its own Viewbox board strip; agents without Focus keep their views and queue.
+  p.focusSurfaces=agpadFocusSurfaces(p) && typeof agviewboxSurfacesMount==='function'?agviewboxSurfacesMount(p,board.querySelector('.attention-queue')):null;
+  const disposeAttention=p.focusSurfaces?()=>{p.focusSurfaces.dispose();p.focusSurfaces=null;}
+    :typeof attentionQueue!=='undefined'?attentionQueue.mount(board.querySelector('.attention-queue')):()=>{};
   const signoffQueue=document.createElement('section');signoffQueue.className='focus-signoff-queue';signoffQueue.setAttribute('aria-label','Signoff queue');signoffQueue.hidden=true;
   board.querySelector('.attention-queue').after(signoffQueue);
   const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,id=>p.focus?.items.find(item=>item.source?.type==='signoff' && item.source.id===id)?.display_name):()=>{};
@@ -278,7 +281,7 @@ function agfocusMount(p) {
   p.focusBoardSeq ||= 0;
   p.focusPages ||= [];
   $('[data-focus-add]',p.el).onclick=()=>agfocusAdd(p);
-  $('[data-focus-refresh]',p.el).onclick=()=>{agfocusRefresh(p);todayCalendar?.refresh();if(typeof attentionQueue!=='undefined'){void attentionQueue.refresh();void attentionQueue.refreshSignoffs();}};
+  $('[data-focus-refresh]',p.el).onclick=()=>{agfocusRefresh(p);todayCalendar?.refresh();if(p.focusSurfaces)p.focusSurfaces.refresh();if(typeof attentionQueue!=='undefined'){if(!p.focusSurfaces)void attentionQueue.refresh();void attentionQueue.refreshSignoffs();}};
   for(const kind of ['archived','deferred']) {
     const toggle=$('[data-focus-'+kind+']',p.el);
     toggle.setAttribute('aria-pressed',String(!!p['focusInclude'+kind]));
@@ -292,6 +295,7 @@ function agfocusMount(p) {
 
 function agfocusTick(p) {
   if (p.view !== 'focus') return;
+  p.focusSurfaces?.tick();
   if (!p.focusPending && Date.now() >= (p.nextFocus || 0)) agfocusRefresh(p);
   else if (!p.focusPending) agfocusRecoverWork(p);
   if (p.view === 'focus') agfocusPaint(p);
@@ -878,11 +882,16 @@ function agfocusContext(node,item) {
     : '<span class="agfocus-scope-chip agfocus-global-chip" role="img" aria-label="Global"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg></span>');
 }
 
-// Ordubashy has one Browser entry for both modes, so desktop input requests mark it.
+// Desktop input requests mark the Desktop chip on Focus (Ordubashy without Focus keeps the Browser tab).
 function agfocusDesktopTab(p) {
-  const tab = p.workspaceRole === 'ordubashy' ? $('[data-v="browser"]', p.el) : null;
-  if (!tab) return;
+  const chip = $('[data-focus-surface="desktop"]:not([aria-disabled="true"])', p.el), tab = chip || p.workspaceRole !== 'ordubashy' ? null : $('[data-v="browser"]', p.el);
   const pending = p.focus?.browser?.state === 'pending';
+  if (chip) {
+    chip.dataset.attention = pending ? 'true' : 'false';
+    chip.setAttribute('aria-label', pending ? 'Desktop, input requested' : 'Desktop');
+    return;
+  }
+  if (!tab) return;
   tab.dataset.attention = pending ? 'true' : 'false';
   tab.setAttribute('aria-label', pending ? 'Browser, desktop input requested' : 'Browser');
   tab.removeAttribute('title');

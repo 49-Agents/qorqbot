@@ -64,6 +64,31 @@ const globalAgentNavRank = agent => {
   if (role === 'learning-applier') return 1;
   return role === 'global-marketing' || agent.presentation?.department === 'marketing' ? 2 : 3;
 };
+// The primary pair keeps its distinctive faces; all other nav identities use
+// small spirits. Shared Chat/reference artwork is independent of this nav style.
+function globalAgentNavAvatar(agent) {
+  const meta = {...agent, ...agent.presentation}, primary = globalAgentNavRank(agent) < 2;
+  const color = qorqbotAgentColor(meta), name = agent.display_name || agent.name;
+  let glyph;
+  if (primary) {
+    glyph = qorqbotAgentGlyph(color, 31.68, {...qorqbotAgentVariant(meta), eyeOffset: globalAgentNavRank(agent) === 0 ? -10 : 0});
+  } else {
+    let hash = 0;
+    for (const char of String(agent.agent_id)) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+    const shape = globalAgentNavRank(agent) === 2 ? 0 : hash % 3;
+    const bodies = [
+      '<path d="M12 2 C6 1 2 6 2 12 C2 18 6 22 12 22 C19 22 22 17 22 11 C22 5 18 1 12 2 Z"/>',
+      '<path d="M12 1 C6 1 3 6 3 13 V18 Q3 22 7 22 H17 Q21 22 21 18 V13 C21 6 18 1 12 1 Z"/>',
+      '<rect x="1" y="4" width="22" height="16" rx="8"/>'
+    ];
+    glyph = `<svg class="ai qorqbot-agent qorqbot-spirit" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <g fill="${color}">${bodies[shape]}</g><g fill="#fff">
+      <g class="qorqbot-gaze"><g class="qorqbot-eye"><ellipse cx="8.5" cy="12" rx="1.4" ry="2.6"/></g></g>
+      <g class="qorqbot-gaze"><g class="qorqbot-eye"><ellipse cx="15.5" cy="12" rx="1.4" ry="2.6"/></g></g>
+      </g></svg>`;
+  }
+  return `<span class="identity-avatar identity-agent ${primary ? 'nav-primary-face' : 'nav-spirit-face'}" role="img" aria-label="${esc(name)}">${glyph}</span>`;
+}
 // Retired profiles and archival records never reach the list.
 const globalActiveProfile = agent => !!agent && typeof agent.agent_id === 'string' && !agent.archival_record && (agent.status === undefined || agent.status === 'active');
 // A global profile has ecosystem scope and no home business; a business-scoped
@@ -119,7 +144,7 @@ async function renderGlobalAgents(c) {
   // Icon-only rows: the agent name lives in the accessible label, with no visible text, tooltip or presence ball.
   list.innerHTML = agents.map((agent, index) => `${index > 0 && globalAgentNavRank(agents[index - 1]) < 2 && globalAgentNavRank(agent) >= 2
     ? '<span class="global-agent-group-divider" aria-hidden="true"></span>' : ''}<button class="item agent" type="button" data-global-agent="${esc(agent.agent_id)}" aria-pressed="false" aria-label="${esc(agent.display_name || agent.name)}">
-    <span class="nm">${identityAvatar("agent", agent.display_name || agent.name, {...agent, ...agent.presentation})}</span>
+    <span class="nm">${globalAgentNavAvatar(agent)}</span>
   </button>`.replace(/\s*\n\s*/g, '')).join('');
   wireGlobalAgentGaze();
   agentNavPaint(); agentNavRefresh();

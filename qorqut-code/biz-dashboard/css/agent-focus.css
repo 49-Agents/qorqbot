@@ -215,6 +215,15 @@
 .agfocus .attention-queue .attention-chip,.attention-queue .attention-chip { flex:0 1 54px; width:54px; height:51px; min-height:51px; padding:7px 0; justify-content:center; }
 .attention-queue .attention-chip+.attention-chip { margin-left:0; }
 
+/* Focus strip for agents with Focus: fixed Browser/Desktop launchers, then the Viewbox board scrolling sideways. */
+.agfocus-surfaces .agfocus-surface-chip{flex:none}
+.agfocus-surfaces .agfocus-surface-chip svg{width:20px;height:20px}
+.agfocus-surfaces .agfocus-surface-chip[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
+.agfocus-surface-board{display:flex;align-items:center;gap:6px;flex:1;min-width:0;padding:3px 1px;overflow-x:auto;scrollbar-width:thin}
+.agent-workspace-app .agfocus .attention-queue .agfocus-surface-chip::after{display:none}
+.agent-workspace-app .agfocus .attention-queue .agfocus-surface-chip[data-attention="true"]::after{display:block}
+.agfocus-surface-chip[data-attention="true"]{border-color:var(--fg)}
+
 .focus-signoff-queue{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 14px;min-width:0}
 .focus-signoff-queue[hidden]{display:none}
 .agfocus .focus-signoff-queue .focus-signoff-chip{display:flex;align-items:center;gap:6px;max-width:100%;min-height:30px;margin:0;padding:4px 8px;border:0;border-radius:5px;background:var(--hover);color:var(--fg-2);font-size:11px;text-align:left}
