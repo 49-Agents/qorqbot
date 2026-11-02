@@ -121,13 +121,17 @@ def read_yaml(data):
 class Source:
     """Reads only an explicitly supplied root; never follows filesystem links."""
 
-    def __init__(self, source_id, root, owner, enabled, diagnostics, *, export_component=None, manifest_digest=None):
+    def __init__(self, source_id, root, owner, enabled, diagnostics, *, export_component=None, manifest_digest=None, installed_distribution=None):
         self.id, self.root = identifier(source_id), absolute(root)
         self.owner, self.enabled, self.diagnostics = owner, enabled, diagnostics
         self.used, self.classified = {}, set()
         self.commit = self.repo_prefix = None
         self.clean = None
         self.export_component, self.manifest_digest = export_component, manifest_digest
+        self.installed_distribution = installed_distribution
+        if installed_distribution is not None:
+            self._git_root, self._git_filters = None, None
+            return
         if export_component is not None:
             self.commit = export_component["commit"]
             self.repo_prefix = ""
@@ -223,6 +227,8 @@ class Source:
 
     def exists(self, rel):
         relative(rel)
+        if self.installed_distribution is not None and not rel.startswith('qorqut_' + self.id + '/'):
+            return False
         parts = rel.split("/")
         try:
             with self._directory(parts[:-1]) as parent:
@@ -283,6 +289,8 @@ class Source:
                 raise ImportFailure("unsafe_path", "Source symlinks are not allowed", path=rel) from exc
             raise
         self.used[rel] = digest(data)
+        if self.installed_distribution is not None and self.installed_distribution["distribution_files"].get(rel) != self.used[rel]:
+            raise ImportFailure("installed_source_changed", "Instruction source differs from its wheel RECORD", path=rel)
         self.classified.add(rel)
         return data
 
@@ -326,6 +334,8 @@ class Source:
         export = (dict(provenance_kind="committed_export", tree=self.export_component["tree"],
                        snapshot_sha256=self.export_component["snapshot_sha256"], source_manifest_sha256=self.manifest_digest)
                   if self.export_component is not None else {})
+        if self.installed_distribution is not None:
+            export = dict(provenance_kind="installed_distribution", **{key: value for key, value in self.installed_distribution.items() if key != "root"})
         return dict(id=self.id, owner=self.owner, enabled=self.enabled, commit=self.commit, root=str(self.root), **export,
                     repository_prefix=self.repo_prefix, clean=self.clean,
                     files=dict(sorted(self.used.items())), snapshot_digest=digest(self.used))

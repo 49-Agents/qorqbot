@@ -19,8 +19,11 @@ from .support import ImportFailure, relative
 MAX_TEXT_BYTES = 262_144
 TOKEN = re.compile(r"\{\{([A-Z][A-Z0-9_]*)\}\}")
 PARAMETER = re.compile(r"[A-Z][A-Z0-9_]*\Z")
-INDEX_PATHS = {"host": "app/bazarlyk/agentic/assets/index.json",
-               "paper": "qorqut_paper/agentic-assets/index.json"}
+INDEX_PATHS = {"fastmail": "qorqut_fastmail/resources/index.json",
+               "host": "app/bazarlyk/agentic/assets/index.json",
+               "paper": "qorqut_paper/agentic-assets/index.json",
+               "telegram": "qorqut_telegram/resources/index.json",
+               "whatsapp": "qorqut_whatsapp/index.json"}
 
 
 def _object(pairs):
@@ -87,8 +90,8 @@ def render_text(text: str, parameters, values) -> str:
 def _root(source_id):
     if source_id == "host":
         return Path(__file__).resolve().parents[2]
-    if source_id == "paper":
-        spec = importlib.util.find_spec("qorqut_paper")
+    if source_id in {"paper", "telegram", "whatsapp", "fastmail"}:
+        spec = importlib.util.find_spec("qorqut_" + source_id)
         if spec and spec.submodule_search_locations:
             return Path(next(iter(spec.submodule_search_locations))).parent
     raise DomainError("unknown_instruction_source", f"No installed instruction contract for {source_id}")

@@ -19,14 +19,35 @@ _ROLES = 'src/qorqut_agentic/resources/defaults/'
 _LIMIT = 96 * 1024 * 1024
 
 
+def _location(source):
+    sid = source['id']
+    if source.get('provenance_kind') == 'installed_distribution':
+        from .installed_sources import CONNECTORS
+        if sid not in CONNECTORS:
+            raise ValueError('Unknown installed source')
+        return 'installed:' + sid, ''
+    if sid in {'telegram', 'whatsapp'}:
+        return 'qorqut-code', 'extensions/' + sid + '/'
+    if sid not in SOURCES:
+        raise ValueError('Unexpected standard source')
+    return SOURCES[sid], _ROLES if sid == 'roles' else ''
+
+
+def _distribution(source):
+    return {key: source[key] for key in ('root', 'distribution', 'version', 'distribution_record_sha256', 'distribution_files')}
+
+
+def _distribution_observations(distribution):
+    records = {path: dict(path=path, kind='file', sha256=sha, executable=False)
+               for path, sha in distribution['distribution_files'].items()}
+    directories = sorted({parent.as_posix() for path in records for parent in Path(path).parents if parent.as_posix() != '.'})
+    return records, directories
+
+
 def _inputs(standard, seeds):
     needed = {}
     for source in standard['sources']:
-        sid = source['id']
-        if sid not in SOURCES:
-            raise ValueError('Unexpected standard source')
-        prefix = _ROLES if sid == 'roles' else ''
-        component = SOURCES[sid]
+        component, prefix = _location(source)
         files = needed.setdefault(component, {})
         for path, sha in source['files'].items():
             relative(path)
@@ -52,6 +73,26 @@ def capture(root, manifest, standard, seeds):
     components = {c['name']: c for c in manifest['components']}
     result, total = {}, 0
     for name in sorted(needed):
+        if name.startswith('installed:'):
+            from .installed_sources import installed_source
+            sid = name.split(':', 1)[1]
+            source = next(source for source in standard['sources'] if source['id'] == sid)
+            distribution = installed_source(sid)
+            if distribution != _distribution(source):
+                raise ValueError('Installed distribution changed before witness capture')
+            reader = Source(sid, distribution['root'], sid, True, [], installed_distribution=distribution)
+            used = {}
+            for path, expected in sorted(needed[name].items()):
+                raw = reader.read(path)
+                total += len(raw)
+                if total > _LIMIT or digest(raw) != expected:
+                    raise ValueError('Installed source changed or exceeds capture bound')
+                used[path] = {'sha256': expected, 'content_base64': base64.b64encode(raw).decode('ascii')}
+            total += len(snapshot.canonical(distribution))
+            if total > _LIMIT:
+                raise ValueError('Installed source witness exceeds capture bound')
+            result[name] = {'distribution': distribution, 'used_files': used}
+            continue
         component = components[name]
         records, directories = snapshot.component_observations(root, component, manifest['components'])
         if digest(snapshot.canonical(records)) != component['snapshot_sha256']:
@@ -76,6 +117,17 @@ def recheck(root, manifest, witnesses):
     """Refuse changes to directory observations as well as hashed file records."""
     components = {c['name']: c for c in manifest['components']}
     for name, witness in witnesses.items():
+        if name.startswith('installed:'):
+            from .installed_sources import installed_source
+            sid = name.split(':', 1)[1]
+            distribution = installed_source(sid)
+            if distribution != witness['distribution']:
+                raise ValueError('Installed distribution RECORD changed during capture')
+            reader = Source(sid, distribution['root'], sid, True, [], installed_distribution=distribution)
+            for path, item in witness['used_files'].items():
+                if digest(reader.read(path)) != item['sha256']:
+                    raise ValueError('Installed instruction source changed during capture')
+            continue
         records, directories = snapshot.component_observations(root, components[name], manifest['components'])
         if records != witness['records'] or directories != witness['directories']:
             raise ValueError('Source component observations changed during capture')
@@ -141,9 +193,10 @@ class _WitnessSource(Source):
         self.id, self.owner, self.enabled = source['id'], source['owner'], source['enabled']
         self.root = Path(source['root'])
         self.diagnostics, self.used, self.classified = diagnostics, {}, set()
-        self.commit, self.repo_prefix, self.clean = component['commit'], '', None
+        self.installed_distribution = _distribution(source) if source.get('provenance_kind') == 'installed_distribution' else None
+        self.commit, self.repo_prefix, self.clean = (component['commit'], '', None) if component else (None, None, None)
         self.export_component, self.manifest_digest = component, manifest_sha
-        self._prefix = _ROLES if self.id == 'roles' else ''
+        self._prefix = _location(source)[1]
         self._records, self._directories, self._inputs = records, set(directories), used
 
     def exists(self, rel):
@@ -197,10 +250,18 @@ def validate(root, manifest_raw, standard, seeds, witnesses, selected):
     mappings, total = {}, 0
     for name in sorted(needed):
         witness = witnesses[name]
-        if not isinstance(witness, dict) or set(witness) != {'records', 'directories', 'used_files'}:
-            raise ValueError('Invalid source witness')
-        records = _records(components[name], manifest['components'], witness['records'], witness['directories'])
-        total += len(snapshot.canonical(witness['records'])) + len(snapshot.canonical(witness['directories']))
+        if name.startswith('installed:'):
+            source = next(source for source in standard['sources'] if source['id'] == name.split(':', 1)[1])
+            if not isinstance(witness, dict) or set(witness) != {'distribution', 'used_files'} or witness['distribution'] != _distribution(source):
+                raise ValueError('Invalid installed distribution witness')
+            records, directories = _distribution_observations(witness['distribution'])
+            total += len(snapshot.canonical(witness['distribution']))
+        else:
+            if not isinstance(witness, dict) or set(witness) != {'records', 'directories', 'used_files'}:
+                raise ValueError('Invalid source witness')
+            records = _records(components[name], manifest['components'], witness['records'], witness['directories'])
+            directories = witness['directories']
+            total += len(snapshot.canonical(witness['records'])) + len(snapshot.canonical(directories))
         used = witness['used_files']
         if not isinstance(used, dict) or set(used) != set(needed[name]):
             raise ValueError('Source witness input set differs')
@@ -215,25 +276,30 @@ def validate(root, manifest_raw, standard, seeds, witnesses, selected):
                 raise ValueError('Source input does not match component witness')
         if total > _LIMIT:
             raise ValueError('Source witness exceeds capture bound')
-        mappings[name] = records
+        mappings[name] = records, directories
     inv = Inventory()
     for source in standard['sources']:
         sid = source['id']
-        component = components[SOURCES[sid]]
+        name, prefix = _location(source)
+        component = components.get(name)
         owner = {'email': 'email-management', 'content-library': 'content'}.get(sid, sid)
         enabled = sid in {'host', 'roles'} or owner in (set(selected) | CORE)
+        if component is None:
+            if source['owner'] != owner or source['enabled'] is not enabled:
+                raise ValueError('Installed source ownership differs')
+            inv.sources[sid] = _WitnessSource(source, None, *mappings[name], witnesses[name]['used_files'], inv.diagnostics, manifest_sha)
+            continue
         expected_root = Path(root) / component['destination']
-        if sid == 'roles':
-            expected_root /= _ROLES
-            if _ROLES.rstrip('/') not in witnesses[component['name']]['directories']:
+        if prefix:
+            expected_root /= prefix
+            if prefix.rstrip('/') not in witnesses[name]['directories']:
                 raise ValueError('Missing witnessed source root')
         if (source['owner'] != owner or source['enabled'] is not enabled
                 or source['root'] != str(expected_root) or source['commit'] != component['commit']
                 or source['tree'] != component['tree'] or source['snapshot_sha256'] != component['snapshot_sha256']
                 or source['source_manifest_sha256'] != manifest_sha):
             raise ValueError('Standard source provenance differs from component')
-        inv.sources[sid] = _WitnessSource(source, component, mappings[component['name']], witnesses[component['name']]['directories'],
-                                          witnesses[component['name']]['used_files'], inv.diagnostics, manifest_sha)
+        inv.sources[sid] = _WitnessSource(source, component, *mappings[name], witnesses[name]['used_files'], inv.diagnostics, manifest_sha)
     actual = _compose_inventory(inv, set(selected) | CORE, (), None)
     if actual != standard:
         raise ValueError('Standard inventory differs from witnessed inputs')
