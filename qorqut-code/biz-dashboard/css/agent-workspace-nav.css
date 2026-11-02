@@ -26,3 +26,15 @@
 
 /* Separate the primary pair from the remaining agents without another control. */
 .agent-workspace-app .global-agents .global-agent-group-divider { display:block; flex:none; align-self:center; width:28px; height:1px; margin:4px 0; background:var(--line); }
+
+/* Work is distinct from unread replies: every agent can show these three dots. */
+.agent-workspace-app .global-agents .agent-nav-working {
+  position:absolute; bottom:3px; left:50%; transform:translateX(-50%);
+  display:flex; gap:3px; color:var(--fg-2); pointer-events:none;
+}
+.agent-workspace-app .global-agents .agent-nav-working[hidden] { display:none; }
+.agent-nav-working i { width:3px; height:3px; border-radius:50%; background:currentColor; animation:agent-nav-pulse 1.5s infinite; }
+.agent-nav-working i:nth-child(2) { animation-delay:.2s; }
+.agent-nav-working i:nth-child(3) { animation-delay:.4s; }
+@keyframes agent-nav-pulse { 0%,65%,100% { opacity:.25; } 30% { opacity:1; } }
+@media (prefers-reduced-motion:reduce) { .agent-nav-working i { animation:none; opacity:.7; } }

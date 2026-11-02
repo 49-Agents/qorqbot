@@ -1,6 +1,6 @@
 // Owner reply notifications and shared unread markers, independent of the current page.
 const replyNotifications=(()=>{
-  let loaded=false,inflight=null,trailing=false,items=[],signature='',seen=new Set(),timer;
+  let communicationCursor=null,seenCommunications=new Set(),loaded=false,inflight=null,trailing=false,items=[],signature='',seen=new Set(),timer;
   try{seen=new Set(JSON.parse(sessionStorage.getItem('reply-notifications:seen') || '[]'));}catch(_){}
   const key=s=>`${s?.type}:${s?.business_id || 'global'}:${s?.id}`;
   const unread=source=>loaded?items.some(item=>item.kind==='thread' && item.unread && key(item.source)===key(source)):null;
@@ -9,6 +9,7 @@ const replyNotifications=(()=>{
   const unreadAgent=agentId=>loaded?items.some(item=>unreadReply(item) && item.agent_id===agentId):null;
   const unreadChat=()=>loaded?items.some(unreadReply):null;
   const viewing=item=>item.chat===true && typeof globalChatReadable==='function' && globalChatReadable(item.agent_id);
+  const eligible = id => primaryAgent(globalAgentProfile(id));
   function paintDots(){
     const dot=(host,on,label)=>{
       if(!host)return;
@@ -19,7 +20,7 @@ const replyNotifications=(()=>{
     };
     document.querySelectorAll('[data-global-agent]').forEach(row=>{
       const id=row.dataset.globalAgent;
-      dot(row.querySelector('.nm'),!!unreadAgent(id),'Unread reply');
+      dot(row.querySelector('.nm'),eligible(id) && !!unreadAgent(id),'Unread reply');
     });
   }
   async function open(item){
@@ -41,7 +42,8 @@ const replyNotifications=(()=>{
   const canonical=value=>JSON.stringify(value,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([x],[y])=>x<y?-1:x>y?1:0)):v);
   async function load(){
     try{
-      const data=coreData(await api('/root/reply-notifications'));
+      const [response]=await Promise.all([api('/root/reply-notifications'+(communicationCursor===null?'':'?communications_after='+communicationCursor)),loadGlobalAgentProfiles()]);
+      const data=coreData(response);
       const first=!loaded,next=data.items || [],nextSignature=canonical(next);
       const changed=first || nextSignature!==signature;
       items=next;signature=nextSignature;loaded=true;
@@ -50,7 +52,21 @@ const replyNotifications=(()=>{
         seen.add(item.id);
         // Establish a baseline on first load; existing unread markers still appear.
         // The owner already looking at that chat does not need a toast for what is on screen.
-        if(!first && !item.nav_only && !viewing(item))notify({text:item.agent_name+' replied',sub:item.text,onClick:()=>open(item),ms:8000});
+        if(!first && eligible(item.agent_id) && !item.nav_only && !viewing(item))notify({replyAgentId:item.agent_id,text:item.agent_name,sub:item.text,onClick:()=>open(item),ms:6000});
+      }
+      const feed=data.communications;
+      if(feed && Number.isSafeInteger(feed.next_cursor)){
+        // The first response is the baseline: earlier traffic never replays. The cursor moves only after enqueueing.
+        if(communicationCursor!==null){
+          for(const c of feed.items || []){
+            if(!(c.event_id>communicationCursor) || seenCommunications.has(c.event_id))continue;
+            seenCommunications.add(c.event_id);
+            notify({text:`${c.sender_name} \u2192 ${c.recipient_name}`,communication:c,ms:3000});
+          }
+          seenCommunications=new Set([...seenCommunications].slice(-1000));
+        }
+        communicationCursor=Math.max(communicationCursor ?? 0,feed.next_cursor);
+        if(feed.has_more)trailing=true;
       }
       seen=new Set([...seen].slice(-1000));
       try{sessionStorage.setItem('reply-notifications:seen',JSON.stringify([...seen]));}catch(_){}
