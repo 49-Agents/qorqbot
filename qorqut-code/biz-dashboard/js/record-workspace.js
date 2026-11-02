@@ -552,6 +552,22 @@ function recordWorkspaceMount(host, options = {}) {
       }
       notice.textContent = message;
     };
+    // The first canonical Task read is the subtype authority even when the opening descriptor
+    // omitted or carried a stale task_type. Normalize the entry's header metadata in place;
+    // the dashboard mount already uses the same fresh task, so never remount just to relabel.
+    const normalizeTaskType = fresh => {
+      if (!alive() || !fresh) return;
+      const nextType = String(fresh.task_type || 'task');
+      const currentType = String(item.record.task_type || 'task');
+      if (nextType === currentType && String(item.record.source?.task_type || 'task') === nextType) return;
+      item.record = {...item.record, task_type: nextType,
+        revision: fresh.revision ?? item.record.revision,
+        state: fresh.status ?? item.record.state,
+        label: fresh.title || item.record.label};
+      titlePaint(item);
+      paintTypeTab(item);
+      options.onTitleChange?.(item.record);
+    };
     // A successful canonical write/reload may change the Task subtype. Replace only this
     // dashboard in place, preserving the entry, source scope, Chat/draft, selected tab and
     // stack. The caller has already verified the canonical response and, for a dirty
@@ -570,9 +586,7 @@ function recordWorkspaceMount(host, options = {}) {
       item.record = {...item.record, task_type: nextType,
         revision: fresh.revision ?? item.record.revision,
         state: fresh.status ?? item.record.state,
-        label: fresh.title || item.record.label,
-        source: {...item.record.source, task_type: nextType,
-          revision: fresh.revision ?? item.record.source.revision}};
+        label: fresh.title || item.record.label};
       item.dashboardLoaded = false;
       item.dashboardMounting = false;
       item.scroll = previousScroll;
@@ -591,7 +605,7 @@ function recordWorkspaceMount(host, options = {}) {
         const dashboard = await rwDashboardMount(host, record, {
           alive, navigate, workspace, entry: item, options,
           unavailable: () => rwRecordUnavailable(item), revalidateProject,
-          adoptTaskType, changed, prefetchedTask,
+          adoptTaskType, normalizeTaskType, changed, prefetchedTask,
           // The Project's real name and the task's own source title can differ from the card label.
           title(next) {
             if (!alive() || !next) return;
@@ -757,6 +771,9 @@ async function rwTaskDashboard(host, record, ctx, call) {
   // A related item may arrive with only its identifier; the authoritative Task title fills the header.
   if (task.title && (!record.label || record.label === 'Record' || record.label === record.source.id)) ctx.title?.({label: task.title});
   const type = task.task_type || 'task';
+  // The incoming descriptor is presentation only; this authorized read supplies the subtype
+  // used by both the body and the type tab before the dashboard finishes mounting.
+  ctx.normalizeTaskType?.(task);
   // A retained Task dashboard rechecks its authoritative source on every reveal. A denial
   // invalidates the whole entry; a transient failure keeps the current content and edits.
   const revalidateTask = async () => {
