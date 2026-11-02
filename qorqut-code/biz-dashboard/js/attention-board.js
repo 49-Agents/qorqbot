@@ -213,7 +213,7 @@ function attentionBoardPaint(p) {
       const ref=item.task_ref, scope=attentionBoardScope(ref,item.task), unavailable=ref.business_id != null && !scope, task=attentionBoardTask(ref,item.task);
       const row=attentionReferenceRow(p,{...ref,business_slug:scope,label:task.title,state:task.status,task_type:task.task_type,revision:task.revision},task);
       row.dataset.attentionMember=item.membership_id;
-      if(status==='done' && rows.childElementCount && !rows.querySelector('.attention-completed-start'))row.classList.add('attention-completed-start');
+      if(status==='done' && item===items[0] && rows.childElementCount)row.classList.add('attention-completed-start');
       const actions=row.querySelector('.agfocus-actions');
       if (!unavailable && (task.workers?.length || task.user_needed)) taskWorkerMount(actions,scope,task,p.agentId);
       const remove=document.createElement('button'); remove.type='button'; remove.className='quiet'; remove.innerHTML=SVG_X; remove.setAttribute('aria-label','Remove '+(task.title || 'task')+' from Attention board');

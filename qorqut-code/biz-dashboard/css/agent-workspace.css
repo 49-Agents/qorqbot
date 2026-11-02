@@ -41,7 +41,7 @@
 .agent-workspace-app .agsplit { --ag-ctl:37.5px; --ag-ctl-icon:23.75px; }
 /* Pane tabs and the Chat/Terminal/Refresh controls share one shape and selected fill. */
 .agent-workspace-app .agpad .ttab, .agent-workspace-app .gchat-session-switch .ttab { min-width:var(--ag-ctl); padding:6px; border-radius:5px; }
-.agent-workspace-app .gchat-view-toggle .ttab[aria-pressed="true"] { background:#252525; }
+.agent-workspace-app .gchat-view-toggle .ttab[aria-pressed="true"],
 .agent-workspace-app .agpad .tind { border-radius:5px; background:#252525; }
 .agent-workspace-app .agpad .tind::before { display:none; }
 .agent-workspace-app .agpad-ping.switch { height:32px; }
