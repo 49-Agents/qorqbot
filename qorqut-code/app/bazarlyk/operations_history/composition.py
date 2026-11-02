@@ -15,7 +15,7 @@ def registered_areas(uow):
     # These are projections or independently protected sources, not authored HQ
     # working notes. Runtime/config/nested repositories also have capture rules.
     areas.extend(BusinessHeadquarters(slug, excluded=("exports", "tables", "context/email", "context/agent-memory",
-                                                    "agents", "code", "sessions", "transcripts", "logs"))
+                                                    "agents", "code", "sessions", "transcripts", "logs", "browser"))
                  for slug in sorted(businesses.values()))
     return areas
 
