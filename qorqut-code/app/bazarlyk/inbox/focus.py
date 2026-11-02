@@ -102,6 +102,8 @@ class FocusService:
             'revision': resolved['revision'], 'resource_type': resolved['resource_type'],
             'category': resolved.get('category'), 'summary': resolved.get('summary', ''),
             'business_slug': biz['slug'] if biz else None, 'business_name': biz['name'] if biz else 'Global'}
+        if item['type'] == 'task':
+            card['task_type'] = resolved.get('task_type', 'task')
         if resolved.get('deep_link'):
             card['deep_link'] = resolved['deep_link']
         return card

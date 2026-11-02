@@ -13,6 +13,7 @@ from pathlib import PurePosixPath
 from qorqut_operations.application.plans import ref
 from qorqut_operations.contracts import DomainError, InvocationOptions
 from qorqut_operations.items import authorize_item_read
+from qorqut_operations.tasks.types import attributes as task_attributes
 
 from bazarlyk.agents.global_scope import active_global, reaches_business
 
@@ -109,5 +110,6 @@ class RelatedResources:
                  or metadata.get("name") or metadata.get("filename") or row.get("payload_json", {}).get("subject") or row.get("payload_json", {}).get("title")
                  or row.get("profile_json", {}).get("display_name") or row.get("name")
                  or fallback)
-        return {"label": label, "state": row.get("status", row.get("state", metadata.get("status"))), "path": row.get("path"),
+        return {**({"task_type": task_attributes(row)["task_type"]} if kind == "tasks" else {}),
+                "label": label, "state": row.get("status", row.get("state", metadata.get("status"))), "path": row.get("path"),
                 "kind": row.get("kind"), "revision": row.get("revision")}

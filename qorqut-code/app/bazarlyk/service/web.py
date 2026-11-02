@@ -257,6 +257,7 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
         routes = [Route("/", index), Route("/tables/view", tables_view), Route("/app.css", app_css), Route(FILE_VIEWER_PATH, file_viewer_page),
             Route("/health/live", liveness), Route("/health/ready", readiness),
             Route("/api/{path:path}", api_request, methods=["GET", "POST", "DELETE"]),
+            Mount("/icons/task-types", StaticFiles(directory=dashboard_root / "icons" / "task-types", check_dir=False)),
             Mount("/js", StaticFiles(directory=dashboard_root / "js")), Mount("/css", StaticFiles(directory=dashboard_root / "css"))]
     # Route an exact ASGI endpoint: Mount('/mcp') would redirect the required /mcp path.
     from starlette.routing import BaseRoute, Match
