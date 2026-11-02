@@ -61,9 +61,11 @@ from qorqut_operations.storage.inventory import IDENTITY_DDL, IDENTITY_TABLE, co
 from qorqut_operations.storage.sqlfunctions import install_sql_functions
 
 from bazarlyk.composition.assembly import host_assembly
+from bazarlyk.extensions import installed_selection
 from bazarlyk.service.changes import ChangeFeed
 
 FINGERPRINT = Path(__file__).with_name("crm_baseline_fingerprint.json")
+RELEASE_FINGERPRINTS = Path(__file__).with_name("crm_release_fingerprints.json")
 STATEMENT = re.compile(r"^\s*(?:(CREATE)\s+(?:UNIQUE\s+)?(TABLE|INDEX|TRIGGER)|(INSERT)\s+INTO)\b", re.IGNORECASE)
 INSERT_INTO = re.compile(r"^\s*INSERT\s+INTO\b", re.IGNORECASE)
 SIDECARS = ("-wal", "-shm")
@@ -91,8 +93,25 @@ def baseline():
     return {"target": stored["target"], "objects": objects}
 
 
-def current_assembly():
-    return host_assembly(ChangeFeed())
+def current_assembly(configuration=None):
+    return host_assembly(ChangeFeed(), installed_selection(configuration or {}))
+
+
+def recognized_baseline(connection, target, extensions):
+    """Recognize only frozen source inventories with the same explicitly selected extensions."""
+    candidates = [baseline()] if not extensions else []
+    for stored in json.loads(RELEASE_FINGERPRINTS.read_text(encoding="utf-8"))["baselines"]:
+        if stored["extensions"] == sorted(extensions):
+            candidates.append({"target": stored["target"], "objects": {
+                tuple(key.split(":", 1)): tuple(value) for key, value in stored["objects"].items()}})
+    for frozen in candidates:
+        try:
+            recognize(connection, frozen, target)
+            return frozen
+        except DomainError as exc:
+            if exc.code != "upgrade_source_unrecognized":
+                raise
+    raise _refuse("upgrade_source_unrecognized", "The source does not match a frozen pre-CRM schema for the selected extensions")
 
 
 # ----- source ---------------------------------------------------------------------------------------------------------
@@ -352,18 +371,18 @@ def require_source_unchanged(source, before):
 # ----- entry points ---------------------------------------------------------------------------------------------------
 
 
-def upgrade(source, destination, *, dry_run=False, assembly=None):
+def upgrade(source, destination, *, dry_run=False, assembly=None, configuration=None):
     """Upgrade ``source`` into the new ``destination`` (or only report, with ``dry_run``) and return a counts-only report."""
     source, destination = require_source(source), require_destination(destination)
-    frozen = baseline()
-    assembly = assembly or current_assembly()
+    selection = installed_selection(configuration or {})
+    assembly = assembly or current_assembly(configuration)
     compiled = compile_target(assembly)
     target = assembly.target
     before = source_state(source)
     before_hash = before[-1]
     connection = open_source(source)
     try:
-        recognize(connection, frozen, target)
+        frozen = recognized_baseline(connection, target, selection.ids)
         steps = plan(connection, frozen, compiled, assembly)
     finally:
         connection.close()
@@ -407,9 +426,18 @@ def main(argv=None):
     parser.add_argument("--source", required=True, help="the stopped pre-CRM database (never modified)")
     parser.add_argument("--destination", required=True, help="a new path for the upgraded database (must not exist)")
     parser.add_argument("--dry-run", action="store_true", help="build and verify in a throwaway directory; write nothing")
+    parser.add_argument("--installation-config", help="trusted installation JSON; selects the existing extensions without starting them")
     arguments = parser.parse_args(argv)
     try:
-        report = upgrade(arguments.source, arguments.destination, dry_run=arguments.dry_run)
+        configuration = None
+        if arguments.installation_config:
+            try:
+                configuration = json.loads(Path(arguments.installation_config).read_text(encoding="utf-8"))
+                if not isinstance(configuration, dict):
+                    raise ValueError("configuration must be an object")
+            except (OSError, ValueError) as exc:
+                raise _refuse("invalid_configuration", "Cannot read the installation configuration") from exc
+        report = upgrade(arguments.source, arguments.destination, dry_run=arguments.dry_run, configuration=configuration)
     except DomainError as exc:
         print(json.dumps({"ok": False, "error": exc.to_dict()}, indent=2, sort_keys=True), file=sys.stderr)
         return 2
