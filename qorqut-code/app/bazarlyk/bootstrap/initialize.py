@@ -195,6 +195,14 @@ def seed_instance(paths: InstancePaths, workspace: Path, selection, owner_name: 
         database.close()
 
 
+def _make_private(root: Path) -> None:
+    """Drop every group/other permission under ``root``: the primitives write the packaged instructions as 0644."""
+    for path in sorted(root.rglob("*")):
+        mode = path.lstat().st_mode
+        if not stat.S_ISLNK(mode) and mode & 0o077:
+            os.chmod(path, stat.S_IMODE(mode) & ~0o077)
+
+
 def initialize(prepared_root, instance_root, *, owner_name="Owner", extensions_config=None) -> dict:
     """Initialize ``instance_root``; returns the receipt that was written. Raises on any refusal or failure."""
     from bazarlyk.extensions import installed_selection, validate_entries
@@ -213,7 +221,9 @@ def initialize(prepared_root, instance_root, *, owner_name="Owner", extensions_c
     workspace = prepared / "src"
     paths = InstancePaths(instance, components)                # validates the component overlaps; writes nothing
 
-    # The first write: every check above has passed. A later failure leaves this directory for inspection.
+    # The first write: every check above has passed. A later failure leaves this directory for inspection. The umask keeps
+    # the history repository and agent folders owner-only too; _make_private covers the packaged instructions.
+    previous_umask = os.umask(0o077)
     try:
         if not instance.exists():
             os.mkdir(instance, DIRECTORY_MODE)
@@ -222,6 +232,7 @@ def initialize(prepared_root, instance_root, *, owner_name="Owner", extensions_c
         write_private_file(config, "extensions.json", json.dumps(configuration, indent=2, sort_keys=True).encode() + b"\n")
         write_private_file(config, "owner-token", secrets.token_urlsafe(32).encode())
         created = seed_instance(paths, workspace, selection, owner_name.strip())
+        _make_private(instance)
         record = {"format": 1, "state": "initialized", "initialized_at": utc_now(), "owner_name": owner_name.strip(), **created,
                   "extensions": list(selection.ids), "instance_root": str(instance), "workspace": str(workspace),
                   "components": {name: str(location) for name, location in components.items()},
@@ -232,6 +243,8 @@ def initialize(prepared_root, instance_root, *, owner_name="Owner", extensions_c
         write_private_file(config, "initialization-receipt.json", json.dumps(record, indent=2, sort_keys=True).encode() + b"\n")
     except Exception as exc:
         raise InstanceIncomplete(f"{type(exc).__name__}: {exc}") from exc
+    finally:
+        os.umask(previous_umask)
     record["receipt_file"] = str(config / "initialization-receipt.json")
     record["service_command"] = service_command(prepared, paths, config)
     return record
