@@ -14,7 +14,9 @@ def action_snapshot():
 
 
 def attribution():
-    schema = Obj(fields={"kind": Text(), "owner_id": Text(nullable=True), "agent_id": Text(nullable=True),
+    # Historical comments can have only migration provenance, without a relay
+    # kind. Preserve that absence rather than inventing an attribution.
+    schema = Obj(fields={"kind": Text(nullable=True), "owner_id": Text(nullable=True), "agent_id": Text(nullable=True),
                          "statement_text": Text(nullable=True), "report_text": Text(nullable=True)})
     return StructuredField(schema, declared_json(schema))
 

@@ -51,6 +51,9 @@ def build_parser() -> argparse.ArgumentParser:
     cutover = commands.add_parser("v12-activate", help="activate an explicitly authorized, finally qualified migration")
     cutover.add_argument("--selection", type=Path, required=True)
     cutover.add_argument("--confirm-cutover", action="store_true")
+    repair = commands.add_parser("v12-repair", help="apply a compatible host repair before any fresh native sessions")
+    repair.add_argument("--selection", type=Path, required=True)
+    repair.add_argument("--confirm-repair", action="store_true")
     cutoff = commands.add_parser("v12-cutoff", help="stop the exact reviewed old writers for an authorized final capture")
     cutoff.add_argument("--selection", type=Path, required=True)
     cutoff.add_argument("--record", type=Path, required=True)
@@ -96,6 +99,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "v12-repair":
+            from .v12_repair import repair
+            _json(repair(args.selection, confirm=args.confirm_repair))
+            return 0
         if args.command == "v12-cutoff":
             from .v12_cutover import cutoff
             _json(cutoff(args.selection, args.record, confirm=args.confirm_cutoff))
