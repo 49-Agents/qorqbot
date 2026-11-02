@@ -19,11 +19,11 @@ import httpx
 from qorqut_operations.contracts import DomainError
 from .client import auth_headers, load_registration
 
-# Keep the original request alive across an ordinary 15–17s app restart.
-# This is a total deadline, including discovery, backoff and execution; failed
-# reads must not repeatedly extend it. Healthy requests still return immediately.
-RETRY_WINDOW = 30
-HTTP_REQUEST_TIMEOUT = 15
+# Allow slow MCP calls and recovery more room while keeping one bounded deadline.
+# The total includes discovery, backoff and execution; failed reads must not
+# repeatedly extend it. Healthy requests still return immediately.
+RETRY_WINDOW = 60
+HTTP_REQUEST_TIMEOUT = 60
 MAX_MESSAGE = 2 * 1024 * 1024
 MAX_RESPONSE = 16 * 1024 * 1024
 SAFE_METHODS = frozenset({'ping', 'tools/list', 'resources/list', 'resources/templates/list',

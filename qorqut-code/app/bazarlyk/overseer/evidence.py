@@ -1972,7 +1972,7 @@ class EvidenceProvider:
         if type(limit) is not int or not 1 <= limit <= 100:
             raise DomainError("validation_error", "Limit must be from 1 through 100")
         # Limit is a maximum, not a promise to fill a page. Leave time for source
-        # admission, the frozen frontier and delivery retention under MCP's 15s call.
+        # admission, the frozen frontier and delivery retention under MCP's 60s call.
         limit = min(limit, 20)
         self.scanner.deadline = time.monotonic() + SCAN_SECONDS
         resolved = resolve_selection(self.access, selection)
