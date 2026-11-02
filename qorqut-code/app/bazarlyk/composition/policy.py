@@ -30,6 +30,10 @@ from bazarlyk.agents.roles import LEARNING_APPLIER_ROLE, ORDUBASHY_ROLE
 READS_AS_TASK = frozenset({"tasks_notes_list", "tasks_thread_get"})
 TELEGRAM_AGENT_OPERATIONS = frozenset({"telegram_send", "telegram_send_file", "telegram_history", "telegram_delivery_get"})
 TELEGRAM_ROLES = frozenset({ORDUBASHY_ROLE})
+# Project records: one existing Project's inventory and explicit links. The handler itself admits only the installation
+# owner and the exact active configured Ordubashy, so this standing default grants no other audience.
+PROJECT_OPERATIONS = frozenset({"project_record_get", "project_items_list", "project_items_candidates",
+                                "project_item_get", "project_items_link", "project_items_unlink"})
 # Operations whose Global rule differs from the business one, so effective-configuration discovery evaluates both scopes.
 GLOBAL_DISCOVERY_OPERATIONS = GLOBAL_TABLE_OPERATIONS | {"whatsapp_send"}
 DEV_AND_INCIDENT_READS = frozenset({"dev_tickets_create", "dev_tickets_agent_list", "dev_tickets_get",
@@ -107,6 +111,9 @@ def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, r
         return PolicyDecision("allow" if role_id == "ordubashy" else "deny", "management_delegated_input")
     if name in INBOX_OPERATIONS:
         return PolicyDecision("allow", "core_default")
+    if name in PROJECT_OPERATIONS:
+        # An explicit deny override was already honored above; the handler's identity and Project-reach gates still run.
+        return PolicyDecision("allow", "core_default")
     shared_read = shared_read_decision(name)
     if shared_read is not None:
         return shared_read
@@ -141,6 +148,9 @@ def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, r
     if name == "tags_list":
         # Listing the shared tag catalog follows the Task read grant; a tag never grants access to anything.
         return resolve("tasks_get")
+    if name == "owner_reminders_list":
+        # The narrow Project reminder read follows the existing owner_reminder grant (an explicit deny on either name wins).
+        return resolve("owner_reminder")
     if name == "agents_icons_list":
         # Static metadata for choosing a worker icon; whoever may list agents may list the icons, with no role republish.
         return resolve("agents_list")

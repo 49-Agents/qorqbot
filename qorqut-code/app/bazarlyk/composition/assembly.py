@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from qorqut_operations.background import storage_contribution as background_storage
 from qorqut_operations.inbox_nudges import storage_contribution as inbox_nudges_storage
+from qorqut_operations.projects.links import storage_contribution as project_links_storage
 from qorqut_operations.signoffs.service import storage_contribution as signoff_storage
 from qorqut_operations.storage.assembly import (Assembly, AssemblyBuilder, AssemblyError, CONTRIBUTION_TYPES,
                                                 FileEffectContribution, RecordEffectContribution,
@@ -72,7 +73,7 @@ def host_contributions(change_feed, extensions=NO_EXTENSIONS):
     ``inbox_deliveries``. A worker's one current assignment (``agent_current_work``) is its own host table beside the
     generated ``agent_activity`` observations. The sealed-snapshot metadata of outbound
     Telegram files (``telegram_file_payloads``) is the host's own table beside the generated ``telegram`` tables it references."""
-    return (*storage_contributions(), signoff_storage(), background_storage(), native_chat_storage(), inbox_nudges_storage(),
+    return (*storage_contributions(), signoff_storage(), project_links_storage(), background_storage(), native_chat_storage(), inbox_nudges_storage(),
             agent_work_storage(), telegram_media_storage(), agentic_inbox_storage(),
             FileEffectContribution("documents", {DOCUMENTS: DocumentLifecycle()}, history.RECEIPTS),
             RecordEffectContribution("records", HostRecordEffects()),
@@ -125,7 +126,7 @@ def require_additive_registrations(assembly: Assembly, extensions, core_validato
     from bazarlyk.agentic.inbox import SOURCE as AGENTIC_CHANGES
     core_sources = {*compile_target(host_assembly(assembly.change_publisher, NO_EXTENSIONS)).columns, *SOURCES, *THREAD_SOURCES,
                     *ITEM_TYPES, *FOCUS_SOURCE_TABLES.values(), AGENTIC_CHANGES}
-    core_kinds = {*visible_types(ITEM_TYPES).values(), *FOCUS_SOURCE_TABLES}
+    core_kinds = {*visible_types(ITEM_TYPES).values(), *FOCUS_SOURCE_TABLES, "project"}
     replaced = sorted(set(extensions.package_validators) & set(core_validators))
     if replaced:
         raise DomainError("invalid_installation", "An extension cannot replace a core package validator: " + ", ".join(replaced))

@@ -7,6 +7,7 @@ import sqlite3
 
 from qorqut_operations.contracts import canonical_bytes, canonical_hash
 from qorqut_operations.storage.files import RegisteredFileTarget
+from qorqut_operations.projects.links import TABLES as PROJECT_LINK_TABLES
 from qorqut_operations.storage.specs import CORE_TABLES
 from bazarlyk.composition.schema import record_contributions
 from bazarlyk.composition.tables import TABLE_SPECS
@@ -16,13 +17,16 @@ from bazarlyk.composition.locations import business_hq
 
 # Every table exists in a target store: the version-gated skips of the migrated v1 databases are gone.
 # The engine's operational-record tables (Tasks, threads, tags, Actions, the Context queue) are specified by their owners.
-TABLES = {**CORE_TABLES, **TABLE_SPECS, **{name: spec for part in record_contributions() for name, spec in part.tables.items()}}
+TABLES = {**CORE_TABLES, **TABLE_SPECS, **PROJECT_LINK_TABLES,
+          **{name: spec for part in record_contributions() for name, spec in part.tables.items()}}
 EXPORT_VERSION = 1
 BUSINESS_TABLES = ("relationships", "context_reviews", "context_review_states", "context_entities", "data_tables", "data_rows", "table_versions", "business_configs", "agent_profiles", "tasks", "thread_messages", "item_tags",
     "documents", "action_logs", "action_revisions",
     "learning_candidates", "learning_decisions", "learning_history", "learning_runs",
     "learning_issues", "learning_issue_candidates", "learning_issue_actions", "learning_issue_links", "learning_engine_packages",
-    "routines", "routine_runs")
+    "routines", "routine_runs",
+    # Project records: the explicit cross-scope associations of one Project (never private conversation content).
+    "project_item_links")
 GLOBAL_TABLES = ("dev_tickets", "dev_ticket_events", "tasks", "thread_messages", "item_tags", "relationships", "business_configs", "agent_profiles", "documents", "routines", "routine_runs",
                  "learning_candidates", "learning_decisions", "learning_history", "learning_runs",
                  "learning_issues", "learning_issue_candidates", "learning_issue_actions", "learning_issue_links",

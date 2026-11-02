@@ -23,7 +23,7 @@ from bazarlyk.management.identity import installation_owner, private_participant
 AUDIENCE = 'owner_ordubashy'
 EVENT_SOURCE = 'owner_conversations'
 EVENT_SUMMARY = 'Private message from the owner'
-SOURCE = schema({'type': {'enum': ['task', 'signoff', 'reference']},
+SOURCE = schema({'type': {'enum': ['task', 'signoff', 'reference', 'project']},
                  'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
                  'business_id': {'type': ['string', 'null']}}, ('type', 'id'))
 # `agent_id` and `peer_role` only restate the one Ordubashy channel; any other value is refused (see `participants`).
@@ -192,6 +192,9 @@ class PrivateConversations:
             business = ctx.business_id
         if kind == 'reference' and business is not None:
             raise DomainError('validation_error', 'Focus References are Global; do not name a project')
+        if kind == 'project' and business != source['id']:
+            # The canonical Project reference names the actual Project UUID as its own scope.
+            raise DomainError('validation_error', 'A project source must name the project as its own scope')
         return business
 
     def select(self, ctx, business_id, uow):
@@ -225,6 +228,14 @@ class PrivateConversations:
             self.app.authorize(scoped, self.app.registry.get('tasks_get'), (), uow, namespace=self.namespace(scoped))
             if not uow.repository('tasks', business_id=scoped.business_id).get(identity):
                 raise DomainError('not_found', 'Task does not exist in this scope')
+            return
+        if kind == 'project':
+            if identity != selected.business_id:
+                raise DomainError('validation_error', 'A project source must name the project as its own scope')
+            self.app.authorize(selected, self.app.registry.get('project_record_get'), (), uow,
+                               namespace=self.namespace(selected))
+            if uow.repository('businesses').get(identity) is None:
+                raise DomainError('not_found', 'Project does not exist')
             return
         if kind == 'signoff':
             service = getattr(self.app, 'signoffs', None)

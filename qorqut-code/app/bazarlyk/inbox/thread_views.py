@@ -22,6 +22,14 @@ def project(service, ctx, source, uow):
         return {**source, 'label': row['display_name'] or reference.get('title') or 'Reference',
                 'summary': row['reason'], 'url': (reference.get('target') or {}).get('url'),
                 'business_name': 'Global', 'business_slug': None}
+    if source['type'] == 'project':
+        # The Project's own label and summary come from its current businesses row; no card override applies.
+        row = uow.repository('businesses').get(source['id'])
+        if row is None or row['archived_at'] is not None:
+            raise DomainError('not_found', 'Project is not available')
+        summary = (row.get('config_json') or {}).get('one_liner')
+        return {**source, 'label': row['name'], 'summary': ' '.join(summary.split()) if isinstance(summary, str) else '',
+                'url': None, 'business_name': row['name'], 'business_slug': row['slug']}
     result = service.app.attention.legacy.resolve(selected, source, uow)
     if source['type'] == 'action':
         action = service.app.registry.get('actions_get').read(selected, {'action_id': source['id']}, InvocationOptions(), uow)['action']
@@ -59,6 +67,13 @@ def directory(service, ctx, args, uow):
 def related(service, ctx, args, uow):
     ctx = owner_context(service, ctx, uow)
     _, source = service.resolve(ctx, args, uow)
+    if source['type'] == 'project':
+        # A Project's related records are its owned inventory plus its explicit links, deduplicated by the same
+        # scoped identity and paged independently of older messages.
+        projects = getattr(service.app, 'projects', None)
+        if projects is None:
+            raise DomainError('operation_unavailable', 'Project records are not installed')
+        return projects.related(ctx, source['id'], args, uow)
     kind, identity, business = source['type'], source['id'], source['business_id']
     # All candidates come from stored links, never guessed from matching titles/text. Each candidate is independently
     # authorized below. UNION/GROUP BY collapse records linked in several ways; the earliest stored link places the row.
