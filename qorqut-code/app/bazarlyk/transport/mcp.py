@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import replace
+import json
 from uuid import UUID
 
 import anyio
@@ -183,6 +184,38 @@ class RegisteredAgentCaller:
             context = replace(context, inbox_session_id=native_binding[0], inbox_generation=native_binding[1])
         return context
 
+    def attention_binding(self, actor, headers, meta):
+        # A process-scoped bridge still supplies the complete, fenced pair.
+        # Never use metadata to repair a partial or malformed explicit binding.
+        if headers.getlist('x-qorqut-native-session') or headers.getlist('x-qorqut-binding-generation'):
+            return attention_binding(headers)
+        if headers.getlist('x-qorqut-binding-reason') != ['shared_app_server_without_thread_provenance']:
+            return attention_binding(headers)
+        # Codex supplies threadId in tools/call _meta, outside model arguments.
+        # The shared bridge forwards it unchanged. Match that exact thread to
+        # the trusted hook's current owner, not a workspace's latest observation.
+        values = meta.model_dump() if hasattr(meta, 'model_dump') else meta
+        thread = values.get('threadId') if isinstance(values, dict) else None
+        try:
+            if not isinstance(thread, str) or str(UUID(thread)) != thread:
+                raise ValueError
+        except (ValueError, AttributeError):
+            raise DomainError('inbox_generation_stale', 'Attention requires the calling Codex thread identity') from None
+        if actor.delegation_assignment_id or actor.delegation_binding_id:
+            raise DomainError('forbidden', 'Delegated identities cannot change Attention')
+        with self.runtime.database.read() as uow:
+            owner = uow.connection.execute(
+                'SELECT consumer_id,binding_json,generation,desired_state FROM native_session_owners WHERE agent_id=?',
+                (actor.principal.id,)).fetchone()
+        if (owner is None or owner['consumer_id'] != thread or owner['desired_state'] != 'running'):
+            raise DomainError('inbox_generation_stale', 'The calling Codex thread does not own Attention')
+        binding = json.loads(owner['binding_json'])
+        if (binding.get('registration_id') != actor.registration_id or binding.get('runtime') != 'codex'
+                or binding.get('session_id') != thread):
+            raise DomainError('inbox_generation_stale', 'The calling Codex registration does not own Attention')
+        # Attention.context rechecks this generation in its operation transaction.
+        return thread, owner['generation']
+
     def check_batch(self, actor):
         if actor.delegation_assignment_id:
             raise DomainError("forbidden", "Delegated workers cannot execute batches")
@@ -329,9 +362,9 @@ class MCPTransport:
             args, options = split_options(arguments, domain_fields=domain_fields)
             self.caller.validate_options(actor, canonical_name, options)
             self.caller.validate_arguments(actor, canonical_name, args)
-            binding = (attention_binding(self.server.request_context.request.headers)
-                       if isinstance(self.caller, RegisteredAgentCaller) and canonical_name in ATTENTION_SESSION_OPERATIONS
-                       else None)
+            requires_binding = (isinstance(self.caller, RegisteredAgentCaller)
+                                and canonical_name in ATTENTION_SESSION_OPERATIONS)
+            request_context = self.server.request_context
             if canonical_name == "agent_config_get" and detail in {"compact", "summary", "context"}:
                 # These projections never return the live briefing. Prevent its
                 # potentially expensive domain reads from delaying the mandatory
@@ -339,6 +372,8 @@ class MCPTransport:
                 options = replace(options, omit_work_briefing=True)
             def invoke():
                 nonlocal context
+                binding = (self.caller.attention_binding(actor, request_context.request.headers, request_context.meta)
+                           if requires_binding else None)
                 if binding is not None:
                     context = self.caller.invocation_context(actor, canonical_name=canonical_name, options=options,
                                                              native_binding=binding)
