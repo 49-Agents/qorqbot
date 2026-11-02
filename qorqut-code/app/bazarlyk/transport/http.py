@@ -478,7 +478,7 @@ class HTTPAPI:
                     "system_incidents_list", "system_incidents_get",
                     "dashboard_summary_get", "global_progress_get",
                     "actions_record", "actions_list", "actions_get", "actions_correct", "actions_withdraw", "actions_config_get", "working_memory_get", "working_memory_update", "agent_context_get",
-                    "subscriptions_list", "subscriptions_create", "subscriptions_update", "subscriptions_delete", "costs_overview",
+                    "costs_overview",
                     "calendar_calendars_list", "calendar_events_list", "calendar_event_get",
                     "calendar_event_create", "calendar_event_update", "calendar_event_delete", "calendar_event_respond",
                     "owner_reminder", "telegram_status", "telegram_delivery_get", "telegram_delivery_resolve", "telegram_notify",

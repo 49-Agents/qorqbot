@@ -188,8 +188,8 @@ def reconcile_merge(component: dict[str, Any], intent: dict[str, Any]) -> dict[s
 def _common_repo(repo: Path) -> Path:
     """Return the repository that administers ``repo``'s worktrees and branches.
 
-    That is the common Git directory itself for a bare repository (Bazarlyk's
-    ``SEO-tooling.git`` with worktrees under ``worktrees/<task>/``), otherwise
+    That is the common Git directory itself for a bare repository (for example
+    ``project.git`` with worktrees under ``worktrees/<task>/``), otherwise
     the primary checkout containing ``.git``.
     """
 
