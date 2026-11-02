@@ -161,7 +161,8 @@ class Source:
         return self._git_run(*args)
 
     def _git_run(self, *args, allowed=(0,)):
-        executable = shutil.which("git", path=os.defpath)
+        from bazarlyk import native_paths
+        executable = (native_paths.executable("git") if native_paths.root() else shutil.which("git", path=os.defpath))
         if executable is None:
             raise FileNotFoundError("Git is unavailable")
         # No inherited GIT_DIR/WORK_TREE/INDEX/CONFIG/OBJECT_DIRECTORY or PATH.
@@ -174,6 +175,8 @@ class Source:
         for index, (key, value) in enumerate(self._git_filters or []):
             environment[f"GIT_CONFIG_KEY_{index}"] = key
             environment[f"GIT_CONFIG_VALUE_{index}"] = value
+        from bazarlyk.native_paths import environment as native_environment
+        environment = native_environment(environment)
         command = [executable, "--no-pager", "-c", f"core.hooksPath={os.devnull}",
                    "-c", "core.fsmonitor=false", "-c", f"core.attributesFile={os.devnull}",
                    "-c", "diff.external=",

@@ -127,7 +127,13 @@ def serve(state: Path, stop: threading.Event) -> int:
             raise RuntimeError("profile_not_owned")
         if not port_free(managed["port"]):
             raise RuntimeError("port_in_use")
-        env = {"PATH": "/usr/bin:/bin", "HOME": str(state), "LANG": "C.UTF-8"}
+        from bazarlyk import native_paths
+        env = native_paths.environment({"PATH": "/usr/bin:/bin", "HOME": str(state), "LANG": "C.UTF-8"})
+        for key, name in (("TMPDIR", "tmp"), ("XDG_CACHE_HOME", "cache"), ("XDG_CONFIG_HOME", "config"), ("XDG_RUNTIME_DIR", "run")):
+            native = native_paths.root()
+            directory = native.parent.parent / ".run/c" if key == "TMPDIR" and native is not None else state / name
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            env[key] = str(directory)
         child = subprocess.Popen(chrome_command(meta), cwd=state, env=env, stdin=subprocess.DEVNULL,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         publish(chrome_pid=child.pid, chrome_identity=process_identity(child.pid))

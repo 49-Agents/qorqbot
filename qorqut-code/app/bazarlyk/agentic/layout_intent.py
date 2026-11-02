@@ -210,6 +210,8 @@ def _read_index(root, expected):
 def _git(root, args, *, limit=MAX_CAPTURE_BYTES):
     env = {'PATH': os.defpath, 'HOME': '/nonexistent', 'GIT_CONFIG_NOSYSTEM': '1',
            'GIT_CONFIG_GLOBAL': '/dev/null', 'LC_ALL': 'C', 'GIT_NO_REPLACE_OBJECTS': '1'}
+    from bazarlyk.native_paths import environment
+    env = environment(env)
     # Size is checked before reading blobs, and this helper is used only for fixed,
     # bounded metadata commands or one known object.
     result = subprocess.run(['git', '--no-optional-locks', '-C', str(root), *args], env=env,

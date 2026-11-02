@@ -382,6 +382,16 @@ class AgentBrowserManager:
         self.runtime = runtime
         self.systemctl = systemctl or SystemctlAdapter()
         self.probe = probe or cdp_healthy
+        from bazarlyk import native_paths
+        native = native_paths.root()
+        if native is not None:
+            if chrome == CHROME:
+                chrome = native_paths.executable("chrome")
+            if deployments == DEPLOYMENT_DIRECTORIES:
+                deployments = (runtime.paths.instance_root / "config/browser-desktops",)
+            if launcher is None:
+                from .native_launcher import NativeLauncher
+                launcher = NativeLauncher(state_root(runtime.paths))
         self.chrome, self.ports, self.deployments = chrome, ports, deployments
         self.runtime_directory = runtime_directory or (lambda: runtime.browser_access.runtime_directory())
         self.start_timeout, self.stop_timeout, self.health_timeout, self.sleep = start_timeout, stop_timeout, health_timeout, sleep

@@ -22,7 +22,8 @@ def repository_status(control, arguments):
             "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_CONFIG_PARAMETERS"}:
             environment.pop(key)
     control.check()
-    process = subprocess.Popen(["/usr/bin/git", "--no-optional-locks", "-c", "core.fsmonitor=false",
+    from bazarlyk.native_paths import executable
+    process = subprocess.Popen([executable("git", "/usr/bin/git"), "--no-optional-locks", "-c", "core.fsmonitor=false",
         "status", "--short", "--untracked-files=normal"], cwd=path, env=environment,
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:

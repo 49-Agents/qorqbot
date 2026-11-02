@@ -30,6 +30,10 @@ class BrowserAccess:
 
     def runtime_directory(self):
         from bazarlyk.installation import installation_config, component, app_manifest
+        from bazarlyk.native_paths import root
+        native = root()
+        if native is not None:
+            return str(native / "browser")
         manifest=app_manifest()
         if manifest and manifest.get('browser_runtime'):return manifest['browser_runtime']
         config = installation_config()
