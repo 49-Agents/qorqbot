@@ -92,7 +92,7 @@ function agentWorkspaceRehydrate() {
   if (descriptor.view === 'calendar') { agentWorkspaceStore(null); globalThis.ovOpen?.('calendar'); return null; }
   if (descriptor.view === 'tables') {
     agentWorkspaceStore(null);
-    globalThis.ovOpen?.('tables', {scope: 'global', id: descriptor.table, mode: descriptor.mode, purpose: descriptor.purpose});
+    globalThis.ovOpen?.('tables', {scope: 'global', id: descriptor.table, mode: descriptor.mode});
     return null;
   }
   return AGENT_PANE_DESCRIPTOR_VIEWS.includes(descriptor.view) ? descriptor : null;
@@ -182,7 +182,7 @@ function agentWorkspaceFrame(view, business, section, hint) {
   if (section) params.set('section', section);
   if (hint?.route) params.set('route', hint.route);
   if (hint?.host) { params.set('workspace-host', hint.host); frame.dataset.workspaceHost = hint.host; }
-  for (const key of ['table', 'mode', 'purpose']) if (hint?.[key]) params.set(key, hint[key]);
+  for (const key of ['table', 'mode']) if (hint?.[key]) params.set(key, hint[key]);
   frame.className = 'agent-workspace-frame';
   frame.setAttribute('aria-label', ['business', 'tables'].includes(view) ? `${business === 'global' ? 'Global' : business} · ${section}` : T_VIEW_LABEL[view]);
   // The production dashboard cannot itself be framed (CSP/X-Frame-Options).
@@ -321,8 +321,7 @@ async function agentWorkspaceBootEmbedded() {
       if (link && !event.defaultPrevented && event.button === 0 && !(event.ctrlKey || event.metaKey || event.shiftKey)) { event.preventDefault(); routeTo(link.getAttribute('href')); }
     });
     await agentWorkspaceNavigateEmbedded(view, business, agentWorkspaceSection(business, params.get('section')), params.get('route') || '');
-    if (embeddedTablesView() && ['table', 'mode', 'purpose'].some(key => params.get(key))) await tablesOpen(business === 'global' ? null : business, params.get('table'), params.get('mode') || 'tables',
-      {purpose: params.get('purpose') || ''});
+    if (embeddedTablesView() && ['table', 'mode'].some(key => params.get(key))) await tablesOpen(business === 'global' ? null : business, params.get('table'), params.get('mode') || 'tables');
     // Reuse the parent's data-change stream; no background drawers or agent feeds.
     connectEvents();
   } catch (error) {

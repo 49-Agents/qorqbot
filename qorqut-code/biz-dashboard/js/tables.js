@@ -1,7 +1,7 @@
 // Shared business tables and original data uploads use the same operations as MCP.
 // Global tables are the same view over the same operations in their own namespace:
 // `biz === null` names Global everywhere below; it is never a business and has no uploads.
-let _data = {scope: null, biz: null, mode: 'tables', selected: null, table: null, rows: [], cursor: null, query: '', order: '', descending: false, archived: false, purpose: '', purposes: []};
+let _data = {scope: null, biz: null, mode: 'tables', selected: null, table: null, rows: [], cursor: null, query: '', order: '', descending: false, archived: false};
 let _dataGeneration = 0, _dataDetail = 0;
 // Keep drafts when navigating away; only Save writes them to the service.
 const _dataDrafts = new Map();
@@ -46,8 +46,8 @@ async function renderTables(container) {
   const view = scope === 'global' ? 'global-tables' : state.tab;
   const entering = _data.scope !== scope || _data.biz !== biz || _data.view !== view;
   ++_dataDetail;
-  if (_data.scope !== scope || _data.biz !== biz) _data = {scope, biz, mode: 'tables', selected: null, table: null, rows: [], cursor: null, query: '', order: '', descending: false, archived: false, purpose: '', purposes: []};
-  if (entering) { _data.purpose = ''; _data.selected = null; _data.mode = 'tables'; }
+  if (_data.scope !== scope || _data.biz !== biz) _data = {scope, biz, mode: 'tables', selected: null, table: null, rows: [], cursor: null, query: '', order: '', descending: false, archived: false};
+  if (entering) { _data.selected = null; _data.mode = 'tables'; }
   _data.view = view;
   if (scope === 'global') _data.mode = 'tables';
   container.innerHTML = `<section class="data-workspace${scope === 'global' ? ' data-global' : ''}"><header class="data-top">${scope === 'global' ? '' : `<div class="data-modes">${['tables','uploads'].map(mode=>`<button class="data-icon" type="button" data-data-mode="${mode}" aria-label="${mode==='tables'?'Tables':'Data uploads'}" title="${mode==='tables'?'Tables':'Data uploads'}" aria-pressed="${_data.mode===mode}">${aicon(mode==='tables'?'database':'archive','currentColor',18)}</button>`).join('')}</div>`}${dataIconButton('data-new', _data.mode === 'tables' ? 'New table' : 'Upload data', _data.mode === 'tables' ? SVG_TPLUS : ICO_UPLOAD)}${dataIconButton('data-refresh', 'Refresh', aicon('refresh-cw', 'currentColor', 18))}<span class="data-spacer"></span><label class="data-search"><input class="inp" id="data-search" type="search" aria-label="${scope === 'global' ? 'Search tables' : 'Search tables and data uploads'}" placeholder="Search"></label></header><p class="data-error" id="data-error" role="status" hidden></p><div class="data-layout"><aside class="data-list">${_data.mode === 'tables' ? `<label class="data-archived"><input type="checkbox" id="data-archived" ${_data.archived ? 'checked' : ''}>Archived</label>` : ''}<div id="data-items"></div><button class="btn" id="data-list-more" hidden>Load more</button></aside><section class="data-detail" id="data-detail"><p class="muted data-empty">${_data.mode === 'tables' ? 'No table selected' : 'No upload selected'}</p></section></div></section>`;
@@ -55,26 +55,14 @@ async function renderTables(container) {
   container.querySelector('#data-new').onclick = () => _data.mode === 'tables' ? dataTableEditor() : dataOpenUploads();
   container.querySelector('#data-refresh').onclick = () => renderTables(container);
   const search = container.querySelector('#data-search');
-  if (_data.mode === 'tables') {
-    // Global holds General tables only, so it has no Type filter.
-    container.querySelector('.data-list').insertAdjacentHTML('afterbegin', `${scope === 'global' ? '' : '<label class="data-filter">Type<select class="inp" id="data-purpose-filter"><option value="">All types</option></select></label>'}`);
-  }
   if (_data.mode === 'tables') container.querySelector('#data-new').disabled = true;
   let timer, listCursor = null, listGeneration = 0;
   const load = async (append = false) => {
     const sequence = ++listGeneration, mode = _data.mode;
     try {
-      const result = await dataCall(biz, mode === 'tables' ? 'tables_list' : 'data_uploads_list', {limit: 50, ...(search.value.trim() ? {query: search.value.trim()} : {}), ...(mode === 'tables' ? {include_archived: _data.archived, ...(_data.purpose ? {purpose: _data.purpose} : {})} : {}), ...(append && listCursor ? {cursor: listCursor} : {})});
+      const result = await dataCall(biz, mode === 'tables' ? 'tables_list' : 'data_uploads_list', {limit: 50, ...(search.value.trim() ? {query: search.value.trim()} : {}), ...(mode === 'tables' ? {include_archived: _data.archived} : {}), ...(append && listCursor ? {cursor: listCursor} : {})});
       if (!dataActive(biz, container) || generation !== _dataGeneration || sequence !== listGeneration) return;
-      if (mode === 'tables') {
-        _data.purposes = result.purposes;
-        const filter = container.querySelector('#data-purpose-filter');
-        if (filter) {
-          filter.innerHTML = '<option value="">All types</option>' + _data.purposes.map(item => `<option value="${esc(item.id)}">${esc(item.label)}</option>`).join('');
-          filter.value = _data.purpose;
-        }
-        container.querySelector('#data-new').disabled = false;
-      }
+      if (mode === 'tables') container.querySelector('#data-new').disabled = false;
       const list = container.querySelector('#data-items');
       if (!append) list.innerHTML = '';
       for (const item of result.items) {
@@ -90,8 +78,6 @@ async function renderTables(container) {
   };
   search.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { if (dataActive(biz, search)) load(); }, 200); };
   const archived = container.querySelector('#data-archived'); if (archived) archived.onchange = () => { _data.archived = archived.checked; load(); };
-  const purpose = container.querySelector('#data-purpose-filter');
-  if (purpose) purpose.onchange = () => { _data.purpose = purpose.value; _data.selected = null; agentWorkspaceReportParent({table: '', purpose: _data.purpose}, true); renderTables(container); };
   container.querySelector('#data-list-more').onclick = () => load(true);
   await load();
 }
@@ -317,38 +303,22 @@ function dataForm(title, body, save, after, label = 'Save', biz = dataTarget()) 
 
 function dataTableEditor(table = null) {
   // The editor keeps the scope it opened in for rendering and saving, whatever the page shows afterwards.
-  const biz = dataTarget(), global = biz === null, purposes = _data.purposes, filtered = _data.purpose;
+  const biz = dataTarget();
   const columns = (table?.columns || [{id: 'name', name: 'Name', type: 'text'}]).map(column => ({...column}));
   const editor = dataForm(table ? 'Edit table' : 'New table', `<label>Title<input class="inp" id="data-title" maxlength="200" value="${esc(table?.title || '')}"></label><label>Description<textarea class="inp" id="data-description">${esc(table?.description || '')}</textarea></label><fieldset><legend>Columns</legend><div id="data-columns"></div><button type="button" class="btn" id="data-column-add">${SVG_TPLUS}Add column</button></fieldset><label>Topics<input class="inp" data-tags="topics" value="${esc((table?.tags.topics || []).join(', '))}"></label>${table ? `<label class="data-binary"><input type="checkbox" id="data-table-archived" ${table.archived ? 'checked' : ''}>Archived</label>` : ''}`, async (el, submit) => {
     const changes = {title: el.querySelector('#data-title').value.trim(), description: el.querySelector('#data-description').value,
       columns: [...el.querySelectorAll('.data-column')].map(row => ({id: row.querySelector('[data-field=id]').value, name: row.querySelector('[data-field=name]').value, type: row.querySelector('select').value})),
       tags: Object.fromEntries([...el.querySelectorAll('[data-tags]')].map(node => [node.dataset.tags, [...new Set(node.value.split(',').map(value => value.trim()).filter(Boolean))]])),
       ...(table ? {archived: el.querySelector('#data-table-archived').checked} : {})};
-    return submit(table ? 'tables_update' : 'tables_create', table ? {table_id: table.id, expected_revision: table.revision, changes} : {...changes, ...(global ? {} : {purpose: el.querySelector('#data-purpose').value})});
+    return submit(table ? 'tables_update' : 'tables_create', table ? {table_id: table.id, expected_revision: table.revision, changes} : changes);
   }, async result => { if (dataView()) { _data.selected = result.table.id; _data.mode = 'tables'; await renderTables(dataContainer()); } }, 'Save', biz);
   const host = editor.el.querySelector('#data-columns');
-  const add = (column, existing = false, required = false) => {
+  const add = (column, existing = false) => {
     const row = document.createElement('div'); row.className = 'data-column';
     row.innerHTML = `<input class="inp" data-field="id" aria-label="Column ID" value="${esc(column.id)}" ${existing ? 'readonly' : ''}><input class="inp" data-field="name" aria-label="Column name" value="${esc(column.name)}"><select class="inp" aria-label="Column type">${['text','number','boolean','date','json'].map(kind => `<option ${kind === column.type ? 'selected' : ''}>${kind}</option>`).join('')}</select><button type="button" class="data-icon" title="Remove column" aria-label="Remove column">${SVG_X}</button>`;
     row.querySelector('button').onclick = () => row.remove(); host.appendChild(row);
-    if (required) {
-      row.querySelector('[data-field=id]').readOnly = true;
-      row.querySelector('select').disabled = true;
-      row.querySelector('button').disabled = true;
-    }
   };
-  columns.forEach(column => add(column, !!table, table?.required_columns.includes(column.id)));
-  if (!table && !global) {
-    editor.el.querySelector('#data-title').closest('label').insertAdjacentHTML('beforebegin', `<label>Type<select class="inp" id="data-purpose">${purposes.map(item => `<option value="${esc(item.id)}">${esc(item.label)}</option>`).join('')}</select></label>`);
-    const purpose = editor.el.querySelector('#data-purpose');
-    purpose.onchange = () => {
-      const template = purposes.find(item => item.id === purpose.value);
-      host.replaceChildren();
-      (template.columns || columns).forEach(column => add(column, false, !!template.columns));
-    };
-    purpose.value = filtered || 'general';
-    purpose.onchange();
-  }
+  columns.forEach(column => add(column, !!table));
   editor.el.querySelector('#data-column-add').onclick = () => { let n = 1; const ids = [...host.querySelectorAll('[data-field=id]')].map(node => node.value); while (ids.includes('column_' + n)) n++; add({id: 'column_' + n, name: 'Column ' + n, type: 'text'}); };
 }
 
@@ -369,16 +339,15 @@ async function dataOpenUpload(id) {
 
 function dataOpenUploads() { openTasks(true);tSetView('uploads'); }
 
-async function tablesOpen(biz, id, mode = 'tables', filters = {}) {
-  // Links from outside the actual Tables view open the shared drawer's Tables tab, with the exact scope, record, mode and
-  // filters. A business page keeps its own in-place tables.
+async function tablesOpen(biz, id, mode = 'tables') {
+  // Links from outside the actual Tables view open the shared drawer's Tables tab, with the exact scope, record and mode. A business page keeps its own in-place tables.
   const embeddedTables = embeddedAgentPane && embeddedTablesView();
   const inPlace = biz != null && state.scope === 'business' && state.biz === biz && !embeddedTables;
   if (!embeddedTables && !inPlace) {
     if (biz != null && !state.bizs.some(b => b.slug === biz)) { toast('This project is unavailable.'); return; }
-    const link = {scope: biz == null ? 'global' : biz, id: id || '', mode, filters: {purpose: filters.purpose || ''}};
+    const link = {scope: biz == null ? 'global' : biz, id: id || '', mode};
     if (embeddedAgentPane) return window.parent.agentWorkspaceEscape?.({table: link});
-    ovOpen('tables', {...link, ...link.filters});
+    ovOpen('tables', link);
     return;
   }
   if (biz == null) {
@@ -392,6 +361,6 @@ async function tablesOpen(biz, id, mode = 'tables', filters = {}) {
   if (state.biz !== biz) return;
   await goTab('tables');
   if (state.biz !== biz || state.tab !== 'context' || state.ctx !== '_tables') return;
-  _data.mode = mode; _data.selected = id; _data.purpose = filters.purpose || '';
+  _data.mode = mode; _data.selected = id;
   await renderTables(dataContainer());
 }

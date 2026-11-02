@@ -206,8 +206,8 @@ async function renderGlobalAgents(c) {
   // A stored Business descriptor for an agent whose pane no longer offers it opens the shared Tables for a table selection,
   // and is otherwise dropped, leaving the agent on its own default view.
   if (request?.view === 'business' && target && !agentWorkspaceDescriptorRole('business', target.role?.id)) {
-    if (request.section === 'tables' || request.table) globalThis.ovOpen?.('tables', ['scope', 'table', 'mode', 'purpose'].some(key => request[key])
-      ? {scope: request.scope, id: request.table, mode: request.mode, purpose: request.purpose} : null);
+    if (request.section === 'tables' || request.table) globalThis.ovOpen?.('tables', ['scope', 'table', 'mode'].some(key => request[key])
+      ? {scope: request.scope, id: request.table, mode: request.mode} : null);
     agentWorkspaceStore(null);
     request = null;
   }

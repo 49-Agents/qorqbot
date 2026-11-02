@@ -13,7 +13,7 @@ let pubMountGeneration = 0;
 const pubPath = (scope, operation) => scope?.kind === 'root' ? `/root/operations/${operation}`
   : scope?.kind === 'business' && scope.id ? `/biz/${encodeURIComponent(scope.id)}/operations/${operation}` : null;
 
-// ---- the closed response schemas (mirrors bazarlyk.shared_context.schemas): an unknown or retired field is rejected
+// ---- the closed response schemas (mirrors qorqut_context.integration.reading.schemas): an unknown or retired field is rejected
 const pubIs = (() => {
   const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
   const string = value => typeof value === 'string', nullable = check => value => value === null || check(value);
