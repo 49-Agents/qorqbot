@@ -184,6 +184,9 @@ def attach_agentic_inbox(runtime, layer, inbox):
         connection = uow.connection
         connection.execute("SAVEPOINT agentic_inbox_drain")
         try:
+            # A restored/foreign feed must fail before scanning can append events
+            # that happen to fill the missing sequence numbers.
+            bridge.status(uow)
             layer.changes.scan()
             result = bridge.reconcile(uow)
         except Exception as error:
