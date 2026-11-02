@@ -188,7 +188,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   // A successful outgoing agent message: recipients come from the backend DTO, glyphs from the existing trusted renderer.
   const agentMessageRecipient = recipient => {
     const name = String(recipient?.display_name || 'Agent');
-    return {id: String(recipient?.agent_id || ''), name, glyphHtml: agentGlyph({...(recipient?.presentation || {}), role: recipient?.role}, 25)};
+    return {id: String(recipient?.agent_id || ''), name, glyphHtml: agentGlyph({...(recipient?.presentation || {}), agent_id: recipient?.agent_id, display_name: recipient?.display_name, role: recipient?.role}, 25)};
   };
   const isAgentMessage = entry => entry.speaker === 'notice' && Array.isArray(entry.agent_message?.recipients);
   // Adjacent outgoing-message entries share one row: first entry's key and position, distinct recipients in first-seen order.
