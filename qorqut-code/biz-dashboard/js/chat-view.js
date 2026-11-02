@@ -423,7 +423,7 @@ function chatViewTypedMount(ref, host, options, entryKey) {
     const review = options.mountReviewReference(ref);
     if (review) return review;
   }
-  if (ref.type === 'table' || ref.type === 'task') {
+  if (ref.type === 'table' || ref.type === 'task' || ref.type === 'project') {
     let current=ref;
     const opener=ref.type === 'task' ? (options.onTask === undefined ? options.onReference : options.onTask) : options.onReference;
     const button=document.createElement(typeof opener === 'function' ? 'button' : 'span');
@@ -438,28 +438,6 @@ function chatViewTypedMount(ref, host, options, entryKey) {
   if (ref.type === 'agent') {
     const item = {el: chatViewTypedChip(ref, 'gchat-agent-reference'), dispose() { item.el.remove(); }};
     item.update = next => next.available !== false && (item.el.replaceChildren(...chatViewTypedChip(next, 'gchat-agent-reference').childNodes), true);
-    return item;
-  }
-  if (ref.type === 'task') {
-    let current = ref;
-    const opener = options.onTask === undefined ? options.onReference : options.onTask;
-    // A native Chat Task reference is the same flat attachment row as a record thread: only the status ball and the
-    // title, no chip card around them. The whole row stays the exact Task opener wired at b20a7366.
-    let chip = chatViewTypedChip(ref, 'gchat-task-reference');
-    chip.classList.add('gchat-ref-row', 'gchat-ref-row-task');
-    if (typeof opener === 'function') {
-      const button = document.createElement('button'); button.type = 'button'; button.className = chip.className;
-      button.append(...chip.childNodes); chip = button;
-      button.onclick = () => { const selected = current; Promise.resolve().then(() => opener(selected, entryKey)).catch(() => toast(uiFailure(new Error('Couldn’t open this Task.')))); };
-    }
-    const item = {el: chip, dispose() { chip.remove(); }};
-    item.update = next => { current = next; chip.replaceChildren(...chatViewTypedChip(next, 'gchat-task-reference').childNodes); return true; };
-    return item;
-  }
-  // A Project is a valid typed reference in an existing message; the chip never creates a channel.
-  if (ref.type === 'project') {
-    const item = {el: chatViewTypedChip(ref, 'gchat-project-reference'), dispose() { item.el.remove(); }};
-    item.update = next => { item.el.replaceChildren(...chatViewTypedChip(next, 'gchat-project-reference').childNodes); return true; };
     return item;
   }
   if (ref.type === 'delta') {
