@@ -402,9 +402,9 @@ async function tablesOpen(biz, id, mode = 'tables', filters = {}) {
   }
   // Links from outside the actual Tables view open it in the Ordubashy pane, with the exact scope and record. A business
   // page keeps its own in-place tables.
-  const embeddedView = embeddedAgentPane && new URLSearchParams(location.search).get('agent-pane-embed');
-  const inPlace = biz != null && state.scope === 'business' && state.biz === biz && embeddedView !== 'tables';
-  if (embeddedView !== 'tables' && !inPlace && id) {
+  const embeddedTables = embeddedAgentPane && embeddedTablesView();
+  const inPlace = biz != null && state.scope === 'business' && state.biz === biz && !embeddedTables;
+  if (!embeddedTables && !inPlace && id) {
     if (biz != null && !state.bizs.some(b => b.slug === biz)) { toast('This business is unavailable.'); return; }
     const link = {scope: biz == null ? 'global' : biz, id, mode, filters: {department: filters.department || '', purpose: filters.purpose || ''}};
     if (embeddedAgentPane) return window.parent.agentWorkspaceEscape?.({table: link});

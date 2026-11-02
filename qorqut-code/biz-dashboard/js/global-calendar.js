@@ -1,5 +1,4 @@
 // One time grid over provider calendars; events stay in Google and Fastmail.
-let calendarDispose;
 const calendarZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 const calendarDateString = date => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 const calendarAddDays = (date, days) => { const next = new Date(date); next.setDate(next.getDate()+days); return next; };
@@ -46,11 +45,6 @@ function calendarEventLanes(spans) {
     ends[lane] = span.end; group.push({...span,lane}); groupEnd = Math.max(groupEnd,span.end);
   }
   finish(); return result;
-}
-
-function renderGlobalCalendar(host) {
-  calendarDispose?.();
-  calendarDispose = calendarMount(host, {isCurrent:() => state.globalTab === 'calendar'});
 }
 
 // Each pane owns its navigation and lifecycle; embedding never changes the route.

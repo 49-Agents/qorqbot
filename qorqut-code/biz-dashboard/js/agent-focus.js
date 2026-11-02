@@ -239,7 +239,7 @@ function agfocusMount(p) {
   if(p.workspaceScope === 'global' && p.workspaceRole === 'ordubashy') {
     const excerpt=document.createElement('section');
     board.querySelector('.attention-queue').before(excerpt);
-    todayCalendar=calendarTodayMount(excerpt,()=>agpadSetView(p,'calendar'));
+    todayCalendar=calendarTodayMount(excerpt,event=>{event.stopPropagation();ovOpen('calendar');});
   }
   const disposeAttention=typeof attentionQueue!=='undefined'?attentionQueue.mount(board.querySelector('.attention-queue')):()=>{};
   const signoffQueue=document.createElement('section');signoffQueue.className='focus-signoff-queue';signoffQueue.setAttribute('aria-label','Signoff queue');signoffQueue.hidden=true;

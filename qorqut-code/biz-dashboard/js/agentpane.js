@@ -50,15 +50,10 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   const leading = [], trailing = [];
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_PANE_FIRST.has(type.renderer) ? leading : trailing).push(type.key);
   const personal = typeof agentWorkspaceViews === 'function' ? agentWorkspaceViews(scope, roleId) : [];
-  const own = personal.filter(view => !['business', 'tables'].includes(view));
+  const own = personal.filter(view => view !== 'business');
   leading.unshift(...own);
   // Business follows Focus where the agent has it, otherwise the agent's own views.
   if (personal.includes('business')) leading.splice(leading.includes('focus') ? leading.indexOf('focus') + 1 : own.length, 0, 'business');
-  if (scope === 'global' && roleId === 'ordubashy') {
-    leading.splice(Math.max(0, leading.indexOf('focus') + 1), 0, 'calendar');
-    // Tables sit with Calendar, ahead of Business management.
-    if (personal.includes('tables')) leading.splice(leading.indexOf('calendar') + 1, 0, 'tables');
-  }
   // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
@@ -75,7 +70,7 @@ function agpadHeadViews(p) {
   const header = [...new Set(views.map(view => agpadOverviewView(view) ? "status" : view))];
   if (header.includes("focus") && header.includes("viewbox")) {
     header.splice(header.indexOf("viewbox"), 1);
-    header.splice(header.indexOf(header.includes('calendar') ? 'calendar' : 'focus') + 1, 0, "viewbox");
+    header.splice(header.indexOf('focus') + 1, 0, "viewbox");
   }
   if (p.workspaceRole === "ordubashy" && header.includes("ideas")) {
     header.splice(header.indexOf("ideas"), 1);
@@ -152,10 +147,6 @@ function agpadWorkspaceViewsSync(p) {
 
 function agpadWorkspaceMount(p, view) {
   if (typeof agentWorkspaceMount === 'function' && agentWorkspaceMount(p, view)) return;
-  if (view === 'calendar' && p.workspaceScope === 'global' && p.workspaceRole === 'ordubashy') {
-    p.workspaceDispose = calendarMount($('#agpad-body',p.el), {embedded:true, isCurrent:() => agpadActive(p,true) && p.view === 'calendar'});
-    return;
-  }
   if (view === "desktop" && p.workspaceRole === "ordubashy") { agfocusDesktopMount(p); return; }
   if (view === "browser" && typeof agbrowserMount === "function") { agbrowserMount(p); return; }
   if (view === "viewbox" && typeof agviewboxMount === "function") { agviewboxMount(p); return; }
@@ -199,6 +190,8 @@ function agTakeLinkedWorkspace(hash) {
 
 function agpadRequestView(p, view) {
   if (typeof view !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(view)) return false;
+  // Calendar lives in the shared drawer and Tables in Business management: retired keys never add a tab (links translate first).
+  if (view === "calendar" || view === "tables") return false;
   if (!p.views.includes(view)) p.views.push(view);
   agpadSetView(p, view);
   return true;

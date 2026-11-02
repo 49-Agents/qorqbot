@@ -1,20 +1,30 @@
 // One document hosts the native screens. Navigation reuses it, while its page
 // state stays separate from the selected agent, transcript and chat draft.
 const AGENT_WORKSPACE_BIZ_KEY = 'agent-workspace:business:v1';
-const AGENT_WORKSPACE_TABLES_KEY = 'agent-workspace:tables-scope:v1';
 const AGENT_WORKSPACE_SECTION_KEY = 'agent-workspace:section:v1';
 const AGENT_WORKSPACE_SECTIONS = [
   ['marketing', 'Marketing'], ['progress', 'Progress'], ['research', 'Research'],
-  ['milestones', 'Milestones'], ['accounting', 'Accounting'], ['tasks', 'Tasks'], ['browser', 'Browser'],
+  ['milestones', 'Milestones'], ['accounting', 'Accounting'], ['tables', 'Tables'], ['tasks', 'Tasks'], ['browser', 'Browser'],
 ];
 const AGENT_WORKSPACE_GLOBAL_SECTIONS = [
   ['overview', 'Overview'], ['costs', 'Costs'], ['context', 'Context'], ['tables', 'Tables'],
 ];
+// The embedded page is showing Tables: the Tables section of Business management (or the retired standalone view key).
+const embeddedTablesView = () => {
+  const params = new URLSearchParams(location.search), view = params.get('agent-pane-embed');
+  return view === 'tables' || (view === 'business' && params.get('section') === 'tables');
+};
 const agentWorkspaceEmbedded = () => new URLSearchParams(location.search).has('agent-pane-embed');
 const agentWorkspaceSections = business => business === 'global' ? AGENT_WORKSPACE_GLOBAL_SECTIONS : AGENT_WORKSPACE_SECTIONS;
 const agentWorkspaceSectionKey = business => AGENT_WORKSPACE_SECTION_KEY + (business === 'global' ? ':global' : '');
-const agentWorkspaceSection = (business, section = ls(agentWorkspaceSectionKey(business))) =>
-  agentWorkspaceSections(business).some(([key]) => key === section) ? section : agentWorkspaceSections(business)[0][0];
+// The sections a pane offers: Ordubashy reaches business Tables here (and has no Context button); every other role keeps
+// the list it had. An embedded page validates against the full list, since the pane that frames it has already chosen.
+const agentWorkspaceOffered = (business, role) => agentWorkspaceSections(business).filter(([key]) =>
+  role === 'ordubashy' ? !(business === 'global' && key === 'context') : !(business !== 'global' && key === 'tables'));
+const agentWorkspaceSection = (business, section = ls(agentWorkspaceSectionKey(business)), role = null) => {
+  const sections = role ? agentWorkspaceOffered(business, role) : agentWorkspaceSections(business);
+  return sections.some(([key]) => key === section) ? section : sections[0][0];
+};
 const agentWorkspaceSectionIcon = key => ({overview: GLOBAL_ICONS.globe, costs: GLOBAL_ICONS.costs,
   context: SVG_BRAIN, tables: GLOBAL_ICONS.tables, marketing: MK_ICO.queue,
   progress: GLOBAL_ICONS.analytics, research: aicon('search', 'currentColor', 18),
@@ -24,23 +34,23 @@ const agentWorkspaceSectionIcon = key => ({overview: GLOBAL_ICONS.globe, costs: 
 // navigation or editor state. The child still uses native authenticated reads.
 function agentWorkspaceSnapshot() { return structuredClone({bizs: state.bizs, session: state.session}); }
 
-Object.assign(T_VIEW_LABEL, {business: 'Business management', ideas: 'Ideas', global_context: 'Context', tables: 'Tables'});
+Object.assign(T_VIEW_LABEL, {business: 'Business management', ideas: 'Ideas', global_context: 'Context'});
 Object.assign(T_VIEW_ICON, {
   business: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12a24 24 0 0 0 18 0M10 13h4"/></svg>',
-  ideas: GLOBAL_ICONS.ideas, global_context: SVG_BRAIN, tables: GLOBAL_ICONS.tables,
+  ideas: GLOBAL_ICONS.ideas, global_context: SVG_BRAIN,
 });
 
-// The old standalone Calendar, Context and Tables pages are views of two registered agents, selected by
-// stable role id. A missing agent is an explicit unavailable state, never another agent's content.
+// The old standalone Context and Tables pages are views of two registered agents, selected by stable role id (Tables is
+// the Tables section of Ordubashy's Business management; Calendar is a shared-drawer tab). A missing agent is an explicit
+// unavailable state, never another agent's content.
 const AGENT_PANE_DESTINATIONS = {
-  calendar: {role: 'ordubashy', view: 'calendar', label: 'Calendar'},
   context: {role: 'learning-applier', view: 'global_context', label: 'Context'},
-  tables: {role: 'ordubashy', view: 'tables', label: 'Tables'},
+  tables: {role: 'ordubashy', view: 'business', section: 'tables', label: 'Tables'},
 };
 // A pending table link ({scope, id, mode, filters}) stays until a redirect succeeds or the owner navigates elsewhere,
 // so Retry after an unavailable agent keeps the exact scope and record.
 let agentWorkspaceRequest = null, agentWorkspacePendingTable = null, agentWorkspaceApplied = 'null';
-const AGENT_PANE_DESCRIPTOR_ROLES = {global_context: 'learning-applier', tables: 'ordubashy', calendar: 'ordubashy'};
+const AGENT_PANE_DESCRIPTOR_ROLES = {global_context: 'learning-applier', business: 'ordubashy'};
 // Map an old top-level destination (including the legacy Context aliases) to its agent view and sub-route.
 function agentWorkspaceLegacyDestination(tab, hash) {
   if (embeddedAgentPane) return null;
@@ -66,6 +76,7 @@ async function agentWorkspaceRedirect(destination) {
   agentWorkspacePendingTable = null;
   const known = table && (table.scope === 'global' || state.bizs.some(b => b.slug === table.scope));
   agentWorkspaceRequest = {agentId: agent.agent_id, view: destination.view, route: destination.route || '',
+    ...(destination.section ? {section: destination.section} : {}),
     ...(known ? {scope: table.scope, table: table.id || '', mode: table.mode || '', ...table.filters} : {})};
   ls('ag:scope:global', agent.agent_id);
   // Replace, not push: Back must not return to the retired URL and redirect again. The outer history entry
@@ -83,8 +94,11 @@ function agentWorkspaceStore(descriptor) {
 }
 // A stored descriptor names its own agent; the roster then checks that agent is active and has the view's role.
 function agentWorkspaceRehydrate() {
-  const descriptor = history.state?.agentPane;
+  let descriptor = history.state?.agentPane;
   if (!descriptor || typeof descriptor !== 'object' || location.hash !== '#/global/agents') return null;
+  // Retired keys translate here: Calendar is a drawer tab, standalone Tables is Business management's Tables section.
+  if (descriptor.view === 'calendar') { agentWorkspaceStore(null); globalThis.ovOpen?.('calendar'); return null; }
+  if (descriptor.view === 'tables') { descriptor = {...descriptor, view: 'business', section: 'tables'}; agentWorkspaceStore(descriptor); }
   return AGENT_PANE_DESCRIPTOR_ROLES[descriptor.view] ? descriptor : null;
 }
 // A pane view or agent change that leaves the described destination drops it, so stale records never reopen.
@@ -95,7 +109,7 @@ function agentWorkspaceViewChanged(p) {
 // The embedded Context/Tables page reports its route or selection; the parent replaces its own history state.
 function agentWorkspaceReport(view, patch) {
   const p = _agpad;
-  if (!p?.agentId || p.view !== view || !AGENT_PANE_DESCRIPTOR_ROLES[view]) return;
+  if (!p?.agentId || p.view !== view || !AGENT_PANE_DESCRIPTOR_ROLES[view] || p.workspaceRole !== AGENT_PANE_DESCRIPTOR_ROLES[view]) return;
   const prior = history.state?.agentPane;
   agentWorkspaceStore({...(prior?.agentId === p.agentId && prior.view === view ? prior : {agentId: p.agentId, view}), ...patch});
 }
@@ -126,7 +140,7 @@ async function agentWorkspaceEscape({agent, business, table}) {
 // Every global agent has the business view; Ordubashy keeps Focus first; Learning Applier keeps its own first.
 function agentWorkspaceViews(scope, role) {
   if (scope !== 'global') return [];
-  if (role === 'ordubashy') return ['ideas', 'tables', 'business'];
+  if (role === 'ordubashy') return ['ideas', 'business'];
   if (role === 'global-marketing') return ['business'];
   if (role === 'learning-applier') return ['global_context', 'business'];
   return [];
@@ -191,8 +205,7 @@ function agentWorkspaceMount(p, view) {
   body.classList.add('agent-workspace-body');
   // A redirected old URL carries its sub-route and record selection to the view it opens.
   const hint = agentWorkspaceRequest?.view === view && agentWorkspaceRequest.agentId === p.agentId ? agentWorkspaceRequest : null;
-  const tables = view === 'tables';
-  if (view !== 'business' && !tables) {
+  if (view !== 'business') {
     const frame = agentWorkspaceFrame(view, undefined, undefined, hint);
     body.replaceChildren(frame);
     p.workspaceFrame = frame;
@@ -200,15 +213,15 @@ function agentWorkspaceMount(p, view) {
     return true;
   }
   const businesses = workspaceBusinesses();
-  // Tables keep their own scope choice (Global or one business) so Business management is unaffected.
-  const scopeKey = tables ? AGENT_WORKSPACE_TABLES_KEY : AGENT_WORKSPACE_BIZ_KEY;
-  const wanted = tables && hint?.scope ? hint.scope : ls(scopeKey);
+  const wanted = hint?.scope || ls(AGENT_WORKSPACE_BIZ_KEY);
   let business = wanted === 'global' || businesses.some(b => b.slug === wanted) ? wanted : 'global';
   // A linked business that is not in the directory opens no record rather than another scope's.
-  if (hint && tables && hint.scope && business !== hint.scope) hint.table = '';
-  let section = tables ? 'tables' : agentWorkspaceSection(business);
-  body.innerHTML = `<section class="agent-business-workspace" aria-label="${tables ? 'Tables' : 'Business management'}">
-    ${tables ? '' : '<div class="agent-business-controls"><nav class="agent-business-sections" aria-label="Business sections"></nav></div>'}
+  if (hint?.scope && business !== hint.scope) hint.table = '';
+  // A Tables link opens the Tables section (Ordubashy only); a remembered section the role no longer offers falls to the first allowed.
+  const offered = () => agentWorkspaceOffered(business, p.workspaceRole);
+  let section = hint?.section === 'tables' && offered().some(([key]) => key === 'tables') ? 'tables' : agentWorkspaceSection(business, undefined, p.workspaceRole);
+  body.innerHTML = `<section class="agent-business-workspace" aria-label="Business management">
+    <div class="agent-business-controls"><nav class="agent-business-sections" aria-label="Business sections"></nav></div>
     <div class="agent-business-screen"></div></section>`;
   const picker = document.createElement('label'), head = $('.thead', p.el);
   picker.className = 'agent-business-picker';
@@ -218,7 +231,7 @@ function agentWorkspaceMount(p, view) {
   const select = $('select', picker), screen = $('.agent-business-screen', body);
   const paint = async () => {
     select.value = business;
-    if (!tables) $('.agent-business-sections', body).innerHTML = agentWorkspaceSections(business).map(([key, label]) =>
+    $('.agent-business-sections', body).innerHTML = offered().map(([key, label]) =>
       `<button type="button" data-business-section="${key}" aria-label="${label}" aria-pressed="${key === section}">${agentWorkspaceSectionIcon(key)}</button>`).join('');
     if (p.workspaceFrame) {
       const frame = p.workspaceFrame;
@@ -239,18 +252,21 @@ function agentWorkspaceMount(p, view) {
       if (!await p.workspaceFrame.workspaceReady) { select.value = business; return; }
       if (!await agentWorkspaceCanLeave(p) || _agpad !== p || p.view !== view) { select.value = business; return; }
       business = nextBusiness; section = nextSection;
-      ls(scopeKey, business); if (tables) agentWorkspaceReport('tables', {scope: business, table: '', mode: ''});
-      if (!tables) ls(agentWorkspaceSectionKey(business), section);
+      ls(AGENT_WORKSPACE_BIZ_KEY, business);
+      if (section === 'tables') agentWorkspaceReport('business', {section: 'tables', scope: business, table: '', mode: ''});
+      else if (history.state?.agentPane?.view === 'business') agentWorkspaceStore(null);
+      ls(agentWorkspaceSectionKey(business), section);
       await paint();
     } finally { changing = false; }
   };
-  select.onchange = () => change(select.value, agentWorkspaceSection(select.value));
-  if (!tables) $('.agent-business-sections', body).onclick = event => {
+  select.onchange = () => change(select.value, agentWorkspaceSection(select.value, undefined, p.workspaceRole));
+  $('.agent-business-sections', body).onclick = event => {
     const button = event.target.closest('[data-business-section]');
     if (button && button.dataset.businessSection !== section) change(business, button.dataset.businessSection);
   };
   p.workspaceDispose = () => { picker.remove(); head.classList.remove('agent-business-head'); p.workspaceFrame?.remove(); p.workspaceFrame = null; };
   paint();
+  if (section === 'tables') agentWorkspaceReport('business', {section: 'tables', scope: business, ...(hint ? {table: hint.table || '', mode: hint.mode || ''} : {})});
   return true;
 }
 
@@ -290,7 +306,7 @@ async function agentWorkspaceBootEmbedded() {
       if (link && !event.defaultPrevented && event.button === 0 && !(event.ctrlKey || event.metaKey || event.shiftKey)) { event.preventDefault(); routeTo(link.getAttribute('href')); }
     });
     await agentWorkspaceNavigateEmbedded(view, business, agentWorkspaceSection(business, params.get('section')), params.get('route') || '');
-    if (view === 'tables' && params.get('table')) await tablesOpen(business === 'global' ? null : business, params.get('table'), params.get('mode') || 'tables',
+    if (embeddedTablesView() && params.get('table')) await tablesOpen(business === 'global' ? null : business, params.get('table'), params.get('mode') || 'tables',
       {department: params.get('department') || '', purpose: params.get('purpose') || ''});
     // Reuse the parent's data-change stream; no background drawers or agent feeds.
     connectEvents();
@@ -303,11 +319,12 @@ async function agentWorkspaceBootEmbedded() {
 async function agentWorkspaceNavigateEmbedded(view, business = 'global', section, route = '') {
   if (business !== 'global' && !state.bizs.some(b => b.slug === business)) throw new Error('This business is unavailable.');
   if (view !== 'tables') section = agentWorkspaceSection(business, section);
+  const tablesView = view === 'tables' || (view === 'business' && section === 'tables');
   state.scope = !['business', 'tables'].includes(view) || business === 'global' ? 'global' : 'business';
   state.biz = state.scope === 'global' ? null : business;
-  state.ctx = view === 'tables' && state.scope === 'business' ? '_tables' : null;
+  state.ctx = tablesView && state.scope === 'business' ? '_tables' : null;
   let hash;
-  if (view === 'tables') {
+  if (tablesView) {
     state.tab = 'context';
     state.globalTab = 'tables';
     hash = state.scope === 'global' ? '#/global/tables' : '#' + business;
@@ -334,7 +351,7 @@ function agentWorkspaceRenderEmbedded(c) {
     else renderBusinessProgress(c);
     return true;
   }
-  if (view === 'tables') {
+  if (embeddedTablesView()) {
     // The native tables list/detail/edit/history controls, over the selected Global or business scope.
     if (state.scope === 'business') { c.innerHTML = '<div id="ctxembedded"></div>'; renderTables($('#ctxembedded', c)); }
     else renderTables(c);
