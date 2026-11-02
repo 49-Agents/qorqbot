@@ -82,6 +82,10 @@ def installed_binaries(environment=None):
     value = environment.get("QORQUT_NATIVE_ROOT")
     if not value:
         return Binaries()
+    # Xorg quotes its -xkbdir in a shell command to its compiler. Spaces work,
+    # but shell expansions and PATH separators must never enter that command.
+    if any(character in value for character in ('"', "\\", "$", "`", ":", "\n", "\r")):
+        raise ConfigError("the packaged desktop path contains unsupported shell characters")
     root = Path(value)
     if not root.is_absolute() or not root.is_dir():
         raise ConfigError("QORQUT_NATIVE_ROOT must name the installed native runtime")
