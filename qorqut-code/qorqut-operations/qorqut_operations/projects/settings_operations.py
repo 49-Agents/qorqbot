@@ -4,7 +4,7 @@ configuration row (``businesses.config_json``).
 The generic part is the engine's: reading the row with its revision, the replacement and the recursive patch
 (``merge_settings``), the revision check, the project name, stage, timezone, alias and registered-identity validation, the
 registration of the three operations and the plan that records the change. A project's configuration also holds host state
-(owner and workspace paths, browser, engineering and owner-session sections) with host authority rules; those
+(owner and workspace paths, engineering and owner-session sections) with host authority rules; those
 come in through the required ``SettingsHost``, each method called at one fixed point of the flow below. Nothing is discovered
 by attribute or module and the host cannot replace the revision check or the generic validation."""
 
@@ -26,7 +26,7 @@ MUTATIONS = {
 }
 DESCRIPTIONS = {
     "business_config_patch": "Patch editable settings in the selected project with current expected_revision. Nested objects merge; null removes a value. Unmentioned fields are preserved. Read business_config_get first.",
-    "business_config_update": "Replace editable settings in the selected project using the current expected_revision. Preserve unrelated config fields. The owner and scoped Ordubashy may directly manage engineering organizations/repositories/deployment targets and browser settings; other agents cannot. Registered identity, owner, paths and generated browser identity remain protected. Tool overrides still apply.",
+    "business_config_update": "Replace editable settings in the selected project using the current expected_revision. Preserve unrelated config fields. The owner and scoped Ordubashy may directly manage engineering organizations/repositories/deployment targets; other agents cannot. Projects have no browser settings. Registered identity, owner and paths remain protected. Tool overrides still apply.",
 }
 OPERATIONS = ("business_config_get", *MUTATIONS)
 # The registered identity and paths a settings change may not edit.
@@ -36,15 +36,12 @@ PROTECTED_KEYS = ("id", "slug", "workspace", "hq_path", "owner_principal_id")
 class SettingsHost(Protocol):
     """The host's knowledge of the settings sections it owns, each consulted at one fixed point.
 
-    ``environment_status(uow, business_id)`` is the environment status ``business_config_get`` returns beside the
-    configuration, read right after the project row. ``require_patch_authority(ctx, uow)`` refuses (``DomainError``) a
+    ``require_patch_authority(ctx, uow)`` refuses (``DomainError``) a
     patch the caller may not make; it runs after the revision check and before the merge, for a patch only (an update is a
     replacement). ``prepare(ctx, value, before_config, args, operation, uow)`` applies the host's protection and
     normalization rules to the proposed configuration ``value`` *in place*, before the generic validation and the plan.
     ``validate_targets(ctx, plan, uow)`` is the whole of the host's check inside the writing transaction that applies the
     plan: fresh authority, protected sections against the row as it is now and the host sections' applied-state rules."""
-
-    def environment_status(self, uow, business_id: str) -> Any: ...
 
     def require_patch_authority(self, ctx: InvocationContext, uow) -> None: ...
 
@@ -76,8 +73,7 @@ class BusinessConfigOperations:
 
     def read(self, ctx, args, uow):
         row = uow.repository("businesses").get(ctx.business_id, required=True)
-        return {"config": row["config_json"], "revision": row["revision"],
-                "environment": self.host.environment_status(uow, ctx.business_id)}
+        return {"config": row["config_json"], "revision": row["revision"]}
 
     def prepare(self, operation, ctx, args, options, uow):
         builder = PlanBuilder(ctx, operation, args, operation.replace("_", " ").title(), clock=self.clock,

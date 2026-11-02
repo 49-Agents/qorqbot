@@ -30,7 +30,7 @@ class DatabaseMaintenanceGate:
             previous = repository.get("service")
             if previous and previous["state"] != "open":
                 return GateClosure(identity, previous, None)
-            values = {"state": "closed", "message": "BusinessSandbox recovery in progress"}
+            values = {"state": "closed", "message": "Installation recovery in progress"}
             current = (repository.update("service", values, expected_revision=previous["revision"])
                        if previous else repository.insert({"id": "service", **values}))
         return GateClosure(identity, previous, current["revision"])

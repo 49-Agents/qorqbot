@@ -12,8 +12,9 @@ yields one verified ``QuiescenceProof``; a void ``stop`` is proof only by its do
 any other result is none. An unverified or failed drain/thaw leaves both the gate and admission closed. The
 writer inventory is complete or the barrier refuses: every required writer class has a concrete controller or a
 ``KnownZeroWriters`` whose emptiness is verified when the barrier runs, and a missing one is never read as zero.
-Docker, container and process inventory and their freeze/thaw implementations are host controllers passed in as
-``host_writers`` and ``container_writers``. Constructing a quiescer starts and stops nothing.
+Process inventory and its freeze/thaw implementation are a host controller passed in as ``host_writers``; a host
+that also runs writers it can only pause (containers) passes their controller as the optional ``container_writers``.
+Constructing a quiescer starts and stops nothing.
 
 A window yields one ``RecoveryBarrierProof``, issued only after every drain and freeze succeeded, the maintenance and
 admission boundary is closed, the claims are clear and the exclusive installation lock is held. The proof is not a
@@ -41,7 +42,7 @@ from .recovery_gate import DatabaseMaintenanceGate
 
 LOGGER = logging.getLogger(__name__)
 # The writer classes every installation of the engine has; a composition declares more through ``required``.
-CORE_WRITERS = ("background", "signoffs", "browser", "sandbox")
+CORE_WRITERS = ("background", "signoffs", "browser")
 
 
 class UnprovenStop(TimeoutError):
@@ -108,7 +109,7 @@ class RecoveryBarrierProof:
 
 class DrainController(Protocol):
     """A writer that can be drained and later resumed (a service with ``stop``/``start`` via ``BoundedWriter``,
-    or a host controller such as the browser/sandbox leases)."""
+    or a host controller such as the browser leases)."""
 
     def drain(self, *, timeout) -> "QuiescenceProof": ...
 
@@ -117,7 +118,7 @@ class DrainController(Protocol):
 
 class FreezeController(Protocol):
     """A host controller that freezes writers it can only pause (host terminals, containers) and thaws them.
-    ``host_writers`` provides ``inventory_and_freeze``; ``container_writers`` provides ``freeze``."""
+    ``host_writers`` provides ``inventory_and_freeze``; the optional ``container_writers`` provides ``freeze``."""
 
     def thaw(self) -> None: ...
 
@@ -181,7 +182,7 @@ class KnownZeroWriters:
 class RecoveryQuiescer:
     """Yield only after concrete writers have stopped or frozen for recovery.
 
-    Browser and sandbox controllers must drain their single-writer leases before returning from ``drain``.
+    The browser controller must drain its single-writer leases before returning from ``drain``.
     ``host_writers`` is mandatory whenever inventory finds legacy host writers: this barrier never treats resource
     claims or PID labels as proof that such terminals are harmless. ``writers`` holds the composition's further
     named controllers (registered through ``register_writer``) and ``required`` the further writer classes whose
@@ -195,8 +196,7 @@ class RecoveryQuiescer:
     # Optional writers of the engine's own inventory: they become required when the composition names them.
     telegram: object | None = None
     browser_writers: object | None = None
-    sandbox_writers: object | None = None
-    container_writers: object | None = None
+    container_writers: object | None = None  # optional: frozen with the host writers when the composition has any
     host_writers: object | None = None
     installation_lock: object | None = None
     maintenance_gate: object | None = None
@@ -210,7 +210,7 @@ class RecoveryQuiescer:
 
     def register_writer(self, name, controller):
         """Add one named controller to the inventory; a name is registered once."""
-        named = {"background", "signoffs", "telegram", "browser", "sandbox"}
+        named = {"background", "signoffs", "telegram", "browser"}
         if not isinstance(name, str) or not name or name in named or name in self.writers:
             raise DomainError("invalid_configuration", f"Recovery writer {name!r} is invalid or already registered")
         self.writers[name] = controller
@@ -222,15 +222,13 @@ class RecoveryQuiescer:
         The composition's registered writers drain first (in registration order, the host's own stop order); the
         engine's classes follow. Nothing is stopped by asking."""
         named = (("background", self.background), ("signoffs", self.signoffs), ("telegram", self.telegram),
-                 ("browser", self.browser_writers), ("sandbox", self.sandbox_writers))
+                 ("browser", self.browser_writers))
         engine = {name: controller for name, controller in named if controller is not None}
         controllers = {**self.writers, **engine}
         required = dict.fromkeys((*CORE_WRITERS, *self.required))
         problems = [name for name in required if controllers.get(name) is None]
         problems += [name for name, controller in controllers.items()
                      if not (callable(getattr(controller, "drain", None)) and callable(getattr(controller, "resume", None)))]
-        if self.container_writers is None:
-            problems.append("containers")
         if problems:
             raise DomainError("recovery_not_quiescent", "Recovery writer inventory is incomplete: " + ", ".join(sorted(set(problems))))
         return tuple(controllers.items())
@@ -302,8 +300,9 @@ class RecoveryQuiescer:
                 closure = gate.close()
                 evidence.append(self._proof(self.host_writers.inventory_and_freeze(timeout=remaining()), "frozen"))
                 frozen.append(self.host_writers)
-                evidence.append(self._proof(self.container_writers.freeze(timeout=remaining()), "frozen"))
-                frozen.append(self.container_writers)
+                if self.container_writers is not None:
+                    evidence.append(self._proof(self.container_writers.freeze(timeout=remaining()), "frozen"))
+                    frozen.append(self.container_writers)
                 if not self._claims_clear():
                     raise DomainError("recovery_not_quiescent", "Durable file effects remain in progress")
                 if DatabaseIdentity.of(source.path) != source:
