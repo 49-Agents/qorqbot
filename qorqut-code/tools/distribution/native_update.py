@@ -44,7 +44,8 @@ def runtime_processes(runtime):
 
 def unpack(archive, stage):
     """Accept only a fresh package, never instance data or files outside its runtime."""
-    with tarfile.open(archive, 'r:gz') as tar:
+    kwargs = {'fileobj': archive} if hasattr(archive, 'read') else {'name': archive}
+    with tarfile.open(mode='r:gz', **kwargs) as tar:
         members = tar.getmembers()
         if len(members) > 150000 or sum(m.size for m in members) > 8 * 1024 ** 3:
             raise ValueError('Package exceeds the extraction bounds')
@@ -78,6 +79,33 @@ def retain_completed(root, launcher):
     journal.rename(archive / 'update.json')
 
 
+def file_sha(path):
+    with path.open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def restore_runtime(root, launcher, record):
+    runtime, previous, stage = root / 'runtime', root / '.previous-runtime', root / '.update-staging'
+    old_launcher = stage / 'previous-launcher'
+    if (not record.get('old_payload_sha256') or not old_launcher.is_file()
+            or file_sha(old_launcher) != record.get('old_launcher_sha256')):
+        raise ValueError('Verified prior runtime/launcher recovery evidence is missing')
+    if previous.exists() and file_sha(previous / 'PAYLOAD.json') != record['old_payload_sha256']:
+        raise ValueError('The prior runtime identity changed; recovery was refused')
+    if not previous.exists() and (not runtime.exists() or file_sha(runtime / 'PAYLOAD.json') != record['old_payload_sha256']):
+        raise ValueError('The previous runtime is missing; no automatic recovery is safe')
+    record['phase'] = 'restoring'
+    launcher.save_json(root / '.run/update.json', record)
+    if previous.exists():
+        if runtime.exists():
+            runtime.rename(stage / 'failed-runtime')
+        previous.rename(runtime)
+    shutil.copy2(old_launcher, root / '.qorqbot-new')
+    (root / '.qorqbot-new').replace(root / 'qorqbot')
+    record['phase'] = 'restored-before-start'
+    launcher.save_json(root / '.run/update.json', record)
+
+
 def recover(root, launcher):
     """Restore only a runtime whose replacement has never been admitted to start."""
     journal = root / '.run/update.json'
@@ -88,17 +116,9 @@ def recover(root, launcher):
         retain_completed(root, launcher)
         print('Completed update records retained in .updates. Qorqbot can start normally.')
         return
-    if record.get('phase') not in {'prepared', 'switched'}:
+    if record.get('phase') not in {'prepared', 'switched', 'restoring'}:
         raise ValueError('Unrecognized update recovery state; no files were changed')
-    runtime, previous = root / 'runtime', root / '.previous-runtime'
-    if previous.exists():
-        if runtime.exists():
-            runtime.rename(root / '.update-staging/failed-runtime')
-        previous.rename(runtime)
-    elif record['phase'] != 'prepared' or not runtime.exists():
-        raise ValueError('The previous runtime is missing; no automatic recovery is safe')
-    record['phase'] = 'restored-before-start'
-    launcher.save_json(journal, record)
+    restore_runtime(root, launcher, record)
     retain_completed(root, launcher)
     print('Previous runtime restored. Instance data was unchanged; start Qorqbot normally.')
 
@@ -119,8 +139,9 @@ def main(argv=None):
     else:
         if not args.archive or not args.sha256:
             parser.error('An archive and --sha256 are required')
-        with args.archive.open('rb') as stream:
-            actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+        archive_stream = args.archive.open('rb')
+        actual = hashlib.file_digest(archive_stream, 'sha256').hexdigest()
+        archive_stream.seek(0)
         if actual != args.sha256.lower():
             raise ValueError('Update archive checksum mismatch')
     stage, previous = root / '.update-staging', root / '.previous-runtime'
@@ -154,7 +175,8 @@ def main(argv=None):
                 raise ValueError('Selected optional extensions need a compatible update bundle; this bundle supports core and the bundled calendar provider')
             stage.mkdir(mode=0o700)
             try:
-                unpack(args.archive, stage)
+                unpack(archive_stream, stage)
+                archive_stream.close()
                 new_runtime = stage / 'qorqbot/runtime'
                 new = launcher.verify(new_runtime)
                 old = launcher.read_json(runtime / 'PAYLOAD.json')
@@ -165,12 +187,17 @@ def main(argv=None):
                     observed = connection.execute("SELECT name, version, digest FROM target_identity WHERE id='target'").fetchone()
                 if list(observed or ()) != new['schema_target']:
                     raise ValueError('The existing database does not match the update’s supported schema')
-                launcher.save_json(journal, {'format': 1, 'phase': 'prepared', 'archive_sha256': actual,
-                                              'before': old.get('version'), 'after': new.get('version')})
+                shutil.copy2(root / 'qorqbot', stage / 'previous-launcher')
+                record = {'format': 1, 'phase': 'prepared', 'archive_sha256': actual,
+                          'before': old.get('version'), 'after': new.get('version'),
+                          'old_payload_sha256': file_sha(runtime / 'PAYLOAD.json'),
+                          'old_launcher_sha256': file_sha(stage / 'previous-launcher')}
+                launcher.save_json(journal, record)
                 runtime.rename(previous)
                 try:
                     new_runtime.rename(runtime)
-                    launcher.save_json(journal, {'format': 1, 'phase': 'switched', 'archive_sha256': actual})
+                    record['phase'] = 'switched'
+                    launcher.save_json(journal, record)
                     # The environment must be created at its final absolute path.
                     setup = ('import importlib.util,pathlib,sys;'
                              'root=pathlib.Path(sys.argv[1]);'
@@ -180,17 +207,16 @@ def main(argv=None):
                              'm.prepare(root,env);m.initialize(root,env)')
                     subprocess.run([runtime / 'native/bin/python3.12', '-I', '-c', setup, root],
                                    env=env, cwd=root, check=True)
+                    subprocess.run([runtime / 'venv/bin/python', '-I', '-m', 'bazarlyk.bootstrap.native_update_check',
+                                    '--prepared-root', runtime, '--instance-root', instance], env=env, cwd=root, check=True)
                 except BaseException:
                     # No new application was admitted and no data migration ran. Keep failed bytes for inspection.
-                    if runtime.exists():
-                        runtime.rename(stage / 'failed-runtime')
-                    previous.rename(runtime)
-                    launcher.save_json(journal, {'format': 1, 'phase': 'restored-before-start', 'archive_sha256': actual})
+                    restore_runtime(root, launcher, record)
                     raise
                 shutil.copy2(stage / 'qorqbot/qorqbot', root / '.qorqbot-new')
                 (root / '.qorqbot-new').replace(root / 'qorqbot')
-                launcher.save_json(journal, {'format': 1, 'phase': 'complete', 'archive_sha256': actual,
-                                              'before': old.get('version'), 'after': new.get('version')})
+                record['phase'] = 'complete'
+                launcher.save_json(journal, record)
                 print('Update installed. Your instance data was preserved. Start Qorqbot normally.')
                 print('Previous runtime and update record are retained for inspection.')
             except BaseException:
