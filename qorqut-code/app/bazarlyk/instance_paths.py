@@ -1,4 +1,4 @@
-"""Explicit, immutable instance paths and component locations (docs/v1.2/LAYOUT_AND_REPOSITORIES.md).
+"""Explicit, immutable instance paths and component locations.
 
 One value names every location the host derives from the instance root and from the code/role components it was
 given. There is no working-directory default, no probing of installed copies or sibling checkouts, and no

@@ -25,8 +25,8 @@ from . import store
 
 NAME = "request_user_input"
 DESCRIPTION = (
-    "Ordubashy only. Show Alp a message in your Chat with existing records right below it: pending Signoffs (decided there by "
-    "Alp), configured browsers (a live view Alp can use to log in or act), Tasks (title and state only) and registered agents "
+    "Ordubashy only. Show the owner a message in your Chat with existing records right below it: pending Signoffs (decided there by "
+    "the owner), configured browsers (a live view the owner can use to log in or act), Tasks (title and state only) and registered agents "
     "(name only). Returns at once; it asks nothing, creates no request, waits for no answer and grants no approval. references are "
     "{type: task|signoff|browser|agent, id, business_id}: a task, signoff or agent by its UUID, a browser by the id from "
     "browser_turn action=list, and business_id the record's owning business (null or omitted for Global and always for an agent; "
