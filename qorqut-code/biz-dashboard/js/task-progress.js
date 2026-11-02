@@ -17,7 +17,6 @@ async function taskProgressOpenReference(biz, ref, beforeOpen) {
   }
   if (await beforeOpen?.() === false) return;
   if (ref.type === 'signoff') return sgAttentionNavigate(biz || null, ref.id);
-  if (ref.type === 'dev_ticket') { ovOpen('system_dev'); return; }
   // Materials (e.g. an email conversation) open through the shared context-item route.
   if (ref.type === 'material' && biz) return contextOpenItem(biz,{type:'material',id:ref.id,resource_type:ref.resource_type});
 }

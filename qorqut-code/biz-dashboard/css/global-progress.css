@@ -16,4 +16,4 @@
 .gp-readout { position:absolute; top:0; right:0; padding:6px 10px; border:1px solid var(--line-2); border-radius:8px; background:var(--bg); color:var(--fg); font-size:12px; pointer-events:none; }
 @media(max-width:600px) { .global-progress { padding:14px 12px; } .global-progress-plot svg { height:260px; } .global-progress-plot { min-height:260px; } }
 
-.gp-inbox { color:#B49ADE; } .gp-learnings { color:#6BC49A; } .gp-tickets { color:#E28A6A; } .gp-cold-outreach { color:#64A9E8; }
+.gp-inbox { color:#B49ADE; } .gp-learnings { color:#6BC49A; } .gp-cold-outreach { color:#64A9E8; }

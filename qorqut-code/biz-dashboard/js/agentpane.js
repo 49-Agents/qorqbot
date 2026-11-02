@@ -197,6 +197,8 @@ function agpadRequestView(p, view) {
   if (typeof view !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(view)) return false;
   // Calendar and Tables live in the shared drawer: retired keys never add a tab (links translate first).
   if (view === "calendar" || view === "tables") return false;
+  // The retired System Dev keys likewise never add a tab.
+  if (view === "system_dev" || view === "incidents") return false;
   // Business management belongs only to roles whose pane offers it: a stale link never adds it back.
   if (view === "business" && !(typeof agentWorkspaceViews === "function" && agentWorkspaceViews(p.workspaceScope, p.workspaceRole).includes("business"))) return false;
   if (!p.views.includes(view)) p.views.push(view);

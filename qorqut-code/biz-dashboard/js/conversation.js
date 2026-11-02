@@ -117,7 +117,7 @@ function conversationEntries(notes,adapter) {
   return notes.map(note=>{
     const system=note.entry_kind==='system',owner=!system && (note.is_owner ?? (note.author_kind==='human'));
     const entry={key:note.id,speaker:system?'notice':owner?'user':'agent',text:note.body || '',timestamp:note.created_at,
-      references:(note.refs || []).map((ref,index)=>({key:`ref${index}`,label:ref.label || ref.type || 'Reference',disabled:!!ref.unavailable,value:ref})),
+      references:(note.refs || []).filter(ref=>ref.type!=='dev_ticket').map((ref,index)=>({key:`ref${index}`,label:ref.label || ref.type || 'Reference',disabled:!!ref.unavailable,value:ref})),
       actions:note.parent_event_id && adapter.openParent?[{key:'parent',label:'About an earlier entry'}]:[]};
     if(note.title && note.title!=='Message')entry.title=note.title;
     // Consecutive messages from the same sender share one header.
