@@ -56,6 +56,9 @@ class GitRunner:
             "LC_ALL": "C",
         }
         env.update(extra or {})
+        # Never discover a parent repository, including during the config probe
+        # before `init`. Caller-supplied commit identity cannot lift this bound.
+        env["GIT_CEILING_DIRECTORIES"] = os.path.dirname(os.path.realpath(self.root))
         return env
 
     def run(
@@ -72,6 +75,17 @@ class GitRunner:
             raise GitError("no Git executable is configured", code="git_unavailable")
         command = [self.executable, "-C", self.root, *_GIT_OPTIONS, *args]
         try:
+            if args[:1] != ["init"]:
+                ownership = subprocess.run(
+                    [self.executable, "-C", self.root, *_GIT_OPTIONS, "rev-parse", "--show-toplevel"],
+                    capture_output=True, env=self.env(env), timeout=timeout, check=False,
+                )
+                top = os.fsdecode(ownership.stdout).rstrip("\n")
+                if ownership.returncode != 0 or os.path.realpath(top) != os.path.realpath(self.root):
+                    raise GitError(
+                        "the authoring root is not the top level of a usable Git working tree",
+                        details={"root": self.root},
+                    )
             # Local clean/process filters are executable repository configuration,
             # just like hooks. Disable them even for status and add operations.
             config = subprocess.run(
