@@ -203,6 +203,130 @@ function chatViewOwnerReferences(body) {
   return chips;
 }
 
+// ---- typed references (Ordubashy request_user_input): resolved, identity-only DTOs drawn under their message.
+// A browser is a real iframe whose node survives every repaint of its message; a Signoff is mounted by the controller through
+// options.mountSignoff(ref, host) and returns its disposer. The view never decides, fetches or trusts a model-supplied URL.
+const CHAT_VIEW_ICONS = {
+  browser: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>',
+  task: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>',
+};
+const CHAT_VIEW_TASK_STATES = {open: 'Open', working: 'Working', waiting: 'Waiting', done: 'Done', cancelled: 'Cancelled'};
+const chatViewTypedKey = ref => `${ref.type}:${ref.business_id || ''}:${ref.id}`;
+// Same rule as the Focus browser frame: an absolute http(s) URL without credentials; anything else is unavailable.
+function chatViewViewerUrl(value) {
+  try {
+    if (!value || /\s/.test(value)) return '';
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : '';
+  } catch (_) { return ''; }
+}
+const chatViewDimension = value => Number.isSafeInteger(value) && value > 0 && value <= 32768 ? value : null;
+// Fit a display of the given size inside the box without cropping or distortion (as the Focus desktop frame does).
+function chatViewFit(width, height, displayWidth, displayHeight) {
+  if (!displayWidth || !displayHeight) return {width, height};
+  const scale = Math.min(width / displayWidth, height / displayHeight);
+  return {width: displayWidth * scale, height: displayHeight * scale};
+}
+const chatViewTypedRoute = ref => JSON.stringify([ref.type, ref.business_id || null, ref.business_slug || null, ref.type === 'browser' ? ref.viewer_url : null]);
+const chatViewTypedSignature = ref => JSON.stringify([ref.type, ref.business_id || null, ref.id, ref.available !== false, ref.label, ref.state, ref.viewer_url, ref.business_slug || null, ref.width, ref.height, ref.role, ref.presentation]);
+function chatViewTypedChip(ref, cls) {
+  const chip = document.createElement('span');
+  chip.className = `gchat-reference ${cls}`;
+  if (ref.type === 'task' && ref.available !== false) chip.insertAdjacentHTML('beforeend', CHAT_VIEW_ICONS.task);
+  // Agent: the shared identity glyph (Tiny Spirit) before the current display name; informational, like native Chat's recipients.
+  if (ref.type === 'agent' && ref.available !== false && typeof agentGlyph === 'function') {
+    const icon = document.createElement('span'); icon.className = 'gchat-agent-icon'; icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = agentGlyph({...(ref.presentation || {}), agent_id: ref.id, display_name: ref.label, role: ref.role}, 18);
+    chip.append(icon);
+  }
+  const label = document.createElement('span'); label.textContent = ref.label || '';
+  chip.append(label);
+  if (ref.type === 'task' && ref.available !== false && ref.state) {
+    const state = document.createElement('small'); state.textContent = CHAT_VIEW_TASK_STATES[ref.state] || String(ref.state); chip.append(state);
+  }
+  return chip;
+}
+// One browser card: header (name, expand) over the exact configured viewer. Expanding only changes classes, so the same iframe lives on.
+function chatViewBrowserCard(ref, url) {
+  const slot = document.createElement('div');
+  slot.className = 'gchat-browser-slot';
+  slot.innerHTML = `<section class="gchat-browser"><header>${CHAT_VIEW_ICONS.browser}<span class="gchat-browser-name"></span>
+    <button type="button" class="quiet gchat-browser-expand" aria-label="Expand browser" aria-expanded="false">↗</button></header>
+    <div class="gchat-browser-page"></div></section>`;
+  const card = slot.firstElementChild, name = card.querySelector('.gchat-browser-name'), button = card.querySelector('button');
+  const frame = document.createElement('iframe');
+  frame.className = 'gchat-browser-frame';
+  frame.referrerPolicy = 'no-referrer';
+  frame.setAttribute('allow', 'clipboard-read; clipboard-write; fullscreen');
+  frame.src = url;
+  const page = card.querySelector('.gchat-browser-page');
+  page.append(frame);
+  let display = null, observer = null;
+  const fit = () => {
+    if (!display) { frame.style.width = frame.style.height = ''; return; }
+    const box = page.getBoundingClientRect(), size = chatViewFit(box.width, box.height, display.width, display.height);
+    frame.style.width = `${Math.floor(size.width)}px`; frame.style.height = `${Math.floor(size.height)}px`;
+  };
+  const setDisplay = next => {
+    const width = chatViewDimension(next.width), height = chatViewDimension(next.height);
+    display = width && height ? {width, height} : null;
+    page.classList.toggle('is-fitted', !!display); fit();
+  };
+  if (typeof ResizeObserver === 'function') { observer = new ResizeObserver(fit); observer.observe(page); }
+  setDisplay(ref);
+  const setLabel = text => { name.textContent = text || 'Browser'; frame.setAttribute('aria-label', `${text || 'Browser'} browser`); card.setAttribute('aria-label', `${text || 'Browser'} browser`); };
+  setLabel(ref.label);
+  const toggle = open => {
+    if (card.classList.contains('is-expanded') === open) return;
+    if (open) slot.style.height = `${slot.offsetHeight}px`; else slot.style.height = '';
+    card.classList.toggle('is-expanded', open);
+    button.textContent = open ? '×' : '↗';
+    button.setAttribute('aria-label', open ? 'Close browser' : 'Expand browser');
+    button.setAttribute('aria-expanded', String(open));
+    if (open) card.setAttribute('role', 'dialog'); else card.removeAttribute('role');
+    button.focus({preventScroll: true});
+  };
+  const onClick = () => toggle(!card.classList.contains('is-expanded'));
+  const onKey = event => { if (event.key === 'Escape' && card.classList.contains('is-expanded')) { event.preventDefault(); event.stopPropagation(); toggle(false); } };
+  button.addEventListener('click', onClick); card.addEventListener('keydown', onKey);
+  return {el: slot, update: next => { setLabel(next.label); setDisplay(next); return true; }, dispose() {
+    observer?.disconnect();
+    button.removeEventListener('click', onClick); card.removeEventListener('keydown', onKey);
+    frame.src = 'about:blank'; frame.remove(); slot.remove();
+  }};
+}
+
+function chatViewTypedMount(ref, host, options) {
+  const unavailable = () => {
+    const item = {el: chatViewTypedChip({...ref, label: ref.label || 'Unavailable reference'}, 'gchat-reference-unavailable'), dispose() { item.el.remove(); }};
+    item.update = next => next.available === false && (item.el.replaceChildren(...chatViewTypedChip({...next, label: next.label || 'Unavailable reference'}, 'gchat-reference-unavailable').childNodes), true);
+    return item;
+  };
+  if (ref.available === false) return unavailable();
+  if (ref.type === 'agent') {
+    const item = {el: chatViewTypedChip(ref, 'gchat-agent-reference'), dispose() { item.el.remove(); }};
+    item.update = next => next.available !== false && (item.el.replaceChildren(...chatViewTypedChip(next, 'gchat-agent-reference').childNodes), true);
+    return item;
+  }
+  if (ref.type === 'task') {
+    const item = {el: chatViewTypedChip(ref, 'gchat-task-reference'), dispose() { item.el.remove(); }};
+    item.update = next => { item.el.replaceChildren(...chatViewTypedChip(next, 'gchat-task-reference').childNodes); return true; };
+    return item;
+  }
+  if (ref.type === 'browser') {
+    const url = chatViewViewerUrl(ref.viewer_url);
+    return url ? chatViewBrowserCard(ref, url) : unavailable();
+  }
+  if (ref.type === 'signoff' && options.mountSignoff) {
+    const el = document.createElement('div');
+    el.className = 'gchat-signoff-reference';
+    host.append(el);
+    const mounted = options.mountSignoff(ref, el);
+    return {el, update: () => true, dispose() { try { mounted?.dispose ? mounted.dispose() : mounted?.(); } finally { el.remove(); } }};
+  }
+  return unavailable();
+}
+
 // ---- the view
 // host: element that receives the shared root. render() patches presentation fields; see the contract for their shapes.
 function mountChatView(host, options = {}) {
@@ -386,7 +510,7 @@ function mountChatView(host, options = {}) {
   // ---- entries
   const entrySignature = entry => JSON.stringify([entry.speaker, entry.text, entry.partial === true, entry.timestamp, entry.title, entry.showAuthor,
     entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.collapsedSource,
-    (entry.references || []).map(ref => [ref.key, ref.label, !!ref.disabled]), (entry.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
+    (entry.references || []).map(ref => [ref.key, ref.label, !!ref.disabled]), (entry.typedReferences || []).map(chatViewTypedSignature), (entry.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
   const authorHtml = entry => entry.author && entry.showAuthor !== false
     ? `<div class="gchat-author">${entry.author.avatarHtml ? `<span class="gchat-avatar" aria-hidden="true">${entry.author.avatarHtml}</span>` : ''}<small class="gchat-author-name">${esc(entry.author.name || '')}</small></div>` : '';
   const titleHtml = entry => entry.title ? `<strong class="gchat-title">${esc(entry.title)}</strong>` : '';
@@ -452,7 +576,9 @@ function mountChatView(host, options = {}) {
     else if (speaker === 'agent') body = `<div class="gchat-body md">${titleHtml(entry)}${chatViewMarkdown(entry.text)}</div>`;
     else if (speaker === 'notice') body = `<div class="gchat-body">${markerHtml(notice)}${notice?.markerOnly ? '' : `<span class="gchat-text">${esc(entry.text)}</span>`}</div>`;
     else body = `<div class="gchat-body">${titleHtml(entry)}<span class="gchat-text">${renderSafeLinks(entry.text)}</span></div>`;
-    node.innerHTML = authorHtml(entry) + body;
+    // A message that carries typed references keeps their host (and so its iframes) across repaints of everything else.
+    if (node._typedHost) { for (const child of [...node.childNodes]) if (child !== node._typedHost) child.remove(); node.insertAdjacentHTML('afterbegin', authorHtml(entry) + body); }
+    else node.innerHTML = authorHtml(entry) + body;
     const refs = (speaker === 'user' ? chatViewOwnerReferences(node.querySelector('.gchat-body'))
       : speaker === 'agent' && entry.partial !== true && chatViewReferenceChips(node.querySelector('.gchat-body'))) || document.createElement('div');
     refs.className = 'gchat-references';
@@ -462,7 +588,8 @@ function mountChatView(host, options = {}) {
       const label = document.createElement('span'); label.textContent = ref.label || '';
       button.append(label); refs.append(button);
     }
-    if (refs.childElementCount) node.append(refs);
+    if (refs.childElementCount) { if (node._typedHost) node._typedHost.before(refs); else node.append(refs); }
+    paintTyped(node, entry);
     if (entry.actions?.length) {
       const actions = document.createElement('div');
       actions.className = 'gchat-entry-actions';
@@ -476,10 +603,43 @@ function mountChatView(host, options = {}) {
     addCopyButton(node, entry.text, notice?.markerOnly);
     return {node, isNew};
   }
+  function disposeTyped(node) {
+    for (const item of node._typed?.values() || []) item.dispose();
+    node._typed?.clear(); node._typedHost?.remove(); node._typedHost = null;
+  }
+  function paintTyped(node, entry) {
+    const refs = entry.speaker === 'agent' && entry.partial !== true ? (entry.typedReferences || []) : [];
+    if (!refs.length) { if (node._typedHost) disposeTyped(node); return; }
+    if (!node._typedHost) {
+      node._typedHost = document.createElement('div'); node._typedHost.className = 'gchat-typed';
+      node._typed = new Map(); node.append(node._typedHost);
+    }
+    const next = new Map();
+    for (const ref of refs) {
+      const key = chatViewTypedKey(ref), signature = chatViewTypedSignature(ref);
+      if (next.has(key)) continue;
+      const available = ref.available !== false, route = chatViewTypedRoute(ref);
+      let item = node._typed.get(key);
+      // A change of availability or route replaces the item; only otherwise is it updated in place.
+      if (item && (item.available !== available || item.route !== route)) { item.dispose(); item = null; }
+      if (item && item.signature !== signature) {
+        if (item.update?.(ref)) item.signature = signature; else { item.dispose(); item = null; }
+      }
+      if (!item) {
+        item = chatViewTypedMount(ref, node._typedHost, options);
+        item.signature = signature; item.available = available; item.route = route;
+      }
+      next.set(key, item);
+    }
+    for (const [key, item] of node._typed) if (!next.has(key)) item.dispose();
+    node._typed = next;
+    let cursor = node._typedHost.firstChild;
+    for (const item of next.values()) { if (item.el === cursor) cursor = cursor.nextSibling; else node._typedHost.insertBefore(item.el, cursor); }
+  }
   // Entries arrive in canonical order; nodes are reused and moved only when their position changes.
   function reconcile(list, host, map, paint) {
     const keep = new Set(list.map(item => item.key));
-    for (const [key, node] of map) if (!keep.has(key)) { node.remove(); map.delete(key); }
+    for (const [key, node] of map) if (!keep.has(key)) { disposeTyped(node); node.remove(); map.delete(key); }
     let cursor = host.firstChild;
     for (const item of list) {
       const {node} = paint(item);
@@ -716,6 +876,7 @@ function mountChatView(host, options = {}) {
       if (disposed) return;
       disposed = true;
       cleanups.splice(0).forEach(cleanup => cleanup());
+      for (const node of nodes.values()) disposeTyped(node);
       nodes.clear(); pendingNodes.clear();
       input.disabled = true; send.disabled = true;
       form.remove(); banner.remove(); root.remove();

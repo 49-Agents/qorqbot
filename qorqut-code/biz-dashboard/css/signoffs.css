@@ -100,3 +100,26 @@
 .sg-rowhead .sg-state { flex-direction:column; align-items:flex-end; gap:6px; }
 .sg-state-tags { display:flex; width:max-content; max-width:100%; gap:5px; }
 .sg-state time { font:400 11px/1.5 var(--sans); color:var(--fg-3); white-space:nowrap; }
+
+/* A Signoff mounted inline under a Chat message (single-item view): compact by default, full detail behind Details. */
+.sg-body.sg-inline { padding:0; }
+.sg-inline .sg .sg-row { padding:12px; }
+.sg-inline .sg .sg-rowhead { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:2px; }
+.sg-inline .sg-rowmeta { order:-1; grid-column:auto; flex:1; gap:6px; font-size:11px; color:var(--fg-2); }
+.sg-inline .sg-rowtitle { flex-basis:100%; order:1; font-size:13.25px; }
+.sg-inline .sg-state { order:0; }
+.sg-inline-kind::after { content:" ·"; }
+.sg-inline .sg-listnotice:empty, .sg-inline .sg-conversation, .sg-inline .sg-work, .sg-inline .sg-execution:has(.sg-rows:empty) { display:none; }
+.sg-inline .sg-sectionempty:empty { display:none; }
+.sg-inline .sg h2 { margin:0 0 8px; }
+.sg-inline .sg-detail { padding-top:6px; }
+.sg-inline .sg-rationale { margin:0 0 6px; }
+.sg-inline .sg-rationale h3 { display:none; }
+.sg-inline .sg-rationale p { font-size:12px; color:var(--fg-2); margin:0; }
+.sg-inline .sg .sg-feedback { min-height:56px; }
+.sg-inline .sg-feedbackwrap { margin-top:10px; }
+.sg-inline .sg-row:not(.sg-open) .sg-impact, .sg-inline .sg-row:not(.sg-open) .sg-effects, .sg-inline .sg-row:not(.sg-open) .sg-attention-meta,
+.sg-inline .sg-row:not(.sg-open):not([data-input="1"]) .sg-feedbackwrap { display:none; }
+.sg-inline .sg-row-actions { display:none; }
+.sg-inline .sg-actions { margin-top:8px; }
+.sg-inline .sg .sg-inline-toggle { height:auto; min-height:0; margin-top:6px; padding:2px 0; border:0; background:none; color:var(--fg-2); font-size:11px; }

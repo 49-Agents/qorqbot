@@ -180,6 +180,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   // The list is the transcript; entries are keyed by their stable id and ordered by archive position.
   const presentEntry = entry => ({
     key: entry.id, speaker: entry.speaker, text: entry.text, timestamp: entry.timestamp, partial: entry.partial === true, position: entry.position,
+    typedReferences: Array.isArray(entry.references) ? entry.references : [],
     collapsedSource: ((entry.speaker === 'user' && /^(?:\[telegram\](?:\s|$)|Qorqut owner (?:message|reply) via Telegram\b)/i.test((entry.text || '').trimStart()))
       || (entry.system?.verified && entry.system.input_type === 'telegram')) ? 'telegram' : null,
     ...(entry.speaker === 'notice' ? {notice: {label: globalChatNoticeLabel(entry.system), verified: !!entry.system?.verified, inputType: entry.system?.input_type || null,
@@ -466,6 +467,14 @@ function mountGlobalChat(pane, agent, options = {}) {
       GLOBAL_CHAT_SENDS.delete(composerScope); paintSession();
     },
     onOlder: () => loadOlder(),
+    // A Signoff reference is the existing single-item Signoff view: the owner session, exact proposal and decisions stay its own.
+    mountSignoff: (ref, host) => {
+      const signoff = sgCreateView({active: () => !disposed && host.isConnected, body: () => host, inline: true, execution: true, waitingOnly: false,
+        workspace: () => ref.business_slug || 'scope:global', global: !ref.business_id, item: () => ({id: ref.id, businessId: ref.business_id || null})});
+      // The message node joins the document at the end of this render; the view mounts only into a connected host.
+      queueMicrotask(() => { if (host.isConnected) signoff.paint(); });
+      return signoff;
+    },
     onViewportChange: scheduleRead,
     onPendingAction: (action, id) => {
       if (action === 'resend') void resendInput(id);
