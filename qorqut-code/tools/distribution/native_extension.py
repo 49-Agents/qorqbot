@@ -330,6 +330,7 @@ def install(root, archive, expected, *, config=None, resume=False):
             fcntl.flock(app_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise ValueError('Stop Qorqbot before installing an extension') from None
+        launcher.require_completed_update(root)
         lifetime = plain(instance / 'operations/.runtime/instance-lifetime.lock')
         instance_lock = None
         try:
