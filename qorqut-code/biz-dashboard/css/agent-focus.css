@@ -181,10 +181,10 @@
 .agfocus-work-child{margin-left:calc(var(--focus-depth,1) * 20px)}
 .agfocus .agfocus-row .agfocus-work-toggle{border:0;box-shadow:none;border-radius:6px;background:transparent;color:var(--muted)}
 .agfocus .agfocus-row .agfocus-work-toggle[aria-expanded="true"]{background:var(--hover);color:inherit}
-.agfocus .agfocus-work-toggle{display:inline-grid;place-items:center;flex:none;width:22px;height:22px;min-height:0;padding:0;border:0;background:none;margin:0 2px 0 0;vertical-align:middle}
+.agfocus .agfocus-work-toggle{display:inline-grid;place-items:center;flex:none;width:22px;height:22px;min-height:0;padding:0;border:0;background:none;margin:0 0 0 2px;vertical-align:middle}
 .agfocus .agfocus-work-toggle[hidden]{display:none}
 .agfocus-work-toggle[aria-expanded="true"]{background:var(--hover)}
-.agfocus-work-child [data-focus-grip],.agfocus-work-child [data-focus-snooze]{display:none}
+.agfocus-work-child [data-focus-snooze]{display:none}
 .agfocus-work-extras{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin:2px 8px 5px 20px;min-width:0}
 .agfocus .agfocus-reference-chip,.agfocus .agfocus-work-more{display:inline-flex;align-items:center;gap:4px;flex:none;min-height:0;padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;margin:0}
 .agfocus .agfocus-reference-chip{max-width:160px}
