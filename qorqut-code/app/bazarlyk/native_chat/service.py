@@ -37,6 +37,7 @@ class NativeBackend:
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._recovered = False
+        self._working = {}
         arbiter.wake = self.wake
 
     @property
@@ -129,6 +130,15 @@ class NativeBackend:
             observed = self.probe.observe(profile)
             reconciled = self.registry.reconcile(profile, observed)
             session = reconciled.session
+            # Hook-only changes (for example finishing a turn or waiting for
+            # permission) need to reach Chat even without new transcript bytes.
+            working = (session["id"], bool(observed.observation.working)) if reconciled.live else None
+            agent_id = profile["agent_id"]
+            if self._working.get(agent_id) != working:
+                with self.database.transaction(operation="native_chat.working") as uow:
+                    self.runtime.application.ensure_writes_open(uow)
+                    store.bump(uow.connection, agent_id)
+                self._working[agent_id] = working
             if session is not None and session["transcript_path"]:
                 step = self.indexer.step(profile, session)
                 if step.more:
