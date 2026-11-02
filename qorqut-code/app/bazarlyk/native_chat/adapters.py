@@ -55,8 +55,8 @@ class TerminalAdapter:
                                                            "runtime": PROVIDER_RUNTIMES[session["provider"]]})}
         # ``steer`` lets the text coexist with a running turn (the client queues or steers it as if the owner typed it); the
         # composer must still be verified empty and the single normal submit is the only key. ``echo`` demands the whole pasted
-        # text visible in the composer before it is submitted; Chat's long free-form text may be clipped by the client and is
-        # the one producer that may do without. A producer without ``steer`` also keeps the idle-only default.
+        # text visible in the composer before it is submitted; Chat and Telegram free-form text may be collapsed by the client
+        # and may do without the whole-text echo. A producer without ``steer`` also keeps the idle-only default.
         return backend.owner_input(delivery, text, workdir=workdir, checkpoint=checkpoint,
                                    require_paste_echo=echo, allow_busy=steer)
 

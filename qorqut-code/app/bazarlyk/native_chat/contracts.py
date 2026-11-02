@@ -49,7 +49,7 @@ STATE_UNCERTAIN = "uncertain"
 STATE_FAILED = "failed"
 STATE_UNDELIVERED = "undelivered"
 STATES = (STATE_WAITING, STATE_SUBMITTING, STATE_SUBMITTED, STATE_UNCERTAIN, STATE_FAILED, STATE_UNDELIVERED)
-# A state an input never leaves.
+# Final transport states; later transcript evidence can prove arrival without changing them.
 FINAL_STATES = (STATE_SUBMITTED, STATE_UNCERTAIN, STATE_FAILED, STATE_UNDELIVERED)
 # What a result reports when no durable row was created: nothing was admitted and nothing was typed.
 RESULT_DEFERRED = "deferred"

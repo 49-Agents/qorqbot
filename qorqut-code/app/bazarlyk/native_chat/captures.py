@@ -30,6 +30,7 @@ from bazarlyk.native_archive import CaptureBinding, CaptureError, FinalCaptureEv
 from . import store
 from .projection import Lineage, Projector, ProjectorState
 from .reader import proven_type
+from .delivery_reconciliation import DeliveryReconciler
 
 LOG = logging.getLogger(__name__)
 BATCH_RECORDS = 20_000
@@ -86,6 +87,7 @@ class Indexer:
         self._archive_factory = archive_factory
         self._seen: dict[tuple, tuple] = {}
         self._attempts: dict[tuple, int] = {}
+        self._deliveries = DeliveryReconciler(runtime)
 
     @property
     def database(self):
@@ -129,6 +131,7 @@ class Indexer:
         result.receipt_id = receipt.receipt_id
         try:
             self._index(archive, capture, session, receipt, final, result)
+            self._deliveries.step(archive, session, receipt)
         except CaptureError as error:
             return self._failed(capture, error.code, error.retryable, result)
         return result

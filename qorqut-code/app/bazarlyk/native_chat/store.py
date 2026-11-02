@@ -370,8 +370,11 @@ def input_view(row: dict, binding: dict | None) -> dict:
     session it was admitted for (see :func:`public_bindings`), kept after that session ends. Text is present only while the
     native conversation does not yet hold it; the idempotency key only for the owner's own Chat inputs."""
     evidence = json.loads(row["evidence_json"])
+    # Preserve the immutable transport outcome; later archive evidence proves arrival for Chat.
+    confirmed = (row["state"] == STATE_UNCERTAIN and row["input_type"] == "telegram"
+                 and row["reason"] == "transcript_confirmed" and evidence.get("native_input_observed") is True)
     return {"id": row["id"], "kind": "input", "sequence": row["sequence"], "origin": row["origin"], "input_type": row["input_type"],
-            "state": row["state"], "reason": row["reason"], "body": row["body"], "session_id": row["session_id"],
+            "state": STATE_SUBMITTED if confirmed else row["state"], "transport_state": row["state"], "reason": row["reason"], "body": row["body"], "session_id": row["session_id"],
             "binding": binding, "idempotency_key": chat_key(row),
             "evidence": evidence, "created_at": row["created_at"], "settled_at": row["settled_at"]}
 

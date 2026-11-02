@@ -31,7 +31,7 @@ from qorqut_operations.contracts import DomainError
 from . import store
 from .contracts import (INPUT_TYPES, MAX_TEXT_CHARS, ORIGIN_SYSTEM, RESULT_DEFERRED, RESULT_REJECTED, STATE_FAILED,
                         STATE_SUBMITTED, STATE_SUBMITTING, STATE_UNCERTAIN, STATE_UNDELIVERED, STATE_WAITING, TYPE_CHAT,
-                        TYPE_NUDGE, TYPE_RECOVERY, InputRequest, InputResult, NativeChatError)
+                        TYPE_NUDGE, TYPE_RECOVERY, TYPE_TELEGRAM, InputRequest, InputResult, NativeChatError)
 from .probe import (ProbeResult, REASON_CAPTURE_DISABLED, REASON_LIVE, REASON_UNSUPPORTED, REASON_UNSUPPORTED_RUNTIME,
                     SessionProbe)
 from .projection import marker_text
@@ -209,10 +209,11 @@ class InputArbiter:
         if adapter is None:
             return OwnerInputOutcome("deferred", "unsupported_transport"), "none"
         try:
-            # ``steer`` lets the text be typed into a verified empty composer while a turn runs. Only Chat's long, free-form text
-            # may be clipped by the client when pasted, so only Chat may go without the whole-text echo; every other producer
-            # (nudges included) keeps the echo-verified path.
-            return adapter.submit(profile, session, text, steer=steer, echo=input_type != TYPE_CHAT, checkpoint=checkpoint), adapter.name
+            # Owner Chat and Telegram can both contain long free-form text that the client collapses.
+            # Both keep exact-session, empty-composer and post-paste mode checks before one Enter.
+            # System notices and other producers retain whole-text echo verification.
+            return adapter.submit(profile, session, text, steer=steer,
+                                  echo=input_type not in {TYPE_CHAT, TYPE_TELEGRAM}, checkpoint=checkpoint), adapter.name
         except StaleSession:
             return OwnerInputOutcome("deferred", "stale_session"), adapter.name
         except (DomainError, OSError, ValueError, KeyError, RuntimeError) as error:

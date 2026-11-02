@@ -96,6 +96,16 @@ def internal_notification(body: Any) -> bool:
     return isinstance(body, str) and _OPENING_TAG.match(body.lstrip(_LEADING_SPACE)) is not None
 
 
+def unwrap_claude_paste(text):
+    # Claude's expanded paste representation is provider chrome around the full input.
+    # Accept only an entire single wrapper with matching IDs, never an embedded quotation.
+    match = re.fullmatch(r'\s*<pasted_content id="([0-9]+)">\n(.*?)\n</pasted_content id="\1">\s*',
+                             text, re.S)
+    if match:
+        return match.group(2)
+    return text
+
+
 def text_blocks(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -260,7 +270,7 @@ class Projector:
             if (isinstance(attachment, dict) and attachment.get("type") == "queued_command"
                     and isinstance(attachment.get("origin"), dict) and attachment["origin"].get("kind") == "human"
                     and attachment.get("commandMode") == "prompt" and not attachment.get("isMeta")):
-                text = text_blocks(attachment.get("prompt"))
+                text = unwrap_claude_paste(text_blocks(attachment.get("prompt")))
                 return self._user(identity, text, value, record)
             return Result()
         message = value.get("message")
@@ -268,7 +278,7 @@ class Projector:
             return Result()
         text = text_blocks(message.get("content"))
         if kind == "user":
-            return self._user(identity, text, value, record)
+            return self._user(identity, unwrap_claude_paste(text), value, record)
         final = message.get("stop_reason") in COMPLETING_STOPS
         if not text.strip():
             if final:
