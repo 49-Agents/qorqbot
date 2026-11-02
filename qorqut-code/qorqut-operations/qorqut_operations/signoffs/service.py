@@ -224,7 +224,14 @@ class SignoffService:
         value["actionable"] = row["state"] == "pending" and not row["superseded_by_id"]
         value["execution_state"] = self.ports.execution.execution_state(row, uow)
         if row["category"] == "platform_action":
-            value["platform"] = self.ports.require("platform", PLATFORM_UNAVAILABLE).view(row, uow)
+            if self.ports.platform is ABSENT:
+                # Removing an optional integration must not make retained Signoffs,
+                # owner attention, or their discussion unreadable. This projection
+                # grants no execution authority; mutations still require the port.
+                value["actionable"] = False
+                value["platform"] = {"available": False, "execution": {"historical": True}}
+            else:
+                value["platform"] = self.ports.platform.view(row, uow)
         value["review_scope"] = ({"kind": "business", "business_id": row["review_business_id"]}
                                  if row["review_business_id"] else {"kind": "global"})
         value["legacy_review_routing"] = (row["review_scope_kind"] == "business"
