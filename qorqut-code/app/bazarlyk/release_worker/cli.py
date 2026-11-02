@@ -75,6 +75,9 @@ def build_parser() -> argparse.ArgumentParser:
     helper_update = commands.add_parser("v12-helper-activate", help="activate explicitly selected same-protocol native helpers without restarting sessions")
     helper_update.add_argument("--selection", type=Path, required=True)
     helper_update.add_argument("--confirm-adopt", action="store_true")
+    role_adopt = commands.add_parser("v12-role-adopt", help="adopt one reviewed local role revision for explicitly selected agents of the live v1.2 instance during a bounded application stop")
+    role_adopt.add_argument("--selection", type=Path, required=True)
+    role_adopt.add_argument("--confirm-adopt", action="store_true")
     projection_preview = commands.add_parser("v12-agent-projection-preview", help="read-only preview of stale generated agent setup copied into fresh agent workspaces")
     projection_preview.add_argument("--selection", type=Path, required=True)
     projection_preview.add_argument("--destination", type=Path, required=True)
@@ -138,6 +141,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "v12-helper-activate":
             from .v12_helpers import activate
             _json(activate(args.selection, confirm=args.confirm_adopt))
+            return 0
+        if args.command == "v12-role-adopt":
+            from .v12_role_adoption import adopt
+            _json(adopt(args.selection, confirm=args.confirm_adopt))
             return 0
         if args.command == "v12-host-deploy":
             from .v12_repair import host_deploy
