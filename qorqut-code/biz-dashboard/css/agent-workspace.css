@@ -51,6 +51,7 @@
 .agent-workspace-app .agpad .thead.agpad-ping-head { gap:4px; padding-right:18px; }
 .agent-workspace-app .agpad .thead .ttabs { flex:1 1 180px; min-width:0; gap:4px; margin:0; padding:0; overflow-y:hidden; }
 .agent-workspace-app .agpad .ttab { flex:0 0 30px; width:30px; min-width:30px; height:30px; padding:6px; border-radius:5px; }
+.agent-workspace-app .agpad .ttab[data-v="ideas"] { margin-left:auto; }
 .agent-workspace-app .agpad .tind { height:30px; border-radius:5px; background:#252525; }
 .agent-workspace-app .agpad .tind::before { display:none; }
 .agent-workspace-app .agpad-ping.switch { height:32px; }

@@ -73,6 +73,10 @@ function agpadHeadViews(p) {
     header.splice(header.indexOf("viewbox"), 1);
     header.splice(header.indexOf(header.includes('calendar') ? 'calendar' : 'focus') + 1, 0, "viewbox");
   }
+  if (p.workspaceRole === "ordubashy" && header.includes("ideas")) {
+    header.splice(header.indexOf("ideas"), 1);
+    header.push("ideas");
+  }
   return header;
 }
 function agpadHeadActive(p, view) {
