@@ -170,6 +170,7 @@ class Workflows:
             state = "waiting_arguments"
         return {"run_id": row["run_id"], "workflow_ref": row["workflow_ref"],
                 "workflow_revision": row["workflow_revision"], "state": state, "actor": loads(row["actor"]),
+                "selection": loads(row["selection"]),
                 "created_at": row["created_at"], "updated_at": row["updated_at"],
                 "completed_at": row["completed_at"], "cancelled_at": row["cancelled_at"],
                 "arguments": arguments, "steps": steps, "ready_steps": ready,
@@ -183,17 +184,28 @@ class Workflows:
             conn.execute("BEGIN")
             return {"run": self._view(conn, run_id)}
 
-    def list(self, state=None, limit=100, offset=0):
+    def list(self, state=None, limit=100, offset=0, *, actor=None):
+        """List run histories, optionally restricted to their creator before pagination.
+
+        With no actor this preserves the standalone API's unrestricted behavior.
+        Hosts derive the optional actor from their authenticated identity.
+        """
         if state is not None and (not isinstance(state, str) or state not in RUN_STATES):
             raise InvalidRequestError("unknown workflow state")
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
             raise InvalidRequestError("limit must be an integer between 1 and 1000")
         if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
             raise InvalidRequestError("offset must be a nonnegative integer")
+        creator = normalize_actor(actor) if actor is not None else None
         with self.ctx.store.reader() as conn:
             conn.execute("BEGIN")
+            query = "SELECT run_id FROM runs"
+            parameters = ()
+            if creator is not None:
+                query += " WHERE actor = ?"
+                parameters = (dumps(creator),)
             runs = [self._view(conn, row["run_id"]) for row in conn.execute(
-                "SELECT run_id FROM runs ORDER BY created_at, run_id")]
+                query + " ORDER BY created_at, run_id", parameters)]
             if state is not None:
                 runs = [run for run in runs if run["state"] == state]
             return {"runs": runs[offset:offset + limit], "total": len(runs)}
