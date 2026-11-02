@@ -418,9 +418,17 @@ def install(root, archive, expected, *, config=None, resume=False):
             if config_directory.stat().st_uid != os.getuid() or config_directory.stat().st_mode & 0o077:
                 raise ValueError('Extension configuration directory must be private')
             config_path = plain(config_directory / (expected + '.json'))
+            adoption_journal = plain(instance / 'config/extension-install.json')
             if config_path.exists():
                 if read_json(config_path) != configured:
-                    raise ValueError('Resume requires the identical extension configuration')
+                    admitted = (adoption_journal.exists() and
+                        read_json(adoption_journal).get('request', {}).get('bundle_sha256') == expected)
+                    if not resume or admitted:
+                        raise ValueError('Resume requires the identical admitted extension configuration')
+                    # Factory validation may reject config before the backend
+                    # records any request. Correcting that input is safe until
+                    # its schema/managed transaction has actually been admitted.
+                    launcher.save_json(config_path, configured)
             else:
                 launcher.save_json(config_path, configured)
             request = stage / 'dependency-check.json'
@@ -446,7 +454,6 @@ def install(root, archive, expected, *, config=None, resume=False):
             instance_lock.close(); instance_lock = None
             command = [python, '-I', '-B', '-m', 'bazarlyk.bootstrap.extension_install', '--prepared-root', runtime,
                        '--instance-root', instance, '--factory', value['factory'], '--bundle-sha256', expected, '--config', config_path]
-            adoption_journal = plain(instance / 'config/extension-install.json')
             if resume and adoption_journal.exists() and read_json(adoption_journal).get('request', {}).get('bundle_sha256') == expected:
                 command.append('--resume')
             with plain(stage / 'adoption.log').open('ab') as log:
