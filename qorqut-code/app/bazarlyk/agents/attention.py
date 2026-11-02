@@ -41,6 +41,8 @@ class Attention:
                       global_capability='read_global_context', resolve_namespace=lambda c, a: 'global')
         shared = {'scope': {'const': 'global'}, 'agent_id': ID}
         self.app.registry.register(OperationDescriptor('attention_get', schema({**shared,
+            'projection': {'enum': ['detail', 'summary', 'focus'],
+                'description': 'detail includes full Tasks; summary returns board rows; focus omits memberships.'},
             'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}, 'cursor': {'type': 'string', 'maxLength': 2000}}),
             **common, effect_kind='read', read=lambda c,a,o,u: self.read(c,a,u)))
         ops = {
@@ -144,9 +146,15 @@ class Attention:
         uow.connection.execute("UPDATE attention_reminders SET state=CASE WHEN emission_started_at IS NOT NULL THEN 'uncertain' ELSE 'cancelled' END,updated_at=?,revision=revision+1 WHERE agent_id=? AND state IN ('pending','claimed')" + (" AND kind IN ('focus','workflow_detach')" if focus_only else ''), (now, agent))
 
     def task(self, ctx, ref, uow, *, lifecycle_only=False):
-        agent = configured_ordubashy(uow, require_codex=False)
         if ctx.principal_kind == 'human':
-            peer = self.app.policy.context_for(agent, business_id=None, review_business_id=None, uow=uow)
+            memo = getattr(uow, 'memo', None) if not getattr(uow, 'writable', True) else None
+            key = ('attention_coordinator_context', id(self))
+            peer = memo.get(key) if memo is not None else None
+            if peer is None:
+                agent = configured_ordubashy(uow, require_codex=False)
+                peer = self.app.policy.context_for(agent, business_id=None, review_business_id=None, uow=uow)
+                if memo is not None:
+                    memo[key] = peer
             # The coordinator's reach must be checked, but its thread/history is
             # not part of the owner's response. Authorize the same Task only.
             self.task(peer, ref, uow, lifecycle_only=True)
@@ -292,11 +300,27 @@ class Attention:
                 'blocker_reason': (row['blocker_reason'] or '')[:1000] if blocked else ''}
         except Exception: return unavailable
 
+    @staticmethod
+    def task_summary(task, uow):
+        # Share the Task's type/worker projections; opening the row still reads
+        # its full record. Histories, relationship graphs and long authored
+        # fields are not needed to render or change a board row's state.
+        from qorqut_operations.tasks.types import attributes
+        from qorqut_operations.tasks.workers import project_workers
+        typed = attributes(task)
+        return {**{key: task[key] for key in ('id', 'business_id', 'title', 'status', 'revision', 'created_at', 'parent_id')},
+            'archived': bool(task.get('archived')),
+            **{key: typed[key] for key in ('task_type', 'customer_kind', 'customer_state')},
+            **project_workers(uow, task)}
+
     def read(self, ctx, args, uow):
         ctx, agent = self.context(ctx, args, uow)
         state = self.state(uow, agent)
+        projection = args.get('projection', 'detail')
         items = []
-        for row in uow.connection.execute('SELECT * FROM attention_memberships WHERE agent_id=?', (agent,)):
+        memberships = (() if projection == 'focus' else uow.connection.execute(
+            'SELECT * FROM attention_memberships WHERE agent_id=?', (agent,)))
+        for row in memberships:
             ref = {'type':'task','id':row['task_id'],'business_id':row['task_business_id']}
             try:
                 # Ordering and membership checks need lifecycle fields, not
@@ -316,9 +340,11 @@ class Attention:
             inverted = ''.join(chr(127-ord(char)) for char in completed) if completed else '\x7f'
             return (rank, inverted, item['added_at'], item['membership_id'])
         selected, next_cursor = page(items, args, None, 'attention_get:'+agent, key=ordering, reverse=False)
-        # Preserve the full Task response contract, but hydrate only this page.
+        # Existing callers retain full Tasks. The board opts into compact rows,
+        # and the workflow header opts into focus only instead of reading a board.
         for item in selected:
-            item['task'] = self.task(ctx, item['task_ref'], uow)
+            item['task'] = (self.task_summary(item['task'], uow) if projection == 'summary'
+                            else self.task(ctx, item['task_ref'], uow))
         focus = state['focus_json']
         intent, task_ref = state['intent'], state['work_task_json']
         if focus:
