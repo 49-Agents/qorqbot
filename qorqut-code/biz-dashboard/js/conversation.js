@@ -68,6 +68,8 @@ async function conversationPrivateCall(source,adapter,operation,args,options={})
 // Fixed, user-facing text for thread failures. Transport errors never reach the UI.
 const CONVERSATION_TEXT = {load:"Couldn't load. Try again",unconfirmed:"Couldn't confirm delivery. Retry Send",changed:'Conversation changed. Review it before sending again',blocked:"Can't send here"};
 // Send refusals that mean the source changed under the draft: the retry is dropped and the owner must review.
+// Errors meaning the source itself is gone or no longer readable by this owner.
+const CONVERSATION_GONE = ['forbidden','not_found','policy_denied','invalid_principal'];
 const CONVERSATION_REVIEW = ['revision_conflict','stale_signoff','not_found','forbidden','policy_denied','invalid_principal'];
 // Normalizes canonical notes (already in controller order) into shared view entries.
 function conversationEntries(notes,adapter) {
@@ -135,6 +137,52 @@ function conversationTimeline(s,adapter,source) {
   }
   return entries.sort((a,b)=>(a.timestamp || '').localeCompare(b.timestamp || ''));
 }
+// ---- Task context and optional reference readers. Presentation only: both are read-only views over canonical
+// reads, built from text nodes or the shared safe renderer, and neither enters the private message store.
+function conversationEl(tag,cls,text) {
+  const node=document.createElement(tag);
+  if(cls)node.className=cls;
+  if(text!=null)node.textContent=text;
+  return node;
+}
+function conversationWhen(value) {
+  const date=value?new Date(value):null;
+  return date && !Number.isNaN(date.getTime())?date.toLocaleString([],{dateStyle:'medium',timeStyle:'short'}):'';
+}
+// References identify a provider and two URL-escaped opaque components. Core never chooses an account.
+function conversationEmailRef(ref) {
+  if(ref?.type!=='email' || typeof ref.id!=='string' || /[\r\n]/.test(ref.id))return null;
+  const parts=ref.id.split(':');
+  const component=/^(?:[A-Za-z0-9_.!~*'()-]|%[0-9A-Fa-f]{2})+$/;
+  if(parts.length!==3 || !/^[a-z][a-z0-9_-]{0,63}$/.test(parts[0])
+      || !component.test(parts[1]) || !component.test(parts[2]))return null;
+  try {
+    const account=decodeURIComponent(parts[1]),message=decodeURIComponent(parts[2]);
+    return account && message?{provider:parts[0],account,message}:null;
+  } catch(_) {return null;}
+}
+// Only selected extension assets register a reader. Each open creates a fresh reader with its own lifecycle.
+const CONVERSATION_REFERENCE_READERS=new Map();
+function registerConversationReferenceReader(provider,mount) {
+  if(typeof provider!=='string' || provider.trim()!==provider || !/^[a-z][a-z0-9_-]{0,63}$/.test(provider)
+      || typeof mount!=='function' || CONVERSATION_REFERENCE_READERS.has(provider))
+    throw new Error('Invalid or duplicate conversation reference reader');
+  CONVERSATION_REFERENCE_READERS.set(provider,mount);
+}
+window.registerConversationReferenceReader=registerConversationReferenceReader;
+function conversationReferenceMount(host,onClose) {
+  let reader=null;
+  return {
+    isOpen:()=>!!reader?.isOpen(),
+    open(parsed) {
+      const mount=CONVERSATION_REFERENCE_READERS.get(parsed.provider);
+      if(!mount)return false;
+      reader?.dispose();reader=mount(host,onClose);reader.open(parsed);return true;
+    },
+    close:()=>reader?.close(),
+    dispose:()=>{reader?.dispose();reader=null;}
+  };
+}
 function conversationMount(host,source,adapter={}) {
   if (!host) return;
   const key=conversationKey(source);
@@ -150,9 +198,18 @@ function conversationMount(host,source,adapter={}) {
   const signoffViews=new Set();
   const mountId=++conversationMountId;
   const panelId=`conversation-panel-${mountId}`;
-  host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span><span class="conversation-unread" data-conversation-unread aria-hidden="true" hidden></span></button><section id="${panelId}" class="conversation-panel" role="region" aria-label="Conversation with Ordubashy" hidden><div class="conversation-view"></div></section>`;
+  host.innerHTML=`<button type="button" class="quiet conversation-toggle" aria-label="Comment" aria-expanded="false" aria-controls="${panelId}"><span class="conversation-toggle-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 12.5z"/></svg></span><span class="conversation-unread" data-conversation-unread aria-hidden="true" hidden></span></button><section id="${panelId}" class="conversation-panel" role="region" aria-label="Conversation with Ordubashy" hidden><div class="conversation-context" hidden></div><div class="conversation-reference-reader" hidden></div><div class="conversation-view"></div></section>`;
   const toggle=host.querySelector('.conversation-toggle'),panel=host.querySelector('.conversation-panel');
   const unreadDot=host.querySelector('[data-conversation-unread]');
+  const ctxEl=panel.querySelector('.conversation-context'),readerEl=panel.querySelector('.conversation-reference-reader'),viewEl=panel.querySelector('.conversation-view');
+  // The Task overview and recent progress belong to this mount's last related read; they are never chat messages.
+  let ctx=null,ctxError=false,ctxGen=0,ctxMoreBusy=false,ctxMoreError=false,ctxSig='',ctxOpen=false,referenceGeneration=0;
+  const referenceReader=conversationReferenceMount(readerEl,()=>{
+    if(disposed)return;
+    viewEl.hidden=false;ctxSig='';paintContext();
+    restoring=true;
+    try {chat.layout();if(saved)chat.setScrollState(saved);} finally {restoring=false;}
+  });
   // Focus keeps its composer reachable while the feed is collapsed: the same shared form is placed outside the panel.
   let composerHost=null;
   if(adapter.inlineComposer) {
@@ -181,11 +238,111 @@ function conversationMount(host,source,adapter={}) {
   const clearError=()=>{if(errorText)setError('');};
   let painted='';
   function paint(mode='auto') {
-    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,relatedReady]);
+    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null,relatedReady,!!ctx]);
     if(painted===signature && mode==='auto')return;
     painted=signature;
-    chat.render({entries:conversationTimeline(s,{...adapter,related:adapter.related && relatedReady},recordSource),older:{visible:!!s.before,disabled:false},empty:{text:s.loaded && !s.notes.length?'No messages yet':''}},{scroll:mode});
+    chat.render({entries:conversationTimeline(s,{...adapter,related:adapter.related && relatedReady},recordSource),older:{visible:!!s.before,disabled:false},empty:{text:s.loaded && !s.notes.length?(ctx?'No private messages yet':'No messages yet'):''}},{scroll:mode});
     if(adapter.inlineComposer)host.querySelectorAll('[title]').forEach(el=>el.removeAttribute('title'));
+  }
+  function refButton(ref) {
+    const button=conversationEl('button','gchat-reference quiet',ref.label || (ref.type==='email'?'Email conversation':ref.type) || 'Reference');
+    button.type='button';button.disabled=!!ref.unavailable;
+    button.onclick=()=>openRef(ref);
+    return button;
+  }
+  function noteNode(note) {
+    const box=conversationEl('article','conversation-context-note');
+    const head=conversationEl('div','conversation-context-meta');
+    head.append(conversationEl('strong',null,conversationPersonName(note)),conversationEl('span',null,conversationWhen(note.created_at)));
+    const body=conversationEl('div','conversation-context-text md');body.innerHTML=chatViewMarkdown(note.body || '');
+    box.append(head,body);
+    const refs=(note.refs || []).filter(ref=>ref.type!=='dev_ticket');
+    if(refs.length){const row=conversationEl('div','gchat-references');for(const ref of refs)row.append(refButton(ref));box.append(row);}
+    return box;
+  }
+  function paintContext() {
+    if(disposed)return;
+    const signature=JSON.stringify([ctx,ctxError,ctxMoreBusy,ctxMoreError,referenceReader.isOpen()]);
+    if(signature===ctxSig)return;
+    ctxSig=signature;
+    if(referenceReader.isOpen() || (!ctx && !ctxError)){ctxEl.hidden=true;ctxEl.replaceChildren();return;}
+    const box=conversationEl('section','conversation-context-box');
+    box.setAttribute('aria-label',ctx?.task_type==='story'?'Story context':'Task context');
+    if(ctx) {
+      const title=conversationEl('div','conversation-context-title');
+      title.append(conversationEl('strong',null,'Overview'));
+      if(ctx.status)title.append(conversationEl('span','conversation-context-status',String(ctx.status).replace(/_/g,' ')));
+      box.append(title);
+      const overview=conversationEl('div','conversation-context-text md');
+      if(String(ctx.overview || '').trim())overview.innerHTML=chatViewMarkdown(ctx.overview);
+      else overview.append(conversationEl('p','conversation-context-empty','No overview yet.'));
+      box.append(overview);
+      const notes=ctx.notes || [];
+      const progress=conversationEl('div','conversation-context-title');progress.append(conversationEl('strong',null,'Progress'));box.append(progress);
+      if(!notes.length)box.append(conversationEl('p','conversation-context-empty','No progress notes yet.'));
+      else {
+        box.append(noteNode(notes[0]));
+        if(notes.length>1) {
+          const more=conversationEl('details','conversation-context-more');
+          more.open=ctxOpen;more.ontoggle=()=>{ctxOpen=more.open;};
+          more.append(conversationEl('summary',null,`Earlier progress (${notes.length-1})`));
+          for(const note of notes.slice(1))more.append(noteNode(note));
+          box.append(more);
+        }
+      }
+      if(ctx.notes_next_cursor) {
+        if(ctxMoreError)box.append(conversationEl('p','conversation-context-empty',"Couldn't load earlier progress."));
+        const earlier=conversationEl('button','quiet',ctxMoreBusy?'Loading…':ctxMoreError?'Retry':'Load earlier progress');
+        earlier.type='button';earlier.disabled=ctxMoreBusy;earlier.onclick=()=>{void loadEarlier();};box.append(earlier);
+      }
+    }
+    if(ctxError) {
+      box.append(conversationEl('p','conversation-context-empty',"Couldn't load the overview and progress."));
+      const retry=conversationEl('button','quiet','Retry');retry.type='button';retry.onclick=()=>{void loadRelated();};box.append(retry);
+    }
+    ctxEl.replaceChildren(box);ctxEl.hidden=false;
+  }
+  // Earlier progress uses the canonical Task read in the Project the context named.
+  // The source is no longer readable: drop everything read from it and invalidate outstanding context and mail reads.
+  function dropContext() {
+    ctx=null;ctxError=false;ctxGen++;relatedGeneration++;referenceGeneration++;ctxMoreBusy=false;ctxMoreError=false;
+    referenceReader.close();paintContext();
+  }
+  async function loadEarlier() {
+    if(ctxMoreBusy || !ctx?.notes_next_cursor || !current())return;
+    const gen=ctxGen,slug=ctx.business_slug;
+    ctxMoreBusy=true;ctxMoreError=false;paintContext();
+    try {
+      const path=slug?`/biz/${encodeURIComponent(slug)}`:'/root';
+      const data=coreData(await conversationRequest(post(`${path}/operations/tasks_get`,{scope:slug?'business':'global',task_id:source.id,notes_cursor:ctx.notes_next_cursor,notes_limit:5})));
+      if(!current() || gen!==ctxGen)return;
+      const seen=new Set(ctx.notes.map(n=>n.id));
+      const task=data.task || {};
+      ctx={...ctx,notes:[...ctx.notes,...(task.notes || []).filter(n=>!seen.has(n.id))],notes_next_cursor:task.notes_next_cursor ?? null};
+    } catch(e) {
+      if(!current() || gen!==ctxGen)return;
+      if(CONVERSATION_GONE.includes(e.code)){dropContext();return;}
+      ctxMoreError=true;
+    } finally {if(gen===ctxGen){ctxMoreBusy=false;if(current())paintContext();}}
+  }
+  async function openRef(ref) {
+    if(ref?.type==='email') {
+      const parsed=conversationEmailRef(ref),generation=++referenceGeneration;
+      if(!parsed){setError('This email reference is unavailable.');return;}
+      try {if(typeof extensionsLoad==='function')await extensionsLoad();}
+      catch(_) {
+        if(current() && generation===referenceGeneration)setError('This email reader is unavailable. Try again.');
+        return;
+      }
+      if(!current() || generation!==referenceGeneration)return;
+      if(!CONVERSATION_REFERENCE_READERS.has(parsed.provider)) {
+        setError('This email reader is unavailable. Install and enable its connector to open it.');return;
+      }
+      clearError();captureScroll();
+      viewEl.hidden=true;referenceReader.open(parsed);paintContext();
+      return;
+    }
+    return Promise.resolve(adapter.openReference?adapter.openReference(ref):taskProgressOpenReference(ref.business_slug ?? source.biz,ref)).catch(()=>setError(CONVERSATION_TEXT.load));
   }
   let relatedPending=false,relatedGeneration=0;
   // Later related pages follow the existing feed viewport: reaching the end again after leaving it loads exactly
@@ -208,6 +365,7 @@ function conversationMount(host,source,adapter={}) {
     try {
       let result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,...(more?{offset}:{})});
       if(!current() || generation!==relatedGeneration)return;
+      const first=result;
       const records=more?[...(s.related || []),...(result.items || [])]:[...(result.items || [])];
       let pages=more?(s.relatedPages || 1)+1:1;
       // Refresh the depth already opened, so polling neither discards older related rows nor retains revoked ones.
@@ -224,11 +382,18 @@ function conversationMount(host,source,adapter={}) {
       s.relatedOffset=more && result.next_offset!=null && result.next_offset<=offset ? null : result.next_offset;
       s.relatedPages=pages;
       relatedReady=true;
+      if(!more) {
+        // A refresh replaces the snapshot; a later related page leaves it alone.
+        ctx=source.type==='task' && first.context?first.context:null;ctxError=false;ctxMoreError=false;ctxMoreBusy=false;ctxGen++;
+        paintContext();
+      }
       paint();adapter.onRelated?.(s.related);
     } catch(e) {
       if(!current() || generation!==relatedGeneration)return;
       s.related=[];relatedReady=false;s.relatedOffset=null;s.relatedPages=0;
-      if(more)relatedBlocked=true;
+      if(CONVERSATION_GONE.includes(e.code))dropContext();
+      else if(more)relatedBlocked=true;
+      else if(source.type==='task'){ctxError=true;paintContext();}
       paint();adapter.onRelated?.([]);
     } finally {relatedPending=false;}
   }
@@ -283,8 +448,8 @@ function conversationMount(host,source,adapter={}) {
     } catch(e){
       if(!current())return;
       if(e.code==='record_moved')adapter.onMoved?.(e);
-      if(['forbidden','not_found','policy_denied','invalid_principal'].includes(e.code)){
-        s.notes=[];s.related=[];relatedReady=false;relatedGeneration++;s.participants=[];s.loaded=false;s.before=null;adapter.onRelated?.([]);
+      if(CONVERSATION_GONE.includes(e.code)){
+        s.notes=[];s.related=[];relatedReady=false;dropContext();s.participants=[];s.loaded=false;s.before=null;adapter.onRelated?.([]);
         paint();
         adapter.onUnavailable?.(e);
       }
@@ -383,9 +548,7 @@ function conversationMount(host,source,adapter={}) {
     },
     // Only a record-pane host can supply Task navigation; other references keep their existing handler.
     onTask:adapter.openReference ? ref=>adapter.openReference(ref) : null,
-    onReference:ref=>{
-      if(ref)Promise.resolve(adapter.openReference?adapter.openReference(ref):taskProgressOpenReference(ref.business_slug ?? source.biz,ref)).catch(()=>setError(CONVERSATION_TEXT.load));
-    },
+    onReference:ref=>{if(ref)void openRef(ref);},
     onEntryAction:(actionKey,entryKey)=>{
       const note=actionKey==='parent'?s.notes.find(n=>n.id===entryKey):null;
       if(note && adapter.openParent)Promise.resolve().then(()=>adapter.openParent(note)).catch(()=>setError(CONVERSATION_TEXT.load));
@@ -405,7 +568,7 @@ function conversationMount(host,source,adapter={}) {
       disposed=true;expanded=false;
       s.mounts.delete(host);
       if(s.loadOwner===view){s.loading=false;s.loadOwner=null;}
-      chat.dispose();
+      referenceReader.dispose();chat.dispose();
       toggle.onclick=null;
       if(host._conversation===view){delete host._conversation;delete host.dataset.conversation;}
       toggle.remove();host.replaceChildren();

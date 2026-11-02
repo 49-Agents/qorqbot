@@ -6,9 +6,12 @@ grants access, and every one runs inside the Task write it belongs to."""
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
+from urllib.parse import unquote
 
 from qorqut_operations.application.plans import IDENTITY, ref, schema
+from qorqut_operations.contracts import DomainError
 from qorqut_operations.tasks import TaskPorts
 from qorqut_operations.tasks.scope import task_namespace
 
@@ -21,10 +24,31 @@ from qorqut_operations.inbox.related import subscribers as related_subscribers
 from bazarlyk.incidents import IncidentReporter
 
 # The reference types a Task note may cite. The first three are also the types Focus notes accept; ``material``
-# (an existing email conversation or document) is resolved by the engine's neutral item resolver.
+# (an existing email conversation or document) is resolved by the engine's neutral item resolver. ``email`` is a Task-note
+# type only: one provider message, stored as ``<provider>:<account id>:<message id>`` with account/message percent-escaped
+# like JavaScript ``encodeURIComponent``. It names a message for the owner to open; it reads and proves nothing.
 NOTE_REF_TYPES = ("signoff", "task", "dev_ticket")
 NOTE_REFS = {"type": "array", "maxItems": 10, "items": schema({"type": {"enum": list(NOTE_REF_TYPES)}, "id": IDENTITY}, ("type", "id"))}
-TASK_NOTE_REF_TYPES = (*NOTE_REF_TYPES, "material")
+TASK_NOTE_REF_TYPES = (*NOTE_REF_TYPES, "material", "email")
+EMAIL_PROVIDER = re.compile(r"[a-z][a-z0-9_-]{0,63}")
+EMAIL_COMPONENT = re.compile(r"(?:[A-Za-z0-9_.!~*'()-]|%[0-9A-Fa-f]{2})+")
+
+
+def email_reference(identity: str) -> tuple[str, str, str] | None:
+    """A lowercase provider ID and two decoded, nonempty account/message components.
+
+    This validates reference syntax only. Provider availability and permission to read
+    a conversation belong to the selected connector, not the Task note.
+    """
+    if not isinstance(identity, str):
+        return None
+    parts = identity.split(":")
+    if len(parts) != 3 or not EMAIL_PROVIDER.fullmatch(parts[0]) or not all(EMAIL_COMPONENT.fullmatch(part) for part in parts[1:]):
+        return None
+    try:
+        return parts[0], unquote(parts[1], errors="strict"), unquote(parts[2], errors="strict")
+    except UnicodeDecodeError:
+        return None
 
 
 class HostAssignees:
@@ -65,17 +89,25 @@ class HostIncidents:
 
 
 class HostNoteReferences:
-    """``dev_ticket`` notes and the derived references the selected extensions resolve on read; every other reference is
-    a neutral item."""
+    """``dev_ticket`` and ``email`` notes and the derived references the selected extensions resolve on read; every other
+    reference is a neutral item."""
 
     types = TASK_NOTE_REF_TYPES
-    host_types = ("dev_ticket",)
+    host_types = ("dev_ticket", "email")
 
     def __init__(self, application, derivations=()):
         self.application = application
         self.derivations = tuple(derivations)
 
     def resolve(self, ctx, item, uow, builder=None):
+        if item["type"] == "email":
+            # Format only: no mail is read or checked here, and no mail access is granted. A new note must carry a well-formed
+            # identity; a stored malformed one reads as unavailable instead of failing the whole Task read.
+            if email_reference(item["id"]) is None:
+                if builder is not None:
+                    raise DomainError("validation_error", "An email reference is <provider>:<account id>:<message id>, with a lowercase provider ID and percent-escaped account/message components")
+                raise DomainError("not_found", "Email reference is not readable")
+            return {"label": "Email conversation", "state": None}
         tickets = DevTickets()
         ticket = tickets.ticket(uow, item["id"])
         if ctx.principal_kind == "human":
@@ -148,4 +180,4 @@ def task_ports(application, derivations=()) -> TaskPorts:
 
 
 __all__ = ["HostAssignees", "HostFocus", "HostIncidents", "HostNoteReferences", "HostRouting", "NOTE_REFS",
-           "NOTE_REF_TYPES", "task_ports"]
+           "NOTE_REF_TYPES", "email_reference", "task_ports"]

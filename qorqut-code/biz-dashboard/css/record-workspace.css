@@ -33,6 +33,7 @@
 .rw .agfocus-conversation>.conversation-panel{display:flex;flex:1;flex-direction:column;min-height:0;padding:0;border:0;border-radius:0}
 .rw .agfocus-conversation>.conversation-panel[hidden]{display:none}
 .rw .agfocus-conversation>.conversation-panel>.conversation-view{flex:1;height:auto;min-height:0}
+.rw .agfocus-conversation>.conversation-panel>.conversation-reference-reader{flex:1;height:auto;min-height:0}
 .rw .agfocus-conversation>.conversation-inline-compose{flex:none;margin-top:5px;min-width:0}
 .rw .agfocus-conversation>.conversation-inline-compose:not(:has(.gchat-composer:not([hidden]))){display:none}
 .rw-dashboard [data-task-back],.rw-dashboard .global-task-editor-heading [data-back]{display:none}

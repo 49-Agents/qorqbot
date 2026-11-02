@@ -20,9 +20,9 @@ import httpx
 
 from qorqut_operations.application.catalog import CatalogContribution
 
-from bazarlyk.extensions import Assets, CalendarProvider, Extension
+from bazarlyk.extensions import Assets, CalendarProvider, Extension, OwnerRoute
 from bazarlyk.agentic.text import render
-from qorqut_operations.contracts import PolicyDecision
+from qorqut_operations.contracts import DomainError, PolicyDecision
 
 from .outcome import email_outcome
 
@@ -32,6 +32,7 @@ from .client import EngineClient
 from .config import from_config
 
 ID = "fastmail"
+OWNER_READS = ("fastmail_capabilities_get", "fastmail_message_get", "fastmail_thread_get")
 # Stable HTTP statuses for this extension's own refusals; unlisted codes keep the host's defaults.
 STATUSES = {"account_mismatch": 409, "request_conflict": 409, "sender_identity_denied": 403}
 
@@ -77,7 +78,11 @@ class Fastmail(Extension):
         return {entry.name: guidance for entry in operations.catalog_entries()}
 
     def assets(self):
-        return Assets(Path(__file__).parent / "assets", scripts=("fastmail.js",))
+        return Assets(Path(__file__).parent / "assets", scripts=("fastmail.js",), styles=("fastmail.css",))
+
+    def owner_routes(self):
+        return tuple(OwnerRoute("POST", ("root", "extensions", ID, "operations", name), owner_read_route(name))
+                     for name in OWNER_READS)
 
     def error_statuses(self):
         return dict(STATUSES)
@@ -99,6 +104,21 @@ class Fastmail(Extension):
     def route_client(self) -> EngineClient:
         """The managed sender-route interface used by Paper's explicit optional route (``route_change`` / ``routes``)."""
         return self.client()
+
+
+def owner_read_route(name):
+    """Exactly the optional conversation reader's Global reads, behind the host's owner/origin checks."""
+    async def handle(api, request, actor, request_id):
+        import anyio
+        from bazarlyk.transport.http import read_json, response, split_options
+        context, _ = api.context(actor)
+        args, options = split_options(await read_json(request))
+        if (options.business_id is not None or options.review_business_id is not None
+                or args.pop("scope", "global") != "global"):
+            raise DomainError("forbidden", "Fastmail reads are Global and cannot select a project")
+        result = await anyio.to_thread.run_sync(lambda: api.runtime.application.invoke(context, name, args, options))
+        return response(result, statuses=api.statuses)
+    return handle
 
 
 def create(config=None, **injected):

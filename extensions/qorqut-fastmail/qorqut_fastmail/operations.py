@@ -70,10 +70,11 @@ READS = {
         "has_keyword": {"type": "string", "minLength": 1, "maxLength": 64}, "before": TEXT, "after": TEXT,
         "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "position": {"type": "integer", "minimum": 0}}),
         "Search messages in the account; at most 100 per page."),
-    "fastmail_message_get": (schema({"message_id": _REF}, ("message_id",)), "Read one message with its expected_state."),
-    "fastmail_thread_get": (schema({"thread_id": _REF, "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+    "fastmail_message_get": (schema({"account_id": _ACCOUNT, "message_id": _REF}, ("message_id",)),
+                             "Read one message with its expected_state. Optional account_id must name the configured account."),
+    "fastmail_thread_get": (schema({"account_id": _ACCOUNT, "thread_id": _REF, "limit": {"type": "integer", "minimum": 1, "maximum": 100},
                                     "position": {"type": "integer", "minimum": 0}}, ("thread_id",)),
-                            "Read one thread page; at most 100 messages per page."),
+                            "Read one thread page; at most 100 messages per page. Optional account_id must name the configured account."),
     "fastmail_attachment_get": (schema({"attachment_id": _REF, "message_id": _REF, "offset": {"type": "integer", "minimum": 0},
                                         "limit": {"type": "integer", "minimum": 1, "maximum": MAX_ATTACHMENT_CHUNK}},
                                        ("attachment_id", "message_id")),
@@ -263,7 +264,7 @@ class FastmailOperations:
         elif op == "fastmail_receipt_get":
             result = self.receipt(client, args["request_id"], uow)
         else:
-            self.account(client)            # every account-specific read first proves the engine serves the configured account
+            self.account(client, args.get("account_id"))  # prove the configured and any explicitly named account before fetching
             if op == "fastmail_identities_list":
                 result = client.identities()
             elif op == "fastmail_folders_list":

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 license = "BUSL-1.1"
 license-files = ["LICENSE", "LICENSES/Apache-2.0.txt", "RELEASE-LICENSES.json"]
 name = "qorqut-fastmail"
-version = "0.2.0"
+version = "0.2.1"
 description = "Optional Fastmail mail and calendar provider for a Qorqbot host"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -23,4 +23,4 @@ include = ["qorqut_fastmail*"]
 
 # Only the selected extension imports this managed guide and loads these approval assets.
 [tool.setuptools.package-data]
-qorqut_fastmail = ["resources/index.json", "resources/email-management/providers/*.md", "assets/*.js"]
+qorqut_fastmail = ["resources/index.json", "resources/email-management/providers/*.md", "assets/*.js", "assets/*.css"]
