@@ -22,6 +22,7 @@ from qorqut_operations.document_history.lifecycle import DocumentLifecycle, RESO
 from qorqut_operations.storage.database import Database
 
 from bazarlyk.extensions import NO_EXTENSIONS
+from bazarlyk.agentic.inbox_schema import storage_contribution as agentic_inbox_storage
 from bazarlyk.instance_paths import InstancePaths
 from bazarlyk.native_chat.schema import storage_contribution as native_chat_storage
 from bazarlyk.storage import history
@@ -72,7 +73,7 @@ def host_contributions(change_feed, extensions=NO_EXTENSIONS):
     generated ``agent_activity`` observations. The sealed-snapshot metadata of outbound
     Telegram files (``telegram_file_payloads``) is the host's own table beside the generated ``telegram`` tables it references."""
     return (*storage_contributions(), signoff_storage(), background_storage(), native_chat_storage(), inbox_nudges_storage(),
-            agent_work_storage(), telegram_media_storage(),
+            agent_work_storage(), telegram_media_storage(), agentic_inbox_storage(),
             FileEffectContribution("documents", {DOCUMENTS: DocumentLifecycle()}, history.RECEIPTS),
             RecordEffectContribution("records", HostRecordEffects()),
             TransactionContribution("inbox", finalizers=inbox_finalizers(extensions.sources)),
@@ -121,8 +122,9 @@ def require_additive_registrations(assembly: Assembly, extensions, core_validato
     from bazarlyk.inbox.service import SOURCES
     from qorqut_operations.inbox import THREAD_SOURCES, visible_types
     from qorqut_operations.storage.inventory import compile_target
+    from bazarlyk.agentic.inbox import SOURCE as AGENTIC_CHANGES
     core_sources = {*compile_target(host_assembly(assembly.change_publisher, NO_EXTENSIONS)).columns, *SOURCES, *THREAD_SOURCES,
-                    *ITEM_TYPES, *FOCUS_SOURCE_TABLES.values()}
+                    *ITEM_TYPES, *FOCUS_SOURCE_TABLES.values(), AGENTIC_CHANGES}
     core_kinds = {*visible_types(ITEM_TYPES).values(), *FOCUS_SOURCE_TABLES}
     replaced = sorted(set(extensions.package_validators) & set(core_validators))
     if replaced:

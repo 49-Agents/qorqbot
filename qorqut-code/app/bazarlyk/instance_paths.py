@@ -12,6 +12,7 @@ Layout under ``instance_root``::
     operations/                           records and working material of this instance
       files/                              global authored working material
       context/                            the one published shared Context
+      agentic/                            authored agentic Git tree (explicitly initialized)
       agents/{agent_id}/                  global agent workspace (Ordubashy and Learning Applier may use configured names)
       extensions/{name}/                  owner-editable guidance of an optional instruction package (seeded once)
       projects/{folder}/{hq,code}         project notes/documents and project source code
@@ -19,6 +20,7 @@ Layout under ``instance_root``::
       .runtime/operations.sqlite3         the one operational database
       .runtime/locks/                     application claims, apply locks and the recovery lock
       .runtime/context/                   Context-owned execution and index state
+      .runtime/agentic/                   agentic module state, separate from its authored tree
       .runtime/context-questions.sqlite3  host-owned external review questions (outside the Context and its runtime)
       .runtime/history.git/               private operational Git snapshots
     qorqut-roles/                         the separate role-source repositories
@@ -169,6 +171,16 @@ class InstancePaths:
     @property
     def context_runtime(self) -> Path:
         return self._checked(self._operations / ".runtime" / "context")
+
+    @property
+    def agentic_root(self) -> Path:
+        """The agentic authoring tree; resolving the path creates nothing."""
+        return self._checked(self._operations / "agentic")
+
+    @property
+    def agentic_runtime(self) -> Path:
+        """Agentic module state outside its authoring tree and Context."""
+        return self._checked(self._operations / ".runtime" / "agentic")
 
     @property
     def context_questions(self) -> Path:

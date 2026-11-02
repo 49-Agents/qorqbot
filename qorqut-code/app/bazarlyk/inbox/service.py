@@ -50,6 +50,9 @@ class HostInbox:
 
     def event_visible(self, ctx, row, uow):
         app = self.inbox.app
+        if row['source_type'] == 'agentic_changes':
+            bridge = getattr(self, 'agentic_inbox_bridge', None)
+            return bridge is not None and bridge.visible_reference(ctx, row, uow) is not None
         if row['source_type'] == 'operational_assignments':
             if ctx.delegation_assignment_id is not None:
                 return False
@@ -90,6 +93,11 @@ class HostInbox:
         return None
 
     def decorate_before_extensions(self, ctx, row, item, uow):
+        if row['source_type'] == 'agentic_changes':
+            bridge = getattr(self, 'agentic_inbox_bridge', None)
+            reference = bridge.visible_reference(ctx, row, uow) if bridge is not None else None
+            if reference is not None:
+                item['agentic_change'] = reference
         if row['source_type'] == 'owner_conversations':
             # Event columns and the bound source only; never a body.
             item['source'] = json.loads(row['visibility_json'] or '{}').get('source')
