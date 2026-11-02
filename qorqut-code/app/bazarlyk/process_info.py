@@ -193,7 +193,7 @@ def owns_listener(pid, port, address=None):
 
 
 def owned(root, *, exclude=()):
-    """Folder-marker owners; inaccessible same-user environments remain unverified."""
+    """Folder executable/marker owners; inaccessible environments remain unverified."""
     root = str(Path(root).resolve())
     excluded = {os.getpid(), *map(int, exclude)}
     found = []
@@ -204,7 +204,7 @@ def owned(root, *, exclude=()):
             if os.geteuid() not in uids(pid) or is_zombie(pid):
                 continue
             before = identity(pid)
-            selected = environ(pid).get('QORQUT_FOLDER_ROOT') == root
+            selected = exe(pid).is_relative_to(root) or environ(pid).get('QORQUT_FOLDER_ROOT') == root
             if identity(pid) != before:
                 raise OSError('Process identity changed during ownership inspection')
             if selected:
