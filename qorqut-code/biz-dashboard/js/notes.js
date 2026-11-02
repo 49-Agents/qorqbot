@@ -17,8 +17,12 @@ const ntScope = () => state.scope === 'global' || tView === 'globalNotes' ? '/ro
 const ntEndpoint = (scope = ntScope()) => scope === '/root' ? '/root/notes' : `/biz/${encodeURIComponent(scope)}/notes`;
 const ntActive = () => tView === 'notes' || tView === 'globalNotes' || tView === 'businessNotes';
 const ntBusinessScope = () => !!ntScope() && ntScope() !== '/root';
-// Project notes are ordinary documents of the selected project; the project is always sent explicitly.
-const ntTarget = () => ntBusinessScope() ? {target_business_id: ntScope()} : {};
+// Project notes are ordinary documents of one project. The routes keep the URL slug, but `target_business_id` is the stable
+// project UUID from the project directory, resolved from the slug captured when the operation started (never a slug, never the
+// currently selected project). Root/private requests carry no target. A project with no known id sends nothing and fails.
+const ntProjectId = slug => { const b = (state.bizs || []).find(x => x.slug === slug); return b?.id || b?.business_id || null; };
+const ntTarget = (slug = ntScope()) => slug && slug !== '/root' ? {target_business_id: ntProjectId(slug)} : {};
+const ntTargetMissing = slug => !!slug && slug !== '/root' && !ntProjectId(slug);
 // Only the owner writes from this dashboard; other humans read.
 const ntReadOnly = () => ntBusinessScope() && state.session?.is_owner === false;
 const ntListKey = () => ntScope();
@@ -58,20 +62,25 @@ function ntPreview(content) {
 async function ntFetch() {
   if (!ntScope()) { ntNotes = []; return; }
   const key = ntListKey(), biz = ntScope();
-  const r = await api(ntEndpoint(biz) + (ntBusinessScope() ? `?target_business_id=${encodeURIComponent(biz)}` : ''));
+  if (ntTargetMissing(biz)) { toast("Couldn't load. Retry"); return; }
+  const r = await api(ntEndpoint(biz) + (biz !== '/root' ? `?target_business_id=${encodeURIComponent(ntProjectId(biz))}` : ''));
   if (ntListKey() !== key) return;
   if (Array.isArray(r)) { ntNotes = r; ntLoadedScope = key; } else if (r && r.error) toast("Couldn't load. Retry");
 }
 const ntById = id => ntNotes.find(n => n.id === id);
-async function ntCreate(fields) {
-  const r = await post(ntEndpoint(), {...(fields || {}), ...ntTarget()});
+async function ntCreate(fields, biz = ntScope()) {
+  if (ntTargetMissing(biz)) { toast("Couldn't save. Try again"); return null; }
+  const r = await post(ntEndpoint(biz), {...(fields || {}), ...ntTarget(biz)});
   if (r && r.error) { toast("Couldn't save. Try again"); return null; }
   return r;
 }
 async function ntPatch(biz, id, fields) {
   const before = ntById(id) || {}, editing = ntEditState;
   let r;
-  try { r = await post(`${ntEndpoint(biz)}/${encodeURIComponent(id)}`, {expected_revision:before.revision,expected_content_hash:before.content_hash,...(biz!=='/root'?{target_business_id:biz}:{}),...fields}); }
+  try {
+    if (ntTargetMissing(biz)) throw new Error('This project is unavailable.');
+    r = await post(`${ntEndpoint(biz)}/${encodeURIComponent(id)}`, {expected_revision:before.revision,expected_content_hash:before.content_hash,...ntTarget(biz),...fields});
+  }
   catch(error) { r={error:error.message || 'Could not save this page.'}; }
   if (r && r.error) {
     toast("Couldn't save. Try again");
@@ -83,8 +92,9 @@ async function ntPatch(biz, id, fields) {
   if (ntScope()===biz && before.id===id) Object.assign(before,r);
   return r;
 }
-async function ntDeleteReq(id, version = ntById(id) || {}) {
-  const r = await post(`${ntEndpoint()}/${encodeURIComponent(id)}/delete`, {expected_revision:version.revision,expected_content_hash:version.content_hash,...ntTarget()});
+async function ntDeleteReq(id, version = ntById(id) || {}, biz = ntScope()) {
+  if (ntTargetMissing(biz)) { toast("Couldn't save. Try again"); return null; }
+  const r = await post(`${ntEndpoint(biz)}/${encodeURIComponent(id)}/delete`, {expected_revision:version.revision,expected_content_hash:version.content_hash,...ntTarget(biz)});
   if (r && r.error) { toast("Couldn't save. Try again"); return null; }
   return r;
 }
@@ -950,7 +960,7 @@ function ntRenameFlow(n) {
 }
 function ntDeleteFlow(id) {
   const n = ntById(id); if (!n) return;
-  const version = {revision:n.revision,content_hash:n.content_hash};
+  const version = {revision:n.revision,content_hash:n.content_hash}, biz = ntScope();
   const title = n.title && n.title.trim() ? n.title : "Untitled";
   modal({
     title: "Archive page?",
@@ -959,7 +969,7 @@ function ntDeleteFlow(id) {
       { label: "Cancel", onClick: close => close() },
       { label: "Archive", primary: true, onClick: async close => {
         close();
-        const r = await ntDeleteReq(id,version); if (!r) return;
+        const r = await ntDeleteReq(id,version,biz); if (!r) return;
         let nextId = null;
         if (ntSel === id) {
           const capped = ntFilterNotes();
@@ -989,7 +999,7 @@ async function ntPickDay(date) {
   const existing = ntNotes.find(n => String(n.date || n.createdAt || "").slice(0, 10) === date);
   if (existing) return ntSelect(existing.id);
   if (ntReadOnly()) return;
-  const biz = ntScope(), n = await ntCreate({date, ...(ntBusinessScope() ? {title: 'Project note'} : {})});
+  const biz = ntScope(), n = await ntCreate({date, ...(ntBusinessScope() ? {title: 'Project note'} : {})}, biz);
   if (!n || ntScope() !== biz) return;
   await ntFetch();
   if (ntScope() === biz && ntActive()) ntSelect(n.id);
@@ -1080,9 +1090,9 @@ async function ntDoUpload(id) {
     if (ntDoc()) ntSetEditable(ntDoc(), false);
     // The entry ID is already bound by the route. Keep it in local storage so
     // the retry can validate its identity, but send only the supported body.
-    const request = {...attempt, ...(scope !== '/root' ? {target_business_id: scope} : {})};
+    const request = {...attempt, ...ntTarget(scope)};
     delete request.document_id;
-    const r = await post(`${ntEndpoint(scope)}/${encodeURIComponent(id)}/upload`, request);
+    const r = ntTargetMissing(scope) ? {error: 'This project is unavailable.'} : await post(`${ntEndpoint(scope)}/${encodeURIComponent(id)}/upload`, request);
     if (r?.error || r?.status === 'error') {
       if (scope === '/root') ntClearUploadAttempt(id);
       ntUploadUncertainIds.delete(id);

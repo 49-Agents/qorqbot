@@ -143,17 +143,16 @@ async function agentWorkspaceEscape({agent, business, table}) {
   await agpadSetView(_agpad, 'business');
 }
 
-// Ordubashy (Focus) and Learning Applier (Context) have no Business management; Global Marketing keeps it.
+// Ordubashy (Focus) and Learning Applier (Context) have no Business management; no other global role is offered one.
 function agentWorkspaceViews(scope, role) {
   if (scope !== 'global') return [];
   if (role === 'ordubashy') return [];
-  if (role === 'global-marketing') return ['business'];
   if (role === 'learning-applier') return ['global_context'];
   return [];
 }
 function agentWorkspaceDefault(p) {
   if (p.workspaceScope !== 'global') return null;
-  if (['ordubashy', 'global-marketing'].includes(p.workspaceRole)) return 'focus';
+  if (p.workspaceRole === 'ordubashy') return 'focus';
   return agentWorkspaceViews(p.workspaceScope, p.workspaceRole)[0] || null;
 }
 

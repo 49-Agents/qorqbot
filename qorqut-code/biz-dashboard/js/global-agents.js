@@ -55,14 +55,13 @@ const GLOBAL_WORKSPACE_TERMINAL = '__qorqut_workspace_terminal__';
 const globalWorkspaceTerminal = id => /^__qorqut_workspace_terminal(?:_[23])?__$/.test(id || '')
   ? {id: GLOBAL_WORKSPACE_TERMINAL, label: 'Terminal', base: '/root/workspace-terminal'} : null;
 // Ordubashy and Learning Applier are singletons; any number of permanent workers share `global-worker`.
-// `global-marketing` stays listed for a registration that has not been converted to a worker.
-const GLOBAL_AGENT_ROLES = ['ordubashy', 'global-worker', 'global-marketing', 'learning-applier'];
+const GLOBAL_AGENT_ROLES = ['ordubashy', 'global-worker', 'learning-applier'];
 // Keep the owner's primary agents first, independent of API order.
 const globalAgentNavRank = agent => {
   const role = agent.role?.id || agent.role_id;
   if (role === 'ordubashy') return 0;
   if (role === 'learning-applier') return 1;
-  return role === 'global-marketing' ? 2 : 3;
+  return 2;
 };
 // Size varies by location; the saved profile and shared renderer select the artwork.
 function globalAgentNavAvatar(agent) {

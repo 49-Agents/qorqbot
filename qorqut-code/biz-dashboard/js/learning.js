@@ -126,7 +126,7 @@ async function lnFetch() {
   lnItemsBadge(d.items);
   return d;
 }
-// the Context rail badge, same span and class as the marketing one
+// the Context rail badge, same span and class as the other rail badges
 function lnBadgePaint(n) {
   const el = $("#ctxbadge"); if (!el) return;
   const k = Number(n) || 0;
