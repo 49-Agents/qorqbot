@@ -167,7 +167,7 @@ function businessBrowserDispose() { businessBrowser.request++; businessBrowser.b
 async function businessBrowserRead(business) {
   const id = business && (business.id || business.business_id);
   const data = await api(`/biz/${encodeURIComponent(business.slug)}/browser-surfaces`);
-  if (!id || !data || data.business_id !== id || !Array.isArray(data.browsers) || data.browsers.length > 1) throw new Error('Business browser mismatch');
+  if (!id || !data || data.business_id !== id || !Array.isArray(data.browsers) || data.browsers.length > 1) throw new Error('Project browser mismatch');
   const surface = data.browsers.length ? agbrowserSurface(data.browsers[0], 'browser') : null;
   return surface && {...surface, label: business.name || business.slug};
 }

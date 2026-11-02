@@ -3,7 +3,7 @@ const globalProgressCache = new Map();
 function globalProgressMount(host, {signal = pageReads.signal, active = () => true} = {}) {
   const metrics = [['tasks_done','Tasks done','gp-tasks'],['emails_sent','Emails sent','gp-emails'],['inbox_messages','Inbox messages','gp-inbox'],['learnings_accepted','Accepted learnings','gp-learnings'],['cold_outreach_emails_sent','Cold outreach sent','gp-cold-outreach']];
   let days = 30, rows = null;
-  host.innerHTML = `<section class="global-progress" aria-label="Business activity"><header><div class="global-progress-periods" role="group" aria-label="Chart period">${[30,120,365].map(n=>`<button type="button" data-days="${n}" aria-pressed="${n===days}">${n} days</button>`).join('')}</div><div class="global-progress-legend">${metrics.map(([,label,cls])=>`<span class="${cls}">${label}</span>`).join('')}</div></header><div class="global-progress-plot" role="status">Loading activity…</div></section>`;
+  host.innerHTML = `<section class="global-progress" aria-label="Project activity"><header><div class="global-progress-periods" role="group" aria-label="Chart period">${[30,120,365].map(n=>`<button type="button" data-days="${n}" aria-pressed="${n===days}">${n} days</button>`).join('')}</div><div class="global-progress-legend">${metrics.map(([,label,cls])=>`<span class="${cls}">${label}</span>`).join('')}</div></header><div class="global-progress-plot" role="status">Loading activity…</div></section>`;
   const plot = host.querySelector('.global-progress-plot');
   const current = () => host.isConnected && !signal.aborted && active();
   const dateLabel = date => sjDayLabel(date);   // server dates are San Juan calendar days

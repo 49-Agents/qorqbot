@@ -103,7 +103,7 @@ function rtRoutineRow(row) {
     <button class="jricon" data-action="more" aria-label="Actions for ${esc(row.name)}" title="Routine actions">${RT_ICONS.more}</button></div></article>`;
 }
 function rtRunRow(run, index) {
-  const costTitle = (run.scope === 'global' ? 'Total for this global run' : 'Cost of this business run') + (rtCostNote(run) ? ' · ' + rtCostNote(run) : '');
+  const costTitle = (run.scope === 'global' ? 'Total for this global run' : 'Cost of this project run') + (rtCostNote(run) ? ' · ' + rtCostNote(run) : '');
   return `<article class="rtrow rtrunrow" data-run="${index}">
     ${rtScope(run.scope)}<button class="rttitle" data-action="run-detail" title="${esc(run.name || run.routine)}">${esc(run.name || run.routine)}</button>
     <div class="rtmeta" title="${esc(rtTime(run.start, run.zone))}"><span class="${run.ok ? 'rtok' : 'rtfail'}">${rtRunState(run)}</span><span class="sep">·</span><time>${esc(rtTime(run.start, run.zone))}</time><span class="sep">·</span>${esc(run.seconds)}s</div>
@@ -120,7 +120,7 @@ function rtRender() {
   if (!rtVisible()) return;
   const body = $('#tbody'); if (!body) return;
   body.classList.add('rt');
-  if (!rtGlobal() && !rtContextBiz()) { body.innerHTML = '<div class="jrfaint jrfaint-pad">Pick a business first.</div>'; return; }
+  if (!rtGlobal() && !rtContextBiz()) { body.innerHTML = '<div class="jrfaint jrfaint-pad">Pick a project first.</div>'; return; }
   const rows = rtRows(), active = rows.filter(r => r.status === 'active'), paused = rows.length - active.length;
   const logs = Array.isArray(rtRuns) ? rtRuns : [];
   const visible = rtShowPaused ? rows : active;
@@ -194,7 +194,7 @@ function rtDetail(row) {
   const fields = [
     ['Next scheduled',row.status === 'paused' ? 'Paused' : rtTime(row.next,row.zone)],
     ['Program',row.program], ['Arguments',JSON.stringify(row.arguments || {})], ['Departments',(row.departments || []).map(departmentLabel).join(', ')],
-    ['Timeout',row.timeout + ' seconds'], ['Target',row.target || 'business'],
+    ['Timeout',row.timeout + ' seconds'], ['Target',{root:'Global','each-business':'Each project',business:'This project'}[row.target || 'business'] || row.target],
     ...(row.scheduling_available === false ? [['Scheduling',row.scheduling_unavailable_reason || 'Unavailable']] : []),
   ];
   rtDialog = modal({title:esc(row.name),width:620,body:`<div class="tdetail rtdetail"><div class="rtscope">${rtScope(row.scope)}</div><div class="flds">${fields.map(([label,value])=>`<span class="k">${label}</span><span class="v">${label==='Departments'?(row.departments || []).map(departmentTag).join(' '):esc(value)}</span>`).join('')}</div><p>${esc(row.why)}</p></div>`,actions:[
@@ -210,7 +210,7 @@ function rtRunDetail(run) {
   rtDialog = modal({title:esc(run.name || run.routine),width:680,body:`<div class="tdetail rtdetail"><div class="rtscope">${rtScope(run.scope)}<span class="${run.ok ? 'rtok' : 'rtfail'}">${result}</span><span class="rtprice">${rtMoney(run.usd)}</span></div>
     <div class="flds"><span class="k">Started</span><span class="v">${esc(rtTime(run.start,run.zone))}</span><span class="k">Duration</span><span class="v">${esc(run.seconds)} seconds</span>${models ? `<span class="k">Model</span><span class="v">${esc(models)}</span>` : ''}</div>
     ${rtCostNote(run) ? `<p class="rtmuted">${rtCostNote(run)}</p>` : ''}
-    ${(run.runs || []).map(x=>`<details class="mkchain rtoutput" ${(run.runs || []).length === 1 ? 'open' : ''}><summary>${esc(x.slug === 'root' ? 'Businesses root' : x.slug)} · ${rtRunState({...x,running:['queued','running','applying','waiting_signoff','cancel_requested'].includes(x.state)})}${x.rc != null ? ' · rc ' + esc(x.rc) : ''}</summary><pre>${esc(x.stdout_tail || 'No additional output.')}${x.stderr_tail ? '\n\nError: ' + esc(x.stderr_tail) : ''}${x.git_error ? '\nCommit error: ' + esc(x.git_error) : ''}</pre></details>`).join('')}</div>`,actions:[{label:'Close',onClick:close=>close()}]});
+    ${(run.runs || []).map(x=>`<details class="mkchain rtoutput" ${(run.runs || []).length === 1 ? 'open' : ''}><summary>${esc(x.slug === 'root' ? 'Global' : x.slug)} · ${rtRunState({...x,running:['queued','running','applying','waiting_signoff','cancel_requested'].includes(x.state)})}${x.rc != null ? ' · rc ' + esc(x.rc) : ''}</summary><pre>${esc(x.stdout_tail || 'No additional output.')}${x.stderr_tail ? '\n\nError: ' + esc(x.stderr_tail) : ''}${x.git_error ? '\nCommit error: ' + esc(x.git_error) : ''}</pre></details>`).join('')}</div>`,actions:[{label:'Close',onClick:close=>close()}]});
 }
 function rtFormHTML(row = {}) {
   const input = (key,label,value,extra='') => `<label>${label}<input class="inp" name="${key}" value="${esc(String(value == null ? '' : value))}" ${extra}></label>`;
@@ -220,7 +220,7 @@ function rtFormHTML(row = {}) {
     <div id="rtarguments" class="rtwide rtarguments"></div><p id="rtprogramerror" class="rtwide rtfail" role="status"></p>
     ${input('when','Schedule',row.when || '17 4 * * *','required')}${input('tz','Timezone',row.tz || 'UTC','required')}
     <div id="rtpreview" class="rtwide rtmuted" aria-live="polite">Checking next scheduled times…</div>
-    <label id="rttarget" ${row.scope !== 'global' ? 'hidden' : ''}>Run in<select class="inp" name="target"><option value="each-business" ${row.target !== 'root' ? 'selected' : ''}>Each business</option><option value="root" ${row.target === 'root' ? 'selected' : ''}>Businesses root</option></select></label>
+    <label id="rttarget" ${row.scope !== 'global' ? 'hidden' : ''}>Run in<select class="inp" name="target"><option value="each-business" ${row.target !== 'root' ? 'selected' : ''}>Each project</option><option value="root" ${row.target === 'root' ? 'selected' : ''}>Global</option></select></label>
     ${input('timeout','Timeout (seconds)',row.timeout || 900,'type="number" min="60" max="7200" required')}
     <fieldset class="rtwide"><legend>Departments</legend>${Object.keys(DEPTS).map(d=>`<label class="rtcheck"><input type="checkbox" name="departments" value="${d}" ${(row.departments || ['operations']).map(departmentId).includes(d) ? 'checked' : ''}>${departmentTag(d)}</label>`).join('')}</fieldset>
     <label class="rtwide">Why<textarea class="inp" name="why" required>${esc(row.why || '')}</textarea></label></div><p id="rterror" class="rtfail" role="alert"></p></form>`;
@@ -318,7 +318,7 @@ function rtFailureToasts(rows) {
     const id = row.id || row.run;
     if (!id || seen.has(id)) return;
     const detail = row.error && row.error.message || (row.runs || []).map(x=>x.stderr_tail).find(Boolean);
-    const scope = row.scope === 'global' ? 'All businesses' : state.biz;
+    const scope = row.scope === 'global' ? (row.target === 'root' ? 'Global' : 'All projects') : state.biz;
     seen.add(id);notify({text:`Routine failed: ${row.name || row.routine}`,sub:[scope,detail || (row.rc != null ? `rc ${row.rc}` : ''),row.end].filter(Boolean).join(' · '),color:'var(--danger)'});
   });
   localStorage.setItem('routine-failures-seen',JSON.stringify([...seen].slice(-500)));

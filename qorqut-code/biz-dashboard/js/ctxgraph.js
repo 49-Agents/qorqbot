@@ -307,7 +307,7 @@ function contextGraph(el, graph, opts = {}) {
     const n = byId.get(selected);
     graph.edges.forEach(e => { if (e.source === selected) neighbors.add(e.target); else if (e.target === selected) neighbors.add(e.source); });
     reader.hidden = false;
-    const kind = n.kind === "group" ? "Collection" : n.kind === "root" ? "Business" : n.kind[0].toUpperCase() + n.kind.slice(1);
+    const kind = n.kind === "group" ? "Collection" : n.kind === "root" ? "Project" : n.kind[0].toUpperCase() + n.kind.slice(1);
     const endpoints = n.kind === "relationship" && Array.isArray(n.item?.endpoints) ? n.item.endpoints : null;
     const endpointDetails = endpoints ? `<div class="ctxgraph-endpoints"><strong>Stored endpoints (${endpoints.length})</strong>${endpoints.length ? endpoints.map((ref,index)=>{
       const target=typeof ref==='string'?byRef.get(ref):null, label=target?.label || (typeof ref==='string'?ref:JSON.stringify(ref));

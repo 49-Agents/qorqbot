@@ -4,7 +4,7 @@ const businessRestoreKeys = new Map();   // business id -> idempotency key kept 
 
 function businessRestoreRows(data) {
   const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : null;
-  if (!items) throw new Error('Archived businesses are unavailable.');
+  if (!items) throw new Error('Archived projects are unavailable.');
   return items.map(item => ({...item, id: item.business_id || item.id})).filter(item => item.id);
 }
 
@@ -21,12 +21,12 @@ async function businessRestoreMount(host, restored) {
   } catch (error) {
     if (!host.isConnected) return;
     host.hidden = false;
-    host.innerHTML = `<h2>Archived businesses</h2><p role="alert">${esc(uiFailure(error, {load: true}))}</p>`;
+    host.innerHTML = `<h2>Archived projects</h2><p role="alert">${esc(uiFailure(error, {load: true}))}</p>`;
     return;
   }
   if (!host.isConnected || !rows.length) return;
   host.hidden = false;
-  host.innerHTML = `<h2>Archived businesses</h2><ul class="global-archived-list">${rows.map(row => `<li data-archived-business="${esc(row.id)}">
+  host.innerHTML = `<h2>Archived projects</h2><ul class="global-archived-list">${rows.map(row => `<li data-archived-business="${esc(row.id)}">
     <span class="global-archived-name"><strong>${esc(row.name || row.slug)}</strong><span class="muted small">${esc(row.slug || '')}${row.archived_at ? ' · archived ' + esc(String(row.archived_at).slice(0, 10)) : ''}</span></span>
     <button class="btn" type="button" data-restore-business="${esc(row.id)}">Restore</button></li>`).join('')}</ul>`;
   host.querySelectorAll('[data-restore-business]').forEach(button => {
@@ -40,7 +40,7 @@ function businessRestoreConfirm(row, host, restored) {
   let busy = false;
   modal({
     title: `Restore ${name}?`, width: 460,
-    body: `<p>${esc(name)} returns to the business menu with its resources.</p>
+    body: `<p>${esc(name)} returns to the project menu with its resources.</p>
       <p class="muted">Its saved work is preserved. No agent is restored and no session starts.</p>
       <p class="ferr" id="business-restore-error" role="alert" hidden></p>`,
     actions: [

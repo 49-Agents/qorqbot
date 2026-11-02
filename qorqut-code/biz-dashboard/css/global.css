@@ -102,3 +102,5 @@ button.global-metric:hover { transform: none; color: var(--fg); }
 .global-agents .global-roster .item.agent { justify-content: flex-start; }
 .global-agents .nm > .chat-unread-dot { position: absolute; top: -3px; right: -6px; margin: 0; }
 .global-agents .global-workspace-terminal .nm, .global-agents .global-workspace-settings .nm { gap: 6px; }
+.global-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; max-width: 866px; }
+.global-heading-row h1 { margin-bottom: 0; }

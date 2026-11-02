@@ -329,7 +329,7 @@ function openTopic(p) {
     _ctxLastSig = ctxSig(d, p);
     v.classList.add('global-context-graph-view');
     const biz = state.biz;
-    return pubMountGraph(v, {kind: 'business', id: biz}, ctxNav(), {storageKey: `ctxgraph:published:v1:business:${biz}`, caption: 'Business context'});
+    return pubMountGraph(v, {kind: 'business', id: biz}, ctxNav(), {storageKey: `ctxgraph:published:v1:business:${biz}`, caption: 'Project context'});
   }
   const node = ctxFind(d.tree, p);
   if (!node) { v.innerHTML = `<div class="empty">no such topic</div>`; return; }

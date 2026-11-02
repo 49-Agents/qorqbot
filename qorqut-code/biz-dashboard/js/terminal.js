@@ -179,7 +179,7 @@ function renderTerminals(content) {
   const listEl = $("#termlist", content);
   api(`/biz/${state.biz}/agents`).then(agents => {
     state.agents = Array.isArray(agents) ? agents : [];
-    if (!state.agents.length) { listEl.innerHTML = `<div class="empty">No agents in this business.</div>`; return; }
+    if (!state.agents.length) { listEl.innerHTML = `<div class="empty">No agents in this project.</div>`; return; }
     listEl.innerHTML = state.agents.map(a =>
       `<div class="item" data-agent="${esc(a.name)}">${agentGlyph(a, 16)}<span>${esc(a.name)}</span></div>`).join("");
     listEl.querySelectorAll(".item").forEach(el => el.onclick = () => openTerm(el.dataset.agent, listEl));

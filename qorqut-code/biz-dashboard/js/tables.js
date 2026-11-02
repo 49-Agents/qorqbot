@@ -405,7 +405,7 @@ async function tablesOpen(biz, id, mode = 'tables', filters = {}) {
   const embeddedTables = embeddedAgentPane && embeddedTablesView();
   const inPlace = biz != null && state.scope === 'business' && state.biz === biz && !embeddedTables;
   if (!embeddedTables && !inPlace) {
-    if (biz != null && !state.bizs.some(b => b.slug === biz)) { toast('This business is unavailable.'); return; }
+    if (biz != null && !state.bizs.some(b => b.slug === biz)) { toast('This project is unavailable.'); return; }
     const link = {scope: biz == null ? 'global' : biz, id: id || '', mode, filters: {department: filters.department || '', purpose: filters.purpose || ''}};
     if (embeddedAgentPane) return window.parent.agentWorkspaceEscape?.({table: link});
     ovOpen('tables', '', {...link, ...link.filters});

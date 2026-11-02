@@ -33,7 +33,7 @@ const agentWorkspaceSectionIcon = key => ({overview: GLOBAL_ICONS.globe, costs: 
 // navigation or editor state. The child still uses native authenticated reads.
 function agentWorkspaceSnapshot() { return structuredClone({bizs: state.bizs, session: state.session}); }
 
-Object.assign(T_VIEW_LABEL, {business: 'Business management', global_context: 'Context'});
+Object.assign(T_VIEW_LABEL, {business: 'Project management', global_context: 'Context'});
 Object.assign(T_VIEW_ICON, {
   business: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12a24 24 0 0 0 18 0M10 13h4"/></svg>',
   global_context: SVG_BRAIN,
@@ -78,6 +78,8 @@ async function agentWorkspaceRedirect(destination) {
   history.replaceState({...(history.state || {}), agentPane: agentWorkspaceRequest}, '', location.pathname + location.search + '#/global/agents');
   return true;
 }
+// The role of the agent pane that hosts an embedded page, for the few page controls that belong to one role.
+function agentWorkspaceActiveRole() { return _agpad?.workspaceRole || null; }
 function agentWorkspaceTakeRequest() { const request = agentWorkspaceRequest; agentWorkspaceRequest = null; return request; }
 function agentWorkspaceStore(descriptor) {
   if (embeddedAgentPane || location.hash !== '#/global/agents') return;
@@ -136,7 +138,7 @@ function agentWorkspaceUnavailable(c, tab) {
 async function agentWorkspaceEscape({agent, business, table}) {
   if (agent) return globalAgentsNavigate(agent);
   if (table) { globalThis.ovOpen?.('tables', '', {scope: table.scope, id: table.id, mode: table.mode, ...table.filters}); return; }
-  if (!state.bizs.some(b => b.slug === business)) { toast('This business is unavailable.'); return; }
+  if (!state.bizs.some(b => b.slug === business)) { toast('This project is unavailable.'); return; }
   // A selected agent with no Business pane leaves the business to the guarded top-level selection.
   if (!_agpad?.views.includes('business')) return selectBiz(business);
   ls(AGENT_WORKSPACE_BIZ_KEY, business); ls(agentWorkspaceSectionKey(business), 'tasks');
@@ -227,12 +229,12 @@ function agentWorkspaceMount(p, view) {
   // A Tables link opens the Tables section (Ordubashy only); a remembered section the role no longer offers falls to the first allowed.
   const offered = () => agentWorkspaceOffered(business, p.workspaceRole);
   let section = hint?.section === 'tables' && offered().some(([key]) => key === 'tables') ? 'tables' : agentWorkspaceSection(business, undefined, p.workspaceRole);
-  body.innerHTML = `<section class="agent-business-workspace" aria-label="Business management">
-    <div class="agent-business-controls"><nav class="agent-business-sections" aria-label="Business sections"></nav></div>
+  body.innerHTML = `<section class="agent-business-workspace" aria-label="Project management">
+    <div class="agent-business-controls"><nav class="agent-business-sections" aria-label="Project sections"></nav></div>
     <div class="agent-business-screen"></div></section>`;
   const picker = document.createElement('label'), head = $('.thead', p.el);
   picker.className = 'agent-business-picker';
-  picker.innerHTML = `<select aria-label="Choose business"><option value="global">Global</option>${businesses.map(b => `<option value="${esc(b.slug)}">${esc(b.name || b.slug)}</option>`).join('')}</select>`;
+  picker.innerHTML = `<select aria-label="Choose project"><option value="global">Global</option>${businesses.map(b => `<option value="${esc(b.slug)}">${esc(b.name || b.slug)}</option>`).join('')}</select>`;
   head.classList.add('agent-business-head');
   head.append(picker);
   const select = $('select', picker), screen = $('.agent-business-screen', body);
@@ -324,7 +326,7 @@ async function agentWorkspaceBootEmbedded() {
 }
 
 async function agentWorkspaceNavigateEmbedded(view, business = 'global', section, route = '') {
-  if (business !== 'global' && !state.bizs.some(b => b.slug === business)) throw new Error('This business is unavailable.');
+  if (business !== 'global' && !state.bizs.some(b => b.slug === business)) throw new Error('This project is unavailable.');
   if (view !== 'tables') section = agentWorkspaceSection(business, section);
   const tablesView = view === 'tables' || (view === 'business' && section === 'tables');
   state.scope = !['business', 'tables'].includes(view) || business === 'global' ? 'global' : 'business';
@@ -367,7 +369,7 @@ function agentWorkspaceRenderEmbedded(c) {
   }
   if (state.scope !== 'global') return false;
   if (view === 'business' && state.globalTab === 'overview') {
-    c.innerHTML = '<section class="pane global-content" aria-label="Overview"><div id="global-progress"></div></section>';
+    c.innerHTML = `<section class="pane global-content" aria-label="Overview"><header class="global-heading-row"><h1>Projects</h1></header>${state.bizs.length ? '' : '<p class="muted" data-no-projects>No projects yet. Ask Ordubashy to create one.</p>'}<div id="global-progress"></div></section>`;
     globalProgressMount($('#global-progress', c));
     return true;
   }

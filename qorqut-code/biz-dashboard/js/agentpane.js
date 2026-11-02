@@ -671,7 +671,7 @@ function agpadPaint(p) {
   if (p.view === "inbox") { agpadPaintInbox(p); return; }
   let html;
   if (p.view === "activity") {
-    html = p.logs ? tActivityHtml(p.logs, `No actions in the latest ${AGPAD_LOG_N} business log entries.`) : tEmptyHtml("Loading activity…");
+    html = p.logs ? tActivityHtml(p.logs, `No actions in the latest ${AGPAD_LOG_N} project log entries.`) : tEmptyHtml("Loading activity…");
     if (p.logError) html = tEmptyHtml(p.logs ? "Could not refresh activity. Showing the last update." : "Activity unavailable. Retrying…") + (p.logs ? html : "");
   } else if (!p.tasks) {
     html = tEmptyHtml(p.taskError ? "Tasks unavailable. Waiting for the next refresh…" : "Loading tasks…");

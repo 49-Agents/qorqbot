@@ -132,7 +132,7 @@ async function ntFlush() {
 // ---- render dispatch
 function ntRender() {
   const body = $("#tbody"); if (!body) return;
-  if (!ntScope()) { body.className = "tbody"; body.innerHTML = `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">Pick a business first.</p></div>`; return; }
+  if (!ntScope()) { body.className = "tbody"; body.innerHTML = `<div class="tempty"><div class="ic">${SVG_TINBOX}</div><p class="t">Pick a project first.</p></div>`; return; }
   if (ntSel == null) {
     body.className = "tbody nt nt-home";
     body.innerHTML = ntHomeHtml();
@@ -157,7 +157,7 @@ function ntRenderCurrent() {
 function ntCategoryTabsHtml() {
   if (!ntBusinessScope()) return "";
   const current = ntCategory().id;
-  return `<div class="ntcats" role="tablist" aria-label="Business note category">${NT_CATEGORIES.map(c =>
+  return `<div class="ntcats" role="tablist" aria-label="Project note category">${NT_CATEGORIES.map(c =>
     `<button type="button" class="btn quiet${c.id === current ? " on" : ""}" role="tab" aria-selected="${c.id === current}" data-nt-category="${c.id}">${esc(c.section || c.label)}</button>`).join("")}</div>`;
 }
 function ntWireCategoryTabs(root) {
@@ -179,7 +179,7 @@ function ntAuthorName(n) {
 function ntCategoryHint() {
   const c = ntCategory();
   return ntReadOnly() ? `${c.label} notes are written by the owner${c.author ? ` and ${c.author}` : ''}. You can read them here.`
-    : `${c.label} notes for this business, written by you${c.author ? ` and Global ${c.author}` : ''}.`;
+    : `${c.label} notes for this project, written by you${c.author ? ` and Global ${c.author}` : ''}.`;
 }
 
 // ---- homepage

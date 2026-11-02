@@ -25,9 +25,9 @@ function environmentStatusHtml(p) {
     return url ? `<li><span>Port ${preview.port}</span><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open private preview</a></li>` : "";
   }).filter(Boolean).join("") : "";
   const browser = envHttpUrl(environment.browser_viewer_url);
-  return `<section class="env-runtime" aria-label="Business environment status">
-    <div class="env-runtime-head"><h2>Business environment</h2><span class="env-runtime-state">${sandbox ? esc(envStateLabel(environment.state)) : "Host"}</span></div>
-    <p class="muted small">${sandbox ? "The private business workspace is managed separately from the dashboard." : "This business uses the existing host workspace."}</p>
+  return `<section class="env-runtime" aria-label="Project environment status">
+    <div class="env-runtime-head"><h2>Project environment</h2><span class="env-runtime-state">${sandbox ? esc(envStateLabel(environment.state)) : "Host"}</span></div>
+    <p class="muted small">${sandbox ? "The private project workspace is managed separately from the dashboard." : "This project uses the existing host workspace."}</p>
     ${previews ? `<div class="env-runtime-links"><h3>Private previews</h3><ul>${previews}</ul></div>` : ""}
     ${browser ? `<div class="env-runtime-links"><h3>Browser viewer</h3><a href="${esc(browser)}" target="_blank" rel="noopener noreferrer">Open browser viewer</a></div>` : ""}
   </section>`;
@@ -47,7 +47,7 @@ async function renderSettings(c) {
   pane.innerHTML = `
     <div class="set-head"><div>
       <h1 class="set-title">${global ? "Global environment" : "Environment"}</h1>
-      <div class="muted small">${global ? "Shared defaults for all businesses and Global agents. Businesses can override individual values." : "Global values are inherited automatically. Override a value for this business, or use Global again."}</div>
+      <div class="muted small">${global ? "Shared defaults for all projects and Global agents. Projects can override individual values." : "Global values are inherited automatically. Override a value for this project, or use Global again."}</div>
     </div><button class="btn" id="envsave" disabled>Save</button></div>
     <div id="envruntime">${environmentStatusHtml(p)}</div>
     ${global ? '<p class="muted small">Agent Browser views come from the installation’s browser viewer bindings, not from these settings. <strong>MARKETING_AGENT_REMOTE_CONTROL_DESKTOP_SERVER</strong> is deprecated and no longer opens Marketing’s Browser.</p>' : ''}
@@ -114,7 +114,7 @@ function paintEnv(p) {
   ];
   p.pane.querySelector("#envrows").innerHTML = shown.map(row => {
     const override = !p.global && inherited.has(row.key.trim()) && !row.inherited;
-    const source = row.inherited ? "Global" : override ? "Business override" : p.global ? "Global" : "Business";
+    const source = row.inherited ? "Global" : override ? "Project override" : p.global ? "Global" : "Project";
     return `<div class="envrow" data-index="${row.index ?? ""}">
       <div class="envkey"><input class="ek mono" aria-label="Variable name" placeholder="KEY" value="${esc(row.key)}" ${row.inherited ? "disabled" : override ? "readonly" : ""} spellcheck="false"><span class="envsource">${source}</span></div>
       <input class="ev mono" aria-label="Value for ${esc(row.key || "new variable")}" placeholder="value" value="${esc(row.value)}" ${row.inherited ? "disabled" : ""} spellcheck="false">

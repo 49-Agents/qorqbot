@@ -18,10 +18,10 @@ const LN_TAG_BY_KEY = Object.fromEntries(LN_TAGS.map(([k, label, hex]) => [k, { 
 const lnTag = k => LN_TAG_BY_KEY[k] || { key: String(k || ""), label: String(k || "other"), hex: "var(--fg-3)" };
 const lnSvg = inner => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
 const LN_SCOPES = [
-  ["biz", "This business", lnSvg('<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/>')],
+  ["biz", "This project", lnSvg('<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/>')],
   ["agent", "This agent", lnSvg(AICONS.bot)],
   ["agent_kind", "This agent kind", lnSvg('<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m6.08 12.9-3.49 1.59a1 1 0 0 0 0 1.81l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83l-3.51-1.6"/>')],
-  ["global", "All businesses", lnSvg(AICONS.globe)],
+  ["global", "All projects", lnSvg(AICONS.globe)],
 ];
 const LN_SCOPE_BY_KEY = Object.fromEntries(LN_SCOPES.map(([k, label, ico]) => [k, { key: k, label, ico }]));
 const LN_BUCKETS = {
@@ -231,7 +231,7 @@ function lnCardHtml(item, people) {
   const pick = LN_SCOPES.map(([k, label, ico]) => {
     const off = (locked && k !== (it.origin_scope === "global" ? "global" : "biz")) ||
       (it.origin_scope === "global" && (k === "biz" || (["agent", "agent_kind"].includes(k) && !it.observed?.agent))) || !!it.intake_pending;
-    const reason = locked ? 'Context stays in its originating workspace' : k === 'biz' ? 'Global sources cannot select a business' : 'No observed transcript agent';
+    const reason = locked ? 'Context stays in its originating workspace' : k === 'biz' ? 'Global sources cannot select a project' : 'No observed transcript agent';
     return `<button class="lnscope ${it.scope === k ? "on" : ""}" type="button" data-scope="${esc(k)}" ${off ? `disabled title="${esc(reason)}"` : `title="${esc(label)}"`}>${ico}</button>`;
   }).join("");
   const votes = it.votes != null && it.passes ? `<span class="chip" title="passes that agreed">${esc(it.votes)}/${esc(it.passes)}</span>` : "";
