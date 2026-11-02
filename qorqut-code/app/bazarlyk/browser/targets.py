@@ -34,8 +34,8 @@ def unavailable(message="The browser is unavailable"):
 
 class BrowserTargets:
     def __init__(self, runtime, *, desktops=DESKTOP_DIRECTORY):
-        from bazarlyk.native_paths import root
-        if root() is not None and desktops == DESKTOP_DIRECTORY:
+        from bazarlyk.native_paths import root, folder_root
+        if (root() is not None or folder_root() is not None) and desktops == DESKTOP_DIRECTORY:
             desktops = runtime.paths.instance_root / "config/browser-desktops"
         self.runtime, self.desktops = runtime, Path(desktops)
         self._session_module = None

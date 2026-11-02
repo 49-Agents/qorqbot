@@ -37,15 +37,15 @@ The transition tooling does not push source or change repository visibility.
    migration, recovery and notices, and excludes tests, development history,
    build/deployment tools and optional connector payloads. Google Calendar is
    bundled but inactive; Fastmail, Telegram and WhatsApp install separately.
-3. **Build:** `prepare-local.py`, `native_toolchain.py` and `native_build.py` build
+3. **Build:** `prepare-local.py` and `native_build.py` build
    the Ubuntu 24.04 x86-64 archive. Docker is a construction and acceptance tool,
-   not a customer requirement. Record resolved inputs and hashes; do not claim
-   bit-for-bit reproducibility of unfrozen transitive system packages.
+   not a customer requirement. System tools are user-installed dependencies; record the resolved Python library
+   inputs and hashes. Do not claim bit-for-bit reproducibility.
 4. **Contents:** `runtime_source.py audit` plus inspection of the final archive,
    including native assets and third-party wheels. Preserve required attribution.
    Missing or unapproved application licensing blocks publication.
 5. **Archive acceptance:** `check_native.py --archive ARCHIVE --output NEW_EVIDENCE`
-   uses a pinned Ubuntu image, a nonroot user and no network. It checks the actual
+   uses an Ubuntu image with APT-installed prerequisites, a nonroot user and no network. It checks the actual
    archive's setup, verification, startup, local UI and owner, task creation,
    restart, running/bad-checksum update refusal, two same-schema updates, preserved
    database inode/record/document bytes, and writes confined to the installation.
@@ -83,6 +83,5 @@ is not a passing qualification of old database formats.
 
 ## Publication decisions
 
-Application licensing and extension hosting remain
-owner decisions. No command here uploads artifacts, pushes source, deploys the
+Finalize release dates, dependency obligations, source review and asset hosting. No command here uploads artifacts, pushes source, deploys the
 running app or changes repository visibility. Only the owner changes visibility.

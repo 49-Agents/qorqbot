@@ -12,7 +12,7 @@ is no selected release feed, automatic download or extension marketplace.
 
 Stop the application and its agent terminals first. The updater takes both the
 launcher and instance lifetime locks, refuses running terminals, validates the
-archive paths and payload hashes, refuses detached bundled browser/helper processes,
+archive paths and payload hashes, refuses detached installation-owned browser/helper processes, including system executables,
 and checks the current database identity.
 It replaces only `runtime/`. It never replaces `instance/`, restores a database,
 replays provider work or starts an agent.

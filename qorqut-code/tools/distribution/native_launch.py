@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Consumer launcher, copied to runtime/launch.py by native_build.py.
 
-Uses only the bundled interpreter until the offline environment is ready.
+Uses system Python and standard venv/pip with the release wheelhouse.
 No installer, daemon, permission broker or host configuration is installed.
 """
 from __future__ import annotations
@@ -14,12 +14,13 @@ import os
 from pathlib import Path
 import platform
 import signal
+import shutil
 import socket
 import subprocess
 import sys
 import time
 import urllib.request
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, reset_tzpath
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def read_json(path):
@@ -43,13 +44,14 @@ def save_json(path, value):
 
 def environment(root, home):
     runtime = root / 'runtime'
-    native = runtime / 'native'
     env = dict(os.environ)
+    user_home = Path(env.get('HOME', str(Path.home())))
+    user_path = env.get('PATH', os.defpath)
     for key in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'QORQUT_INSTALLATION_CONFIG',
                 'QORQUT_APP_MANIFEST', 'QORQUT_TELEGRAM_CONFIG_FILE', 'BIZ_DASH_TOKEN',
                 'BAZARLYK_MCP_URL', 'QORQUT_TERMINAL_WORKSPACE', 'PIP_TARGET',
                 'PIP_PREFIX', 'PIP_ROOT', 'PIP_USER', 'PYTHONUSERBASE',
-                'CODEX_HOME', 'CLAUDE_CONFIG_DIR'):
+                'QORQUT_NATIVE_ROOT'):
         env.pop(key, None)
     paths = {
         'HOME': home, 'XDG_CONFIG_HOME': home / 'config', 'XDG_CACHE_HOME': home / 'cache',
@@ -61,25 +63,20 @@ def environment(root, home):
         path.mkdir(parents=True, exist_ok=True, mode=0o700)
         env[key] = str(path)
     env.update({
-        'PATH': os.pathsep.join(map(str, [runtime / 'venv/bin', native / 'bin', native / 'node/bin',
-                                        native / 'clis/node_modules/.bin', Path('/usr/bin'), Path('/bin')])),
-        'LD_LIBRARY_PATH': str(native / 'lib'),
-        'SSL_CERT_FILE': str(native / 'share/ca-certificates.crt'),
-        'FONTCONFIG_FILE': str(native / 'share/fonts/fonts.conf'),
-        'PYTHONTZPATH': str(native / 'share/zoneinfo'),
-        'GIT_EXEC_PATH': str(native / 'lib/git-core'),
-        'GIT_TEMPLATE_DIR': str(native / 'share/git-core/templates'),
-        'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
-        'QORQUT_NATIVE_ROOT': str(native),
+        'PATH': str(runtime / 'venv/bin') + os.pathsep + user_path,
+        'QORQUT_FOLDER_ROOT': str(root),
         'QORQUT_CALENDAR_CONFIG': str(root / 'instance/config/calendar.json'),
         'BIZ_DASH_HOST': '127.0.0.1', 'BIZ_TMUX_SOCKET': 'bazarlyk',
+        'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
         'PYTHONDONTWRITEBYTECODE': '1', 'PIP_DISABLE_PIP_VERSION_CHECK': '1',
         'PIP_CONFIG_FILE': os.devnull, 'PIP_NO_INDEX': '1',
-        'npm_config_update_notifier': 'false', 'LANG': 'C.UTF-8',
+        'LANG': 'C.UTF-8',
     })
+    # Vendor clients remain user-installed and use the user's existing account
+    # configuration. Qorqbot's own state and generated workspace files stay here.
+    env.setdefault('CODEX_HOME', str(user_home / '.codex'))
+    env.setdefault('CLAUDE_CONFIG_DIR', str(user_home / '.claude'))
     timezone_file = root / 'instance/config/operational-timezone'
-    if (native / 'share/zoneinfo').is_dir():
-        reset_tzpath([str(native / 'share/zoneinfo')])
     if timezone_file.exists():
         zone = timezone_file.read_text().strip()
     else:
@@ -119,6 +116,50 @@ def run(argv, *, env, cwd):
     subprocess.run(list(map(str, argv)), env=env, cwd=cwd, check=True)
 
 
+def require_prerequisites(env):
+    if sys.version_info[:2] != (3, 12):
+        raise RuntimeError('This Ubuntu 24.04 download requires Python 3.12 and python3.12-venv')
+    if not shutil.which('git', path=env.get('PATH')):
+        raise RuntimeError('Git is required. Install git using your system package manager, then retry.')
+    try:
+        import ensurepip
+    except ImportError:
+        raise RuntimeError('Python venv support is required. Install python3.12-venv, then retry.') from None
+
+
+def require_stopped_terminals(root, env):
+    executable = shutil.which('tmux', path=env.get('PATH'))
+    if not executable:
+        if any((root / '.run').glob('tmux-*/*')):
+            raise ValueError('tmux is unavailable and terminal sockets remain; restore tmux and close this installation’s terminals.')
+        return
+    result = subprocess.run([executable, '-L', 'bazarlyk', 'list-sessions'],
+                            env=env, capture_output=True, text=True)
+    if result.returncode == 0:
+        raise ValueError('Stop this installation’s agent terminals before changing its runtime')
+    if not any(text in result.stderr.lower() for text in ('no server running', 'no such file or directory')):
+        raise ValueError('Could not prove that this installation’s agent terminals are stopped')
+
+
+def installation_processes(root):
+    """Find detached tools owned by this installation, including system executables."""
+    found = []
+    marker = ('QORQUT_FOLDER_ROOT=' + str(root)).encode()
+    for process in Path('/proc').iterdir():
+        if not process.name.isdigit() or int(process.name) == os.getpid():
+            continue
+        try:
+            if process.stat().st_uid != os.getuid():
+                continue
+            owned = (process / 'exe').resolve().is_relative_to(root)
+            owned = owned or marker in (process / 'environ').read_bytes().split(b'\0')
+            if owned:
+                found.append(int(process.name))
+        except (OSError, ValueError):
+            continue
+    return found
+
+
 def prepare(root, env):
     runtime = root / 'runtime'
     marker = runtime / 'ENVIRONMENT.json'
@@ -131,15 +172,14 @@ def prepare(root, env):
     venv = runtime / 'venv'
     if venv.exists():
         raise RuntimeError('An incomplete Python environment remains in runtime/venv. Keep it for diagnosis; setup was not retried.')
-    run([sys.executable, '-m', 'venv', '--without-pip', '--copies', venv], env=env, cwd=root)
+    require_prerequisites(env)
+    run([sys.executable, '-I', '-B', '-m', 'venv', '--copies', venv], env=env, cwd=root)
     python = venv / 'bin/python'
-    pip = list((runtime / 'wheelhouse').glob('pip-*.whl'))
-    if len(pip) != 1:
-        raise RuntimeError('The package needs exactly one bundled pip wheel')
-    bootstrap = 'import runpy,sys;sys.path.insert(0,sys.argv.pop(1));runpy.run_module("pip",run_name="__main__")'
-    wheels = sorted((runtime / 'wheelhouse').glob('*.whl')) + sorted((runtime / 'wheels').glob('*.whl'))
-    # Every input was hash checked. --no-index/--no-deps ensures no first-start download or resolution.
-    run([python, '-I', '-B', '-c', bootstrap, pip[0], 'install', '--no-index', '--no-deps', *wheels], env=env, cwd=root)
+    # Standard pip resolves the declared library dependencies from the verified
+    # local wheelhouse. External programs are never installed by this command.
+    run([python, '-I', '-B', '-m', 'pip', 'install', '--no-index', '--no-compile',
+         '--find-links', runtime / 'wheelhouse', '--find-links', runtime / 'wheels',
+         '--require-hashes', '-r', runtime / 'requirements.lock'], env=env, cwd=root)
     run([python, '-I', '-B', '-m', 'pip', 'check'], env=env, cwd=root)
     save_json(marker, {'format': 1, 'root': str(root)})
 
@@ -235,6 +275,7 @@ def main(argv=None):
         require_completed_extension_installs(runtime)
         require_completed_update(root)
         env = environment(root, runtime / 'setup-state')
+        require_prerequisites(env)
         prepare(root, env)
         record = initialize(root, env)
         if args.command == 'calendar-connect':

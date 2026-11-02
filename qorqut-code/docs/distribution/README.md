@@ -1,54 +1,94 @@
-# Native Linux distribution
+# Qorqbot for Linux
 
-The first download target is Ubuntu 24.04 on Intel/AMD 64-bit machines. Qorqbot
-runs directly from one writable folder. Its code and bundled tools live in
-`runtime/`; records and work live in `instance/operations/`. Configuration,
-profiles, logs, caches and local sockets also stay inside this folder.
+Ubuntu 24.04 on Intel/AMD 64-bit. Install Python 3.12 with venv support and Git
+using Ubuntu's package manager before running Qorqbot:
 
-Extract the archive to a short path, then run `./qorqbot`. Open the local address
-printed by the launcher. Press Ctrl+C to stop the application. `./qorqbot status`
-and `./qorqbot stop` work from another terminal. Agent terminals have independent
-lifetimes; close them before updating or deleting an installation.
+```sh
+sudo apt install python3.12 python3.12-venv git
+```
 
-First launch installs the bundled Python wheels without network access and
-creates a new instance. It never adopts an existing development installation.
-Keep the chosen folder at the same location after initialization: generated
-native hooks and authored workspace bindings contain absolute paths. Linux
-socket limits require an installation path of roughly 50 bytes or fewer.
+For agent terminals, also install `tmux` and your chosen Codex or Claude Code
+client using its vendor's instructions. Authenticate that client yourself.
+Browser automation needs a user-installed compatible Google Chrome and
+`agent-browser`; Node is needed when the selected external tool requires it.
+Desktop viewing additionally requires its configured TigerVNC/Openbox/X11/session
+tools. These programs are not included or installed by Qorqbot. Git 2.43 and tmux
+3.4 are the Ubuntu baseline; Python must be 3.12 for this wheel set.
 
-Users authenticate their own coding clients and connect their own accounts.
-Core includes calendar operations and email guidance. Google Calendar is bundled
-without an account or active connection. With the app stopped, connect it using
-`./qorqbot calendar-connect --name main --google-client /path/to/client.json`.
-The local OAuth helper stores the resulting account configuration under
-`instance/config/`. Fastmail, Telegram and WhatsApp are separate optional installs.
-Paper and content creation are outside this distribution.
+## Install and run
 
-Install a downloaded connector bundle while the app and its agent processes are
-stopped: `./qorqbot extension-install /path/to/connector.tar.gz --sha256 VERIFIED_HASH`.
-The trusted distribution channel must supply that checksum separately. The
-installer verifies the bundled wheels, installs offline, backs up affected state,
-and adds the connector's managed instructions and storage before selecting it.
-If interrupted, repeat the same command with `--resume`; startup stays blocked
-until installation completes. Existing package replacements are refused. This
-local installer does not select a hosting service or provide an extension updater.
+Verify the archive's SHA-256 against the release's checksum, then extract it to a
+short writable folder. Run `./qorqbot` inside that folder and open the printed local
+address. First launch creates a local Python virtual environment and installs the
+included application wheels with standard pip, without network access. It creates
+a fresh instance, never adopts an existing development installation.
 
-Browser automation has an additional operating-system prerequisite. Stock Ubuntu
-24.04 can block the bundled Chrome sandbox when it runs from an arbitrary extracted
-path, because AppArmor restricts unprivileged user namespaces. Core application
-startup does not need Chrome. Browser use needs an administrator-approved namespace
-sandbox policy for the chosen executable, or an explicitly configured compatible
-installed browser. This package does not change host policy or automatically find
-an installed-browser fallback. See [Chromium's explanation](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md)
-and the [Ubuntu 24.04 release notes](https://documentation.ubuntu.com/release-notes/24.04/#unprivileged-user-namespace-restrictions).
+```sh
+tar -xzf qorqbot-VERSION-ubuntu24-x86_64.tar.gz
+cd qorqbot
+./qorqbot
+```
 
-Browser checks on a configured host or inside Docker do not establish browser
-acceptance on a fresh stock Ubuntu host. Record that qualification separately.
+Press Ctrl+C to stop. `./qorqbot status`, `./qorqbot stop` and `./qorqbot verify`
+are available from another terminal. Agent terminals have independent lifetimes;
+close them before updating or deleting the installation. Application files live
+in `runtime/`; your records/work live in `instance/operations/`. Qorqbot's own
+configuration, profiles, logs and caches stay here. Existing vendor clients keep
+using their user-owned account configuration. Explicit `CODEX_HOME` and
+`CLAUDE_CONFIG_DIR` settings are respected.
 
-The folder placement is not a filesystem sandbox. It does not introduce a new
-authorization system or prevent an authorized agent from using another folder.
+Keep the initialized folder at the same location: generated workspace bindings
+contain absolute paths. Use a short path (roughly 50 bytes or fewer) for Linux
+socket limits. This folder placement is not a filesystem sandbox.
 
-See [the release runbook](RELEASE-RUNBOOK.md) for builds and qualification, and
-[updates](UPDATES.md) for the deliberately bounded offline update path.
-An application license and public distribution destination must be selected
-before publication. A development candidate is not a qualified public release.
+## Optional features
+
+The app can run without a browser or an agent client. Install the external tools
+when you need those features. Tools are found on your PATH. You can specify
+`QORQUT_CHROME_EXECUTABLE`, `QORQUT_AGENT_BROWSER_EXECUTABLE` and `QORQUT_PYTHON`
+with explicit executable paths. Use normally installed Chrome with its normal
+sandbox; Qorqbot neither changes AppArmor nor disables the browser sandbox.
+
+Google Calendar is included but inactive. With Qorqbot stopped, run:
+
+```sh
+./qorqbot calendar-connect --name main --google-client /path/to/client.json
+```
+
+You supply the account/client configuration. Fastmail, Telegram and WhatsApp are
+separate optional downloads; you handle accounts and connection setup. Fastmail
+requires your separately configured email engine URL and private token file.
+Install a trusted connector while Qorqbot and its agents are stopped:
+
+```sh
+./qorqbot extension-install /path/to/connector.tar.gz --sha256 VERIFIED_HASH
+```
+
+Use `--config /path/to/config.json` when required. The wrapper uses standard pip
+for the connector wheels and Qorqbot's own migration/configuration routines for
+registration. Interrupted installation requires the same command with `--resume`.
+It does not install vendor programs, log into accounts, or send provider work.
+
+## Backup, update and removal
+
+Back up the whole folder while Qorqbot and its agents are stopped. Update with:
+
+```sh
+./qorqbot update /path/to/qorqbot-VERSION-ubuntu24-x86_64.tar.gz --sha256 VERIFIED_HASH
+```
+
+This release supports only updates with unchanged schemas and managed instruction
+contents, with core/bundled Google only. Updates with separately installed
+connectors are refused until compatible updates are qualified. Instance data is
+never replaced. An interrupted update can be recovered with
+`./qorqbot update --recover` before the new app is admitted to run.
+
+To remove Qorqbot, stop it and its agents, retain any desired backup, then remove
+its folder. This deletes its data. It does not uninstall your external tools.
+
+## License and support
+
+Dependencies retain their own licenses. See the source release's
+license scope and notices. A private candidate is not a published release.
+
+Source build/acceptance instructions are in RELEASE-RUNBOOK.md and PUBLICATION-PIPELINE.md.

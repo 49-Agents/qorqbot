@@ -46,7 +46,8 @@ class NativeLauncher:
             raise ValueError('Browser supervisor does not belong to this installation')
         if self.active(unit):
             return False
-        env = native_paths.environment({'PATH': os.defpath, 'HOME': str(directory), 'LANG': 'C.UTF-8',
+        search_path = os.environ.get('PATH', os.defpath) if native_paths.folder_root() else os.defpath
+        env = native_paths.environment({'PATH': search_path, 'HOME': str(directory), 'LANG': 'C.UTF-8',
                                         'PYTHONDONTWRITEBYTECODE': '1'})
         for key, name in (('TMPDIR', 'tmp'), ('XDG_CACHE_HOME', 'cache'), ('XDG_CONFIG_HOME', 'config'),
                           ('XDG_RUNTIME_DIR', 'run')):
@@ -54,7 +55,7 @@ class NativeLauncher:
             path.mkdir(mode=0o700, exist_ok=True)
             env[key] = str(path)
         with (directory / 'supervisor.log').open('ab') as log:
-            subprocess.Popen([sys.executable, '-m', 'bazarlyk.browser.agent_supervisor', '--state', str(directory)],
+            subprocess.Popen([sys.executable, '-B', '-m', 'bazarlyk.browser.agent_supervisor', '--state', str(directory)],
                              env=env, cwd=directory, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                              start_new_session=True, close_fds=True)
         return True

@@ -383,10 +383,12 @@ class AgentBrowserManager:
         self.systemctl = systemctl or SystemctlAdapter()
         self.probe = probe or cdp_healthy
         from bazarlyk import native_paths
-        native = native_paths.root()
-        if native is not None:
+        native, folder = native_paths.root(), native_paths.folder_root()
+        if native is not None or folder is not None:
             if chrome == CHROME:
-                chrome = native_paths.executable("chrome")
+                chrome = (native_paths.executable("chrome") if native is not None else
+                          native_paths.installed_executable("google-chrome-stable", "google-chrome", "chromium", "chromium-browser",
+                                                            override="QORQUT_CHROME_EXECUTABLE") or CHROME)
             if deployments == DEPLOYMENT_DIRECTORIES:
                 deployments = (runtime.paths.instance_root / "config/browser-desktops",)
             if launcher is None:
@@ -772,14 +774,14 @@ class AgentBrowserManager:
         return self._create(ctx, action, s)
 
     def _create(self, ctx, action, s):
-        runtime_dir = self.runtime_directory()
         try:
+            runtime_dir = self.runtime_directory()
             browser.runtime_executable(runtime_dir)
         except browser.BrowserError as exc:
-            raise DomainError("browser_capability_missing", _bound("The pinned browser runtime is unavailable: " + str(exc))) from None
-        if not (Path(self.chrome).is_file() and os.access(self.chrome, os.X_OK)):
+            raise DomainError("browser_capability_missing", _bound("The browser command is unavailable: " + str(exc))) from None
+        if not (Path(self.chrome).is_absolute() and Path(self.chrome).is_file() and os.access(self.chrome, os.X_OK)):
             raise DomainError("browser_capability_missing", "Chrome is not installed at the supported path " + self.chrome +
-                              "; install the OS browser package (nothing is downloaded here)")
+                              "; install Chrome or set QORQUT_CHROME_EXECUTABLE to its absolute executable path")
         workspace = s.workspace
         if path_has_symlink(workspace) or not workspace.is_dir():
             raise DomainError("browser_workspace_unavailable", "The agent's workspace is not prepared; start the agent once first")

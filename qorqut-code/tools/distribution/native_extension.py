@@ -317,17 +317,7 @@ def load_launcher(runtime):
 
 
 def installation_processes(root):
-    """Same-user detached helpers/browsers still executing inside this folder."""
-    found = []
-    for process in Path('/proc').iterdir():
-        if not process.name.isdigit() or int(process.name) == os.getpid():
-            continue
-        try:
-            if process.stat().st_uid == os.getuid() and (process / 'exe').resolve().is_relative_to(root):
-                found.append(int(process.name))
-        except (OSError, ValueError):
-            continue
-    return found
+    return load_launcher(root / 'runtime').installation_processes(root)
 
 
 def install(root, archive, expected, *, config=None, resume=False):
@@ -357,11 +347,7 @@ def install(root, archive, expected, *, config=None, resume=False):
             for key in ('PIP_TARGET', 'PIP_PREFIX', 'PIP_ROOT', 'PIP_USER', 'PYTHONUSERBASE'):
                 env.pop(key, None)
             env.update(PIP_CONFIG_FILE=os.devnull, PIP_NO_INDEX='1')
-            terminals = subprocess.run([runtime / 'native/bin/tmux', '-L', 'bazarlyk', 'list-sessions'], env=env, capture_output=True, text=True)
-            if terminals.returncode == 0:
-                raise ValueError('Stop this installation’s agent terminals before installing an extension')
-            if not any(message in terminals.stderr.lower() for message in ('no server running', 'no such file or directory')):
-                raise ValueError('Could not prove agent terminals are stopped')
+            launcher.require_stopped_terminals(root, env)
             if installation_processes(root):
                 raise ValueError('Stop this installation’s remaining browsers and helper processes before installing an extension')
             launcher.prepare(root, env)
