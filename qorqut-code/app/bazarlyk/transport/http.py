@@ -861,6 +861,11 @@ class HTTPAPI:
                 return await revalidated_async(request, self.runtime.changes, {"signoffs"}, context.business_id, produce)
             if len(tail) == 2:
                 return response(await anyio.to_thread.run_sync(lambda: self.runtime.signoffs.get(context, tail[1])))
+        if request.method == "POST" and len(tail) == 3 and tail[2] == "amend":
+            body = await read_json(request)
+            required = {"changes", "proposal_revision", "payload_hash", "expected_status_revision", "idempotency_key"}
+            checked_fields(body, required, required)
+            return response(await anyio.to_thread.run_sync(partial(self.runtime.signoffs.amend, context, tail[1], **body)))
         if request.method == "POST" and len(tail) == 3 and tail[2] == "respond":
             body = await read_json(request)
             required = {"proposal_revision", "payload_hash", "expected_status_revision", "idempotency_key"}
