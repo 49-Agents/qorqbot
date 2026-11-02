@@ -88,7 +88,7 @@ def _blocks(text, actor):
 
 
 def migration_identity(table, business_id, source_id):
-    """The deterministic thread message ID the v1.2 migration gives a v1 note (``tools/v12_migration/rehearsal.py`` identity)."""
+    """The deterministic thread message ID the v1.2 migration gave a v1 note."""
     parts = json.dumps([table, business_id, source_id], sort_keys=True, ensure_ascii=False, separators=(',', ':'))
     return str(uuid5(NAMESPACE_URL, 'qorqut-v1.2/migration/' + parts))
 

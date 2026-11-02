@@ -104,6 +104,35 @@ def file_digest(path: Path) -> str:
     return "sha256:" + hasher.hexdigest()
 
 
+def _plain_path(value: Any) -> Path:
+    if not isinstance(value, (str, os.PathLike)):
+        raise ReleaseError("Release paths must be absolute and normalized")
+    path = Path(value)
+    if not path.is_absolute() or ".." in path.parts:
+        raise ReleaseError("Release paths must be absolute and normalized")
+    if path.parent == path:
+        raise ReleaseError("Release paths may not be the filesystem root")
+    # Do not resolve/follow a symlink: reject it before anything is read through it.
+    if any(part.is_symlink() for part in (path, *path.parents)):
+        raise ReleaseError("Release paths may not cross symbolic links")
+    return path
+
+
+def checked_path(value: Any, root: Path | None = None) -> Path:
+    """Return an absolute, normalized, symlink-free path, inside ``root`` when one is selected.
+
+    The explicit workspace ``root`` is held to the same rules as the path itself;
+    there is no discovery of a root and no environment fallback.
+    """
+
+    path = _plain_path(value)
+    if root is not None:
+        root = _plain_path(root)
+        if path != root and root not in path.parents:
+            raise ReleaseError("Every release input/output must be inside the selected independent workspace")
+    return path
+
+
 def fsync_directory(path: Path) -> None:
     descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
     try:

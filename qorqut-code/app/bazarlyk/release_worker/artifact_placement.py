@@ -16,8 +16,8 @@ import re
 import stat
 from typing import Any
 
-from . import v12
 from .errors import ReleaseError
+from .io import checked_path
 
 RELEASE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,95}")
 SUDO = ["sudo", "-n"]
@@ -31,9 +31,9 @@ ROOT_UID = 0
 def _normalized(value: Any, field: str) -> Path:
     if not isinstance(value, str) or not value:
         raise ReleaseError(f"{field} must be a normalized absolute path")
-    # Original-installation paths and symlinks anywhere in the ancestry are refused;
+    # Symlinks anywhere in the ancestry and the filesystem root are refused;
     # unlike source inputs, a system release root has no workspace containment.
-    path = v12.checked_path(value)
+    path = checked_path(value)
     if str(path) != value:
         raise ReleaseError(f"{field} must be a normalized absolute path")
     return path
