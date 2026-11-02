@@ -1,0 +1,177 @@
+/* ============================================================ learning
+   Only what the Learning page adds. The cards themselves are the shared `.mkcard` family from
+   review-cards.css; these rules cover the two columns, the type pill, the scope picker, the touch chips, the
+   evidence block, the notes box, the decided card's ball, and the left column's status pane. */
+
+/* ------------------------------------------------------------ the split */
+.lnsplit { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 1180px) { .lnsplit { grid-template-columns: minmax(0, 1fr); } }
+.lnsplit .sh { font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-3); margin-bottom: 10px; }
+.lnsplit .sh .cnt { font: 11px var(--mono); letter-spacing: 0; color: var(--fg-3); margin-left: 4px; }
+.lnfootnote { margin-top: 14px; font-size: 12px; line-height: 1.5; color: var(--fg-3); }
+/* one search box over both halves; each column says how many of its cards match */
+.ctxview .th { display: flex; align-items: center; gap: 12px; }
+.ctxview .th .sp { flex: 1; }
+.lnsearch { width: 260px; max-width: 40vw; font-size: 13px; }
+
+/* ------------------------------------------------------------ the card */
+/* one line: ball (decided), type pill, scope icon(s), bucket icon, people chips, who … votes, age */
+.lncard .mkhead { flex-wrap: nowrap; min-width: 0; }
+.lncard .mkhead .sp { flex: 1; }
+.lncard .mkhead .chip { flex: none; }
+.lncard .mkhead .chip.person { color: var(--fg); border-color: var(--line-2); }
+.lncard .mkhead .who { overflow: hidden; text-overflow: ellipsis; }
+.lnscopeico { flex: none; display: inline-flex; align-items: center; color: var(--fg-2); }
+.lnscopeico svg { width: 15px; height: 15px; }
+
+.lncard .mkt { font-size: 14px; font-weight: 500; line-height: 1.5; white-space: pre-wrap; }
+/* type is the colour: a hairline pill in the type's hue, never a filled block */
+.lntag {
+  flex: none; font: 600 10px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase;
+  padding: 4px 8px; border-radius: var(--r-full); color: var(--tc, var(--fg-2));
+  border: 1px solid var(--tc, var(--line)); background: color-mix(in srgb, var(--tc, transparent) 12%, transparent);
+}
+/* scope is the icon: four buttons, the current one lit; clicking one saves at once */
+.lncard .lnpick { display: flex; align-items: center; gap: 2px; flex: none; }
+.lnscope {
+  width: 26px; height: 26px; padding: 0; border-radius: var(--r-sm); border: 1px solid transparent;
+  background: none; color: var(--fg-3); display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.lnscope svg { width: 15px; height: 15px; }
+.lnscope:hover { background: var(--hover); color: var(--fg-2); transform: none; }
+.lnscope.on { color: var(--fg); border-color: var(--line-2); background: var(--wash); }
+.lnscope[disabled] { opacity: .25; cursor: not-allowed; background: none; }
+.lnscope[disabled]:hover { background: none; color: var(--fg-3); }
+
+/* the owner's own words, the only evidence that counts */
+.lnquote {
+  margin-top: 10px; padding: 8px 12px; border-left: 2px solid var(--line-2); background: var(--wash);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: 13px; line-height: 1.55; color: var(--fg-2);
+}
+.lnquote .src { display: block; margin-top: 5px; font: 11px var(--mono); color: var(--fg-3); }
+.lncard .mkchain .lnquote { margin-top: 8px; }
+.lnvar { margin-top: 8px; font-size: 12.5px; line-height: 1.5; }
+.lnvar .vt { color: var(--fg-2); }
+.lnvar .vm { font: 11px var(--mono); color: var(--fg-3); }
+
+/* the notes box rides with the next decision, so it sits inside the card, above the buttons */
+.lnnote {
+  display: block; width: 100%; margin-top: 10px; min-height: 62px; padding: 8px 10px; resize: vertical;
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); color: var(--fg);
+  font: 13px/1.55 var(--sans);
+}
+.lnnote::placeholder { color: var(--fg-3); }
+.lnnote:focus { outline: none; border-color: var(--line-2); }
+.lncard:focus { outline: none; border-color: var(--line-2); }
+
+/* ------------------------------------------------------------ decided, not applied */
+/* no stripe; the verdict is one ball at the head, in the notes gutter's done / blocked colours */
+.lncard.done { opacity: .9; }
+.lncard.done .mkt { font-weight: 400; color: var(--fg-2); }
+.lnball { flex: none; width: 6px; height: 6px; border-radius: 9999px; background: var(--sc, var(--fg-3)); }
+.lncard .lnwhy { margin-top: 8px; font-size: 13px; font-style: italic; color: var(--fg-3); }
+.lncard .lnwhy, .lnagentnote { white-space: pre-wrap; overflow-wrap: anywhere; }
+.lnagentnote { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; color: var(--fg-2); }
+.lnnotelabel { display: block; margin-bottom: 4px; font: 10px var(--mono); color: var(--fg-3); }
+.lnstate { border: 1px solid var(--sc); color: var(--sc); border-radius: var(--r-full); padding: 3px 7px; font: 10px var(--mono); flex: none; }
+.lnowneredit { margin-top: 10px; font-size: 12px; color: var(--fg-3); }
+.lnowneredit summary { cursor: pointer; }
+.lnowneredit .mka { margin-top: 6px; }
+.lncard .lnpending { font: 11px var(--mono); color: var(--fg-3); }
+.lncard.done .mkfoot { display: flex; align-items: center; justify-content: space-between; }
+.lncard .mka.revert:hover { border-color: var(--line-2); }
+
+.ln-evidence-tools { display:flex; align-items:flex-start; flex-wrap:wrap; gap:4px; margin-top:8px; }
+.lncard .ln-evidence-tools .mkchain { margin:0; border:0; }
+.lncard .ln-evidence-tools [data-act="source"], .lncard .ln-evidence-tools summary {
+  display:inline-flex; align-items:center; min-height:24px; height:auto; margin:0; padding:3px 8px;
+  border:1px solid var(--line-2); border-radius:999px; background:var(--wash);
+  color:var(--fg-2); font:500 11px/1.4 var(--sans); cursor:pointer; list-style:none;
+}
+.ln-evidence-tools summary::-webkit-details-marker { display:none; }
+.lncard .ln-evidence-tools summary:hover { background:var(--hover); color:var(--fg); }
+.ln-evidence-tools details[open] { flex-basis:100%; }
+.ln-evidence-tools summary:focus-visible { outline:2px solid var(--fg-2); outline-offset:2px; }
+
+.global-learning { padding:28px 32px 80px; }
+.global-learning .th { margin-bottom:24px; }
+.global-learning .lnq, .global-learning .lndone { min-width:0; }
+@media(max-width:760px) {
+  .global-learning { padding:20px 16px 80px; }
+  .global-learning .th { flex-wrap:wrap; }
+  .global-learning .lnsearch { width:100%; max-width:none; }
+  .global-learning .lncard .mkhead { flex-wrap:wrap; }
+}
+.global-library { min-width: 0; }
+.global-library .th { flex-wrap: wrap; gap: 8px; }
+.global-library-document h3 { font-size: 16px; overflow-wrap: anywhere; }
+
+.global-library-list .item { display:block; width:100%; text-align:left; white-space:normal; overflow-wrap:anywhere; height:auto; margin:8px 0; padding:16px 18px; border:1px solid var(--line-2); border-radius:12px; background:var(--wash); color:var(--fg); font:400 14px/1.5 var(--sans); transform:none; }
+.global-library-list .item:hover { background:var(--hover); color:var(--fg); transform:none; }
+.global-library-document { margin:0; padding:0; border:0; }
+.global-library-document .library-body { font-size:14px; line-height:1.6; overflow-wrap:anywhere; }
+.global-library .library-back { margin-bottom:16px; background:none; color:var(--fg-2); }
+
+.lnsaving { color:var(--fg-2); font-size:11px; }
+.lncard[aria-busy="true"] .mkacts { opacity:.5; }
+
+/* ------------------------------------------------------------ view switch */
+.lnviews { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r-full); background: var(--wash); }
+.lnview { padding: 4px 10px; border: 1px solid transparent; border-radius: var(--r-full); background: none; color: var(--fg-3);
+  font: 500 12px/1.4 var(--sans); cursor: pointer; }
+.lnview:hover { color: var(--fg-2); transform: none; }
+.lnview.on { color: var(--fg); border-color: var(--line-2); background: var(--bg); }
+.lnview:focus-visible { outline: 2px solid var(--fg-2); outline-offset: 2px; }
+
+/* ------------------------------------------------------------ historical records (read-only) */
+.lnreadonly { flex: none; padding: 3px 8px; border: 1px solid var(--line-2); border-radius: var(--r-full);
+  color: var(--fg-3); font: 10px var(--mono); letter-spacing: .04em; }
+.lnhist { min-width: 0; }
+.lnhistlist { display: flex; flex-direction: column; gap: 8px; }
+.lnhistrow { display: block; width: 100%; height: auto; text-align: left; white-space: normal; overflow-wrap: anywhere;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--wash);
+  color: var(--fg); font: 400 13px/1.5 var(--sans); transform: none; cursor: pointer; }
+.lnhistrow:hover { background: var(--hover); color: var(--fg); transform: none; }
+.lnhistrow:focus-visible { outline: 2px solid var(--fg-2); outline-offset: 2px; }
+.lnhisthead { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.lnhisthead .sp { flex: 1; }
+.lnhisttext { margin-top: 7px; color: var(--fg); }
+.lnhistmeta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 7px; font: 11px var(--mono); color: var(--fg-3); }
+.lnhistid { overflow-wrap: anywhere; }
+.lnhisteventname { font-weight: 600; color: var(--fg-2); }
+.lnhistfoot { display: flex; align-items: center; gap: 10px; margin-top: 12px; font: 11px var(--mono); color: var(--fg-3); }
+.lnhistfoot .mka { margin: 0; }
+.lntrunc { display: inline-block; margin-top: 6px; font: 10px var(--mono); color: var(--fg-3); }
+.lnstatus { padding: 3px 7px; border: 1px solid var(--line-2); border-radius: var(--r-full); font: 10px var(--mono); color: var(--fg-3); }
+.lnhistdetailhead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.lnhistdetailhead .mka { margin: 0; }
+.lnhistdetail .mkt { font-size: 14px; font-weight: 500; line-height: 1.5; white-space: pre-wrap; }
+.lnhiststate { margin-top: 8px; font-size: 12.5px; line-height: 1.55; color: var(--fg-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.lnhistjson { margin-top: 8px; font-size: 12px; color: var(--fg-3); }
+.lnhistjson summary { cursor: pointer; }
+.lnhistjson pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lnhistevents { display: flex; flex-direction: column; gap: 10px; }
+.lnhistevent { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); }
+.lnhistsection { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); }
+.lnhistsection .sh { font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-3); margin-bottom: 10px; }
+.lnhistsection .sh .cnt { font: 11px var(--mono); letter-spacing: 0; color: var(--fg-3); margin-left: 4px; }
+.lnsources { display: flex; flex-direction: column; gap: 10px; }
+.lnsource { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); min-width: 0; }
+.lnsource pre { margin: 8px 0 0; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: 12px/1.55 var(--mono); color: var(--fg-2); }
+.lnsourcestatus { padding: 3px 7px; border-radius: var(--r-full); border: 1px solid var(--line-2); font: 10px var(--mono); }
+.lnsourcestatus.ok { color: var(--fg-2); }
+.lnsourcestatus.missing { color: var(--danger, #ff453a); border-color: color-mix(in srgb, #ff453a 45%, transparent); }
+.lnmissing { margin-top: 8px; font-size: 12.5px; color: var(--fg-3); }
+.lncompleteness { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
+.lncompleteness.warn { color: var(--fg-2); }
+.lncompleteness.warn::before { content: "! "; font: 600 11px var(--mono); color: var(--danger, #ff453a); }
+.lncompleteness.ok { color: var(--fg-3); }
+.lnlegacy .mkhead { flex-wrap: wrap; }
+@media (max-width: 760px) {
+  .ctxview .th { flex-wrap: wrap; }
+  .ctxview .th .sp { flex-basis: 100%; height: 0; }
+  .lnviews { order: 2; }
+  .ctxview .th .lnsearch { order: 3; width: 100%; max-width: none; }
+  .lnhistfoot { flex-wrap: wrap; }
+}
