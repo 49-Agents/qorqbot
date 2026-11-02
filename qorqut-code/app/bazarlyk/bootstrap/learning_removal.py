@@ -53,6 +53,7 @@ from qorqut_operations.storage.inventory import (IDENTITY_TABLE, CompiledTarget,
 from qorqut_operations.storage.specs import TableSpec
 from qorqut_operations.storage.sqlfunctions import install_sql_functions
 
+from bazarlyk.bootstrap import learning_removal_provenance as provenance
 from bazarlyk.composition.assembly import HostComposition, host_assembly, host_contributions
 from bazarlyk.extensions import NO_EXTENSIONS, ExtensionSet
 from bazarlyk.instance_paths import COMPONENTS as INSTANCE_COMPONENTS, InstancePathError, InstancePaths
@@ -70,6 +71,9 @@ MAX_PREPARATION_BYTES = 512 * 1024
 MAX_PREPARATION_STEPS = 32
 MAX_PREPARATION_FILES = 512
 MAX_PREPARATION_FILE_BYTES = 64 * 1024 * 1024
+MAX_PREPARATION_TREES = 16
+MAX_TREE_FILES = 8192
+MAX_TREE_BYTES = 512 * 1024 * 1024
 MAX_CATALOG_FILES = 512
 MAX_CATALOG_BYTES = 2 * 1024 * 1024
 MAX_REPORTED_REFERENCES = 8
@@ -147,14 +151,15 @@ RESOURCE_KEYS = frozenset({"resource_type", "table", "table_name", "target_table
 PLAN_KEYS = frozenset({"format", "transition", "instance_root", "database", "selected_extensions", "predecessor",
                        "target", "removal", "schema", "preparation", "catalogs", "release_evidence", "gates",
                        "plan_digest"})
-PREPARATION_KEYS = frozenset({"release", "steps", "files"})
+PREPARATION_KEYS = frozenset({"release", "steps", "files", "trees", "inputs"})
 RELEASE_KEYS = frozenset({"export", "manifest", "manifest_sha256", "selection", "selection_sha256", "components"})
+OPTIONAL_RELEASE_KEYS = frozenset({"extension_components"})
 PREPARATION_RECEIPT_KEYS = frozenset({"format", "transition", "plan_digest", "steps"})
 
 
 # -- frozen predecessor metadata ---------------------------------------------------------------------------------
 
-def _predecessor_metadata():
+def _predecessor_file() -> dict:
     raw = Path(__file__).with_name("learning_removal_predecessor.json").read_bytes()
     try:
         value = json.loads(raw, object_pairs_hook=_unique, parse_constant=_reject_constant)
@@ -164,6 +169,37 @@ def _predecessor_metadata():
             or value.get("transition") != TRANSITION_ID or value.get("target_name") != "qorqut-v1.2"
             or value.get("target_version") != 1 or value.get("owner") != "learning"):
         raise DomainError("invalid_installation", "The frozen predecessor metadata is not this transition")
+    return value
+
+
+def retired_operation_entries():
+    """The historical authority metadata of the ten retired operations, exactly as the frozen predecessor declared it.
+
+    Only the private preparation phase may declare these (never a handler): an old published role still names them, so
+    loading, publishing against and adopting away from it needs their metadata while the predecessor is still the store.
+    The strict target registry never declares them."""
+    from qorqut_operations.application.registry import CatalogEntry
+    operations = _predecessor_file().get("operations")
+    if not isinstance(operations, dict) or set(operations) != set(REMOVED_OPERATIONS):
+        raise DomainError("invalid_installation", "The frozen predecessor operation metadata is not the retired set")
+    entries = []
+    for name in REMOVED_OPERATIONS:
+        item = operations[name]
+        if (not isinstance(item, dict) or set(item) != {"supports_signoff", "effect_kind", "exposure", "owner_only"}
+                or type(item["supports_signoff"]) is not bool or type(item["owner_only"]) is not bool
+                or not isinstance(item["exposure"], list) or not isinstance(item["effect_kind"], str)
+                or not set(item["exposure"]) <= {"mcp", "dashboard", "worker"}):
+            raise DomainError("invalid_installation", f"The frozen operation metadata of {name} is invalid")
+        try:
+            entries.append(CatalogEntry(name, item["supports_signoff"], item["effect_kind"],
+                                        frozenset(item["exposure"]), item["owner_only"]))
+        except ValueError as exc:
+            raise DomainError("invalid_installation", f"The frozen operation metadata of {name} is invalid") from exc
+    return tuple(entries)
+
+
+def _predecessor_metadata():
+    value = _predecessor_file()
     statements = value.get("removed")
     tables, immutable = value.get("tables"), value.get("immutable_fields")
     if not isinstance(statements, list) or not all(isinstance(item, str) for item in statements):
@@ -409,21 +445,28 @@ def prepare_migration(paths: InstancePaths, *, extensions=NO_EXTENSIONS, prepara
                                                           "application_id": observation["application_id"],
                                                           "user_version": observation["user_version"],
                                                           "problems": observation["problems"]})
-    gates = _gates(paths, transition, extensions) if observation["state"] == "predecessor" else _already_target_gates()
-    catalogs = _native_catalogs(paths, transition, extensions)
     normalized = _normalise_preparation(preparation)
+    gates = (_gates(paths, transition, extensions, preparation=normalized) if observation["state"] == "predecessor"
+             else _already_target_gates())
+    catalogs = _native_catalogs(paths, transition, extensions)
     unsupported = [step for step in normalized["steps"] if step["kind"] in UNSUPPORTED_EVIDENCE_KINDS]
     if unsupported:
         raise DomainError("unverified_preparation", "This transition has no authoritative evidence adapter yet for "
                           "these preparation steps; they fail closed until integration supplies one",
                           details={"kinds": sorted({step["kind"] for step in unsupported})})
+    if normalized["steps"] and normalized.get("inputs") is None:
+        raise DomainError("unverified_preparation", "A plan with preparation steps needs the coordinator's bound inputs: "
+                          "a bare step list can be neither executed nor verified")
     _require_preparation_plan_files(paths, normalized, transition)
     if observation["state"] == "predecessor":
         _require_policy_coverage(gates, normalized, transition)
-        if catalogs["paths"] and not any(step["kind"] == "native_preparation" for step in normalized["steps"]):
+        declared_native = {step["identity"] for step in normalized["steps"] if step["kind"] == "native_preparation"}
+        uncovered = [item for item in catalogs["paths"]
+                     if not declared_native or (item.get("agent_id") and f"native:{item['agent_id']}" not in declared_native)]
+        if uncovered:
             raise DomainError("invalid_configuration", "The prepared native catalogs still name retired operations; the "
-                              "plan needs a concrete native-preparation update step", details={
-                                  "catalogs": [item["path"] for item in catalogs["paths"]][:MAX_REPORTED_REFERENCES]})
+                              "plan needs a concrete native-preparation update step for each affected agent", details={
+                                  "catalogs": [item["path"] for item in uncovered][:MAX_REPORTED_REFERENCES]})
     body = {**_static_report(paths, transition), "preparation": normalized, "catalogs": catalogs,
             "release_evidence": _release_evidence(paths, normalized, transition),
             "gates": _already_target_gates() if observation["state"] == "target" else _gate_summary(gates)}
@@ -466,7 +509,8 @@ def _normalise_preparation(preparation) -> dict:
     if not isinstance(preparation, dict) or set(preparation) - PREPARATION_KEYS or "release" not in preparation:
         raise DomainError("invalid_configuration", "Prepare needs the reviewed preparation-plan references")
     release = preparation["release"]
-    if not isinstance(release, dict) or set(release) != RELEASE_KEYS:
+    if (not isinstance(release, dict) or not RELEASE_KEYS <= set(release)
+            or set(release) - RELEASE_KEYS - OPTIONAL_RELEASE_KEYS):
         raise DomainError("invalid_configuration", "The release reference needs the explicit export, manifest and "
                           "selection inputs with their verified digests")
     export_root = _absolute_path(release["export"], "The release export root")
@@ -483,12 +527,24 @@ def _normalise_preparation(preparation) -> dict:
     for path_name, manifest_name in components.items():
         if path_name not in INSTANCE_COMPONENTS or not isinstance(manifest_name, str) or not IDENTITY.fullmatch(manifest_name):
             raise DomainError("invalid_configuration", "A release component correspondence entry is invalid")
+        provenance.split_component(manifest_name)
         normalized_components[path_name] = manifest_name
     if len(set(normalized_components.values())) != len(normalized_components):
         raise DomainError("invalid_configuration", "Two host component roots cannot share one release component")
-    release = {"export": str(export_root), "manifest": str(manifest),
-               "manifest_sha256": release["manifest_sha256"], "selection": str(selection),
-               "selection_sha256": release["selection_sha256"], "components": dict(sorted(normalized_components.items()))}
+    extension_components = release.get("extension_components")
+    normalized_release = {"export": str(export_root), "manifest": str(manifest),
+                          "manifest_sha256": release["manifest_sha256"], "selection": str(selection),
+                          "selection_sha256": release["selection_sha256"],
+                          "components": dict(sorted(normalized_components.items()))}
+    if extension_components is not None:
+        if (not isinstance(extension_components, dict) or len(extension_components) > MAX_PREPARATION_STEPS
+                or not all(isinstance(key, str) and provenance.PACKAGE.fullmatch(key) and isinstance(value, str)
+                           and IDENTITY.fullmatch(value) for key, value in extension_components.items())):
+            raise DomainError("invalid_configuration", "The extension component references are invalid")
+        for value in extension_components.values():
+            provenance.split_component(value)
+        normalized_release["extension_components"] = dict(sorted(extension_components.items()))
+    release = normalized_release
     steps = preparation.get("steps", [])
     if not isinstance(steps, list) or len(steps) > MAX_PREPARATION_STEPS:
         raise DomainError("invalid_configuration", "The preparation steps are missing or exceed their bound")
@@ -519,9 +575,31 @@ def _normalise_preparation(preparation) -> dict:
     normalized_files.sort(key=lambda item: item["path"])
     if len({item["path"] for item in normalized_files}) != len(normalized_files):
         raise DomainError("invalid_configuration", "A preparation file is declared twice")
-    return {"release": release,
-            "steps": sorted(normalized_steps, key=lambda item: (item["kind"], item["identity"])),
-            "files": normalized_files}
+    trees = preparation.get("trees", [])
+    if not isinstance(trees, list) or len(trees) > MAX_PREPARATION_TREES:
+        raise DomainError("invalid_configuration", "The preparation tree list is missing or exceeds its bound")
+    normalized_trees = []
+    for item in trees:
+        if not isinstance(item, dict) or set(item) != {"root", "inventory"} or not isinstance(item["inventory"], str) \
+                or not HASH.fullmatch(item["inventory"]):
+            raise DomainError("invalid_configuration", "A preparation tree needs exactly its root and inventory digest")
+        normalized_trees.append({"root": str(_absolute_path(item["root"], "A preparation tree root")),
+                                 "inventory": item["inventory"]})
+    normalized_trees.sort(key=lambda item: item["root"])
+    roots = [item["root"] for item in normalized_trees]
+    if len(set(roots)) != len(roots) or any(a != b and (b + os.sep).startswith(a + os.sep) for a in roots for b in roots):
+        raise DomainError("invalid_configuration", "A preparation tree is declared twice or nested in another")
+    result = {"release": release,
+              "steps": sorted(normalized_steps, key=lambda item: (item["kind"], item["identity"])),
+              "files": normalized_files, "trees": normalized_trees}
+    inputs = preparation.get("inputs")
+    if inputs is not None:
+        if (not isinstance(inputs, dict) or set(inputs) != {"request", "derived"}
+                or len(canonical_bytes(inputs)) > MAX_PREPARATION_BYTES):
+            raise DomainError("invalid_configuration", "The coordinator input binding has an unexpected shape or exceeds "
+                              "its bound")
+        result["inputs"] = inputs
+    return result
 
 
 def _declaration_value(value, depth=0, seen=None):
@@ -722,17 +800,17 @@ def _release_evidence(paths: InstancePaths, preparation: dict, transition: _Tran
         raise DomainError("operation_conflict", "The explicit extension declarations/configuration do not match the "
                           "compiled transition selection", details={"extensions": list(selected_set.ids)})
     extension_ids = list(selected_set.ids)
-    if selected_set.extensions:
-        raise DomainError("unverified_preparation", "Selected extension implementation sources are not bound to the "
-                          "verified release in this first-wave slice; integration must supply installed provenance")
+    extension_sources = provenance.extension_evidence(selected_set, entries, release, manifest, manifest_sha, export_root)
     components = {item["name"]: item for item in manifest["components"]}
     mapping = release["components"]
     if set(mapping) != set(paths.components):
         raise DomainError("invalid_configuration", "The release component correspondence must name every and only the "
                           "explicit host component roots")
-    loaded_roots = _loaded_component_roots()
+    prepared = provenance.prepared_root(export_root)
+    loaded_roots = {} if prepared is not None else _loaded_component_roots()
     summary = {}
-    for path_name, manifest_name in sorted(mapping.items()):
+    for path_name, reference in sorted(mapping.items()):
+        manifest_name, subpath = provenance.split_component(reference)
         component = components.get(manifest_name)
         if component is None:
             raise DomainError("invalid_configuration", "A release component correspondence entry names no exported "
@@ -740,50 +818,74 @@ def _release_evidence(paths: InstancePaths, preparation: dict, transition: _Tran
         root = paths.component(path_name)
         if root.is_symlink():
             raise DomainError("invalid_configuration", "A host component root is a symlink")
-        if not (root / ".git").exists():
-            raise DomainError("invalid_configuration", "A non-Git host component has no complete source provenance "
-                              "in this first-wave slice", details={"component": path_name})
-        try:
-            environment = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0"}
-            head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True,
-                                  capture_output=True, text=True, env=environment).stdout.strip()
-            tree = subprocess.run(["git", "-C", str(root), "rev-parse", f"{head}^{{tree}}"], check=True,
-                                  capture_output=True, text=True, env=environment).stdout.strip()
-            dirty = subprocess.run(["git", "-C", str(root), "-c", "core.fsmonitor=false", "status", "--porcelain"],
-                                   check=True, capture_output=True, text=True, env=environment).stdout.strip()
-        except (OSError, subprocess.CalledProcessError) as exc:
-            raise DomainError("invalid_configuration", "A host component's source revision cannot be read") from exc
-        if dirty or head != component["commit"] or tree != component["tree"]:
-            raise DomainError("operation_conflict", "The host component source is not the exact clean exported "
-                              "revision", details={"component": path_name})
-        destination = component.get("destination")
-        if (not isinstance(destination, str) or not destination or ".." in PurePosixPath(destination).parts
-                or PurePosixPath(destination).is_absolute()):
-            raise DomainError("invalid_configuration", "A release component destination is not a safe relative path",
-                              details={"component": path_name})
-        exported_component = export_root / destination
-        if exported_component.is_symlink() or not exported_component.is_dir():
-            raise DomainError("invalid_configuration", "A manifest-selected component destination is missing or unsafe",
-                              details={"component": path_name})
-        committed_digest = _git_tree_digest(root, head, tree)
-        source_digest = _source_tree_digest(root)
-        export_digest = _source_tree_digest(exported_component)
-        if committed_digest is None or source_digest is None or export_digest is None:
-            raise DomainError("operation_conflict", "A complete source/export/committed tree cannot be verified",
-                              details={"component": path_name})
-        if source_digest != committed_digest or export_digest != committed_digest:
-            raise DomainError("operation_conflict", "The source or manifest-selected export is not the exact committed "
-                              "Git tree", details={"component": path_name})
+        exported_component = provenance.exported_source(export_root, component, subpath)
+        if (root / ".git").exists() and not subpath:
+            committed_digest = _committed_source(root, component, path_name, exported_component)
+            entry = {"commit": component["commit"], "tree": component["tree"],
+                     "snapshot_sha256": component["snapshot_sha256"]}
+        else:
+            committed_digest, entry = _installed_source(root, component, manifest["components"], subpath,
+                                                        exported_component, path_name)
         if path_name in loaded_roots:
             loaded_digest = _source_tree_digest(loaded_roots[path_name])
             if loaded_digest is None or loaded_digest != committed_digest:
                 raise DomainError("operation_conflict", "The verified source is not the source loaded by this process",
                                   details={"component": path_name})
-        summary[manifest_name] = {"commit": component["commit"], "tree": component["tree"],
-                                  "snapshot_sha256": component["snapshot_sha256"]}
+        summary[reference] = entry
     return {"manifest_sha256": manifest_sha, "selection_sha256": release["selection_sha256"],
             "selection_declarations": canonical_hash(actual_declarations),
-            "extensions": sorted(set(extension_ids)), "components": summary}
+            "extensions": sorted(set(extension_ids)), "components": summary,
+            "extension_sources": extension_sources}
+
+
+def _committed_source(root: Path, component: dict, path_name: str, exported_component: Path) -> str:
+    """A Git checkout: clean, at the exported commit/tree, and its source, committed tree and export all identical."""
+    try:
+        environment = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0"}
+        head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True,
+                              capture_output=True, text=True, env=environment).stdout.strip()
+        tree = subprocess.run(["git", "-C", str(root), "rev-parse", f"{head}^{{tree}}"], check=True,
+                              capture_output=True, text=True, env=environment).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(root), "-c", "core.fsmonitor=false", "status", "--porcelain"],
+                               check=True, capture_output=True, text=True, env=environment).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise DomainError("invalid_configuration", "A host component's source revision cannot be read") from exc
+    if dirty or head != component["commit"] or tree != component["tree"]:
+        raise DomainError("operation_conflict", "The host component source is not the exact clean exported "
+                          "revision", details={"component": path_name})
+    committed_digest = _git_tree_digest(root, head, tree)
+    source_digest = _source_tree_digest(root)
+    export_digest = _source_tree_digest(exported_component)
+    if committed_digest is None or source_digest is None or export_digest is None:
+        raise DomainError("operation_conflict", "A complete source/export/committed tree cannot be verified",
+                          details={"component": path_name})
+    if source_digest != committed_digest or export_digest != committed_digest:
+        raise DomainError("operation_conflict", "The source or manifest-selected export is not the exact committed "
+                          "Git tree", details={"component": path_name})
+    return committed_digest
+
+
+def _installed_source(root: Path, component: dict, components: list, subpath: str, exported_component: Path,
+                      path_name: str):
+    """A non-Git installed source (a prepared ``src`` tree or a copy of one): byte-identical to the validated export."""
+    from bazarlyk.source_snapshot import SnapshotError, snapshot_sha256
+    exclusions = [] if subpath else provenance.descendant_exclusions(component, components)
+    try:
+        installed = snapshot_sha256(root, exclude=exclusions)
+        exported = snapshot_sha256(exported_component, exclude=exclusions)
+    except (SnapshotError, OSError) as exc:
+        raise DomainError("operation_conflict", "A non-Git host component or its export cannot be verified",
+                          details={"component": path_name}) from exc
+    if installed != exported or (not subpath and installed != component["snapshot_sha256"]):
+        raise DomainError("operation_conflict", "The installed host component is not the exact validated export",
+                          details={"component": path_name})
+    loaded = _source_tree_digest(exported_component)
+    if loaded is None:
+        raise DomainError("operation_conflict", "A complete exported tree cannot be verified",
+                          details={"component": path_name})
+    entry = {"commit": component["commit"], "tree": component["tree"], "snapshot_sha256": component["snapshot_sha256"],
+             "installed_sha256": installed, "subpath": subpath}
+    return loaded, entry
 
 
 def _require_preparation_plan_files(paths, preparation, transition: _Transition) -> None:
@@ -798,6 +900,15 @@ def _require_preparation_plan_files(paths, preparation, transition: _Transition)
         if item["sha256"] != current["sha256"]:
             raise DomainError("operation_conflict", "A declared preparation file changed before preparation", details={
                 "path": str(path), "expected": item["sha256"], "observed": current["sha256"]})
+    for item in preparation.get("trees", []):
+        root = Path(item["root"])
+        _require_instance_file(paths, root, "A planned preparation tree")
+        if tree_inventory_digest(root) != item["inventory"]:
+            raise DomainError("operation_conflict", "A declared preparation tree changed before preparation",
+                              details={"root": str(root)})
+    if preparation.get("inputs") is not None:
+        from bazarlyk.bootstrap import learning_removal_preparation as coordinator
+        coordinator.bind_inputs(paths, transition, preparation["inputs"], preparation["release"])
 
 
 def _require_policy_coverage(gates, preparation, transition: _Transition) -> None:
@@ -942,18 +1053,75 @@ def _removed_tool_names(document) -> set[str]:
 
 # -- data and activity gates -------------------------------------------------------------------------------------
 
-def _gates(paths, transition: _Transition, extensions, *, with_references=False):
+def _gates(paths, transition: _Transition, extensions, *, with_references=False, preparation=None):
     """The real data/activity gates, read under the caller's already exclusive offline ownership when applying."""
     database = _database_path(paths)
     connection = _connect(database, "ro")
     try:
         connection.execute("PRAGMA query_only = ON")
-        return _gate_rows(connection, transition, extensions, with_references=with_references, paths=paths)
+        return _gate_rows(connection, transition, extensions, with_references=with_references, paths=paths,
+                          target=_target_for(paths, transition, extensions, preparation))
     finally:
         connection.close()
 
 
-def _gate_rows(connection, transition: _Transition, extensions, *, with_references=False, paths=None):
+def _agentic_installed(paths) -> bool:
+    from bazarlyk.agentic.installation import RECORD
+    return (Path(paths.instance_root) / "config" / RECORD).exists()
+
+
+class _Target:
+    """The strict target composition the gates judge against, composed once and only when first needed.
+
+    ``runtime`` is the host's composed target runtime (every late registration included, no retired tool declared, the
+    actual Context filing limit when the request names its configuration): the one authoritative source of the operation
+    names, the policy and the semantic validators. It never opens the Operations database and writes nothing. A store
+    without an installed agentic layer has no target composition; its saved plans can then be named only, never proved."""
+
+    def __init__(self, paths, transition: "_Transition", extensions, workspace=None, context=None):
+        self.paths, self.transition, self.extensions = paths, transition, extensions
+        self.workspace, self.context = workspace, context
+        self._runtime, self._registry = None, None
+
+    @property
+    def runtime(self):
+        if self.paths is None or not _agentic_installed(self.paths):
+            return None
+        if self._runtime is None:
+            from bazarlyk.bootstrap.learning_removal_runtime import inert_runtime
+            try:
+                settings = None
+                if self.context is not None:
+                    from bazarlyk.bootstrap.learning_removal_preparation import _context_settings
+                    settings = _context_settings({"context": self.context})
+                self._runtime = inert_runtime(self.paths, self.transition, self.workspace, context=settings)
+            except DomainError:
+                raise
+            except Exception as exc:
+                raise DomainError("unclassified_pending_plan", "The strict target composition cannot be built for "
+                                  "the gates") from exc
+        return self._runtime
+
+    @property
+    def registry(self):
+        runtime = self.runtime
+        if runtime is not None:
+            return runtime.registry
+        if self._registry is None:
+            # No installed agentic layer: the builtin catalog alone is a strictly smaller name list, so a plan naming a
+            # later registration is blocked, never admitted.
+            self._registry = _pending_registry(self.extensions)
+        return self._registry
+
+
+def _target_for(paths, transition: "_Transition", extensions, preparation=None) -> "_Target":
+    """The target composition for the gates, bound to the reviewed coordinator inputs when the plan carries them."""
+    request = ((preparation or {}).get("inputs") or {}).get("request") or {}
+    return _Target(paths, transition, extensions, workspace=request.get("workspace"), context=request.get("context"))
+
+
+def _gate_rows(connection, transition: _Transition, extensions, *, with_references=False, paths=None, target=None):
+    target = target or _Target(paths, transition, extensions)
     tables = {row[0] for row in connection.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'")}
     if not set(REMOVED_TABLES) <= tables:
@@ -964,9 +1132,9 @@ def _gate_rows(connection, transition: _Transition, extensions, *, with_referenc
     engine_routines = _active_engine_routines(connection)
     engine_signoffs = _pending_engine_signoffs(connection)
     claims = _engine_claims(connection)
-    receipts = _pending_receipts(connection, extensions)
-    signoffs = _pending_signoffs(connection, extensions)
-    policy_deficits = _policy_deficits(connection, paths, extensions)
+    receipts = _pending_receipts(connection, extensions, target)
+    signoffs = _pending_signoffs(connection, extensions, target)
+    policy_deficits = _policy_deficits(connection, paths, extensions, target)
     return {"removed_tables": counts, "engine_links": len(engine_links), "typed_references": len(typed),
             "engine_jobs": len(engine_jobs), "engine_routines": len(engine_routines),
             "engine_signoffs": len(engine_signoffs), "resource_claims": len(claims),
@@ -1267,10 +1435,10 @@ def _classify_pending_plan(connection, operation, plan: ChangeSet, registry) -> 
     return "factual"
 
 
-def _pending_receipts(connection, extensions=None):
+def _pending_receipts(connection, extensions=None, target=None):
     counts = {"engine": 0, "incompatible": 0, "factual": 0, "unrelated": 0, "unclassified": 0, "unverified": 0,
               "unclassified_refs": [], "details": {}}
-    registry = _pending_registry(extensions or NO_EXTENSIONS)
+    registry = target.registry if target is not None else _pending_registry(extensions or NO_EXTENSIONS)
     for row in connection.execute("SELECT id, operation_name, payload_hash, change_set FROM apply_receipts WHERE " +
                                   ACTIVE_RECEIPT_PREDICATE):
         receipt_id, operation, payload_hash, raw = row
@@ -1284,24 +1452,39 @@ def _pending_receipts(connection, extensions=None):
                                                 "references": ["unreadable_pending_plan"]})
             continue
         status = _classify_pending_plan(connection, operation, plan, registry)
+        reason = None
         if status == "factual":
-            # The target semantic validator is owned by core and is not present in this isolated slice. A saved plan
-            # cannot be called resumable from its own receipt row; unverified work refuses rather than being labelled
-            # compatible, and integration proves it through the full Application/PreparedFileExecutor path.
-            status = "unverified"
+            # A saved plan is never called resumable from its own row: the real target contracts prove it, read-only.
+            status, reason = _prove_factual(target, connection, "receipt", receipt_id)
         counts[status] += 1
         if status in ("incompatible", "unverified"):
             counts["details"][receipt_id] = {"operation": operation, "status": status,
-                                             "reason": ("procedural_or_unprovable_effects" if status == "incompatible"
-                                                        else "target_factual_validation_unavailable")}
+                                             "reason": reason or ("procedural_or_unprovable_effects"
+                                                                  if status == "incompatible" else
+                                                                  "target_factual_validation_unavailable")}
     return counts
 
 
-def _pending_signoffs(connection, extensions=None):
+def _prove_factual(target, connection, kind: str, identity: str) -> tuple[str, str | None]:
+    """``("factual", None)`` when the target Application contracts accept the saved plan; otherwise why not."""
+    if target is None or target.runtime is None:
+        return "unverified", "target_factual_validation_unavailable"
+    from bazarlyk.bootstrap import learning_removal_pending as pending
+    try:
+        (pending.prove_receipt if kind == "receipt" else pending.prove_signoff)(target, connection, identity)
+    except DomainError as exc:
+        return ("unverified" if exc.code in ("unverified_pending_plan", "unclassified_pending_plan") else
+                "incompatible"), exc.code
+    except Exception:
+        return "unverified", "target_factual_validation_failed"
+    return "factual", None
+
+
+def _pending_signoffs(connection, extensions=None, target=None):
     """Pending/approved Signoffs pass through the same actual-effect classification as application receipts."""
     counts = {"engine": 0, "incompatible": 0, "factual": 0, "unrelated": 0, "unclassified": 0, "unverified": 0,
               "details": []}
-    registry = _pending_registry(extensions or NO_EXTENSIONS)
+    registry = target.registry if target is not None else _pending_registry(extensions or NO_EXTENSIONS)
     for row in connection.execute("SELECT id, operation_name, payload_hash, change_set FROM signoffs WHERE " +
                                   ACTIVE_SIGNOFF_PREDICATE):
         signoff_id, operation = row[0], row[1]
@@ -1315,11 +1498,13 @@ def _pending_signoffs(connection, extensions=None):
                                       "references": ["unreadable_pending_plan"]})
             continue
         status = _classify_pending_plan(connection, operation, plan, registry)
+        reason = None
         if status == "factual":
-            status = "unverified"
+            status, reason = _prove_factual(target, connection, "signoff", signoff_id)
         counts[status] += 1
         if status in ("incompatible", "engine", "unclassified", "unverified"):
-            counts["details"].append({"signoff_id": signoff_id, "operation": operation, "status": status})
+            counts["details"].append({"signoff_id": signoff_id, "operation": operation, "status": status,
+                                      **({"reason": reason} if reason else {})})
     return counts
 
 
@@ -1376,9 +1561,9 @@ def _published_role_defaults(connection, paths: InstancePaths, role: dict):
     return defaults
 
 
-def _policy_deficits(connection, paths, extensions=NO_EXTENSIONS) -> list[dict]:
+def _policy_deficits(connection, paths, extensions=NO_EXTENSIONS, target=None) -> list[dict]:
     """Effective role defaults plus profile overrides that name a retired or unknown target operation."""
-    registry = _pending_registry(extensions)
+    registry = target.registry if target is not None else _pending_registry(extensions)
     profiles = []
     for row in connection.execute("SELECT agent_id, profile_json FROM agent_profiles WHERE status='active'"):
         document = _decode(row[1])
@@ -1647,8 +1832,59 @@ def _file_state(path: Path) -> dict:
                 "mode": stat.S_IMODE(info.st_mode)}
 
 
+def tree_files(root: Path) -> dict:
+    """Every regular file under a preparation-owned tree (absent root = empty), path-safe and bounded.
+
+    A symlink, a special file, an oversized file or a tree beyond its documented bounds refuses; empty directories are
+    not inventoried. The state is the file manifest's own ``sha256``/``exists``/``mode`` shape."""
+    root = Path(root)
+    if not os.path.lexists(root):
+        return {}
+    if os.path.islink(root) or not os.path.isdir(root):
+        raise DomainError("invalid_configuration", "A preparation tree root is a symlink or not a directory",
+                          details={"root": str(root)})
+    result, total = {}, 0
+
+    def walk(directory):
+        nonlocal total
+        with os.scandir(directory) as entries:
+            for entry in sorted(entries, key=lambda item: item.name):
+                if entry.is_symlink():
+                    raise DomainError("invalid_configuration", "A preparation tree crosses a symlink",
+                                      details={"path": entry.path})
+                if entry.is_dir(follow_symlinks=False):
+                    walk(entry.path)
+                    continue
+                if not entry.is_file(follow_symlinks=False):
+                    raise DomainError("invalid_configuration", "A preparation tree holds a special file",
+                                      details={"path": entry.path})
+                if len(result) >= MAX_TREE_FILES:
+                    raise DomainError("limit_exceeded", "A preparation tree exceeds its documented file bound",
+                                      details={"root": str(root)})
+                state = _file_state(Path(entry.path))
+                total += os.lstat(entry.path).st_size
+                if total > MAX_TREE_BYTES:
+                    raise DomainError("limit_exceeded", "A preparation tree exceeds its documented size bound",
+                                      details={"root": str(root)})
+                result[entry.path] = state
+
+    walk(str(root))
+    return result
+
+
+def tree_inventory_digest(root: Path) -> str:
+    return canonical_hash([[path, state["sha256"], state["mode"]] for path, state in sorted(tree_files(root).items())])
+
+
+def _under_tree(path: str, preparation) -> bool:
+    return any(path.startswith(item["root"] + os.sep) for item in preparation.get("trees", []))
+
+
 def _file_manifest(preparation) -> dict:
-    return {item["path"]: _file_state(Path(item["path"])) for item in preparation["files"]}
+    manifest = {item["path"]: _file_state(Path(item["path"])) for item in preparation["files"]}
+    for item in preparation.get("trees", []):
+        manifest.update(tree_files(Path(item["root"])))
+    return manifest
 
 
 def _require_instance_file(paths: InstancePaths, path: Path, what: str) -> None:
@@ -1686,8 +1922,8 @@ def write_file_bundle(paths: InstancePaths, directory: Path, preparation: dict, 
     base = _require_private_directory(Path(directory) / "restore", create=True)
     blobs = _require_private_directory(base / "blobs", create=True)
     files = {}
-    for item in preparation["files"]:
-        path = Path(item["path"])
+    for name in sorted(baseline_a["files"]):
+        path = Path(name)
         _require_instance_file(paths, path, "A planned preparation file")
         state = _file_state(path)
         if state["exists"]:
@@ -1704,7 +1940,8 @@ def write_file_bundle(paths: InstancePaths, directory: Path, preparation: dict, 
                                 "mode": stat.S_IMODE(info.st_mode)}
         else:
             files[str(path)] = {"exists": False, "sha256": None, "size": None, "mode": None}
-    body = {"format": MANIFEST_FORMAT, "instance_root": str(paths.instance_root), "files": files}
+    body = {"format": MANIFEST_FORMAT, "instance_root": str(paths.instance_root), "files": files,
+            "trees": [item["root"] for item in preparation.get("trees", [])]}
     body["digest"] = canonical_hash(body)
     raw = (json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
     write_private_file(base, "index.json", raw)
@@ -1725,14 +1962,15 @@ def verify_file_bundle(directory: Path, preparation: dict, baseline_a: dict, *, 
         body = json.loads(raw, object_pairs_hook=_unique, parse_constant=_reject_constant)
     except (DomainError, OSError, ValueError, TypeError) as exc:
         raise DomainError("migration_evidence_invalid", "The file restore bundle is missing or unreadable") from exc
-    if not isinstance(body, dict) or set(body) != {"format", "instance_root", "files", "digest"}:
+    if not isinstance(body, dict) or set(body) != {"format", "instance_root", "files", "trees", "digest"}:
         raise DomainError("migration_evidence_invalid", "The file restore bundle has an unexpected shape")
-    if body["format"] != MANIFEST_FORMAT or not isinstance(body["files"], dict) or body["digest"] != canonical_hash(
-            {key: body[key] for key in ("format", "instance_root", "files")}):
+    if body["format"] != MANIFEST_FORMAT or not isinstance(body["files"], dict) or not isinstance(body["trees"], list) \
+            or body["digest"] != canonical_hash({key: body[key] for key in ("format", "instance_root", "files", "trees")}):
         raise DomainError("migration_evidence_invalid", "The file restore bundle was altered")
     if expected_digest is not None and body["digest"] != expected_digest:
         raise DomainError("migration_evidence_invalid", "The file restore bundle digest does not match its attempt")
-    if set(body["files"]) != {item["path"] for item in preparation["files"]}:
+    if set(body["files"]) != set(baseline_a["files"]) or ("trees" in preparation and body["trees"] != [
+            item["root"] for item in preparation["trees"]]):
         raise DomainError("migration_evidence_invalid", "The file restore bundle does not cover the reviewed files")
     blobs = base / "blobs"
     for path, value in body["files"].items():
@@ -1767,10 +2005,11 @@ def restore_file_bundle(bundle_directory: Path, *, target_root: Path) -> list[st
     base = Path(bundle_directory)
     raw = read_private_file(base / "index.json", max_bytes=MAX_MANIFEST_INDEX_BYTES)
     body = json.loads(raw, object_pairs_hook=_unique, parse_constant=_reject_constant)
-    if (not isinstance(body, dict) or set(body) != {"format", "instance_root", "files", "digest"}
+    if (not isinstance(body, dict) or set(body) != {"format", "instance_root", "files", "trees", "digest"}
             or body.get("format") != MANIFEST_FORMAT or not isinstance(body.get("instance_root"), str)
-            or not isinstance(body.get("files"), dict)
-            or body.get("digest") != canonical_hash({key: body[key] for key in ("format", "instance_root", "files")})):
+            or not isinstance(body.get("files"), dict) or not isinstance(body.get("trees"), list)
+            or body.get("digest") != canonical_hash({key: body[key] for key in ("format", "instance_root", "files",
+                                                                                "trees")})):
         raise DomainError("invalid_configuration", "The file restore bundle is invalid")
     for original, value in body["files"].items():
         if not isinstance(original, str) or not isinstance(value, dict) or set(value) != {"exists", "sha256", "size", "mode"}:
@@ -1808,6 +2047,16 @@ def restore_file_bundle(bundle_directory: Path, *, target_root: Path) -> list[st
                     raise DomainError("invalid_configuration", "An absent restore target is not a plain file")
                 target.unlink()
             restored.append(str(target))
+    for tree in body["trees"]:
+        # A file a stage created inside a reviewed tree is absent at baseline A: the rehearsal removes it.
+        try:
+            mapped = root / Path(tree).relative_to(instance_root)
+        except ValueError as exc:
+            raise DomainError("invalid_configuration", "A file restore tree is outside its instance") from exc
+        for path in sorted(tree_files(mapped)):
+            if str(Path(instance_root) / Path(path).relative_to(root)) not in body["files"]:
+                Path(path).unlink()
+                restored.append(path)
     return restored
 
 
@@ -1832,8 +2081,7 @@ SUPPORTED_EVIDENCE_KINDS = {}
 # The first-wave slice cannot prove a record-only agents_update/roles_publish application receipt and its complete
 # bookkeeping through the genuine Application file/record paths. Keep them explicit unsupported kinds until the
 # integration coordinator supplies that evidence; do not accept a fabricated apply_receipts row as proof.
-UNSUPPORTED_EVIDENCE_KINDS = ("role_adoption", "profile_adoption", "managed_upgrade", "prepared_catalog",
-                              "native_preparation", "extension_declaration")
+UNSUPPORTED_EVIDENCE_KINDS = ("prepared_catalog", "extension_declaration")
 
 
 def _installation_owner(connection) -> str:
@@ -1845,16 +2093,17 @@ def _installation_owner(connection) -> str:
 
 
 def _preparation_evidence(step, connection, paths: InstancePaths, plan_attempt, baseline_a, baseline_b) -> dict:
-    """No preparation evidence kind is enabled in this first-wave slice.
+    """The authoritative evidence of one step: the persisted receipts, files and private immutable step evidence.
 
-    A fabricated apply_receipts row (even with a real OperationResult envelope) is not proof that the genuine
-    Application/PreparedFileExecutor path ran. Role adoption, profile adoption and every other kind therefore remain
-    explicitly unverified until the integration coordinator supplies authoritative execution evidence.
-    """
+    The allowed row keys and file paths are derived from the reviewed intent's operation semantics and the retained API
+    receipts (``learning_removal_evidence``); a kind without such a verifier stays explicitly unverified."""
     kind = step.get("kind") if isinstance(step, dict) else None
-    raise DomainError("unverified_preparation", "This transition has no authoritative evidence adapter; the preparation "
-                      "kind remains unverified until integration supplies genuine execution evidence",
-                      details={"kind": kind})
+    if kind in UNSUPPORTED_EVIDENCE_KINDS or not isinstance(kind, str):
+        raise DomainError("unverified_preparation", "This transition has no authoritative evidence adapter; the preparation "
+                          "kind remains unverified until integration supplies genuine execution evidence",
+                          details={"kind": kind})
+    from bazarlyk.bootstrap import learning_removal_evidence as step_evidence
+    return step_evidence.verify_step(step, connection, paths, plan_attempt, baseline_a, baseline_b)
 
 
 def validate_preparation_receipt(receipt, *, plan: dict, baseline_a: dict, baseline_b: dict, connection=None,
@@ -1879,6 +2128,11 @@ def validate_preparation_receipt(receipt, *, plan: dict, baseline_a: dict, basel
     if {(step.get("kind"), step.get("identity")) for step in steps if isinstance(step, dict)} != set(expected):
         raise DomainError("operation_conflict", "The preparation receipt steps are not exactly the reviewed plan's steps")
     claimed_rows, claimed_files, accounting = {}, {}, []
+    inputs = plan["preparation"].get("inputs")
+    if inputs is not None:
+        order = [(intent["kind"], intent["identity"]) for intent in inputs["derived"]["intents"]]
+        if [(step.get("kind"), step.get("identity")) for step in steps if isinstance(step, dict)] != order:
+            raise DomainError("operation_conflict", "The preparation receipt steps are not in the reviewed execution order")
     for step in steps:
         if not isinstance(step, dict) or set(step) - {"kind", "identity", "digest", "operation", "receipt_id", "rows",
                                                        "files"}:
@@ -1895,12 +2149,20 @@ def validate_preparation_receipt(receipt, *, plan: dict, baseline_a: dict, basel
         rows, files = step.get("rows", []), step.get("files", [])
         if not isinstance(rows, list) or not isinstance(files, list):
             raise DomainError("invalid_configuration", "A preparation step's row/file accounting is missing")
-        if not rows and not files:
-            raise DomainError("operation_conflict", "A preparation step claims no concrete row or file effect")
         if connection is None or plan_attempt is None:
             raise DomainError("unverified_preparation", "A preparation receipt with steps needs authoritative persisted "
                               "evidence; caller-authored hashes are never sufficient")
         evidence = _preparation_evidence(step, connection, plan_attempt.paths, plan_attempt, baseline_a, baseline_b)
+        if not rows and not files and not evidence.get("noop"):
+            raise DomainError("operation_conflict", "A preparation step claims no concrete row or file effect")
+        recorded = evidence.get("claims")
+        if recorded is not None and (
+                sorted((row.get("table"), row.get("keys"), row.get("before"), row.get("after")) for row in rows if isinstance(row, dict))
+                != sorted((row["table"], row["keys"], row["before"], row["after"]) for row in recorded["rows"])
+                or sorted((item.get("path"), item.get("before"), item.get("after")) for item in files if isinstance(item, dict))
+                != sorted((item["path"], item["before"], item["after"]) for item in recorded["files"])):
+            raise DomainError("operation_conflict", "A preparation step's claims are not the durable step evidence",
+                              details={"identity": step["identity"]})
         for row in rows:
             _claim_row(row, identity, plan, baseline_a, baseline_b, claimed_rows, allowed=evidence["rows"])
         for item in files:
@@ -1910,6 +2172,16 @@ def validate_preparation_receipt(receipt, *, plan: dict, baseline_a: dict, basel
                            "rows": len(rows), "files": len(files)})
     differences = manifest_difference(baseline_a, baseline_b)
     unexplained = []
+    for (table, key), chain in sorted(claimed_rows.items()):
+        change = differences.get(table, {}).get(key)
+        if change is None or change["after"] != chain["after"]:
+            raise DomainError("operation_conflict", "A preparation row chain does not end at baseline B",
+                              details={"table": table, "key": key, "steps": chain["steps"]})
+    for path, chain in sorted(claimed_files.items()):
+        after = baseline_b["files"].get(path)
+        if (None if after is None else after["sha256"]) != chain["after"]:
+            raise DomainError("operation_conflict", "A preparation file chain does not end at baseline B",
+                              details={"path": path, "steps": chain["steps"]})
     for table, changed in sorted(differences.items()):
         for key, change in sorted(changed.items()):
             if (table, key) not in claimed_rows:
@@ -1948,15 +2220,25 @@ def _claim_row(row, identity, plan, baseline_a, baseline_b, claimed, *, allowed=
     if actual is None:
         raise DomainError("operation_conflict", "A preparation receipt claims a row that did not change exactly", details={
             "table": table, "key": key})
-    if (row["before"], row["after"]) != (actual["before"], actual["after"]):
-        raise DomainError("operation_conflict", "A preparation receipt row fingerprint is not the exact stored value",
-                          details={"table": table, "key": key})
-    if (table, key) in claimed:
-        raise DomainError("operation_conflict", "Two preparation steps claim the same row", details={"table": table})
     if allowed is not None and (table, key) not in allowed:
         raise DomainError("operation_conflict", "A preparation step claims a row its authoritative receipt did not "
                           "authorize", details={"table": table, "key": key})
-    claimed[(table, key)] = identity
+    if row["before"] == row["after"]:
+        raise DomainError("operation_conflict", "A preparation step claims a row it did not change",
+                          details={"table": table, "key": key})
+    chain = claimed.get((table, key))
+    # An ordered chain: the first claim starts exactly at baseline A, every later claim starts exactly where the previous
+    # one ended, and the last must end exactly at baseline B (checked once for the whole reconciliation).
+    expected_before = actual["before"] if chain is None else chain["after"]
+    if row["before"] != expected_before:
+        raise DomainError("operation_conflict", "A preparation receipt row fingerprint does not continue its chain from "
+                          "baseline A" if chain is None else "Two preparation steps claim the same row without an "
+                          "ordered before/after chain", details={"table": table, "key": key})
+    if chain is None:
+        claimed[(table, key)] = {"after": row["after"], "steps": [identity]}
+    else:
+        chain["after"] = row["after"]
+        chain["steps"].append(identity)
 
 
 def _claim_key(keys, expected):
@@ -1977,7 +2259,7 @@ def _claim_file(item, identity, plan, baseline_a, baseline_b, claimed, *, allowe
     if not isinstance(item, dict) or set(item) != {"path", "before", "after"}:
         raise DomainError("invalid_configuration", "A preparation file claim needs path, before and after")
     path = str(_absolute_path(item["path"], "A preparation file claim"))
-    if path not in {entry["path"] for entry in plan["preparation"]["files"]}:
+    if path not in {entry["path"] for entry in plan["preparation"]["files"]} and not _under_tree(path, plan["preparation"]):
         raise DomainError("operation_conflict", "A preparation claim names an undeclared file", details={"path": path})
     before_state, after_state = baseline_a["files"].get(path), baseline_b["files"].get(path)
     before = None if before_state is None else before_state["sha256"]
@@ -1985,19 +2267,26 @@ def _claim_file(item, identity, plan, baseline_a, baseline_b, claimed, *, allowe
     if before == after:
         raise DomainError("operation_conflict", "A preparation receipt claims a file that did not change",
                           details={"path": path})
-    if (item["before"], item["after"]) != (before, after):
-        raise DomainError("operation_conflict", "A preparation receipt file fingerprint is not the exact stored value",
-                          details={"path": path})
+    if item["before"] == item["after"]:
+        raise DomainError("operation_conflict", "A preparation step claims a file it did not change", details={"path": path})
+    if allowed is not None and path not in allowed:
+        raise DomainError("operation_conflict", "A preparation step claims a file its authoritative receipt did not "
+                          "authorize", details={"path": path})
+    chain = claimed.get(path)
+    expected_before = before if chain is None else chain["after"]
+    if item["before"] != expected_before:
+        raise DomainError("operation_conflict", "A preparation receipt file fingerprint does not continue its chain from "
+                          "baseline A" if chain is None else "Two preparation steps claim the same file without an "
+                          "ordered before/after chain", details={"path": path})
     if before_state is not None and after_state is not None and before_state["exists"] and after_state["exists"]:
         if before_state.get("mode") != after_state.get("mode"):
             raise DomainError("operation_conflict", "A preparation receipt changed a file mode without an exact claim",
                               details={"path": path})
-    if path in claimed:
-        raise DomainError("operation_conflict", "Two preparation steps claim the same file", details={"path": path})
-    if allowed is not None and path not in allowed:
-        raise DomainError("operation_conflict", "A preparation step claims a file its authoritative receipt did not "
-                          "authorize", details={"path": path})
-    claimed[path] = identity
+    if chain is None:
+        claimed[path] = {"after": item["after"], "steps": [identity]}
+    else:
+        chain["after"] = item["after"]
+        chain["steps"].append(identity)
 
 
 # -- apply --------------------------------------------------------------------------------------------------------
@@ -2043,10 +2332,15 @@ class PlanAttempt:
                 _require_removed_empty(connection)
                 _verify_attempt_evidence_files(self)
                 _verify_backup_against_a(self.paths, self.transition, self.backup, self.baseline_a)
+                if self.plan["preparation"].get("inputs") is not None:
+                    from bazarlyk.bootstrap import learning_removal_preparation as coordinator
+                    coordinator.final_inputs(self)
                 if _release_evidence(self.paths, self.plan["preparation"], self.transition) != self.plan["release_evidence"]:
                     raise DomainError("operation_conflict", "The verified release inputs changed before the schema "
                                       "transaction")
-                gates_b = _gate_rows(connection, self.transition, self.transition.extensions, paths=self.paths)
+                gates_b = _gate_rows(connection, self.transition, self.transition.extensions, paths=self.paths,
+                                     target=_target_for(self.paths, self.transition, self.transition.extensions,
+                                                        self.plan["preparation"]))
                 _require_ready(gates_b)
                 _require_policy_clear(gates_b["policy_profiles"])
                 if _native_catalogs(self.paths, self.transition, self.transition.extensions,
@@ -2310,8 +2604,7 @@ def _load_attempt_evidence(paths, plan_digest):
             or not isinstance(restore_reference.get("files"), int)):
         raise DomainError("migration_evidence_invalid", "The attempt receipt has no valid restore bundle reference")
     index_a = verify_manifest_bundle(directory, "baseline-a", expected_digest=metadata.get("baseline_a"))
-    restore = verify_file_bundle(directory, {"files": [{"path": path} for path in index_a["files"]]},
-                                 {"files": index_a["files"]}, expected_digest=restore_reference["digest"])
+    restore = verify_file_bundle(directory, {}, {"files": index_a["files"]}, expected_digest=restore_reference["digest"])
     marker = _read_evidence_json(directory / "precommit.json", label="pre-commit marker")
     if (marker.get("format") != MANIFEST_FORMAT or marker.get("state") != "precommit"
             or marker.get("plan_digest") != plan_digest or marker.get("attempt_id") != attempt_id
@@ -2596,7 +2889,8 @@ def _verify_target(paths, transition: _Transition, baseline_b) -> dict:
 
 
 def _require_gates(connection, paths, transition, plan, extensions) -> None:
-    gates = _gate_rows(connection, transition, extensions, paths=paths)
+    gates = _gate_rows(connection, transition, extensions, paths=paths,
+                       target=_target_for(paths, transition, extensions, plan["preparation"]))
     summary = _gate_summary(gates)
     if summary != plan["gates"]:
         raise DomainError("operation_conflict", "The store's data/activity gate state changed after preparation; "
@@ -2936,8 +3230,13 @@ def main(argv=None):
         command.add_argument("--extensions-config", type=Path, default=None,
                              help="Explicit extension selection in the trusted installation-config format")
         if name == "prepare":
-            command.add_argument("--preparation-plan", type=Path, required=True,
+            command.add_argument("--preparation-plan", type=Path, default=None,
                                  help="Reviewed preparation-plan references in private JSON")
+            command.add_argument("--coordinator-request", type=Path, default=None,
+                                 help="The coordinator inputs (private JSON); with --release-reference the preparation "
+                                      "plan is derived read-only from the actual instance")
+            command.add_argument("--release-reference", type=Path, default=None,
+                                 help="The verified release reference (private JSON) for --coordinator-request")
             command.add_argument("--save", type=Path, default=None, help="New private 0600 file for the plan")
         if name == "apply":
             command.add_argument("--plan", type=Path, required=True, help="The saved plan file (0600 in a 0700 dir)")
@@ -2945,6 +3244,9 @@ def main(argv=None):
                                  help="New backup file (explicit path in an existing owned 0700 directory)")
             command.add_argument("--preparation", type=Path, default=None,
                                  help="Optional concrete preparation receipt (A-to-B accounting)")
+            command.add_argument("--coordinate", action="store_true",
+                                 help="Run the reviewed preparation stages and the migration under one continuous "
+                                      "instance owner (the plan must carry the coordinator inputs)")
     options = parser.parse_args(argv)
     try:
         paths = instance_paths_from_arguments(options, required=())
@@ -2952,10 +3254,21 @@ def main(argv=None):
         if options.command == "inspect":
             result = inspect_migration(paths, extensions=extensions)
         elif options.command == "prepare":
-            preparation = read_preparation_receipt(options.preparation_plan)
-            result = prepare_migration(paths, extensions=extensions, preparation=preparation)
+            if (options.preparation_plan is None) == (options.coordinator_request is None):
+                raise DomainError("invalid_configuration", "Prepare needs exactly one of --preparation-plan or "
+                                  "--coordinator-request")
+            if options.coordinator_request is not None:
+                result = _coordinated_plan(paths, extensions, options)
+            else:
+                preparation = read_preparation_receipt(options.preparation_plan)
+                result = prepare_migration(paths, extensions=extensions, preparation=preparation)
             if options.save is not None:
                 _save_plan(result, options.save)
+        elif options.coordinate:
+            if options.preparation is not None:
+                raise DomainError("invalid_configuration", "--coordinate produces its own preparation receipt")
+            from bazarlyk.bootstrap import learning_removal_preparation as coordinator
+            result = coordinator.run(paths, _read_plan(options.plan), backup=options.backup, extensions=extensions)
         else:
             preparation = read_preparation_receipt(options.preparation) if options.preparation is not None else None
             result = apply_migration(paths, _read_plan(options.plan), backup=options.backup,
@@ -2970,6 +3283,20 @@ def main(argv=None):
         status = 1
     sys.stdout.write(json.dumps(response, ensure_ascii=False, allow_nan=False) + "\n")
     return status
+
+
+def _coordinated_plan(paths, extensions, options):
+    from bazarlyk.bootstrap import learning_removal_preparation as coordinator
+    if options.release_reference is None:
+        raise DomainError("invalid_configuration", "--coordinator-request needs --release-reference")
+    request = coordinator.read_request(options.coordinator_request)
+    try:
+        raw = json.loads(read_private_file(options.release_reference, max_bytes=MAX_PREPARATION_BYTES),
+                         object_pairs_hook=_unique, parse_constant=_reject_constant)
+    except (ValueError, TypeError) as exc:
+        raise DomainError("invalid_configuration", "The release reference is not valid JSON") from exc
+    release = _normalise_preparation({"release": raw})["release"]
+    return coordinator.plan_preparation(paths, request, release, extensions=extensions)
 
 
 def _selected_extensions(path):

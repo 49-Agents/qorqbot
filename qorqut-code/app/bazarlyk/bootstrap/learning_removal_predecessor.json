@@ -1,0 +1,209 @@
+{
+  "format": 1,
+  "transition": "v1.3-legacy-learning-removal-1",
+  "target_name": "qorqut-v1.2",
+  "target_version": 1,
+  "owner": "learning",
+  "removed": [
+    "CREATE TABLE learning_issues (\n    business_id TEXT REFERENCES businesses(id),\n    issue_id TEXT NOT NULL CHECK (length(issue_id) BETWEEN 1 AND 200),\n    engine_id TEXT NOT NULL CHECK (length(engine_id) BETWEEN 1 AND 200),\n    engine_scope_id TEXT NOT NULL CHECK (length(engine_scope_id) BETWEEN 1 AND 200),\n    category TEXT NOT NULL,\n    policy_state TEXT NOT NULL DEFAULT 'tracking'\n        CHECK (policy_state IN ('tracking', 'open', 'accepted', 'rejected', 'ignored', 'snoozed')),\n    hold_state TEXT NOT NULL DEFAULT 'none' CHECK (hold_state IN ('none', 'held', 'resolved')),\n    engine_status TEXT NOT NULL DEFAULT 'bound' CHECK (engine_status IN ('bound', 'unbound', 'superseded')),\n    current_candidate_id TEXT,\n    revisit_json TEXT CHECK (revisit_json IS NULL OR json_valid(revisit_json)),\n    release_json TEXT CHECK (release_json IS NULL OR json_valid(release_json)),\n    -- Null unless the hold lists more predecessor issues (the engine's lineage and the host's re-enrollment relations together)\n    -- than one revisit can name: then the explicit incomplete-reconciliation marker with the total count. Such a hold is never\n    -- released by naming the predecessors it links.\n    hold_json TEXT CHECK (hold_json IS NULL OR json_valid(hold_json)),\n    stale INTEGER NOT NULL DEFAULT 0 CHECK (stale IN (0, 1)),\n    issue_revision INTEGER NOT NULL CHECK (issue_revision >= 1),\n    material_evidence_revision INTEGER NOT NULL CHECK (material_evidence_revision >= 1),\n    evidence_fingerprint TEXT NOT NULL,\n    support_json TEXT NOT NULL CHECK (json_valid(support_json)),\n    eligibility_json TEXT NOT NULL CHECK (json_valid(eligibility_json)),\n    projected_at TEXT NOT NULL,\n    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN business_id IS NULL THEN 'global' ELSE 'business:' || business_id END) STORED,\n    PRIMARY KEY (business_id, issue_id),\n    FOREIGN KEY (scope_key, current_candidate_id) REFERENCES learning_candidates(scope_key, id)\n)",
+    "CREATE UNIQUE INDEX learning_issues_workspace ON learning_issues(scope_key, issue_id)",
+    "CREATE UNIQUE INDEX learning_issues_engine_identity ON learning_issues(engine_id, issue_id)",
+    "CREATE INDEX learning_issues_policy ON learning_issues(scope_key, policy_state, hold_state)",
+    "CREATE TABLE learning_issue_candidates (\n    business_id TEXT,\n    candidate_id TEXT NOT NULL,\n    issue_id TEXT NOT NULL,\n    ordinal INTEGER NOT NULL CHECK (ordinal >= 1),\n    predecessor_candidate_id TEXT,\n    package_revision INTEGER NOT NULL CHECK (package_revision >= 1),\n    created_by TEXT NOT NULL REFERENCES principals(id),\n    created_at TEXT NOT NULL,\n    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN business_id IS NULL THEN 'global' ELSE 'business:' || business_id END) STORED,\n    PRIMARY KEY (business_id, candidate_id),\n    FOREIGN KEY (scope_key, candidate_id) REFERENCES learning_candidates(scope_key, id),\n    FOREIGN KEY (scope_key, issue_id) REFERENCES learning_issues(scope_key, issue_id),\n    FOREIGN KEY (scope_key, predecessor_candidate_id) REFERENCES learning_candidates(scope_key, id)\n)",
+    "CREATE UNIQUE INDEX learning_issue_candidates_workspace ON learning_issue_candidates(scope_key, candidate_id)",
+    "CREATE UNIQUE INDEX learning_issue_candidates_ordinal ON learning_issue_candidates(scope_key, issue_id, ordinal)",
+    "CREATE TABLE learning_issue_actions (\n    business_id TEXT,\n    id TEXT NOT NULL,\n    issue_id TEXT NOT NULL,\n    issue_revision INTEGER NOT NULL CHECK (issue_revision >= 1),\n    candidate_id TEXT,\n    candidate_revision INTEGER,\n    action TEXT NOT NULL CHECK (action IN ('deliver', 'successor', 'append_evidence', 'resurface', 'evidence_update',\n        'hold', 'stale', 'supersede', 'accept', 'reject', 'reopen', 'ignore', 'snooze', 'revisit', 'note',\n        'work_start', 'work_defer', 'work_done', 'work_drop', 'work_note')),\n    actor_id TEXT NOT NULL REFERENCES principals(id),\n    actor_kind TEXT NOT NULL CHECK (actor_kind IN ('human', 'agent', 'system')),\n    idempotency_key TEXT,\n    policy_revision_before INTEGER,\n    policy_revision_after INTEGER,\n    before_json TEXT NOT NULL CHECK (json_valid(before_json)),\n    after_json TEXT NOT NULL CHECK (json_valid(after_json)),\n    baseline_json TEXT NOT NULL CHECK (json_valid(baseline_json)),\n    reasoning TEXT,\n    reasoning_source TEXT CHECK (reasoning_source IS NULL OR reasoning_source IN\n        ('owner_conversation_via_agent', 'owner_direct', 'agent_work_explanation')),\n    owner_instruction TEXT,\n    agent_rationale TEXT,\n    revisit_condition_json TEXT CHECK (revisit_condition_json IS NULL OR json_valid(revisit_condition_json)),\n    operational_reason TEXT,\n    corrects_action_id TEXT,\n    details_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(details_json)),\n    created_at TEXT NOT NULL,\n    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN business_id IS NULL THEN 'global' ELSE 'business:' || business_id END) STORED,\n    PRIMARY KEY (business_id, id),\n    FOREIGN KEY (scope_key, issue_id) REFERENCES learning_issues(scope_key, issue_id),\n    CHECK ((reasoning IS NULL) = (reasoning_source IS NULL))\n)",
+    "CREATE UNIQUE INDEX learning_issue_actions_workspace ON learning_issue_actions(scope_key, id)",
+    "CREATE UNIQUE INDEX learning_issue_actions_replay ON learning_issue_actions(scope_key, issue_id, actor_id, idempotency_key)\n    WHERE idempotency_key IS NOT NULL",
+    "CREATE INDEX learning_issue_actions_issue ON learning_issue_actions(scope_key, issue_id, created_at, id)",
+    "CREATE TRIGGER learning_issue_actions_no_update BEFORE UPDATE ON learning_issue_actions\nBEGIN SELECT RAISE(ABORT, 'learning issue actions are append-only'); END",
+    "CREATE TRIGGER learning_issue_actions_no_delete BEFORE DELETE ON learning_issue_actions\nBEGIN SELECT RAISE(ABORT, 'learning issue actions are append-only'); END",
+    "CREATE TABLE learning_issue_links (\n    business_id TEXT,\n    link_id TEXT NOT NULL,\n    issue_id TEXT NOT NULL,\n    predecessor_issue_id TEXT NOT NULL,\n    relation TEXT NOT NULL CHECK (relation IN ('split', 'merge', 'source_reenrollment_overlap',\n        'source_reenrollment_incomplete_lineage')),\n    recorded_at TEXT NOT NULL,\n    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN business_id IS NULL THEN 'global' ELSE 'business:' || business_id END) STORED,\n    PRIMARY KEY (business_id, link_id),\n    FOREIGN KEY (scope_key, issue_id) REFERENCES learning_issues(scope_key, issue_id)\n)",
+    "CREATE UNIQUE INDEX learning_issue_links_workspace ON learning_issue_links(scope_key, link_id)",
+    "CREATE INDEX learning_issue_links_issue ON learning_issue_links(scope_key, issue_id)",
+    "CREATE INDEX learning_issue_links_predecessor ON learning_issue_links(scope_key, predecessor_issue_id)",
+    "CREATE TRIGGER learning_issue_links_no_update BEFORE UPDATE ON learning_issue_links\nBEGIN SELECT RAISE(ABORT, 'learning issue links are append-only'); END",
+    "CREATE TRIGGER learning_issue_links_no_delete BEFORE DELETE ON learning_issue_links\nBEGIN SELECT RAISE(ABORT, 'learning issue links are append-only'); END",
+    "CREATE TABLE learning_engine_packages (\n    business_id TEXT,\n    engine_id TEXT NOT NULL,\n    issue_id TEXT NOT NULL,\n    package_revision INTEGER NOT NULL CHECK (package_revision >= 1),\n    ordinal INTEGER NOT NULL CHECK (ordinal >= 1),\n    package_hash TEXT NOT NULL CHECK (length(package_hash) = 64),\n    material_evidence_revision INTEGER NOT NULL CHECK (material_evidence_revision >= 1),\n    outcome TEXT NOT NULL CHECK (outcome IN ('created', 'successor', 'appended')),\n    candidate_id TEXT NOT NULL,\n    package_json TEXT NOT NULL CHECK (json_valid(package_json)),\n    received_by TEXT NOT NULL REFERENCES principals(id),\n    created_at TEXT NOT NULL,\n    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN business_id IS NULL THEN 'global' ELSE 'business:' || business_id END) STORED,\n    PRIMARY KEY (business_id, engine_id, issue_id, package_revision, ordinal),\n    FOREIGN KEY (scope_key, issue_id) REFERENCES learning_issues(scope_key, issue_id),\n    FOREIGN KEY (scope_key, candidate_id) REFERENCES learning_candidates(scope_key, id)\n)",
+    "CREATE UNIQUE INDEX learning_engine_packages_workspace\n    ON learning_engine_packages(scope_key, engine_id, issue_id, package_revision, ordinal)",
+    "CREATE INDEX learning_engine_packages_candidate ON learning_engine_packages(scope_key, candidate_id, package_revision)",
+    "CREATE TRIGGER learning_engine_packages_no_update BEFORE UPDATE ON learning_engine_packages\nBEGIN SELECT RAISE(ABORT, 'learning engine package receipts are append-only'); END",
+    "CREATE TRIGGER learning_engine_packages_no_delete BEFORE DELETE ON learning_engine_packages\nBEGIN SELECT RAISE(ABORT, 'learning engine package receipts are append-only'); END",
+    "CREATE TABLE learning_engine_enrollments (\n    business_id TEXT REFERENCES businesses(id),\n    agent_id TEXT NOT NULL,\n    engine_id TEXT NOT NULL CHECK (length(engine_id) BETWEEN 1 AND 200),\n    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),\n    -- Engine source identity is agent:<agent_id>:<epoch>. A disabled engine source cannot be revived, so each\n    -- re-activation starts a new epoch (and therefore a new engine source); older epochs stay disabled.\n    epoch INTEGER NOT NULL DEFAULT 1 CHECK (epoch >= 1),\n    enrolled_by TEXT NOT NULL REFERENCES principals(id),\n    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN business_id IS NULL THEN 'global' ELSE 'business:' || business_id END) STORED,\n    PRIMARY KEY (business_id, agent_id)\n)",
+    "CREATE UNIQUE INDEX learning_engine_enrollments_workspace ON learning_engine_enrollments(scope_key, agent_id)",
+    "CREATE TABLE learning_engine_state (\n    business_id TEXT REFERENCES businesses(id),\n    session_id TEXT NOT NULL,\n    engine_id TEXT NOT NULL,\n    agent_id TEXT NOT NULL,\n    epoch INTEGER NOT NULL CHECK (epoch >= 1),\n    transcript_hash TEXT NOT NULL CHECK (length(transcript_hash) = 64),\n    status TEXT NOT NULL CHECK (status IN ('processed', 'retry', 'needs_attention', 'deferred')),\n    lifecycle TEXT NOT NULL DEFAULT 'unknown' CHECK (lifecycle IN ('complete', 'incomplete', 'unknown')),\n    coverage TEXT NOT NULL CHECK (coverage IN ('complete', 'partial', 'unknown')),\n    attempts INTEGER NOT NULL DEFAULT 1 CHECK (attempts >= 0),\n    detail_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(detail_json)),\n    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN business_id IS NULL THEN 'global' ELSE 'business:' || business_id END) STORED,\n    PRIMARY KEY (business_id, session_id),\n    CHECK ((status = 'deferred') = (attempts = 0)),\n    CHECK (status = 'deferred' OR lifecycle = 'complete'),\n    CHECK (status != 'deferred' OR lifecycle != 'complete'),\n    CHECK (status != 'deferred' OR coverage = 'unknown')\n)",
+    "CREATE UNIQUE INDEX learning_engine_state_workspace ON learning_engine_state(scope_key, session_id)"
+  ],
+  "tables": {
+    "learning_issues": {
+      "keys": [
+        "business_id",
+        "issue_id"
+      ],
+      "scope_column": "business_id",
+      "mutable": true,
+      "revision_column": "revision"
+    },
+    "learning_issue_candidates": {
+      "keys": [
+        "business_id",
+        "candidate_id"
+      ],
+      "scope_column": "business_id",
+      "mutable": false,
+      "revision_column": null
+    },
+    "learning_issue_actions": {
+      "keys": [
+        "business_id",
+        "id"
+      ],
+      "scope_column": "business_id",
+      "mutable": false,
+      "revision_column": null
+    },
+    "learning_issue_links": {
+      "keys": [
+        "business_id",
+        "link_id"
+      ],
+      "scope_column": "business_id",
+      "mutable": false,
+      "revision_column": null
+    },
+    "learning_engine_packages": {
+      "keys": [
+        "business_id",
+        "engine_id",
+        "issue_id",
+        "package_revision",
+        "ordinal"
+      ],
+      "scope_column": "business_id",
+      "mutable": false,
+      "revision_column": null
+    },
+    "learning_engine_enrollments": {
+      "keys": [
+        "business_id",
+        "agent_id"
+      ],
+      "scope_column": "business_id",
+      "mutable": true,
+      "revision_column": "revision"
+    },
+    "learning_engine_state": {
+      "keys": [
+        "business_id",
+        "session_id"
+      ],
+      "scope_column": "business_id",
+      "mutable": true,
+      "revision_column": "revision"
+    }
+  },
+  "immutable_fields": {
+    "learning_issues": [
+      "engine_id",
+      "engine_scope_id"
+    ]
+  },
+  "operations": {
+    "learnings_engine_enrollment_set": {
+      "supports_signoff": false,
+      "effect_kind": "records",
+      "exposure": [
+        "dashboard",
+        "worker"
+      ],
+      "owner_only": true
+    },
+    "learnings_engine_import": {
+      "supports_signoff": true,
+      "effect_kind": "records",
+      "exposure": [
+        "worker"
+      ],
+      "owner_only": false
+    },
+    "learnings_issue_action": {
+      "supports_signoff": false,
+      "effect_kind": "records",
+      "exposure": [
+        "dashboard",
+        "mcp"
+      ],
+      "owner_only": false
+    },
+    "learnings_work_defer": {
+      "supports_signoff": true,
+      "effect_kind": "records",
+      "exposure": [
+        "dashboard",
+        "mcp",
+        "worker"
+      ],
+      "owner_only": false
+    },
+    "learnings_work_done": {
+      "supports_signoff": true,
+      "effect_kind": "records",
+      "exposure": [
+        "dashboard",
+        "mcp",
+        "worker"
+      ],
+      "owner_only": false
+    },
+    "learnings_work_drop": {
+      "supports_signoff": true,
+      "effect_kind": "records",
+      "exposure": [
+        "dashboard",
+        "mcp",
+        "worker"
+      ],
+      "owner_only": false
+    },
+    "learnings_work_get": {
+      "supports_signoff": false,
+      "effect_kind": "read",
+      "exposure": [
+        "dashboard",
+        "mcp",
+        "worker"
+      ],
+      "owner_only": false
+    },
+    "learnings_work_list": {
+      "supports_signoff": false,
+      "effect_kind": "read",
+      "exposure": [
+        "dashboard",
+        "mcp",
+        "worker"
+      ],
+      "owner_only": false
+    },
+    "learnings_work_note_set": {
+      "supports_signoff": true,
+      "effect_kind": "records",
+      "exposure": [
+        "dashboard",
+        "mcp",
+        "worker"
+      ],
+      "owner_only": false
+    },
+    "learnings_work_start": {
+      "supports_signoff": true,
+      "effect_kind": "records",
+      "exposure": [
+        "dashboard",
+        "mcp",
+        "worker"
+      ],
+      "owner_only": false
+    }
+  }
+}
