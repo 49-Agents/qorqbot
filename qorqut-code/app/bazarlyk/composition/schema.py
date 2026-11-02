@@ -7,26 +7,25 @@ ownership and the specifications agree."""
 
 from __future__ import annotations
 
-from qorqut_operations import (actions, context_filing, context_graph_edits, context_queue, context_usage, discussion, tags,
-                               tasks)
+from qorqut_context.integration import registration as context_registration
+from qorqut_operations import actions, discussion, tags, tasks
+from qorqut_operations.documents.schema import REQUIRED_LIFECYCLES as DOCUMENT_LIFECYCLES
 from qorqut_operations.storage.assembly import AssemblyError, StorageContribution
 
 from . import capture, schema_ddl, tables
-from .documents import RESOURCE_TYPE as DOCUMENTS
 
 # Document availability is tracked beside every file receipt (v1), so the documents owner requires its lifecycle.
-REQUIRED_LIFECYCLES = {"documents": frozenset({DOCUMENTS})}
+REQUIRED_LIFECYCLES = {"documents": DOCUMENT_LIFECYCLES}
 
 
 def record_contributions() -> tuple[StorageContribution, ...]:
     """The engine's operational-record storage, first and in the order its DDL needs: the tag catalog and the discussion,
-    Tasks on both, Actions on those, the Context queue on the Action revisions, and the three Context companions that
-    sit on that one queue (source filings and completion receipts, controlled graph edits, the model-call usage
-    ledger). One contribution per owner: the host runtime builds exactly one queue over these tables. The host tables
+    Tasks on both, Actions on those, then Context's four contributions (the queue on the Action revisions and the three
+    companions that sit on that one queue: source filings and completion receipts, controlled graph edits, the model-call
+    usage ledger). One contribution per owner: the host runtime builds exactly one queue over these tables. The host tables
     that reference them are created after them."""
     return (tags.storage_contribution(), discussion.storage_contribution(), tasks.storage_contribution(),
-            actions.storage_contribution(), context_queue.storage_contribution(), context_filing.storage_contribution(),
-            context_graph_edits.storage_contribution(), context_usage.storage_contribution())
+            actions.storage_contribution(), *context_registration.storage_contributions())
 
 
 def storage_contributions() -> tuple[StorageContribution, ...]:

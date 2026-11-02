@@ -12,7 +12,7 @@ from importlib.resources import files
 
 from bazarlyk.catalog.packages import content_hash
 from qorqut_operations.contracts import DomainError, new_id
-from bazarlyk.storage import history
+from qorqut_operations.document_history.files import seed_document
 from qorqut_operations.storage.files import FileApplier
 from qorqut_operations.storage.receipts import ApplyReceipts
 from .preparation import _write_file
@@ -58,7 +58,7 @@ def register_context_sources(database, paths):
                 row = repository.insert({"id": new_id(), "namespace": "global", "path": document_path,
                     "kind": "shared_instruction", "content_hash": digest,
                     "metadata_json": {"bootstrap_key": key, "authored": True}})
-                history.seed_document(uow.connection, row, body, author="system:register_context_sources",
+                seed_document(uow.connection, row, body, author="system:register_context_sources",
                                       operation="register_context_sources")
             result.append(row)
     return result

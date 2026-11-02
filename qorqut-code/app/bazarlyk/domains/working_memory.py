@@ -8,7 +8,7 @@ from bazarlyk.agents import roles
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, Principal, canonical_hash, plain
 from qorqut_operations.application.plans import PlanBuilder, apply_records, schema, UUID, ref, timestamp, utc_clock
-from .documents.store import HASH, split_document
+from qorqut_operations.documents.serialization import HASH, split_document
 from .memory_sources import MemorySources, SOURCE_TYPES
 from bazarlyk.storage import history
 

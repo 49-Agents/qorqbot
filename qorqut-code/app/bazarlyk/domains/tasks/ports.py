@@ -16,7 +16,7 @@ from bazarlyk.agents.contact import owner_directed_target
 from bazarlyk.domains.dev_tickets import DevTickets
 from bazarlyk.inbox import attention
 from bazarlyk.inbox.owner_tasks import ordubashies, tasks as owner_task_rows
-from bazarlyk.inbox.related import subscribers as related_subscribers
+from qorqut_operations.inbox.related import subscribers as related_subscribers
 from bazarlyk.incidents import IncidentReporter
 
 # The reference types a Task note may cite. The first three are also the types Focus notes accept; ``material``

@@ -43,7 +43,8 @@ def published_pin(connection, plugin_id: str) -> dict | None:
 
 def unusable_reason(resolver, connection, plugin_id: str, pin: dict | None, scope_kind: str) -> str | None:
     """Why the pin cannot carry the default grant for this scope, or None when it can."""
-    from bazarlyk.catalog.packages import parse_yaml, validate_schema
+    from bazarlyk.catalog.packages import validate_schema
+    from qorqut_operations.storage.structured import parse_yaml
 
     if pin is None:
         return f"no published {plugin_id} {DEFAULT_PLUGINS[plugin_id][0]}.x version"

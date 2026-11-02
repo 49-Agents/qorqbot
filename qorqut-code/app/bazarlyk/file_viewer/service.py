@@ -15,7 +15,7 @@ from urllib.parse import quote, urlsplit
 
 from qorqut_operations.contracts import DomainError, InvocationContext, plain
 from bazarlyk.composition.locations import document_location, document_path_at, document_path_at_global
-from bazarlyk.storage import history
+from qorqut_operations.document_history.text import BASELINE_AUTHOR, EXTERNAL_AUTHOR
 
 from . import files, previews
 from .inline_images import inline_images
@@ -24,8 +24,8 @@ from .paths import Selector, normalize_path, viewer_url
 API = "/api/root/files"
 DIFF_CHARS = 1024 * 1024
 HISTORY_LIMITS = {"before_version", "limit", "from_version", "to_version"}
-SYSTEM_AUTHORS = {history.BASELINE_AUTHOR: "History baseline (earlier edits were not recorded)",
-                  history.EXTERNAL_AUTHOR: "Edited outside Qorqut"}
+SYSTEM_AUTHORS = {BASELINE_AUTHOR: "History baseline (earlier edits were not recorded)",
+                  EXTERNAL_AUTHOR: "Edited outside Qorqut"}
 
 
 def positive(value, name, *, maximum=2**31 - 1):

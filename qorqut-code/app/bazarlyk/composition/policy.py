@@ -5,7 +5,7 @@ resolver interleaved these per-domain rules with the generic precedence steps, s
 phases of ``PolicyRules`` exactly where v1 evaluated them:
 
 * ``before_override``: rules that decide before an agent's explicit override is consulted, either because they
-  refuse it (Telegram roles, the Ordubashy-only user-input presentation, Global table archive, terminal control, owner-action
+  refuse it (Telegram roles, the Ordubashy-only user-input presentation, Global table archive, Project archive, terminal control, owner-action
   proposals, ``learning-applier`` only operations, the Learning Applier-only Context question tools that follow the caller's current
   ``context_edit`` decision);
 * ``after_override``: standing core defaults that sit between the explicit override and the role default;
@@ -18,24 +18,20 @@ human-owner and worker constraints stay in the evaluator's principal-aware resol
 
 from __future__ import annotations
 
+from qorqut_context.integration.registration import question_rule, shared_read_decision
 from qorqut_operations.contracts import DomainError, PolicyDecision
+from qorqut_operations.inbox.policy import INBOX_OPERATIONS
 from qorqut_operations.policy.rules import PolicyRules, resolve_operation_policy as evaluate
+from qorqut_operations.projects.archive import archive_approval_rule
+from qorqut_operations.tables import GLOBAL_TABLE_OPERATIONS, global_tables
 
 from bazarlyk.agents.roles import LEARNING_APPLIER_ROLE, ORDUBASHY_ROLE
-from bazarlyk.inbox.defaults import INBOX_OPERATIONS
 
 READS_AS_TASK = frozenset({"tasks_notes_list", "tasks_thread_get"})
-SHARED_CONTEXT_READS = frozenset({"context_home", "context_object", "context_expand", "context_find"})
 TELEGRAM_AGENT_OPERATIONS = frozenset({"telegram_send", "telegram_send_file", "telegram_history", "telegram_delivery_get"})
 TELEGRAM_ROLES = frozenset({ORDUBASHY_ROLE})
-# Global tables are a separate namespace from every business. The same eight operations (plus
-# archive) serve both; these roles alone may use the Global one, whatever their business defaults.
-GLOBAL_TABLE_ROLES = frozenset({ORDUBASHY_ROLE})
-GLOBAL_TABLE_OPERATIONS = frozenset({"tables_list", "tables_get", "tables_rows_list", "tables_history", "tables_create",
-                                     "tables_update", "tables_rows_write", "tables_history_retry", "tables_archive"})
 # Operations whose Global rule differs from the business one, so effective-configuration discovery evaluates both scopes.
 GLOBAL_DISCOVERY_OPERATIONS = GLOBAL_TABLE_OPERATIONS | {"whatsapp_send"}
-CONTEXT_QUESTION_OPERATIONS = frozenset({"context_questions", "context_question_edit"})
 DEV_AND_INCIDENT_READS = frozenset({"dev_tickets_create", "dev_tickets_agent_list", "dev_tickets_get",
                                     "dev_tickets_follow_up", "dev_tickets_resolve", "system_incidents_agent_list",
                                     "system_incidents_agent_get"})
@@ -68,35 +64,7 @@ def _user_input(name, defaults, overrides, registry, *, role_id, scope, resolve)
         return PolicyDecision("deny", "user_input_ordubashy_only")
 
 
-def _global_tables(name, defaults, overrides, registry, *, role_id, scope, resolve):
-    if name in GLOBAL_TABLE_OPERATIONS and scope == "global":
-        # The named roles hold direct Global defaults. Any other eligible Global agent (the runtime checks that it is
-        # an active ecosystem agent holding read_global_context) needs an explicit override; role business
-        # defaults never carry over, and a missing grant denies.
-        default_role = role_id in GLOBAL_TABLE_ROLES
-        if name == "tables_archive":
-            # An agent never archives a Global table on its own authority: an explicit deny (here or on
-            # tables_update, which carries the same effect) wins, and no 'allow' removes the owner's approval.
-            grants = (overrides.get(name), overrides.get("tables_update"))
-            if "deny" in grants:
-                return PolicyDecision("deny", "global_table_archive_owner_approval")
-            if default_role or {"allow", "signoff"} & set(grants):
-                return PolicyDecision("signoff", "global_table_archive_owner_approval")
-            return PolicyDecision("deny", "global_table_grant_required")
-        if name in overrides:
-            return PolicyDecision(overrides[name], "agent_override")
-        return (PolicyDecision("allow", "global_table_role") if default_role
-                else PolicyDecision("deny", "global_table_grant_required"))
-    if name == "tables_archive":
-        return (PolicyDecision(overrides[name], "agent_override") if name in overrides
-                else resolve("tables_update"))
-
-
 def _owner_approvals(name, defaults, overrides, registry, *, role_id, scope, resolve):
-    if name == "business_archive":
-        granted = overrides.get(name, defaults.get(name, "deny")) != "deny"
-        return PolicyDecision("signoff" if role_id == "ordubashy" and granted else "deny",
-                              "business_archive_owner_approval")
     if name.startswith("agent_terminal_"):
         if role_id != ORDUBASHY_ROLE or overrides.get(name) == "deny":
             return PolicyDecision("deny", "terminal_control_role")
@@ -123,14 +91,9 @@ def _learning_applier(name, defaults, overrides, registry, *, role_id, scope, re
 
 
 def _context_questions(name, defaults, overrides, registry, *, role_id, scope, resolve):
-    if name not in CONTEXT_QUESTION_OPERATIONS:
-        return None
-    if role_id != LEARNING_APPLIER_ROLE:
-        return PolicyDecision("deny", "context_questions_role")
-    if "deny" in (overrides.get(name), defaults.get(name)):
-        return PolicyDecision("deny", "context_questions_denied")
-    edit = resolve("context_edit", scope=scope)
-    return PolicyDecision("allow" if edit.mode == "allow" else "deny", "context_edit_authority")
+    # The rule is Context's; the host supplies the Learning Applier role.
+    return question_rule(name, defaults, overrides, registry, role_id=role_id, scope=scope, resolve=resolve,
+                         learning_applier_role=LEARNING_APPLIER_ROLE)
 
 
 def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, resolve):
@@ -144,9 +107,9 @@ def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, r
         return PolicyDecision("allow" if role_id == "ordubashy" else "deny", "management_delegated_input")
     if name in INBOX_OPERATIONS:
         return PolicyDecision("allow", "core_default")
-    if name in SHARED_CONTEXT_READS:
-        # The shared graph reads are the agent-facing surface of the published Context; no role republish needed.
-        return PolicyDecision("allow", "core_default")
+    shared_read = shared_read_decision(name)
+    if shared_read is not None:
+        return shared_read
     if name in {"owner_conversation_get", "owner_conversation_send"} and scope == "business" and name not in defaults:
         # Exact active business membership and source reads are checked again by the conversation service.
         return PolicyDecision("allow", "business_owner_channel")
@@ -186,7 +149,8 @@ def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, r
 
 
 HOST_POLICY_RULES = PolicyRules(
-    before_override=(_telegram, _user_input, _global_tables, _owner_approvals, _learning_applier, _context_questions),
+    before_override=(_telegram, _user_input, global_tables, archive_approval_rule, _owner_approvals, _learning_applier,
+                     _context_questions),
     after_override=(_standing_defaults,),
     after_default=(_fallback_defaults,),
 )

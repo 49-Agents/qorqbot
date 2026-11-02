@@ -5,7 +5,7 @@ import hashlib
 from pathlib import Path
 import sqlite3
 
-from qorqut_operations.contracts import DomainError, canonical_bytes, canonical_hash
+from qorqut_operations.contracts import canonical_bytes, canonical_hash
 from qorqut_operations.storage.files import RegisteredFileTarget
 from qorqut_operations.storage.specs import CORE_TABLES
 from bazarlyk.composition.schema import record_contributions
@@ -32,17 +32,6 @@ GLOBAL_TABLES = ("dev_tickets", "dev_ticket_events", "tasks", "thread_messages",
                  # Global general tables share the business table stores under a NULL business.
                  "data_tables", "data_rows", "table_versions")
 PROJECTION_NOTICE = "Generated from SQLite. Read-only history/recovery projection; edits are not imported."
-
-
-def registered_path(root, value):
-    root = Path(root).resolve(strict=True)
-    path = Path(value)
-    if path.is_absolute():
-        try:
-            path = path.relative_to(root)
-        except ValueError as exc:
-            raise DomainError("invalid_configuration", "Registered data path is outside the operations root") from exc
-    return RegisteredFileTarget(root, path.as_posix()).resolve()
 
 
 def snapshot_connection(path):

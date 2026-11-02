@@ -1,4 +1,3 @@
-from .operations import DocumentOperations
-from .store import DocumentStore
+from .composition import DocumentOperations
 
-__all__ = ["DocumentOperations", "DocumentStore"]
+__all__ = ["DocumentOperations"]

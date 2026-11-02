@@ -78,7 +78,7 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
         from bazarlyk.storage.versioning import NightlyMaintenance
         nightly_maintenance = NightlyMaintenance(runtime.database, runtime.paths, locks=runtime.locks, git_enabled=True)
     local = LocalFiles(runtime)
-    from bazarlyk.shared_context import PublishedContextText
+    from qorqut_context.integration.reading import PublishedContextText
     published_context = PublishedContextText(runtime.domains.shared_context)
     runtime.resolver.context_home = published_context.home_text
     runtime.owner_bootstrap.context_home = published_context.home_text
@@ -209,7 +209,8 @@ def main(argv=None):
         endpoint = args.service_url or f"http://{local_host}:{args.port}/mcp"
         context_settings = None
         if args.context_config is not None:
-            from bazarlyk.shared_context.service import ContextSettings, runner_config_from_file
+            from qorqut_context.integration.service import ContextSettings
+            from bazarlyk.shared_context.service import runner_config_from_file
             context_settings = ContextSettings(config=runner_config_from_file(args.context_config))
         app = assemble(args.workspace, paths=paths, origins=origins, endpoint=endpoint, bootstrap_token=token,
             shell=os.environ.get("SHELL", "/bin/bash"), database=database, terminal_workspace=args.terminal_workspace,

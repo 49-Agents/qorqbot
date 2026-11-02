@@ -1,7 +1,7 @@
 """Owner Global cost overview: observed Context filing spend and estimated background AI spend.
 
 The Context ``filing`` source is the usage ledger's observed call charges: a known subtotal, never an estimate and never zero for a
-missing charge (see ``bazarlyk.context_usage``). A ledger that cannot be read leaves every other source intact."""
+missing charge (see ``qorqut_context.integration.usage``). A ledger that cannot be read leaves every other source intact."""
 
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -11,14 +11,14 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.application.plans import schema, utc_clock
 
-from bazarlyk.context_usage.costs import context_charges
-from bazarlyk.context_usage.coverage import incomplete
+from qorqut_context.integration.usage.costs import context_charges
+from qorqut_context.integration.usage.coverage import incomplete
 
 ZERO = Decimal(0)
 PLACES = Decimal("0.0001")
 SOURCES = (("filing", "Context filing"), ("background_ai", "Background AI"))
 COMPLETION_OUTPUT = "context_filing_receipt"
-# The two final completion-only definitions (accepted host c32abc6, background/context_filing.py): the job never calls a model, its
+# The two final completion-only definitions (accepted host c32abc6; the programs now live in qorqut_context.integration.filing.programs): the job never calls a model, its
 # model calls are the usage ledger's. A job is recognized by its immutable kind and the frozen Program.definition it stored, never
 # by a name prefix or by the program currently installed; a missing or different definition stays counted.
 COMPLETIONS = (("context.file", 2), ("context.instruct", 1))

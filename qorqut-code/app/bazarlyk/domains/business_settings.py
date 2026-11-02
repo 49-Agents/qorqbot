@@ -1,6 +1,4 @@
-"""Business settings authority and partial configuration updates."""
-
-from copy import deepcopy
+"""Business settings authority; the record merge of a configuration update is ``qorqut_operations.projects.settings``."""
 
 from bazarlyk.agents.engineering import has_ordubashy_settings_authority
 from qorqut_operations.contracts import DomainError
@@ -16,15 +14,3 @@ def require_settings_authority(ctx, uow):
         if member and member["active"] and member["is_owner"]:
             return
     raise DomainError("forbidden", "Project settings require its owner or scoped Ordubashy")
-
-
-def merge_settings(previous, changes):
-    value = deepcopy(previous) if isinstance(previous, dict) else {}
-    for key, item in changes.items():
-        if item is None:
-            value.pop(key, None)
-        elif isinstance(item, dict):
-            value[key] = merge_settings(value.get(key), item)
-        else:
-            value[key] = deepcopy(item)
-    return value

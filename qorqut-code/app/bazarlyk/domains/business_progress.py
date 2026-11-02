@@ -5,6 +5,8 @@ from datetime import timedelta
 from qorqut_operations import local_time
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.projects.summary import (global_action_counts, global_task_completions, project_action_counts,
+                                                project_task_completions)
 from qorqut_operations.application.plans import schema, utc_clock
 
 KEYS = ("tasks_done", "actions", "signoffs_approved")
@@ -49,8 +51,7 @@ class BusinessProgress:
         def count(key, value):
             date = day(value)
             if date in series: series[date][key] += 1
-        for row in uow.connection.execute('SELECT completed_at FROM task_completions WHERE business_id IS NULL'):
-            count('tasks_done', row[0])
+        global_task_completions(uow, count)
         scopes = set(businesses) | {None}
         # Count each recipient delivery, including system events and acknowledged messages.
         # Private owner conversations keep their own store; their deliveries are
@@ -67,8 +68,7 @@ class BusinessProgress:
         for row in uow.connection.execute('SELECT business_id,created_at FROM dev_tickets'):
             if row[0] in scopes: count('new_tickets', row[1])
         # Each canonical action once, on its San Juan occurrence day; never a sum of business counts.
-        for row in uow.connection.execute('SELECT occurred_date FROM action_logs WHERE occurred_date>=?', (min(series),)):
-            if row[0] in series: series[row[0]]['actions'] += 1
+        global_action_counts(uow, series)
         return {'series':[{'date':date,**values} for date,values in series.items()], 'timezone':local_time.TIMEZONE, 'days':len(series)}
 
     def read(self, ctx, args, opts, uow):
@@ -86,14 +86,9 @@ class BusinessProgress:
             if not date: undated[key] += n
             elif date in series: series[date][key] += n
 
-        for row in uow.connection.execute("SELECT completed_at FROM task_completions WHERE business_id=?", (ctx.business_id,)):
-            count("tasks_done", row[0])
+        project_task_completions(uow, ctx.business_id, count)
         # Actions linked to this business wherever stored, on their San Juan occurrence day (backfills included).
-        for row in uow.connection.execute("SELECT a.occurred_date FROM action_logs a JOIN action_businesses m "
-                                          "ON m.action_key=a.action_key WHERE m.business_id=?", (ctx.business_id,)):
-            totals["actions"] += 1
-            if not row[0]: undated["actions"] += 1
-            elif row[0] in series: series[row[0]]["actions"] += 1
+        project_action_counts(uow, ctx.business_id, totals, undated, series)
         for row in uow.connection.execute("SELECT json_extract(decision_json,'$.at') FROM signoffs WHERE review_business_id=? AND json_extract(decision_json,'$.kind')='approve'", (ctx.business_id,)):
             count("signoffs_approved", row[0])
         return {"totals": totals, "undated": undated, "series": [{"date": date, **values} for date, values in series.items()],

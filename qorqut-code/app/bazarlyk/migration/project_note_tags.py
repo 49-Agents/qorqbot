@@ -17,8 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from qorqut_operations.contracts import DomainError, InvocationContext, InvocationOptions, canonical_hash, plain
-from bazarlyk.domains.documents.business_notes import KIND, TARGET
-from bazarlyk.domains.documents.materials import TAGS
+from qorqut_operations.documents.business_notes import KIND, TARGET
+from qorqut_operations.documents.materials import TAGS
 from bazarlyk.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from bazarlyk.service.runtime import build_runtime
 from bazarlyk.transport.auth import Authentication

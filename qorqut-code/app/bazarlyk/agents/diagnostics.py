@@ -3,8 +3,8 @@ import json
 
 from bazarlyk import owner_sessions
 from qorqut_operations.application import OperationDescriptor
-from bazarlyk.catalog.packages import parse_yaml
 from qorqut_operations.contracts import DomainError, plain
+from qorqut_operations.storage.structured import parse_yaml
 from qorqut_operations.application.plans import schema
 from .models import REFERENCE_SCHEMA
 

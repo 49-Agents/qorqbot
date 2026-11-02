@@ -15,7 +15,7 @@ from bazarlyk.composition.locations import agent_workspace, document_root
 from . import plugin_defaults, roles
 from .global_scope import with_effective_scope
 from .models import AgentProfile, PLUGIN_GRANT_SCHEMA, PROFILE_SCHEMA, REFERENCE_SCHEMA, RETIRED_ROLE_IDS, SCOPE_SCHEMA
-from bazarlyk.storage import history
+from qorqut_operations.document_history.files import seed_document
 from qorqut_operations.storage.files import RegisteredFileTarget, file_hash, file_values
 from bazarlyk.management.identity import configured_ordubashy, installation_owner, require_protected_control
 from .icons import AGENT_ICONS, ICON_IDS
@@ -618,7 +618,7 @@ class AgentOperations:
                 row = uow.repository("documents", business_id=business_id).insert(plain(document.values))
                 content = next(effect.values["content_b64"] for effect in plan.changes
                                if effect.kind == "file" and effect.resource.resource_type == "agent_bootstrap_files")
-                history.seed_document(uow.connection, row, base64.b64decode(content),
+                seed_document(uow.connection, row, base64.b64decode(content),
                                       author="system:" + plan.operation_name, operation=plan.operation_name, plan=plan)
             elif document.action == "insert_membership":
                 raise DomainError("invalid_plan", "Agent project access is derived; prepare this change again")

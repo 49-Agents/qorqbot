@@ -1,12 +1,4 @@
-"""Core inbox policy and mandatory startup instructions, independent of roles."""
-
-INBOX_OPERATIONS = frozenset({
-    "inbox_list", "inbox_acknowledge", "inbox_subscribe",
-    "inbox_unsubscribe", "inbox_subscriptions_list",
-    "agents_message_send", "agents_messages_list", "agents_message_recipients",
-    "broadcasts_create", "broadcasts_update", "broadcasts_pause", "broadcasts_resume", "broadcasts_cancel", "broadcasts_send_now",
-    "broadcasts_list", "broadcasts_get", "broadcast_recipients",
-})
+"""Mandatory inbox startup instructions, independent of roles. The standing inbox policy is the Operations ``inbox.policy``."""
 
 # One line, added to the startup context of an agent whose native session is bound. It replaces the retired watcher setup: there
 # is nothing to start, poll or keep alive, and a notice is advisory only.

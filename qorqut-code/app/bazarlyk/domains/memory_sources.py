@@ -62,8 +62,8 @@ class MemorySources:
                 # A historical mail document: mail now lives with the user's mail provider, not in this installation.
                 raise DomainError('not_found', 'Email is no longer available')
             else:
-                from .documents.library import ContextLibrary
-                if not ContextLibrary.eligible(row):
+                from qorqut_operations.documents.library import SourceLibrary
+                if not SourceLibrary.eligible(row):
                     raise DomainError('forbidden', 'Document is outside the registered context library')
                 operation = 'context_get'
             self.authorize(ctx, operation, uow)

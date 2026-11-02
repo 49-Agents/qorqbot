@@ -10,8 +10,7 @@ from __future__ import annotations
 from bazarlyk.agents.global_scope import active_global
 from bazarlyk.agents.roles import ORDUBASHY_ROLE
 from bazarlyk.management.identity import configured_ordubashy
-
-COORDINATION_CAPABILITY = "coordinate_businesses"
+from qorqut_operations.projects.creation.operations import COORDINATION_CAPABILITY
 
 
 def creator_actor(uow, identity) -> str | None:

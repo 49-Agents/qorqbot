@@ -29,7 +29,7 @@ from bazarlyk.agents.global_scope import reaches_business
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.application.plans import schema
-from bazarlyk.shared_context.text import TRUNCATED
+from qorqut_context.integration.reading.text import TRUNCATED
 
 NAME = "owner_session_bootstrap"
 MAX_CHARACTERS = 40000

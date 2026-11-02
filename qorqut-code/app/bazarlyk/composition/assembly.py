@@ -18,14 +18,15 @@ from qorqut_operations.storage.assembly import (Assembly, AssemblyBuilder, Assem
                                                 FileEffectContribution, RecordEffectContribution,
                                                 TransactionContribution)
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.document_history.lifecycle import DocumentLifecycle, RESOURCE_TYPE as DOCUMENTS
 from qorqut_operations.storage.database import Database
 
 from bazarlyk.extensions import NO_EXTENSIONS
 from bazarlyk.instance_paths import InstancePaths
 from bazarlyk.native_chat.schema import storage_contribution as native_chat_storage
+from bazarlyk.storage import history
 from bazarlyk.telegram.media_schema import storage_contribution as telegram_media_storage
 from .agent_work import storage_contribution as agent_work_storage
-from .documents import DocumentLifecycle, DocumentReceiptHistory, RESOURCE_TYPE as DOCUMENTS
 from .records import HostRecordEffects
 from .schema import storage_contributions
 from .transactions import inbox_finalizers, require_change_feed
@@ -72,7 +73,7 @@ def host_contributions(change_feed, extensions=NO_EXTENSIONS):
     Telegram files (``telegram_file_payloads``) is the host's own table beside the generated ``telegram`` tables it references."""
     return (*storage_contributions(), signoff_storage(), background_storage(), native_chat_storage(), inbox_nudges_storage(),
             agent_work_storage(), telegram_media_storage(),
-            FileEffectContribution("documents", {DOCUMENTS: DocumentLifecycle()}, DocumentReceiptHistory()),
+            FileEffectContribution("documents", {DOCUMENTS: DocumentLifecycle()}, history.RECEIPTS),
             RecordEffectContribution("records", HostRecordEffects()),
             TransactionContribution("inbox", finalizers=inbox_finalizers(extensions.sources)),
             TransactionContribution("change-feed", change_publisher=require_change_feed(change_feed)),
@@ -117,11 +118,12 @@ def require_additive_registrations(assembly: Assembly, extensions, core_validato
     core already validates (``core_validators``), an inbox source keyed like a core table or source, or a typed reference
     named like a core item kind. Core's own vocabulary decides: its assembly tables and inbox source / item tables."""
     from bazarlyk.inbox.events import FOCUS_SOURCE_TABLES, ITEM_TYPES
-    from bazarlyk.inbox.service import SOURCES, THREAD_SOURCES, VISIBLE_TYPES
+    from bazarlyk.inbox.service import SOURCES
+    from qorqut_operations.inbox import THREAD_SOURCES, visible_types
     from qorqut_operations.storage.inventory import compile_target
     core_sources = {*compile_target(host_assembly(assembly.change_publisher, NO_EXTENSIONS)).columns, *SOURCES, *THREAD_SOURCES,
                     *ITEM_TYPES, *FOCUS_SOURCE_TABLES.values()}
-    core_kinds = {*VISIBLE_TYPES.values(), *FOCUS_SOURCE_TABLES}
+    core_kinds = {*visible_types(ITEM_TYPES).values(), *FOCUS_SOURCE_TABLES}
     replaced = sorted(set(extensions.package_validators) & set(core_validators))
     if replaced:
         raise DomainError("invalid_installation", "An extension cannot replace a core package validator: " + ", ".join(replaced))

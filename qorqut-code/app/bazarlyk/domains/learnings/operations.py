@@ -220,7 +220,7 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
         if state == "accepted" and after["bucket"] == "context":
             if self.documents is None:
                 raise DomainError("operation_unavailable", "Context intake is not installed")
-            from bazarlyk.domains.documents.operations import append_plan
+            from qorqut_operations.documents.operations import append_plan
             body, digest = intake_snapshot(after)
             upload, upload_id, job_id = self.documents.prepare_learning_intake(ctx,
                 {"body": body, "title": after["tag"].title() + ": " + after["text"][:120], "source": "accepted-learning"}, uow,

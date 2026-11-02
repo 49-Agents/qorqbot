@@ -13,10 +13,10 @@ from typing import Any, Mapping
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from bazarlyk.catalog.packages import (Catalog, content_hash, declared_plugin_tools, parse_yaml, relative_path,
-                                       visible_plugin_tools)
+from bazarlyk.catalog.packages import Catalog, content_hash, declared_plugin_tools, relative_path, visible_plugin_tools
 from qorqut_operations.contracts import ArtifactRef, DomainError, InvocationContext, Principal, canonical_hash, new_id, plain, utc_now
 from qorqut_operations.policy import AgentPolicyBasis
+from qorqut_operations.storage.structured import parse_yaml
 from bazarlyk.composition.files import lock_paths
 from bazarlyk.composition.locations import agent_workspace, business_hq
 from bazarlyk.inbox.defaults import INBOX_INSTRUCTIONS, legacy_inbox_skill

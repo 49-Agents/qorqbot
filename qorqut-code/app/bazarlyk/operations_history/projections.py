@@ -21,25 +21,6 @@ def attribution():
     return StructuredField(schema, declared_json(schema))
 
 
-# Closed list: a future event source does not automatically export a private
-# message summary. Delivery state is filtered through the exact same event set.
-ITEM_SOURCES = ("task", "tasks", "action", "action_logs", "signoff", "signoffs",
-                "table", "data_tables", "document", "documents", "routine", "routines")
-MARKS = ",".join("?" for _ in ITEM_SOURCES)
-
-
-def item_inbox(uow, request):
-    return request.select(uow, f"source_type IN ({MARKS})", ITEM_SOURCES)
-
-
-def item_deliveries(uow, request):
-    return request.select(uow, f"event_id IN (SELECT id FROM inbox_events WHERE source_type IN ({MARKS}))", ITEM_SOURCES)
-
-
-def item_subscriptions(uow, request):
-    return request.select(uow, f"source_type IN ({MARKS})", ITEM_SOURCES)
-
-
 def public_signoff_notes(uow, request):
     """Discussion on a personal WhatsApp send quotes its exact recipient or text; it stays in the authoritative Signoff
     notes and is never exported to the operational Git snapshot."""

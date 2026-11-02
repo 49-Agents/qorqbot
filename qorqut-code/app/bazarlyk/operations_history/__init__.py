@@ -1,18 +1,6 @@
-"""Operational Git history for the v1.2 host: a read-only snapshot of exported rows and authored files.
+"""Host wiring for operational history; the snapshot engine itself is ``qorqut_operations.history_exports``.
 
-``History`` versions the rows exported through a trusted Operations ``ExportCatalog`` (read in one consistent unit, closed
-before any file or Git work) together with the authored areas a trusted provider names from the current registrations,
-in a private local Git repository at ``InstancePaths.history``. It is history for operational overview: not a migration,
-backup, restore or replay mechanism, and independent of Context's Git authority, every source repository, the raw
-transcript archives and the exact existing table/document histories. SQLite stays the authority and a history failure
-never rolls back, repeats or approves accepted Operations work. See ``docs/v1.2/OPERATIONAL_HISTORY_CHECKPOINT.md``.
-
-The host binds one ``HistoryObserver`` to committed changes and starts it through its owned lifecycle.
-Construction and import do nothing; only explicit instance initialization creates the history repository.
+``composition`` supplies the installation's paths, area resolution, clock and lifecycle to that engine, ``catalog`` the
+cross-feature export coverage and ``projections`` its closed projections. Import nothing from here for the generic
+classes: ``History``, ``HistoryObserver`` and the typed areas live in Operations.
 """
-from ._areas import (Area, AreaProvider, BusinessAgentFiles, BusinessHeadquarters, GlobalAgentFiles, GlobalFiles)
-from ._observer import HistoryObserver, ObserverState, ObserverStop
-from ._service import History
-
-__all__ = ["Area", "AreaProvider", "BusinessAgentFiles", "BusinessHeadquarters", "GlobalAgentFiles", "GlobalFiles",
-           "History", "HistoryObserver", "ObserverState", "ObserverStop"]

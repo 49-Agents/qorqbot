@@ -387,8 +387,8 @@ class DashboardCompatibility:
     def page_view(self, document, uow=None, context=None):
         """A note or journal entry. Its ``filing`` (and each journal submission's) is the one current-source projection of the
         upload it references, taken from the document operations; ``context`` is the caller (it decides error redaction)."""
-        from bazarlyk.domains.documents.note_snapshot import snapshot_hash
-        from bazarlyk.domains.documents.journal_access import JOURNAL_KINDS
+        from qorqut_operations.documents.note_snapshot import snapshot_hash
+        from qorqut_operations.documents.journal_access import JOURNAL_KINDS
         meta = document["metadata"]
         documents = self.runtime.domains.documents
         def resolve_filing(uow):
@@ -519,7 +519,7 @@ class DashboardCompatibility:
 
     def context_queue(self, context):
         """The read-only ``context_queue`` object of the caller's namespace (the business, or Global when none is selected)."""
-        from bazarlyk.domains.documents.queue_status import context_queue_summary
+        from qorqut_context.integration.filing.queue_status import context_queue_summary
         with self.runtime.database.read() as uow:
             return context_queue_summary(uow.connection, context.business_id)
 
@@ -755,7 +755,7 @@ class DashboardCompatibility:
         raise DomainError("not_found", "Endpoint is not registered")
 
     async def asset_upload(self, request, context):
-        from bazarlyk.domains.assets.operations import MAX_BYTES
+        from qorqut_operations.assets.operations import MAX_BYTES
         check_body_length(request, MAX_BYTES + 65536)
         content_type = request.headers.get("content-type", "")
         if not content_type.lower().startswith("multipart/form-data;"):

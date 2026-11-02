@@ -18,7 +18,13 @@ operations history, one human owner and the installation row, the packaged share
 ``global-worker`` and ``learning-applier`` role sources published through the catalog, and only Ordubashy and the Learning
 Applier registered, with Ordubashy as the management coordinator. No worker, project, conversation, routine or provider job is
 created and no service starts. ``config/`` (0700) receives the selected extension configuration, a random owner bootstrap token
-(its value is written only there, never printed or recorded) and the initialization receipt, each 0600."""
+(its value is written only there, never printed or recorded) and the initialization receipt, each 0600.
+
+Last, ``bootstrap.history_repository`` provisions the private Git repository at ``operations/`` that the retained table and nightly
+history publishers need: the neutral branch ``qorqut-instance`` holding ONE empty-tree bootstrap commit, no remote, no hooks, no
+signing, and no instance content scanned or staged. It happens only here, only for the repository this command newly creates, and
+never on startup, construction or read; the publishers' own refs and indexes are untouched. A failure there is a failure after the
+first write like any other: the incomplete instance stays, with no receipt."""
 
 from __future__ import annotations
 
@@ -38,6 +44,7 @@ from urllib.parse import unquote, urlparse
 
 from qorqut_operations.contracts import DomainError, InvocationContext, InvocationOptions, Principal, new_id, utc_now
 
+from bazarlyk.bootstrap.history_repository import provision_history_repository
 from bazarlyk.instance_paths import InstancePaths
 from bazarlyk.service.instance_arguments import instance_arguments
 from bazarlyk.telegram.private_files import DIRECTORY_MODE, require_private_directory, write_private_file
@@ -290,9 +297,12 @@ def initialize(prepared_root, instance_root, *, owner_name="Owner", extensions_c
         write_private_file(config, "extensions.json", json.dumps(configuration, indent=2, sort_keys=True).encode() + b"\n")
         write_private_file(config, "owner-token", secrets.token_urlsafe(32).encode())
         created = seed_instance(paths, workspace, selection, owner_name.strip())
+        history = provision_history_repository(paths.operations)     # the one explicit creation of the operations-root repository
         _make_private(instance)
         record = {"format": 1, "state": "initialized", "initialized_at": utc_now(), "owner_name": owner_name.strip(), **created,
                   "extensions": list(selection.ids), "instance_root": str(instance), "workspace": str(workspace),
+                  "history_repository": {"path": str(history.path), "created": history.created, "branch": history.branch,
+                                         "bootstrap_commit": history.commit},
                   "components": {name: str(location) for name, location in components.items()},
                   "files": {"extensions_config": str(config / "extensions.json"), "token_file": str(config / "owner-token"),
                             "database": str(paths.database)},
@@ -330,9 +340,13 @@ def main(argv=None) -> int:
     except (InitializationError, DomainError, OSError, ValueError, KeyError) as exc:
         print(f"initialize: refused, nothing was written: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
+    repository = record["history_repository"]
     print(f"initialized (nothing started): {record['instance_root']}\n"
           f"owner principal {record['owner_principal_id']}, installation {record['installation_id']}, "
           f"extensions: {', '.join(record['extensions']) or 'none'}\n"
+          f"operations repository: {repository['path']} "
+          + (f"(branch {repository['branch']}, empty bootstrap commit {repository['bootstrap_commit']})" if repository["created"]
+             else "(already existed; left untouched)") + "\n"
           f"receipt: {record['receipt_file']}\n"
           "start it manually, when you choose to, with:\n  " + shlex.join(record["service_command"]))
     return 0

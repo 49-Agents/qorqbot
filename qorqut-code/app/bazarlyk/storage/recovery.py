@@ -16,10 +16,11 @@ from bazarlyk.catalog.packages import content_hash, files_digest
 from qorqut_operations.contracts import DomainError, canonical_bytes, canonical_hash, utc_now
 from bazarlyk.migration.snapshots import (SourceManifest, _digest, _fsync_directory,
     restore_snapshot, verify_snapshot)
-from qorqut_operations.storage.safe_io import TEMPORARY_PREFIX
+from qorqut_operations.storage.paths import registered_path
+from qorqut_operations.storage.safe_io import TEMPORARY_PREFIX, atomic_write
 from bazarlyk.composition.locations import business_hq, business_root, document_root
-from .context_recovery import CAPTURE_DIRECTORY, ContextRecovery
-from .exports import atomic_write, build_exports, registered_path, snapshot_connection
+from qorqut_context.integration.recovery import CAPTURE_DIRECTORY, ContextRecovery
+from .exports import build_exports, snapshot_connection
 from qorqut_operations.storage.repositories import decode_row
 
 
@@ -200,7 +201,7 @@ class BackupStore:
             raise DomainError("invalid_configuration", "Local backups must stay in the private runtime backups tree")
         self.clock = clock
         self.database_relative = registered_path(self.root, database.path).relative_to(self.root).as_posix()
-        self.context = ContextRecovery(paths)
+        self.context = ContextRecovery(paths.context, paths.context_runtime, paths.operations)
 
     def _remember(self, generation, state, *, metadata=None, error=None):
         with self.database.transaction() as uow:

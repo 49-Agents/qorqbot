@@ -8,6 +8,8 @@ rolls the unit back."""
 
 from __future__ import annotations
 
+from qorqut_operations.tables import force_table_revision
+
 from bazarlyk.storage import history
 
 
@@ -19,9 +21,7 @@ class HostRecordEffects:
         return None
 
     def force_revision(self, plan, change):
-        table = change.resource.resource_type
-        return table == "data_tables" and any(
-            child.resource.resource_type == "data_rows" and child.action != "policy_effect" for child in plan.changes)
+        return force_table_revision(plan, change)
 
     def record_applied(self, uow, plan, table, before, after, *, actor_id=None):
         history.record_applied(uow, plan, table, before, after, actor_id=actor_id)

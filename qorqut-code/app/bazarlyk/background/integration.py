@@ -12,7 +12,7 @@ from bazarlyk.composition.catalog import install_contribution
 from qorqut_operations.application.plans import UUID, schema
 from bazarlyk.domains.learnings.operations import EXTRACT_ARGUMENTS, LearningOperations
 from qorqut_operations.routines.operations import RoutineOperations
-from .context_filing import FilingPrograms
+from qorqut_context.integration.filing.programs import FilingPrograms
 from .whatsapp_send import WhatsAppSendProgram
 from .learnings import LearningProgram
 from .models import ModelCalls

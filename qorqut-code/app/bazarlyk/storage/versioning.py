@@ -20,7 +20,9 @@ import time
 from qorqut_operations.background.programs import ProgramPending, ProgramResult
 from qorqut_operations.contracts import DomainError, canonical_bytes, utc_now
 from qorqut_operations.storage.executor import application_claim
-from .exports import atomic_write, build_exports, publish_exports, registered_path
+from qorqut_operations.storage.paths import registered_path
+from qorqut_operations.storage.safe_io import atomic_write
+from .exports import build_exports, publish_exports
 from .recovery import BackupStore, ROOT_AUTHORED, SKIP_DIRECTORIES, _identity
 
 

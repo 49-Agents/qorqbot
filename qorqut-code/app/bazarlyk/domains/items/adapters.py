@@ -1,124 +1,32 @@
-"""The host knowledge behind the Operations ``RelationshipPorts``: role vocabulary, Material classification, composed
-archive, navigation counts and the reviewable edit operations.
+"""The host knowledge behind the Operations ``RelationshipPorts``: the workflow-role guidance, the Material rule for historical
+email-message documents, the direct-archive record tables and the Context navigation counts.
 
-Each adapter is the deployed v1 code of the generic relationship module that was domain-specific, moved here with its
-dependencies stated (the item resolver, the document service, the application registry). None of them
-can replace application policy: composed archive and review edits are prepared through the one registry and judged by
-their own operation's policy, including any Signoff floor."""
+The role vocabulary, the Material classification and composed archive adapters and the reviewable edit operations are
+Operations' (``qorqut_operations.records.adapters``); this module supplies only what is the host's and assembles the one
+``RelationshipPorts``. None of them can replace application policy."""
 
-from dataclasses import replace
-
-from qorqut_operations.application.plans import PlanBuilder, apply_records, require_revision
-from qorqut_operations.contracts import DomainError, plain
-from qorqut_operations.items import UNAVAILABLE
-from qorqut_operations.relationships import RelationshipPorts, ReviewEdit
 from qorqut_operations.application.plans import utc_clock
+from qorqut_operations.contracts import DomainError
+from qorqut_operations.items import UNAVAILABLE
+from qorqut_operations.records.adapters import (NOT_A_MATERIAL, REVIEW_EDITS, ROLES, RecordArchive,
+                                                RecordMaterials)
+from qorqut_operations.relationships import RelationshipPorts
 
-from ..documents.materials import FILTERS as MATERIAL_FILTERS, MATERIAL_TYPES, RAW_KINDS, TAGS, classification, matches
-
-ROLES = {
-    "manages": ("Manages", "Managed by"),
-    "participates_in": ("Participates in", "Participants"),
-    "assigned_to": ("Assigned to", "Assigned work"),
-    "executes": ("Executes", "Executed by"),
-    "part_of": ("Part of", "Includes"),
-    "continues": ("Continues", "Continued by"),
-    "blocked_by": ("Blocked by", "Blocks"),
-    "concerns": ("Concerns", "Relevant material"),
-    "mentions": ("Mentions", "Mentioned in"),
-    "extracted_from": ("Extracted from", "Source for"),
-    "related_to": ("Related to", "Related from"),
-}
 WORKFLOW_ROLES = {"assigned_to": "tasks_assign", "blocked_by": "tasks_update"}
-# The operations a review may compose with its decision, keyed by operation: the edited item must be the reviewed one.
-REVIEW_EDITS = {
-    "tasks_update": ReviewEdit("task", "task_id"),
-    "tables_update": ReviewEdit("table", "table_id", apply_through_domain=True),
-    "tables_rows_write": ReviewEdit("table", "table_id", apply_through_domain=True),
-    "context_document_update": ReviewEdit(None, "document_id", resource_type="documents"),
-    "context_people_update": ReviewEdit("person", "document_id"),
-    "notes_update": ReviewEdit("material", "document_id"),
-}
+# The record tables that are archived by a plain ``archived`` flag on the row.
+DIRECT_RECORD_TABLES = frozenset({"context_entities"})
 
 
-class HostMaterials:
-    """The Material classification mutation (``materials_update``) and its listing vocabulary."""
+class HostMaterialRules:
+    """The Material classification rule for historical email-message documents: an individual message is not classified.
+    No host record has a fixed Material type beyond the raw and content document kinds Operations already fixes."""
 
-    filters = MATERIAL_FILTERS
-    material_types = MATERIAL_TYPES
-    tags = TAGS
+    def validate_material(self, ctx, table, row, material, uow):
+        if row.get("kind") == "email_message":
+            raise DomainError("workflow_required", NOT_A_MATERIAL)
 
-    def __init__(self, items, *, clock=utc_clock):
-        self.items, self.clock = items, clock
-
-    @staticmethod
-    def matches(value, args):
-        return matches(value, args)
-
-    def prepare(self, ctx, args, options, uow):
-        item = {"type": "material", "id": args["material_id"]}
-        self.items.resolve(ctx, item, uow)
-        table, row = self.items.resource(ctx, item, uow)
-        material = classification(row, table)
-        if not material or row.get("kind") == "email_message":
-            raise DomainError("workflow_required", "Use the item's dedicated tools to classify it")
-        require_revision(row, options.expected_revision)
-        changes = plain(args["changes"])
-        fixed = row.get("kind") in RAW_KINDS | {"content"}
-        if fixed and changes.get("material_type", material["material_type"]) != material["material_type"]:
-            raise DomainError("validation_error", "This source has a fixed material type")
-        builder = PlanBuilder(ctx, "materials_update", args, "Update Material classification", clock=self.clock)
-        values = {"updated_at": builder.at}
-        if table == "documents":
-            values["metadata_json"] = {**row["metadata_json"], **material, **changes}
-        elif "tags" in changes:
-            values["tags_json"] = changes["tags"]
-        builder.record(table, row["id"], row, values)
-        return builder.build()
-
-    def apply(self, ctx, plan, uow):
-        apply_records(ctx, plan, uow)
-        return {"item": self.items.resolve(ctx, {"type": "material", "id": plan.arguments["material_id"]}, uow)}
-
-
-class HostArchive:
-    """Archive and restore, composed over the owning domain's own operation (and policy) where it has one."""
-
-    def __init__(self, items, documents, *, clock=utc_clock):
-        self.items, self.documents, self.clock = items, documents, clock
-
-    def prepare(self, ctx, args, options, uow):
-        self.items.resolve(ctx, args["item"], uow)
-        table, row = self.items.resource(ctx, args["item"], uow)
-        require_revision(row, options.expected_revision)
-        adapters = {"tasks": ("tasks_update", "task_id"), "data_tables": ("tables_update", "table_id")}
-        if table in adapters:
-            operation, key = adapters[table]
-            # Composed changes keep the domain operation's own policy, including Signoff floors.
-            plan = self.items.application.registry.get(operation).prepare(ctx, {key: args["item"]["id"], "changes": {"archived": args["archived"]}}, options, uow)
-            return replace(plan, operation_name="context_items_archive", arguments=args,
-                changes=tuple(replace(change, operation_name=change.operation_name or operation) for change in plan.changes))
-        builder = PlanBuilder(ctx, "context_items_archive", args, "Archive context item" if args["archived"] else "Restore context item", clock=self.clock)
-        if table == "documents":
-            store = self.documents.store
-            row = store.get(ctx, args["item"]["id"], uow, write=True)
-            if row["kind"] in {"plan", "shared_instruction", "shared_instructions", "context_index"}:
-                raise DomainError("workflow_required", "Manage instructions and plans with their dedicated tools")
-            operation = "notes_update" if row["kind"] in {"agent_note", "business_note", "journal", "business_owned_note"} else "context_document_update"
-            if row["kind"] == "asset": operation = "assets_update"
-            store.archive(builder, uow, row, expected_revision=options.expected_revision, archived=args["archived"], operation_name=operation)
-        elif table == "context_entities":
-            builder.record(table, args["item"]["id"], row, {"archived": args["archived"], "updated_at": builder.at})
-        else:
-            raise DomainError("workflow_required", "Use the item's dedicated lifecycle tool")
-        return builder.build()
-
-    def apply(self, ctx, plan, uow):
-        if plan.arguments["item"]["type"] == "table":
-            self.items.application.registry.get("tables_update").apply(ctx, plan, uow)
-        else:
-            apply_records(ctx, plan, uow)
-        return {"item": self.items.resolve(ctx, plain(plan.arguments["item"]), uow)}
+    def fixed_material(self, table, row):
+        return False
 
 
 class HostNavigation:
@@ -166,6 +74,6 @@ class HostNavigation:
 
 def relationship_ports(items, *, documents, clock=utc_clock) -> RelationshipPorts:
     """The one ``RelationshipPorts`` of this host, over the already built item resolver."""
-    return RelationshipPorts(roles=ROLES, workflow_roles=WORKFLOW_ROLES, materials=HostMaterials(items, clock=clock),
-                             archive=HostArchive(items, documents, clock=clock), navigation=HostNavigation(items, documents),
-                             review_edits=REVIEW_EDITS)
+    return RelationshipPorts(roles=ROLES, workflow_roles=WORKFLOW_ROLES, materials=RecordMaterials(items, host=HostMaterialRules(), clock=clock),
+                             archive=RecordArchive(items, documents, direct_record_tables=DIRECT_RECORD_TABLES, clock=clock),
+                             navigation=HostNavigation(items, documents), review_edits=REVIEW_EDITS)
