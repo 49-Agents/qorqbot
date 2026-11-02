@@ -21,9 +21,10 @@ _LIMIT = 128
 
 
 def _identity(paths, record, expected):
-    for key in ('instance_id', 'root', 'state', 'initial_commit', 'selected_extensions'):
+    for key in ('instance_id', 'root', 'state', 'initial_commit'):
         if record.get(key) != expected.get(key):
             raise _conflict('Managed ancestry changes instance identity')
+    # Each retained intent validates an exact additive selection; selection is not an immutable instance identity.
     for name, path in (('root', paths.agentic_root), ('state', paths.agentic_runtime)):
         if not path.is_absolute() or any(part.is_symlink() for part in (path, *path.parents)):
             raise _conflict('Unsafe managed instance identity')

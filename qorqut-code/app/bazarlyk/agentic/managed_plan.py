@@ -119,11 +119,11 @@ def _state_evidence(paths, state, files):
         os.close(fd)
 
 
-def prepare(paths, export_root, selected_extensions=None, *, acknowledge_grants=False):
+def prepare(paths, export_root, selected_extensions=None, *, acknowledge_grants=False, install_extensions=False):
     record, record_sha = read_binding(paths)
     installed = _installed_selection(record)
     selected = installed if selected_extensions is None else _requested_selection(selected_extensions)
-    if selected != installed:
+    if selected != installed and not (install_extensions is True and set(installed) < set(selected)):
         raise DomainError('operation_conflict', 'Changing the installed extension selection requires a separate operation',
                           details={'selected_extensions': installed, 'requested_extensions': selected})
     try:
@@ -198,13 +198,13 @@ def _content_plan(record, prepared, target, comparison, files, metadata):
     required.update({ref: ('workflow' if ref.rsplit('/', 1)[1] in ('extract', 'review', 'apply') else 'instruction', None) for ref in OVERSEER_REFS})
     try:
         from .installation import _active_inventory
-        def active_inventory(inventory, catalog):
+        def active_inventory(inventory, catalog, selected):
             class CatalogView:
                 def validate(self, *, package_ids):
                     return {'valid': True, 'packages': [{'id': p} for p in package_ids if p in catalog.packages]}
             class LayerView:
                 catalog = CatalogView()
-            return _active_inventory(LayerView(), inventory, set(prepared['selected_extensions']))
+            return _active_inventory(LayerView(), inventory, set(selected))
 
         def native_refs(inventory):
             entries = {package['id'] + '/' + entry['id']: entry
@@ -222,8 +222,8 @@ def _content_plan(record, prepared, target, comparison, files, metadata):
 
         current_catalog = load_memory_catalog(files)
         target_catalog = load_memory_catalog(projected)
-        current_active = active_inventory(record['inventory'], current_catalog)
-        target_active = active_inventory(target, target_catalog)
+        current_active = active_inventory(record['inventory'], current_catalog, record['selected_extensions'])
+        target_active = active_inventory(target, target_catalog, prepared['selected_extensions'])
         current_required = {**required, **native_refs(current_active)}
         target_required = {**required, **native_refs(target_active)}
         conflicts.extend({'code': 'current_catalogue_' + issue['code'], 'detail': issue}
@@ -323,6 +323,12 @@ def _prepare_locked(paths, record, record_sha, prepared, acknowledge_grants):
                              'local_edits': preserved}, 'identity': identity, 'git': git, 'state': state,
             'provisioning': provisioning, 'grants': _profile_grants(paths, immutable=True), 'acknowledge_grants': bool(acknowledge_grants),
             'conflicts': conflicts, 'complete': not conflicts, 'no_change': no_change}
+    if prepared['selected_extensions'] != record['selected_extensions']:
+        before, after = set(record['selected_extensions']), set(prepared['selected_extensions'])
+        if not before < after:
+            raise DomainError('operation_conflict', 'An extension install can only add selections')
+        plan['extension_install'] = {'before': record['selected_extensions'], 'added': sorted(after - before)}
+        plan['no_change'] = False
     plan['plan_digest'] = plan_digest(plan)
     d = history_directory(paths)
     plan['evidence'] = {'intent': str(d / ('managed-intent-' + plan['plan_digest'] + '.json')),

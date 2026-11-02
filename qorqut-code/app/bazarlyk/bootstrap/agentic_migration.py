@@ -84,6 +84,7 @@ class _Transition:
     additions: dict
     predecessor_objects: CompiledTarget
     target_objects: CompiledTarget
+    name: str = TRANSITION_ID
 
 
 def _identity(assembly: Assembly) -> dict:
@@ -181,7 +182,7 @@ def prepare_migration(paths: InstancePaths, *, extensions=NO_EXTENSIONS):
 
 def _static_report(paths: InstancePaths, transition: _Transition) -> dict:
     _require_paths(paths)
-    return {"format": PLAN_FORMAT, "transition": TRANSITION_ID, "instance_root": str(paths.instance_root),
+    return {"format": PLAN_FORMAT, "transition": transition.name, "instance_root": str(paths.instance_root),
             "database": str(_database_path(paths)), "selected_extensions": list(transition.extensions.ids),
             "predecessor": _identity(transition.predecessor), "target": _identity(transition.target),
             "additions": transition.additions}
@@ -260,6 +261,10 @@ def apply_migration(paths: InstancePaths, plan, *, backup, extensions=NO_EXTENSI
     """
     transition = _transition_for(extensions)
     validated = _validated_plan(paths, plan, transition)
+    return _apply_transition(paths, transition, validated, backup=backup, ownership=ownership)
+
+
+def _apply_transition(paths, transition, validated, *, backup, ownership=None):
     acquired_here = ownership is None
     owner = InstanceOwnership(paths).acquire() if acquired_here else _caller_ownership(paths, ownership)
     try:
@@ -320,7 +325,7 @@ def apply_migration(paths: InstancePaths, plan, *, backup, extensions=NO_EXTENSI
 
 
 def _report(paths, transition, plan, *, applied, already_migrated, backup) -> dict:
-    return {"format": PLAN_FORMAT, "transition": TRANSITION_ID, "instance_root": str(paths.instance_root),
+    return {"format": PLAN_FORMAT, "transition": transition.name, "instance_root": str(paths.instance_root),
             "database": str(_database_path(paths)), "selected_extensions": list(transition.extensions.ids),
             "predecessor": _identity(transition.predecessor), "target": _identity(transition.target),
             "additions": transition.additions, "plan_digest": plan["plan_digest"], "applied": applied,
@@ -335,7 +340,7 @@ def _validated_plan(paths, plan, transition: _Transition) -> dict:
     digest = body.pop("plan_digest", None)
     if set(body) != PLAN_KEYS - {"plan_digest"}:
         raise DomainError("invalid_configuration", "The saved migration plan has an unexpected shape")
-    if type(body["format"]) is not int or body["format"] != PLAN_FORMAT or body["transition"] != TRANSITION_ID:
+    if type(body["format"]) is not int or body["format"] != PLAN_FORMAT or body["transition"] != transition.name:
         raise DomainError("invalid_configuration", "The saved migration plan is not this transition")
     if not isinstance(digest, str) or canonical_hash(body) != digest:
         raise DomainError("operation_conflict", "The saved migration plan was changed or corrupted after preparation")
@@ -586,6 +591,42 @@ def _publish_backup(connection, destination, transition: _Transition) -> dict:
                 leftover.unlink()
             except OSError:
                 pass
+
+
+# -- explicit optional-extension additions ------------------------------------------------------------------------
+
+def extension_transition(previous, selected):
+    """Compile a strictly additive selection using the same schema comparison and executor as the named migration."""
+    if not isinstance(previous, ExtensionSet) or not isinstance(selected, ExtensionSet) or not set(previous.ids) < set(selected.ids):
+        raise DomainError("invalid_installation", "Extension storage requires a strictly additive selection")
+    predecessor = host_assembly(ChangeFeed(), previous)
+    target = host_assembly(ChangeFeed(), selected)
+    before, after = compile_target(predecessor), compile_target(target)
+    old_owners = {item.owner for item in previous.storage()}
+    contributions = tuple(item for item in selected.storage() if item.owner not in old_owners)
+    if any(not statement.lstrip().upper().startswith("CREATE ") for item in contributions for statement in item.schema):
+        raise DomainError("invalid_installation", "An extension install may only create schema objects")
+    return _Transition(selected, predecessor, target, contributions, _additions(before, after), before, after,
+                       name="v1.3-extension-addition-1")
+
+
+def prepare_extension_storage(paths, *, previous, selected):
+    transition = extension_transition(previous, selected)
+    observed = _observation(paths, transition)
+    if observed["state"] not in ("predecessor", "target"):
+        raise DomainError("unsupported_schema", "The installed schema does not match this extension addition", details=observed)
+    body = _plan_body(paths, transition)
+    return {**body, "plan_digest": canonical_hash(body)}
+
+
+def apply_extension_storage(paths, plan, *, previous, selected, backup, ownership):
+    transition = extension_transition(previous, selected)
+    validated = _validated_plan(paths, plan, transition)
+    if transition.predecessor.target == transition.target.target:
+        _caller_ownership(paths, ownership)
+        Database(paths.database, assembly=transition.target).validate_snapshot(paths.database)
+        return _report(paths, transition, validated, applied=False, already_migrated=True, backup=None)
+    return _apply_transition(paths, transition, validated, backup=backup, ownership=ownership)
 
 
 # -- command line -------------------------------------------------------------------------------------------------

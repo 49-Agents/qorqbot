@@ -29,6 +29,7 @@ def derive(prior_raw, intent, resulting_commit):
     imported['manifest_digest'] = digest(imported)
     candidate = {k: deepcopy(prior[k]) for k in ('version', 'instance_id', 'root', 'state', 'selected_extensions',
                                                    'initial_commit', 'preferences_seed')}
+    candidate['selected_extensions'] = deepcopy(plan['selected_extensions'])
     candidate.update(inventory=deepcopy(plan['target_inventory']), inventory_sha256=digest(plan['target_inventory']),
                      import_manifest=imported, source_manifest_sha256=plan['export']['source_manifest_sha256'],
                      management_seed=deepcopy(plan['management_seed']['desired']),

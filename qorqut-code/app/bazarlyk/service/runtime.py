@@ -375,6 +375,8 @@ def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
 
     if not isinstance(paths, InstancePaths):
         raise DomainError("invalid_configuration", "Assembly requires the explicit instance paths")
+    from bazarlyk.bootstrap.extension_install import require_complete
+    require_complete(paths)
     if not Path(workspace).is_absolute():
         raise DomainError("invalid_configuration", "The protected configuration workspace must be an absolute path")
     job_programs = job_programs if job_programs is not None else ProgramRegistry()

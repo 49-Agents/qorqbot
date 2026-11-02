@@ -146,7 +146,7 @@ def _validate(paths, intent, prior_raw, prior):
             or intent['phase'] != 'prepared' or intent['receipt_sha256'] != digest({k: v for k, v in intent.items() if k != 'receipt_sha256'})):
         raise ValueError('Invalid managed intent envelope')
     plan = intent['plan']
-    if not isinstance(plan, dict) or set(plan) != _PLAN_KEYS:
+    if not isinstance(plan, dict) or set(plan) not in (_PLAN_KEYS, _PLAN_KEYS | {"extension_install"}):
         raise ValueError('Invalid retained plan')
     managed_plan.validate_plan(paths, plan)
     export = plan['export']
@@ -161,7 +161,6 @@ def _validate(paths, intent, prior_raw, prior):
     if (plan['complete'] is not True or plan['conflicts'] != [] or plan['no_change'] is not False
             or type(plan['acknowledge_grants']) is not bool
             or plan['binding'] != binding or plan['history'] != history
-            or plan['selected_extensions'] != prior['selected_extensions']
             or digest(prior_raw) != intent['prior_binding_sha256']
             or intent['prior_binding_sha256'] != plan['binding']['record_sha256']
             or not isinstance(intent['attribution'], dict)
@@ -169,6 +168,13 @@ def _validate(paths, intent, prior_raw, prior):
             or intent['head'] != plan['git']['head'] or _decode(intent['index']) is None
             or digest(_decode(intent['index'])) != plan['git']['index_sha256']):
         raise ValueError('Managed intent identity mismatch')
+    before, after = prior['selected_extensions'], plan['selected_extensions']
+    if before == after:
+        if 'extension_install' in plan:
+            raise ValueError('Unchanged selection cannot claim an extension install')
+    elif (not set(before) < set(after) or plan.get('extension_install') !=
+            {'before': before, 'added': sorted(set(after) - set(before))}):
+        raise ValueError('Managed extension install is not an exact additive selection')
     manifest_raw = _decode(intent['export_manifest'])
     if digest(manifest_raw) != plan['export']['source_manifest_sha256']:
         raise ValueError('Retained export manifest mismatch')
