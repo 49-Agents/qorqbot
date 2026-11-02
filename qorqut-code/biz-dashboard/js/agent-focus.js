@@ -4,7 +4,26 @@ const AGFOCUS_THREAD_HEIGHT_KEY = 'ag:focus-thread-height:v1';
 const AGFOCUS_THREAD_MIN_HEIGHT = 180;
 function agfocusPath(p) { return `/me/agents/${encodeURIComponent(p.agentId)}/focus`; }
 function agfocusText(el, value) { if (el && el.textContent !== value) el.textContent = value; }
-function agfocusPageKey(p) { return JSON.stringify([p.focusOffset||0,!!p.focusIncludearchived,!!p.focusIncludedeferred]); }
+function agfocusDay() {
+  const now=new Date();
+  return [now.getFullYear(),now.getMonth()+1,now.getDate()].join('-');
+}
+function agfocusPageKey(p) { return JSON.stringify([p.focusOffset||0,!!p.focusIncludearchived,!!p.focusIncludedeferred,!!p.focusToday,p.focusToday?agfocusDay():null]); }
+function agfocusSetToday(p) {
+  if(p.focusOrderPending || p.focusMoveSubmission)return;
+  agfocusSelect(p,null);
+  if(!p.focusToday)p.focusNormalPage={offset:p.focusOffset||0,pages:[...(p.focusPages||[])]};
+  p.focusToday=!p.focusToday;
+  p.focusOffset=p.focusToday?0:(p.focusNormalPage?.offset||0);
+  p.focusPages=p.focusToday?[]:[...(p.focusNormalPage?.pages||[])];
+  // Keep mounted conversation drafts and normal-view notes when changing the list.
+  const retained=p.focusMount.querySelector('.agfocus-retained');
+  for(const node of [...p.focusMount.querySelector('.agfocus-items').children])retained.appendChild(node);
+  p.focus=null;p.focusError='';
+  delete p.focusMount.querySelector('.agfocus-items').dataset.signature;
+  p.el.querySelector('[data-focus-today]').setAttribute('aria-pressed',String(p.focusToday));
+  agfocusPaint(p);void agfocusRefresh(p);
+}
 
 function agfocusSnoozed(item) { return Date.parse(item.deferred_until)>Date.now(); }
 function agfocusUnread(p,node,item,value) {
@@ -17,7 +36,7 @@ function agfocusUnread(p,node,item,value) {
   node._conversationHost?._conversation?.setUnread(unread);
 }
 function agfocusMoveEligible(p,node) {
-  return !!node && node.parentElement?.classList.contains('agfocus-items') && !node._item?.unavailable && !node._item?._workParent && !node._item?.archived &&
+  return !p.focusToday && !!node && node.parentElement?.classList.contains('agfocus-items') && !node._item?.unavailable && !node._item?._workParent && !node._item?.archived &&
     !p.focusSnoozes?.get(node.dataset.cardId)?.pending && node.querySelector('.agfocus-task-state')?.getAttribute('aria-busy')!=='true';
 }
 function agfocusRowPending(p,node) {
@@ -265,7 +284,7 @@ function agfocusWorkspaceTools(p,board) {
 function agfocusMount(p) {
   const body = $('#agpad-body', p.el);
   body.innerHTML = `<div class="agfocus"><p class="agfocus-error" role="alert" hidden></p><button type="button" class="quiet" data-focus-retry-move hidden>Retry same move</button><p class="agfocus-sr" data-focus-announcement role="status" aria-live="polite"></p><span class="agfocus-sr" id="agfocus-move-instructions">Use Alt+ArrowUp or Alt+ArrowDown to move one visible row.</span>
-    <header><div class="agfocus-heading"><div class="global-eyebrow">Focus</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add to Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button><button class="quiet agfocus-icon" data-focus-refresh aria-label="Refresh Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 18 17"/></svg></button><div class="agfocus-controls"><button class="quiet" data-focus-archived aria-pressed="false">Archived</button><button class="quiet" data-focus-deferred aria-pressed="false">Postponed</button></div></div></div><p class="agfocus-empty muted" role="status">Loading Focus…</p></header>
+    <header><div class="agfocus-heading"><div class="global-eyebrow">Focus</div><div class="agfocus-toolbar"><button type="button" class="quiet agfocus-today" data-focus-today aria-pressed="false" title="Tasks worked on today, excluding Done">Today</button><button type="button" class="quiet agfocus-icon" data-focus-add aria-label="Add to Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button><button class="quiet agfocus-icon" data-focus-refresh aria-label="Refresh Focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 18 17"/></svg></button><div class="agfocus-controls"><button class="quiet" data-focus-archived aria-pressed="false">Archived</button><button class="quiet" data-focus-deferred aria-pressed="false">Postponed</button></div></div></div><p class="agfocus-empty muted" role="status">Loading Focus…</p></header>
     <section class="attention-queue" aria-label="New attention"></section><p class="agfocus-activity muted" hidden></p><section class="agfocus-surface" aria-label="Browser, Desktop or Viewbox" hidden><div class="agfocus-surface-bar"><button type="button" class="quiet" data-surface-back aria-label="Back to Focus">← Focus</button></div><div class="agfocus-surface-body"></div></section><div class="agfocus-layout"><div class="agfocus-items"></div><aside class="agfocus-dock" aria-label="Selected conversation" hidden><header class="agfocus-thread-heading"><span data-focus-thread-title></span><button type="button" class="quiet" data-focus-thread-close aria-label="Close thread"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><div class="agfocus-dock-content"></div><div class="agfocus-thread-resize" role="separator" aria-orientation="horizontal" aria-label="Thread height" tabindex="0"></div></aside></div><div class="agfocus-retained" hidden></div><nav class="agfocus-pages" aria-label="Focus pages"><button class="quiet" data-focus-previous hidden>Previous</button><span class="muted" data-focus-page></span><button class="quiet" data-focus-more hidden>Next</button></nav></div>`;
   p.focusDrafts ||= new Map();
   p.focusCards = new Map();
@@ -324,6 +343,9 @@ function agfocusMount(p) {
   p.focusPrivateRead ||= new Map();
   p.focusBoardSeq ||= 0;
   p.focusPages ||= [];
+  const todayToggle=$('[data-focus-today]',p.el);
+  todayToggle.setAttribute('aria-pressed',String(!!p.focusToday));
+  todayToggle.onclick=()=>agfocusSetToday(p);
   $('[data-focus-add]',p.el).onclick=()=>agfocusAdd(p);
   $('[data-focus-refresh]',p.el).onclick=()=>{agfocusRefresh(p);todayCalendar?.refresh();if(p.focusSurfaces)p.focusSurfaces.refresh();if(typeof attentionQueue!=='undefined'){if(!p.focusSurfaces)void attentionQueue.refresh();void attentionQueue.refreshSignoffs();}};
   for(const kind of ['archived','deferred']) {
@@ -339,7 +361,8 @@ function agfocusMount(p) {
 
 function agfocusTick(p) {
   if (p.view !== 'focus') return;
-  if (!p.focusPending && Date.now() >= (p.nextFocus || 0)) agfocusRefresh(p);
+  if(p.focusToday && p.focusDay && p.focusDay!==agfocusDay()){p.focusOffset=0;p.focusPages=[];}
+  if (!p.focusPending && (Date.now() >= (p.nextFocus || 0) || (p.focusToday && p.focusPageKey!==agfocusPageKey(p)))) agfocusRefresh(p);
   else if (!p.focusPending) agfocusRecoverWork(p);
   if (p.view === 'focus') agfocusPaint(p);
 }
@@ -348,7 +371,7 @@ function agfocusTick(p) {
 // visible tick instead of waiting for the next full-board poll. A genuine first-load failure collapses the branch, so
 // this never loops; branches that already have a read in flight are left alone and nothing is expanded recursively.
 function agfocusRecoverWork(p) {
-  if (!agpadActive(p) || !p.focusMount?.isConnected || !p.focusWork?.size) return;
+  if (p.focusToday || !agpadActive(p) || !p.focusMount?.isConnected || !p.focusWork?.size) return;
   for (const item of agfocusVisibleItems(p, p.focus?.items || [])) {
     if (item.source?.type !== 'task' || item.unavailable) continue;
     const branch = p.focusWork.get(item.id);
@@ -366,8 +389,9 @@ async function agfocusRefresh(p) {
   const requestSeq = p.focusBoardSeq = (p.focusBoardSeq || 0) + 1;
   p.focusRequest = (async () => {
     const pageKey=agfocusPageKey(p);
+    if(p.focusToday)p.focusDay=agfocusDay();
     try {
-      const data = coreData(await post("/root/operations/focus_get",{scope:"global",include_archived:!!p.focusIncludearchived,include_deferred:!!p.focusIncludedeferred,offset:p.focusOffset||0}));
+      const data = coreData(await post("/root/operations/focus_get",{scope:"global",include_archived:!!p.focusIncludearchived,include_deferred:!!p.focusIncludedeferred,offset:p.focusOffset||0,...(p.focusToday?{today:true,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'}:{})}));
       // A completed read for this exact pane survives the tab being hidden; only starting a read needs visibility.
       if (!agpadActive(p,true) || pageKey!==agfocusPageKey(p) || (focusMount && p.focusMount!==focusMount)) {
         if(agpadActive(p) && p.view==='focus')p.focusRefreshAgain=true;
@@ -376,7 +400,7 @@ async function agfocusRefresh(p) {
       if (!Array.isArray(data.items) || !Number.isInteger(data.revision)) throw new Error('Invalid Focus response');
       p.focusPageKey=pageKey;
       p.focus = data; p.focusError = '';
-      void agfocusTextHost()?.load(p);
+      if(!p.focusToday)void agfocusTextHost()?.load(p);
       for(const [id,seq] of p.focusPrivateRead || [])if(requestSeq>seq)p.focusPrivateRead.delete(id);
       for(const [id,seq] of p.focusPrivateUnread || [])
         if(requestSeq>seq && !data.items.some(item=>item.id===id && item.private_unread))p.focusPrivateUnread.delete(id);
@@ -393,9 +417,9 @@ async function agfocusRefresh(p) {
         if(!same() || !agpadActive(p) || !p.focusWork?.get(item.id)?.expanded)return;
         await Promise.all(agfocusVisibleItems(p,data.items).filter(row=>row._workParent===item.id && agfocusRestorable(p,row)).map(restore));
       };
-      await Promise.all(agfocusVisibleItems(p,data.items).filter(row=>!row._workParent && agfocusRestorable(p,row)).map(restore));
+      if(!p.focusToday)await Promise.all(agfocusVisibleItems(p,data.items).filter(row=>!row._workParent && agfocusRestorable(p,row)).map(restore));
     } catch (error) {
-      if (agpadActive(p) && (!focusMount || p.focusMount===focusMount)) p.focusError = 'Could not refresh Focus. ' + error.message;
+      if (agpadActive(p) && pageKey===agfocusPageKey(p) && (!focusMount || p.focusMount===focusMount)) p.focusError = 'Could not refresh Focus. ' + error.message;
       else if(agpadActive(p) && p.view==='focus')p.focusRefreshAgain=true;
     } finally {
       p.focusPending = false; p.nextFocus = pageKey===agfocusPageKey(p)?Date.now() + AGFOCUS_POLL_MS:0;
@@ -423,6 +447,16 @@ const agfocusWorkKey=source=>String(source.business_slug ?? 'global')+':'+source
 
 function agfocusVisibleItems(p,items) {
   const result=[];
+  if(p.focusToday) {
+    const append=item=>{
+      if(item.state==='done'){for(const child of item.today_children || [])append(child);return;}
+      result.push(item);
+      if(p.focusTodayCollapsed?.has(item.id))return;
+      for(const child of item.today_children || [])append(child);
+    };
+    for(const item of items)append(item);
+    return result;
+  }
   // A derived row whose Task is already an ancestor on its own path is refused before it is rendered, so a
   // concerns cycle (A -> B -> A) never grows the path. Independent Focus cards are never deduplicated.
   function append(item,ancestors=new Set()) {
@@ -543,6 +577,7 @@ async function agfocusRunWork(p,item,branch,kind) {
   }
 }
 async function agfocusExpandWork(p,item,refresh=false) {
+  if(item.today)return;
   p.focusWork ||= new Map();
   const key=agfocusWorkKey(item.resolved_source || item.source);
   let branch=p.focusWork.get(item.id);
@@ -565,6 +600,11 @@ async function agfocusExpandWork(p,item,refresh=false) {
   await flight;
 }
 function agfocusToggleWork(p,item) {
+  if(item.today){
+    p.focusTodayCollapsed ||= new Set();
+    if(p.focusTodayCollapsed.has(item.id))p.focusTodayCollapsed.delete(item.id);else p.focusTodayCollapsed.add(item.id);
+    agfocusPaint(p);return;
+  }
   const branch=p.focusWork?.get(item.id);
   if(!branch?.expanded)return agfocusExpandWork(p,item);
   branch.expanded=false;
@@ -580,6 +620,7 @@ async function agfocusMoreWork(p,item) {
 }
 
 function agfocusWorkExtras(p,node,item) {
+  if(item.today)return;
   node._referenceObserver?.disconnect();
   node.querySelector('.agfocus-work-extras')?.remove();
   const branch=p.focusWork?.get(item.id);
@@ -624,10 +665,21 @@ function agfocusPaint(p) {
   agfocusText(error, p.focusError || ''); error.hidden = !p.focusError;
   $('[data-focus-retry-move]',host).hidden=!p.focusMoveSubmission || p.focusOrderPending;
   agfocusTextHost()?.paintStatus(p);
-  if (!data) return;
+  host.classList.toggle('agfocus-today-mode',!!p.focusToday);
+  const todayButton=$('[data-focus-today]',host) || $('[data-focus-today]',p.el);
+  if(todayButton)todayButton.disabled=!!p.focusOrderPending || !!p.focusMoveSubmission;
+  for(const selector of ['[data-focus-add]','[data-focus-archived]','[data-focus-deferred]']){
+    const control=$(selector,p.el);if(control)control.hidden=!!p.focusToday;
+  }
+  if (!data) {
+    const empty=$('.agfocus-empty',host);empty.hidden=false;
+    agfocusText(empty,p.focusError?'':p.focusToday?'Loading today’s work…':'Loading Focus…');
+    $('[data-focus-more]',host).hidden=true;$('[data-focus-previous]',host).hidden=true;$('[data-focus-page]',host).textContent='';
+    return;
+  }
   const empty=$('.agfocus-empty',host);
-  empty.hidden=!!data.items.length || !!agfocusTextHost()?.hasBlocks(p);
-  agfocusText(empty,'Nothing on Focus yet');
+  empty.hidden=!!data.items.length || (!p.focusToday && !!agfocusTextHost()?.hasBlocks(p));
+  agfocusText(empty,p.focusToday?'No unfinished tasks worked on today':'Nothing on Focus yet');
   const activity = $('.agfocus-activity', host), a = data.activity;
   activity.hidden = !a;
   if (a) {
@@ -637,7 +689,7 @@ function agfocusPaint(p) {
   }
   const list = $('.agfocus-items', host);
   host.dataset.revision=data.revision;
-  const signature=JSON.stringify([data.items,p.focusPageKey,data.next_offset,agfocusTextHost()?.signature(p),[...(p.focusWork || [])].map(([id,b])=>[id,b.expanded,b.loaded,b.moving,b.references,!!b.childCursor,!!b.relationCursor])]);
+  const signature=JSON.stringify([data.items,p.focusPageKey,data.next_offset,[...(p.focusTodayCollapsed||[])],agfocusTextHost()?.signature(p),[...(p.focusWork || [])].map(([id,b])=>[id,b.expanded,b.loaded,b.moving,b.references,!!b.childCursor,!!b.relationCursor])]);
   if(list.dataset.signature===signature) {
     for(const item of data.items) {
       agfocusUnread(p,p.focusCards.get(item.id),item);
@@ -695,7 +747,7 @@ function agfocusPaint(p) {
     // Keep the state button alive across polling paints, including mid-click.
     if(taskItem && !taskShowsState(taskRecord)){
       if(taskRecord.task_type==='story'){
-        const expanded=!!p.focusWork?.get(item.id)?.expanded;
+        const expanded=item.today?!p.focusTodayCollapsed?.has(item.id):!!p.focusWork?.get(item.id)?.expanded;
         agfocusHtml(marker,`<button type="button" class="task-type-marker task-subtasks-toggle" aria-expanded="${expanded}" aria-label="${expanded?'Collapse':'Expand'} subtasks">${taskTypeIcon('story')}</button>`);
         const toggle=marker.querySelector('button');
         toggle.onpointerdown=event=>event.stopPropagation();
@@ -730,7 +782,7 @@ function agfocusPaint(p) {
     };
     node.onclick=event=>{
       if(event.composedPath().some(el=>el.matches?.('button,a,input,textarea,select,.agfocus-marker,.agfocus-conversation')) || Date.now()<(p.focusSuppressClickUntil || 0))return;
-      if((event.ctrlKey || event.metaKey) && !item._workParent){event.preventDefault();agfocusNewTab(item);return;}
+      if((event.ctrlKey || event.metaKey) && !item._workParent && !item.today){event.preventDefault();agfocusNewTab(item);return;}
       if(event.target.closest('.agfocus-row'))toggleCard();
     };
     node.onkeydown=event=>{if(event.target===node && ['Enter',' '].includes(event.key)){event.preventDefault();toggleCard();}};
@@ -742,12 +794,12 @@ function agfocusPaint(p) {
       });
       ball.onclick=event=>{event.stopPropagation();agfocusTaskState(p,item,ball);};
     }
-    node._region.querySelector('[data-manage]').onclick=event=>{event.stopPropagation();if((event.ctrlKey || event.metaKey) && !item._workParent)agfocusNewTab(item);else open();};
+    node._region.querySelector('[data-manage]').onclick=event=>{event.stopPropagation();if((event.ctrlKey || event.metaKey) && !item._workParent && !item.today)agfocusNewTab(item);else open();};
     node.setAttribute('aria-describedby','agfocus-move-instructions');
     actions.querySelector('[data-focus-snooze]').onclick=event=>{event.stopPropagation();agfocusSnoozePicker(p,node,event.currentTarget);};
     actions.querySelector('[data-focus-snooze]').setAttribute('aria-pressed',String(snoozed));
     agfocusRowPending(p,node);
-    actions.querySelector('[data-focus-snooze]').hidden=!!item._workParent;
+    actions.querySelector('[data-focus-snooze]').hidden=!!item._workParent || !!item.today;
     const related=node._region.querySelector('.agfocus-related');related.replaceChildren();
     for(const ref of item.references||[]) {
       const button=document.createElement('button');button.className='quiet';button.textContent=ref.unavailable?'Related item unavailable':ref.label;button.disabled=!!ref.unavailable;
@@ -779,7 +831,7 @@ function agfocusPaint(p) {
     node.setAttribute('aria-expanded',String(p.focusSelected===item.id));
     if(p.focusSelected===item.id){agfocusText($('[data-focus-thread-title]',host),name);if(!conversation.isExpanded())conversation.expand();}
   }
-  agfocusTextHost()?.reconcile(p,host,list);
+  if(!p.focusToday)agfocusTextHost()?.reconcile(p,host,list);
   if(focused?.isConnected && host.contains(focused)){focused.focus({preventScroll:true});if(selection)focused.setSelectionRange(...selection);}
   agfocusRefreshThreads(p);
   agfocusThreadHeight(p);
