@@ -49,9 +49,9 @@ TASK_ENTRIES = (
 ASSIGNEES = {"type": "array", "items": UUID, "maxItems": 100}
 SCOPE = {"scope": {"enum": ["business", "global"]}}
 TASK_FIELDS = {
-    "task_type": {"enum": list(TYPES), "description": "task for an actionable step; story for an ongoing relationship, opportunity or work group; customer for a person or company; email for one whole email conversation."},
+    "task_type": {"enum": list(TYPES), "description": "task for an actionable step; story for an ongoing relationship, opportunity or work group; customer for a person or company; email for a historical Task bound to one email conversation (its binding is read-only)."},
     "overview": {"type": "string", "maxLength": 20000, "description": "Maintained current summary and next steps; history stays in the Task discussion and related items."},
-    "email_conversation_id": {"anyOf": [IDENTITY, {"type": "null"}], "description": "Required for email type: an existing readable email conversation in the same owning scope. Clear when changing to another type."},
+    "email_conversation_id": {"anyOf": [IDENTITY, {"type": "null"}], "description": "Historical binding of an Email Task, kept read-only. Ordinary writes omit it; changing the type away from email clears it."},
     "customer_kind": KIND_SCHEMA, "customer_state": STATE_SCHEMA, "customer_profile": PROFILE_SCHEMA,
     "kind": {"enum": list(KINDS)}, "title": {"type": "string", "minLength": 1, "maxLength": 1000},
     "status": {"enum": list(STATES)}, "assignee_ids": ASSIGNEES, "archived": {"type": "boolean"}, "tags": LABELS_SCHEMA,

@@ -206,9 +206,8 @@ class Application:
                 raise DomainError("forbidden", "Required plugin is not enabled")
         if self.policy is None:
             raise DomainError("policy_denied", "No authority policy is installed")
-        effective = (descriptor.account_policy if namespace == "global"
-                     else descriptor.business_policy
-                     if namespace is not None and descriptor.global_capability else descriptor)
+        effective = (descriptor.business_policy
+                     if namespace not in (None, "global") and descriptor.global_capability else descriptor)
         decision = self.policy.resolve(context, effective, tuple(targets), uow)
         if not isinstance(decision, PolicyDecision):
             raise DomainError("invalid_policy", "Policy resolver returned an invalid decision")
@@ -569,7 +568,6 @@ class Application:
                 result = self.result(context, self.signoffs.stage(context, descriptor, plan, options, uow))
                 if result.status != "signoff_required":
                     raise DomainError("invalid_result", "Signoff staging must return a proposal reference")
-                result = self.signoffs.authorize_mail_control(context, descriptor, plan, result, current, uow)
             else:
                 result = self.apply_prepared(context, plan, uow)
             receipts.save(context.principal_id, namespace, descriptor.name, options.idempotency_key, input_hash, result)

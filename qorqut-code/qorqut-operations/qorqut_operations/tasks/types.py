@@ -71,6 +71,10 @@ def apply_attributes(current, edits, states=()):
     values = attributes(current)
     given = {key: edits.pop(key) for key in DEFAULTS if key in edits}
     values.update(given)
+    if values["task_type"] != "email" and "email_conversation_id" not in given:
+        # A historical Email Task keeps its binding as read-only data; changing the type away from email ends it, so the caller
+        # never has to name (or look up) the conversation to do so.
+        values["email_conversation_id"] = None
     if isinstance(given.get("customer_state"), str):
         values["customer_state"] = resolve_state(given["customer_state"], states)
     if values["task_type"] == "customer" and values["customer_kind"] is None and "customer_kind" not in given:

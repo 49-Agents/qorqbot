@@ -41,7 +41,7 @@ from .recovery_gate import DatabaseMaintenanceGate
 
 LOGGER = logging.getLogger(__name__)
 # The writer classes every installation of the engine has; a composition declares more through ``required``.
-CORE_WRITERS = ("background", "signoffs", "email_history", "browser", "sandbox")
+CORE_WRITERS = ("background", "signoffs", "browser", "sandbox")
 
 
 class UnprovenStop(TimeoutError):
@@ -192,7 +192,6 @@ class RecoveryQuiescer:
     admission: RecoveryAdmission | None = None
     background: object | None = None
     signoffs: object | None = None
-    email_history: object | None = None
     # Optional writers of the engine's own inventory: they become required when the composition names them.
     telegram: object | None = None
     browser_writers: object | None = None
@@ -211,7 +210,7 @@ class RecoveryQuiescer:
 
     def register_writer(self, name, controller):
         """Add one named controller to the inventory; a name is registered once."""
-        named = {"background", "signoffs", "email_history", "telegram", "browser", "sandbox"}
+        named = {"background", "signoffs", "telegram", "browser", "sandbox"}
         if not isinstance(name, str) or not name or name in named or name in self.writers:
             raise DomainError("invalid_configuration", f"Recovery writer {name!r} is invalid or already registered")
         self.writers[name] = controller
@@ -222,8 +221,7 @@ class RecoveryQuiescer:
 
         The composition's registered writers drain first (in registration order, the host's own stop order); the
         engine's classes follow. Nothing is stopped by asking."""
-        named = (("background", self.background), ("signoffs", self.signoffs), ("email_history", self.email_history),
-                 ("telegram", self.telegram),
+        named = (("background", self.background), ("signoffs", self.signoffs), ("telegram", self.telegram),
                  ("browser", self.browser_writers), ("sandbox", self.sandbox_writers))
         engine = {name: controller for name, controller in named if controller is not None}
         controllers = {**self.writers, **engine}

@@ -40,14 +40,12 @@ def item_revision(row: Mapping[str, Any]):
 def authorize_item_read(application, ctx, operation: str, uow) -> None:
     """Refuse unless the caller may currently use the named *read* operation (v1 ``ContextItems.authorize``).
 
-    Global/account callers are judged by the descriptor's account policy, business callers of a global-capable
+    Global callers are judged by the descriptor as declared, business callers of a global-capable
     operation by its business policy; the resolved mode must be ``allow``. The domain's own read handler is still
     called by the lookup where v1 called it."""
     descriptor = application.registry.get(operation)
     if ctx.business_id is not None and descriptor.global_capability and "business" in descriptor.scope_kinds:
         descriptor = descriptor.business_policy
-    elif ctx.business_id is None:
-        descriptor = descriptor.account_policy
     if application.policy.resolve(ctx, descriptor, (), uow).mode != "allow":
         raise DomainError("forbidden", "The item's read operation is not permitted")
 

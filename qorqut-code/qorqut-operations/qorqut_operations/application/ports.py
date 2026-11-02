@@ -17,16 +17,10 @@ class PolicyResolver(Protocol):
 
 
 class SignoffStager(Protocol):
-    """Stages one exact prepared change for owner review. ``authorize_mail_control`` is called with the
-    staged proposal result and the current per-operation decisions in the same transaction; it may only
-    refuse or return the result unchanged."""
+    """Stages one exact prepared change for owner review."""
 
     def stage(self, context: InvocationContext, operation: OperationDescriptor,
               change_set: ChangeSet, options: InvocationOptions, uow) -> OperationResult: ...
-
-    def authorize_mail_control(self, context: InvocationContext, operation: OperationDescriptor,
-                               change_set: ChangeSet, result: OperationResult, decisions: Mapping[str, PolicyDecision],
-                               uow) -> OperationResult: ...
 
 
 class FileExecutor(Protocol):

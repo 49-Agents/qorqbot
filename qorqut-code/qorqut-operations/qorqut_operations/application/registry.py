@@ -107,6 +107,10 @@ class OperationDescriptor:
     # business policy, catalogs and bindings continue to name); an empty set, the default, leaves a descriptor exactly as
     # before. Allowed only on a plain read with no composed effects, never on a mutation or platform action.
     global_read_capability_alternatives: frozenset[str] = field(default_factory=frozenset)
+    # The standing mode an operation takes when neither the agent's explicit override nor its role default names it.
+    # Only a provider package that is selected for the installation declares this for its own operations; access
+    # still requires every other gate (plugin grant, global capability, scope), so it never grants by itself.
+    default_mode: str | None = None
 
     def __post_init__(self):
         CatalogEntry(self.name, self.supports_signoff, self.effect_kind, self.exposure, self.owner_only)
@@ -160,6 +164,13 @@ class OperationDescriptor:
             if any(not isinstance(item, str) or not item or item == self.global_capability for item in alternatives):
                 raise ValueError("Alternative global capabilities must be other, nonempty names")
         object.__setattr__(self, "global_read_capability_alternatives", alternatives)
+        if self.default_mode is not None:
+            if self.default_mode not in {"allow", "signoff", "deny"}:
+                raise ValueError("Unknown default permission mode")
+            if self.default_mode == "signoff" and not self.supports_signoff:
+                raise ValueError("A default signoff mode requires exact-change Signoff support")
+            if self.owner_only and self.default_mode != "deny":
+                raise ValueError("Owner-only operations cannot default to an agent grant")
 
     @property
     def metadata(self) -> CatalogEntry:
@@ -186,13 +197,6 @@ class OperationDescriptor:
         """Reuse immutable operation metadata; authority is still resolved per call."""
         return (replace(self, global_capability=None, global_read_capability_alternatives=frozenset())
                 if self.global_capability else self)
-
-    @cached_property
-    def account_policy(self):
-        """Only account email replaces its business plugin gate with account authority."""
-        return (replace(self, plugin_requirement=None)
-                if self.plugin_requirement == "email-management" and self.global_capability == "manage_fastmail"
-                else self)
 
     def validate(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
         try:

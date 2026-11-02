@@ -33,14 +33,12 @@ CONFLICTS = frozenset({"revision_conflict", "forbidden", "policy_denied", "inact
                        "operation_unavailable", "profile_conflict", "document_conflict",
                        "artifact_conflict"})
 FILE_RECOVERY_INTERVAL = 5.0
-MAIL_OPERATIONS = frozenset({"email_send", "email_reply", "email_forward"})
 PLATFORM_UNAVAILABLE = "Platform action domain is not installed"
 UUID_SCHEMA = {"type": "string", "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"}
 
 
 # Authority metadata of the Operations-owned Signoff operations (deployed v1 catalog lines, unchanged). The
-# host declares the platform-specific names (``signoffs_platform_*``, ``signoffs_reddit_approve``,
-# ``signoffs_email_approve``) with its own platform contribution.
+# host declares any platform-specific names with its own platform contribution.
 SIGNOFF_ENTRIES = (
     *(CatalogEntry(name, False, "read") for name in ("signoffs_list", "signoffs_get", "signoffs_notes_list")),
     *(CatalogEntry(name, False, "records") for name in (
@@ -182,21 +180,6 @@ class SignoffService:
             "WHERE json_extract(t.value, '$.resource.business_id') IS NOT NULL "
             f"AND json_extract(t.value, '$.resource.business_id') NOT IN ({biz_marks}))")
         params=[*scope_params, *caps, *businesses]
-        if context.principal_kind == "agent":
-            # A manage_fastmail grant is necessary for these global proposals,
-            # but it is deliberately insufficient for reading their private
-            # previews. Keep account proposals visible only to the configured,
-            # active Codex Ordubashy coordinator.
-            clause += " AND ((s.review_scope_kind <> 'global' OR (s.operation_name NOT LIKE 'account_email_%' AND s.operation_name NOT LIKE 'email_%')) OR EXISTS (" \
-                "SELECT 1 FROM installation i JOIN agent_profiles ap " \
-                "ON ap.agent_id=i.management_coordinator_id " \
-                "JOIN principals pr ON pr.id=ap.agent_id " \
-                "WHERE i.id='service' AND i.management_coordinator_id=? " \
-                "AND ap.status='active' AND pr.active=1 AND pr.kind='agent' " \
-                "AND json_extract(ap.profile_json, '$.runtime')='codex' " \
-                "AND json_extract(ap.profile_json, '$.role.id')='ordubashy' " \
-                "AND json_extract(ap.profile_json, '$.scope.kind')='ecosystem'))"
-            params.append(context.principal_id)
         email = self.ports.email
         if email is not ABSENT:
             extra,values=email.visibility(context,uow)
@@ -424,8 +407,6 @@ class SignoffService:
         # Without the platform-action domain no prepared plan can be a platform submission.
         if self.ports.platform is not ABSENT and self.ports.platform.is_email_submission(plan):
             descriptor = replace(descriptor, signoff_category="platform_action")
-        if descriptor.signoff_category == "platform_action" and plan.target_namespace == "global" and descriptor.name in {"email_send", "email_reply", "email_forward"}:
-            descriptor = replace(descriptor, signoff_category="internal_change")
         platform = {}
         if descriptor.signoff_category == "platform_action":
             platform = self.ports.require("platform", PLATFORM_UNAVAILABLE).staging_values(context, plan, old, uow)
@@ -455,29 +436,6 @@ class SignoffService:
         summary["category"] = row["category"]
         return OperationResult(context.request_id, "signoff_required", signoff=summary)
 
-    def authorize_mail_control(self, context, descriptor, plan, staged, decisions, uow):
-        """Record standing mailbox authority, never impersonate an owner decision.
-
-        Keep the existing immutable send/receipt/worker pipeline and its replay
-        protection. Explicit signoff/deny overrides still require owner review.
-        """
-        peers = self.ports.peers
-        if (descriptor.name not in MAIL_OPERATIONS
-                or context.principal_kind != "agent" or context.delegation_assignment_id is not None
-                or context.principal_id != peers.configured_ordubashy(uow, require_codex=False)
-                or any(decision.mode != "allow" for decision in decisions.values())):
-            return staged
-        authority = "ordubashy_mail_control"
-        row = uow.repository("signoffs", business_id=plan.review_business_id).get(staged.signoff["id"], required=True)
-        ApplyReceipts(uow).create(plan, receipt_id=row["id"], signoff_id=row["id"])
-        row = self._update(row, {"state": "approved", "decision_json": {
-            "kind": "approve", "by": context.principal_id, "at": self.clock(),
-            "authority": authority, "message_id": None}}, uow)
-        self._wake.set()
-        return OperationResult(context.request_id, "accepted", data={
-            "signoff_id": row["id"], "execution_state": "authorized",
-            "authorization": authority})
-
     def _proposer_context(self, plan, uow):
         loader = getattr(self.app.policy, "context_for", None)
         if loader is None:
@@ -491,10 +449,7 @@ class SignoffService:
         plan = ChangeSet.from_bytes(row["change_set"], expected_hash=row["payload_hash"])
         context = self._proposer_context(plan, uow)
         authority = (row["decision_json"] or {}).get("authority")
-        if authority == "ordubashy_mail_control":
-            if context.principal_id != self.ports.peers.configured_ordubashy(uow, require_codex=False):
-                raise DomainError("forbidden", "Mailbox controller changed before execution")
-        elif authority is not None:
+        if authority is not None:
             # A recorded standing authority this engine no longer issues is never treated as an owner approval.
             raise DomainError("forbidden", "The standing authority this proposal was approved under no longer exists")
         receipt_id = row["id"] if approved else None
