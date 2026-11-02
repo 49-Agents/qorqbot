@@ -11,6 +11,7 @@ let _agpad = null;
 // declaration keeps Focus available when that read is unavailable.
 const WORKSPACE_BASE_VIEWS = new Set(["tasks", "inbox", "activity", "status", "globalTasks"]);
 const WORKSPACE_SEED = [
+  {key:"threads",display_name:"Threads",supported_roles:["ordubashy"],renderer:"threads",presentation_actions:[]},
   { key: "focus", display_name: "Focus", supported_roles: ["ordubashy", "global-worker"], renderer: "focus_board",
     presentation_actions: ["focus_show", "focus_clear", "focus_browser_input", "focus_present", "focus_edit",
       "focus_move", "focus_set_archived", "focus_reply"] },
@@ -118,6 +119,8 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   leading.unshift(...own);
   // Business follows Focus where the agent has it, otherwise the agent's own views.
   if (personal.includes('business')) leading.splice(leading.includes('focus') ? leading.indexOf('focus') + 1 : own.length, 0, 'business');
+  // Threads is permanently adjacent to Focus regardless of registry ordering.
+  if(leading.includes('threads')){leading.splice(leading.indexOf('threads'),1);leading.splice(Math.max(0,leading.indexOf('focus')),0,'threads');}
   // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");

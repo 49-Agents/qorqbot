@@ -514,7 +514,7 @@ function mountChatView(host, options = {}) {
 
   // ---- entries
   const entrySignature = entry => JSON.stringify([entry.speaker, entry.text, entry.partial === true, entry.timestamp, entry.title, entry.showAuthor,
-    entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.collapsedSource,
+    entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.collapsedSource, entry.relatedRecord,
     (entry.references || []).map(ref => [ref.key, ref.label, !!ref.disabled]), (entry.typedReferences || []).map(chatViewTypedSignature), (entry.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
   const authorHtml = entry => entry.author && entry.showAuthor !== false
     ? `<div class="gchat-author">${entry.author.avatarHtml ? `<span class="gchat-avatar" aria-hidden="true">${entry.author.avatarHtml}</span>` : ''}<small class="gchat-author-name">${esc(entry.author.name || '')}</small></div>` : '';
@@ -542,6 +542,7 @@ function mountChatView(host, options = {}) {
   function paintTimestamps() {
     let previous = NaN, previousEntry = null;
     for (const entry of model.entries) {
+      if(entry.relatedRecord)continue;
       const at = entry.timestamp ? new Date(entry.timestamp).getTime() : NaN;
       const show = Number.isFinite(at) && (!Number.isFinite(previous) || at < previous || at - previous >= 3600000);
       const node = nodes.get(entry.key), time = node.querySelector('.gchat-time');
@@ -576,6 +577,11 @@ function mountChatView(host, options = {}) {
     const notice = entry.notice;
     if (speaker === 'notice' && notice && typeof notice.verified === 'boolean') node.dataset.verified = String(notice.verified); else delete node.dataset.verified;
     if (speaker === 'notice' && notice?.inputType) node.dataset.inputType = notice.inputType; else delete node.dataset.inputType;
+    if(entry.relatedRecord) {
+      const record=entry.relatedRecord,opened=node.querySelector('details')?.open;
+      node.innerHTML=`<details class="gchat-related-record"${opened?' open':''}><summary><span class="gchat-related-icon" aria-hidden="true">${record.type==='signoff'?'◇':record.type==='action'?'↗':'○'}</span><span>${esc(record.label || 'Related item')}</span><small>${esc(record.state || record.type)}</small></summary><div class="gchat-related-detail"><span>${esc(record.summary || [record.type,record.business_name,record.state].filter(Boolean).join(' · '))}</span><button type="button" class="quiet" data-ref-key="open">Open record</button></div></details>`;
+      return {node,isNew};
+    }
     let body;
     if (entry.collapsedSource === 'telegram') body = telegramBody(entry.text);
     else if (speaker === 'agent') body = `<div class="gchat-body md">${titleHtml(entry)}${chatViewMarkdown(entry.text)}</div>`;

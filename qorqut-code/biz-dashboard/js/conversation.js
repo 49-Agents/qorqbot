@@ -88,6 +88,18 @@ function conversationEntries(notes,adapter) {
     return entry;
   });
 }
+// Related records have their own identities and pagination; they never enter the message store.
+function conversationTimeline(s,adapter) {
+  const entries=conversationEntries(s.notes,adapter);
+  if(!adapter.related)return entries;
+  const earliest=s.before?s.notes[0]?.created_at:null;
+  for(const record of s.related || []) {
+    if(earliest && record.created_at<earliest)continue;
+    entries.push({key:`related:${record.type}:${record.business_id || 'global'}:${record.id}`,speaker:'related',
+      timestamp:record.created_at,relatedRecord:record,references:[{key:'open',label:'Open record',value:record}]});
+  }
+  return entries.sort((a,b)=>(a.timestamp || '').localeCompare(b.timestamp || ''));
+}
 function conversationMount(host,source,adapter={}) {
   if (!host) return;
   const key=conversationKey(source);
@@ -130,12 +142,40 @@ function conversationMount(host,source,adapter={}) {
   const clearError=()=>{if(errorText)setError('');};
   let painted='';
   function paint(mode='auto') {
-    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before]);
+    const signature=JSON.stringify([!!s.text,!!s.loaded,s.notes,s.participants,s.before,adapter.related?s.related:null]);
     if(painted===signature && mode==='auto')return;
     painted=signature;
-    chat.render({entries:conversationEntries(s.notes,adapter),older:{visible:!!s.before,disabled:false},empty:{text:s.loaded && !s.notes.length?'No messages yet':''}},{scroll:mode});
+    chat.render({entries:conversationTimeline(s,adapter),older:{visible:!!s.before,disabled:false},empty:{text:s.loaded && !s.notes.length?'No messages yet':''}},{scroll:mode});
     if(adapter.inlineComposer)host.querySelectorAll('[title]').forEach(el=>el.removeAttribute('title'));
   }
+  let relatedPending=false;
+  const relatedMore=document.createElement('button');relatedMore.type='button';relatedMore.className='quiet conversation-related-more';relatedMore.hidden=true;
+  panel.append(relatedMore);
+  async function loadRelated(more=false) {
+    if(!adapter.related || relatedPending || !current() || !expanded)return;
+    relatedPending=true;relatedMore.disabled=true;
+    try {
+      let result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,...(more?{offset:s.relatedOffset}:{})});
+      if(!current())return;
+      const records=more?[...(s.related || []),...(result.items || [])]:[...(result.items || [])];
+      let pages=more?(s.relatedPages || 1)+1:1;
+      // Refresh the depth already opened, so polling neither discards older related rows nor retains revoked ones.
+      while(!more && pages<(s.relatedPages || 1) && result.next_offset!=null) {
+        result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,offset:result.next_offset});
+        if(!current())return;
+        records.push(...(result.items || []));pages++;
+      }
+      s.related=[...new Map(records.map(r=>[`${r.type}:${r.business_id || 'global'}:${r.id}`,r])).values()];
+      s.relatedOffset=result.next_offset;s.relatedPages=pages;
+      relatedMore.hidden=s.relatedOffset==null;relatedMore.textContent='More related items';
+      paint();adapter.onRelated?.(s.related);
+    } catch(e) {
+      if(!current())return;
+      if(['forbidden','not_found','policy_denied'].includes(e.code)){s.related=[];paint();adapter.onRelated?.([]);}
+      relatedMore.hidden=false;relatedMore.textContent="Couldn't load related items · Retry";
+    } finally {relatedPending=false;relatedMore.disabled=false;}
+  }
+  relatedMore.onclick=()=>loadRelated(s.relatedOffset!=null);
   // Acknowledge only what the server has already returned to this owner, and only
   // after an interactive load that included the newest page.
   async function acknowledge() {
@@ -186,8 +226,8 @@ function conversationMount(host,source,adapter={}) {
       if(!more && options.acknowledge)await acknowledge();
     } catch(e){
       if(!current())return;
-      if(['forbidden','not_found'].includes(e.code)){
-        s.notes=[];s.participants=[];s.loaded=false;s.before=null;
+      if(['forbidden','not_found','policy_denied','invalid_principal'].includes(e.code)){
+        s.notes=[];s.related=[];s.participants=[];s.loaded=false;s.before=null;adapter.onRelated?.([]);
         paint();
         adapter.onUnavailable?.(e);
       }
@@ -229,7 +269,7 @@ function conversationMount(host,source,adapter={}) {
     } finally{s.sending=false;syncSending();adapter.onInput?.();}
     // A confirmed write is complete. Refresh history without holding the
     // composer disabled, and preserve the same submission key on uncertain writes.
-    if(saved_){s.refreshAfterSend=true;void load(false);}
+    if(saved_){s.refreshAfterSend=true;void load(false);adapter.onSent?.();}
   }
   function setUnread(value) {
     unreadDot.hidden=!value;
@@ -251,7 +291,7 @@ function conversationMount(host,source,adapter={}) {
         chat.layout();
         if(target)chat.setScrollState(target);
       } finally {restoring=false;}
-      void load(false,{acknowledge:true});
+      void load(false,{acknowledge:true});void loadRelated();
     }
   }
   toggle.onclick=()=>expand(!expanded,true);
@@ -274,7 +314,7 @@ function conversationMount(host,source,adapter={}) {
     onViewportChange:()=>captureScroll(),
     // The view hands over the opaque reference value itself; an unavailable reference never reaches this callback.
     onReference:ref=>{
-      if(ref)taskProgressOpenReference(source.biz,ref).catch(()=>setError(CONVERSATION_TEXT.load));
+      if(ref)Promise.resolve(adapter.openReference?adapter.openReference(ref):taskProgressOpenReference(ref.business_slug ?? source.biz,ref)).catch(()=>setError(CONVERSATION_TEXT.load));
     },
     onEntryAction:(actionKey,entryKey)=>{
       const note=actionKey==='parent'?s.notes.find(n=>n.id===entryKey):null;
@@ -283,7 +323,7 @@ function conversationMount(host,source,adapter={}) {
   chat.setDraft(s.text);
   view=host._conversation={
     dismissOnOutside:adapter.dismissOnOutside!==false,
-    refresh:()=>expanded?load(false):null,
+    refresh:()=>{if(expanded){void loadRelated();return load(false);}},
     isExpanded:()=>expanded,expand:()=>expand(true),collapse:()=>expand(false),
     setUnread,
     hasDraft:()=>!!(s.text || s.files.length),

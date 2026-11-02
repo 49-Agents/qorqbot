@@ -267,6 +267,3 @@
 .focus-add-kind label{display:flex;align-items:center;gap:6px}
 
 /* Today is a derived task list; normal Focus notes and ordering remain saved. */
-.agfocus-today{font-size:11px;padding:3px 8px;border-radius:10px;color:var(--fg-2)}
-.agfocus-today[aria-pressed="true"]{color:var(--fg);background:var(--bg-3,rgba(255,255,255,.08))}
-.agfocus-today-mode .agfocus-text-status{display:none}
