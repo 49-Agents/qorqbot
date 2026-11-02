@@ -1,6 +1,6 @@
 """The identity-only references of ``request_user_input``: one pure contract for the tool, the archive projection and the owner view.
 
-A reference names an existing Task, Signoff, configured browser or registered agent by identity only. It carries no label, state, URL or decision;
+A reference names an existing Task, Signoff, Project, configured browser or registered agent by identity only. It carries no label, state, URL or decision;
 those are resolved from current records at the owner boundary, never taken from the model. Nothing here reads a database, a
 configuration or an archive."""
 
@@ -9,8 +9,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-TYPE_TASK, TYPE_SIGNOFF, TYPE_BROWSER, TYPE_AGENT = "task", "signoff", "browser", "agent"
-TYPES = (TYPE_TASK, TYPE_SIGNOFF, TYPE_BROWSER, TYPE_AGENT)
+TYPE_TASK, TYPE_SIGNOFF, TYPE_BROWSER, TYPE_AGENT, TYPE_PROJECT = "task", "signoff", "browser", "agent", "project"
+TYPES = (TYPE_TASK, TYPE_SIGNOFF, TYPE_BROWSER, TYPE_AGENT, TYPE_PROJECT)
 VERSION = 1
 MAX_MESSAGE_CHARS = 4000
 MAX_REFERENCES = 8
@@ -31,7 +31,7 @@ def _reference(raw: Any) -> dict:
         raise InputError("Each reference is {type, id} with an optional business_id")
     kind, identity, business = raw["type"], raw["id"], raw.get("business_id")
     if kind not in TYPES:
-        raise InputError("Reference type must be task, signoff, browser or agent")
+        raise InputError("Reference type must be task, signoff, browser, agent or project")
     pattern = SURFACE_ID if kind == TYPE_BROWSER else UUID
     if not isinstance(identity, str) or not pattern.fullmatch(identity):
         raise InputError("A task, signoff or agent reference id is its UUID; a browser reference id is a configured browser id from "
@@ -40,6 +40,8 @@ def _reference(raw: Any) -> dict:
         raise InputError("An agent reference is {type, id} only; its business_id is absent or null")
     if business is not None and (not isinstance(business, str) or not UUID.fullmatch(business)):
         raise InputError("business_id is the record's owning business UUID, or null for Global")
+    if kind == TYPE_PROJECT and business != identity:
+        raise InputError("A project reference is {type: project, id: PROJECT_UUID, business_id: PROJECT_UUID}")
     return {"type": kind, "id": identity, "business_id": business}
 
 

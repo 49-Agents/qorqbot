@@ -23,10 +23,11 @@ def project(service, ctx, source, uow):
                 'summary': row['reason'], 'url': (reference.get('target') or {}).get('url'),
                 'business_name': 'Global', 'business_slug': None}
     if source['type'] == 'project':
-        # The Project's own label and summary come from its current businesses row; no card override applies.
-        row = uow.repository('businesses').get(source['id'])
-        if row is None or row['archived_at'] is not None:
-            raise DomainError('not_found', 'Project is not available')
+        # The one Project guard: identity, current reach, archive state and project_record_get policy including deny.
+        from bazarlyk.domains.projects import access as project_access
+        source = project_access.validate_public_reference(source)
+        _, row = project_access.guard(selected, service.app, uow, project_id=source['id'],
+                                      operation='project_record_get')
         summary = (row.get('config_json') or {}).get('one_liner')
         return {**source, 'label': row['name'], 'summary': ' '.join(summary.split()) if isinstance(summary, str) else '',
                 'url': None, 'business_name': row['name'], 'business_slug': row['slug']}

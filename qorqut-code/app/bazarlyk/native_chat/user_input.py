@@ -28,9 +28,10 @@ DESCRIPTION = (
     "Ordubashy only. Show the owner a message in your Chat with existing records right below it: pending Signoffs (decided there by "
     "the owner), configured browsers (a live view the owner can use to log in or act), Tasks (title and state only) and registered agents "
     "(name only). Returns at once; it asks nothing, creates no request, waits for no answer and grants no approval. references are "
-    "{type: task|signoff|browser|agent, id, business_id}: a task, signoff or agent by its UUID, a browser by the id from "
-    "browser_turn action=list, and business_id the record's owning business (null or omitted for Global and always for an agent; "
-    "a business browser always needs its business_id). At most 8 references; the message is at most 4000 characters. Read the "
+    "{type: task|signoff|browser|agent|project, id, business_id}: a task, signoff, agent or Project by its UUID, a browser by the id from "
+    "browser_turn action=list, a Project by its actual UUID with business_id equal to that same UUID, and business_id the "
+    "record's owning business (null or omitted for Global and always for an agent; a business browser and a project always "
+    "need their exact scope). At most 8 references; the message is at most 4000 characters. Read the "
     "record first and reuse the exact ids; an unknown or unreadable one is refused.")
 SCHEMA = schema({
     "message": {"type": "string", "minLength": 1, "maxLength": refs.MAX_MESSAGE_CHARS},

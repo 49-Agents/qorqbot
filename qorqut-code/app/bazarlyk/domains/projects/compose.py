@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from qorqut_operations.application import OperationDescriptor
-from qorqut_operations.application.plans import UUID, PlanBuilder, page, ref, schema, utc_clock
+from qorqut_operations.application.plans import UUID, PlanBuilder, ref, schema, utc_clock
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.projects.links import ProjectItemLinks, ProjectTarget, view as link_view
 
@@ -89,12 +89,12 @@ class ProjectRecords:
             description="Owner and configured Ordubashy: one authorized Project item plus the appropriate existing domain read "
                         "of that record for in-pane presentation. This is not arbitrary table access."))
         registry.register(OperationDescriptor(LINK, schema({**SCOPE_FIELDS, "item": ITEM_SCHEMA}, ("project_id", "item")),
-            **COMMON, prepare=self.prepare_link, apply=self.apply_link,
+            **COMMON, prepare=self.prepare_link, apply=self.apply_link, replay_validator=self.validate_link_replay,
             description="Owner and configured Ordubashy: explicitly associate one currently readable item with this Project, "
                         "without changing its owning scope or granting access. Linking an already owned item is a no-op."))
         registry.register(OperationDescriptor(UNLINK, schema({**SCOPE_FIELDS, "link_id": UUID,
             "expected_revision": {"type": "integer", "minimum": 1}},
-            ("project_id", "link_id", "expected_revision")), **COMMON, prepare=self.prepare_unlink, apply=self.apply_unlink,
+            ("project_id", "link_id")), **COMMON, prepare=self.prepare_unlink, apply=self.apply_unlink,
             description="Owner and configured Ordubashy: remove exactly this explicit association with its current revision. "
                         "An owned item, a Project, its records and its conversations are never changed."))
         self.application.projects = self
@@ -110,21 +110,14 @@ class ProjectRecords:
     def items_list(self, ctx, args, uow):
         project_id = access.project_id_from(args)
         selected, _ = access.allow(ctx, args, self.application, uow, project_id=project_id, operation=LIST)
-        links = self.links.index(selected, project_id, uow)
-        entries = [self.inventory.association_of(uow, item, project_id, links)
-                   for item in self.inventory.inventory(selected, project_id, args, uow, links=links)]
-        from .inventory import page_items
-        selected, cursor = page_items(entries, args, project_id)
-        return {"items": selected, "next_cursor": cursor}
+        items, cursor = self.inventory.page(selected, project_id, args, uow, scan=project_id, include_links=True)
+        return {"items": items, "next_cursor": cursor}
 
     def item_get(self, ctx, args, uow):
         project_id = access.project_id_from(args)
         selected, _ = access.allow(ctx, args, self.application, uow, project_id=project_id, operation=ITEM)
-        spec = args["item"]
-        item = self.inventory.target(selected, project_id, spec["type"], spec["id"], spec["business_id"], uow,
-                                     allow_self=True)
-        links = self.links.index(selected, project_id, uow)
-        self.inventory.association_of(uow, item, project_id, links)
+        item = self.inventory.target_spec(selected, project_id, args["item"], uow, allow_self=True)
+        self.inventory.associate(selected, uow, item, project_id)
         return {"item": item, "record": self.inventory.record(selected, item, uow)}
 
     def candidates(self, ctx, args, uow):
@@ -133,61 +126,68 @@ class ProjectRecords:
         selected, _ = access.allow(ctx, args, self.application, uow, project_id=project_id, operation=CANDIDATES)
         source = args.get("source_business_id")
         scan = self.scan_context(selected, project_id, source, uow)
-        entries = self.inventory.inventory(scan, source, {**args, "section": "all"}, uow, links={}, projects=True)
-        links = self.links.index(selected, project_id, uow)
-        found = []
-        for item in entries:
-            if item["type"] == access.PROJECT_TYPE and item["id"] == project_id:
-                continue
-            if args.get("type") and item["type"] != args["type"]:
-                continue
-            if args.get("query") and args["query"].casefold() not in (item["label"] + " " + item["id"]).casefold():
-                continue
-            found.append(self.inventory.association_of(uow, item, project_id, links))
-        items, cursor = page(found, args, source or "global", CANDIDATES,
-                             key=lambda item: ((item.get("updated_at") or item.get("created_at") or ""),
-                                               item["type"], item["id"]))
-        return {"items": items, "next_cursor": cursor}
+        items, cursor = self.inventory.page(scan, project_id, args, uow, scan=source, include_links=False, projects=True)
+        return {"items": [item for item in items if not (item["type"] == access.PROJECT_TYPE and item["id"] == project_id)],
+                "next_cursor": cursor}
 
     def related(self, ctx, project_id, args, uow):
         """A Project's related records for the private thread pane: the shared inventory and its own paging envelope."""
         ctx = self.application.current_context(ctx, uow)
         access.role(ctx, uow)
-        access.business_row(ctx, project_id, uow, include_archived=True)
-        links = self.links.index(ctx, project_id, uow)
-        wanted = {"include_closed": args.get("include_closed", True), "include_archived": args.get("include_archived", False)}
-        entries = self.inventory.inventory(ctx, project_id, wanted, uow, links=links)
+        access.guard(ctx, self.application, uow, project_id=project_id, operation=READ, include_archived=True)
         offset, limit = args.get("offset", 0), args.get("limit", 50)
-        selected = entries[offset:offset + limit]
-        return {"items": [{**item, "created_at": item.get("created_at")} for item in selected],
-                "next_offset": offset + limit if len(entries) > offset + limit else None}
+        wanted = {"section": "all", "limit": 100,
+                  "include_closed": args.get("include_closed", True),
+                  "include_archived": args.get("include_archived", False)}
+        collected, cursor = [], args.get("cursor")
+        while len(collected) < offset + limit:
+            if cursor:
+                wanted["cursor"] = cursor
+            page_items, cursor = self.inventory.page(ctx, project_id, wanted, uow, scan=project_id, include_links=True)
+            collected.extend(page_items)
+            if not cursor or not page_items:
+                break
+        selected = collected[offset:offset + limit]
+        return {"items": selected, "next_offset": offset + limit
+                if cursor or len(collected) > offset + limit else None}
 
     # -- writes ----------------------------------------------------------------------------------------------------
 
     def prepare_link(self, ctx, args, options, uow):
         project_id = access.project_id_from(args)
         selected, row = access.allow(ctx, args, self.application, uow, project_id=project_id, operation=LINK)
-        self.resolve_link_target(selected, project_id, args["item"], uow)
+        target, item, owned, pin = self.resolve_link_target(selected, project_id, args["item"], uow)
         builder = PlanBuilder(ctx, LINK, args, "Link project record", namespace="business:" + project_id, clock=self.clock)
         builder.expect(ref("businesses", project_id, None), row)
+        if pin is not None:
+            builder.expect(ref("action_logs", pin["id"], pin["business_id"],
+                              "global" if pin["business_id"] is None else None), pin["row"])
         return builder.build()
 
     def apply_link(self, ctx, plan, uow):
         args = plan.arguments
         project_id = access.project_id_from(args)
         selected, _ = access.allow(ctx, args, self.application, uow, project_id=project_id, operation=LINK)
-        target, item, owned = self.resolve_link_target(selected, project_id, args["item"], uow)
+        target, item, owned, pin = self.resolve_link_target(selected, project_id, args["item"], uow)
+        if pin is not None:
+            pinned = {expected.resource.resource_id for expected in plan.expected_targets
+                      if expected.resource.resource_type == "action_logs"}
+            if pin["id"] not in pinned:
+                raise DomainError("revision_conflict", "The action alias resolved to another target; read it again")
         already, stored = owned, self.links.find(ctx, project_id, target, uow)
         if not owned:
             stored, already = self.links.link(ctx, project_id, target, uow)
-        self.inventory.association_of(uow, item, project_id, self.links.index(ctx, project_id, uow))
+        self.inventory.associate(ctx, uow, item, project_id)
         return {"item": item, "link": link_view(stored) if stored else None,
                 "already_present": bool(already or owned)}
 
     def prepare_unlink(self, ctx, args, options, uow):
         project_id = access.project_id_from(args)
         _, row = access.allow(ctx, args, self.application, uow, project_id=project_id, operation=UNLINK)
-        stored = self.require_link(ctx, project_id, args, uow)
+        expected = options.expected_revision if options.expected_revision is not None else args.get("expected_revision")
+        if type(expected) is not int or expected < 1:
+            raise DomainError("validation_error", "expected_revision is required")
+        stored = self.require_link(ctx, project_id, args, expected, uow)
         builder = PlanBuilder(ctx, UNLINK, args, "Unlink project record", namespace="business:" + project_id, clock=self.clock)
         builder.expect(ref("businesses", project_id, None), row)
         builder.expect(ref("project_item_links", stored["id"], project_id), stored)
@@ -197,26 +197,54 @@ class ProjectRecords:
         args = plan.arguments
         project_id = access.project_id_from(args)
         access.allow(ctx, args, self.application, uow, project_id=project_id, operation=UNLINK)
-        self.links.unlink(ctx, project_id, args["link_id"], args["expected_revision"], uow)
+        pinned = next((target for target in plan.expected_targets
+                       if target.resource.resource_type == "project_item_links"), None)
+        if pinned is None or pinned.revision is None:
+            raise DomainError("invalid_plan", "The unlink plan lost its association revision")
+        self.links.unlink(ctx, project_id, args["link_id"], pinned.revision, uow)
         return {"removed": True}
 
     # -- link helpers ----------------------------------------------------------------------------------------------
 
-    def require_link(self, ctx, project_id, args, uow):
+    def require_link(self, ctx, project_id, args, expected, uow):
         stored = self.links.get(ctx, project_id, args["link_id"], uow)
         if stored is None:
             raise DomainError("not_found", "No such association in this project")
-        if stored["revision"] != args["expected_revision"]:
+        if stored["revision"] != expected:
             raise DomainError("revision_conflict", "The association changed; read the project again",
                               current_revision=stored["revision"])
         return stored
 
     def resolve_link_target(self, ctx, project_id, spec, uow):
-        """The canonical target, the label we may disclose, and whether the Project already owns it."""
-        item = self.inventory.target(ctx, project_id, spec["type"], spec["id"], spec["business_id"], uow)
+        """The canonical target, the label we may disclose, ownership and an Action row pin for prepared validation."""
+        item = self.inventory.target_spec(ctx, project_id, spec, uow)
         target = ProjectTarget(item["type"], item["id"], item.get("business_id"))
+        pin = None
+        if item["type"] == "action":
+            table, row = self.items.resource(ctx, {"type": "action", "id": item["id"]}, uow)
+            if table == "action_logs":
+                pin = {"id": row["id"], "business_id": row["business_id"], "row": row}
         from .inventory import owned
-        return target, item, owned(uow, item, project_id)
+        return target, item, owned(uow, item, project_id), pin
+
+    def validate_link_replay(self, ctx, args, saved, uow):
+        """A saved link receipt never outlives the Project reach, identity or target read that authorized it."""
+        project_id = access.project_id_from(args)
+        selected, _ = access.allow(ctx, args, self.application, uow, project_id=project_id, operation=LINK)
+        target, item, owned, _ = self.resolve_link_target(selected, project_id, args["item"], uow)
+        data = saved.data or {}
+        binding = (data.get("link") or {}).get("item")
+        if binding is None:
+            item_identity = data.get("item") or {}
+            binding = {"type": item_identity.get("type"), "id": item_identity.get("id"),
+                       "business_id": item_identity.get("business_id")}
+        if (binding.get("type"), binding.get("id"), binding.get("business_id")) != (target.type, target.id, target.business_id):
+            raise DomainError("revision_conflict", "The saved association no longer names this target")
+        link = data.get("link")
+        if link is not None:
+            current = self.links.get(ctx, project_id, link["id"], uow)
+            if current is None or current["revision"] != link["revision"]:
+                raise DomainError("revision_conflict", "The association changed; read the project again")
 
     def scan_context(self, ctx, project_id, source, uow):
         """The chosen link source scope, authorized as a real read for this caller."""

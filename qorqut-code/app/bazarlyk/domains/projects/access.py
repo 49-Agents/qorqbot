@@ -77,20 +77,56 @@ def role(ctx, uow) -> str:
     raise DomainError("forbidden", "Project records belong to the installation owner and the configured Ordubashy")
 
 
+def guard(ctx, application, uow, *, project_id, operation="project_record_get", include_archived=False):
+    """The one nonrecursive Project read guard: identity, current reach, archive state and policy.
+
+    Every surface that names a Project (the neutral item resolver, Focus and private-thread sources, directory labels,
+    link targets and the ``project_*`` handlers) calls this exact function. It refreshes the caller once, then applies
+    the owner/exact-Ordubashy identity gate, the Project's *current* membership or global reach and archived state, and
+    the ordinary policy of the named read. No label, summary, count or card is produced before it succeeds.
+    """
+    current = application.current_context(ctx, uow)
+    role(current, uow)
+    row = business_row(current, project_id, uow, include_archived=include_archived)
+    selected = replace(current, business_id=project_id, review_business_id=project_id)
+    application.authorize(selected, application.registry.get(operation), (), uow, namespace="business:" + project_id)
+    return selected, row
+
+
 def allow(ctx, args, application, uow, *, project_id, operation, include_archived=False):
     """Identity gate, Project reach and the ordinary read/write gate of one ``project_*`` operation.
 
     The handler enforces all three for every transport: a business route, the root route with ``scope: "global"``,
     a direct invocation and a replayed receipt land here, and a business route must agree with ``project_id``."""
-    # One snapshot: refresh the caller's reach first, exactly as an ordinary invocation's policy does, so a Project
-    # created, archived or revoked since the transport built the context is judged by its current state.
-    ctx = application.current_context(ctx, uow)
-    role(ctx, uow)
-    row = business_row(ctx, project_id, uow, include_archived=include_archived)
-    descriptor = application.registry.get(operation)
-    selected = selected_scope(ctx, args, project_id, uow)
-    application.authorize(selected, descriptor, (), uow, namespace="business:" + project_id)
+    current = application.current_context(ctx, uow)
+    selected = selected_scope(current, args, project_id, uow)
+    selected, row = guard(selected, application, uow, project_id=project_id, operation=operation,
+                          include_archived=include_archived)
     return selected, row
+
+
+def canonical_reference(item, *, require_scope=False):
+    """Validate one public canonical Project reference in place: ``id`` and ``business_id`` are the same UUID.
+
+    The neutral internal two-field vocabulary (``{type, id}``) may still resolve through the item resolver, which
+    canonicalizes it to this full reference. Every public surface (link/get targets, Focus sources and private thread
+    sources) passes ``require_scope=True`` so a null or omitted Project scope is refused, never inferred.
+    """
+    if not isinstance(item, dict) or item.get("type") != PROJECT_TYPE:
+        return item
+    identity, business = item.get("id"), item.get("business_id")
+    if not isinstance(identity, str) or not identity:
+        raise DomainError("validation_error", "A project reference needs its actual project id")
+    if require_scope and business != identity:
+        raise DomainError("validation_error", "A project reference must name the project as its own scope")
+    if business is not None and business != identity:
+        raise DomainError("validation_error", "A project reference must name the project as its own scope")
+    return {**item, "business_id": identity}
+
+
+def validate_public_reference(item):
+    """The public Project form, or the unchanged item for every other kind."""
+    return canonical_reference(item, require_scope=True)
 
 
 def project_view(row) -> dict:
@@ -111,5 +147,6 @@ def scope_name(uow, project_id) -> tuple[str | None, str]:
     return (row["slug"], row["name"]) if row is not None else (None, project_id)
 
 
-__all__ = ["PROJECT_TYPE", "THREAD_KINDS", "UNAVAILABLE", "allow", "business_participant", "business_row", "project_id_from",
-           "project_view", "reference", "role", "scope_name", "selected_scope"]
+__all__ = ["PROJECT_TYPE", "THREAD_KINDS", "UNAVAILABLE", "allow", "business_participant", "business_row",
+           "canonical_reference", "guard", "project_id_from",
+           "project_view", "reference", "role", "scope_name", "selected_scope", "validate_public_reference"]

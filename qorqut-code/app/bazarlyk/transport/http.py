@@ -485,6 +485,15 @@ class HTTPAPI:
                     "focus_get", "focus_present", "focus_edit", "focus_move", "focus_set_archived", "focus_reply", "signoffs_comment", "signoffs_notes_list", "tasks_thread_get",
                     "workspace_types", "workspace_get",
                     "owner_conversation_get", "owner_conversation_send", "owner_conversation_mark_read", "owner_conversations_list", "owner_conversation_related", "owner_conversation_peers",
+                    # Project record reads and explicit links: the six project_* operations and the narrow reminder read.
+                    # The root route names the Project with scope=global and no business option; a business route must agree
+                    # with project_id, and the engine refuses any target differing from the selected project.
+                    "project_record_get", "project_items_list", "project_items_candidates", "project_item_get",
+                    "project_items_link", "project_items_unlink", "owner_reminders_list",
+                    # Parent-detail readers promised to the record pane: a routine's runs and a known job's own safe
+                    # result. Root is Global-source only; the business route reads its Project source. Both are normal
+                    # reads through split_options, argument validation and policy, with no job browser or enumeration.
+                    "routines_runs", "jobs_get",
                     # Global work: the eight neutral relationship operations that take the business-or-Global namespace, and the
                     # Task follow and Action discussion/follow and shared-tag operations. Each is the normal application call; Tags and
                     # Actions declare no scope input, so a caller passes none.
@@ -507,6 +516,8 @@ class HTTPAPI:
                 args, options = split_options(await read_json(request), domain_fields=domain_fields)
                 if options.business_id is not None or options.review_business_id is not None:
                     raise DomainError("forbidden", "This endpoint requires Global scope")
+                if parts[2] in {"routines_runs", "jobs_get"} and args.get("scope") != "global":
+                    raise DomainError("forbidden", "Global routines and jobs are read with scope=global")
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
                 return response(result)
             if len(parts) == 3 and parts[:2] == ["root", "operations"] and parts[2] in {
@@ -648,6 +659,8 @@ class HTTPAPI:
                             options = guard.check(request, tail[1], args, options)
                     if options.business_id is not None and options.business_id != context.business_id:
                         raise DomainError("forbidden", "The body cannot change the URL's selected project")
+                    if tail[1] in {"routines_runs", "jobs_get"} and args.get("scope") == "global":
+                        raise DomainError("forbidden", "Global routines and jobs are read from the root route")
                     result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, tail[1], args, options))
                     return response(result, statuses=self.statuses)
                 if tail[:1] == ["chat"]:

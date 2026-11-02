@@ -192,8 +192,9 @@ class PrivateConversations:
             business = ctx.business_id
         if kind == 'reference' and business is not None:
             raise DomainError('validation_error', 'Focus References are Global; do not name a project')
-        if kind == 'project' and business != source['id']:
-            # The canonical Project reference names the actual Project UUID as its own scope.
+        if kind == 'project' and (named is None or named != source['id']):
+            # The canonical Project reference names the actual Project UUID as its own scope; a missing/null scope is
+            # never inferred from the route.
             raise DomainError('validation_error', 'A project source must name the project as its own scope')
         return business
 
@@ -232,10 +233,8 @@ class PrivateConversations:
         if kind == 'project':
             if identity != selected.business_id:
                 raise DomainError('validation_error', 'A project source must name the project as its own scope')
-            self.app.authorize(selected, self.app.registry.get('project_record_get'), (), uow,
-                               namespace=self.namespace(selected))
-            if uow.repository('businesses').get(identity) is None:
-                raise DomainError('not_found', 'Project does not exist')
+            from bazarlyk.domains.projects import access as project_access
+            project_access.guard(selected, self.app, uow, project_id=identity, operation='project_record_get')
             return
         if kind == 'signoff':
             service = getattr(self.app, 'signoffs', None)

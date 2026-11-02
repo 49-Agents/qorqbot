@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from pathlib import Path
 
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.storage.assembly import Assembly
@@ -55,13 +56,33 @@ def _changed_objects(before, after):
     return {key for key in before.keys() | after.keys() if before.get(key) != after.get(key)}
 
 
+SOURCE_CHECK = re.compile(r"CHECK\s*\(\s*source_type\s+IN\s*\(([^)]*)\)\s*\)", re.IGNORECASE)
+
+
+def _source_types(sql):
+    found = SOURCE_CHECK.search(sql)
+    if not found:
+        return None
+    return tuple(token.strip().strip("'") for token in found.group(1).split(",") if token.strip())
+
+
+def _only_widens_source_check(old_sql, new_sql):
+    """True exactly when the only difference is adding ``project`` to the source_type CHECK list."""
+    old_types, new_types = _source_types(old_sql), _source_types(new_sql)
+    if old_types is None or new_types is None:
+        return False
+    if new_types != (*old_types, "project"):
+        return False
+    stripped = SOURCE_CHECK.sub("CHECK(source_type IN (...))", old_sql)
+    return stripped == SOURCE_CHECK.sub("CHECK(source_type IN (...))", new_sql)
+
+
 def _check_scope(connection, before, after):
     before_objects, after_objects = compile_target(before).objects, compile_target(after).objects
     changed = _changed_objects(before_objects, after_objects)
-    allowed = {key for key in changed
-               if key in (("table", REBUILT), ("table", CREATED))
-               or (key[0] != "table" and after_objects.get(key, (None, ""))[0] in {REBUILT, CREATED})
-               or (key[0] != "table" and before_objects.get(key, (None, ""))[0] in {REBUILT, CREATED})}
+    added = {key for key in changed if key not in before_objects
+             and after_objects.get(key, (None, ""))[0] == CREATED}
+    allowed = {("table", REBUILT), ("table", CREATED)} | added
     if changed - allowed:
         _refuse("This conversion only widens owner_conversations and adds project_item_links; unexpected schema "
                 "difference: " + ", ".join(sorted(f"{kind} {name}" for kind, name in changed - allowed)))
@@ -71,6 +92,8 @@ def _check_scope(connection, before, after):
         _refuse("The before composition already owns project_item_links; nothing to create")
     if ("table", REBUILT) not in after_objects or ("table", REBUILT) not in before_objects:
         _refuse("Both compositions must own owner_conversations")
+    if not _only_widens_source_check(before_objects[("table", REBUILT)][1], after_objects[("table", REBUILT)][1]):
+        _refuse("owner_conversations changes by more than adding 'project' to its source CHECK")
     actual = read_objects(connection)
     problems = differences(before_objects, actual)
     if problems:
@@ -143,6 +166,8 @@ def upgrade(path, *, before, after):
         _refuse("The conversion needs the before and after compositions")
     if before.target.version != after.target.version:
         _refuse("The conversion only widens the composed schema; it does not change the target version")
+    if not isinstance(path, (str, Path)) or not Path(path).is_file():
+        _refuse("The conversion needs an existing target store; it never creates one")
     connection = sqlite3.connect(str(path), isolation_level=None)
     try:
         install_sql_functions(connection)
