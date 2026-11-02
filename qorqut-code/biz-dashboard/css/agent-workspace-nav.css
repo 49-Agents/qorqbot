@@ -23,3 +23,6 @@
 .agent-workspace-app .global-agents .item.agent:focus-visible { outline:1px solid var(--fg-2); outline-offset:-1px; }
 .agent-workspace-app .global-agents .nm > .chat-unread-dot { width:7px; height:7px; }
 @media (prefers-reduced-motion: reduce) { .agent-workspace-app .global-agents .item.agent { transition:none; } }
+
+/* Separate the primary pair from the remaining agents without another control. */
+.agent-workspace-app .global-agents .global-agent-group-divider { display:block; flex:none; align-self:center; width:1px; height:14px; background:var(--line); }

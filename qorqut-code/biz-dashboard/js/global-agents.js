@@ -75,7 +75,8 @@ async function renderGlobalAgents(c) {
   wireAgentNavToggle(c, 'global');
   const list = $('#global-agent-list', c), pane = $('#global-agent-terminal', c), nav = $('.listcol', c);
   // Icon-only rows: the agent name lives in the accessible label, with no visible text, tooltip or presence ball.
-  list.innerHTML = agents.map(agent => `<button class="item agent" type="button" data-global-agent="${esc(agent.agent_id)}" aria-pressed="false" aria-label="${esc(agent.display_name || agent.name)}">
+  list.innerHTML = agents.map((agent, index) => `${index > 0 && globalAgentNavRank(agents[index - 1]) < 2 && globalAgentNavRank(agent) >= 2
+    ? '<span class="global-agent-group-divider" aria-hidden="true"></span>' : ''}<button class="item agent" type="button" data-global-agent="${esc(agent.agent_id)}" aria-pressed="false" aria-label="${esc(agent.display_name || agent.name)}">
     <span class="nm">${identityAvatar("agent", agent.display_name || agent.name, {...agent, ...agent.presentation})}</span>
   </button>`.replace(/\s*\n\s*/g, '')).join('');
   agentNavPaint(); agentNavRefresh();
