@@ -41,7 +41,7 @@ function taskWorkerMount(host, scope, task, agentId) {
   };
 }
 
-const ATTENTION_GROUPS = ['blocked','working','open','waiting','done','cancelled'];
+const ATTENTION_GROUPS = ['blocked','needs_input','working','open','waiting','done','cancelled'];
 function taskBoardStateMenu(button, scope, task) {
   dropdown(button, T_STATES.map(s => ({value:s,label:T_LABEL[s],html:`<span class="towner">${tDotHtml(s)}<span class="tn">${T_LABEL[s]}</span></span>`})), value => {if(value !== task.status) taskStateSet(scope,task,value);}, task.status);
 }
