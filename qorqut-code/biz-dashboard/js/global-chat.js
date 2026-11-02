@@ -4,6 +4,7 @@
 // of them in dispose().
 // Composer state is bound to the exact agent and conversation, and outlives a mount so a switch never leaks or loses it.
 const GLOBAL_CHAT_DRAFTS = new Map();           // scope -> unsent composer text
+const GLOBAL_CHAT_FILES = new Map();            // scope -> selected browser Files; copied only when Send is pressed
 const GLOBAL_CHAT_SENDS = new Map();            // scope -> {text, key, pin}: the frozen identity of an unconfirmed send, reused by a retry
 const GLOBAL_CHAT_INFLIGHT = new Map();         // scope -> {text, promise} of a send still waiting for its response
 const GLOBAL_CHAT_RESENDS = new Map();          // undelivered input id -> {key, pin}: identity of an explicit resend
@@ -222,6 +223,7 @@ function mountGlobalChat(pane, agent, options = {}) {
 
   // ---- session status, composer enablement and the empty state
   const canSend = () => !!session?.can_send && viewingLive() && !finished;
+  const selectedFiles = () => GLOBAL_CHAT_FILES.get(composerScope) || [];
   function sessionSummary() {
     if (!session) return {key: 'loading', short: 'Loading…', line: ''};
     if (session.state === 'live' && session.can_send && !viewingLive()) return {key: 'starting', short: 'Connecting', line: ''};
@@ -259,7 +261,9 @@ function mountGlobalChat(pane, agent, options = {}) {
     const pending = presentInputs();
     view.render({
       ...patch, pending,
-      composer: {inputDisabled: !enabled, sendDisabled: !enabled || sending, placeholder: enabled || !session ? `Message ${label}…` : 'Not available to send'},
+      composer: {inputDisabled: !enabled, sendDisabled: !enabled || sending, filesDisabled: !enabled || sending,
+        attachments: selectedFiles().map(file => ({key: file.key, name: file.file.name})),
+        placeholder: enabled || !session ? `Message ${label}…` : 'Not available to send'},
       older: {visible: older != null, disabled: olderBusy},
       empty: emptyState(),
     }, {scroll});
@@ -315,24 +319,45 @@ function mountGlobalChat(pane, agent, options = {}) {
   }
   async function submit(text) {
     const mine = composerScope;
-    if (!mine || !text.trim() || !canSend() || GLOBAL_CHAT_INFLIGHT.has(mine)) return;
+    const files = [...selectedFiles()], fileKey = files.map(file => file.key).join(',');
+    if (!mine || !text.trim() && !files.length || !canSend() || GLOBAL_CHAT_INFLIGHT.has(mine)) return;
     // A retry of the same text reuses its key and its original binding pin, so a lost response can never become a second
     // message or move to another session. Only a deliberate new send takes the binding observed now.
     let attempt = GLOBAL_CHAT_SENDS.get(mine);
-    if (!attempt || attempt.text !== text) attempt = {text, key: newRequestId(), pin: liveBinding().binding_id};
+    if (!attempt || attempt.text !== text || attempt.fileKey !== fileKey) attempt = {text, fileKey, files, key: newRequestId(), pin: liveBinding().binding_id};
     GLOBAL_CHAT_SENDS.set(mine, attempt);
     const run = (async () => {
       try {
-        const result = await admit(text, attempt.key, attempt.pin);
+        const references = [];
+        for (const item of attempt.files) {
+          if (!item.saved || item.savedPin !== attempt.pin) {
+            try {
+              item.saved = coreData(await api(`${base}/attachments`, {method: 'POST',
+                headers: {'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(item.file.name),
+                  'Idempotency-Key': `${item.key}:${attempt.pin}`, 'X-Chat-Binding': attempt.pin}, body: item.file}));
+              item.savedPin = attempt.pin;
+            } catch (error) { error.attachment = true; throw error; }
+          }
+          references.push(item.saved.reference);
+        }
+        const payload = references.length ? [text, references.join('\n')].filter(part => part.trim()).join('\n\n') : text;
+        if (payload.length > GLOBAL_CHAT_MAX) {
+          const error = new Error('Message too long'); error.attachment = true; error.code = 'message_too_long'; throw error;
+        }
+        const result = await admit(payload, attempt.key, attempt.pin);
         if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine);
         if (GLOBAL_CHAT_DRAFTS.get(mine) === text) GLOBAL_CHAT_DRAFTS.delete(mine);
+        const sent = new Set(attempt.files.map(file => file.key));
+        const remaining = (GLOBAL_CHAT_FILES.get(mine) || []).filter(file => !sent.has(file.key));
+        if (remaining.length) GLOBAL_CHAT_FILES.set(mine, remaining); else GLOBAL_CHAT_FILES.delete(mine);
         if (live() && composerScope === mine) { if (view.getDraft() === text) view.setDraft(''); showBanner(''); }
         takeInput(result.input);
         if (live()) { view.scrollToBottom(); void load(); }
       } catch (problem) {
         if (GLOBAL_CHAT_REFUSALS.has(problem.code)) { if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine); }
-        if (live() && composerScope === mine) showBanner(GLOBAL_CHAT_REFUSALS.has(problem.code) ? refusalText(problem)
-          : "Couldn't confirm. Try again");
+        if (live() && composerScope === mine) showBanner(problem.code === 'message_too_long' ? 'Shorten your message and try again.'
+          : problem.attachment ? "Couldn't attach the file. Try again."
+          : GLOBAL_CHAT_REFUSALS.has(problem.code) ? refusalText(problem) : "Couldn't confirm. Try again");
         if (problem.code === 'capture_not_ready' || problem.code === 'terminal_offline' || problem.code === 'terminal_changed') void load();
       } finally {
         GLOBAL_CHAT_INFLIGHT.delete(mine);
@@ -370,6 +395,19 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (pending && pending.text !== view.getDraft() && !GLOBAL_CHAT_INFLIGHT.has(composerScope)) GLOBAL_CHAT_SENDS.delete(composerScope);
     },
     onSubmit: text => submit(text),
+    onFiles: files => {
+      if (!composerScope || !canSend() || GLOBAL_CHAT_INFLIGHT.has(composerScope) || !files.length) return;
+      if (files.length + selectedFiles().length > 10 || files.some(file => file.size > 25 * 1024 * 1024)) {
+        showBanner('Choose up to 10 files, each 25 MB or smaller.'); return;
+      }
+      GLOBAL_CHAT_FILES.set(composerScope, [...selectedFiles(), ...files.map(file => ({key: newRequestId(), file}))]);
+      GLOBAL_CHAT_SENDS.delete(composerScope); showBanner(''); paintSession();
+    },
+    onAttachmentRemove: key => {
+      if (!composerScope || GLOBAL_CHAT_INFLIGHT.has(composerScope)) return;
+      GLOBAL_CHAT_FILES.set(composerScope, selectedFiles().filter(file => file.key !== key));
+      GLOBAL_CHAT_SENDS.delete(composerScope); paintSession();
+    },
     onOlder: () => loadOlder(),
     onViewportChange: scheduleRead,
     onPendingAction: (action, id) => {

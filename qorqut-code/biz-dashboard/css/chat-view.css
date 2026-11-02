@@ -74,6 +74,16 @@
 .gchat-jump { position: absolute; right: 18px; bottom: 12px; z-index: 3; }
 /* The composer carries its own typography so it looks the same when a wrapper hosts the form outside the view. */
 .gchat-composer { display: flex; align-items: flex-end; gap: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-sizing: border-box; flex: none; color: var(--fg); font-size: 15.75px; line-height: 1.55; }
+.gchat-composer:has(.gchat-attach) { flex-wrap:wrap; }
+.gchat-body[hidden] { display:none; }
+.gchat-attachments[hidden], .gchat-composer input[type="file"][hidden] { display:none; }
+.gchat-attachments { display:flex; flex-wrap:wrap; gap:6px; flex-basis:100%; padding:3px 5px; }
+.gchat-file-choice { display:inline-flex; align-items:center; gap:6px; max-width:100%; padding:3px 7px; border-radius:6px; background:var(--hover); font-size:12px; }
+.gchat-file-choice > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gchat-file-choice button { flex:none; border:0; padding:0; min-height:20px; width:20px; background:none; color:var(--fg-2); }
+.gchat-composer .gchat-attach { display:inline-flex; align-items:center; justify-content:center; flex:none; width:32px; height:32px; min-height:32px; padding:6px; border:0; border-radius:6px; }
+.gchat-attach:disabled { opacity:.4; }
+.chat-view.gchat-file-drop::after { content:'Drop files'; display:flex; align-items:center; justify-content:center; position:absolute; inset:5px; z-index:6; border:1px dashed var(--fg-2); border-radius:8px; background:color-mix(in srgb, var(--bg) 90%, transparent); pointer-events:none; font-size:14px; }
 .gchat-composer textarea:disabled { opacity: .6; cursor: not-allowed; }
 .gchat-composer textarea { flex: 1; min-width: 0; min-height: 44px; max-height: 220px; resize: vertical; padding: 9px 11px; font: inherit; font-size: 15.75px; line-height: 1.45; border: 0; background: none; box-shadow: none; }
 .gchat-send { flex: none; min-height: 32px; height: 32px; padding: 5px 11px; border-radius: 6px; }

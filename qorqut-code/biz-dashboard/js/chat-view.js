@@ -133,6 +133,23 @@ function chatViewReferenceChips(body) {
   return chips.childElementCount ? chips : null;
 }
 
+function chatViewOwnerReferences(body) {
+  const chips = chatViewReferenceChips(body);
+  let removed = false;
+  // A copied attachment is shown once as its reference card. Its local path
+  // stays in the native transcript, rather than cluttering the visible text.
+  for (const link of body.querySelectorAll('a.safe-link')) {
+    const target = chatViewReferenceTarget(link.href), path = target?.url.searchParams.get('path') || '';
+    if (target?.viewer && /(?:^|\/)agents\/[^/]+\/downloads\//.test(path)) { link.remove(); removed = true; }
+  }
+  if (removed) {
+    const text = body.querySelector('.gchat-text');
+    if (text?.lastChild?.nodeType === Node.TEXT_NODE) text.lastChild.textContent = text.lastChild.textContent.trimEnd();
+    if (!body.textContent.trim()) body.hidden = true;
+  }
+  return chips;
+}
+
 // ---- the view
 // host: element that receives the shared root. render() patches presentation fields; see the contract for their shapes.
 function mountChatView(host, options = {}) {
@@ -168,6 +185,17 @@ function mountChatView(host, options = {}) {
   const form = document.createElement('form');
   form.className = 'gchat-composer';
   form.innerHTML = '<textarea rows="2" autocomplete="off"></textarea><button type="submit" class="gchat-send">Send</button>';
+  const attachments = document.createElement('div');
+  attachments.className = 'gchat-attachments'; attachments.hidden = true;
+  form.prepend(attachments);
+  let picker = null, attach = null;
+  if (options.onFiles) {
+    attach = document.createElement('button'); attach.type = 'button'; attach.className = 'gchat-attach quiet';
+    attach.setAttribute('aria-label', 'Attach files'); attach.title = 'Attach files';
+    attach.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7 .1l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7-.1l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>';
+    picker = document.createElement('input'); picker.type = 'file'; picker.multiple = true; picker.hidden = true;
+    form.append(attach, picker);
+  }
   const $q = selector => root.querySelector(selector);
   const banner = $q('.gchat-banner'), scroller = $q('.gchat-scroll'), log = $q('.gchat-log'), pendingHost = $q('.gchat-pending-list'), emptyNote = $q('.gchat-empty');
   const olderButton = $q('.gchat-older'), jump = $q('.gchat-jump'), preview = $q('.gchat-preview-window'), previewContent = $q('.gchat-preview-content');
@@ -305,9 +333,10 @@ function mountChatView(host, options = {}) {
     if (entry.collapsedSource === 'telegram') body = telegramBody(entry.text);
     else if (speaker === 'agent') body = `<div class="gchat-body md">${titleHtml(entry)}${chatViewMarkdown(entry.text)}</div>`;
     else if (speaker === 'notice') body = `<div class="gchat-body">${markerHtml(notice)}${notice?.markerOnly ? '' : `<span class="gchat-text">${esc(entry.text)}</span>`}</div>`;
-    else body = `<div class="gchat-body">${titleHtml(entry)}<span class="gchat-text">${esc(entry.text)}</span></div>`;
+    else body = `<div class="gchat-body">${titleHtml(entry)}<span class="gchat-text">${renderSafeLinks(entry.text)}</span></div>`;
     node.innerHTML = authorHtml(entry) + body;
-    const refs = (speaker === 'agent' && entry.partial !== true && chatViewReferenceChips(node.querySelector('.gchat-body'))) || document.createElement('div');
+    const refs = (speaker === 'user' ? chatViewOwnerReferences(node.querySelector('.gchat-body'))
+      : speaker === 'agent' && entry.partial !== true && chatViewReferenceChips(node.querySelector('.gchat-body'))) || document.createElement('div');
     refs.className = 'gchat-references';
     for (const ref of entry.references || []) {
       const button = document.createElement('button');
@@ -353,9 +382,13 @@ function mountChatView(host, options = {}) {
     if (node.chatSignature !== signature) {
       node.chatSignature = signature;
       const actions = (item.actions || []).map(action => `<button type="button" class="quiet" data-pending-action="${esc(action.key)}" data-${esc(action.key)}="${esc(item.key)}" ${action.disabled ? 'disabled' : ''}>${esc(action.label)}</button>`).join('');
-      node.innerHTML = `${item.collapsedSource === 'telegram' ? telegramBody(item.text) : `<div class="gchat-body">${markerHtml(item.notice)}${item.text ? `<span class="gchat-text">${esc(item.text)}</span>` : ''}</div>`}
+      node.innerHTML = `${item.collapsedSource === 'telegram' ? telegramBody(item.text) : `<div class="gchat-body">${markerHtml(item.notice)}${item.text ? `<span class="gchat-text">${speaker === 'user' ? renderSafeLinks(item.text) : esc(item.text)}</span>` : ''}</div>`}
         <span class="gchat-state" data-state="${esc(item.state || '')}">${esc(item.stateLabel || '')}</span>
         ${actions ? `<span class="gchat-pending-actions">${actions}</span>` : ''}`;
+      if (speaker === 'user' && !item.collapsedSource) {
+        const refs = chatViewOwnerReferences(node.querySelector('.gchat-body'));
+        if (refs) node.insertBefore(refs, node.querySelector('.gchat-state'));
+      }
     }
     return {node};
   }
@@ -365,6 +398,14 @@ function mountChatView(host, options = {}) {
     const c = model.composer;
     form.hidden = !!c.hidden;
     input.disabled = !!c.inputDisabled; send.disabled = !!c.sendDisabled;
+    if (attach) attach.disabled = !!c.inputDisabled || !!c.filesDisabled;
+    const files = c.attachments || [];
+    attachments.hidden = !files.length;
+    const signature = JSON.stringify([files, !!c.filesDisabled]);
+    if (attachments.signature !== signature) {
+      attachments.signature = signature;
+      attachments.innerHTML = files.map(file => `<span class="gchat-file-choice"><span>${esc(file.name)}</span><button type="button" data-remove-attachment="${esc(file.key)}" aria-label="Remove ${esc(file.name)}" ${c.filesDisabled ? 'disabled' : ''}>×</button></span>`).join('');
+    }
     if (send.textContent !== c.sendLabel) send.textContent = c.sendLabel;
     input.placeholder = c.placeholder; input.setAttribute('aria-label', c.ariaLabel);
     if (input.maxLength !== c.maxLength) input.maxLength = c.maxLength;
@@ -455,6 +496,22 @@ function mountChatView(host, options = {}) {
   olderButton.onclick = () => emit('onOlder');
   cleanups.push(() => { olderButton.onclick = null; });
   listen(input, 'input', () => emit('onDraft', input.value));
+  if (picker) {
+    listen(attach, 'click', () => picker.click());
+    listen(picker, 'change', () => { emit('onFiles', [...picker.files]); picker.value = ''; });
+    listen(attachments, 'click', event => {
+      const button = event.target.closest('[data-remove-attachment]');
+      if (button && !button.disabled) emit('onAttachmentRemove', button.dataset.removeAttachment);
+    });
+    let depth = 0;
+    const fileDrag = event => [...(event.dataTransfer?.types || [])].includes('Files');
+    const clearDrop = () => { depth = 0; root.classList.remove('gchat-file-drop'); };
+    listen(host, 'dragenter', event => { if (fileDrag(event)) { event.preventDefault(); depth++; if (!attach.disabled) root.classList.add('gchat-file-drop'); } });
+    listen(host, 'dragover', event => { if (fileDrag(event)) { event.preventDefault(); event.dataTransfer.dropEffect = attach.disabled ? 'none' : 'copy'; } });
+    listen(host, 'dragleave', event => { if (fileDrag(event) && --depth <= 0) clearDrop(); });
+    listen(host, 'drop', event => { if (fileDrag(event)) { event.preventDefault(); clearDrop(); if (!attach.disabled) emit('onFiles', [...event.dataTransfer.files]); } });
+    cleanups.push(clearDrop);
+  }
   listen(input, 'keydown', event => {
     // Enter sends, Shift+Enter inserts a newline, Ctrl/Meta+Enter always sends, and a composition in progress (IME) is never interrupted.
     if (event.key === 'Enter' && !event.isComposing && (!event.shiftKey || event.ctrlKey || event.metaKey)) {

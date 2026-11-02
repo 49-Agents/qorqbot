@@ -10,7 +10,7 @@ const safeLinkEsc = text => String(text ?? "").replace(/[&<>"']/g, char => SAFE_
 function safeFileReference(raw) {
   let path = raw;
   try { path = decodeURIComponent(path); } catch (_) { /* A literal percent in a filename is encoded below. */ }
-  if (!/^\/(?:[^/]+\/)*businesses\/.+/.test(path) || /[\u0000-\u001f\u007f-\u009f\\]/u.test(path)
+  if (!/^\/(?:[^/]+\/)*(?:businesses\/.+|operations\/agents\/[^/]+\/downloads\/.+)/.test(path) || /[\u0000-\u001f\u007f-\u009f\\]/u.test(path)
     || path.split('/').includes('..')) return null;
   return `/files/view?path=${encodeURIComponent(path)}`;
 }
