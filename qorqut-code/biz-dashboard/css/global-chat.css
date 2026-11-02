@@ -36,12 +36,12 @@
 .chat-unread-dot[hidden] { display: none; }
 .gchat-view-toggle { display: inline-flex; flex: none; gap: 4px; }
 /* Chat/Terminal/Refresh are ordinary .ttab controls; the selected view takes the tab indicator's fill. */
-.gchat-view-toggle .ttab[aria-pressed="true"] { color: var(--fg); background: rgba(255,255,255,.05); opacity: 1; cursor: default; }
+.gchat-view-toggle .ttab[aria-pressed="true"], .gchat-new[aria-pressed="true"] { color: var(--fg); background: rgba(255,255,255,.05); opacity: 1; cursor: default; }
 
 /* Session controls stay over their own surface, outside chat scroll and terminal output. */
 .gchat-session-switch { display:flex; align-items:center; gap:4px; position:absolute; top:0; right:0; z-index:3; max-width:calc(100% - 8px); overflow-x:auto; scrollbar-width:thin; border-radius:12px; background:color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter:blur(8px); }
-.gchat:has(> .gchat-session-switch) > .gchat-top,
-.gchat-diagnostic > .gchat-top { max-width:calc(100% - 3 * var(--ag-ctl, 30px) - 24px); }
+.gchat:has(> .gchat-session-switch) > .gchat-top { max-width:calc(100% - 3 * var(--ag-ctl, 30px) - 24px); }
+.gchat-diagnostic > .gchat-top { max-width:calc(100% - 4 * var(--ag-ctl, 30px) - 28px); }
 .gchat-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gchat-paired-record{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;height:100%;box-sizing:border-box}
 .gchat-paired-record .conversation-panel{display:flex;flex:1;flex-direction:column;min-height:0;padding:0;border:0;border-radius:0}

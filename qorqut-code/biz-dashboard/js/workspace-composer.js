@@ -67,12 +67,25 @@ async function workspaceComposerRefresh() {
     if(event.isComposing || event.keyCode===229 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey)event.preventDefault();
   };
   picker.onclick=()=>dropdown(picker,agents.map(agent=>({value:agent.agent_id,label:agent.display_name || agent.name,html:`<span class="workspace-agent-option">${icon(agent)}<span>${esc(agent.display_name || agent.name)}</span></span>`})),choose,selected.agent_id,{noCheck:true});
-  toggle.onclick=()=>{
-    if(w.dispose){workspaceComposerCloseTerminal();return;}
+  // The selected agent's Terminal is a view of its ONE selected native conversation (state, Reconnect and Use this conversation
+  // come from the attachment service); Diagnostic is the separate surface for starting a new conversation with the client's own
+  // controls. Switching between them re-mounts for the same agent, and never selects anything by itself.
+  const mountSelectedTerminal=(diagnostic=false)=>{
+    const target=selected;if(!target)return;
+    w.dispose?.();w.dispose=null;
     const host=root.querySelector('.workspace-terminal');host.hidden=false;resize.hidden=false;
     setHeight(w.terminalHeight || (window.innerWidth<=600?200:240));
-    w.dispose=mountTerminal(selected.name,host,null,`/root/terminal/${encodeURIComponent(selected.agent_id)}`,{});
+    const live=()=>current() && selected===target && !!w.dispose;
+    w.dispose=mountTerminal(target.name,host,null,`/root/terminal/${encodeURIComponent(target.agent_id)}`,{},{
+      attachment:{agentId:target.agent_id,mode:diagnostic?'diagnostic':'selected',
+        onSelected:()=>{if(live())mountSelectedTerminal(false);},
+        onDiagnostic:()=>{if(live())mountSelectedTerminal(true);}},
+    });
     toggle.setAttribute('aria-expanded','true');toggle.setAttribute('aria-label','Hide terminal');
+  };
+  toggle.onclick=()=>{
+    if(w.dispose){workspaceComposerCloseTerminal();return;}
+    mountSelectedTerminal(false);
   };
   root.querySelector('form').onsubmit=async event=>{
     event.preventDefault();if(!selected || !draft || draft.sending || !draft.text.trim())return;
