@@ -66,7 +66,7 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
              model_client_factory=None, broker=None, database=None, signing_key=None,
              nightly_maintenance=_DEFAULT_MAINTENANCE, capture_transcripts=None, terminal_workspace=None,
              execution_provider=None, sandbox_factory=None, recovery_config=None,
-             learning_engine=None, context=None, extensions=None):
+             context=None, extensions=None):
     from bazarlyk.background.integration import attach_background
     from qorqut_operations.background.programs import ProgramRegistry
 
@@ -135,8 +135,7 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
     from bazarlyk.background.backups import BackupDownloader
     attach_background(runtime, programs, model_client_factory=model_client_factory, transcript_source=local.iter_transcripts,
         maintenance=nightly_maintenance,
-        backup_downloader=BackupDownloader(egress.provider_environment, proxy_resolver=runtime.sandbox.account_proxy),
-        learning_engine=learning_engine)
+        backup_downloader=BackupDownloader(egress.provider_environment, proxy_resolver=runtime.sandbox.account_proxy))
     if nightly_maintenance is not None:
         runtime.maintenance_capture = nightly_maintenance.bind_runtime(runtime)
     if recovery_config is not None:

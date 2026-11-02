@@ -128,7 +128,7 @@ def _owner_approvals(name, defaults, overrides, registry, *, role_id, scope, res
 
 
 def _learning_applier(name, defaults, overrides, registry, *, role_id, scope, resolve):
-    if name in {"learnings_decide", "learnings_issue_action"} and role_id != "learning-applier":
+    if name == "learnings_decide" and role_id != "learning-applier":
         return PolicyDecision("deny", "learning_applier_only")
 
 

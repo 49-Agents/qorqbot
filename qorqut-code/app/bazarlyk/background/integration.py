@@ -24,9 +24,9 @@ from qorqut_operations.background.service import BackgroundService
 
 def register_programs(programs, *, models=None, transcript_source=None,
                       maintenance=None, tables=None,
-                      backup_downloader=None, learning_engine=None, whatsapp_send=None):
+                      backup_downloader=None, whatsapp_send=None):
     models = models or ModelCalls(None)
-    learning = LearningProgram(models, transcript_source, learning_engine)
+    learning = LearningProgram(models, transcript_source)
 
     def add(identity, arguments, run, outputs=(), resources=(), permissions=(), **kwargs):
         programs.register(Program(identity, 1, arguments, run,
@@ -42,12 +42,8 @@ def register_programs(programs, *, models=None, transcript_source=None,
     add("learnings.extract_global", EXTRACT_ARGUMENTS, learning.run, ("learnings_record_batch",),
         ("learning_candidates", "learning_decisions", "learning_scan_state", "learning_runs", "learning_history"), timeout_seconds=7200,
         scope_kinds=("global",), global_capabilities=("read_global_context",))
-    from . import learning_engine as engine
-    # Retired in this target: the program and its identifiers stay registered for inspection and history, but no
-    # configuration can run the standalone procedural engine or write new engine issues.
-    add(engine.PROGRAM, engine.ARGUMENTS, engine.EngineProgram(learning, learning_engine).run if learning_engine is not None else None,
-        (engine.OPERATION,), engine.RESOURCES, timeout_seconds=7200, scope_kinds=("global",),
-        global_capabilities=("read_global_context",), unavailable_reason=engine.RETIRED)
+    # The standalone procedural engine program is not registered at all in this target: its old name is an ordinary
+    # unknown program, its historical jobs stay readable, and nothing can run it or import its issue packages.
     from .backups import ARGUMENTS as BACKUP_ARGUMENTS, BackupPullProgram
     pull = BackupPullProgram(backup_downloader).run
     add("backups.pull", BACKUP_ARGUMENTS, pull, timeout_seconds=900, external=True, recover=pull)
@@ -135,7 +131,7 @@ def register_operations(runtime, programs, authority, *, clock=None):
 
 
 def attach_background(runtime, programs, *, model_client_factory=None, transcript_source=None,
-                      clock=None, maintenance=None, backup_downloader=None, learning_engine=None):
+                      clock=None, maintenance=None, backup_downloader=None):
     if runtime.background is not None:
         raise ValueError("Background service is already attached")
     if programs is not runtime.programs:
@@ -144,7 +140,7 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
         transcript_source=transcript_source,
         maintenance=maintenance, tables=runtime.domains.tables,
         backup_downloader=backup_downloader,
-        learning_engine=learning_engine, whatsapp_send=getattr(runtime.application, "whatsapp_send", None))
+        whatsapp_send=getattr(runtime.application, "whatsapp_send", None))
     authority = runtime.authority
     if getattr(runtime.domains, "business_creation", None):
         runtime.domains.business_creation.worker_authority = authority

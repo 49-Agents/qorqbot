@@ -11,12 +11,10 @@ from qorqut_operations.application.plans import (IDENTITY, PAGE, TEXT, UUID, app
                                                    prepare_job, require_revision, rows, schema)
 from .analysis import BUCKETS, SCOPES, TAGS, LearnError, validate_edit, validate_item
 from .scope import PlanBuilder, SCOPE, namespace, require_global
-from .work import LearningWork, STATES, record_history
+from .shared import STATES, reasoning_projection, record_history
 from .review import LearningReview
-from .issue_reads import VIEW, LearningIssueReads, in_view
-from .issues import LearningIssues, summary as issue_summary
 from .intake import snapshot as intake_snapshot
-from . import legacy
+from . import legacy, validation
 
 EXTRACT_ARGUMENTS = schema({"max_usd": {"type": "number", "exclusiveMinimum": 0, "maximum": 100},
     "supersession_mode": {"enum": ["preview", "apply"], "description": "Preview cross-day unresolved replacements, or automatically reject evidence-backed superseded findings. Omission preserves legacy reconciliation."},
@@ -25,7 +23,7 @@ EXTRACT_ARGUMENTS = schema({"max_usd": {"type": "number", "exclusiveMinimum": 0,
     "retry_failed": {"type": "boolean", "description": "Explicitly retry paused Global transcript snapshots; normal routines leave this false."}})
 
 
-class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, LearningReview):
+class LearningOperations(LearningReview):
     def __init__(self, application, programs, authority=None, *, documents=None):
         self.app, self.programs, self.authority = application, programs, authority
         self.documents = documents
@@ -51,44 +49,56 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
                      .format)
         bucket = effective("bucket")
         created = effective("created")
+        # One non-null deterministic order key. The retained row timestamp is the fallback when the stored metadata has
+        # no creation time (the schema permits it), and the explicit empty sentinel covers a row whose timestamp is
+        # itself absent. Displayed ``created`` stays exactly the stored effective metadata.
+        order_key = "COALESCE(" + created + ",c.created_at,'')"
         filters = "c.business_id IS ? AND " + bucket + "='delta'"
         parameters = [ctx.business_id]
-        binding, after = page_position(args, ctx.business_id, "learnings_legacy_pending")
+        binding, after = page_position(args, ctx.business_id, "learnings_legacy_pending.v2")
         clause = filters
         page_parameters = list(parameters)
         if after is not None:
-            clause += " AND (" + created + ",c.id) < (?,?)"
+            clause += " AND (" + order_key + ",c.id) < (?,?)"
             page_parameters.extend(after)
         rows_found = [dict(row) for row in uow.connection.execute(
             "SELECT c.id AS learning_id," + ",".join(
-                effective(key) + " AS " + key for key in ("scope", "tag", "text", "created")) +
-            ",c.work_state AS work_state,c.filing_json AS filing_json,d.state AS decision_state "
-            "FROM learning_candidates c LEFT JOIN learning_decisions d ON d.business_id IS c.business_id "
-            "AND d.candidate_id=c.id WHERE " + clause +
-            " ORDER BY " + created + " DESC,c.id DESC LIMIT ?", [*page_parameters, args.get("limit", 50) + 1])]
+                effective(key) + " AS " + key for key in ("scope", "tag", "text", "created", "reconciled_into")) +
+            "," + order_key + " AS order_key,c.work_state AS work_state,c.filing_json AS filing_json,"
+            "d.state AS decision_state FROM learning_candidates c LEFT JOIN learning_decisions d "
+            "ON d.business_id IS c.business_id AND d.candidate_id=c.id WHERE " + clause +
+            " ORDER BY " + order_key + " DESC,c.id DESC LIMIT ?", [*page_parameters, args.get("limit", 50) + 1])]
         total = uow.connection.execute(
             "SELECT COUNT(*) FROM learning_candidates c LEFT JOIN learning_decisions d ON d.business_id IS c.business_id "
             "AND d.candidate_id=c.id WHERE " + filters, parameters).fetchone()[0]
         more = len(rows_found) > args.get("limit", 50)
         items = []
         for row in rows_found[:args.get("limit", 50)]:
+            order_key_value = row.pop("order_key")
             filing = json.loads(row.pop("filing_json") or "{}")
             decision_state = row.pop("decision_state")
-            row["text"] = str(row.get("text") or "")[:500]
+            text = str(row.get("text") or "")
+            row["text"] = text[:500]
+            row["text_truncated"] = len(text) > 500
+            row["reconciled_into"] = row.get("reconciled_into") or None
             row["decision"] = decision_state
             row["state"] = row.get("work_state") or decision_state or "open"
             row["filed"] = isinstance(filing, dict) and bool(filing)
+            row["_order"] = order_key_value
             items.append(row)
         cursor = None
         if more:
-            last = rows_found[args.get("limit", 50) - 1]
-            cursor = base64.urlsafe_b64encode(canonical_bytes({"binding": binding, "after": [last["created"],
+            last = items[args.get("limit", 50) - 1]
+            cursor = base64.urlsafe_b64encode(canonical_bytes({"binding": binding, "after": [last["_order"],
                                                                                           last["learning_id"]]})).decode()
+        for item in items:
+            item.pop("_order")
         return {"schema_version": 1, "items": items, "next_cursor": cursor, "count": total,
                 "read_only": True,
-                "statement": "These are historical records, not an active queue, and each needs the owner's explicit "
-                             "disposition. This target writes none and proposes no automatic migration, conversion, "
-                             "import or deletion."}
+                "statement": "These are historical procedural records, never a queue of accepted work awaiting execution. "
+                             "They stay readable with their original IDs, notes and statuses; this target writes none and "
+                             "proposes no automatic migration, conversion, import or deletion, and grants no decision, "
+                             "edit, reopen or retry control over them."}
 
     def list(self, ctx, args, options, uow):
         decisions = {x["candidate_id"]: x for x in rows(uow, "learning_decisions", ctx.business_id)}
@@ -100,22 +110,20 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
         for value in values:
             if value["id"] in pending:
                 value["intake_pending"] = pending[value["id"]]
-        briefs = self.issue_briefs(uow, ctx.business_id)
-        for value in values:
-            if value["id"] in briefs:
-                value["issue"] = briefs[value["id"]]
         values = [x for x in values if not x["filing"] and not x.get("reconciled_into")]
-        view = args.get("issue_view", "active")
-        suppressed = self.issue_counts([x.get("issue") for x in values])
-        values = [x for x in values if in_view(x.get("issue"), view)]
+        # Active/default agendas, states and badges are factual Context candidates only. A historical delta remains
+        # reachable only through the explicit bucket selection the specification allows.
+        if "bucket" not in args:
+            values = [x for x in values if x.get("bucket") == "context"]
         counts = {state: sum(x["state"] == state for x in values) for state in STATES}
         if "state" not in args:
             values = [x for x in values if x["state"] != "implemented"]
         for name in ("state", "scope", "bucket", "tag"):
             if name in args:
                 values = [x for x in values if x.get(name) == args[name]]
-        items, cursor = page(values, args, ctx.business_id, "learnings_list", key=lambda x: (x.get("created", ""), x["id"]))
-        return {"items": items, "counts": counts, "suppressed": suppressed, "next_cursor": cursor}
+        items, cursor = page(values, {**args, "_factual": "context-only-v2"}, ctx.business_id, "learnings_list",
+                             key=lambda x: (x.get("created", ""), x["id"]))
+        return {"items": items, "counts": counts, "next_cursor": cursor}
 
     def get(self, ctx, args, options, uow):
         row = uow.repository("learning_candidates", business_id=ctx.business_id).get(args["learning_id"], required=True)
@@ -137,10 +145,7 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
             if stored:
                 cores.update({key: value for key, value in stored['result_json'].get('cores', {}).items() if key in sessions})
         result = {"item": item, "cores": cores}
-        issue = self.issue_of_candidate(uow, ctx.business_id, row["id"])
-        if issue:
-            result["issue"] = self.issue_view_of(uow, ctx.business_id, issue)
-        result.update(self.reasoning_projection(uow, ctx.business_id, item, issue))
+        result.update(reasoning_projection(uow, ctx.business_id, item))
         return result
 
     def prepare_keep_both(self, ctx, args, options, uow):
@@ -300,10 +305,6 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
                 after["decision"]["agent_rationale"] = args["agent_rationale"]
         if supplied:
             after["decision"]["reasoning_source"] = "owner_conversation_via_agent" if delegated else "owner_direct"
-        if name != "learnings_edit":
-            # An engine-linked review item moves its issue's policy in this same transaction; legacy items are unaffected.
-            self.decision_effects(builder, ctx, uow, options, row, args, before=previous_state, after_state=state,
-                                  reasoning=note if supplied else None, supplied=supplied, delegated=delegated)
         record_history(builder, row["id"], current, after)
         return builder.build()
 
@@ -442,19 +443,11 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
             return {"run_id": plan.arguments["run"]["id"], "items": len(plan.arguments["items"])}
         row = uow.repository("learning_candidates", business_id=ctx.business_id).get(plan.arguments["learning_id"])
         decision = uow.repository("learning_decisions", business_id=ctx.business_id).get(row["id"])
-        if plan.operation_name.startswith("learnings_work_"):
-            return self.work_projection(row, decision)
-        result = {"item": LearningOperations.item(row, decision)}
-        linked = self.issue_of_candidate(uow, ctx.business_id, row["id"])
-        if linked:
-            result["issue"] = issue_summary(linked)
-        return result
+        return {"item": LearningOperations.item(row, decision)}
 
     def register(self):
         registry = self.app.registry
-        self.register_work()
         self.register_review()
-        self.register_issues()
         registry.register(OperationDescriptor("learnings_decide", schema({
             "learning_id": IDENTITY, "state": {"enum": ["accepted", "rejected"]},
             "owner_instruction": {"type": "string", "minLength": 1, "maxLength": 8000, "pattern": r"\S",
@@ -466,12 +459,12 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
             "feedback": {"type": "string", "maxLength": 8000, "description": "Legacy name of reasoning."}}, ["learning_id", "state", "owner_instruction"]),
             **SCOPE, supports_signoff=False, exposure={"mcp"},
             prepare=lambda c,a,o,u: self.prepare_decision("learnings_decide",c,a,o,u), apply=self.apply,
-            validate_targets=self.documents.validate_targets if self.documents else None,
+            validate_targets=self.validated,
             description="Learning Applier only: record the owner's explicit accept/reject instruction for one open learning. Requires current expected_revision and idempotency_key. The instruction is agent-reported, not independently authenticated. Never decide autonomously."))
         registry.register(OperationDescriptor("learnings_intake_status", schema({"learning_id": IDENTITY}, ("learning_id",)),
             **SCOPE, effect_kind="read", supports_signoff=False, owner_only=True, exposure={"dashboard", "worker"}, read=self.intake_status))
         registry.register(OperationDescriptor("learnings_list", schema({**PAGE, "state": {"enum": list(STATES)},
-            "scope": {"enum": list(SCOPES)}, "bucket": {"enum": list(BUCKETS)}, "tag": {"enum": list(TAGS)}, "issue_view": VIEW}),
+            "scope": {"enum": list(SCOPES)}, "bucket": {"enum": list(BUCKETS)}, "tag": {"enum": list(TAGS)}}),
             **SCOPE, effect_kind="read", supports_signoff=False, read=self.list))
         registry.register(OperationDescriptor("learnings_get", schema({"learning_id": IDENTITY}, ["learning_id"]),
             **SCOPE, effect_kind="read", supports_signoff=False, read=self.get))
@@ -481,8 +474,9 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
                         "migration decision. This target writes none and proposes no conversion, import or deletion."))
         registry.register(OperationDescriptor('learnings_keep_both', schema({'learning_id':IDENTITY}, ['learning_id']),
             **SCOPE, owner_only=True, supports_signoff=False, exposure={'dashboard'},
-            prepare=self.prepare_keep_both, apply=self.apply))
-        registry.register(OperationDescriptor("learnings_extract", EXTRACT_ARGUMENTS, **SCOPE, prepare=self.prepare_extract, apply=self.apply))
+            prepare=self.prepare_keep_both, apply=self.apply, validate_targets=self.factual))
+        registry.register(OperationDescriptor("learnings_extract", EXTRACT_ARGUMENTS, **SCOPE, prepare=self.prepare_extract,
+            apply=self.apply, validate_targets=self.factual))
         for name, properties, required in (
             ("learnings_review", {"state": {"enum": ["open", "accepted", "rejected"]}, "feedback": {"type": "string", "maxLength": 8000}}, ["state"]),
             ("learnings_edit", {"changes": schema({"scope": {"enum": list(SCOPES)}, "bucket": {"enum": list(BUCKETS)},
@@ -490,7 +484,7 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
             registry.register(OperationDescriptor(name, schema({"learning_id": IDENTITY, **properties}, ["learning_id", *required]),
                 **SCOPE, owner_only=True, supports_signoff=False, exposure=frozenset({"dashboard", "worker"}),
                 prepare=lambda c,a,o,u,n=name: self.prepare_decision(n,c,a,o,u), apply=self.apply,
-                validate_targets=self.documents.validate_targets if self.documents else None))
+                validate_targets=self.validated))
         item_schema = {"type": "object", "maxProperties": 40}
         registry.register(OperationDescriptor("learnings_record_batch", schema({
             "items": {"type": "array", "maxItems": 2000, "items": item_schema},
@@ -502,8 +496,20 @@ class LearningOperations(LearningIssueReads, LearningIssues, LearningWork, Learn
                 "expected_scan_revision": {"type": "integer", "minimum": 0}},
                 ["session_id", "transcript_hash", "source_id", "agent_id"])},
             "run": {"type": "object", "required": ["id", "cores"], "properties": {"id": UUID, "cores": {"type": "object"}}}},
-            ["items", "run"]), **SCOPE, exposure=frozenset({"worker"}), prepare=self.prepare_batch, apply=self.apply))
+            ["items", "run"]), **SCOPE, exposure=frozenset({"worker"}), prepare=self.prepare_batch, apply=self.apply,
+            validate_targets=self.factual))
         return self
+
+    def factual(self, context, plan, uow):
+        """Run the shared factual guard with the current configured Context source limit, not a cached default."""
+        filing = getattr(self.documents, "filing", None) if self.documents is not None else None
+        limit = getattr(getattr(filing, "ports", None), "source_bytes", None)
+        validation.validate_factual_plan(context, plan, uow, source_bytes=limit)
+
+    @property
+    def validated(self):
+        """The retained mutators' shared semantic guard, composed with the existing document-target validation."""
+        return legacy.compose(self.documents.validate_targets if self.documents else None, self.factual)
 
 
 def register_operations(application, programs, authority=None):

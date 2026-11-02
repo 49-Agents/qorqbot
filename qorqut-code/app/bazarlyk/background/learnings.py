@@ -38,8 +38,8 @@ class BusinessBrief:
 
 
 class LearningProgram:
-    def __init__(self, models, transcripts, engine=None):
-        self.models, self.transcripts, self.engine = models, transcripts, engine
+    def __init__(self, models, transcripts):
+        self.models, self.transcripts = models, transcripts
 
     def snapshots(self, control, agent_id=None, limit=100, seen=None, exclude=frozenset(), listed=None, only=None, limits=None):
         """Saved snapshots not already ``seen`` at their current hash, at most ``limit`` and ``MAX_PASS_BYTES`` of them.
