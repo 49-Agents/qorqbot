@@ -47,6 +47,13 @@ def derive_record(prior, prior_raw, plan, intent, git=None):
 
     A projection without a receipt is not a candidate and cannot be activated.
     """
+    from .proof_memo import reuse
+    return reuse('layout_binding',
+                 lambda: (digest(prior), digest(prior_raw), digest(plan), digest(intent), digest(git)),
+                 lambda: _derive_record(prior, prior_raw, plan, intent, git))
+
+
+def _derive_record(prior, prior_raw, plan, intent, git):
     from .installation import _verify_inventory, OVERSEER_REFS
     from .view import HostAgenticView
     if json.loads(prior_raw, object_pairs_hook=_unique) != prior:

@@ -13,7 +13,7 @@ import sqlite3
 from qorqut_operations.contracts import DomainError
 
 from .installation import OVERSEER_REFS, _validated_installed_binding, prepare_installation
-from .layout_inspection import inspect_git, inspect_runtime, read_legacy_tree, validate_catalog, load_memory_catalog
+from .layout_inspection import inspect_git, inspect_runtime, read_legacy_tree, catalog_issues, load_memory_catalog
 from .plans import _desired, _validate_manifest
 from .provisioning import plan as provision_plan
 from bazarlyk.telegram.private_files import read_private_file
@@ -198,8 +198,7 @@ def _content_plan(record, prepared, target, comparison, files, metadata):
     required.update({ref: ('workflow' if ref.rsplit('/', 1)[1] in ('extract', 'review', 'apply') else 'instruction', None) for ref in OVERSEER_REFS})
     try:
         from .installation import _active_inventory
-        def active_inventory(inventory, bodies):
-            catalog = load_memory_catalog(bodies)
+        def active_inventory(inventory, catalog):
             class CatalogView:
                 def validate(self, *, package_ids):
                     return {'valid': True, 'packages': [{'id': p} for p in package_ids if p in catalog.packages]}
@@ -221,14 +220,16 @@ def _content_plan(record, prepared, target, comparison, files, metadata):
                     result[ref] = (entries[ref]['kind'], None)
             return result
 
-        current_active = active_inventory(record['inventory'], files)
-        target_active = active_inventory(target, projected)
+        current_catalog = load_memory_catalog(files)
+        target_catalog = load_memory_catalog(projected)
+        current_active = active_inventory(record['inventory'], current_catalog)
+        target_active = active_inventory(target, target_catalog)
         current_required = {**required, **native_refs(current_active)}
         target_required = {**required, **native_refs(target_active)}
         conflicts.extend({'code': 'current_catalogue_' + issue['code'], 'detail': issue}
-                         for issue in validate_catalog(files, required_refs=current_required))
+                         for issue in catalog_issues(current_catalog, files, required_refs=current_required))
         conflicts.extend({'code': 'catalogue_' + issue['code'], 'detail': issue}
-                         for issue in validate_catalog(projected, required_refs=target_required))
+                         for issue in catalog_issues(target_catalog, projected, required_refs=target_required))
         for asset in target_active['assets']:
             path = asset.get('destination')
             if asset.get('enabled') and asset.get('kind') in ('instruction', 'skill', 'manifest', 'metadata') and isinstance(path, str) and path not in projected:

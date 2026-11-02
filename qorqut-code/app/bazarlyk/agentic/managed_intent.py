@@ -169,6 +169,18 @@ def _validate(paths, intent, prior_raw, prior):
             or intent['head'] != plan['git']['head'] or _decode(intent['index']) is None
             or digest(_decode(intent['index'])) != plan['git']['index_sha256']):
         raise ValueError('Managed intent identity mismatch')
+    # The comparison proof is read on every observation. Only derivation from
+    # exact captured inputs is eligible for reuse within the owning hook.
+    comparison = managed_sources.comparison_baseline(paths, prior)
+    from .proof_memo import reuse
+    reuse('managed_content', lambda: (digest(intent), digest(prior), digest(comparison)),
+          lambda: _validate_content(intent, prior, comparison))
+    return intent
+
+
+def _validate_content(intent, prior, comparison):
+    """Validate immutable captured content; no filesystem or database reads."""
+    plan = intent['plan']
     manifest_raw = _decode(intent['export_manifest'])
     if digest(manifest_raw) != plan['export']['source_manifest_sha256']:
         raise ValueError('Retained export manifest mismatch')
@@ -180,7 +192,6 @@ def _validate(paths, intent, prior_raw, prior):
     target = managed_sources.target_inventory(prior['inventory'], standard, plan['selected_extensions'], plan['export']['source_manifest_sha256'])
     if target != plan['target_inventory']:
         raise ValueError('Managed target inventory differs')
-    comparison = managed_sources.comparison_baseline(paths, prior)
     if comparison != plan['comparison_baseline']:
         raise ValueError('Managed comparison proof differs')
     files, metadata, size = {}, {}, 0
@@ -253,7 +264,7 @@ def _validate(paths, intent, prior_raw, prior):
             or type(inspection['bytes']) is not int or not 0 <= inspection['bytes'] <= inspection['byte_limit']
             or inspection['rows'] != sum(v['rows'] for v in runtime['tables'].values())):
         raise ValueError('Invalid runtime inspection totals')
-    return intent
+    return True
 
 
 def validate(paths, intent, prior_raw):

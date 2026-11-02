@@ -6,6 +6,8 @@ The offline application coordinator uses this as its first durable stage.
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import json
 import os
@@ -29,6 +31,24 @@ MAX_INTENT_BYTES = 512 * 1024 * 1024
 MAX_CAPTURE_BYTES = 96 * 1024 * 1024
 _INTENT_RE = re.compile(r'layout-([0-9a-f]{64})\.json\Z')
 _publish = os.link
+_retained_read = ContextVar('agentic_retained_layout_read', default=None)
+
+
+@contextmanager
+def _retained_reads():
+    """Reuse validation of one immutable receipt within one hook or locked open.
+
+    Every access still reads the private file and its prior binding. The memo
+    holds only the last exact byte string and is discarded by the owning scope.
+    """
+    if _retained_read.get() is not None:
+        yield
+        return
+    token = _retained_read.set({})
+    try:
+        yield
+    finally:
+        _retained_read.reset(token)
 
 
 def _conflict(message):
@@ -74,6 +94,27 @@ def _capture_manifest(plan):
 
 def _read_intent(path, expected=None):
     raw = read_private_file(path, max_bytes=MAX_INTENT_BYTES)
+    memo = _retained_read.get()
+    try:
+        if memo is not None and memo.get('path') == path and memo.get('raw') == raw:
+            # Parsing again is cheap and gives each caller an independent value.
+            # Duplicate keys and all nested checks were verified for these bytes.
+            value = json.loads(raw)
+        else:
+            value = _decode_intent(path, raw)
+        if expected is not None and value != expected:
+            raise ValueError('unexpected intent receipt')
+        prior = read_private_file(path.parent / (value['prior_binding_sha256'] + '.json'), max_bytes=MAX_RECORD)
+        if digest(prior) != value['prior_binding_sha256']:
+            raise ValueError('prior binding mismatch')
+        if memo is not None:
+            memo.update(path=path, raw=raw)
+        return value
+    except (KeyError, TypeError, ValueError) as exc:
+        raise _conflict('Invalid or changed layout intent') from exc
+
+
+def _decode_intent(path, raw):
     try:
         value = json.loads(raw, object_pairs_hook=_unique)
         if not isinstance(value, dict) or type(value.get('schema_version')) is not int or value.get('schema_version') not in (1, 2) or set(value) != ({'schema_version', 'phase', 'plan', 'attribution', 'prior_binding_sha256', 'authored', 'absent', 'index', 'head', 'staged', 'receipt_sha256'} | ({'export_manifest'} if value.get('schema_version') == 2 else set())):
@@ -83,8 +124,7 @@ def _read_intent(path, expected=None):
         if (value['phase'] != 'prepared' or checksum != digest(body)
                 or raw != canonical(value) + b'\n' or not _INTENT_RE.fullmatch(path.name)
                 or path.name != 'layout-' + value['plan']['plan_digest'] + '.json'
-                or digest({k: v for k, v in value['plan'].items() if k != 'plan_digest'}) != value['plan']['plan_digest']
-                or (expected is not None and value != expected)):
+                or digest({k: v for k, v in value['plan'].items() if k != 'plan_digest'}) != value['plan']['plan_digest']):
             raise ValueError('invalid intent receipt')
         if value['schema_version'] == 2:
             item = value['export_manifest']
@@ -111,9 +151,6 @@ def _read_intent(path, expected=None):
                 or not isinstance(value['prior_binding_sha256'], str)
                 or not re.fullmatch(r'[0-9a-f]{64}', value['prior_binding_sha256'])):
             raise ValueError('captured identity mismatch')
-        prior = read_private_file(path.parent / (value['prior_binding_sha256'] + '.json'), max_bytes=MAX_RECORD)
-        if digest(prior) != value['prior_binding_sha256']:
-            raise ValueError('prior binding mismatch')
         return value
     except (KeyError, TypeError, ValueError) as exc:
         raise _conflict('Invalid or changed layout intent') from exc

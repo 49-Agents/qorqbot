@@ -43,29 +43,33 @@ def observe(root, timeout):
         raise DomainError('bootstrap_pending', 'The authored revision check is unavailable or still pending', retryable=True) from exc
 
 
-# Each hook owns one short-lived interpreter. Each request invokes _read anew;
-# only imported Python modules survive between the two independent observations.
+# Each hook owns one short-lived interpreter. Each observation reads and verifies
+# current state anew. Only pure historical derivations with identical inputs can
+# be reused between observations; they disappear when this hook closes.
 _OBSERVER_CODE = r'''
 import json, sys
 sys.path[:0] = json.loads(sys.argv[1])
 from bazarlyk.bootstrap.catalog_revision import _read
+from bazarlyk.agentic.proof_memo import retained_derivations
+from bazarlyk.agentic.layout_intent import _retained_reads
 root = sys.argv[2]
-while True:
-    line = sys.stdin.buffer.readline(4097)
-    if not line:
-        break
-    if len(line) > 4096 or not line.endswith(b'\n'):
-        break
-    try:
-        request = json.loads(line)
-        if set(request) != {'timeout'} or not isinstance(request['timeout'], (float, int)) or isinstance(request['timeout'], bool):
-            raise ValueError('invalid request')
-        revision = _read(root, max(0, request['timeout']))
-        response = {'revision': revision}
-    except Exception:
-        response = {'error': 'unavailable'}
-    sys.stdout.write(json.dumps(response, separators=(',', ':')) + '\n')
-    sys.stdout.flush()
+with retained_derivations(), _retained_reads():
+    while True:
+        line = sys.stdin.buffer.readline(4097)
+        if not line:
+            break
+        if len(line) > 4096 or not line.endswith(b'\n'):
+            break
+        try:
+            request = json.loads(line)
+            if set(request) != {'timeout'} or not isinstance(request['timeout'], (float, int)) or isinstance(request['timeout'], bool):
+                raise ValueError('invalid request')
+            revision = _read(root, max(0, request['timeout']))
+            response = {'revision': revision}
+        except Exception:
+            response = {'error': 'unavailable'}
+        sys.stdout.write(json.dumps(response, separators=(',', ':')) + '\n')
+        sys.stdout.flush()
 '''
 _OBSERVER_MAX_LINE = 4096
 

@@ -615,7 +615,11 @@ def load_memory_catalog(files):
 
 def validate_catalog(files, *, required_refs=None):
     """Return errors and missing canonical content from an in-memory catalogue."""
-    catalogue = load_memory_catalog(files)
+    return catalog_issues(load_memory_catalog(files), files, required_refs=required_refs)
+
+
+def catalog_issues(catalogue, files, *, required_refs=None):
+    """Check an already loaded projection and its exact captured file map."""
     issues = [issue.to_dict() for issue in catalogue.issues if issue.severity == 'error']
     for ref, (kind, path) in (required_refs or {}).items():
         entry = catalogue.entries.get(ref)
