@@ -9,6 +9,18 @@ const GLOBAL_CHAT_SENDS = new Map();            // scope -> {text, key, pin}: th
 const GLOBAL_CHAT_INFLIGHT = new Map();         // scope -> {text, promise} of a send still waiting for its response
 const GLOBAL_CHAT_RESENDS = new Map();          // undelivered input id -> {key, pin}: identity of an explicit resend
 const GLOBAL_CHAT_HIDDEN = new Set();           // settled inputs the owner dismissed or already resent
+// scope -> {records, consumed}: owner messages accepted by the backend whose transcript entry has not been seen yet. Browser-only and
+// presentation-only: a record keeps the sent text visible until its exact native user entry arrives, and never touches receipts.
+const GLOBAL_CHAT_ACCEPTED = new Map();
+const globalChatText = text => String(text ?? '').replace(/\r\n/g, '\n');
+function globalChatAccept(scope, text, input, position) {
+  if (!scope || !input?.id) return;
+  const held = GLOBAL_CHAT_ACCEPTED.get(scope) || {records: [], consumed: new Set()};
+  GLOBAL_CHAT_ACCEPTED.set(scope, held);
+  const record = held.records.find(item => item.id === input.id) || {id: input.id, entry: null};
+  if (!held.records.includes(record)) held.records.push(record);
+  Object.assign(record, {text, position, state: input.state, sequence: input.sequence ?? Number.MAX_SAFE_INTEGER, createdAt: Date.parse(input.created_at)});
+}
 // Exact provider + conversation identity of a captured conversation; the one key for drafts, sends and history queries.
 const globalChatKey = target => target?.conversation_id ? `${target.provider || ''}\n${target.conversation_id}` : null;
 const globalChatScope = (agentId, target) => globalChatKey(target) ? `${agentId}\n${globalChatKey(target)}` : null;
@@ -38,6 +50,7 @@ const GLOBAL_CHAT_INPUT_STATE = {
   waiting: 'Waiting',
   submitting: 'Sending…',
   uncertain: 'Delivery unconfirmed',
+  submitted: 'Sent',
   failed: 'Not delivered',
   undelivered: 'Not delivered',
 };
@@ -109,7 +122,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   const agentId = agent.agent_id, base = globalChatBase(agentId), label = agent.display_name || agent.name || 'Agent';
   const entries = new Map();                     // entry id -> entry
   let session = null, conversation = null, inputs = [], older = null, shown, clears = 0, shownInputs = [];
-  let cursor = 0, lastRead = 0, composerScope = null;
+  let cursor = 0, lastRead = 0, composerScope = null, hasLocal = false;
   let stream = null, retryTimer = null, retryDelay = 1000, readTimer = null, streamDown = false;
   let disposed = false, loading = false, again = false, generation = 0, finished = false, reading = 0;
   let bannerText = '', reconnecting = false, olderBusy = false, view = null;
@@ -193,6 +206,34 @@ function mountGlobalChat(pane, agent, options = {}) {
     // A verified notice entry already is its input's receipt: never show the same input a second time.
     const noticeIds = new Set([...entries.values()].map(entry => entry.system?.input_id).filter(Boolean));
     shownInputs = inputs.filter(item => inputVisible(item, noticeIds)).sort((a, b) => a.sequence - b.sequence);
+    const local = acceptedBubbles(new Set(shownInputs.map(item => item.id)));
+    hasLocal = local.length > 0;
+    const server = presentReceipts();
+    return local.length ? [...server.map((model, i) => ({sequence: shownInputs[i].sequence, model})), ...local].sort((a, b) => a.sequence - b.sequence).map(row => row.model) : server;
+  }
+  // Accepted messages awaiting their transcript echo. Each record claims, in send order, the first unclaimed native user entry that
+  // is newer than the transcript seen when it was sent, has the exact text and is not older than the receipt. Display only.
+  function acceptedBubbles(visibleIds) {
+    const held = GLOBAL_CHAT_ACCEPTED.get(globalChatScope(agentId, conversation));
+    if (!held) return [];
+    const users = [...entries.values()].filter(entry => entry.speaker === 'user').sort((a, b) => a.position - b.position);
+    for (const record of held.records) {
+      const item = inputs.find(row => row.id === record.id);
+      if (item) record.state = item.state;
+      const echo = users.find(entry => {
+        const at = Date.parse(entry.timestamp);
+        return !held.consumed.has(entry.id) && entry.position > record.position && globalChatText(entry.text) === record.text
+          && !(Number.isFinite(at) && Number.isFinite(record.createdAt) && at < record.createdAt);
+      });
+      if (echo) { held.consumed.add(echo.id); record.entry = echo.id; }
+    }
+    held.records = held.records.filter(record => !record.entry);
+    return held.records.filter(record => !GLOBAL_CHAT_HIDDEN.has(record.id) && !visibleIds.has(record.id)).map(record => ({sequence: record.sequence, model: {
+      key: record.id, speaker: 'user', state: record.state, stateLabel: GLOBAL_CHAT_INPUT_STATE[record.state], inputType: 'chat', resendable: false,
+      collapsedSource: null, text: record.text, actions: [],
+    }}));
+  }
+  function presentReceipts() {
     return shownInputs.map(item => {
       const system = item.origin === 'system', kind = GLOBAL_CHAT_INPUT_LABEL[item.input_type] || (system ? 'System notice' : '');
       const definite = ownerChat(item) && ['failed', 'undelivered'].includes(item.state) && !!item.body;
@@ -228,7 +269,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     return {key: 'offline', line: direction};
   }
   function emptyState() {
-    if (entries.size || shownInputs.length || !session) return {text: '', action: null};
+    if (entries.size || shownInputs.length || hasLocal || !session) return {text: '', action: null};
     const key = sessionSummary().key;
     if (key === 'live' || key === 'working') return {text: 'Your agent conversation appears here.', action: null};
     if (key === 'starting') return {text: 'Connecting…', action: null};
@@ -308,6 +349,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     const mine = composerScope;
     const files = [...selectedFiles()], fileKey = files.map(file => file.key).join(',');
     if (!mine || !text.trim() && !files.length || !canSend() || GLOBAL_CHAT_INFLIGHT.has(mine)) return;
+    const position = newestPosition();
     // A retry of the same text reuses its key and its original binding pin, so a lost response can never become a second
     // message or move to another session. Only a deliberate new send takes the binding observed now.
     let attempt = GLOBAL_CHAT_SENDS.get(mine);
@@ -332,6 +374,7 @@ function mountGlobalChat(pane, agent, options = {}) {
           const error = new Error('Message too long'); error.attachment = true; error.code = 'message_too_long'; throw error;
         }
         const result = await admit(payload, attempt.key, attempt.pin);
+        globalChatAccept(mine, payload, result.input, position);
         if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine);
         if (GLOBAL_CHAT_DRAFTS.get(mine) === text) GLOBAL_CHAT_DRAFTS.delete(mine);
         const sent = new Set(attempt.files.map(file => file.key));
@@ -361,10 +404,12 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (!item?.body || !ownerChat(item) || !['failed', 'undelivered'].includes(item.state) || !canSend() || !viewingLive()) return;
     const resend = GLOBAL_CHAT_RESENDS.get(id) || {key: newRequestId(), pin: liveBinding().binding_id};
     resend.pending = true; GLOBAL_CHAT_RESENDS.set(id, resend);
+    const scope = composerScope, position = newestPosition();
     paintSession();
     try {
       const result = await admit(item.body, resend.key, resend.pin);
       GLOBAL_CHAT_RESENDS.delete(id); GLOBAL_CHAT_HIDDEN.add(id);
+      globalChatAccept(scope, item.body, result.input, position);
       showBanner(''); takeInput(result.input); void load();
     } catch (problem) {
       resend.pending = false;
