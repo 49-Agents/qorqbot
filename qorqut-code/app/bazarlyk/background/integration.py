@@ -5,6 +5,7 @@ Operations engine's. This module registers the host's concrete programs on the o
 routine/learning/job operations and attaches the one ``BackgroundService`` with its ``JobObserver`` and scheduler.
 The program registry is frozen with the operation registry by ``Runtime.freeze_registry`` before traffic."""
 
+from bazarlyk.signoffs.privacy import PRIVATE_JOB_KINDS
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.storage.quiescence import BoundedWriter
@@ -13,7 +14,6 @@ from qorqut_operations.application.plans import UUID, schema
 from bazarlyk.domains.learnings.operations import EXTRACT_ARGUMENTS, LearningOperations
 from qorqut_operations.routines.operations import RoutineOperations
 from qorqut_context.integration.filing.programs import FilingPrograms
-from .whatsapp_send import WhatsAppSendProgram
 from .learnings import LearningProgram
 from .models import ModelCalls
 from qorqut_operations.background.programs import Program
@@ -24,7 +24,7 @@ from qorqut_operations.background.service import BackgroundService
 
 def register_programs(programs, *, models=None, transcript_source=None,
                       maintenance=None, tables=None,
-                      backup_downloader=None, whatsapp_send=None):
+                      backup_downloader=None):
     models = models or ModelCalls(None)
     learning = LearningProgram(models, transcript_source)
 
@@ -55,13 +55,6 @@ def register_programs(programs, *, models=None, transcript_source=None,
         # Global table history has its own internal program (same runner and recovery), prepared only by the table operations.
         add("tables.global-version", schema({"version_id": UUID}, ("version_id",)), tables.history.run,
             external=True, recover=tables.history.run, scope_kinds=("global",), global_capabilities=("read_global_context",))
-    # Owner-approved personal WhatsApp sends. Queued only by the whatsapp_send operation's approved Signoff; the program
-    # refuses any job it cannot trace to that Signoff, and a routine can never name it.
-    whatsapp = WhatsAppSendProgram(whatsapp_send)
-    add("whatsapp.send", schema({"scope": {"const": "global"}, "account_ref": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-        "chat_id": {"type": "string", "minLength": 3, "maxLength": 160}, "text": {"type": "string", "minLength": 1, "maxLength": 16384}},
-        ("scope", "account_ref", "chat_id", "text")), whatsapp.run, (), (), (), scope_kinds=("global",),
-        external=True, recover=whatsapp.recover, timeout_seconds=120, routine_allowed=False)
     if maintenance is not None:
         add("maintenance.nightly", schema({}), maintenance.run, timeout_seconds=1800,
             scope_kinds=("global",), external=True, recover=maintenance.run)
@@ -89,14 +82,14 @@ def register_operations(runtime, programs, authority, *, clock=None):
     def job_get(ctx, args, options, uow):
         business_id = None if args.get("scope") == "global" else ctx.business_id
         row = uow.repository("jobs", business_id=business_id).get(args["job_id"], required=True)
-        if row["kind"] == "whatsapp.send":
+        if row["kind"] in PRIVATE_JOB_KINDS:
             # The frozen recipient and text live only in the job and its Signoff. The installation owner reads the job;
             # every agent (the proposer included) gets status and error codes only.
             installation = uow.repository("installation").get("service")
             if ctx.principal_kind == "human" and installation and installation["owner_principal_id"] == ctx.principal_id:
                 return {"job": row, "details_available": True}
             if ctx.principal_kind != "agent":
-                raise DomainError("forbidden", "Personal WhatsApp job details require the installation owner")
+                raise DomainError("forbidden", "Private job details require the installation owner")
             public = {key: row[key] for key in ("id", "business_id", "kind", "state", "created_at", "updated_at", "attempts",
                                                 "next_retry_at", "initiated_by_principal_id")}
             error = row.get("error_json")
@@ -139,8 +132,7 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
     register_programs(programs, models=ModelCalls(model_client_factory),
         transcript_source=transcript_source,
         maintenance=maintenance, tables=runtime.domains.tables,
-        backup_downloader=backup_downloader,
-        whatsapp_send=getattr(runtime.application, "whatsapp_send", None))
+        backup_downloader=backup_downloader)
     authority = runtime.authority
     if getattr(runtime.domains, "business_creation", None):
         runtime.domains.business_creation.worker_authority = authority

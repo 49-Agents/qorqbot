@@ -27,7 +27,7 @@ from bazarlyk.catalog.packages import content_hash, files_digest, relative_path
 from qorqut_operations.contracts import DomainError, Principal, new_id, utc_now
 from qorqut_operations.storage import safe_io
 from .client import auth_headers, path_has_symlink, service_url
-from . import email_guidance, whatsapp
+from . import email_guidance
 from .tool_permissions import (VERSION as TOOL_CONFIGURATION_VERSION, fingerprint as tool_fingerprint,
                                permissions as tool_permissions, preparation_lock)
 
@@ -282,10 +282,6 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             connections.append(native[name].server)
         else:
             connections.append(name)
-    whatsapp_status, whatsapp_client = whatsapp.launch(resolver.paths, data)
-    if whatsapp_status is not None:
-        connections.append(whatsapp.NAME)
-        connection_status[whatsapp.NAME] = whatsapp_status
     prepared = [name for name in connections if connection_status.get(name, {"prepared": True})["prepared"]]
     # Previously prepared names stay managed so a removed or unavailable
     # connection is cleared; a declared but unprepared name stays foreign.
@@ -294,19 +290,20 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     for connection in extension_connections.values():
         managed_names.update(connection.retires)  # Retire an older prepared server on refresh.
     preserved_servers, preserved_enabled, existing_servers, preserved_codex = _preserved_connections(workspace, managed_names)
-    if whatsapp.NAME in prepared and whatsapp.NAME not in previous and whatsapp.NAME in existing_servers:
-        raise DomainError("projection_conflict", "An existing unmanaged personal WhatsApp server requires reconciliation",
-                          details={"servers": [whatsapp.NAME]})
+    for server, connection in extension_connections.items():
+        if connection.require_new_binding and server in prepared and server not in previous and server in existing_servers:
+            raise DomainError("projection_conflict", "An existing unmanaged connection requires reconciliation", details={"servers": [server]})
     # Claude and Codex use separate configuration shapes for the same server.
     claude_servers, codex_servers = {}, {}
-    if whatsapp.NAME in prepared:
-        claude_servers[whatsapp.NAME] = {"type": "stdio", **whatsapp_client}
-        codex_servers[whatsapp.NAME] = {**whatsapp_client, "enabled_tools": whatsapp.TOOLS, "required": False}
     extension_files = {}
     for server, connection in extension_connections.items():
         if server in prepared:
             claude_servers[server] = dict(connection.entry(resolver.paths, workspace, data["agent_id"]))
             codex_servers[server] = dict(claude_servers[server])
+            if connection.tools:
+                codex_servers[server]["enabled_tools"] = list(connection.tools)
+            codex_servers[server].pop("type", None)
+            claude_servers[server].pop("required", None)
             for helper_name, body in dict(connection.files(resolver.paths, workspace, data["agent_id"])).items():
                 extension_files[_contribution_path(helper_name, extension_files)] = bytes(body)
     defaults = {"enableAllProjectMcpServers": False,
@@ -351,10 +348,9 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     local["permissions"]["defaultMode"] = "dontAsk"
     local["permissions"]["allow"] += ["Read", "Glob", "Grep", "WebFetch", "WebSearch"]
     for server in prepared:
-        if server == whatsapp.NAME:
-            local["permissions"]["allow"] += ["mcp__" + whatsapp.NAME + "__" + tool for tool in whatsapp.TOOLS]
-        else:
-            local["permissions"]["allow"].append("mcp__" + server + "__*")
+        connection = extension_connections.get(server)
+        tools = connection.tools if connection and connection.tools else ("*",)
+        local["permissions"]["allow"] += ["mcp__" + server + "__" + tool for tool in tools]
     if data["scope"]["kind"] == "ecosystem":
         # Claude refuses project-local bypass defaults. The prepared terminal
         # passes a trusted --settings file; local dontAsk also prevents popups
@@ -422,10 +418,6 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     orientation += "\n" + software_boundary + "\n"
     for server, connection in extension_connections.items():
         orientation += connection.orientation(server in prepared, ordubashy, agentic_view=resolver.require_agentic_view())
-    if whatsapp.NAME in prepared:
-        orientation += whatsapp.GUIDANCE
-    elif whatsapp.NAME in connections:
-        orientation += "\nThe personal WhatsApp reader is not installed. Ask the operator to repair its binding.\n"
     if ordubashy:
         orientation += ("\nCoordinate authorized operations across every active project and handle the shared\n"
             "owner/Ordubashy intake queue. Read agent_config_get and business_config_get before acting, use\n"

@@ -1,0 +1,11 @@
+# Optional WhatsApp connector
+
+This separately installed package supplies the private reader and the owner-approved `whatsapp_send` operation. Core works without the package. The native helper is bundled in the Linux x86-64 wheel; users do not need Go. The package is not enabled by copying its files alone: use Qorqbot's offline extension installation process to adopt its managed guidance and select `qorqut_whatsapp.extension:create`.
+
+The reader is bound to one explicitly selected global Ordubashy UUID. After installing the extension, run the bundled Python with `-m qorqut_whatsapp install-reader --instance /absolute/qorqbot/instance --agent <UUID>`, then explicitly pair with `-m qorqut_whatsapp pair --instance /absolute/qorqbot/instance`. Stop Qorqbot before pairing. All new helper, account, socket and log files stay inside the instance folder; a long installation path can exceed Linux's Unix socket limit and is refused. Pairing is an owner action and contacts WhatsApp; package installation does not.
+
+Read-only version 1 bindings cannot send. Existing version 2 managed-send bindings retain their authenticated private socket, secret and exact opaque account identity. See [the transport contract](native/README.md) for explicit managed-send setup. Every send still requires a granted global manager, a separate owner Signoff, current account/recipient validation and a durable background job. The agent MCP contains only `whatsapp_read`; a policy override cannot bypass approval. Ambiguous sends use receipt-only recovery, never an automatic resend.
+
+Do not uninstall while provider jobs are pending. Uninstalling does not delete historical Signoffs/jobs or account files. Private history stays restricted to the owner when the extension is absent. Profiles retaining a provider operation grant must be reconciled through the supported offline configuration path before removal; unknown grants fail closed.
+
+Build with `python tools/build.py --work /absolute/private/build-directory`. It uses the pinned official Go container, verifies module checksums, runs the race tests and packages the helper plus dependency notices. `native/` and `tests/` remain development-only. The package's indexed guidance and rendering source are independently verified against the installed wheel RECORD when no source checkout is present.

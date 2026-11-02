@@ -1,0 +1,5 @@
+.sg-whatsapp .sg-content-row { grid-template-columns: 2em minmax(0, 1fr); }
+.sg-whatsapp .sg-content-row { margin: 0 0 8px; }
+.sg-whatsapp .sg-text { padding: 4px 10px; border-left: 2px solid var(--line-2); background: var(--wash); }
+.sg-whatsapp .sg-text { max-height: none; overflow: visible; }
+.sg-inline .sg-whatsapp { margin-bottom: 12px; }

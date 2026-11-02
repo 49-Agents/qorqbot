@@ -6,7 +6,6 @@ from .viewbox import AgentViewbox
 from .document_history import DocumentHistory
 from .file_links import FileLinks
 from .documents import DocumentOperations
-from .whatsapp_send import WhatsAppSendOperations
 from .tasks import task_ports
 from qorqut_context.integration.filing.source_operations import ContextSourceOperations
 from qorqut_context.integration.queue import ContextQueueOperations
@@ -108,7 +107,6 @@ def register_business_domains(registry, application, paths, *, agent_resolver, q
     FileLinks(documents, paths).register(registry)
     assets.register(registry)
     data_uploads.register(registry)
-    WhatsAppSendOperations(application, paths, job_programs).register(registry)
     neutral = build_neutral_items(application, documents=documents, clock=clock, extensions=extensions.item_kinds())
     # The engine's operational records: the shared tag catalog, Tasks (over the neutral items and the host's ports),
     # Actions and the Context input queue. Their handlers install here.

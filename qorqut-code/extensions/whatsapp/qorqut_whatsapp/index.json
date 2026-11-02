@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "whatsapp-guidance",
+      "path": "qorqut_whatsapp/guidance.md",
+      "parameters": [],
+      "source_site": "qorqut_whatsapp/extension.py:guidance"
+    }
+  ]
+}
