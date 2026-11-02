@@ -448,7 +448,7 @@ function agfocusWorkRow(parent,source,target,kind) {
     _workParent:parent.id,_workBusinessId:source.business_id,_workKind:kind,_depth:(parent._depth || 0)+1};
 }
 function agfocusWorkReference(parent,source,other) {
-  const resourceTypes={table:'data_tables',product:'products',signoff:'signoffs',action:'action_logs',entity:'context_entities',agent:'agent_profiles',material:'documents'};
+  const resourceTypes={table:'data_tables',signoff:'signoffs',action:'action_logs',entity:'context_entities',agent:'agent_profiles',material:'documents'};
   const target={...other,type:other.resource_type==='email_conversations'?'email':other.type,resource_type:other.resource_type || resourceTypes[other.type] || other.type,
     business_id:source.business_id ?? null,business_slug:source.business_slug ?? null,business_name:source.business_name};
   return {id:`${parent.id}/${other.type}/${other.id}`,label:other.label || 'Related item',resolved_source:target,unavailable:false};
@@ -1201,7 +1201,6 @@ async function agfocusOpenItem(p,item) {
       detail.onDispose(()=>view.dispose());view.paint();return;
     }
     if(item.resource_type==='data_tables'){await tablesOpen(item.business_slug,item.id);return;}
-    if(item.resource_type==='products'){await productsOpen(item.business_slug,item.id);return;}
     if(item.resource_type==='documents') {
       const {document:doc}=coreData(await api(agfocusPath(p)+'/documents/'+encodeURIComponent(item.id)));
       if(detail.current())detail.host.innerHTML=`<div class="work-source">${esc(doc.body || 'No text preview available.')}</div>`;

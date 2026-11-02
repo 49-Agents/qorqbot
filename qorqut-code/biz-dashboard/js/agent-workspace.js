@@ -3,8 +3,7 @@
 const AGENT_WORKSPACE_BIZ_KEY = 'agent-workspace:business:v1';
 const AGENT_WORKSPACE_SECTION_KEY = 'agent-workspace:section:v1';
 const AGENT_WORKSPACE_SECTIONS = [
-  ['marketing', 'Marketing'], ['progress', 'Progress'], ['research', 'Research'],
-  ['milestones', 'Milestones'], ['accounting', 'Accounting'], ['tables', 'Tables'], ['tasks', 'Tasks'], ['browser', 'Browser'],
+  ['tasks', 'Tasks'], ['email', 'Mail'], ['progress', 'Progress'], ['tables', 'Tables'], ['browser', 'Browser'],
 ];
 const AGENT_WORKSPACE_GLOBAL_SECTIONS = [
   ['overview', 'Overview'], ['costs', 'Costs'], ['context', 'Context'], ['tables', 'Tables'],
@@ -25,9 +24,8 @@ const agentWorkspaceSection = (business, section = ls(agentWorkspaceSectionKey(b
   return sections.some(([key]) => key === section) ? section : sections[0][0];
 };
 const agentWorkspaceSectionIcon = key => ({overview: GLOBAL_ICONS.globe, costs: GLOBAL_ICONS.costs,
-  context: SVG_BRAIN, tables: GLOBAL_ICONS.tables, marketing: MK_ICO.queue,
-  progress: GLOBAL_ICONS.analytics, research: aicon('search', 'currentColor', 18),
-  milestones: aicon('flag', 'currentColor', 18), accounting: GLOBAL_ICONS.costs, tasks: T_VIEW_ICON.tasks, browser: T_VIEW_ICON.browser})[key];
+  context: SVG_BRAIN, tables: GLOBAL_ICONS.tables, email: aicon('mail', 'currentColor', 18),
+  progress: GLOBAL_ICONS.analytics, tasks: T_VIEW_ICON.tasks, browser: T_VIEW_ICON.browser})[key];
 
 // Copy only the shared directory and owner session, never the parent's mutable
 // navigation or editor state. The child still uses native authenticated reads.
@@ -54,7 +52,7 @@ const agentWorkspaceDescriptorRole = (view, role) => view === 'global_context' ?
 function agentWorkspaceLegacyDestination(tab, hash) {
   if (embeddedAgentPane) return null;
   const parts = hash.split('/')[2] === tab ? hash.split('/').slice(3) : [];
-  const alias = {learning: ['context', ['learning']], 'personal-context': ['context', ['personal', ...parts]]}[tab];
+  const alias = {learning: ['context', ['learning']]}[tab];
   const key = alias ? alias[0] : tab;
   return AGENT_PANE_DESTINATIONS[key] ? {...AGENT_PANE_DESTINATIONS[key], tab: key, route: (alias ? alias[1] : parts).join('/')} : null;
 }
@@ -96,7 +94,7 @@ function agentWorkspaceRehydrate() {
   if (descriptor.view === 'calendar') { agentWorkspaceStore(null); globalThis.ovOpen?.('calendar'); return null; }
   if (descriptor.view === 'tables') {
     agentWorkspaceStore(null);
-    globalThis.ovOpen?.('tables', '', {scope: 'global', id: descriptor.table, mode: descriptor.mode, department: descriptor.department, purpose: descriptor.purpose});
+    globalThis.ovOpen?.('tables', {scope: 'global', id: descriptor.table, mode: descriptor.mode, purpose: descriptor.purpose});
     return null;
   }
   return AGENT_PANE_DESCRIPTOR_VIEWS.includes(descriptor.view) ? descriptor : null;
@@ -137,7 +135,7 @@ function agentWorkspaceUnavailable(c, tab) {
 // Embedded pages cannot change the surrounding app; they ask it to open an agent or a business view.
 async function agentWorkspaceEscape({agent, business, table}) {
   if (agent) return globalAgentsNavigate(agent);
-  if (table) { globalThis.ovOpen?.('tables', '', {scope: table.scope, id: table.id, mode: table.mode, ...table.filters}); return; }
+  if (table) { globalThis.ovOpen?.('tables', {scope: table.scope, id: table.id, mode: table.mode, ...table.filters}); return; }
   if (!state.bizs.some(b => b.slug === business)) { toast('This project is unavailable.'); return; }
   // A selected agent with no Business pane leaves the business to the guarded top-level selection.
   if (!_agpad?.views.includes('business')) return selectBiz(business);
@@ -176,7 +174,7 @@ function agentWorkspaceFrame(view, business, section, hint) {
   if (section) params.set('section', section);
   if (hint?.route) params.set('route', hint.route);
   if (hint?.host) { params.set('workspace-host', hint.host); frame.dataset.workspaceHost = hint.host; }
-  for (const key of ['table', 'mode', 'department', 'purpose']) if (hint?.[key]) params.set(key, hint[key]);
+  for (const key of ['table', 'mode', 'purpose']) if (hint?.[key]) params.set(key, hint[key]);
   frame.className = 'agent-workspace-frame';
   frame.setAttribute('aria-label', ['business', 'tables'].includes(view) ? `${business === 'global' ? 'Global' : business} · ${section}` : T_VIEW_LABEL[view]);
   // The production dashboard cannot itself be framed (CSP/X-Frame-Options).
@@ -294,7 +292,7 @@ async function agentWorkspaceLeaveEmbedded() {
   if (!confirm('This pane has unsaved edits. Discard them and leave?')) return false;
   // These editors retain drafts in document-local maps. A confirmed discard
   // must clear them now that section navigation no longer destroys the frame.
-  _dataDrafts.clear(); personalDrafts.clear(); workingMemoryDrafts.clear();
+  _dataDrafts.clear(); workingMemoryDrafts.clear();
   return true;
 }
 
@@ -315,8 +313,8 @@ async function agentWorkspaceBootEmbedded() {
       if (link && !event.defaultPrevented && event.button === 0 && !(event.ctrlKey || event.metaKey || event.shiftKey)) { event.preventDefault(); routeTo(link.getAttribute('href')); }
     });
     await agentWorkspaceNavigateEmbedded(view, business, agentWorkspaceSection(business, params.get('section')), params.get('route') || '');
-    if (embeddedTablesView() && ['table', 'mode', 'department', 'purpose'].some(key => params.get(key))) await tablesOpen(business === 'global' ? null : business, params.get('table'), params.get('mode') || 'tables',
-      {department: params.get('department') || '', purpose: params.get('purpose') || ''});
+    if (embeddedTablesView() && ['table', 'mode', 'purpose'].some(key => params.get(key))) await tablesOpen(business === 'global' ? null : business, params.get('table'), params.get('mode') || 'tables',
+      {purpose: params.get('purpose') || ''});
     // Reuse the parent's data-change stream; no background drawers or agent feeds.
     connectEvents();
   } catch (error) {
@@ -338,8 +336,7 @@ async function agentWorkspaceNavigateEmbedded(view, business = 'global', section
     state.globalTab = 'tables';
     hash = state.scope === 'global' ? '#/global/tables' : '#' + business;
   } else if (state.scope === 'business') {
-    state.tab = ['marketing', 'accounting', 'tasks', 'browser'].includes(section) ? section : 'progress';
-    businessProgressBiz = business; businessProgressView = section;
+    state.tab = ['email', 'tasks', 'browser'].includes(section) ? section : 'progress';
     hash = '#' + business;
   } else {
     state.globalTab = view === 'business' ? section : 'context';
@@ -356,9 +353,7 @@ function agentWorkspaceRenderEmbedded(c) {
   if (!agentWorkspaceEmbedded()) return false;
   const view = new URLSearchParams(location.search).get('agent-pane-embed');
   if (state.scope === 'business' && state.tab === 'progress') {
-    if (businessProgressView === 'milestones') renderMilestones(c);
-    else if (businessProgressView === 'research') c.innerHTML = '<p class="muted agent-workspace-empty">No research yet.</p>';
-    else renderBusinessProgress(c);
+    renderBusinessProgress(c);
     return true;
   }
   if (embeddedTablesView()) {

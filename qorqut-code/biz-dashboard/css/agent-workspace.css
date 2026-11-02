@@ -132,14 +132,6 @@
 .agent-pane-embedded .business-progress-grid { gap:12px; }
 .agent-pane-embedded .business-progress-metric { padding:15px; background:none; }
 .agent-pane-embedded .business-progress-page > header { margin-bottom:18px; }
-.agent-pane-embedded .mkwrap { flex-direction:column; min-height:0; }
-.agent-pane-embedded .mkwrap > .mknav { width:100%; flex:none; display:flex; flex-direction:row; flex-wrap:wrap; align-items:center; gap:4px; padding:0 0 10px; border-right:0; }
-.agent-pane-embedded .mkwrap > .mknav .item { width:auto; margin:0; padding:6px 8px; }
-.agent-pane-embedded .mkwrap > .mknav .item .nm { font-size:12px; }
-.agent-pane-embedded .mkwrap > .mknav .mkpend:empty { display:none; }
-.agent-pane-embedded .mkbar { padding:0 0 5px; }
-.agent-pane-embedded .mkview { padding:14px 0; }
-.agent-pane-embedded .mkmain { min-height:250px; }
 .agent-pane-embedded .global-context > .ctxsplit { display:flex; flex-direction:column; }
 .agent-pane-embedded .global-context .ctxtree { flex:none; padding:0 0 12px; border:0; }
 .agent-pane-embedded .global-context .crows { display:flex; flex-wrap:wrap; gap:4px; }

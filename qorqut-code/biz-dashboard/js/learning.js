@@ -1,12 +1,12 @@
 // ---------------------------------------------------------------- learning
 // The Learning page of the Context tab: the owner triages the candidates `bizlearn` pulled out of the
 // agents' transcripts. Left is owner review; right shows decisions and guided delta work.
-// Accepted context moves to Context after its durable filer handoff. Cards borrow the marketing Queue's markup so the two review
-// surfaces read the same; nothing here touches `_mk`. Depends on core.js and marketing.js's `mkRel`.
+// Accepted context moves to Context after its durable filer handoff. Cards share the review-card markup (css/review-cards.css) with Signoffs.
+// Depends on core.js.
 
 // ---------------------------------------------------------------- palette & icons
-// Type is a colour (five from the shared COLORS palette, so a learning never reads as a department glyph),
-// scope is an icon. Lucide strokes at the same weight as MK_ICO.
+// Type is a colour (five from the shared COLORS palette, so a learning never reads as an agent glyph),
+// scope is an icon. Lucide strokes at the same weight as the other icons.
 const LN_TAGS = [
   ["fact", "Fact", COLORS.blue],
   ["decision", "Decision", COLORS.plum],
@@ -51,7 +51,15 @@ const lnDecided = it => Date.parse((it && it.decision && it.decision.created) ||
 const lnNote = it => (it && it.decision && it.decision.note) || "";
 const lnErr = r => r?.error?.message || r?.error || "No reply from the server";
 const lnWho = a => String(a || "").replace(/^(agent|human|system):/, "");
-const lnRel = t => (typeof mkRel === "function" ? mkRel(t) : "");
+// "in 3h" / "2h ago" / "in 1d"; `t` is an ISO string or epoch seconds
+function lnRel(t, now = Date.now()) {
+  const ms = typeof t === "number" ? t * 1000 : Date.parse(t);
+  if (isNaN(ms)) return "";
+  const d = ms - now, a = Math.abs(d);
+  if (a < 60e3) return "now";
+  const u = a < 3600e3 ? `${Math.round(a / 60e3)}m` : a < 129600e3 ? `${Math.round(a / 3600e3)}h` : `${Math.round(a / 86400e3)}d`;
+  return d < 0 ? `${u} ago` : `in ${u}`;
+}
 function lnSourceAge(t, now = Date.now()) {
   const at = Date.parse(t || "");
   if (!Number.isFinite(at)) return "";

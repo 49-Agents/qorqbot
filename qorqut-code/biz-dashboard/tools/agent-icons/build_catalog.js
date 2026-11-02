@@ -9,7 +9,7 @@ const AGENT_ICON_IDS = ['bot', 'brain', 'sparkles', 'zap', 'rocket', 'flame', 'g
   'square', 'lightbulb', 'flag', 'hand'];
 function loadCore() {
   const context = vm.createContext({URLSearchParams, location: {search: ''}});
-  vm.runInContext(fs.readFileSync(path.join(root, 'js/departments.js'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'js/core.js'), 'utf8').split('// lazy:')[0], context);
+  vm.runInContext(fs.readFileSync(path.join(root, 'js/core.js'), 'utf8').split('// lazy:')[0], context);
   return context;
 }
 const label = id => id.replace(/-/g, ' ').replace(/^./, c => c.toUpperCase());

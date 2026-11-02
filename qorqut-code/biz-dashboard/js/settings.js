@@ -50,7 +50,7 @@ async function renderSettings(c) {
       <div class="muted small">${global ? "Shared defaults for all projects and Global agents. Projects can override individual values." : "Global values are inherited automatically. Override a value for this project, or use Global again."}</div>
     </div><button class="btn" id="envsave" disabled>Save</button></div>
     <div id="envruntime">${environmentStatusHtml(p)}</div>
-    ${global ? '<p class="muted small">Agent Browser views come from the installation’s browser viewer bindings, not from these settings. <strong>MARKETING_AGENT_REMOTE_CONTROL_DESKTOP_SERVER</strong> is deprecated and no longer opens Marketing’s Browser.</p>' : ''}
+    ${global ? '<p class="muted small">Agent Browser views come from the installation’s browser viewer bindings, not from these settings.</p>' : ''}
     <div class="envrows" id="envrows"></div>
     <button class="envadd" id="envadd" disabled>+ Add variable</button>
     <div class="set-note muted small" id="envnote" role="status"></div>

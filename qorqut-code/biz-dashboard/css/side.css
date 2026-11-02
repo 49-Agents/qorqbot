@@ -5,7 +5,7 @@
 .side h2:first-child { margin-top: 20px; }
 
 /* ------------------------------------------------------------ log rows (stroke) — parked: no #log on screen right now */
-/* one row per action: a 2px department stroke down the left, the summary in one line, time + actor in mono
+/* one row per action: a 2px stroke down the left, the summary in one line, time + actor in mono
    under it; days are a gap with a small label, not a rule. ~7 rows visible, the rest scroll; thin scrollbar */
 .side h2 .cnt { margin-left: 8px; font: 10.5px var(--mono); color: var(--fg-3); letter-spacing: 0; text-transform: none; font-weight: 400; }
 .log { padding: 0 14px 12px 22px; max-height: calc(7 * 36px + 24px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; scrollbar-gutter: stable; }

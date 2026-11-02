@@ -1,7 +1,5 @@
-/* Work-group (parent Task) associations, campaign badges and related-context review. */
+/* Work-group (parent Task) associations and related-context review. */
 .work-back{display:flex;gap:6px;align-items:center;margin-bottom:24px}
-.campaign-badge{display:inline-block;width:fit-content;max-width:100%;height:auto;min-height:24px;padding:3px 9px;border:1px solid var(--line);border-radius:14px;font-size:11px;font-weight:400;color:var(--fg-2);background:transparent;white-space:normal;overflow-wrap:anywhere;text-align:left}
-.sg-row>.campaign-badge{margin-top:9px}
 .work-source{white-space:pre-wrap;overflow-wrap:anywhere;max-height:65vh;overflow:auto}
 .work-asset-preview{display:block;max-width:100%;max-height:55vh;object-fit:contain;margin:0 auto}
 .work-associations{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0;font-size:12px}.work-association-list{max-height:55vh;overflow:auto;margin-top:12px}.work-association-choice{display:flex;align-items:center;gap:10px;padding:12px 3px;border-bottom:1px solid var(--line,#333);cursor:pointer}.work-association-choice input{width:16px;height:16px;accent-color:#fff}.work-association-choice span:last-child{min-width:0;overflow-wrap:anywhere}.work-association-choice small{display:block;color:var(--muted,#999);margin-top:4px}.up-work{margin:0 0 16px}.work-association-error{margin-top:12px}

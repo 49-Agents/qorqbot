@@ -62,7 +62,7 @@ const globalAgentNavRank = agent => {
   const role = agent.role?.id || agent.role_id;
   if (role === 'ordubashy') return 0;
   if (role === 'learning-applier') return 1;
-  return role === 'global-marketing' || agent.presentation?.department === 'marketing' ? 2 : 3;
+  return role === 'global-marketing' ? 2 : 3;
 };
 // Size varies by location; the saved profile and shared renderer select the artwork.
 function globalAgentNavAvatar(agent) {
@@ -207,8 +207,8 @@ async function renderGlobalAgents(c) {
   // A stored Business descriptor for an agent whose pane no longer offers it opens the shared Tables for a table selection,
   // and is otherwise dropped, leaving the agent on its own default view.
   if (request?.view === 'business' && target && !agentWorkspaceDescriptorRole('business', target.role?.id)) {
-    if (request.section === 'tables' || request.table) globalThis.ovOpen?.('tables', '', ['scope', 'table', 'mode', 'department', 'purpose'].some(key => request[key])
-      ? {scope: request.scope, id: request.table, mode: request.mode, department: request.department, purpose: request.purpose} : null);
+    if (request.section === 'tables' || request.table) globalThis.ovOpen?.('tables', ['scope', 'table', 'mode', 'purpose'].some(key => request[key])
+      ? {scope: request.scope, id: request.table, mode: request.mode, purpose: request.purpose} : null);
     agentWorkspaceStore(null);
     request = null;
   }
@@ -222,7 +222,7 @@ async function renderGlobalAgents(c) {
   // ?workspace= links translate at this boundary: Calendar and Tables are drawer tabs (Tables opens Global's list).
   let linkedView = linkedWorkspace;
   if (linkedView === 'calendar') { linkedView = null; globalThis.ovOpen?.('calendar'); }
-  else if (linkedView === 'tables') { linkedView = null; globalThis.ovOpen?.('tables', '', {scope: 'global'}); }
+  else if (linkedView === 'tables') { linkedView = null; globalThis.ovOpen?.('tables', {scope: 'global'}); }
   agentWorkspaceRequest = request;
   agentWorkspaceApplied = JSON.stringify(request || null);
   select(target || agents.find(a => a.role?.id === 'ordubashy') || agents[0] || GLOBAL_WORKSPACE_TERMINAL, request?.view || linkedView);

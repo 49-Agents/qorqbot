@@ -133,7 +133,7 @@ async function ctxSearch(q) {
   pubMountSearch(v, {kind: 'business', id: biz}, q, nav);
 }
 
-const ctxSig = (d, p) => (["_learning", "_tables", "_products", "_home", "_uploads"].includes(p) || p?.startsWith("_obj/") || p?.startsWith("_source/")) ? p // These views own their refreshes.
+const ctxSig = (d, p) => (["_learning", "_tables", "_home", "_uploads"].includes(p) || p?.startsWith("_obj/") || p?.startsWith("_source/")) ? p // These views own their refreshes.
   : p === "_people" ? JSON.stringify([d?.people,d?.graph?.nodes.filter(n=>n.type==='person'),d?.graph?.edges.filter(e=>e.source.type==='person' || e.target.type==='person')])
   : JSON.stringify([(d || {}).tree,
     (d || {}).people, p ? null : (d || {}).pillars,
@@ -216,9 +216,7 @@ function ctxTree(d) {
   const graphNodes = d.graph?.nodes || [];
   rows.push(`<div class="ctx-counts">${[['table','Tables','_tables'],['person','People','_people']].map(([type,label,path]) => `<button type="button" data-count-page="${path}"><b>${d.loading || d.counts?.[type] == null && !graphNodes.length ? "—" : d.counts?.[type] ?? graphNodes.filter(n=>n.type===type || n.kind===type).length}</b><span>${label}</span></button>`).join('')}</div>`);
   rows.push(`<div class="item ov ${isRoot ? 'on' : ''}" data-p=""><div class="nm">${aicon('share-2','currentColor',15)}<span class="tt">Graph</span></div></div>`);
-  for (const [key, label, icon] of [['_tables', 'Tables', aicon('database', 'currentColor', 15)], ['_products', 'Products', `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg>`]]) {
-    rows.push(`<button type="button" class="item bt ${state.ctx === key ? 'on' : ''}" data-p="${key}"><div class="nm">${icon}<span class="tt">${label}</span></div></button>`);
-  }
+  rows.push(`<button type="button" class="item bt ${state.ctx === '_tables' ? 'on' : ''}" data-p="_tables"><div class="nm">${aicon('database', 'currentColor', 15)}<span class="tt">Tables</span></div></button>`);
   const cq = _ctxQueue?.queue, attention = cq && (cq.blocked || cq.completion_conflict || cq.queue_blocked), active = cq && (cq.queued || cq.processing || cq.discard_requested || cq.publication_pending_completion);
   const badge0 = attention ? `<span class="bdot bad"></span>` : active ? `<span class="bdot acc"></span>` : "";
   const peopleOn0 = state.ctx === "_people" || (state.ctx != null && PERSON_VIEW_RE.test(state.ctx));
@@ -239,12 +237,12 @@ async function ctxGo(p) {
   return ctxShow(p);
 }
 
-const ctxIndependentPage = p => p === '_learning' || p === '_tables' || p === '_products' || p === '_home' || p === '_people' || p === '_uploads' || p?.startsWith('_obj/') || p?.startsWith('_source/');
+const ctxIndependentPage = p => p === '_learning' || p === '_tables' || p === '_home' || p === '_people' || p === '_uploads' || p?.startsWith('_obj/') || p?.startsWith('_source/');
 async function ctxShow(p) {
   if (p === "_tasks") { p = ""; state.ctx = ""; }
-    ls(`ctxpage:${state.biz}`, (["_tables", "_products", "_people", "_learning", "_uploads", "_home"].includes(p)) ? p : "");
+    ls(`ctxpage:${state.biz}`, (["_tables", "_people", "_learning", "_uploads", "_home"].includes(p)) ? p : "");
   const pane = $("#ctxview");
-  pane?.classList.toggle('ctxembedded-view', ['_tables', '_products'].includes(p));
+  pane?.classList.toggle('ctxembedded-view', p === '_tables');
   ctxClearGraph();
   pane?.classList.remove('global-context-graph-view');
   pubMountGeneration++;
@@ -272,12 +270,11 @@ async function ctxShow(p) {
     const v = $("#ctxview"); if (v) v.innerHTML = `<div class="empty">learning.js not loaded</div>`;
     return;
   }
-  if (['_tables', '_products'].includes(p)) {
+  if (p === '_tables') {
     _ctxLastSig = ctxSig(_ctxData, p);
     pane.innerHTML = '<div id="ctxembedded"></div>';
     const content = pane.firstElementChild;
-    if (p === '_tables') return renderTables(content);
-    if (p === '_products') return renderProducts(content);
+    return renderTables(content);
   }
   if (p === "_home") { _ctxLastSig = ctxSig(_ctxData, p); return openHome(); }
   const om = p != null && OBJ_PAGE_RE.exec(p);

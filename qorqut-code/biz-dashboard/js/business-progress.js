@@ -1,37 +1,5 @@
-let businessProgressView='progress', businessProgressBiz=null;
-function renderProgressWorkspace(c) {
- if(businessProgressBiz!==state.biz){businessProgressBiz=state.biz;businessProgressView="progress";}
- c.innerHTML=`<div class="split business-progress-workspace"><nav class="listcol ctxtree" aria-label="Progress"><div class="crows">${[['progress','Progress','chart-column'],['milestones','Milestones','flag'],['research','Research','search']].map(([key,label,icon])=>`<button type="button" class="item ${businessProgressView===key?'on':''}" data-progress-view="${key}"><span class="nm">${aicon(icon,'currentColor',18)}<span class="tt">${label}</span></span></button>`).join('')}</div></nav><div class="pane" id="business-progress-body"></div></div>`;
- c.querySelectorAll('[data-progress-view]').forEach(b=>b.onclick=()=>{businessProgressView=b.dataset.progressView;renderProgressWorkspace(c);});
- const body=c.querySelector('#business-progress-body');
- if(businessProgressView==='progress')return renderBusinessProgress(body);
- if(businessProgressView==='milestones')return renderMilestones(body);
- body.innerHTML='<p class="muted">No research yet.</p>';
-}
-// Read-only business milestones and evidence-based progress; no background polling.
+// Read-only evidence-based progress of a project's Tasks and Actions; no background polling.
 const PROGRESS_METRICS = [['emails_sent','Emails sent'],['tasks_done','Tasks done'],['actions','Actions'],['signoffs_approved','Signoffs approved']];
-function milestoneTime(value) {
-  return sjDateTime(value) || 'Date not recorded';
-}
-async function renderMilestones(container) {
-  const biz = state.biz, token = {};
-  container._businessPage = token;
-  const active = () => container.isConnected && container._businessPage === token && state.biz === biz && state.tab === 'progress' && businessProgressView === 'milestones' && state.scope !== 'global';
-  container.innerHTML = '<section class="business-progress-page"><header><h1>Milestones</h1></header><p role="status">Loading milestones…</p></section>';
-  try {
-    const data = coreData(await post(`/biz/${encodeURIComponent(biz)}/operations/milestones_list`, {}));
-    if (!active()) return;
-    const items = data.items || [], done = items.filter(m => m.status === 'done').length;
-    container.innerHTML = `<section class="business-progress-page"><header><h1>Milestones</h1><span class="muted">${done} / ${items.length} done</span></header>
-      ${items.length ? `<ol class="milestone-list">${items.map((m,i) => `<li class="milestone-card ${m.status === 'done' ? 'is-done' : ''}"><span class="milestone-marker" aria-label="${m.status === 'done' ? 'Done' : 'Open'}">${m.status === 'done' ? '✓' : i+1}</span><div class="milestone-body"><h2>${esc(m.title)}</h2>${m.description ? `<p>${esc(m.description)}</p>` : ''}
-      ${m.status === 'done' ? `<div class="milestone-completion"><span>Done · ${esc(milestoneTime(m.completed_at))}</span>${m.completion_comment ? `<p>${esc(m.completion_comment)}</p>` : ''}</div>` : ''}
-      ${m.history?.length > 1 ? `<details class="milestone-history"><summary>History</summary>${m.history.map(e => `<p>${e.status === 'done' ? 'Done' : 'Reopened'} · ${esc(milestoneTime(e.created_at))}${e.comment ? ` — ${esc(e.comment)}` : ''}</p>`).join('')}</details>` : ''}</div></li>`).join('')}</ol>` : '<p class="muted">No milestones yet.</p>'}</section>`;
-  } catch (error) {
-    if (!active()) return;
-    container.querySelector('[role=status]').textContent = error.message || 'Milestones unavailable.';
-    const retry = document.createElement('button'); retry.textContent = 'Retry'; retry.onclick = () => renderMilestones(container); container.firstElementChild.appendChild(retry);
-  }
-}
 function progressChart(series, key) {
   const maximum = Math.max(1,...series.map(d => d[key]));
   const width = 520, height = 116, step = width / Math.max(1,series.length);

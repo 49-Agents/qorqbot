@@ -23,17 +23,13 @@ async function refreshSide() {
   if (logEl) { logEl.innerHTML = rows.length ? logHtml(rows) : `<div class="empty">Nothing logged yet.</div>`; logTips(logEl, rows); }
   logToasts(biz, rows);
   if (live && live.since) _liveSince[biz] = live.since;
-  // The shared platform Signoff feed supplies Marketing badges and outcome notifications.
-  const reqs = (live && Array.isArray(live.platform_signoffs)) ? live.platform_signoffs.map(mkPlatformRow) : [];
-  if (typeof mkLiveToasts === "function") mkLiveToasts(biz, reqs);
-  if (typeof mkBadgePaint === "function" && state.tab !== "marketing") mkBadgePaint(reqs);
   if (typeof rtFailureToasts === "function") rtFailureToasts(live && live.routine_failures);
   if (typeof lnLivePaint === "function") lnLivePaint(live);   // learnings_open → the Context rail badge
   if (typeof sgLivePaint === "function") sgLivePaint(biz, live);
   } catch (_) { /* Keep the last good sidebar snapshot. */ } finally { sidePending = false; }
 }
 
-// Shared activity rows: department stroke, summary, time/actor, and an optional related task.
+// Shared activity rows: summary, time/actor, and an optional related task.
 // Only the log's explicit task reference establishes a relationship; prose is never matched.
 function logTaskId(entry) {
   const ref = entry.refs && entry.refs.task;
@@ -62,12 +58,11 @@ function logHtml(rows) {
     : new Date(k + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
   let day = null, html = "";
   for (const e of rows) {
-    const d = dept(TAG_DEPT[e.tag]), who = String(e.actor || "").replace(/^(agent|human|system):/, "");
     const raw = String(e.ts || ""), { day: k, time } = logWhen(e);
     const task = logTaskId(e);
     if (k !== day) { day = k; html += `<div class="lday" data-day="${esc(dayLabel(k))}"></div>`; }
     const title=logHeadline(e);
-    html += `<div class="le${task ? " has-task" : ""}" style="--c:${d.color}"><time class="ltime" datetime="${esc(raw)}">${esc(time)}</time><div class="ls" title="${esc(title)}">${esc(title)}</div><div class="log-tags">${e.tag?(TAG_DEPT[e.tag] ? departmentTag(e.tag) : `<span class="log-tag">${esc(e.tag)}</span>`):''}</div>` +
+    html += `<div class="le${task ? " has-task" : ""}"><time class="ltime" datetime="${esc(raw)}">${esc(time)}</time><div class="ls" title="${esc(title)}">${esc(title)}</div><div class="log-tags">${e.tag?`<span class="log-tag">${esc(e.tag)}</span>`:''}</div>` +
       (task ? `<button class="ltask" type="button" title="Open related task" aria-label="Open related task">${T_VIEW_ICON.tasks}</button>` : "") + `</div>`;
   }
   return html;
@@ -101,7 +96,7 @@ function logToasts(biz, rows) {
   if (!seen) { _logSeen[biz] = new Set(rows.map(key)); return; }
   rows.filter(e => !seen.has(key(e))).reverse().forEach(e => {
     seen.add(key(e));
-    const d = dept(TAG_DEPT[e.tag]), who = String(e.actor || "").replace(/^(agent|human|system):/, "");
-    if (typeof notify === "function") notify({ text: e.summary || e.tag || "action", sub: `${logWhen(e).time || logWhen(e).day} · ${who}`, color: d.color });
+    const who = String(e.actor || "").replace(/^(agent|human|system):/, "");
+    if (typeof notify === "function") notify({ text: e.summary || e.tag || "action", sub: `${logWhen(e).time || logWhen(e).day} · ${who}` });
   });
 }

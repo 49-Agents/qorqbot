@@ -193,11 +193,11 @@ async function rtWrite(op, row, biz) {
 function rtDetail(row) {
   const fields = [
     ['Next scheduled',row.status === 'paused' ? 'Paused' : rtTime(row.next,row.zone)],
-    ['Program',row.program], ['Arguments',JSON.stringify(row.arguments || {})], ['Departments',(row.departments || []).map(departmentLabel).join(', ')],
+    ['Program',row.program], ['Arguments',JSON.stringify(row.arguments || {})],
     ['Timeout',row.timeout + ' seconds'], ['Target',{root:'Global','each-business':'Each project',business:'This project'}[row.target || 'business'] || row.target],
     ...(row.scheduling_available === false ? [['Scheduling',row.scheduling_unavailable_reason || 'Unavailable']] : []),
   ];
-  rtDialog = modal({title:esc(row.name),width:620,body:`<div class="tdetail rtdetail"><div class="rtscope">${rtScope(row.scope)}</div><div class="flds">${fields.map(([label,value])=>`<span class="k">${label}</span><span class="v">${label==='Departments'?(row.departments || []).map(departmentTag).join(' '):esc(value)}</span>`).join('')}</div><p>${esc(row.why)}</p></div>`,actions:[
+  rtDialog = modal({title:esc(row.name),width:620,body:`<div class="tdetail rtdetail"><div class="rtscope">${rtScope(row.scope)}</div><div class="flds">${fields.map(([label,value])=>`<span class="k">${label}</span><span class="v">${esc(value)}</span>`).join('')}</div><p>${esc(row.why)}</p></div>`,actions:[
     {label:'Close',onClick:close=>close()},
     {label:'Edit',onClick:close=>{close();rtOpenForm(row);}},
     ...(rtData.enabled && row.available !== false ? [{label:'Run now',primary:true,onClick:close=>{close();rtAction('run',row);}}] : []),
@@ -222,22 +222,20 @@ function rtFormHTML(row = {}) {
     <div id="rtpreview" class="rtwide rtmuted" aria-live="polite">Checking next scheduled times…</div>
     <label id="rttarget" ${row.scope !== 'global' ? 'hidden' : ''}>Run in<select class="inp" name="target"><option value="each-business" ${row.target !== 'root' ? 'selected' : ''}>Each project</option><option value="root" ${row.target === 'root' ? 'selected' : ''}>Global</option></select></label>
     ${input('timeout','Timeout (seconds)',row.timeout || 900,'type="number" min="60" max="7200" required')}
-    <fieldset class="rtwide"><legend>Departments</legend>${Object.keys(DEPTS).map(d=>`<label class="rtcheck"><input type="checkbox" name="departments" value="${d}" ${(row.departments || ['operations']).map(departmentId).includes(d) ? 'checked' : ''}>${departmentTag(d)}</label>`).join('')}</fieldset>
     <label class="rtwide">Why<textarea class="inp" name="why" required>${esc(row.why || '')}</textarea></label></div><p id="rterror" class="rtfail" role="alert"></p></form>`;
 }
 function rtOpenForm(row = null) {
   const draft = {scope:row && row.scope || (rtGlobal() ? 'global' : 'biz'),biz:rtContextBiz(),key:rtContextKey()};
   const save = async (close, el) => {
     const form = el.querySelector('#rtform'); if (!form.reportValidity()) return;
-    const data = new FormData(form), departments = data.getAll('departments');
-    if (!departments.length) { form.querySelector('#rterror').textContent = 'Choose at least one department.'; return; }
+    const data = new FormData(form);
     if (rtContextKey() !== draft.key) { form.querySelector('#rterror').textContent = 'The review context changed. Reopen this form.'; return; }
     let argumentsValue;
     try { argumentsValue = rtReadArguments(form); } catch (error) { form.querySelector('#rterror').textContent = error.message; return; }
     const program = (rtData.programs || []).find(p => p.id === data.get('program'));
     if (!program || program.unavailable_reason) { form.querySelector('#rterror').textContent = program && program.unavailable_reason || 'Select an available program.'; return; }
     const definition = {name:data.get('name'),program:program.id,arguments:argumentsValue,schedule:data.get('when'),timezone:data.get('tz'),
-      timeout_seconds:Number(data.get('timeout')),departments,why:data.get('why'),status:row && row.status || 'active',
+      timeout_seconds:Number(data.get('timeout')),why:data.get('why'),status:row && row.status || 'active',
       target:draft.scope === 'global' ? data.get('target') : 'business'};
     const payload = {op:row ? 'set' : 'add',definition,
       ...(row ? {id:row.id,expected_revision:row.revision} : {})};

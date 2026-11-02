@@ -3,16 +3,6 @@
 .business-progress-page h1{font-size:16px;font-weight:500;margin:0}
 .business-progress-page h2{font-size:14px;font-weight:500;margin:0;overflow-wrap:anywhere;text-transform:none;letter-spacing:0;color:var(--fg)}
 .business-progress-page p{line-height:1.6;overflow-wrap:anywhere}
-.milestone-list{list-style:none;margin:0;padding:0;display:grid;gap:12px}
-.milestone-card{display:flex;align-items:flex-start;gap:16px;padding:20px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
-.milestone-marker{display:grid;place-items:center;flex:0 0 26px;height:26px;border:1px solid var(--line);border-radius:50%;font-size:12px;color:var(--fg-3)}
-.milestone-body{min-width:0;flex:1;padding-top:3px}
-.milestone-body>p{font-size:13px;color:var(--fg-2);margin:8px 0 0;white-space:pre-wrap}
-.milestone-card.is-done .milestone-marker{color:var(--ok);border-color:currentColor;background:color-mix(in srgb,var(--ok) 10%,transparent)}
-.milestone-card.is-done h2{color:var(--ok)}
-.milestone-completion,.milestone-history{font-size:11px;color:var(--fg-3);margin-top:12px}
-.milestone-completion p{margin:4px 0 0;white-space:pre-wrap}
-.milestone-history summary{cursor:pointer}
 .business-progress-period{display:flex;gap:6px}
 .business-progress-period button{font:inherit;font-size:12px;padding:6px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--fg-2)}
 .business-progress-period button[aria-pressed=true]{background:var(--wash);color:var(--fg)}
@@ -26,25 +16,4 @@
 .business-progress-chart text{fill:var(--fg-2);font:16px sans-serif}
 .business-progress-axis{display:flex;justify-content:space-between;color:var(--fg-3);font-size:10px}
 .business-progress-coverage{font-size:11px;color:var(--fg-3);margin-top:20px}
-@media(max-width:650px){.business-progress-page{padding:20px 12px}.business-progress-grid{grid-template-columns:1fr}.business-progress-page header{flex-wrap:wrap}.milestone-card{padding:16px;gap:12px}}
-
-.business-progress-workspace {height:100%;width:100%;}
-.business-progress-workspace .pane {flex:1;min-width:0;}
-.business-progress-workspace button.item {display:block;width:calc(100% - 20px);height:auto;border:0;background:transparent;color:var(--fg-2);text-align:left;font-weight:400;transform:none;}
-.business-progress-workspace button.item:hover,.business-progress-workspace button.item.on {background:var(--wash);color:var(--fg);}
-@media(max-width:760px){
- .business-progress-workspace {display:flex;flex-direction:column;}
- .business-progress-workspace > .listcol {width:100%;flex:none;border-right:0;border-bottom:1px solid var(--line);}
- .business-progress-workspace .crows {display:flex;padding:8px;overflow-x:auto;}
- .business-progress-workspace button.item {width:auto;flex:none;margin:0;padding:10px;}
- .business-progress-workspace > .pane {padding:16px;width:100%;}
-}
-
-body.agent-pane-embedded .business-progress-page:has(.milestone-list) > header { margin-bottom:10px; font-size:11px; }
-body.agent-pane-embedded .milestone-list { gap:7px; }
-body.agent-pane-embedded .milestone-card { gap:10px; padding:11px 12px; border-radius:9px; background:none; }
-body.agent-pane-embedded .milestone-marker { flex-basis:20px; height:20px; font-size:10px; }
-body.agent-pane-embedded .milestone-body { padding-top:1px; }
-body.agent-pane-embedded .milestone-body h2 { font-size:12.6px; }
-body.agent-pane-embedded .milestone-body > p { margin-top:4px; font-size:12px; line-height:1.45; }
-body.agent-pane-embedded .milestone-completion, body.agent-pane-embedded .milestone-history { margin-top:7px; font-size:10px; }
+@media(max-width:650px){.business-progress-page{padding:20px 12px}.business-progress-grid{grid-template-columns:1fr}.business-progress-page header{flex-wrap:wrap}}

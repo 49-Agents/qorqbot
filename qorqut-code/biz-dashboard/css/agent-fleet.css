@@ -1,0 +1,74 @@
+.fleet-state { display:inline-flex; align-items:center; gap:7px; }
+.fleet-state::before { content:''; width:6px; height:6px; border-radius:var(--r-full); background:var(--line-2); flex:none; }
+.fleet-state[data-state=running]::before { background:var(--ok); }
+.fleet-state[data-state=idle]::before { background:var(--fg-2); }
+.fleet-work + .fleet-work { margin-top:12px; }
+.fleet-work p { margin:0; line-height:1.5; white-space:pre-wrap; }
+.fleet-work-meta { display:flex; flex-wrap:wrap; align-items:center; gap:5px 8px; margin-top:4px; font-size:11px; color:var(--fg-2); }
+.fleet-blocked { color:var(--warn); }
+.fleet-link { display:inline-flex; align-items:center; gap:4px; color:var(--fg-2); text-decoration:underline; text-underline-offset:3px; }
+.fleet-link:hover { color:var(--fg); }
+.fleet-link svg { width:12px; height:12px; }
+.fleet-stale { color:var(--warn); }
+.fleet-stale-tag { color:var(--warn); }
+.fleet-session-tag { display:inline-flex; align-items:center; padding:3px 6px; border:1px solid var(--line-2); border-radius:7px; color:var(--fg-2); font-size:10px; }
+.agpad-current { padding:16px; font-size:12px; }
+.agpad-current-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+.agpad-current-heading button { height:25px; padding:0 5px; font-size:11px; }
+.agpad-current-heading h3 { margin:0; font-size:11px; font-weight:500; color:var(--fg-3); }
+.agpad-current [data-activity-state] { margin:12px 0 16px; color:var(--fg-2); }
+.agpad-current .fleet-work { padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--wash); }
+.agent-provider { display:inline-flex; align-items:center; flex:none; vertical-align:middle; }
+.agent-provider svg { width:16px; height:16px; }
+.agent-provider-claude { color:#d97757; }
+.agent-provider-openai { color:var(--fg); }
+.fleet-work-meta > span:first-child { display:inline-flex; align-items:center; gap:6px; }
+
+.fleet-delivery { margin-top:10px; padding-top:10px; border-top:1px solid var(--line); }
+.fleet-delivery-line { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+.fleet-inbox-state { display:inline-flex; align-items:center; gap:6px; color:var(--fg-2); }
+.fleet-inbox-state::before { content:''; width:6px; height:6px; border-radius:50%; background:var(--fg-3); flex:none; }
+.fleet-inbox-state[data-state=idle]::before,.fleet-inbox-state[data-state=submitted]::before { background:var(--ok); }
+.fleet-inbox-state[data-state=uncertain]::before,.fleet-inbox-state[data-state=stale]::before,.fleet-inbox-state[data-state=unavailable]::before { background:var(--warn); }
+.fleet-delivery-detail { color:var(--fg-3); font-size:10px; }
+
+.agpad-current [data-activity-state] { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.agpad-current [data-activity-state] > .fleet-delivery { flex:0 0 100%; }
+.fleet-checkpoint { margin:0 0 8px; color:var(--fg-2); font-size:11px; }
+.agent-providers { display:flex; align-items:center; gap:8px; }
+.fleet-work-top { display:flex; justify-content:space-between; gap:8px; margin-bottom:10px; }
+.fleet-work-business { display:inline-flex; width:max-content; max-width:65%; padding:3px 7px; border:1px solid var(--line-2); border-radius:7px; font-size:10px; color:var(--fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fleet-work-tags { display:flex; gap:4px; }
+.fleet-work p { font-size:13px; font-weight:500; }
+.fleet-work p svg { width:14px; height:14px; display:inline; vertical-align:-2px; margin-right:6px; }
+.fleet-work-time { margin-top:8px; text-align:right; color:var(--fg-3); font-size:10px; }
+.fleet-work[role=button] { cursor:pointer; }
+.fleet-work[role=button]:hover { background:var(--hover); }
+.fleet-work[role=button]:focus-visible { outline:1px solid var(--fg-2); outline-offset:2px; }
+.agpad .agent-refresh { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; padding:0; border:1px solid var(--line-2); border-radius:8px; background:transparent; color:var(--fg-2); box-shadow:none; }
+.agpad .agent-refresh:hover { background:var(--wash); color:var(--fg); transform:none; }
+.agent-presence { width:6px; height:6px; flex:none; margin-left:auto; border-radius:50%; background:var(--fg-3); }
+.agent-presence[data-state=idle] { background:#d8aa48; }
+.agent-presence[data-state=running] { background:#69b78b; animation:agent-presence-glow 1.8s ease-in-out infinite; }
+@keyframes agent-presence-glow { 0%,100% {opacity:.55;box-shadow:0 0 1px #69b78b33;} 50% {opacity:1;box-shadow:0 0 7px #69b78b99;} }
+@media(prefers-reduced-motion:reduce) { .agent-presence[data-state=running] {animation:none;box-shadow:0 0 5px #69b78b66;} }
+/* Current-work cards follow the Focus card hierarchy. */
+.agpad-current{padding:12px}
+.agpad-current-heading{justify-content:flex-start;gap:8px}
+.agpad-current .fleet-work{position:relative;padding:10px 12px;margin:8px 0;background:transparent;border:1px solid var(--line);border-radius:10px;cursor:pointer}
+.agpad-current .fleet-work:hover{border-color:var(--line-2)}
+.agpad-current .fleet-work:focus-visible{outline:1px solid var(--fg-2);outline-offset:2px}
+.agpad-current .fleet-work h3{font-size:14px;font-weight:200;line-height:1.4;margin:6px 0 0;padding-top:2px}
+.agpad-current .fleet-work-top{align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:6px;margin:0;padding-right:28px;min-height:26px}
+.agpad-current .fleet-work-business{padding:2px 7px;border-radius:8px;border-color:color-mix(in srgb,var(--fg-2) 30%,transparent);background:color-mix(in srgb,var(--fg-2) 10%,transparent);line-height:1.3}
+.fleet-work-agent{display:inline-flex;align-items:center}
+.fleet-work-agent .identity-avatar{width:20px;height:20px}
+.agpad-current .fleet-work-tags{flex-wrap:wrap;gap:4px}
+.agpad-current .fleet-work[aria-expanded="false"] .fleet-work-top{opacity:.7;filter:saturate(.65)}
+.agpad-current .fleet-work-menu{position:absolute;top:8px;right:8px;width:27px;height:26px;padding:0;border:0;background:transparent;color:var(--fg-2)}
+.agpad-current .fleet-work-details{margin-top:10px;font-size:11px}
+.agpad-current .fleet-work-details[hidden]{display:none}
+.agpad-current .fleet-work-meta{font-size:10px;color:var(--fg-3);gap:4px 9px}
+
+.agsplit .listcol .agent-presence { opacity:.55; animation:none; box-shadow:none; }
+.fleet-blocked-reason{margin-top:4px;font-size:12px;color:var(--fg-2)}

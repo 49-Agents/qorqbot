@@ -15,9 +15,6 @@ setInterval(() => { if (rtGlobal() && rtVisible()) rtRefresh(); }, 60000);
 loadBiz();
 replyNotifications.start();
 connectEvents();
-// The daily briefing asks the server after the shared owner session lands; a finishing report job is a change it cares about.
-onChange(['jobs_routines'], null, () => drbCheck('change'));
-drbStart();
 }
 
 // ---------------------------------------------------------- tab-chord shortcuts
@@ -67,7 +64,7 @@ drbStart();
     else if (k === "n") { e.preventDefault(); openTasks(true); tSetView("notes"); }
     else if (k === "u") { e.preventDefault(); openTasks(true); tSetView("uploads"); }
     else if (k === "r") { e.preventDefault(); openTasks(true); tSetView("routines"); }
-    else if (k === "m") { e.preventDefault(); goTab("marketing"); }
+    else if (k === "m") { e.preventDefault(); goTab("email"); }
     else if (k === "c") { e.preventDefault(); goTab("context"); }
     // Agents are global: Tab+A opens the Global Agents page.
     else if (k === "a") { e.preventDefault(); selectGlobal("agents"); }

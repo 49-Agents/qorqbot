@@ -28,7 +28,6 @@ async function contextOpenItem(biz, item, beforeOpen) {
     await goTab('context'); return;
   }
   if (item.type === 'person') { await editPersonDetails(biz, item.id); return; }
-  if (item.type === 'product') { await productsOpen(biz, item.id); return; }
   if (item.type === 'task') { await tOpenTask(item.id); return; }
   await workOpenLink({biz, error:e=>toast(e.message)}, {resource_type:item.resource_type === 'context_entities' ? 'entity' : item.resource_type,
     resource_id:item.id, current:{...item, kind:item.kind || item.subtype}, snapshot_json:item});

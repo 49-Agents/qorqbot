@@ -1,0 +1,31 @@
+/* Review cards: the card family shared by Signoffs (js/signoffs.js), Learning (js/learning.js) and Routines
+   (js/routines.js). The class names keep their historical `mk` prefix. */
+.mkcards { display: flex; flex-direction: column; gap: 10px; }
+.mkcard {
+  position: relative; padding: 14px 16px 12px; border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--wash); transition: border-color .14s ease, box-shadow .14s ease;
+}
+.mkcard:hover { border-color: var(--line-2); }
+.mkcard:focus { outline: none; }
+.mkcard:focus-visible { border-color: rgba(255,255,255,.3); box-shadow: 0 0 0 4px rgba(255,255,255,.025); }
+.mkcard .mkhead { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fg-2); }
+.mkcard .mkhead .tgt { color: var(--fg); font-weight: 500; }
+.mkcard .mkhead .who, .mkcard .mkhead .ago { font: 11px var(--mono); color: var(--fg-3); white-space: nowrap; }
+.mkcard .mkt { margin-top: 6px; font-size: 15px; font-weight: 600; letter-spacing: -.01em; color: var(--fg); }
+.mkcard .mkchain { margin-top: 10px; border-top: 1px solid var(--line); }
+.mkcard .mkchain summary { font-size: 12px; padding: 8px 0 2px; }
+.mkcard .mkfoot { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.mkcard .mklinks { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.mkcard .chip {
+  font-size: 11.5px; padding: 3px 9px; border-radius: var(--r-full); background: var(--wash); border: 1px solid var(--line);
+  color: var(--fg-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mkcard .mkacts { display: flex; gap: 6px; flex: none; }
+.mkcard .mka {
+  height: 28px; padding: 0 12px; border-radius: var(--r-full); background: none; border: 1px solid var(--line-2);
+  color: var(--fg-2); font-weight: 500; font-size: 12px;
+}
+.mkcard .mka:hover { background: var(--hover); color: var(--fg); transform: none; }
+.mkcard .mka.approve { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 700; }
+.mkcard .mka.approve:hover { background: #fff; }
+.mkcard .mka.reject:hover { border-color: rgba(213,90,90,.55); color: var(--danger); }

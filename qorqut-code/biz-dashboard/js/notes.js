@@ -12,23 +12,16 @@ let ntNotes = [];                   // cache of the last /notes fetch
 let ntSearch = "";                  // detail sidebar search (in-memory filter)
 const ntContentZoom = new Map();    // per scope/page, retained during this browser session
 
-// remember what was open (a note id, or "" for the homepage) per business and category
+// remember what was open (a note id, or "" for the homepage) per business
 const ntScope = () => state.scope === 'global' || tView === 'globalNotes' ? '/root' : tView === 'businessNotes' && state.biz ? state.biz : null;
 const ntEndpoint = (scope = ntScope()) => scope === '/root' ? '/root/notes' : `/biz/${encodeURIComponent(scope)}/notes`;
 const ntActive = () => tView === 'notes' || tView === 'globalNotes' || tView === 'businessNotes';
-// Business-owned notes: the owner writes every category; a Global role writes its own
-// (Ordubashy, Marketing). Engineering decisions have no resident business author.
-// `section` is the short tab label; `label` is the full category name used in text.
-const NT_CATEGORIES = [
-  { id: 'strategy-notes', label: 'Strategy', author: 'Ordubashy' },
-  { id: 'marketing-notes', label: 'Marketing', author: 'Marketing' },
-  { id: 'engineering-decisions', label: 'Engineering decisions', section: 'Engineering', scope: 'business' },
-];
 const ntBusinessScope = () => !!ntScope() && ntScope() !== '/root';
-const ntCategory = () => { const saved = ls(`ntcat:${state.biz}`); return NT_CATEGORIES.find(c => c.id === saved) || NT_CATEGORIES[0]; };
+// Project notes are ordinary documents of the selected project; the project is always sent explicitly.
+const ntTarget = () => ntBusinessScope() ? {target_business_id: ntScope()} : {};
 // Only the owner writes from this dashboard; other humans read.
 const ntReadOnly = () => ntBusinessScope() && state.session?.is_owner === false;
-const ntListKey = () => ntBusinessScope() ? `${ntScope()}|${ntCategory().id}` : ntScope();
+const ntListKey = () => ntScope();
 const ntKey = () => `nt:${ntListKey()}`;
 function ntSetSel(id) {
   ntSel = id;
@@ -65,20 +58,20 @@ function ntPreview(content) {
 async function ntFetch() {
   if (!ntScope()) { ntNotes = []; return; }
   const key = ntListKey(), biz = ntScope();
-  const r = await api(ntEndpoint(biz) + (ntBusinessScope() ? `?category=${encodeURIComponent(ntCategory().id)}` : ''));
+  const r = await api(ntEndpoint(biz) + (ntBusinessScope() ? `?target_business_id=${encodeURIComponent(biz)}` : ''));
   if (ntListKey() !== key) return;
   if (Array.isArray(r)) { ntNotes = r; ntLoadedScope = key; } else if (r && r.error) toast("Couldn't load. Retry");
 }
 const ntById = id => ntNotes.find(n => n.id === id);
 async function ntCreate(fields) {
-  const r = await post(ntEndpoint(), {...(fields || {}), ...(ntBusinessScope() ? {category: ntCategory().id} : {})});
+  const r = await post(ntEndpoint(), {...(fields || {}), ...ntTarget()});
   if (r && r.error) { toast("Couldn't save. Try again"); return null; }
   return r;
 }
 async function ntPatch(biz, id, fields) {
   const before = ntById(id) || {}, editing = ntEditState;
   let r;
-  try { r = await post(`${ntEndpoint(biz)}/${encodeURIComponent(id)}`, {expected_revision:before.revision,expected_content_hash:before.content_hash,...fields}); }
+  try { r = await post(`${ntEndpoint(biz)}/${encodeURIComponent(id)}`, {expected_revision:before.revision,expected_content_hash:before.content_hash,...(biz!=='/root'?{target_business_id:biz}:{}),...fields}); }
   catch(error) { r={error:error.message || 'Could not save this page.'}; }
   if (r && r.error) {
     toast("Couldn't save. Try again");
@@ -91,7 +84,7 @@ async function ntPatch(biz, id, fields) {
   return r;
 }
 async function ntDeleteReq(id, version = ntById(id) || {}) {
-  const r = await post(`${ntEndpoint()}/${encodeURIComponent(id)}/delete`, {expected_revision:version.revision,expected_content_hash:version.content_hash});
+  const r = await post(`${ntEndpoint()}/${encodeURIComponent(id)}/delete`, {expected_revision:version.revision,expected_content_hash:version.content_hash,...ntTarget()});
   if (r && r.error) { toast("Couldn't save. Try again"); return null; }
   return r;
 }
@@ -153,20 +146,7 @@ function ntRenderCurrent() {
   ntPatchSidebar(); ntPatchMeta();
 }
 
-// ---- business note categories
-function ntCategoryTabsHtml() {
-  if (!ntBusinessScope()) return "";
-  const current = ntCategory().id;
-  return `<div class="ntcats" role="tablist" aria-label="Project note category">${NT_CATEGORIES.map(c =>
-    `<button type="button" class="btn quiet${c.id === current ? " on" : ""}" role="tab" aria-selected="${c.id === current}" data-nt-category="${c.id}">${esc(c.section || c.label)}</button>`).join("")}</div>`;
-}
-function ntWireCategoryTabs(root) {
-  root.querySelectorAll("[data-nt-category]").forEach(button => button.onclick = async () => {
-    if (button.dataset.ntCategory === ntCategory().id || !await ntFlush()) return;
-    ls(`ntcat:${state.biz}`, button.dataset.ntCategory);
-    ntOpenView();
-  });
-}
+// ---- authors
 function ntAuthorName(n) {
   if (!n.authorId) return "";
   if (n.authorId === state.session?.principal_id) return "you";
@@ -176,12 +156,6 @@ function ntAuthorName(n) {
   const businessAgent = ntBusinessScope() ? (state.agents || []).find(a => a.agent_id === n.authorId) : null;
   return businessAgent?.display_name || businessAgent?.name || "";
 }
-function ntCategoryHint() {
-  const c = ntCategory();
-  return ntReadOnly() ? `${c.label} notes are written by the owner${c.author ? ` and ${c.author}` : ''}. You can read them here.`
-    : `${c.label} notes for this project, written by you${c.author ? ` and Global ${c.author}` : ''}.`;
-}
-
 // ---- homepage
 // Shared card and activity-board presentation.
 function ntCardHtml(n) {
@@ -200,7 +174,7 @@ function ntHomeHtml() {
   const heatEntries = ntNotes.map(x => ({ date: String(x.date || x.createdAt || "").slice(0, 10) }));
   return `<div class="jrhome notes-home">
     <div class="jrhhead">
-      <div>${ntCategoryTabsHtml()}<div class="jrsub">${n} ${n === 1 ? "page" : "pages"}</div>${ntBusinessScope() ? `<p class="ntcathint muted small">${esc(ntCategoryHint())}</p>` : ""}</div>
+      <div><div class="jrsub">${n} ${n === 1 ? "page" : "pages"}</div></div>
       ${ntReadOnly() ? "" : `<button id="ntnew" class="btn" type="button">${ICO_PLUS}Create new</button>`}
     </div>
     ${writingHeatmapHtml(heatEntries)}
@@ -217,7 +191,6 @@ function ntWireHome(root) {
     c.oncontextmenu = e => { e.preventDefault(); ntCtxMenu(e.clientX, e.clientY, c.dataset.id); };
   });
   const nb = root.querySelector("#ntnew"); if (nb) nb.onclick = () => ntCreateNew();
-  ntWireCategoryTabs(root);
   root.querySelectorAll(".jrhcell[data-key]").forEach(cell => {
     cell.setAttribute("aria-label", cell.getAttribute("data-tip") + ". Open or create a note.");
     cell.onclick = () => ntPickDay(cell.dataset.key);
@@ -272,7 +245,7 @@ function ntMetaHtml(n) {
   // no date here (same line as the journal's): just the word count
   const filingTag = ntScope() === '/root' ? 'div' : 'span';
   const author = ntBusinessScope() ? ntAuthorName(n) : "";
-  const category = ntBusinessScope() ? `<span class="ntmeta-category">${esc((NT_CATEGORIES.find(c => c.id === n.category) || ntCategory()).label)} note${author ? ` · by ${esc(author)}` : ""}${ntReadOnly() ? " · Read only" : ""}</span> ` : "";
+  const category = ntBusinessScope() && (author || ntReadOnly()) ? `<span class="ntmeta-category">${[author ? `by ${esc(author)}` : "", ntReadOnly() ? "Read only" : ""].filter(Boolean).join(" · ")}</span> ` : "";
   return `${category}<span class="ntmeta-words">${words} word${words === 1 ? "" : "s"}</span> <${filingTag} id="ntfiling">${ntFilingHtml(n)}</${filingTag}>`;
 }
 function ntRingSvg(nn) {
@@ -308,7 +281,6 @@ function ntPatchMeta() {
 function ntDetailHtml(n) {
   return `<div class="nted">
     <div class="ntside ${ntListOff ? "off" : ""}" id="ntside">
-      ${ntBusinessScope() ? `<div class="ntsidecats">${ntCategoryTabsHtml()}</div>` : ""}
       ${ntReadOnly() ? "" : `<div class="ntsidectrl">
         <button id="ntnew2" class="btn" type="button">${ICO_PLUS}New page</button>
       </div>`}
@@ -404,7 +376,6 @@ function ntWireDetail(root, n) {
   const create = root.querySelector("#ntnew2"); if (create) create.onclick = () => ntCreateNew();
   const archive = root.querySelector("#ntdel"); if (archive) archive.onclick = () => ntDeleteFlow(n.id);
   root.querySelector("#ntdiscard").onclick = () => ntDiscard();
-  ntWireCategoryTabs(root);
   const visibility = root.querySelector("#ntvisibility");
   if (visibility) visibility.onclick = async event => {
     const button = event.currentTarget;
@@ -931,7 +902,7 @@ async function ntSelect(id) {
 const ntGoHome = () => ntSelect(null);
 async function ntCreateNew() {
   if(!await ntFlush())return;
-  const r = await ntCreate({title: ntBusinessScope() ? `${ntCategory().label} note` : 'Daily'});
+  const r = await ntCreate({title: ntBusinessScope() ? 'Project note' : 'Daily'});
   if (!r) return;
   await ntFetch();
   ntSetSel(r.id);
@@ -1018,7 +989,7 @@ async function ntPickDay(date) {
   const existing = ntNotes.find(n => String(n.date || n.createdAt || "").slice(0, 10) === date);
   if (existing) return ntSelect(existing.id);
   if (ntReadOnly()) return;
-  const biz = ntScope(), n = await ntCreate({date, ...(ntBusinessScope() ? {title: `${ntCategory().label} note`} : {})});
+  const biz = ntScope(), n = await ntCreate({date, ...(ntBusinessScope() ? {title: 'Project note'} : {})});
   if (!n || ntScope() !== biz) return;
   await ntFetch();
   if (ntScope() === biz && ntActive()) ntSelect(n.id);
@@ -1109,7 +1080,7 @@ async function ntDoUpload(id) {
     if (ntDoc()) ntSetEditable(ntDoc(), false);
     // The entry ID is already bound by the route. Keep it in local storage so
     // the retry can validate its identity, but send only the supported body.
-    const request = {...attempt};
+    const request = {...attempt, ...(scope !== '/root' ? {target_business_id: scope} : {})};
     delete request.document_id;
     const r = await post(`${ntEndpoint(scope)}/${encodeURIComponent(id)}/upload`, request);
     if (r?.error || r?.status === 'error') {

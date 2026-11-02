@@ -78,7 +78,7 @@
 .agfocus-card:not(.agfocus-collapsed) > .agfocus-row{background:rgba(255,255,255,.03)}
 .agfocus-row .task-business-column{flex:0 0 clamp(76px,22%,132px);width:auto}
 .agfocus-row .agfocus-scope{min-width:0}
-.agfocus-scope-chip{--department-color:var(--fg-2);display:inline-flex;align-items:center;min-height:19px;padding:1px 7px;border:1px solid color-mix(in srgb,var(--department-color) 30%,transparent);border-radius:8px;background:color-mix(in srgb,var(--department-color) 10%,transparent);color:var(--fg-2);font-size:8px;line-height:1.3}
+.agfocus-scope-chip{display:inline-flex;align-items:center;min-height:19px;padding:1px 7px;border:1px solid color-mix(in srgb,var(--fg-2) 30%,transparent);border-radius:8px;background:color-mix(in srgb,var(--fg-2) 10%,transparent);color:var(--fg-2);font-size:8px;line-height:1.3}
 .agfocus-global-chip{padding:3px 6px}
 .agfocus-row .agfocus-scope-chip:not(.agfocus-global-chip){display:block;max-width:100%;box-sizing:border-box;min-height:0;padding:1px 7px;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agfocus-row .task-headline{display:flex;align-items:center;gap:4px;min-width:0}
