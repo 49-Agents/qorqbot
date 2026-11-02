@@ -24,6 +24,7 @@ from qorqut_operations.application.plans import ref
 from qorqut_operations.contracts import DomainError, InvocationOptions
 from qorqut_operations.items import authorize_item_read
 from qorqut_operations.tasks.types import attributes as task_attributes
+from qorqut_operations.tasks.workers import project_workers
 
 DOCUMENT_TYPES = {"notes": {"business_note", "agent_note", "journal", "business_owned_note"},
                   "uploads": {"context_upload", "context_dump", "asset", "data_upload"}}
@@ -126,6 +127,6 @@ class RelatedResources:
                      or metadata.get("name") or metadata.get("filename") or row.get("payload_json", {}).get("subject") or row.get("payload_json", {}).get("title")
                      or row.get("profile_json", {}).get("display_name") or row.get("name")
                      or fallback)
-        return {**(_task_projection(row) if kind == "tasks" else {}),
+        return {**({**_task_projection(row), **project_workers(uow, row)} if kind == "tasks" else {}),
                 "label": label, "state": row.get("status", row.get("state", metadata.get("status"))), "path": row.get("path"),
                 "kind": row.get("kind"), "revision": row.get("revision")}

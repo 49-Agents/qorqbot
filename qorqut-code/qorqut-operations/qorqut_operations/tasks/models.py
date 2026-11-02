@@ -1,6 +1,6 @@
 """Task vocabulary and validation: fixed states, typed custom fields, dependencies, parents and the single snooze.
 
-State handling is deliberately thin. The five states are a fixed enum; they gate nothing: unfinished children or
+State handling is deliberately thin. The six states are a fixed enum; they gate nothing: unfinished children or
 dependencies never block a state change, and a parent's state never moves its children. Only the owning scope's custom
 field definitions are configurable, and the label vocabulary is the shared catalog, not a per-scope list."""
 
@@ -19,7 +19,7 @@ NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 FIELD_TYPES = ("string", "int", "bool", "date", "enum")
 RESERVED_FIELD_NAMES = frozenset({
     "id", "title", "status", "assignee_id", "assignee_ids", "archived", "owner", "tags", "due", "blocked_by", "fields", "notes",
-    "revision", "kind", "parent_id", "snoozed_until", "snooze", "note", "note_refs", "summary", "relay", "focus"})
+    "worker_ids", "workers", "user_needed", "latest_completed_at", "revision", "kind", "parent_id", "snoozed_until", "snooze", "note", "note_refs", "summary", "relay", "focus"})
 DEFAULT_STATE = "open"
 STATE_DEFINITIONS = tuple(
     {"name": name, "kind": "closed" if name in CLOSED_STATES else "open",
@@ -53,7 +53,7 @@ def validate_config(value) -> dict:
     if not isinstance(value, dict) or value.get("v") != 1 or set(value) - CONFIG_KEYS:
         invalid("Task configuration is {v:1, fields}; states are fixed and tags come from the shared catalog")
     if "states" in value and value["states"] != list(STATE_DEFINITIONS):
-        invalid("Task states are fixed (open, working, waiting, done, cancelled) and cannot be reconfigured")
+        invalid("Task states are fixed (open, working, blocked, waiting, done, cancelled) and cannot be reconfigured")
     if "tags" in value and value["tags"] != TAG_REFERENCE:
         invalid("Task tags come from the shared tag catalog (tags_list/tags_create) and cannot be configured per scope")
     fields = value.get("fields", {})

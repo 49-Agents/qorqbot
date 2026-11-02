@@ -194,7 +194,7 @@ class TaskRelocation:
         connection, material, counts = uow.connection, {}, {}
         material["source"], material["destination"] = source, destination
         material["destination_project"] = [target["id"], target["slug"], target["name"], target["archived_at"]]
-        material["tasks"] = [[row["id"], row["revision"], row["parent_id"], row["archived"], row["updated_at"]]
+        material["tasks"] = [[row["id"], row["revision"], row["parent_id"], row["archived"], row["updated_at"], row["worker_ids_json"], row["latest_completed_at"]]
                              for row in (rows[item] for item in ordered)]
         material["roots"] = list(roots)
 
@@ -456,6 +456,12 @@ class TaskRelocation:
         present = connection.execute("SELECT COUNT(*) FROM tasks WHERE business_id=? AND id IN " + marks(ids), (relocation.destination, *ids)).fetchone()[0]
         if present != len(ids):
             raise DomainError("relocation_failed", "The move did not reach every Task; nothing was changed")
+        for identity in ids:
+            before = inspection.rows["original"][identity]
+            current = connection.execute("SELECT worker_ids_json,latest_completed_at FROM tasks WHERE business_id=? AND id=?",
+                                         (relocation.destination, identity)).fetchone()
+            if current is None or current["worker_ids_json"] != before["worker_ids_json"] or current["latest_completed_at"] != before["latest_completed_at"]:
+                raise DomainError("relocation_failed", "The move changed Task Workers or completion; nothing was changed")
         for table in sorted(FOREIGN_KEY_CHILDREN & inspection.rows["tables"]):
             if connection.execute(f'PRAGMA foreign_key_check("{table}")').fetchone() is not None:
                 raise DomainError("relocation_failed", "The move would leave a dangling reference; nothing was changed")

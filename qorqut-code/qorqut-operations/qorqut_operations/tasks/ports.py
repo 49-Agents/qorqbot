@@ -28,6 +28,8 @@ class AssigneeRules(Protocol):
 
     def owner_directed(self, ctx: InvocationContext, identity: str, uow) -> bool: ...
 
+    def worker_excluded(self, ctx: InvocationContext, identity: str, uow) -> bool: ...
+
 
 class Focus(Protocol):
     """The owner Focus presentation of a new Task (v1 ``creation_access`` / ``present_created``).
@@ -95,7 +97,7 @@ class TaskPorts:
 
     def __post_init__(self):
         for label, value, methods in (
-                ("assignees", self.assignees, ("protect", "owner_directed")),
+                ("assignees", self.assignees, ("protect", "owner_directed", "worker_excluded")),
                 ("focus", self.focus, ("creation_access", "present_created")), ("incidents", self.incidents, ("link_task",)),
                 ("references", self.references, ("resolve", "derived")), ("routing", self.routing, ("routes", "snooze_routes"))):
             missing = [name for name in methods if not callable(getattr(value, name, None))]

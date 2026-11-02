@@ -1,7 +1,7 @@
 """Storage of Tasks: one record per Task in its single owning namespace.
 
 ``business_id`` NULL is the Global namespace; the key stays ``(business_id, id)`` as in v1 so the domain tables that
-reference a Task by that pair keep their foreign keys. A Task's state is one of five fixed values. Parent and child
+reference a Task by that pair keep their foreign keys. A Task's state is one of six fixed values. Parent and child
 states are independent; ``parent_id`` is an ancestry link inside the same namespace and cannot form a cycle.
 Assignees and informational dependencies are ``assigned_to`` / ``blocked_by`` relationship edges (the engine's
 relationship store), exactly as before. Labels live in the shared catalog (``item_tags``), the discussion in
@@ -15,7 +15,7 @@ from __future__ import annotations
 from qorqut_operations.storage.assembly import StorageContribution
 from qorqut_operations.storage.specs import TableSpec
 
-STATES = ("open", "working", "waiting", "done", "cancelled")
+STATES = ("open", "working", "blocked", "waiting", "done", "cancelled")
 CLOSED_STATES = ("done", "cancelled")
 PAUSED_STATES = ("waiting",)
 KINDS = ("ordinary", "owner_request")
@@ -25,8 +25,10 @@ SCHEMA = (
     business_id TEXT REFERENCES businesses(id),
     id TEXT NOT NULL,
     title TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('open','working','waiting','done','cancelled')),
+    status TEXT NOT NULL CHECK(status IN ('open','working','blocked','waiting','done','cancelled')),
     due TEXT,
+    worker_ids_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(worker_ids_json) AND json_type(worker_ids_json)='array'),
+    latest_completed_at TEXT,
     fields_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(fields_json)),
     archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
     created_by TEXT NOT NULL REFERENCES principals(id),
@@ -75,6 +77,13 @@ BEGIN SELECT RAISE(ABORT,'A Task discussion belongs to a Task in the same owning
     """CREATE TRIGGER thread_follows_task_scope BEFORE INSERT ON thread_follows
 WHEN NEW.item_type='task' AND NOT EXISTS (SELECT 1 FROM tasks WHERE business_id IS NEW.business_id AND id=NEW.item_id)
 BEGIN SELECT RAISE(ABORT,'A Task follow belongs to a Task in the same owning scope'); END""",
+    # Generic writers also record completion when entering Done; unrelated edits never reorder it.
+    """CREATE TRIGGER tasks_latest_done_insert AFTER INSERT ON tasks
+WHEN NEW.status='done' AND NEW.latest_completed_at IS NULL
+BEGIN UPDATE tasks SET latest_completed_at=NEW.updated_at WHERE business_id IS NEW.business_id AND id=NEW.id; END""",
+    """CREATE TRIGGER tasks_latest_done_update AFTER UPDATE OF status ON tasks
+WHEN NEW.status='done' AND OLD.status!='done' AND NEW.latest_completed_at IS OLD.latest_completed_at
+BEGIN UPDATE tasks SET latest_completed_at=NEW.updated_at WHERE business_id IS NEW.business_id AND id=NEW.id; END""",
     # The first time a business Task reaches done (v1 reporting reads this; it is never rewritten).
     """CREATE TABLE task_completions (
     business_id TEXT NOT NULL REFERENCES businesses(id),

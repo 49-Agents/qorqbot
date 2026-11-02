@@ -40,7 +40,7 @@ from qorqut_operations.tasks.types import (KIND_SCHEMA, PROFILE_SCHEMA, STATE_SC
                                            custom_fields)
 from qorqut_operations.team_channel import reject_owner_team_write
 
-TASK_READS = ("tasks_list", "tasks_get", "tasks_thread_get", "tasks_notes_list", "tasks_config_get", "assignees_list", "tasks_overview",
+TASK_READS = ("tasks_list", "tasks_get", "tasks_thread_get", "tasks_notes_list", "tasks_config_get", "assignees_list", "workers_list", "tasks_overview",
               "tasks_associated_records")
 TASK_MUTATIONS = ("tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete", "tasks_config_update")
 TASK_FOLLOW = "tasks_follow"
@@ -58,7 +58,7 @@ TASK_FIELDS = {
     "email_conversation_id": {"anyOf": [IDENTITY, {"type": "null"}], "description": "Historical binding of an Email Task, kept read-only. Ordinary writes omit it; changing the type away from email clears it."},
     "customer_kind": KIND_SCHEMA, "customer_state": STATE_SCHEMA, "customer_profile": PROFILE_SCHEMA,
     "kind": {"enum": list(KINDS)}, "title": {"type": "string", "minLength": 1, "maxLength": 1000},
-    "status": {"enum": list(STATES)}, "assignee_ids": ASSIGNEES, "archived": {"type": "boolean"}, "tags": LABELS_SCHEMA,
+    "status": {"enum": list(STATES)}, "assignee_ids": ASSIGNEES, "worker_ids": {**ASSIGNEES, "uniqueItems": True}, "archived": {"type": "boolean"}, "tags": LABELS_SCHEMA,
     "due": {"anyOf": [DATE, {"type": "null"}]}, "blocked_by": {"type": "array", "items": IDENTITY, "maxItems": 100, "uniqueItems": True},
     "fields": {"type": "object", "maxProperties": 100},
     "snoozed_until": {"description": "One shared deferral of the Task's due reminder, as a timezone-aware future timestamp; null "
@@ -136,7 +136,7 @@ class TaskOperations:
                            "snooze_filter": {"enum": ["active", "snoozed", "all"], "default": "active",
                                              "description": "Defaults to not currently snoozed. Snoozed tasks are the backlog. Closed/archived filters apply independently."}},
             "tasks_get": {"task_id": IDENTITY, "related_cursor": PAGE["cursor"]}, "tasks_thread_get": {**PAGE, "task_id": IDENTITY},
-            "tasks_notes_list": {**PAGE, "task_id": IDENTITY}, "tasks_config_get": {}, "assignees_list": {},
+            "tasks_notes_list": {**PAGE, "task_id": IDENTITY}, "tasks_config_get": {}, "assignees_list": {}, "workers_list": {},
         }
         descriptors = [self.overview.descriptor(), self.associated.descriptor()]
         for name, properties in reads.items():
@@ -193,9 +193,12 @@ class TaskOperations:
     def parents(ctx, uow):
         return {task["id"]: task["parent_id"] for task in rows(uow, "tasks", ctx.business_id)}
 
-    def assignee(self, ctx, identity, uow, builder=None):
-        self.ports.assignees.protect(ctx, identity, uow)
-        if self.ports.assignees.owner_directed(ctx, identity, uow):
+    def assignee(self, ctx, identity, uow, builder=None, *, worker=False):
+        if worker and self.ports.assignees.worker_excluded(ctx, identity, uow):
+            raise DomainError("invalid_worker", "This principal cannot be a Worker")
+        if not worker:
+            self.ports.assignees.protect(ctx, identity, uow)
+        if not worker and self.ports.assignees.owner_directed(ctx, identity, uow):
             raise DomainError("invalid_assignee", "Only the owner can assign work to Learning Applier")
         if ctx.business_id is None:
             actor = uow.repository("principals").get(identity)
@@ -223,6 +226,12 @@ class TaskOperations:
                 builder.expect(ref("agent_profiles", identity, None, "ecosystem"),
                                uow.repository("agent_profiles", business_id=None).get(identity))
             return
+        if worker:
+            installation = uow.repository("installation").get("service")
+            if not actor or actor["kind"] != "human" or not installation or installation["owner_principal_id"] != identity:
+                raise DomainError("invalid_worker", "Only the installation owner or eligible agents may be Workers")
+            if builder:
+                builder.expect(ref("installation", "service", None), installation)
         member = uow.repository("business_memberships", business_id=ctx.business_id).get(identity)
         if not member or not member["active"] or not actor or not actor["active"] or actor["kind"] != "human":
             raise DomainError("invalid_assignee", "Assignee must be an active global agent or human member of this project")
@@ -289,12 +298,13 @@ class TaskOperations:
         children = [dict(row) for row in uow.connection.execute(
             "SELECT id,title,status FROM tasks WHERE business_id IS ? AND parent_id=? ORDER BY created_at,id LIMIT 51", (business_id, task_id))]
         follow = follow_state(uow, item, ctx.principal_id)
-        view = {**{key: value for key, value in task.items() if key not in {"fields_json", "snoozed_until", "snooze_generation"}},
+        view = {**{key: value for key, value in task.items() if key not in {"fields_json", "worker_ids_json", "snoozed_until", "snooze_generation"}},
                 **snooze_view(task, now),
                 "created_by_name": creator.get("display_name", "") if creator else "",
                 "created_by_kind": creator.get("kind", "") if creator else "",
                 "tags": item_labels(uow, business_id, "task", task_id), "fields": custom_fields(task), **attributes(task),
                 "thread_id": item.thread_id, "note_count": message_count(uow, item),
+                **self.worker_projection(uow, task),
                 "assignee_ids": events.assigned(uow, business_id, task_id), "archived": bool(task.get("archived")),
                 "blocked_by": blockers, "unresolved_blockers": sorted(set(unresolved)), "blocks": blocks,
                 "parent": {key: parent[key] for key in ("id", "title", "status")} if parent else None,
@@ -308,6 +318,11 @@ class TaskOperations:
             view["notes"], view["notes_next_cursor"] = history["messages"], history["next_cursor"]
         return view
 
+    @staticmethod
+    def worker_projection(uow, task):
+        from qorqut_operations.tasks.workers import project_workers
+        return project_workers(uow, task)
+
     def read(self, operation, ctx, arguments, uow):
         ctx = task_context(ctx, arguments, uow)
         if operation == "tasks_associated_records":
@@ -316,8 +331,8 @@ class TaskOperations:
         if operation == "tasks_config_get":
             return {"config": configuration, "revision": config_row["revision"] if config_row else None,
                     "customer_states": customers.read(uow, ctx.business_id)[0]}
-        if operation == "assignees_list":
-            return self.assignees_list(ctx, uow)
+        if operation in {"assignees_list", "workers_list"}:
+            return self.assignees_list(ctx, uow, workers=operation == "workers_list")
         repository = uow.repository("tasks", business_id=ctx.business_id)
         now = timestamp(self.clock)
         if operation in {"tasks_thread_get", "tasks_notes_list"}:
@@ -339,8 +354,9 @@ class TaskOperations:
             return {"task": detail}
         return self.list_tasks(ctx, arguments, uow, configuration, now)
 
-    def assignees_list(self, ctx, uow):
-        directed = self.ports.assignees.owner_directed
+    def assignees_list(self, ctx, uow, *, workers=False):
+        directed = self.ports.assignees.worker_excluded if workers else self.ports.assignees.owner_directed
+        result_key = "workers" if workers else "assignees"
         # Active global agents are candidates in Global and in every active business, without membership rows.
         global_agents = set(global_agent_ids(uow.connection))
         if ctx.business_id is None:
@@ -348,17 +364,20 @@ class TaskOperations:
                 "SELECT p.id,p.kind,p.display_name,a.name FROM principals p LEFT JOIN agent_profiles a ON a.agent_id=p.id WHERE p.active=1 "
                 "AND ((p.kind='human' AND p.id=(SELECT owner_principal_id FROM installation WHERE id='service')) OR p.kind='agent') "
                 "ORDER BY p.kind,p.display_name,p.id")
-            return {"assignees": [{**dict(row), "is_owner": row["kind"] == "human"} for row in found
+            return {result_key: [{**dict(row), "is_owner": row["kind"] == "human"} for row in found
                                   if (row["kind"] == "human" or row["id"] in global_agents) and not directed(ctx, row["id"], uow)]}
         if ctx.business_id not in active_business_ids(uow.connection):
             global_agents = set()
+        installation = uow.repository("installation").get("service")
+        owner = installation["owner_principal_id"] if installation else None
         found = uow.connection.execute(
             "SELECT p.id,p.kind,p.display_name,a.name,m.is_owner,m.active AS member FROM principals p "
             "LEFT JOIN business_memberships m ON m.principal_id=p.id AND m.business_id=? LEFT JOIN agent_profiles a ON a.agent_id=p.id "
             "WHERE p.active=1 AND p.kind IN ('agent','human') ORDER BY p.kind,p.display_name,p.id", (ctx.business_id,))
-        return {"assignees": [{"id": row["id"], "kind": row["kind"], "display_name": row["display_name"], "name": row["name"],
-                               "is_owner": row["kind"] == "human" and bool(row["is_owner"])} for row in found
-                              if (row["id"] in global_agents or (row["kind"] == "human" and row["member"]))
+        return {result_key: [{"id": row["id"], "kind": row["kind"], "display_name": row["display_name"], "name": row["name"],
+                               "is_owner": row["kind"] == "human" and (row["id"] == owner if workers else bool(row["is_owner"]))} for row in found
+                              if (row["id"] in global_agents or (row["kind"] == "human" and row["member"]
+                                                                  and (not workers or row["id"] == owner)))
                               and not directed(ctx, row["id"], uow)]}
 
     def list_tasks(self, ctx, arguments, uow, configuration, now):
@@ -442,10 +461,17 @@ class TaskOperations:
         current = dict(before) if before else {
             "id": identity, "title": arguments["title"], "status": DEFAULT_STATE, "due": None, "fields_json": {}, "archived": False,
             "created_by": ctx.principal_id, "created_at": builder.at, "updated_at": builder.at, "kind": "ordinary", "parent_id": None,
-            "snoozed_until": None, "snooze_generation": 0}
+            "snoozed_until": None, "snooze_generation": 0, "worker_ids_json": [], "latest_completed_at": None}
         link_edit = edits.pop("related_task", None)
         blockers = edits.pop("blocked_by", None)
         assignees = edits.pop("assignee_ids", [ctx.agent_id] if creating and ctx.agent_id else [] if creating else None)
+        workers = edits.pop("worker_ids", None)
+        if workers is not None:
+            if len(workers) != len(set(workers)) or len(workers) > 100:
+                raise DomainError("validation_error", "Workers must be unique and at most 100")
+            for identity_worker in workers:
+                self.assignee(ctx, identity_worker, uow, builder, worker=True)
+            current["worker_ids_json"] = sorted(workers)
         labels = edits.pop("tags", None)
         if "snoozed_until" in edits:
             requested = normalize_snooze(edits.pop("snoozed_until"), builder.at, current["snoozed_until"])
@@ -459,6 +485,8 @@ class TaskOperations:
             links.edit(self, ctx, current, identity, link_edit, uow, builder)
         for key, value in edits.items():
             current["fields_json" if key == "fields" else key] = value
+        if current["status"] == "done" and (before is None or before["status"] != "done"):
+            current["latest_completed_at"] = builder.at
         validate_task(current, fields)
         if attributes(current)["email_conversation_id"] != attributes(before or {})["email_conversation_id"]:
             self.email_reference(ctx, current, uow, builder)
@@ -557,6 +585,10 @@ class TaskOperations:
         current = uow.repository("tasks", business_id=ctx.business_id).get(task_id) or {}
         proposed = {**current, **plain(task_change.values)} if task_change else current
         validate_task(proposed, fields)
+        worker_changes = plan.arguments.get("worker_ids") if plan.operation_name == "tasks_create" else plan.arguments.get("changes", {}).get("worker_ids")
+        if worker_changes is not None:
+            for worker_id in worker_changes:
+                self.assignee(ctx, worker_id, uow, worker=True)
         customers.check(plan, uow, ctx.business_id, attributes(current)["customer_state"], attributes(proposed)["customer_state"])
         link_edit = plan.arguments.get("changes", {}).get("related_task")
         if link_edit is not None:
