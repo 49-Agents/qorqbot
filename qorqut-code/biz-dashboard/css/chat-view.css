@@ -8,7 +8,9 @@
 .gchat-banner[hidden], .gchat-older[hidden], .gchat-jump[hidden], .gchat-empty[hidden], .gchat-composer[hidden] { display: none; }
 .gchat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--chat-top-inset, 0px) 2px 14px; overscroll-behavior: contain; }
 .gchat-older { display: block; margin: 0 auto 12px; }
-.gchat-log { padding-left: 32px; display: flex; flex-direction: column; gap: 22px; }
+.gchat-log { padding-left: 32px; display: flex; flex-direction: column; gap: 0; }
+.gchat-log > .gchat-msg + .gchat-msg { margin-top:22px; }
+.gchat-log > .gchat-msg + .gchat-msg.gchat-continuation { margin-top:8px; }
 .gchat-msg { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: min(760px, 88%); }
 .gchat-bubble-row { position: relative; min-width: 0; max-width: 100%; }
 .chat-view .gchat-copy { position: absolute; right: calc(100% + 4px); top: 8px; display: grid; place-items: center; width: 28px; height: 28px; min-height: 28px; padding: 6px; border: 0; border-radius: 7px; background: none; color: var(--fg-2); opacity: 0; pointer-events: none; transition: opacity 140ms ease; transform: none; }

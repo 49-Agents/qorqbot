@@ -404,17 +404,23 @@ function mountChatView(host, options = {}) {
     row.append(button);
   }
   function paintTimestamps() {
-    let previous = NaN;
+    let previous = NaN, previousEntry = null;
     for (const entry of model.entries) {
       const at = entry.timestamp ? new Date(entry.timestamp).getTime() : NaN;
       const show = Number.isFinite(at) && (!Number.isFinite(previous) || at < previous || at - previous >= 3600000);
       const node = nodes.get(entry.key), time = node.querySelector('.gchat-time');
+      const sameAgent = (entry.speaker || 'agent') === 'agent' && previousEntry
+        && (previousEntry.speaker || 'agent') === 'agent'
+        && (entry.author?.id || entry.author?.name || '') === (previousEntry.author?.id || previousEntry.author?.name || '')
+        && (entry.author?.avatarHtml || '') === (previousEntry.author?.avatarHtml || '');
+      node.classList.toggle('gchat-continuation', !!sameAgent && Number.isFinite(at) && Number.isFinite(previous)
+        && at >= previous && at - previous < 3600000);
       const iso = show ? new Date(at).toISOString() : null;
       if (time?.getAttribute('datetime') !== iso) {
         time?.remove();
         if (show) node.insertAdjacentHTML('afterbegin', chatViewTimestamp(entry.timestamp));
       }
-      previous = at;
+      previous = at; previousEntry = entry;
     }
   }
   function paintEntry(entry) {
