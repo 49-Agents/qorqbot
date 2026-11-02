@@ -266,9 +266,11 @@ class Attention:
         installation = uow.repository('installation').get('service')
         owner = (installation or {}).get('owner_principal_id')
         if event.get('actor_id') == owner and event.get('source_type') == 'owner_conversations': return True
-        # The owner's own comment in a Task's team thread passes like a private message; other Task events do not.
-        if (owner and event.get('actor_id') == owner and event.get('source_type') == 'tasks'
-                and 'note_added' in (event.get('event_type') or '').split(',')): return True
+        # Every Signoff event and every operational-item thread message (the canonical note_added marker, possibly coalesced
+        # with field changes) passes whoever wrote it and whatever it concerns. The caller has already applied source
+        # authorization; field-only changes to other items still wait. Nothing here changes focus or any task.
+        if (event.get('source_type') == 'signoffs'
+                or 'note_added' in (event.get('event_type') or '').split(',')): return True
         if event.get('source_type') == 'agent_messages':
             message = uow.connection.execute('SELECT current_sender_id,current_recipient_id FROM agent_messages WHERE id=?', (event.get('source_id'),)).fetchone()
             if message and message['current_sender_id'] == owner and message['current_recipient_id'] == agent_id: return True
