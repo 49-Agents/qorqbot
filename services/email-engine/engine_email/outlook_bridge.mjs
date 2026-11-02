@@ -2,8 +2,10 @@
  * Credentials stay in this process/browser. They never appear in results or logs.
  * This uses Outlook's private web protocol, which can change independently of us.
  */
-import {pathToFileURL} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
+import {readFileSync} from 'node:fs';
+import {dirname, join} from 'node:path';
 
 const ORIGIN = 'https://outlook.cloud.microsoft';
 const HOSTS = new Set(['outlook.cloud.microsoft', 'outlook.office.com', 'outlook.office365.com']);
@@ -121,13 +123,49 @@ export async function dispatch({call, config, command, args = {}}) {
   }
 }
 
+/** The pinned browser client, resolved from beside this file. A missing or unusable install
+ * is its own code: it happens before any browser or provider contact and is never the
+ * transient "bridge unavailable" outage. The exception text is dropped (it names paths).
+ */
+export async function loadPlaywright() {
+  try {
+    return await import('playwright-core');
+  } catch (error) {
+    fail(error?.code === 'ERR_MODULE_NOT_FOUND' ? 'outlook_dependency_missing' : 'outlook_dependency_unusable');
+  }
+}
+
+/** Offline readiness: the exact pinned playwright-core sits in this bridge's own
+ * `node_modules` (the one that ships with an immutable release) and imports from there.
+ * An install found only in a parent directory does not count. Opens no browser, session,
+ * socket or provider request.
+ */
+export async function dependencyReadiness() {
+  const here = dirname(fileURLToPath(import.meta.url));
+  let pinned;
+  try {
+    pinned = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).dependencies?.['playwright-core'];
+  } catch { /* reported below */ }
+  if (typeof pinned !== 'string' || !/^\d+\.\d+\.\d+$/.test(pinned)) fail('outlook_dependency_manifest_invalid');
+  let installed;
+  try {
+    installed = JSON.parse(readFileSync(join(here, 'node_modules', 'playwright-core', 'package.json'), 'utf8'));
+  } catch { fail('outlook_dependency_missing'); }
+  if (installed?.name !== 'playwright-core') fail('outlook_dependency_unusable');
+  if (installed.version !== pinned) fail('outlook_dependency_version_mismatch');
+  // The nearest node_modules wins, so this loads the adjacent package checked above.
+  const {chromium} = await loadPlaywright();
+  if (typeof chromium?.connectOverCDP !== 'function') fail('outlook_dependency_unusable');
+  return {dependency: 'playwright-core', version: installed.version};
+}
+
 export async function session(config) {
   if (!config || !Number.isInteger(config.timeout_seconds) || config.timeout_seconds < 1 || config.timeout_seconds > 120) fail('outlook_timeout_invalid');
   const endpoint = new URL(config.cdp_url);
   if (!['http:', 'ws:'].includes(endpoint.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname)
       || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) fail('outlook_endpoint_invalid');
   if (typeof config.address !== 'string' || !/^[^\s@]+@[^\s@]+$/.test(config.address)) fail('outlook_account_invalid');
-  const {chromium} = await import('playwright-core');
+  const {chromium} = await loadPlaywright();
   const browser = await chromium.connectOverCDP(config.cdp_url, {timeout: config.timeout_seconds * 1000});
   const context = browser.contexts()[0];
   if (!context) fail('outlook_browser_context_missing');
@@ -223,7 +261,8 @@ async function main() {
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   // Closing the CDP browser would affect other work. Exit only our client process.
-  main().then(result => {
+  // `--check-dependencies` is the offline readiness check: no stdin, no config, no session.
+  (process.argv[2] === '--check-dependencies' ? dependencyReadiness() : main()).then(result => {
     const output = JSON.stringify({ok: true, result});
     if (Buffer.byteLength(output) > MAX_BYTES) fail('outlook_output_too_large', cliWrite);
     process.stdout.write(output, () => process.exit(0));
