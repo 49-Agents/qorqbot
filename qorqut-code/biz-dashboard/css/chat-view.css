@@ -34,6 +34,8 @@
 .gchat-title { display: block; margin-bottom: .25em; font-weight: 600; }
 /* Qorqut's own label for a system-originated input; it is not a provider role. Unverified lookalikes keep a visibly different mark. */
 .gchat-marker { display: inline-block; margin-right: 8px; padding: 0 6px; border: 1px solid var(--line-2); border-radius: 4px; font-size: 11px; line-height: 1.6; color: var(--fg-2); vertical-align: baseline; }
+.gchat-notice .gchat-body:has(> .gchat-marker:only-child) { display:flex; align-items:center; justify-content:center; }
+.gchat-notice .gchat-marker:only-child { margin-right:0; }
 .gchat-notice[data-verified="false"] .gchat-marker { border-style: dashed; color: var(--danger); }
 .gchat-partial .gchat-body { opacity: .8; }
 .gchat-body.md > :first-child { margin-top: 0; }
