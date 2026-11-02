@@ -827,7 +827,11 @@ class Inventory:
         if kind == "context_person":
             return self.read(ctx, "context_people_get", {"document_id": item["id"]}, uow)
         if kind in {"context_topic", "context_note", "context", "pillar", "context_dump"}:
-            return self.read(ctx, "context_get", {"document_id": item["id"]}, uow)
+            # The bounded canonical reader: its scope selects the library this record belongs to, and its top-level
+            # complete/next_cursor plus the chunk's character_offset/content_hash are what the in-pane document reader
+            # continues with. A dashboard-shaped one-shot read would return the whole body with no cursor to continue.
+            return self.read(ctx, "context_get", {"document_id": item["id"],
+                                                  "scope": "business" if ctx.business_id else "shared"}, uow)
         if kind in {"business_note", "agent_note", "journal", "global_note", "business_owned_note", "legacy_agent_document"}:
             return self.read(ctx, "notes_get", {"document_id": item["id"]}, uow)
         if kind == "content":
