@@ -262,18 +262,22 @@ class Changes:
         return {"consumer": consumer, "cursor": sequence, "previous": current, "head": head, "updated_at": now}
 
     # -- external edits ------------------------------------------------------------
-    def scan(self, attribution: dict[str, Any] | None = None) -> dict[str, Any]:
+    def scan(self, attribution: dict[str, Any] | None = None, *, lock_timeout: float = 30.0) -> dict[str, Any]:
         """Reconcile edits made outside the toolkit into one event (net change only).
 
         ``attribution`` may be supplied by a trusted adapter; otherwise the event
-        is attributed ``external/unknown``.
+        is attributed ``external/unknown``. A host holding another store's write
+        transaction can use zero to defer immediately when authoring is busy.
         """
+        import math
+        if isinstance(lock_timeout, bool) or not isinstance(lock_timeout, (int, float)) or not math.isfinite(lock_timeout) or lock_timeout < 0:
+            raise InvalidRequestError("lock_timeout must be a finite non-negative number")
         attr = (
             normalize_attribution(attribution, trust=self.ctx.attribution_source)
             if attribution is not None
             else dict(EXTERNAL_ATTRIBUTION)
         )
-        with self.ctx.store.lock(exclusive=True):
+        with self.ctx.store.lock(exclusive=True, timeout=lock_timeout):
             self.ctx.require_no_recovery()
             self.ctx.require_no_check_mutation()
             return self.scan_locked(attr)
