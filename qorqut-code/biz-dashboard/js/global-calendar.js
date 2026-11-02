@@ -39,7 +39,6 @@ const calendarEventWhen = event => {
   const start = new Date(event.start), end = new Date(event.end);
   return `${calendarDateLabel(start)} · ${calendarTime(start)} – ${calendarDateString(start) === calendarDateString(end) ? '' : calendarDateLabel(end)+' · '}${calendarTime(end)}`;
 };
-const calendarProviderClass = calendar => calendar?.provider === 'fastmail' ? 'calendar-business' : 'calendar-personal';
 const calendarIcon = name => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${AICONS[name] || ''}</svg>`;
 
 // Personal status is an owner preference over a provider event; it never writes to the provider.
@@ -220,8 +219,8 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       if (!current()) return;
       calendars = result.calendars;
       result.errors.forEach(e => failures.set(e.connection_id,`${e.connection_id}: ${e.message}`));
-      $('.calendar-sources > div',page).innerHTML = calendars.map(calendar => `<div class="calendar-source ${calendarProviderClass(calendar)}"><span class="calendar-dot"></span><span>${esc(calendar.name)} · ${esc(calendar.provider === 'google' ? 'Google' : calendar.provider === 'fastmail' ? 'Fastmail' : calendar.provider)}</span></div>`).join('');
-      if (!result.configured) { fixedMessage = 'Connect Google Calendar to get started.'; paint(); return; }
+      $('.calendar-sources > div',page).innerHTML = calendars.map(calendar => `<div class="calendar-source"><span class="calendar-dot"></span><span>${esc(calendar.name)} · ${esc(calendar.provider === 'google' ? 'Google' : calendar.provider === 'fastmail' ? 'Fastmail' : calendar.provider)}</span></div>`).join('');
+      if (!result.configured) { fixedMessage = 'Connect a calendar (for example Google Calendar) to get started.'; paint(); return; }
       $('[data-calendar-add]',page).disabled = !calendars.some(c => c.writable);
       $('[data-calendar-add]',page).onclick = () => calendarEdit(null,calendars,reload,calendarDate);
       await Promise.all(calendars.map(async calendar => {
@@ -257,7 +256,7 @@ function calendarEventButton(event, calendars, refresh, allDay = false, {queue =
   const calendar = calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id), pending = event.attendees?.some(a => calendar?.organizers?.some(email => email.toLowerCase() === a.email.toLowerCase()) && a.status === 'needsAction');
   const button = document.createElement('button'); button.type = 'button';
   const personal = calendarStatuses.statusOf(event), shown = personal && personal !== 'pending' ? personal : '';
-  button.className = `calendar-event ${calendarProviderClass(calendar)}${allDay ? ' calendar-all-day-event' : ''}${shown ? ` calendar-status-${shown}` : ''}${queue ? ` calendar-queue-event calendar-queue-${queue.state}${queue.expanded ? ' calendar-queue-expanded' : ''}` : ''}`;
+  button.className = `calendar-event${allDay ? ' calendar-all-day-event' : ''}${shown ? ` calendar-status-${shown}` : ''}${queue ? ` calendar-queue-event calendar-queue-${queue.state}${queue.expanded ? ' calendar-queue-expanded' : ''}` : ''}`;
   const when = allDay ? 'All day' : `${calendarTime(new Date(event.start))} – ${calendarTime(new Date(event.end))}`;
   const label = `${event.title || 'Untitled event'} · ${when} · ${calendar?.name || ''}${pending ? ' · Invitation' : ''}${shown ? ` · ${calendarStatusLabels[shown]}` : ''}`;
   button.setAttribute('aria-label',label); button.title = label;

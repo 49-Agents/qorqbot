@@ -115,10 +115,10 @@ function workspaceViewsFor(roleId) { return roleId ? workspaceTypes().filter(typ
 // through the registry (or shown as an honest unsupported placeholder).
 function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
 
-// The old Business (Project management) entry left the right agent pane; its stable view key stays
-// internal so links keep working, but it never adds a tab or restores a stale pane selection. Its data
+// The old Business (Project management) entry and extension-declared campaign_review type never add a
+// right-pane tab or restore a stale pane selection; Business keeps its stable key so links work. Project data
 // stays reachable through the existing Global Projects page and Project records.
-const AGPAD_RETIRED_PANE_VIEWS = new Set(["business"]);
+const AGPAD_RETIRED_PANE_VIEWS = new Set(["business", "campaign_review"]);
 // Browser appears for any agent with a configured browser binding; the full
 // Desktop remains Ordubashy's alone (core also enforces this on the binding).
 // Viewbox is offered to registered agents except Learning Applier (the owner-only board is keyed by agent id).
