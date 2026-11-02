@@ -1,4 +1,4 @@
-# Linux release runbook
+# Release runbook
 
 Build from one reviewed commit in the ordinary publication repository. Keep
 private input manifests, test instances and reports outside every artifact.
@@ -47,3 +47,32 @@ Only the owner may change repository visibility. Historical legacy-migration
 suites are documented in HISTORICAL-TEST-SCOPE.md and do not qualify conversion
 of the old private deployment. Data migrations remain app-specific work even
 when package installation uses standard tools.
+
+## Additional platforms
+
+Windows uses the qualified Linux archive in user-installed WSL2 Ubuntu 24.04.
+Run `tools/distribution/windows_bundle.py --linux-archive ARCHIVE --sha256 SHA256
+--output NEW_WINDOWS.zip` to wrap that exact archive with instructions and its
+checksum. Test installation inside the WSL Linux filesystem and dashboard access
+from a Windows browser before claiming Windows host acceptance. See WINDOWS.md.
+
+Mac targets native Apple silicon, macOS 14+, with user-installed Python 3.12,
+Git and tmux. Follow export, projection and preparation steps above, then add
+`--target macos14-arm64` to native_build.py. A Linux assembly can fetch Mac wheels
+but cannot qualify them. On an actual Mac run `tools/distribution/check_posix.py
+--archive MAC_ARCHIVE --output /tmp/qb-mac-check`; the output must be a new short
+path. `.github/workflows/macos-checks.yml` prepares this native build/check on
+manual dispatch. It has not run merely because the workflow exists.
+
+Record fresh setup, restart, stopped updates, process permissions, agent terminal
+and browser results separately. Mac process inspection can be denied or return
+an empty environment for another process; update/connector installation must
+then refuse rather than infer that the installation's tools are stopped. Native
+CLI startup/status/stop inspect their saved PID identities, not all processes.
+See MACOS.md for the remaining advanced Linux-only facilities.
+
+Build optional Telegram with a Mac Pillow wheel. Fastmail uses platform-neutral
+wheels. The optional WhatsApp helper must be built on an Apple silicon Mac with
+`extensions/whatsapp/tools/build.py --target macos-arm64 --work NEW_DIRECTORY`;
+install the documented Go and C toolchains first. Include the resulting matching
+GPL corresponding-source archive. Do not relabel a Linux helper as a Mac binary.

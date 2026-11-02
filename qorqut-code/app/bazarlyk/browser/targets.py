@@ -65,6 +65,8 @@ class BrowserTargets:
     def catalog(self, uow, principal_id):
         """Every browser the agent can name, as ``{id, label}``: the managed Global desktops the registry configures. Empty
         when no registry is configured."""
+        if sys.platform != 'linux':
+            return []
         registry = self.registry()
         entries = []
         if registry is not None:
@@ -101,6 +103,9 @@ class BrowserTargets:
     def _session(self):
         """``tools/browser/desktop_session.py`` from the explicit app component, executed in memory so that nothing is written
         beside an immutable source."""
+        if sys.platform != 'linux':
+            raise DomainError("operation_unavailable", "Managed X11 browser desktops are supported only on Linux; "
+                              "use the agent's headless browser on this platform")
         if self._session_module is None:
             from bazarlyk.installation import component
             path = component(self.runtime.paths, "app") / "tools/browser/desktop_session.py"

@@ -1,6 +1,8 @@
 """Read-only evidence used by the explicit legacy layout preparation."""
 from __future__ import annotations
 
+from bazarlyk.posix_files import immutable_database_uri
+
 import json
 import sqlite3
 
@@ -239,7 +241,7 @@ def inspect_runtime(state_dir, root, instance_id):
         if size != opened.st_size:
             raise OSError('runtime database changed during hashing')
         result['database_fingerprint'] = {'sha256': hasher.hexdigest(), 'bytes': size}
-        connection = sqlite3.connect(f'file:/proc/self/fd/{db}?mode=ro&immutable=1', uri=True)
+        connection = sqlite3.connect(immutable_database_uri(db), uri=True)
         try:
             connection.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 16 * 1024 * 1024)
             meta = dict(connection.execute('SELECT key,value FROM meta'))

@@ -2,16 +2,23 @@
 
 from pathlib import Path
 import socket
+import sys
 
 
 def process_identity(pid):
-    """Linux start ticks + boot ID prevent mistaking a reused PID for Chrome."""
+    """Boot identity and process start time prevent mistaking a reused PID for Chrome."""
+    if sys.platform == 'darwin':
+        from bazarlyk.process_info import identity
+        return identity(pid)
     stat = Path(f"/proc/{int(pid)}/stat").read_text().rsplit(")", 1)[1].split()
     return Path("/proc/sys/kernel/random/boot_id").read_text().strip() + ":" + stat[19]
 
 
 def owns_listener(pid, port, address=None):
     """The process holds a listening TCP socket on ``port`` (optionally only on ``address``)."""
+    if sys.platform == 'darwin':
+        from bazarlyk.process_info import owns_listener as process_owns_listener
+        return process_owns_listener(pid, port, address)
     wanted = None
     if address is not None:
         wanted = "".join(f"{byte:02X}" for byte in reversed(socket.inet_aton(address)))

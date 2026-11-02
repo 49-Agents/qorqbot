@@ -113,8 +113,13 @@ def publish(paths, intent, journal, save, hook):
                 if old is not None:
                     if layout_files._expected_file(parentfd, name, old, path) is None:
                         raise _conflict('Managed original file disappeared: ' + path)
-                elif os.path.lexists('/proc/self/fd/' + str(parentfd) + '/' + name):
-                    raise _conflict('Managed target appeared: ' + path)
+                else:
+                    try:
+                        os.stat(name, dir_fd=parentfd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        raise _conflict('Managed target appeared: ' + path)
                 if wanted is None:
                     os.unlink(name, dir_fd=parentfd)
                 else:

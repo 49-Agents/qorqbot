@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import json
 import socket
 import struct
+import sys
 import time
 
 from bazarlyk.bootstrap import codex_session
@@ -21,6 +22,8 @@ class RPCError(Exception):
 
 def control_socket(owner):
     """Find the listening Unix socket actually held by the verified owner PID."""
+    if sys.platform == 'darwin':
+        raise OSError('Shared Codex app-server ownership is not attested on macOS; use an interactive terminal client')
     if not codex_session.owner_alive(owner):
         raise OSError('Native owner is gone')
     pid = owner.split(':')[0]

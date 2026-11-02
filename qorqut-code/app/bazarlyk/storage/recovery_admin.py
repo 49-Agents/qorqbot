@@ -23,6 +23,7 @@ from uuid import UUID
 
 from qorqut_operations.contracts import DomainError
 from bazarlyk.storage.full_recovery import FullRecoveryStore, ResticBinary
+from bazarlyk.posix_files import require_descriptor_socket_paths
 from qorqut_operations.storage import safe_io
 
 _MAX_REQUEST = 4096
@@ -194,6 +195,7 @@ class RecoveryAdministration:
         )
 
     def start(self) -> None:
+        require_descriptor_socket_paths()
         if self._thread is not None:
             raise RuntimeError("Recovery administration is already started")
         self.config.validate()
@@ -369,6 +371,7 @@ class RecoveryAdministration:
 
 def client_request(config: RecoveryAdminConfig, request: dict[str, Any], *, timeout: float = 5.0) -> dict[str, Any]:
     """Send one bounded request to the socket fixed in the private config."""
+    require_descriptor_socket_paths()
     if type(timeout) not in {int, float} or timeout <= 0:
         raise ValueError("timeout must be positive")
     data = json.dumps(request, separators=(",", ":"), sort_keys=True).encode("utf-8") + b"\n"

@@ -280,6 +280,8 @@ def _project(paths, plan, intent):
 
 
 def apply(paths, plan, *, attribution):
+    from bazarlyk.posix_files import require_anonymous_publication
+    require_anonymous_publication()
     from .installation import _open_record
     normalize_attribution(attribution, trust='host_installer')
     keys = {'schema_version', 'kind', 'layout_change', 'binding', 'export', 'selected_extensions', 'preservation', 'path_map', 'ref_map', 'rewrites', 'files', 'target_inventory', 'identity', 'state', 'git', 'legacy_authored_files', 'existing_authored_files', 'preference_seed', 'conflicts', 'complete', 'plan_digest'}

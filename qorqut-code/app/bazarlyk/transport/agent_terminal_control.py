@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import sys
 import threading
 import time
 from collections import namedtuple
@@ -118,30 +119,49 @@ class AgentTerminalBackend:
         try:
             # tcgetpgrp on another session's tty can fail with ENOTTY. Linux
             # exposes the pane shell's foreground process group in /proc instead.
-            stat = Path(f'/proc/{fields[3]}/stat').read_text()
-            foreground = int(stat[stat.rfind(')')+2:].split()[5])
+            if sys.platform == 'darwin':
+                from bazarlyk import process_info
+                foreground = int(process_info.fields(int(fields[3]))[5])
+            else:
+                stat = Path(f'/proc/{fields[3]}/stat').read_text()
+                foreground = int(stat[stat.rfind(')')+2:].split()[5])
             if foreground <= 0:
                 raise ValueError('No foreground process')
-            stat = Path(f'/proc/{foreground}/stat').read_text()
-            started = stat[stat.rfind(')')+2:].split()[19]
+            if sys.platform == 'darwin':
+                started = process_info.start_token(foreground)
+            else:
+                stat = Path(f'/proc/{foreground}/stat').read_text()
+                started = stat[stat.rfind(')')+2:].split()[19]
             command, verified = fields[4], False
             # npm's launcher is node; verify a real client process in its group.
             # Native Claude (claude/claude.exe) is recognized only for Dev.
-            for process in Path('/proc').iterdir():
+            processes = (Path(str(pid)) for pid in process_info.pids()) if sys.platform == 'darwin' else Path('/proc').iterdir()
+            for process in processes:
                 if not process.name.isdigit():
                     continue
                 try:
-                    stat = (process / 'stat').read_text()
-                    group = int(stat[stat.rfind(')')+2:].split()[2])
-                    if group != foreground or (process / 'comm').read_text().strip() not in CLIENT_PROCESSES[client]:
+                    if sys.platform == 'darwin':
+                        group = os.getpgid(int(process.name))
+                        if group != foreground:
+                            continue
+                        name = process_info.name(int(process.name))
+                        args = [arg.encode() for arg in process_info.cmdline(int(process.name))]
+                    else:
+                        stat = (process / 'stat').read_text()
+                        group = int(stat[stat.rfind(')')+2:].split()[2])
+                        name = (process / 'comm').read_text().strip()
+                        args = (process / 'cmdline').read_bytes().split(b'\0')
+                    if group != foreground or name not in CLIENT_PROCESSES[client]:
                         continue
-                    args = (process / 'cmdline').read_bytes().split(b'\0')
                     # Lifecycle control owns the viewer pane, never the shared server.
                     # Current-conversation proof for raw input lives in AttachmentService.
                     if b'app-server' in args:
                         raise DomainError('operation_unavailable', 'A shared app-server is not a terminal viewer')
                     command, verified = client, True
                     break
+                except PermissionError:
+                    if sys.platform == 'darwin':
+                        raise
                 except (OSError, ValueError, IndexError):
                     continue
         except (OSError, IndexError, ValueError) as exc:
@@ -179,18 +199,28 @@ class AgentTerminalBackend:
         shell = int(fields[2])
         try:
             shell_fields = self._stat(shell)
-            shell_comm = (Path(f'/proc/{shell}/comm')).read_text().strip()
+            if sys.platform == 'darwin':
+                from bazarlyk import process_info
+                shell_comm = process_info.name(shell)
+            else:
+                shell_comm = (Path(f'/proc/{shell}/comm')).read_text().strip()
             foreground = int(shell_fields[5])
             if foreground <= 0:
                 raise ValueError('No foreground process')
             members = {}
-            for process in Path('/proc').iterdir():
+            processes = (Path(str(pid)) for pid in process_info.pids()) if sys.platform == 'darwin' else Path('/proc').iterdir()
+            for process in processes:
                 if not process.name.isdigit():
                     continue
                 try:
+                    if sys.platform == 'darwin' and os.getpgid(int(process.name)) != foreground:
+                        continue
                     parts = self._stat(int(process.name))
                     if int(parts[2]) == foreground:
                         members[int(process.name)] = parts
+                except PermissionError:
+                    if sys.platform == 'darwin':
+                        raise
                 except (OSError, ValueError, IndexError):
                     continue
             kind, found = 'other', None
@@ -202,11 +232,13 @@ class AgentTerminalBackend:
                 for pid, parts in sorted(members.items()):
                     if parts[3] != shell_fields[3] or parts[4] != shell_fields[4]:
                         continue
-                    if (Path(f'/proc/{pid}/comm')).read_text().strip() not in CLIENT_PROCESSES[client]:
+                    name = process_info.name(pid) if sys.platform == 'darwin' else (Path(f'/proc/{pid}/comm')).read_text().strip()
+                    if name not in CLIENT_PROCESSES[client]:
                         continue
                     if not self._descends(pid, shell):
                         continue
-                    argv = [item.decode('utf-8', 'replace') for item in (Path(f'/proc/{pid}/cmdline')).read_bytes().split(b'\0') if item]
+                    argv = (process_info.cmdline(pid) if sys.platform == 'darwin' else
+                            [item.decode('utf-8', 'replace') for item in (Path(f'/proc/{pid}/cmdline')).read_bytes().split(b'\0') if item])
                     matches.append({'pid': pid, 'started': parts[19], 'argv': argv})
                 if len(matches) == 1:
                     kind, found = 'client', matches[0]
@@ -219,6 +251,9 @@ class AgentTerminalBackend:
     def _stat(pid):
         """The fields of ``/proc/<pid>/stat`` after the command name: [0] state, [1] ppid, [2] pgrp, [3] session, [4] tty,
         [5] foreground group of that tty, [19] start ticks."""
+        if sys.platform == 'darwin':
+            from bazarlyk.process_info import fields
+            return fields(pid)
         text = Path(f'/proc/{pid}/stat').read_text()
         return text[text.rfind(')')+2:].split()
 
@@ -227,7 +262,11 @@ class AgentTerminalBackend:
         for _ in range(24):
             if pid == ancestor:
                 return True
-            pid = int(self._stat(pid)[1])
+            if sys.platform == 'darwin':
+                from bazarlyk.process_info import parent_pid
+                pid = parent_pid(pid)
+            else:
+                pid = int(self._stat(pid)[1])
             if pid <= 1:
                 return False
         return False

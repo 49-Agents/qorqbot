@@ -1,6 +1,7 @@
-"""Standalone stdlib-only hook. Record observations locally; never invoke a model.
+"""Standalone observation hook. Record locally; never invoke a model.
 
 Preparation executes this file by path, avoiding the heavyweight package bootstrap.
+Linux uses the standard library; macOS uses the installed process helper and psutil.
 The shared service samples these small files once per minute.
 """
 import argparse
@@ -67,6 +68,9 @@ def safe_path(path):
 
 def process_identity(pid):
     try:
+        if sys.platform == 'darwin':
+            from bazarlyk.process_info import pid_identity
+            return pid_identity(pid)
         fields=(PROC_ROOT/str(pid)/'stat').read_text().rsplit(')',1)[1].split()
         return None if fields[0]=='Z' else f'{pid}:{fields[19]}'
     except (OSError,IndexError):
@@ -81,6 +85,8 @@ def owner_alive(owner):
         return False
     if len(parts)==2:
         return True
+    if sys.platform == 'darwin':
+        return False  # Open files do not prove a shared app-server thread's held lock.
     pid,_,fd,device,inode=parts
     try:
         current=(PROC_ROOT/pid/'fd'/fd).stat()
@@ -101,14 +107,24 @@ def session_owner(runtime, session_id):
     for _ in range(14):
         try:
             process=PROC_ROOT/str(pid)
-            executable=Path(str((process/'exe').readlink()).removesuffix(' (deleted)'))
-            argv=[v.decode(errors='replace') for v in (process/'cmdline').read_bytes().split(b'\0') if v]
+            if sys.platform == 'darwin':
+                from bazarlyk import process_info
+                observed_start=process_info.start_token(pid)
+                executable=process_info.exe(pid)
+                argv=process_info.cmdline(pid)
+                if process_info.start_token(pid)!=observed_start:
+                    raise ProcessLookupError(pid)
+            else:
+                executable=Path(str((process/'exe').readlink()).removesuffix(' (deleted)'))
+                argv=[v.decode(errors='replace') for v in (process/'cmdline').read_bytes().split(b'\0') if v]
             codex=runtime=='codex' and executable.name=='codex'
             # npm's native Linux build is named claude.exe, including retained
             # processes whose executable was deleted during an npm update.
             claude=runtime=='claude-code' and (executable.name in {'claude','claude.exe'} or
                 '/claude/versions/' in str(executable) or any('/@anthropic-ai/claude-code/cli.js' in a for a in argv[:3]))
             if codex and 'app-server' in argv:
+                if sys.platform == 'darwin':
+                    return None
                 home=Path(os.environ.get('CODEX_HOME',str(Path.home()/'.codex'))).expanduser().resolve()
                 expected=home/'thread-writer-locks'/(session_id+'.lock')
                 for fd in (process/'fd').iterdir():
@@ -121,9 +137,15 @@ def session_owner(runtime, session_id):
                         continue
                 return None
             if claude or (codex and not {'exec','queue'} & set(argv)):
-                return process_identity(pid)
-            fields=(process/'stat').read_text().rsplit(')',1)[1].split()
-            pid=int(fields[1])
+                identity=process_identity(pid)
+                if sys.platform == 'darwin' and identity!=f'{pid}:{observed_start}':
+                    raise ProcessLookupError(pid)
+                return identity
+            if sys.platform == 'darwin':
+                pid=process_info.parent_pid(pid)
+            else:
+                fields=(process/'stat').read_text().rsplit(')',1)[1].split()
+                pid=int(fields[1])
             if pid<=1: break
         except (OSError,ValueError,IndexError):
             break
@@ -450,8 +472,12 @@ def record(hook, registration_path, runtime, *, now=None):
         fcntl.flock(fd,fcntl.LOCK_EX)
         previous=json.loads(path.read_text()) if safe_path(path) and path.is_file() and path.stat().st_size<=8192 else {}
         owner=session_owner(runtime,session_id)
-        boot_id=(PROC_ROOT/'sys/kernel/random/boot_id').read_text().strip()
-        pid_namespace=str((PROC_ROOT/'self/ns/pid').readlink())
+        if sys.platform == 'darwin':
+            from bazarlyk import process_info
+            boot_id=process_info.boot_id();pid_namespace=process_info.namespace_id()
+        else:
+            boot_id=(PROC_ROOT/'sys/kernel/random/boot_id').read_text().strip()
+            pid_namespace=str((PROC_ROOT/'self/ns/pid').readlink())
         if not cwd_matches and not continuing_claude_session(
                 previous, registration, session_id, runtime, owner, boot_id, pid_namespace):
             raise ValueError('workspace mismatch')

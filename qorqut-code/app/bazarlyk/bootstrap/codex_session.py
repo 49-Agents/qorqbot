@@ -15,8 +15,11 @@ PROC_ROOT = Path("/proc")
 
 
 def process_identity(pid):
-    """PID plus Linux start ticks prevents attachment to a recycled PID."""
+    """PID plus kernel process birth identity prevents attaching to a recycled PID."""
     try:
+        if sys.platform == 'darwin':
+            from bazarlyk.process_info import pid_identity
+            return pid_identity(pid)
         fields = (PROC_ROOT / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
         if fields[0] == "Z":
             return None
@@ -34,6 +37,9 @@ def owner_alive(owner):
         return False
     if len(parts) == 2:
         return True
+    if sys.platform == 'darwin':
+        # psutil open-files data cannot attest an exact per-thread held writer lock.
+        return False
     pid, _, descriptor, device, inode = parts
     try:
         process = PROC_ROOT / pid
@@ -53,6 +59,8 @@ def owner_alive(owner):
 
 
 def thread_owner(pid, session_id):
+    if sys.platform == 'darwin':
+        return None
     home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser().resolve()
     expected = home / "thread-writer-locks" / (str(uuid.UUID(session_id)) + ".lock")
     identity = process_identity(pid)
@@ -77,8 +85,16 @@ def session_process(session_id):
         try:
             process = PROC_ROOT / str(pid)
             # An npm update can unlink the executable while its server is still running.
-            executable = Path(str((process / "exe").readlink()).removesuffix(" (deleted)"))
-            argv = (process / "cmdline").read_bytes().split(b"\0")
+            if sys.platform == 'darwin':
+                from bazarlyk import process_info
+                observed_start = process_info.start_token(pid)
+                executable = process_info.exe(pid)
+                argv = [arg.encode() for arg in process_info.cmdline(pid)]
+                if process_info.start_token(pid) != observed_start:
+                    raise ProcessLookupError(pid)
+            else:
+                executable = Path(str((process / "exe").readlink()).removesuffix(" (deleted)"))
+                argv = (process / "cmdline").read_bytes().split(b"\0")
             if executable.name == "codex":
                 if b"app-server" in argv:
                     owner = thread_owner(pid, session_id)
@@ -88,10 +104,15 @@ def session_process(session_id):
                 if b"exec" in argv or b"queue" in argv:
                     break
                 identity = process_identity(pid)
+                if sys.platform == 'darwin' and identity != f'{pid}:{observed_start}':
+                    raise ProcessLookupError(pid)
                 if identity:
                     return identity
-            fields = (process / "stat").read_text().rsplit(")", 1)[1].split()
-            pid = int(fields[1])
+            if sys.platform == 'darwin':
+                pid = process_info.parent_pid(pid)
+            else:
+                fields = (process / "stat").read_text().rsplit(")", 1)[1].split()
+                pid = int(fields[1])
             if pid <= 1:
                 break
         except (OSError, ValueError, IndexError):

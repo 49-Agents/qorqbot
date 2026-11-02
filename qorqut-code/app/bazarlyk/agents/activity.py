@@ -7,6 +7,7 @@ import json
 import logging
 from pathlib import Path
 import threading
+import sys
 import uuid
 
 from bazarlyk.agents import roles
@@ -248,8 +249,12 @@ class AgentActivity:
                 'FROM agent_activity s JOIN agent_profiles a ON a.agent_id=s.agent_id LEFT JOIN businesses b ON b.id=a.home_business_id '
                 'LEFT JOIN agent_current_work w ON w.agent_id=s.agent_id '
                 "WHERE a.status='active' AND (b.id IS NULL OR b.archived_at IS NULL)").fetchall()
-        boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
-        namespace=str(Path('/proc/self/ns/pid').readlink())
+        if sys.platform == 'darwin':
+            from bazarlyk import process_info
+            boot=process_info.boot_id();namespace=process_info.namespace_id()
+        else:
+            boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+            namespace=str(Path('/proc/self/ns/pid').readlink())
         observations=[]
         genuine_tools=[]
         namespace_pids=None
@@ -323,6 +328,8 @@ class AgentActivity:
 
     @staticmethod
     def namespace_pids():
+        if sys.platform == 'darwin':
+            return {}  # A foreign namespace is not attestable from this native macOS host.
         found={}
         for process in Path('/proc').iterdir():
             if not process.name.isdecimal(): continue

@@ -1,6 +1,8 @@
 """Internal offline reconciliation of the runtime after layout Git publication."""
 from __future__ import annotations
 
+from bazarlyk.posix_files import immutable_database_uri
+
 import base64
 import hashlib
 import json
@@ -361,7 +363,7 @@ def _offline_reader(store):
         db = os.open('state.sqlite3', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
         if identity(os.fstat(db)) != before['state.sqlite3']:
             raise _conflict('Offline runtime database changed before inspection')
-        conn = sqlite3.connect(f'file:/proc/self/fd/{db}?mode=ro&immutable=1', uri=True)
+        conn = sqlite3.connect(immutable_database_uri(db), uri=True)
         conn.row_factory = sqlite3.Row
         conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 16 * 1024 * 1024)
         try:

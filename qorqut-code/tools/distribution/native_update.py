@@ -169,6 +169,8 @@ def main(argv=None):
                 new_runtime = stage / 'qorqbot/runtime'
                 new = launcher.verify(new_runtime)
                 old = launcher.read_json(runtime / 'PAYLOAD.json')
+                if new.get('platform', 'ubuntu24-x86_64') != old.get('platform', 'ubuntu24-x86_64'):
+                    raise ValueError('The update targets a different operating system or CPU')
                 if not new.get('schema_target') or new['schema_target'] != old.get('schema_target'):
                     raise ValueError('This update changes the database schema; a qualified migration is required')
                 db = instance / 'operations/.runtime/operations.sqlite3'

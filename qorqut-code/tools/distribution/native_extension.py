@@ -294,7 +294,7 @@ for wheel in wheels:
     incoming.update(wheel['files'])
     _,parsed,_,tags=parse_wheel_filename(wheel['filename'])
     if parsed != Version(version) or not tags.intersection(set(sys_tags())):
-        raise SystemExit('Wheel is incompatible with this Python/Linux runtime: '+name)
+        raise SystemExit('Wheel is incompatible with this Python/platform runtime: '+name)
     if wheel['requires_python'] and Version('.'.join(map(str,sys.version_info[:3]))) not in SpecifierSet(wheel['requires_python']):
         raise SystemExit('Wheel requires another Python version: '+name)
     merged[name]=version
@@ -348,9 +348,11 @@ def install(root, archive, expected, *, config=None, resume=False):
                 env.pop(key, None)
             env.update(PIP_CONFIG_FILE=os.devnull, PIP_NO_INDEX='1')
             launcher.require_stopped_terminals(root, env)
+            # macOS process inspection uses the verified app environment's
+            # psutil library. A fresh download has no such environment yet.
+            launcher.prepare(root, env)
             if installation_processes(root):
                 raise ValueError('Stop this installation’s remaining browsers and helper processes before installing an extension')
-            launcher.prepare(root, env)
             launcher.initialize(root, env)
             if instance_lock is None:
                 instance_lock = lifetime.open('a')
