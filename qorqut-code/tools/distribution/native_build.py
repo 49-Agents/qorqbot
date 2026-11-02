@@ -175,8 +175,14 @@ extension distribution and release qualification must be completed separately.
     (runtime / 'PAYLOAD.json').write_text(json.dumps({'format': 1, 'version': args.version,
          'schema_target': schema_target, 'files': files}, indent=2) + '\n')
     archive = output / ('qorqbot-' + args.version + '-ubuntu24-x86_64.tar.gz')
+    def public_header(member):
+        member.uid = member.gid = 0
+        member.uname = member.gname = ''
+        member.mtime = 0
+        member.pax_headers = {}
+        return member
     with tarfile.open(archive, 'w:gz') as tar:
-        tar.add(output / 'qorqbot', arcname='qorqbot')
+        tar.add(output / 'qorqbot', arcname='qorqbot', filter=public_header)
     record = {'format': 1, 'version': args.version, 'qualified': False, 'archive': str(archive),
               'sha256': sha(archive), 'third_party_wheels': wheel_records, 'source_audit': audit}
     report.write_text(json.dumps(record, indent=2) + '\n')
