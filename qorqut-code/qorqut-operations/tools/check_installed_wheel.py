@@ -139,7 +139,6 @@ class Execution:
     def execution_sql(self, alias): return "'not_started'"
 class Peers:
     def configured_ordubashy(self, uow, *, require_codex): return None
-    def marketing_peer(self, uow, principal_id): return False
 class Tasks:
     def open_assigned_count(self, uow, business_id, principal_id, now): return 0
 class References:
@@ -187,7 +186,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-slice-") as directory:
     database = Database(root / "slice.sqlite3", assembly=assembly).initialize_target()
     locks = LockPaths.under(root / "locks")
     ports = SignoffPorts(execution=Execution(), peers=Peers(), tasks=Tasks(), references=References(),
-                         platform=ABSENT, email=ABSENT, campaigns=ABSENT, management=ABSENT, focus=ABSENT)
+                         platform=ABSENT, email=ABSENT, management=ABSENT, focus=ABSENT)
     service = SignoffService(database, ports, locks=locks)
     programs = ProgramRegistry()
     program = programs.register(Program("probe.report", 1, {"type": "object", "properties": {"label": {"type": "string"}},

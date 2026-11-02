@@ -2,7 +2,6 @@
 import json
 
 from qorqut_operations.contracts import DomainError
-from qorqut_operations.departments import profile_department
 
 
 def author(note,uow):
@@ -13,8 +12,7 @@ def author(note,uow):
         is_owner=bool(installation and note['created_by']==installation['owner_principal_id']))
     profile=uow.connection.execute('SELECT profile_json FROM agent_profiles WHERE agent_id=?',(note['created_by'],)).fetchone() if principal and principal['kind']=='agent' else None
     if profile:
-        data=json.loads(profile['profile_json'])
-        note['presentation']={**data.get('presentation',{}),'department':profile_department(data)}
+        note['presentation']=json.loads(profile['profile_json']).get('presentation',{})
     return note
 
 

@@ -1,6 +1,6 @@
 """Typed host ports for the extracted Signoff machinery.
 
-The deployed v1 Signoff code reached into platform-action, email, campaign-group, Task, Focus, management and identity
+The deployed v1 Signoff code reached into platform-action, email, Task, Focus, management and identity
 modules by import or by optional attributes of the application. Every such reach is one small typed port here,
 named after the v1 function it replaces and keeping that function's arguments and results. The engine keeps the
 scope, decision and application checks itself: a port supplies presentation, vocabulary, an additional *narrowing*
@@ -64,17 +64,12 @@ class ExecutionPresentation(Protocol):
 
 
 class PeerIdentities(Protocol):
-    """The exact current identity lookups behind the standing-authority checks (v1 ``management.identity`` and
-    ``agents.global_peers``).
+    """The exact current identity lookup behind the standing-authority check (v1 ``management.identity``).
 
     ``configured_ordubashy(uow, *, require_codex)`` -> the one configured coordinator principal id, or ``None``
-    when it cannot act. ``marketing_peer(uow, principal_id)`` -> ``True`` only for an active Global Marketing
-    peer holding its current peer capability. The engine decides what these answers authorize and re-checks
-    them before execution."""
+    when it cannot act. The engine decides what this answer authorizes and re-checks it before execution."""
 
     def configured_ordubashy(self, uow, *, require_codex: bool) -> str | None: ...
-
-    def marketing_peer(self, uow, principal_id: str) -> bool: ...
 
 
 class OwnerTaskAttention(Protocol):
@@ -118,10 +113,9 @@ class PlatformActions(Protocol):
 
     Called inside the writing transaction, in the same order as v1: ``staging_values`` before the Signoff insert,
     ``staged`` after it, ``transition`` after every status update of a ``platform_action`` row,
-    ``replaceable_after_cancel`` while checking supersession. ``view`` is v1 ``platform_view``,
-    ``enqueue_binding`` the v1 function of that name and ``is_email_submission`` the v1
-    ``Application._email_submission`` classification of a prepared plan. Staging itself is a host contribution:
-    ``staging_values`` returns ``{"id", "execution_job_id"}`` bound to the prepared plan; it cannot change the
+    ``replaceable_after_cancel`` while checking supersession. ``view`` is v1 ``platform_view`` and
+    ``is_email_submission`` the v1 ``Application._email_submission`` classification of a prepared plan. Staging
+    itself is a host contribution: ``staging_values`` returns ``{"id", "execution_job_id"}`` bound to the prepared plan; it cannot change the
     plan the engine stores."""
 
     def staging_values(self, context: InvocationContext, plan: ChangeSet, old, uow) -> Mapping[str, Any]: ...
@@ -133,8 +127,6 @@ class PlatformActions(Protocol):
     def replaceable_after_cancel(self, old: Mapping[str, Any], uow) -> bool: ...
 
     def view(self, row: Mapping[str, Any], uow=None) -> Mapping[str, Any]: ...
-
-    def enqueue_binding(self, plan: ChangeSet) -> Mapping[str, Any]: ...
 
     def is_email_submission(self, plan: ChangeSet) -> bool: ...
 
@@ -163,22 +155,6 @@ class VisibilityNarrowing(Protocol):
     the engine refuses anything else, so a port can only remove proposals from a reader's view, never add them."""
 
     def narrow(self, context: InvocationContext, uow) -> tuple[str, Sequence[Any]]: ...
-
-
-class CampaignFilter(Protocol):
-    """Campaign filtering of ``signoffs_list`` (v1 ``stories.attribution.campaign`` plus the campaign SQL).
-
-    The engine first authorizes the read operation named by ``authorizing_operation`` (the host names the read of the
-    Task that is the campaign; v1 named the retired group read) for the
-    caller. ``narrow(context, campaign_id, uow)`` then validates the campaign (v1 ``campaign``) and returns
-    ``(sql, params)``: a BARE SQL predicate over alias ``s`` with ``?`` placeholders bound by ``params`` and NO
-    leading ``AND``. The engine supplies the connective and the parentheses (it appends `` AND (`` + the predicate +
-    ``)`` to the visibility predicate), so the predicate can only narrow the listing and never replace the visibility
-    predicate."""
-
-    authorizing_operation: str
-
-    def narrow(self, context: InvocationContext, campaign_id: str, uow) -> tuple[str, Sequence[Any]]: ...
 
 
 class ManagementQueries(Protocol):
@@ -225,7 +201,7 @@ def _check(value, label: str, methods: Sequence[str] = (), attributes: Sequence[
 @dataclass(frozen=True)
 class SignoffPorts:
     """All host ports of one Signoff service. ``execution``, ``peers``, ``tasks`` and ``references`` are required;
-    ``platform``, ``email``, ``campaigns``, ``management`` and ``focus`` are optional domains that must be declared,
+    ``platform``, ``email``, ``management`` and ``focus`` are optional domains that must be declared,
     either with an implementation or with ``ABSENT``. ``narrowing`` is an optional extension that defaults to ``ABSENT``
     (visibility exactly as before)."""
 
@@ -235,7 +211,6 @@ class SignoffPorts:
     references: ReferenceVocabulary
     platform: PlatformActions | Absent
     email: EmailDecisions | Absent
-    campaigns: CampaignFilter | Absent
     management: ManagementQueries | Absent
     focus: FocusAttention | Absent
     narrowing: VisibilityNarrowing | Absent = ABSENT
@@ -246,7 +221,7 @@ class SignoffPorts:
             if value is None or value is ABSENT:
                 raise AssemblyError(f"Required Signoff port missing: {name}")
         _check(self.execution, "execution", ("execution_state", "execution_sql"), ("execution_states",))
-        _check(self.peers, "peers", ("configured_ordubashy", "marketing_peer"))
+        _check(self.peers, "peers", ("configured_ordubashy",))
         _check(self.tasks, "tasks", ("open_assigned_count",))
         _check(self.references, "references", ("task_namespace",), ("targets",))
         targets = self.references.targets
@@ -255,9 +230,8 @@ class SignoffPorts:
             raise AssemblyError("Signoff port references must name ReferenceTarget values")
         for name, methods, attributes in (
                 ("platform", ("staging_values", "staged", "transition", "replaceable_after_cancel", "view",
-                              "enqueue_binding", "is_email_submission"), ()),
+                              "is_email_submission"), ()),
                 ("email", ("visibility", "email_context"), ()),
-                ("campaigns", ("narrow",), ("authorizing_operation",)),
                 ("management", ("coordinator", "auto_route_input", "routing_for"), ("managed_input_sql",)),
                 ("focus", ("creation_access", "present_created", "release_signoff"), ("fields",)),
                 ("narrowing", ("narrow",), ())):

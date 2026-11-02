@@ -8,7 +8,6 @@ import unicodedata
 
 from qorqut_operations.application.plans import ref
 from qorqut_operations.contracts import DomainError, new_id
-from qorqut_operations.departments import ALIASES, department_id
 
 LABEL_LIMIT = 64
 TAG_LIST_LIMIT = 100
@@ -43,11 +42,6 @@ def distinct_labels(values: Iterable) -> list[str]:
     if len(labels) > TAG_LIST_LIMIT:
         raise DomainError("validation_error", f"An item carries at most {TAG_LIST_LIMIT} tags")
     return labels
-
-
-def canonical_labels(values: Iterable) -> list[str]:
-    """The labels once each, with a department alias (any case) replaced by the department's id, as v1 normalized tags."""
-    return list(dict.fromkeys(department_id(label.casefold()) if label.casefold() in ALIASES else label for label in distinct_labels(values)))
 
 
 def catalog_row(uow, label):

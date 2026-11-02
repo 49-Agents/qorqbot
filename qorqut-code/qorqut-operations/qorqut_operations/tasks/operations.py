@@ -24,7 +24,7 @@ from qorqut_operations.global_agents import global_agent_ids, is_global_agent
 from qorqut_operations.items import ItemResolver
 from qorqut_operations.relationships import create_edge, related_rows
 from qorqut_operations.storage.assembly import AssemblyError
-from qorqut_operations.tags.catalog import LABELS_SCHEMA, canonical_labels, item_labels, labels_by_item, matches, plan_item_tags
+from qorqut_operations.tags.catalog import LABELS_SCHEMA, distinct_labels, item_labels, labels_by_item, matches, plan_item_tags
 from qorqut_operations.tasks import customers, events, links
 from qorqut_operations.tasks.models import (DEFAULT_CONFIG, DEFAULT_STATE, full_config, normalize_snooze, snooze_view, stored_fields,
                                             validate_config, validate_dependencies, validate_parent, validate_task)
@@ -122,12 +122,8 @@ class TaskOperations:
             options = common
             if name in {"tasks_create", "tasks_update"}:
                 options = {**common, "description": common["description"] +
-                           " Set department tags from the work, independently of assignees. Marketing work: marketing. "
-                           "Code, landing-page updates, design, logos, DevOps and deployment: engineering; add marketing "
-                           "too when relevant. Custom scripts follow their purpose, not automatically engineering. "
-                           "Use multiple departments for cross-functional work. Use the ordinary design/software tag for "
-                           "software, code fixes, scripts, tests/CI, IaC, landing pages, design and visual assets, "
-                           "independently of department or assignee. Preserve unrelated tags on updates. Tags come from the shared "
+                           " Tags are ordinary labels that group work; they never grant access or select an assignee. "
+                           "Preserve unrelated tags on updates. Tags come from the shared "
                            "tag catalog (tags_list); a new label is created by using it."}
             descriptors.append(OperationDescriptor(
                 name, schema({**SCOPE, **properties, "rationale": TEXT}, required), **options,
@@ -300,8 +296,6 @@ class TaskOperations:
         if operation == "tasks_get":
             task = self.detail(ctx, repository.get(arguments["task_id"], required=True), uow, configuration["fields"], now)
             task.update(links.read(self, ctx, repository.get(arguments["task_id"], required=True), uow, arguments.get("related_cursor")))
-            if ctx.business_id:
-                task["campaign"] = self.ports.campaigns.view(uow, ctx.business_id, task["id"], task["tags"])
             return {"task": task}
         return self.list_tasks(ctx, arguments, uow, configuration, now)
 
@@ -359,7 +353,7 @@ class TaskOperations:
         if "email_conversation_id" in arguments:
             tasks = [task for task in tasks if attributes(task)["email_conversation_id"] == arguments["email_conversation_id"]]
         if arguments.get("tags"):
-            wanted = canonical_labels(arguments["tags"])
+            wanted = distinct_labels(arguments["tags"])
             labels = labels_by_item(uow, ctx.business_id, "task")
             tasks = [task for task in tasks if matches(labels.get(task["id"], ()), wanted)]
         if arguments.get("search"):
@@ -375,8 +369,8 @@ class TaskOperations:
     # -- writes ----------------------------------------------------------------------------------------------------
 
     def prepare(self, operation, ctx, arguments, options, uow, *, team_note=True):
-        """``team_note=False`` marks a caller whose ``note`` is the action's own generated record (such as campaign reply
-        routing) rather than an ordinary comment, so the owner's private-channel guard does not apply to it."""
+        """``team_note=False`` marks a caller whose ``note`` is the action's own generated record (such as a host handoff
+        message) rather than an ordinary comment, so the owner's private-channel guard does not apply to it."""
         ctx = task_context(ctx, arguments, uow)
         builder = PlanBuilder(ctx, operation, arguments, operation.replace("_", " ").title(), clock=self.clock,
                               namespace=task_namespace(ctx, arguments),
@@ -460,10 +454,7 @@ class TaskOperations:
         if before and before["status"] not in CLOSED_STATES and current["status"] in CLOSED_STATES and operation != "tasks_complete":
             builder.policy_effect(resource, "tasks_complete", "Completes the task through a terminal state")
         if labels is not None:
-            wanted = canonical_labels(labels)
-            previous = [] if creating else item_labels(uow, ctx.business_id, "task", identity)
-            plan_item_tags(builder, uow, "task", identity, ctx.business_id, wanted, created=creating)
-            self.ports.campaigns.plan(ctx, uow, builder, identity, previous, wanted)
+            plan_item_tags(builder, uow, "task", identity, ctx.business_id, distinct_labels(labels), created=creating)
         if blockers is not None:
             graph = self.graph(ctx, uow)
             if creating:

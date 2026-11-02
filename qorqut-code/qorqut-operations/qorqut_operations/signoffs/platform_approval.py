@@ -1,6 +1,6 @@
 """Narrow Ordubashy review of another agent's exact platform proposal.
 
-This is the shared exact-decision orchestration of the deployed Reddit/Email approvals. A concrete approval is a
+This is the shared exact-decision orchestration of platform-action approvals. A concrete approval is a
 subclass that names its ``operation``, ``title``, ``description`` and the ``allowed`` ``(plugin_id, tool)``
 pairs, and is registered by the host (the plugin IDs, payload interpretation and registrations stay host-owned).
 The scope, binding, proposer and application checks below are the engine's; the host's ``PlatformActions.view``

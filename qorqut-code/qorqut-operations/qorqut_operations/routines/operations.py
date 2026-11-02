@@ -3,7 +3,6 @@
 from dataclasses import replace
 from datetime import datetime, timezone
 
-from qorqut_operations.departments import normalize_departments, ACCEPTED_IDS
 from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
 from qorqut_operations.background.schedule import RoutineError, next_slot, parse_cron, zone
@@ -17,8 +16,6 @@ DEFINITION = schema({"name": {"type": "string", "minLength": 1, "maxLength": 80}
     "schedule": {"type": "string", "maxLength": 100}, "timezone": {"type": "string", "maxLength": 100},
     "status": {"enum": ["active", "paused"]}, "program": {"type": "string", "maxLength": 100},
     "arguments": {"type": "object"}, "target": {"enum": ["business", "each-business", "root"]},
-    "departments": {"type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": True,
-        "items": {"enum": list(ACCEPTED_IDS)}},
     "timeout_seconds": {"type": "integer", "minimum": 60, "maximum": 7200}},
     ["name", "schedule", "timezone", "status", "program", "arguments"])
 SCOPE = {"scope": {"enum": ["business", "global"]}}
@@ -63,7 +60,7 @@ class RoutineOperations:
                 "unavailable_reason": program["unavailable_reason"] if program else "Program is not registered",
                 "scheduling_available": bool(program and not program["unavailable_reason"] and not reason),
                 "scheduling_unavailable_reason": reason,
-                "program": row["job_kind"], "arguments": row["arguments_json"], "departments": normalize_departments(row["departments_json"])}
+                "program": row["job_kind"], "arguments": row["arguments_json"]}
 
     def list(self, ctx, args, options, uow):
         business, ns = self.scope(ctx, args)
@@ -173,7 +170,6 @@ class RoutineOperations:
         return {"name": data["name"], "schedule": data["schedule"], "timezone": data["timezone"],
             "status": data["status"], "job_kind": data["program"], "arguments_json": data["arguments"], "target": target,
             "timeout_seconds": data.get("timeout_seconds", program.timeout_seconds),
-            "departments_json": normalize_departments(data.get("departments", ["operations"])),
             "metadata_json": {**old_meta, "why": data.get("why", ""), "schedule_revision":
                 old_meta.get("schedule_revision", previous["revision"] if previous else 0) + int(changed)}}
 
@@ -199,7 +195,7 @@ class RoutineOperations:
             "business_id": business_id, "trigger": trigger, "slot": slot, "state": "queued", "started_at": builder.at,
             "result_json": {"job_id": job_id, "run_group_id": group_id, "missed": missed, "definition": {
                 "name": row["name"], "program": row["job_kind"], "arguments": row["arguments_json"],
-                "departments": normalize_departments(row["departments_json"]), "revision": row["revision"], "timezone": row["timezone"]}}}, business_id=business_id)
+                "revision": row["revision"], "timezone": row["timezone"]}}}, business_id=business_id)
         builder.record("jobs", job_id, None, values, business_id=business_id)
         return job_id
 

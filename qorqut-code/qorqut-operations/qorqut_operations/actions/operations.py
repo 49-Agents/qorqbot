@@ -37,7 +37,7 @@ from qorqut_operations.discussion.threads import (BODY, RELAY, DiscussionReferen
                                                   read_messages)
 from qorqut_operations.storage.assembly import AssemblyError
 from qorqut_operations.storage.repositories import decode_row
-from qorqut_operations.tags.catalog import LABELS_SCHEMA, canonical_labels, item_labels, label_key
+from qorqut_operations.tags.catalog import LABELS_SCHEMA, distinct_labels, item_labels, label_key
 from qorqut_operations.team_channel import reject_owner_team_write
 
 ACTION_READS = ("actions_list", "actions_get", "actions_config_get", "actions_thread_get")
@@ -411,7 +411,7 @@ class ActionOperations:
             parameters.append(args["performer"])
         if not args.get("include_withdrawn"):
             where.append("a.withdrawn=0")
-        for label in canonical_labels(args.get("tags", ())):
+        for label in distinct_labels(args.get("tags", ())):
             where.append("EXISTS (SELECT 1 FROM item_tags i JOIN tags t ON t.id=i.tag_id WHERE i.business_id IS a.business_id "
                          "AND i.item_type='action' AND i.item_id=a.id AND t.label_key=?)")
             parameters.append(label_key(label))

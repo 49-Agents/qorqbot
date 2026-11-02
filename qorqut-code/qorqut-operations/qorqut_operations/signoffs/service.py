@@ -14,7 +14,6 @@ from qorqut_operations.application.engine import ApprovalBinding
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
 from qorqut_operations.contracts import (ChangeSet, DomainError, InvocationOptions, OperationResult,
                                          canonical_bytes, canonical_hash, new_id, plain, utc_now)
-from qorqut_operations.departments import profile_department
 from qorqut_operations.storage.assembly import AssemblyError, StorageContribution
 from qorqut_operations.storage.executor import application_claim
 from qorqut_operations.storage.locks import LockPaths
@@ -35,7 +34,6 @@ CONFLICTS = frozenset({"revision_conflict", "forbidden", "policy_denied", "inact
                        "artifact_conflict"})
 FILE_RECOVERY_INTERVAL = 5.0
 MAIL_OPERATIONS = frozenset({"email_send", "email_reply", "email_forward"})
-MARKETING_PLATFORM_TOOLS = frozenset({("reddit-organic", "reddit.post"), ("email-management", "email.send")})
 PLATFORM_UNAVAILABLE = "Platform action domain is not installed"
 UUID_SCHEMA = {"type": "string", "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"}
 
@@ -123,7 +121,7 @@ class SignoffService:
                 **scopes, effect_kind="read", supports_signoff=False, read=self._get_operation,
                 description="Read a proposal and owner feedback in the selected project, or with explicit scope=global and global rights."),
             OperationDescriptor("signoffs_list", {"type": "object", "properties": {
-                **common, "responded": {"type": "boolean"}, "include_managed": {"type": "boolean"}, "category": {"enum": list(CATEGORIES)}, "campaign_id": UUID_SCHEMA,
+                **common, "responded": {"type": "boolean"}, "include_managed": {"type": "boolean"}, "category": {"enum": list(CATEGORIES)},
                 "execution_states": {"type": "array", "items": {"enum": list(self.ports.execution.execution_states)}, "uniqueItems": True},
                 "states": {"type": "array", "items": {"enum": list(STATES)}, "uniqueItems": True},
                 "proposer_principal_id": UUID_SCHEMA, "initiated_by_principal_id": UUID_SCHEMA,
@@ -257,8 +255,6 @@ class SignoffService:
             if message:
                 field='notes' if value['decision']['kind']=='respond' else 'feedback'
                 value['decision']={**value['decision'],field:message[0]}
-        profile = uow.connection.execute("SELECT profile_json FROM agent_profiles WHERE agent_id=?", (row["proposer_principal_id"],)).fetchone()
-        value["proposer_department"] = profile_department(json.loads(profile["profile_json"])) if profile else None
         if detail:
             value.update(preview=row["preview_json"], expected_targets=row["expected_targets_json"],
                          applied_at=row["applied_at"], apply_result=row["apply_result_json"], error=row["error_json"])
@@ -310,14 +306,6 @@ class SignoffService:
         clause, params = self._visibility(context,uow)
         if context.principal_kind == 'human' and not arguments.get('include_managed') and self.ports.management is not ABSENT:
             clause += ' AND NOT ('+self.ports.management.managed_input_sql+')'
-        if arguments.get("campaign_id"):
-            if context.business_id is None:
-                raise DomainError("validation_error", "Campaign filters require a project workspace")
-            campaigns = self.ports.require("campaigns", "Campaign filtering is not installed")
-            self.app.authorize(context, self.app.registry.get(campaigns.authorizing_operation), (), uow)
-            narrowing, narrowing_params = campaigns.narrow(context, arguments["campaign_id"], uow)
-            clause += " AND (" + narrowing + ")"
-            params.extend(narrowing_params)
         if "responded" in arguments:
             clause += " AND s.decision_json IS " + ("NOT NULL" if arguments["responded"] else "NULL")
         if "category" in arguments:
@@ -329,7 +317,7 @@ class SignoffService:
         counts = dict.fromkeys(STATES, 0)
         for row in uow.connection.execute(f"SELECT s.state, COUNT(*) n FROM signoffs s WHERE {clause} GROUP BY s.state", params):
             counts[row["state"]] = row["n"]
-        filters = {key: arguments[key] for key in ("states", "proposer_principal_id", "initiated_by_principal_id", "category", "execution_states", "campaign_id", "responded", "include_managed") if key in arguments}
+        filters = {key: arguments[key] for key in ("states", "proposer_principal_id", "initiated_by_principal_id", "category", "execution_states", "responded", "include_managed") if key in arguments}
         if "states" in filters:
             filters["states"] = sorted(filters["states"])
             if filters["states"]:
@@ -467,16 +455,12 @@ class SignoffService:
         protection. Explicit signoff/deny overrides still require owner review.
         """
         peers = self.ports.peers
-        marketing = context.business_id is not None and peers.marketing_peer(uow, context.principal_id)
-        eligible = descriptor.name in MAIL_OPERATIONS
-        if descriptor.name == "signoffs_platform_submit" and marketing:
-            eligible = self._marketing_platform_eligible(plan)
-        if (not eligible
+        if (descriptor.name not in MAIL_OPERATIONS
                 or context.principal_kind != "agent" or context.delegation_assignment_id is not None
-                or (not marketing and context.principal_id != peers.configured_ordubashy(uow, require_codex=False))
+                or context.principal_id != peers.configured_ordubashy(uow, require_codex=False)
                 or any(decision.mode != "allow" for decision in decisions.values())):
             return staged
-        authority = "marketing_business_execution" if marketing else "ordubashy_mail_control"
+        authority = "ordubashy_mail_control"
         row = uow.repository("signoffs", business_id=plan.review_business_id).get(staged.signoff["id"], required=True)
         ApplyReceipts(uow).create(plan, receipt_id=row["id"], signoff_id=row["id"])
         row = self._update(row, {"state": "approved", "decision_json": {
@@ -486,32 +470,6 @@ class SignoffService:
         return OperationResult(context.request_id, "accepted", data={
             "signoff_id": row["id"], "execution_state": "authorized",
             "authorization": authority})
-
-    def _marketing_platform_eligible(self, plan):
-        submission = self.ports.require("platform", PLATFORM_UNAVAILABLE).enqueue_binding(plan)["submission"]
-        return (submission.get("plugin_id"), submission.get("tool")) in MARKETING_PLATFORM_TOOLS
-
-    def standing_authority_current(self, row, uow):
-        """Re-verify the standing authority an approved proposal was accepted under.
-
-        Reads only the stored immutable proposal and current policy: target revisions were consumed when the
-        enqueue applied, so they are not compared again. Scope, plugin, mailbox and payload validation stay with
-        the caller. Owner approvals and the configured Ordubashy's authority are not judged here.
-        """
-        if (row["decision_json"] or {}).get("authority") != "marketing_business_execution":
-            return
-        plan = ChangeSet.from_bytes(row["change_set"], expected_hash=row["payload_hash"])
-        context = self._proposer_context(plan, uow)
-        changed = DomainError("forbidden", "Marketing project execution authority changed")
-        if (context.principal_kind != "agent" or context.delegation_assignment_id is not None
-                or context.business_id is None or not self.ports.peers.marketing_peer(uow, context.principal_id)):
-            raise changed
-        # The original operation is checked, never only the translated platform submission.
-        if plan.operation_name not in MAIL_OPERATIONS and not (
-                plan.operation_name == "signoffs_platform_submit" and self._marketing_platform_eligible(plan)):
-            raise changed
-        if any(decision.mode != "allow" for decision in self.app.current_decisions(context, plan, uow).values()):
-            raise changed
 
     def _proposer_context(self, plan, uow):
         loader = getattr(self.app.policy, "context_for", None)
@@ -525,10 +483,13 @@ class SignoffService:
     def _validate(self, row, uow, *, approved=False):
         plan = ChangeSet.from_bytes(row["change_set"], expected_hash=row["payload_hash"])
         context = self._proposer_context(plan, uow)
-        if (row["decision_json"] or {}).get("authority") == "ordubashy_mail_control":
+        authority = (row["decision_json"] or {}).get("authority")
+        if authority == "ordubashy_mail_control":
             if context.principal_id != self.ports.peers.configured_ordubashy(uow, require_codex=False):
                 raise DomainError("forbidden", "Mailbox controller changed before execution")
-        self.standing_authority_current(row, uow)
+        elif authority is not None:
+            # A recorded standing authority this engine no longer issues is never treated as an owner approval.
+            raise DomainError("forbidden", "The standing authority this proposal was approved under no longer exists")
         receipt_id = row["id"] if approved else None
         self.app.validate_prepared(context, plan, uow,
             approval=ApprovalBinding(row["id"], plan.payload_hash) if approved else None,

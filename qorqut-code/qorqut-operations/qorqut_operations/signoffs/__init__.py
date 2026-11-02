@@ -4,12 +4,12 @@
 the prepared file executor and receipts it applies through are the ones in ``qorqut_operations.storage``."""
 
 from .platform_approval import PlatformApproval
-from .ports import (ABSENT, Absent, CampaignFilter, EmailDecisions, ExecutionPresentation, FocusAttention,
+from .ports import (ABSENT, Absent, EmailDecisions, ExecutionPresentation, FocusAttention,
                     ManagementQueries, OwnerTaskAttention, PeerIdentities, PlatformActions, ReferenceTarget,
                     ReferenceVocabulary, SignoffPorts)
 from .service import SIGNOFF_ENTRIES, SIGNOFF_REQUIRED_TABLES, SignoffService, storage_contribution
 
-__all__ = ["ABSENT", "Absent", "CampaignFilter", "EmailDecisions", "ExecutionPresentation", "FocusAttention",
+__all__ = ["ABSENT", "Absent", "EmailDecisions", "ExecutionPresentation", "FocusAttention",
            "ManagementQueries", "OwnerTaskAttention", "PeerIdentities", "PlatformActions", "PlatformApproval",
            "ReferenceTarget", "ReferenceVocabulary", "SIGNOFF_ENTRIES", "SIGNOFF_REQUIRED_TABLES",
            "SignoffPorts", "SignoffService", "storage_contribution"]

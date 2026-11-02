@@ -1,9 +1,9 @@
-"""Source-derived target DDL for the tables the extracted engine owns.
+"""Target DDL for the tables the operations engine owns.
 
-Derived by ``tools/derive_core_schema.py`` from the final state of the deployed v1 migrations (biz-core
-e71fd1e527368bfd41b9815126f4bf33452aeebb, migrations 001-113, SQL only). It is a target-schema artifact for
-isolated empty instances: nothing here upgrades an existing database, and no historical migration chain is
-carried. Retained domains contribute their own tables, indexes, triggers and sequence seeds.
+This is the maintained v1.3 target schema for isolated empty instances: it is edited directly, not generated from
+a migration chain. Nothing here upgrades an existing database (``Database`` refuses a store whose identity or schema
+differs and performs no conversion), and no historical migration chain is carried. Retained domains contribute their
+own tables, indexes, triggers and sequence seeds.
 """
 
 CORE_SCHEMA = (
@@ -283,7 +283,6 @@ BEGIN SELECT RAISE(ABORT, 'immutable job outputs'); END""",
     status TEXT NOT NULL CHECK (status IN ('active','paused')),
     job_kind TEXT NOT NULL,
     arguments_json TEXT NOT NULL CHECK (json_valid(arguments_json)),
-    departments_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(departments_json)),
     timeout_seconds INTEGER NOT NULL,
     metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json)),
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),

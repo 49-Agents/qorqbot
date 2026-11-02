@@ -16,15 +16,15 @@ from qorqut_operations.context_queue.queue import action_payload, enqueue_action
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.discussion.events import emit_event
 from qorqut_operations.discussion.follows import ThreadItem, auto_follow, followers
-from qorqut_operations.tags.catalog import canonical_labels, item_labels, plan_item_tags, tag_snapshots
+from qorqut_operations.tags.catalog import distinct_labels, item_labels, plan_item_tags, tag_snapshots
 
 SOURCE_TYPE = "actions"
 EVENT_TYPES = {"add": "created", "edit": "updated", "remove": "withdrawn"}
 
 
 def labels_of(values) -> list[str]:
-    """Tags as the shared catalog stores them (department aliases normalized)."""
-    return canonical_labels(values)
+    """Tags as the shared catalog stores them (each label once, by normalized key)."""
+    return distinct_labels(values)
 
 
 def _revision_row(builder, key, revision, operation, state, *, storage, performer, provenance):
