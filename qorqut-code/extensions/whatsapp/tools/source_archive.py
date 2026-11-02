@@ -87,10 +87,13 @@ def module_records(path):
         text = text[offset:]
 
 
-def build_source_archive(source, native, output, image):
+def build_source_archive(source, native, output, image, *, target="linux-x86_64", module_cache_prefix="/build/modules"):
     version = tomllib.loads((source / 'pyproject.toml').read_text())['project']['version']
-    name = f'qorqut-whatsapp-{version}-linux-x86_64-source'
-    if name + '.tar.gz' not in (source / 'SOURCE-AVAILABILITY.md').read_text():
+    if target not in {'linux-x86_64', 'macos-arm64'}:
+        raise ValueError('Unsupported helper source target')
+    name = f'qorqut-whatsapp-{version}-{target}-source'
+    documented = name + '.tar.gz'
+    if documented not in (source / 'SOURCE-AVAILABILITY.md').read_text():
         raise ValueError('Update SOURCE-AVAILABILITY.md for the connector version before building')
     tree = output / name
     archive = output / (name + '.tar.gz')
@@ -105,7 +108,7 @@ def build_source_archive(source, native, output, image):
             continue
         if record.get('Replace'):
             raise ValueError('Module replacements need explicit corresponding-source handling')
-        relative = Path(record['Dir']).relative_to('/build/modules')
+        relative = Path(record['Dir']).relative_to(module_cache_prefix)
         destination = Path('THIRD-PARTY-SOURCE') / relative
         shutil.copytree(native / 'modules' / relative, tree / destination)
         modules.append({'module': record['Path'], 'version': record['Version'],
@@ -113,17 +116,34 @@ def build_source_archive(source, native, output, image):
     cache = native / 'modules/cache/download'
     for path in cache.rglob('*'):
         if path.is_file() and path.suffix in {'.mod', '.info', '.ziphash'}:
-            target = tree / 'GO-MODULE-METADATA' / path.relative_to(cache)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path, target)
-    (tree / 'build.sh').write_text(BUILD_SCRIPT)
+            metadata_target = tree / 'GO-MODULE-METADATA' / path.relative_to(cache)
+            metadata_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, metadata_target)
+    build_script = BUILD_SCRIPT
+    if target == 'macos-arm64':
+        build_script = build_script.replace('set -eu', 'set -eu\n[ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] || { echo "Build on an Apple Silicon Mac" >&2; exit 1; }', 1)
+        build_script = build_script.replace('cd "$source_dir"', 'export GOOS=darwin GOARCH=arm64 MACOSX_DEPLOYMENT_TARGET=13.0\nexport CGO_CFLAGS="${CGO_CFLAGS:-} -mmacosx-version-min=13.0"\nexport CGO_LDFLAGS="${CGO_LDFLAGS:-} -mmacosx-version-min=13.0"\ncd "$source_dir"', 1)
+        build_script = build_script.replace('sha256sum "$build_dir/whatsapp-personal"', 'python3 -c \'import hashlib,sys; print(hashlib.file_digest(open(sys.argv[1],"rb"),"sha256").hexdigest())\' "$build_dir/whatsapp-personal"')
+    (tree / 'build.sh').write_text(build_script)
     (tree / 'build.sh').chmod(0o755)
     readme = README.replace('all 29 linked Go', f'all {len(modules)} linked Go')
     old_image = 'golang@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61'
-    (tree / 'README-SOURCE.md').write_text(readme.replace(old_image, image))
+    if target == 'macos-arm64':
+        readme = ("# WhatsApp native helper corresponding source — Apple Silicon\n\n"
+                  "The native helper is GPL-3.0-only; third-party modules retain their original licenses. "
+                  "The separate Python adapter/UI is Apache 2.0.\n\n"
+                  "Use an Apple Silicon Mac with macOS 13+, Go 1.27.2, Python 3 and the Xcode command-line tools. "
+                  "Run ./build.sh ../whatsapp-build with a new build directory. The bundled module source and "
+                  "metadata allow a network-free build; no account or service is needed. Docker/Linux cannot "
+                  "cross-build this CGO helper for macOS.\n\n"
+                  "SOURCE-MANIFEST.json records the exact helper and source hashes. "
+                  "Supply this source archive alongside the matching optional binary with equivalent access.\n")
+    else:
+        readme = readme.replace(old_image, image).replace('docker run --rm --network none', 'docker run --rm --platform linux/amd64 --network none')
+    (tree / 'README-SOURCE.md').write_text(readme)
     manifest = {'format': 1, 'helper_sha256': checksum(native / 'whatsapp-personal'),
                 'first_party_source_license': 'GPL-3.0-only', 'modules': modules,
-                'build': {'platform': 'linux/amd64', 'go': '1.27.2', 'CGO_ENABLED': '1',
+                'build': {'platform': 'darwin/arm64' if target == 'macos-arm64' else 'linux/amd64', 'go': '1.27.2', 'CGO_ENABLED': '1',
                           'flags': ['-trimpath', '-buildvcs=false'], 'go_image': image},
                 'files': []}
     for path in sorted(tree.rglob('*')):
@@ -151,10 +171,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--native-build', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--target', choices=['linux-x86_64', 'macos-arm64'], default='linux-x86_64')
     args = parser.parse_args()
     from build import IMAGE
     archive = build_source_archive(Path(__file__).resolve().parents[1],
-                                   args.native_build.resolve(), args.output.resolve(), IMAGE)
+                                   args.native_build.resolve(), args.output.resolve(), IMAGE if args.target == 'linux-x86_64' else None,
+                                   target=args.target, module_cache_prefix='/build/modules' if args.target == 'linux-x86_64' else str(args.native_build.resolve()/'modules'))
     print(json.dumps({'source_archive': str(archive), 'sha256': checksum(archive)}))
 
 

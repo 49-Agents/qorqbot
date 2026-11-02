@@ -3,7 +3,11 @@
 The optional WhatsApp wheel includes a separate GPL-3.0-only native executable.
 The matching complete source is supplied alongside its connector download as:
 
-`qorqut-whatsapp-0.1.0-linux-x86_64-source.tar.gz`
+- Linux x86-64: `qorqut-whatsapp-0.1.0-linux-x86_64-source.tar.gz`
+- Apple Silicon, when natively built and qualified: `qorqut-whatsapp-0.1.0-macos-arm64-source.tar.gz`
+
+The source archive must match the binary platform; a Linux helper is not a macOS
+binary. Native macOS build and runtime qualification are separate release checks.
 
 That archive contains the native helper source, its license, go.mod/go.sum,
 all 29 linked third-party module source trees with their original notices, and
