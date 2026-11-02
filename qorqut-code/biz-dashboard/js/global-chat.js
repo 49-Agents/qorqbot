@@ -170,6 +170,8 @@ function mountGlobalChat(pane, agent, options = {}) {
   // The list is the transcript; entries are keyed by their stable id and ordered by archive position.
   const presentEntry = entry => ({
     key: entry.id, speaker: entry.speaker, text: entry.text, timestamp: entry.timestamp, partial: entry.partial === true, position: entry.position,
+    collapsedSource: ((entry.speaker === 'user' && /^(?:\[telegram\](?:\s|$)|Qorqut owner (?:message|reply) via Telegram\b)/i.test((entry.text || '').trimStart()))
+      || (entry.system?.verified && entry.system.input_type === 'telegram')) ? 'telegram' : null,
     ...(entry.speaker === 'notice' ? {notice: {label: globalChatNoticeLabel(entry.system), verified: !!entry.system?.verified, inputType: entry.system?.input_type || null,
       markerOnly: !!entry.system?.verified && globalChatMarkerOnly(entry.system.input_type)}} : {}),
   });
@@ -196,7 +198,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       const resendable = definite && viewingLive();
       const dismissable = ['uncertain', 'failed', 'undelivered'].includes(item.state);
       return {
-        key: item.id, speaker: system ? 'notice' : 'user', state: item.state, stateLabel: GLOBAL_CHAT_INPUT_STATE[item.state], inputType: item.input_type, resendable,
+        key: item.id, speaker: system ? 'notice' : 'user', state: item.state, stateLabel: GLOBAL_CHAT_INPUT_STATE[item.state], inputType: item.input_type, resendable, collapsedSource: item.input_type === 'telegram' ? 'telegram' : null,
         text: globalChatMarkerOnly(item.input_type) ? '' : item.body ?? (item.input_type === 'telegram' ? 'Private message' : ''),
         ...(kind ? {notice: {label: kind}} : {}),
         actions: [

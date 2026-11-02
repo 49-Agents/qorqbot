@@ -277,12 +277,13 @@ function mountChatView(host, options = {}) {
 
   // ---- entries
   const entrySignature = entry => JSON.stringify([entry.speaker, entry.text, entry.partial === true, entry.timestamp, entry.title, entry.showAuthor,
-    entry.author?.name, entry.author?.avatarHtml, entry.notice,
+    entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.collapsedSource,
     (entry.references || []).map(ref => [ref.key, ref.label, !!ref.disabled]), (entry.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
   const authorHtml = entry => entry.author && entry.showAuthor !== false
     ? `<div class="gchat-author">${entry.author.avatarHtml ? `<span class="gchat-avatar" aria-hidden="true">${entry.author.avatarHtml}</span>` : ''}<small class="gchat-author-name">${esc(entry.author.name || '')}</small></div>` : '';
   const titleHtml = entry => entry.title ? `<strong class="gchat-title">${esc(entry.title)}</strong>` : '';
   const markerHtml = notice => notice?.label ? `<span class="gchat-marker">${esc(notice.label)}</span>` : '';
+  const telegramBody = text => `<details class="gchat-body gchat-telegram"><summary><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.4 3.6 18.1 20c-.2 1.2-.9 1.5-1.8.9l-5-3.7-2.4 2.3c-.3.3-.5.5-1 .5l.4-5.1L17.6 6.5c.4-.4-.1-.6-.6-.3L5.5 13.4.6 11.9c-1.1-.4-1.1-1.1.2-1.6L20 2.9c.9-.3 1.7.2 1.4.7Z"/></svg><span>Telegram message</span></summary><span class="gchat-text">${esc(text)}</span></details>`;
   function paintEntry(entry) {
     let node = nodes.get(entry.key);
     const isNew = !node;
@@ -301,7 +302,8 @@ function mountChatView(host, options = {}) {
     if (speaker === 'notice' && notice && typeof notice.verified === 'boolean') node.dataset.verified = String(notice.verified); else delete node.dataset.verified;
     if (speaker === 'notice' && notice?.inputType) node.dataset.inputType = notice.inputType; else delete node.dataset.inputType;
     let body;
-    if (speaker === 'agent') body = `<div class="gchat-body md">${titleHtml(entry)}${chatViewMarkdown(entry.text)}</div>`;
+    if (entry.collapsedSource === 'telegram') body = telegramBody(entry.text);
+    else if (speaker === 'agent') body = `<div class="gchat-body md">${titleHtml(entry)}${chatViewMarkdown(entry.text)}</div>`;
     else if (speaker === 'notice') body = `<div class="gchat-body">${markerHtml(notice)}${notice?.markerOnly ? '' : `<span class="gchat-text">${esc(entry.text)}</span>`}</div>`;
     else body = `<div class="gchat-body">${titleHtml(entry)}<span class="gchat-text">${esc(entry.text)}</span></div>`;
     node.innerHTML = authorHtml(entry) + body;
@@ -346,12 +348,12 @@ function mountChatView(host, options = {}) {
     node.className = `gchat-msg gchat-pending gchat-${speaker}`;
     node.dataset.inputId = item.key; node.dataset.state = item.state || ''; node.dataset.inputType = item.inputType || '';
     node.dataset.resendable = String(!!item.resendable);
-    const signature = JSON.stringify([item.state, item.stateLabel, item.text, item.notice?.label, !!item.resendable,
+    const signature = JSON.stringify([item.state, item.stateLabel, item.text, item.notice?.label, !!item.resendable, item.collapsedSource,
       (item.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
     if (node.chatSignature !== signature) {
       node.chatSignature = signature;
       const actions = (item.actions || []).map(action => `<button type="button" class="quiet" data-pending-action="${esc(action.key)}" data-${esc(action.key)}="${esc(item.key)}" ${action.disabled ? 'disabled' : ''}>${esc(action.label)}</button>`).join('');
-      node.innerHTML = `<div class="gchat-body">${markerHtml(item.notice)}${item.text ? `<span class="gchat-text">${esc(item.text)}</span>` : ''}</div>
+      node.innerHTML = `${item.collapsedSource === 'telegram' ? telegramBody(item.text) : `<div class="gchat-body">${markerHtml(item.notice)}${item.text ? `<span class="gchat-text">${esc(item.text)}</span>` : ''}</div>`}
         <span class="gchat-state" data-state="${esc(item.state || '')}">${esc(item.stateLabel || '')}</span>
         ${actions ? `<span class="gchat-pending-actions">${actions}</span>` : ''}`;
     }
