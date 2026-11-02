@@ -52,7 +52,9 @@ async function renderTables(container) {
   if (scope === 'global') _data.mode = 'tables';
   container.innerHTML = `<section class="data-workspace${scope === 'global' ? ' data-global' : ''}"><header class="data-top">${scope === 'global' ? '' : `<div class="data-modes">${['tables','uploads'].map(mode=>`<button class="data-icon" type="button" data-data-mode="${mode}" aria-label="${mode==='tables'?'Tables':'Data uploads'}" title="${mode==='tables'?'Tables':'Data uploads'}" aria-pressed="${_data.mode===mode}">${aicon(mode==='tables'?'database':'archive','currentColor',18)}</button>`).join('')}</div>`}${dataIconButton('data-new', _data.mode === 'tables' ? 'New table' : 'Upload data', _data.mode === 'tables' ? SVG_TPLUS : ICO_UPLOAD)}${dataIconButton('data-refresh', 'Refresh', aicon('refresh-cw', 'currentColor', 18))}<span class="data-spacer"></span><label class="data-search"><input class="inp" id="data-search" type="search" aria-label="${scope === 'global' ? 'Search tables' : 'Search tables and data uploads'}" placeholder="Search"></label></header><p class="data-error" id="data-error" role="status" hidden></p><div class="data-layout"><aside class="data-list">${_data.mode === 'tables' ? `<label class="data-archived"><input type="checkbox" id="data-archived" ${_data.archived ? 'checked' : ''}>Archived</label>` : ''}<div id="data-items"></div><button class="btn" id="data-list-more" hidden>Load more</button></aside><section class="data-detail" id="data-detail"><p class="muted data-empty">${_data.mode === 'tables' ? 'No table selected' : 'No upload selected'}</p></section></div></section>`;
   container.querySelectorAll('[data-data-mode]').forEach(button => button.onclick = () => { _data.mode = button.dataset.dataMode; _data.selected = null; _data.table = null; agentWorkspaceReportParent({table: '', mode: _data.mode}); renderTables(container); });
-  container.querySelector('#data-new').onclick = () => _data.mode === 'tables' ? dataTableEditor() : dataOpenUploads();
+  const create=container.querySelector('#data-new');
+  if(_data.mode === 'tables') create.onclick = () => dataTableEditor();
+  else create.remove();
   container.querySelector('#data-refresh').onclick = () => renderTables(container);
   const search = container.querySelector('#data-search');
   if (_data.mode === 'tables') container.querySelector('#data-new').hidden = true;
@@ -432,18 +434,18 @@ async function dataOpenUpload(id) {
   } catch (error) { if (dataActive(biz, panel) && generation === _dataDetail) dataError(error); }
 }
 
-function dataOpenUploads() { openTasks(true);tSetView('uploads'); }
 
 async function tablesOpen(biz, id, mode = 'tables') {
-  // Links from outside the actual Tables view open the shared drawer's Tables tab, with the exact scope, record and mode. A business page keeps its own in-place tables.
+  // Exact table links open their Focus record; retired table-management URLs never reopen a drawer.
   const embeddedTables = embeddedAgentPane && embeddedTablesView();
   const inPlace = biz != null && state.scope === 'business' && state.biz === biz && !embeddedTables;
   if (!embeddedTables && !inPlace) {
     if (biz != null && !state.bizs.some(b => b.slug === biz)) { toast('This project is unavailable.'); return; }
     const link = {scope: biz == null ? 'global' : biz, id: id || '', mode};
     if (embeddedAgentPane) return window.parent.agentWorkspaceEscape?.({table: link});
-    ovOpen('tables', link);
-    return;
+    if(!id){toast('Open a table from Focus or a chat reference.');return;}
+    const business=biz == null ? null : state.bizs.find(b=>b.slug===biz);
+    return agentOpenRecordReference({type:mode === 'uploads' ? 'reference' : 'table',id,business_id:business ? (business.id || business.business_id) : null,business_slug:biz,resource_type:mode === 'uploads' ? 'documents' : 'data_tables'});
   }
   if (biz == null) {
     if (!dataGlobal()) await selectGlobal('tables');

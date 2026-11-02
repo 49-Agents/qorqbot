@@ -54,13 +54,8 @@ async function workOpenLink(view, link) {
     if(/^https?:\/\//.test(current.url || ''))window.open(current.url,'_blank','noopener,noreferrer');return;
   }
   if(link.resource_type==='agent_profiles')return agentProfileOpen(link.resource_id);
-  if(link.resource_type==='documents' && current.kind==='business_owned_note') {
-    if(!await ntFlush())return;
-    openTasks(true);await tSetView('businessNotes');await ntFetch();await ntSelect(link.resource_id);return;
-  }
-  if(link.resource_type==='documents' && state.scope==='global' && ['business_note','agent_note','journal'].includes(current.kind)) {
-    if(!await ntFlush())return;
-    openTasks(true);await tSetView('notes');await ntFetch();await ntSelect(link.resource_id);return;
+  if(link.resource_type==='documents' && ['business_note','agent_note','journal'].includes(current.kind)) {
+    return agentJournalOpen(link.resource_id);
   }
   if(link.resource_type==='documents' && ['context_upload','context_dump'].includes(current.kind)) {if(state.scope==='global'){location.hash=`/global/context/library/${encodeURIComponent(link.resource_id)}`;return;}state.ctx=`_source/${link.resource_id}`;goTab('context');return;}
   if(link.resource_type==='documents' && current.path?.startsWith('context/')) {state.ctx=current.path.slice(8);goTab('context');return;}
@@ -74,7 +69,7 @@ async function workOpenLink(view, link) {
     const item=data.document || data.action || data.signoff || data.asset;
     if(link.resource_type==='signoffs'){
       modal({title:esc(item.title),body:`<p>${esc(item.state)}</p><div class="work-source">${esc(item.preview?.rationale || 'The prepared proposal is available in Signoffs.')}</div>`,
-        actions:item.state==='pending'?[{label:'Open Signoffs',primary:true,onClick:close=>{close();openTasks(true);tSetView('signoffs');}}]:[]});return;
+        actions:item.state==='pending'?[{label:'Open Signoffs',primary:true,onClick:close=>{close();sgAttentionNavigate(view.biz,item.id);}}]:[]});return;
     }
     if(current.kind==='asset'){
       const url=`/api/biz/${encodeURIComponent(view.biz)}/asset/${item.path.split('/').map(encodeURIComponent).join('/')}`;

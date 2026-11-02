@@ -417,6 +417,12 @@ function chatViewTypedMount(ref, host, options, entryKey) {
     return item;
   };
   if (ref.available === false || ref.unavailable) return unavailable();
+  // Optional review renderer. The caller owns reads, revisions and decisions; ordinary
+  // product mounts retain their existing controllers until an adapter is supplied.
+  if (options.mountReviewReference && ['signoff', 'delta'].includes(ref.type)) {
+    const review = options.mountReviewReference(ref);
+    if (review) return review;
+  }
   if (ref.type === 'table' || ref.type === 'task') {
     let current=ref;
     const opener=ref.type === 'task' ? (options.onTask === undefined ? options.onReference : options.onTask) : options.onReference;

@@ -6,11 +6,13 @@ window.sgAttentionBadge = slug => {
 };
 window.sgAttentionNavigate = async (slug, id) => {
   await Promise.resolve(); // Finish the originating click before mounting a new pane.
-  // Keep the current workspace. Attention links must never switch businesses
-  // or leave the page the owner is working in.
-  const matchesCurrentScope = slug ? state.scope !== 'global' && state.biz === slug : state.scope === 'global';
-  openTasks(true); tSetView('signoffs');
-  if (id && matchesCurrentScope) sgOpenItem(id);
+  // Notifications retain exact scope without reopening the retired drawer.
+  let view;
+  return modal({title:'Signoffs',body:'<div data-attention-signoffs></div>',
+    onOpen:el=>{const host=el.querySelector('[data-attention-signoffs]');
+      view=sgCreateView({active:()=>host.isConnected,body:()=>host,workspace:()=>slug || 'scope:global',
+        global:!slug,execution:true,...(id?{item:()=>({id,businessId:slug ? (state.bizs.find(b=>b.slug===slug)?.id || state.bizs.find(b=>b.slug===slug)?.business_id) : null})}:{})});
+      view.paint();},onClose:()=>view?.dispose()});
 };
 function sgAttentionPaint() {
   const urgent = sgAttention.urgent.length > 0;

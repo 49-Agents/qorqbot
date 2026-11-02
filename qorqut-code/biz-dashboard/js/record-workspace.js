@@ -1560,6 +1560,7 @@ async function rwTableBody(host, record, ctx, call) {
   if (!ctx.alive()) return null;
   const table = tableData.table;
   if (!table) throw new Error('This table is no longer available.');
+  if(table.title)ctx.title?.({label:table.title});
   const title = rwNode('h4', '', table.title || record.label || 'Table');
   const description = table.description ? rwNode('p', 'muted', table.description) : null;
   const biz = record.biz || null;

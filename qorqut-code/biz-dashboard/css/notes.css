@@ -6,9 +6,9 @@
 
 
 
-.tasks .tbody.nt { padding: 0; }
-.tasks .tbody.nt.nt-home { overflow-y: auto; }
-.tasks .tbody.nt.nt-detail { overflow: hidden; display: flex; flex-direction: row; min-height: 0; }
+:is(.tasks, .agent-pane-embedded) .tbody.nt { padding: 0; }
+:is(.tasks, .agent-pane-embedded) .tbody.nt.nt-home { overflow-y: auto; }
+:is(.tasks, .agent-pane-embedded) .tbody.nt.nt-detail { overflow: hidden; display: flex; flex-direction: row; min-height: 0; }
 
 /* sidebar's "Pinned" group label (jreyebrow's detail-view analog — the homepage uses .jreyebrow
    itself now, not this) */
@@ -166,3 +166,6 @@
 .ntvisibility:disabled { cursor: wait; }
 
 .ntmeta-category { color: var(--fg-2); }
+
+.agent-pane-embedded #content:has(> .nt) { padding:0; overflow:hidden; }
+.agent-pane-embedded #content > .nt { flex:1; min-height:0; width:100%; }

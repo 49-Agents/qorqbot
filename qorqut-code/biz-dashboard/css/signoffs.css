@@ -189,3 +189,12 @@
 
 /* Keep feedback available beneath compact Chat proposals without opening Details. */
 .sg-inline .sg-conversation { margin-top:12px; }
+
+/* Inline review: one stable, right-aligned decision/edit action pair. */
+.sg .sg-actions { justify-content:flex-end; }
+.sg .sg-actions .sg-approve, .sg .sg-actions .sg-reject { background:var(--wash); border:1px solid var(--line-2); color:var(--fg); }
+.sg textarea.sg-message-editor, .sg textarea.sg-message-editor[data-sg-edit-field="subject"] { padding:1.5px; border:0; border-left:2px solid var(--line-2); background:var(--wash); }
+
+.sg-inline .sg-rowtitle { display:flex; align-items:center; gap:8px; }
+.sg-reference-icon { display:inline-flex; flex:none; }
+.sg-reference-icon svg { width:17px; height:17px; }

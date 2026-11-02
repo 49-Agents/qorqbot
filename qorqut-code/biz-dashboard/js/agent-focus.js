@@ -277,7 +277,7 @@ function agfocusMount(p) {
   if(p.workspaceScope === 'global' && p.workspaceRole === 'ordubashy') {
     const excerpt=document.createElement('section');
     board.querySelector('.attention-queue').before(excerpt);
-    todayCalendar=calendarTodayMount(excerpt,event=>{event.stopPropagation();ovOpen('calendar');});
+    todayCalendar=calendarTodayMount(excerpt);
     excerpt.classList.add('agfocus-calendar');
   }
   // An agent with Focus gets the Browser, Desktop and pending Signoffs in one strip; agents without Focus keep their views and queue.

@@ -280,7 +280,9 @@ function calendarTodayMount(host, openCalendar) {
   host.setAttribute('aria-label', "Today's calendar");
   host.innerHTML = `<header class="calendar-today-heading"><button type="button" class="quiet" data-calendar-open aria-label="Open today's calendar"><span>Today</span><span aria-hidden="true">↗</span></button><time class="calendar-clock" aria-label="Current time"></time></header>
     <p class="calendar-status" role="status">Loading calendar…</p><ul class="calendar-today-queue" aria-label="Today's events" hidden></ul>`;
-  $('[data-calendar-open]',host).onclick = openCalendar;
+  const opener = $('[data-calendar-open]',host);
+  if (openCalendar) opener.onclick = openCalendar;
+  else { const label=document.createElement('span');label.textContent='Today';opener.replaceWith(label); }
   const status = $('.calendar-status',host), queue = $('.calendar-today-queue',host);
   let active = true, pending = false, loadedDay, snapshot, timer, data = null, refreshError = '';
   const current = () => active && host.isConnected;
