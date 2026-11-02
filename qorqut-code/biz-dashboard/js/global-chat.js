@@ -222,7 +222,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (item) record.state = item.state;
       const echo = users.find(entry => {
         const at = Date.parse(entry.timestamp);
-        return !held.consumed.has(entry.id) && entry.position > record.position && globalChatText(entry.text) === record.text
+        return !held.consumed.has(entry.id) && entry.position > record.position && globalChatText(entry.text) === globalChatText(record.text)
           && !(Number.isFinite(at) && Number.isFinite(record.createdAt) && at < record.createdAt);
       });
       if (echo) { held.consumed.add(echo.id); record.entry = echo.id; }
@@ -349,11 +349,10 @@ function mountGlobalChat(pane, agent, options = {}) {
     const mine = composerScope;
     const files = [...selectedFiles()], fileKey = files.map(file => file.key).join(',');
     if (!mine || !text.trim() && !files.length || !canSend() || GLOBAL_CHAT_INFLIGHT.has(mine)) return;
-    const position = newestPosition();
     // A retry of the same text reuses its key and its original binding pin, so a lost response can never become a second
     // message or move to another session. Only a deliberate new send takes the binding observed now.
     let attempt = GLOBAL_CHAT_SENDS.get(mine);
-    if (!attempt || attempt.text !== text || attempt.fileKey !== fileKey) attempt = {text, fileKey, files, key: newRequestId(), pin: liveBinding().binding_id};
+    if (!attempt || attempt.text !== text || attempt.fileKey !== fileKey) attempt = {text, fileKey, files, key: newRequestId(), pin: liveBinding().binding_id, position: newestPosition()};
     GLOBAL_CHAT_SENDS.set(mine, attempt);
     const run = (async () => {
       try {
@@ -374,7 +373,7 @@ function mountGlobalChat(pane, agent, options = {}) {
           const error = new Error('Message too long'); error.attachment = true; error.code = 'message_too_long'; throw error;
         }
         const result = await admit(payload, attempt.key, attempt.pin);
-        globalChatAccept(mine, payload, result.input, position);
+        globalChatAccept(mine, payload, result.input, attempt.position);
         if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine);
         if (GLOBAL_CHAT_DRAFTS.get(mine) === text) GLOBAL_CHAT_DRAFTS.delete(mine);
         const sent = new Set(attempt.files.map(file => file.key));
@@ -402,14 +401,14 @@ function mountGlobalChat(pane, agent, options = {}) {
   async function resendInput(id) {
     const item = inputs.find(row => row.id === id);
     if (!item?.body || !ownerChat(item) || !['failed', 'undelivered'].includes(item.state) || !canSend() || !viewingLive()) return;
-    const resend = GLOBAL_CHAT_RESENDS.get(id) || {key: newRequestId(), pin: liveBinding().binding_id};
+    const resend = GLOBAL_CHAT_RESENDS.get(id) || {key: newRequestId(), pin: liveBinding().binding_id, position: newestPosition()};
     resend.pending = true; GLOBAL_CHAT_RESENDS.set(id, resend);
-    const scope = composerScope, position = newestPosition();
+    const scope = composerScope;
     paintSession();
     try {
       const result = await admit(item.body, resend.key, resend.pin);
       GLOBAL_CHAT_RESENDS.delete(id); GLOBAL_CHAT_HIDDEN.add(id);
-      globalChatAccept(scope, item.body, result.input, position);
+      globalChatAccept(scope, item.body, result.input, resend.position);
       showBanner(''); takeInput(result.input); void load();
     } catch (problem) {
       resend.pending = false;
